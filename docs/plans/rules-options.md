@@ -195,6 +195,19 @@ hit for display/EX only", section 3.3 of the research).
    cover over the lanes and a way to move it during play); done since
    in `lane-covers.md`.
 
+7. DDI's options (2026-11-12, `docs/plans/ddi-ruleset.md`, round 2).
+   DDI is the first ruleset of the list and the default. Under it the
+   Rules section shows its own rows (Difficulty, Boos, Practice, Score
+   display: `Settings::ddi`, `Settings::ddi_score`) in the place of
+   StepMania's (holds, fail type, life and judge difficulty, life meter,
+   battery lives, DDR gauge), which show under the other presets, as
+   before; Dancing☆Onigiri's rows stay under either, under their
+   heading. A play keeps DDI's options in its `RulesetKey`, the mods line
+   says those that differ ("hard", "Boos", "practice"), and Practice's
+   fail says its note as the delayed fail does. The row "Kept plays"
+   judges the kept plays again under the rules chosen
+   (`docs/plans/play-history.md`, "Judged again under other rules").
+
 ## Checks
 
 - Engine: `crates/engine/tests/stepmania_options.rs` (each fail type, the

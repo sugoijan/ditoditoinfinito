@@ -39,6 +39,14 @@ fn key(ui: &mut ddi_ui::Ui, code: &str, k: &str) {
 #[test]
 fn a_center_free_pump_chart_autoplays_all_top_tier_and_assisted() {
     common::indexes();
+    // A StepMania preset: its holds are ticked on a pump chart's version
+    // (DDI, the default, keeps its own on every chart).
+    ddi_platform::storage::install(Rc::new(ddi_platform::storage::MemoryStore::default()));
+    ddi_ui::state::settings::Settings {
+        ruleset: "itg".into(),
+        ..Default::default()
+    }
+    .save();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs");
     // The version as the library reads it, and as the bundled list has it.
     let text = std::fs::read_to_string(root.join("beatucada/Beatucada.ssc")).unwrap();

@@ -686,6 +686,7 @@ impl ScoreRules for DanoniScore {
             ex: None,
             max_ex: None,
             ex_percent: None,
+            ddi: None,
         }
     }
 
@@ -813,6 +814,7 @@ pub fn ruleset(chart: Option<&Chart>, options: &DanoniOptions) -> Ruleset {
         // ([`super::presets::danoni`]), which a key builds again so.
         danoni: chart.map(|_| options.clone()),
         stepmania: Default::default(),
+        ddi: None,
     }
 }
 

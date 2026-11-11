@@ -413,6 +413,7 @@ pub fn results() -> ResultsData {
     // Names as the ruleset and the chart give them: data.
     let data = |s: &str| String::from(ddi_l10n::UiText::data(s));
     let j = |name: &str, color: &str, count: u32| JudgementCount {
+        sides: None,
         name: data(name),
         color: color.into(),
         count,

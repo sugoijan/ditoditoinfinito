@@ -5,6 +5,7 @@
 //! [`Ruleset`] bundles one of each; [`presets`] builds the shipped ones.
 
 pub mod danoni;
+pub mod ddi;
 pub mod ddr;
 pub mod ffr;
 pub mod gauge;
@@ -94,6 +95,19 @@ pub enum EmptyPress {
     /// the intended life damage as a fraction of a miss; gauges decide
     /// what to do with a `Boo`, so it is informational here.
     ExcessiveEarly { lo: f64, hi: f64, factor: f64 },
+    /// DDI's Boos ([`ddi`]): a stray press is a `Boo` but where it is
+    /// clearly not a mistake: before the chart's first note's earliest
+    /// window or after its last note's end, with no note of any lane
+    /// within `quiet` seconds (a note spans its earliest window to its
+    /// end), up to `lift_ready` seconds before a lift in its lane (the
+    /// press that readies it), re-pressing an active hold or tapping an
+    /// active roll, within `near_mine` seconds of any mine in any lane,
+    /// in a locked lane ([`JudgeTable::lock`]).
+    Guarded {
+        near_mine: f64,
+        quiet: f64,
+        lift_ready: f64,
+    },
 }
 
 /// Timing windows and how presses map to tiers.
@@ -154,6 +168,13 @@ pub struct JudgeTable {
     /// keysounds are left out, as R^3 plays a StepMania chart ([`ffr`]).
     #[serde(default)]
     pub taps_only: bool,
+    /// DDI's lane lock ([`ddi`]): seconds a lane is locked once a mine
+    /// or a shock is stepped on in it. A locked lane ignores its input
+    /// (no hit, no `Boo`, no mine), a key down as the lock starts counts
+    /// as released, and a key still down when it ends needs a new press.
+    /// `None`: no lock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock: Option<f64>,
 }
 
 impl JudgeTable {
@@ -176,6 +197,7 @@ impl JudgeTable {
         shock_rows: false,
         miss_at: None,
         taps_only: false,
+        lock: None,
     };
 
     /// Fast/slow dead zone when a ruleset names none: 1 ms, so presses on
@@ -613,6 +635,14 @@ pub struct Tally {
     /// (ITG FA+'s blue Fantastics); 0 where it has none.
     #[serde(default)]
     pub w0: u32,
+    /// DDI's hold units earned ([`ddi::hold_units`]); 0 under the other
+    /// rules.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub hold_units: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 impl Tally {
@@ -718,6 +748,17 @@ pub struct GradeTable {
     pub all_w2: Option<String>,
     /// Grade for a failed play (DDR "E"), checked first.
     pub failed: Option<String>,
+    /// Grades by a rule of their own, not by the thresholds alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<GradeRule>,
+}
+
+/// A grading rule beyond [`GradeTable`]'s thresholds.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GradeRule {
+    /// DDI's: Absolute Dito, the percent's thresholds and the floors
+    /// ([`ddi::grade`]).
+    Ddi,
 }
 
 impl GradeTable {
@@ -725,6 +766,9 @@ impl GradeTable {
     pub fn grade(&self, view: &ScoreView, tally: &Tally, failed: bool) -> String {
         if failed && let Some(f) = &self.failed {
             return f.clone();
+        }
+        if self.rule == Some(GradeRule::Ddi) {
+            return ddi::grade(view, tally, failed).to_string();
         }
         let clean = tally.let_go == 0
             && tally.mine_hit == 0
@@ -769,6 +813,16 @@ pub struct JudgeNames {
     /// play shows both as `W1`'s name, in two colors.
     #[serde(default)]
     pub w0: Option<(String, String)>,
+    /// Under a ruleset that names a hit by its side (DDI), an early hit's
+    /// name per tier; [`JudgeNames::tiers`] are then the late hits'.
+    /// `None`: one name a tier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub early: Option<[String; 6]>,
+    /// The word a play shows for a stray press that counted against it
+    /// ([`JudgeEventKind::Boo`]), in the tap judgments' place (DDI's
+    /// "Boo"). `None`: a stray press shows no word, counted or not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boo: Option<String>,
 }
 
 impl JudgeNames {
@@ -778,11 +832,38 @@ impl JudgeNames {
             held: held.to_string(),
             let_go: let_go.to_string(),
             w0: None,
+            early: None,
+            boo: None,
         }
     }
 
     pub fn name(&self, j: Judgement) -> &str {
         &self.tiers[j.index()]
+    }
+
+    /// What a hit of tier `j`, `delta` seconds off (positive late), is
+    /// called: inside the [`JudgeTable::w0`] window (`w0`) the first of
+    /// [`JudgeNames::w0`]'s names, an early one its early name where the
+    /// ruleset has them, else the tier's name. A miss is the tier's.
+    pub fn word(&self, j: Judgement, delta: f64, w0: bool) -> &str {
+        if w0
+            && j == Judgement::W1
+            && let Some((inside, _)) = &self.w0
+        {
+            return inside;
+        }
+        match &self.early {
+            Some(early) if delta < 0.0 && !j.is_miss() => &early[j.index()],
+            _ => self.name(j),
+        }
+    }
+
+    /// A tier's early and late names (the same where the ruleset has one
+    /// name a tier).
+    pub fn sides(&self, j: Judgement) -> (&str, &str) {
+        let late = self.name(j);
+        let early = self.early.as_ref().map_or(late, |e| e[j.index()].as_str());
+        (early, late)
     }
 }
 
@@ -814,6 +895,14 @@ pub struct ScoreCtx {
     /// scores and FLARE SKILL weigh by.
     #[serde(default)]
     pub meter: u32,
+    /// DDI's hold units in the chart ([`ddi::hold_units`]); 0 under the
+    /// other rules.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub hold_units: u32,
+    /// The hold units the current event (a hold's `Held` or `LetGo`
+    /// under DDI) earned.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub units: u32,
 }
 
 impl ScoreCtx {
@@ -848,6 +937,10 @@ pub struct ScoreView {
     /// most, floored to a hundredth of a percent (ITG FA+; `ex` and
     /// `max_ex` are then `None`).
     pub ex_percent: Option<f64>,
+    /// DDI's point count and its views ([`ddi::DdiScoreView`]);
+    /// `percent` is then its percent (which may be negative).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ddi: Option<ddi::DdiScoreView>,
 }
 
 /// A scoring system: consumes judge events and produces a [`ScoreView`].
@@ -923,6 +1016,9 @@ pub struct Ruleset {
     /// ([`Ruleset::with_stepmania`]): the defaults for the rest, and the
     /// default life level where the gauge takes none.
     pub stepmania: StepManiaOptions,
+    /// DDI's options it was built with ([`ddi::ruleset`]); `None` for the
+    /// other rules.
+    pub ddi: Option<ddi::DdiOptions>,
 }
 
 /// What builds the same [`Ruleset`] again for a chart (a play's record,
@@ -947,6 +1043,10 @@ pub struct RulesetKey {
     /// defaults under the other rules, and in records kept before them).
     #[serde(default, skip_serializing_if = "StepManiaOptions::is_default")]
     pub stepmania: StepManiaOptions,
+    /// DDI's options (`ddi`); `None` under the other rules, and absent
+    /// from their keys as written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ddi: Option<ddi::DdiOptions>,
 }
 
 impl RulesetKey {
@@ -958,6 +1058,7 @@ impl RulesetKey {
                 None => presets::danoni(),
             },
             "calibration" => presets::calibration(),
+            "ddi" => ddi::ruleset(&self.ddi.unwrap_or_default()),
             id => presets::stepmania(id, self.holds, chart).with_stepmania(&self.stepmania),
         }
     }
@@ -966,7 +1067,8 @@ impl RulesetKey {
     /// choice, nor the StepMania presets' fail type and life difficulty,
     /// which change the life bar and whether the play fails but not how
     /// notes are judged and scored (a best from any gauge counts; the
-    /// judge difficulty, which changes the windows, stays).
+    /// judge difficulty, which changes the windows, stays), nor DDI's
+    /// Practice (a failure either way; its difficulty and Boos stay).
     pub fn best_key(&self) -> RulesetKey {
         RulesetKey {
             danoni: self
@@ -978,6 +1080,7 @@ impl RulesetKey {
                 judge: self.stepmania.judge,
                 ..StepManiaOptions::default()
             },
+            ddi: self.ddi.map(ddi::DdiOptions::best),
             ..self.clone()
         }
     }
@@ -1004,6 +1107,7 @@ impl Ruleset {
                 ..d
             }),
             stepmania: self.stepmania,
+            ddi: self.ddi,
         }
     }
 
@@ -1024,10 +1128,15 @@ impl Ruleset {
         self.id == "danoni"
     }
 
+    /// Whether these are DDI's rules ([`ddi::ruleset`]).
+    pub fn is_ddi(&self) -> bool {
+        self.id == "ddi"
+    }
+
     /// Whether a chart's `#COMBOS` counts: a StepMania rule, so neither
-    /// under Dancing☆Onigiri's nor FFR's.
+    /// under Dancing☆Onigiri's, FFR's nor DDI's.
     pub fn takes_chart_combos(&self) -> bool {
-        !self.is_danoni() && !self.is_ffr()
+        !self.is_danoni() && !self.is_ffr() && !self.is_ddi()
     }
 
     /// Whether the player's DDR gauge ([`StepManiaOptions::gauge`])
@@ -1071,6 +1180,16 @@ impl Ruleset {
         self
     }
 
+    /// DDI with the player's `options` ([`ddi::ruleset`]); other rules as
+    /// they are.
+    pub fn with_ddi(self, options: &ddi::DdiOptions) -> Ruleset {
+        if self.is_ddi() {
+            ddi::ruleset(options)
+        } else {
+            self
+        }
+    }
+
     /// A copy with fresh score and gauge state, for a new play.
     pub fn fresh(&self) -> Ruleset {
         Ruleset {
@@ -1086,6 +1205,7 @@ impl Ruleset {
             names: self.names.clone(),
             danoni: self.danoni.clone(),
             stepmania: self.stepmania,
+            ddi: self.ddi,
         }
     }
 }
@@ -1178,6 +1298,7 @@ mod tests {
             all_w1: Some("AAAA".into()),
             all_w2: Some("AAA".into()),
             failed: Some("F".into()),
+            rule: None,
         };
         let mut tally = Tally::default();
         tally.taps[0] = 5;

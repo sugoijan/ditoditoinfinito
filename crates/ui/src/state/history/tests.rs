@@ -165,7 +165,7 @@ fn a_play_judged_again_comes_to_the_same() {
         let rec = record(&song, 0, &itg(), 1.0, false);
         let (entry, summary) = new_entry("p".into(), &rec, &log, &results).unwrap();
         assert_eq!(
-            Some(rework(&entry, &song).unwrap()),
+            Some(rework(&entry, &song, &Ask::default()).unwrap().worked),
             summary.worked,
             "bias {bias}"
         );
@@ -192,7 +192,13 @@ fn converted_onigiri_plays_keep_their_own_identity_assist_flag_and_replay() {
         let watched = Replay::from_entry(&entry).unwrap().results(&song).unwrap();
         assert_eq!(watched.assist, assisted);
         assert_eq!(watched.tally, results.tally);
-        assert_eq!(rework(&entry, &song).unwrap().assist, assisted);
+        assert_eq!(
+            rework(&entry, &song, &Ask::default())
+                .unwrap()
+                .worked
+                .assist,
+            assisted
+        );
     }
     assert_eq!(song.chart_digest(0), original_digest);
     assert_ne!(song.chart_digest(1), original_digest);
@@ -242,6 +248,7 @@ fn conversions_keep_their_sources_rules_and_are_not_assisted() {
     keys.add_chart_versions();
     // Each chart by its game's rules.
     let settings = crate::state::settings::Settings {
+        ruleset: "itg".into(),
         dancing_hand: false,
         ruleset_mode: ddi_engine::rules::presets::RulesetMode::Original,
         ..Default::default()
@@ -275,7 +282,7 @@ fn conversions_keep_their_sources_rules_and_are_not_assisted() {
         let (entry, summary) = new_entry("p".into(), &rec, &log, &results).unwrap();
         let watched = Replay::from_entry(&entry).unwrap().results(song).unwrap();
         assert_eq!(watched.tally, results.tally);
-        assert!(!rework(&entry, song).unwrap().assist);
+        assert!(!rework(&entry, song, &Ask::default()).unwrap().worked.assist);
         let mut history = History::default();
         history.add(entry.id.clone(), summary);
         let digest = song.chart_digest(index);
@@ -320,7 +327,11 @@ fn center_free_pump_plays_are_assisted_ticked_and_replayed() {
     let song = ddi_library::scan::parse_simfile(text, "sm").unwrap();
     // Without center, and on 5 keys.
     assert_eq!(song.charts.len(), 3);
-    let settings = crate::state::settings::Settings::default();
+    // A StepMania preset: its holds follow the chart's game.
+    let settings = crate::state::settings::Settings {
+        ruleset: "itg".into(),
+        ..Default::default()
+    };
     let mut history = History::default();
     let mut keys = Vec::new();
     for (index, assisted) in [(0, false), (1, true)] {
@@ -338,7 +349,13 @@ fn center_free_pump_plays_are_assisted_ticked_and_replayed() {
         let watched = Replay::from_entry(&entry).unwrap().results(&song).unwrap();
         assert_eq!(watched.assist, assisted);
         assert_eq!(watched.tally, results.tally);
-        assert_eq!(rework(&entry, &song).unwrap().assist, assisted);
+        assert_eq!(
+            rework(&entry, &song, &Ask::default())
+                .unwrap()
+                .worked
+                .assist,
+            assisted
+        );
         keys.push((song.chart_digest(index), rules.best_key(), assisted));
     }
     assert_ne!(keys[0].0, keys[1].0);
@@ -379,7 +396,7 @@ fn a_chart_is_found_by_its_content() {
         &results,
     )
     .unwrap();
-    assert!(rework(&entry, &changed).is_err());
+    assert!(rework(&entry, &changed, &Ask::default()).is_err());
 }
 
 fn summary(rules: &RulesetKey, time: f64, score: f64, lamp: Lamp) -> PlaySummary {
@@ -408,6 +425,8 @@ fn summary(rules: &RulesetKey, time: f64, score: f64, lamp: Lamp) -> PlaySummary
         worked: Some(worked),
         options: None,
         clock: None,
+        rejudged: None,
+        rejudge: None,
     }
 }
 
@@ -602,7 +621,10 @@ fn stepmania_options_are_kept_with_the_play() {
     let rec = record(&song, 0, &strict, 1.0, false);
     let (entry, summary) = new_entry("p".into(), &rec, &log, &results).unwrap();
     assert_eq!(summary.ruleset.stepmania.judge, 8);
-    assert_eq!(Some(rework(&entry, &song).unwrap()), summary.worked);
+    assert_eq!(
+        Some(rework(&entry, &song, &Ask::default()).unwrap().worked),
+        summary.worked
+    );
     let (_, plain) = play(&song, 0, &itg(), Some(0.015));
     assert_eq!(plain.tally.taps[0], 8);
 
@@ -875,7 +897,7 @@ fn version_1_entries_keep_reading() {
     // The chart is found by its digest, and judged again.
     let song = song();
     assert_eq!(find_chart(&song, &record.chart), Some(1));
-    let again = rework(&entry, &song).unwrap();
+    let again = rework(&entry, &song, &Ask::default()).unwrap().worked;
     assert_eq!(again.tally.taps.iter().sum::<u32>(), 4);
 }
 
@@ -1099,7 +1121,7 @@ fn the_reworker_takes_the_focused_song_first_then_the_rest_in_batches() {
     let (entries, done) = answered();
     store.records(ids.clone(), Box::new(done));
     let entries = entries.borrow_mut().take().unwrap().unwrap();
-    let changes = plays.set_worked(rework_entries(&ids, &entries, &chart));
+    let changes = plays.set_worked(rework_entries(&ids, &entries, &chart, &plays.asks(&ids)));
     assert_eq!(changes.len(), 1);
     store.replace_summaries(changes, Box::new(|r| r.unwrap()));
     r.worked();
@@ -1159,14 +1181,14 @@ fn a_replay_reads_back_and_judges_to_the_play() {
     let mut older = summary;
     older.time = 1_000.0;
     h.add(play_id(1_000.0, 1), older);
-    let rows = play_rows(&h, song.chart_digest(0), Some(&entry.id), &|_| 120);
+    let rows = play_rows(&h, song.chart_digest(0), Some(&entry.id), false, &|_| 120);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].id, entry.id);
     assert!(rows[0].best && !rows[1].best);
     assert_eq!(rows[0].when, "1970-01-01 02:00");
     assert_eq!(rows[0].mods, "×1");
     assert_eq!(rows[0].ruleset, "ITG");
-    assert!(play_rows(&h, song.chart_digest(1), None, &|_| 0).is_empty());
+    assert!(play_rows(&h, song.chart_digest(1), None, false, &|_| 0).is_empty());
 }
 
 #[test]
@@ -1385,4 +1407,254 @@ fn an_unreadable_snapshot_falls_back_to_how_the_play_was_drawn() {
     assert_eq!(results.stddev_delta, 0.0);
     let check = r.check(&results, &results);
     assert!(check.matches, "{check:?}");
+}
+
+pub(super) fn ddi_key() -> RulesetKey {
+    presets::ddi().key()
+}
+
+/// DDI's bests: by the score, ties by the absolute score; the best lamp
+/// kept apart; one best a difficulty and Boos, Practice aside.
+#[test]
+fn ddi_bests_go_by_score_then_absolute_with_the_lamp_apart() {
+    use ddi_engine::rules::ddi::{DdiOptions, DdiScoreView, Difficulty};
+    let ddi = ddi_key();
+    let play = |time: f64, points: i64, w0: u32, lamp: Lamp, rules: &RulesetKey| {
+        let mut s = summary(rules, time, 0.0, lamp);
+        let w = s.worked.as_mut().unwrap();
+        let view = DdiScoreView::of(points, 400, w0);
+        w.score.percent = Some(view.fraction());
+        w.score.ddi = Some(view);
+        w.grade = format!("g{time}");
+        s
+    };
+    let mut h = History::default();
+    // The same score: the more W0s is the best. A lower score with a
+    // better lamp gives the lamp alone.
+    h.add("a".into(), play(1.0, 380, 2, Lamp::Clear, &ddi));
+    h.add("b".into(), play(2.0, 380, 5, Lamp::BreakFlag, &ddi));
+    h.add("c".into(), play(3.0, 380, 3, Lamp::Clear, &ddi));
+    h.add("d".into(), play(4.0, 300, 0, Lamp::GloriousFullCombo, &ddi));
+    let digest = song().chart_digest(0);
+    let b = h.best(digest, &ddi, false).unwrap();
+    assert_eq!((b.score_play.as_str(), b.lamp_play.as_str()), ("b", "d"));
+    assert_eq!(b.grade, "g2");
+    assert_eq!(b.lamp, Lamp::GloriousFullCombo);
+    assert_eq!(b.plays, 4);
+    // The score: 950,000 of the ratio, 38,000 and five W0s.
+    assert_eq!(score_text(&b.score), "988005");
+    assert_eq!(score_text_as(&b.score, true), "95.00%");
+    // DDI's ladder, in order.
+    let ladder = [
+        Lamp::Failed,
+        Lamp::Clear,
+        Lamp::BreakFlag,
+        Lamp::FullCombo,
+        Lamp::GreatFlag,
+        Lamp::GloriousFullCombo,
+        Lamp::GloriousFlag,
+        Lamp::AmazingFullCombo,
+        Lamp::AbsoluteDito,
+    ];
+    assert!(ladder.windows(2).all(|w| w[0] < w[1]));
+    // Practice shares the best; a difficulty and Boos have their own.
+    let with = |o: DdiOptions| RulesetKey {
+        ddi: Some(o),
+        ..ddi_key()
+    };
+    let practice = with(DdiOptions {
+        practice: true,
+        ..DdiOptions::default()
+    });
+    h.add("e".into(), play(5.0, 390, 0, Lamp::Clear, &practice));
+    assert_eq!(h.best(digest, &ddi, false).unwrap().score_play, "e");
+    let hard = with(DdiOptions {
+        difficulty: Difficulty::Hard,
+        ..DdiOptions::default()
+    });
+    let boos = with(DdiOptions {
+        boos: true,
+        ..DdiOptions::default()
+    });
+    assert_eq!(h.best(digest, &hard, false), None);
+    assert_eq!(h.best(digest, &boos, false), None);
+    h.add("f".into(), play(6.0, 100, 0, Lamp::Clear, &hard));
+    assert_eq!(h.best(digest, &hard, false).unwrap().plays, 1);
+    assert_eq!(h.best(digest, &ddi, false).unwrap().plays, 5);
+    // ITG's are another best altogether.
+    assert_eq!(h.best(digest, &itg(), false), None);
+}
+
+/// Kept ITG plays judged again under DDI (`Plays::rejudge`): marked as
+/// waiting, judged by the reworker's step, counted for DDI's bests, what
+/// they came to under ITG kept; the plays list shows them as judged
+/// again; judged again under their own rules the mark goes.
+#[test]
+fn kept_plays_are_judged_again_under_the_rules_chosen_and_keep_both() {
+    use crate::state::settings::Settings;
+    let song = Rc::new(song());
+    let store = Rc::new(MemoryPlayStore::default());
+    let plays = Plays::new(store.clone());
+    plays.load(|r| r.unwrap());
+    let digest = song.chart_digest(0);
+    // Two ITG plays (one 30 ms late), an SM5 one and an autoplayed one.
+    let mut kept = Vec::new();
+    for (i, (rules, bias, auto)) in [
+        (itg(), 0.0, false),
+        (itg(), 0.03, false),
+        (presets::sm5().key(), 0.0, false),
+        (itg(), 0.0, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (log, results) = play(&song, 0, &rules, Some(bias));
+        let id = play_id(i as f64, 0);
+        plays
+            .record(
+                id.clone(),
+                &record(&song, 0, &rules, i as f64, auto),
+                &log,
+                &results,
+                |r| r.unwrap(),
+            )
+            .unwrap();
+        kept.push(id);
+    }
+    let itg_best = plays.history().best(digest, &itg(), false).unwrap();
+    assert_eq!(plays.history().best(digest, &ddi_key(), false), None);
+    assert_eq!(plays.history().stale_count(), 0);
+    // The move from ITG asks for the ITG plays alone.
+    let rules = Settings::default().rules();
+    let (asked, done) = answered();
+    assert_eq!(plays.rejudge(&rules, Some("itg"), done), 3);
+    asked.borrow_mut().take().unwrap().unwrap();
+    assert_eq!(plays.history().stale_count(), 3);
+    assert!(!plays.history().get(&kept[2]).unwrap().is_stale());
+    // Asked again: nothing new to ask.
+    assert_eq!(plays.rejudge(&rules, Some("itg"), |r| r.unwrap()), 0);
+    // The wait is stored: a new session finds it.
+    let again = Plays::new(store.clone());
+    again.load(|r| r.unwrap());
+    assert_eq!(again.history().stale_count(), 3);
+    assert!(again.history().best(digest, &itg(), false).unwrap().pending);
+    // The reworker's step judges them.
+    let (n, done) = answered();
+    again.rework_song("s1", song.clone(), 10, done);
+    assert_eq!(n.borrow_mut().take().unwrap().unwrap(), 3);
+    assert_eq!(again.history().stale_count(), 0);
+    let h = again.history();
+    let s = h.get(&kept[0]).unwrap();
+    assert_eq!(s.rejudge, None);
+    let r = s.rejudged.as_ref().unwrap();
+    assert_eq!(r.ruleset, ddi_key());
+    let w = r.worked.as_ref().unwrap();
+    assert_eq!(w.grade, "Absolute Dito");
+    assert_eq!(w.lamp, Lamp::AbsoluteDito);
+    assert!(w.score.ddi.is_some());
+    // What it came to as played is as it was.
+    assert_eq!(s.ruleset, itg());
+    assert_eq!(s.worked.as_ref().unwrap().grade, "★★★★");
+    assert_eq!(h.best(digest, &itg(), false).unwrap(), itg_best);
+    // DDI's best is from them: the on-time play, not the late one, and
+    // never the autoplayed one (whose Absolute Dito is the bot's).
+    let b = h.best(digest, &ddi_key(), false).unwrap();
+    assert_eq!((b.plays, b.score_play.as_str()), (2, kept[0].as_str()));
+    assert_eq!(b.grade, "Absolute Dito");
+    assert!(!b.pending);
+    let late = h.get(&kept[1]).unwrap().rejudged.as_ref().unwrap();
+    assert_ne!(late.worked.as_ref().unwrap().grade, "Absolute Dito");
+    let auto = h.get(&kept[3]).unwrap().rejudged.as_ref().unwrap();
+    assert_eq!(auto.worked.as_ref().unwrap().grade, "Absolute Bot");
+    // The SM5 play was not asked for.
+    assert_eq!(h.get(&kept[2]).unwrap().rejudged, None);
+    // The list shows each as judged last, the re-judged ones marked.
+    let rows = play_rows(&h, digest, None, false, &|_| 0);
+    let row = |id: &str| rows.iter().find(|r| r.id == id).unwrap();
+    assert_eq!(
+        (row(&kept[0]).ruleset.as_str(), row(&kept[0]).rejudged),
+        ("DDI", true)
+    );
+    // The lists write the long grades by their initials.
+    assert_eq!(row(&kept[0]).grade, "AD");
+    assert_eq!(row(&kept[3]).grade, "AB");
+    // The whole ratio, 100 a point of its eight notes' 400 and eight W0s.
+    assert_eq!(row(&kept[0]).score, "1040008");
+    assert_eq!(row(&kept[0]).lamp_text, "AD");
+    assert_eq!(
+        (row(&kept[2]).ruleset.as_str(), row(&kept[2]).rejudged),
+        ("StepMania 5", false)
+    );
+    drop(h);
+    // Its replay and results are under DDI, and say so.
+    let (entry, done) = answered();
+    again.entry(&kept[3], done);
+    let entry = entry.borrow_mut().take().unwrap().unwrap();
+    let replay = Replay::from_entry(&entry).unwrap();
+    assert_eq!(replay.ruleset(), &ddi_key());
+    assert_eq!(replay.record.ruleset, itg());
+    let results = replay.results(&song).unwrap();
+    assert_eq!(results.grade, "Absolute Bot");
+    assert!(replay.check(&results, &results).matches);
+    assert_eq!(
+        replay.rejudged_note().as_deref(),
+        Some(
+            "Played by ITG rules and judged again here by DDI rules, which the play did not \
+             react to."
+        )
+    );
+    // The button, every play, under ITG chosen: the ITG plays are as
+    // played again (no second judgment), the SM5 one is judged under ITG.
+    let itg_rules = Settings {
+        ruleset: "itg".into(),
+        ..Settings::default()
+    }
+    .rules();
+    assert_eq!(again.rejudge(&itg_rules, None, |r| r.unwrap()), 4);
+    let (n, done) = answered();
+    again.rework_song("s1", song.clone(), 10, done);
+    assert_eq!(n.borrow_mut().take().unwrap().unwrap(), 4);
+    let h = again.history();
+    assert_eq!(h.get(&kept[0]).unwrap().rejudged, None);
+    assert_eq!(h.get(&kept[0]).unwrap().view(None).0, &itg());
+    let sm5 = h.get(&kept[2]).unwrap();
+    assert_eq!(sm5.rejudged.as_ref().unwrap().ruleset, itg());
+    assert_eq!(sm5.ruleset.id, "sm5");
+    assert_eq!(h.best(digest, &itg(), false).unwrap().plays, 3);
+    assert_eq!(h.best(digest, &ddi_key(), false), None);
+    assert_eq!(h.stale_count(), 0);
+}
+
+/// The settings' move from ITG asks once the history is read
+/// (`Plays::rejudge_asked`), and asks no more.
+#[test]
+fn the_move_from_itg_asks_for_its_plays_once() {
+    use crate::state::settings::{KEY, Settings};
+    use ddi_platform::storage::{self, Area, MemoryStore};
+    storage::install(Rc::new(MemoryStore::default()));
+    let mut old = serde_json::to_value(Settings::default()).unwrap();
+    old.as_object_mut().unwrap().remove("rules_moved");
+    old["ruleset"] = "itg".into();
+    storage::set(Area::Local, KEY, &old.to_string()).unwrap();
+    let song = song();
+    let plays = Plays::new(Rc::new(MemoryPlayStore::default()));
+    // Not read yet: nothing is asked, and the settings still ask.
+    assert_eq!(plays.rejudge_asked(), 0);
+    plays.load(|r| r.unwrap());
+    let (log, results) = play(&song, 0, &itg(), Some(0.0));
+    plays
+        .record(
+            play_id(0.0, 0),
+            &record(&song, 0, &itg(), 0.0, false),
+            &log,
+            &results,
+            |r| r.unwrap(),
+        )
+        .unwrap();
+    assert_eq!(Settings::load().rejudge_from.as_deref(), Some("itg"));
+    assert_eq!(plays.rejudge_asked(), 1);
+    assert_eq!(plays.history().stale_count(), 1);
+    assert_eq!(Settings::load().rejudge_from, None);
+    assert_eq!(Settings::load().ruleset, "ddi");
+    assert_eq!(plays.rejudge_asked(), 0);
 }

@@ -204,7 +204,7 @@ impl SessionConfig {
             // A stage: the match's ruleset, everyone's (D0), never the
             // player's own.
             (None, None, Some(stage)) => self.stage_rules.as_ref().map_or_else(
-                || crate::battle::stage_ruleset(&stage.ruleset, chart),
+                || crate::battle::stage_ruleset(&stage.rules),
                 Ruleset::fresh,
             ),
             (None, None, None) => settings.ruleset_for(chart),
@@ -715,6 +715,13 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
 
         let mut player = Player::new(song, chart_index, ruleset, options);
         player.set_autoplay(auto_play);
+        // A replay of an autoplayed record is graded as the play was.
+        if config.replay.as_ref().is_some_and(|r| r.autoplayed) {
+            player.set_bot(true);
+        }
+        // A locked lane keeps its mine's effect up, unless motion is
+        // reduced (the hit's one effect then).
+        player.set_lock_effect(!settings.reduced_motion.reduced(false));
         player.judge_all_in(any_lane);
         // The autoplayer presses the transformed chart's lanes (a staged
         // play's as its touches say).

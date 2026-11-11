@@ -18,8 +18,9 @@
 //!   drawn into and its place in the backdrop;
 //! - [`play_view`]: a play drawn, in one frame body over each shell's
 //!   platform parts;
-//! - [`opponents`]: a multiplayer stage's CPU opponents in a quiet column
-//!   beside the field, drawn by the play's 2D pass.
+//! - [`opponents`]: a multiplayer stage's CPU opponents' miniature
+//!   fields beside the field, their places and what the play's 2D pass
+//!   draws around them.
 //! - [`battle_cue`]: a battle's incoming attack warning by the receptors
 //!   and the waiting line under the power bar, drawn by the same pass.
 //!
@@ -92,6 +93,7 @@ pub fn render_options(settings: &Settings) -> RenderOptions {
         field_filter: settings.field_filter,
         preview: None,
         ghost: None,
+        ddi_percent: settings.ddi_percent(),
     }
 }
 
@@ -222,6 +224,7 @@ pub fn field_preview_options(settings: &Settings) -> FieldPreviewOptions {
         show_deltas: settings.show_deltas,
         background: settings.bg_brightness,
         frame_aspect: preview_frame_aspect(settings.background_frame),
+        ddi_percent: settings.ddi_percent(),
     }
 }
 

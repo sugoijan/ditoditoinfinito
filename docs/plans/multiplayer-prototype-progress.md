@@ -1585,10 +1585,1270 @@ detail (round 3). The dancing hand is not fed shocks (D7).
   (`reading_horizon`); `ddi-session` feed (`shocks_show_from_their_commitment_and_a_hit_takes_one_off`),
   stage (`cpus_receive_shocks_judged_alike_at_any_frame_rate`).
 
+## Feedback round A: the opponents in play, and CPU levels as stars (implemented, 2026-11-12)
+
+The maintainer's feedback on the play screen: "we are showing less
+players than we can", the list the opponents collapsed into was not
+understood and is not wanted, and eight opponents must fit on the
+screen. Both shells (the shared `PlayView`, `ddi_shell::opponents`).
+
+**What the play showed before** (eight CPUs in CPU practice, the web in
+headless Chrome; Firefox the same at the first three sizes and at
+390×844). "Lane" is a miniature's arrow size in logical pixels, "slot"
+its name line and field.
+
+| Size | Before | After |
+| --- | --- | --- |
+| 1280×720 | 8 miniatures, lane 32, slots 138×246 | 8, lane 42, slots 181×280 |
+| 1920×1080 | 8, lane 44, 189×330 | 8, lane 68, 292×432 |
+| 1024×768 | 8, lane 34, 146×260 | 8, lane 35, 151×300 |
+| 800×600 | 8, lane 26, 112×204 | 8, lane 26, 112×229 |
+| 720×900 | 8, lane 21, 90×169 | 8, lane 24, 103×176 |
+| 844×390 (a phone held sideways) | 8, lane 16, 69×134 | 8, lane 21, 90×156 |
+| 390×844 (a phone held upright) | no miniatures: the list, as numbered life bars without names | 8, lane 11, 47×137, four in each margin |
+| 2560×1080 | 8, lane 44, 189×330 | 8, lane 79, 340×501 |
+
+Nowhere in the table did the opponents take turns, before or after. (The
+"after" sizes are with the levels' stars above the fields, which have a
+line of their own in the narrower slots; without it the last three rows
+had lanes of 26, 23 and 11.)
+
+**Why it showed fewer, or the list, before.** Three separate rules:
+
+1. *The list in the miniatures' place*, in any of three cases: a song
+   with lyrics (a StepMania song with an `.lrc` file as much as a
+   Dancing☆Onigiri work: the miniatures were turned off whenever lyrics
+   were shown, so many pack songs showed the list at any size); a side of
+   the field narrower than one miniature at lanes of 16 px plus its
+   margins (about 100 px: a window narrower than about 0.43 of its
+   height plus 200 px, such as a phone held upright, or 500×800); or the
+   development switch
+   (`DDI_MINIATURES=0`). The list itself then showed names only where
+   its side had 96 px, else numbered bars, and only as many rows as the
+   height held, then "+n more".
+2. *Fewer miniatures than opponents, taking turns*: when all of them did
+   not fit at lanes of 16 px (a phone held sideways at 568×320 showed
+   four of eight; the development-only practice beyond the cap).
+3. *Small miniatures in mostly empty sides*: a miniature's lane was
+   capped at 45% of the play's own lane and at 44 px, and its field was
+   always seven lanes tall, so one to four opponents at 1280×720 were as
+   small as eight (lane 32), and 1920×1080 or wider never went past 44.
+   A side's whole height was also given up above or below anything on
+   it (the score, the watermark, the quit button's place).
+
+**What changed.**
+
+- **The list is gone** (`opponents::draw`, its constants and tests, the
+  message `room-play-more`, the development switch
+  `opponents::set_miniatures` / `DDI_MINIATURES` /
+  `ddi.dev.miniatures`, the web's debug `opponents_column`). A stage
+  always shows miniatures, with lyrics over the play too (tested
+  offscreen: `lyrics_over_a_stage_keep_the_miniatures`).
+- **Every opponent of a room has its own miniature at every size**, no
+  turns: `opponents::arrange` goes down to lanes of 8 px
+  (`MINI_LANE_MIN`), its margins and gaps shrinking with a side's width,
+  so a phone held upright seats four in each margin beside the field
+  (never over it). Only a window too small for them at that size shows
+  fewer, taking turns, or none where a margin cannot hold one (under
+  about 290 logical pixels wide).
+- **As large as the room allows**: up to 75% of the play's own lane
+  (`MINI_LANE_SHARE`) and 96 px; a field between six and ten lanes tall
+  (`MINI_ROWS_MIN`, `MINI_ROWS_MAX`: a short room gives larger lanes on
+  shorter fields, a tall one fields as tall as the play's own); what is
+  on a side is avoided by height or by width, whichever gives the larger
+  miniatures (the attack warning beside the receptors no longer pushes
+  the whole right side down). One opponent at 1280×720 has lanes of 54
+  (232×562), four have 51, eight 42.
+- The name line's size follows the slot (9 to 14 px), a cut name ends in
+  an ellipsis without a space before it.
+- The status line ("Stage won", a battle's moment) stays under the right
+  side's slots; where that side is too narrow for words (under 110 px)
+  it goes beside the watermark, on its row.
+- Beyond the cap (the development-only practice) nothing changed in
+  kind: lanes of at least 16 px (`MINI_LANE_CROWD`), as many slots as
+  fit, the rest taking turns (`ROTATION_V0`).
+- The arrangement is computed once per field, screen and keep-outs
+  (`PlayView`'s `fields_for`), not every frame.
+
+Online rooms still show nobody else during a play: there is no stream
+of the others' play yet (M5d). Out of this round's scope.
+
+Tests: `ddi-shell` `opponents` (eight distinct slots, never over the
+field's band, the keep-outs or each other, on the screen, at each size
+of the table and at 1280×720@2 and 360×640, with and without Reverse and
+the attack warning; one to eight at 1280×720; an upright phone; names
+cut to their slots); `ddi-desktop` `opponent_fields_offscreen` (eight at
+1280×720 and at 390×844, lyrics over a stage). Screenshots:
+`target/scratch/mp/fb-a/shots/after-*`.
+
+### Ten CPU levels, shown as five stars
+
+The maintainer: more CPU levels, "especially more to the weaker side",
+no "of 5", "some silver/gold star ratings or something that's more
+visual and less text".
+
+- **Ten levels** (`ddi_engine::cpu::CPU_LEVELS_V0`, `cpu-levels-v0`,
+  PROVISIONAL; the model, the measurement and its tables are in
+  [the CPU player's note](cpu-player.md), "An opponent's ten levels").
+  Levels 6 to 10 are the five strengths that were levels 1 to 5,
+  unchanged: the same chart, seed and skills give the same presses (a
+  fixture of press hashes taken before the change). Levels 1 to 5 are
+  new and weaker: a lower strength and a lapse, the chance a note is left
+  out, growing with how demanding the chart is at the note. The solo CPU
+  (`--cpu-strength`, `strength=`) keeps its five names and plays.
+- **Chosen by measurement** over twelve arcade mixes of the maintainer's
+  local library (2,974 dance-single charts, sixteen seeds; aggregates
+  only in the repository). Mean percent under ITG FA+ by level: 39.9,
+  49.5, 58.9, 67.8, 76.5, then the old five's 86.2, 91.9, 94.2, 95.8,
+  97.3; out of the stage on 68.9%, 60.1%, 44.0%, 23.5%, 3.7% of the
+  charts, then never. Level 1 scores about half a Beginner chart's points
+  and is out of a quarter of them, and out of nearly every Hard chart.
+- **`MINE_RESPONSE_V0` extended** (still uncalibrated): four responses
+  along the avoidance now (worst at 0: 30% of shocks stepped on, ±65 ms,
+  8% left out; then the three there were, at 1/3, 2/3 and 1). Levels 6
+  to 10 respond exactly as levels 1 to 5 did; levels 1 to 5 are a fifth
+  of the way each from the worst towards poorly.
+- **What was stored or sent on the old scale.** `OpponentSpec.level`
+  (the engine's index, `ddi_room`, on the wire in a room's rules and CPU
+  members) is opaque to the room and the server: nothing validates it
+  there, and `../ddi-server` builds unchanged. Its meaning widened in
+  place from 0–4 to 0–9, so a value written before means a weaker level
+  now (old "level 3", index 2, is the new level 3: 58.9% rather than
+  94.2%). Nothing keeps one: a practice room lives for the session,
+  hosted rooms seat no CPUs (their rules carry index 0, the weakest
+  before and after), and no setting stores a level. A stage clamps an
+  index past the last to the last. The practice default moved with its
+  strength (`DEFAULT_CPU_LEVEL` 2 to 7: still the engine's `normal`),
+  and the roster's 24 CPUs were spread over the ten levels (two or three
+  each), keeping their order from weakest to strongest. Bots:
+  `--mp-bots --level 1-10` (a named bot off the roster: level 8).
+- **Stars, never a number** (`ddi_ui::stars`, the look's `Stars`
+  component; colors `Star.Gold`, `Star.Silver`, `Star.Empty` in
+  `infinito.toml`): five stars, levels 1 to 5 silver from the left over
+  empty outlines, 6 to 10 gold from the left over silver. Vector shapes
+  through the 2D painter (a filled star is five rhombi and a disc, an
+  empty one ten strokes), so no face has to carry a glyph. Where a level
+  shows: the room's players panel and Players pop-up (stars, then the
+  personality), the Rules pop-up's roster (personality, then stars),
+  Add CPUs (the level row is "Level" with the stars between its two
+  buttons, the button says "Add 2 CPUs", the CPUs by name show theirs),
+  the stage prompt's players (stars at the row's end, where people say
+  Ready), and the play's miniatures (`ddi_shell::opponents::draw_stars`,
+  the same geometry and colors: at the name line's end where a slot is
+  at least 170 px wide, on a short line of their own under the name down
+  to 44 px, left out below that). The messages `room-cpu-level`,
+  `room-rules-level-value`, `room-play-level` and `room-cpu-label` are
+  gone, `room-rules-level` is "Level", `room-add-cpus-at-level` became
+  `room-add-cpus-add`. The number stays in the debug state
+  (`ui.theme.room.members[].level`, `__DDI_DEBUG.opponents[].level`) and
+  in the tests.
+- Add CPUs' rows by name had their plates drawn half a row's width to
+  the right (a list row's origin is its top left): fixed in passing.
+
+Tests: `ddi-engine` `cpu::levels`, `cpu::tests`
+(`levels_six_to_ten_press_exactly_as_the_five_strengths_did`,
+`levels_one_to_five_lapse_more_the_weaker_they_are`), `cpu::opponent`
+(all ten deterministic at 60 and 144 frames a second, a weaker level
+scores no better on average), `cpu::mines`; `ddi-ui` `stars` (each
+level's fills, the shape inside its box), `cpu_roster` (every level is
+somebody's), `room_tests` (the roster's and Add CPUs' stars, no level
+as text); `ddi-theme` (the component in its colors); `ddi-shell`
+`opponents` (stars beside the name, under it, or left out; a person has
+none). Screenshots: `target/scratch/mp/fb-a/shots/stars-*`.
+
+## Feedback round B: the players on the room's song select, the standings on a stage's results (implemented, 2026-11-12)
+
+The maintainer's feedback: "On the multiplayer song select view, I want
+to be able to see the players without having to click on Players, maybe
+we can add a column to the left and/or simplify the difficulty picker
+and banner", and (next section) the standings and the match's final
+result on a stage's results.
+
+### The players, always on the room's song select
+
+Everyone in a room sees the players on its song select without pressing
+anything, in practice and online, the host and the followers alike
+(`crates/ui/src/screens/select_room.rs`, `room.rs`).
+
+- **The wide layout** (`Layout::for_room`): the song's side is short: a
+  phone's banner (300×94) with the title and one line (artist, BPM,
+  length) under it, and beside it the style button (only where the room
+  can play more than one style), one row of chart buttons with their
+  levels and the chart chosen in words (its name and level, its notes
+  and step artist). The ladder, the tabs and the best's readouts are not
+  shown in a room. The **players panel** (`room::players_panel`,
+  `RoomPlayers`) takes the 426 px under it down to where the ladder
+  ended: a heading with the count ("9 / 9"), then a line a player at 40
+  px (30 at least): the place in the match once a stage is confirmed,
+  the name (You on a quiet plate; a person's role after it: Host,
+  Co-host, Admin; a bot's name labeled Bot; a CPU's five stars and its
+  personality), what they are doing in words at the right (Ready in the
+  accent; Not ready, Loading with its percent, Playing, Sitting out,
+  Watching, Next match, At start for a CPU before the match; why a song
+  did not load: Download failed, Song unreadable, Chart changed, in the
+  danger color; Joining, Reconnecting and Away with the line dimmed) and
+  the match points under a "Points" heading. Nine lines fit at 1280×720
+  without scrolling; once the match has places the lines are in its
+  order. Past what fits (a development practice's field: 12 lines of 30
+  px) a last line counts the rest ("▼ 9 more") and opens the full list.
+- **The room's styles**: a practice room's song select offers only the
+  styles its CPUs can play (`RoomClient::style_playable`: one player,
+  four lanes), so a library kept on Double opens on Single and a song
+  without such a chart is grayed, where before it could be picked and
+  was then refused in a pop-up (the refusal stays for a pick made any
+  other way). An online room plays any style: its style button shows the
+  style and its charts ("Single  5 charts  ▾") and Tab changes it. The
+  footer's Tab hint is left out where there is one style.
+- **The followers** have the same song's side and the same panel (one
+  component, so both views agree); the list's place holds the status and
+  the match's picks alone (`room::pick_panel_rows`), which the panel
+  there no longer repeats the players under.
+- **The Players button stays** (and More's Players on a phone): its
+  pop-up is the only place a host sees the match's picks, and it lists
+  everyone with two lines each. Nothing a keyboard, a controller or a
+  touch could do is lost. A tap on the panel (a line, its "more" line)
+  opens the same pop-up; the panel itself takes no focus (the pop-up has
+  no per-player actions yet: roles and removing someone are not built).
+- **A phone** (844×390 and 390×844) has no room for the panel beside
+  the song and the list. The host's players are one line over the list
+  (`room::players_strip`, `Players.Strip`): everyone's initials (You
+  whole), each in the color of what they are doing as the panel's words
+  are, those that do not fit counted ("+3"), then how many they are
+  ("9 / 9 ›"); a tap opens the full list. A follower's list's place
+  holds the panel as before (the picks, then the players, two lines
+  each). Chosen for being one line: the phone's song side is short
+  already and its list has five rows.
+- **Considered and not chosen**: a column of its own at the far left
+  (`docs/plans/multiplayer-ui.md`'s first sketch). At 1280 wide the
+  song's side has 560 px and the list 596; a third column of the 240 px
+  nine names with their states need would take them from the list's
+  titles or leave the song's art a thumbnail. Under the song the panel
+  is as wide as the song's side, so a line holds the place, the name
+  with its stars, the state and the points without cutting any.
+- **In passing**: the Rules pop-up's scrolled roster gave its "▲/▼ n
+  more" marks 12 px each, so the lower one overlapped the Add buttons
+  (and the upper one the first row); each has a row of its own now
+  (`room_dialogs.rs`, `MARK`).
+- **Singleplayer song select is unchanged**: the same pixels at 1280×720
+  and 844×390 before and after (`target/scratch/mp/fb-b/shots/solo-*`,
+  compared byte for byte, reduced motion so the live art stands still).
+
+Tests (`ddi-ui` `room_tests`): `the_players_are_always_beside_the_song`
+(nine lines without scrolling inside the song's column, You marked, each
+CPU's stars and "At start", no ladder or tabs, a tap opening the list,
+Ready while a stage gathers, then places and points in the match's
+order), `the_players_panel_counts_those_that_do_not_fit`,
+`a_phone_shows_the_players_as_a_strip_that_opens_the_list` (both phone
+sizes, clear of the list), `the_panels_lines_say_what_each_player_is_doing`
+(an online room over `FakeServer`: the host's role, watching, not ready,
+ready, loading, a failed download, reconnecting, playing, sitting out;
+the host's and the follower's panels the same, the follower's list's
+place the picks), and `the_hosts_start_picks_the_song_and_starts_the_match`
+rewritten for the room's styles. Screenshots
+(`target/scratch/mp/fb-b/shots/`): `select-*` (practice with eight CPUs:
+Chrome at 1280×720 in English, Japanese and `qps-ploc`, 844×390 in
+English and Japanese, 390×844; Firefox at 1280×720; `select-dev-*` with
+twenty CPUs), `online-*-00-*` (a local server of our own with the
+development provider: the host, a follower at 1280×720 and one on a
+phone in Japanese), `roster-*` (the Rules roster's marks).
+
+### The standings on a stage's results
+
+The maintainer's feedback: "On the multiplayer results view, I want to
+see the standings and final result of a match, I think it could replace
+the area with the 4 graphs, maybe we can have 2 tabs, one with the
+standings (but with more details regarding how everyone performed after
+that stage), and another with the graphs."
+
+A stage's results (`ResultsScreen::with_room`,
+`crates/ui/src/screens/results_stage.rs`; both shells hand the screen
+the stage's room) have two tabs where a play's four graphs are.
+
+- **Standings**, shown first: a table of every starter of the stage, in
+  the stage's order once the room confirmed it: the place; the name (You
+  on a quiet plate, a bot labeled, a CPU's five stars); what the stage
+  awarded ("+12"); the match total after it and the place in the match,
+  with a quiet ▲ or ▼ where that place moved; then how they performed:
+  the ruleset's main number (the percent under ITG FA+, which counts no
+  score; a DDI score or its percent as the player's own settings show
+  it), the grade (in the lists' short form), life at the end or when it
+  ran out ("Out 1:02"; "Left" for a forfeit), the longest combo, and the
+  judgments as one thin stacked bar in the ruleset's tiers' colors
+  (`screens::play::tiers`: the same tiers, names and colors as the
+  results' own list, FA+'s two Fantastics and DDI's best word included).
+  The exact counts are a second line under each starter's where the
+  lines are tall enough (up to about six starters), else one line under
+  the table for the line the pointer is over (the local player's
+  otherwise). With attacks (the development switch) the counts are
+  followed by "Attacks 2 · Shocks 1": those launched and the shocks
+  stepped on. The panel's heading says "Stage 2 of 4" and, beside it,
+  "points experimental" or, while the room has not confirmed, "Waiting
+  for everyone's results…".
+- **Lines fill in as reports come** (an online stage): before the room
+  confirms, the lines are as seated, with no place, award or total; one
+  whose result has come shows how they performed, one still playing a
+  quiet "Still playing…". The order, places and awards come with the
+  room's confirmation. The results screen keeps the room's messages
+  coming while it shows (it ticks the client; nothing else did on that
+  screen).
+- **The match's final result**: after the last stage the tab opens with
+  it on top, whatever tab was chosen before: "Match result", the winner
+  ("Winner: You") or the winners of a tie in gold, then everyone in the
+  match with their final place and total, three across (two on a phone);
+  the stage's table under it. Nine starters and the result fit at
+  1280×720 without scrolling (lines of 27 px; the pointed line's counts
+  give way there). A stopped match has no result block.
+- **Graphs**: the four graphs exactly as a play's results have them.
+- **Changing the tab**: Left and Right on a keyboard, the shoulders on a
+  controller (`MenuAction::Previous`/`Next`), a tap or click on a tab,
+  or the focus walk to a tab and Confirm (the focus goes back to Back to
+  room after, so Enter leaves). The footer says "← → Change tab" (the
+  shoulders' art for a controller). The tab chosen is remembered for the
+  session in memory, never saved. No animation: the content is swapped,
+  so reduced motion changes nothing.
+- **Past what fits** (a development practice's field) the lines scroll
+  with Up and Down or the wheel, the rest counted ("▼ 8 more").
+- **A phone**: the tabs are in the scrolling column (beside the score
+  column sideways, under it upright), the table as tall as its lines
+  (30 px). Columns are dropped as the width runs out, in this order: the
+  judgments, the combo, life, the place in the match, the grade; the
+  text is never smaller. At 844×390 and 390×844 the table shows the
+  place, the name, the award, the total, the score and the grade.
+- **Solo results are unchanged**: the same pixels at 1280×720 and
+  844×390 before and after (`shots/solo-*-results.png`).
+- **The pop-up on the room's song select**: once the Standings tab
+  showed a confirmed stage (or the match's result), the room counts it
+  as seen (`RoomClient::results_shown`), so `StandingsDialog` does not
+  pop the same thing up again back on song select. It still does for
+  someone who sat the stage out or watched, who left the results before
+  the room confirmed, or who only looked at the Graphs tab. A CHOICE
+  the brief left open ("may stay as it is"); one line to revert.
+
+**The data** (`ddi_room::RunDetail`, `crates/room/src/battle.rs`): the
+score where the ruleset counts one and its percent in hundredths (the
+viewer's settings choose), the grade as the ruleset words it, life at
+the end in millionths, when the gauge emptied, the longest combo, the
+taps counted by the ruleset's tiers (best first, the misses last) and,
+where the battle has attacks, those launched and the shocks stepped on.
+SELF-REPORTED, shown only, never ranked by; the room cuts a grade to 24
+characters and the tiers to 12.
+
+- **Practice**: everything is local. `ddi_session::battle::StageOutcome`
+  carries `details`, one a competitor, from the player's and each CPU's
+  engine-judged play (`ddi_ui::state::room::run_detail`); the client
+  keeps them (`RoomClient::set_stage_details`), since a practice's
+  authority ranks the stage itself and takes no reports. A stage left at
+  its prompt has the CPUs' alone.
+- **Online**: a member's report (`Command::ReportOutcome`) may carry
+  `detail`, the room keeps it beside the report
+  (`StagePlay::details`, `Event::OutcomeReported::detail`) and every
+  mirror has it. ADDITIVE to protocol 2, no new version: the field is
+  optional with serde defaults everywhere, a report without one is byte
+  for byte what it was, an authority that predates it ignores the field
+  and a client that predates it ignores it in events and snapshots (a
+  new version would turn away every client or server one step behind:
+  noted at `PROTOCOL_VERSION`). A starter whose detail did not come (an
+  older build, a server that dropped it) shows what the run itself says:
+  the accuracy as a percent, life, or when they went out. The bots
+  report theirs too (`crates/desktop/src/bots.rs`).
+- **The deployed server needs its next deploy to pass the detail on**:
+  it runs this crate's reducer as it was built, so until then it drops
+  the field and online standings show the runs' own numbers (percent,
+  life, out time), no grade, combo or judgments. `../ddi-server` builds
+  against the crate unchanged; its tests construct the command, so they
+  gained `detail` (its commit 16c9502: a report's detail is kept by the
+  room; 54 and 55 tests pass, clippy native and wasm clean; its
+  `xtask` config test fails on the maintainer's local `wrangler.toml`
+  edit, untouched).
+
+`StageTable` (`RoomClient::stage_table`) is what the screen reads: the
+stage found in the running match or a finished one the room keeps (a
+CPU that left with its match is named from the record), each starter's
+confirmed placement, reported run and detail, the match's totals and
+places after the stage and before it, and the match's final standings
+where the stage was its last and the match completed.
+
+Tests: `ddi-room` `tests/online.rs`
+(`a_reports_detail_is_kept_alike_by_both_authorities_and_every_mirror`:
+the contract's script through `LocalAuthority` and through
+`OnlineAuthority` + `FakeServer`, the same rooms, the detail bounded,
+the ranking the runs' alone), `tests/walkthroughs.rs`
+(`a_reports_detail_is_additive_on_the_wire`: the old shapes read, a
+report without a detail unchanged on the wire, an unknown field of a
+later detail ignored, a stage without details stored as before);
+`ddi-ui` `state::online::tests` (the table before any report, after
+one, and confirmed, the same for everyone), `screens::play`
+(`the_tiers_are_the_results_rows_with_their_counts`: ITG, ITG FA+,
+DDI), `screens::results_stage_tests` (nine starters after a middle
+stage: every column, the pointed line's counts, the tabs by keys,
+shoulders and taps, remembered, the place's move marks, the last
+stage's result and winner, song select's pop-up not repeated; two and
+four starters, a tie, one out, one who left, a match tied at the top;
+attacks counted; a long table scrolling; an online stage's lines
+filling in, an older build's report; both phone sizes' columns), the
+`qps-ploc` walk (both tabs after a middle and a last stage);
+`ddi-desktop` `tests/room_stage_flow.rs` (the Standings tab after a
+stage) and `tests/online.rs` (the detail through a local server).
+Screenshots (`target/scratch/mp/fb-b/shots/`): `results-*` (practice
+with eight CPUs, a middle stage and the last), `results-final-*` (a
+one-stage match: Japanese, `qps-ploc`, Firefox, 844×390, 390×844),
+`results-attacks-*`, `results-two-*`, `online-*` (three people against
+a local server built from this checkout: one who left early waiting for
+the others, the confirmed table, the graphs, the match's result).
+
+### A room opens straight on its song select
+
+The maintainer, 2026-11-12: "I think we don't have to show the rules
+when opening, maybe we should make that a hidden option that's off by
+default."
+
+- Entering a room (CPU practice and an online room alike) no longer
+  opens the Rules pop-up by itself: the room opens on its song select
+  with the default rules and, in practice, the default roster (three
+  CPUs drawn from the catalog), which the players panel shows.
+- **Rules stays behind its button** (the header's, More's on a phone),
+  in its one form: Cancel and Apply for an operator, Close alone for
+  the others. The first-time form (Reset and OK) is not shown from the
+  button: opened by hand before the first pick it had no way to back out
+  of a change but Reset, and Cancel is that. It stays in the code for
+  the hidden option alone. What is lost by default: Reset (back to the
+  default rules in one press), which the button's form never had.
+- **The old behavior is a hidden option, off by default**:
+  `Settings::multiplayer_rules_first` (no row in Options), set by the
+  web's `#/?mp=1&mprules=1` (`mprules=0` turns it off; kept in the
+  settings as `mp` is) and desktop's `--mp-rules-first on|off`. With it
+  the Rules open in their first form on entering and again each time the
+  player comes back to the room, as M7b had it.
+- In passing, on the players panel: nobody is "Not ready" before a pick
+  gathers readiness (the lobby, between stages); the word shows only
+  while a stage's readiness window is open.
+
+Tests: `ddi-ui` `room_tests`
+(`practice_opens_straight_on_song_select_with_the_rules_behind_their_button`,
+`the_hidden_option_opens_the_rules_first_on_entering`, the online
+room's test opening on song select with a member's Rules read only from
+the button; the roster test's Reset under the option), the `qps-ploc`
+walk (the first form under the option, the button's form without);
+`ddi-desktop` `tests/room_offscreen.rs` (song select at once, the
+players panel inside the window). Runtime: `room.mjs` and `online.mjs`
+open the Rules from the button; `room.mjs … mprules=1` finds them open.
+
+## Feedback round C: the miniatures' proportion and size, the hand in full (implemented, 2026-11-12)
+
+The maintainer, on feedback round A's play screen
+(`target/scratch/mp/fb-a/shots/after-chrome-1280x720.png`: eight
+miniatures at lanes of 42 px on fields six lanes tall): "I do think the
+miniatures might be a bit short, I like the proportion that I see on my
+screen, maybe we can even make it have the same proportion as the
+players field, also I think that when there are too few players the
+miniatures get bigger than they should, we should probably have a cap to
+their size. Also, I didn't like the "fade" of the dancing hand, I think
+we can show it in full, it's in the background and doesn't get in they
+way I think." Phone layouts are low priority: kept working, not
+polished. Both shells (`ddi_shell::opponents`, the shared `PlayView`).
+
+### The miniatures in the play's field's proportion, with a size cap
+
+- **The proportion.** A miniature's field is as many lanes tall as the
+  play's own field (`opponents::rows_for`: the screen's height over the
+  play's lane, ten on a screen wider than it is tall), with its
+  receptors a lane and a half from its end as the play's, so it reads as
+  a small copy of the player's field and shows as far ahead. The
+  six-to-ten range of round A went. Clamped only where a window's shape
+  gives the play's field another proportion: eight to twelve lanes
+  (`MINI_ROWS_MIN`, `MINI_ROWS_MAX`: a phone held upright, whose field
+  has thirteen to sixteen lanes of height, gets twelve; a window too
+  short for the play's least lane, eight).
+- **The cap.** A miniature's lane is at most half the play's lane
+  (`MINI_LANE_SHARE` 0.5, PROVISIONAL, a value to tune; it was 0.75 and
+  96 px). `MINI_LANE_MAX` went: the play's own lane is bounded, so the
+  share is the cap. One to four opponents are at the cap; more are as
+  large as the sides allow under it, in the grid that gives the largest
+  lane (six: three in a row a side; eight: two rows of two a side, four
+  in a row where the screen is very wide).
+- **The lanes** (logical pixels; the slot is its name line and field;
+  CPU practice, the attack warning's place not kept clear; with it,
+  eight are 25 at 1280×720 and 40 at 1920×1080):
+
+  | Opponents | 1280×720 (play lane 72) | 1920×1080 (play lane 108) |
+  | --- | --- | --- |
+  | 1 | 36, slot 155×396 | 54, slot 232×562 |
+  | 2 | 36 | 54 |
+  | 4 | 36, two in a row a side | 54, two in a row a side |
+  | 6 | 33, three in a row a side | 52, three in a row a side |
+  | 8 | 28, two rows of two a side, slot 120×313 | 46, two rows of two a side, slot 198×482 |
+
+  Eight at the other sizes of round A's table, all showing, none taking
+  turns: 1024×768 lane 26; 800×600 lane 20; 720×900 lane 16, four in
+  each margin; 844×390 lane 16, four in a row a side; 390×844 lane 13
+  at three device pixels a point (11 at two, where the play's own lane
+  is wider), four in each margin, twelve lanes tall; 2560×1080 lane 54,
+  four in a row a side. (At 360×640, narrower than the table, the lanes are at
+  their least, 8 px, and a side short of height for four gives one to
+  the other: five and three. Not polished, as asked.)
+- At lanes of 28 px a slot is 120 px wide, under the 170 px where the
+  level's stars fit beside the name: eight at 1280×720 have their stars
+  on a line of their own under the name, as the narrower slots already
+  had. The name line, the life gauge, the power bar and the combo sit as
+  before.
+
+Tests: `ddi-shell` `opponents`
+(`the_miniatures_have_the_plays_proportion_under_a_size_cap`: the
+table's lanes exactly, the proportion and the receptors' share, the
+grids; `eight_miniatures_of_their_own_at_every_size` and the others of
+round A, their `sound` check now also the proportion and the cap);
+`ddi-desktop` `tests/opponent_fields_offscreen.rs` (eight at 1280×720:
+lanes of 28). Runtime, headless Chrome and Firefox:
+`target/scratch/mp/fb-c/shots/minis-*`.
+
+### The dancing hand in a stage, in full
+
+In a stage the hand goes behind the field (M7c). It was drawn as large
+as the band allowed below the judgment (`BEHIND_FIELD_ZOOM` 1.9), so its
+arm was cut at the frame's top, softly (a fade over a quarter of the
+frame). The maintainer did not like the fade and wants the hand in full.
+
+- **Whole, as a solo play shows it.** The hand's picture behind the
+  field now holds the whole model, the arm's end included, with nothing
+  cut and no fade: its frame is the field's band from past the
+  receptors' row to the far end (`play_view::behind_field`), and the
+  camera stands back until that frame is as tall, in the hand's scale,
+  as a solo play's frame (`dance::behind_field_distance`:
+  `BEHIND_FIELD_TALL` 1.13, the solo frame's proportion on a 16:9
+  screen, which has the mat's near edge at its foot and the arm's end
+  with room to rise at its head), and no closer than fills the band
+  (`BEHIND_FIELD_ZOOM` 2.0, PROVISIONAL).
+- **Where and how large (what was chosen).** Clear of the receptors'
+  row: the whole hand still fits at a sensible size there. At 1280×720
+  the hand is 0.79 of its size in a solo play (its scale 486 px against
+  616; 0.83 of the cut hand's before), its arm's end about at the
+  judgment's line and its mat's near edge 15 px above the band's end;
+  the same at 1920×1080. It stands behind the judgment, the combo and
+  the notes, which the maintainer accepted (it is in the background).
+  Under Reverse the frame is the band from its top to the receptors'
+  row, the hand as upright as ever. Had it been allowed behind the
+  receptors too, it would be exactly a solo play's size (the band's
+  width then limits), its arm's end just under the receptors: the one
+  alternative worth a look.
+- **No fade.** The play passes none; `Renderer::set_field_underlay_fade`
+  stays for whatever else may want one (nothing calls it now). Reduced
+  motion and the hand's Off behave as before, and a solo play is
+  unchanged (the settings' frame, the camera's own distance).
+
+Tests: `ddi-shell` `dance`
+(`the_hand_behind_the_field_is_shown_whole`,
+`the_hands_place_in_a_stage_is_the_band_past_the_receptors`, and
+`a_stage_puts_the_hand_behind_the_field_and_only_a_stage` as before).
+Runtime, headless Chrome and Firefox:
+`target/scratch/mp/fb-c/shots/hand-*` (a stage early and mid-song at
+1280×720 and 1920×1080, before and after; a solo play before and after,
+the same picture).
+
+### DDI's score in a room (noted for round 3, nothing built)
+
+Rooms still play `itg-fa+`. Outside multiplayer, DDI's displayed Score
+became its proportional part plus its absolute score on 2026-11-12
+(`docs/plans/ddi-ruleset.md`, "Score": `DdiScoreView::score` is
+`ratio + absolute`, a perfect 1,000-note chart about 6,000,000). What a
+room shows of a competitor's score (the standings on a stage's results,
+`RunDetail::score` from `ddi_ui::state::room::run_detail`; a
+miniature's numbers) keeps reading the ruleset's views, so under DDI it
+would be that sum. **Round 3 must decide** what a room compares and
+shows under DDI: a CPU plays a tap-only copy of the chart, so its
+`most`, and with it the absolute score and the sum, differ from the
+player's for the same play; only the proportional part
+(`DdiScoreView::ratio`, the percent) compares across competitors.
+
+## The DDI ruleset's round 3: DDI in multiplayer (implemented, 2026-11-12)
+
+The maintainer noticed that DDI was not available in multiplayer and
+approved this round (`docs/plans/ddi-ruleset.md`, "Round 3 (built)": the
+rules themselves). Everything is still behind the hidden switch. What is
+real: the engine's judging of a shock as a mine with the lane lock, the
+placement, the rules in the room's model, the ranking, the screens. What
+is not: attacks in an online room (no ledger there, see below);
+`MINE_RESPONSE_V0` is still invented and uncalibrated; the CPU tables
+below are CPUs against CPUs, never people.
+
+### What changed
+
+- **Rooms play DDI alone** (D0). `MatchRules::RULESETS` is `["ddi"]`;
+  the Rules pop-up's Ruleset row went (a fixed row read as noise) and a
+  note says "Everyone plays the match under DDI with these rules,
+  whatever their own options say." Rules that still name one of the
+  seven older ids are valid, kept as they came and played as DDI
+  (`MatchRules::ruleset_id`); a stage's play, its CPUs and the bots are
+  built from `StageRules` by `ddi_session::battle::stage_ruleset`.
+- **Difficulty and Boos are match rules**: rows of the Rules pop-up
+  (‹ › between Easy, Normal and Hard; Off and On), saved like Stages,
+  locked with the match, read only for a member. Practice (DDI's
+  option) is never set in a stage, whatever the player's settings say
+  (test `a_stage_is_played_under_the_match_s_rules_not_the_player_s`).
+  Summaries say only what differs from the usual: the pop-up's locked
+  line ("4 stages · 3 CPUs · DDI · Easy · Boos · Attacks") and a
+  stage's prompt ("Rules: DDI · Hard · Boos"); a stage's results say
+  the play's own mods line as any DDI play's.
+- **Attacks are a match rule** (the maintainer: "a multiplayer rule
+  that's off by default but fully accessible is enough, multiplayer
+  itself is already behind a development flag"): the pop-up's Attacks
+  row, Off by default, chooses the stage's battle
+  (`gauge-survival-v0` / `gauge-attacks-v0`; `MatchRules::attacks`,
+  `set_attacks`). Everything the development switch gated (the power
+  bar, launches, the warning, shocks, the settlement) follows the rule.
+  The switches are conveniences now: desktop's `--mp-attacks` (its old
+  name `--mp-dev-attacks` still taken) and the web's `mpattacks=1`
+  start a practice room with the rule already On. `--mp-dev-mines` and
+  `--mp-dev-cpus` stay development tools. A note under the rows says
+  what the battle is ("The battle is provisional: your stage ends when
+  your life runs out. With attacks, good timing fills a power bar, and
+  a full bar sends eight shocks into another player's field.").
+- **Online rooms do not offer Attacks**: the row is there, fixed, saying
+  "Off · not in online rooms yet" (`screens::room::attacks_offered`).
+  What online attacks would take: the ledger (`StageBattle`) run by the
+  room from its members' per-checkpoint reports (their judged tiers,
+  life and going out: `ddi_room::attacks::Report` exists, no command
+  carries it yet), the chart's sections agreed (each client builds the
+  `Schedule` from the chart with the engine's placement and sends its
+  digest: the room reads no charts), every commitment sent to its
+  recipient's device in time to be put into its play
+  (`Player::add_hazards`: before the shock's window, so the lead has to
+  cover the network, or the stages have to start together, D5), the
+  settlement run by the room in the place of ranking the reports as
+  they come, and the others' state streamed if their power and shocks
+  are to be seen. None of it is built.
+- **A shock is a mine** under DDI (D1, D3): the tally, −10 points, the
+  life by the match's difficulty (−1, −5, −10), the combo, the floors
+  and the lamp as a chart's mine, and its lane locked for a second, for
+  the player and for a CPU alike (the same player and judge). The
+  player's receptor keeps the skin's mine effect for the lock, as for a
+  chart's mine. Shocks are still drawn as the skin's mines: shock-arrow
+  art is open.
+- **Placement** `placement-v1`: margins about each step of a shock's
+  lane (none within 0.25 s after one nor within W3 before it, none from
+  a hold's or a roll's head to past its end, none from a second before
+  a lift). The bundled four-lane charts have room in every section
+  under DDI's three difficulties (1,496 of 1,496 slots under Normal;
+  `placement-v0`'s clearances under the same table found 1,484).
+- **Miniatures**: each opponent's score, small, under its life gauge's
+  right end, as the local player's Score display has it (the
+  proportional part out of a million, "987654", or "98.76%"); a lane a
+  shock locked is darkened to its end with its receptor's place tinted
+  violet for the lock's second (ours, whatever the skin: no skin Lua
+  runs for a miniature).
+- **Ranking**: those still in by life, then the proportional score,
+  then (the same notes) the absolute score; `ddi_room::Absolute` on the
+  run, optional and additive; the bots report theirs.
+- **The stage results' Standings** show DDI's numbers through the
+  ruleset's views: the score column is the proportional part (or the
+  percent under Score display Percent), the grade in the lists' short
+  form (AB, SSS, …), the judgments' bar in DDI's seven tiers.
+
+### What compares, and what does not
+
+A CPU plays a tap-only copy of the chart (holds and rolls as taps), the
+player the whole chart, so their `most` differ: DDI's absolute score and
+the displayed Score (the proportional part plus the absolute score) do
+not compare across them, the proportional part does. So the miniatures,
+the Standings and the ranking use the proportional part; the absolute
+score only breaks a tie between those whose `most` is the same (the CPUs
+among themselves; everyone in an online room). The player's own HUD is
+unchanged: under Score display Score it shows the sum, which is larger
+than the numbers on the miniatures beside it (an open question).
+
+### Measured: the ten CPU levels under DDI
+
+`DDI_CPU_CORPUS=… DDI_CPU_RULES=ddi-easy,ddi-normal,ddi-hard cargo test
+--release -p ddi-engine --test local_cpu -- --nocapture`
+(`crates/engine/tests/local_cpu.rs`): the same twelve arcade mixes of the
+maintainer's local library as feedback round A's measurement (724
+simfiles, 2,974 dance-single charts, read in place, aggregates only),
+sixteen seeds a chart and level, each CPU alone on its tap-only copy to
+the song's end with the fail off; "out" is its life emptying at any
+point, as a stage would end it. The levels were not retuned.
+
+| All 2,974 charts | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Easy: percent | 68.3 | 73.3 | 77.9 | 82.0 | 85.9 | 90.2 | 94.0 | 95.6 | 96.7 | 97.8 |
+| Easy: out % | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| Easy: life at the end % | 99.5 | 99.5 | 99.6 | 99.7 | 99.9 | 100 | 100 | 100 | 100 | 100 |
+| Normal: percent | 61.4 | 67.5 | 72.6 | 77.4 | 81.7 | 86.1 | 91.0 | 93.1 | 94.5 | 95.9 |
+| Normal: out % | 20.0 | 9.6 | 3.8 | 0.3 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| Normal: life at the end % | 68.3 | 81.1 | 89.9 | 96.1 | 98.5 | 99.9 | 100 | 100 | 100 | 100 |
+| Hard: percent | 56.1 | 62.9 | 68.7 | 73.7 | 78.4 | 83.1 | 88.5 | 90.8 | 92.5 | 94.2 |
+| Hard: out % | 82.5 | 69.6 | 52.8 | 26.4 | 3.1 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| Hard: life at the end % | 9.3 | 20.4 | 35.7 | 61.2 | 89.5 | 99.4 | 99.9 | 99.9 | 100 | 100 |
+
+Out % by difficulty slot (charts), Normal then Hard:
+
+| | 1 | 2 | 3 | 4 | 5 | 6–10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Normal: Beginner (641) | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| Normal: Easy (699) | 1.1 | 0.2 | 0.0 | 0.0 | 0.0 | 0.0 |
+| Normal: Medium (699) | 12.1 | 2.7 | 0.3 | 0.0 | 0.0 | 0.0 |
+| Normal: Hard (699) | 46.3 | 20.4 | 6.5 | 0.3 | 0.0 | 0.0 |
+| Normal: Challenge (236) | 75.3 | 52.4 | 27.9 | 2.5 | 0.0 | 0.0 |
+| Hard: Beginner (641) | 51.4 | 28.6 | 20.0 | 6.3 | 0.0 | 0.0 |
+| Hard: Easy (699) | 74.1 | 48.7 | 29.3 | 8.6 | 0.1 | 0.0 |
+| Hard: Medium (699) | 96.6 | 89.9 | 57.2 | 20.4 | 0.7 | 0.0 |
+| Hard: Hard (699) | 99.6 | 97.8 | 87.3 | 51.3 | 6.0 | 0.0 |
+| Hard: Challenge (236) | 100.0 | 99.4 | 95.7 | 77.1 | 19.4 | 0.0 |
+
+The nineteen bundled four-lane charts agree (Normal: 61.7 to 95.9
+percent, out 26.0, 11.8, 4.9 then none; Hard out 74.0, 69.4, 57.2, 30.3,
+5.6 then none; Easy never out).
+
+What it says. Under ITG FA+ (rooms until now) the same levels scored
+39.9 to 97.3 percent and went out on 68.9, 60.1, 44.0, 23.5 and 3.7
+percent of the charts. DDI Normal is far gentler on the weak levels (a
+one-star CPU is out of one stage in five, not two in three, and scores
+61 percent, not 40: W4 and W5 still give points and a Miss costs a
+tenth of a bar from a life that recovers 2.5 times as fast); DDI Hard
+is about where FA+ was; under DDI Easy no level ever goes out. The top
+levels score a little less than under FA+ (95.9 against 97.3: the
+±16.67 ms top class is narrower than FA+'s Fantastic for points).
+
+### Measured: attack rates in CPU practice
+
+`cargo test --release -p ddi-session --lib attack_rates -- --ignored
+--nocapture` (`crates/session/src/battle/study.rs`): the M8b study's six
+bundled charts (Beatucada Medium and Hard, Sweeteners Hard, Into My
+Dream Medium, Some Things Must Hard and Challenge), each a stage of
+eight CPUs with the Attacks rule On and the stage's fail on, the local
+player gone at its start (the CPUs and their attacks played out, as a
+stage left at its prompt), six seeds: 36 stages a row. Counted, a CPU:
+the bars its timing earned a minute while it was in (W0 and W1 two, W2
+one, a bar 100, the cap aside); the attacks it launched; and, an attack
+received: the shocks stepped on (of eight), the notes that passed missed
+in a lane a shock had locked, the life those cost (a mine's and a
+Miss's by the difficulty), and whether its recipient went out before the
+attack's last shock and its lock were over.
+
+Eight CPUs at one level, DDI Normal:
+
+| Level | Bars a minute | Launched a seat a stage | A received attack: shocks stepped on | notes missed in locks | life lost | knocked out by it | Out of the stage |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1.11 | 0.88 | 2.05 | 1.30 | 23.2 | 15.4% | 59.0% |
+| 2 | 1.39 | 1.43 | 1.82 | 1.50 | 24.1 | 11.4% | 45.1% |
+| 3 | 1.64 | 2.29 | 1.77 | 1.48 | 23.6 | 5.3% | 24.7% |
+| 4 | 1.94 | 3.23 | 1.52 | 1.52 | 22.8 | 3.2% | 11.5% |
+| 5 | 2.20 | 3.85 | 1.29 | 1.40 | 20.5 | 0.8% | 3.8% |
+| 6 | 2.45 | 4.27 | 1.10 | 1.27 | 18.2 | 0.3% | 1.4% |
+| 7 | 2.85 | 5.18 | 1.10 | 1.24 | 17.9 | 0.1% | 0.7% |
+| 8 | 3.15 | 5.78 | 0.46 | 0.50 | 7.2 | 0.0% | 0.0% |
+| 9 | 3.31 | 5.98 | 0.47 | 0.53 | 7.6 | 0.0% | 0.0% |
+| 10 | 3.57 | 6.31 | 0.14 | 0.17 | 2.4 | 0.0% | 0.0% |
+
+The other difficulties, the same fields (life lost by a received attack;
+knocked out by it; out of the stage):
+
+| Level | Easy: bars a minute | life lost | out | Hard: bars a minute | life lost | knocked out | out |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1.62 | 7.1 | 0% | 0.67 | 28.0 | 80.0% | 100% |
+| 2 | 1.88 | 6.2 | 0% | 0.89 | 30.0 | 65.0% | 99.3% |
+| 3 | 2.11 | 5.3 | 0% | 1.18 | 27.3 | 41.1% | 92.0% |
+| 4 | 2.34 | 4.9 | 0% | 1.47 | 34.0 | 25.4% | 75.0% |
+| 5 | 2.58 | 4.0 | 0% | 1.81 | 33.2 | 14.7% | 47.2% |
+| 6 | 2.83 | 3.3 | 0% | 2.12 | 33.7 | 6.9% | 23.3% |
+| 7 | 3.16 | 3.1 | 0% | 2.50 | 30.7 | 5.4% | 21.5% |
+| 8 | 3.44 | 1.6 | 0% | 2.92 | 14.3 | 0.4% | 2.1% |
+| 9 | 3.57 | 1.5 | 0% | 3.11 | 13.4 | 0.3% | 1.7% |
+| 10 | 3.78 | 0.6 | 0% | 3.38 | 4.3 | 0.1% | 0.7% |
+
+A field of mixed levels (1, 2, 3, 4, 5, 6, 8 and 10, the seats in turn):
+26.7 attacks a stage under Normal (36.7 under Easy, 18.2 under Hard,
+where the weak are out before they launch); an attack received costs
+16.5 life on average under Normal (1.12 shocks stepped on, 1.09 notes
+missed in locks), 4.2 under Easy, 19.6 under Hard; 3.4% of the attacks
+under Normal knock their recipient out (7.5% under Hard, none under
+Easy). By chart (Normal, the mixed field): 16.0 attacks a stage on
+Beatucada Medium (217 notes), 19.0 on its Hard (283), 27.2 on Sweeteners
+Hard (424), 23.2 on Into My Dream Medium (280), 37.3 on Some Things Must
+Hard (595) and 40.3 on its Challenge (838), that is 1.2 to 3.6 launches
+a minute a seat still in.
+
+What it says, for tuning cost and damage. A bar fills from 50 notes in
+the top class: a strong CPU fills three and a half a minute on these
+charts and launches six attacks a stage; a one-star CPU one a minute.
+A whole attack stepped on would cost 40 life on Normal (eight mines)
+and what the locks miss; what the CPUs actually lose is 2 to 24 life an
+attack by their level, about half of it to the locks (a note missed in a
+locked lane costs twice a mine). Under M8b's rule (each shock the
+ruleset's miss) an attack stepped on whole cost 80% of an ITG FA+ bar;
+under DDI Normal it is 40% and the locks. Attacks alone rarely end a
+strong CPU's stage; they end a weak one's often under Hard and never
+under Easy.
+
+### The stall of a stage's prompt under reduced motion (found and fixed)
+
+The open question of feedback round B: under reduced motion a player's
+prompt stopped at "Stage n starts in 3…", the page drawing and ticking
+nothing more.
+
+- **Reproduced**, in CPU practice, in both browsers, without a server:
+  a practice room's prompt left alone under reduced motion (no Ready, no
+  input; the prompt's own countdown turned off so that it idles), its
+  status counting the readiness window's seconds
+  (`target/scratch/ddi/r3/stall.mjs`). Before the fix: headless Firefox
+  7 stalls in four windows of 27 s, headless Chrome 1 in six; each with
+  `__DDI_DEBUG.ui.needsRedraw` false, each caught up at the next mouse
+  move. (Earlier rounds saw practice never stall because a practice
+  prompt idles for a few seconds only; and took "a still headless
+  Firefox page catches up at the next input" for the browser's doing:
+  it was this.) An online room was not run: the server answering on
+  127.0.0.1:8787 signs in with the real Twitch, not the development
+  provider, so no test accounts could enter it.
+- **The cause** is in the UI core, not the web's `schedule`: under
+  reduced motion a still screen with a deadline (the prompt reads its
+  room ten times a second, `Screen::wake_at`) is woken by the shell's
+  timer, which asks `Ui::idle_wake` when to wake and, once there, tells
+  the UI how long it was idle. The shell's clock is far from zero and
+  coarse (a browser's `performance.now()`: tenths of a millisecond in
+  Chrome, about a millisecond in Firefox), so when the timer fired right
+  at the deadline, `now − from` could come out a hair (1e-13 s) under
+  the wait the deadline was reckoned from: the UI's clock then stood
+  just short of the deadline, `needs_redraw` was false, the wait was
+  reported over, and nothing was left to wake the shell: no frame, no
+  timer, until an input. A stage's prompt idles exactly from the moment
+  everyone is ready (its own countdown draws frames until then), which
+  is why it showed "starts in 3…"; the others played and the room
+  ranked the stalled player a forfeit. Normal motion never idles there
+  (the controls' demonstration draws every frame). Desktop's shell uses
+  the same call.
+- **The fix** (`Ui::idle_wake`): a wait that is over moves the UI's
+  clock on to the deadline at the least and asks for a frame outright.
+  The test that would have caught it:
+  `crates/ui/tests/layers.rs`
+  `a_wait_that_is_over_always_asks_for_a_frame` (a screen that looks ten
+  times a second, a shell clock on a browser's grids far from zero, the
+  timer firing at the first instant at or past the deadline, 4,000 wakes
+  a grid: it failed at the 260th before the fix). After the fix,
+  the same watch: no stall in six windows in Firefox and eight in
+  Chrome.
+- **The other lead** (a direct `#/play?…` prompt under reduced motion
+  keeping `waiting: ["noteskin","audio"]`) was a stale debug state, not a
+  wait: `__DDI_DEBUG.prompt` is published by frames, and a still prompt
+  under reduced motion drew none when only what the play waits for
+  changed (nothing drawn changes). Nine seconds into a direct solo
+  prompt left alone, a mouse move (a frame) showed `["audio"]` within
+  60 ms in both browsers: the skin had loaded behind the prompt long
+  before, and Start then began the play in 0.6 s (Chrome) and 1.0 s
+  (Firefox), as with normal motion. Nothing a stage the room starts
+  would wait on. The page now asks the prompt for a frame when what the
+  play waits for changes, so the state reads true without an input
+  (`["audio"]` at 1.6 s in Chrome and 2.3 s in Firefox under reduced
+  motion, `target/scratch/ddi/r3/direct.mjs`).
+
+### Checked
+
+- Tests. `ddi-room`: `rules` (old ruleset ids read, kept and played as
+  DDI; Difficulty and Boos additive on the wire; Attacks choosing the
+  battle), `battle` (ranking by life, the proportional score, then the
+  absolute score of the same notes, with ties; a report's absolute score
+  there and back), `attacks` (the classes cover DDI and every older
+  id), `tests/online.rs`
+  `the_match_rules_of_ddi_are_kept_alike_by_both_authorities_and_every_mirror`
+  (the contract's script through `LocalAuthority` and through
+  `OnlineAuthority` + `FakeServer`: the same rooms, an unknown ruleset
+  refused, the rules locked with the match, the tie broken).
+  `ddi-engine`: `tests/ddi_shocks.rs` (the twin: a shock and a chart's
+  mine come to the same results under each difficulty, with and without
+  Boos; the tally, points, hold units, lamp, life by difficulty, the
+  locks; one shock a Break flag and no Absolute Dito; the nearer of a
+  shock and a note; the same at 1/60, 1/144 and 0.7 s updates and from
+  the log), `tests/battle_shocks.rs` (the margins on a chart with a
+  stream, a hold, a roll and lifts; an exact play steps on nothing the
+  placement places; an all-stream chart has no section; the bundled
+  charts under both placements), `cpu::opponent`
+  (`under_ddi_a_shock_locks_a_cpus_lane_and_what_passes_there_is_missed`:
+  the same at 60 and 144 frames a second, no Boo with Boos on).
+  `ddi-session`: `a_stage_is_played_under_the_match_s_rules_not_the_player_s`
+  (never Practice), `a_shock_stepped_on_in_a_stage_is_a_mine_by_the_match_s_difficulty`,
+  the attack runner's traces now under DDI
+  (`attacks_are_launched_delivered_and_the_same_at_any_frame_rate_and_from_the_log`
+  and the others), the feed's lock. `ddi-shell`:
+  `each_miniature_shows_its_score_and_its_locked_lanes`. `ddi-ui`:
+  `room_tests` (the rows by taps, by keyboard and by controller, the
+  locked line, an online room's unavailable Attacks and its members'
+  read-only rules), the `qps-ploc` walk, `tests/layers.rs` (the idle
+  wake). `ddi-desktop`: `tests/room_stage_flow.rs` (the Standings'
+  proportional score); `tests/online.rs` was not run (it needs a local
+  server with the development provider; the one answering here signs in
+  with Twitch). `../ddi-server` builds and passes its tests against the
+  changed `ddi-room` (its one literal report gained the new field).
+- Runtime, headless Chrome and Firefox
+  (`target/scratch/ddi/r3/room.mjs`; screenshots in
+  `target/scratch/ddi/r3/shots/`): `rules-*` the Rules pop-up with
+  Difficulty, Boos and Attacks in English, in Japanese and in Firefox;
+  `words-*` a stage against eight CPUs under DDI pressed 25 ms early
+  (the early word "Fantastic", each miniature's score, the player's);
+  `attacks-*` (Chrome and Firefox) Attacks set On in the pop-up: a
+  shock stepped on by the player (the receptor's effect, the lane
+  locked, the combo broken, life −5, a note missed in the lock) and by
+  CPUs (`*-cpu-lock-zoom-*`: the dark lane and violet receptor), the
+  stage's Standings and the match's result; `hard-*` Hard with Boos
+  under Score display Percent (the prompt's "Rules: DDI · Hard · Boos ·
+  Attacks", percents on the miniatures, life −10, the results' "hard ·
+  Boos"); `reduced-*` a stage under reduced motion.
+
+## Round 3b: follow-ups from the maintainer's first test of DDI in rooms (2026-11-12)
+
+The maintainer's notes after playing round 3 (`docs/plans/ddi-ruleset.md`,
+"Round 3b (built)": the rules' side). Everything is still behind the
+hidden switch.
+
+### The mostly black room after stopping a match (found and fixed)
+
+The maintainer: "I've tested stopping a CPU practice match mid-way and
+when I tried starting a new match something went wrong and the rendering
+went mostly black and I had to restart (it was on the web)."
+
+- **Reproduced** in headless Firefox (the maintainer's browser), CPU
+  practice (`target/scratch/ddi/r3b/repro.mjs`, `trace.mjs`): a stage
+  quit part-way, back in the room More → Stop match, the standings
+  closed, then a pick. The room's song select then stood with its
+  header, list, song side and footer gone (their exit had played) and
+  only the room's own parts left (Rules, Players, More, "Match stopped.
+  Pick a song to start the next match."): nothing came after, and no key
+  brought it back (`shots/item1-before-black-room-firefox.png`). In
+  another order of the same race the standings' Continue or Escape left
+  the room for the page before it. It is a race, so not every run showed
+  it: of ten Firefox runs of the stop flows before the fix, three ended
+  in the black room, two left the room and five went well. Every
+  other way of stopping (a quit by Escape or the quit button, Back at a
+  stage's prompt before and after Ready, Rules applied mid-match, Back to
+  the home and in again, Leave room, the browser's Back and Forward over
+  the play route), with Attacks off and on, 4 and 8 CPUs and the dancing
+  hand on, drew the next stage as it should in both browsers; no wgpu or
+  WebGL error and no lost device in any run.
+- **The cause** is not in the renderer but in the web shell's history
+  entries for dialogs (`crates/web/src/components/ui_dev.rs`,
+  `sync_history`). Each modal layer has a history entry, so the browser's
+  Back closes it; a layer closed otherwise is gone back over with
+  `history.go(-1)`, whose `popstate` the shell ignores, and a navigation
+  waits for that pop. Stop match closes the More menu and opens the
+  standings right after: the standings' entry was pushed before the
+  menu's `go` had been carried out. Measured in both browsers
+  (`target/scratch/ddi/r3b/histexp.mjs`): Firefox then drops the `go`
+  with no `popstate` at all, so the shell waited for a pop that never
+  came and every later navigation of that page (the pick's way to the
+  play route, Back) played its exit and then did nothing; Chrome carries
+  the `go` out and drops the pushed entry, so the shell thought it had an
+  entry it had not and the next dialog closed went back out of the route.
+  Any dialog opening as another closes could do it; Stop match always
+  does.
+- **The fix**: one history operation at a time. The bookkeeping moved
+  into the UI core (`ddi_ui::back_stack::Entries`): while a `go` of ours
+  is on its way nothing is pushed, gone through or navigated; its pop
+  brings the layers' entries up to date, then a waiting navigation. A pop
+  that has not come for a second (`POP_WAIT`) is given up with a console
+  warning ("ui: a history pop of ours never came…") and the entries are
+  read again from the history, so nothing can wait on a pop forever.
+  `__DDI_DEBUG.ui.historyDepth` and `historyBusy` say where it stands.
+- **The test that would have caught it**:
+  `crates/ui/src/back_stack.rs`
+  `a_layer_opening_as_another_closes_waits_for_the_pop`, on a model of
+  each browser's history as measured (`pushing_before_the_pop_is_what_breaks_the_history`
+  shows the old order failing on both), and
+  `a_lost_pop_is_given_up_after_a_while`. The brief asked for an
+  offscreen pixel test of a stage after a quit; that would have passed
+  before the fix, since the play was never drawn wrong.
+- **After**: the same flows (Stop match after a quit, after the
+  browser's Back, after Back at the next stage's prompt before and after
+  Ready, the standings closed by Continue and by Escape; Rules applied,
+  the home, Leave room, a plain quit), with Attacks off and on and 4 and
+  8 CPUs: 14 runs in Firefox and 11 in Chrome
+  (`target/scratch/ddi/r3b/matrix-fix-*.log`), no black room, nobody put
+  out of the room, every second match's first stage drawn
+  (`shots/item1-after-*.png`).
+
+### The score a room shows and ranks by is the sum
+
+The maintainer: "We should show the sum everywhere instead of the
+proportional part, I think the proportional part was just a
+misunderstanding, visually we should have the percent and the score
+(sum) and that's it." So everywhere a person reads a DDI score in a room
+it is the score (`DdiScoreView::score`, the proportional part plus the
+absolute score) or, under Score display Percent, the percent: each
+miniature's number under its gauge (`ddi_shell::opponents::ScoreShown`,
+`Sum` or `Percent`), the stage results' Standings
+(`ddi_room::RunDetail::score`), and what a stage ranks by. The
+proportional part is shown nowhere (the HUD, the results, the lists, the
+ghost and the summaries already showed only the two; `ratio` stays in
+the engine for the sum's arithmetic).
+
+- **A CPU's score on the chart's scale** (`CPU_SCORE_V0`, PROVISIONAL,
+  `ddi_engine::rules::ddi`; `DdiScoreView::on_scale`,
+  `ddi_session::battle::chart_most` and `cpu_score`). A CPU plays a
+  tap-only copy, so on a chart with holds the most its notes give is
+  less than the chart's and its own sum would read low beside the
+  player's. Its points are taken as the same share of the whole chart's
+  most as it earned of its own (`equivalent points = round(its points ×
+  the chart's most ÷ its own most)`), and its score is `its proportional
+  part + 100 × equivalent points + its W0s`: as if it had done on the
+  holds as it did on the taps. Its percent is its own play's. The bots
+  (`ddi --mp-bots`), which play the CPU's copy in an online room, report
+  theirs the same way. People in an online room play the same chart, so
+  their sums compare as they are. What it cannot say: a CPU has no way
+  to drop a hold, so its hold units are imputed, never played; and its
+  W0s are capped by the taps it has (a hold's units earn no W0 for
+  anyone, so the cap is the same as a person's).
+- **Ranking** (`ddi_room::battle::rank`): those still in by life, then
+  the score (`Run::Live`'s `score`, additive and optional on the wire as
+  `absolute` is), equal ones tied; a tie between a person and a CPU is
+  an ordinary tie now, since their scores are on one scale. Where
+  someone still in reported no score (a build before this round), the
+  stage is ranked as round 3 ranked it. The deployed server ignores the
+  new field until its next deploy and ranks by the proportional part
+  meanwhile.
+- **A long score on a narrow miniature** (a phone's eight 32 px fields)
+  is set smaller so that it stays within its field's four lanes, never
+  under 6 px (`SCORE_FLOOR`).
+- Tests: `ddi-engine` `a_score_is_put_on_another_chart_s_scale_by_its_share_of_the_most`;
+  `ddi-room` `those_still_in_rank_by_life_then_the_score` (and the
+  contract's script through both authorities, its tie now broken by the
+  sum); `ddi-session`
+  `a_cpu_s_score_is_on_the_chart_s_scale_and_the_stage_ranks_by_life_then_the_score`
+  (a bundled chart with holds: each CPU's sum, its detail and the
+  ranking); `ddi-shell` `each_miniature_shows_its_score_and_its_locked_lanes`;
+  `ddi-desktop` `tests/room_stage_flow.rs` (the Standings' sums) and the
+  bots' run.
+
+### "Timing difficulty"
+
+The maintainer: "'Difficulty' doesn't convey the setting too well, maybe
+something like 'Timing difficulty' or 'Timing strictness' would be
+better." The option (Options → Rules) and the match rule (the Rules
+pop-up) are labeled **Timing difficulty** (Japanese タイミング難易度, an
+unverified draft, added to `locales/ja/GLOSSARY.md`); the values are
+Easy, Normal and Hard as before, and identifiers keep `difficulty`.
+Where a summary says what differs from the usual it says "Hard timing"
+or "Easy timing" (ハードタイミング, イージータイミング): the Rules pop-up's
+locked line and a stage's prompt ("DDI · Hard timing · Boos · Attacks"),
+and the results' mods line and the plays list ("hard timing", in that
+line's lower case). Looked at in headless Chrome at 1280×720 and 844×390
+in English, Japanese and `qps-ploc` (`shots/i23-options-*`,
+`i23-rules-*`): the row's label has room in each.
+
+### A battle's shocks drawn as shock arrows, a chart's mines as mines
+
+The maintainer: "I want to differentiate between 'attack mines'
+(dynamic) and 'chart mines' (native to the chart) by their skin … attack
+mines use the shock note skin." Planned in the ruleset ("Mines and
+shocks": one object, two looks) and put off in round 3; built now.
+
+- **A skin element of our own, `Tap Shock`**
+  (`docs/plans/noteskin-authoring.md`, "`Tap Shock`"): a skin that opts
+  in (`[NoteDisplay] UseTapShock=1`) draws a battle's shocks (the notes
+  numbered from `HAZARD_INDEX_BASE`) with it, on the play's field and on
+  the opponents' miniatures (the play's skin draws those, with no Lua
+  run: the element is loaded with the lane's others, so it is ready
+  there); a skin without it draws them as its `Tap Mine`, as before. The
+  hit effect is the mine's. The element is loaded only for a play that
+  may be given shocks (a stage whose match has attacks, or the
+  development switch's section: `StageOrder::may_have_shocks`, told to
+  the skin as `ddi_noteskin::lua::Env::shocks`), so a solo play loads
+  and draws exactly what it did.
+- **Infinito**: `Tap Shock` is its lane-shaped shock arrow, always. Its
+  `Tap Mine` is what the `ShockArrows` parameter says, except in a play
+  that may be given shocks (`NOTESKIN:PlayHasShocks()`, our extension),
+  where a chart's own mines are the spiked band whatever the parameter
+  says: the two never look the same. The parameter's description says so
+  (it is the skin's own text, not a message). Its files are ours; the
+  change is recorded in its `PROVENANCE.toml`'s modifications and its
+  README, as its other changes are. No new art: both looks were there.
+- **Mine row links** (`MineConnectRows`) join a row's mines with mines
+  and its shocks with shocks, each with its own link, never a shock with
+  a mine.
+- **The built-in fallback arrows** (drawn while a skin loads, or where
+  one cannot draw a lane) tint a shock violet (`scene::SHOCK_TINT`); a
+  chart's mine stays white.
+- **The other bundled skins** have no `Tap Shock` and draw shocks as
+  their mines: Alpha-Arrows, CF_ALLOY, CF_CHROME, CF_VIBRANT, Dake,
+  DanOni, Delta, Peters-DDR, Peters-DDR-Note and Peters-DDR-Vivid.
+- Tests: `ddi-noteskin` `a_skin_opts_into_its_own_tap_shock`,
+  `a_skin_s_tap_shock_loads_and_its_lua_is_told_of_shocks`; `ddi-render`
+  `a_battle_s_shock_is_drawn_by_tap_shock_and_a_chart_s_mine_by_tap_mine`
+  (two different elements in one frame, the links, the fallbacks);
+  `ddi-desktop` `tests/tap_shock_skin.rs` (the bundled Infinito read as
+  a play reads it: the shock lane-shaped and the mine spiked in a stage
+  with the parameter off and on, a solo play as before, Delta and
+  Peters-DDR without the element).
+- Looked at in headless Chrome and Firefox
+  (`target/scratch/ddi/r3b/look6.mjs`, `shots/i6-*`): a stage of eight
+  CPUs with Attacks on, on Some Things Must's Challenge chart (seven
+  mines of its own at beats 368 to 372, a section of shocks put in from
+  beat 364 by `mpdevmines`): Infinito with `ShockArrows` off and on (the
+  chart's mines spiked in both, the shocks lane-shaped, on the field and
+  on the miniatures), and Delta (both its mines).
+
+### Shocks placed where they matter (`placement-v2`)
+
+The maintainer: "the placement is a bit too easy to ignore sometimes,
+maybe we should prioritize adding some of them to lanes which already
+have a note nearby." With `placement-v1` most shocks landed in lanes with
+nothing near them, where a player who simply does not press never meets
+them.
+
+- **`placement-v2`** (`ddi_engine::battle::PLACEMENT_V2`, `Near`; what
+  attacks use, `PLACEMENT`). Every margin of v1 is kept exactly (no shock
+  from W3 before a step of its lane to 0.25 s after it, none during a
+  hold or a roll nor within 0.25 s past its end, none from a second
+  before a lift); what changed is the choice among the allowed places.
+  A place is *next to a note* of its lane when it is from 0.25 s to
+  0.5 s after one (its step, a hold's or a roll's end: a key still
+  resting on the lane steps on it) or from W3 to twice W3 before a step
+  (an early press steps on it; never before a lift, whose key is ready a
+  second ahead). Of a section's eight shocks, six are aimed at such
+  places where the section has them, on the sixteenth-note grid: one a
+  beat, then a second, in the lane with the fewest so far, never two by
+  one note, never two in a row, never two of a lane within the lock's
+  second. The rest are placed as v1 places them (the eighths, then the
+  sixteenths), so an attack still reads as a pattern.
+- **Where a section has no room for that** (a chart whose free lanes are
+  few: eight shocks in two lanes over four seconds cannot be a second
+  apart), the remaining shocks ignore the second between a lane's
+  shocks, as v1 always did; and where even that does not fit, the
+  section is v1's own. So no section v1 has is lost, and a section with
+  too little room for eight safe shocks is skipped as before.
+- **Deterministic** as before: the same chart, section and seed give the
+  same shocks (pure in them; nothing read from a clock or a frame), so
+  the same at any frame rate and from a log. `placement-v1` and
+  `placement-v0` stay readable through `schedule_with`.
+- **Measured on the bundled four-lane charts** under DDI Normal
+  (`cargo test -p ddi-engine --test battle_shocks -- --nocapture`,
+  seed 7): all 1,496 sections of 1,496 slots under both; shocks next to
+  a note of their lane 6,875 of 11,968 (57.4%) under v2 against 1,986
+  (16.6%) under v1; pairs of one lane's shocks within a second 12 under
+  v2 against 4,998 under v1. On the test's chart with room beside its
+  notes throughout (steps, jumps, eighth runs, a hold, a roll, lifts) v2
+  puts six of eight there (75%), never fewer than five in a section.
+- **The attack-rate study again** (`cargo test --release -p ddi-session
+  --lib attack_rates -- --ignored --nocapture`, six seeds, round 3's
+  rules `attacks-v0`; `DDI_ATTACK_PLACEMENT=v1` for the older placement,
+  whose run reproduces round 3's table to the digit). An attack
+  received, v1 then v2:
+
+  | Eight CPUs at one level, DDI Normal | Shocks stepped on (of 8) | Notes missed in locks | Life lost | Knocked out by it | Out of the stage |
+  | --- | ---: | ---: | ---: | ---: | ---: |
+  | Level 1 | 2.05 → 2.54 | 1.30 → 2.24 | 23.2 → 35.1 | 15.4% → 24.4% | 59.0% → 63.5% |
+  | Level 3 | 1.77 → 2.20 | 1.48 → 2.19 | 23.6 → 32.9 | 5.3% → 8.6% | 24.7% → 30.9% |
+  | Level 5 | 1.29 → 1.63 | 1.40 → 2.07 | 20.5 → 28.9 | 0.8% → 1.5% | 3.8% → 6.2% |
+  | Level 7 | 1.10 → 1.21 | 1.24 → 1.58 | 17.9 → 21.8 | 0.1% → 0.1% | 0.7% → 0.3% |
+  | Level 8 | 0.46 → 0.54 | 0.50 → 0.67 | 7.2 → 9.4 | 0.0% → 0.1% | 0.0% → 0.3% |
+  | Level 10 | 0.14 → 0.18 | 0.17 → 0.23 | 2.4 → 3.2 | 0.0% → 0.0% | 0.0% → 0.0% |
+
+  | A field of mixed levels | Attacks a stage | Shocks stepped on | Notes missed in locks | Life lost | Knocked out by it | Out of the stage |
+  | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+  | Easy | 36.7 → 36.7 | 1.29 → 1.51 | 1.46 → 1.83 | 4.2 → 5.2 | 0% → 0% | 0% → 0% |
+  | Normal | 26.7 → 25.8 | 1.12 → 1.31 | 1.09 → 1.53 | 16.5 → 21.8 | 3.4% → 5.9% | 22.6% → 29.9% |
+  | Hard | 18.2 → 15.7 | 0.70 → 0.84 | 0.63 → 0.89 | 19.6 → 26.2 | 7.5% → 14.9% | 55.6% → 65.6% |
+
+  What the numbers can tell: with the same CPUs and the same attacks, an
+  attack costs about a third more life under v2 (16.5 to 21.8 under
+  Normal), mostly through the locks (a shock stepped on beside a note
+  locks the lane the next notes come down: 1.09 to 1.53 notes missed an
+  attack), and knocks out nearly twice as often. What they cannot: how
+  a person fares. A CPU's response to shocks (`MINE_RESPONSE_V0`) is
+  invented and uncalibrated: a chance, by its level, of an extra press
+  in each shock's window, and its own presses within a span of a shock
+  moved a little or left out. Under v2 more of its presses are near a
+  shock, so more are disturbed and some then land on the shock or miss
+  their note: that is where the rise comes from. It models neither of
+  the two things v2 aims at in a person (a key left resting after a
+  step, a habit of pressing ahead of the beat). The direction is the
+  placement's doing; the sizes are not a balance.
+- Tests: `ddi-engine` `tests/battle_shocks.rs`
+  `placement_v2_aims_most_shocks_next_to_a_note_of_their_lane` (the
+  margins, the share, one a row, two a beat, the second between a lane's
+  shocks, no section lost, pure), `what_the_placement_places_an_exact_play_avoids`
+  (now on a second chart too: an exact play, its keys down a fifth of a
+  second, steps on nothing v2 places), `bundled_charts_have_safe_sections`
+  (the table above).
+- A person's view (`target/scratch/ddi/r3b/look4.mjs`, `shots/i4-v1-*`
+  before and `i4-v2-*` after, the same section of the same chart and
+  seed put into the player's field by `mpdevmines`): Some Things Must's
+  Challenge chart from beat 96 (dense: v1's shocks sit on the eighths
+  between the lanes' steps, v2's a sixteenth off a step of their own
+  lane) and Beatucada's Easy chart from beat 32 (sparse: v1's are far
+  from any note, v2's follow or precede the few there are).
+
+### No recovery period, and chained attacks (`attacks-v1`)
+
+The maintainer: "About the lock after an attack, I think we can let the
+recovery be even tighter, maybe even allowing chaining attacks (which
+could be interesting in intense battles)."
+
+- **`attacks-v1`** (`ddi_room::attacks::ATTACKS_V1`, what stages play:
+  `ATTACKS`; `attacks-v0` kept by name). The bar, the cost and the
+  checkpoints are v0's. **No recovery period**: an attack against
+  someone is over once its last shock's window has passed (at the next
+  checkpoint the ledger marks it cleared and recovered at once), not
+  waiting for eight of their judgments, four beats, or the lane that
+  shock locked. **Chaining** (`AttackRules::chain`, one): while an
+  attack against someone is still on its way or passing, one more may
+  be reserved against them, in the first safe section that starts after
+  the one before it has cleared (and no sooner than their lead, as
+  ever), so two attacks' shocks never share a section; never more than
+  one waiting. A full bar whose every possible target has one passing
+  and one waiting is `Blocked` (`NoEligible`) as before and launches at
+  a later checkpoint, once someone's first is over; its policy picks
+  among those who can be attacked, as before.
+- **Settlement and expiry** (`SETTLEMENT_V0`, unchanged): a stage is
+  decided only with no attack outstanding against the last one in, and
+  a waiting chained attack is outstanding as any committed one is; when
+  a target goes out, every attack against them not over yet expires,
+  the waiting one too, nothing refunded.
+- **What a player sees** (`ddi_shell::battle_cue`,
+  `ddi_session::battle::Incoming`): the warning by the receptors is the
+  nearer attack's; where one more waits behind it a second, smaller
+  bolt stands at its upper right (`Incoming::more`, `Cue::more`); once
+  the first's last shock has passed the warning is the next one's, and
+  once every one has passed it goes. The shield that stood for the
+  recovery is gone: there is none to wait for. No message spoke of
+  recovery, so none changed; miniatures never had a recovery mark.
+- **Tests**: `ddi-room` `attacks/tests.rs`
+  `a_chain_lands_back_to_back_and_a_third_waits_for_the_first_to_pass`
+  (three attackers against one target: the second reserved behind the
+  first in the next section, the third blocked while one passes and one
+  waits, launched once the first is over, behind the second),
+  `a_chain_expires_whole_and_keeps_the_stage_from_settling`,
+  `the_rules_are_named_and_v1_has_no_recovery_and_a_chain_of_one`,
+  `attacks_v0_never_chains`; `ddi-session`
+  `chained_attacks_are_delivered_back_to_back_into_plays_and_cpus` (a
+  stage on a long chart against three strong CPUs: 2 of its 12 attacks
+  chained, one against the player and one against a CPU, each after the
+  one before it had cleared, all in their recipients' plays and fields,
+  the record the same at 60 and 144 frames a second); `ddi-shell`
+  `it_scales_in_dims_in_sight_and_marks_one_more_waiting`.
+- **The attack-rate study again** (the same six charts and seeds,
+  `placement-v2` under both; `DDI_ATTACK_RULES=v0` for the older
+  rules). `attacks-v0` then `attacks-v1`:
+
+  | A field of mixed levels | Attacks a stage | Shocks stepped on | Life lost an attack | Knocked out by it | Out of the stage |
+  | --- | ---: | ---: | ---: | ---: | ---: |
+  | Easy | 36.7 → 36.5 | 1.51 → 1.48 | 5.2 → 5.1 | 0% → 0% | 0% → 0% |
+  | Normal | 25.8 → 25.8 | 1.31 → 1.23 | 21.8 → 21.2 | 5.9% → 5.9% | 29.9% → 30.2% |
+  | Hard | 15.7 → 14.8 | 0.84 → 0.88 | 26.2 → 26.2 | 14.9% → 16.4% | 65.6% → 66.7% |
+
+  Eight CPUs at one level under Normal move as little (level 5: 3.73 to
+  3.62 launched a seat a stage, knocked out by an attack 1.5% to 3.6%;
+  level 10: 6.31 to 6.34). Against round 3's table (`attacks-v0`,
+  `placement-v1`: 26.7 attacks a stage, 16.5 life an attack, 3.4%
+  knocked out under Normal) the whole difference is the placement's.
+  What it says: in a field of eight a full bar nearly always found
+  someone not under attack already, so recovery was seldom what held it
+  back; the new rules matter where the field is small (a duel, the last
+  two of a stage), which this study does not run, and to a person as a
+  second attack arriving right behind the first. A duel's rates were
+  not measured.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| A report's detail (`RunDetail`) is self-reported and shown as sent, bounded only in size | `crates/room/src/battle.rs`, `reduce.rs` | An online player's grade, combo and judgments on the standings are what their device said | Whether the room should check a detail against the run, or wait for server-judged plays |
+| The stage's standings seen on its results count as seen: no pop-up back on song select | `results_stage.rs` `stage_update` | One screen fewer after each stage for those who saw the standings | Keep, or always pop the standings up |
+| The results' tab is remembered for the session, the last stage always opening on the standings | `results_stage.rs` `CHOSEN` | A player who prefers the graphs sees them after middle stages | Whether it should be a saved setting, or always the standings |
 | Bots: 12 h sessions, never re-signed; 60 sessions an hour per admin token; 8 bots in a room | `../ddi-server` `bots.rs` | A long bot run stops after 12 h (signed out); a ninth bot is refused | The limits for bots on the deployed server |
 | Bot tool pacing: Ready after 0.7–2.5 s, host rests 8 s on a song, 15 s after each stage's results, waits for 2 players | `crates/desktop/src/bots.rs` | How quickly a room of bots moves | None (a test tool), unless it should mimic people more closely |
 | Under-eight awards: `ExperimentalLinearV0`, place `p` of `n` earns `n + 1 - p` (practice's 4-player field: 4, 3, 2, 1) | `awards::AwardRule` | Practice and small rooms show points on this scale, marked experimental | The award rule for fields under eight |
@@ -1604,7 +2864,8 @@ detail (round 3). The dancing hand is not fed shocks (D7).
 | Admins may exceed the member limit by `admin_reserve` (4) | `rules::RoomPolicy` | Admins can always enter to help | Operator-observer capacity |
 | Protocol version 1, accepting only 1 (`OLDEST_PROTOCOL_VERSION`); the first incompatible change must keep the previous accepted | `protocol.rs` | None yet | The server's compatibility window |
 | The room keeps the last 8 finished matches | `RoomPolicy::history` | Older match records drop from the room | How long a room keeps results |
-| Practice CPUs start at level 3 of 5 (the engine's `normal`), seeds from the time the room was made | `state::room::DEFAULT_CPU_LEVEL`, `PracticeRoom::new` | A new practice room shows "Level 3 of 5"; two rooms differ in their CPUs' seeds | Practice's default profile; whether the seed should be shown or fixed |
+| Practice's default level is level 8 of ten (the engine's `normal`; "level 3 of 5" before feedback round A), seeds from the time the room was made | `state::room::DEFAULT_CPU_LEVEL`, `PracticeRoom::new` | Add CPUs starts at three gold and two silver stars; two rooms differ in their CPUs' seeds | Practice's default profile; whether the seed should be shown or fixed |
+| CPU levels `cpu-levels-v0`: ten, the last five the frozen strengths 0.75 to 1.25, the first five strength and lapse 0.40/0.20, 0.47/0.19, 0.54/0.16, 0.61/0.12, 0.68/0.07, chosen by measurement over local arcade packs, never against people | `ddi_engine::cpu::CPU_LEVELS_V0` | How weak a one-star CPU is: about 40% under ITG FA+ over the arcade charts, out of two stages in three; five silver stars about 77%, out of one in twenty-five | The levels' spacing; whether the five strengths should be respaced (they span 86% to 97% and never go out); calibration against people |
 | A chart is playable by the CPUs when its style is a built-in one-player layout with four lanes; song-declared layouts are refused | `state::room::eligible` | Solo, Double, Pump, techno and DanOni 5–9 charts, and a song's own four-lane layout, are refused with a reason | Whether to accept song-declared four-lane layouts before M3's load check |
 | Chosen local content counts as loaded at once | `PracticeRoom::sync_loading` | Ready alone makes the player eligible | Replaced in M3 by the real load and plan check |
 | Attacks `attacks-v0`: a commitment looks 16 beats past its earliest start; recovery after eight of the recipient's judgments past the attack's last shock and four beats | `ddi_room::attacks::ATTACKS_V0` | How long a full bar waits for a place, how soon someone can be attacked again | The numbers, once played |
@@ -1614,17 +2875,17 @@ detail (round 3). The dancing hand is not fed shocks (D7).
 | Launch order turns each checkpoint (`k mod n` in participant order) | `StageBattle::launch` | With several full bars at once, who picks first | None unless play shows a bias |
 | Settlement `settlement-v0`: decided only without an outstanding attack against the last one in; a knockout while waiting shares first with those out in the same checkpoint interval as the one before | `ddi_room::attacks::SETTLEMENT_V0` | "Stage won" waits for the last attack to pass; "Drawn: final attack" | As decided (D6) |
 | A stage with the player gone is played out a checkpoint at a time (CPUs, their attacks, settled as they come) | `ddi_session::battle::Battle::play_out` | The ranking of the CPUs after the player leaves includes their attacks on one another | None until watching exists |
-| CPU shock response `mine-response-v0` (uncalibrated): avoidance from level (1–2: 0, 3–4: 0.5, 5: 1); at 0 a CPU steps on 14% of shocks, its presses within 0.3 s of one moved ±45 ms and 4% left out; at 0.5 6%, ±25 ms, 1.5%; at 1 2%, ±12 ms, 0.5% | `ddi_engine::cpu::MINE_RESPONSE_V0` | How often a CPU's life drops to an attack, and how much its timing suffers near one | Calibration against people; whether avoidance joins `Skills` |
+| CPU shock response `mine-response-v0` (uncalibrated; extended in feedback round A): avoidance from level (1: 0, then a fifteenth more each to 5; 6–7: 1/3, 8–9: 2/3, 10: 1); at 0 a CPU steps on 30% of shocks, its presses within 0.3 s of one moved ±65 ms and 8% left out; at 1/3 14%, ±45 ms, 4%; at 2/3 6%, ±25 ms, 1.5%; at 1 2%, ±12 ms, 0.5% | `ddi_engine::cpu::MINE_RESPONSE_V0` | How often a CPU's life drops to an attack, and how much its timing suffers near one | Calibration against people; whether avoidance joins `Skills` |
 | Battle `gauge-survival-v0` (`ddi_room::battle::BattlePreset::GaugeSurvivalV0`, practice's `MatchRules::battle`): life is each competitor's gauge under the match's ruleset (M8a; before, the player's own), empty is out of the stage | `crates/room/src/battle.rs`, `crates/session/src/battle.rs` | A stage is survival under the match's ruleset's gauge; Rules says "Survival · provisional" | The standard battle (life, power) and its numbers |
-| Ranking: still in by life, then accuracy (the ruleset's percent, money or EX over its most); then the out, later first; then forfeits; exact ties share | `ddi_room::battle::rank` | Placements follow life first; the CPUs' accuracy is on the taps-only copy, the player's on the full chart (not like for like) | Ranking survivors; whether CPUs should play the full chart |
-| Decided once at most one competitor is still in; the last out together share first; the winner's fail is turned off to the song's end | `battle::decided`, `PlaySession::tick` | "Stage won" over the column; the player finishes the song whatever the gauge does after | Final-contender settlement once attacks exist |
+| Ranking: still in by life, then the proportional score (DDI's points over the most the notes played give; another ruleset's percent, money or EX over its most), then among those who played the same notes DDI's absolute score (its W0s); then the out, later first; then forfeits; exact ties share (the DDI ruleset's round 3) | `ddi_room::battle::rank`, `Absolute` | Placements follow life first; a CPU's score is of its tap-only copy, the player's of the whole chart, each a share of its own most; a tie between a person and a CPU is not broken | Ranking survivors; whether CPUs should play the full chart |
+| Decided once at most one competitor is still in; the last out together share first; the winner's fail is turned off to the song's end | `battle::decided`, `PlaySession::tick` | "Stage won" in the miniatures' status line; the player finishes the song whatever the gauge does after | Final-contender settlement once attacks exist |
 | The player out: the play ends as a failed play does, the remaining CPUs played to their end at once | `Battle::outcome` | No watching after elimination; the results come after the fail's hold | The spectator view and when the eliminated return to the room |
 | A quit, an interruption (page hidden, audio stopped) or Back on a stage's prompt is a forfeit; a song unreadable at play time stops the match (`Interruption::ContentLost`) | `PlaySession::tick`, shells | Losing focus mid-stage costs the stage | Local interruption versus forfeit; reconnection |
 | A stage plays with no turns, note removals or rate, the play options row not offered, no ghost, no singleplayer countdown | `SessionConfig::player_spec`, prompt | The player's other settings (speed, skin) apply; the rules are the match's (M8a) | Which personal options a stage allows |
 | Stage plays are not kept in the play history or bests | both shells' record paths | A practice match leaves no history | Whether a stage counts as a personal play |
 | Battle voice `battle-voice-v0`: priorities outcomes/out 40, (attacks 30, none yet), life critical 20, players left 10, openings and the finished song 5; one battle line at a time, a lesser or equal one passed over, never queued | `ddi_session::announcer::battle::BATTLE_VOICE_V0` | Which battle line speaks when two meet | The battle voice's priorities and whether a line may cut another (needs a voice bus that can stop one sound) |
 | A stage leaves out a play's routine lines (combos, comments, life lost, last life, full combos, cleared, failed, grades, records, cheer) | `battle::stage_speaks`, `Announcer::tick` in a stage | A pack without battle lines says only ready, here we go, failed (out) and cleared (finished after a win) in a stage | Whether some routine lines (combo milestones) belong in a battle voice preset |
-| A moment shows only where its own line was not said; for 2.5 s with a 0.25 s fade; in the status line under the right side's miniatures (M7c; at the column's top on the column), nothing in bars-only columns or with no column | `VoicePolicy::cue_seconds`, `cue_fade`, `ddi_shell::opponents` | A phone's narrow column has no cue | Whether cues show always, and where on a phone |
+| A moment shows only where its own line was not said; for 2.5 s with a 0.25 s fade; in the status line under the right side's miniatures (M7c), beside the watermark where the sides are too narrow for words (feedback round A) | `VoicePolicy::cue_seconds`, `cue_fade`, `ddi_shell::opponents` | A phone held upright shows the cue on the watermark's row, over the field's far end | Whether cues show always, and where on a phone |
 | Survivors milestones at four and two only; life critical is the gauge's own danger, once a stage, never from the start | `SURVIVOR_MILESTONES`, `Battle::tell` | A one-life gauge never says life critical | The battle preset's danger threshold once battle life exists |
 | The match's line is said on the last stage's results, in the stage end's place; nothing is spoken in the room | `PlaySession::stage_reported` | The match's outcome is heard as the last results open | A room voice for intermission and match results |
 | Each stage is its own Start after the room's countdown (practice's prompt asks for Start) | shells | Two presses per stage: the room's Start, then the prompt's | A shared start in hosted rooms (the room's countdown starts the play) |
@@ -1644,8 +2905,8 @@ detail (round 3). The dancing hand is not fed shocks (D7).
 | A grant: thirty minutes, one song, a whole share's byte limit (2 GB); room shares expire with the room's idle life (seven days from their making) and are deleted when it closes | `ddi_share_protocol::GRANT_TTL_MS`, `../ddi-server` `RoomConfig::share_life_secs` | A song shared in a room lives at most a week unless shared again | Per-room limits and the life of a long room's shares |
 | Any operator (owner, co-host, admin) may ask for a pending stage's grant; only the client that chose it asks by itself | `../ddi-server` `RoomCore::grant_request`, `RoomClient::sync_online` | A co-host can't take over a host's half-done upload from the room screen yet | The "host gone before upload" recovery the study proposes |
 | Start in the lobby is one command (`StartStage` on the first stage); `StartMatch` kept for protocol 1's older clients | `reduce.rs` | A refused Start locks nothing | None (M5c's question answered) |
-| Miniatures: lane at most 45% of the play's and 44 px, at least 16 px (else as many as fit at 16 px and a count, else the column); seven lanes tall, receptors a lane and a half from their end; 10 px between slots, 20 px from the field's band | `ddi_shell::opponents` constants | Eight miniatures at 1280×720 have 32 px lanes (2×2 each side), 44 px at 1920×1080, 16 px on a phone held sideways; a phone held upright shows the column | The miniatures' size, density and placement |
-| First half of the seats on the left, the rest on the right, each side its own height; in a stage the dancing hand is behind the field, from below the judgment to the bottom (the top under Reverse), `BEHIND_FIELD_ZOOM` 1.9 against the band's width, its top quarter fading in | `opponents::arrange`, `play_view::behind_field`, `dance::BEHIND_FIELD_ZOOM` | The hand is large under the judgment, the combo over its wrist, darkened by the band | The hand's size, its overlap with the combo, its dimming |
+| Miniatures (feedback rounds A and C): lane at most half the play's (`MINI_LANE_SHARE` 0.5; 75% and 96 px before round C), at least 8 px for a room's eight (16 px beyond the cap, then turns); as many lanes tall as the play's field, eight to twelve (six to ten before round C), receptors a lane and a half from their end; between slots 4% of the side's width (4 to 10 px), from the field's band 8% (4 to 20 px), from the screen's edge 4% (3 to 10 px); name line 9 to 14 px | `ddi_shell::opponents` constants (`MINI_LANE_MIN`, `MINI_LANE_SHARE`, `MINI_ROWS_MIN`, …) | Eight miniatures at 1280×720 have 28 px lanes on fields ten lanes tall (2×2 each side), 46 px at 1920×1080, 16 px on a phone held sideways, 13 px in the margins of a phone held upright; one to four are at the cap, 36 px at 1280×720 | The miniatures' size, density and placement; the cap's share; whether 13 px lanes are worth showing on a phone |
+| First half of the seats on the left, the rest on the right, each side its own height; in a stage the dancing hand is behind the field, whole, in the band from past the receptors' row to the bottom (the top under Reverse), as large as a solo play's frame's proportion fits there (`BEHIND_FIELD_TALL` 1.13) up to `BEHIND_FIELD_ZOOM` 2.0 against the band's width, with no fade (round C; under the judgment at 1.9 with its top quarter fading in before) | `opponents::arrange`, `play_view::behind_field`, `dance::behind_field_distance` | The whole hand at 0.79 of its solo size behind the judgment, the combo and the notes, darkened by the band | The hand's size (clear of the receptors, or a solo play's size behind them too), its dimming |
 | Every miniature at the local player's speed and direction | `PlayView::draw` | Opponents' fields read like the player's own, not like theirs | Their own display settings once a remote stream carries them |
 | A judgment shows 0.4 s; a skin's explosion components drawn at 0.4 opacity on a miniature; a skin without them gets a soft glow of the judgment's color | `feed::FLASH_SECONDS`, `noteskin::MINIATURE_HIT_ALPHA`, `opponents::draw_fields` | Infinito's W1 burst is a faint flash on a miniature; Peters-DDR's miniatures glow instead of exploding | The miniature's hit effect |
 | An actor-drawn receptor is drawn as it rested a second into the play | `NoteskinPlay::rest_receptors` | StepMania skins' miniature receptors do not press | None expected (no Lua per miniature) |
@@ -1653,7 +2914,7 @@ detail (round 3). The dancing hand is not fed shocks (D7).
 | A miniature's combo never below 0.3 of the play's scale | `hud::MINI_COMBO_MIN_SCALE` | Below 22 px lanes the combo is larger than its field's scale | Legibility against faithfulness at small sizes |
 | Nine players: `ExperimentalNineV0`, the eight-player table and 0 for ninth | `ddi_room::awards` | A nine-player stage's ninth earns nothing, the first eight as in an eight-player field; marked experimental | The award rule for nine (and whether ninth should earn something) |
 | Development only: practice beyond the cap (129), linear points for any field; past what fits, the opponents take turns in the slots, `ROTATION_V0` (8 s a turn, 0.4 s darkening, none under reduced motion), each always in its own slot, priority seats never rotating (none yet) | `RoomPolicy::development`, `AwardScheme::DevelopmentV0`, `opponents::rotate`, `opponents::priority_seats` | Only through `mpcpus=` / `--mp-dev-cpus` | The large-party density policy |
-| With lyrics shown the column is drawn instead | `PlayView::draw` | A work with lyrics shows the column | Where miniatures go around lyrics |
+| Lyrics are drawn over a stage's miniatures where a long line reaches past the field | `PlayView::draw` | A song with lyrics keeps its miniatures; a wide line may cross a miniature for its moment | Whether lyrics should narrow to the field in a stage |
 | Spotlight rest `spotlight-rest-v0`: 3 s before the host's resting song is told to the room (and, online, uploaded) | `state::room::SPOTLIGHT_REST_MS` | Guests see a song three seconds after the host stops on it; scrolling sends nothing | The rest's length; whether to upload on rest or only show the card |
 | Readiness `hosted-deadline-v1`: 30 s from the song's availability (the server's `ROOM_READINESS_WINDOW_MS`, 15 s in its `wrangler.toml`, overrides), early start once every connected candidate is ready and loaded | `rules::ReadinessPolicy` | A stage starts when the last person readies; a disconnected one waits for the deadline | The window's length; whether a reconnecting member should hold the early start |
 | The prompt goes back 2.5 s after the room lets go of it (sat out, canceled) | `prompt_room.rs` `GONE_SECONDS` | The line is readable, then song select | None expected |
@@ -1661,15 +2922,101 @@ detail (round 3). The dancing hand is not fed shocks (D7).
 | Practice starts with three CPUs drawn from the room's seed | `state::room::STARTING_CPUS` | Every practice room has a different three | Fixed starters, or the last roster kept |
 | A pick's readiness and the countdown: the host's Back on the prompt cancels the window (back to picking); a member's withdraws only themself | `RoomClient::leave_prompt` | The host can change their mind before the start | Whether the host's Back should keep the window for the others |
 | Desktop's session in the config folder's `online-session`, owner-only on Unix, plain text | `crates/desktop/src/online.rs` | Signed in across runs until the session's thirty days | The system keychain instead |
-| Ruleset as a match rule, `itg-fa+` by default, from `MatchRules::RULESETS`; a stage plays the preset as it is (default judge and life levels, holds by the chart's game, fail immediate) | `ddi_room::MatchRules::ruleset`, `ddi_session::battle::stage_ruleset` | Everyone's stage plays ITG FA+ unless Rules says otherwise; a player's judge or life level, battery or fail type do not apply in a stage | Whether personal StepMania options (judge difficulty) should be match rules too |
+| The match's ruleset is DDI alone (the DDI ruleset's round 3; `itg-fa+` and six more until then, whose ids are still read and played as DDI), its Difficulty (Normal by default) and Boos (Off) match rules; never Practice; fail immediate | `ddi_room::MatchRules::{ruleset, difficulty, boos}`, `ruleset_id`, `ddi_session::battle::stage_ruleset` | Everyone's stage plays DDI under the match's difficulty and Boos, whatever their own options say | The defaults; whether a match should be able to mix difficulties (a handicap) |
 | `attacks-v0`: a bar of 100, an attack 100, checkpoints every four beats from beat 4 to four beats past the last note; overflow lost | `ddi_room::attacks::ATTACKS_V0`, `AttackRunner::new` | The bar moves in steps every four beats and fills from about 50 best-window notes | The bar's size and the checkpoint's beat count |
-| `power-classes-v0`: the best window 2, the next 1, the rest 0, for every match ruleset (D2) | `ddi_room::attacks::POWER_CLASSES_V0` | Time to a full bar depends on timing, not on the ruleset's names | None (D2), unless play shows the classes too tight under FA+ or DDR A |
-| Attack power development only (`gauge-attacks-v0`) | `--mp-dev-attacks`, `mpattacks=1`, `ddi_ui::state::room::Development` | Not shown in ordinary practice | D8's "On by default" in a later round |
-| `injected-mine-v0`: a shock costs the ruleset's miss to the gauge, the ruleset's mine window (70 ms under FFR) | `ddi_engine::battle::INJECTED_MINE_V0` | A shock stepped on takes ITG's 10%, SM5's 8%, DDR A's miss | None (D1) |
-| `placement-v0`: eight shocks over eight beats from a checkpoint, the eighths then the sixteenths, at most two a beat, one a row, clear by window + widest judged window + 50 ms, no body across, no tail 150 ms before, no lift 0.5 s after | `ddi_engine::battle::PLACEMENT_V0` | Where the shocks fall; a dense chart has fewer sections | The clearances, and whether sixteenths are acceptable |
+| `power-classes-v0`: the best window 2, the next 1, the rest 0, for every match ruleset (D2); DDI's W0 and W1 2 (±16.67 ms on Normal), W2 1 | `ddi_room::attacks::POWER_CLASSES_V0` | A bar fills from 50 notes in the top class: a strong CPU fills about three and a half a minute on the bundled charts, a one-star CPU one (the round's tables) | The classes, the bar's size and an attack's cost, from the measured rates |
+| Attacks are a match rule, Off by default (`gauge-attacks-v0` when On), offered in CPU practice; an online room shows them as not there yet | `ddi_room::MatchRules::attacks`, `screens::room::attacks_offered`; conveniences `--mp-attacks`, `mpattacks=1` | Anyone in practice turns attacks on in Rules; an online host cannot | D8's "On by default" in a later round; online attacks |
+| A shock is a mine under DDI: −5 life on Normal (−1 Easy, −10 Hard), −10 points, the combo, the floors, the lamp, and its lane locked a second; `injected-mine-v0` (the ruleset's miss to the gauge alone) only under a ruleset without the lock, which no room plays | `ddi_engine::Player::shock_is_mine`, `ddi_engine::battle::INJECTED_MINE_V0` | A shock stepped on costs what a chart's mine costs and a second of its lane | The lock's second and the mine's cost (DDI's *tune* values) |
+| `placement-v1`: eight shocks over eight beats from a checkpoint, the eighths then the sixteenths, at most two a beat, one a row; margins about each step of the lane: none within 0.25 s after it nor within W3 before it, none from a hold's or roll's head to 0.25 s past its end, none from 1 s before a lift (`placement-v0`'s clearances by windows kept for comparison) | `ddi_engine::battle::PLACEMENT`, `Clearance::Margins` | Where the shocks fall: a shock may sit a sixteenth before a note of its lane from 150 BPM on, where a press more than half of W3 early steps on it | The 0.25 s; whether "before" should be W3 plus the mine window; whether sixteenths are acceptable |
 | Development trigger: the first safe section from a beat in each practice stage, its seed the stage's id | `--mp-dev-mines`, `mpdevmines=`, `ddi_session::battle::dev_shocks` | Only through the switch | Replaced by the attack loop (S4) |
+| A miniature's score: small (0.8 of its name line, 8 to 11 px; down to 6 px where the sum is wider than its field) under its life gauge's right end; the score (the sum) or the percent, by the player's Score display | `ddi_shell::opponents::ScoreShown`, `SCORE_SIZE`, `SCORE_FLOOR`, `SCORE_TOP` | At lanes under about 17 px the number's top touches the receptors' row | Its place and size |
+| `attacks-v1`: no recovery period; one more attack may be reserved behind the one on its way or passing, in the next section after it clears | `ddi_room::attacks::ATTACKS_V1`, `AttackRules::chain` | Two attacks can arrive back to back; nobody is safe for a while after one | Whether a chain of one is right, and whether a lane still locked by the last shock should hold the next attack off |
+| `placement-v2`: six of an attack's eight shocks next to a note of their lane (0.25 s to 0.5 s after one, W3 to twice W3 before a step), a second between a lane's shocks | `ddi_engine::battle::PLACEMENT_V2`, `Near` | An attack is harder to ignore: about a third more life lost by the CPUs an attack, mostly through locks | The window's sizes, the aim (six of eight), whether W3 before a step is too close for early players |
+| A CPU's (and a bot's) score put on the chart's own scale: its points as the same share of the chart's most, its W0s as counted | `ddi_engine::rules::ddi::CPU_SCORE_V0`, `DdiScoreView::on_scale`, `ddi_session::battle::cpu_score` | A CPU's number beside the player's reads as if it had held the holds as well as it tapped; a CPU can tie a person | Whether imputing the holds is right, or CPUs should play (and be able to drop) holds |
+| A miniature's locked lane: the lane darkened (0.42) to its end and its receptor's place tinted violet (0.5) for the lock's second, from the feed's moment | `ddi_shell::opponents::LOCK_LANE`, `LOCK_TINT`, `FieldFeed::locks` | A CPU that stepped on a shock shows a dead lane for a second | The look; a shock's own art |
 
 ## Open questions
+
+- The DDI ruleset's round 3: in a stage the player's own HUD shows its
+  Score display's number (under Score: the proportional part plus the
+  absolute score, about twice an opponent's number early in a song and
+  more later), while the miniatures and the Standings show the
+  proportional part alone, the one that compares. Should the HUD show
+  the proportional part in a stage too?
+- The DDI ruleset's round 3: `placement-v1` keeps a shock W3 before a
+  step of its lane, as decided. From 150 BPM a sixteenth is 0.1 s, so a
+  shock can sit a sixteenth before a note in the same lane; a press more
+  than half of W3 early (46 ms on Normal) is then nearer the shock and
+  steps on it (the lane locks and the note is missed). Avoidable, but a
+  trap for early players. Keep W3, or W3 plus the mine window (167 ms on
+  Normal)?
+- The DDI ruleset's round 3: DDI Normal is much gentler on the weak
+  CPU levels than ITG FA+ was (a one-star CPU out of one stage in five,
+  not two in three; under Easy nobody ever goes out; Hard is about
+  where FA+ was). Is Normal the right default for rooms, and should the
+  levels be respaced for DDI?
+- The DDI ruleset's round 3: an attack costs a CPU 2 to 24 life on
+  Normal by its level, about half of it through the locks; a strong CPU
+  launches six a stage. Are the bar (100), the cost (100) and the
+  classes (2, 1) right, now that a shock is −5 and a lock?
+- The DDI ruleset's round 3: a tie in life and proportional score
+  between a person and a CPU is not broken (their notes differ). Fine,
+  or should CPUs play the whole chart first?
+- The DDI ruleset's round 3: online attacks (the room running the
+  ledger from its members' reports, shocks delivered to each member's
+  play in time) are not built; the Rules say so. When?
+- The DDI ruleset's round 3: an attack clears (for the settlement, the
+  recovery and the warning's shield) once its last shock's window has
+  passed, but a lane that shock locked stays locked a second more and
+  may still cost a note. Should an attack clear only after its last
+  lock, so that "Stage won" and a final attack's draw wait for it?
+- The DDI ruleset's round 3: shocks are still drawn as the skin's
+  mines; a shock's own art (and the lock's look on a miniature, a dark
+  lane and a violet receptor of ours) wait for the noteskin work.
+- Feedback round B, FOUND WHILE VALIDATING (SOLVED in the DDI
+  ruleset's round 3: the UI core's idle wake lost its wake-up to
+  rounding; see that round's section): in an online
+  room under reduced motion (headless Chrome, three people), a player's
+  stage prompt twice stopped at "Stage n starts in 3…" as the countdown
+  began: the page drew and ticked nothing more (its room stayed in
+  `countdown`), the others played the stage, and the room ranked the
+  stalled one a forfeit at its deadline. Two of five runs of this
+  round's builds (once the host, once a guest), none in one run with
+  normal motion and none in one run of the build before this round
+  under reduced motion: too few runs to say whether this round brought
+  it or it was there (reduced motion draws on demand and depends on the
+  screen's 0.1 s wake-up; M7b's notes saw a still headless Firefox page
+  "catch up at the next input"). The dumps:
+  `target/scratch/mp/fb-b/online-stall.log`, `online-stall2.log`;
+  `online.mjs` now nudges a stalled page and says whether it catches
+  up. CPU practice never stalled (dozens of runs under reduced motion).
+  Who should look: the prompt's host on the play route
+  (`crates/web/src/components/ui_dev.rs`'s `schedule`: a frame asked
+  for while the host has no surface, or a frame's callback that finds
+  the host borrowed, leaves no wake-up behind).
+- Feedback round B: the room's wide song select has no ladder, so a
+  chart's best, notes and step artist of the charts not chosen are not
+  shown in a room (the chosen chart's are, in words). Enough, or should
+  the Players pop-up or a second line bring them back?
+- Feedback round B: a follower's list's place holds only the status and
+  the match's picks now (the players moved beside the song), mostly
+  empty at 1280×720. What should it hold: the host's list read-only, the
+  last stage's standings, chat later?
+- Feedback round B: a phone's host sees the players as initials on one
+  line. Readable, or should a phone's host trade list rows for names?
+- Feedback round B: the players panel takes no focus and its lines open
+  the same pop-up; per-player actions (roles, removing someone) are not
+  built. Should a line be focusable once they are, or stay a tap?
+- Feedback round B: the stage's standings show the grade in the lists'
+  short form and FA+'s star grades smaller. Should a failed or out
+  player's grade show at all beside "Out 1:02"?
+- Feedback round B: with nine starters and the match's result the lines
+  are 27 px and the pointed line's counts give way. Should the last
+  stage's result be a third tab or a banner that folds, to keep the
+  counts?
+- Feedback round B: the standings count as seen once shown on the
+  results, so song select's pop-up is skipped. Is that wanted, and
+  should the pop-up go altogether now?
 
 - M7b: the readiness window now ends as soon as everyone is ready (the
   study proposed that it never shortens). Is a disconnected member right
@@ -1764,7 +3111,8 @@ detail (round 3). The dancing hand is not fed shocks (D7).
 - M6b: the hand behind the field was small. M7c made it as large as
   the band allows under the judgment (the combo over its wrist, its arm
   fading in at the top): is the combo's overlap acceptable, and should it
-  be dimmed further?
+  be dimmed further? (Round C: the fade went and the hand is whole,
+  behind the judgment and the combo too, which the maintainer accepted.)
 - M6b: at the smallest lanes the combo is larger than its field's scale
   (legible rather than faithful): acceptable, or hide it there?
 - M6b: what should nine players' ninth place earn (0 now)?
@@ -1818,9 +3166,30 @@ detail (round 3). The dancing hand is not fed shocks (D7).
   until the next checkpoint after its clear; the warning turns into the
   shield at the clear itself. Should the shield show the recovery's
   progress (eight judgments and four beats)?
-- M8b: the incoming warning sits at the field's right edge; in a stage
-  with lyrics or a narrow side it may meet the quiet column. Left or
-  right, and should it move to the side away from the miniatures?
+- M8b: the incoming warning sits at the field's right edge, and the
+  right side's miniatures keep clear of it (beside it, or under it on a
+  phone held upright). Left or right, and should it move to the side
+  away from the miniatures?
+- Feedback round A: the five strengths (levels 6 to 10) are close
+  together (86% to 97% under ITG FA+) and never go out on any chart,
+  while level 5 is out of a quarter of the arcade Challenge charts and of
+  every stream-pack chart: the largest step is between 5 and 6 on hard
+  charts. Respace the upper five (which changes the solo CPU's named
+  strengths and existing seeds' plays), or give them a small lapse too?
+- Feedback round A: under ITG FA+ a weak level's stage often ends in the
+  first measures (a gauge starts at half, a miss costs a tenth). Should
+  a stage's gauge start fuller, or weak levels lapse less early on?
+- Feedback round A: gold and silver stars differ by hue more than by
+  brightness. Enough for every player, or should gold stars also differ
+  in shape or size?
+- Feedback round A: on a phone held upright the eight miniatures have
+  lanes of 11 px and names of six or seven letters. Readable enough, or
+  should a phone show fewer, larger ones (who attacks, who leads)?
+- Feedback round A: eight miniatures at 1280×720 have fields six lanes
+  tall (a short look ahead) for lanes of 42 px. Larger arrows on a
+  shorter field, or smaller on a taller one? (Answered in round C: the
+  play's field's proportion, ten lanes tall, lanes of 28 px, and a cap
+  of half the play's lane.)
 - M8b: an attack stepped on whole costs about 80% of an ITG FA+ gauge
   (eight shocks, each the ruleset's miss, D1). Is that the intended
   weight, now that every attack is all eight (D4)?

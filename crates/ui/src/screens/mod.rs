@@ -90,6 +90,8 @@ pub mod room;
 pub mod room_dialogs;
 #[cfg(test)]
 mod room_tests;
+#[cfg(test)]
+mod results_stage_tests;
 pub mod sample;
 pub mod select;
 pub mod select_dialogs;
@@ -234,6 +236,9 @@ pub struct ThemeState {
     pub prompt: Option<prompt::PromptView>,
     /// The multiplayer room, once shown (`room.rs`).
     pub room: Option<room::RoomView>,
+    /// A multiplayer stage's standings, while its results show
+    /// (`results_stage.rs`).
+    pub stage: Option<results::StageView>,
 }
 
 pub type SharedTheme = Rc<RefCell<ThemeState>>;

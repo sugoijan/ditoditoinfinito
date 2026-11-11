@@ -108,6 +108,11 @@ pub struct Env {
     /// extension, [`crate::params`]), as stored: what its declarations do
     /// not take is left out at load, and the rest defaulted.
     pub params: crate::params::Values,
+    /// The play may be given a battle's shocks (a multiplayer stage whose
+    /// match has attacks): `NOTESKIN:PlayHasShocks()`, our extension, so
+    /// that a skin whose mines can look like its `Tap Shock` keeps the
+    /// two apart.
+    pub shocks: bool,
 }
 
 impl Default for Env {
@@ -125,6 +130,7 @@ impl Default for Env {
             trace_missing: false,
             screen: [640.0, 480.0],
             params: crate::params::Values::new(),
+            shocks: false,
         }
     }
 }
@@ -598,6 +604,12 @@ impl LuaSkin {
         let mut w = h.warnings.clone();
         w.extend(h.skin.warnings());
         w
+    }
+
+    /// Whether the play it was loaded for may be given a battle's shocks
+    /// ([`Env::shocks`]).
+    pub fn shocks(&self) -> bool {
+        self.host.borrow().env.shocks
     }
 
     /// The skin the Lua runs for.

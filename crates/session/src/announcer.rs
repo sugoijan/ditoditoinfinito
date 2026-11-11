@@ -972,6 +972,10 @@ pub fn cheers(r: &Ending, grades: &GradeTable) -> bool {
 /// table's grades, rescaled onto seven as 5.1's `GradeToOldGrade` does
 /// (`lround(i × 6 / (n − 1))`; ITG's seventeen, Dancing☆Onigiri's
 /// eleven). `None` for a table with no grades to tell apart (FFR's).
+/// DDI's eight go down the seven from the top
+/// (`docs/plans/ddi-ruleset.md`, "Normal play"): Absolute Dito (and
+/// Absolute Bot) the best tier's lines, SSS the next, and so on down, its
+/// C and D both the last.
 pub fn old_grade(grades: &GradeTable, grade: &str, failed: bool) -> Option<Grade> {
     const OLD: [Grade; 7] = [
         Grade::Aaaa,
@@ -984,6 +988,14 @@ pub fn old_grade(grades: &GradeTable, grade: &str, failed: bool) -> Option<Grade
     ];
     if failed {
         return Some(Grade::E);
+    }
+    if grades.rule == Some(ddi_engine::rules::GradeRule::Ddi) {
+        use ddi_engine::rules::ddi;
+        if grade == ddi::ABSOLUTE_DITO || grade == ddi::ABSOLUTE_BOT {
+            return Some(Grade::Aaaa);
+        }
+        let i = ddi::GRADES.iter().position(|(name, _)| *name == grade)?;
+        return OLD.get((i + 1).min(6)).copied();
     }
     // The letters in capitals, DDR's with a `+` or `-`.
     let letter = |name: &str| -> Option<Grade> {

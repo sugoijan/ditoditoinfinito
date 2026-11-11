@@ -72,6 +72,15 @@ results-max-combo = Max combo
 # How many hits were early (fast) and late (slow): "12 / 30".
 results-fast-slow = Fast / slow
 
+# DDI's rules: how many hits were early and late (never "fast" and
+# "slow" under them): "12 / 30".
+results-early-late = Early / late
+
+# DDI's rules: the score (a longer chart gives more: several million)
+# and the percent, where the big number shows the other of them.
+results-ddi-score = Score
+results-ddi-percent = Percent
+
 # The average of the hits' errors, then their spread: "−2.1 ms (σ 9.8)".
 results-mean-offset = Mean offset
 
@@ -104,6 +113,18 @@ results-note-device-changed = An audio device or the display changed during play
 # Variables:
 #   $at (String) - when, as a clock reads it ("1:35")
 results-note-fail-delayed = Failed at { $at }: the life bar emptied, and the play went on (fail delayed).
+
+# DDI's Practice option: the life emptied and the play went on, failed.
+# Variables:
+#   $at (String) - when, as a clock reads it ("1:35")
+results-note-practice = Failed at { $at }: the life emptied, and the play went on (Practice).
+
+# A kept play judged again under rules other than those it was played by
+# (Options → Rules → Kept plays), under its results and its replay.
+# Variables:
+#   $played (String) - the rules it was played by, as the games name them ("ITG")
+#   $now (String) - the rules it is judged by here ("DDI")
+results-note-rejudged = Played by { $played } rules and judged again here by { $now } rules, which the play did not react to.
 
 # The rules check the life bar at the end only (the fail option "fail at
 # end"): it was still empty.

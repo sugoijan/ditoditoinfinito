@@ -15,6 +15,7 @@ use ddi_engine::clock::ClockOptions;
 use ddi_engine::player::PlayOptions;
 use ddi_engine::rules::StepManiaOptions;
 use ddi_engine::rules::danoni::DanoniOptions;
+use ddi_engine::rules::ddi::DdiOptions;
 use ddi_engine::rules::presets::{HoldStyle, RulesetMode};
 use ddi_engine::scroll::{ScrollAction, ScrollOptions, SpeedMod, SpeedSource};
 use ddi_engine::{Appearance, ControlBindings, FieldPlace, LaneCover, TransformOptions};
@@ -23,6 +24,11 @@ use serde::{Deserialize, Serialize};
 
 /// Where the settings are kept.
 pub const KEY: &str = "ddi.settings.v1";
+
+/// The ruleset new settings play by: DDI, the game's own.
+pub const DEFAULT_RULESET: &str = "ddi";
+/// The default before it, which settings naming it moved from once.
+const OLD_DEFAULT_RULESET: &str = "itg";
 
 /// The start prompt's countdowns Options offers, seconds (0: off).
 pub const START_COUNTDOWNS: [f32; 4] = [0.0, 3.0, 5.0, 10.0];
@@ -126,8 +132,34 @@ pub struct Settings {
     pub field_filter: f32,
     /// Layout id the song list shows charts of (`dance-single`, …).
     pub style: String,
-    /// Ruleset preset id (`itg`, `sm5`, `ddr-a`).
+    /// Ruleset preset id (`ddi`, the default; `itg`, `sm5`, `ddr-a`).
+    ///
+    /// Every value is stored, so a default and a choice cannot be told
+    /// apart: when the default moved from ITG to DDI, settings naming ITG
+    /// moved wholesale ([`Settings::rules_moved`]). Someday the settings
+    /// could keep whether a value is the default or was chosen ("X
+    /// (default)" against "X (explicit)"), so a change of default moves
+    /// only those who never chose (`docs/plans/ddi-ruleset.md`, "Normal
+    /// play"); not built.
     pub ruleset: String,
+    /// The move from ITG, the old default, to DDI was made (once: a
+    /// player who chooses ITG after it keeps it). Settings stored before
+    /// it lack the field and read `false`.
+    #[serde(default = "not_yet")]
+    pub rules_moved: bool,
+    /// The kept plays under these rules (a preset's id) wait to be judged
+    /// again under the rules now chosen: set by the move from ITG, taken
+    /// by the shells once the play history is read
+    /// ([`crate::state::history::Plays::rejudge_asked`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rejudge_from: Option<String>,
+    /// DDI's options: its difficulty, Boos and Practice
+    /// (`docs/plans/ddi-ruleset.md`).
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub ddi: DdiOptions,
+    /// What the play's HUD and the bests show of a DDI score.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub ddi_score: ScoreDisplay,
     /// Which rules each chart is played by (decision 23): the preset above
     /// for every chart by default.
     #[serde(deserialize_with = "ddi_engine::lenient")]
@@ -234,6 +266,13 @@ pub struct Settings {
     /// with it the start menu's Multiplayer opens its menu instead of
     /// saying "Coming soon".
     pub multiplayer: bool,
+    /// Entering a multiplayer room opens its Rules pop-up by itself, in
+    /// its first form (Reset and OK), as M7b had it. A hidden option, off
+    /// by default (the maintainer, 2026-11-12: a room opens straight on
+    /// its song select with the default rules; Rules stays behind its
+    /// button): `#/?mp=1&mprules=1` (`mprules=0`), desktop's
+    /// `--mp-rules-first on|off`; never a row of Options.
+    pub multiplayer_rules_first: bool,
 }
 
 /// The music's gain in a fresh profile: 69% on the volume slider (about
@@ -399,6 +438,55 @@ pub enum NoteColors {
     Single,
 }
 
+fn not_yet() -> bool {
+    false
+}
+
+/// What is shown of a DDI play's score in play and in the lists: the
+/// score (the proportional part plus the absolute score) or the percent
+/// (the results show both).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScoreDisplay {
+    #[default]
+    Score,
+    Percent,
+}
+
+/// The rules the settings choose, apart from the rest of them: what
+/// builds a chart's ruleset ([`RuleChoice::ruleset_for`]). Kept with a
+/// play that waits to be judged again under them
+/// (`crate::state::history::PlaySummary::rejudge`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RuleChoice {
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub mode: RulesetMode,
+    pub ruleset: String,
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub danoni: DanoniOptions,
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub holds: HoldStyle,
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub stepmania: StepManiaOptions,
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub ddi: DdiOptions,
+}
+
+impl RuleChoice {
+    /// The ruleset `chart` is played with.
+    pub fn ruleset_for(&self, chart: &ddi_chart::Chart) -> ddi_engine::rules::Ruleset {
+        ddi_engine::rules::presets::for_chart(
+            self.mode,
+            &self.ruleset,
+            &self.danoni,
+            self.holds,
+            chart,
+        )
+        .with_stepmania(&self.stepmania)
+        .with_ddi(&self.ddi)
+    }
+}
+
 /// Field filter strengths the options screen offers (0 = off).
 pub const FIELD_FILTERS: [f32; 4] = [0.0, 0.4, 0.6, 0.8];
 
@@ -459,7 +547,11 @@ impl Default for Settings {
             background_frame: BackgroundFrame::Auto,
             field_filter: 0.4,
             style: "dance-single".into(),
-            ruleset: "itg".into(),
+            ruleset: DEFAULT_RULESET.into(),
+            rules_moved: true,
+            rejudge_from: None,
+            ddi: DdiOptions::default(),
+            ddi_score: ScoreDisplay::Score,
             ruleset_mode: RulesetMode::AllStepMania,
             danoni: DanoniOptions::default(),
             holds: HoldStyle::ByGame,
@@ -492,6 +584,7 @@ impl Default for Settings {
             sharing: false,
             share_token: String::new(),
             multiplayer: false,
+            multiplayer_rules_first: false,
             controls: ControlBindings::default(),
             fast_pad_poll: true,
             controller_styles: Default::default(),
@@ -643,6 +736,17 @@ impl Settings {
     /// Retired skin names and controls become the new default Infinito;
     /// preserve the authored Spiral Base options under its stable key.
     pub(crate) fn migrate(&mut self) {
+        // The default ruleset moved from ITG to DDI: settings naming ITG
+        // move once (the two cannot be told apart, see `ruleset`), and
+        // their kept ITG plays are judged again under DDI so the bests
+        // are not empty. Other rulesets were chosen and stay.
+        if !self.rules_moved {
+            self.rules_moved = true;
+            if self.ruleset == OLD_DEFAULT_RULESET {
+                self.ruleset = DEFAULT_RULESET.into();
+                self.rejudge_from = Some(OLD_DEFAULT_RULESET.into());
+            }
+        }
         const SPIRAL: &str = "bundled:dance/spiral base";
         const OLD_DITO: &str = "bundled:dance/dito";
         for key in [&mut self.noteskin, &mut self.pump_noteskin] {
@@ -811,6 +915,11 @@ impl Settings {
         }
         self.controls.sanitize();
         self.stepmania = self.stepmania.sanitized();
+        // A preset this build does not have (a hand edit, a later
+        // version's): the default.
+        if ddi_engine::rules::presets::by_id(&self.ruleset).is_none() {
+            self.ruleset = defaults.ruleset.clone();
+        }
         if self.style.is_empty() {
             self.style = defaults.style;
         }
@@ -978,20 +1087,31 @@ impl Settings {
 
     pub fn ruleset(&self) -> ddi_engine::rules::Ruleset {
         ddi_engine::rules::presets::by_id(&self.ruleset)
-            .unwrap_or_else(ddi_engine::rules::presets::itg)
+            .unwrap_or_else(ddi_engine::rules::presets::ddi)
             .with_stepmania(&self.stepmania)
+            .with_ddi(&self.ddi)
+    }
+
+    /// The rules chosen, apart from the rest of the settings.
+    pub fn rules(&self) -> RuleChoice {
+        RuleChoice {
+            mode: self.ruleset_mode,
+            ruleset: self.ruleset.clone(),
+            danoni: self.danoni.clone(),
+            holds: self.holds,
+            stepmania: self.stepmania,
+            ddi: self.ddi,
+        }
     }
 
     /// The ruleset `chart` is played with.
     pub fn ruleset_for(&self, chart: &ddi_chart::Chart) -> ddi_engine::rules::Ruleset {
-        ddi_engine::rules::presets::for_chart(
-            self.ruleset_mode,
-            &self.ruleset,
-            &self.danoni,
-            self.holds,
-            chart,
-        )
-        .with_stepmania(&self.stepmania)
+        self.rules().ruleset_for(chart)
+    }
+
+    /// Whether a DDI score shows as its percent ([`ScoreDisplay`]).
+    pub fn ddi_percent(&self) -> bool {
+        self.ddi_score == ScoreDisplay::Percent
     }
 
     /// The key the play history keeps a chart's bests under, from what
@@ -1283,6 +1403,67 @@ mod tests {
         assert_eq!(Settings::load(), fresh);
     }
 
+    /// The default ruleset moved from ITG to DDI: stored settings naming
+    /// ITG move once and ask for their ITG plays to be judged again; any
+    /// other ruleset stays, and ITG chosen after the move stays too.
+    #[test]
+    fn settings_naming_itg_move_to_ddi_once() {
+        storage::install(Rc::new(MemoryStore::default()));
+        assert_eq!(Settings::default().ruleset, "ddi");
+        assert!(Settings::default().rules_moved);
+        assert_eq!(Settings::default().rejudge_from, None);
+        // As stored before the move: every field, no `rules_moved`.
+        let stored = |ruleset: &str| {
+            let mut v = serde_json::to_value(Settings::default()).unwrap();
+            let o = v.as_object_mut().unwrap();
+            o.remove("rules_moved");
+            o.insert("ruleset".into(), ruleset.into());
+            storage::set(Area::Local, KEY, &v.to_string()).unwrap();
+        };
+        stored("itg");
+        let s = Settings::load();
+        assert_eq!(s.ruleset, "ddi");
+        assert!(s.rules_moved);
+        assert_eq!(s.rejudge_from.as_deref(), Some("itg"));
+        let chart = |layout: &str| {
+            ddi_chart::Chart::plain(layout, ddi_chart::Difficulty::Hard, 9, Vec::new())
+        };
+        assert_eq!(s.ruleset_for(&chart("dance-single")).id, "ddi");
+        // Stored as moved: ITG chosen again stays.
+        let mut again = Settings::load();
+        assert_eq!(again, s);
+        again.ruleset = "itg".into();
+        again.rejudge_from = None;
+        again.save();
+        let kept = Settings::load();
+        assert_eq!((kept.ruleset.as_str(), kept.rejudge_from), ("itg", None));
+        // Another ruleset was chosen: it stays, and nothing is asked.
+        for chosen in ["sm5", "ddr-a", "ffr", "itg-fa+"] {
+            stored(chosen);
+            let s = Settings::load();
+            assert_eq!(s.ruleset, chosen);
+            assert!(s.rules_moved);
+            assert_eq!(s.rejudge_from, None);
+        }
+        // A preset this build does not know: the default.
+        stored("nonsense");
+        assert_eq!(Settings::load().ruleset, "ddi");
+        // DDI's options build its ruleset on every chart, pump's too.
+        let s = Settings {
+            ddi: DdiOptions {
+                difficulty: ddi_engine::rules::ddi::Difficulty::Hard,
+                boos: true,
+                practice: true,
+            },
+            ..Settings::default()
+        };
+        let rules = s.ruleset_for(&chart("pump-single"));
+        assert_eq!(rules.ddi, Some(s.ddi));
+        assert!(!rules.judge.hold.is_ticked());
+        assert_eq!(rules.fail, ddi_engine::FailPolicy::ImmediateContinue);
+        assert_eq!(s.ruleset().ddi, Some(s.ddi));
+    }
+
     #[test]
     fn retired_skins_and_spiral_options_migrate_to_the_new_infinito() {
         storage::install(Rc::new(MemoryStore::default()));
@@ -1449,28 +1630,39 @@ mod tests {
             derivation: Some(ddi_chart::simplify::Derivation::WithoutCenter { source: 0 }),
             ..plain.clone()
         };
+        let itg = Settings {
+            ruleset: "itg".into(),
+            ..Settings::default()
+        };
         assert_eq!(
-            Settings::default()
-                .ruleset_for(&centerless)
-                .key()
-                .best_key(),
-            Settings::default().ruleset_for(&pump).key().best_key()
+            itg.ruleset_for(&centerless).key().best_key(),
+            itg.ruleset_for(&pump).key().best_key()
         );
         assert_ne!(
-            Settings::default()
-                .ruleset_for(&centerless)
-                .key()
-                .best_key(),
+            itg.ruleset_for(&centerless).key().best_key(),
+            itg.ruleset_for(&plain).key().best_key()
+        );
+        // DDI keeps its own holds on every chart: one key.
+        assert_eq!(
+            Settings::default().ruleset_for(&pump).key().best_key(),
             Settings::default().ruleset_for(&plain).key().best_key()
         );
-        for mode in [
-            RulesetMode::Original,
-            RulesetMode::AllDanoni,
-            RulesetMode::AllStepMania,
+        for (mode, preset) in [
+            (RulesetMode::Original, "itg"),
+            (RulesetMode::AllDanoni, "itg"),
+            (RulesetMode::AllStepMania, "itg"),
+            (RulesetMode::Original, "ddi"),
+            (RulesetMode::AllStepMania, "ddi"),
         ] {
             for excessive in [None, Some(true), Some(false)] {
                 let mut s = Settings {
                     ruleset_mode: mode,
+                    ruleset: preset.into(),
+                    ddi: DdiOptions {
+                        difficulty: ddi_engine::rules::ddi::Difficulty::Hard,
+                        boos: true,
+                        practice: true,
+                    },
                     stepmania: StepManiaOptions {
                         fail: ddi_engine::rules::FailType::Off,
                         life: 6,
@@ -1516,9 +1708,9 @@ mod tests {
             ..Settings::default()
         };
         assert_eq!(s.ruleset_for(&level).id, "ffr");
-        assert_eq!(s.ruleset_for(&plain).id, "itg");
+        assert_eq!(s.ruleset_for(&plain).id, "ddi");
         s.ruleset_mode = RulesetMode::AllStepMania;
-        assert_eq!(s.ruleset_for(&level).id, "itg");
+        assert_eq!(s.ruleset_for(&level).id, "ddi");
         s.ruleset = "ffr".into();
         assert_eq!(s.ruleset_for(&plain).id, "ffr");
         s.ruleset_mode = RulesetMode::AllDanoni;

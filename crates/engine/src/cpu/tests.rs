@@ -329,3 +329,98 @@ fn each_skill_improves_actual_judged_inputs_on_relevant_patterns() {
         );
     }
 }
+
+fn press_hash(presses: &[Press]) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325_u64;
+    let mut eat = |v: u64| {
+        for b in v.to_le_bytes() {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    for p in presses {
+        eat(p.press.to_bits());
+        eat(p.release.to_bits());
+        eat(u64::from(p.lane));
+    }
+    h
+}
+
+/// Levels 6 to 10 are the five frozen strengths: the presses of chart 0
+/// of the bundled song at seed 7, balanced and with two personalities, as
+/// they were before there were ten levels (hashes taken from the code of
+/// 2026-11-11).
+#[test]
+fn levels_six_to_ten_press_exactly_as_the_five_strengths_did() {
+    const BEFORE: [[u64; 3]; 5] = [
+        [0x820ed3d9153bf986, 0xe746af097ec52e9a, 0xf06f06be23a9e82a],
+        [0x922274e3c41af647, 0x9801947c055ac1ae, 0xda14ddb80d5acbf1],
+        [0xeec836368f0bc6fb, 0x9de23531965e4ec8, 0x8864d97d653cd870],
+        [0x0ed9b85af55dbabe, 0x18e41ed5cb805c58, 0xbeb840a18f2c530d],
+        [0x61232be8f535e653, 0xeee0f2767c4eadc4, 0x4754b97efb73e386],
+    ];
+    let (song, _) = fixture();
+    let plan = Plan::automatic(&song, 0).unwrap();
+    let skills = [
+        Skills::default(),
+        Skills::parse("stream").unwrap(),
+        Skills::parse("chords").unwrap(),
+    ];
+    for (strength, before) in BEFORE.iter().enumerate() {
+        for (skills, hash) in skills.iter().zip(before) {
+            // The solo CPU's strength, and the opponent's level it became.
+            let solo = plan.script_with_skills(strength, 7, *skills).unwrap();
+            assert_eq!(press_hash(&solo), *hash, "strength {strength}");
+            let level = CPU_LEVELS_V0.level(5 + strength).unwrap();
+            let at = plan.script_at(level, 7, *skills).unwrap();
+            assert_eq!(at, solo, "level {}", 6 + strength);
+            let opponent =
+                Opponent::with_skills(&song, 0, presets::itg_fa_plus(), 5 + strength, 7, *skills)
+                    .unwrap();
+            assert_eq!(
+                press_hash(opponent.presses()),
+                *hash,
+                "level {}",
+                6 + strength
+            );
+        }
+    }
+}
+
+/// The weaker five: deterministic, legal, each its own presses, fewer
+/// notes pressed the weaker the level (its lapses).
+#[test]
+fn levels_one_to_five_lapse_more_the_weaker_they_are() {
+    let (song, _) = fixture();
+    let plan = Plan::automatic(&song, 0).unwrap();
+    let mut pressed = Vec::new();
+    for index in 0..5 {
+        let level = CPU_LEVELS_V0.level(index).unwrap();
+        let script = plan.script_at(level, 7, Skills::default()).unwrap();
+        validate_script(&script).unwrap();
+        assert_eq!(script, plan.script_at(level, 7, Skills::default()).unwrap());
+        assert_ne!(script, plan.script_at(level, 8, Skills::default()).unwrap());
+        let total: usize = (1..=16)
+            .map(|seed| {
+                plan.script_at(level, seed, Skills::default())
+                    .unwrap()
+                    .len()
+            })
+            .sum();
+        pressed.push(total);
+    }
+    assert!(pressed.windows(2).all(|w| w[0] < w[1]), "{pressed:?}");
+    // A level without lapse at a strength of its own presses every note
+    // but the omitted few; a prepared profile has no such level.
+    let plain = Level {
+        strength: 0.6,
+        lapse: 0.0,
+    };
+    assert!(plan.script_at(plain, 7, Skills::default()).unwrap().len() >= 275);
+    let (_, profile) = fixture();
+    assert!(
+        Plan::Prepared(profile)
+            .script_at(plain, 7, Skills::default())
+            .is_err()
+    );
+}

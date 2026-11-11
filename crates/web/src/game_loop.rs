@@ -264,14 +264,6 @@ impl GameLoop {
     pub(crate) fn set_session(&mut self, session: PlaySession) {
         self.end_perf();
         perf::begin_play();
-        // A development switch: `localStorage` `ddi.dev.miniatures` `0`
-        // shows a stage's opponents as the column, for comparing costs.
-        ddi_shell::opponents::set_miniatures(
-            web_sys::window()
-                .and_then(|w| w.local_storage().ok().flatten())
-                .and_then(|s| s.get_item("ddi.dev.miniatures").ok().flatten())
-                .is_none_or(|v| v != "0"),
-        );
         let (device, queue) = (&self.gfx.device, &self.gfx.queue);
         if let Some(skin) = self.next_noteskin.take() {
             self.view.set_noteskin(device, queue, Some(skin));
@@ -909,6 +901,14 @@ impl GameLoop {
                     "combo": p.combo(),
                     "max_combo": p.max_combo(),
                     "taps": r.tally.taps,
+                    // Stray presses counted (DDI's Boos, FFR's), and the
+                    // judgment word the HUD shows now (null: none).
+                    "boos": r.tally.boo,
+                    "judgement": p.judgement_flash(clock.heard_now(host_now)).map(|f| json!({
+                        "word": ddi_render::scene::judgement_word(&p.ruleset().names, &f).0,
+                        "boo": f.boo,
+                        "age": f.age,
+                    })),
                     "held": r.tally.held,
                     "let_go": r.tally.let_go,
                     "stage_back": self.view.stage_drawn().0,
@@ -926,28 +926,61 @@ impl GameLoop {
                     "cover": p.cover().label(),
                     "claps": claps,
                     "mine_sounds": mines,
-                    // A practice stage's CPUs as the column shows them,
-                    // and where it was drawn (target pixels: x, y, w, h).
-                    "opponents": s.opponents().iter().map(|o| json!({
+                    // A practice stage's CPUs as the play shows them:
+                    // `score` a fraction of the best its notes give (the
+                    // percent), `sum` DDI's score on the chart's scale
+                    // (`CPU_SCORE_V0`), `score_shown` as its miniature
+                    // says it, `locked` its lanes a shock locked (DDI).
+                    "opponents": s.opponents().iter().enumerate().map(|(i, o)| json!({
                         "id": o.participant.0,
                         "name": o.name,
                         "level": o.level,
                         "life": o.life,
                         "out": o.out,
                         "score": o.score,
+                        "sum": o.sum,
+                        "score_shown": self.view.opponent_scores().map(|show| show.text(o)),
+                        "locked": s.battle().and_then(|b| {
+                            let lanes = b.track().lanes();
+                            b.feeds().nth(i).map(|f| {
+                                f.locks(lanes, clock.heard_now(host_now))
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(_, l)| l.is_some())
+                                    .map(|(lane, _)| lane)
+                                    .collect::<Vec<_>>()
+                            })
+                        }),
                         "combo": o.combo,
                     })).collect::<Vec<_>>(),
-                    "opponents_column": self.view.opponents_drawn().map(|p| json!({
-                        "rect": p.rect,
-                        "names": p.names,
-                        "cue": p.cue,
+                    // The player's life (`0..=1`) and, under DDI, the
+                    // score as the HUD's display has it (the sum, what a
+                    // room shows and ranks by) with its parts.
+                    "life": p.ruleset().gauge.life(),
+                    "ddi_score": p.ruleset().score.view().ddi.map(|d| json!({
+                        "score": d.score,
+                        "ratio": d.ratio,
+                        "percent": d.percent,
+                        "points": d.points,
                     })),
-                    // Their miniature fields, where drawn instead: each
-                    // slot (target pixels: x, y, w, h), its side and the
-                    // seat it shows, the miniatures' lane (CSS pixels),
+                    "mines_hit": r.tally.mine_hit,
+                    // The lanes a mine or a shock locked in the player's
+                    // own play (DDI), and the play's rules' options.
+                    "locked": (0..p.lanes()).filter(|l| {
+                        p.judge().is_locked(*l, clock.heard_now(host_now) - ddi_engine::player::JUDGE_LAG)
+                    }).collect::<Vec<_>>(),
+                    "ddi": p.ruleset().ddi.map(|o| json!({
+                        "difficulty": format!("{:?}", o.difficulty).to_lowercase(),
+                        "boos": o.boos,
+                        "practice": o.practice,
+                    })),
+                    // Their miniature fields: each slot (target pixels:
+                    // x, y, w, h), its side and the seat it shows, the
+                    // miniatures' lane (CSS pixels) and height in lanes,
                     // whether the opponents take turns in the slots.
                     "opponent_fields": self.view.opponent_fields().map(|f| json!({
                         "lane": f.lane,
+                        "rows": f.rows,
                         "rotating": f.rotating,
                         "status": f.status,
                         "slots": f.slots.iter().map(|s| json!({
@@ -1232,12 +1265,13 @@ fn attacks_debug(
             "committed": i.committed,
             "first": i.first,
             "clear": i.clear,
+            "more": i.more,
         })
     });
     let cue = drawn.0.map(|c| {
         json!({
             "shocks": c.shocks,
-            "shield": c.shield,
+            "more": c.more,
             "dim": c.dim,
             "scale": c.scale,
         })

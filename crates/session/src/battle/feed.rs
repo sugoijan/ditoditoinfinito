@@ -26,7 +26,10 @@
 //! `ddi_engine::battle::HAZARD_INDEX_BASE`); a moment saying one was
 //! stepped on ([`MomentKind::ShockHit`]) takes it off the field and
 //! flashes its receptor ([`ReceptorState::mine`]); one avoided scrolls on
-//! past the receptors.
+//! past the receptors. Where the stage's rules lock a lane a shock is
+//! stepped on in (DDI's, `JudgeTable::lock`), the same moment says the
+//! lane is locked for the lock's time ([`FieldFeed::locks`]), which the
+//! miniature shows.
 
 use ddi_chart::{Quantization, Song, Tick, TimingMap};
 use ddi_engine::battle::{HAZARD_INDEX_BASE, Hazard};
@@ -174,6 +177,9 @@ pub struct FieldFeed {
     delay: f64,
     /// Life before any moment.
     life: f32,
+    /// How long a lane a shock was stepped on in stays locked, seconds,
+    /// where the stage's rules lock it.
+    lock: Option<f64>,
 }
 
 impl FieldFeed {
@@ -186,7 +192,39 @@ impl FieldFeed {
             shocks: Vec::new(),
             delay: delay.max(0.0),
             life,
+            lock: None,
         }
+    }
+
+    /// The stage's rules lock a lane a shock is stepped on in for
+    /// `seconds` (DDI's, `JudgeTable::lock`); `None`, they lock nothing.
+    pub fn set_lock(&mut self, seconds: Option<f64>) {
+        self.lock = seconds.filter(|s| *s > 0.0);
+    }
+
+    /// Each of `lanes` lanes' lock as shown at song second `t`: how far
+    /// into it, `0..1`, where a shock stepped on there
+    /// ([`MomentKind::ShockHit`]) locks it still; none where the rules
+    /// lock nothing. (A locked lane steps on nothing, so a lane's lock is
+    /// its last such moment's.)
+    pub fn locks(&self, lanes: u8, t: f64) -> Vec<Option<f32>> {
+        let mut out = vec![None; usize::from(lanes)];
+        let Some(lock) = self.lock else {
+            return out;
+        };
+        for m in self.shown_moments(t).iter().rev() {
+            let since = t - (m.at + self.delay);
+            if since >= lock {
+                break;
+            }
+            if m.kind == MomentKind::ShockHit
+                && let Some(l) = out.get_mut(usize::from(m.lane))
+                && l.is_none()
+            {
+                *l = Some((since / lock).clamp(0.0, 1.0) as f32);
+            }
+        }
+        out
     }
 
     pub fn delay(&self) -> f64 {
@@ -550,6 +588,21 @@ mod tests {
         assert!(!mines(&f).contains(&0));
         assert!(f.receptors[usize::from(c.lane)].mine.is_some());
         assert_eq!(feed.shown(first + 0.05).life, 0.4);
+        // The lane's lock, where the rules lock it: for the lock's second
+        // from the moment, that lane alone; none where they do not.
+        let lanes = track.lanes();
+        assert!(feed.locks(lanes, first + 0.05).iter().all(Option::is_none));
+        feed.set_lock(Some(1.0));
+        let locks = feed.locks(lanes, first + 0.26);
+        for (lane, l) in locks.iter().enumerate() {
+            if lane == usize::from(c.lane) {
+                assert!(l.is_some_and(|k| (k - 0.25).abs() < 1e-3), "{locks:?}");
+            } else {
+                assert_eq!(*l, None);
+            }
+        }
+        assert!(feed.locks(lanes, first).iter().all(Option::is_none), "not before");
+        assert!(feed.locks(lanes, first + 1.02).iter().all(Option::is_none));
         let after = feed.frame(&track, scroll, second + 0.05, 12.0);
         let passed = after
             .notes

@@ -25,6 +25,11 @@
 //!   held keys, are let go. The footer says notes worth saying
 //!   (a device changed, the videos stopped).
 //!
+//! A multiplayer stage's results ([`ResultsScreen::with_room`],
+//! `results_stage.rs`) have two tabs in the panels' place: the stage's
+//! standings (with the match's result after its last stage) and the
+//! graphs.
+//!
 //! What the buttons do is the shell's ([`ResultsActions`]); without them
 //! (the developer route) Song list leaves the screen.
 //!
@@ -49,6 +54,12 @@ use crate::look::{self, Spec, call, named, quad, quad_at, with_alpha};
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
 use crate::widgets::{part, set_image, set_text};
+
+#[path = "results_stage.rs"]
+mod stage_mode;
+#[cfg(test)]
+pub use stage_mode::forget_tab;
+pub use stage_mode::{StageRowView, StageView, Tab};
 
 /// What Retry or Song list does (the play route: play again, go to the
 /// songs).
@@ -97,6 +108,12 @@ pub struct ResultsScreen {
     content_h: f32,
     /// The banner's texture, kept for the content built again.
     banner: Option<u32>,
+    /// A multiplayer stage's room: the panels' place holds its tabs
+    /// (`results_stage.rs`).
+    stage: Option<stage_mode::StageMode>,
+    /// The standings as last drawn: the first line, how many, of how
+    /// many, and the table's width.
+    stage_shown: std::cell::Cell<(usize, usize, usize, f32)>,
 }
 
 impl ResultsScreen {
@@ -114,6 +131,8 @@ impl ResultsScreen {
             scroll: 0.0,
             content_h: 0.0,
             banner: None,
+            stage: None,
+            stage_shown: Default::default(),
         }
     }
 
@@ -242,9 +261,16 @@ impl ResultsScreen {
             (0.0, w, score_h + gap)
         };
         let ph = if sideways { 190.0 } else { 200.0 };
-        for &kind in kinds {
-            children.push(self.panel_of(kind, [px, py, pw, ph]));
-            py += ph + gap;
+        if self.stage.is_some() {
+            // A stage's: its tabs, then the standings or the graphs.
+            let (parts, end) = self.stage_compact([px, py, pw], ph, gap);
+            children.extend(parts);
+            py = end;
+        } else {
+            for &kind in kinds {
+                children.push(self.panel_of(kind, [px, py, pw, ph]));
+                py += ph + gap;
+            }
         }
         let mut end = py.max(score_h);
         // What is worth saying, under it all.
@@ -331,7 +357,11 @@ impl ResultsScreen {
             rm::activate(),
             ddi_l10n::msg::common::more(),
         );
+        let tabs = self.stage_hint();
         let mut hints: Vec<(&[&str], &str)> = vec![(&["ENTER"], &song_list)];
+        if let Some(tabs) = &tabs {
+            hints.push((&["←", "→"], tabs));
+        }
         match self.data.kind {
             ResultsKind::Play => hints.push((&["R"], &retry)),
             ResultsKind::Replay => hints.push((&["R"], &watch_again)),
@@ -345,6 +375,9 @@ impl ResultsScreen {
             (&[HintAction::More], &more),
             (&[HintAction::Back], &song_list),
         ];
+        if let Some(tabs) = &tabs {
+            controller.push((&[HintAction::Previous, HintAction::Next], tabs));
+        }
         match self.data.kind {
             ResultsKind::Stage => {}
             ResultsKind::Kept => controller.push((&[HintAction::Select], &watch_replay)),
@@ -417,7 +450,13 @@ impl ResultsScreen {
             "ScoreBox",
             [0.0, ty],
         );
-        set_text(&mut score, "Grade", &d.grade);
+        // A grade of two words (DDI's "Absolute Dito", "Absolute Bot")
+        // on two lines, the second under the first.
+        let words = d.grade.split_once(' ');
+        let first = words.map_or(d.grade.as_str(), |(first, _)| first);
+        // Grades are the ruleset's words: data in every language.
+        let word = |w: &str| String::from(UiText::data(w));
+        set_text(&mut score, "Grade", &word(first));
         // A quit's grade is QUIT, in the danger color.
         if d.quit
             && let Some(g) = part(&mut score, "Grade")
@@ -430,7 +469,11 @@ impl ResultsScreen {
         if let Some(p) = part(&mut score, "Percent") {
             p.visible = false;
         }
-        set_text(&mut score, "Title", &format!("{} {}", d.grade, d.score));
+        set_text(
+            &mut score,
+            "Title",
+            &String::from(UiText::data(format!("{} {}", d.grade, d.score))),
+        );
         // A long grade ("AAAA", "★★★★") smaller, the score after it; EX
         // goes on the line under them.
         // The grade's box sized to the grade (a letter about 0.58 em in
@@ -438,20 +481,40 @@ impl ResultsScreen {
         // smaller if it would pass the column.
         // Stars come from the system's fonts (the theme's face leaves
         // them out): about an em each, not a letter's 0.6.
-        let full = d
-            .grade
-            .chars()
-            .map(|c| {
-                if matches!(c, '★' | '☆') {
-                    64.0
-                } else {
-                    look::mono_width(&c.to_string(), 64.0) * 1.15
-                }
-            })
-            .sum::<f32>();
-        let zoom = (120.0 / full.max(1.0)).min(1.0);
+        let width = |text: &str| {
+            text.chars()
+                .map(|c| {
+                    if matches!(c, '★' | '☆') {
+                        64.0
+                    } else {
+                        look::mono_width(&c.to_string(), 64.0) * 1.15
+                    }
+                })
+                .sum::<f32>()
+        };
+        let full = match words {
+            Some((a, b)) => width(a).max(width(b)),
+            None => width(&d.grade),
+        };
+        // Two lines: each half the box's height at most, and up to 190
+        // wide, the score after them.
+        let zoom = match words {
+            Some(_) => (190.0 / full.max(1.0)).min(0.45),
+            None => (120.0 / full.max(1.0)).min(1.0),
+        };
+        let mut second = None;
         if let Some(g) = part(&mut score, "Grade") {
             call(g, "zoom", &[zoom]);
+            if let Some((_, word)) = words {
+                let line = 64.0 * zoom;
+                let y = g.current().pos[1];
+                call(g, "y", &[y - line * 0.52]);
+                let below = env.text("Grade2", &UiText::data(word), line, 700, "Gold");
+                second = Some((below, ty + y + line * 0.52));
+            }
+        }
+        if let Some((below, y)) = second {
+            children.push(left(below, 0.0, y));
         }
         let grade_w = full * zoom;
         if let Some(sc) = part(&mut score, "Score") {
@@ -509,6 +572,9 @@ impl ResultsScreen {
             .unwrap_or(1)
             .max(1) as f32;
         let row_h = if d.judgements.len() > 6 { 22.0 } else { 26.0 };
+        // DDI's rows name both words of a tier and count each side: the
+        // bars start after the longest name and are shorter.
+        let sided = d.judgements.iter().any(|j| j.sides.is_some());
         for (i, j) in d.judgements.iter().enumerate() {
             let mut row = env.component(
                 "Results.Judgement",
@@ -519,11 +585,22 @@ impl ResultsScreen {
             );
             set_text(&mut row, "Name", &j.name);
             set_text(&mut row, "Title", &j.name);
-            set_text(&mut row, "Count", &j.count.to_string());
-            set_text(&mut row, "Subtitle", &j.count.to_string());
+            let count = match j.sides {
+                Some([early, late]) => format!("{early} / {late}"),
+                None => j.count.to_string(),
+            };
+            set_text(&mut row, "Count", &count);
+            set_text(&mut row, "Subtitle", &count);
             crate::widgets::play(&mut row, &j.color);
             if let Some(b) = part(&mut row, "Bar") {
-                call(b, "zoomx", &[j.count as f32 / max]);
+                let share = j.count as f32 / max;
+                if sided {
+                    let x = b.current().pos[0];
+                    call(b, "x", &[x + 44.0]);
+                    call(b, "zoomx", &[share * 0.55]);
+                } else {
+                    call(b, "zoomx", &[share]);
+                }
                 b.visible = j.count > 0;
             }
             row.finish_tweening();
@@ -604,7 +681,15 @@ impl ResultsScreen {
 
     /// The chosen set's panels: two side by side a row, the last of an
     /// odd count across.
-    fn panels_actor(&self, [x, y, w, h]: [f32; 4]) -> Actor {
+    fn panels_actor(&self, rect: [f32; 4]) -> Actor {
+        if self.stage.is_some() {
+            return self.stage_panels(rect);
+        }
+        frame("Panels", self.graph_panels(rect))
+    }
+
+    /// The chosen set's panels in `rect`.
+    fn graph_panels(&self, [x, y, w, h]: [f32; 4]) -> Vec<Actor> {
         let gap = 16.0;
         let kinds = self.data.panels();
         let mut children = Vec::new();
@@ -636,7 +721,7 @@ impl ResultsScreen {
         for (kind, rect) in kinds.iter().copied().zip(rects) {
             children.push(self.panel_of(kind, rect));
         }
-        frame("Panels", children)
+        children
     }
 
     /// A panel of `kind` in `rect`.
@@ -1285,6 +1370,8 @@ impl ResultsScreen {
             .map_or(0, |o| (o.current * 1000.0).round() as i32);
         st.song = self.data.song.title.clone();
         st.backdrop = self.backdrop.source().map(str::to_string);
+        drop(st);
+        self.stage_publish();
     }
 
     fn retry(&mut self, cx: &mut Cx) {
@@ -1402,6 +1489,17 @@ pub fn signed(v: impl Into<f64>, decimals: usize) -> String {
     }
 }
 
+impl Drop for ResultsScreen {
+    fn drop(&mut self) {
+        // A stage's standings go with its results.
+        if self.stage.is_some()
+            && let Ok(mut st) = self.env.state.try_borrow_mut()
+        {
+            st.stage = None;
+        }
+    }
+}
+
 impl Screen for ResultsScreen {
     fn shared_bars(&self) -> bool {
         true
@@ -1454,6 +1552,7 @@ impl Screen for ResultsScreen {
                 .filter(|(name, _, _)| *name != "SongList")
                 .map(|(name, _, _)| Focusable::new(*name)),
         );
+        v.extend(self.stage_focusables());
         v.push(Focusable::new("More"));
         if !self.replay_in_bar() && self.actions.replay.is_some() {
             v.push(Focusable::new("WatchReplay"));
@@ -1482,6 +1581,11 @@ impl Screen for ResultsScreen {
         if self.env.state.borrow().screen != "results" {
             self.publish();
         }
+        self.stage_update(root, cx);
+    }
+
+    fn wake_at(&self) -> Option<f64> {
+        self.stage_wake_at()
     }
 
     fn message(&mut self, m: &crate::Message, root: &mut Actor, cx: &mut Cx) {
@@ -1507,6 +1611,9 @@ impl Screen for ResultsScreen {
             // screen, and a tap mashed at the end lands on a button.
             Input::Activate { .. } if settling => return Handled::Yes,
             _ => {}
+        }
+        if let Some(h) = self.stage_input(input, root, cx) {
+            return h;
         }
         match input {
             Input::Menu { action, .. } if action.is_direction() && !cx.menu_from_keyboard() => {

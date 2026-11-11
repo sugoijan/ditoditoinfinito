@@ -54,8 +54,11 @@ pub use ddi_platform;
 /// by an older version is judged again from its log
 /// (`docs/plans/play-history.md`). 2: DDR A's plays keep their gauge,
 /// FLARE rank and FLARE SKILL, and earn LIFE4's lamps
-/// (`docs/plans/rulesets.md`).
-pub const JUDGE_VERSION: u32 = 2;
+/// (`docs/plans/rulesets.md`). 3: DDI's grades ask less of the percent
+/// (`rules::ddi::GRADES`, `docs/plans/ddi-ruleset.md`, "Grades"). 4:
+/// DDI's score is its proportional part plus its absolute score
+/// (`rules::ddi::DdiScoreView::score`, "Score").
+pub const JUDGE_VERSION: u32 = 4;
 
 pub use appearance::Appearance;
 pub use bindings::{ConnectedPad, ControlBindings, LaneTable, MenuInput, PadBindings, PadUse};

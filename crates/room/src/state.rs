@@ -4,7 +4,7 @@
 //! holds the same state.
 
 use crate::awards::{Finish, Placement, StageResult};
-use crate::battle::ReportedRun;
+use crate::battle::{ReportedRun, RunDetail};
 use crate::ids::{ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomId, StageId};
 use crate::member::{Connection, Intent, Member, MemberKind, OpponentSpec, Role};
 use crate::phase::{Interruption, Phase};
@@ -226,6 +226,14 @@ pub struct StagePlay {
     /// When the first report of the song played to its end came.
     #[serde(default)]
     pub song_end_at: Option<Millis>,
+    /// How the starters who said so performed ([`RunDetail`], with their
+    /// reports): shown on the stage's standings, never ranked by.
+    #[serde(
+        default,
+        with = "crate::ids::pairs",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub details: BTreeMap<ParticipantId, RunDetail>,
 }
 
 impl StagePlay {

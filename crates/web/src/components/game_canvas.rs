@@ -690,7 +690,7 @@ impl Component for GameCanvas {
                 // before the start prompt shows (the test starts at once).
                 // The audio test holds the skin's beat still
                 // (`GameLoop::frame`).
-                let skin = noteskin_ready(&Settings::load(), &song, 0, 0.0);
+                let skin = noteskin_ready(&Settings::load(), &song, 0, 0.0, false);
                 let loaded = Loaded {
                     cpu: None,
                     song,
@@ -1297,10 +1297,10 @@ impl GameCanvas {
                         Status::Ready(s) => Some(&s.song),
                         _ => None,
                     };
+                    // The match's rules, everyone's (D0).
                     let rules = song
                         .and_then(|s| s.charts.get(order.chart.index))
-                        // The match's ruleset, everyone's (D0).
-                        .map(|c| ddi_session::battle::stage_ruleset(&order.ruleset, c));
+                        .map(|_| ddi_session::battle::stage_ruleset(&order.rules));
                     crate::room::leave_before_play(order, song, rules.as_ref());
                 }
                 if let Some(game) = self.game.borrow_mut().as_mut() {
@@ -2016,7 +2016,8 @@ impl GameCanvas {
         self.skin_load += 1;
         let load = self.skin_load;
         let shift = ddi_session::play::song_shift(&self.settings, id, self.kept(), false);
-        match noteskin_ready(&self.settings, &song.song, *chart, shift) {
+        let shocks = may_have_shocks(ctx.props());
+        match noteskin_ready(&self.settings, &song.song, *chart, shift, shocks) {
             Some(skin) => {
                 self.skin_loading = true;
                 ctx.link()
@@ -2350,7 +2351,10 @@ impl GameCanvas {
             && ctx.props().cpu.is_none()
             && ctx.props().room_stage.is_none()
         {
-            config.session.ghost = self.ghost.clone().map(|g| g.for_play(shift));
+            config.session.ghost = self.ghost.clone().map(|g| {
+                g.for_play(shift)
+                    .showing_percent(self.settings.ddi_percent())
+            });
         }
         // What the history says of the chart before this play, for the
         // announcer's first clear and new record (a play that is kept).
@@ -2549,7 +2553,7 @@ impl GameCanvas {
             _ => None,
         };
         let waiting = self.waiting_for().into_iter().map(String::from).collect();
-        let changed = {
+        let (changed, waited) = {
             let mut st = self.prompt_state.borrow_mut();
             // Not drawn, but read by tests (`__DDI_DEBUG.prompt`): a frame
             // publishes it.
@@ -2562,11 +2566,17 @@ impl GameCanvas {
             st.set_notes(notes);
             st.set_touch(self.touch);
             st.set_picture(picture);
-            st.version != before || waited
+            (st.version != before || waited, waited)
         };
         if self.prompt.is_none() {
             self.open_prompt(ctx.props().room_stage.clone());
         } else if changed && let Some(p) = &self.prompt {
+            if waited {
+                // A still prompt (reduced motion) draws no frame for what
+                // it does not show: one is asked for, so that what the
+                // play waits for is published as it changes.
+                crate::components::ui_dev::broadcast_soon(Rc::downgrade(&p.host), "Prompt.Waiting");
+            }
             crate::components::ui_dev::wake(&p.host);
         }
     }
@@ -2719,7 +2729,8 @@ impl GameCanvas {
                 order.of,
                 order.cpus.len(),
                 order.others,
-                &order.ruleset,
+                &order.rules,
+                order.battle.attacks(),
             );
             if let (Status::Ready(song), SongSource::Song { chart, .. }) =
                 (&self.song, &props.source)
@@ -3310,7 +3321,7 @@ impl GameCanvas {
                 sc.leave = Some(leave);
             }
         }
-        ui.push(ResultsScreen::new(
+        let results = ResultsScreen::new(
             env.clone(),
             data.clone(),
             ResultsActions {
@@ -3320,7 +3331,12 @@ impl GameCanvas {
                 offset,
                 replay,
             },
-        ));
+        );
+        // A stage's: its room's standings where the graphs are.
+        ui.push(match &stage {
+            Some(order) => results.with_room(crate::room::last_room(), order.stage),
+            None => results,
+        });
         // What tests read: `__DDI_DEBUG.results`.
         let extra = Box::new(move |obj: &js_sys::Object| {
             let st = env.state.borrow();
@@ -3362,7 +3378,7 @@ impl GameCanvas {
         let Some(c) = song.song.charts.get(chart) else {
             return;
         };
-        let ruleset = r.record.ruleset.build(c);
+        let ruleset = r.ruleset().build(c);
         self.names = Some(ruleset.names.clone());
         self.layout = song.song.layout_of(c);
         self.rules = Some(ruleset);
@@ -3691,6 +3707,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
     // The cover the generated background's kaleidoscope folds.
     let generated = settings.clone();
     let cpu = ctx.props().cpu.clone();
+    let shocks = may_have_shocks(ctx.props());
     ctx.link().send_future(async move {
         let r = async {
             let mut loaded = load_song(&id, chart).await?;
@@ -4061,7 +4078,7 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
             })
         });
         if let Ok(loaded) = &r
-            && let Some(skin) = noteskin_ready(&settings, &loaded.song, chart, shift)
+            && let Some(skin) = noteskin_ready(&settings, &loaded.song, chart, shift, shocks)
         {
             link.send_message(Msg::NoteskinLoading);
             link.send_future(async move { Msg::NoteskinLoaded(0, skin.await) });
@@ -4080,10 +4097,13 @@ fn noteskin_ready(
     song: &Song,
     chart: usize,
     shift: f64,
+    shocks: bool,
 ) -> Option<impl std::future::Future<Output = Option<Box<crate::noteskins::Prepared>>> + use<>> {
     let c = song.charts.get(chart)?;
     let layout = song.layout_of(c)?;
-    let wants = ddi_shell::play_skins(settings, song, c, &layout, shift);
+    let mut wants = ddi_shell::play_skins(settings, song, c, &layout, shift);
+    // A stage that may be given a battle's shocks: its skin is told.
+    wants.env.shocks = shocks;
     Some(async move {
         if let Some(ms) = test_skin_delay() {
             gloo::timers::future::TimeoutFuture::new(ms).await;
@@ -4095,6 +4115,15 @@ fn noteskin_ready(
             .await
             .map(Box::new)
     })
+}
+
+/// The play is a room's stage that may be given a battle's shocks
+/// (`StageOrder::may_have_shocks`).
+fn may_have_shocks(props: &Props) -> bool {
+    props
+        .room_stage
+        .as_ref()
+        .is_some_and(|o| o.may_have_shocks())
 }
 
 /// `window.__DDI_SKIN_DELAY_MS`: a play's noteskin takes this much longer

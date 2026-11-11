@@ -45,6 +45,18 @@ mod tables {
     include!(concat!(env!("OUT_DIR"), "/tunables.rs"));
 }
 
+/// The colors of a CPU's level's stars (`ddi_ui::stars`), gold, silver
+/// and the empty outline, as the tunables have them: what the play's
+/// miniatures draw them in (`ddi_shell::opponents`), outside the look.
+pub fn star_colors() -> [Rgba; 3] {
+    ["Star.Gold", "Star.Silver", "Star.Empty"].map(|name| {
+        tables::COLORS
+            .iter()
+            .find(|(k, _)| *k == name)
+            .map_or([1.0, 0.0, 1.0, 1.0], |(_, c)| *c)
+    })
+}
+
 /// Our theme.
 pub struct Infinito {
     keycap_material: std::cell::Cell<KeycapMaterial>,
@@ -190,9 +202,15 @@ impl Default for Infinito {
 // Building blocks. Positions are of a top-left origin unless `centered`.
 
 /// The lamps, worst first, as `ddi_ui::state::history::Lamp` names them.
-const LAMPS: [&str; 15] = [
+const LAMPS: [&str; 21] = [
     "Failed",
     "Clear",
+    "BreakFlag",
+    "GreatFlag",
+    "GloriousFullCombo",
+    "GloriousFlag",
+    "AmazingFullCombo",
+    "AbsoluteDito",
     "Life4Clear",
     "FullCombo",
     "GreatFullCombo",
@@ -1282,6 +1300,17 @@ impl Look for Infinito {
                 command_of(&mut button, "Release", "stoptweening;zoom,1");
                 button
             }
+            // A CPU's level (the spec's text, 1 to 10) as five stars, as
+            // tall as the spec.
+            "Stars" => ddi_ui::stars::actor(
+                spec.text.parse().unwrap_or(0),
+                h,
+                [
+                    self.c("Star.Gold"),
+                    self.c("Star.Silver"),
+                    self.c("Star.Empty"),
+                ],
+            ),
             "Button" => self.button(spec, "Plate2", "Text", 15.0, 600),
             "Button.Disabled" => {
                 let mut button = self.button(spec, "Plate2", "Muted", 15.0, 600);

@@ -963,6 +963,8 @@ fn a_delayed_fail_or_fail_off_plays_to_the_end() {
     let chart = 1;
     for fail in [FailType::ImmediateContinue, FailType::Off] {
         let settings = Settings {
+            // A StepMania preset: its options are what is tried.
+            ruleset: "itg".into(),
             stepmania: StepManiaOptions {
                 fail,
                 ..StepManiaOptions::default()
@@ -1029,6 +1031,8 @@ fn the_assist_clap_lands_on_each_row_and_a_mine_sounds() {
     let lengths = [clap(48_000.0).len(), mine(48_000.0).len()].map(|n| n as f64 / 48_000.0);
     for (clap_on, mine_on) in [(true, true), (false, false)] {
         let settings = Settings {
+            // A StepMania preset: its options are what is tried.
+            ruleset: "itg".into(),
             assist_clap: clap_on,
             mine_sound: mine_on,
             stepmania: ddi_engine::rules::StepManiaOptions {
@@ -1099,7 +1103,11 @@ fn the_ghost_says_how_far_ahead_of_the_best_a_play_is() {
     use ddi_ui::state::history::{Ghost, GhostDelta};
     let song = bundled("beatucada");
     let chart = 1;
-    let settings = Settings::default();
+    // ITG: a percent, its lead in percentage points (DDI's below).
+    let settings = Settings {
+        ruleset: "itg".into(),
+        ..Settings::default()
+    };
     // The best: an autoplay all top tier.
     let play = |bias: f64, ghost: Option<Ghost>| {
         let clock: Clock = Rc::new(RefCell::new(10.0));
@@ -1161,6 +1169,76 @@ fn the_ghost_says_how_far_ahead_of_the_best_a_play_is() {
     let expected = (ddi_ui::state::history::score_value(&late.score) - ghost.last()) * 100.0;
     assert!((last - expected).abs() < 1e-9, "{last} {expected}");
     assert!(last < -1.0, "{last}");
+}
+
+/// Under DDI the ghost's lead is in points of the score as shown (the
+/// proportional part plus the absolute score), or in percentage points
+/// where the score shows as a percent (`Ghost::showing_percent`); a
+/// replay of the autoplayed best is graded as the play was, Absolute Bot.
+#[test]
+fn the_ghost_leads_in_ddi_points_or_percent() {
+    let song = bundled("beatucada");
+    let chart = 1;
+    let settings = Settings::default();
+    assert_eq!(settings.ruleset, "ddi");
+    let play = |bias: f64, ghost: Option<Ghost>| {
+        let clock: Clock = Rc::new(RefCell::new(10.0));
+        let mut config = SessionConfig::from_settings(&settings, true, None);
+        config.auto_bias = bias;
+        config.ghost = ghost;
+        let mut s = PlaySession::start(
+            &song,
+            chart,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.01),
+            110.0,
+            FakeInputs::new(&clock),
+        )
+        .unwrap();
+        let mut last = None;
+        let end = loop {
+            *clock.borrow_mut() += 1.0 / 60.0;
+            let (_, event) = s.tick(HostTime(*clock.borrow()));
+            last = s.ghost_delta().or(last);
+            if let Some(e) = event {
+                break e;
+            }
+        };
+        let SessionEvent::Finished { results, facts, .. } = end else {
+            panic!("no end");
+        };
+        (results, facts, last)
+    };
+    let (results, facts, _) = play(0.0, None);
+    assert_eq!(results.grade, "Absolute Bot");
+    assert_eq!(facts.ruleset.id, "ddi");
+    let best = kept("beatucada", &song, chart, &results, &facts, true);
+    assert_eq!(best.results(&song).unwrap().grade, "Absolute Bot");
+    let ghost = Ghost::of(&best, &song).unwrap();
+    let whole = results.score.ddi.unwrap();
+    assert_eq!(whole.ratio, 1_000_000);
+    assert_eq!(whole.score, 1_000_000 + whole.absolute);
+    assert_eq!(ghost.last(), whole.score as f64);
+    // 30 ms late, every tap a W2: 40 points of 50 a note, and no W0.
+    let (late, _, points) = play(0.03, Some(ghost.clone()));
+    let behind = late.score.ddi.unwrap();
+    assert_eq!(behind.ratio, 800_000);
+    assert_eq!(behind.absolute, 100 * behind.points);
+    assert_eq!(behind.score, 800_000 + behind.absolute);
+    // The lead is of the score shown: the proportional part's 200,000
+    // and the absolute score's difference.
+    let lead = (behind.score - whole.score) as f64;
+    assert!(lead < -200_000.0, "{lead}");
+    assert!(
+        matches!(points, Some(GhostDelta::Points(p)) if p == lead),
+        "{points:?}"
+    );
+    let (_, _, percent) = play(0.03, Some(ghost.showing_percent(true)));
+    assert!(
+        matches!(percent, Some(GhostDelta::Percent(p)) if (p + 20.0).abs() < 1e-9),
+        "{percent:?}"
+    );
 }
 
 /// A chart with rolls (kept and dropped), holds, mines, a stop and a
@@ -1581,6 +1659,8 @@ fn the_announcer_counts_a_batterys_lives_down() {
     use ddi_engine::rules::{LifeType, StepManiaOptions};
     let song = bundled("beatucada");
     let settings = Settings {
+        // A StepMania preset: its options are what is tried.
+        ruleset: "itg".into(),
         announcer: Some("voice".into()),
         stepmania: StepManiaOptions {
             life_type: LifeType::Battery,

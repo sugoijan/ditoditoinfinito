@@ -327,6 +327,24 @@ impl OptionsPlatform for Desktop {
         sound.borrow_mut().sample(&song, play, volume)
     }
 
+    /// Every kept play waits to be judged again under `rules`; the
+    /// history's thread works them out (`crate::history::Rework`).
+    fn rejudge(&self, rules: &ddi_ui::state::settings::RuleChoice) {
+        let Some(songs) = self.0.songs.as_ref() else {
+            return;
+        };
+        if let Some(plays) = &songs.plays {
+            plays.rejudge(rules, None, |r| {
+                if let Err(e) = r {
+                    eprintln!("history: {e}");
+                }
+            });
+        }
+        if let Some(r) = songs.rework.borrow_mut().as_mut() {
+            r.library_changed();
+        }
+    }
+
     fn volume(&self, volume: f32) {
         if let Some(sound) = &self.0.sound {
             sound.borrow_mut().set_volume(volume);

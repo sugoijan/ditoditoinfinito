@@ -554,6 +554,10 @@ impl OptionsPlatform for Web {
         }
     }
 
+    fn rejudge(&self, rules: &ddi_ui::state::settings::RuleChoice) {
+        crate::history::rejudge(rules);
+    }
+
     fn volume(&self, volume: f32) {
         if let Some(p) = self.0.sample.borrow().as_ref() {
             p.set_volume(volume);

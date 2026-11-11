@@ -13,10 +13,14 @@ use std::rc::Rc;
 use ddi_actor::Actor;
 use ddi_l10n::UiText;
 use ddi_l10n::msg::{common, room as m};
-use ddi_room::{Capability, MatchRules, MemberKind, OpponentSpec, Phase, StageStanding};
+use ddi_room::{
+    Capability, MatchDifficulty, MatchRules, MemberKind, OpponentSpec, Phase, StageStanding,
+};
 
 use super::dialog::{button, fitted_dialog, shell};
-use super::room::{cpu_name, cpu_sub, mark_text, panel, panel_rows, publish_dialog};
+use super::room::{
+    cpu_level, cpu_name, cpu_sub, level_line_right, mark_text, panel, panel_rows, publish_dialog,
+};
 use super::{Env, left, right};
 use crate::look;
 use crate::nav::{Focusable, MenuAction};
@@ -32,6 +36,8 @@ const ROSTER_CHANGED: &str = "Room.RosterChanged";
 /// The CPU rows the Rules pop-up shows at once (more scroll).
 const CPU_ROWS: usize = 4;
 const ROW: f32 = 40.0;
+/// The row a scrolled roster's "more" mark takes, above and below it.
+const MARK: f32 = 24.0;
 
 /// A refusal said in a pop-up (song select picking a song: a chart the
 /// CPUs cannot play): its title, its words, Close.
@@ -112,15 +118,6 @@ fn scrolled(first: usize, by: i32, len: usize, fit: usize) -> usize {
     (first as i64 + i64::from(by)).clamp(0, max as i64) as usize
 }
 
-/// Where ruleset `id` is in [`MatchRules::RULESETS`] (the first where it
-/// is not there).
-fn ruleset_at(id: &str) -> usize {
-    MatchRules::RULESETS
-        .iter()
-        .position(|r| *r == id)
-        .unwrap_or(0)
-}
-
 /// The defaults Reset restores: practice's rules and starting CPUs (from
 /// the room's seed), or a hosted room's.
 fn defaults(room: &SharedRoom) -> MatchRules {
@@ -194,6 +191,11 @@ impl RulesDialog {
         !self.room.borrow().is_online()
     }
 
+    /// The Attacks rule can be set here (`room::attacks_offered`).
+    fn attacks_offered(&self) -> bool {
+        super::room::attacks_offered(&self.room.borrow())
+    }
+
     fn roster(&self) -> Vec<OpponentSpec> {
         cpu_roster::roster_of(&self.draft.borrow(), self.room.borrow().humans())
     }
@@ -230,13 +232,17 @@ impl RulesDialog {
         let draft = self.draft.borrow();
         let cpus = u16::try_from(self.roster().len()).unwrap_or(u16::MAX);
         let (stages, problem, first) = (draft.stages, self.problem.clone(), self.first);
-        let ruleset = draft.ruleset.clone();
+        let rules = (
+            super::room::difficulty_id(draft.difficulty).to_string(),
+            draft.boos,
+            draft.attacks(),
+        );
         drop(draft);
         publish_dialog(&self.env, |v| {
             v.rules_open = true;
             v.rules_first = first;
             v.draft = vec![stages, cpus];
-            v.draft_ruleset = Some(ruleset);
+            v.draft_rules = Some(rules);
             v.rules_problem = problem;
         });
     }
@@ -296,6 +302,7 @@ impl Screen for RulesDialog {
         }
         notes.push((m::rules_points_note().into(), "Muted"));
         notes.push((m::rules_ruleset_note().into(), "Muted"));
+        notes.push((m::rules_battle_note().into(), "Muted"));
         // What applying does: nothing to say where the player cannot.
         if editable {
             notes.push((
@@ -327,7 +334,11 @@ impl Screen for RulesDialog {
         let locked_h = if locked.is_some() { 52.0 } else { 0.0 };
         let cpu_h = if cpus {
             28.0 + shown.max(1) as f32 * ROW
-                + if roster.len() > shown { 24.0 } else { 0.0 }
+                + if roster.len() > shown {
+                    2.0 * MARK
+                } else {
+                    0.0
+                }
                 + if editable { ROW + 8.0 } else { 0.0 }
         } else {
             0.0
@@ -335,7 +346,7 @@ impl Screen for RulesDialog {
         let h = 64.0
             + locked_h
             + 28.0
-            + 2.0 * ROW
+            + 3.0 * ROW
             + cpu_h
             + 2.0 * ROW
             + 12.0
@@ -354,7 +365,10 @@ impl Screen for RulesDialog {
             let line = m::rules_locked_line(
                 rules.stages,
                 cpu_roster::roster_of(rules, humans).len(),
-                super::room::ruleset_name(&rules.ruleset),
+                super::room::rules_words(
+                    &crate::state::room::StageRules::of(rules),
+                    rules.attacks(),
+                ),
             );
             let mut t = env.text("Locked.Line", &line, 14.0, 400, "Secondary");
             look::ellipsized(&mut t, inner);
@@ -368,32 +382,42 @@ impl Screen for RulesDialog {
             ry + 8.0,
         ));
         ry += 28.0;
+        // A row: its label, then its value between the two buttons that
+        // change it (a number's − and +, a choice's ‹ and ›; `lo` and `hi`,
+        // whether there is a value that way); the value alone at the
+        // row's end for someone who may not change it.
         let stepper = |c: &mut Vec<Actor>,
                        id: &str,
                        label: &str,
                        value: String,
-                       lo: bool,
-                       hi: bool,
+                       (lo, hi): (bool, bool),
+                       number: bool,
                        ry: f32| {
             let mut l = env.text(&format!("Rule.{id}"), label, 14.0, 400, "Secondary");
-            look::ellipsized(&mut l, inner - 170.0);
+            look::ellipsized(&mut l, inner - 190.0);
             c.push(left(l, x0, ry));
             let mut v = env.text(&format!("Rule.{id}.Value"), &value, 14.0, 600, "Text");
             if editable {
+                let (less, more) = if number {
+                    (m::rules_less(), m::rules_more())
+                } else {
+                    (m::rules_previous(), m::rules_next())
+                };
                 c.push(button(
                     &env,
                     &format!("Dec.{id}"),
-                    &m::rules_less(),
+                    &less,
                     [x0 + inner - 150.0, ry],
                     36.0,
                     if lo { "Button" } else { "Button.Disabled" },
                 ));
-                look::call(&mut v, "xy", &[x0 + inner - 76.0, ry]);
+                look::ellipsized(&mut v, 92.0);
+                look::call(&mut v, "xy", &[x0 + inner - 84.0, ry]);
                 c.push(v);
                 c.push(button(
                     &env,
                     &format!("Inc.{id}"),
-                    &m::rules_more(),
+                    &more,
                     [x0 + inner - 18.0, ry],
                     36.0,
                     if hi { "Button" } else { "Button.Disabled" },
@@ -402,56 +426,44 @@ impl Screen for RulesDialog {
                 c.push(right(v, x0 + inner, ry));
             }
         };
+        let on_off = |on: bool| -> String {
+            if on { common::on() } else { common::off() }.into()
+        };
         let max_stages = self.room.borrow().state().policy.max_stages;
         stepper(
             &mut c,
             "stages",
             &m::rules_stages(),
             UiText::data(draft.stages.to_string()).into(),
-            draft.stages > 1,
-            draft.stages < max_stages,
+            (draft.stages > 1, draft.stages < max_stages),
+            true,
             ry + ROW / 2.0,
         );
         ry += ROW;
-        // The match's ruleset, everyone's (D0): the previous and next of
-        // the list, its name before them.
-        {
-            let row_y = ry + ROW / 2.0;
-            let at = ruleset_at(&draft.ruleset);
-            let mut l = env.text("Rule.ruleset", &m::rules_ruleset(), 14.0, 400, "Secondary");
-            look::ellipsized(&mut l, inner * 0.3);
-            c.push(left(l, x0, row_y));
-            let name = super::room::ruleset_name(&draft.ruleset);
-            let mut v = env.text("Rule.ruleset.Value", &name, 14.0, 600, "Text");
-            if editable {
-                look::ellipsized(&mut v, inner * 0.7 - 100.0);
-                c.push(right(v, x0 + inner - 92.0, row_y));
-                c.push(button(
-                    &env,
-                    "Dec.ruleset",
-                    &m::rules_previous(),
-                    [x0 + inner - 64.0, row_y],
-                    36.0,
-                    if at > 0 { "Button" } else { "Button.Disabled" },
-                ));
-                c.push(button(
-                    &env,
-                    "Inc.ruleset",
-                    &m::rules_next(),
-                    [x0 + inner - 18.0, row_y],
-                    36.0,
-                    if at + 1 < MatchRules::RULESETS.len() {
-                        "Button"
-                    } else {
-                        "Button.Disabled"
-                    },
-                ));
-            } else {
-                look::ellipsized(&mut v, inner * 0.7);
-                c.push(right(v, x0 + inner, row_y));
-            }
-            ry += ROW;
-        }
+        // DDI's options that are the match's, everyone's (D0): its
+        // difficulty and Boos. (The ruleset has no row: it is DDI, which
+        // the note under the rows says.)
+        let at = draft.difficulty.index();
+        stepper(
+            &mut c,
+            "difficulty",
+            &m::rules_difficulty(),
+            super::room::difficulty_name(draft.difficulty).into(),
+            (at > 0, at + 1 < MatchDifficulty::ALL.len()),
+            false,
+            ry + ROW / 2.0,
+        );
+        ry += ROW;
+        stepper(
+            &mut c,
+            "boos",
+            &m::rules_boos(),
+            on_off(draft.boos),
+            (draft.boos, !draft.boos),
+            false,
+            ry + ROW / 2.0,
+        );
+        ry += ROW;
         // Practice's CPUs: the roster, each removable, then the adds.
         if cpus {
             c.push(left(
@@ -477,11 +489,13 @@ impl Screen for RulesDialog {
                     "Button",
                     &look::Spec::new([inner, 22.0], &*m::panel_more_above(self.cpu_first)),
                     "Cpu.Up",
-                    [x0 + inner / 2.0, ry + 11.0],
+                    [x0 + inner / 2.0, ry + MARK / 2.0],
                 ));
             }
+            // A row of its own for each mark, clear of the roster's rows
+            // and of the buttons under them.
             if roster.len() > shown {
-                ry += 12.0;
+                ry += MARK;
             }
             if roster.is_empty() {
                 c.push(left(
@@ -502,13 +516,16 @@ impl Screen for RulesDialog {
                 );
                 look::ellipsized(&mut n, inner * 0.45);
                 c.push(left(n, x0, row_y));
-                let mut sub = env.text(&format!("Cpu{k}.Sub"), &cpu_sub(spec), 12.0, 400, "Muted");
-                look::ellipsized(&mut sub, inner * 0.45 - if editable { 48.0 } else { 0.0 });
-                c.push(right(
-                    sub,
-                    x0 + inner - if editable { 48.0 } else { 0.0 },
-                    row_y,
-                ));
+                // Its personality, then its level's stars at the row's end.
+                let end = x0 + inner - if editable { 48.0 } else { 0.0 };
+                level_line_right(
+                    &env,
+                    &mut c,
+                    &format!("Cpu{k}"),
+                    (cpu_level(spec), &cpu_sub(spec)),
+                    [end, row_y],
+                    inner * 0.55 - if editable { 48.0 } else { 0.0 },
+                );
                 if editable {
                     c.push(button(
                         &env,
@@ -532,10 +549,10 @@ impl Screen for RulesDialog {
                         "Button",
                         &look::Spec::new([inner, 22.0], &*m::panel_more_below(below)),
                         "Cpu.Down",
-                        [x0 + inner / 2.0, ry + 11.0],
+                        [x0 + inner / 2.0, ry + MARK / 2.0],
                     ));
                 }
-                ry += 12.0;
+                ry += MARK;
             }
             if editable {
                 let free = self.free_seats() > 0;
@@ -560,29 +577,45 @@ impl Screen for RulesDialog {
                 ry += ROW + 8.0;
             }
         }
-        // What is not chosen here yet.
-        let attacks = ddi_room::BattlePreset::parse(&draft.battle).is_some_and(|b| b.attacks());
-        for (i, (label, value)) in [
-            (
-                m::rules_battle(),
-                if attacks {
-                    m::rules_battle_attacks_value()
-                } else {
-                    m::rules_battle_value()
-                },
-            ),
-            (m::rules_points(), m::rules_points_value()),
-        ]
-        .iter()
-        .enumerate()
-        {
+        // Attacks, where they work (practice); said unavailable where
+        // they do not yet (an online room).
+        if self.attacks_offered() {
+            stepper(
+                &mut c,
+                "attacks",
+                &m::rules_attacks(),
+                on_off(draft.attacks()),
+                (draft.attacks(), !draft.attacks()),
+                false,
+                ry + ROW / 2.0,
+            );
+        } else {
             let row_y = ry + ROW / 2.0;
             c.push(left(
-                env.text(&format!("Fixed.{i}"), label, 14.0, 400, "Secondary"),
+                env.text("Rule.attacks", &m::rules_attacks(), 14.0, 400, "Secondary"),
                 x0,
                 row_y,
             ));
-            let mut v = env.text(&format!("Fixed.{i}.Value"), value, 13.0, 400, "Muted");
+            let mut v = env.text(
+                "Rule.attacks.Value",
+                &m::rules_attacks_online(),
+                13.0,
+                400,
+                "Muted",
+            );
+            look::ellipsized(&mut v, inner - 110.0);
+            c.push(right(v, x0 + inner, row_y));
+        }
+        ry += ROW;
+        // What is not chosen here yet.
+        {
+            let row_y = ry + ROW / 2.0;
+            c.push(left(
+                env.text("Fixed.0", &m::rules_points(), 14.0, 400, "Secondary"),
+                x0,
+                row_y,
+            ));
+            let mut v = env.text("Fixed.0.Value", &m::rules_points_value(), 13.0, 400, "Muted");
             look::ellipsized(&mut v, inner - 110.0);
             c.push(right(v, x0 + inner, row_y));
             ry += ROW;
@@ -617,12 +650,25 @@ impl Screen for RulesDialog {
     }
 
     fn focusables(&self) -> Vec<Focusable> {
+        // A row's two buttons: Right and Left move between them (the rows
+        // touch and the wide Add buttons reach over the Attacks row's, so
+        // where the buttons are alone would not always say so).
+        fn pair(v: &mut Vec<Focusable>, id: &str) {
+            let (dec, inc) = (format!("Dec.{id}"), format!("Inc.{id}"));
+            v.push(Focusable {
+                right: Some(inc.clone()),
+                ..Focusable::new(dec.clone())
+            });
+            v.push(Focusable {
+                left: Some(dec),
+                ..Focusable::new(inc)
+            });
+        }
         let mut v = Vec::new();
         if self.editable() {
-            v.push(Focusable::new("Dec.stages"));
-            v.push(Focusable::new("Inc.stages"));
-            v.push(Focusable::new("Dec.ruleset"));
-            v.push(Focusable::new("Inc.ruleset"));
+            for id in ["stages", "difficulty", "boos"] {
+                pair(&mut v, id);
+            }
             if self.cpus_shown() {
                 let roster = self.roster();
                 for k in (self.cpu_first..roster.len()).take(CPU_ROWS) {
@@ -630,6 +676,9 @@ impl Screen for RulesDialog {
                 }
                 v.push(Focusable::new("AddRandom"));
                 v.push(Focusable::new("AddCustom"));
+            }
+            if self.attacks_offered() {
+                pair(&mut v, "attacks");
             }
         }
         for (name, _) in self.buttons() {
@@ -677,16 +726,26 @@ impl Screen for RulesDialog {
                         drop(d);
                         rebuild(self, root, cx, name);
                     }
-                    "Dec.ruleset" | "Inc.ruleset" if self.editable() => {
+                    "Dec.difficulty" | "Inc.difficulty" if self.editable() => {
                         let mut d = self.draft.borrow_mut();
-                        let at = ruleset_at(&d.ruleset);
-                        let at = if name == "Inc.ruleset" {
-                            (at + 1).min(MatchRules::RULESETS.len() - 1)
+                        let at = d.difficulty.index();
+                        let at = if name == "Inc.difficulty" {
+                            (at + 1).min(MatchDifficulty::ALL.len() - 1)
                         } else {
                             at.saturating_sub(1)
                         };
-                        d.ruleset = MatchRules::RULESETS[at].into();
+                        d.difficulty = MatchDifficulty::ALL[at];
                         drop(d);
+                        rebuild(self, root, cx, name);
+                    }
+                    "Dec.boos" | "Inc.boos" if self.editable() => {
+                        self.draft.borrow_mut().boos = name == "Inc.boos";
+                        rebuild(self, root, cx, name);
+                    }
+                    "Dec.attacks" | "Inc.attacks"
+                        if self.editable() && self.attacks_offered() =>
+                    {
+                        self.draft.borrow_mut().set_attacks(name == "Inc.attacks");
                         rebuild(self, root, cx, name);
                     }
                     "Cpu.Up" | "Cpu.Down" => {
@@ -798,6 +857,8 @@ pub struct AddCpuDialog {
 
 /// Catalog rows Add custom shows at once.
 const NAME_ROWS: usize = 5;
+/// The level's stars between Add custom's two level buttons.
+const LEVEL_STARS: f32 = 15.0;
 
 impl AddCpuDialog {
     pub fn new(
@@ -869,17 +930,18 @@ impl Screen for AddCpuDialog {
         let mut ry = y + 64.0;
         let levels = cpu_levels();
         for (id, label, value, lo, hi) in [
+            // The level: its stars between the two buttons, no number.
             (
                 "level",
                 m::rules_level(),
-                m::rules_level_value(u16::from(self.level) + 1, u16::from(levels)),
+                None,
                 self.level > 0,
                 self.level + 1 < levels,
             ),
             (
                 "count",
                 m::add_cpus_count(),
-                UiText::data(self.count.to_string()),
+                Some(UiText::data(self.count.to_string())),
                 self.count > 1,
                 self.count < free,
             ),
@@ -898,8 +960,23 @@ impl Screen for AddCpuDialog {
                 36.0,
                 if lo { "Button" } else { "Button.Disabled" },
             ));
-            let mut v = env.text(&format!("Add.{id}.Value"), &value, 14.0, 600, "Text");
-            look::call(&mut v, "xy", &[x0 + inner - 76.0, row_y]);
+            let v = match value {
+                Some(value) => {
+                    let mut v = env.text(&format!("Add.{id}.Value"), &value, 14.0, 600, "Text");
+                    look::call(&mut v, "xy", &[x0 + inner - 84.0, row_y]);
+                    v
+                }
+                None => {
+                    let mut v = crate::stars::stars(
+                        &env,
+                        &format!("Add.{id}.Stars"),
+                        self.level + 1,
+                        LEVEL_STARS,
+                    );
+                    look::call(&mut v, "xy", &[x0 + inner - 84.0, row_y]);
+                    v
+                }
+            };
             c.push(v);
             c.push(button(
                 &env,
@@ -911,7 +988,7 @@ impl Screen for AddCpuDialog {
             ));
             ry += ROW;
         }
-        let label = m::add_cpus_at_level(self.count, u16::from(self.level) + 1);
+        let label = m::add_cpus_add(self.count);
         c.push(button(
             &env,
             "Add.ByLevel",
@@ -954,15 +1031,22 @@ impl Screen for AddCpuDialog {
         } else {
             for (k, cpu) in names.iter().enumerate().skip(self.first).take(shown) {
                 let row_y = ry + ROW / 2.0;
+                // A list row's origin is its top left.
                 let mut row = env.component(
                     "List.Row",
                     "Button",
                     &look::Spec::new([inner, ROW - 4.0], ""),
                     &format!("Name.{k}"),
-                    [x0 + inner / 2.0, row_y],
+                    [x0, row_y - (ROW - 4.0) / 2.0],
                 );
                 crate::widgets::set_text(&mut row, "Title", "");
                 crate::widgets::set_text(&mut row, "Subtitle", "");
+                // No picture: a CPU's row is its name and stars.
+                for part in ["Banner", "BannerBack"] {
+                    if let Some(banner) = crate::widgets::part(&mut row, part) {
+                        banner.visible = false;
+                    }
+                }
                 c.push(row);
                 let spec = cpu.spec(0);
                 let mut n = env.text(
@@ -974,15 +1058,14 @@ impl Screen for AddCpuDialog {
                 );
                 look::ellipsized(&mut n, inner * 0.5);
                 c.push(left(n, x0 + 12.0, row_y));
-                let mut sub = env.text(
-                    &format!("Name.{k}.Sub"),
-                    &cpu_sub(&spec),
-                    12.0,
-                    400,
-                    "Muted",
+                level_line_right(
+                    &env,
+                    &mut c,
+                    &format!("Name.{k}"),
+                    (cpu_level(&spec), &cpu_sub(&spec)),
+                    [x0 + inner - 12.0, row_y],
+                    inner * 0.5 - 24.0,
                 );
-                look::ellipsized(&mut sub, inner * 0.5 - 24.0);
-                c.push(right(sub, x0 + inner - 12.0, row_y));
                 ry += ROW;
             }
         }

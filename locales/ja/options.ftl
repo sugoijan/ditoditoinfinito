@@ -132,7 +132,23 @@ options-ruleset-mode-danoni = Dancing☆Onigiri
 options-ruleset-mode-description = すべての譜面に下のルールセットを使うか、各譜面が作られたゲームのルールを使うか（Dancing☆Onigiriの作品とFFRのレベルはそれぞれのルール、その他は下のルールセット）、すべての譜面にDancing☆Onigiriのルールを使うかを選びます。
 options-ruleset = ルールセット
 options-ruleset-approximate = { $ruleset }（近似）
-options-ruleset-description = タイミングの判定とスコアの計算方法です。ルールを定めたゲームに倣います。
+options-ruleset-description = タイミングの判定とスコアの計算方法です。このゲーム独自のDDI、または名前のゲームのルールを使います。
+options-ddi-difficulty = タイミング難易度
+options-ddi-easy = イージー
+options-ddi-normal = ノーマル
+options-ddi-hard = ハード
+options-ddi-difficulty-description = イージーはすべての判定幅が広くなり、ミスで減るライフが5分の1になります。ハードは判定幅が狭くなり、減るライフが2倍になります。ベストはタイミング難易度ごとに別々に記録されます。
+options-ddi-boos = Boo
+options-ddi-boos-description = オンにすると、ノーツのないところを押すとBooになります。ライフとスコアが減り、フルコンボのランプも取れなくなります。地雷から離れるとき、リフトの準備中、ロックされたレーン、長い休みの間はBooになりません。Booがオンのベストは別々に記録されます。
+options-ddi-practice = 練習
+options-ddi-practice-description = オンにすると、ライフが空になってもプレイは終わりません。ライフが0のまま最後まで続き、失敗として記録されます。
+options-ddi-score = スコア表示
+options-ddi-score-score = スコア
+options-ddi-score-percent = パーセント
+options-ddi-score-description = プレイ中と選曲でのスコアの表示です。譜面が長いほど高くなるスコアか、パーセントを選びます。リザルトには両方が表示されます。
+options-rejudge = 記録済みのプレイ
+options-rejudge-button = 判定し直す
+options-rejudge-description = 記録済みのすべてのプレイを、今選んでいるルールで入力記録から判定し直し、そのスコアをここのベストに反映します。プレイしたときの結果も残ります。判定し直したプレイは、地雷でロックされるレーンやBooなど、このルールに合わせた動きにはなっていません。
 options-holds = ホールド
 options-holds-by-game = ゲームどおり
 options-holds-dance = ダンス
@@ -512,6 +528,9 @@ options-notice-songs-not-removed = インポートした曲を削除できませ
 options-notice-everything-reset = すべてリセットしました。
 options-notice-history-deleted = プレイ履歴を削除しました。
 options-notice-history-not-deleted = プレイ履歴を削除できませんでした：{ $error }
+options-notice-rejudge = { $count ->
+   *[other] { $count }件の記録済みのプレイを判定し直しています。
+}
 options-notice-exported = { $count ->
    *[other] { $count }件のプレイを書き出しました。
 }

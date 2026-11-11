@@ -46,6 +46,10 @@ pub trait OptionsPlatform {
     /// Downloads the play history (the platform says how it went, in
     /// the model's notice, later).
     fn export(&self);
+    /// Judges the kept plays again under `rules`, those chosen now
+    /// (`crate::state::history::Plays::rejudge`; the shell's reworker
+    /// does the judging behind the screens).
+    fn rejudge(&self, _rules: &crate::state::settings::RuleChoice) {}
     /// Imports plays from an export the player picks (the picker, inside
     /// the press); the platform says how it went in the model's notice
     /// and `World::importing_plays`.
@@ -213,6 +217,11 @@ fn call_with(
             );
         }
         Act::Export => platform.export(),
+        Act::Rejudge => {
+            let rules = model.borrow().settings.rules();
+            platform.rejudge(&rules);
+            return Some(model.borrow().data());
+        }
         Act::ImportPlays => platform.import_plays(cx),
         Act::AddFolder => platform.add_folder(cx),
         Act::RemoveFolder(i) => platform.remove_folder(i),

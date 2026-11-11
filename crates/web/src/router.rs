@@ -529,8 +529,12 @@ fn share_switch(hash: &str) {
 /// route (or on an invite's link, `#/mp/join/<invite>?mp=1`) sets
 /// `Settings::multiplayer`, `mp=0` clears it; never a row of Options
 /// (DEVELOPMENT ONLY: `mpcpus=N` beside `mp=1`, practice against N CPUs
-/// beyond the cap, `crate::room::develop`; `mpattacks=1`, attack power,
-/// and `mpdevmines=BEAT`, a section of battle shocks, M8a). Off,
+/// beyond the cap, `crate::room::develop`, and `mpdevmines=BEAT`, a
+/// section of battle shocks, M8a; a convenience, `mpattacks=1`: the next
+/// practice room starts with its Attacks rule On, which anyone sets in
+/// Rules; and a hidden
+/// option, `mprules=1`, a room's Rules opening by themselves on entering,
+/// `Settings::multiplayer_rules_first`). Off,
 /// the start menu's Multiplayer says "Coming soon" and the prototype's
 /// routes lead to the start menu.
 fn multiplayer_switch(hash: &str) {
@@ -560,8 +564,10 @@ fn multiplayer_switch(hash: &str) {
     {
         crate::room::develop(n);
     }
-    // DEVELOPMENT ONLY (M8a): `mpattacks=1` practices with attack power
-    // shown, `mpdevmines=BEAT` puts a section of battle shocks into each
+    // `mpattacks=1`: a convenience for tests and screenshots, the next
+    // practice room starts with its Attacks rule already On (the rule is
+    // in Rules for anyone; `mpattacks=0` back to Off). DEVELOPMENT ONLY
+    // (M8a): `mpdevmines=BEAT` puts a section of battle shocks into each
     // stage's play from that beat (`ddi_ui::state::room::Development`).
     if on {
         let param = |key: &str| {
@@ -584,9 +590,19 @@ fn multiplayer_switch(hash: &str) {
             crate::room::discard();
         }
     }
+    // `mprules=1` beside `mp=1`: a room's Rules open by themselves on
+    // entering, as M7b had it (`Settings::multiplayer_rules_first`, a
+    // hidden option, off by default); `mprules=0` turns it off again.
+    let rules_first = query.split('&').find_map(|kv| match kv.split_once('=') {
+        Some(("mprules", "1")) => Some(true),
+        Some(("mprules", "0")) => Some(false),
+        _ => None,
+    });
     let mut settings = crate::settings::Settings::load();
-    if settings.multiplayer != on {
+    let rules_first = rules_first.unwrap_or(settings.multiplayer_rules_first);
+    if settings.multiplayer != on || settings.multiplayer_rules_first != rules_first {
         settings.multiplayer = on;
+        settings.multiplayer_rules_first = rules_first;
         settings.save();
     }
 }

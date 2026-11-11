@@ -140,6 +140,10 @@ pub struct NoteDisplay {
     pub hold_use_dropped_state: bool,
     /// Our opt-in extension: flash individual hits rather than completed rows.
     pub tap_judgments_per_note: bool,
+    /// Our opt-in extension (`UseTapShock=1`): the skin has a `Tap Shock`
+    /// element, loaded as any other, which draws a multiplayer battle's
+    /// shocks; without it they are drawn as its `Tap Mine`.
+    pub use_tap_shock: bool,
     pub hold_head_is_above_wavy_parts: bool,
     pub hold_tail_is_above_wavy_parts: bool,
     pub flip_head_and_tail_when_reverse: bool,
@@ -203,6 +207,7 @@ impl NoteDisplay {
             hold_let_go_gray_percent: f("HoldLetGoGrayPercent"),
             hold_use_dropped_state: b("HoldUseDroppedState"),
             tap_judgments_per_note: b("TapJudgmentsPerNote"),
+            use_tap_shock: b("UseTapShock"),
             hold_head_is_above_wavy_parts: b("HoldHeadIsAboveWavyParts"),
             hold_tail_is_above_wavy_parts: b("HoldTailIsAboveWavyParts"),
             flip_head_and_tail_when_reverse: b("FlipHeadAndTailWhenReverse"),
@@ -260,6 +265,7 @@ impl NoteDisplay {
             hold_let_go_gray_percent: f("HoldNGGrayPercent"),
             hold_use_dropped_state: false,
             tap_judgments_per_note: false,
+            use_tap_shock: false,
             hold_head_is_above_wavy_parts: b("HoldHeadIsAboveWavyParts"),
             hold_tail_is_above_wavy_parts: b("HoldTailIsAboveWavyParts"),
             flip_head_and_tail_when_reverse: b("FlipHeadAndTailWhenReverse"),
@@ -325,6 +331,48 @@ mod tests {
         let m = NoteDisplay::read(&peters, "Center");
         assert_eq!(m.part(Part::TapNote).color_spacing, [0.0625, 0.0]);
         assert!(!m.part(Part::TapNote).animation_on_children);
+    }
+
+    /// Our extension: a skin opts into its own `Tap Shock` (a
+    /// multiplayer battle's shock) in its metrics; one that does not has
+    /// its shocks drawn as its `Tap Mine`. Infinito opts in; Peters-DDR,
+    /// its fallback, does not.
+    #[test]
+    fn a_skin_opts_into_its_own_tap_shock() {
+        let folders = [
+            folder(
+                "dance",
+                "Infinito",
+                &[(
+                    "metrics.ini",
+                    include_str!("../../../assets/noteskins/dance/Infinito/metrics.ini"),
+                )],
+            ),
+            folder(
+                "dance",
+                "Peters-DDR",
+                &[(
+                    "metrics.ini",
+                    include_str!("../../../assets/noteskins/dance/Peters-DDR/metrics.ini"),
+                )],
+            ),
+            folder(
+                "dance",
+                "s",
+                &[(
+                    "metrics.ini",
+                    "[Global]\nFallbackNoteSkin=default\n[NoteDisplay]\nUseTapShock=1\n",
+                )],
+            ),
+        ];
+        let read = |name: &str, button: &str| {
+            NoteDisplay::read(&Skin::load(&folders, "dance", name).unwrap(), button).use_tap_shock
+        };
+        for button in ["Left", "Down", "Center", "Onigiri"] {
+            assert!(read("Infinito", button), "{button}");
+            assert!(!read("Peters-DDR", button), "{button}");
+        }
+        assert!(read("s", "Up"));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 author = "Dito Dito Infinito"
 credit = "Dito Dito Infinito · MIT"
 ours = true
-modifications = ["Original SVG artwork, WGSL materials, Lua and metrics authored with SkinCraft and an experimental playground. Taps/fakes, receptors, holds, rolls, lifts and judgment effects use components. Actor path retained for linked mines."]
+modifications = ["Original SVG artwork, WGSL materials, Lua and metrics authored with SkinCraft and an experimental playground. Taps/fakes, receptors, holds, rolls, lifts and judgment effects use components. Actor path retained for linked mines. `Tap Shock` (a multiplayer battle's shock, `UseTapShock=1`) is the mine's file drawn lane-shaped, whatever the ShockArrows parameter says; where a play may be given shocks, a chart's own mines stay spiked."]
 
 [source]
 url = "https://github.com/sugoijan/ditoditoinfinito"

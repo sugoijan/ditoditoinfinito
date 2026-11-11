@@ -2,7 +2,12 @@
 local button = Var "Button"
 if button == "Onigiri" and NOTESKIN:GetParameter("Onigiri") == false then button = "Center" end
 local shape = string.lower(button)
-local arrows = NOTESKIN:GetParameter("ShockArrows") == true
+-- A battle's shock (`Tap Shock`) is always lane-shaped. A chart's own mine
+-- is what the ShockArrows parameter says, but spiked wherever the play may
+-- be given shocks, so the two never look the same.
+local shock = string.lower(Var "Element") == "tap shock"
+local arrows = shock
+    or (NOTESKIN:GetParameter("ShockArrows") == true and not NOTESKIN:PlayHasShocks())
 local shadow = arrows and "_spiral roll " .. shape or "_spiral mine shared"
 local base = arrows and "_spiral mine " .. shape or "_spiral mine shared"
 local electricity = arrows and "_spiral mine" or "_spiral mine shared"

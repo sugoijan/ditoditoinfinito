@@ -21,6 +21,7 @@ pub(super) fn grades(basis: GradeBasis, tiers: &[(&str, f64)]) -> GradeTable {
         all_w1: None,
         all_w2: None,
         failed: None,
+        rule: None,
     }
 }
 
@@ -119,6 +120,7 @@ pub fn itg() -> Ruleset {
         ),
         danoni: None,
         stepmania: StepManiaOptions::default(),
+        ddi: None,
     }
 }
 
@@ -199,6 +201,7 @@ pub fn calibration() -> Ruleset {
         names: JudgeNames::new(["hit", "", "", "", "", "miss"], "", ""),
         danoni: None,
         stepmania: StepManiaOptions::default(),
+        ddi: None,
     }
 }
 
@@ -242,6 +245,7 @@ pub fn sm5() -> Ruleset {
         ),
         danoni: None,
         stepmania: StepManiaOptions::default(),
+        ddi: None,
     }
 }
 
@@ -309,6 +313,7 @@ pub fn ddr_a() -> Ruleset {
         ),
         danoni: None,
         stepmania: StepManiaOptions::default(),
+        ddi: None,
     }
 }
 
@@ -378,6 +383,7 @@ pub fn ddr_extreme() -> Ruleset {
         ),
         danoni: None,
         stepmania: StepManiaOptions::default(),
+        ddi: None,
     }
 }
 
@@ -433,6 +439,7 @@ pub fn ddr_x() -> Ruleset {
         ),
         danoni: None,
         stepmania: StepManiaOptions::default(),
+        ddi: None,
     }
 }
 
@@ -555,13 +562,22 @@ pub fn ffr() -> Ruleset {
         ),
         danoni: None,
         stepmania: StepManiaOptions::default(),
+        ddi: None,
     }
 }
 
-/// Presets selectable by players, in menu order (excludes `calibration`
-/// and the chart-dependent [`danoni`] rules).
+/// DDI, the game's own ruleset, with its default options
+/// ([`super::ddi::ruleset`]; the player's go in with
+/// [`Ruleset::with_ddi`]).
+pub fn ddi() -> Ruleset {
+    super::ddi::ruleset(&super::ddi::DdiOptions::default())
+}
+
+/// Presets selectable by players, in menu order, the game's own first
+/// (excludes `calibration` and the chart-dependent [`danoni`] rules).
 pub fn all() -> Vec<Ruleset> {
     vec![
+        ddi(),
         itg(),
         itg_fa_plus(),
         sm5(),
@@ -652,14 +668,16 @@ pub fn for_chart(
 }
 
 /// The preset `id` (ITG when unknown) for `chart`, its holds as `holds`
-/// says (FFR's rules play holds as taps, so keep none), DDR X's grades
+/// says (FFR's rules play holds as taps, so keep none; DDI keeps its own
+/// on every chart), DDR X's grades
 /// those of the chart's difficulty ([`ddr_x_for`]).
 pub fn stepmania(id: &str, holds: HoldStyle, chart: &Chart) -> Ruleset {
     let mut ruleset = match id {
         "ddr-x" => ddr_x_for(chart),
         id => by_id(id).unwrap_or_else(itg),
     };
-    if holds.ticks(chart) && !ruleset.judge.taps_only {
+    // DDI keeps its own holds on every chart (never ticked).
+    if holds.ticks(chart) && !ruleset.judge.taps_only && !ruleset.is_ddi() {
         ruleset.judge.hold = HoldRules::Ticked {
             checkpoint_window: HoldRules::CHECKPOINT_WINDOW,
         };
@@ -670,6 +688,7 @@ pub fn stepmania(id: &str, holds: HoldStyle, chart: &Chart) -> Ruleset {
 /// Preset by id.
 pub fn by_id(id: &str) -> Option<Ruleset> {
     match id {
+        "ddi" => Some(ddi()),
         "itg" => Some(itg()),
         "itg-fa+" => Some(itg_fa_plus()),
         "sm5" => Some(sm5()),

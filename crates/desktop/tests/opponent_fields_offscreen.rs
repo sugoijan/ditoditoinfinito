@@ -1,17 +1,17 @@
 //! A CPU-practice stage's opponents in miniature
 //! (`docs/plans/multiplayer-prototype-progress.md`, M6), as the desktop
 //! window draws them, on this machine's GPU offscreen and a fake clock
-//! with no sound device: eight CPUs beside a 1280×720 play each get a
-//! miniature field in a stable slot, drawn by the play's own skin.
+//! with no sound device: eight CPUs beside a play each get a miniature
+//! field in a stable slot, drawn by the play's own skin, at 1280×720 and
+//! on a phone held upright (the list that stood in there is gone).
 //! Skipped where there is no GPU adapter (CI).
 //!
 //! `cargo test -p ddi-desktop --test opponent_fields_offscreen -- --ignored
 //! --nocapture` (under the watchdog, a scratch `DDI_HOME`) plays the
 //! look's scenarios instead, keeping their pictures in
 //! `DDI_FIELDS_SHOTS=<dir>` (PPM), and measures a frame's cost with the
-//! CPUs in miniature against the same play with the column
-//! ([`ddi_shell::opponents::set_miniatures`]), up to 128 CPUs in the
-//! development-only practice beyond the cap (`room::develop`).
+//! CPUs in miniature, up to 128 CPUs in the development-only practice
+//! beyond the cap (`room::develop`).
 
 mod common;
 use std::rc::Rc;
@@ -65,8 +65,10 @@ struct Scenario {
     chart: usize,
     /// Song seconds pictures are kept at.
     shots: &'static [f64],
-    /// Measures frames from this song second (on, then off).
+    /// Measures frames from this song second.
     measure: Option<f64>,
+    /// `.lrc` lyrics over the play.
+    lyrics: bool,
 }
 
 /// A frame's cost, milliseconds: recording it, and recording it with
@@ -97,9 +99,13 @@ impl Cost {
 
 struct Played {
     slots: usize,
+    /// The miniatures' lane, logical pixels, and whether they took turns.
+    lane: f32,
+    rotating: bool,
     out: usize,
-    on: Cost,
-    off: Cost,
+    cost: Cost,
+    /// Lyrics were drawn in a frame that drew the miniatures.
+    lyrics: bool,
 }
 
 fn play(s: &Scenario) -> Option<Played> {
@@ -121,7 +127,6 @@ fn play(s: &Scenario) -> Option<Played> {
         settings.stepmania.lives = lives;
     }
     settings.save();
-    ddi_shell::opponents::set_miniatures(true);
     let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
     let (mut ui, env, _) = ddi_desktop::shell::theme_ui("start", fold);
     env.reduced_motion.set(true);
@@ -227,10 +232,19 @@ fn play(s: &Scenario) -> Option<Played> {
 
     let mut played = Played {
         slots: 0,
+        lane: 0.0,
+        rotating: false,
         out: 0,
-        on: Cost::default(),
-        off: Cost::default(),
+        cost: Cost::default(),
+        lyrics: false,
     };
+    if s.lyrics {
+        let mut with = song.clone();
+        ddi_chart::formats::lrc::add_lyrics(&mut with, "[00:02.00]A line of lyrics over the stage");
+        host.set_lyrics(Some(ddi_engine::lyrics::LyricTrack::new(
+            &with, s.chart, false, true,
+        )));
+    }
     let mut shots = s.shots.iter().copied().peekable();
     let measuring = 240;
     let mut measured = 0;
@@ -246,14 +260,11 @@ fn play(s: &Scenario) -> Option<Played> {
         let song_t = host
             .running()
             .map_or(0.0, |p| p.session.player.judge_time(host_now));
-        let in_measure = s.measure.is_some_and(|m| song_t >= m) && measured < 2 * measuring;
+        let in_measure = s.measure.is_some_and(|m| song_t >= m) && measured < measuring;
         // Coarse steps between what is looked at, a 60th close to it.
         let near = shots.peek().is_some_and(|&t| t - song_t < 2.0) || in_measure;
         let step = if near { 1e9 / 60.0 } else { 1e9 / 10.0 } as u64;
         let now = clock.fetch_add(step, Ordering::SeqCst) + step;
-        if in_measure {
-            ddi_shell::opponents::set_miniatures(measured < measuring);
-        }
         let start = Instant::now();
         let mut encoder = device.create_command_encoder(&Default::default());
         host.draw_play(
@@ -271,25 +282,20 @@ fn play(s: &Scenario) -> Option<Played> {
         if in_measure {
             let _ = device.poll(wgpu::PollType::wait_indefinitely());
             let total = start.elapsed().as_secs_f64() * 1000.0;
-            let cost = if measured < measuring {
-                &mut played.on
-            } else {
-                &mut played.off
-            };
-            // The first frames of each half settle (pipelines, uploads).
-            if measured % measuring >= 20 {
-                cost.cpu.push(recorded);
-                cost.total.push(total);
+            // The first frames settle (pipelines, uploads).
+            if measured >= 20 {
+                played.cost.cpu.push(recorded);
+                played.cost.total.push(total);
             }
             measured += 1;
-            if measured == 2 * measuring {
-                ddi_shell::opponents::set_miniatures(true);
-            }
         } else if frames % 16 == 0 {
             let _ = device.poll(wgpu::PollType::wait_indefinitely());
         }
         if let Some(f) = host.opponent_fields() {
             played.slots = played.slots.max(f.slots.len());
+            played.lane = f.lane;
+            played.rotating = f.rotating;
+            played.lyrics |= !host.lyrics_shown().is_empty();
         }
         if let Some(p) = host.running() {
             played.out = p.session.opponents().iter().filter(|o| o.out).count();
@@ -338,17 +344,65 @@ fn eight_cpus_get_miniature_fields_beside_the_play() {
         name: "eight",
         size: [1280, 720],
         cpus: 8,
-        level: 2,
+        level: 7,
         skin: None,
         lives: None,
         hand: true,
         chart: 0,
         shots: &[12.0],
         measure: None,
+        lyrics: false,
     }) else {
         return;
     };
     assert_eq!(played.slots, 8);
+    assert!(!played.rotating);
+    // In the play's field's proportion, ten lanes tall, two rows of two a
+    // side: lanes of 28 (42 on fields six lanes tall before part C of
+    // the feedback round, 32 on seven before the round).
+    assert_eq!(played.lane, 28.0);
+}
+
+#[test]
+fn a_phone_held_upright_shows_all_eight_in_its_margins() {
+    let Some(played) = play(&Scenario {
+        name: "eight-upright",
+        size: [390, 844],
+        cpus: 8,
+        level: 7,
+        skin: None,
+        lives: None,
+        hand: true,
+        chart: 0,
+        shots: &[12.0],
+        measure: None,
+        lyrics: false,
+    }) else {
+        return;
+    };
+    assert_eq!(played.slots, 8);
+    assert!(!played.rotating);
+}
+
+#[test]
+fn lyrics_over_a_stage_keep_the_miniatures() {
+    let Some(played) = play(&Scenario {
+        name: "eight-lyrics",
+        size: [1280, 720],
+        cpus: 8,
+        level: 7,
+        skin: None,
+        lives: None,
+        hand: true,
+        chart: 0,
+        shots: &[12.0],
+        measure: None,
+        lyrics: true,
+    }) else {
+        return;
+    };
+    assert_eq!(played.slots, 8);
+    assert!(played.lyrics, "the lyrics were drawn with the miniatures");
 }
 
 #[test]
@@ -358,13 +412,14 @@ fn miniature_scenarios_pictures_and_costs() {
         name,
         size,
         cpus: 8,
-        level: 2,
+        level: 7,
         skin,
         lives: None,
         hand,
         chart: 0,
         shots: &[20.0],
         measure: Some(22.0),
+        lyrics: false,
     };
     // Two pictures a turn apart: the opponents taking turns in the slots
     // (`ddi_shell::opponents::ROTATION_V0`, eight seconds).
@@ -402,6 +457,12 @@ fn miniature_scenarios_pictures_and_costs() {
         eight(
             "infinito-eight-cpus-hand-behind-field-844x390",
             [844, 390],
+            None,
+            true,
+        ),
+        eight(
+            "infinito-eight-cpus-hand-behind-field-390x844",
+            [390, 844],
             None,
             true,
         ),
@@ -445,8 +506,7 @@ fn miniature_scenarios_pictures_and_costs() {
             s.name, s.cpus, p.slots, p.out
         );
         if s.measure.is_some() {
-            eprintln!("  miniatures: {}", p.on.line());
-            eprintln!("  column:     {}", p.off.line());
+            eprintln!("  miniatures: {}", p.cost.line());
         }
     }
 }

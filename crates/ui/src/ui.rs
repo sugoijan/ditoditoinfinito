@@ -1478,6 +1478,17 @@ impl Ui {
     /// clears it). When to wake; at or past it, the clock moves on by the
     /// time idle ([`Ui::idle_for`]), `since` is cleared and the UI needs
     /// a frame.
+    ///
+    /// The wait over, the UI needs a frame whatever the two clocks'
+    /// arithmetic says: the shell's clock is far from zero (seconds since
+    /// the page loaded, in a browser's coarse steps), so `now - from` can
+    /// come out a hair under the wait that `at` was reckoned from, which
+    /// left this clock just short of the deadline, no frame asked for and
+    /// nothing to wake the shell again (a room's stage prompt under
+    /// reduced motion stood still until the next input: the DDI ruleset's
+    /// round 3, `docs/plans/multiplayer-prototype-progress.md`). So the
+    /// clock is moved on to the deadline at the least, and a frame is
+    /// asked for outright.
     pub fn idle_wake(&mut self, since: &mut Option<f64>, now: f64) -> Option<f64> {
         let from = *since.get_or_insert(now);
         if self.needs_redraw() {
@@ -1488,6 +1499,10 @@ impl Ui {
             return Some(at);
         }
         self.idle_for(now - from);
+        if let Some(short) = self.wake_in().filter(|left| *left > 0.0) {
+            self.idle_for(short);
+        }
+        self.dirty = true;
         *since = None;
         None
     }

@@ -176,11 +176,69 @@ fn the_start_menu_opens_multiplayer_only_behind_the_switch() {
     }
 }
 
-/// CPU practice opens the room's song select with the Rules pop-up first
-/// (Reset and OK); OK leaves it closed until the player leaves the room
-/// and comes back.
+/// CPU practice opens straight on the room's song select, with the
+/// default rules and roster and no pop-up (the maintainer, 2026-11-12);
+/// the Rules are behind their button, in their one form there (Cancel and
+/// Apply), and stay closed when the player leaves the room and comes back.
 #[test]
-fn practice_opens_on_the_rules_then_song_select_and_again_after_leaving() {
+fn practice_opens_straight_on_song_select_with_the_rules_behind_their_button() {
+    let env = env();
+    let mut h = harness();
+    h.push(sample::start_screen(&env, false).with_multiplayer(true));
+    h.run(0.3);
+    h.key("a", "a");
+    h.key("ArrowDown", "ArrowDown");
+    h.key("Enter", "Enter");
+    h.run(0.5);
+    assert_eq!(top(&h), "multiplayer");
+    press(&mut h, "Choice.practice");
+    assert_eq!(top(&h), "select");
+    let v = view(&env);
+    assert!(!v.rules_open, "{v:?}");
+    assert_eq!((v.view.as_str(), v.phase.as_str()), ("select", "lobby"));
+    assert!(v.host);
+    // The defaults: four stages, three CPUs, on the players panel.
+    assert_eq!((v.stage_count, v.cpus), (4, 3));
+    assert_eq!(said(&h, "Players.Count"), "4 / 9");
+    assert_eq!(v.status, "Pick a song to start the match.");
+    assert!(
+        has(&h, "Pick a song to start the match."),
+        "{:?}",
+        h.texts()
+    );
+    assert!(has(&h, "CPU PRACTICE") || h.texts().iter().any(|t| t.contains("PRACTICE")));
+    // Nobody is "Not ready" before a pick gathers readiness.
+    assert!(!has(&h, "Not ready"), "{:?}", h.texts());
+    // The Rules from their button: Cancel and Apply; Back closes them.
+    press(&mut h, "Room.Rules");
+    assert_eq!(top(&h), "room-rules");
+    let v = view(&env);
+    assert!(v.rules_open && !v.rules_first, "{v:?}");
+    assert!(has(&h, "Cancel") && has(&h, "Apply"), "{:?}", h.texts());
+    assert!(!has(&h, "Reset"));
+    h.key("Escape", "Escape");
+    h.run(0.5);
+    assert_eq!(top(&h), "select");
+    // Back to the home; practice again: song select, no pop-up.
+    h.key("Escape", "Escape");
+    h.run(0.5);
+    assert_eq!(top(&h), "multiplayer");
+    press(&mut h, "Choice.practice");
+    assert_eq!(top(&h), "select");
+    h.run(0.5);
+    assert_eq!(top(&h), "select");
+}
+
+/// The hidden option (`Settings::multiplayer_rules_first`, off by
+/// default): entering opens the Rules pop-up first, as M7b had it (Reset
+/// and OK); OK leaves it closed until the player leaves the room and comes
+/// back.
+#[test]
+fn the_hidden_option_opens_the_rules_first_on_entering() {
+    let mut settings = crate::state::settings::Settings::load();
+    assert!(!settings.multiplayer_rules_first, "off by default");
+    settings.multiplayer_rules_first = true;
+    settings.save();
     let env = env();
     let mut h = harness();
     h.push(sample::start_screen(&env, false).with_multiplayer(true));
@@ -198,17 +256,7 @@ fn practice_opens_on_the_rules_then_song_select_and_again_after_leaving() {
     assert!(!has(&h, "Apply"));
     press(&mut h, "Ok");
     assert_eq!(top(&h), "select");
-    let v = view(&env);
-    assert!(!v.rules_open);
-    assert_eq!((v.view.as_str(), v.phase.as_str()), ("select", "lobby"));
-    assert!(v.host);
-    assert_eq!(v.status, "Pick a song to start the match.");
-    assert!(
-        has(&h, "Pick a song to start the match."),
-        "{:?}",
-        h.texts()
-    );
-    assert!(has(&h, "CPU PRACTICE") || h.texts().iter().any(|t| t.contains("PRACTICE")));
+    assert!(!view(&env).rules_open);
     // Not again while the player stays.
     h.run(0.5);
     assert_eq!(top(&h), "select");
@@ -224,9 +272,12 @@ fn practice_opens_on_the_rules_then_song_select_and_again_after_leaving() {
     assert_eq!(top(&h), "select");
 }
 
-/// The host's Start on a song is the pick: the CPUs' unplayable chart is
-/// refused in a pop-up; a playable one starts the match and the stage's
-/// prompt opens.
+/// The host's Start on a song is the pick. The room's song select offers
+/// only the styles its CPUs can play (feedback round B): a library kept
+/// on Double opens on Single, a song without a Single chart is grayed and
+/// Start on it picks nothing; a chart the CPUs cannot play is refused in a
+/// pop-up wherever it is picked all the same; a playable one starts the
+/// match and the stage's prompt opens.
 #[test]
 fn the_hosts_start_picks_the_song_and_starts_the_match() {
     let env = env();
@@ -237,12 +288,27 @@ fn the_hosts_start_picks_the_song_and_starts_the_match() {
     h.push(room_select(&env, room.clone(), "dance-double", &orders));
     h.run(0.5);
     assert_eq!(top(&h), "select");
+    let texts = h.texts();
     assert!(
-        h.texts().iter().any(|t| t.ends_with("Pick for stage 1")),
-        "{:?}",
-        h.texts()
+        texts.iter().any(|t| t == "No Single charts for this song."),
+        "{texts:?}"
     );
+    assert!(!texts.iter().any(|t| t.contains("Double ·")), "{texts:?}");
     h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(top(&h), "select", "nothing to pick on a grayed song");
+    assert_eq!(view(&env).phase, "lobby", "nothing started");
+    // Picked all the same (an older build's song select, a direct call).
+    let double = library("dance-double").songs[0].clone();
+    let why = room
+        .borrow_mut()
+        .pick(&double, &double.charts[0])
+        .expect_err("the CPUs cannot play Double");
+    h.push(super::room_dialogs::NoticeDialog::refusal(
+        env.clone(),
+        &why,
+    ));
+    room.borrow_mut().clear_refusal();
     h.run(0.3);
     assert_eq!(top(&h), "room-notice");
     assert!(
@@ -294,19 +360,55 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     assert_eq!(view(&env).draft, vec![4, 3]);
     let first: String = room.borrow().rules().cpu.roster[0].name.clone().unwrap();
     assert!(has(&h, &first), "{first}: {:?}", h.texts());
+    // The roster's levels are stars, never a number: each row's, the
+    // level its CPU has.
+    use crate::stars::{fills, shown};
+    let seated = room.borrow().rules().cpu.roster.clone();
+    for (k, spec) in seated.iter().enumerate() {
+        assert_eq!(
+            shown(h.actor(&format!("Cpu{k}.Stars"))),
+            fills(spec.level + 1),
+            "row {k}"
+        );
+    }
     press(&mut h, "AddRandom");
     assert_eq!(view(&env).draft, vec![4, 4]);
     press(&mut h, "Remove.0");
     assert_eq!(view(&env).draft, vec![4, 3]);
-    assert!(!has(&h, &first));
-    // Add custom: two at level 5, then one by name.
+    // Gone from the draft's roster; the players panel under the pop-up
+    // shows the room's saved rules until Apply.
+    let named = h.texts().iter().filter(|t| **t == first).count();
+    assert_eq!(named, 1, "{:?}", h.texts());
+    let no_numbers = |h: &Harness| {
+        h.texts()
+            .iter()
+            .all(|t| !t.contains(" of ") && !t.contains("Lv") && !t.contains("Level "))
+    };
+    assert!(no_numbers(&h), "{:?}", h.texts());
+    // Add custom: two at level 10, then one by name. The level starts at
+    // the engine's default (level 8: three gold, two silver) and steps to
+    // the last (five gold); its row says "Level" and shows the stars.
     press(&mut h, "AddCustom");
     assert_eq!(top(&h), "room-add-cpus");
+    assert!(has(&h, "Level"));
+    assert_eq!(shown(h.actor("Add.level.Stars")), fills(8));
     for _ in 0..3 {
         press(&mut h, "Inc.level");
     }
+    assert_eq!(shown(h.actor("Add.level.Stars")), fills(10));
+    for _ in 0..12 {
+        press(&mut h, "Dec.level");
+    }
+    assert_eq!(shown(h.actor("Add.level.Stars")), fills(1), "the weakest");
+    for _ in 0..9 {
+        press(&mut h, "Inc.level");
+    }
     press(&mut h, "Inc.count");
-    assert!(has(&h, "Add 2 at level 5"), "{:?}", h.texts());
+    assert!(has(&h, "Add 2 CPUs"), "{:?}", h.texts());
+    assert!(no_numbers(&h), "{:?}", h.texts());
+    // The CPUs listed by name show theirs.
+    let named = crate::state::cpu_roster::unseated(&room.borrow().rules().cpu.roster);
+    assert_eq!(shown(h.actor("Name.0.Stars")), fills(named[0].level));
     press(&mut h, "Add.ByLevel");
     assert_eq!(view(&env).draft, vec![4, 5]);
     press(&mut h, "Name.0");
@@ -321,39 +423,71 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     assert_eq!(view(&env).draft, vec![4, 8], "the cap holds");
     press(&mut h, "Dec.stages");
     press(&mut h, "Dec.stages");
-    // The match's ruleset (D0): ITG FA+ first, then the next in the list.
-    assert_eq!(view(&env).draft_ruleset.as_deref(), Some("itg-fa+"));
-    assert!(has(&h, "ITG FA+ (Simply Love)"), "{:?}", h.texts());
-    press(&mut h, "Inc.ruleset");
-    assert_eq!(view(&env).draft_ruleset.as_deref(), Some("sm5"));
-    press(&mut h, "Dec.ruleset");
-    press(&mut h, "Dec.ruleset");
-    press(&mut h, "Dec.ruleset");
-    assert_eq!(
-        view(&env).draft_ruleset.as_deref(),
-        Some("itg"),
-        "stops at the first"
+    // The match's rules (D0): DDI, with no row of its own; its
+    // difficulty and Boos, and Attacks, each Off or Normal first.
+    assert!(!there(&h, "Dec.ruleset") && !there(&h, "Rule.ruleset"));
+    assert!(
+        has(&h, "Everyone plays the match under DDI with these rules, whatever their own options say."),
+        "{:?}",
+        h.texts()
     );
-    press(&mut h, "Inc.ruleset");
-    press(&mut h, "Inc.ruleset");
+    let draft = |env: &Env| view(env).draft_rules.expect("the draft");
+    assert_eq!(draft(&env), ("normal".to_string(), false, false));
+    assert_eq!(said(&h, "Rule.difficulty.Value"), "Normal");
+    press(&mut h, "Inc.difficulty");
+    assert_eq!(said(&h, "Rule.difficulty.Value"), "Hard");
+    press(&mut h, "Inc.difficulty");
+    assert_eq!(draft(&env).0, "hard", "stops at the last");
+    for _ in 0..3 {
+        press(&mut h, "Dec.difficulty");
+    }
+    assert_eq!(draft(&env).0, "easy", "stops at the first");
+    assert_eq!(said(&h, "Rule.difficulty.Value"), "Easy");
+    press(&mut h, "Inc.difficulty");
+    press(&mut h, "Inc.difficulty");
+    assert_eq!(said(&h, "Rule.boos.Value"), "Off");
+    press(&mut h, "Inc.boos");
+    assert_eq!(said(&h, "Rule.boos.Value"), "On");
+    press(&mut h, "Inc.boos");
+    assert!(draft(&env).1, "stays on");
+    press(&mut h, "Dec.boos");
+    assert!(!draft(&env).1);
+    press(&mut h, "Inc.boos");
+    assert_eq!(said(&h, "Rule.attacks.Value"), "Off");
+    press(&mut h, "Inc.attacks");
+    assert_eq!(said(&h, "Rule.attacks.Value"), "On");
+    assert_eq!(draft(&env), ("hard".to_string(), true, true));
     press(&mut h, "Apply");
     assert_eq!(top(&h), "select");
     let v = view(&env);
     assert_eq!((v.stage_count, v.cpus), (2, 8));
-    assert_eq!(v.ruleset, "sm5");
-    let at_five = room
+    assert_eq!(v.ruleset, "ddi");
+    assert_eq!((v.difficulty.as_str(), v.boos, v.attacks), ("hard", true, true));
+    assert!(v.attacks_offered);
+    {
+        let r = room.borrow();
+        let rules = r.rules();
+        assert_eq!(rules.difficulty, ddi_room::MatchDifficulty::Hard);
+        assert!(rules.boos && rules.attacks());
+        assert_eq!(rules.battle, "gauge-attacks-v0");
+    }
+    let at_ten = room
         .borrow()
         .rules()
         .cpu
         .roster
         .iter()
-        .filter(|c| c.level == 4)
+        .filter(|c| c.level == 9)
         .count();
-    assert!(at_five >= 2, "{at_five}");
-    // Reset: the defaults, the pop-up still open.
+    assert!(at_ten >= 2, "{at_ten}");
+    // Reset (the first form, which the hidden option opens on entering):
+    // the defaults, the pop-up still open.
     press(&mut h, "Room.Rules");
     press(&mut h, "Cancel");
     assert_eq!(top(&h), "select");
+    let mut settings = crate::state::settings::Settings::load();
+    settings.multiplayer_rules_first = true;
+    settings.save();
     room.borrow_mut().set_rules_seen(false);
     h.run(0.5);
     assert_eq!(top(&h), "room-rules");
@@ -362,7 +496,18 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     assert_eq!(view(&env).draft, vec![4, 3]);
     press(&mut h, "Ok");
     assert_eq!(view(&env).stage_count, 4);
-    // A running match: its rules locked, shown in a line.
+    // Reset put the match's rules back too: Normal, no Boos, no attacks.
+    let v = view(&env);
+    assert_eq!((v.difficulty.as_str(), v.boos, v.attacks), ("normal", false, false));
+    // A running match: its rules locked, shown in a line that names what
+    // differs from the usual.
+    {
+        let mut rules = room.borrow().rules().clone();
+        rules.difficulty = ddi_room::MatchDifficulty::Easy;
+        rules.boos = true;
+        rules.set_attacks(true);
+        room.borrow_mut().save_rules(rules).unwrap();
+    }
     let s = &library("dance-single").songs[0];
     room.borrow_mut().pick(s, &s.charts[0]).unwrap();
     h.run(0.5);
@@ -372,10 +517,88 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     assert!(
         h.texts()
             .iter()
-            .any(|t| t.starts_with("4 stages · 3 CPUs · ITG FA+")),
+            .any(|t| t == "4 stages · 3 CPUs · DDI · Easy timing · Boos · Attacks"),
         "{:?}",
         h.texts()
     );
+}
+
+/// The DDI ruleset's round 3: the match's Difficulty, Boos and Attacks are
+/// rows of the Rules pop-up a keyboard and a controller reach and change
+/// like Stages (the focus walks the rows' two buttons, Confirm presses the
+/// one focused), and what was applied is the room's.
+#[test]
+fn the_match_rules_rows_work_by_keyboard_and_controller() {
+    use crate::nav::MenuAction;
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    press(&mut h, "Room.Rules");
+    assert_eq!(top(&h), "room-rules");
+    // Every row's buttons are in the focus walk, in the rows' order.
+    let names: Vec<String> = env.state.borrow().page_items.clone();
+    let at = |n: &str| names.iter().position(|x| x == n).unwrap_or_else(|| panic!("{n}"));
+    assert!(at("Inc.stages") < at("Dec.difficulty"));
+    assert!(at("Inc.difficulty") < at("Dec.boos"));
+    assert!(at("Inc.boos") < at("AddRandom"));
+    assert!(at("AddCustom") < at("Dec.attacks"));
+    assert!(at("Inc.attacks") < at("Apply"));
+    // A keyboard: walk to a row's button (up or down the rows, then
+    // along the row), Enter presses it.
+    let walk_to = |h: &mut Harness, name: &str, down: bool, pad: bool| {
+        let row = name.split_once('.').map_or(name, |(_, row)| row);
+        for _ in 0..80 {
+            let at = h.ui.focused().map(str::to_string);
+            if at.as_deref() == Some(name) {
+                return;
+            }
+            let along = at
+                .as_deref()
+                .and_then(|a| a.split_once('.'))
+                .is_some_and(|(_, r)| r == row);
+            let (action, code) = match (along, down) {
+                (true, _) => (MenuAction::Right, "ArrowRight"),
+                (false, true) => (MenuAction::Down, "ArrowDown"),
+                (false, false) => (MenuAction::Up, "ArrowUp"),
+            };
+            if pad {
+                h.pad(action, true);
+                h.pad(action, false);
+            } else {
+                h.key(code, code);
+            }
+            h.run(0.05);
+        }
+        panic!("never reached {name}: {:?}", h.ui.focused());
+    };
+    assert_eq!(h.ui.focused(), Some("Dec.stages"), "it opens on its first row");
+    walk_to(&mut h, "Inc.difficulty", true, false);
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(said(&h, "Rule.difficulty.Value"), "Hard");
+    assert_eq!(h.ui.focused(), Some("Inc.difficulty"), "the focus stays");
+    walk_to(&mut h, "Inc.boos", true, false);
+    h.key("Space", " ");
+    h.run(0.3);
+    assert_eq!(said(&h, "Rule.boos.Value"), "On");
+    // A controller: the same walk, Start presses.
+    walk_to(&mut h, "Inc.attacks", true, true);
+    h.pad(MenuAction::Start, true);
+    h.pad(MenuAction::Start, false);
+    h.run(0.3);
+    assert_eq!(said(&h, "Rule.attacks.Value"), "On");
+    walk_to(&mut h, "Apply", true, true);
+    h.pad(MenuAction::Start, true);
+    h.pad(MenuAction::Start, false);
+    h.run(0.5);
+    assert_eq!(top(&h), "select");
+    let r = room.borrow();
+    assert_eq!(r.rules().difficulty, ddi_room::MatchDifficulty::Hard);
+    assert!(r.rules().boos && r.rules().attacks());
 }
 
 /// The stage's prompt in a room: Start is Ready (toggled, the shell told
@@ -605,6 +828,210 @@ fn standings_follow_each_stage_and_the_matchs_results_then_the_next_match() {
     assert_eq!((v.phase.as_str(), v.history), ("preparing", 1));
 }
 
+/// What the text actor named `name` says.
+fn said(h: &Harness, name: &str) -> String {
+    match &h.actor(name).kind {
+        ddi_actor::Kind::Text(t) => t.text().to_string(),
+        _ => panic!("{name} is not text"),
+    }
+}
+
+/// Whether an actor named `name` is in the tree.
+fn there(h: &Harness, name: &str) -> bool {
+    h.ui.actor(name).is_some()
+}
+
+/// Feedback round B: the players are always on the room's song select.
+/// The wide layout has the song's side short (a row of chart buttons, no
+/// ladder, the style button only where there is a style to change to) and
+/// the players panel under it: nine rows without scrolling, You marked, a
+/// CPU's stars, what each is doing, and, once a stage is confirmed, the
+/// place and the match points in the match's order.
+#[test]
+fn the_players_are_always_beside_the_song() {
+    use crate::stars::{fills, shown};
+    use ddi_room::{Finish, Finisher};
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    press(&mut h, "Room.Rules");
+    for _ in 0..5 {
+        press(&mut h, "AddRandom");
+    }
+    press(&mut h, "Apply");
+    assert_eq!(top(&h), "select");
+    assert_eq!(view(&env).cpus, 8);
+    // The panel: beside the song, clear of the list and the footer.
+    let [x0, y0, x1, y1] = h.ui.bounds("RoomPlayers").expect("the panel");
+    let info = h.ui.bounds("Info").expect("the song");
+    assert!(
+        x0 >= 32.0 && x1 <= 600.0 && y0 >= info[3] && y1 <= 680.0,
+        "{x0} {y0} {x1} {y1}"
+    );
+    assert_eq!(said(&h, "Players.Count"), "9 / 9");
+    assert!(!there(&h, "Players.More"), "nine fit without scrolling");
+    assert_eq!(said(&h, "Players0.Name"), "You");
+    assert!(there(&h, "Players0.Me"), "You is marked");
+    let roster = room.borrow().rules().cpu.roster.clone();
+    assert_eq!(roster.len(), 8);
+    for (k, spec) in roster.iter().enumerate() {
+        let id = format!("Players{}", k + 1);
+        assert_eq!(said(&h, &format!("{id}.Name")), spec.name.clone().unwrap());
+        assert_eq!(
+            shown(h.actor(&format!("{id}.Stars"))),
+            fills(spec.level + 1),
+            "{id}"
+        );
+        assert_eq!(said(&h, &format!("{id}.State")), "At start");
+        assert!(
+            !there(&h, &format!("{id}.Place")),
+            "no place before a stage"
+        );
+        assert!(!there(&h, &format!("{id}.Points")));
+    }
+    assert!(!there(&h, "Players.Points"));
+    // The song's side: chart buttons, no ladder, no tabs; one playable
+    // style, so no style button.
+    assert!(there(&h, "Chart0") && !there(&h, "Ladder.Row0") && !there(&h, "Tab0"));
+    assert!(!h.actor("StyleButton").visible);
+    assert!(has(&h, "HARD 9"), "{:?}", h.texts());
+    // A row opens the full list (the pop-up stays for the picks).
+    press(&mut h, "Players3.Name");
+    assert_eq!(top(&h), "room-players");
+    h.key("Escape", "Escape");
+    h.run(0.5);
+    // A stage: the local player second.
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    let order = orders.borrow_mut().pop().expect("a prompt");
+    // Ready, on the panel, while the stage gathers.
+    room.borrow_mut().set_ready(true).unwrap();
+    h.run(0.3);
+    assert_eq!(said(&h, "Players0.State"), "Ready");
+    room.borrow_mut().tick(20_000);
+    let mut ids: Vec<_> = order.cpus.iter().map(|c| c.participant).collect();
+    ids.insert(1, order.me);
+    let first = ids[0];
+    let ranking = ids
+        .into_iter()
+        .map(|participant| {
+            vec![Finisher {
+                participant,
+                finish: Finish::Survived,
+            }]
+        })
+        .collect();
+    room.borrow_mut()
+        .report_stage(order.stage, ranking, false)
+        .unwrap();
+    h.run(0.5);
+    press(&mut h, "Continue");
+    assert_eq!(top(&h), "select");
+    // By place now, with the points: the winner, then You.
+    let winner = order
+        .cpus
+        .iter()
+        .find(|c| c.participant == first)
+        .and_then(|c| c.name.clone())
+        .unwrap();
+    assert_eq!(said(&h, "Players.Points"), "Points");
+    assert_eq!(
+        (said(&h, "Players0.Place"), said(&h, "Players0.Name")),
+        ("1".to_string(), winner)
+    );
+    assert_eq!(
+        (said(&h, "Players1.Place"), said(&h, "Players1.Name")),
+        ("2".to_string(), "You".to_string())
+    );
+    assert!(there(&h, "Players1.Me") && !there(&h, "Players0.Me"));
+    assert_eq!(said(&h, "Players0.Points"), "12");
+    assert_eq!(said(&h, "Players1.Points"), "9");
+    assert_eq!(said(&h, "Players8.Points"), "0");
+}
+
+/// Past what fits (a development practice's field), the panel counts the
+/// rest on a line that opens the full list.
+#[test]
+fn the_players_panel_counts_those_that_do_not_fit() {
+    let env = env();
+    let room = Rc::new(RefCell::new(RoomClient::development(0, 1, 20)));
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    let rows = super::room::player_rows(&room.borrow()).len();
+    assert!(rows > 13, "{rows}");
+    let shown = (0..rows)
+        .filter(|k| there(&h, &format!("Players{k}.Name")))
+        .count();
+    assert!(shown >= 9 && shown < rows, "{shown} of {rows}");
+    assert_eq!(
+        h.texts()
+            .iter()
+            .filter(|t| **t == format!("▼ {} more", rows - shown))
+            .count(),
+        1,
+        "{:?}",
+        h.texts()
+    );
+    let [.., y1] = h.ui.bounds("RoomPlayers").unwrap();
+    assert!(y1 <= 680.0, "{y1}");
+    press(&mut h, "Players.More");
+    assert_eq!(top(&h), "room-players");
+}
+
+/// A phone has no room for the panel beside the song and the list: the
+/// host's players are one line over the list (their initials, You whole,
+/// how many they are), and a tap on it opens the full list.
+#[test]
+fn a_phone_shows_the_players_as_a_strip_that_opens_the_list() {
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    for size in [[844.0, 390.0], [390.0, 844.0]] {
+        let mut h = Harness::new(super::COMPACT, size, 1.0, TextMode::Own);
+        h.push(room_select(&env, room.clone(), "dance-single", &orders));
+        h.run(0.5);
+        assert!(!there(&h, "Players0.Name"), "no panel on a phone");
+        let [x0, y0, x1, y1] = h.ui.bounds("Players.Strip").expect("the strip");
+        let [x0, y0] = h.css([x0, y0]);
+        let [x1, y1] = h.css([x1, y1]);
+        assert!(
+            x0 >= 0.0 && y0 >= 0.0 && x1 <= size[0] && y1 <= size[1],
+            "{size:?}: {x0} {y0} {x1} {y1}"
+        );
+        // Clear of the list under it and the status over it.
+        let wheel = h.ui.visible_bounds("Wheel").expect("the list");
+        let strip = h.ui.bounds("Players.Strip").unwrap();
+        assert!(strip[3] <= wheel[1] + 0.5, "{strip:?} {wheel:?}");
+        let texts = h.texts();
+        assert!(has(&h, "You") && has(&h, "4 / 9"), "{texts:?}");
+        let roster = room.borrow().rules().cpu.roster.clone();
+        for spec in &roster {
+            let name = spec.name.clone().unwrap();
+            let initials: String = name
+                .split_whitespace()
+                .filter_map(|w| w.chars().next())
+                .take(2)
+                .collect::<String>()
+                .to_uppercase();
+            assert!(has(&h, &initials), "{initials}: {texts:?}");
+        }
+        h.tap(PointerKind::Touch, "Players.Strip");
+        h.run(0.5);
+        assert_eq!(top(&h), "room-players", "{size:?}");
+        h.key("Escape", "Escape");
+        h.run(0.5);
+        assert_eq!(top(&h), "select");
+    }
+}
+
 #[test]
 fn the_room_fits_a_phone_and_more_holds_rules_and_players() {
     let env = env();
@@ -757,12 +1184,45 @@ fn an_online_room_shows_the_host_and_the_follower_and_its_link() {
     step(400);
     ha.run(0.3);
     hb.run(0.3);
-    // Both see the Rules first: Bob's read only.
+    // Both open on song select, no Rules by themselves. From their
+    // button, Bob's are read only (Close alone), Alice's hers to change.
+    assert_eq!((top(&ha), top(&hb)), ("select".into(), "select".into()));
+    press(&mut hb, "Room.Rules");
     assert_eq!(top(&hb), "room-rules");
-    assert!(has(&hb, "OK") && !has(&hb, "Reset"), "{:?}", hb.texts());
-    assert!(has(&ha, "Reset"), "{:?}", ha.texts());
-    press(&mut ha, "Ok");
-    press(&mut hb, "Ok");
+    assert!(has(&hb, "Close") && !has(&hb, "Apply"), "{:?}", hb.texts());
+    assert_eq!(said(&hb, "Rule.difficulty.Value"), "Normal", "a member reads them");
+    assert!(!there(&hb, "Inc.difficulty"), "and changes nothing");
+    hb.key("Escape", "Escape");
+    hb.run(0.5);
+    press(&mut ha, "Room.Rules");
+    assert!(has(&ha, "Apply"), "{:?}", ha.texts());
+    // An online room's rules: DDI's difficulty and Boos are the host's to
+    // set, through the room; Attacks are not offered where they would do
+    // nothing yet (no ledger from the members' reports, no shocks
+    // delivered to their plays), said plainly.
+    assert!(!view(&ea).attacks_offered);
+    assert!(!there(&ha, "Inc.attacks") && !there(&ha, "Dec.attacks"));
+    assert_eq!(said(&ha, "Rule.attacks.Value"), "Off · not in online rooms yet");
+    press(&mut ha, "Inc.difficulty");
+    press(&mut ha, "Inc.boos");
+    press(&mut ha, "Apply");
+    step(200);
+    step(200);
+    ha.run(0.3);
+    hb.run(0.3);
+    for v in [view(&ea), view(&eb)] {
+        assert_eq!((v.difficulty.as_str(), v.boos, v.attacks), ("hard", true, false));
+    }
+    press(&mut ha, "Room.Rules");
+    press(&mut ha, "Dec.difficulty");
+    press(&mut ha, "Dec.boos");
+    press(&mut ha, "Apply");
+    step(200);
+    step(200);
+    ha.run(0.3);
+    hb.run(0.3);
+    assert_eq!(view(&eb).difficulty, "normal");
+    assert_eq!((top(&ha), top(&hb)), ("select".into(), "select".into()));
     let (a, b) = (view(&ea), view(&eb));
     let online = a.online.as_ref().unwrap();
     assert_eq!(
@@ -835,6 +1295,172 @@ fn an_online_room_shows_the_host_and_the_follower_and_its_link() {
     assert!(has(&ha, "Sign in again"), "{:?}", ha.texts());
 }
 
+/// The players panel's lines in an online room, each state in words: the
+/// host's role, watching, not ready, ready, loading, why a song did not
+/// load, reconnecting, playing and sitting out; the follower's song select
+/// shows the same panel beside the song, and the picks in the list's
+/// place.
+#[test]
+fn the_panels_lines_say_what_each_player_is_doing() {
+    use super::room::{PlayerRow, Tone, player_rows};
+    use crate::state::online::tests::room::{client, person, song, tick, upload};
+    use crate::state::room::LoadProblem;
+    use ddi_room::fake::FakeServer;
+    use ddi_room::{Identity, Intent, ManualClock, ParticipantId, RoomPolicy};
+    let clock = ManualClock::new(1_000);
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy::default(),
+        clock.clone(),
+    )
+    .shared();
+    for (who, intent) in [
+        ("bob", Intent::Play),
+        ("carol", Intent::Play),
+        ("dave", Intent::Watch),
+    ] {
+        server
+            .borrow_mut()
+            .join(Identity::new(format!("dev:{who}")), who, intent)
+            .unwrap();
+    }
+    let alice = Rc::new(RefCell::new(client(
+        &server,
+        person(&server, "alice"),
+        "alice",
+        1_000,
+    )));
+    let bob = Rc::new(RefCell::new(client(
+        &server,
+        person(&server, "bob"),
+        "bob",
+        1_000,
+    )));
+    let mut carol = client(&server, person(&server, "carol"), "carol", 1_000);
+    let mut dave = client(&server, person(&server, "dave"), "dave", 1_000);
+    let mut step = |carol: &mut RoomClient, ms: u64| {
+        tick(
+            &clock,
+            &mut [
+                &mut alice.borrow_mut(),
+                &mut bob.borrow_mut(),
+                carol,
+                &mut dave,
+            ],
+            ms,
+        )
+    };
+    step(&mut carol, 400);
+    step(&mut carol, 400);
+    let row = |room: &SharedRoom, name: &str| -> PlayerRow {
+        player_rows(&room.borrow())
+            .into_iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("no row {name}"))
+    };
+    let says = |room: &SharedRoom, name: &str| {
+        let p = row(room, name);
+        (p.status, p.tone)
+    };
+    // Before a pick: the host's role, the one watching.
+    let host = row(&bob, "alice");
+    assert_eq!((host.role.as_str(), host.status.as_str()), ("Host", ""));
+    assert!(row(&alice, "You").me);
+    assert_eq!(says(&alice, "dave"), ("Watching".into(), Tone::Plain));
+    assert_eq!(row(&alice, "bob").place, None);
+    // The pick: its song shared, then everyone prepares it.
+    let s = song();
+    alice.borrow_mut().pick(&s, &s.charts[0]).unwrap();
+    step(&mut carol, 400);
+    upload(&server, &mut alice.borrow_mut(), "abc12345");
+    step(&mut carol, 400);
+    assert_eq!(says(&alice, "bob"), ("Not ready".into(), Tone::Plain));
+    let a = alice.borrow_mut().take_load_jobs();
+    alice.borrow_mut().finish_load(&a[0], Ok(()));
+    alice.borrow_mut().set_ready(true).unwrap();
+    // Bob is ready and still loading; Carol's download failed.
+    let b = bob.borrow_mut().take_load_jobs();
+    bob.borrow_mut().set_ready(true).unwrap();
+    let c = carol.take_load_jobs();
+    carol.finish_shared_load(&c[0], Err(LoadProblem::Download));
+    step(&mut carol, 400);
+    assert_eq!(says(&bob, "alice"), ("Ready".into(), Tone::Good));
+    assert_eq!(says(&alice, "bob"), ("Loading".into(), Tone::Plain));
+    assert_eq!(
+        says(&alice, "carol"),
+        ("Download failed".into(), Tone::Failed)
+    );
+    // The same panel for the host and the follower, beside the song; the
+    // follower's list's place holds the picks.
+    let (ea, eb) = (env(), env());
+    let orders = Orders::default();
+    alice.borrow_mut().set_rules_seen(true);
+    bob.borrow_mut().set_rules_seen(true);
+    let mut data = library("dance-single");
+    data.songs.insert(0, s.clone());
+    let mut ha = harness();
+    ha.push(
+        sample::room_select(&ea, alice.clone(), data)
+            .with_room(alice.clone(), shell(&alice, &orders)),
+    );
+    let mut hb = harness();
+    hb.push(
+        sample::room_select(&eb, bob.clone(), SelectData::default())
+            .with_room(bob.clone(), shell(&bob, &orders)),
+    );
+    ha.run(0.4);
+    hb.run(0.4);
+    for (h, me, other, state) in [
+        (&ha, "You", "bob", "Loading"),
+        (&hb, "alice", "You", "Ready"),
+    ] {
+        assert_eq!(said(h, "Players.Count"), "4 / 9");
+        assert_eq!(said(h, "Players0.Name"), me);
+        assert_eq!(said(h, "Players0.Role"), "Host");
+        assert_eq!(said(h, "Players1.Name"), other);
+        assert_eq!(
+            said(
+                h,
+                &format!("Players{}.State", if me == "You" { 1 } else { 0 })
+            ),
+            state
+        );
+        assert_eq!(said(h, "Players2.State"), "Download failed");
+        assert_eq!(said(h, "Players3.State"), "Watching");
+        assert_eq!(ha.ui.bounds("RoomPlayers"), h.ui.bounds("RoomPlayers"));
+    }
+    assert!(has(&hb, "Picks"), "{:?}", hb.texts());
+    assert_eq!(
+        hb.texts().iter().filter(|t| *t == "Players").count(),
+        2,
+        "the header's button and the panel's heading: {:?}",
+        hb.texts()
+    );
+    // Bob's socket drops: reconnecting, his line dimmed.
+    server.borrow_mut().drop_socket(ParticipantId(2));
+    step(&mut carol, 100);
+    assert_eq!(says(&alice, "bob"), ("Reconnecting".into(), Tone::Away));
+    step(&mut carol, 2_000);
+    bob.borrow_mut().finish_shared_load(
+        &b[0],
+        Ok(crate::state::room::Picked {
+            song: crate::screens::data::SongEntry {
+                id: "shared:abc12345:0".into(),
+                ..s.clone()
+            },
+            chart: s.charts[0].clone(),
+        }),
+    );
+    // The deadline starts the stage with the two ready: playing; Carol
+    // sits it out.
+    step(&mut carol, 30_000);
+    step(&mut carol, 4_000);
+    assert_eq!(says(&alice, "bob"), ("Playing".into(), Tone::Plain));
+    assert_eq!(says(&alice, "carol"), ("Sitting out".into(), Tone::Plain));
+}
+
 /// M7d: a bot (`bot:<name>`) is a person's seat labeled Bot wherever the
 /// players are listed (the room's panel and Players, the prompt's rows,
 /// which share `player_rows`; the standings; an invite's host), and in the
@@ -873,7 +1499,7 @@ fn bots_are_labeled_wherever_players_are_listed() {
     tick(&clock, &mut [&mut alice.borrow_mut()], 400);
     tick(&clock, &mut [&mut alice.borrow_mut()], 400);
     ha.run(0.3);
-    press(&mut ha, "Ok");
+    assert_eq!(top(&ha), "select", "no Rules by themselves");
     ha.run(0.3);
     let a = view(&ea);
     let bot = a

@@ -210,29 +210,78 @@ pub struct MatchRules {
     /// Newcomers may enter at a later stage's boundary into a vacant seat,
     /// with zero points for the stages they missed. Default Off.
     pub mid_match_entry: bool,
-    /// The battle preset, opaque to the room (attacks, defense, gauge).
+    /// The battle preset, opaque to the room (attacks, defense, gauge): the
+    /// Attacks rule chooses it ([`MatchRules::attacks`],
+    /// [`MatchRules::set_attacks`]).
     pub battle: String,
     pub awards: AwardScheme,
     /// The ruleset everyone plays the match's stages under (the
-    /// maintainer, 2026-11-11, D0): its judge, life and score, by the
-    /// engine's preset id (`ddi_engine::rules::presets::by_id`), one of
-    /// [`MatchRules::RULESETS`]. Never a player's own Options ruleset. Rules
-    /// kept before it was a rule read as [`MatchRules::DEFAULT_RULESET`].
+    /// maintainer, 2026-11-11, D0; DDI alone since the DDI ruleset's round
+    /// 3, `docs/plans/ddi-ruleset.md`), AS STORED OR RECEIVED: an id of
+    /// [`MatchRules::RULESETS`], or one a room could be played under before
+    /// ([`MatchRules::LEGACY_RULESETS`]), kept as it came so that rules sent
+    /// back to an authority one build behind are ones it knows. Read it
+    /// through [`MatchRules::ruleset_id`]: every one of them is DDI now.
+    /// Never a player's own Options ruleset.
     #[serde(default = "MatchRules::default_ruleset")]
     pub ruleset: String,
+    /// DDI's difficulty for the match, everyone's (Normal by default): the
+    /// timing grid and what a loss costs. A plain value; the stage's runner
+    /// builds the engine's rules from it (`ddi_session::battle::stage_ruleset`).
+    /// ADDITIVE: left out of the JSON while Normal, read as Normal where
+    /// missing (an authority one build behind drops it).
+    #[serde(default, skip_serializing_if = "MatchDifficulty::is_normal")]
+    pub difficulty: MatchDifficulty,
+    /// DDI's Boos for the match (Off by default): a press matched to no
+    /// note counts against everyone alike. ADDITIVE, as `difficulty`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub boos: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// DDI's difficulty as a match rule (`MatchRules::difficulty`): the room
+/// carries the choice, never the engine's type.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchDifficulty {
+    Easy,
+    #[default]
+    Normal,
+    Hard,
+}
+
+impl MatchDifficulty {
+    pub const ALL: [MatchDifficulty; 3] = [Self::Easy, Self::Normal, Self::Hard];
+
+    pub fn is_normal(&self) -> bool {
+        *self == Self::Normal
+    }
+
+    /// Its place in [`MatchDifficulty::ALL`].
+    pub fn index(self) -> usize {
+        self as usize
+    }
 }
 
 impl MatchRules {
     pub const PROVISIONAL_BATTLE: &'static str = "provisional-standard";
 
-    /// A new room's ruleset: ITG FA+ (D0).
-    pub const DEFAULT_RULESET: &'static str = "itg-fa+";
+    /// A room's ruleset: DDI, our own (D0).
+    pub const DEFAULT_RULESET: &'static str = "ddi";
 
-    /// The rulesets a match may be played under, in the game's menu order:
-    /// the four-lane keyboard presets the CPUs can play (the engine's
-    /// `presets::all`; Dancing☆Onigiri's rules, built per chart, are not
-    /// among them).
-    pub const RULESETS: [&'static str; 7] = [
+    /// The rulesets a match may be played under: DDI alone
+    /// (`docs/plans/ddi-ruleset.md`, "What it means for multiplayer").
+    pub const RULESETS: [&'static str; 1] = ["ddi"];
+
+    /// The ids a room's rules could name before DDI was the only one
+    /// (M8a's list): still read, from a stored room or an authority one
+    /// build behind, and played as DDI ([`MatchRules::ruleset_id`]).
+    pub const LEGACY_RULESETS: [&'static str; 7] = [
         "itg",
         "itg-fa+",
         "sm5",
@@ -244,6 +293,29 @@ impl MatchRules {
 
     fn default_ruleset() -> String {
         Self::DEFAULT_RULESET.into()
+    }
+
+    /// The ruleset the match is played under, by the engine's id: DDI,
+    /// whatever older id the rules carry.
+    pub fn ruleset_id(&self) -> &'static str {
+        Self::DEFAULT_RULESET
+    }
+
+    /// The Attacks rule (Off by default): the stage's battle has attack
+    /// power, launches and shocks ([`crate::BattlePreset::GaugeAttacksV0`]).
+    pub fn attacks(&self) -> bool {
+        crate::battle::BattlePreset::parse(&self.battle)
+            .is_some_and(crate::battle::BattlePreset::attacks)
+    }
+
+    /// Sets the Attacks rule: the battle with attacks, or survival alone.
+    pub fn set_attacks(&mut self, on: bool) {
+        let preset = if on {
+            crate::battle::BattlePreset::GaugeAttacksV0
+        } else {
+            crate::battle::BattlePreset::GaugeSurvivalV0
+        };
+        self.battle = preset.id().into();
     }
 
     /// Local CPU practice: one player and three CPUs, four stages, the
@@ -283,6 +355,8 @@ impl MatchRules {
             battle: Self::PROVISIONAL_BATTLE.into(),
             awards: AwardScheme::PlacementPointsV1,
             ruleset: Self::DEFAULT_RULESET.into(),
+            difficulty: MatchDifficulty::Normal,
+            boos: false,
         }
     }
 
@@ -335,7 +409,8 @@ impl MatchRules {
         if !self.cpu.opponent.fits() || !self.cpu.roster.iter().all(OpponentSpec::fits) {
             return Err(RulesProblem::CpuText);
         }
-        if !Self::RULESETS.contains(&self.ruleset.as_str()) {
+        let id = self.ruleset.as_str();
+        if !Self::RULESETS.contains(&id) && !Self::LEGACY_RULESETS.contains(&id) {
             return Err(RulesProblem::UnknownRuleset);
         }
         let seats = usize::from(self.seats);
@@ -410,7 +485,8 @@ pub enum RulesProblem {
     },
     /// A CPU's name or personality is too long.
     CpuText,
-    /// Not one of [`MatchRules::RULESETS`].
+    /// Neither one of [`MatchRules::RULESETS`] nor an id read as one
+    /// ([`MatchRules::LEGACY_RULESETS`]).
     UnknownRuleset,
 }
 
@@ -419,18 +495,64 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_ruleset_is_a_match_rule_and_old_rules_read_as_the_default() {
-        assert_eq!(MatchRules::hosted().ruleset, "itg-fa+");
-        assert_eq!(MatchRules::practice(spec()).ruleset, "itg-fa+");
+    fn ddi_is_the_only_ruleset_and_old_values_read_as_it() {
+        assert_eq!(MatchRules::RULESETS, ["ddi"]);
+        assert_eq!(MatchRules::hosted().ruleset, "ddi");
+        assert_eq!(MatchRules::practice(spec()).ruleset, "ddi");
+        assert_eq!(MatchRules::hosted().ruleset_id(), "ddi");
+        // Rules kept before the ruleset was a rule.
         let mut json = serde_json::to_value(MatchRules::hosted()).unwrap();
         json.as_object_mut().unwrap().remove("ruleset");
         let old: MatchRules = serde_json::from_value(json).unwrap();
         assert_eq!(old, MatchRules::hosted());
-        for id in MatchRules::RULESETS {
-            let mut r = MatchRules::hosted();
-            r.ruleset = id.into();
+        // Every id a room could name before is read, valid, kept as it
+        // came (an authority one build behind knows it) and played as DDI.
+        for id in MatchRules::LEGACY_RULESETS {
+            let mut json = serde_json::to_value(MatchRules::hosted()).unwrap();
+            json["ruleset"] = id.into();
+            let r: MatchRules = serde_json::from_value(json).unwrap();
+            assert_eq!(r.ruleset, id);
+            assert_eq!(r.ruleset_id(), "ddi", "{id}");
             assert!(r.validate(&RoomPolicy::default(), 1).is_ok(), "{id}");
+            assert_eq!(serde_json::to_value(&r).unwrap()["ruleset"], id);
         }
+    }
+
+    #[test]
+    fn difficulty_and_boos_are_additive_match_rules() {
+        let rules = MatchRules::hosted();
+        assert_eq!(rules.difficulty, MatchDifficulty::Normal);
+        assert!(!rules.boos);
+        // The defaults are left out: the rules are on the wire what they
+        // were, so an authority or a client one build behind reads them.
+        let json = serde_json::to_value(&rules).unwrap();
+        assert!(json.get("difficulty").is_none() && json.get("boos").is_none());
+        let mut set = rules.clone();
+        set.difficulty = MatchDifficulty::Hard;
+        set.boos = true;
+        let json = serde_json::to_value(&set).unwrap();
+        assert_eq!(json["difficulty"], "hard");
+        assert_eq!(json["boos"], true);
+        assert_eq!(serde_json::from_value::<MatchRules>(json).unwrap(), set);
+        assert!(set.validate(&RoomPolicy::default(), 1).is_ok());
+        assert_eq!(
+            MatchDifficulty::ALL.map(MatchDifficulty::index),
+            [0, 1, 2]
+        );
+    }
+
+    #[test]
+    fn attacks_are_a_match_rule_that_chooses_the_battle() {
+        let mut rules = MatchRules::practice(spec());
+        assert!(!rules.attacks(), "off by default");
+        assert_eq!(rules.battle, "gauge-survival-v0");
+        rules.set_attacks(true);
+        assert!(rules.attacks());
+        assert_eq!(rules.battle, "gauge-attacks-v0");
+        rules.set_attacks(false);
+        assert_eq!(rules.battle, "gauge-survival-v0");
+        // A hosted room's battle is not one with attacks.
+        assert!(!MatchRules::hosted().attacks());
     }
 
     fn spec() -> OpponentSpec {

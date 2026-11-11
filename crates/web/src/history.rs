@@ -293,6 +293,9 @@ fn load(next_wait: u32) {
         match r {
             Ok(()) => {
                 LOAD_ERROR.with(|l| l.borrow_mut().take());
+                // The settings moved from ITG to DDI: the ITG plays kept
+                // are judged again under DDI, by the steps that follow.
+                plays().rejudge_asked();
                 schedule(PASS_STEP_MS);
             }
             Err(e) => {
@@ -306,6 +309,21 @@ fn load(next_wait: u32) {
         }
         publish();
     });
+}
+
+/// Judges every kept play again under `rules`, those chosen now
+/// (Options → Rules → Kept plays): marked as waiting, then worked out
+/// by the steps, a few at a time.
+pub(crate) fn rejudge(rules: &ddi_ui::state::settings::RuleChoice) {
+    plays().rejudge(rules, None, |r| {
+        if let Err(e) = r {
+            web_sys::console::warn_1(&format!("play history: {e}").into());
+        }
+        publish();
+    });
+    REWORKER.with(|r| r.borrow_mut().retry_skipped());
+    schedule(FOCUS_STEP_MS);
+    publish();
 }
 
 /// A song's play is on (re-working waits) or over (it goes on).

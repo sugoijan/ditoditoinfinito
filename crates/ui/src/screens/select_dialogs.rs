@@ -1931,6 +1931,9 @@ impl PlaysDialog {
             .filter(|s| !s.is_empty())
             .map(|s| UiText::data(s).into())
             .collect();
+        if r.rejudged {
+            first.push(msg::plays_rejudged().into());
+        }
         if r.autoplay {
             first.push(msg::plays_autoplay().into());
         }

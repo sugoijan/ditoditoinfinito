@@ -23,7 +23,12 @@ use serde::{Deserialize, Serialize};
 /// The protocol this build speaks. 2 (M7b): the match flow's `pick`,
 /// `spotlight` and `set_spotlight_share` commands, the `spotlight_changed`
 /// event, content cards, CPU rosters; version 1's envelopes and frames are
-/// still accepted.
+/// still accepted. Additive since, with no new version (an authority or a
+/// client that predates it ignores it): a report's optional `detail`
+/// (`crate::RunDetail`, feedback round B) on `report_outcome` and
+/// `outcome_reported`, kept in a stage's `details`. A new version is for
+/// what the other side must understand; it would turn away every client
+/// or server one step behind.
 pub const PROTOCOL_VERSION: u32 = 2;
 /// The oldest protocol an authority still accepts. The web app deploys on
 /// push, the server separately and desktop builds lag, so an authority

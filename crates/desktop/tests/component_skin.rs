@@ -417,6 +417,7 @@ fn a_component_skin_reads_and_draws() {
         song_time: at,
         autoplay: true,
         danoni_judgments: false,
+        dim: false,
         note: None,
     };
     use ddi_engine::rules::Judgement;

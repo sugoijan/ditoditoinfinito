@@ -466,7 +466,11 @@ impl Play {
             .ghost
             .as_deref()
             .filter(|_| request.replay.is_none() && request.calibration.is_none())
-            .map(|g| g.clone().for_play(shift));
+            .map(|g| {
+                g.clone()
+                    .for_play(shift)
+                    .showing_percent(settings.ddi_percent())
+            });
         let song = if let Some(cpu) = &request.cpu {
             if request.replay.is_some()
                 || request.calibration.is_some()

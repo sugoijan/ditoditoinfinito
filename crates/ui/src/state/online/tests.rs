@@ -755,19 +755,69 @@ pub(crate) mod room {
             play.sat_out.get(&carol.me()),
             Some(&ddi_room::SitOutReason::NotReady)
         );
-        bob.report_run(stage, Run::Out { at: 12.5 }).unwrap();
+        // Before anyone reported: the stage's standings wait, as seated.
+        let table = bob.stage_table(stage).unwrap();
+        assert!(!table.confirmed && table.result.is_none());
+        assert_eq!(
+            table
+                .rows
+                .iter()
+                .map(|r| (r.participant, r.run, r.placement))
+                .collect::<Vec<_>>(),
+            vec![(alice.me(), None, None), (bob.me(), None, None)],
+            "the two who started, Carol sat out"
+        );
+        // Bob's report says nothing more than his run (an older build's);
+        // Alice's says how she performed.
+        bob.report_run(stage, Run::Out { at: 12.5 }, None).unwrap();
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
         assert_eq!(alice.state().phase.kind(), PhaseKind::Stage);
+        let table = alice.stage_table(stage).unwrap();
+        assert!(!table.confirmed);
+        assert_eq!(table.rows[1].run, Some(Run::Out { at: 12.5 }));
+        assert_eq!((table.rows[0].run, table.rows[1].placement), (None, None));
+        let detail = ddi_room::RunDetail {
+            percent: Some(8_000),
+            grade: "A".into(),
+            life_ppm: 400_000,
+            max_combo: 90,
+            tiers: vec![50, 30, 10, 0, 0, 0, 2],
+            ..Default::default()
+        };
         alice
             .report_run(
                 stage,
                 Run::Live {
                     life: 0.4,
                     accuracy: 0.8,
+                    absolute: None,
+                    score: None,
                 },
+                Some(detail.clone()),
             )
             .unwrap();
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        // Confirmed: in the stage's order, with the awards, the match's
+        // totals and places, and what each said of their play; the same
+        // for everyone, Carol (who sat out) included.
+        for who in [&alice, &bob, &carol] {
+            let table = who.stage_table(stage).unwrap();
+            assert!(
+                table.confirmed && table.result.is_none(),
+                "not the last stage"
+            );
+            assert_eq!((table.number, table.of), (1, 4));
+            let rows = &table.rows;
+            assert_eq!(rows[0].participant, alice.me());
+            assert_eq!(rows[0].detail.as_ref(), Some(&detail));
+            assert_eq!(rows[0].placement.unwrap().place, 1);
+            assert_eq!((rows[0].rank, rows[0].rank_before), (Some(1), None));
+            assert_eq!(rows[0].total, Some(rows[0].placement.unwrap().points));
+            assert_eq!(rows[1].participant, bob.me());
+            assert_eq!(rows[1].detail, None);
+            assert_eq!(rows[1].run, Some(Run::Out { at: 12.5 }));
+            assert_eq!(rows[1].rank, Some(2));
+        }
         assert_eq!(bob.state().phase.kind(), PhaseKind::Intermission);
         assert_eq!(bob.mark_of(stage).unwrap().placement.place, 2);
         assert_eq!(alice.mark_of(stage).unwrap().placement.place, 1);

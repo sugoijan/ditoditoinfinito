@@ -9,10 +9,12 @@ use std::collections::BTreeMap;
 
 mod automatic;
 mod basis;
+mod levels;
 mod mines;
 mod opponent;
 mod personality;
 pub use automatic::{Automatic, Plan};
+pub use levels::{CPU_LEVELS_V0, LEVELS, Level, LevelTable};
 pub use mines::{MINE_RESPONSE_V0, MineResponse, MineResponseTable};
 pub use opponent::Opponent;
 pub use personality::{SKILL_NAMES, Skills};
@@ -21,8 +23,14 @@ pub const MAX_ROWS: usize = 4096;
 /// Compact automatic plans do not keep five dense probability matrices.
 pub const MAX_AUTOMATIC_ROWS: usize = 65_536;
 pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
+/// The five frozen ability multipliers: the solo CPU's named strengths
+/// ([`LABELS`]) and levels 6 to 10 of an opponent's ten
+/// ([`CPU_LEVELS_V0`]).
 pub const STRENGTHS: [f64; 5] = [0.75, 0.9, 1.0, 1.1, 1.25];
 pub const LABELS: [&str; 5] = ["Relaxed", "Easy", "Normal", "Strong", "Expert"];
+/// The chance any note is left out, whatever the level (the research
+/// decoder's omitted component).
+const OMITTED: f64 = 0.0001;
 
 /// Check bounded, legal, chronological physical presses before a session starts.
 pub fn validate_script(presses: &[Press]) -> Result<(), String> {
@@ -179,8 +187,8 @@ impl Profile {
     pub fn script(&self, level: usize, seed: u64) -> Result<Vec<Press>, String> {
         self.validate()?;
         let laws = self.laws.get(level).ok_or("CPU strength must be 0..4")?;
-        motor(&self.rows, seed, |i, u, within| {
-            self.offset(&laws[i], u, within)
+        motor(&self.rows, seed, |i, u| {
+            (u[2] >= OMITTED).then(|| self.offset(&laws[i], u[0], u[1]))
         })
     }
 
@@ -191,10 +199,12 @@ impl Profile {
 
 /// Shared motor for both prepared and automatic laws. Keep draw order and
 /// per-lane recovery independent of how the timing probabilities are obtained.
+/// `sample` gets a row and a note's three uniforms (interval, within the
+/// interval, omission) and gives its offset, or none where it is left out.
 fn motor(
     rows: &[Row],
     seed: u64,
-    mut sample: impl FnMut(usize, f64, f64) -> f64,
+    mut sample: impl FnMut(usize, [f64; 3]) -> Option<f64>,
 ) -> Result<Vec<Press>, String> {
     let mut rng = Random(seed);
     let mut last_up = [f64::NEG_INFINITY; 4];
@@ -205,10 +215,9 @@ fn motor(
                 continue;
             }
             let u = [rng.unit(), rng.unit(), rng.unit()];
-            if u[2] < 0.0001 {
+            let Some(offset) = sample(i, u) else {
                 continue;
-            }
-            let offset = sample(i, u[0], u[1]);
+            };
             let press = (row.seconds + offset).max(*last + 0.0001);
             let release = press + 0.012;
             *last = release;

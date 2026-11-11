@@ -122,7 +122,12 @@ fn committed(events: &[AttackEvent]) -> Vec<(ParticipantId, ParticipantId)> {
 #[test]
 fn the_classes_are_named_and_cover_every_match_ruleset() {
     assert_eq!(POWER_CLASSES_V0.id, "power-classes-v0");
-    for id in crate::MatchRules::RULESETS {
+    // DDI (W0 inside W1: tier 0) and every id a room could name before.
+    assert!(POWER_CLASSES_V0.rulesets().any(|id| id == "ddi"));
+    for id in crate::MatchRules::RULESETS
+        .into_iter()
+        .chain(crate::MatchRules::LEGACY_RULESETS)
+    {
         assert_eq!(POWER_CLASSES_V0.earned(id, 0), 2, "{id}");
         assert_eq!(POWER_CLASSES_V0.earned(id, 1), 1, "{id}");
         for tier in 2..6 {
@@ -543,6 +548,8 @@ fn settlement_waits_for_the_last_attack_and_a_knockout_by_it_is_drawn() {
     let live = Run::Live {
         life: 0.5,
         accuracy: 0.9,
+        absolute: None,
+        score: None,
     };
     // B alone in, an attack against B outstanding: not decided.
     let field = [
@@ -590,4 +597,237 @@ fn settlement_waits_for_the_last_attack_and_a_knockout_by_it_is_drawn() {
     let (plain, drawn) = st.rank(&fell, &cps, None);
     assert!(!drawn);
     assert_eq!(plain, crate::battle::rank(&fell));
+}
+
+// `attacks-v1` (round 3b): no recovery period, and one more attack may be
+// reserved behind the one on its way or passing.
+
+const D: ParticipantId = ParticipantId(4);
+
+/// [`schedule`] as `attacks-v1`'s maker has it: an attack is over as it
+/// clears.
+fn schedule_v1(n: usize) -> Schedule {
+    let mut s = schedule(n, |_| true);
+    for slot in &mut s.slots {
+        if let Some(sec) = slot.section.as_mut() {
+            sec.recover_after_us = sec.clear_us;
+        }
+    }
+    s
+}
+
+/// A, B and C, each aiming at the leader, and D, who never fills a bar
+/// and has the most life: under `attacks-v1`.
+fn chain_battle() -> StageBattle {
+    StageBattle::new(
+        ATTACKS_V1,
+        POWER_CLASSES_V0,
+        "ddi",
+        checkpoints(40),
+        roster(
+            &[
+                (A, Targeting::Leader),
+                (B, Targeting::Leader),
+                (C, Targeting::Leader),
+                (D, Targeting::Leader),
+            ],
+            3 * S,
+            7,
+        ),
+        schedule_v1(40),
+    )
+}
+
+/// A report whose sender has half its life (so D, at full life, leads).
+fn half(mut r: Report) -> Report {
+    r.life_ppm = 500_000;
+    r
+}
+
+fn states(b: &StageBattle) -> Vec<AttackState> {
+    b.attacks().iter().map(|a| a.state).collect()
+}
+
+#[test]
+fn the_rules_are_named_and_v1_has_no_recovery_and_a_chain_of_one() {
+    assert_eq!(ATTACKS_V0.id, "attacks-v0");
+    assert_eq!((ATTACKS_V0.recover_judgments, ATTACKS_V0.recover_beats, ATTACKS_V0.chain), (8, 4, 0));
+    assert_eq!(ATTACKS_V1.id, "attacks-v1");
+    assert_eq!((ATTACKS_V1.recover_judgments, ATTACKS_V1.recover_beats, ATTACKS_V1.chain), (0, 0, 1));
+    assert_eq!((ATTACKS_V1.cap, ATTACKS_V1.cost), (ATTACKS_V0.cap, ATTACKS_V0.cost));
+    assert_eq!(ATTACKS, ATTACKS_V1, "what stages play");
+}
+
+/// Three attackers against one target: the first two land back to back
+/// (the second reserved while the first is on its way, in the first
+/// section after the first's last shock), the third is blocked while one
+/// passes and one waits, and launches once the first is over (there is no
+/// recovery to wait for), behind the second.
+#[test]
+fn a_chain_lands_back_to_back_and_a_third_waits_for_the_first_to_pass() {
+    let mut b = chain_battle();
+    // 2 s: A's bar is full. Its attack's section is the first from D's
+    // lead (5 s): the slot at 6 s, clearing at 7.85 s.
+    let e = b.checkpoint(
+        0,
+        &[half(rep(A, 0, true, 0)), half(rep(B, 0, false, 4)), half(rep(C, 0, false, 4)), rep(D, 0, false, 4)],
+    );
+    assert_eq!(committed(&e), vec![(A, D)]);
+    let first = b.attack(1).unwrap().clone();
+    assert_eq!((first.slot, first.clear_us), (3, 7_850_000));
+    // 4 s: B's bar is full while A's attack is still on its way: one more
+    // may be reserved against D, in the first section after A's clears.
+    let e = b.checkpoint(
+        1,
+        &[half(rep(A, 1, false, 4)), half(rep(B, 1, true, 0)), half(rep(C, 1, false, 4)), rep(D, 1, false, 4)],
+    );
+    assert_eq!(committed(&e), vec![(B, D)]);
+    let second = b.attack(2).unwrap().clone();
+    assert_eq!(second.slot, 4, "the slot at 8 s");
+    assert!(second.cells.first().unwrap().at_us > first.clear_us, "never a shared section");
+    assert_eq!(second.clear_us, 9_850_000);
+    // Both are against D: the nearer first, then the one waiting.
+    assert_eq!(b.incoming(D).map(|a| a.id), Some(1));
+    assert_eq!(b.incoming_all(D).map(|a| a.id).collect::<Vec<_>>(), vec![1, 2]);
+    assert_eq!(b.outstanding().map(|(p, _)| p).collect::<Vec<_>>(), vec![D, D]);
+    // 6 s: C's bar is full; A and B went out meanwhile (their attacks
+    // stay). D has one passing and one waiting: no one can be attacked.
+    let out = |mut r: Report, at: i64| {
+        r.out_at_us = Some(at);
+        r
+    };
+    let e = b.checkpoint(
+        2,
+        &[
+            out(half(rep(A, 2, false, 0)), 5 * S),
+            out(half(rep(B, 2, false, 0)), 5 * S + S / 2),
+            half(rep(C, 2, true, 0)),
+            rep(D, 2, false, 4),
+        ],
+    );
+    assert!(committed(&e).is_empty());
+    assert!(e.contains(&AttackEvent::Blocked {
+        sender: C,
+        reason: BlockReason::NoEligible
+    }));
+    assert_eq!(b.waiting(C), Some(BlockReason::NoEligible));
+    assert_eq!(states(&b), vec![AttackState::Active; 2]);
+    // 8 s: the first attack's last shock has passed (7.85 s): it is over
+    // at once, with no recovery, so C's bar launches, behind the second.
+    let e = b.checkpoint(
+        3,
+        &[half(rep(C, 3, false, 4)), rep(D, 3, false, 0)],
+    );
+    assert!(e.contains(&AttackEvent::Cleared { attack: 1 }));
+    assert!(e.contains(&AttackEvent::Recovered { attack: 1 }));
+    assert_eq!(committed(&e), vec![(C, D)]);
+    assert_eq!(b.waiting(C), None);
+    let third = b.attack(3).unwrap().clone();
+    assert!(third.cells.first().unwrap().at_us > second.clear_us);
+    assert!(third.cells.first().unwrap().at_us >= 8 * S + 3 * S, "from D's lead");
+    assert_eq!(third.slot, 6, "the slot at 12 s");
+    assert_eq!(
+        states(&b),
+        vec![AttackState::Recovered, AttackState::Active, AttackState::Active]
+    );
+    assert_eq!(b.incoming_all(D).map(|a| a.id).collect::<Vec<_>>(), vec![2, 3]);
+    assert_eq!(b.stats(D).received, 3);
+    // The same reports give the same record.
+    assert_eq!(b.record().len(), 4);
+}
+
+/// The target goes out with one attack passing and one waiting: both
+/// expire, nothing refunded; and while they are outstanding the stage is
+/// not settled, the waiting one counted too.
+#[test]
+fn a_chain_expires_whole_and_keeps_the_stage_from_settling() {
+    let mut b = chain_battle();
+    b.checkpoint(
+        0,
+        &[half(rep(A, 0, true, 0)), half(rep(B, 0, false, 4)), half(rep(C, 0, false, 4)), rep(D, 0, false, 4)],
+    );
+    b.checkpoint(
+        1,
+        &[half(rep(A, 1, false, 4)), half(rep(B, 1, true, 0)), half(rep(C, 1, false, 4)), rep(D, 1, false, 4)],
+    );
+    assert_eq!(states(&b), vec![AttackState::Active; 2]);
+    // Settlement: D alone in (A, B and C out) with attacks against it
+    // outstanding, the waiting one among them: not decided.
+    let st = SETTLEMENT_V0;
+    let live = Run::Live {
+        life: 1.0,
+        accuracy: 0.9,
+        absolute: None,
+        score: None,
+    };
+    let field = [
+        entrant(A, Run::Out { at: 4.5 }),
+        entrant(B, Run::Out { at: 4.6 }),
+        entrant(C, Run::Out { at: 4.7 }),
+        entrant(D, live),
+    ];
+    let outstanding = |b: &StageBattle| b.outstanding().map(|(p, _)| p).collect::<Vec<_>>();
+    assert!(!st.decided(&field, &outstanding(&b)));
+    // 8 s: the first has passed; the second (8 s to 9.85 s) still waits.
+    let gone = |p: ParticipantId, k: usize, at: i64| {
+        let mut r = half(rep(p, k, false, 0));
+        r.out_at_us = Some(at);
+        r
+    };
+    for k in 2..4 {
+        b.checkpoint(
+            k,
+            &[gone(A, k, 4_500_000), gone(B, k, 4_600_000), gone(C, k, 4_700_000), rep(D, k, false, 4)],
+        );
+    }
+    assert_eq!(states(&b), vec![AttackState::Recovered, AttackState::Active]);
+    assert_eq!(outstanding(&b), vec![D]);
+    assert!(!st.decided(&field, &outstanding(&b)), "the waiting one counts");
+    // 10 s: it has passed too: decided.
+    b.checkpoint(
+        4,
+        &[gone(A, 4, 4_500_000), gone(B, 4, 4_600_000), gone(C, 4, 4_700_000), rep(D, 4, false, 4)],
+    );
+    assert_eq!(states(&b), vec![AttackState::Recovered; 2]);
+    assert!(st.decided(&field, &outstanding(&b)));
+
+    // Expiry: D out at 5 s, both attacks still to come.
+    let mut b = chain_battle();
+    b.checkpoint(
+        0,
+        &[half(rep(A, 0, true, 0)), half(rep(B, 0, false, 4)), half(rep(C, 0, false, 4)), rep(D, 0, false, 4)],
+    );
+    b.checkpoint(
+        1,
+        &[half(rep(A, 1, false, 4)), half(rep(B, 1, true, 0)), half(rep(C, 1, false, 4)), rep(D, 1, false, 4)],
+    );
+    let mut d = rep(D, 2, false, 0);
+    d.out_at_us = Some(5 * S);
+    let e = b.checkpoint(
+        2,
+        &[half(rep(A, 2, false, 4)), half(rep(B, 2, false, 4)), half(rep(C, 2, false, 4)), d],
+    );
+    assert!(e.contains(&AttackEvent::Expired { attack: 1 }));
+    assert!(e.contains(&AttackEvent::Expired { attack: 2 }));
+    assert_eq!(states(&b), vec![AttackState::Expired; 2]);
+    assert_eq!((b.power(A), b.power(B)), (0, 0), "nothing refunded");
+    assert!(b.outstanding().next().is_none());
+}
+
+/// Under `attacks-v0` nothing changed: one attack at a time against
+/// anyone, until they have recovered.
+#[test]
+fn attacks_v0_never_chains() {
+    let mut b = StageBattle::new(
+        ATTACKS_V0,
+        POWER_CLASSES_V0,
+        "ddi",
+        checkpoints(40),
+        roster(&[(A, Targeting::Leader), (B, Targeting::Leader), (D, Targeting::Leader)], 3 * S, 7),
+        schedule(40, |_| true),
+    );
+    b.checkpoint(0, &[half(rep(A, 0, true, 0)), half(rep(B, 0, false, 4)), rep(D, 0, false, 4)]);
+    // B's full bar finds D under an attack: it goes to A instead.
+    let e = b.checkpoint(1, &[half(rep(A, 1, false, 4)), half(rep(B, 1, true, 0)), rep(D, 1, false, 4)]);
+    assert_eq!(committed(&e), vec![(B, A)]);
 }

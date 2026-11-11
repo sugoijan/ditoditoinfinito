@@ -159,6 +159,7 @@ impl ScoreRules for DancePoints {
                     p => (self.ex.max(0) as f64 * 10_000.0 / p as f64).floor() / 10_000.0,
                 }
             }),
+            ddi: None,
         }
     }
 
@@ -267,6 +268,7 @@ impl ScoreRules for DdrMoney {
             ex: ex.then(|| self.ex.max(0) as u32),
             max_ex: ex.then(|| Self::EX.possible(&self.ctx).max(0) as u32),
             ex_percent: None,
+            ddi: None,
         }
     }
 

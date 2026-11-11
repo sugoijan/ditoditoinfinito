@@ -673,6 +673,16 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
         })),
     );
 
+    // Whether the play may be given a battle's shocks (our extension).
+    let shared = host.clone();
+    set(
+        "play_has_shocks",
+        func(Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            stack.replace(ctx, shared.borrow().env.shocks);
+            Ok(CallbackReturn::Return)
+        })),
+    );
+
     // A parameter's value (our extension, `crate::params`): a copy of
     // what the host resolved at load, and its kind; nil for a name the
     // skin does not declare.

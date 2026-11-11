@@ -40,6 +40,15 @@ fn env() -> Env {
     Env::new(Rc::new(Plain), fold)
 }
 
+/// Sets the hidden option that opens a room's Rules by themselves on
+/// entering (`Settings::multiplayer_rules_first`), so the walk shows
+/// their first form too.
+fn rules_first(on: bool) {
+    let mut settings = crate::state::settings::Settings::load();
+    settings.multiplayer_rules_first = on;
+    settings.save();
+}
+
 /// Text written in code: not a message, not data, with a letter in it
 /// (numbers and signs are no one's language).
 fn in_code(text: &str) -> bool {
@@ -48,6 +57,8 @@ fn in_code(text: &str) -> bool {
         || t.starts_with('«')
         || t.ends_with('»')
         || (t.starts_with('‹') && t.ends_with('›'))
+        // Data cut to fit (a name in a narrow column) is data still.
+        || (t.starts_with('‹') && t.ends_with('…'))
         || !t.chars().any(char::is_alphabetic))
 }
 
@@ -561,6 +572,7 @@ fn select_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         autoplay: i == 0,
         best: i == 1,
         pending: i == 2,
+        rejudged: i == 3,
     };
     for rows in [Vec::new(), (0..12).map(row).collect::<Vec<_>>()] {
         let some = !rows.is_empty();
@@ -789,8 +801,10 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         .unwrap()
         .clone();
     let room = RoomClient::shared(0, 1);
-    // The room's song select: the Rules first (Reset and OK), then Rules
-    // from its button, Add custom, Players and More over it.
+    // The room's song select: under the hidden option the Rules first
+    // (Reset and OK), then Rules from its button, Add custom, Players and
+    // More over it.
+    rules_first(true);
     let show = |h: &mut Harness, found: &mut BTreeSet<String>| {
         shown(h, found);
         // The standings pop up by themselves after a stage: shown, closed.
@@ -824,6 +838,7 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
     let mut h = harness();
     h.push(sample::room_screen(env, room.clone()));
     shown(&mut h, found);
+    rules_first(false);
     h.tap(PointerKind::Mouse, "Ok");
     show(&mut h, found);
     // A pick refused, then made: the prompt with Ready and its players,
@@ -1001,15 +1016,123 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
     ));
     shown(&mut h, found);
     use ddi_l10n::msg::room as m;
+    // A stage's results over its room (feedback round B): the Standings
+    // tab after a middle stage and after the last (the match's result on
+    // top), with how everyone performed (one out, one who left), then
+    // the Graphs tab; and the lines' words while a result has not come.
+    {
+        use super::results::ResultsScreen;
+        let room = RoomClient::shared(0, 1);
+        room.borrow_mut().set_rules_seen(true);
+        let rules = ddi_room::MatchRules {
+            stages: 2,
+            ..room.borrow().rules().clone()
+        };
+        room.borrow_mut().save_rules(rules).unwrap();
+        for last in [false, true] {
+            let order = {
+                let mut r = room.borrow_mut();
+                r.pick(&song, &chart).unwrap();
+                for job in r.take_load_jobs() {
+                    r.finish_load(&job, Ok(()));
+                }
+                r.set_ready(true).unwrap();
+                let now = r.now_ms() + 3_000;
+                r.tick(now);
+                r.take_stage_order().unwrap()
+            };
+            let ids: Vec<_> = std::iter::once(order.me)
+                .chain(order.cpus.iter().map(|c| c.participant))
+                .collect();
+            let finishes = [
+                Finish::Survived,
+                Finish::Survived,
+                Finish::Eliminated,
+                Finish::Forfeit,
+            ];
+            let ranking = ids
+                .iter()
+                .zip(finishes)
+                .map(|(participant, finish)| {
+                    vec![Finisher {
+                        participant: *participant,
+                        finish,
+                    }]
+                })
+                .collect();
+            let details = ids
+                .iter()
+                .zip(finishes)
+                .map(|(participant, finish)| {
+                    let out = finish == Finish::Eliminated;
+                    (
+                        *participant,
+                        ddi_room::RunDetail {
+                            percent: Some(9_512),
+                            grade: "AA".into(),
+                            life_ppm: if out { 0 } else { 640_000 },
+                            out_at_ms: out.then_some(62_000),
+                            max_combo: 120,
+                            tiers: vec![100, 40, 9, 0, 0, 0, 1],
+                            attacks: Some(2),
+                            shocks: Some(1),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .collect();
+            room.borrow_mut()
+                .report_played(order.stage, ddi_room::Run::Forfeit, ranking, false, details)
+                .unwrap();
+            let mut data = sample::results();
+            data.kind = super::data::ResultsKind::Stage;
+            let mut h = harness();
+            h.push(
+                ResultsScreen::new(env.clone(), data, Default::default())
+                    .with_room(room.clone(), order.stage),
+            );
+            shown(&mut h, found);
+            if last {
+                assert_eq!(
+                    env.state.borrow().stage.as_ref().map(|v| v.winners.len()),
+                    Some(1),
+                    "the match's result is shown"
+                );
+            }
+            h.key("ArrowRight", "ArrowRight");
+            shown(&mut h, found);
+            h.key("ArrowLeft", "ArrowLeft");
+            shown(&mut h, found);
+        }
+        checked(
+            vec![
+                m::table_playing().into(),
+                m::table_waiting().into(),
+                m::table_attacks(2, 1).into(),
+                m::table_title(2, 4).into(),
+            ],
+            found,
+        );
+    }
     let mut info = super::prompt::PromptInfo::default();
-    info.set_stage(1, 4, 3, 0, "itg-fa+");
+    info.set_stage(1, 4, 3, 0, &Default::default(), false);
     let mut online = super::prompt::PromptInfo::default();
-    online.set_stage(2, 4, 0, 2, "ddr-a");
+    online.set_stage(
+        2,
+        4,
+        0,
+        2,
+        &crate::state::room::StageRules {
+            difficulty: ddi_room::MatchDifficulty::Hard,
+            boos: true,
+            ..Default::default()
+        },
+        true,
+    );
     checked(
         vec![
             info.mods,
             online.mods,
-            m::play_level(3).into(),
             m::play_out().into(),
             m::play_won().into(),
             // A battle's moments shown beside the play.
@@ -1193,6 +1316,8 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         "bob",
         1_000,
     )));
+    // Under the hidden option: each one's Rules first.
+    rules_first(true);
     let mut ha = harness();
     ha.push(sample::room_screen(env, alice.clone()));
     let mut hb = harness();
@@ -1212,6 +1337,7 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         h.tap(PointerKind::Mouse, "Ok");
         shown(h, found);
     }
+    rules_first(false);
     // The host's resting song shown to Bob, then picked.
     let s = song();
     alice.borrow_mut().hover(Some((&s, &s.charts[0])));
@@ -1858,8 +1984,37 @@ fn moved_screens_show_no_text_written_in_code() {
     }
     // The results, wide and on a phone, as a play's and a replay's.
     for (design, size) in [(DESIGN, [1280.0, 720.0]), (COMPACT, [390.0, 844.0])] {
-        for replay in [false, true] {
+        for (replay, ddi) in [(false, false), (true, false), (true, true)] {
             let mut data = sample::results();
+            if ddi {
+                // DDI's: a grade of two words, both words of a tier with
+                // its early and late counts, its own stats and note.
+                use ddi_engine::rules::ddi;
+                let rules = ddi::ruleset(&ddi::DdiOptions {
+                    boos: true,
+                    practice: true,
+                    ..Default::default()
+                });
+                let (early, late) = rules.names.sides(ddi_engine::Judgement::W2);
+                data.grade = ddi::ABSOLUTE_DITO.into();
+                data.judgements[1].name =
+                    ddi_l10n::UiText::data(format!("{early} / {late}")).into();
+                data.judgements[1].sides = Some([3, 4]);
+                data.lamp = Some(ddi_l10n::UiText::data("GLORIOUS FLAG").into());
+                data.stats = vec![
+                    (ddi_l10n::msg::results::early_late().into(), "3 / 4".into()),
+                    (
+                        ddi_l10n::msg::results::ddi_percent().into(),
+                        "99.50%".into(),
+                    ),
+                    (ddi_l10n::msg::results::ddi_score().into(), "1185020".into()),
+                ];
+                data.mods = super::play::ddi_summary(&rules.ddi.unwrap()).join(" · ");
+                data.notes = vec![
+                    ddi_l10n::msg::results::note_practice("1:35").into(),
+                    ddi_l10n::msg::results::note_rejudged("ITG", "DDI").into(),
+                ];
+            }
             if replay {
                 super::play::mark_replay(
                     &mut data,

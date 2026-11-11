@@ -478,9 +478,14 @@ impl View {
     }
 
     /// The fonts the play's text is drawn with (a stage's opponents'
-    /// column), read meanwhile.
+    /// names), read meanwhile.
     pub fn read_text(&mut self) {
         self.view.host.read_fonts();
+    }
+
+    /// The lyrics the last frame drew.
+    pub fn lyrics_shown(&self) -> &[String] {
+        self.view.lyrics_shown()
     }
 
     /// Where the last frame drew a stage's opponents' miniature fields.

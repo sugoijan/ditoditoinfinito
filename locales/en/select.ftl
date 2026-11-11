@@ -685,6 +685,10 @@ select-plays-title-version = PLAYS · { $chart } · { $version }
 # (never translated, as REPLAY and ASSIST).
 select-plays-autoplay = AUTOPLAY
 
+# A row's mark for a play judged again under rules other than those it
+# was played by (the rules named before it are those it was judged by).
+select-plays-rejudged = judged again
+
 # A row's mark for the best play of the chart.
 select-plays-best = ★ best
 

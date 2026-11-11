@@ -539,22 +539,33 @@ impl Preview {
     }
 }
 
-/// How much larger the hand is behind the field than its picture would
+/// The most the hand behind the field is larger than its picture would
 /// be at the camera's own distance in a frame the band's width
-/// (PROVISIONAL, `docs/plans/multiplayer-prototype-progress.md`, M7c): the
-/// hand and the mat it plays on fill the room below the judgment, the
-/// arm above them cut at the frame's top.
-pub const BEHIND_FIELD_ZOOM: f32 = 1.9;
+/// (PROVISIONAL, `docs/plans/multiplayer-prototype-progress.md`, the
+/// feedback round of 2026-11-12, part C): at the camera's own distance
+/// the hand and its mat are about two fifths of the frame's narrower
+/// side wide, so twice that fills the band and leaves it room to sway.
+pub const BEHIND_FIELD_ZOOM: f32 = 2.0;
+
+/// How tall a frame must be for the whole hand, in the hand's scale (the
+/// narrower side of a frame that shows it as large): a solo play's
+/// frame's proportion on a 16:9 screen (1280×720: 616×696), which shows
+/// the mat's near edge at its foot and the arm's end, with room to rise,
+/// at its head. A frame as tall shows what a solo play shows.
+pub const BEHIND_FIELD_TALL: f32 = 1.13;
 
 /// The camera's distance for the hand behind the field in a frame `w`
-/// wide and `h` high: as large as [`BEHIND_FIELD_ZOOM`] says against a
-/// frame as wide, whatever its height (the picture is framed by its
-/// narrower side, `ddi_render::character::view_projection`).
+/// wide and `h` high: the whole hand as a solo play shows it (the arm's
+/// end included, nothing cut), as large as the frame's height allows
+/// ([`BEHIND_FIELD_TALL`]) up to [`BEHIND_FIELD_ZOOM`] against a frame
+/// as wide, whatever its shape (the picture is framed by its narrower
+/// side, `ddi_render::character::view_projection`).
 pub fn behind_field_distance(distance: f32, w: f32, h: f32) -> f32 {
     if w <= 0.0 || h <= 0.0 {
         return distance;
     }
-    distance * w.min(h) / (BEHIND_FIELD_ZOOM * w)
+    let zoom = BEHIND_FIELD_ZOOM.min(h / (BEHIND_FIELD_TALL * w));
+    distance * w.min(h) / (zoom * w)
 }
 
 pub fn gameplay_look() -> PlayLook {
@@ -584,6 +595,69 @@ mod preload_tests {
         p.set_behind_field(None);
         assert_eq!(p.frame_rect(size), own);
     }
+    /// The hand's place in a stage: the field's band, past the
+    /// receptors' row to the end away from it, either way the notes
+    /// scroll; most of the field's height, and behind the judgment.
+    #[test]
+    fn the_hands_place_in_a_stage_is_the_band_past_the_receptors() {
+        use ddi_render::FieldGeometry;
+        for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0), (844.0, 390.0)] {
+            for reverse in [false, true] {
+                let g = FieldGeometry::placed(w, h, 4.0, reverse, Default::default());
+                let [x, y, rw, rh] = crate::play_view::behind_field(&g, 4.0, reverse, 1.0);
+                let [mid, band] = ddi_render::scene::filter_band(&g, 4.0);
+                assert_eq!((x, rw), (mid - band / 2.0, band));
+                assert!(y >= 0.0 && y + rh <= h, "{w}x{h}");
+                // Clear of the receptors' row (half a lane either side
+                // of its middle).
+                let row = [g.receptor_y - g.arrow / 2.0, g.receptor_y + g.arrow / 2.0];
+                assert!(y + rh < row[0] || y > row[1], "{w}x{h} reverse {reverse}");
+                assert!(rh > 0.7 * h, "{w}x{h}: {rh}");
+                // The judgment's line is over it.
+                let [_, top, _, bottom] = ddi_render::scene::judgement_area(&g, 4.0);
+                assert!(y < top && y + rh > bottom, "{w}x{h}");
+            }
+        }
+    }
+
+    /// Behind the field the hand is whole: scaled so that the frame is
+    /// as tall, in the hand's scale, as a solo play's frame, and no
+    /// larger than fills the band.
+    #[test]
+    fn the_hand_behind_the_field_is_shown_whole() {
+        // The hand's scale in pixels (the narrower side of a frame that
+        // would show it as large at the camera's own distance).
+        let scale = |w: f32, h: f32| {
+            let d = behind_field_distance(1.0, w, h);
+            w.min(h) / d
+        };
+        // A stage's band at 1280×720: its height is what limits.
+        let (w, h) = (309.6, 548.8);
+        let s = scale(w, h);
+        assert!((s * BEHIND_FIELD_TALL - h).abs() < 0.01, "{s}");
+        assert!(s < BEHIND_FIELD_ZOOM * w);
+        // Larger than a frame the band's width alone would show it, and
+        // nearly a solo play's size (its frame 616 wide there).
+        assert!(s > 1.5 * w && s > 0.75 * 616.0, "{s}");
+        // A tall narrow band (a phone held upright): its width limits.
+        assert!((scale(230.0, 720.0) - BEHIND_FIELD_ZOOM * 230.0).abs() < 0.01);
+        // A band wider than tall: still its height.
+        assert!((scale(600.0, 550.0) * BEHIND_FIELD_TALL - 550.0).abs() < 0.01);
+        // Nothing to frame: the camera's own distance.
+        assert_eq!(behind_field_distance(0.49, 0.0, 10.0), 0.49);
+        // The distance stays where the camera takes it as given
+        // (`view_projection` holds it within 0.2 and 1.2).
+        for (w, h) in [
+            (309.6, 548.8),
+            (230.0, 720.0),
+            (600.0, 550.0),
+            (168.0, 292.0),
+        ] {
+            let d = behind_field_distance(BASE_CAMERA[2], w, h);
+            assert!((0.2..=1.2).contains(&d), "{w}x{h}: {d}");
+        }
+    }
+
     #[test]
     fn effective_input_changes_invalidate_preparation_but_appearance_does_not() {
         let song = ddi_chart::formats::sm::parse_sm(

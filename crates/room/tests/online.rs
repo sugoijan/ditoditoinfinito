@@ -441,6 +441,168 @@ fn the_online_adapter_keeps_the_local_authoritys_contract() {
     );
 }
 
+/// Feedback round B: a report may say how its starter performed
+/// (`RunDetail`, optional and additive to protocol 2). The room keeps it
+/// within its bounds, the local authority and the online one agree, every
+/// mirror has it, and the ranking is the runs' alone.
+#[test]
+fn a_reports_detail_is_kept_alike_by_both_authorities_and_every_mirror() {
+    use ddi_room::{ReportedRun, RunDetail};
+    let stage = StageId(1);
+    let detail = RunDetail {
+        score: None,
+        percent: Some(9_875),
+        grade: "A".repeat(40),
+        life_ppm: 2_000_000,
+        out_at_ms: None,
+        max_combo: 120,
+        tiers: (0..20).collect(),
+        attacks: None,
+        shocks: None,
+    };
+    let mut steps = script();
+    steps.push(Step::Cmd(
+        "dev:bob",
+        Command::ReportOutcome {
+            stage,
+            run: ReportedRun::Out { at_ms: 12_500 },
+            detail: None,
+        },
+    ));
+    steps.push(Step::Cmd(
+        "dev:alice",
+        Command::ReportOutcome {
+            stage,
+            run: ReportedRun::Live {
+                life_ppm: 400_000,
+                accuracy_ppm: 800_000,
+                absolute: None,
+                score: None,
+            },
+            detail: Some(detail.clone()),
+        },
+    ));
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    let play = local.current.as_ref().unwrap().stages[0]
+        .play
+        .as_ref()
+        .unwrap();
+    assert_eq!(play.details.len(), 1, "Bob said nothing of his");
+    let kept = &play.details[&ParticipantId(1)];
+    assert_eq!(kept, &detail.clone().bounded());
+    assert_eq!(
+        (kept.grade.len(), kept.tiers.len(), kept.life_ppm),
+        (RunDetail::MAX_GRADE, RunDetail::MAX_TIERS, 1_000_000)
+    );
+    // Ranked by the runs: Alice, still in, first.
+    let result = play.result.as_ref().expect("settled on the two reports");
+    assert_eq!(result.placement(ParticipantId(1)).unwrap().place, 1);
+    assert_eq!(result.placement(ParticipantId(2)).unwrap().place, 2);
+}
+
+/// The DDI ruleset's round 3: Difficulty and Boos are match rules, saved
+/// like the others, locked with the match, and kept alike by the local
+/// authority, the online one and every mirror; rules that name a ruleset
+/// a room could be played under before are taken and played as DDI; a
+/// report's absolute score breaks a tie between those who played the same
+/// notes. (Attacks choose the battle, which a hosted room's rules carry
+/// as any other field.)
+#[test]
+fn the_match_rules_of_ddi_are_kept_alike_by_both_authorities_and_every_mirror() {
+    use ddi_room::{Absolute, MatchDifficulty, ReportedRun};
+    let stage = StageId(1);
+    let mut rules = MatchRules::hosted();
+    rules.difficulty = MatchDifficulty::Hard;
+    rules.boos = true;
+    // As a client one build behind would send them.
+    rules.ruleset = "itg-fa+".into();
+    let mut odd = MatchRules::hosted();
+    odd.ruleset = "danoni".into();
+    // Before the script's first command: the lobby's draft.
+    let mut steps = script();
+    let at = steps
+        .iter()
+        .position(|s| matches!(s, Step::Cmd(..)))
+        .unwrap();
+    steps.insert(
+        at,
+        Step::Cmd("dev:alice", Command::SaveNextRules { rules: odd.clone() }),
+    );
+    steps.insert(
+        at + 1,
+        Step::Cmd(
+            "dev:alice",
+            Command::SaveNextRules {
+                rules: rules.clone(),
+            },
+        ),
+    );
+    // Saving the rules cleared the lobby's readiness: the script's
+    // loading, Ready and Start are for the readiness that follows.
+    for step in &mut steps {
+        if let Step::Cmd(
+            _,
+            Command::ReportLoading { readiness_rev, .. }
+            | Command::SetReady { readiness_rev, .. }
+            | Command::StartStage { readiness_rev, .. },
+        ) = step
+        {
+            *readiness_rev = 2;
+        }
+    }
+    // Both still in with the same life: the score (the sum, round 3b)
+    // decides.
+    for (who, score) in [("dev:bob", 480_007), ("dev:alice", 480_003)] {
+        steps.push(Step::Cmd(
+            who,
+            Command::ReportOutcome {
+                stage,
+                run: ReportedRun::Live {
+                    life_ppm: 1_000_000,
+                    accuracy_ppm: 960_000,
+                    absolute: Some(Absolute {
+                        score,
+                        most: 5_000,
+                    }),
+                    score: Some(960_000 + score),
+                },
+                detail: None,
+            },
+        ));
+    }
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    assert_eq!(
+        local_answers[0],
+        Some(Rejection::InvalidRules(
+            ddi_room::RulesProblem::UnknownRuleset
+        ))
+    );
+    assert_eq!(local_answers[1], None, "saved");
+    // Locked with the match.
+    let m = local.current.as_ref().unwrap();
+    assert_eq!(m.rules.difficulty, MatchDifficulty::Hard);
+    assert!(m.rules.boos);
+    assert_eq!(m.rules.ruleset, "itg-fa+", "kept as it came");
+    assert_eq!(m.rules.ruleset_id(), "ddi", "played as DDI");
+    // Bob's seven W0s more put him first.
+    let play = m.stages[0].play.as_ref().unwrap();
+    let result = play.result.as_ref().expect("settled on the two reports");
+    assert_eq!(result.placement(ParticipantId(2)).unwrap().place, 1);
+    assert_eq!(result.placement(ParticipantId(1)).unwrap().place, 2);
+}
+
 /// The network in the way of Bob's frames changes nothing anyone ends
 /// up with.
 #[test]

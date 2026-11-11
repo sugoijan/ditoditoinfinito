@@ -125,6 +125,9 @@ pub fn open() -> Option<(Rc<Plays>, Rework)> {
             eprintln!("history: {e}");
         }
     });
+    // The settings moved from ITG to DDI: the ITG plays kept are judged
+    // again under DDI (the first steps work them out).
+    plays.rejudge_asked();
     Some((plays, rework))
 }
 
@@ -252,6 +255,8 @@ enum Job {
     },
     Rework {
         ids: Vec<String>,
+        /// The other rules each is judged again under (`Plays::asks`).
+        asks: ddi_ui::state::history::Asks,
         chart: Arc<Song>,
         next_ms: u32,
     },
@@ -299,12 +304,13 @@ fn run(store: &FilePlayStore, job: Job) -> Answer {
         }
         Job::Rework {
             ids,
+            asks,
             chart,
             next_ms,
         } => {
             let worked = std::panic::catch_unwind(|| {
                 let entries = at_once(|d| store.records(ids.clone(), d))?;
-                Ok(rework_entries(&ids, &entries, &chart))
+                Ok(rework_entries(&ids, &entries, &chart, &asks))
             })
             .unwrap_or_else(|p| Err(failed(p)));
             Answer::Worked { worked, next_ms }
@@ -404,6 +410,7 @@ impl Rework {
                     self.send(
                         plays,
                         Job::Rework {
+                            asks: plays.asks(&ids),
                             ids,
                             chart,
                             next_ms,

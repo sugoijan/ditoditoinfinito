@@ -34,8 +34,6 @@ room-cpu-name = CPU { $number }
 
 room-bot-name = { $name }（ボット）
 
-room-cpu-level = レベル { $level } / { $levels }
-
 room-cpu-at-start = 開始時
 
 room-state-ready = 準備OK
@@ -106,22 +104,21 @@ room-rules-next-match = 次の対戦
 
 room-rules-stages = ステージ数
 room-rules-cpus = CPUの人数
-room-rules-level = CPUのレベル
-room-rules-battle = バトル
+room-rules-level = レベル
 room-rules-points = 得点
-room-rules-ruleset = ルールセット
 
-room-rules-level-value = { $level } / { $levels }
+room-rules-difficulty = タイミング難易度
+room-rules-boos = Boo
+room-rules-attacks = 攻撃
 
-room-rules-battle-value = サバイバル · 暫定
-
-room-rules-battle-attacks-value = サバイバル＋パワー · 開発用
+room-rules-attacks-online = オフ · オンラインルームではまだ使えません
 
 room-rules-points-value = 順位制 · 試験的
 
-room-rules-level-note = CPUのレベルは譜面に対する強さで、腕前の評価ではありません。
+room-rules-level-note = CPUの星はレベルを表します。譜面に対する強さで、腕前の評価ではありません。
 room-rules-points-note = 8人以外の人数での得点は試験的なルールによります。
-room-rules-ruleset-note = 試合では各自のオプションではなく、このルールセットで全員がプレイします。
+room-rules-ruleset-note = 試合では各自のオプションではなく、全員がDDIのこのルールでプレイします。
+room-rules-battle-note = バトルは暫定です。ライフが尽きるとそのステージはアウト。攻撃オンでは、タイミングが良いとパワーゲージがたまり、満タンでほかのプレイヤーのフィールドにショックを8つ送ります。
 room-rules-locked-note = 変更は次の対戦から適用され、この対戦のルールは変わりません。
 room-rules-clears-note = 適用すると準備OKが解除されます。
 
@@ -145,7 +142,19 @@ room-prompt-stage-online = ステージ { $number } / { $stages } · ほかの�
 
 room-results-back = ルームに戻る
 
-room-prompt-ruleset = ルールセット：{ $ruleset }
+room-prompt-ruleset = ルール：{ $rules }
+
+room-rules-words = { $ruleset }{ $difficulty ->
+    [easy] {" "}· イージータイミング
+    [hard] {" "}· ハードタイミング
+   *[normal] {""}
+}{ $boos ->
+    [on] {" "}· Booあり
+   *[off] {""}
+}{ $attacks ->
+    [on] {" "}· 攻撃あり
+   *[off] {""}
+}
 
 room-mark-survived = ステージ { $number }: { $field }人中 { $place }位 · +{ $points }点
 
@@ -173,12 +182,9 @@ room-results-none = —
 
 ## A stage's play.
 
-room-play-level = Lv { $level }
-
 room-play-out = アウト
 
 room-play-won = 1位確定
-room-play-more = ほか{ $count }人
 room-play-cue-match-begin = 対戦スタート
 room-play-cue-stage-begin = ステージ { $number } スタート
 room-play-cue-final-stage = ファイナルステージ
@@ -346,6 +352,13 @@ room-state-loading = 読み込み中
 room-state-loading-percent = 読み込み中 { $percent }%
 room-state-load-failed = 読み込み失敗
 room-state-sitting-out = 見学
+room-state-failed-download = ダウンロード失敗
+room-state-failed-unreadable = 曲を読めません
+room-state-failed-changed = 譜面が変更されました
+
+room-panel-points = 得点
+
+room-strip-more = +{ $count }
 
 room-mark-short = { $field }人中 { $place }位 · +{ $points }点
 room-mark-short-forfeit = { $field }人中 { $place }位 · 退出
@@ -363,7 +376,7 @@ room-refused-title = できません
 
 room-rules-ok = OK
 
-room-rules-locked-line = { $stages }ステージ · CPU { $cpus }人 · { $ruleset }
+room-rules-locked-line = { $stages }ステージ · CPU { $cpus }人 · { $rules }
 
 room-rules-no-cpus = CPU対戦相手なし。
 
@@ -376,7 +389,7 @@ room-add-cpus-title = CPUを追加
 
 room-add-cpus-count = 人数
 
-room-add-cpus-at-level = レベル{ $level }で{ $count }人追加
+room-add-cpus-add = CPUを{ $count }人追加
 
 room-add-cpus-by-name = または名前で1人
 
@@ -392,4 +405,33 @@ room-prompt-sat-out = 準備が間に合わなかったため、このステー�
 
 room-prompt-canceled = ステージの開始は取り消されました。
 
-room-cpu-label = CPU
+room-results-tab-standings = 順位
+room-results-tab-graphs = グラフ
+
+room-results-hint-tabs = タブ切り替え
+
+room-table-title = ステージ { $number } / { $stages }
+
+room-table-waiting = 全員の結果を待っています…
+
+room-table-player = プレイヤー
+room-table-award = ステージ
+room-table-total = 合計
+room-table-match = 対戦
+room-table-score = スコア
+room-table-grade = 評価
+room-table-life = ライフ
+room-table-combo = コンボ
+room-table-judgments = 判定
+
+room-table-award-value = +{ $points }
+
+room-table-playing = プレイ中…
+
+room-table-out = アウト { $time }
+
+room-table-left = 退出
+
+room-table-attacks = 攻撃 { $attacks } · ショック { $shocks }
+
+room-final-heading = 対戦結果

@@ -4,9 +4,15 @@
 //! them, and the stage's outcome as the room's ranking, so that neither
 //! shell keeps a copy.
 //!
-//! The battle is [`BattlePreset::GaugeSurvivalV0`] (PROVISIONAL, named in
-//! `ddi_room::battle`): each competitor's life is their own ruleset gauge;
-//! an empty gauge is out of the stage. The stage is decided once at most
+//! What a room shows of a competitor's score and ranks by after life is
+//! DDI's score, the sum (round 3b); a CPU's is put on the chart's own
+//! scale first ([`cpu_score`], `CPU_SCORE_V0`).
+//!
+//! The battle is [`BattlePreset::GaugeSurvivalV0`] or, where the match's
+//! Attacks rule is On, [`BattlePreset::GaugeAttacksV0`] (PROVISIONAL, named
+//! in `ddi_room::battle`): each competitor's life is their own gauge under
+//! the match's rules (DDI with the match's difficulty and Boos,
+//! [`stage_ruleset`]); an empty gauge is out of the stage. The stage is decided once at most
 //! one competitor is still in; a local winner then plays on to the song's
 //! end with its fail turned off (nothing after changes the result). The
 //! CPUs ([`ddi_engine::cpu::Opponent`]) play a tap-only copy of the chart
@@ -44,8 +50,9 @@ use ddi_library::announcer::{Battle as Event, SURVIVOR_MILESTONES};
 use ddi_room::attacks::{AttackEvent, LEAD_V0, RosterSeat, SETTLEMENT_V0, Settling, StageRoster};
 pub use ddi_room::attacks::{BlockReason, Targeting};
 use ddi_room::battle::decided;
-use ddi_room::{BattlePreset, Entrant, Finisher, ParticipantId, Run, StageId};
-use ddi_ui::state::room::{CpuSeat, StageOrder};
+use ddi_room::{Absolute, BattlePreset, Entrant, Finisher, ParticipantId, Run, RunDetail, StageId};
+pub use ddi_ui::state::room::StageRules;
+use ddi_ui::state::room::{CpuSeat, StageOrder, run_detail};
 
 /// What a session needs to play a stage: which, under what battle, who
 /// the local player is and the CPUs committed to it.
@@ -56,9 +63,9 @@ pub struct StageSetup {
     pub number: u16,
     pub of: u16,
     pub battle: BattlePreset,
-    /// The match's ruleset (D0), the engine's preset id: the play's, the
-    /// CPUs' and the bots' ([`stage_ruleset`]).
-    pub ruleset: String,
+    /// The match's rules a stage is judged by (D0: DDI, its difficulty
+    /// and Boos): the play's, the CPUs' and the bots' ([`stage_ruleset`]).
+    pub rules: StageRules,
     pub me: ParticipantId,
     /// The local player's attack policy (M8b: Spread; chosen before the
     /// stage and in play from the next round on).
@@ -92,7 +99,7 @@ impl StageSetup {
             number: order.number,
             of: order.of,
             battle: order.battle,
-            ruleset: order.ruleset.clone(),
+            rules: order.rules.clone(),
             dev_mines_at_beat: order.dev_mines_at_beat,
             me: order.me,
             targeting: order.targeting,
@@ -107,19 +114,14 @@ impl StageSetup {
     }
 }
 
-/// The ruleset a stage of a match under ruleset `id` (`MatchRules::ruleset`,
-/// D0) is played with on `chart`, by everyone in it: the engine's preset
-/// as it is (no player's own judge or life level, fail type or holds:
-/// StepMania's own for the chart's game), its fail immediate (an empty
-/// gauge is out of the stage). ITG where the id is not a preset.
-pub fn stage_ruleset(id: &str, chart: &ddi_chart::Chart) -> Ruleset {
-    let mut rules = ddi_engine::rules::presets::stepmania(
-        id,
-        ddi_engine::rules::presets::HoldStyle::ByGame,
-        chart,
-    );
-    rules.fail = ddi_engine::FailPolicy::Immediate;
-    rules
+/// The ruleset a stage of a match under `rules` (`MatchRules`: D0, DDI
+/// with the match's difficulty and Boos) is played with by everyone in
+/// it, the CPUs included: `presets::ddi()` with those options, nothing of
+/// the player's own (never Practice, whatever their settings say), its
+/// fail immediate (an empty life is out of the stage). DDI plays every
+/// chart alike, so the chart is not asked.
+pub fn stage_ruleset(rules: &StageRules) -> Ruleset {
+    rules.build()
 }
 
 /// A stage's scroll speed raised so that its player's lead fits under
@@ -192,7 +194,7 @@ pub fn dev_shocks(
     seed: u64,
 ) -> Option<ddi_engine::battle::Section> {
     let schedule = ddi_engine::battle::schedule(song, chart, &player.ruleset().judge, seed);
-    let every = ddi_engine::battle::PLACEMENT_V0.every_beats.max(1);
+    let every = ddi_engine::battle::PLACEMENT.every_beats.max(1);
     let first = beat.div_ceil(every) as usize;
     let section = schedule.into_iter().skip(first).flatten().next()?;
     player.add_hazards(&section.cells).ok()?;
@@ -215,15 +217,20 @@ pub fn battle_seed(setup: &StageSetup) -> u64 {
 #[derive(Clone, Debug, PartialEq)]
 pub struct OpponentView {
     pub participant: ParticipantId,
-    /// "CPU 2", and its level ("Lv 3"), in the UI's language.
+    /// "CPU 2", in the UI's language (a roster's name is data).
     pub name: String,
-    pub level: String,
+    /// A CPU's level, from 1 to ten (drawn as stars); none for a person.
+    pub level: Option<u8>,
     /// Its gauge's life, `0..=1`.
     pub life: f32,
     /// Its gauge emptied: out of the stage.
     pub out: bool,
-    /// Its score as a fraction of the chart's best, and its combo.
+    /// Its score as a fraction of the best its notes give (the percent),
+    /// and as the room shows it and ranks by it under DDI: the sum, a
+    /// CPU's on the chart's own scale ([`cpu_score`]); none under another
+    /// ruleset. Then its combo.
     pub score: f64,
+    pub sum: Option<i64>,
     pub combo: u32,
     /// Its attack power as a share of the bar and whether the bar is
     /// full, where the battle has attacks ([`attacks`]).
@@ -244,6 +251,11 @@ pub struct StageOutcome {
     /// stage waited on an attack against them (`SETTLEMENT_V0`; the
     /// results say "Drawn: final attack").
     pub drawn_by_final_attack: bool,
+    /// How each competitor judged on this device performed (the local
+    /// player, a practice's CPUs), for the stage's standings
+    /// (`ddi_ui::state::room::run_detail`): the local player's goes with
+    /// its report to an online room, a practice's stay with its client.
+    pub details: Vec<(ParticipantId, RunDetail)>,
 }
 
 /// An attack against the local player, as its warning shows it
@@ -257,6 +269,8 @@ pub struct Incoming {
     pub committed: f64,
     pub first: f64,
     pub clear: f64,
+    /// One more attack is reserved behind it (`attacks-v1`'s chain).
+    pub more: bool,
 }
 
 /// A full bar of the local player's waiting, as the line under it says.
@@ -281,7 +295,8 @@ struct Seat {
     seat: CpuSeat,
     opponent: Opponent,
     name: String,
-    level: String,
+    /// From 1.
+    level: u8,
     /// Its moments as its miniature field is fed them.
     feed: feed::FieldFeed,
 }
@@ -292,6 +307,9 @@ pub struct Battle {
     seats: Vec<Seat>,
     /// The chart's tap-only copy the CPUs play, as their fields draw it.
     track: feed::TapTrack,
+    /// The most the whole chart gives (DDI): the scale the CPUs' scores
+    /// are put on ([`cpu_score`]).
+    most: Option<i64>,
     /// The attack ledger, where the battle has attacks (a practice's
     /// only: an online stage's would be the room's).
     attacks: Option<attacks::AttackRunner>,
@@ -318,11 +336,40 @@ pub struct Battle {
     danger: Option<bool>,
     critical: bool,
     out: bool,
+    /// The local player's judged song second, as of the last frame.
+    now: f64,
 }
 
-/// A score as a fraction of the chart's best: the ruleset's percent, else
-/// its money or EX over their most.
+/// The most points chart `chart` of `song`, whole, gives under `ruleset`
+/// (DDI's: 50 a tap-like note and a hold unit; none under another
+/// ruleset): the scale a CPU's score is put on ([`cpu_score`]).
+pub fn chart_most(song: &Song, chart: usize, ruleset: &Ruleset) -> Option<i64> {
+    song.charts.get(chart)?;
+    let whole = ddi_engine::Player::new(song, chart, ruleset.fresh(), Default::default());
+    whole.ruleset().score.view().ddi.map(|d| d.most)
+}
+
+/// A CPU's score as a room shows it and ranks by it
+/// (`ddi_engine::rules::ddi::CPU_SCORE_V0`, PROVISIONAL): its play of the
+/// tap-only copy put on the whole chart's scale (`chart_most`,
+/// [`chart_most`]), as if it had done on the holds as it did on the taps.
+/// Its percent is unchanged. Under another ruleset, or without the
+/// chart's most, the score as it is.
+pub fn cpu_score(view: &ScoreView, chart_most: Option<i64>) -> ScoreView {
+    let mut view = *view;
+    if let (Some(d), Some(most)) = (view.ddi.as_mut(), chart_most) {
+        *d = d.on_scale(most);
+    }
+    view
+}
+
+/// A score as a fraction of the chart's best: DDI's proportional part
+/// (points over the most the notes played give, the percent), else the
+/// ruleset's percent, else its money or EX over their most.
 pub fn accuracy(view: &ScoreView) -> f64 {
+    if let Some(d) = &view.ddi {
+        return d.ratio as f64 / 1_000_000.0;
+    }
     view.percent
         .or(view.money.map(|m| m as f64 / 1_000_000.0))
         .or(match (view.ex, view.max_ex) {
@@ -348,7 +395,7 @@ impl Battle {
         song_offset: f64,
         horizon: f64,
     ) -> Result<Battle, String> {
-        let levels = ddi_engine::cpu::STRENGTHS.len();
+        let levels = ddi_engine::cpu::LEVELS;
         let track = feed::TapTrack::new(song, chart)?;
         let seats = setup
             .cpus
@@ -367,7 +414,10 @@ impl Battle {
                 let mut opponent =
                     Opponent::with_skills(song, chart, rules, level, seat.seed, skills)?;
                 opponent.start(song_offset);
-                let feed = feed::FieldFeed::new(&track, opponent.life(), feed::LOCAL_DELAY);
+                let mut feed = feed::FieldFeed::new(&track, opponent.life(), feed::LOCAL_DELAY);
+                // A shock stepped on locks its lane where the rules do
+                // (DDI): its miniature shows the lock.
+                feed.set_lock(opponent.player().ruleset().judge.lock);
                 Ok(Seat {
                     seat: seat.clone(),
                     opponent,
@@ -376,7 +426,7 @@ impl Battle {
                         .name
                         .clone()
                         .unwrap_or_else(|| m::cpu_name(seat.ordinal).into()),
-                    level: m::play_level(level + 1).into(),
+                    level: u8::try_from(level + 1).unwrap_or(u8::MAX),
                     feed,
                 })
             })
@@ -398,12 +448,13 @@ impl Battle {
                 .collect(),
                 seed: battle_seed(&setup),
             };
-            attacks::AttackRunner::new(song, chart, &setup.ruleset, &ruleset.judge, roster)
+            attacks::AttackRunner::new(song, chart, &setup.rules.ruleset, &ruleset.judge, roster)
         });
         Ok(Battle {
             setup,
             seats,
             track,
+            most: chart_most(song, chart, ruleset),
             attacks,
             decided: None,
             drawn: false,
@@ -416,6 +467,7 @@ impl Battle {
             danger: None,
             critical: false,
             out: false,
+            now: f64::NEG_INFINITY,
         })
     }
 
@@ -443,6 +495,7 @@ impl Battle {
     /// their gauge does), `Some(false)` the moment it is decided
     /// otherwise.
     pub fn advance(&mut self, t: f64, human: &mut Player, judged: &[JudgeEvent]) -> Option<bool> {
+        self.now = t;
         if let Some(a) = self.attacks.as_mut() {
             a.judged(self.setup.me, judged);
             if let Some(at) = human.gauge_failed_at() {
@@ -866,14 +919,23 @@ impl Battle {
         (!self.won() && human.gauge_failed_at().is_none()).then(|| a.bar(self.setup.me))
     }
 
-    /// The attack against the local player it has not recovered from, as
-    /// its warning shows it (none once out or after a confirmed win).
+    /// The attack against the local player on its way or passing, as its
+    /// warning shows it (none once out or after a confirmed win): the
+    /// nearer where one more waits behind it (`attacks-v1`'s chain: said
+    /// by `more`), the next once the first's last shock has passed, none
+    /// once every one has (there is no recovery to wait for).
     pub fn incoming(&self, human: &Player) -> Option<Incoming> {
         let a = self.attacks.as_ref()?;
         if self.won() || human.gauge_failed_at().is_some() {
             return None;
         }
-        let attack = a.ledger().incoming(self.setup.me)?;
+        let now = attacks::micros(self.now);
+        let mut all = a
+            .ledger()
+            .incoming_all(self.setup.me)
+            .filter(|x| x.clear_us >= now);
+        let attack = all.next()?;
+        let more = all.next().is_some();
         let committed = a
             .ledger()
             .checkpoints_us()
@@ -885,6 +947,7 @@ impl Battle {
             committed: committed as f64 / 1e6,
             first: attack.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6,
             clear: attack.clear_us as f64 / 1e6,
+            more,
         })
     }
 
@@ -949,10 +1012,13 @@ impl Battle {
             .map(|s| OpponentView {
                 participant: s.seat.participant,
                 name: s.name.clone(),
-                level: s.level.clone(),
+                level: Some(s.level),
                 life: s.opponent.life(),
                 out: s.opponent.out_at().is_some(),
                 score: accuracy(&s.opponent.score()),
+                sum: cpu_score(&s.opponent.score(), self.most)
+                    .ddi
+                    .map(|d| d.score),
                 combo: s.opponent.combo(),
                 power: self
                     .attacks
@@ -974,6 +1040,16 @@ impl Battle {
         if self.decided.is_none() {
             self.play_out(human, quit);
         }
+        let mut details = vec![(
+            self.setup.me,
+            run_detail(
+                &human.results_brief(),
+                human.ruleset(),
+                human.ruleset().gauge.life(),
+                self.launched(self.setup.me),
+            ),
+        )];
+        details.extend(self.cpu_details());
         if let Some(ranking) = &self.decided {
             return StageOutcome {
                 stage: self.setup.stage,
@@ -981,6 +1057,7 @@ impl Battle {
                 confirmed_early: true,
                 mine,
                 drawn_by_final_attack: self.drawn,
+                details,
             };
         }
         let checkpoints = self
@@ -995,7 +1072,35 @@ impl Battle {
             confirmed_early: false,
             mine,
             drawn_by_final_attack: drawn,
+            details,
         }
+    }
+
+    /// The attacks `participant` launched, where the battle has attacks.
+    fn launched(&self, participant: ParticipantId) -> Option<u32> {
+        self.attacks.as_ref().map(|a| a.stats(participant).launched)
+    }
+
+    /// How each CPU performed, as judged by its own play.
+    fn cpu_details(&self) -> Vec<(ParticipantId, RunDetail)> {
+        self.seats
+            .iter()
+            .map(|s| {
+                let player = s.opponent.player();
+                // Its score on the chart's scale (`CPU_SCORE_V0`).
+                let mut results = player.results_brief();
+                results.score = cpu_score(&results.score, self.most);
+                (
+                    s.seat.participant,
+                    run_detail(
+                        &results,
+                        player.ruleset(),
+                        s.opponent.life(),
+                        self.launched(s.seat.participant),
+                    ),
+                )
+            })
+            .collect()
     }
 
     /// The stage's end as the local player's results tell it, from its
@@ -1048,7 +1153,11 @@ impl Battle {
         }];
         out.extend(self.seats.iter().map(|s| Entrant {
             participant: s.seat.participant,
-            run: run_of(s.opponent.out_at(), s.opponent.life(), &s.opponent.score()),
+            run: run_of(
+                s.opponent.out_at(),
+                s.opponent.life(),
+                &cpu_score(&s.opponent.score(), self.most),
+            ),
         }));
         out
     }
@@ -1083,18 +1192,33 @@ pub fn forfeit(
         confirmed_early: false,
         mine: Run::Forfeit,
         drawn_by_final_attack: drawn,
+        details: b.cpu_details(),
     })
 }
 
-fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView) -> Run {
+/// A competitor's run as the room ranks it: out at `out_at`, else still
+/// in with `life` and `score` (a CPU's on the chart's scale,
+/// [`cpu_score`]): its proportional part and, under DDI, the score shown
+/// (the sum, what the room ranks by after life) with its absolute score
+/// and the most its scale gives.
+pub fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView) -> Run {
     match out_at {
         Some(at) => Run::Out { at },
         None => Run::Live {
             life: f64::from(life),
             accuracy: accuracy(score),
+            // What an authority before round 3b breaks a tie by.
+            absolute: score.ddi.as_ref().map(|d| Absolute {
+                score: d.absolute,
+                most: d.most,
+            }),
+            score: score.ddi.as_ref().map(|d| d.score),
         },
     }
 }
+
+#[cfg(test)]
+mod study;
 
 #[cfg(test)]
 mod tests {

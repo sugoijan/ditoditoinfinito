@@ -3,9 +3,20 @@
 //! attack puts into its recipient's play, judged apart from the chart
 //! ([`HazardJudge`], `Player::add_hazards`: never inserted into it, so the
 //! chart's notes keep their indices), and where a chart has room for them
-//! ([`schedule`], [`PLACEMENT_V0`]).
+//! ([`schedule`], [`PLACEMENT`]: margins about each step of a shock's
+//! lane, `placement-v1`).
 //!
-//! A shock costs exactly the ruleset's miss to the gauge; it never changes
+//! Under DDI, the rooms' ruleset (`docs/plans/ddi-ruleset.md`, "Mines and
+//! shocks": one object, two looks), **a shock is a mine**: stepped on, it
+//! is judged, counted and scored exactly as a chart's mine (the tally, the
+//! points, the life by the difficulty, the combo, the grade's floors, the
+//! lamp) and locks its lane (`JudgeTable::lock`, `Judge::lock_lane`), and
+//! a press in reach of a shock and of a note steps on the nearer, as a
+//! chart's mine is chosen (`Player::input_at`, `Judge::press_beside`).
+//!
+//! Under a ruleset without the lock (the other presets, where a play is
+//! given shocks by a test or a study: no room plays them any more), a
+//! shock costs exactly the ruleset's miss to the gauge; it never changes
 //! the score, the accuracy or the judgments' counts; it breaks the combo
 //! only where the ruleset's own mines do (`ComboRules::mine_breaks`);
 //! [`INJECTED_MINE_V0`]. PROVISIONAL: every number here is a working
@@ -27,8 +38,11 @@ pub struct InjectedMine {
     pub fallback: f64,
 }
 
-/// `injected-mine-v0` (PROVISIONAL, D1): a shock hit costs the ruleset's
-/// miss to the gauge, nothing else; FFR's window 70 ms.
+/// `injected-mine-v0` (PROVISIONAL, D1): the window a shock is judged in
+/// (the ruleset's mine window; FFR's, which plays no mines, 70 ms) and,
+/// under a ruleset without DDI's lane lock, what a hit costs: the
+/// ruleset's miss to the gauge, nothing else. Under DDI a shock is a mine
+/// (the module's note).
 pub const INJECTED_MINE_V0: InjectedMine = InjectedMine {
     id: "injected-mine-v0",
     fallback: 0.070,
@@ -42,12 +56,13 @@ impl InjectedMine {
     }
 }
 
-/// Where an attack's shocks may go (PROVISIONAL, `placement-v0`): a
-/// section from a checkpoint (every four beats), `section_beats` long,
-/// `mines` shocks on the eighth-note grid (the sixteenth where the eighths
-/// have too few safe places), one a beat where it can, at most two, one a
-/// row (never a full row), each clear of what the player must do in its
-/// lane.
+/// Where an attack's shocks may go (PROVISIONAL): a section from a
+/// checkpoint (every four beats), `section_beats` long, `mines` shocks on
+/// the eighth-note grid (the sixteenth where the eighths have too few safe
+/// places), one a beat where it can, at most two, one a row (never a full
+/// row), each clear of what the player must do in its lane
+/// ([`Clearance`]); since `placement-v2`, most of them next to a note of
+/// their lane ([`Near`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Placement {
     pub id: &'static str,
@@ -55,14 +70,60 @@ pub struct Placement {
     pub mines: usize,
     /// Beats between sections' possible starts (the attack checkpoints').
     pub every_beats: u32,
-    /// Beyond the mine window and the widest judged window, seconds, no
-    /// step in the lane.
-    pub margin: f64,
-    /// No hold or roll ends this long before a shock in its lane.
-    pub after_tail: f64,
-    /// No lift this long after a shock in its lane (its lane is held
-    /// before it is released).
-    pub before_lift: f64,
+    pub clear: Clearance,
+    /// `placement-v2`: most of a section's shocks aimed at places next
+    /// to a note of their lane; `None`, anywhere the clearance allows.
+    pub near: Option<Near>,
+}
+
+/// `placement-v2` (the maintainer, 2026-11-12: "the placement is a bit
+/// too easy to ignore sometimes, maybe we should prioritize adding some
+/// of them to lanes which already have a note nearby"): among the places
+/// the [`Clearance`] allows, which are unchanged, a place is *next to a
+/// note* of its lane when it is shortly after one (from the clearance's
+/// `after_note` to `after` seconds past its step, a hold's or a roll's
+/// end: a key still resting on the lane steps on it) or shortly before a
+/// step (from the early W3 to `before_factor` times it ahead: an early
+/// press steps on it). Of a section's shocks, `aim` go to such places
+/// where the section has them, on the sixteenth-note grid, one a beat
+/// then a second, spread over the lanes (the lane with the fewest so
+/// far), never two by one note, never two in a row, and never two in a
+/// lane closer than `lane_gap` seconds (the lane lock's: a second shock
+/// inside the first's lock could not be stepped on). The rest are placed
+/// as `placement-v1` places them, keeping `lane_gap` too; only where a
+/// section then has no room for eight do the remaining ones ignore
+/// `lane_gap` (as v1 always did), and where even that fails the section
+/// is v1's own, so no section v1 has is lost.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Near {
+    pub after: f64,
+    pub before_factor: f64,
+    pub aim: usize,
+    pub lane_gap: f64,
+}
+
+/// How far a shock keeps from what the player must do in its lane.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Clearance {
+    /// `placement-v0`: both ways of every step by the shock's window plus
+    /// the widest judged window plus `margin`; no hold or roll across its
+    /// window; none ending `after_tail` before it; no lift `before_lift`
+    /// after it.
+    Windows {
+        margin: f64,
+        after_tail: f64,
+        before_lift: f64,
+    },
+    /// `placement-v1` (`docs/plans/ddi-ruleset.md`, "Decided after the
+    /// re-review"): margins about each step of the lane, so that a shock
+    /// is always avoidable. None within `after_note` seconds after a step
+    /// (the key that pressed it may still be down: a held key steps on a
+    /// mine) nor within the ruleset's third tier's early window before
+    /// one (W3: a press that early still hits the note); none from a
+    /// hold's or a roll's head, that long before it, to `after_note` past
+    /// its end; none from `lift_ready` seconds before a lift (its key is
+    /// pressed ahead to be let go on it) to `after_note` past it.
+    Margins { after_note: f64, lift_ready: f64 },
 }
 
 pub const PLACEMENT_V0: Placement = Placement {
@@ -70,10 +131,52 @@ pub const PLACEMENT_V0: Placement = Placement {
     section_beats: 8,
     mines: 8,
     every_beats: 4,
-    margin: 0.050,
-    after_tail: 0.150,
-    before_lift: 0.5,
+    clear: Clearance::Windows {
+        margin: 0.050,
+        after_tail: 0.150,
+        before_lift: 0.5,
+    },
+    near: None,
 };
+
+/// `placement-v1` (PROVISIONAL; the values to tune): 0.25 s after a step,
+/// W3 before it, a lift's key ready a second ahead (DDI's
+/// `BOO_LIFT_READY`).
+pub const PLACEMENT_V1: Placement = Placement {
+    id: "placement-v1",
+    section_beats: 8,
+    mines: 8,
+    every_beats: 4,
+    clear: Clearance::Margins {
+        after_note: 0.25,
+        lift_ready: 1.0,
+    },
+    near: None,
+};
+
+/// `placement-v2` (PROVISIONAL; the values to tune): v1's margins exactly,
+/// six of the eight shocks next to a note of their lane where the section
+/// has such places (up to half a second after one, or up to twice W3
+/// before a step), a second between two shocks of a lane ([`Near`]).
+pub const PLACEMENT_V2: Placement = Placement {
+    id: "placement-v2",
+    section_beats: 8,
+    mines: 8,
+    every_beats: 4,
+    clear: Clearance::Margins {
+        after_note: 0.25,
+        lift_ready: 1.0,
+    },
+    near: Some(Near {
+        after: 0.5,
+        before_factor: 2.0,
+        aim: 6,
+        lane_gap: 1.0,
+    }),
+};
+
+/// The placement attacks use ([`schedule`]).
+pub const PLACEMENT: Placement = PLACEMENT_V2;
 
 /// A battle shock: its row and lane (the lanes as played).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -101,7 +204,7 @@ fn mix(mut x: u64) -> u64 {
 
 /// Whether a shock at `cell` is safe in chart `notes` (the whole chart,
 /// as written: one schedule for everyone) under `table`, its window
-/// `window` ([`PLACEMENT_V0`]'s rules).
+/// `window`, by `p`'s [`Clearance`].
 fn safe(
     cell: Hazard,
     notes: &[Note],
@@ -114,28 +217,261 @@ fn safe(
         return false;
     }
     let m = timing.seconds_at(cell.tick);
-    let clear = window + table.max_early().max(table.miss_after()) + p.margin;
-    notes.iter().filter(|n| n.lane == cell.lane).all(|n| {
-        let at = timing.seconds_at(n.tick);
-        match n.kind {
-            NoteKind::Tap => (at - m).abs() > clear,
-            NoteKind::Lift => (at - m).abs() > clear && !(at > m && at - m <= p.before_lift),
-            NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
-                let end = timing.seconds_at(end);
-                (at - m).abs() > clear
-                    // No body across the shock's window.
-                    && (end < m - window || at > m + window)
-                    // No tail just before it.
-                    && !(end <= m && m - end <= p.after_tail)
-            }
-            NoteKind::Mine | NoteKind::Shock => n.tick != cell.tick,
-            NoteKind::Fake | NoteKind::AutoKeysound | NoteKind::Dummy => true,
+    let mut lane = notes.iter().filter(|n| n.lane == cell.lane);
+    match p.clear {
+        Clearance::Windows {
+            margin,
+            after_tail,
+            before_lift,
+        } => {
+            let clear = window + table.max_early().max(table.miss_after()) + margin;
+            lane.all(|n| {
+                let at = timing.seconds_at(n.tick);
+                match n.kind {
+                    NoteKind::Tap => (at - m).abs() > clear,
+                    NoteKind::Lift => {
+                        (at - m).abs() > clear && !(at > m && at - m <= before_lift)
+                    }
+                    NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
+                        let end = timing.seconds_at(end);
+                        (at - m).abs() > clear
+                            // No body across the shock's window.
+                            && (end < m - window || at > m + window)
+                            // No tail just before it.
+                            && !(end <= m && m - end <= after_tail)
+                    }
+                    NoteKind::Mine | NoteKind::Shock => n.tick != cell.tick,
+                    NoteKind::Fake | NoteKind::AutoKeysound | NoteKind::Dummy => true,
+                }
+            })
         }
+        Clearance::Margins {
+            after_note,
+            lift_ready,
+        } => {
+            // A press this early still hits a step (the third tier; the
+            // widest window where the ruleset has no third).
+            let before = table
+                .window(crate::rules::Judgement::W3)
+                .map_or_else(|| table.max_early(), |w| w.early);
+            // Not from `from` to `after_note` past `to`.
+            let outside = |from: f64, to: f64| m < from || m > to + after_note;
+            lane.all(|n| {
+                let at = timing.seconds_at(n.tick);
+                match n.kind {
+                    NoteKind::Tap => outside(at - before, at),
+                    NoteKind::Lift => outside(at - lift_ready.max(before), at),
+                    NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
+                        outside(at - before, timing.seconds_at(end).max(at))
+                    }
+                    NoteKind::Mine | NoteKind::Shock => n.tick != cell.tick,
+                    NoteKind::Fake | NoteKind::AutoKeysound | NoteKind::Dummy => true,
+                }
+            })
+        }
+    }
+}
+
+/// The note of its lane a safe shock at `cell` is next to
+/// ([`Near`]), by its place in `notes`: shortly after it, or shortly
+/// before its step.
+fn beside(
+    cell: Hazard,
+    notes: &[Note],
+    timing: &TimingMap,
+    table: &JudgeTable,
+    p: &Placement,
+) -> Option<usize> {
+    let near = p.near?;
+    let Clearance::Margins { after_note, .. } = p.clear else {
+        return None;
+    };
+    let before = table
+        .window(crate::rules::Judgement::W3)
+        .map_or_else(|| table.max_early(), |w| w.early);
+    let m = timing.seconds_at(cell.tick);
+    notes.iter().position(|n| {
+        if n.lane != cell.lane {
+            return false;
+        }
+        let at = timing.seconds_at(n.tick);
+        let (end, steps) = match n.kind {
+            NoteKind::Tap => (at, true),
+            // A lift's key is ready long before it: only after it.
+            NoteKind::Lift => (at, false),
+            NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
+                (timing.seconds_at(end).max(at), true)
+            }
+            _ => return false,
+        };
+        (m >= end + after_note && m <= end + near.after)
+            || (steps && m <= at - before && m >= at - near.before_factor * before)
     })
 }
 
+/// A section by `placement-v2` ([`Near`]): the shocks next to a note
+/// first, then the rest as v1 places them; `None` where eight do not fit
+/// so (the caller then places it as v1 does).
+fn section_near(
+    song: &Song,
+    chart: usize,
+    table: &JudgeTable,
+    start: u32,
+    seed: u64,
+    p: &Placement,
+    near: Near,
+) -> Option<Section> {
+    let c = song.charts.get(chart)?;
+    let timing = c.timing(song);
+    let lanes = song
+        .layout_of(c)
+        .map(|l| l.lane_count())
+        .unwrap_or_else(|| {
+            c.notes
+                .iter()
+                .map(|n| usize::from(n.lane) + 1)
+                .max()
+                .unwrap_or(0)
+        })
+        .min(64);
+    let window = INJECTED_MINE_V0.window(table);
+    let first = i64::from(start) * TICKS_PER_BEAT;
+    let sixteenth = TICKS_PER_BEAT / 4;
+    // Every safe place of the section on the sixteenths: its beat, its
+    // second and the note it is next to.
+    struct Place {
+        cell: Hazard,
+        beat: usize,
+        at: f64,
+        beside: Option<usize>,
+    }
+    let mut places = Vec::new();
+    for b in 0..p.section_beats as usize {
+        let beat = first + b as i64 * TICKS_PER_BEAT;
+        for t in (beat..beat + TICKS_PER_BEAT).step_by(sixteenth as usize) {
+            for lane in 0..lanes as u8 {
+                let cell = Hazard {
+                    tick: Tick(t),
+                    lane,
+                };
+                if safe(cell, &c.notes, timing, table, window, p) {
+                    places.push(Place {
+                        cell,
+                        beat: b,
+                        at: timing.seconds_at(cell.tick),
+                        beside: beside(cell, &c.notes, timing, table, p),
+                    });
+                }
+            }
+        }
+    }
+    // Free of the shocks chosen so far: another row, and (`gap`) a lane
+    // gap from each of its lane's.
+    let free = |pl: &Place, chosen: &[&Place], gap: bool| {
+        chosen.iter().all(|o| {
+            o.cell.tick != pl.cell.tick
+                && (!gap || o.cell.lane != pl.cell.lane || (o.at - pl.at).abs() >= near.lane_gap)
+        })
+    };
+    // Next to a note: one a beat, then a second, in the lane with the
+    // fewest so far, one a note.
+    let mut rng = mix(seed ^ mix(u64::from(start)) ^ 0x6e65_6172);
+    let mut aimed: Vec<&Place> = Vec::new();
+    let mut taken = vec![0usize; p.section_beats as usize];
+    let mut per_lane = vec![0usize; lanes];
+    for round in 0..2 {
+        for (b, taken) in taken.iter_mut().enumerate() {
+            if aimed.len() >= near.aim.min(p.mines) || *taken > round {
+                continue;
+            }
+            let pool: Vec<&Place> = places
+                .iter()
+                .filter(|pl| {
+                    pl.beat == b
+                        && pl.beside.is_some()
+                        && !aimed.iter().any(|o| o.beside == pl.beside)
+                        && free(pl, &aimed, true)
+                })
+                .collect();
+            let Some(least) = pool.iter().map(|pl| per_lane[usize::from(pl.cell.lane)]).min()
+            else {
+                continue;
+            };
+            let pool: Vec<&Place> = pool
+                .into_iter()
+                .filter(|pl| per_lane[usize::from(pl.cell.lane)] == least)
+                .collect();
+            rng = mix(rng);
+            let pick = pool[(rng % pool.len() as u64) as usize];
+            per_lane[usize::from(pick.cell.lane)] += 1;
+            *taken += 1;
+            aimed.push(pick);
+        }
+    }
+    // The rest as v1: the eighths, then the sixteenths, one a beat then a
+    // second; a lane gap kept, then (no other room) not.
+    for (step, gap) in [
+        (TICKS_PER_BEAT / 2, true),
+        (sixteenth, true),
+        (TICKS_PER_BEAT / 2, false),
+        (sixteenth, false),
+    ] {
+        let mut rng = mix(seed ^ mix(u64::from(start)) ^ step as u64);
+        let mut chosen = aimed.clone();
+        let mut taken = taken.clone();
+        for round in 0..2 {
+            for (b, taken) in taken.iter_mut().enumerate() {
+                if chosen.len() >= p.mines || *taken > round {
+                    continue;
+                }
+                let pool: Vec<&Place> = places
+                    .iter()
+                    .filter(|pl| {
+                        pl.beat == b && (pl.cell.tick.0 - first) % step == 0 && free(pl, &chosen, gap)
+                    })
+                    .collect();
+                if pool.is_empty() {
+                    continue;
+                }
+                rng = mix(rng);
+                chosen.push(pool[(rng % pool.len() as u64) as usize]);
+                *taken += 1;
+            }
+        }
+        if chosen.len() >= p.mines {
+            let mut cells: Vec<Hazard> = chosen.iter().map(|pl| pl.cell).collect();
+            cells.sort();
+            return Some(Section {
+                start_beat: start,
+                cells,
+            });
+        }
+    }
+    None
+}
+
+/// How many of `cells` (a section's, placed by `p` on chart `chart` of
+/// `song` under `table`) are next to a note of their lane ([`Near`]): for
+/// tests and the studies.
+pub fn beside_count(
+    song: &Song,
+    chart: usize,
+    table: &JudgeTable,
+    cells: &[Hazard],
+    p: &Placement,
+) -> usize {
+    let Some(c) = song.charts.get(chart) else {
+        return 0;
+    };
+    let timing = c.timing(song);
+    cells
+        .iter()
+        .filter(|h| beside(**h, &c.notes, timing, table, p).is_some())
+        .count()
+}
+
 /// The section from beat `start` of chart `chart` of `song`, if eight
-/// safe shocks fit ([`PLACEMENT_V0`]), drawn from `seed`.
+/// safe shocks fit (`p`), drawn from `seed`.
 fn section(
     song: &Song,
     chart: usize,
@@ -158,6 +494,13 @@ fn section(
         });
     let window = INJECTED_MINE_V0.window(table);
     let first = i64::from(start) * TICKS_PER_BEAT;
+    // `placement-v2`: next to the lane's notes first; where that does not
+    // fit, as v1 below.
+    if let Some(near) = p.near
+        && let Some(s) = section_near(song, chart, table, start, seed, p, near)
+    {
+        return Some(s);
+    }
     // The eighths, then the sixteenths.
     for step in [TICKS_PER_BEAT / 2, TICKS_PER_BEAT / 4] {
         let mut by_beat: Vec<Vec<Hazard>> = vec![Vec::new(); p.section_beats as usize];
@@ -213,12 +556,23 @@ fn section(
 }
 
 /// Every section chart `chart` of `song` has under `table`, one per
-/// checkpoint (every [`PLACEMENT_V0`]'s four beats from beat 0 to the
+/// checkpoint (every [`PLACEMENT`]'s four beats from beat 0 to the
 /// chart's last), `None` where eight safe shocks do not fit (never filled
 /// with unsafe ones): pure in the chart, the table and `seed`, so everyone
 /// gets the same.
 pub fn schedule(song: &Song, chart: usize, table: &JudgeTable, seed: u64) -> Vec<Option<Section>> {
-    let p = PLACEMENT_V0;
+    schedule_with(song, chart, table, seed, &PLACEMENT)
+}
+
+/// [`schedule`] by placement `p` (an older version's, to compare).
+pub fn schedule_with(
+    song: &Song,
+    chart: usize,
+    table: &JudgeTable,
+    seed: u64,
+    p: &Placement,
+) -> Vec<Option<Section>> {
+    let p = *p;
     let Some(c) = song.charts.get(chart) else {
         return Vec::new();
     };
@@ -317,6 +671,9 @@ pub struct HazardJudge {
     down: Vec<bool>,
     last: Option<f64>,
     first_open: usize,
+    /// The first shock whose crossing is not judged yet, where the play
+    /// judges crossings itself ([`HazardJudge::next_crossing`]).
+    crossed: usize,
 }
 
 /// A shock stepped on: which ([`HazardJudge::mines`]'s index) and when.
@@ -334,6 +691,7 @@ impl HazardJudge {
             down: vec![false; lanes],
             last: None,
             first_open: 0,
+            crossed: 0,
         }
     }
 
@@ -455,6 +813,86 @@ impl HazardJudge {
             *d = false;
         }
         out
+    }
+
+    // Where a shock is a mine (DDI: the lane lock), the play judges the
+    // shocks in step with the chart's judge, whose lanes they share: a
+    // crossing at its own instant with the lane as the chart's judge has
+    // it (a locked lane's key counts as released), a press against the
+    // chart's nearest note. The four below are that play's; `press`,
+    // `release` and `update` above are the rest's.
+
+    /// The first shock, in time order, whose second is before `t` and
+    /// whose crossing is not judged yet: its index and itself.
+    pub fn next_crossing(&self, t: f64) -> Option<(usize, HazardMine)> {
+        self.mines
+            .get(self.crossed)
+            .filter(|m| m.seconds < t)
+            .map(|m| (self.crossed, *m))
+    }
+
+    /// The crossing of shock `index` ([`HazardJudge::next_crossing`]'s)
+    /// judged: stepped on at its own second where its lane was `held`
+    /// across it and it was not stepped on already.
+    pub fn cross(&mut self, index: usize, held: bool) -> Option<HazardHit> {
+        self.crossed = self.crossed.max(index + 1);
+        let m = self.mines.get_mut(index)?;
+        self.last = Some(self.last.map_or(m.seconds, |l| l.max(m.seconds)));
+        (held && m.state == HazardState::Pending).then(|| {
+            m.state = HazardState::Hit;
+            HazardHit {
+                index,
+                at: m.seconds,
+            }
+        })
+    }
+
+    /// Judged to `t`: the shocks passed by their window unstepped are
+    /// avoided.
+    pub fn settle(&mut self, t: f64) {
+        if !t.is_finite() || self.last.is_some_and(|l| t < l) {
+            return;
+        }
+        self.last = Some(t);
+        for m in &mut self.mines[self.first_open..] {
+            if m.seconds - t > self.window {
+                break;
+            }
+            if m.state == HazardState::Pending && t > m.seconds + self.window {
+                m.state = HazardState::Avoided;
+            }
+        }
+        while self
+            .mines
+            .get(self.first_open)
+            .is_some_and(|m| m.state != HazardState::Pending)
+        {
+            self.first_open += 1;
+        }
+    }
+
+    /// The pending shock of `lane` nearest to `t` within its window: its
+    /// index and how far, seconds.
+    pub fn nearest(&self, lane: u8, t: f64) -> Option<(usize, f64)> {
+        (self.first_open..self.mines.len())
+            .take_while(|&i| self.mines[i].seconds - t <= self.window)
+            .filter(|&i| {
+                let m = &self.mines[i];
+                m.state == HazardState::Pending
+                    && m.lane == lane
+                    && (t - m.seconds).abs() <= self.window
+            })
+            .map(|i| (i, (t - self.mines[i].seconds).abs()))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+    }
+
+    /// Shock `index` stepped on by a press at `t`.
+    pub fn step_on(&mut self, index: usize, t: f64) -> Option<HazardHit> {
+        let m = self.mines.get_mut(index)?;
+        (m.state == HazardState::Pending).then(|| {
+            m.state = HazardState::Hit;
+            HazardHit { index, at: t }
+        })
     }
 
     /// Stepped on and avoided so far.

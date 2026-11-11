@@ -298,13 +298,13 @@ pub(crate) fn report(
     PLAYING.with(|p| {
         p.borrow_mut().take_if(|p| p.order.stage == outcome.stage);
     });
-    let online = room.borrow().is_online();
-    let reported = if online {
-        room.borrow_mut().report_run(outcome.stage, outcome.mine)
-    } else {
-        room.borrow_mut()
-            .report_stage(outcome.stage, outcome.ranking, outcome.confirmed_early)
-    };
+    let reported = room.borrow_mut().report_played(
+        outcome.stage,
+        outcome.mine,
+        outcome.ranking,
+        outcome.confirmed_early,
+        outcome.details,
+    );
     if let Err(why) = reported {
         web_sys::console::warn_1(&format!("room: the stage's outcome was refused: {why:?}").into());
     }
@@ -325,7 +325,7 @@ pub(crate) fn leave_before_play(
         PLAYING.with(|p| p.borrow_mut().take());
         let _ = room
             .borrow_mut()
-            .report_run(order.stage, ddi_room::Run::Forfeit);
+            .report_run(order.stage, ddi_room::Run::Forfeit, None);
         return;
     }
     let outcome = song.zip(ruleset).map(|(song, rules)| {

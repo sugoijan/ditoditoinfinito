@@ -455,7 +455,8 @@ fn full_info(request: &Request, loaded: &Loaded, settings: &Settings) -> PromptI
             order.of,
             order.cpus.len(),
             order.others,
-            &order.ruleset,
+            &order.rules,
+            order.battle.attacks(),
         );
         if order.battle.attacks()
             && order.others == 0
@@ -535,6 +536,26 @@ impl Host {
             return None;
         };
         r.view.as_ref()?.opponent_fields().cloned()
+    }
+
+    /// Gives the running play lyrics and says what its last frame drew
+    /// of them (tests: a stage's miniatures with lyrics over the play).
+    pub fn set_lyrics(&mut self, lyrics: Option<ddi_engine::lyrics::LyricTrack>) {
+        if let Stage::Playing(r, ..) = &mut self.stage
+            && let Some(v) = r.view.as_mut()
+        {
+            v.set_lyrics(lyrics);
+        }
+    }
+
+    pub fn lyrics_shown(&self) -> Vec<String> {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return Vec::new();
+        };
+        r.view
+            .as_ref()
+            .map(|v| v.lyrics_shown().to_vec())
+            .unwrap_or_default()
     }
 
     /// Bounded hand/runtime diagnostics for off-screen checks and the host.
@@ -1183,7 +1204,7 @@ impl Host {
             view.set_generated(&loaded, &settings, calibration);
             view.set_noteskin(dev.device, dev.queue, None);
             view.start();
-            // A stage's opponents' column is text: its fonts read now.
+            // A stage's opponents' names are text: its fonts read now.
             if r.request.stage.is_some() {
                 view.read_text();
             }
@@ -1976,7 +1997,7 @@ impl Host {
         let stage = play.request.stage.is_some();
         let offset = (play.request.cpu.is_none() && !stage)
             .then(|| ddi_ui::screens::play::song_offset_saver(id));
-        ui.push(ResultsScreen::new(
+        let results = ResultsScreen::new(
             env.clone(),
             data,
             ResultsActions {
@@ -1986,7 +2007,12 @@ impl Host {
                 offset,
                 replay: watch,
             },
-        ));
+        );
+        // A stage's: its room's standings where the graphs are.
+        ui.push(match &play.request.stage {
+            Some(order) => results.with_room(crate::room::stage_room(), order.stage),
+            None => results,
+        });
     }
 
     /// The chart's best play's ghost under the rules it is played by
@@ -2039,7 +2065,7 @@ impl Host {
         ) else {
             return Stage::Idle;
         };
-        let rules = rp.record.ruleset.build(c);
+        let rules = rp.ruleset().build(c);
         let entry = crate::library::song(&r.request.song)
             .map(|s| s.entry)
             .or_else(|| {
@@ -2076,7 +2102,11 @@ impl Host {
             ),
             mods: Vec::new(),
             device_changed: false,
-            video_notes: rp.older_judge_note().into_iter().collect(),
+            video_notes: rp
+                .rejudged_note()
+                .into_iter()
+                .chain(rp.older_judge_note())
+                .collect(),
             offset: None,
             autoplay: rp.record.autoplay.is_some(),
         });
@@ -2200,7 +2230,7 @@ pub fn noteskin(
     String,
 )> {
     let shift = settings.song_offset(&loaded.entry.id);
-    let (wants, layout) = skin_wants(loaded, chart, settings, shift)?;
+    let (wants, layout) = skin_wants(loaded, chart, settings, shift, false)?;
     let skins = crate::library::noteskins::all(&crate::library::all_folders());
     let (key, env) = ddi_shell::first_there(wants, &crate::library::noteskins::choices(&skins));
     let p = super::skins::prepare(&key, &layout, env, &skins)?;
@@ -2216,10 +2246,14 @@ fn skin_wants(
     chart: usize,
     settings: &Settings,
     shift: f64,
+    shocks: bool,
 ) -> Option<(ddi_shell::SkinWants, ddi_chart::Layout)> {
     let c = loaded.song.charts.get(chart)?;
     let layout = loaded.song.layout_of(c)?;
-    let wants = ddi_shell::play_skins(settings, &loaded.song, c, &layout, shift);
+    let mut wants = ddi_shell::play_skins(settings, &loaded.song, c, &layout, shift);
+    // A stage that may be given a battle's shocks: its skin is told
+    // (`StageOrder::may_have_shocks`).
+    wants.env.shocks = shocks;
     Some((wants, layout))
 }
 
@@ -2232,7 +2266,11 @@ fn read_skin(
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> Option<(super::skins::Reading, ddi_chart::Layout)> {
     let shift = request.song_shift(settings);
-    let (wants, layout) = skin_wants(loaded, request.chart, settings, shift)?;
+    let shocks = request
+        .stage
+        .as_ref()
+        .is_some_and(|o| o.may_have_shocks());
+    let (wants, layout) = skin_wants(loaded, request.chart, settings, shift, shocks)?;
     Some((super::skins::Reading::first(wants, &layout, wake), layout))
 }
 
@@ -2276,11 +2314,8 @@ fn leave_stage(r: &Readied) {
     }
     match &r.loaded {
         Some(loaded) => {
-            // The match's ruleset, everyone's (D0).
-            let ruleset = ddi_session::battle::stage_ruleset(
-                &order.ruleset,
-                &loaded.song.charts[r.request.chart],
-            );
+            // The match's rules, everyone's (D0).
+            let ruleset = ddi_session::battle::stage_ruleset(&order.rules);
             match ddi_session::battle::forfeit(
                 ddi_session::battle::StageSetup::of(order),
                 &loaded.song,

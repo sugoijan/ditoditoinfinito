@@ -26,6 +26,14 @@ in the field while the body turns. Enable
 `Shock arrows` to restore the lane-shaped mine designs. The option is off
 by default and changes artwork only; both styles have linked electricity.
 
+A multiplayer battle's shocks are drawn by the skin's `Tap Shock` element
+(`UseTapShock=1` in its metrics, `docs/plans/noteskin-authoring.md`): the
+lane-shaped design, always. In a stage that may be given shocks
+(`NOTESKIN:PlayHasShocks()`), a chart's own mines are the spiked band
+whatever `Shock arrows` says, so an attack's shocks and the chart's mines
+never look the same; a row's links join mines with mines and shocks with
+shocks.
+
 Taps/fakes and receptors now use `_spiral components.svg`, with continuous
 holographic-flow paint in `_spiral material.wgsl` and load-only bindings in
 `_spiral component.lua`. `[Global] Buttons` declares all ten supported buttons

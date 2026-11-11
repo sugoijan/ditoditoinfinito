@@ -27,6 +27,8 @@ const GONE_SECONDS: f32 = 2.5;
 /// The players' column's width beside the diagram.
 const LIST_W: f32 = 200.0;
 const LIST_ROW: f32 = 22.0;
+/// A CPU's level's stars at the end of its row.
+const LIST_STARS: f32 = 11.0;
 
 pub(super) struct PromptRoom {
     room: SharedRoom,
@@ -221,9 +223,24 @@ impl PromptScreen {
         for (k, p) in rows.iter().enumerate().skip(first).take(shown) {
             let mid = ry + LIST_ROW / 2.0;
             let color = if p.me { "Text" } else { "Secondary" };
-            let state: String = if p.cpu {
-                msg::room::cpu_label().into()
-            } else if p.ready {
+            // A CPU: its level's stars in the state's place.
+            if let Some(level) = p.level {
+                let sw = crate::stars::width(LIST_STARS);
+                let mut n = env.text(&format!("Room.Player{k}"), &p.name, 13.0, 600, color);
+                look::ellipsized(&mut n, (w - sw - 8.0).max(30.0));
+                out.push(left(n, x, mid));
+                out.push(crate::stars::stars_right(
+                    env,
+                    &format!("Room.Player{k}.Stars"),
+                    level,
+                    LIST_STARS,
+                    x + w,
+                    mid,
+                ));
+                ry += LIST_ROW;
+                continue;
+            }
+            let state: String = if p.ready {
                 msg::room::state_ready().into()
             } else if p.state.is_empty() {
                 msg::room::state_not_ready().into()

@@ -153,6 +153,7 @@ fn main() -> reference::Result<()> {
                             autoplay: false,
                             danoni_judgments: false,
                             note: None,
+                            dim: false,
                         })
                 })
                 .collect();

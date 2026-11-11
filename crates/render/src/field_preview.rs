@@ -99,6 +99,8 @@ pub struct FieldPreviewOptions {
     pub background: f32,
     /// The shape the background is fitted into (`None`: the whole panel).
     pub frame_aspect: Option<f32>,
+    /// A DDI score shown as its percent (`RenderOptions::ddi_percent`).
+    pub ddi_percent: bool,
 }
 
 impl Default for FieldPreviewOptions {
@@ -114,6 +116,7 @@ impl Default for FieldPreviewOptions {
             show_deltas: false,
             background: 0.6,
             frame_aspect: None,
+            ddi_percent: false,
         }
     }
 }
@@ -351,6 +354,7 @@ impl FieldPreview {
                         autoplay: false,
                         danoni_judgments: false,
                         note: None,
+                        dim: false,
                     });
                 }
             }
@@ -552,6 +556,7 @@ impl FieldPreview {
             backdrop: Backdrop::image(self.plate),
             frame_aspect: o.frame_aspect,
             field_filter: o.field_filter,
+            ddi_percent: o.ddi_percent,
             ..RenderOptions::default()
         };
         let Some(view) = self.target.view() else {

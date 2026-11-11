@@ -224,7 +224,10 @@ pub fn left_stage(stage: StageId) -> bool {
     if !room.borrow().is_online() {
         return false;
     }
-    if let Err(why) = room.borrow_mut().report_run(stage, ddi_room::Run::Forfeit) {
+    if let Err(why) = room
+        .borrow_mut()
+        .report_run(stage, ddi_room::Run::Forfeit, None)
+    {
         eprintln!("room: the forfeit was refused: {why:?}");
     }
     true
@@ -414,13 +417,13 @@ pub fn room_screen_with(
 /// stage (an online room's is not known yet: `None`).
 pub fn report(outcome: ddi_session::battle::StageOutcome) -> Option<ddi_ui::state::room::MatchEnd> {
     let room = stage_room();
-    let online = room.borrow().is_online();
-    let reported = if online {
-        room.borrow_mut().report_run(outcome.stage, outcome.mine)
-    } else {
-        room.borrow_mut()
-            .report_stage(outcome.stage, outcome.ranking, outcome.confirmed_early)
-    };
+    let reported = room.borrow_mut().report_played(
+        outcome.stage,
+        outcome.mine,
+        outcome.ranking,
+        outcome.confirmed_early,
+        outcome.details,
+    );
     if let Err(why) = reported {
         eprintln!("room: the stage's outcome was refused: {why:?}");
     }

@@ -237,6 +237,7 @@ impl EditorScreen {
             autoplay: false,
             danoni_judgments: false,
             note: None,
+            dim: false,
         });
         self.seq += 1;
         self.keep_events();

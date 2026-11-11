@@ -8,8 +8,10 @@
 //!   field's outer receptor edge, at the receptors' row (the bottom under
 //!   Reverse), with one dot a shock under it; it scales in over 0.2 s
 //!   (at once under reduced motion), dims to 60% once the first shock is
-//!   in sight, and becomes a small shield once the last has passed, until
-//!   the player has recovered (they cannot be attacked meanwhile).
+//!   in sight, and goes once the last has passed: there is no recovery
+//!   since `attacks-v1`, so no shield. Where one more attack waits behind
+//!   it (a chain), a second, smaller glyph stands beside it; once the
+//!   first has passed, the warning is the next one's.
 //! - The waiting line: a muted line under the power bar's right end
 //!   while the player's full bar waits ("Spread · waiting for target").
 
@@ -22,7 +24,6 @@ const FACE: &str = "Iosevka Custom, Iosevka Term, monospace";
 /// The glyph: the power bar's electric violet, lighter.
 const BOLT: [f32; 4] = [0.84, 0.76, 1.0, 1.0];
 const GLOW: [f32; 4] = [0.55, 0.36, 1.0, 0.45];
-const SHIELD: [f32; 4] = [0.62, 0.66, 0.86, 0.85];
 const MUTED: [f32; 4] = [0.80, 0.80, 0.86, 0.72];
 /// How long the warning takes to scale in, seconds.
 const SCALE_IN: f64 = 0.2;
@@ -34,8 +35,8 @@ const DIMMED: f32 = 0.6;
 pub struct Cue {
     /// One dot a shock.
     pub shocks: u8,
-    /// The last shock passed: a shield until recovered.
-    pub shield: bool,
+    /// One more attack waits behind this one (a chain).
+    pub more: bool,
     /// The first shock is in sight.
     pub dim: bool,
     /// `0..=1`, as it scales in.
@@ -53,7 +54,7 @@ pub fn cue(incoming: Option<Incoming>, t: f64, in_sight: bool, reduced: bool) ->
     };
     Some(Cue {
         shocks: i.shocks,
-        shield: t > i.clear,
+        more: i.more,
         dim: in_sight || t >= i.first,
         scale,
     })
@@ -90,30 +91,12 @@ pub fn draw(list: &mut DrawList, cue: &Cue, geo: &FieldGeometry, span: f32) {
     }
     let [l, t, r, b] = place(geo, span);
     let (w, h) = (r - l, b - t);
-    let alpha = if cue.dim && !cue.shield { DIMMED } else { 1.0 };
+    let alpha = if cue.dim { DIMMED } else { 1.0 };
     let fade = |c: [f32; 4]| [c[0], c[1], c[2], c[3] * alpha];
     // Scaled about the glyph's middle.
     let (cx, cy) = (l + w / 2.0, t + h * 0.32);
     let k = cue.scale;
     let at = |x: f32, y: f32| [cx + (l + x * w - cx) * k, cy + (t + y * h - cy) * k];
-    if cue.shield {
-        // A small shield: a rounded top and a point under it.
-        let s = 0.42 * k;
-        let (sx, sy) = (cx, cy);
-        let half = w * s / 2.0;
-        let mut top = Quad::plain([sx - half, sy - half, sx + half, sy + half * 0.4], SHIELD);
-        top.shape = Shape {
-            radius: [half * 0.35; 2],
-            ..Shape::NONE
-        };
-        list.push(Command::Quad(top));
-        let d = half * 0.72;
-        let mut point = Quad::plain([-d, -d, d, d], SHIELD);
-        point.transform = Affine::rotate(std::f32::consts::FRAC_PI_4)
-            .then(Affine::translate(sx, sy + half * 0.25));
-        list.push(Command::Quad(point));
-        return;
-    }
     // A soft glow behind the bolt.
     let g = w * 0.42 * k;
     let mut glow = Quad::plain([cx - g, cy - g, cx + g, cy + g], fade(GLOW));
@@ -132,6 +115,20 @@ pub fn draw(list: &mut DrawList, cue: &Cue, geo: &FieldGeometry, span: f32) {
         (at(0.66, 0.33), at(0.34, 0.66)),
     ] {
         list.push(Command::Quad(segment(p, q, thick, fade(BOLT))));
+    }
+    // One more waiting behind it: a second bolt, half the size, at its
+    // upper right, never dimmed (it is still to come).
+    if cue.more {
+        let (ox, oy, s) = (0.62, -0.08, 0.5);
+        let thick = w * 0.13 * k * s;
+        for (p, q) in [
+            ((0.66, 0.0), (0.34, 0.33)),
+            ((0.30, 0.33), (0.70, 0.33)),
+            ((0.66, 0.33), (0.34, 0.66)),
+        ] {
+            let small = |(x, y): (f32, f32)| at(ox + x * s, oy + y * s);
+            list.push(Command::Quad(segment(small(p), small(q), thick, BOLT)));
+        }
     }
     // One dot a shock, in rows of four under it.
     let n = usize::from(cue.shocks).min(16);
@@ -196,18 +193,24 @@ mod tests {
             committed: 10.0,
             first: 14.0,
             clear: 18.0,
+            more: false,
         }
     }
 
     #[test]
-    fn it_scales_in_dims_in_sight_and_becomes_a_shield() {
+    fn it_scales_in_dims_in_sight_and_marks_one_more_waiting() {
         assert_eq!(cue(None, 10.0, false, false), None);
         let c = cue(Some(incoming()), 10.1, false, false).unwrap();
-        assert!((c.scale - 0.5).abs() < 1e-3 && !c.dim && !c.shield);
+        assert!((c.scale - 0.5).abs() < 1e-3 && !c.dim && !c.more);
         assert_eq!(cue(Some(incoming()), 10.0, false, true).unwrap().scale, 1.0);
         assert!(cue(Some(incoming()), 12.0, true, false).unwrap().dim);
         assert!(cue(Some(incoming()), 14.5, false, false).unwrap().dim);
-        assert!(cue(Some(incoming()), 18.5, false, false).unwrap().shield);
+        // One more reserved behind it (a chain): said by the cue.
+        let chained = Incoming {
+            more: true,
+            ..incoming()
+        };
+        assert!(cue(Some(chained), 12.0, false, false).unwrap().more);
     }
 
     #[test]
@@ -224,8 +227,9 @@ mod tests {
         draw(&mut list, &c, &geo, 4.0);
         // A glow, three strokes and eight dots.
         assert_eq!(list.commands.len(), 1 + 3 + 8);
+        // One more waiting: a second, smaller bolt beside it.
         list.clear();
-        draw(&mut list, &Cue { shield: true, ..c }, &geo, 4.0);
-        assert_eq!(list.commands.len(), 2);
+        draw(&mut list, &Cue { more: true, ..c }, &geo, 4.0);
+        assert_eq!(list.commands.len(), 1 + 3 + 3 + 8);
     }
 }

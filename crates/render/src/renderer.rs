@@ -552,8 +552,10 @@ impl Renderer {
     }
 
     /// The field's underlay fades in over `pixels` (target pixels) from
-    /// its top, from the next placing on (0: a hard edge, as by default):
-    /// the dancing hand behind the field, cut at its frame's top.
+    /// its top, from the next placing on (0: a hard edge, as by default),
+    /// for an image cut at its frame's top. Nothing asks for one now: the
+    /// dancing hand behind the field in a stage is shown whole
+    /// (`ddi_shell::dance::behind_field_distance`).
     pub fn set_field_underlay_fade(&mut self, pixels: f32) {
         self.underlay_fade = pixels.max(0.0);
     }

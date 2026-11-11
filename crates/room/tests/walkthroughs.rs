@@ -1464,8 +1464,139 @@ fn report(
         Command::ReportOutcome {
             stage,
             run: ReportedRun::of(run),
+            detail: None,
         },
     )
+}
+
+/// Feedback round B: a report's detail is additive to protocol 2. What a
+/// peer that predates it sends still reads (no `detail`, no `details`),
+/// what is sent without one is byte for byte what was sent before, and a
+/// peer that predates it reads what carries one (serde ignores the field
+/// it does not know; shown here by the old shapes reading the new text
+/// with the field taken out).
+#[test]
+fn a_reports_detail_is_additive_on_the_wire() {
+    use ddi_room::RunDetail;
+    use serde_json::{Value, json};
+    let stage = StageId(3);
+    let run = ReportedRun::of(Run::Out { at: 12.5 });
+    // Without a detail: the shape protocol 2 has had.
+    let plain = Command::ReportOutcome {
+        stage,
+        run,
+        detail: None,
+    };
+    let text = serde_json::to_value(&plain).unwrap();
+    assert_eq!(
+        text,
+        json!({"report_outcome": {"stage": 3, "run": {"out": {"at_ms": 12500}}}})
+    );
+    assert_eq!(serde_json::from_value::<Command>(text).unwrap(), plain);
+    let event = json!({"outcome_reported": {
+        "stage": 3, "participant": 2, "run": "forfeit", "at": 5000
+    }});
+    let Event::OutcomeReported { detail, .. } = serde_json::from_value(event).unwrap() else {
+        panic!("an outcome")
+    };
+    assert_eq!(detail, None);
+    // With one: only what is said travels.
+    let detail = RunDetail {
+        percent: Some(9_950),
+        grade: "S".into(),
+        life_ppm: 640_000,
+        max_combo: 283,
+        tiers: vec![200, 80, 3, 0, 0, 0, 0],
+        ..RunDetail::default()
+    };
+    let with = Command::ReportOutcome {
+        stage,
+        run,
+        detail: Some(detail.clone()),
+    };
+    let text = serde_json::to_value(&with).unwrap();
+    assert_eq!(
+        text["report_outcome"]["detail"],
+        json!({
+            "percent": 9950, "grade": "S", "life_ppm": 640000,
+            "max_combo": 283, "tiers": [200, 80, 3, 0, 0, 0, 0]
+        })
+    );
+    assert_eq!(serde_json::from_value::<Command>(text).unwrap(), with);
+    // A detail from a later build with a field this one does not know,
+    // and missing the ones it does: read, the rest defaulted.
+    let later: RunDetail = serde_json::from_value(json!({"grade": "A", "streak": 12})).unwrap();
+    assert_eq!(
+        later,
+        RunDetail {
+            grade: "A".into(),
+            ..RunDetail::default()
+        }
+    );
+    // A stage as an older authority stores and sends it: no `details`.
+    let mut rules = MatchRules::hosted();
+    rules.stages = 2;
+    let mut r = Room::new(rules, ContentSource::Shared);
+    let host = r.host;
+    let ana = r.join("ana", Intent::Play);
+    let s = r.upcoming();
+    r.choose(s, 1);
+    r.sys(Command::SetContentStatus {
+        stage: s,
+        status: ContentStatus::Available,
+        share: Some("abc12345".into()),
+    })
+    .unwrap();
+    r.ready(host);
+    r.ready(ana);
+    r.start_stage().unwrap();
+    let stage = r.play();
+    let play = |r: &Room| {
+        r.s.current
+            .as_ref()
+            .unwrap()
+            .stage(stage)
+            .unwrap()
+            .play
+            .clone()
+            .unwrap()
+    };
+    report(&mut r, ana, stage, Run::Out { at: 20.0 }).unwrap();
+    let old: Value = serde_json::to_value(play(&r)).unwrap();
+    assert!(old.get("details").is_none(), "{old}");
+    assert_eq!(
+        serde_json::from_value::<ddi_room::state::StagePlay>(old).unwrap(),
+        play(&r)
+    );
+    // The host's report says more: kept beside the report, the result the
+    // runs' alone.
+    r.by(
+        host,
+        Command::ReportOutcome {
+            stage,
+            run: ReportedRun::of(Run::Live {
+                life: 0.64,
+                accuracy: 0.995,
+                absolute: None,
+                score: None,
+            }),
+            detail: Some(detail.clone()),
+        },
+    )
+    .unwrap();
+    let play = play(&r);
+    assert_eq!(play.details.get(&host), Some(&detail));
+    assert_eq!(play.details.get(&ana), None);
+    assert_eq!(
+        play.result.as_ref().unwrap().placement(host).unwrap().place,
+        1
+    );
+    let new: Value = serde_json::to_value(&play).unwrap();
+    assert_eq!(new["details"][0][0], json!(host));
+    assert_eq!(
+        serde_json::from_value::<ddi_room::state::StagePlay>(new).unwrap(),
+        play
+    );
 }
 
 /// M5d's start into a common stage: an online stage (no CPUs) settles on
@@ -1514,6 +1645,8 @@ fn an_online_stage_settles_on_its_starters_reports() {
     let live = Run::Live {
         life: 0.5,
         accuracy: 0.9,
+        absolute: None,
+        score: None,
     };
     report(&mut r, ana, stage, Run::Out { at: 20.0 }).unwrap();
     assert_eq!(r.s.phase, Phase::Stage { stage }, "waits for the host");
@@ -1854,6 +1987,8 @@ fn the_spotlight_is_shared_once_and_a_pick_of_it_reuses_the_share() {
             Run::Live {
                 life,
                 accuracy: 0.9,
+                absolute: None,
+                score: None,
             },
         )
         .unwrap();

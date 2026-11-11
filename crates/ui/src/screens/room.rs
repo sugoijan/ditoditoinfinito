@@ -81,8 +81,14 @@ pub struct RoomView {
     /// The CPUs the shown rules seat, and the stages.
     pub cpus: u16,
     pub stage_count: u16,
-    /// The shown rules' ruleset (`MatchRules::ruleset`, the engine's id).
+    /// The shown rules' ruleset (`MatchRules::ruleset_id`, the engine's
+    /// id: DDI), their difficulty (`easy`, `normal`, `hard`), Boos and
+    /// Attacks, and whether Attacks can be set here (practice).
     pub ruleset: String,
+    pub difficulty: String,
+    pub boos: bool,
+    pub attacks: bool,
+    pub attacks_offered: bool,
     /// The running match's rules are locked (a match exists).
     pub locked: bool,
     pub ready: bool,
@@ -100,8 +106,9 @@ pub struct RoomView {
     pub rules_open: bool,
     pub rules_first: bool,
     pub draft: Vec<u16>,
-    /// The draft's ruleset (the engine's id).
-    pub draft_ruleset: Option<String>,
+    /// The draft's difficulty (`easy`, `normal`, `hard`), Boos and
+    /// Attacks.
+    pub draft_rules: Option<(String, bool, bool)>,
     pub rules_problem: Option<String>,
     /// The roster pop-ups: Add custom, Players, the stage's standings.
     pub add_open: bool,
@@ -366,14 +373,41 @@ pub fn status(r: &RoomClient) -> UiText {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlayerRow {
     pub name: String,
-    /// Under the name: a role, a CPU's level and personality, the points.
+    /// Under the name: a role, a CPU's personality (after its level's
+    /// stars), the points.
     pub sub: String,
+    /// A CPU's level, from 1 to ten: drawn as stars (`crate::stars`).
+    pub level: Option<u8>,
     /// At the right: ready or not, a connection's trouble, the place.
     pub state: String,
     pub me: bool,
     /// Ready (or a CPU, which needs no readiness) for the upcoming stage.
     pub ready: bool,
     pub cpu: bool,
+    /// The players panel's line ([`players_panel`]): the place in the
+    /// match and the match points, once a stage of it is confirmed.
+    pub place: Option<u16>,
+    pub points: Option<String>,
+    /// A person's role, after the name (Host, Co-host, Admin).
+    pub role: String,
+    /// What they are doing, in words (ready, loading, why not loaded,
+    /// away, sitting out, watching), and how it reads.
+    pub status: String,
+    pub tone: Tone,
+}
+
+/// How a player's status reads in the players panel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Tone {
+    /// Nothing to act on.
+    #[default]
+    Plain,
+    /// Ready for the stage.
+    Good,
+    /// Not there now (reconnecting, away): the row is dimmed.
+    Away,
+    /// Their song did not load.
+    Failed,
 }
 
 /// A CPU's personality's name (`Streams`), or Custom for multipliers of
@@ -398,14 +432,72 @@ pub fn cpu_name(spec: &ddi_room::OpponentSpec, ordinal: u16) -> String {
     }
 }
 
-/// A CPU's line under its name: its level of the engine's, and its
+/// A CPU's line under its name, after its level's stars: its
 /// personality.
 pub fn cpu_sub(spec: &ddi_room::OpponentSpec) -> String {
-    format!(
-        "{} · {}",
-        m::cpu_level(u16::from(spec.level) + 1, cpu_levels()),
-        personality_text(spec.personality.as_deref())
-    )
+    personality_text(spec.personality.as_deref()).into()
+}
+
+/// A CPU's level as shown, from 1 (`crate::stars`), from its seat's (the
+/// engine's index).
+pub fn cpu_level(spec: &ddi_room::OpponentSpec) -> u8 {
+    spec.level.min(cpu_levels() - 1) + 1
+}
+
+/// The stars' height beside a 12 px line, and the room after them.
+pub const STARS_HEIGHT: f32 = 12.0;
+pub const STARS_GAP: f32 = 7.0;
+
+/// A CPU's level and what goes with it on a line from `x` rightwards, on
+/// `y`, at most `room` wide: its stars (`<id>.Stars`), then `text`
+/// (`<id>.Sub`), muted.
+pub fn level_line(
+    env: &Env,
+    out: &mut Vec<Actor>,
+    id: &str,
+    (level, text): (u8, &str),
+    [x, y]: [f32; 2],
+    room: f32,
+) {
+    let w = crate::stars::width(STARS_HEIGHT);
+    out.push(crate::stars::stars_left(
+        env,
+        &format!("{id}.Stars"),
+        level,
+        STARS_HEIGHT,
+        x,
+        y,
+    ));
+    if !text.is_empty() && room > w + STARS_GAP + 24.0 {
+        let mut sub = env.text(&format!("{id}.Sub"), text, 12.0, 400, "Muted");
+        look::ellipsized(&mut sub, room - w - STARS_GAP);
+        out.push(left(sub, x + w + STARS_GAP, y));
+    }
+}
+
+/// [`level_line`] ending at `x`: `text`, then the stars at its end.
+pub fn level_line_right(
+    env: &Env,
+    out: &mut Vec<Actor>,
+    id: &str,
+    (level, text): (u8, &str),
+    [x, y]: [f32; 2],
+    room: f32,
+) {
+    let w = crate::stars::width(STARS_HEIGHT);
+    out.push(crate::stars::stars_right(
+        env,
+        &format!("{id}.Stars"),
+        level,
+        STARS_HEIGHT,
+        x,
+        y,
+    ));
+    if !text.is_empty() && room > w + STARS_GAP + 24.0 {
+        let mut sub = env.text(&format!("{id}.Sub"), text, 12.0, 400, "Muted");
+        look::ellipsized(&mut sub, room - w - STARS_GAP);
+        out.push(right(sub, x - w - STARS_GAP, y));
+    }
 }
 
 /// Everyone in the room: the people present, then the CPUs (the match's,
@@ -420,6 +512,20 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
             .find(|st| st.participant == id)
             .filter(|_| in_match)
             .map(|st| m::rank_points(st.rank, points_text(st.total)).into())
+    };
+    // The panel's place and points: once a stage of the match is confirmed.
+    let placed = in_match
+        && standings.iter().any(|st| {
+            st.stages
+                .iter()
+                .any(|sg| matches!(sg, StageStanding::Placed(_)))
+        });
+    let standing = |id| {
+        standings
+            .iter()
+            .find(|st| st.participant == id)
+            .filter(|_| placed)
+            .map(|st| (st.rank, String::from(points_text(st.total))))
     };
     let upcoming = s.upcoming_stage().and_then(|id| s.stage(id));
     let mut rows = Vec::new();
@@ -456,24 +562,41 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     Some(Participation::SittingOut { .. }) => m::state_sitting_out().into(),
                     _ => String::new(),
                 };
+                let (status, tone) = person_status(s, member, upcoming, &state);
                 let (sub, state) = person_row(s, member, points(member.id), state);
+                let standing = standing(member.id);
                 rows.push(PlayerRow {
                     name,
                     sub,
+                    level: None,
                     state,
                     me,
                     ready,
                     cpu: false,
+                    place: standing.as_ref().map(|(rank, _)| *rank),
+                    points: standing.map(|(_, points)| points),
+                    role: person_role(s, member).unwrap_or_default(),
+                    status,
+                    tone,
                 });
             }
-            MemberKind::Cpu { ordinal, opponent } => rows.push(PlayerRow {
-                name: cpu_name(opponent, *ordinal),
-                sub: cpu_sub(opponent),
-                state: points(member.id).unwrap_or_default(),
-                me: false,
-                ready: true,
-                cpu: true,
-            }),
+            MemberKind::Cpu { ordinal, opponent } => {
+                let standing = standing(member.id);
+                rows.push(PlayerRow {
+                    name: cpu_name(opponent, *ordinal),
+                    sub: cpu_sub(opponent),
+                    level: Some(cpu_level(opponent)),
+                    state: points(member.id).unwrap_or_default(),
+                    me: false,
+                    ready: true,
+                    cpu: true,
+                    place: standing.as_ref().map(|(rank, _)| *rank),
+                    points: standing.map(|(_, points)| points),
+                    role: String::new(),
+                    status: String::new(),
+                    tone: Tone::Plain,
+                });
+            }
         }
     }
     if !in_match {
@@ -484,14 +607,85 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
             rows.push(PlayerRow {
                 name: cpu_name(spec, u16::try_from(n + 1).unwrap_or(u16::MAX)),
                 sub: cpu_sub(spec),
+                level: Some(cpu_level(spec)),
                 state: m::cpu_at_start().into(),
                 me: false,
                 ready: true,
                 cpu: true,
+                place: None,
+                points: None,
+                role: String::new(),
+                status: m::cpu_at_start().into(),
+                tone: Tone::Plain,
             });
         }
     }
     rows
+}
+
+/// A person's role as their rows say it: Host (an online room's owner),
+/// Co-host, Admin.
+fn person_role(s: &ddi_room::RoomState, member: &ddi_room::Member) -> Option<String> {
+    match (member.role, member.admin) {
+        (Role::Owner, _) if s.source == ddi_room::ContentSource::Shared => {
+            Some(m::role_host().into())
+        }
+        (Role::CoHost, _) => Some(m::role_co_host().into()),
+        (Role::Member, true) => Some(m::role_admin().into()),
+        _ => None,
+    }
+}
+
+/// A person's status on the players panel's line: their connection's
+/// trouble first, then their seat (watching, next match), why their song
+/// did not load, else `state` (ready, loading, not ready, playing, sitting
+/// out).
+fn person_status(
+    s: &ddi_room::RoomState,
+    member: &ddi_room::Member,
+    upcoming: Option<&ddi_room::Stage>,
+    state: &str,
+) -> (String, Tone) {
+    match member.connection {
+        Connection::Joining => return (m::conn_joining().into(), Tone::Plain),
+        Connection::Reconnecting => return (m::conn_reconnecting().into(), Tone::Away),
+        Connection::Disconnected => return (m::conn_away().into(), Tone::Away),
+        Connection::Connected => {}
+    }
+    match s.participation(member.id) {
+        Some(Participation::WaitingNextMatch) => (m::next_match().into(), Tone::Plain),
+        Some(Participation::Watching) => (m::watching().into(), Tone::Plain),
+        Some(Participation::LoadFailed { .. }) => {
+            let why = upcoming.and_then(|st| match &st.prep(member.id).loading {
+                ddi_room::Loading::Failed { code } => LoadProblem::from_code(code),
+                _ => None,
+            });
+            let text = match why {
+                Some(LoadProblem::Download) => m::state_failed_download(),
+                Some(LoadProblem::Unreadable) => m::state_failed_unreadable(),
+                Some(LoadProblem::Changed) => m::state_failed_changed(),
+                _ => m::state_load_failed(),
+            };
+            (text.into(), Tone::Failed)
+        }
+        Some(Participation::ReadyLoaded { .. } | Participation::Committed { .. }) => {
+            (state.to_string(), Tone::Good)
+        }
+        // Nothing to be ready for until a pick gathers readiness (the
+        // lobby, between stages): no "Not ready" there.
+        Some(Participation::NotReady { .. })
+            if !matches!(
+                s.phase,
+                Phase::Preparing {
+                    window: Some(_),
+                    ..
+                }
+            ) =>
+        {
+            (String::new(), Tone::Plain)
+        }
+        _ => (state.to_string(), Tone::Plain),
+    }
 }
 
 /// A person's row: under the name their role (Host, Co-host, Admin;
@@ -503,14 +697,7 @@ fn person_row(
     points: Option<String>,
     state: String,
 ) -> (String, String) {
-    let role: Option<String> = match (member.role, member.admin) {
-        (Role::Owner, _) if s.source == ddi_room::ContentSource::Shared => {
-            Some(m::role_host().into())
-        }
-        (Role::CoHost, _) => Some(m::role_co_host().into()),
-        (Role::Member, true) => Some(m::role_admin().into()),
-        _ => None,
-    };
+    let role = person_role(s, member);
     let seat: Option<String> = match s.participation(member.id) {
         Some(Participation::WaitingNextMatch) => Some(m::next_match().into()),
         Some(Participation::Watching) => Some(m::watching().into()),
@@ -814,7 +1001,17 @@ pub fn panel(
                 let mut name = env.text(&format!("Panel{k}.Name"), &p.name, 15.0, 600, color);
                 look::ellipsized(&mut name, (w - state_w - 12.0).max(40.0));
                 children.push(left(name, x, ry + 13.0));
-                if !p.sub.is_empty() {
+                if let Some(level) = p.level {
+                    // A CPU: its level's stars, then its personality.
+                    level_line(
+                        env,
+                        &mut children,
+                        &format!("Panel{k}"),
+                        (level, &p.sub),
+                        [x, ry + 31.0],
+                        w,
+                    );
+                } else if !p.sub.is_empty() {
                     let mut sub = env.text(&format!("Panel{k}.Sub"), &p.sub, 12.0, 400, "Muted");
                     look::ellipsized(&mut sub, (w - state_w - 12.0).max(40.0));
                     children.push(left(sub, x, ry + 31.0));
@@ -838,6 +1035,267 @@ pub fn panel(
         ));
     }
     (super::frame("Panel", children), first)
+}
+
+/// The match's picks alone, under their heading: what the list's place
+/// holds for a follower whose players are beside the song
+/// ([`players_panel`]).
+pub fn pick_panel_rows(r: &RoomClient) -> Vec<PanelRow> {
+    let picks = pick_rows(r);
+    let picked = picks.iter().filter(|p| p.title.is_some()).count();
+    let mut rows = vec![PanelRow::Heading(
+        m::picks_heading().into(),
+        m::picks_count(picked, picks.len()).into(),
+    )];
+    rows.extend(picks.into_iter().map(PanelRow::Pick));
+    rows
+}
+
+/// The players panel's heading's height, and a row's at most and at least.
+const PLAYERS_HEAD: f32 = 28.0;
+const PLAYERS_ROW: f32 = 40.0;
+const PLAYERS_ROW_MIN: f32 = 30.0;
+
+/// What opens the full list of players from the panel: its line of the
+/// rows that do not fit, and a phone's strip.
+pub const PLAYERS_MORE: &str = "Players.More";
+pub const PLAYERS_STRIP: &str = "Players.Strip";
+
+/// The players in the panel's order: by their place in the match once it
+/// has places (those without one after), otherwise as the room lists them.
+pub fn panel_order(mut rows: Vec<PlayerRow>) -> Vec<PlayerRow> {
+    rows.sort_by_key(|p| p.place.unwrap_or(u16::MAX));
+    rows
+}
+
+/// A status' color by its tone.
+fn tone_color(tone: Tone) -> &'static str {
+    match tone {
+        Tone::Good => "Accent",
+        Tone::Plain => "Muted",
+        Tone::Away => "Faint",
+        Tone::Failed => "Danger",
+    }
+}
+
+/// The players panel (`RoomPlayers`), always shown on the room's song
+/// select beside the song, the host's and the followers' alike: everyone
+/// in the room on a line each (`Players<k>.*`): the place in the match
+/// once a stage is confirmed, the name (You; a role; a CPU's stars and
+/// personality), what they are doing in words, and the match points. In
+/// `[x, y, w, h]`; rows that do not fit are counted on a last line
+/// ([`PLAYERS_MORE`]) that opens the full list.
+pub fn players_panel(env: &Env, r: &RoomClient, [x, y, w, h]: [f32; 4]) -> Actor {
+    let rows = panel_order(player_rows(r));
+    let cap = r.state().policy.max_competitors;
+    let mut c = Vec::new();
+    let title = m::players();
+    let head = look::tracked(env.text("Players.Heading", &title, 11.0, 700, "Faint"), 120);
+    let head_w = look::mono_width(&title, 11.0) + title.chars().count() as f32 * 11.0 * 0.12;
+    c.push(left(head, x, y + 12.0));
+    c.push(left(
+        env.text(
+            "Players.Count",
+            &m::players_count(rows.len(), cap),
+            12.0,
+            400,
+            "Muted",
+        ),
+        x + head_w + 12.0,
+        y + 12.0,
+    ));
+    let placed = rows.iter().any(|p| p.points.is_some());
+    if placed {
+        c.push(right(
+            look::tracked(
+                env.text("Players.Points", &m::panel_points(), 11.0, 700, "Faint"),
+                120,
+            ),
+            x + w - 8.0,
+            y + 12.0,
+        ));
+    }
+    let avail = (h - PLAYERS_HEAD).max(PLAYERS_ROW_MIN);
+    let row = (avail / rows.len().max(1) as f32).clamp(PLAYERS_ROW_MIN, PLAYERS_ROW);
+    let fit = ((avail / row).floor() as usize).max(1);
+    let shown = if rows.len() > fit {
+        fit.saturating_sub(1)
+    } else {
+        rows.len()
+    };
+    let (place_w, points_w) = if placed { (30.0, 64.0) } else { (0.0, 0.0) };
+    let mut ry = y + PLAYERS_HEAD;
+    for (k, p) in rows.iter().enumerate().take(shown) {
+        let mid = ry + row / 2.0;
+        let id = format!("Players{k}");
+        if p.me {
+            let mut plate = look::quad_at(
+                &format!("{id}.Me"),
+                [w, row - 4.0],
+                look::with_alpha(env.color("Text"), 0.06),
+                [x + w / 2.0, mid],
+            );
+            look::call(&mut plate, "cornerradius", &[6.0]);
+            c.push(plate);
+        }
+        if let Some(place) = p.place {
+            c.push(left(
+                env.numbers(&format!("{id}.Place"), &place.to_string(), 14.0, "Muted"),
+                x + 8.0,
+                mid,
+            ));
+        }
+        let name_x = x + 8.0 + place_w;
+        let end = x + w - 8.0 - points_w;
+        let status_w = if p.status.is_empty() {
+            0.0
+        } else {
+            look::mono_width(&p.status, 13.0).min(170.0) + 12.0
+        };
+        let room = (end - status_w - name_x).max(60.0);
+        let color = match (p.me, p.tone) {
+            (_, Tone::Away) => "Faint",
+            (true, _) => "Text",
+            _ => "Secondary",
+        };
+        // What follows the name: a CPU's stars, a person's role.
+        let stars_w = crate::stars::width(STARS_HEIGHT);
+        let after = match p.level {
+            Some(_) => stars_w + 10.0,
+            None if p.role.is_empty() => 0.0,
+            None => look::mono_width(&p.role, 12.0) + 10.0,
+        };
+        let name_w = look::mono_width(&p.name, 15.0).min((room - after).max(40.0));
+        let mut name = env.text(&format!("{id}.Name"), &p.name, 15.0, 600, color);
+        look::ellipsized(&mut name, name_w);
+        c.push(left(name, name_x, mid));
+        let ax = name_x + name_w + 10.0;
+        if let Some(level) = p.level {
+            level_line(
+                env,
+                &mut c,
+                &id,
+                (level, &p.sub),
+                [ax, mid + 1.0],
+                (room - name_w - 10.0).max(stars_w),
+            );
+        } else if !p.role.is_empty() {
+            let mut role = env.text(&format!("{id}.Role"), &p.role, 12.0, 400, "Muted");
+            look::ellipsized(&mut role, (room - name_w - 10.0).max(24.0));
+            c.push(left(role, ax, mid + 1.0));
+        }
+        if !p.status.is_empty() {
+            let mut status = env.text(
+                &format!("{id}.State"),
+                &p.status,
+                13.0,
+                600,
+                tone_color(p.tone),
+            );
+            look::ellipsized(&mut status, 170.0);
+            c.push(right(status, end, mid));
+        }
+        if let Some(points) = &p.points {
+            c.push(right(
+                env.numbers(&format!("{id}.Points"), points, 15.0, color),
+                x + w - 8.0,
+                mid,
+            ));
+        }
+        ry += row;
+    }
+    if shown < rows.len() {
+        c.push(env.component(
+            "Link",
+            "Button",
+            &look::Spec::new([w, 24.0], &*m::panel_more_below(rows.len() - shown)),
+            PLAYERS_MORE,
+            [x + w / 2.0, ry + row / 2.0],
+        ));
+    }
+    super::frame("RoomPlayers", c)
+}
+
+/// A name's two letters for a phone's strip: the first of its first two
+/// words, else its first two.
+fn initials(name: &str) -> String {
+    let words: Vec<&str> = name
+        .split_whitespace()
+        .filter(|w| w.chars().next().is_some_and(char::is_alphanumeric))
+        .collect();
+    let s: String = match words.as_slice() {
+        [] => name.chars().take(2).collect(),
+        [one] => one.chars().take(2).collect(),
+        [a, b, ..] => a.chars().take(1).chain(b.chars().take(1)).collect(),
+    };
+    s.to_uppercase()
+}
+
+/// A phone's players: one line (`Players.Strip`, a tap opens the full
+/// list) of everyone's initials (You whole), each colored by what they
+/// are doing as the panel's statuses are, then how many they are; those
+/// that do not fit are counted.
+pub fn players_strip(env: &Env, r: &RoomClient, [x, y, w, h]: [f32; 4]) -> Actor {
+    let rows = panel_order(player_rows(r));
+    let cap = r.state().policy.max_competitors;
+    let mid = y + h / 2.0;
+    let count: String = m::players_count(rows.len(), cap).into();
+    let count_w = look::mono_width(&count, 12.0) + 22.0;
+    let mut c = Vec::new();
+    // The hit area: drawn, faintly (`crate::hit`).
+    let mut plate = look::quad_at(
+        "",
+        [w, h],
+        look::with_alpha(env.color("Text"), 0.05),
+        [x + w / 2.0, mid],
+    );
+    look::call(&mut plate, "cornerradius", &[6.0]);
+    c.push(plate);
+    let end = x + w - count_w - 4.0;
+    let mut cx = x + 8.0;
+    let mut hidden = 0;
+    for (k, p) in rows.iter().enumerate() {
+        let text: String = if p.me {
+            p.name.clone()
+        } else {
+            UiText::data(initials(&p.name)).into()
+        };
+        let tw = look::mono_width(&text, 12.0);
+        // Room for this one and, unless it is the last, the count of
+        // the rest.
+        let rest = if k + 1 < rows.len() { 34.0 } else { 0.0 };
+        if cx + tw + rest > end {
+            hidden = rows.len() - k;
+            break;
+        }
+        let color = match p.tone {
+            Tone::Good => "Accent",
+            Tone::Away => "Faint",
+            Tone::Failed => "Danger",
+            Tone::Plain if p.me => "Text",
+            Tone::Plain => "Secondary",
+        };
+        c.push(left(env.text("", &text, 12.0, 700, color), cx, mid));
+        cx += tw + 10.0;
+    }
+    if hidden > 0 {
+        c.push(left(
+            env.text("", &m::strip_more(hidden), 12.0, 600, "Muted"),
+            cx,
+            mid,
+        ));
+    }
+    c.push(right(
+        env.text("", &count, 12.0, 400, "Muted"),
+        x + w - 22.0,
+        mid,
+    ));
+    c.push(right(
+        env.text("", "›", 14.0, 700, "Muted"),
+        x + w - 8.0,
+        mid,
+    ));
+    super::frame(PLAYERS_STRIP, c)
 }
 
 /// Says what a room screen shows (`ThemeState::room`): `view` (`select`,
@@ -893,7 +1351,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                 .unwrap_or_default(),
             cpu: mb.is_cpu(),
             bot: mb.is_bot(),
-            level: s.opponent(mb.id).map(|o| o.level + 1),
+            level: s.opponent(mb.id).map(cpu_level),
             personality: s.opponent(mb.id).and_then(|o| o.personality.clone()),
             ready: upcoming.is_some_and(|st| st.prep(mb.id).ready),
             points: standings
@@ -913,7 +1371,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                     .clone()
                     .unwrap_or_else(|| format!("CPU {}", n + 1)),
                 cpu: true,
-                level: Some(spec.level + 1),
+                level: Some(cpu_level(spec)),
                 personality: spec.personality.clone(),
                 at_start: true,
                 ..RoomMemberView::default()
@@ -931,7 +1389,11 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         cpus: u16::try_from(crate::state::cpu_roster::roster_of(rules, r.humans()).len())
             .unwrap_or(u16::MAX),
         stage_count: rules.stages,
-        ruleset: rules.ruleset.clone(),
+        ruleset: rules.ruleset_id().into(),
+        difficulty: difficulty_id(rules.difficulty).into(),
+        boos: rules.boos,
+        attacks: rules.attacks(),
+        attacks_offered: attacks_offered(&r),
         locked: r.locked_rules().is_some(),
         ready: r.ready(),
         countdown: seconds_left(&r),
@@ -990,7 +1452,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         rules_open: kept.rules_open,
         rules_first: kept.rules_first,
         draft: kept.draft,
-        draft_ruleset: kept.draft_ruleset,
+        draft_rules: kept.draft_rules,
         rules_problem: kept.rules_problem,
         add_open: kept.add_open,
         players_open: kept.players_open,
@@ -1148,6 +1610,50 @@ pub fn ruleset_name(id: &str) -> UiText {
     } else {
         UiText::data(&r.name)
     }
+}
+
+/// A match difficulty as the debug state and the messages' selectors name
+/// it.
+pub fn difficulty_id(d: ddi_room::MatchDifficulty) -> &'static str {
+    match d {
+        ddi_room::MatchDifficulty::Easy => "easy",
+        ddi_room::MatchDifficulty::Normal => "normal",
+        ddi_room::MatchDifficulty::Hard => "hard",
+    }
+}
+
+/// A match difficulty's name, as Options names DDI's.
+pub fn difficulty_name(d: ddi_room::MatchDifficulty) -> UiText {
+    use ddi_l10n::msg::options as o;
+    match d {
+        ddi_room::MatchDifficulty::Easy => o::ddi_easy(),
+        ddi_room::MatchDifficulty::Normal => o::ddi_normal(),
+        ddi_room::MatchDifficulty::Hard => o::ddi_hard(),
+    }
+}
+
+/// Whether the room's Attacks rule can be set: where attacks really
+/// work, which is a practice room (its ledger runs on this device, the
+/// shocks go into the plays judged here). An online room has neither the
+/// ledger fed by its members' reports nor shocks delivered to each
+/// member's play yet, so the rule is shown there as unavailable rather
+/// than offered and doing nothing.
+pub fn attacks_offered(room: &crate::state::room::RoomClient) -> bool {
+    !room.is_online()
+}
+
+/// The match's rules in a few words, where they are summarized (the Rules
+/// pop-up's locked line, a stage's prompt): the ruleset's name, its
+/// difficulty where it is not Normal, Boos where they are on, Attacks
+/// where they are on.
+pub fn rules_words(rules: &crate::state::room::StageRules, attacks: bool) -> UiText {
+    let on = |b: bool| if b { "on" } else { "off" };
+    m::rules_words(
+        ruleset_name(&rules.ruleset),
+        difficulty_id(rules.difficulty),
+        on(rules.boos),
+        on(attacks),
+    )
 }
 
 /// Why rules cannot be used, worded.

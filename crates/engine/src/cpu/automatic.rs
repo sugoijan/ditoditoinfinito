@@ -48,6 +48,24 @@ impl Plan {
         }
     }
 
+    /// The presses of a play at `level` (an opponent's: one of the ten,
+    /// [`CPU_LEVELS_V0`], or a study's own): a frozen strength exactly as
+    /// [`Plan::script_with_skills`] plans it, a weaker level by the
+    /// analytical plan with its lapses (never a prepared profile, which
+    /// has the five frozen laws alone).
+    pub fn script_at(&self, level: Level, seed: u64, skills: Skills) -> Result<Vec<Press>, String> {
+        if let Some(index) = level.frozen() {
+            return self.script_with_skills(index, seed, skills);
+        }
+        level.validate()?;
+        match self {
+            Self::Prepared(_) => {
+                Err("CPU levels beyond the five strengths require an automatic plan".into())
+            }
+            Self::Automatic(p) => p.script_at(level, seed, skills),
+        }
+    }
+
     pub fn model(&self) -> &str {
         match self {
             Self::Prepared(p) => &p.model,
@@ -155,14 +173,17 @@ impl Automatic {
     fn script(&self, level: usize, seed: u64) -> Result<Vec<Press>, String> {
         let bad = self.bad.get(level).ok_or("CPU strength must be 0..4")?;
         let scale = STRENGTHS[level].powi(-2);
-        motor(&self.rows, seed, |i, u, within| {
+        motor(&self.rows, seed, |i, u| {
+            if u[2] < OMITTED {
+                return None;
+            }
             let f = (self.frequency[i] * scale).min(1.);
             let mut q = [0.; 91];
             for (j, p) in q[..90].iter_mut().enumerate() {
                 *p = ((1. - f) * self.good[j] + f * bad[j]) * 0.9999;
             }
             q[90] = 0.0001;
-            offset(&basis::EDGES, &q, u, within)
+            Some(offset(&basis::EDGES, &q, u[0], u[1]))
         })
     }
 
@@ -194,14 +215,46 @@ impl Automatic {
         let logs = skills.log_values();
         let mut current = None;
         let mut q = [0.; 91];
-        motor(&self.rows, seed, |i, u, within| {
+        motor(&self.rows, seed, |i, u| {
+            if u[2] < OMITTED {
+                return None;
+            }
             // Compute a law once per row, not once per chord note. Memory stays
             // bounded by the compact plan; no full-song probability matrix.
             if current != Some(i) {
                 q = self.skill_law(i, strength, &logs);
                 current = Some(i);
             }
-            offset(&basis::EDGES, &q, u, within)
+            Some(offset(&basis::EDGES, &q, u[0], u[1]))
+        })
+    }
+
+    /// A level beyond the frozen strengths: the same law per row at its
+    /// strength, and its lapse: a note left out with the chance
+    /// `level.lapse` times the row's frequency (bent by its skills as its
+    /// ability is), on top of the omitted component. The draws are the
+    /// motor's own three per note, so a level without lapse presses as
+    /// [`Automatic::script_with_skills`] would at its strength.
+    fn script_at(&self, level: Level, seed: u64, skills: Skills) -> Result<Vec<Press>, String> {
+        let logs = skills.log_values();
+        let mut current = None;
+        let mut q = [0.; 91];
+        let mut omit = OMITTED;
+        motor(&self.rows, seed, |i, u| {
+            if current != Some(i) {
+                q = self.skill_law(i, level.strength, &logs);
+                // Its skills' share of its ability at this row.
+                let bend = self.demand[i]
+                    .iter()
+                    .zip(&logs)
+                    .map(|(d, s)| d * s)
+                    .sum::<f64>()
+                    .exp();
+                omit = OMITTED
+                    + level.lapse * (self.frequency[i] / bend.powi(2)).min(1.) * (1. - OMITTED);
+                current = Some(i);
+            }
+            (u[2] >= omit).then(|| offset(&basis::EDGES, &q, u[0], u[1]))
         })
     }
 }

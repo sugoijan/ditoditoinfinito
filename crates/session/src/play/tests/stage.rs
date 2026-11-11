@@ -73,15 +73,23 @@ fn begin_at(song: &Song, room: &mut RoomClient, now: &mut u64, index: usize) -> 
     order
 }
 
-/// The stage's ruleset as [`play`] gives it: the match's (D0), under
-/// `settings`' StepMania options where a test sets them (a gauge of one
-/// life, so that CPUs go out), its fail immediate.
+/// The stage's ruleset as [`play`] gives it: the match's (D0: DDI with
+/// its difficulty and Boos). Where a test sets StepMania options (a
+/// battery of one life, so that CPUs go out when the test needs them to:
+/// DDI has no such option), a TESTS-ONLY ruleset in its place
+/// (`SessionConfig::stage_rules`): ITG FA+ under those options, its fail
+/// immediate, as these tests ran before rooms played DDI. What they test
+/// is the stage's flow, not the ruleset.
 fn rules_of(settings: &Settings, order: &StageOrder, song: &Song) -> ddi_engine::rules::Ruleset {
-    let r = crate::battle::stage_ruleset(&order.ruleset, &song.charts[order.chart.index]);
     if settings.stepmania.is_default() {
-        return r;
+        return crate::battle::stage_ruleset(&order.rules);
     }
-    let mut r = r.with_stepmania(&settings.stepmania);
+    let mut r = ddi_engine::rules::presets::stepmania(
+        "itg-fa+",
+        ddi_engine::rules::presets::HoldStyle::ByGame,
+        &song.charts[order.chart.index],
+    )
+    .with_stepmania(&settings.stepmania);
     r.fail = ddi_engine::FailPolicy::Immediate;
     r
 }
@@ -676,7 +684,7 @@ fn an_online_stage_is_never_decided_here_and_reports_the_players_own_run() {
     let (s, event, outcome) = play(&song, &settings, &order, true, &[]);
     assert!(matches!(event, SessionEvent::Finished { .. }));
     assert!(!outcome.confirmed_early, "never decided on this device");
-    let ddi_room::Run::Live { life, accuracy } = outcome.mine else {
+    let ddi_room::Run::Live { life, accuracy, .. } = outcome.mine else {
         panic!("{:?}", outcome.mine)
     };
     assert!(life > 0.5 && accuracy > 0.99, "{life} {accuracy}");
@@ -694,6 +702,87 @@ fn an_online_stage_is_never_decided_here_and_reports_the_players_own_run() {
     .unwrap();
     assert_eq!(battle.end_event(&outcome, false), None);
     drop(s);
+}
+
+/// Round 3b (`CPU_SCORE_V0`): a CPU plays a tap-only copy, so on a chart
+/// with holds the most its notes give is less than the chart's. Its
+/// score as the room shows it (the miniature, the standings) and ranks by
+/// it is put on the chart's own scale: the same share of the chart's
+/// most, its W0s as counted; its percent is its own. The player's is the
+/// sum as their HUD has it, and the stage ranks those still in by life,
+/// then that score.
+#[test]
+fn a_cpu_s_score_is_on_the_chart_s_scale_and_the_stage_ranks_by_life_then_the_score() {
+    let song = bundled("beatucada");
+    let settings = Settings::default();
+    let rules = crate::battle::stage_ruleset(&Default::default());
+    // A four-lane chart with holds.
+    let index = (0..song.charts.len())
+        .find(|&i| {
+            let c = &song.charts[i];
+            c.layout == "dance-single"
+                && c.notes.iter().any(|n| n.kind.is_long())
+                && ddi_engine::cpu::Opponent::new(&song, i, rules.fresh(), 5, 1).is_ok()
+        })
+        .expect("a bundled chart with holds");
+    let most = crate::battle::chart_most(&song, index, &rules).expect("DDI");
+    let mut room = room(&song, 1, 3, 6);
+    let mut now = 0;
+    let order = begin_at(&song, &mut room, &mut now, index);
+    let (s, _event, outcome) = play(&song, &settings, &order, true, &[]);
+    let mine = s.player.ruleset().score.view().ddi.expect("DDI");
+    assert_eq!(mine.most, most, "the player plays the whole chart");
+    let detail = |id: ddi_room::ParticipantId| {
+        &outcome
+            .details
+            .iter()
+            .find(|(p, _)| *p == id)
+            .expect("its detail")
+            .1
+    };
+    assert_eq!(detail(order.me).score, Some(mine.score), "the sum, as the HUD");
+    let mut expect = vec![(s.player.ruleset().gauge.life(), mine.score, order.me.0)];
+    for (view, seat) in s.opponents().iter().zip(&order.cpus) {
+        let mut alone = ddi_engine::cpu::Opponent::new(
+            &song,
+            index,
+            rules.fresh(),
+            usize::from(seat.level),
+            seat.seed,
+        )
+        .unwrap();
+        alone.start(0.0);
+        alone.finish();
+        let own = alone.score().ddi.expect("DDI");
+        assert!(own.most < most, "the tap-only copy gives less: {} {most}", own.most);
+        let w0 = own.absolute - 100 * own.points;
+        let equivalent = ((own.points as f64) * (most as f64) / (own.most as f64)).round() as i64;
+        let sum = own.ratio + 100 * equivalent + w0;
+        assert_eq!(view.sum, Some(sum));
+        assert!(sum > own.score, "more than its own copy's sum");
+        // Its percent is its own play's.
+        assert_eq!(view.score, own.ratio as f64 / 1_000_000.0);
+        let d = detail(view.participant);
+        assert_eq!(d.score, Some(sum));
+        assert_eq!(d.percent, i32::try_from(own.percent).ok());
+        if !view.out {
+            expect.push((view.life, sum, view.participant.0));
+        }
+    }
+    // Those still in: by life, then the score.
+    expect.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.cmp(&a.1)));
+    let survived: Vec<u64> = ids(&outcome)
+        .into_iter()
+        .flatten()
+        .filter(|(_, f)| *f == Finish::Survived)
+        .map(|(p, _)| p)
+        .collect();
+    assert_eq!(survived, expect.iter().map(|e| e.2).collect::<Vec<_>>());
+    // The player's run carries the score the room ranks by.
+    let ddi_room::Run::Live { score, .. } = outcome.mine else {
+        panic!("{:?}", outcome.mine)
+    };
+    assert_eq!(score, Some(mine.score));
 }
 
 /// Each CPU's field is fed its own judged moments as the stage plays
@@ -728,34 +817,61 @@ fn each_cpu_s_miniature_is_fed_its_judged_moments() {
     }
 }
 
-/// The ruleset is a match rule (D0): the stage is played under the
-/// match's, whatever the player's own Options say; every ruleset a match
-/// may name is one of the engine's presets.
+/// The rules are the match's (D0): a stage is played under DDI with the
+/// match's difficulty and Boos, whatever the player's own Options say (their
+/// ruleset, their DDI difficulty, Boos or Practice), by the player and the
+/// CPUs alike; rules that still name an older ruleset are played as DDI.
 #[test]
-fn a_stage_is_played_under_the_match_s_ruleset_not_the_player_s() {
+fn a_stage_is_played_under_the_match_s_rules_not_the_player_s() {
+    use ddi_engine::rules::ddi::{DdiOptions, Difficulty};
     for id in MatchRules::RULESETS {
         assert!(ddi_engine::rules::presets::by_id(id).is_some(), "{id}");
     }
     let song = bundled("beatucada");
     let mut room = room(&song, 1, 1, 2);
     let rules = MatchRules {
+        // As a room stored before, or an authority one build behind.
         ruleset: "sm5".into(),
+        difficulty: ddi_room::MatchDifficulty::Hard,
+        boos: true,
         ..room.rules().clone()
     };
     room.save_rules(rules).unwrap();
     let mut now = 0;
     let order = begin(&song, &mut room, &mut now);
-    assert_eq!(order.ruleset, "sm5");
+    assert_eq!(order.rules.ruleset, "ddi");
+    assert_eq!(order.rules.difficulty, ddi_room::MatchDifficulty::Hard);
+    assert!(order.rules.boos);
+    // The player's own options say otherwise, Practice among them.
     let settings = Settings {
         ruleset: "ddr-a".into(),
+        ddi: DdiOptions {
+            difficulty: Difficulty::Easy,
+            boos: false,
+            practice: true,
+        },
         ..Settings::default()
     };
     let (s, _, _) = play(&song, &settings, &order, true, &[]);
-    assert_eq!(s.player.ruleset().id, "sm5");
-    assert_eq!(s.player.ruleset().fail, ddi_engine::FailPolicy::Immediate);
-    // New rooms play ITG FA+.
+    let hard = DdiOptions {
+        difficulty: Difficulty::Hard,
+        boos: true,
+        practice: false,
+    };
+    let rules = s.player.ruleset();
+    assert_eq!(rules.id, "ddi");
+    assert_eq!(rules.ddi, Some(hard), "the match's, never Practice");
+    assert_eq!(rules.fail, ddi_engine::FailPolicy::Immediate);
+    // The CPUs play under the same rules.
+    assert_eq!(s.opponents().len(), 1);
+    assert_eq!(crate::battle::stage_ruleset(&order.rules).ddi, Some(hard));
+    // New rooms play DDI on Normal without Boos; a practice set to
+    // Practice in the player's own settings still never plays it.
     let fresh = RoomClient::new(0, 1);
-    assert_eq!(fresh.rules().ruleset, "itg-fa+");
+    assert_eq!(fresh.rules().ruleset, "ddi");
+    let normal = crate::battle::stage_ruleset(&ddi_ui::state::room::StageRules::of(fresh.rules()));
+    assert_eq!(normal.ddi, Some(DdiOptions::default()));
+    assert_eq!(normal.fail, ddi_engine::FailPolicy::Immediate);
 }
 
 /// A practice room under the attacks' battle (M8a's development switch's).
@@ -962,6 +1078,92 @@ fn cpus_receive_shocks_judged_alike_at_any_frame_rate() {
     assert!(hit <= 32);
 }
 
+/// The DDI ruleset's round 3: in a stage a shock stepped on is a mine,
+/// judged under the match's rules: it is in the mines' count, the combo
+/// breaks, the life drops by the match's difficulty (−1, −5, −10) and the
+/// lane locks for a second, for the player (a key pressed on the first
+/// shock of the development section, over the autoplay) as for the CPUs
+/// (whose mines' count is their shocks stepped on, their feeds saying
+/// the lock).
+#[test]
+fn a_shock_stepped_on_in_a_stage_is_a_mine_by_the_match_s_difficulty() {
+    use ddi_room::MatchDifficulty as D;
+    let song = bundled("beatucada");
+    for (difficulty, cost) in [(D::Easy, 0.01f32), (D::Normal, 0.05), (D::Hard, 0.10)] {
+        let mut practice = room(&song, 1, 4, 0);
+        let rules = MatchRules {
+            difficulty,
+            ..practice.rules().clone()
+        };
+        practice.save_rules(rules).unwrap();
+        let mut now = 0;
+        let mut order = begin(&song, &mut practice, &mut now);
+        assert_eq!(order.rules.difficulty, difficulty);
+        order.dev_mines_at_beat = Some(16);
+        let settings = Settings::default();
+        // Where the section's first shock is: as an untouched play has it.
+        let (plain, _, _) = play(&song, &settings, &order, true, &[]);
+        let first = plain.player.hazards().expect("its shocks").mines()[0];
+        assert_eq!(plain.player.tally().mine_hit, 0, "autoplay steps on none");
+        // Its lane's key pressed 30 ms before it, over the autoplay.
+        let key = ["ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight"][usize::from(first.lane)];
+        let at = first.seconds - 0.03;
+        // The fake host's second of that song second (the same in every
+        // play of the stage: its lead-in).
+        let lead = 10.0
+            - plain
+                .player
+                .clock()
+                .song_time_at_host(ddi_platform::HostTime(10.0));
+        let (s, _, _) = play(
+            &song,
+            &settings,
+            &order,
+            true,
+            &[(at + lead, key, true), (at + lead + 0.06, key, false)],
+        );
+        let p = &s.player;
+        let r = p.results();
+        assert_eq!(r.tally.mine_hit, 1, "{difficulty:?}: in the mines' count");
+        assert_eq!(
+            r.battle_mines,
+            Some(ddi_engine::player::BattleMines { hit: 1, avoided: 7 })
+        );
+        // The life at the hit, by the difficulty.
+        let hit = p
+            .log()
+            .inputs
+            .iter()
+            .find(|i| i.pressed && i.lane == first.lane && (i.time - at).abs() < 0.02)
+            .map(|i| i.time)
+            .expect("the press");
+        let drop = p.life_at(hit) - p.life_at(hit + 0.000_5);
+        assert!((drop - cost).abs() < 1e-5, "{difficulty:?}: {drop}");
+        // The lane locked from the press for the lock's second.
+        assert_eq!(p.judge().locked_until(first.lane), Some(hit + 1.0));
+        // The combo broke there: the longest run is the notes before it
+        // or those after (every one hit), never all of them.
+        let before = p.judge().notes().iter().filter(|n| n.seconds < hit).count() as u32;
+        let all = plain.player.results().max_combo;
+        assert_eq!(r.max_combo, before.max(all - before), "{difficulty:?}");
+        // The CPUs: theirs counted as mines too, their fields saying the
+        // lock for its second.
+        let b = s.battle().unwrap();
+        for feed in b.feeds() {
+            for m in feed
+                .moments()
+                .iter()
+                .filter(|m| m.kind == crate::battle::feed::MomentKind::ShockHit)
+            {
+                let lanes = b.track().lanes();
+                let locked = feed.locks(lanes, m.at + 0.5);
+                assert!(locked[usize::from(m.lane)].is_some(), "{locked:?}");
+                assert!(feed.locks(lanes, m.at + 1.01)[usize::from(m.lane)].is_none());
+            }
+        }
+    }
+}
+
 /// Beatucada's Medium chart: long enough for full bars (217 notes).
 const LONG: usize = 4;
 
@@ -1023,6 +1225,71 @@ fn attacks_are_launched_delivered_and_the_same_at_any_frame_rate_and_from_the_lo
             .map(|p| ra.stats(p))
             .collect::<Vec<_>>()
     );
+}
+
+/// `attacks-v1` (round 3b): no recovery, and one more attack may be
+/// reserved behind the one on its way or passing. Over a long chart with
+/// strong CPUs, chains happen: an attack committed against someone while
+/// an earlier one against them had not cleared, its first shock after
+/// the earlier one's last (never a shared section), never a third at
+/// once; both are delivered into the recipient's play (the player's own,
+/// a CPU's and its field) as they are committed; and the record is the
+/// same at 60 and 144 frames a second.
+#[test]
+fn chained_attacks_are_delivered_back_to_back_into_plays_and_cpus() {
+    assert_eq!(crate::battle::attacks::rules().id, "attacks-v1");
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(&song, 3, 9);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let a = play_at(&song, &order, 60.0);
+    let b = play_at(&song, &order, 144.0);
+    let ra = a.battle().unwrap().attacks().unwrap();
+    assert_eq!(
+        ra.record(),
+        b.battle().unwrap().attacks().unwrap().record(),
+        "60 and 144 frames a second"
+    );
+    let attacks = ra.ledger().attacks();
+    let checkpoints = ra.ledger().checkpoints_us();
+    let (mut chained, mut to_me, mut to_cpu) = (0, 0, 0);
+    for x in attacks {
+        let at = checkpoints[x.checkpoint];
+        // Those against the same recipient still on their way or passing
+        // when it was committed.
+        let before: Vec<_> = attacks
+            .iter()
+            .filter(|o| o.id < x.id && o.recipient == x.recipient && o.clear_us >= at)
+            .collect();
+        assert!(before.len() <= 1, "never more than one waiting: {x:?}");
+        if let Some(o) = before.first() {
+            chained += 1;
+            assert!(
+                x.cells.first().unwrap().at_us > o.clear_us,
+                "after the one before it has cleared"
+            );
+            if x.recipient == order.me {
+                to_me += 1;
+            } else {
+                to_cpu += 1;
+            }
+        }
+    }
+    assert!(chained > 0, "strong CPUs chain: {} attacks", attacks.len());
+    eprintln!(
+        "chains: {chained} of {} attacks ({to_me} against the player, {to_cpu} against CPUs)",
+        attacks.len()
+    );
+    // Every commitment is in its recipient's play, chained or not.
+    let mine = attacks.iter().filter(|x| x.recipient == order.me).count();
+    assert_eq!(a.player.log().hazards.len(), 8 * mine);
+    for (feed, seat) in a.battle().unwrap().feeds().zip(&order.cpus) {
+        let sent = attacks
+            .iter()
+            .filter(|x| x.recipient == seat.participant)
+            .count();
+        assert_eq!(feed.shocks().len(), 8 * sent, "{seat:?}");
+    }
 }
 
 /// SETTLEMENT_V0 (D6): no Stage won while an attack against the last one

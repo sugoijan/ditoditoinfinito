@@ -190,6 +190,9 @@ enum Slot {
     Lift,
     Fake,
     Mine,
+    /// A multiplayer battle's shock: the lane's `Tap Shock` where the
+    /// skin has one (`UseTapShock=1`, our extension), else its `Tap Mine`.
+    Shock,
 }
 
 impl ColorSet {
@@ -217,7 +220,8 @@ impl ColorSet {
             Slot::Tap => &mut self.tap,
             Slot::Lift => &mut self.lift,
             Slot::Fake => &mut self.fake,
-            Slot::Mine => &mut self.mine,
+            // A shock has no copies by note type: its lane's one element.
+            Slot::Mine | Slot::Shock => &mut self.mine,
         }
     }
 
@@ -252,6 +256,9 @@ struct Lane {
     lift: Element,
     fake: Element,
     mine: Element,
+    /// The skin's `Tap Shock` (`UseTapShock=1`, our extension): what a
+    /// battle's shocks are drawn with; `None`, with its `Tap Mine`.
+    shock: Option<Element>,
     hold: HoldParts,
     roll: HoldParts,
     holding: Option<HoldKind>,
@@ -395,7 +402,13 @@ struct Hit {
     /// `W1` … `W5`, `Held`, `HitMine` (a miss sets off none).
     name: &'static str,
     bright: bool,
+    /// Drawn at [`DIM_HIT`] of its strength (`SkinEvent::dim`).
+    dim: bool,
 }
+
+/// How strong an explosion component's instance of a dim hit is drawn
+/// (DDI's W1 outside W0, a little less than a W0's).
+const DIM_HIT: f32 = 0.78;
 
 /// How opaque a miniature's explosion components are drawn
 /// ([`NoteLayer::miniature`]): the play's own effects scaled down to a
@@ -465,6 +478,18 @@ const LANE_ELEMENTS: [&str; 36] = [
     "Tap Fake",
     "Tap Mine",
 ];
+
+/// Our extension (`docs/plans/noteskin-authoring.md`, "Tap Shock"): the
+/// element a skin with `UseTapShock=1` draws a multiplayer battle's shocks
+/// with, loaded as any other of a lane's.
+pub const TAP_SHOCK: &str = "Tap Shock";
+
+/// A lane's `Tap Shock` as loaded, if the skin draws it: one that came
+/// out blank or not the skin's own (missing: the built-in stand-in) is
+/// none, and the shocks are drawn as the lane's `Tap Mine`.
+fn shock_element(e: Element) -> Option<Element> {
+    (e.is_skin() && !matches!(e, Element::Blank)).then_some(e)
+}
 
 fn lane_elements(dropped: bool) -> impl Iterator<Item = &'static str> {
     LANE_ELEMENTS
@@ -554,6 +579,7 @@ impl Lane {
             lift: next(),
             fake: next(),
             mine: next(),
+            shock: None,
             hold,
             roll,
             holding: None,
@@ -573,12 +599,31 @@ impl Lane {
             Slot::Lift => &mut self.lift,
             Slot::Fake => &mut self.fake,
             Slot::Mine => &mut self.mine,
+            Slot::Shock => match &mut self.shock {
+                Some(shock) => shock,
+                None => &mut self.mine,
+            },
+        }
+    }
+
+    /// The slot a mine-like note is drawn from: a battle's shock (numbered
+    /// from `HAZARD_INDEX_BASE`) from the lane's `Tap Shock` where the
+    /// skin has one, a chart's own mine (and a shock without that element)
+    /// from its `Tap Mine`.
+    fn mine_slot(&self, note: &NoteSprite) -> Slot {
+        if self.shock.is_some() && note.note_index >= ddi_engine::battle::HAZARD_INDEX_BASE {
+            Slot::Shock
+        } else {
+            Slot::Mine
         }
     }
 
     /// The element drawing a note of `note_type` (`note_type()`: 0 for
     /// 4ths … 8 for 192nds) in `slot`.
     fn note_slot(&mut self, slot: Slot, note_type: u32) -> &mut Element {
+        if slot == Slot::Shock {
+            return self.base_slot(slot);
+        }
         let colored = (note_type as usize).checked_sub(1).filter(|&i| {
             self.colors
                 .get_mut(i)
@@ -641,12 +686,18 @@ impl Lane {
             tap,
             lift,
             fake,
+            shock,
             hold,
             roll,
             colors,
             ..
         } = self;
-        let heads = hold.head.iter_mut().chain(roll.head.iter_mut());
+        // A shock is lane-shaped where a skin has one: turned as a tap.
+        let heads = hold
+            .head
+            .iter_mut()
+            .chain(roll.head.iter_mut())
+            .chain(shock.iter_mut());
         let copies = colors.iter_mut().flat_map(|set| {
             let [hold_head, ..] = &mut set.hold;
             let [roll_head, ..] = &mut set.roll;
@@ -808,6 +859,11 @@ impl NoteskinPlay {
                 })
                 .collect();
             let mut assembled = Lane::assemble(elements, metrics, lane.scroll_sign);
+            // Our extension: the skin's own element for a battle's shock.
+            if assembled.metrics.use_tap_shock {
+                let built = build(skin, button, TAP_SHOCK, textures, images);
+                assembled.shock = shock_element(to_element(built, button, TAP_SHOCK, textures, notes));
+            }
             if !colored.is_empty() {
                 for color in &NOTE_COLORS[1..] {
                     let mut set = ColorSet::default();
@@ -1029,6 +1085,22 @@ impl NoteskinPlay {
                 elements.push(to_element(built, button, name, textures, notes));
             }
             let mut assembled = Lane::assemble(elements, metrics, lane.scroll_sign);
+            // Our extension: the skin's own element for a battle's shock,
+            // loaded only for a play that may be given shocks (a solo
+            // play loads what it did before).
+            if assembled.metrics.use_tap_shock && lua.shocks() {
+                let (built, _) = lua
+                    .element_colored_sliced(
+                        button,
+                        TAP_SHOCK,
+                        NOTE_COLORS[0],
+                        textures,
+                        images,
+                        pause.as_deref_mut(),
+                    )
+                    .await?;
+                assembled.shock = shock_element(to_element(built, button, TAP_SHOCK, textures, notes));
+            }
             if !colored.is_empty() {
                 for color in &NOTE_COLORS[1..] {
                     let mut set = ColorSet::default();
@@ -1246,6 +1318,7 @@ impl NoteskinPlay {
                 elements.push(&lane.mine);
                 elements.extend(lane.colors.iter().filter_map(|c| c.mine.as_ref()));
             }
+            TAP_SHOCK => elements.extend(lane.shock.as_ref()),
             _ => {
                 let Some(e) = LongElement::parse(name) else {
                     return Vec::new();
@@ -1681,6 +1754,7 @@ impl NoteskinPlay {
                     at: e.song_time,
                     name: names[2],
                     bright: b,
+                    dim: e.dim,
                 });
                 let mut params = vec![
                     (score.0, Param::Str(score.1)),
@@ -1743,6 +1817,7 @@ impl NoteskinPlay {
                         at: e.song_time,
                         name,
                         bright: false,
+                        dim: false,
                     });
                     cmd.play(&mut lane.receptor, name, &[], p)
                 }
@@ -2006,6 +2081,7 @@ impl Lane {
             &self.mine,
         ]
         .into_iter()
+        .chain(self.shock.iter())
         .chain(self.hold.all())
         .chain(self.roll.all())
     }
@@ -2027,6 +2103,7 @@ impl Lane {
             &mut self.mine,
         ]
         .into_iter()
+        .chain(self.shock.iter_mut())
         .chain(self.hold.all_mut())
         .chain(self.roll.all_mut())
         .chain(self.colors.iter_mut().flat_map(ColorSet::all_mut))
@@ -2303,6 +2380,7 @@ impl NoteLayer for NoteskinPlay {
                     at: now - f64::from(age),
                     name,
                     bright: false,
+                    dim: false,
                 });
                 (
                     std::mem::replace(&mut lane.step, hit),
@@ -2645,7 +2723,7 @@ impl NoteLayer for NoteskinPlay {
                 SpriteKind::Tap | SpriteKind::Dummy => (Slot::Tap, Part::TapNote),
                 SpriteKind::Lift => (Slot::Lift, Part::TapLift),
                 SpriteKind::Fake => (Slot::Fake, Part::TapFake),
-                SpriteKind::Mine | SpriteKind::Shock => (Slot::Mine, Part::TapMine),
+                SpriteKind::Mine | SpriteKind::Shock => (lane.mine_slot(note), Part::TapMine),
                 _ => continue,
             };
             let note_type = note_type(note.beat);
@@ -2674,9 +2752,9 @@ impl NoteLayer for NoteskinPlay {
                 self.last_note_positions.push((note.note_index, note.y));
                 continue;
             }
-            let split =
-                matches!(slot, Slot::Mine) && lane.metrics.mine_connect_rows && split_mine_rims(&e);
-            let visibility = if matches!(slot, Slot::Mine) && lane.metrics.mine_connect_rows {
+            let mine = matches!(slot, Slot::Mine | Slot::Shock);
+            let split = mine && lane.metrics.mine_connect_rows && split_mine_rims(&e);
+            let visibility = if mine && lane.metrics.mine_connect_rows {
                 mine_layers(
                     &mut e,
                     if split {
@@ -2736,6 +2814,9 @@ impl NoteLayer for NoteskinPlay {
 struct MineEndpoint<'a> {
     note: &'a NoteSprite,
     at: [f32; 2],
+    /// What draws it: a row's links join mines with mines and a battle's
+    /// shocks with shocks, never one with the other.
+    slot: Slot,
 }
 
 /// Adjacent nodes joined in each row, independently of lane indices: a
@@ -2874,22 +2955,29 @@ impl NoteskinPlay {
                 }
                 let lane = lanes.get_mut(usize::from(note.lane))?;
                 let l = layout.lanes.get(usize::from(note.lane))?;
+                let slot = lane.mine_slot(note);
                 if !lane.metrics.mine_connect_rows
-                    || !has_mine_link(lane.note_slot(Slot::Mine, note_type(note.beat)))
+                    || !has_mine_link(lane.note_slot(slot, note_type(note.beat)))
                 {
                     return None;
                 }
                 let at = [geo.lane_x(l.column), geo.lane_y(l.scroll_sign, note.y)];
                 at.iter()
                     .all(|v| v.is_finite())
-                    .then_some(MineEndpoint { note, at })
+                    .then_some(MineEndpoint { note, at, slot })
             })
-            .collect();
-        for [left, right] in aligned_mines(nodes, geo.arrow) {
+            .collect::<Vec<_>>();
+        // A chart's mines among themselves, then a battle's shocks.
+        let (mines, shocks): (Vec<_>, Vec<_>) =
+            nodes.into_iter().partition(|n| n.slot == Slot::Mine);
+        let pairs = aligned_mines(mines, geo.arrow)
+            .into_iter()
+            .chain(aligned_mines(shocks, geo.arrow));
+        for [left, right] in pairs {
             joined.entry(left.note.note_index).or_default()[1] = true;
             joined.entry(right.note.note_index).or_default()[0] = true;
             let lane = &mut lanes[usize::from(left.note.lane)];
-            let e = lane.note_slot(Slot::Mine, note_type(left.note.beat));
+            let e = lane.note_slot(left.slot, note_type(left.note.beat));
             let split = split_mine_rims(e);
             let visibility = mine_layers(e, MineLayers::Link, [false; 2]);
             if let Element::Actor(a) = e {
@@ -3030,10 +3118,10 @@ impl NoteskinPlay {
             let instances = lane
                 .hits
                 .iter()
-                .map(|h| (h.name, h.at, h.bright, None))
-                .chain(tail)
-                .chain(held);
-            for (name, at_time, bright, ended) in instances {
+                .map(|h| (h.name, h.at, h.bright, None, h.dim))
+                .chain(tail.map(|(n, t, b, e)| (n, t, b, e, false)))
+                .chain(held.map(|(n, t, b, e)| (n, t, b, e, false)));
+            for (name, at_time, bright, ended, dim) in instances {
                 let age = now - at_time;
                 let holding = matches!(name, "Holding" | "Rolling");
                 if age < 0.0 || (!holding && age > f64::from(c.duration)) {
@@ -3048,7 +3136,7 @@ impl NoteskinPlay {
                     c,
                     at,
                     k,
-                    (self.explosion_alpha, 1.0),
+                    (self.explosion_alpha * if dim { DIM_HIT } else { 1.0 }, 1.0),
                     hit_seed(i, at_time),
                     &clocks,
                     &|p| {
@@ -3607,6 +3695,7 @@ mod tests {
             at,
             name,
             bright: false,
+            dim: false,
         };
         play.lanes[0].hits.push_back(hit(0.0, "HitMine"));
         // A slightly later neighbor still joins; the bridge uses the weaker fade.
@@ -3745,6 +3834,7 @@ mod tests {
             at: 0.1,
             name: "W1",
             bright: false,
+            dim: false,
         });
         play.presses = vec![LanePresses::default(); 4];
         play.presses[0].pressed = Some(0.1);
@@ -3817,6 +3907,7 @@ mod tests {
                 at: n as f64 * 0.01,
                 name: "W1",
                 bright: false,
+                dim: false,
             });
         }
         let geo = FieldGeometry {
@@ -3841,6 +3932,7 @@ mod tests {
             at: 0.09,
             name: "W1",
             bright: false,
+            dim: false,
         });
         let after = draw(&mut play);
         assert_eq!(
@@ -4138,9 +4230,26 @@ mod tests {
     }
 
     fn lua_play_on(layout: &Layout, tap: &str, more: &[(&str, &str)]) -> NoteskinPlay {
+        lua_play_env(
+            layout,
+            tap,
+            more,
+            "[Global]\nFallbackNoteSkin=default\n",
+            Env::default(),
+        )
+    }
+
+    /// [`lua_play_on`] with the skin's `metrics` and what its Lua is told.
+    fn lua_play_env(
+        layout: &Layout,
+        tap: &str,
+        more: &[(&str, &str)],
+        metrics: &str,
+        env: Env,
+    ) -> NoteskinPlay {
         let file = |name: &str, text: &str| (name.to_string(), text.to_string());
         let mut texts = vec![
-            file("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            file("metrics.ini", metrics),
             file(
                 "Down Explosion.lua",
                 "return Def.ActorFrame {\n\
@@ -4167,7 +4276,7 @@ mod tests {
         ];
         texts.extend(more.iter().map(|(n, t)| file(n, t)));
         let mut files: Vec<String> = texts.iter().map(|(n, _)| n.clone()).collect();
-        files.push("x.png".into());
+        files.extend(["x.png", "spiked.png", "shock.png"].map(String::from));
         let folders = vec![Folder {
             game: "dance".into(),
             name: "live".into(),
@@ -4178,7 +4287,7 @@ mod tests {
         let mut t = 0.0;
         let lua = LuaSkin::new(
             skin,
-            Env::default(),
+            env,
             ddi_lua::Settings::default(),
             LoadBudget::default(),
             Box::new(move || {
@@ -4195,6 +4304,129 @@ mod tests {
             std::task::Poll::Ready(r) => r.unwrap().unwrap(),
             std::task::Poll::Pending => panic!("pending"),
         }
+    }
+
+    /// Our extension (`UseTapShock=1`): a multiplayer battle's shock
+    /// (numbered from `HAZARD_INDEX_BASE`) is drawn by the lane's
+    /// `Tap Shock`, a chart's own mine by its `Tap Mine`, two different
+    /// elements in one frame; a skin told the play may be given shocks
+    /// (`NOTESKIN:PlayHasShocks`) can keep its mines apart from them;
+    /// a row's links never join a mine and a shock; without the metric,
+    /// or where the element is missing, a shock is drawn as the mine.
+    #[test]
+    fn a_battle_s_shock_is_drawn_by_tap_shock_and_a_chart_s_mine_by_tap_mine() {
+        use ddi_engine::battle::HAZARD_INDEX_BASE;
+        let layout = Layout::dance_single();
+        let mine = "return Def.ActorFrame {\n\
+              Def.Sprite { Name='MineCore', Texture = NOTESKIN:PlayHasShocks() and 'spiked.png' or 'x.png' },\n\
+              Def.Sprite { Name='MineLink', Texture = 'x.png' },\n\
+            }";
+        let shock = "return Def.ActorFrame {\n\
+              Def.Sprite { Name='MineCore', Texture = 'shock.png' },\n\
+              Def.Sprite { Name='MineLink', Texture = 'shock.png' },\n\
+            }";
+        let with = "[Global]\nFallbackNoteSkin=default\n[NoteDisplay]\nUseTapShock=1\nMineConnectRows=1\n";
+        let without = "[Global]\nFallbackNoteSkin=default\n[NoteDisplay]\nMineConnectRows=1\n";
+        let files = [("Down Tap Mine.lua", mine), ("Down Tap Shock.lua", shock)];
+        let told = Env {
+            shocks: true,
+            ..Env::default()
+        };
+        let texture_of = |play: &NoteskinPlay, name: &str| {
+            play.texture_keys()
+                .iter()
+                .position(|k| matches!(k, TextureKey::Skin { path, .. } if path == name))
+                .map(|i| i as u32)
+        };
+        // What a frame with a chart's mine in lane 0 and a shock in lane 1
+        // of the same row draws, by texture.
+        let drawn = |play: &mut NoteskinPlay| -> Vec<u32> {
+            for i in 0..play.texture_keys().len() {
+                play.set_texture(i, i as u32);
+            }
+            let geo = FieldGeometry::new(800.0, 800.0, 4.0, false);
+            let mut f = frame(0.1, None);
+            f.notes = vec![
+                danoni_note(5, 0, 2.0, SpriteKind::Mine),
+                danoni_note(HAZARD_INDEX_BASE, 1, 2.0, SpriteKind::Mine),
+            ];
+            for note in &mut f.notes {
+                note.beat = 4.0;
+            }
+            let mut out = Vec::new();
+            play.update(&f, [].iter(), false);
+            play.notes(&f, &layout, &geo, &mut out);
+            out.iter().map(|q| q.texture).collect()
+        };
+        // The skin has the element: each lane's shock is its own.
+        let mut play = lua_play_env(&layout, "return Def.Sprite {Texture='x.png'}", &files, with, told.clone());
+        assert!(play.lanes.iter().all(|l| l.shock.is_some()), "{:?}", play.problems());
+        let (spiked, shock_t) = (
+            texture_of(&play, "spiked.png").expect("the mine's"),
+            texture_of(&play, "shock.png").expect("the shock's"),
+        );
+        assert!(!play.element_texture_keys(0, TAP_SHOCK).is_empty());
+        let textures = drawn(&mut play);
+        // Two different elements, and no link between the mine and the
+        // shock beside it (each draws its core alone: its own link child
+        // is hidden, nothing bridges them).
+        assert_eq!(textures, vec![spiked, shock_t], "{:?}", play.problems());
+        // Two shocks in a row are linked with the shock's own link, two
+        // mines with the mine's.
+        for (first, want) in [(HAZARD_INDEX_BASE, shock_t), (5, spiked)] {
+            for i in 0..play.texture_keys().len() {
+                play.set_texture(i, i as u32);
+            }
+            let geo = FieldGeometry::new(800.0, 800.0, 4.0, false);
+            let mut f = frame(0.1, None);
+            f.notes = vec![
+                danoni_note(first, 0, 2.0, SpriteKind::Mine),
+                danoni_note(first + 1, 1, 2.0, SpriteKind::Mine),
+            ];
+            for note in &mut f.notes {
+                note.beat = 4.0;
+            }
+            let mut out = Vec::new();
+            play.update(&f, [].iter(), false);
+            play.notes(&f, &layout, &geo, &mut out);
+            assert_eq!(out.len(), 3, "two cores and their link");
+            assert_eq!(
+                out.iter().filter(|q| q.texture == want).count(),
+                if first == 5 { 2 } else { 3 },
+                "{first}: the mine's cores, or the shock's cores and link"
+            );
+        }
+        // Not told of shocks (a solo play): the mine as the skin has it
+        // otherwise, and the shock's element is not even loaded.
+        let mut solo = lua_play_env(&layout, "return Def.Sprite {Texture='x.png'}", &files, with, Env::default());
+        assert_eq!(texture_of(&solo, "spiked.png"), None);
+        assert_eq!(texture_of(&solo, "shock.png"), None);
+        assert!(solo.lanes.iter().all(|l| l.shock.is_none()));
+        let x = texture_of(&solo, "x.png").unwrap();
+        assert!(drawn(&mut solo).iter().all(|t| *t == x));
+        // Without the metric the element is never asked for: a shock is
+        // the lane's mine.
+        let mut plain = lua_play_env(&layout, "return Def.Sprite {Texture='x.png'}", &files, without, told.clone());
+        assert!(plain.lanes.iter().all(|l| l.shock.is_none()));
+        assert_eq!(texture_of(&plain, "shock.png"), None);
+        let spiked = texture_of(&plain, "spiked.png").unwrap();
+        // Both are the lane's mine, and linked as two mines of a row are.
+        let textures = drawn(&mut plain);
+        assert_eq!(textures.len(), 3, "two cores and their link");
+        assert_eq!(textures.iter().filter(|t| **t == spiked).count(), 2, "{textures:?}");
+        // The metric without the element's file: the built-in stand-in is
+        // not taken for the skin's, and a shock is the lane's mine.
+        let mut missing = lua_play_env(
+            &layout,
+            "return Def.Sprite {Texture='x.png'}",
+            &files[..1],
+            with,
+            told,
+        );
+        assert!(missing.lanes.iter().all(|l| l.shock.is_none()), "{:?}", missing.problems());
+        let spiked = texture_of(&missing, "spiked.png").unwrap();
+        let textures = drawn(&mut missing);
+        assert_eq!(textures.iter().filter(|t| **t == spiked).count(), 2, "{textures:?}");
     }
 
     /// The shells' load ([`NoteskinPlay::load_lua`]): with no pause it
@@ -4358,6 +4590,7 @@ mod tests {
                     .map(|(note, l)| MineEndpoint {
                         note,
                         at: [geo.lane_x(l.column), geo.lane_y(l.scroll_sign, note.y)],
+                        slot: Slot::Mine,
                     })
                     .collect();
                 let mut row_counts = std::collections::HashMap::new();
@@ -4405,6 +4638,7 @@ mod tests {
             .map(|(i, note)| MineEndpoint {
                 note,
                 at: [i as f32 * 64.0, 100.0],
+                slot: Slot::Mine,
             })
             .collect();
         assert_eq!(aligned_mines(nodes.clone(), 64.0).len(), 3);
@@ -4884,6 +5118,7 @@ mod tests {
                                     autoplay: auto,
                                     danoni_judgments: false,
                                     note: None,
+                                    dim: false,
                                 },
                                 SkinEvent {
                                     seq: u64::from(lane) * 2 + 1,
@@ -4899,6 +5134,7 @@ mod tests {
                                         index: usize::from(lane),
                                         y: -1.0,
                                     }),
+                                    dim: false,
                                 },
                             ]
                         })
@@ -5284,6 +5520,7 @@ mod tests {
                 autoplay: false,
                 danoni_judgments: false,
                 note: None,
+                dim: false,
                 seq: 0,
                 lane: down,
                 kind: SkinEventKind::Press,
@@ -5293,6 +5530,7 @@ mod tests {
                 autoplay: false,
                 danoni_judgments: false,
                 note: None,
+                dim: false,
                 seq: 1,
                 lane: down,
                 kind: SkinEventKind::Tap {

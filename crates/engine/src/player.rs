@@ -17,6 +17,7 @@ use crate::frame::{
 use crate::history::{LoggedHazard, LoggedInput, PlayLog};
 use crate::input::InputEvent;
 use crate::judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};
+use crate::rules::ddi::{self, DdiResult, Lamp};
 use crate::rules::ddr::{DdrClear, flare_points};
 use crate::rules::ffr::FfrResult;
 use crate::rules::{
@@ -59,6 +60,11 @@ const BRIGHT_COMBO: u32 = 100;
 /// few frames" (Rhythmic Keystrokes); no measured figure is published,
 /// so this is an estimate (`docs/research/rules-ddr-itg-dwi.md`).
 pub const SHOCK_BLIND_SECONDS: f64 = 0.2;
+
+/// While a lane is locked (DDI's, `rules::ddi::LANE_LOCK`) its mine's hit
+/// effect is set off again this often, song seconds, so the receptor
+/// keeps the shock for the whole lock ([`Player::set_lock_effect`]).
+pub const LOCK_EFFECT_PERIOD: f64 = 0.25;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -168,6 +174,9 @@ pub struct Results {
     /// and avoided; `None` where none were (every single play).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub battle_mines: Option<BattleMines>,
+    /// Under DDI's rules, its lamp (`rules::ddi`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ddi: Option<DdiResult>,
 }
 
 /// A play's battle shocks ([`Results::battle_mines`]).
@@ -238,12 +247,14 @@ pub struct Player {
     tally: Tally,
     fast: u32,
     slow: u32,
+    /// Early and late hits per tier ([`DdiResult::sides`]).
+    sides: [[u32; 2]; 6],
     delta_sum: f64,
     delta_sq_sum: f64,
     delta_count: u32,
-    /// `(judgement, delta, song_time, combo_at, w0)`, `w0` as
-    /// [`JudgementFlash::w0`].
-    last_flash: Option<(Judgement, f64, f64, u32, Option<bool>)>,
+    /// The judgment shown last (its `age` unset) and the song second it
+    /// was judged at: a tap's, or a Boo's where the ruleset names it.
+    last_flash: Option<(JudgementFlash, f64)>,
     /// The last shock stepped on: from when to when the notes to come are
     /// hidden.
     shock_blind: Option<(f64, f64)>,
@@ -290,7 +301,15 @@ pub struct Player {
     row_judged: Vec<u32>,
     /// The latest skin events, oldest first.
     skin_events: VecDeque<SkinEvent>,
+    /// Per lane, when a locked lane's mine effect is next set off again
+    /// ([`LOCK_EFFECT_PERIOD`]); infinite where none is due.
+    lock_effect_next: Vec<f64>,
+    /// Whether a lock repeats its mine's effect (not under reduced
+    /// motion: the one effect of the hit then).
+    lock_effect: bool,
     autoplay: bool,
+    /// Graded as a bot's ([`Player::set_bot`]).
+    bot: bool,
     next_seq: u64,
     /// The lane covers now, the song second they last changed at, and the
     /// last ones shown ([`Results::cover`]).
@@ -346,8 +365,17 @@ impl Player {
     ///
     /// # Panics
     /// If `chart_index` is out of range.
-    pub fn new(song: &Song, chart_index: usize, ruleset: Ruleset, options: PlayOptions) -> Player {
+    pub fn new(
+        song: &Song,
+        chart_index: usize,
+        mut ruleset: Ruleset,
+        options: PlayOptions,
+    ) -> Player {
         let chart = &song.charts[chart_index];
+        // DDI's windows are in real seconds: song seconds at the rate.
+        if ruleset.is_ddi() {
+            ddi::at_rate(&mut ruleset.judge, options.clock.rate);
+        }
         let timing = chart.timing(song).clone();
         let chart_lanes = chart
             .notes
@@ -370,7 +398,7 @@ impl Player {
         // Every stray press counts, in a lane without notes too.
         if matches!(
             ruleset.judge.empty_press,
-            EmptyPress::Boo | EmptyPress::BooFromFirstNote
+            EmptyPress::Boo | EmptyPress::BooFromFirstNote | EmptyPress::Guarded { .. }
         ) {
             judge = judge.with_lanes(layout.lane_count().max(chart_lanes));
         }
@@ -414,6 +442,7 @@ impl Player {
             tally: Tally::default(),
             fast: 0,
             slow: 0,
+            sides: [[0; 2]; 6],
             delta_sum: 0.0,
             delta_sq_sum: 0.0,
             delta_count: 0,
@@ -439,7 +468,10 @@ impl Player {
             row_notes: Vec::new(),
             row_judged: Vec::new(),
             skin_events: VecDeque::new(),
+            lock_effect_next: Vec::new(),
+            lock_effect: true,
             autoplay: false,
+            bot: false,
             next_seq: 0,
             cover: options.cover,
             cover_changed: None,
@@ -485,6 +517,17 @@ impl Player {
             checkpoints: self.judge.checkpoint_count(),
             w0: false,
             meter: self.meter,
+            hold_units: if self.ruleset.is_ddi() {
+                self.judge
+                    .notes()
+                    .iter()
+                    .filter(|n| n.judgeable && n.note.kind.is_long())
+                    .map(|n| ddi::hold_units(n.end_seconds - n.seconds))
+                    .sum()
+            } else {
+                0
+            },
+            units: 0,
         };
         self.ruleset.score.begin(&self.ctx);
         self.ruleset.gauge.begin(&self.ctx);
@@ -727,11 +770,13 @@ impl Player {
     }
 
     /// Puts a battle's shocks into the play (`crate::battle`): judged
-    /// apart from the chart in [`crate::battle::INJECTED_MINE_V0`]'s
-    /// window, drawn as the skin's mines, a hit costing the ruleset's miss
-    /// to the gauge and nothing else. Each must arrive before its window
-    /// and after the shocks already in; kept in the log
-    /// ([`PlayLog::hazards`]) so a replay has them.
+    /// beside the chart in [`crate::battle::INJECTED_MINE_V0`]'s window,
+    /// drawn as the skin's mines. Under DDI a shock is a mine: stepped on,
+    /// it counts, scores and costs life as a chart's and locks its lane
+    /// ([`Player::shock_is_mine`]); under a ruleset without the lock a hit
+    /// costs the ruleset's miss to the gauge and nothing else. Each must
+    /// arrive before its window and after the shocks already in; kept in
+    /// the log ([`PlayLog::hazards`]) so a replay has them.
     pub fn add_hazards(&mut self, cells: &[Hazard]) -> Result<(), HazardError> {
         let window = crate::battle::INJECTED_MINE_V0.window(&self.ruleset.judge);
         let lanes = usize::from(self.lanes);
@@ -785,6 +830,63 @@ impl Player {
         self.hazards.as_ref()
     }
 
+    /// Whether a battle's shock is judged as a chart's mine: where the
+    /// rules lock a lane a mine is stepped on in (DDI's,
+    /// `JudgeTable::lock`). Then a shock stepped on counts in the tally,
+    /// the points, the life, the combo, the floors and the lamp as a
+    /// mine, locks its lane, and is chosen by a press against the chart's
+    /// nearest note as a mine is.
+    pub fn shock_is_mine(&self) -> bool {
+        self.ruleset.judge.lock.is_some()
+    }
+
+    /// A shock's hit as a judge event of its own ([`HAZARD_INDEX_BASE`]).
+    fn hazard_judge_event(&self, hit: HazardHit) -> Option<JudgeEvent> {
+        let m = self.hazards.as_ref()?.mines().get(hit.index).copied()?;
+        Some(JudgeEvent {
+            note_index: Some(HAZARD_INDEX_BASE + hit.index),
+            lane: m.lane,
+            tick: m.tick,
+            kind: JudgeEventKind::HitMine,
+            song_time: hit.at,
+        })
+    }
+
+    /// The chart and the battle's shocks judged up to song second `at`
+    /// with no press or release on the way. Where a shock is a mine
+    /// ([`Player::shock_is_mine`]) the two are judged in step: the chart
+    /// up to each shock's second, the shock stepped on there where its
+    /// lane is held across it (as the chart's judge has the lane: a
+    /// locked lane's key counts as released), its lane locked from that
+    /// instant, and on from there; so what is judged does not depend on
+    /// how time is cut into calls. Elsewhere each is judged by itself.
+    fn advance_judges(&mut self, at: f64) -> Vec<JudgeEvent> {
+        let (Some(lock), true) = (self.ruleset.judge.lock, self.hazards.is_some()) else {
+            let mut events = self.judge.update(at);
+            let hits = self
+                .hazards
+                .as_mut()
+                .map_or_else(Vec::new, |h| h.update(at));
+            self.merge_hazards(&mut events, hits);
+            return events;
+        };
+        let mut events = Vec::new();
+        while let Some((index, mine)) = self.hazards.as_ref().and_then(|h| h.next_crossing(at)) {
+            events.extend(self.judge.update(mine.seconds));
+            let held = self.judge.is_down(mine.lane);
+            let hit = self.hazards.as_mut().and_then(|h| h.cross(index, held));
+            if let Some(hit) = hit {
+                self.judge.lock_lane(mine.lane, hit.at, lock);
+                events.extend(self.hazard_judge_event(hit));
+            }
+        }
+        events.extend(self.judge.update(at));
+        if let Some(h) = self.hazards.as_mut() {
+            h.settle(at);
+        }
+        events
+    }
+
     /// Merges the shocks' `hits` into `events`, in time order (the chart's
     /// first at the same instant), as events of their own
     /// ([`HAZARD_INDEX_BASE`]).
@@ -833,7 +935,27 @@ impl Player {
         self.held[usize::from(lane)] = pressed;
         let target = self.judged_lane.unwrap_or(lane);
         let held_on = !pressed && self.judged_lane.is_some() && self.held.iter().any(|&h| h);
-        let mut events = if pressed {
+        // Where a shock is a mine, the chart and the shocks are judged in
+        // step: everything before the edge, then a press steps on the
+        // nearer of the chart's note or mine and the shock in its reach.
+        let in_step = self.shock_is_mine() && self.hazards.is_some();
+        let mut events = if in_step {
+            let mut events = self.advance_judges(t);
+            if pressed {
+                let beside = self.hazards.as_ref().and_then(|h| h.nearest(target, t));
+                let (judged, stepped) =
+                    self.judge
+                        .press_beside(target, t, beside.map(|(_, far)| far));
+                events.extend(judged);
+                if let (true, Some((index, _))) = (stepped, beside) {
+                    let hit = self.hazards.as_mut().and_then(|h| h.step_on(index, t));
+                    events.extend(hit.and_then(|hit| self.hazard_judge_event(hit)));
+                }
+            } else if !held_on {
+                events.extend(self.judge.release(target, t));
+            }
+            events
+        } else if pressed {
             self.judge.press(target, t)
         } else if held_on {
             // Another lane still holds the judged one down.
@@ -844,11 +966,19 @@ impl Player {
         // A battle's shocks, beside the chart: a press that steps on one
         // is not also a stray press (`Boo`) of the chart's.
         let hits = match self.hazards.as_mut() {
+            _ if in_step => Vec::new(),
             Some(h) if pressed => h.press(target, t),
             Some(h) if !held_on => h.release(target, t),
             _ => Vec::new(),
         };
-        if hits.iter().any(|hit| hit.at == t) {
+        // Nor under DDI's rules a press near any of them.
+        let near_shock = match (self.ruleset.judge.empty_press, self.hazards.as_ref()) {
+            (EmptyPress::Guarded { near_mine, .. }, Some(h)) if pressed => {
+                h.mines().iter().any(|m| (m.seconds - t).abs() <= near_mine)
+            }
+            _ => false,
+        };
+        if near_shock || hits.iter().any(|hit| hit.at == t) {
             events.retain(|e| !(e.kind == JudgeEventKind::Boo && e.song_time == t));
         }
         self.merge_hazards(&mut events, hits);
@@ -879,6 +1009,36 @@ impl Player {
         events
     }
 
+    /// Whether a locked lane's receptor keeps its mine's hit effect for
+    /// the whole lock (set off again every [`LOCK_EFFECT_PERIOD`]; the
+    /// default) or shows it once, as under reduced motion. Presentation
+    /// only: nothing judged reads it.
+    pub fn set_lock_effect(&mut self, repeats: bool) {
+        self.lock_effect = repeats;
+    }
+
+    /// The mine effects due up to song second `t` in the lanes still
+    /// locked, each at its own time (the same at any frame rate).
+    fn repeat_lock_effects(&mut self, t: f64) {
+        for lane in 0..self.lock_effect_next.len() {
+            let until = self.judge.locked_until(lane as u8);
+            loop {
+                let next = self.lock_effect_next[lane];
+                if !until.is_some_and(|u| next < u) {
+                    self.lock_effect_next[lane] = f64::INFINITY;
+                    break;
+                }
+                if next > t {
+                    break;
+                }
+                if self.lock_effect {
+                    self.skin_event(lane as u8, SkinEventKind::HitMine, next);
+                }
+                self.lock_effect_next[lane] = next + LOCK_EFFECT_PERIOD;
+            }
+        }
+    }
+
     fn skin_event(&mut self, lane: u8, kind: SkinEventKind, song_time: f64) {
         if self.skin_events.len() >= SKIN_EVENTS {
             self.skin_events.pop_front();
@@ -891,6 +1051,7 @@ impl Player {
             autoplay: self.autoplay,
             danoni_judgments: self.ruleset.is_danoni(),
             note: None,
+            dim: false,
         });
         self.next_seq += 1;
     }
@@ -900,10 +1061,21 @@ impl Player {
         self.skin_events.iter().filter(move |e| e.seq >= seq)
     }
 
-    /// Noteskin presentation hint only. Input timestamps, judgments, scores
-    /// and replay logs follow the same path in both modes.
+    /// Noteskin presentation hint, and under DDI's rules an Absolute Dito
+    /// graded Absolute Bot (`rules::ddi::ABSOLUTE_BOT`; [`Self::set_bot`]
+    /// for the grade alone). Input timestamps, judgments, scores and
+    /// replay logs follow the same path in both modes.
     pub fn set_autoplay(&mut self, autoplay: bool) {
         self.autoplay = autoplay;
+        self.bot = autoplay;
+    }
+
+    /// The play is graded as a bot's (DDI's Absolute Bot) with nothing
+    /// else of an autoplay's: the replay of a record kept as autoplayed,
+    /// whose log does not say who played (one judged at once from its log
+    /// is given the grade by `rules::ddi::bot_grade`).
+    pub fn set_bot(&mut self, bot: bool) {
+        self.bot = bot;
     }
 
     /// Explosions are bright above a combo of 100.
@@ -931,13 +1103,9 @@ impl Player {
         }
         let t = to_microsecond(song_time);
         let at = to_microsecond(t - JUDGE_LAG);
-        let mut events = self.judge.update(at);
-        let hits = self
-            .hazards
-            .as_mut()
-            .map_or_else(Vec::new, |h| h.update(at));
-        self.merge_hazards(&mut events, hits);
+        let mut events = self.advance_judges(at);
         self.apply(&mut events);
+        self.repeat_lock_effects(t);
         if !self.finished && t >= self.end_time() && self.judge.all_resolved() {
             self.finish();
         }
@@ -962,12 +1130,7 @@ impl Player {
         // fail leaves them), so the counts and the timing are of what
         // was played.
         let at = to_microsecond(song_time);
-        let mut events = self.judge.update(at);
-        let hits = self
-            .hazards
-            .as_mut()
-            .map_or_else(Vec::new, |h| h.update(at));
-        self.merge_hazards(&mut events, hits);
+        let mut events = self.advance_judges(at);
         self.apply(&mut events);
         self.finished = true;
     }
@@ -993,7 +1156,10 @@ impl Player {
                 events.truncate(i);
                 return;
             }
-            if ev.note_index.is_some_and(|n| n >= HAZARD_INDEX_BASE) {
+            // A battle's shock: a mine where the rules lock its lane (it
+            // goes on as any mine's event), else the ruleset's miss to the
+            // gauge alone.
+            if ev.note_index.is_some_and(|n| n >= HAZARD_INDEX_BASE) && !self.shock_is_mine() {
                 self.hazard_event(ev);
                 continue;
             }
@@ -1013,8 +1179,14 @@ impl Player {
                 && j != Judgement::Miss
             {
                 match self.ruleset.judge.fast_slow(delta) {
-                    Some(true) => self.fast += 1,
-                    Some(false) => self.slow += 1,
+                    Some(true) => {
+                        self.fast += 1;
+                        self.sides[j.index()][0] += 1;
+                    }
+                    Some(false) => {
+                        self.slow += 1;
+                        self.sides[j.index()][1] += 1;
+                    }
                     None => {}
                 }
                 self.delta_sum += delta;
@@ -1075,7 +1247,10 @@ impl Player {
     /// `Player.cpp:2555-2575,2834-2856`).
     fn flash(&mut self, ev: &JudgeEvent, bright: bool) {
         match ev.kind {
-            JudgeEventKind::Tap(j, _) => {
+            JudgeEventKind::Tap(j, delta) => {
+                // DDI: a W1 outside W0 shines a little less than a W0.
+                let dim =
+                    self.ruleset.is_ddi() && self.ruleset.judge.is_w0(j, delta) == Some(false);
                 let Some(r) = ev
                     .note_index
                     .and_then(|i| self.judge.note(i))
@@ -1097,6 +1272,7 @@ impl Player {
                     );
                     if let Some(event) = self.skin_events.back_mut() {
                         event.note = hit;
+                        event.dim = dim;
                     }
                 }
                 self.row_judged[r] += 1;
@@ -1133,6 +1309,7 @@ impl Player {
                         );
                         if let Some(event) = self.skin_events.back_mut() {
                             event.note = hit;
+                            event.dim = dim;
                         }
                     }
                 }
@@ -1155,7 +1332,15 @@ impl Player {
                 }
             }
             JudgeEventKind::HitMine => {
-                self.skin_event(ev.lane, SkinEventKind::HitMine, ev.song_time)
+                self.skin_event(ev.lane, SkinEventKind::HitMine, ev.song_time);
+                // DDI: the lane is locked from here, its effect kept up.
+                if self.ruleset.judge.lock.is_some() {
+                    let lane = usize::from(ev.lane);
+                    if self.lock_effect_next.len() <= lane {
+                        self.lock_effect_next.resize(lane + 1, f64::INFINITY);
+                    }
+                    self.lock_effect_next[lane] = ev.song_time + LOCK_EFFECT_PERIOD;
+                }
             }
             // A shock goes off in every lane, and hides what comes next.
             JudgeEventKind::HitShock => {
@@ -1177,6 +1362,18 @@ impl Player {
             }
             JudgeEventKind::Boo | JudgeEventKind::Checkpoint { .. } => {}
         }
+    }
+
+    /// The judgment shown at song second `song_time` ([`Frame::judgement`]):
+    /// the last tap's, or the last Boo's where the ruleset names it
+    /// (`JudgeNames::boo`), for as long as it shows.
+    pub fn judgement_flash(&self, song_time: f64) -> Option<JudgementFlash> {
+        self.last_flash
+            .map(|(flash, at)| JudgementFlash {
+                age: (song_time - at).max(0.0) as f32,
+                ..flash
+            })
+            .filter(|f| f.age < FLASH_SECONDS)
     }
 
     /// The lanes of the shock row at `tick`.
@@ -1211,6 +1408,15 @@ impl Player {
             _ => None,
         };
         let w0 = is_w0 == Some(true);
+        // DDI: the units a hold earned, by its outcome (`rules::ddi`).
+        self.ctx.units = match (ev.kind, ev.note_index.and_then(|i| self.judge.note(i))) {
+            (JudgeEventKind::Held | JudgeEventKind::LetGo, Some(n)) if self.ruleset.is_ddi() => {
+                let dropped = (ev.kind == JudgeEventKind::LetGo).then_some(ev.song_time);
+                ddi::units_earned(n.seconds, n.end_seconds, dropped)
+            }
+            _ => 0,
+        };
+        self.tally.hold_units += self.ctx.units;
         match ev.kind {
             JudgeEventKind::Tap(j, _) => {
                 if combo.neutral == Some(j) {
@@ -1275,15 +1481,34 @@ impl Player {
         self.ctx.w0 = w0;
         self.ruleset.score.on_event(ev, &self.ctx);
         self.gauge_event(ev);
-        if let JudgeEventKind::Tap(j, delta) = ev.kind {
-            let delta = if j.is_miss() { 0.0 } else { delta };
-            self.last_flash = Some((j, delta, ev.song_time, self.combo, is_w0));
+        let flash = match ev.kind {
+            JudgeEventKind::Tap(j, delta) => Some((j, if j.is_miss() { 0.0 } else { delta })),
+            // A stray press counted (here, with the tally and the score,
+            // so a replay shows it where the play did): its word where
+            // the ruleset has one.
+            JudgeEventKind::Boo if self.ruleset.names.boo.is_some() => Some((Judgement::Miss, 0.0)),
+            _ => None,
+        };
+        if let Some((judgement, delta_seconds)) = flash {
+            self.last_flash = Some((
+                JudgementFlash {
+                    judgement,
+                    delta_seconds,
+                    age: 0.0,
+                    combo_at: self.combo,
+                    w0: is_w0,
+                    boo: ev.kind == JudgeEventKind::Boo,
+                },
+                ev.song_time,
+            ));
         }
     }
 
-    /// A battle shock stepped on (`crate::battle`, D1 and D3): the
-    /// ruleset's miss to the gauge, the combo broken where the ruleset's
-    /// mines break it; never the score, the counts or the timeline.
+    /// A battle shock stepped on under a ruleset without the lane lock
+    /// (`crate::battle`, D1 and D3; under DDI it is a mine,
+    /// [`Player::shock_is_mine`]): the ruleset's miss to the gauge, the
+    /// combo broken where the ruleset's mines break it; never the score,
+    /// the counts or the timeline.
     fn hazard_event(&mut self, ev: &JudgeEvent) {
         self.skin_event(ev.lane, SkinEventKind::HitMine, ev.song_time);
         if self.ruleset.combo.mine_breaks {
@@ -1524,18 +1749,7 @@ impl Player {
             })
             .collect();
 
-        let judgement = self
-            .last_flash
-            .map(
-                |(judgement, delta_seconds, at, combo_at, w0)| JudgementFlash {
-                    judgement,
-                    delta_seconds,
-                    age: age(at),
-                    combo_at,
-                    w0,
-                },
-            )
-            .filter(|f| f.age < FLASH_SECONDS);
+        let judgement = self.judgement_flash(song_time);
 
         let mut flashes: Vec<HoldFlash> = match self.hold_place {
             HoldPlace::None => Vec::new(),
@@ -1610,15 +1824,23 @@ impl Player {
         } else {
             0.0
         };
+        let mut grade = if self.quit {
+            "QUIT".into()
+        } else {
+            self.ruleset.grades.grade(&score, &self.tally, self.failed)
+        };
+        if self.bot && self.ruleset.is_ddi() {
+            grade = ddi::bot_grade(&grade).into();
+        }
+        let battle_mines = self.hazards.as_ref().map(|h| {
+            let (hit, avoided) = h.counts();
+            BattleMines { hit, avoided }
+        });
         Results {
             tally: self.tally,
             max_combo: self.max_combo,
             score,
-            grade: if self.quit {
-                "QUIT".into()
-            } else {
-                self.ruleset.grades.grade(&score, &self.tally, self.failed)
-            },
+            grade,
             full_combo: FullCombo::evaluate(&self.tally, &self.ruleset.combo),
             failed: self.failed,
             quit: self.quit,
@@ -1643,9 +1865,18 @@ impl Player {
                 .ruleset
                 .is_ffr()
                 .then(|| FfrResult::of(&self.tally, self.max_combo, self.ctx.steps)),
-            battle_mines: self.hazards.as_ref().map(|h| {
-                let (hit, avoided) = h.counts();
-                BattleMines { hit, avoided }
+            battle_mines,
+            // A shock stepped on is in the tally's mines already where it
+            // is one.
+            ddi: self.ruleset.is_ddi().then(|| DdiResult {
+                lamp: Lamp::of(
+                    &self.tally,
+                    self.failed,
+                    battle_mines
+                        .filter(|_| !self.shock_is_mine())
+                        .map_or(0, |b| b.hit),
+                ),
+                sides: self.sides,
             }),
         }
     }

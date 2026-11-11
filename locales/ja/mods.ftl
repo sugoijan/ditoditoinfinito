@@ -38,4 +38,8 @@ mods-battery = バッテリー（ライフ{ $lives }個）
 
 mods-life = ライフ { $level }
 
+mods-ddi-easy = イージータイミング
+mods-ddi-hard = ハードタイミング
+mods-ddi-boos = Boo
+mods-ddi-practice = 練習
 mods-judge = 判定 { $level }

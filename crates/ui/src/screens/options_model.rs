@@ -31,11 +31,15 @@ use crate::state::bind::Bound;
 use crate::state::settings::{
     BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, GeneratedBackground,
     Graphics, INFINITO, PadBindings, Palette, ParamValue, ReducedMotion, START_COUNTDOWNS,
-    Settings, VideoMode, slider_to_volume, volume_to_slider,
+    ScoreDisplay, Settings, VideoMode, slider_to_volume, volume_to_slider,
 };
 use ddi_l10n::UiText;
 use ddi_l10n::msg::{common, options as m};
 use ddi_noteskin::params::{Kind as ParamKind, Parameter};
+
+/// The row whose button judges the kept plays again under the rules
+/// chosen ([`Act::Rejudge`]).
+pub const REJUDGE: &str = "rejudge";
 
 /// The volume sample.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -275,6 +279,8 @@ pub enum Act {
     Sample,
     /// Download the play history.
     Export,
+    /// Judge the kept plays again under the rules chosen now.
+    Rejudge,
     /// Import plays from an export (the platform's picker, inside the
     /// press).
     ImportPlays,
@@ -679,24 +685,58 @@ impl OptionsModel {
             m::danoni_gauge_description(),
         );
         gauge.heading = Some(m::heading_danoni().into());
-        section(
-            "Rules",
-            m::section_rules(),
-            vec![
+        // DDI's own rows under DDI; StepMania's under the presets that
+        // take them (DDI has its own difficulty, life and holds).
+        let ddi = s.ruleset == ddi_engine::rules::ddi::ID;
+        let mut rows = vec![
+            choice(
+                "ruleset_mode",
+                m::ruleset_mode(),
+                labels(&RULESET_MODES),
+                pos(&RULESET_MODES, s.ruleset_mode),
+                m::ruleset_mode_description(),
+            ),
+            row(
+                "ruleset",
+                m::ruleset(),
+                OptionKind::Choices(names),
+                at,
+                m::ruleset_description(),
+            ),
+        ];
+        if ddi {
+            rows.extend([
                 choice(
-                    "ruleset_mode",
-                    m::ruleset_mode(),
-                    labels(&RULESET_MODES),
-                    pos(&RULESET_MODES, s.ruleset_mode),
-                    m::ruleset_mode_description(),
+                    "ddi.difficulty",
+                    m::ddi_difficulty(),
+                    labels(&DDI_DIFFICULTIES),
+                    pos(&DDI_DIFFICULTIES, s.ddi.difficulty),
+                    m::ddi_difficulty_description(),
                 ),
-                row(
-                    "ruleset",
-                    m::ruleset(),
-                    OptionKind::Choices(names),
-                    at,
-                    m::ruleset_description(),
+                choice(
+                    "ddi.boos",
+                    m::ddi_boos(),
+                    on_off(),
+                    s.ddi.boos as usize,
+                    m::ddi_boos_description(),
                 ),
+                choice(
+                    "ddi.practice",
+                    m::ddi_practice(),
+                    on_off(),
+                    s.ddi.practice as usize,
+                    m::ddi_practice_description(),
+                ),
+                choice(
+                    "ddi.score",
+                    m::ddi_score(),
+                    labels(&SCORE_DISPLAYS),
+                    pos(&SCORE_DISPLAYS, s.ddi_score),
+                    m::ddi_score_description(),
+                ),
+            ]);
+        } else {
+            rows.extend([
                 choice(
                     "holds",
                     m::holds(),
@@ -757,30 +797,50 @@ impl OptionsModel {
                         .unwrap_or(0),
                     m::ddr_gauge_description(),
                 ),
-                gauge,
-                choice(
-                    "danoni.range",
-                    m::danoni_range(),
-                    JudgeRange::ALL.map(|r| UiText::data(r.name())),
-                    JudgeRange::ALL
-                        .iter()
-                        .position(|r| *r == s.danoni.range)
-                        .unwrap_or(0),
-                    m::danoni_range_description(),
-                ),
-                choice(
-                    "danoni.excessive",
-                    m::danoni_excessive(),
-                    [m::danoni_excessive_chart(), common::off(), common::on()],
-                    match s.danoni.excessive {
-                        None => 0,
-                        Some(false) => 1,
-                        Some(true) => 2,
-                    },
-                    m::danoni_excessive_description(),
-                ),
-            ],
-        )
+            ]);
+        }
+        // The kept plays judged again under the rules chosen now.
+        let plays = self.world.plays;
+        rows.push(actions(
+            REJUDGE,
+            m::rejudge(),
+            if plays == 0 {
+                vec![]
+            } else {
+                vec![m::rejudge_button()]
+            },
+            if plays == 0 {
+                m::history_none()
+            } else {
+                m::history_plays(plays)
+            },
+            m::rejudge_description(),
+        ));
+        rows.extend([
+            gauge,
+            choice(
+                "danoni.range",
+                m::danoni_range(),
+                JudgeRange::ALL.map(|r| UiText::data(r.name())),
+                JudgeRange::ALL
+                    .iter()
+                    .position(|r| *r == s.danoni.range)
+                    .unwrap_or(0),
+                m::danoni_range_description(),
+            ),
+            choice(
+                "danoni.excessive",
+                m::danoni_excessive(),
+                [m::danoni_excessive_chart(), common::off(), common::on()],
+                match s.danoni.excessive {
+                    None => 0,
+                    Some(false) => 1,
+                    Some(true) => 2,
+                },
+                m::danoni_excessive_description(),
+            ),
+        ]);
+        section("Rules", m::section_rules(), rows)
     }
 
     fn timing(&self) -> OptionSection {
@@ -1874,6 +1934,10 @@ impl OptionsModel {
             "life_type" => s.stepmania.life_type = at(&LIFE_TYPES, i),
             "lives" => s.stepmania.lives = level_at(i, usize::from(StepManiaOptions::MAX_LIVES)),
             "ddr_gauge" => s.stepmania.gauge = DdrGauge::ALL.get(i).copied().unwrap_or_default(),
+            "ddi.difficulty" => s.ddi.difficulty = at(&DDI_DIFFICULTIES, i),
+            "ddi.boos" => s.ddi.boos = i == 1,
+            "ddi.practice" => s.ddi.practice = i == 1,
+            "ddi.score" => s.ddi_score = at(&SCORE_DISPLAYS, i),
             "danoni.gauge" => {
                 s.danoni.gauge = DANONI_GAUGES
                     .get(i)
@@ -2042,6 +2106,10 @@ impl OptionsModel {
                     Some(HistoryButton::Reset) => Act::Confirm(Reset::History),
                     None => Act::Nothing,
                 }
+            }
+            (REJUDGE, _) if self.world.plays > 0 => {
+                self.notice = m::notice_rejudge(self.world.plays).into();
+                Act::Rejudge
             }
             ("share.token", 1) => {
                 self.settings.share_token.clear();
@@ -2808,6 +2876,15 @@ const RULESET_MODES: [Labeled<RulesetMode>; 3] = [
     (RulesetMode::Original, m::ruleset_mode_game),
     (RulesetMode::AllDanoni, m::ruleset_mode_danoni),
 ];
+const DDI_DIFFICULTIES: [Labeled<ddi_engine::rules::ddi::Difficulty>; 3] = [
+    (ddi_engine::rules::ddi::Difficulty::Easy, m::ddi_easy),
+    (ddi_engine::rules::ddi::Difficulty::Normal, m::ddi_normal),
+    (ddi_engine::rules::ddi::Difficulty::Hard, m::ddi_hard),
+];
+const SCORE_DISPLAYS: [Labeled<ScoreDisplay>; 2] = [
+    (ScoreDisplay::Score, m::ddi_score_score),
+    (ScoreDisplay::Percent, m::ddi_score_percent),
+];
 const HOLD_STYLES: [Labeled<HoldStyle>; 3] = [
     (HoldStyle::ByGame, m::holds_by_game),
     (HoldStyle::Dance, m::holds_dance),
@@ -3300,6 +3377,77 @@ mod tests {
             .flat_map(|s| &s.options)
             .find(|o| o.id == id)
             .unwrap_or_else(|| panic!("no {id}"))
+    }
+
+    /// DDI, first in the list and the default, shows its own rows and
+    /// none of StepMania's; another preset shows StepMania's and none of
+    /// DDI's. The kept plays' row judges them again when there are any.
+    #[test]
+    fn ddi_shows_its_own_rows_and_hides_stepmanias() {
+        use ddi_engine::rules::ddi::Difficulty;
+        let has = |m: &OptionsModel, id: &str| {
+            m.data()
+                .sections
+                .iter()
+                .flat_map(|s| &s.options)
+                .any(|o| o.id == id)
+        };
+        const DDI: [&str; 4] = ["ddi.difficulty", "ddi.boos", "ddi.practice", "ddi.score"];
+        const STEPMANIA: [&str; 7] = [
+            "holds",
+            "fail",
+            "life",
+            "judge",
+            "life_type",
+            "lives",
+            "ddr_gauge",
+        ];
+        let mut m = model();
+        let d = m.data();
+        assert_eq!(find(&d, "ruleset").index, 0);
+        assert_eq!(find(&d, "ruleset").value(), "DDI");
+        assert_eq!(find(&d, "ruleset").values()[1], "ITG (Simply Love)");
+        for id in DDI {
+            assert!(has(&m, id), "{id}");
+        }
+        for id in STEPMANIA {
+            assert!(!has(&m, id), "{id}");
+        }
+        // The defaults: Normal, Boos off, Practice off, the score.
+        assert_eq!(find(&d, "ddi.difficulty").value(), "Normal");
+        assert_eq!(find(&d, "ddi.boos").value(), "Off");
+        assert_eq!(find(&d, "ddi.practice").value(), "Off");
+        assert_eq!(find(&d, "ddi.score").value(), "Score");
+        m.change("ddi.difficulty", 2);
+        m.change("ddi.boos", 1);
+        m.change("ddi.practice", 1);
+        m.change("ddi.score", 1);
+        let s = Settings::load();
+        assert_eq!(s.ddi.difficulty, Difficulty::Hard);
+        assert!(s.ddi.boos && s.ddi.practice);
+        assert_eq!(s.ddi_score, ScoreDisplay::Percent);
+        assert_eq!(find(&m.data(), "ddi.difficulty").value(), "Hard");
+        // Dancing☆Onigiri's rows stay under either.
+        assert!(has(&m, "danoni.gauge") && has(&m, "ruleset_mode"));
+        // ITG: StepMania's rows, none of DDI's (its options are kept).
+        m.change("ruleset", 1);
+        assert_eq!(m.settings.ruleset, "itg");
+        for id in DDI {
+            assert!(!has(&m, id), "{id}");
+        }
+        for id in STEPMANIA {
+            assert!(has(&m, id), "{id}");
+        }
+        m.change("ruleset", 0);
+        assert_eq!(m.settings.ruleset, "ddi");
+        assert_eq!(m.settings.ddi.difficulty, Difficulty::Hard);
+        // No play kept: nothing to judge again.
+        assert!(find(&m.data(), REJUDGE).values().is_empty());
+        assert_eq!(m.action(REJUDGE, 0), Act::Nothing);
+        m.world.plays = 3;
+        assert_eq!(find(&m.data(), REJUDGE).values(), ["Judge again"]);
+        assert_eq!(m.action(REJUDGE, 0), Act::Rejudge);
+        assert_eq!(m.notice, "3 kept plays are being judged again.");
     }
 
     #[test]

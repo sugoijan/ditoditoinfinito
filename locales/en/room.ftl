@@ -80,13 +80,6 @@ room-cpu-name = CPU { $number }
 #   $name (String) - the bot's name
 room-bot-name = { $name } (Bot)
 
-# Under a CPU's name: its level, the CPU's strength relative to the
-# chart (not a skill rating).
-# Variables:
-#   $level (Number) - its level, from 1
-#   $levels (Number) - how many levels there are
-room-cpu-level = Level { $level } of { $levels }
-
 # At the right of a CPU's row before the match starts: it takes its seat
 # when the match starts (about 10 letters).
 room-cpu-at-start = At start
@@ -205,32 +198,30 @@ room-rules-next-match = Next match
 # Rows' labels (about 20 letters each).
 room-rules-stages = Stages
 room-rules-cpus = CPU opponents
-room-rules-level = CPU level
-room-rules-battle = Battle
+room-rules-level = Level
 room-rules-points = Points
-room-rules-ruleset = Ruleset
 
-# The CPU level's value.
-# Variables:
-#   $level (Number) - the level, from 1
-#   $levels (Number) - how many levels there are
-room-rules-level-value = { $level } of { $levels }
+# Rows of the match's rules everyone plays under (DDI, this game's own
+# ruleset): its timing difficulty (Easy, Normal, Hard, named as Options names
+# them), Boos (a Boo is DDI's name for a press that hits no note, a
+# judgment's name, kept in English) and attacks, each Off or On.
+room-rules-difficulty = Timing difficulty
+room-rules-boos = Boos
+room-rules-attacks = Attacks
 
-# The battle rules' value: not decided yet.
-room-rules-battle-value = Survival · provisional
-
-# The same with attack power shown (a development switch; about 32
-# letters).
-room-rules-battle-attacks-value = Survival with power · development
+# The Attacks row's value in an online room, where the rule cannot be
+# turned on yet (about 32 letters).
+room-rules-attacks-online = Off · not in online rooms yet
 
 # How stage points are given: by place, a rule still under study
 # (about 24 letters).
 room-rules-points-value = By place · experimental
 
 # Lines under the rows, muted.
-room-rules-level-note = A CPU's level is its strength relative to the chart, not a skill rating.
+room-rules-level-note = A CPU's stars show its level: its strength relative to the chart, not a skill rating.
 room-rules-points-note = Points for fields other than eight players follow an experimental rule.
-room-rules-ruleset-note = Everyone plays the match under its ruleset, whatever their own options say.
+room-rules-ruleset-note = Everyone plays the match under DDI with these rules, whatever their own options say.
+room-rules-battle-note = The battle is provisional: your stage ends when your life runs out. With attacks, good timing fills a power bar, and a full bar sends eight shocks into another player's field.
 room-rules-locked-note = Changes apply to the next match; this one keeps its rules.
 room-rules-clears-note = Applying clears readiness.
 
@@ -238,8 +229,8 @@ room-rules-clears-note = Applying clears readiness.
 room-rules-less = −
 room-rules-more = +
 
-# The buttons that choose the previous and the next ruleset in the list
-# (one sign each).
+# The buttons that choose the previous and the next value of a rule (one
+# sign each).
 room-rules-previous = ‹
 room-rules-next = ›
 
@@ -251,33 +242,20 @@ room-rules-apply = Apply
 # Leaves the room for the multiplayer home, forgetting the practice.
 room-leave = Leave room
 
-## A stage's play: a quiet column of the CPU opponents beside the
-## field, each with its name, level, life bar and Out once its life is
-## gone (a narrow column: a few letters each).
-
-# A CPU's level, short.
-# Variables:
-#   $level (Number) - its level, from 1
-room-play-level = Lv { $level }
+## A stage's play: the CPU opponents' small fields beside the field,
+## each with its name and its level's stars above it, and Out once its
+## life is gone (narrow: a few letters each).
 
 # A CPU whose life is gone: out of this stage.
 room-play-out = Out
 
 # Once the player has won the stage before the song's end (they finish
-# the song): in the line under the opponents' small fields at the right,
-# or over the column.
+# the song): in the line under the opponents' small fields at the right.
 room-play-won = Stage won
 
-# Under the quiet column of opponents beside the play (where there is no
-# room for their small fields), when there are more opponents than it
-# holds: how many are not shown. Short.
-# Variables:
-#   $count (Number) - how many are not shown
-room-play-more = +{ $count } more
-
 ## A battle's moment no announcer line said, for a few seconds: in the
-## line under the opponents' small fields at the right, or at the
-## column's top (as narrow: about 22 letters).
+## line under the opponents' small fields at the right (narrow: about 22
+## letters).
 
 # The first stage of a match begins.
 room-play-cue-match-begin = Match begins
@@ -359,11 +337,33 @@ room-prompt-stage-online = Stage { $number } of { $stages } · { $others ->
 # list is after a single play; about 16 letters).
 room-results-back = Back to room
 
-# A stage's prompt: the ruleset everyone plays the match under, after the
+# A stage's prompt: the rules everyone plays the match under, after the
 # stage's line.
 # Variables:
-#   $ruleset (String) - its name, as its game names it ("ITG FA+ (Simply Love)")
-room-prompt-ruleset = Ruleset: { $ruleset }
+#   $rules (String) - the rules in a few words, as room-rules-words writes them ("DDI · Hard timing · Boos")
+room-prompt-ruleset = Rules: { $rules }
+
+# The match's rules in a few words, where they are summarized (the Rules
+# pop-up's locked line, a stage's prompt): the ruleset's name, then only
+# what differs from the usual: the timing difficulty when it is not Normal
+# ("Hard timing", "Easy timing": never a chart's difficulty), Boos
+# when they are on, attacks when they are on.
+# Variables:
+#   $ruleset (String) - the ruleset's name ("DDI")
+#   $difficulty (String) - "easy", "normal" or "hard"
+#   $boos (String) - "on" or "off"
+#   $attacks (String) - "on" or "off"
+room-rules-words = { $ruleset }{ $difficulty ->
+    [easy] {" "}· Easy timing
+    [hard] {" "}· Hard timing
+   *[normal] {""}
+}{ $boos ->
+    [on] {" "}· Boos
+   *[off] {""}
+}{ $attacks ->
+    [on] {" "}· Attacks
+   *[off] {""}
+}
 
 # A note on a stage's results and under the song in the room: how the
 # player did, by how the stage ended for them.
@@ -691,6 +691,23 @@ room-state-loading = Loading
 room-state-loading-percent = Loading { $percent }%
 room-state-load-failed = Load failed
 room-state-sitting-out = Sitting out
+# Why a player's song did not load, in the players panel on the room's
+# song select, at the right of their line (about 16 letters each): the
+# room's song could not be downloaded; it could not be read; its chart is
+# not the one chosen.
+room-state-failed-download = Download failed
+room-state-failed-unreadable = Song unreadable
+room-state-failed-changed = Chart changed
+
+# The heading over the players' match points in the players panel on the
+# room's song select (about 8 letters, in small capitals' place).
+room-panel-points = Points
+
+# A phone's one-line strip of the players on the room's song select: after
+# the initials that fit, how many more players there are.
+# Variables:
+#   $count (Number) - players not shown
+room-strip-more = +{ $count }
 
 # The player's result of a stage in the picks' list, short.
 # Variables:
@@ -737,14 +754,14 @@ room-rules-ok = OK
 # Variables:
 #   $stages (Number) - the match's stages
 #   $cpus (Number) - its CPU opponents
-#   $ruleset (String) - its ruleset's name, as its game names it ("ITG FA+ (Simply Love)")
+#   $rules (String) - its rules in a few words, as room-rules-words writes them ("DDI · Hard timing · Boos")
 room-rules-locked-line = { $stages ->
     [one] One stage
    *[other] { $stages } stages
 } · { $cpus ->
     [one] one CPU
    *[other] { $cpus } CPUs
-} · { $ruleset }
+} · { $rules }
 
 room-rules-no-cpus = No CPU opponents.
 
@@ -762,13 +779,13 @@ room-add-cpus-title = Add CPUs
 
 room-add-cpus-count = How many
 
-# The button adding CPUs at the level chosen.
+# The button adding CPUs at the level chosen (the row above shows the
+# level as stars, never as a number).
 # Variables:
 #   $count (Number) - how many
-#   $level (Number) - their level, from 1
-room-add-cpus-at-level = { $count ->
-    [one] Add one at level { $level }
-   *[other] Add { $count } at level { $level }
+room-add-cpus-add = { $count ->
+    [one] Add one CPU
+   *[other] Add { $count } CPUs
 }
 
 # The heading over the CPUs listed by name, each added by choosing it.
@@ -796,6 +813,66 @@ room-prompt-sat-out = You weren't ready in time, so you sit this stage out.
 # or the host picked again).
 room-prompt-canceled = The stage's start was canceled.
 
-# At the right of a CPU's row on a stage's start screen, where people's
-# say whether they are ready (short).
-room-cpu-label = CPU
+## A stage's results: the Standings and Graphs tabs where a play's four
+## graphs are (feedback round B).
+
+# The two tabs over the results' right side (about 12 letters each).
+room-results-tab-standings = Standings
+room-results-tab-graphs = Graphs
+
+# The footer's hint for Left and Right on a stage's results: they change
+# the tab (about 14 letters).
+room-results-hint-tabs = Change tab
+
+# The Standings tab's heading: which stage of the match these are.
+# Variables:
+#   $number (Number) - the stage's number, from 1
+#   $stages (Number) - the match's stages
+room-table-title = Stage { $number } of { $stages }
+
+# Beside the heading while the room has not confirmed the stage: some
+# players are still playing or have not sent their result (about 36
+# letters).
+room-table-waiting = Waiting for everyone's results…
+
+# The table's column headings, in small letters (about 8 letters each):
+# the player; the points the stage awarded; the match total after it; the
+# place in the match after it; the ruleset's score or percent; the grade;
+# life at the end, or when they went out; the longest combo; the counts
+# of each judgment, drawn as a bar.
+room-table-player = Player
+room-table-award = Stage
+room-table-total = Total
+room-table-match = Match
+room-table-score = Score
+room-table-grade = Grade
+room-table-life = Life
+room-table-combo = Combo
+room-table-judgments = Judgments
+
+# The points a stage awarded a player, in their row.
+# Variables:
+#   $points (String) - the points, as a number ("3", "2.5")
+room-table-award-value = +{ $points }
+
+# In a player's row while their result has not come (about 16 letters).
+room-table-playing = Still playing…
+
+# A row's life column for a player whose life ran out: when in the song.
+# Variables:
+#   $time (String) - the song's minute and second ("1:02")
+room-table-out = Out { $time }
+
+# A row's life column for a player who left the stage (about 6 letters).
+room-table-left = Left
+
+# After a row's judgment counts where the battle has attacks: the attacks
+# the player launched and the shocks they stepped on.
+# Variables:
+#   $attacks (Number) - attacks launched
+#   $shocks (Number) - shocks stepped on
+room-table-attacks = Attacks { $attacks } · Shocks { $shocks }
+
+# The heading over the match's result on the last stage's Standings (in
+# small letters, about 16).
+room-final-heading = Match result

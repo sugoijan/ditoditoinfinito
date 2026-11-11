@@ -12,7 +12,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
 
 - [CPU player](cpu-player.md) (2026-11-10): implemented; automatic analytical
   preparation for imported/bundled keyboard 4K charts, seeded strength controls,
-  shared input motor/judge, native and browser integration checks.
+  shared input motor/judge, native and browser integration checks. An
+  opponent's ten levels (2026-11-12): the five strengths and five weaker
+  ones with lapses, measured over local arcade packs, provisional.
 
 ## Multiplayer design
 
@@ -62,6 +64,22 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   lead, one at a time against anyone until they recover; CPUs receive
   shocks and answer them by level; miniatures show them; the incoming
   warning and the waiting line; settlement waits for the last attack.
+  The DDI ruleset's round 3 (2026-11-12): rooms play DDI alone, with its
+  Difficulty and Boos as match rules; attacks a match rule (Off by
+  default, set in Rules, in CPU practice; not in online rooms yet); a
+  shock a mine that locks its lane, placed by margins; ranking by life,
+  then the proportional score; each opponent's score and locked lanes on
+  its miniature; the ten CPU levels and the attack rates measured again
+  under DDI; the reduced-motion stall of a stage's prompt found (the UI
+  core's idle wake) and fixed.
+  Round 3b (2026-11-12), after the maintainer's first test: the mostly
+  black room after Stop match found (the web's history entries for
+  dialogs) and fixed; the score a room shows and ranks by is the sum, a
+  CPU's on the chart's scale (`CPU_SCORE_V0`); "Timing difficulty";
+  shocks aimed beside the lane's notes (`placement-v2`); no recovery
+  and chained attacks (`attacks-v1`); a battle's shocks drawn by a
+  skin's `Tap Shock` (Infinito's shock arrows), a chart's mines as
+  mines; the attack rates measured again.
   Provisional choices and open questions listed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two
@@ -200,6 +218,23 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
 
 ## Charts, layouts and play
 
+- [The DDI ruleset](ddi-ruleset.md) (2026-11-12): rounds 1 (the
+  engine), 2 (the screens: Options' rows, the default with the move
+  from ITG, the words and score in play, the results, lamps and bests,
+  kept plays judged again), 3 (multiplayer: rooms play it alone, its
+  Difficulty and Boos match rules, a battle's shock a mine that locks
+  its lane) and 3b (the maintainer's first test: the summed score in
+  rooms with a CPU's on the chart's scale, the label "Timing
+  difficulty", `placement-v2`, `attacks-v1` without recovery and with
+  chains, a battle's shocks drawn by a skin's `Tap Shock`) built
+  2026-11-12; left: the targeting choice, online attacks, localized
+  judgment words. Our own
+  ruleset, the only one in multiplayer and the default for normal play:
+  W0–W5 on a 1/120 s grid (1/144 Hard, 1/90 Easy) with early and late
+  words, FFR-style life and Boos (off by default), a 1,000,000 score or
+  percent with an absolute score beside it, holds credited by whole
+  seconds, mines that lock their lane, grades to Absolute Dito with
+  floors, DDR-style full-combo lamps with three FFR-style flags.
 - [Announcers](announcers.md) (2026-11-03): done 2026-11-03 (decision
   81). StepMania-family announcer packs imported on both shells, chosen
   in Options with a voice bus of their own, and spoken where StepMania

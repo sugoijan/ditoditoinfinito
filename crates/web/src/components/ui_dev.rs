@@ -140,6 +140,10 @@ const THEME_NAMED: &[&str] = &[
     "ResultsClip",
     "PanelSet0",
     "Extra",
+    // A multiplayer stage's results: its tabs and its standings.
+    "Tab.Standings",
+    "Tab.Graphs",
+    "Panel.Standings",
 ];
 
 /// The actors whose places the debug view gives.
@@ -229,9 +233,8 @@ pub(crate) struct Host {
     /// not listed yet: taken with its first list ([`hand_over`]).
     pending_source: Option<ddi_ui::controller_hints::Source>,
     /// History entries pushed for the layers over the first, and pops of
-    /// ours to ignore.
-    depth: usize,
-    ignore_pops: u32,
+    /// ours on their way (one thing at a time: `ddi_ui::back_stack`).
+    entries: ddi_ui::back_stack::Entries,
     /// A navigation asked for while our own entries are popped (a dialog
     /// closing as it navigates): done once they are, or the pop, which
     /// Firefox carries out later, would undo it.
@@ -764,7 +767,7 @@ fn start_ui(
     if let Some(n) = pushed_depth()
         && let Some(history) = web_sys::window().and_then(|w| w.history().ok())
     {
-        host.borrow_mut().ignore_pops += 1;
+        host.borrow_mut().entries.went(history_now());
         let _ = history.go_with_delta(-(n as i32));
     }
     let mut listeners = listen(&host, &canvas, &textarea, &files);
@@ -872,8 +875,7 @@ fn new_host(
         sounds: 0,
         composition: None,
         pending_source: None,
-        depth: 0,
-        ignore_pops: 0,
+        entries: Default::default(),
         navigate_after_pops: None,
         files_picked: 0,
         last_consumed: false,
@@ -1490,27 +1492,30 @@ fn listen(
                 let Ok(mut h) = h.try_borrow_mut() else {
                     return;
                 };
-                if h.ignore_pops > 0 {
-                    h.ignore_pops -= 1;
-                    h.navigate_now();
-                    return;
-                }
                 // Back only when the pop leaves a dialog's own entry (the
                 // entry reached is below it); Forward into an entry of a
                 // dialog already closed goes back again, quietly.
+                use ddi_ui::back_stack::Pop;
                 let reached = pushed_depth().unwrap_or(0) as usize;
-                if reached >= h.depth {
-                    if reached > h.depth
-                        && let Some(history) = web_sys::window().and_then(|w| w.history().ok())
-                    {
-                        let n = reached - h.depth;
-                        // One `go`, one `popstate`.
-                        h.ignore_pops += 1;
-                        let _ = history.go_with_delta(-(n as i32));
+                match h.entries.popped(reached) {
+                    Pop::Ours => {
+                        // What waited for it: the layers' entries, then a
+                        // navigation.
+                        h.sync_history();
+                        h.navigate_now();
+                        return;
                     }
-                    return;
+                    Pop::Forward(n) => {
+                        if let Some(history) = web_sys::window().and_then(|w| w.history().ok()) {
+                            // One `go`, one `popstate`.
+                            h.entries.went(history_now());
+                            let _ = history.go_with_delta(-(n as i32));
+                        }
+                        return;
+                    }
+                    Pop::Nothing => return,
+                    Pop::Back => {}
                 }
-                h.depth = reached;
             }
             // The browser's Back: the menu's Back (no gesture).
             for down in [true, false] {
@@ -1763,7 +1768,16 @@ fn schedule(rc: &Rc<RefCell<Host>>) {
     // reduced motion asks for none; and one comes for the held
     // entrances once the shell fades (`Ui::reveal`).
     let reveal = h.ui.holding() && crate::boot::revealed();
-    if !h.ui.needs_redraw() && !h.loading && !field && !crate::boot::waiting() && !reveal {
+    // A `go` of ours on its way: frames go on until its pop has come (or
+    // is given up), so what waits for it is looked at again.
+    let popping = h.entries.busy();
+    if !h.ui.needs_redraw()
+        && !h.loading
+        && !field
+        && !crate::boot::waiting()
+        && !reveal
+        && !popping
+    {
         // Idle: the next frame starts its clock afresh, and a screen's
         // deadline wakes frames (the UI needs one once it is met).
         h.last_ms = None;
@@ -2015,7 +2029,7 @@ impl Host {
     /// the handler that asked (setting the hash fires `popstate` at once
     /// in Firefox, into this host's listener).
     fn navigate_now(&mut self) {
-        if self.ignore_pops > 0 {
+        if self.entries.busy() {
             return;
         }
         if let Some(route) = self.navigate_after_pops.take() {
@@ -2040,9 +2054,21 @@ impl Host {
         let Some(history) = web_sys::window().and_then(|w| w.history().ok()) else {
             return;
         };
-        // Screens and dialogs shown (`ddi_ui::back_stack`).
+        let now = history_now();
+        // A `go` of ours whose pop never came (its traversal dropped by
+        // something else): nothing waits on it forever. The entries are
+        // read again from where the history is.
+        if self.entries.overdue(now) {
+            web_sys::console::warn_1(
+                &"ui: a history pop of ours never came; reading the history again".into(),
+            );
+            self.entries.lost(pushed_depth().unwrap_or(0) as usize);
+        }
+        // Screens and dialogs shown (`ddi_ui::back_stack`): nothing while
+        // a `go` of ours is on its way (an entry pushed before its pop
+        // makes Firefox drop the `go` and Chrome the entry).
         let depth = ddi_ui::back_stack::depth(&self.ui.layers());
-        let step = ddi_ui::back_stack::step(self.depth, depth);
+        let step = self.entries.sync(depth, now);
         for mark in step.push {
             let marker = crate::router::history_state();
             let _ =
@@ -2052,10 +2078,8 @@ impl Host {
         }
         if let Some(n) = step.back {
             // One `go`, one `popstate`, however far.
-            self.ignore_pops += step.ignore_pops;
             let _ = history.go_with_delta(-(n as i32));
         }
-        self.depth = depth;
     }
 
     fn frame(&mut self, time_ms: f64) {
@@ -2271,6 +2295,14 @@ impl Host {
 /// The key of the history entries pushed for dialogs.
 const HISTORY_MARK: &str = "ddiUiDepth";
 
+/// The clock the history's pops are waited for on, seconds
+/// (`ddi_ui::back_stack::Entries`).
+fn history_now() -> f64 {
+    web_sys::window()
+        .and_then(|w| w.performance())
+        .map_or(0.0, |p| p.now() / 1000.0)
+}
+
 /// The depth marked on the current history entry, if it is one pushed for
 /// a dialog ([`Host::sync_history`]).
 fn pushed_depth() -> Option<u32> {
@@ -2469,6 +2501,10 @@ fn publish(h: &Host) {
     set(&ui, "files", (h.files_picked as f64).into());
     set(&ui, "consumed", h.last_consumed.into());
     set(&ui, "needsRedraw", h.ui.needs_redraw().into());
+    // The history's entries for the layers, and whether a `go` of ours is
+    // still on its way (a navigation waits for it).
+    set(&ui, "historyDepth", (h.entries.depth() as f64).into());
+    set(&ui, "historyBusy", h.entries.busy().into());
     set(&ui, "padGesture", (!is_webkit()).into());
     {
         let d = h.dev.borrow();
@@ -2793,6 +2829,17 @@ fn publish(h: &Host) {
             &o,
             "room",
             st.room
+                .as_ref()
+                .and_then(|r| serde_json::to_string(r).ok())
+                .and_then(|j| js_sys::JSON::parse(&j).ok())
+                .unwrap_or(JsValue::NULL),
+        );
+        // A multiplayer stage's standings on its results
+        // (`ddi_ui::screens::results::StageView`).
+        set(
+            &o,
+            "stage",
+            st.stage
                 .as_ref()
                 .and_then(|r| serde_json::to_string(r).ok())
                 .and_then(|j| js_sys::JSON::parse(&j).ok())

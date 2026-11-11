@@ -5,7 +5,7 @@
 //! client mirror applying the events holds the same state.
 
 use crate::awards::{Finish, Finisher, StageResult};
-use crate::battle::{BattlePreset, Entrant, ReportedRun, Run};
+use crate::battle::{BattlePreset, Entrant, ReportedRun, Run, RunDetail};
 use crate::command::{Actor, CancelReason, Command, Event, RankingProblem, Rejection};
 use crate::ids::{Millis, ParticipantId, Revision, StageId};
 use crate::member::{Capability, Connection, Intent, Member, MemberKind, Role, can};
@@ -230,7 +230,7 @@ impl RoomState {
                 self.emit(out, Event::MemberLeft { participant: id });
                 Ok(())
             }
-            Command::ReportOutcome { stage, run } => {
+            Command::ReportOutcome { stage, run, detail } => {
                 let id = self.own(actor)?;
                 match self.phase {
                     Phase::Stage { stage: s } if s == *stage => {}
@@ -263,6 +263,7 @@ impl RoomState {
                         participant: id,
                         run: *run,
                         at: now,
+                        detail: detail.clone().map(RunDetail::bounded),
                     },
                 );
                 let all = self
@@ -1390,9 +1391,13 @@ impl RoomState {
                 participant,
                 run,
                 at,
+                detail,
             } => {
                 if let Some(p) = self.stage_mut(*stage).and_then(|s| s.play.as_mut()) {
                     p.reports.insert(*participant, *run);
+                    if let Some(d) = detail {
+                        p.details.insert(*participant, d.clone());
+                    }
                     if run.finished_song() && p.song_end_at.is_none() {
                         p.song_end_at = Some(*at);
                     }
@@ -1503,6 +1508,7 @@ impl RoomState {
                         interrupted: false,
                         reports: BTreeMap::new(),
                         song_end_at: None,
+                        details: BTreeMap::new(),
                     });
                 }
             }

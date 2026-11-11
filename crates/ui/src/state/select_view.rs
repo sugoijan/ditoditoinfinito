@@ -13,7 +13,7 @@ use ddi_library::manifest::{ChartInfo, ManifestEntry};
 
 use ddi_engine::rules::RulesetKey;
 
-use super::history::{Best as HistoryBest, BestKey, History, score_text};
+use super::history::{Best as HistoryBest, BestKey, History, score_text_as};
 use super::place::MenuPlace;
 use super::settings::{CenterVersions, Settings};
 use crate::screens::data::{
@@ -183,8 +183,8 @@ fn best_of<'a>(
     let b = bests.get(&key)?;
     let (lamp, lamp_text) = b.lamp.names();
     Some(Best {
-        grade: b.grade.clone(),
-        score: score_text(&b.score),
+        grade: super::history::list_grade(&b.grade).to_string(),
+        score: score_text_as(&b.score, settings.ddi_percent()),
         lamp: lamp.into(),
         lamp_text: lamp_text.into(),
         pending: b.pending,
@@ -505,7 +505,11 @@ mod tests {
             cd_title: None,
             removable: true,
         }];
-        let mut settings = Settings::default();
+        // A StepMania preset: pump's holds are ticked under it.
+        let mut settings = Settings {
+            ruleset: "itg".into(),
+            ..Settings::default()
+        };
         let styles = |settings: &Settings| {
             let data = select_data(
                 &songs,

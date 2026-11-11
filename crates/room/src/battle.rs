@@ -3,14 +3,16 @@
 //! (`ddi_session::battle`) judges the plays and hands the runs here; a
 //! server can rank the same way.
 //!
-//! One preset exists, PROVISIONAL: [`BattlePreset::GaugeSurvivalV0`], the
+//! Two presets, PROVISIONAL. [`BattlePreset::GaugeSurvivalV0`], the
 //! client study's default for the first playable slice
-//! (`docs/plans/multiplayer-prototype-progress.md`, M3). Life is the
+//! (`docs/plans/multiplayer-prototype-progress.md`, M3): life is the
 //! ruleset's gauge; an empty gauge is out of the stage (never the match,
 //! unless the match's rules say so); no attacks, no mines added, no
-//! targeting. It stands in for the design's standard battle (life, attack
-//! power, recent-accuracy weakening, `docs/plans/multiplayer.md`) until
-//! that is built, and is never presented as it.
+//! targeting. [`BattlePreset::GaugeAttacksV0`], the same with attacks
+//! (`crate::attacks`), which the match's Attacks rule chooses
+//! (`MatchRules::attacks`). They stand in for the design's standard battle
+//! (`docs/plans/multiplayer.md`) until that is decided, and are never
+//! presented as it.
 
 use crate::awards::{Finish, Finisher};
 use crate::ids::ParticipantId;
@@ -27,12 +29,13 @@ pub enum BattlePreset {
     /// song's end (they finish the song; nothing they do after changes
     /// the result); otherwise at the song's end. Ranked by [`rank`].
     GaugeSurvivalV0,
-    /// PROVISIONAL, DEVELOPMENT ONLY in M8a: [`BattlePreset::GaugeSurvivalV0`]
-    /// with attack power (`crate::attacks`, [`crate::attacks::ATTACKS_V0`]):
-    /// each competitor earns power by timing, shown as a bar above life.
-    /// Nothing is launched yet (later rounds); ranked by [`rank`] as
-    /// survival. Reached only by the shells' development switches
-    /// (`--mp-dev-attacks`, the web's `mpattacks=1`).
+    /// PROVISIONAL: [`BattlePreset::GaugeSurvivalV0`] with attacks
+    /// (`crate::attacks`, [`crate::attacks::ATTACKS_V0`]): each competitor
+    /// earns power by timing, shown as a bar above life; a full bar is
+    /// spent on eight shocks in someone's play; settled by
+    /// [`crate::attacks::SETTLEMENT_V0`], ranked by [`rank`] as survival.
+    /// The match's Attacks rule (`MatchRules::attacks`, Off by default)
+    /// chooses it.
     GaugeAttacksV0,
 }
 
@@ -72,13 +75,36 @@ impl BattlePreset {
 #[serde(rename_all = "snake_case")]
 pub enum Run {
     /// Still in (at the song's end, or when the stage was decided): their
-    /// gauge's life (`0..=1`) and their score as a fraction of the chart's
-    /// best (`0..=1`; the ruleset's percent, money or EX).
-    Live { life: f64, accuracy: f64 },
+    /// gauge's life (`0..=1`), their score as a fraction of the chart's
+    /// best (`0..=1`; the ruleset's percent, money or EX; DDI's
+    /// proportional part, points over the most their notes give), where
+    /// the ruleset counts one (DDI) their absolute score, and the score
+    /// as the room shows it and ranks by it ([`rank`]): under DDI the
+    /// sum (the proportional part plus the absolute score), a CPU's put
+    /// on the chart's own scale by whoever judged it.
+    Live {
+        life: f64,
+        accuracy: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        absolute: Option<Absolute>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        score: Option<i64>,
+    },
     /// Their gauge emptied at judged song second `at`.
     Out { at: f64 },
     /// Left the stage while competing (a quit, an interruption).
     Forfeit,
+}
+
+/// A score not divided by the chart's size (DDI's absolute score, `100 ×
+/// points + W0s`) and the most points the notes played give: two
+/// competitors' scores compare only where `most` is the same, that is
+/// where they played the same notes (a CPU plays a tap-only copy of the
+/// chart, whose most differs from the full chart's wherever it has holds).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Absolute {
+    pub score: i64,
+    pub most: i64,
 }
 
 /// A run as a member reports it to an online room (M5d,
@@ -89,7 +115,19 @@ pub enum Run {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReportedRun {
-    Live { life_ppm: u32, accuracy_ppm: u32 },
+    /// `absolute` and `score` are ADDITIVE to protocol 2 (the DDI
+    /// ruleset's rounds 3 and 3b): left out where there is none, read as
+    /// none where missing, so a report without them is what it was and an
+    /// authority one build behind drops them (it then ranks by the
+    /// proportional part, as before).
+    Live {
+        life_ppm: u32,
+        accuracy_ppm: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        absolute: Option<Absolute>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        score: Option<i64>,
+    },
     Out { at_ms: u64 },
     Forfeit,
 }
@@ -100,9 +138,16 @@ impl ReportedRun {
     pub fn of(run: Run) -> ReportedRun {
         let ppm = |x: f64| (x.clamp(0.0, 1.0) * Self::SCALE).round() as u32;
         match run {
-            Run::Live { life, accuracy } => ReportedRun::Live {
+            Run::Live {
+                life,
+                accuracy,
+                absolute,
+                score,
+            } => ReportedRun::Live {
                 life_ppm: ppm(life),
                 accuracy_ppm: ppm(accuracy),
+                absolute,
+                score,
             },
             Run::Out { at } => ReportedRun::Out {
                 at_ms: (at.max(0.0) * 1_000.0).round() as u64,
@@ -116,9 +161,13 @@ impl ReportedRun {
             ReportedRun::Live {
                 life_ppm,
                 accuracy_ppm,
+                absolute,
+                score,
             } => Run::Live {
                 life: f64::from(life_ppm) / Self::SCALE,
                 accuracy: f64::from(accuracy_ppm) / Self::SCALE,
+                absolute,
+                score,
             },
             ReportedRun::Out { at_ms } => Run::Out {
                 at: at_ms as f64 / 1_000.0,
@@ -131,6 +180,71 @@ impl ReportedRun {
     /// room waits only a short while more for the others' reports.
     pub fn finished_song(self) -> bool {
         matches!(self, ReportedRun::Live { .. })
+    }
+}
+
+/// How a starter performed, beside their run (feedback round B,
+/// `docs/plans/multiplayer-prototype-progress.md`): what a stage's
+/// standings show of them. SELF-REPORTED as the run is, shown only, never
+/// ranked by. Plain numbers and the ruleset's own word, so the room's
+/// state stays comparable; which tier a count belongs to is the match's
+/// ruleset's to say (everyone plays under it).
+///
+/// ADDITIVE to protocol 2, no new version: it travels as an optional
+/// field of `Command::ReportOutcome` and `Event::OutcomeReported` and is
+/// kept in `StagePlay::details`; every field has a default. An authority
+/// that predates it ignores the field (the event then carries none), a
+/// client that predates it ignores it in events and snapshots, and one
+/// that gets none shows what the run itself says.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RunDetail {
+    /// The ruleset's score where it counts one, as shown (money; DDI's
+    /// score, the sum of its proportional part and its absolute score, a
+    /// CPU's put on the chart's own scale: `ddi_engine`'s
+    /// `CPU_SCORE_V0`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score: Option<i64>,
+    /// Its percent in hundredths of a percent (`9950` is 99.50 %; DDI's
+    /// may be negative).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub percent: Option<i32>,
+    /// The grade, in the ruleset's own word.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub grade: String,
+    /// Life at the end, in millionths (`0` once out).
+    #[serde(default)]
+    pub life_ppm: u32,
+    /// When their gauge emptied, in milliseconds of judged song time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub out_at_ms: Option<u64>,
+    #[serde(default)]
+    pub max_combo: u32,
+    /// The taps counted by the ruleset's tiers as its results list them,
+    /// best first, the misses last.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tiers: Vec<u32>,
+    /// Where the battle has attacks: those they launched and the shocks
+    /// they stepped on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attacks: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shocks: Option<u32>,
+}
+
+impl RunDetail {
+    /// The longest grade (characters) and the most tiers a room keeps of
+    /// a report: what it is sent is cut to them.
+    pub const MAX_GRADE: usize = 24;
+    pub const MAX_TIERS: usize = 12;
+
+    /// The detail within the room's bounds.
+    pub fn bounded(mut self) -> RunDetail {
+        if self.grade.chars().count() > Self::MAX_GRADE {
+            self.grade = self.grade.chars().take(Self::MAX_GRADE).collect();
+        }
+        self.tiers.truncate(Self::MAX_TIERS);
+        self.life_ppm = self.life_ppm.min(ReportedRun::SCALE as u32);
+        self
     }
 }
 
@@ -152,18 +266,42 @@ pub fn decided(entrants: &[Entrant]) -> bool {
         <= 1
 }
 
-/// [`BattlePreset::GaugeSurvivalV0`]'s ranking, best first, each group
-/// tied (`docs/plans/multiplayer.md`, "Elimination and a truthful
-/// result"): those still in by life, then accuracy (both equal: tied);
-/// then those out, later first (the same second: tied); then forfeits,
-/// tied. Participants are ordered by id within a group.
+/// [`BattlePreset::GaugeSurvivalV0`]'s ranking (and
+/// [`BattlePreset::GaugeAttacksV0`]'s), best first, each group tied
+/// (`docs/plans/multiplayer.md`, "Elimination and a truthful result"):
+/// those still in by life, then by the score ([`Run::Live`]'s `score`:
+/// under DDI the sum, everyone's on the chart's own scale), equal ones
+/// tied. Then those out, later first (the same second: tied); then
+/// forfeits, tied. Participants are ordered by id within a group.
+///
+/// Where someone still in reported no score (a ruleset without one, a
+/// build before round 3b), those still in are ranked as before it: by
+/// life, then accuracy (DDI's proportional part), then, among those who
+/// played the same notes ([`Absolute::most`] equal), the absolute score,
+/// each set of the same notes ordered by its own and the sets' bests
+/// sharing a place.
 pub fn rank(entrants: &[Entrant]) -> Vec<Vec<Finisher>> {
-    let mut live: Vec<(f64, f64, ParticipantId)> = Vec::new();
+    let scored = entrants.iter().all(|e| match e.run {
+        Run::Live { score, .. } => score.is_some(),
+        _ => true,
+    });
+    let mut live: Vec<(f64, f64, Option<Absolute>, ParticipantId)> = Vec::new();
+    let mut by_score: Vec<(f64, i64, ParticipantId)> = Vec::new();
     let mut out: Vec<(f64, ParticipantId)> = Vec::new();
     let mut forfeit: Vec<ParticipantId> = Vec::new();
     for e in entrants {
         match e.run {
-            Run::Live { life, accuracy } => live.push((life, accuracy, e.participant)),
+            Run::Live {
+                life,
+                score: Some(score),
+                ..
+            } if scored => by_score.push((life, score, e.participant)),
+            Run::Live {
+                life,
+                accuracy,
+                absolute,
+                ..
+            } => live.push((life, accuracy, absolute, e.participant)),
             Run::Out { at } => out.push((at, e.participant)),
             Run::Forfeit => forfeit.push(e.participant),
         }
@@ -171,7 +309,7 @@ pub fn rank(entrants: &[Entrant]) -> Vec<Vec<Finisher>> {
     live.sort_by(|a, b| {
         b.0.total_cmp(&a.0)
             .then(b.1.total_cmp(&a.1))
-            .then(a.2.cmp(&b.2))
+            .then(a.3.cmp(&b.3))
     });
     out.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
     forfeit.sort();
@@ -180,14 +318,55 @@ pub fn rank(entrants: &[Entrant]) -> Vec<Vec<Finisher>> {
         participant,
         finish,
     };
-    let mut last: Option<(f64, f64)> = None;
-    for (life, accuracy, id) in live {
+    // Life, then the score: equal ones share a place.
+    by_score.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
+    let mut last: Option<(f64, i64)> = None;
+    for (life, score, id) in by_score {
         let f = finisher(id, Finish::Survived);
         match ranking.last_mut() {
-            Some(group) if last == Some((life, accuracy)) => group.push(f),
+            Some(group) if last == Some((life, score)) => group.push(f),
             _ => ranking.push(vec![f]),
         }
-        last = Some((life, accuracy));
+        last = Some((life, score));
+    }
+    // Without everyone's score: each run of equal life and accuracy,
+    // split by the absolute score.
+    let mut i = 0;
+    while i < live.len() {
+        let same = live[i..]
+            .iter()
+            .take_while(|l| l.0 == live[i].0 && l.1 == live[i].1)
+            .count();
+        // Per set of the same notes (none known: a set of its own), the
+        // distinct scores from the best: a competitor's level is its
+        // score's place among them.
+        let level = |l: &(f64, f64, Option<Absolute>, ParticipantId)| -> usize {
+            let Some(mine) = l.2 else {
+                return 0;
+            };
+            let mut better: Vec<i64> = live[i..i + same]
+                .iter()
+                .filter_map(|o| o.2)
+                .filter(|o| o.most == mine.most && o.score > mine.score)
+                .map(|o| o.score)
+                .collect();
+            better.sort_unstable();
+            better.dedup();
+            better.len()
+        };
+        let mut levels: Vec<(usize, ParticipantId)> =
+            live[i..i + same].iter().map(|l| (level(l), l.3)).collect();
+        levels.sort();
+        let mut last: Option<usize> = None;
+        for (level, id) in levels {
+            let f = finisher(id, Finish::Survived);
+            match ranking.last_mut() {
+                Some(group) if last == Some(level) => group.push(f),
+                _ => ranking.push(vec![f]),
+            }
+            last = Some(level);
+        }
+        i += same;
     }
     let mut last: Option<f64> = None;
     for (at, id) in out {
@@ -232,12 +411,16 @@ mod tests {
         let live = ReportedRun::of(Run::Live {
             life: 0.5,
             accuracy: 0.912_345_67,
+            absolute: None,
+            score: None,
         });
         assert_eq!(
             live,
             ReportedRun::Live {
                 life_ppm: 500_000,
-                accuracy_ppm: 912_346
+                accuracy_ppm: 912_346,
+                absolute: None,
+                score: None,
             }
         );
         assert!(live.finished_song());
@@ -250,10 +433,132 @@ mod tests {
             Run::Out { at: 1.5 }
         );
         assert_eq!(ReportedRun::of(Run::Forfeit).run(), Run::Forfeit);
+        // Without an absolute score a report is on the wire what it was.
         assert_eq!(
             serde_json::to_string(&live).unwrap(),
             r#"{"live":{"life_ppm":500000,"accuracy_ppm":912346}}"#
         );
+        assert_eq!(
+            serde_json::from_str::<ReportedRun>(
+                r#"{"live":{"life_ppm":500000,"accuracy_ppm":912346}}"#
+            )
+            .unwrap(),
+            live
+        );
+        // With one it goes there and back.
+        let absolute = Some(Absolute {
+            score: 1_234_567,
+            most: 50_000,
+        });
+        let scored = ReportedRun::of(Run::Live {
+            life: 1.0,
+            accuracy: 0.9,
+            absolute,
+            score: None,
+        });
+        assert_eq!(
+            serde_json::to_string(&scored).unwrap(),
+            r#"{"live":{"life_ppm":1000000,"accuracy_ppm":900000,"absolute":{"score":1234567,"most":50000}}}"#
+        );
+        assert_eq!(
+            scored.run(),
+            Run::Live {
+                life: 1.0,
+                accuracy: 0.9,
+                absolute,
+                score: None,
+            }
+        );
+    }
+
+    fn live(life: f64, accuracy: f64, absolute: Option<(i64, i64)>) -> Run {
+        Run::Live {
+            life,
+            accuracy,
+            absolute: absolute.map(|(score, most)| Absolute { score, most }),
+            score: None,
+        }
+    }
+
+    fn summed(life: f64, score: i64) -> Run {
+        Run::Live {
+            life,
+            accuracy: 0.5,
+            absolute: None,
+            score: Some(score),
+        }
+    }
+
+    /// Round 3b: life, then the score (the sum), whatever notes each
+    /// played (a CPU's is on the chart's scale); equal ones tied; those
+    /// out and forfeits after, as ever.
+    #[test]
+    fn those_still_in_rank_by_life_then_the_score() {
+        let r = rank(&[
+            e(1, summed(0.9, 5_900_000)),
+            e(2, summed(1.0, 4_000_000)),
+            e(3, summed(0.9, 5_900_001)),
+            e(4, Run::Out { at: 40.0 }),
+            e(5, summed(0.9, 5_900_000)),
+            e(6, Run::Forfeit),
+        ]);
+        assert_eq!(ids(&r), vec![vec![2], vec![3], vec![1, 5], vec![4], vec![6]]);
+        // A negative score still ranks.
+        let r = rank(&[e(1, summed(0.2, -300)), e(2, summed(0.2, -299))]);
+        assert_eq!(ids(&r), vec![vec![2], vec![1]]);
+        // One still in without a score (an older build): everyone as
+        // before round 3b, by life then the proportional part.
+        let r = rank(&[
+            e(1, summed(1.0, 9_000_000)),
+            e(2, live(1.0, 0.9, None)),
+        ]);
+        assert_eq!(ids(&r), vec![vec![2], vec![1]]);
+        // The score travels in a report, and is left out where there is
+        // none.
+        let run = summed(1.0, 6_001_000);
+        let reported = ReportedRun::of(run);
+        assert_eq!(
+            serde_json::to_string(&reported).unwrap(),
+            r#"{"live":{"life_ppm":1000000,"accuracy_ppm":500000,"score":6001000}}"#
+        );
+        assert_eq!(reported.run(), run);
+    }
+
+    #[test]
+    fn equal_life_and_score_are_split_by_the_absolute_score_of_the_same_notes() {
+        // Life first, then the proportional score, whatever the absolute.
+        let r = rank(&[
+            e(1, live(0.9, 0.99, Some((10, 500)))),
+            e(2, live(1.0, 0.5, Some((1, 500)))),
+            e(3, live(0.9, 0.995, Some((5, 400)))),
+        ]);
+        assert_eq!(ids(&r), vec![vec![2], vec![3], vec![1]]);
+        // Equal life and score, the same notes: the absolute score (its
+        // W0s) decides; the same one again shares the place.
+        let r = rank(&[
+            e(1, live(1.0, 1.0, Some((500_003, 5_000)))),
+            e(2, live(1.0, 1.0, Some((500_010, 5_000)))),
+            e(3, live(1.0, 1.0, Some((500_003, 5_000)))),
+            e(4, live(1.0, 0.9, Some((999_999, 5_000)))),
+        ]);
+        assert_eq!(ids(&r), vec![vec![2], vec![1, 3], vec![4]]);
+        // Other notes (a CPU's tap-only copy against the full chart) do
+        // not compare: the person shares with the best of the CPUs, the
+        // CPU that lost its own tie is behind.
+        let r = rank(&[
+            e(1, live(1.0, 1.0, Some((600_000, 6_000)))),
+            e(2, live(1.0, 1.0, Some((400_007, 4_000)))),
+            e(3, live(1.0, 1.0, Some((400_002, 4_000)))),
+        ]);
+        assert_eq!(ids(&r), vec![vec![1, 2], vec![3]]);
+        // No absolute score known (a ruleset without one, an older
+        // build's report): tied, as before.
+        let r = rank(&[
+            e(1, live(1.0, 1.0, None)),
+            e(2, live(1.0, 1.0, Some((7, 4_000)))),
+            e(3, live(1.0, 1.0, None)),
+        ]);
+        assert_eq!(ids(&r), vec![vec![1, 2, 3]]);
     }
 
     #[test]
@@ -277,6 +582,8 @@ mod tests {
                 Run::Live {
                     life: 0.5,
                     accuracy: 0.9,
+                    absolute: None,
+                    score: None,
                 },
             ),
             e(3, Run::Forfeit),
@@ -285,6 +592,8 @@ mod tests {
                 Run::Live {
                     life: 0.8,
                     accuracy: 0.7,
+                    absolute: None,
+                    score: None,
                 },
             ),
             e(5, Run::Out { at: 50.0 }),
@@ -293,6 +602,8 @@ mod tests {
                 Run::Live {
                     life: 0.5,
                     accuracy: 0.95,
+                    absolute: None,
+                    score: None,
                 },
             ),
         ]);
@@ -309,6 +620,8 @@ mod tests {
         let same = Run::Live {
             life: 1.0,
             accuracy: 0.9,
+            absolute: None,
+            score: None,
         };
         let ranking = rank(&[
             e(2, same),
@@ -326,6 +639,8 @@ mod tests {
         let live = Run::Live {
             life: 0.2,
             accuracy: 0.5,
+            absolute: None,
+            score: None,
         };
         assert!(!decided(&[
             e(1, live),

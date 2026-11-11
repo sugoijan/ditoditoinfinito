@@ -4,7 +4,7 @@
 //! private server will speak.
 
 use crate::awards::{Finisher, NoAwardRule, StageResult};
-use crate::battle::ReportedRun;
+use crate::battle::{ReportedRun, RunDetail};
 use crate::ids::{ContentId, Identity, MatchId, Millis, ParticipantId, Revision, StageId};
 use crate::member::{Capability, Connection, Intent, Member, Role};
 use crate::phase::{Interruption, Phase, PhaseKind};
@@ -52,6 +52,10 @@ pub enum Command {
     ReportOutcome {
         stage: StageId,
         run: ReportedRun,
+        /// How they performed, for the stage's standings to show
+        /// ([`RunDetail`]: optional and additive to protocol 2).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<RunDetail>,
     },
 
     // Operators (owner, co-hosts, admins). Edits carry the envelope's base.
@@ -231,6 +235,10 @@ pub enum Event {
         participant: ParticipantId,
         run: ReportedRun,
         at: Millis,
+        /// What they reported of how they performed, within the room's
+        /// bounds ([`RunDetail::bounded`]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<RunDetail>,
     },
     /// The next match's rules; the playlist grows by `added` or keeps its
     /// first stages.

@@ -36,6 +36,7 @@ pub mod navigation;
 pub mod request;
 pub mod screen;
 pub mod screens;
+pub mod stars;
 pub mod state;
 pub mod testing;
 pub mod text_field;

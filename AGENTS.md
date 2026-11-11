@@ -34,13 +34,43 @@ Rust and the browser are implementation details, not advertised features.
 - `crates/engine/` deterministic gameplay: clock, judge, rulesets, scoring, gauges,
   scroll, calibration maths; a battle's shocks in a play (`battle.rs`:
   `HazardJudge` beside the chart's judge, `Player::add_hazards`, events
-  and sprites from `HAZARD_INDEX_BASE`, a hit the ruleset's miss to the
-  gauge alone, `INJECTED_MINE_V0`; `schedule` and `PLACEMENT_V0`, where
-  a chart has room for eight; kept in `PlayLog` version 4;
+  and sprites from `HAZARD_INDEX_BASE`; under DDI a shock is a mine,
+  `Player::shock_is_mine`: stepped on, it counts, scores and costs life
+  as a chart's own and locks its lane, the chart and the shocks judged
+  in step, a press stepping on the nearer of a note and a shock,
+  `Judge::press_beside`; under a ruleset without the lock a hit is the
+  ruleset's miss to the gauge alone, `INJECTED_MINE_V0`; `schedule` and
+  `PLACEMENT`, where a chart has room for eight: `placement-v2`, which
+  keeps `placement-v1`'s margins about each step of the lane exactly,
+  `Clearance::Margins`, none within 0.25 s after one nor within W3
+  before it, none from a hold's head to past its end nor from a second
+  before a lift, and aims six of the eight at places next to a note of
+  their lane, `Near`: up to half a second after one or up to twice W3
+  before a step, spread over lanes and beats, one a note, a second
+  between two shocks of a lane unless the section has no other room;
+  `placement-v1` and `placement-v0` kept for comparison through
+  `schedule_with`; kept in `PlayLog` version 4;
   `reading_horizon`, how long a play's notes are shown before they are
-  judged); a CPU opponent's response to shocks put into its play
+  judged); a CPU opponent's ten levels (`cpu/levels.rs`,
+  `CPU_LEVELS_V0`, `docs/plans/cpu-player.md`: levels 6 to 10 the solo
+  CPU's five frozen strengths, pressing exactly as before, 1 to 5 weaker
+  by a lower strength and a lapse, the chance a note is left out where
+  the chart is demanding; `Plan::script_at`, `Opponent::at`; measured
+  over local packs, `crates/engine/tests/local_cpu.rs`,
+  `DDI_CPU_CORPUS`, under the rulesets `DDI_CPU_RULES` names: a preset's
+  id, or `ddi-easy`, `ddi-normal`, `ddi-hard`, the rooms' match rule) and its response to shocks put into its play
   (`cpu/mines.rs`: one avoidance value a CPU from its level,
-  `MINE_RESPONSE_V0`, `Opponent::receive_hazards`). No I/O.
+  `MINE_RESPONSE_V0`, `Opponent::receive_hazards`); DDI, our own
+  ruleset (`rules/ddi.rs`, `docs/plans/ddi-ruleset.md`: `RulesetKey`'s
+  `ddi` options, windows on a 1/120 s grid in real seconds (at a music
+  rate `ddi::at_rate`), early and late words (`JudgeNames::word`), hold
+  units in the chart's seconds, life, the point count's views
+  (`ScoreView::ddi`), grades with floors, `ddi::Lamp`; the judge's lane
+  lock, `JudgeTable::lock`/`Judge::lock_lane`, and Boos' exemptions,
+  `EmptyPress::Guarded`; `presets::ddi`, the first of the presets, the
+  player's options through `Ruleset::with_ddi`; a locked lane's mine
+  effect set off again by the player, `LOCK_EFFECT_PERIOD`, and a W1
+  outside W0 a dimmer explosion, `SkinEvent::dim`). No I/O.
   Replay fixtures in `crates/engine/tests/`.
 - `crates/render/` wgpu scene (the built-in notes: Infinito's shapes as
   distance fields in `shader.wgsl`, made light, PLAN.md decision 80;
@@ -313,6 +343,12 @@ Rust and the browser are implementation details, not advertised features.
   distinct until the screen resolves it. Standard-controller binding has
   explicit Capture and navigation phases; raw devices keep guided learning.
   `screens/numbers.rs` supplies controller-editable numeric/compound forms;
+  `crates/ui/src/stars.rs` a CPU's level as five stars (levels 1 to 5
+  silver from the left over empty outlines, 6 to 10 gold over silver;
+  vector shapes, never a glyph or a number: the look's `Stars` component
+  through `stars::stars`/`stars_left`/`stars_right`, sized by a height,
+  its colors `Star.Gold`/`Star.Silver`/`Star.Empty`; the play's
+  miniatures draw the same geometry, `ddi_shell::opponents::draw_stars`);
   free-text entry alone may require keyboard/IME. Editor South places notes,
   Start listens, holds/rolls use head/tail confirmation; More exposes the same
   operations for minimal custom controllers. The UI core owns controller
@@ -333,7 +369,9 @@ Rust and the browser are implementation details, not advertised features.
   their migrations, the song list's place, song select's data from a
   library (`select_view.rs`), the play
   history and its replays, `crates/ui/src/state/history/`, and when its
-  stale plays are judged again, `reworker.rs`; stored through
+  stale plays are judged again, `reworker.rs`, kept plays judged again
+  under other rules too, `Plays::rejudge`, both judgments kept,
+  `PlaySummary::rejudged`; stored through
   `ddi_platform::storage`, which each shell installs), the chart
   editor's model (`crates/ui/src/state/editor/`: edits with undo; the
   music's waveform and spectrogram, `audio.rs`, which its audio view,
@@ -463,6 +501,16 @@ Rust and the browser are implementation details, not advertised features.
   `rim-left`/`rim-right`/`link` roles join visible matching judgments on
   adjacent receptors (`crates/render/src/noteskin/judgment_links.rs`). Mines retain
   actors for their adjacency-linked electricity);
+  an element of our own for a multiplayer battle's shock, `Tap Shock`
+  (`[NoteDisplay] UseTapShock=1`, `docs/plans/noteskin-authoring.md`:
+  loaded as any element for a play that may be given shocks,
+  `lua::Env::shocks` and `NOTESKIN:PlayHasShocks()`; the renderer draws
+  the notes numbered from `HAZARD_INDEX_BASE` with it, on the field and
+  the miniatures, and a chart's own mines with `Tap Mine`, a row's links
+  never joining the two; a skin without it draws shocks as its mines;
+  Infinito's is its lane-shaped shock arrow, its mines the spiked band
+  wherever the play may be given shocks; the built-in arrows tint a
+  shock violet);
   opt-in mine row links from actual drawn positions (`MineConnectRows`,
   a `Tap Mine` frame’s `MineLink` child, with optional `MineRimLeft`/`MineRimRight`
   children hidden on connected sides; `docs/plans/noteskin-authoring.md`);
@@ -547,8 +595,13 @@ Rust and the browser are implementation details, not advertised features.
   priorities, one battle line at a time, a play's routine lines left
   out, the results' line once the shell's `stage_reported` passes the
   room's `MatchEnd`; where no line said one, `PlaySession::battle_cue`,
-  shown in the opponents' column's heading, `ddi_shell::opponents`;
-  the match's ruleset for a stage, everyone's, `battle::stage_ruleset`;
+  shown in the miniatures' status line, `ddi_shell::opponents`;
+  the match's rules for a stage, everyone's and the CPUs', DDI with the
+  match's difficulty and Boos and never Practice, `battle::stage_ruleset`
+  from `ddi_ui::state::room::StageRules`;
+  an opt-in study of attack rates between CPUs over the bundled charts,
+  `battle/study.rs` (`cargo test --release -p ddi-session --lib
+  attack_rates -- --ignored --nocapture`);
   the attack ledger run locally, `battle/attacks.rs`'s `AttackRunner`:
   a checkpoint once every competitor still in is judged past it, so the
   same at any frame rate and from a play's log; the chart's sections
@@ -562,6 +615,7 @@ Rust and the browser are implementation details, not advertised features.
   `battle/feed.rs`: `Moment` (when, which note or shock, a tap's judgment
   or a shock stepped on, life, combo, out), the shocks put into its play
   drawn from their commitment as the skin's mines (`FieldFeed::add_hazards`),
+  a lane a shock locked for the lock's time (`FieldFeed::locks`),
   the tap-only copy it plays, `TapTrack`, and a presentation delay, 0
   for local CPUs, so a network stream can feed the same view later).
   Platform-free, natively tested on a fake clock.
@@ -583,21 +637,41 @@ Rust and the browser are implementation details, not advertised features.
   `PlayView` over each shell's `PlayHost`: its pictures, its movie
   decks, its log, its text; the web's `GameLoop` and desktop's `View`
   keep their surfaces; a practice stage's CPU opponents beside the field,
-  the incoming attack's warning by the receptors and the waiting line
-  under the power bar, `crates/shell/src/battle_cue.rs`;
+  the incoming attack's warning by the receptors (the nearer attack's,
+  with a second, smaller glyph where one more waits behind it; gone once
+  its last shock has passed: no recovery since `attacks-v1`) and the
+  waiting line under the power bar, `crates/shell/src/battle_cue.rs`;
   `crates/shell/src/opponents.rs`: miniature fields in stable slots of the
-  side space on both sides, each side its whole height clear of the HUD
-  and the quit button's place, a status line under the right side for
+  side space on both sides, every opponent of a room its own at every
+  size (eight at most; each a small copy of the play's field, in its
+  proportion, `opponents::rows_for`: as many lanes tall, ten on a wide
+  screen, eight to twelve where a window's shape gives another; as large
+  as each side's room clear of the HUD, the quit button's place and the
+  attack warning's allows, up to half the play's lane,
+  `MINI_LANE_SHARE`, so a few opponents are no larger than many: lanes
+  of 36, 36, 36, 33 and 28 px for 1, 2, 4, 6 and 8 at 1280×720; lanes of
+  8 px at the least, in the margins a phone held upright leaves), with lyrics
+  over the play too, a status line under the right side (beside the
+  watermark where the sides are too narrow for words) for
   the battle's moment and "Stage won" (the dancing hand goes behind the
-  field during a stage, under the judgment, `play_view::behind_field`,
-  `dance::BEHIND_FIELD_ZOOM`), drawn by the play's own noteskin
+  field during a stage, whole as a solo play shows it, its arm's end
+  included, with no fade and no cut, in the band past the receptors'
+  row and behind the judgment and the notes, `play_view::behind_field`,
+  `dance::behind_field_distance`), drawn by the play's own noteskin
   after its field on a band as its field's (`ddi_render::scene::Miniature`,
   `NoteLayer::miniature`: no Lua run, the play's field's state put back),
   each one's life gauge and combo by the play's HUD shader placed as the
-  play's (`hud::Hud::prepare_minis`), names and Out by the 2D pass; past
-  what fits, the opponents take turns in the slots, each in its own,
-  `priority_seats` never rotating away (`opponents::rotate`); where a side is too narrow or
-  lyrics show, the quiet column).
+  play's (`hud::Hud::prepare_minis`), names and Out by the 2D pass, with
+  each one's score small under its gauge (`opponents::ScoreShown`: DDI's
+  score, the sum, or the percent, as the player's Score display has
+  their own; never the proportional part alone; a CPU's sum put on the
+  chart's own scale, `ddi_session::battle::cpu_score`, the engine's
+  `CPU_SCORE_V0`) and a lane a shock
+  locked darkened with its receptor's place tinted for the lock's time; only
+  beyond the cap (the development-only practice, at lanes of 16 px) do
+  the opponents take turns in the slots, each in its own,
+  `priority_seats` never rotating away (`opponents::rotate`); there is
+  no list of opponents any more).
   Platform-free (native and wasm), natively tested.
 - `crates/app/` the game (`ddi`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell
@@ -788,20 +862,42 @@ Rust and the browser are implementation details, not advertised features.
   played under, by name and version, and its ranking of judged runs
   (`battle.rs`: `BattlePreset::GaugeSurvivalV0`, provisional: each
   competitor's gauge as life, empty is out of the stage; `rank`,
-  `decided`; `GaugeAttacksV0`, development only so far, the same with
-  attack power); the match's ruleset everyone plays (`MatchRules::ruleset`,
-  one of `MatchRules::RULESETS`, new rooms `itg-fa+`; decision D0 of
-  `docs/plans/multiplayer-ui.md`'s 2026-11-11 note); attack power's
+  `decided`: those still in by life, then the score, DDI's sum,
+  `Run::Live`'s `score`, a CPU's or a bot's put on the chart's own scale
+  by whoever judged it; where someone still in reported none, as before
+  round 3b by the proportional part and then, among those who played the
+  same notes, DDI's absolute score, `Absolute`; both additive on
+  `Run::Live` and `ReportedRun::Live`;
+  `GaugeAttacksV0`, the same with attacks, chosen by the match's Attacks
+  rule, `MatchRules::attacks`, Off by default; `RunDetail`, how a starter performed for the stage's
+  standings: optional on `Command::ReportOutcome` and
+  `Event::OutcomeReported`, kept in `StagePlay::details`, self-reported,
+  never ranked by, ADDITIVE to protocol 2 with serde defaults and no new
+  version, so a peer that predates it ignores it); the match's ruleset
+  everyone plays, DDI alone (`MatchRules::RULESETS`; the field
+  `MatchRules::ruleset` keeps an older id as it was stored or received,
+  `LEGACY_RULESETS`, so an authority one build behind still takes the
+  rules back: read it through `MatchRules::ruleset_id`), with DDI's
+  difficulty and Boos as match rules (`MatchRules::difficulty`, a
+  `MatchDifficulty`, and `boos`: plain values, additive, left out of the
+  JSON at their defaults; `docs/plans/ddi-ruleset.md`, "Round 3
+  (built)"; decision D0 of `docs/plans/multiplayer-ui.md`'s 2026-11-11
+  note); attack power's
   ledger and its attacks (`attacks.rs`: `StageBattle` credited at
   checkpoints every four beats from reports of judged tiers and life,
-  `ATTACKS_V0` cap and cost 100, `POWER_CLASSES_V0` by the match's
-  ruleset; a full bar launched in a turning order at the target its
-  `Targeting` picks (Spread, Retaliate, Leader), eight shocks in the
-  first safe `Schedule` section past the target's lead (`LEAD_V0`), one
-  attack against anyone until they recover, expiry when they go out;
+  `ATTACKS`, which is `attacks-v1`: cap and cost 100, `POWER_CLASSES_V0`
+  by the match's ruleset; a full bar launched in a turning order at the
+  target its `Targeting` picks (Spread, Retaliate, Leader), eight shocks
+  in the first safe `Schedule` section past the target's lead
+  (`LEAD_V0`); no recovery period, an attack over once its last shock's
+  window has passed, and one more may be reserved against a recipient
+  while one is on its way or passing (`AttackRules::chain`), in the
+  first safe section after that one has cleared, never more than one
+  waiting; `attacks-v0`, one attack at a time until the recipient
+  recovered, kept by name; expiry when they go out, the waiting one too;
   `Blocked` waits; `SETTLEMENT_V0`, decided only with no attack against
-  the last one in outstanding, a knockout by it a shared first; trace
-  tests in `attacks/tests.rs`).
+  the last one in outstanding, a waiting one counted, a knockout by it a
+  shared first; trace tests in `attacks/tests.rs`).
   M7b's match flow in the model: `Command::Pick` (the operator's Start on
   a song: the next stage's song, the match started or gone on, its
   readiness window opened, all as one change), `Command::Spotlight` and
@@ -868,11 +964,26 @@ Rust and the browser are implementation details, not advertised features.
   `leave_prompt`), whose judged outcome the shell reports as the
   authority (`report_stage`); `SharedRoom` is what the shells keep across
   screens. `state/cpu_roster.rs` (with `cpu_roster.json`): the named CPUs
-  practice seats (invented names, data in every language), Add random's
-  `RosterAim` hook. A stage's prompt says so (`PromptInfo::set_stage`),
-  its results go back to the room (`ResultsKind::Stage`: no Retry), whose
-  song select shows the standings and the match's results
-  (`StandingsDialog`); stage plays are never kept in the history.
+  practice seats (invented names, data in every language; each at one of
+  the ten levels, every level somebody's, shown as stars and never as a
+  number), Add random's `RosterAim` hook. A stage's prompt says so (`PromptInfo::set_stage`),
+  its results go back to the room (`ResultsKind::Stage`: no Retry) and
+  have two tabs where the graphs are (feedback round B,
+  `ResultsScreen::with_room`, `screens/results_stage.rs`): Standings,
+  shown first (every starter in the stage's order with the award, the
+  match's total and place and how they performed: score or percent,
+  grade, life or when out, combo, the judgments as one stacked bar in
+  the ruleset's tiers' colors, `screens::play::tiers`; lines filling in
+  as an online stage's reports come; the match's result on top after
+  the last stage), and Graphs; Left and Right or the shoulders change
+  the tab, remembered for the session; what it reads is
+  `RoomClient::stage_table` (`StageTable`), a practice's competitors'
+  details kept by the client (`set_stage_details`, from
+  `ddi_session::battle::StageOutcome::details`, `run_detail`), an online
+  stage's the room's (`report_played`); `ui.theme.stage` for tests. The
+  room's song select pops the standings and the match's results up
+  (`StandingsDialog`) for those who did not see them there; stage plays
+  are never kept in the history.
   Online rooms (M5c, M5d): `RoomClient::online` holds an online link
   instead (`crates/ui/src/state/online/link.rs`: `ddi_room`'s
   `OnlineAuthority` over the shell's socket, its tickets, the room's name
@@ -901,13 +1012,30 @@ Rust and the browser are implementation details, not advertised features.
   the shell). M7b: the room's main view is song select
   (`SelectScreen::with_room`, `screens/select_room.rs`, a child module of
   `select`): the host's library, Enter "Pick for stage N"; the others
-  following the host's song with the room's panel (status, picks,
-  players) in the list's place; Rules and Players in the header (More on
-  a phone), the status line over the list. `screens/room.rs` what the
+  following the host's song with the room's panel (status, picks; a
+  phone's the players too) in the list's place; Rules and Players in the
+  header (More on a phone), the status line over the list. The players
+  are always there (feedback round B): a room's wide layout has the
+  song's side short (`Layout::for_room`: a small banner, the title and a
+  line, the style button only where the room plays more than one style,
+  `RoomClient::style_playable`, one row of chart buttons, no ladder) and
+  the players panel under it (`room::players_panel`, `RoomPlayers`: a
+  line a player with the place, the name and role or stars, the state
+  in words and the match points; the host's and the others' the same); a
+  phone's host has them as one line over the list
+  (`room::players_strip`); a tap on either opens the Players pop-up.
+  `screens/room.rs` what the
   room's screens share (`RoomCall`, the per-frame `Pump`, the status and
   rows, the panel, More, `ThemeState::room`, a `RoomView`, for tests);
-  `screens/room_dialogs.rs` Rules (first with Reset and OK, later Cancel
-  and Apply; practice's roster, `AddCpuDialog`), `PlayersDialog`,
+  `screens/room_dialogs.rs` Rules (from their button, Cancel and Apply;
+  a room opens straight on its song select with the default rules, and
+  only the hidden option `Settings::multiplayer_rules_first`, off by
+  default, opens them by themselves on entering in their first form,
+  Reset and OK; its rows Stages, DDI's Difficulty and Boos, practice's
+  roster, `AddCpuDialog`, and Attacks, offered where they work
+  (`room::attacks_offered`: practice; an online room says they are not
+  there yet); the rules in a few words where they are summarized,
+  `room::rules_words`), `PlayersDialog`,
   `StandingsDialog` and the refusal notice; `screens/prompt_room.rs` the
   stage's prompt (`PromptScreen::with_room`: Ready, its countdown, the
   players beside the diagram, `PromptChoice::Ready` for the shell's audio
@@ -1082,15 +1210,20 @@ Rust and the browser are implementation details, not advertised features.
   `--calibrate visual|audio|combined [--auto] [--bias MS] [--start]`,
   `--shared LINK|ID`, `--sharing on|off`, `--multiplayer on|off` (the
   multiplayer prototype's switch; `--screen multiplayer|room`; `--join
-  LINK|INVITE` an online room's invite; development only, `--mp-dev-cpus
+  LINK|INVITE` an online room's invite; `--mp-rules-first on|off`, a
+  hidden option, off by default: a room's Rules open by themselves on
+  entering, as the web's `mprules=1` (`mprules=0`) beside `mp=1`,
+  `Settings::multiplayer_rules_first`; `--mp-attacks`, a convenience for
+  tests and screenshots, never a gate: the practice room starts with its
+  Attacks rule On, which anyone sets in Rules, as the web's `mpattacks=1`
+  (its old name `--mp-dev-attacks` still taken); development only, `--mp-dev-cpus
   N`, practice against N CPUs beyond the cap, as the web's `mpcpus=N`
-  beside `mp=1`; `--mp-dev-attacks`, attack power, as `mpattacks=1`;
-  `--mp-dev-mines BEAT`, a section of battle shocks in each stage's play
+  beside `mp=1`; `--mp-dev-mines BEAT`, a section of battle shocks in each stage's play
   from that beat, as `mpdevmines=BEAT`), `--share IDS|pack:NAME
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--mp-bots [--host] [--join LINK] [--guests N] [--api URL] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
-  [--pick ID[:N],…] [--names A,B] [--level 1-5] [--personality P]`
+  [--pick ID[:N],…] [--names A,B] [--level 1-10] [--personality P]`
   (DEVELOPMENT TOOL: bots in a private online room, played by the CPU,
   no window or sound; the admin share token from `DDI_SHARE_TOKEN`;
   locally `DDI_SHARE_TOKEN=test-token … --api
@@ -1390,7 +1523,11 @@ routes have bars (`router::has_bars`, Back by `router::back_target`) and
 `Ui::bars_kept`/`carry_bars` hand them to the next page's `Ui`
 (`ui_dev::theme_ui`). The chart editor fades as a whole and has none.
 Web route ancestry and Options position live in history state; desktop uses
-the UI stack. Every played layout's default keys end with the number pad as
+the UI stack. The web's history entries for dialogs take one operation at
+a time (`ddi_ui::back_stack::Entries`): nothing is pushed or navigated
+while a `history.go` of ours awaits its `popstate` (an entry pushed before
+it makes Firefox drop the `go` and Chrome the entry), and a pop that
+never comes is given up after a second. Every played layout's default keys end with the number pad as
 a second set (4 2 8 6 the arrows, 5 the middle, the corners the diagonals;
 `crates/chart/src/layout/mod.rs`, decision 70), the main keys first and
 unchanged; `Numpad*` codes are the number pad's alone, never the number
@@ -1398,6 +1535,53 @@ row's, on both shells. Single and danoni 5 keys play their arrows on W A S D
 too, between the arrow keys and the number pad (Single's D F J K went;
 decision 77). Preview audio belongs to visible song select (or an explicit
 Options sample); Start is silent. See `docs/plans/start-menu.md`.
+
+## The DDI ruleset in the screens
+
+`docs/plans/ddi-ruleset.md`, "Round 2 (built)". DDI is the default
+ruleset (`Settings::ruleset`, `DEFAULT_RULESET`) and the first in
+Options' list; its options are `Settings::ddi` (difficulty, Boos,
+Practice) and `Settings::ddi_score` (the score or the percent in play
+and in the lists), shown in the Rules section in the place of
+StepMania's rows while DDI is chosen. Its difficulty reads "Timing
+difficulty" wherever a person sees it (the option, the room's match
+rule) and "Hard timing" or "Easy timing" in summaries, never
+"Difficulty" alone, which is a chart's; identifiers keep `difficulty`.
+The score shown is the
+proportional part plus the absolute score (`DdiScoreView::score`,
+`ratio + absolute`: a perfect 1,000-note chart about 6,000,000, a
+longer one more; the results show it and the percent, the absolute
+score has no line); a person sees the score or the percent and nothing
+else of it, in a room too (`ratio` stays for the sum's own arithmetic
+and for comparing across charts). Stored settings naming ITG moved
+to DDI once (`Settings::rules_moved`; never move a ruleset again without
+such a mark) and their ITG plays were asked to be judged again
+(`Settings::rejudge_from`, `Plays::rejudge_asked`). A test about a
+StepMania preset's own behavior (ticked pump holds, fail types, the
+battery) names `itg` in its settings; `Settings::default()` plays DDI.
+The multiplayer prototype's rooms play DDI alone (round 3,
+`docs/plans/ddi-ruleset.md`): the match's Difficulty and Boos are match
+rules, never the player's own `Settings::ddi`, and never Practice; the
+player's Score display still chooses what their own HUD shows, and what
+the miniatures and the stage's Standings show of the others: the score
+(the sum) or the percent (round 3b). A CPU plays a tap-only copy, so
+its sum is put on the chart's own scale first (`CPU_SCORE_V0`,
+`DdiScoreView::on_scale`, `ddi_session::battle::cpu_score`: its points
+as the same share of the chart's most, its W0s as counted); a stage
+ranks those still in by life, then that score.
+Judgment and grade words are English data (`UiText::data`), the labels
+around them messages; under DDI the results say Early and Late, never
+Fast and Slow. With Boos on, a stray press that counts shows "Boo"
+where the tap judgments show, a judgment of its own
+(`JudgementFlash::boo`, set where the event is scored so a replay and
+the results' count agree with it; `JudgeNames::boo`, `scene::BOO_COLOR`,
+the theme's `Judgement.Boo`), with no early or late word and nothing on
+the receptor; an exempt press shows nothing. A grade may be two words ("Absolute Dito"): the results
+set it on two lines, the lists write AD and AB
+(`ddi_ui::state::history::list_grade`). A play judged from its log does
+not know who played: grade an autoplayed record's with
+`Worked::from_replay`, `Replay::grade_as_played` or `Player::set_bot`.
+What a play came to as played is never replaced by a second judgment.
 
 ## Additional chart versions
 

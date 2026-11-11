@@ -309,6 +309,7 @@ fn accepted_hud_draws_through_all_color_paths() {
             age: 0.2,
             combo_at: 1000,
             w0: None,
+            boo: false,
         });
         let pixels = draw(
             &device,

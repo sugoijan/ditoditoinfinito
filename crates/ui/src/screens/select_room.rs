@@ -9,16 +9,27 @@
 //!   edited, managed or shared from here.
 //! - **The others** follow: the song side shows the host's resting song
 //!   (its card at once, its banner and preview once the room's share of it
-//!   is read), and the list's place holds the room's panel: the status, the
-//!   match's picks and the players, scrolling with Up and Down, the wheel or
-//!   its marks. They cannot pick.
+//!   is read), and the list's place holds the room's panel: the status and
+//!   the match's picks (on a phone the players too), scrolling with Up and
+//!   Down, the wheel or its marks. They cannot pick.
+//! - **The players, always** (feedback round B): in a room the song's side
+//!   is short (`Layout::for_room`: a phone's banner with the title and a
+//!   line, the style button only where the room can play more than one
+//!   style, one row of chart buttons and the chart chosen in words), and
+//!   the players panel (`room::players_panel`) takes the room under it,
+//!   the same for the host and the others. A phone has no room beside the
+//!   song and the list: the host's shows them as one line over the list
+//!   (`room::players_strip`), which opens the full list.
 //! - **The room around it**: the header's Rules and Players (in More on a
 //!   phone), the room's More (invite, stop, leave), and the status line at
 //!   the top of the list's column, under the header: beside what it talks
 //!   about (the pick) and never under the footer's hints, where M2's room
-//!   had it. The Rules pop-up opens by itself once on entering; a stage's
-//!   standings once back from its results; the stage's start prompt when a
-//!   pick gathers readiness.
+//!   had it. A room opens straight on this screen with the default rules
+//!   (the Rules pop-up opens by itself on entering only under the hidden
+//!   option `Settings::multiplayer_rules_first`, off by default; its
+//!   button is always there); a stage's standings pop up once back from
+//!   its results where they were not seen there; the stage's start prompt
+//!   opens when a pick gathers readiness.
 //!
 //! A child module of `select` (it reads the screen's own fields).
 
@@ -29,6 +40,9 @@ use crate::state::room::{RoomView, SharedRoom};
 
 /// The status line's height above the list.
 const STATUS_H: f32 = 40.0;
+/// A phone's players strip's height under it, and the room after it.
+const STRIP_H: f32 = 28.0;
+const STRIP_GAP: f32 = 8.0;
 
 /// Song select's room: the client, the shell's calls and what was drawn.
 pub(super) struct RoomMode {
@@ -70,6 +84,18 @@ impl SelectScreen {
             standings: None,
             time: 0.0,
         });
+        // The styles the room can play, the one shown kept where it is
+        // among them.
+        let shown = self.style_id().to_string();
+        let mut styles = self.data.styles.clone();
+        self.room_styles(&mut styles);
+        if styles.len() != self.data.styles.len() {
+            self.style = styles.iter().position(|st| st.id == shown).unwrap_or(0);
+            Rc::make_mut(&mut self.data).styles = styles;
+            self.tabs_for = None;
+            self.pick = None;
+            self.reload();
+        }
         self
     }
 
@@ -85,13 +111,71 @@ impl SelectScreen {
         self.room_host() == Some(false)
     }
 
-    /// The layout with the list's column under the status line.
+    /// The layout with the list's column under the status line and, on
+    /// a phone, the host's players strip.
     pub(super) fn room_layout(&self, mut l: Layout) -> Layout {
         if self.room.is_some() {
-            l.wheel[1] += STATUS_H;
-            l.wheel[3] -= STATUS_H;
+            let top = STATUS_H + self.strip_height(&l);
+            l.wheel[1] += top;
+            l.wheel[3] -= top;
         }
         l
+    }
+
+    /// The room a phone's players strip takes over the host's list (the
+    /// others' list's place holds the panel, the players in it).
+    fn strip_height(&self, l: &Layout) -> f32 {
+        if l.compact && self.room_host() == Some(true) {
+            STRIP_H + STRIP_GAP
+        } else {
+            0.0
+        }
+    }
+
+    /// The layout for a viewport: a room's has the song's side short and
+    /// the players under it (`Layout::for_room`).
+    pub(super) fn fit_layout(&self, vp: [f32; 2], compact: bool) -> Layout {
+        let l = Layout::fit(&self.env, vp, compact);
+        if self.room.is_some() { l.for_room() } else { l }
+    }
+
+    /// Whether the short song's side shows its style button: always on a
+    /// phone; in a room's wide layout only where there is a style to
+    /// change to.
+    pub(super) fn style_button_shown(&self) -> bool {
+        self.layout.compact || self.data.styles.len() > 1
+    }
+
+    /// Where the short song's side's chart buttons go: under the style
+    /// button, or in its place where it is not shown.
+    pub(super) fn charts_y(&self) -> f32 {
+        if self.style_button_shown() {
+            self.layout.charts_y
+        } else {
+            self.layout.chart_h / 2.0
+        }
+    }
+
+    /// The styles a room's song select shows: those the room can play
+    /// (practice's CPUs play one-player charts with four lanes), all of
+    /// them where it could play none.
+    pub(super) fn room_styles(&self, styles: &mut Vec<crate::screens::data::StyleDef>) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        let r = rm.room.borrow();
+        if styles.iter().any(|st| r.style_playable(&st.id)) {
+            styles.retain(|st| r.style_playable(&st.id));
+        }
+    }
+
+    /// The room's players panel beside the song (`RoomPlayers`; the wide
+    /// layout's, empty elsewhere).
+    pub(super) fn room_players(&self) -> Actor {
+        match (&self.room, self.layout.players) {
+            (Some(rm), Some(rect)) => room::players_panel(&self.env, &rm.room.borrow(), rect),
+            _ => frame("RoomPlayers", Vec::new()),
+        }
     }
 
     /// The header's room buttons' width (wide layouts): Rules and Players.
@@ -139,9 +223,19 @@ impl SelectScreen {
         let text: String = room::status(&r).into();
         let mut status = env.text("Room.Status", &text, 14.0, 600, "Secondary");
         look::ellipsized(&mut status, sw);
-        children.push(left(status, sx, wy - STATUS_H / 2.0));
+        let strip = self.strip_height(&l);
+        children.push(left(status, sx, wy - strip - STATUS_H / 2.0));
+        if strip > 0.0 {
+            children.push(room::players_strip(&env, &r, [sx, wy - strip, sw, STRIP_H]));
+        }
         if self.following() {
-            let rows = room::panel_rows(&r);
+            // The players are beside the song where the layout has room
+            // for them; a phone's are here, under the picks.
+            let rows = if l.players.is_some() {
+                room::pick_panel_rows(&r)
+            } else {
+                room::panel_rows(&r)
+            };
             drop(r);
             let (p, first) = room::panel(
                 &env,
@@ -166,6 +260,10 @@ impl SelectScreen {
         if let Some(old) = hit::find_mut(root, "RoomParts") {
             *old = fresh;
             old.finish_tweening();
+        }
+        let players = self.room_players();
+        if let Some(old) = hit::find_mut(root, "RoomPlayers") {
+            crate::screens::refill(old, players);
         }
         if let Some(w) = hit::find_mut(root, "Wheel") {
             w.visible = !self.following();
@@ -196,9 +294,14 @@ impl SelectScreen {
         };
         if known && !room.borrow().rules_seen() {
             room.borrow_mut().set_rules_seen(true);
-            self.cancel_navigation();
-            cx.overlay(RulesDialog::first(self.env.clone(), room.clone()), true);
-            return;
+            // Only under the hidden option (`Settings::multiplayer_rules_first`,
+            // off by default): a room opens straight on its song select,
+            // its Rules behind their button.
+            if crate::state::settings::Settings::cached().multiplayer_rules_first {
+                self.cancel_navigation();
+                cx.overlay(RulesDialog::first(self.env.clone(), room.clone()), true);
+                return;
+            }
         }
         let unseen = room.borrow().unseen_results();
         if let Some(rm) = &mut self.room
@@ -437,6 +540,19 @@ impl SelectScreen {
         root: &mut Actor,
         cx: &mut Cx,
     ) -> Option<Handled> {
+        // A tap on the players (the panel's rows, its line of those that
+        // do not fit, a phone's strip) opens the full list.
+        if let Input::Pointer {
+            target: Some(t),
+            gesture: crate::Gesture::Tap,
+            ..
+        } = input
+            && self.room.is_some()
+            && (t.within("RoomPlayers") || t.within(room::PLAYERS_STRIP))
+        {
+            self.open_players(cx);
+            return Some(Handled::Yes);
+        }
         if !self.following() {
             return None;
         }

@@ -88,6 +88,7 @@ change any of them, here first.
 | audio offset / visual offset | 音声オフセット / 表示オフセット |
 | guided calibration | ガイド付きキャリブレーション |
 | ruleset / gauge | ルールセット / ゲージ |
+| timing difficulty (DDI's option and match rule) | タイミング難易度 (its values イージー / ノーマル / ハード; in summaries イージータイミング / ハードタイミング, never 難易度 alone, which is a chart's) |
 | turns | ミラー / レフト / ライト / シャッフル |
 | appearance | ヒドゥン / サドゥン / ステルス |
 | lane cover | レーンカバー（サドゥン+ / ヒドゥン+） |

@@ -10,9 +10,10 @@ use ddi_chart::Song;
 use ddi_engine::player::Results;
 
 use super::{
-    ChartDigest, History, Imported, PlayEntry, PlayLog, PlayRecord, PlayStore, PlaySummary, Worked,
-    new_entry, rework,
+    Asks, ChartDigest, History, Imported, Judged, PlayEntry, PlayLog, PlayRecord, PlayStore,
+    PlaySummary, new_entry, rework,
 };
+use crate::state::settings::RuleChoice;
 
 /// The plays kept, in memory and in a store.
 pub struct Plays {
@@ -218,7 +219,8 @@ impl Plays {
                     Ok(e) => e,
                     Err(e) => return done(Err(e)),
                 };
-                let changes = me.set_worked(rework_entries(&ids, &entries, &song));
+                let asks = me.asks(&ids);
+                let changes = me.set_worked(rework_entries(&ids, &entries, &song, &asks));
                 let n = changes.len();
                 me.store
                     .replace_summaries(changes, Box::new(move |r| done(r.map(|_| n))));
@@ -239,6 +241,73 @@ impl Plays {
             .take(max)
             .map(|(id, _)| id.clone())
             .collect()
+    }
+
+    /// What judging plays `ids` again takes from their summaries (the
+    /// other rules each waits for or was judged again under), for
+    /// [`rework_entries`].
+    pub fn asks(&self, ids: &[String]) -> Asks {
+        let h = self.history.borrow();
+        ids.iter()
+            .filter_map(|id| Some((id.clone(), h.get(id)?.ask())))
+            .collect()
+    }
+
+    /// Every kept play (those played under ruleset `only`, a preset's
+    /// id, when given) is to be judged again under `rules`
+    /// (`docs/plans/ddi-ruleset.md`, "Re-judging"): marked as waiting, in
+    /// memory at once and in the store behind, for the shell's
+    /// [`super::Reworker`] to judge as it does stale plays. What each came
+    /// to as played stays ([`PlaySummary::worked`]). How many wait.
+    pub fn rejudge(
+        self: &Rc<Self>,
+        rules: &RuleChoice,
+        only: Option<&str>,
+        done: impl FnOnce(Result<(), String>) + 'static,
+    ) -> usize {
+        let changes: Vec<(String, String)> = self
+            .history
+            .borrow_mut()
+            .ask_rejudge(rules, only)
+            .into_iter()
+            .filter_map(|(id, s)| Some((id, serde_json::to_string(s).ok()?)))
+            .collect();
+        let n = changes.len();
+        if n == 0 {
+            done(Ok(()));
+            return 0;
+        }
+        // Plays left unmatched this session are tried again.
+        self.unmatched.borrow_mut().clear();
+        self.changed();
+        self.store.replace_summaries(changes, Box::new(done));
+        n
+    }
+
+    /// What the settings' move from the old default ruleset asked for
+    /// (`Settings::rejudge_from`), once the summaries are in: the kept
+    /// plays under that ruleset wait to be judged again under the rules
+    /// now chosen, and the settings ask no more once that is stored. How
+    /// many wait.
+    pub fn rejudge_asked(self: &Rc<Self>) -> usize {
+        use crate::state::settings::Settings;
+        if !self.loaded() {
+            return 0;
+        }
+        let settings = Settings::load();
+        let Some(from) = settings.rejudge_from.clone() else {
+            return 0;
+        };
+        // Asked no more once the marks are stored: a session that ends
+        // before then asks again in the next.
+        self.rejudge(&settings.rules(), Some(&from), |stored| {
+            if stored.is_ok() {
+                let mut settings = Settings::load();
+                if settings.rejudge_from.take().is_some() {
+                    settings.save();
+                }
+            }
+        })
     }
 
     /// Whether a play is stale and has not been tried this session.
@@ -375,15 +444,17 @@ impl Plays {
 
 /// Plays `ids` judged again on `song` from their stored `entries` (as a
 /// store's `records` answers: one missing is "not stored"), in `ids`'
-/// order. Pure: a shell may run it off its UI thread.
-pub fn rework_entries(ids: &[String], entries: &[PlayEntry], song: &Song) -> Reworked {
+/// order, each also under the other rules `asks` names for it
+/// ([`Plays::asks`]). Pure: a shell may run it off its UI thread.
+pub fn rework_entries(ids: &[String], entries: &[PlayEntry], song: &Song, asks: &Asks) -> Reworked {
+    let none = super::Ask::default();
     ids.iter()
         .map(|id| {
             let worked = entries
                 .iter()
                 .find(|e| &e.id == id)
                 .ok_or_else(|| "not stored".to_string())
-                .and_then(|e| rework(e, song));
+                .and_then(|e| rework(e, song, asks.get(id).unwrap_or(&none)));
             (id.clone(), worked)
         })
         .collect()
@@ -391,7 +462,7 @@ pub fn rework_entries(ids: &[String], entries: &[PlayEntry], song: &Song) -> Rew
 
 /// Plays judged again: each id with what it comes to, or why it could
 /// not be.
-pub type Reworked = Vec<(String, Result<Worked, String>)>;
+pub type Reworked = Vec<(String, Result<Judged, String>)>;
 
 /// One play a line, everything in it (`PlayEntry::to_json`).
 pub fn export_lines(entries: &[PlayEntry]) -> String {

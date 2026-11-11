@@ -122,6 +122,36 @@ export, base64 included (5,004 such short plays export to 40 MB).
 - **The raw format** has a version of its own. The reader keeps reading
   every past version.
 
+## Judged again under other rules (2026-11-12)
+
+`docs/plans/ddi-ruleset.md`, "Re-judging": when the settings moved from
+ITG to DDI the kept ITG plays are judged again under DDI, and Options →
+Rules → Kept plays → Judge again does the same for every kept play under
+the rules chosen now.
+
+- **Both are kept.** The record is never rewritten and names the rules
+  the play was played by; its summary keeps what it came to by them
+  (`worked`) and, beside it, the rules it was judged again under and what
+  it came to by those (`PlaySummary::rejudged`, a `Rejudged`). One second
+  judgment a play: asking again under other rules replaces it, and rules
+  that are the play's own remove it.
+- **Asking** (`Plays::rejudge`) marks each summary with the rules asked
+  for (`PlaySummary::rejudge`, the settings' `RuleChoice`, so the chart's
+  ruleset is built when its chart is at hand); marked plays are stale,
+  and the `Reworker` judges them as it does plays of an older judge
+  (`rework`: as played, and under the rules asked for; `Plays::asks`
+  carries the marks to a shell that judges on a thread). The mark is
+  stored, so a pass a session did not finish goes on in the next.
+- **Bests** count a play under its own rules and under those it was
+  judged again by. The plays list, a kept play's results and its replay
+  show it as judged last (`PlaySummary::view`, `Replay::ruleset`), marked
+  "judged again" with a note naming both rules; its replay's check is
+  against the second judgment, the kept timing (the play's own) left out.
+- **The limit:** the play did not react to the other rules (DDI's lane
+  locks, its Boos).
+- **Autoplayed records** judged again under DDI are graded Absolute Bot
+  where the log alone would say Absolute Dito (`Worked::from_replay`).
+
 ## Bests
 
 - **The key:** a best is per chart content (the digest, not the song id)
@@ -137,6 +167,9 @@ export, base64 included (5,004 such short plays export to 40 MB).
   them.
 - **For each chart and ruleset:** the best score, the best lamp (they can
   come from different plays), the play count and the last played date.
+  Under DDI the best score is the highest score, ties by the absolute
+  score (`better_score`, `DdiScoreView::best_cmp`), kept per difficulty
+  and Boos (`RulesetKey::best_key` leaves Practice out).
 - **Song select** asks the history for the chart ladder's rows. A
   ruleset other than the one selected shows nothing, or "played under
   ITG", as the theme decides.

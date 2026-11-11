@@ -226,18 +226,52 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
         // Back to room, never Retry: a stage is played once.
         assert!(ui.bounds("SongList").is_some());
         assert!(ui.bounds("Retry").is_none());
-        // Back to the room (Enter: its button has focus).
         ui.update(3.0);
+        // Where the graphs are: the Standings tab first (feedback round
+        // B), the stage confirmed, the player and the three CPUs each
+        // with how they performed, as their engine-judged plays say.
+        let view = env.state.borrow().stage.clone().expect("the standings");
+        assert_eq!(view.tab, ddi_ui::screens::results::Tab::Standings);
+        assert!(view.confirmed, "{view:?}");
+        assert_eq!(view.rows.len(), 4);
+        assert_eq!(view.rows.iter().filter(|r| r.me).count(), 1);
+        for row in &view.rows {
+            assert!(row.place.is_some() && row.award.is_some(), "{row:?}");
+            // DDI's score as shown everywhere: the sum (round 3b), a
+            // CPU's on the chart's own scale.
+            assert!(row.score.parse::<i64>().is_ok(), "{row:?}");
+            assert!(!row.grade.is_empty() && !row.life.is_empty(), "{row:?}");
+            assert!(row.tiers.iter().sum::<u32>() > 0, "{row:?}");
+            assert_eq!(row.level.is_some(), !row.me, "a CPU's stars");
+        }
+        // The sum, never the proportional part alone (at most a million).
+        assert!(
+            view.rows
+                .iter()
+                .any(|r| r.score.parse::<i64>().is_ok_and(|s| s > 1_000_000)),
+            "{view:?}"
+        );
+        // The match's result on the last stage's, not before.
+        assert_eq!(view.number == view.of, !view.winners.is_empty(), "{view:?}");
+        assert!(ui.bounds("Panel.Standings").is_some() && ui.bounds("Panel.Timing").is_none());
+        // Right: the graphs; Left: the standings again.
+        key(ui, "ArrowRight", "ArrowRight");
+        ui.update(0.3);
+        assert!(ui.bounds("Panel.Timing").is_some() && ui.bounds("Panel.Standings").is_none());
+        key(ui, "ArrowLeft", "ArrowLeft");
+        ui.update(0.3);
+        assert!(ui.bounds("Panel.Standings").is_some());
+        // Back to the room (Enter: its button has focus).
         key(ui, "Enter", "Enter");
         ui.update(0.5);
         host.poll(ui, &env, Some(dev()), 48_000);
         ui.update(1.0);
         assert!(!host.prompting() && !host.playing());
-        // The room's song select, its standings over it; Continue.
-        assert_eq!(top(ui), "room-standings", "{:?}", ui.layers());
-        key(ui, "Enter", "Enter");
-        ui.update(0.5);
+        // The room's song select: the standings were seen on the
+        // results, so they do not pop up again.
         assert_eq!(top(ui), "select", "{:?}", ui.layers());
+        assert_eq!(room.borrow().unseen_results(), None);
+        assert!(env.state.borrow().stage.is_none(), "gone with the results");
     };
 
     play_stage(&mut ui, Some("play"));
@@ -444,6 +478,18 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
     ui.update(0.05);
     assert_eq!(top(&ui), "results");
     assert!(attacks > 0, "full bars launched");
+    // The standings count them: every line says its attacks and shocks,
+    // and those launched add up to the ledger's.
+    ui.update(1.0);
+    let view = env.state.borrow().stage.clone().expect("the standings");
+    assert!(view.rows.iter().all(|r| r.attacks.is_some()), "{view:?}");
+    let launched: u32 = view
+        .rows
+        .iter()
+        .filter_map(|r| r.attacks)
+        .map(|a| a.0)
+        .sum();
+    assert_eq!(launched as usize, attacks, "{view:?}");
     let logged = host
         .log
         .iter()

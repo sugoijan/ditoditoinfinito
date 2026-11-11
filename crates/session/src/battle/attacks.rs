@@ -25,7 +25,7 @@ use ddi_engine::rules::JudgeTable;
 use ddi_room::ParticipantId;
 pub use ddi_room::attacks::LEAD_V0;
 use ddi_room::attacks::{
-    ATTACKS_V0, Attack, AttackEvent, BlockReason, Cell, CheckpointRecord, Judged, POWER_CLASSES_V0,
+    ATTACKS, Attack, AttackEvent, BlockReason, Cell, CheckpointRecord, Judged, POWER_CLASSES_V0,
     Report, Schedule, SeatStats, Section, Slot, StageBattle, StageRoster, Targeting,
 };
 
@@ -51,9 +51,33 @@ pub(crate) fn micros(seconds: f64) -> i64 {
     (seconds * 1e6).round() as i64
 }
 
+/// The placement a stage's sections are drawn by: the engine's. The
+/// attack-rate study (`battle/study.rs`, tests only) may ask for an older
+/// one to compare with (`DDI_ATTACK_PLACEMENT=v1` or `v0`).
+fn placement() -> ddi_engine::battle::Placement {
+    #[cfg(test)]
+    match std::env::var("DDI_ATTACK_PLACEMENT").as_deref() {
+        Ok("v1") => return ddi_engine::battle::PLACEMENT_V1,
+        Ok("v0") => return ddi_engine::battle::PLACEMENT_V0,
+        _ => {}
+    }
+    ddi_engine::battle::PLACEMENT
+}
+
+/// The rules a stage's attacks are played under: the room's
+/// ([`ATTACKS`], `attacks-v1`). The attack-rate study (tests only) may
+/// ask for the older ones to compare with (`DDI_ATTACK_RULES=v0`).
+pub fn rules() -> ddi_room::attacks::AttackRules {
+    #[cfg(test)]
+    if std::env::var("DDI_ATTACK_RULES").as_deref() == Ok("v0") {
+        return ddi_room::attacks::ATTACKS_V0;
+    }
+    ATTACKS
+}
+
 /// The sections chart `chart` of `song` has room for shocks in under
 /// `judge` (`ddi_engine::battle::schedule`, drawn from `seed`), as the
-/// ledger has them: a slot every [`ATTACKS_V0`]'s checkpoint beats from
+/// ledger has them: a slot every [`ATTACKS`]'s checkpoint beats from
 /// the chart's start, each section's shocks timed, when it clears (its
 /// last shock and its window) and when its recipient may first recover.
 pub fn schedule(song: &Song, chart: usize, judge: &JudgeTable, seed: u64) -> Schedule {
@@ -62,9 +86,10 @@ pub fn schedule(song: &Song, chart: usize, judge: &JudgeTable, seed: u64) -> Sch
     };
     let timing = c.timing(song);
     let window = ddi_engine::battle::INJECTED_MINE_V0.window(judge);
-    let every = i64::from(ddi_engine::battle::PLACEMENT_V0.every_beats.max(1));
-    let recover = f64::from(ATTACKS_V0.recover_beats);
-    let slots = ddi_engine::battle::schedule(song, chart, judge, seed)
+    let placement = placement();
+    let every = i64::from(placement.every_beats.max(1));
+    let recover = f64::from(rules().recover_beats);
+    let slots = ddi_engine::battle::schedule_with(song, chart, judge, seed, &placement)
         .into_iter()
         .enumerate()
         .map(|(j, section)| Slot {
@@ -81,8 +106,13 @@ pub fn schedule(song: &Song, chart: usize, judge: &JudgeTable, seed: u64) -> Sch
                     .collect();
                 let last = cells.iter().map(|c| c.at_us).max().unwrap_or(0);
                 let clear = last as f64 / 1e6 + window;
-                let after = timing.beat_at(clear) + recover;
-                let after = timing.seconds_at(Tick((after * TICKS_PER_BEAT as f64).ceil() as i64));
+                // No recovery period (`attacks-v1`): over as it clears.
+                let after = if recover > 0.0 {
+                    let after = timing.beat_at(clear) + recover;
+                    timing.seconds_at(Tick((after * TICKS_PER_BEAT as f64).ceil() as i64))
+                } else {
+                    clear
+                };
                 Section {
                     cells,
                     clear_us: micros(clear),
@@ -109,7 +139,7 @@ pub fn hazards(attack: &Attack) -> Vec<ddi_engine::battle::Hazard> {
 impl AttackRunner {
     /// The ledger of chart `chart` of `song` (as played) under the match's
     /// `ruleset` (its judge `judge`), for `roster`: its checkpoints every
-    /// [`ATTACKS_V0`]'s beats from the fourth on, to four beats past the
+    /// [`ATTACKS`]'s beats from the fourth on, to four beats past the
     /// chart's last note; its sections drawn from the roster's seed.
     pub fn new(
         song: &Song,
@@ -127,7 +157,7 @@ impl AttackRunner {
                 .map(|n| n.kind.hold_end().unwrap_or(n.tick).0.max(n.tick.0))
                 .max()
                 .unwrap_or(0);
-            let step = i64::from(ATTACKS_V0.checkpoint_beats) * TICKS_PER_BEAT;
+            let step = i64::from(rules().checkpoint_beats) * TICKS_PER_BEAT;
             let mut tick = step;
             while tick <= last + step && checkpoints.len() < MAX_CHECKPOINTS {
                 checkpoints.push(micros(timing.seconds_at(Tick(tick))));
@@ -138,7 +168,7 @@ impl AttackRunner {
         let schedule = schedule(song, chart, judge, roster.seed);
         AttackRunner {
             ledger: StageBattle::new(
-                ATTACKS_V0,
+                rules(),
                 POWER_CLASSES_V0,
                 ruleset,
                 checkpoints,

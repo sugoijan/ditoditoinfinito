@@ -81,6 +81,79 @@ const TIER_COLORS: [&str; 6] = [
     "Judgement.Miss",
 ];
 
+/// One of a ruleset's tap tiers as the results list them: its name (the
+/// ruleset's word, data in every language) and its color's name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Tier {
+    pub name: String,
+    pub color: &'static str,
+}
+
+/// The tiers `ruleset` judges taps by, as its results list them, best
+/// first and the misses last, each with how many `tally` counted: ITG
+/// FA+'s Fantastics inside its inner window and the rest, DDI's best
+/// word and then each tier by both its words. What a stage's standings
+/// draw a competitor's judgments by ([`tier_counts`] travels in their
+/// report, [`tiers`] names and colors them for everyone under the
+/// match's ruleset).
+fn tier_rows(ruleset: &Ruleset, tally: &ddi_engine::Tally) -> Vec<(Tier, u32)> {
+    let names = &ruleset.names;
+    let tier = |name: String, color: &'static str| Tier { name, color };
+    let mut rows = Vec::new();
+    for j in Judgement::ALL {
+        let name = names.name(j).trim();
+        if name.is_empty() || name == "—" || !(j.is_miss() || ruleset.judge.window(j).is_some()) {
+            continue;
+        }
+        let count = tally.taps[j.index()];
+        let both = |j: Judgement| {
+            let (early, late) = names.sides(j);
+            format!("{early} / {late}")
+        };
+        match (j, &names.w0) {
+            (Judgement::W1, _) if ruleset.is_ddi() => {
+                rows.push((
+                    tier(names.word(j, 0.0, true).to_string(), TIER_COLORS[0]),
+                    tally.w0,
+                ));
+                rows.push((tier(both(j), W1_OUTSIDE_W0), count.saturating_sub(tally.w0)));
+            }
+            (Judgement::W1, Some((blue, white))) => {
+                rows.push((tier(blue.clone(), TIER_COLORS[0]), tally.w0));
+                rows.push((
+                    tier(white.clone(), W1_OUTSIDE_W0),
+                    count.saturating_sub(tally.w0),
+                ));
+            }
+            (j, _) if ruleset.is_ddi() && j.is_miss() => {
+                rows.push((tier(names.sides(j).1.to_string(), TIER_COLORS[5]), count));
+            }
+            (j, _) if ruleset.is_ddi() => rows.push((tier(both(j), TIER_COLORS[j.index()]), count)),
+            (j, _) => rows.push((
+                tier(names.name(j).to_string(), TIER_COLORS[j.index()]),
+                count,
+            )),
+        }
+    }
+    rows
+}
+
+/// [`tier_rows`]' tiers alone: their names and colors under `ruleset`.
+pub fn tiers(ruleset: &Ruleset) -> Vec<Tier> {
+    tier_rows(ruleset, &ddi_engine::Tally::default())
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect()
+}
+
+/// [`tier_rows`]' counts alone, in [`tiers`]' order.
+pub fn tier_counts(ruleset: &Ruleset, tally: &ddi_engine::Tally) -> Vec<u32> {
+    tier_rows(ruleset, tally)
+        .into_iter()
+        .map(|(_, n)| n)
+        .collect()
+}
+
 /// The panel sets every ruleset offers, its default first.
 pub fn panel_sets() -> Vec<PanelSet> {
     let set = |name: &str, panels: &[PanelKind]| PanelSet {
@@ -126,8 +199,19 @@ pub fn options_line(o: &ddi_engine::player::PlayOptions) -> String {
     parts.join(" · ")
 }
 
-/// The score as the ruleset gives it: money, else percent, else "—".
+/// The score as the ruleset gives it: money, else percent, else "—";
+/// DDI's as its score, the proportional part plus the absolute score
+/// ([`score_text_as`] for its percent).
 pub fn score_text(r: &Results) -> String {
+    score_text_as(r, false)
+}
+
+/// [`score_text`], a DDI score as its percent when `percent`
+/// (`Settings::ddi_percent`).
+pub fn score_text_as(r: &Results, percent: bool) -> String {
+    if r.score.ddi.is_some() {
+        return crate::state::history::score_text_as(&r.score, percent);
+    }
     match (r.score.money, r.score.percent) {
         (Some(m), _) => format!("{m}"),
         (None, Some(p)) => format!("{:.2}%", p * 100.0),
@@ -177,6 +261,40 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         })
         .flat_map(|j| {
             let count = r.tally.taps[j.index()];
+            if let Some(ddi) = &r.ddi {
+                // DDI: W0 by its one word, then each tier by both its
+                // words with its early and late counts.
+                let (early, late) = names.sides(*j);
+                let tier = |name: String, color: &str, count, sides| JudgementCount {
+                    name: UiText::data(name).into(),
+                    color: color.to_string(),
+                    count,
+                    sides,
+                };
+                return match j {
+                    Judgement::W1 => vec![
+                        tier(
+                            names.word(*j, 0.0, true).to_string(),
+                            TIER_COLORS[0],
+                            r.tally.w0,
+                            None,
+                        ),
+                        tier(
+                            format!("{early} / {late}"),
+                            W1_OUTSIDE_W0,
+                            count.saturating_sub(r.tally.w0),
+                            Some(ddi.sides[j.index()]),
+                        ),
+                    ],
+                    j if j.is_miss() => vec![tier(late.to_string(), TIER_COLORS[5], count, None)],
+                    j => vec![tier(
+                        format!("{early} / {late}"),
+                        TIER_COLORS[j.index()],
+                        count,
+                        Some(ddi.sides[j.index()]),
+                    )],
+                };
+            }
             match (&names.w0, j) {
                 // FA+: the Fantastics inside the W0 window and the rest.
                 (Some((blue, white)), Judgement::W1) => vec![
@@ -184,17 +302,20 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
                         name: UiText::data(blue).into(),
                         color: TIER_COLORS[0].to_string(),
                         count: r.tally.w0,
+                        sides: None,
                     },
                     JudgementCount {
                         name: UiText::data(white).into(),
                         color: W1_OUTSIDE_W0.to_string(),
                         count: count.saturating_sub(r.tally.w0),
+                        sides: None,
                     },
                 ],
                 _ => vec![JudgementCount {
                     name: UiText::data(names.name(*j)).into(),
                     color: TIER_COLORS[j.index()].to_string(),
                     count,
+                    sides: None,
                 }],
             }
         })
@@ -222,15 +343,35 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
     // Where every stray press counts (FFR's Boo), always.
     let counts_strays = matches!(
         judge.empty_press,
-        EmptyPress::Boo | EmptyPress::BooFromFirstNote
+        EmptyPress::Boo | EmptyPress::BooFromFirstNote | EmptyPress::Guarded { .. }
     );
+    let ddi = p.ruleset.is_ddi();
+    // DDI's display, where the play is its own.
+    let percent = ddi && Settings::cached().ddi_percent();
     if t.boo > 0 || counts_strays {
-        stats.push((rm::stray_presses().into(), t.boo.to_string()));
+        stats.push((
+            if ddi {
+                // DDI's own word for them, a judgment's.
+                UiText::data(ddi_engine::rules::ddi::BOOS_WORD).into()
+            } else {
+                rm::stray_presses().into()
+            },
+            t.boo.to_string(),
+        ));
     }
     stats.push((rm::max_combo().into(), r.max_combo.to_string()));
     stats.extend(flare_stat(r));
     stats.extend(ffr_stats(r));
-    stats.push((rm::fast_slow().into(), format!("{} / {}", r.fast, r.slow)));
+    stats.extend(ddi_stats(r, percent));
+    stats.push((
+        // Early and Late under DDI, never Fast and Slow.
+        if ddi {
+            rm::early_late().into()
+        } else {
+            rm::fast_slow().into()
+        },
+        format!("{} / {}", r.fast, r.slow),
+    ));
     stats.push((
         rm::mean_offset().into(),
         // A readout: the same in every language.
@@ -297,7 +438,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         r.cover,
         Some((r.lane_map.as_slice(), p.layout)),
     ));
-    mods.extend(rules_summary(&p.ruleset.stepmania));
+    mods.extend(ruleset_summary(&p.ruleset.key()));
     let panel_sets = panel_sets();
     // The main set, whatever the setting says: the others wait for a
     // picker (the tabs went; `Settings::results_panels` stays for it).
@@ -316,8 +457,13 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
             format!("{} · {}", p.chart, UiText::data(&p.ruleset.name))
         },
         mods: mods.join(" · "),
-        grade: r.grade.clone(),
-        score: score_text(r),
+        // A record kept as autoplayed, judged from its log: the bot's.
+        grade: if p.autoplay && ddi {
+            ddi_engine::rules::ddi::bot_grade(&r.grade).to_string()
+        } else {
+            r.grade.clone()
+        },
+        score: score_text_as(r, percent),
         ex: ex_text(&r.score),
         failed: r.failed,
         quit: r.quit,
@@ -371,6 +517,26 @@ pub fn flare_stat(r: &Results) -> Option<(String, String)> {
     Some((rm::flare_skill().into(), value))
 }
 
+/// A DDI play's score or percent, the one the big number (the score, or
+/// with `percent` the percent) does not show. The score is the
+/// proportional part plus the absolute score
+/// (`ddi_engine::rules::ddi::DdiScoreView::score`), so the absolute
+/// score has no line of its own.
+pub fn ddi_stats(r: &Results, percent: bool) -> Vec<(String, String)> {
+    let Some(d) = &r.score.ddi else {
+        return Vec::new();
+    };
+    // Readouts: the same in every language.
+    vec![if percent {
+        (rm::ddi_score().into(), d.score.to_string())
+    } else {
+        (
+            rm::ddi_percent().into(),
+            UiText::data(format!("{}%", d.percent_text())).into(),
+        )
+    }]
+}
+
 /// An FFR play's total score and raw goods, as R^3's results show them
 /// beside its raw score (the score shown).
 pub fn ffr_stats(r: &Results) -> Vec<(String, String)> {
@@ -389,6 +555,10 @@ pub fn ffr_stats(r: &Results) -> Vec<(String, String)> {
 pub fn fail_note(r: &Results, ruleset: &Ruleset) -> Option<String> {
     let at = clock(r.gauge_failed_at?);
     let at = at.as_str();
+    // DDI's Practice: failed, and played on.
+    if let Some(ddi) = &ruleset.ddi {
+        return ddi.practice.then(|| rm::note_practice(at).into());
+    }
     Some(
         match ruleset.stepmania.fail {
             FailType::Immediate => return None,
@@ -447,6 +617,7 @@ pub fn results_notes(
         notes.push(rm::note_not_saved(super::errors::error_text(e)).into());
     }
     notes.extend(check.map(ReplayCheck::notes).unwrap_or_default());
+    notes.extend(replay.and_then(Replay::rejudged_note));
     notes.extend(replay.and_then(Replay::older_judge_note));
     notes
 }
@@ -540,6 +711,34 @@ pub fn cover_label(cover: ddi_engine::cover::LaneCover) -> Option<UiText> {
         CoverMode::Hidden => Some(mm::cover_hidden(pct(hidden))),
         CoverMode::HiddenSudden => Some(mm::cover_both(pct(hidden), pct(sudden))),
     }
+}
+
+/// What a play's rules say on the mods line beyond the ruleset's name:
+/// StepMania's options ([`rules_summary`]) and DDI's ([`ddi_summary`])
+/// that differ from their defaults.
+pub fn ruleset_summary(key: &ddi_engine::rules::RulesetKey) -> Vec<String> {
+    let mut out = rules_summary(&key.stepmania);
+    out.extend(key.ddi.iter().flat_map(ddi_summary));
+    out
+}
+
+/// DDI's options that differ from their defaults, as the mods line says
+/// them ("hard timing", "Boos", "practice").
+pub fn ddi_summary(o: &ddi_engine::rules::ddi::DdiOptions) -> Vec<String> {
+    use ddi_engine::rules::ddi::Difficulty;
+    let mut out: Vec<UiText> = Vec::new();
+    match o.difficulty {
+        Difficulty::Easy => out.push(mm::ddi_easy()),
+        Difficulty::Normal => {}
+        Difficulty::Hard => out.push(mm::ddi_hard()),
+    }
+    if o.boos {
+        out.push(mm::ddi_boos());
+    }
+    if o.practice {
+        out.push(mm::ddi_practice());
+    }
+    out.into_iter().map(String::from).collect()
 }
 
 /// StepMania's options that differ from their defaults, as the mods line
@@ -651,6 +850,7 @@ mod tests {
             ddr: None,
             ffr: None,
             battle_mines: None,
+            ddi: None,
         }
     }
 
@@ -675,6 +875,176 @@ mod tests {
 
     fn names(d: &ResultsData) -> Vec<&str> {
         d.judgements.iter().map(|j| j.name.as_str()).collect()
+    }
+
+    /// A stage's standings name and color a competitor's judgments by
+    /// the match's ruleset: its tiers are the results' rows, with their
+    /// counts, under ITG, ITG FA+ and DDI.
+    #[test]
+    fn the_tiers_are_the_results_rows_with_their_counts() {
+        use ddi_engine::rules::ddi::{self, DdiOptions, DdiResult};
+        ddi_platform::storage::install(std::rc::Rc::new(
+            ddi_platform::storage::MemoryStore::default(),
+        ));
+        let layout = single();
+        for rules in [
+            presets::itg(),
+            presets::by_id("itg-fa+").unwrap(),
+            ddi::ruleset(&DdiOptions::default()),
+        ] {
+            let mut r = results([30, 4, 2, 1, 3, 5]);
+            if rules.judge.w0.is_some() {
+                r.tally.w0 = 20;
+            }
+            if rules.is_ddi() {
+                r.ddi = Some(DdiResult {
+                    lamp: ddi::Lamp::Clear,
+                    sides: [[0; 2]; 6],
+                });
+            }
+            let d = results_data(&info(&r, &rules, &layout));
+            let rows: Vec<(String, String, u32)> = d
+                .judgements
+                .iter()
+                .map(|j| (j.name.clone(), j.color.clone(), j.count))
+                .collect();
+            let tiers: Vec<(String, String, u32)> = tiers(&rules)
+                .into_iter()
+                .zip(tier_counts(&rules, &r.tally))
+                .map(|(t, n)| (UiText::data(t.name).into(), t.color.to_string(), n))
+                .collect();
+            assert_eq!(tiers, rows, "{}", rules.id);
+            assert_eq!(
+                tier_counts(&rules, &r.tally).iter().sum::<u32>(),
+                r.tally.taps.iter().sum::<u32>(),
+                "{}: every tap is in a tier",
+                rules.id
+            );
+        }
+    }
+
+    /// A DDI play's results: W0 by its word, each tier by both words with
+    /// its early and late counts, Early and Late (never Fast and Slow),
+    /// Held and Off, Boos when on, the score (the proportional part plus
+    /// the absolute score) with its percent, the lamp by name, and a
+    /// bot's grade.
+    #[test]
+    fn a_ddi_play_shows_both_words_its_sides_and_its_two_scores() {
+        use ddi_engine::rules::ddi::{self, DdiOptions, DdiResult, DdiScoreView, Lamp};
+        ddi_platform::storage::install(std::rc::Rc::new(
+            ddi_platform::storage::MemoryStore::default(),
+        ));
+        let layout = single();
+        let rules = ddi::ruleset(&DdiOptions::default());
+        let mut r = results([30, 4, 2, 1, 0, 1]);
+        r.tally.w0 = 20;
+        r.fast = 6;
+        r.slow = 11;
+        r.grade = "S".into();
+        r.score = ScoreView {
+            percent: Some(0.9512),
+            ddi: Some(DdiScoreView::of(1902, 2000, 20)),
+            ..ScoreView::default()
+        };
+        r.ddi = Some(DdiResult {
+            lamp: Lamp::Clear,
+            sides: [[4, 6], [1, 3], [1, 1], [0, 1], [0, 0], [0, 0]],
+        });
+        let d = results_data(&info(&r, &rules, &layout));
+        assert_eq!(
+            names(&d),
+            [
+                "Absolute",
+                "Awesome / Amazing",
+                "Fantastic / Glorious",
+                "Nice / Great",
+                "OK / Good",
+                "Too early / Too late",
+                "Miss"
+            ]
+        );
+        let counts: Vec<(u32, Option<[u32; 2]>)> =
+            d.judgements.iter().map(|j| (j.count, j.sides)).collect();
+        assert_eq!(
+            counts,
+            [
+                (20, None),
+                (10, Some([4, 6])),
+                (4, Some([1, 3])),
+                (2, Some([1, 1])),
+                (1, Some([0, 1])),
+                (0, Some([0, 0])),
+                (1, None)
+            ]
+        );
+        let stat = |d: &ResultsData, label: &str| {
+            d.stats
+                .iter()
+                .find(|(l, _)| l == label)
+                .map(|(_, v)| v.clone())
+        };
+        assert_eq!(stat(&d, "Held / Off").as_deref(), Some("3 / 1"));
+        assert_eq!(stat(&d, "Early / late").as_deref(), Some("6 / 11"));
+        assert_eq!(stat(&d, "Fast / slow"), None);
+        // Boos off: not counted, not shown.
+        assert_eq!(stat(&d, "Boos"), None);
+        assert_eq!(stat(&d, "Stray presses"), None);
+        // The score, 951,000 of the ratio and 190,220 of the absolute
+        // score, with the percent beside it; no line for the absolute.
+        assert_eq!(d.score, "1141220");
+        assert_eq!(stat(&d, "Percent").as_deref(), Some("95.10%"));
+        assert_eq!(stat(&d, "Absolute score"), None);
+        assert_eq!(stat(&d, "Score"), None);
+        assert_eq!(d.grade, "S");
+        assert_eq!(d.lamp, None);
+        assert!(d.line.ends_with("· DDI"), "{}", d.line);
+        // Shown as the percent: the score beside it.
+        let mut settings = Settings::default();
+        settings.ddi_score = crate::state::settings::ScoreDisplay::Percent;
+        settings.save();
+        let d = results_data(&info(&r, &rules, &layout));
+        assert_eq!(d.score, "95.10%");
+        assert_eq!(stat(&d, "Score").as_deref(), Some("1141220"));
+        assert_eq!(stat(&d, "Percent"), None);
+        Settings::default().save();
+        // Boos on: counted by their word; the options on the mods line.
+        let boos = ddi::ruleset(&DdiOptions {
+            difficulty: ddi::Difficulty::Hard,
+            boos: true,
+            practice: true,
+        });
+        r.tally.boo = 2;
+        r.gauge_failed_at = Some(95.0);
+        r.failed = true;
+        let d = results_data(&info(&r, &boos, &layout));
+        assert_eq!(stat(&d, "Boos").as_deref(), Some("2"));
+        assert!(d.mods.ends_with("hard timing · Boos · practice"), "{}", d.mods);
+        assert_eq!(
+            d.notes,
+            ["Failed at 1:35: the life emptied, and the play went on (Practice)."]
+        );
+        // The lamp by its name; an autoplayed record's Absolute Dito is
+        // the bot's.
+        r.failed = false;
+        r.gauge_failed_at = None;
+        r.tally.boo = 0;
+        r.grade = ddi::ABSOLUTE_DITO.into();
+        r.ddi.as_mut().unwrap().lamp = Lamp::GloriousFlag;
+        let d = results_data(&info(&r, &rules, &layout));
+        assert_eq!(d.lamp.as_deref(), Some("GLORIOUS FLAG"));
+        assert_eq!(d.grade, "Absolute Dito");
+        let auto = PlayInfo {
+            autoplay: true,
+            ..info(&r, &rules, &layout)
+        };
+        assert_eq!(results_data(&auto).grade, "Absolute Bot");
+        // The other rulesets keep Fast and Slow.
+        let itg = presets::itg();
+        r.ddi = None;
+        r.score.ddi = None;
+        let d = results_data(&info(&r, &itg, &layout));
+        assert_eq!(stat(&d, "Fast / slow").as_deref(), Some("6 / 11"));
+        assert_eq!(stat(&d, "Early / late"), None);
     }
 
     #[test]

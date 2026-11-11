@@ -245,6 +245,74 @@ pub struct Judge {
     last_end: Option<f64>,
     /// [`Judge::first_open`], as far as it has been asked.
     first_open: Cell<usize>,
+    /// [`EmptyPress::Guarded`]'s chart facts; `None` under other rules.
+    guards: Option<BooGuards>,
+    /// Per lane, the song second its lock ([`JudgeTable::lock`]) ends at
+    /// (`NEG_INFINITY`: never locked).
+    locked_until: Vec<f64>,
+    /// Per lane, the next release is of a key the lock let go of or a
+    /// press it ignored, and is ignored too.
+    release_ignored: Vec<bool>,
+}
+
+/// What [`EmptyPress::Guarded`] reads of the chart: where its notes
+/// start and end, and its mines.
+#[derive(Clone, Debug, PartialEq)]
+struct BooGuards {
+    /// The first note's earliest window and the last note's end.
+    first: f64,
+    last: f64,
+    /// Each tap-like note's span, its earliest window to its end, by
+    /// start.
+    spans: Vec<(f64, f64)>,
+    /// The latest end of `spans[..=i]`.
+    reach: Vec<f64>,
+    /// The mines' and shocks' seconds, in order.
+    mines: Vec<f64>,
+}
+
+impl BooGuards {
+    fn of(notes: &[JudgedNote], max_early: f64) -> Option<BooGuards> {
+        let mut spans: Vec<(f64, f64)> = notes
+            .iter()
+            .filter(|n| n.judgeable && n.is_tap_like())
+            .map(|n| (n.seconds - max_early, n.end_seconds))
+            .collect();
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut far = f64::NEG_INFINITY;
+        let reach = spans
+            .iter()
+            .map(|s| {
+                far = far.max(s.1);
+                far
+            })
+            .collect();
+        let mut mines: Vec<f64> = notes
+            .iter()
+            .filter(|n| n.judgeable && n.is_mine())
+            .map(|n| n.seconds)
+            .collect();
+        mines.sort_by(f64::total_cmp);
+        Some(BooGuards {
+            first: spans.first()?.0,
+            last: *spans.iter().map(|s| &s.1).max_by(|a, b| a.total_cmp(b))?,
+            spans,
+            reach,
+            mines,
+        })
+    }
+
+    /// Whether some note's span comes within `quiet` seconds of `t`.
+    fn note_near(&self, t: f64, quiet: f64) -> bool {
+        let started = self.spans.partition_point(|s| s.0 <= t + quiet);
+        started > 0 && self.reach[started - 1] >= t - quiet
+    }
+
+    /// Whether some mine is within `near` seconds of `t`.
+    fn mine_near(&self, t: f64, near: f64) -> bool {
+        let i = self.mines.partition_point(|&m| m < t - near);
+        self.mines.get(i).is_some_and(|&m| m <= t + near)
+    }
 }
 
 impl Judge {
@@ -329,10 +397,17 @@ impl Judge {
             .map(|n| n.seconds)
             .reduce(f64::min);
         let last_end = notes.iter().map(|n| n.end_seconds).reduce(f64::max);
+        let guards = match table.empty_press {
+            EmptyPress::Guarded { .. } => BooGuards::of(&notes, table.max_early()),
+            _ => None,
+        };
         let mut judge = Judge {
             first_note,
             last_end,
             first_open: Cell::new(0),
+            guards,
+            locked_until: vec![f64::NEG_INFINITY; lane_count],
+            release_ignored: vec![false; lane_count],
             notes,
             rows: Vec::new(),
             cursor: vec![0; lane_count],
@@ -404,6 +479,8 @@ impl Judge {
             self.lanes.resize(lanes, Vec::new());
             self.cursor.resize(lanes, 0);
             self.down.resize(lanes, false);
+            self.locked_until.resize(lanes, f64::NEG_INFINITY);
+            self.release_ignored.resize(lanes, false);
         }
         self
     }
@@ -502,6 +579,8 @@ impl Judge {
         }
         next.last_time = self.last_time;
         next.down[..self.down.len()].copy_from_slice(&self.down);
+        next.locked_until[..self.locked_until.len()].copy_from_slice(&self.locked_until);
+        next.release_ignored[..self.release_ignored.len()].copy_from_slice(&self.release_ignored);
         next.first_note = self.first_note.or(next.first_note);
         *self = next;
         Ok(())
@@ -648,7 +727,8 @@ impl Judge {
         self.table.max_early().max(self.table.mine_window_seconds())
     }
 
-    /// The mine (or shock) `idx` is stepped on at `at`.
+    /// The mine (or shock) `idx` is stepped on at `at`: its lane locked
+    /// where the rules lock it ([`JudgeTable::lock`]).
     fn step_on_mine(&mut self, idx: usize, at: f64, out: &mut Vec<JudgeEvent>) {
         if self.notes[idx].note.kind == NoteKind::Shock {
             self.hit_shock(idx, at, out);
@@ -656,6 +736,62 @@ impl Judge {
             self.notes[idx].state = NoteState::MineHit;
             out.push(self.event(idx, JudgeEventKind::HitMine, at));
         }
+        if let Some(seconds) = self.table.lock {
+            self.lock_lane(self.notes[idx].note.lane, at, seconds);
+        }
+    }
+
+    /// Locks `lane` from song second `at` for `seconds` (DDI's lock after
+    /// a mine, [`JudgeTable::lock`]; a battle's shock may call it too):
+    /// until then its presses and releases are ignored; its key, if down,
+    /// counts as released at `at` (an active hold in it decays from then)
+    /// and needs a new press after the lock. A longer lock already running
+    /// is kept.
+    pub fn lock_lane(&mut self, lane: u8, at: f64, seconds: f64) {
+        let l = usize::from(lane);
+        if l >= self.lanes.len() || !at.is_finite() {
+            return;
+        }
+        self.locked_until[l] = self.locked_until[l].max(at + seconds);
+        if !self.down[l] {
+            return;
+        }
+        self.down[l] = false;
+        self.release_ignored[l] = true;
+        for qi in self.cursor[l]..self.lanes[l].len() {
+            let idx = self.lanes[l][qi];
+            let n = &mut self.notes[idx];
+            if n.seconds > at {
+                break;
+            }
+            if matches!(n.state, NoteState::HoldActive { .. })
+                && !n.is_roll()
+                && n.decay_from.is_none()
+            {
+                n.decay_from = Some(at.max(n.seconds));
+            }
+        }
+    }
+
+    /// Whether `lane`'s key is down as the judge has it (what a press, a
+    /// release and a lock left: a locked lane's key counts as released).
+    pub fn is_down(&self, lane: u8) -> bool {
+        self.down.get(usize::from(lane)).copied().unwrap_or(false)
+    }
+
+    /// Whether `lane` is locked at song second `t` ([`Judge::lock_lane`]).
+    pub fn is_locked(&self, lane: u8, t: f64) -> bool {
+        self.locked_until
+            .get(usize::from(lane))
+            .is_some_and(|&until| t < until)
+    }
+
+    /// When `lane`'s last lock ends, if it was ever locked.
+    pub fn locked_until(&self, lane: u8) -> Option<f64> {
+        self.locked_until
+            .get(usize::from(lane))
+            .copied()
+            .filter(|t| t.is_finite())
     }
 
     fn hold_window(&self, idx: usize) -> f64 {
@@ -942,6 +1078,36 @@ impl Judge {
 
     /// A button went down in `lane` at `song_time` (already judge-offset).
     pub fn press(&mut self, lane: u8, song_time: f64) -> Vec<JudgeEvent> {
+        self.press_beside(lane, song_time, None).0
+    }
+
+    /// [`Judge::press`] with a mine judged beside the chart in reach of
+    /// the press (a battle's shock, `crate::battle::HazardJudge`): `beside`,
+    /// how far from the press the nearest one pending in the lane's mine
+    /// window is, seconds. The press steps on it (`true`) where it is
+    /// nearer than any note or mine of the chart the press would have
+    /// judged, exactly as a chart's mine is chosen: the press then judges
+    /// nothing of the chart and is no stray press, an active hold is
+    /// pressed again as by any press, and the lane locks where the rules
+    /// lock it ([`JudgeTable::lock`]). Never in a locked lane.
+    pub fn press_beside(
+        &mut self,
+        lane: u8,
+        song_time: f64,
+        beside: Option<f64>,
+    ) -> (Vec<JudgeEvent>, bool) {
+        let mut stepped = false;
+        let out = self.press_inner(lane, song_time, beside, &mut stepped);
+        (out, stepped)
+    }
+
+    fn press_inner(
+        &mut self,
+        lane: u8,
+        song_time: f64,
+        beside: Option<f64>,
+        stepped: &mut bool,
+    ) -> Vec<JudgeEvent> {
         let mut out = Vec::new();
         let lane_idx = usize::from(lane);
         if lane_idx >= self.lanes.len() {
@@ -952,9 +1118,18 @@ impl Judge {
         }
         // Everything before the press, the lane still as it was.
         self.advance(song_time, &mut out);
+        // A locked lane ignores the press, and the release that ends it.
+        if self.is_locked(lane, song_time) {
+            self.release_ignored[lane_idx] = true;
+            return out;
+        }
+        self.release_ignored[lane_idx] = false;
         self.down[lane_idx] = true;
         let max_early = self.lookahead();
         let (from, to) = (self.cursor[lane_idx], self.lanes[lane_idx].len());
+        // An active hold pressed again or an active roll tapped: never a
+        // stray press.
+        let mut kept_hold = false;
 
         // Active holds get their life back; active rolls restart their decay.
         // (A hold is active from a press no earlier than its window.)
@@ -965,6 +1140,7 @@ impl Judge {
             }
             if let NoteState::HoldActive { .. } = self.notes[idx].state {
                 let life = self.hold_life(idx, song_time);
+                kept_hold |= life > 0.0;
                 if self.ticked() {
                     // Never dropped before its end: full again.
                     let n = &mut self.notes[idx];
@@ -1011,7 +1187,17 @@ impl Judge {
             (None, Some(_)) => true,
             _ => false,
         };
-        if hit_mine {
+        // A mine beside the chart, nearer than the chart's note and mine
+        // in reach: stepped on in their place.
+        let beside = beside.filter(|b| {
+            tap.is_none_or(|(_, td, _)| *b < td.abs()) && mine.is_none_or(|(_, md)| *b < md.abs())
+        });
+        if beside.is_some() {
+            *stepped = true;
+            if let Some(seconds) = self.table.lock {
+                self.lock_lane(lane, song_time, seconds);
+            }
+        } else if hit_mine {
             let (idx, _) = mine.expect("mine candidate");
             self.step_on_mine(idx, song_time, &mut out);
         } else if let Some((idx, delta, _)) =
@@ -1065,6 +1251,14 @@ impl Judge {
                         let early = n.seconds - song_time;
                         n.state == NoteState::Pending && n.is_press_judged() && early >= lo
                     }),
+                EmptyPress::Guarded {
+                    near_mine,
+                    quiet,
+                    lift_ready,
+                } => {
+                    !kept_hold
+                        && !self.boo_exempt(lane_idx, song_time, near_mine, quiet, lift_ready)
+                }
             };
             if boo {
                 out.push(JudgeEvent {
@@ -1082,6 +1276,27 @@ impl Judge {
         out
     }
 
+    /// [`EmptyPress::Guarded`]'s exemptions for a stray press in `lane`
+    /// at `t` (an active hold kept and a locked lane aside, which the press
+    /// itself knows): before the chart's first note's earliest window or
+    /// after its last note's end, with no note within `quiet` seconds, up
+    /// to `lift_ready` seconds before a lift of its lane, near a mine.
+    fn boo_exempt(&self, lane: usize, t: f64, near_mine: f64, quiet: f64, lift_ready: f64) -> bool {
+        let Some(g) = &self.guards else {
+            return true;
+        };
+        if t < g.first || t > g.last || !g.note_near(t, quiet) || g.mine_near(t, near_mine) {
+            return true;
+        }
+        self.lanes[lane][self.cursor[lane]..]
+            .iter()
+            .map(|&i| &self.notes[i])
+            .take_while(|n| n.seconds - t <= lift_ready)
+            .any(|n| {
+                n.state == NoteState::Pending && n.note.kind == NoteKind::Lift && n.seconds >= t
+            })
+    }
+
     /// A button went up in `lane` at `song_time`: judges lifts and starts
     /// the life decay of active holds.
     pub fn release(&mut self, lane: u8, song_time: f64) -> Vec<JudgeEvent> {
@@ -1095,6 +1310,10 @@ impl Judge {
         }
         // Everything before the release, the lane still down.
         self.advance(song_time, &mut out);
+        // The release of a key a lock let go of, or of a press it ignored.
+        if std::mem::take(&mut self.release_ignored[lane_idx]) {
+            return out;
+        }
         self.down[lane_idx] = false;
         let max_early = self.table.max_early();
         let mut lift: Option<(usize, f64, Judgement)> = None;
@@ -1165,6 +1384,53 @@ impl Judge {
         if !song_time.is_finite() || song_time < prev {
             return;
         }
+        let first = out.len();
+        // Where a mine crossed while held locks its lane (DDI), the span
+        // is judged up to it, the mine stepped on and the lane let go of,
+        // and on from there.
+        if self.table.lock.is_some() {
+            while let Some((at, idx)) = self.held_mine_before(song_time) {
+                self.advance_span(at, out);
+                self.step_on_mine(idx, at, out);
+            }
+        }
+        self.advance_span(song_time, out);
+        out[first..].sort_by(|a, b| {
+            a.song_time
+                .total_cmp(&b.song_time)
+                .then(a.lane.cmp(&b.lane))
+                .then(
+                    a.note_index
+                        .unwrap_or(usize::MAX)
+                        .cmp(&b.note_index.unwrap_or(usize::MAX)),
+                )
+        });
+    }
+
+    /// The first mine (by time, then lane) in a lane held down whose
+    /// second is in `[last time judged, song_time)`.
+    fn held_mine_before(&self, song_time: f64) -> Option<(f64, usize)> {
+        let prev = self.last_time.unwrap_or(f64::NEG_INFINITY);
+        let mut first: Option<(f64, usize)> = None;
+        for lane in (0..self.lanes.len()).filter(|&l| self.down[l]) {
+            for &idx in &self.lanes[lane][self.cursor[lane]..] {
+                let n = &self.notes[idx];
+                if n.seconds >= song_time || first.is_some_and(|(t, _)| n.seconds >= t) {
+                    break;
+                }
+                if n.state == NoteState::Pending && n.is_mine() && prev <= n.seconds {
+                    first = Some((n.seconds, idx));
+                    break;
+                }
+            }
+        }
+        first
+    }
+
+    /// [`Judge::advance`]'s span `[last time judged, song_time)` with
+    /// every lane as it is.
+    fn advance_span(&mut self, song_time: f64, out: &mut Vec<JudgeEvent>) {
+        let prev = self.last_time.unwrap_or(f64::NEG_INFINITY);
         self.last_time = Some(song_time);
         let first = out.len();
         let max_ahead = self.lookahead();

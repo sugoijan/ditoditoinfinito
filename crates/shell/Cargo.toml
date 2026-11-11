@@ -22,6 +22,7 @@ ddi-noteskin.workspace = true
 ddi-platform.workspace = true
 ddi-render.workspace = true
 ddi-session.workspace = true
+ddi-theme.workspace = true
 ddi-ui.workspace = true
 wgpu.workspace = true
 

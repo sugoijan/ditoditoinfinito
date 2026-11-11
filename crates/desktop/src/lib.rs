@@ -413,6 +413,28 @@ pub fn run() {
             settings.save();
         }
     }
+    // `--mp-rules-first on|off`: a hidden option, off by default, as the
+    // web's `mprules=1` beside `mp=1`: a room's Rules open by themselves
+    // on entering, as M7b had it (`Settings::multiplayer_rules_first`).
+    if let Some(on) = args
+        .iter()
+        .position(|a| a == "--mp-rules-first")
+        .and_then(|i| args.get(i + 1))
+    {
+        let on = match on.as_str() {
+            "on" | "1" => true,
+            "off" | "0" => false,
+            _ => {
+                eprintln!("--mp-rules-first takes on or off");
+                std::process::exit(2);
+            }
+        };
+        let mut settings = ddi_ui::state::settings::Settings::load();
+        if settings.multiplayer_rules_first != on {
+            settings.multiplayer_rules_first = on;
+            settings.save();
+        }
+    }
     // DEVELOPMENT ONLY: `--mp-dev-cpus N`, practice against N CPUs beyond
     // the cap (`room::develop`; M6b's miniature fields).
     if let Some(i) = args.iter().position(|a| a == "--mp-dev-cpus") {
@@ -422,13 +444,18 @@ pub fn run() {
         };
         room::develop(n);
     }
-    // DEVELOPMENT ONLY (M8a): `--mp-dev-attacks`, practice with attack
-    // power shown; `--mp-dev-mines BEAT`, a section of battle shocks put
-    // into each stage's play from that beat
+    // `--mp-attacks` (its old name `--mp-dev-attacks` still taken): a
+    // convenience for tests and screenshots, the practice room starts
+    // with its Attacks rule already On (the rule is in Rules for anyone).
+    // DEVELOPMENT ONLY (M8a): `--mp-dev-mines BEAT`, a section of battle
+    // shocks put into each stage's play from that beat
     // (`ddi_ui::state::room::Development`).
     {
         let mut d = ddi_ui::state::room::development();
-        if args.iter().any(|a| a == "--mp-dev-attacks") {
+        if args
+            .iter()
+            .any(|a| a == "--mp-attacks" || a == "--mp-dev-attacks")
+        {
             d.attacks = true;
         }
         if let Some(i) = args.iter().position(|a| a == "--mp-dev-mines") {

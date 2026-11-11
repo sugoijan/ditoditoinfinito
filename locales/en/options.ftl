@@ -258,7 +258,39 @@ options-ruleset = Ruleset
 # Variables:
 #   $ruleset (String) - its name, as the games name it ("DDR A")
 options-ruleset-approximate = { $ruleset } (approximate)
-options-ruleset-description = How timing is judged and scored, after the game that set the rules.
+options-ruleset-description = How timing is judged and scored: DDI, this game's own rules, or the rules of the game named.
+
+# DDI, this game's own ruleset: its options show under it when it is the
+# ruleset chosen. Its timing difficulty: how wide the timing windows are
+# and how much life a mistake costs (not a chart's difficulty). A row's
+# label: about 20 letters.
+options-ddi-difficulty = Timing difficulty
+options-ddi-easy = Easy
+options-ddi-normal = Normal
+options-ddi-hard = Hard
+options-ddi-difficulty-description = Easy widens every timing window and takes a fifth of the life for a mistake; Hard narrows them and takes twice as much. Bests are kept apart for each.
+
+# Boo: DDI's name for a press that hits no note (a judgment's name, the
+# same in every language).
+options-ddi-boos = Boos
+options-ddi-boos-description = On, a press that hits no note is a Boo: it costs life and points and keeps the play from a full combo's lamp. Never while getting off a mine, readying a lift, in a locked lane or in a long break. Bests are kept apart with Boos on.
+
+options-ddi-practice = Practice
+options-ddi-practice-description = On, an empty life does not end the play: it goes on to the end with the life at zero, and still counts as failed.
+
+# What the play and the song list show of a DDI score: the score (points
+# that grow with the chart's length, several million on a long chart),
+# or the percent. The results show both.
+options-ddi-score = Score display
+options-ddi-score-score = Score
+options-ddi-score-percent = Percent
+options-ddi-score-description = What a play and the song list show of the score: the points, which a longer chart gives more of, or the percent. The results show both.
+
+# A row with one button: every kept play judged again under the rules
+# chosen above. Its note says how many plays are kept.
+options-rejudge = Kept plays
+options-rejudge-button = Judge again
+options-rejudge-description = Judges every kept play again from its presses under the rules chosen now, so that its score counts for the bests here; what it came to as played is kept too. A play judged again did not react to these rules: to a lane locked by a mine, or to Boos.
 
 options-holds = Holds
 
@@ -974,6 +1006,14 @@ options-notice-history-deleted = Play history deleted.
 # Variables:
 #   $error (String) - what went wrong
 options-notice-history-not-deleted = Could not delete the play history: { $error }
+
+# After the Judge again button: the plays are judged in the background.
+# Variables:
+#   $count (Number) - plays kept
+options-notice-rejudge = { $count ->
+    [one] { $count } kept play is being judged again.
+   *[other] { $count } kept plays are being judged again.
+}
 
 # Variables:
 #   $count (Number) - plays exported

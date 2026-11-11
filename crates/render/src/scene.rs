@@ -6,7 +6,7 @@
 
 use ddi_chart::{Color, Glyph, Layout};
 use ddi_engine::FieldPlace;
-use ddi_engine::frame::{Frame, NoteSprite, SpriteKind};
+use ddi_engine::frame::{Frame, JudgementFlash, NoteSprite, SpriteKind};
 use ddi_engine::rules::{JudgeNames, Judgement};
 
 use crate::noteskin::{LayerPart, NoteLayer};
@@ -45,6 +45,33 @@ impl Default for Skin {
 /// A Fantastic outside ITG FA+'s 15 ms window (Simply Love's white one;
 /// the theme's `Judgement.W1White`).
 pub const W1_OUTSIDE_W0: [f32; 4] = [0.96, 0.95, 0.97, 1.0];
+
+/// A stray press counted against the play (`JudgementFlash::boo`, DDI's
+/// Boo): beside Miss's red, toward pink (the theme's `Judgement.Boo`).
+pub const BOO_COLOR: [f32; 4] = [1.0, 92.0 / 255.0, 158.0 / 255.0, 1.0];
+
+/// What a judgment being shown is called and its color: a Boo's word in
+/// its own color where the ruleset names one; a tap's early or late word
+/// of its tier where the ruleset has them (DDI), W0's own, else the
+/// tier's name, in the tier's color (a W1 outside an FA+ window white).
+pub fn judgement_word<'a>(names: &'a JudgeNames, flash: &JudgementFlash) -> (&'a str, [f32; 4]) {
+    if flash.boo {
+        return (names.boo.as_deref().unwrap_or(""), BOO_COLOR);
+    }
+    // ITG FA+: a Fantastic outside the 15 ms window is a white one.
+    let color = if flash.judgement == Judgement::W1 && flash.w0 == Some(false) {
+        W1_OUTSIDE_W0
+    } else {
+        judgement_color(flash.judgement)
+    };
+    // DDI: the early or the late word of the tier, W0's own.
+    let label = if names.early.is_some() {
+        names.word(flash.judgement, flash.delta_seconds, flash.w0 == Some(true))
+    } else {
+        names.name(flash.judgement)
+    };
+    (label, color)
+}
 
 pub fn judgement_color(j: Judgement) -> [f32; 4] {
     match j {
@@ -202,6 +229,10 @@ impl Order {
     }
 }
 
+/// The built-in mine's tint for a multiplayer battle's shock (the
+/// attack's violet, as the power bar's).
+pub const SHOCK_TINT: [f32; 4] = [0.72, 0.52, 1.0, 1.0];
+
 /// Which part of the built-in skin a note is.
 fn layer_part(kind: &SpriteKind) -> LayerPart {
     match kind {
@@ -275,6 +306,9 @@ pub struct RenderOptions {
     /// The ghost: how far the score is ahead of (or behind) the chart's
     /// best play at the same point, drawn under the score.
     pub ghost: Option<ScoreDelta>,
+    /// A DDI score (`ScoreView::ddi`) shown as its percent, not as its
+    /// score (the player's Score display).
+    pub ddi_percent: bool,
 }
 
 impl RenderOptions {
@@ -515,6 +549,13 @@ pub fn hud_areas(geo: &FieldGeometry, span: f32) -> Vec<[f32; 4]> {
         ],
         [mx, my, mx + mw, my + mh],
     ]
+}
+
+/// The watermark's bounds alone ([`hud_areas`]' last), `[left, top, right,
+/// bottom]` in target pixels.
+pub fn watermark_area(geo: &FieldGeometry) -> [f32; 4] {
+    let [x, y, w, h] = crate::hud::mark_rect(geo);
+    [x, y, x + w, y + h]
 }
 
 /// The battle's power bar over the field `geo` (`span` lanes wide) and the
@@ -1078,9 +1119,12 @@ pub fn build_into(
 
     // HUD: score, combo, judgement.
     let field_center_x = geo.left + a * span / 2.0;
-    let score_text = match (frame.score.money, frame.score.percent) {
-        (Some(money), _) => format!("{money}"),
-        (None, Some(p)) => format!("{:.2}%", p * 100.0),
+    let score_text = match (frame.score.ddi, frame.score.money, frame.score.percent) {
+        // DDI: its score, counting up from 0, or its percent, floored.
+        (Some(d), _, _) if opts.ddi_percent => format!("{}%", d.percent_text()),
+        (Some(d), _, _) => format!("{}", d.score),
+        (None, Some(money), _) => format!("{money}"),
+        (None, None, Some(p)) => format!("{:.2}%", p * 100.0),
         _ => String::new(),
     };
     if !score_text.is_empty() {
@@ -1121,19 +1165,13 @@ pub fn build_into(
     if let Some(flash) = &frame.judgement {
         let fade = (1.0 - (flash.age - 0.5).max(0.0) / 0.3).clamp(0.0, 1.0);
         if fade > 0.0 {
-            // ITG FA+: a Fantastic outside the 15 ms window is a white one.
-            let mut color = if flash.judgement == Judgement::W1 && flash.w0 == Some(false) {
-                W1_OUTSIDE_W0
-            } else {
-                judgement_color(flash.judgement)
-            };
+            let (label, mut color) = judgement_word(names, flash);
             color[3] *= fade;
             let pop = if opts.reduced_motion {
                 1.0
             } else {
                 1.0 + 0.15 * (1.0 - (flash.age / 0.12).min(1.0))
             };
-            let label = names.name(flash.judgement);
             if !label.is_empty() {
                 text.push(TextItem {
                     text: label.to_string(),
@@ -1145,7 +1183,8 @@ pub fn build_into(
                     weight: 800,
                 });
             }
-            if opts.show_deltas && flash.judgement != Judgement::Miss {
+            // A hit's error: a miss and a Boo have none.
+            if opts.show_deltas && flash.judgement != Judgement::Miss && !flash.boo {
                 let ms = flash.delta_seconds * 1000.0;
                 let (label, mut c) = if ms.abs() < 0.5 {
                     ("0 ms".to_string(), [0.8, 0.9, 0.8, 1.0])
@@ -1433,7 +1472,14 @@ fn push_note(
             out.push(glyph(paint, None, color, params));
         }
         SpriteKind::Mine | SpriteKind::Shock => {
-            let m = glowing([1.0; 4], note);
+            // A battle's shock in the shock's violet, a chart's own mine
+            // white: the two never look the same.
+            let tint = if note.note_index >= ddi_engine::battle::HAZARD_INDEX_BASE {
+                SHOCK_TINT
+            } else {
+                [1.0; 4]
+            };
+            let m = glowing(tint, note);
             out.push(Instance::new([x, y], [a, a], Shape::Mine, m));
         }
     }
@@ -2062,6 +2108,82 @@ mod tests {
                 .any(|t| t.ends_with('%') && t != "50.00%")
         );
         assert!(texts(Some(ScoreDelta::Percent(-2.0))).contains(&"-2.00%".to_string()));
+    }
+
+    /// A Boo shows its word where the tap judgments show, in its own
+    /// color, with no early or late word and no error; nothing where the
+    /// ruleset names none.
+    #[test]
+    fn a_boo_shows_its_word_in_its_own_color() {
+        use ddi_engine::frame::JudgementFlash;
+        let ddi = ddi_engine::rules::ddi::names();
+        let layout = Layout::dance_single();
+        let geo = FieldGeometry::new(1280.0, 720.0, 4.0, false);
+        let flash = |boo: bool, age: f32| JudgementFlash {
+            judgement: Judgement::Miss,
+            delta_seconds: if boo { 0.0 } else { -0.2 },
+            age,
+            combo_at: 7,
+            w0: None,
+            boo,
+        };
+        let text = |names: &JudgeNames, f: JudgementFlash, opts: RenderOptions| {
+            let mut frame = frame(Vec::new(), Appearance::Visible);
+            frame.judgement = Some(f);
+            build(&frame, &layout, names, &geo, opts, false, None, (&[], &[])).text
+        };
+        let boo = text(&ddi, flash(true, 0.3), RenderOptions::default());
+        let word = boo.iter().find(|t| t.text == "Boo").expect("the word");
+        assert_eq!(word.color, BOO_COLOR);
+        // Where and how a miss shows, another color.
+        let miss = text(&ddi, flash(false, 0.3), RenderOptions::default());
+        let m = miss.iter().find(|t| t.text == "Miss").expect("a miss");
+        assert_eq!(
+            (word.x, word.y, word.size, word.weight),
+            (m.x, m.y, m.size, m.weight)
+        );
+        assert_ne!(word.color, m.color);
+        assert!(!boo.iter().any(|t| t.text == "Miss"));
+        // No error under it, as a miss has none (a hit has).
+        let deltas = RenderOptions {
+            show_deltas: true,
+            ..RenderOptions::default()
+        };
+        let shown = text(&ddi, flash(true, 0.3), deltas);
+        assert!(!shown.iter().any(|t| t.text.contains("ms")), "{shown:?}");
+        // The same pop as the other words, and none under reduced motion.
+        let size = |f: JudgementFlash, reduced: bool| {
+            let opts = RenderOptions {
+                reduced_motion: reduced,
+                ..RenderOptions::default()
+            };
+            let t = text(&ddi, f, opts);
+            t.iter()
+                .find(|t| t.text == "Boo" || t.text == "Miss")
+                .unwrap()
+                .size
+        };
+        assert!(size(flash(true, 0.0), false) > size(flash(true, 0.3), false));
+        assert_eq!(
+            size(flash(true, 0.0), false),
+            size(flash(false, 0.0), false)
+        );
+        assert_eq!(size(flash(true, 0.0), true), size(flash(true, 0.3), true));
+        // Faded out with the others.
+        assert!(
+            !text(&ddi, flash(true, 0.9), RenderOptions::default())
+                .iter()
+                .any(|t| t.text == "Boo")
+        );
+        // A ruleset that names no Boo shows nothing for one.
+        let itg = presets::itg().names;
+        assert_eq!(itg.boo, None);
+        assert_eq!(judgement_word(&itg, &flash(true, 0.3)).0, "");
+        assert!(
+            text(&itg, flash(true, 0.3), RenderOptions::default())
+                .iter()
+                .all(|t| t.text != "Boo" && t.text != "Miss")
+        );
     }
 
     #[test]

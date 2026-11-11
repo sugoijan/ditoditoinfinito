@@ -185,3 +185,49 @@ A regression uses distinct body/rim/link tints to assert the complete overlay
 order, alongside visibility restoration and physical adjacency tests.
 
 The authoring demo includes lifts in four-lane and wider layouts.
+
+## `Tap Shock`: a battle's shocks (2026-11-12)
+
+Our extension, for the multiplayer prototype
+(`docs/plans/ddi-ruleset.md`, "Mines and shocks": one object, two looks).
+The shocks an attack puts into a stage's play are judged as mines; a skin
+may draw them with an element of their own, so that a player tells them
+from the chart's own mines.
+
+- **Opt in:** `[NoteDisplay] UseTapShock=1` (per button, as any metric).
+  The skin's `Tap Shock` is then loaded for each lane as any element is
+  (a file of its name, `Down Tap Shock.png` or `Fallback Tap Shock.lua`,
+  or its `NoteSkin.lua`'s `Load`), for a play that may be given shocks
+  alone where the skin runs Lua (`PlayHasShocks()` below): a solo play
+  loads what it did before. It is drawn with `Tap Mine`'s metrics (`TapMine…`), turned with
+  its button as a tap is, and takes part in `MineConnectRows` with its
+  own `MineLink`, `MineRimLeft` and `MineRimRight` children.
+- **Fallback:** without the metric the element is never asked for (a
+  StepMania skin's Lua would stop on a name it does not know), and where
+  it is asked for and comes out missing or blank, the lane has none: its
+  shocks are drawn as its `Tap Mine`, as before. The hit effect is the
+  mine's (`HitMine`) either way.
+- **What is a shock:** a note numbered from
+  `ddi_engine::battle::HAZARD_INDEX_BASE` (a battle's hazards, on the
+  play's field and on the opponents' miniatures, which the play's skin
+  draws). A chart's own mines, and DDR's shock arrows in a chart, are
+  `Tap Mine`'s, always. A row's links join mines with mines and shocks
+  with shocks, never one with the other.
+- **`NOTESKIN:PlayHasShocks()`** tells a skin's Lua whether the play may
+  be given shocks (a stage whose match has attacks;
+  `ddi_noteskin::lua::Env::shocks`, set by the shells from
+  `StageOrder::may_have_shocks`), for a skin whose mines can look like
+  its shocks.
+- **Infinito** (`metrics.ini`, `NoteSkin.lua`, `_spiral mine.lua`): its
+  `Tap Shock` is the lane-shaped shock arrow, always; its `Tap Mine` is
+  what the `ShockArrows` parameter says, but the spiked band wherever
+  `PlayHasShocks()`, so the two never look the same. The built-in
+  fallback arrows tint a shock violet (`scene::SHOCK_TINT`). The other
+  bundled skins (Alpha-Arrows, the three CF skins, Dake, DanOni, Delta,
+  Peters-DDR and its two variants) have no `Tap Shock`: their shocks are
+  their mines.
+- Tests: `ddi-noteskin`
+  `a_skin_opts_into_its_own_tap_shock`,
+  `a_skin_s_tap_shock_loads_and_its_lua_is_told_of_shocks`; `ddi-render`
+  `a_battle_s_shock_is_drawn_by_tap_shock_and_a_chart_s_mine_by_tap_mine`.
+  Presentation only: nothing here changes judging or a replay's inputs.

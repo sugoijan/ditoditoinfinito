@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 use super::{
     History, JUDGE_VERSION, PlayEntry, PlayLog, PlayRecord, PlaySummary, PlayTiming,
-    RECORD_VERSION, RulesetKey, Worked, find_chart, replay, score_text,
+    RECORD_VERSION, RulesetKey, Worked, find_chart, replay, score_text_as,
 };
 use crate::screens::data::PlayRow;
 use crate::state::settings::{BUNDLED, INFINITO, Settings};
@@ -38,6 +38,9 @@ pub struct Replaying {
     pub log: PlayLog,
     pub options: PlayOptions,
     pub ruleset: RulesetKey,
+    /// The record was kept as autoplayed: graded as a bot's
+    /// (`ddi_engine::player::Player::set_bot`), as the play was.
+    pub autoplayed: bool,
 }
 
 /// Why a kept play cannot be replayed, or its results shown
@@ -233,6 +236,34 @@ impl Replay {
         })
     }
 
+    /// The rules the play was judged by last: those it was judged again
+    /// under where it was ([`super::Rejudged`]), else those it was
+    /// played by. What its replay, its results and its ghost use.
+    pub fn ruleset(&self) -> &RulesetKey {
+        self.rejudged().unwrap_or(&self.record.ruleset)
+    }
+
+    /// The other rules the play was judged again under, when it was.
+    pub fn rejudged(&self) -> Option<&RulesetKey> {
+        self.summary
+            .as_ref()
+            .and_then(|s| s.rejudged.as_ref())
+            .map(|r| &r.ruleset)
+    }
+
+    /// The line a re-judged play's results say: the rules it was played
+    /// by, those it is judged by here, and that it did not react to them.
+    pub fn rejudged_note(&self) -> Option<String> {
+        let now = self.rejudged()?;
+        Some(
+            ddi_l10n::msg::results::note_rejudged(
+                ruleset_name(&self.record.ruleset),
+                ruleset_name(now),
+            )
+            .into(),
+        )
+    }
+
     /// The chart's content, as the play was of it.
     pub fn digest(&self) -> ChartDigest {
         self.record.chart.digest
@@ -256,13 +287,25 @@ impl Replay {
     pub fn results(&self, song: &Song) -> Result<Results, Refusal> {
         let index = self.chart(song)?;
         let song = self.played_song(song);
-        Ok(replay(
+        let mut results = replay(
             &song,
             index,
-            &self.record.ruleset,
+            self.ruleset(),
             &self.record.options,
             &self.log,
-        ))
+        );
+        self.grade_as_played(&mut results);
+        Ok(results)
+    }
+
+    /// `results`, of this play judged from its log, graded as the play
+    /// was: the log does not say who played, so an autoplayed record's
+    /// Absolute Dito under DDI is Absolute Bot
+    /// (`ddi_engine::rules::ddi::bot_grade`).
+    pub fn grade_as_played(&self, results: &mut Results) {
+        if self.record.autoplay.is_some() && results.ddi.is_some() {
+            results.grade = ddi_engine::rules::ddi::bot_grade(&results.grade).to_string();
+        }
     }
 
     /// Played on these devices: the audio path and the display the
@@ -303,7 +346,8 @@ impl Replay {
                 clock: self.clock(devices, here),
                 ..self.record.options
             },
-            ruleset: self.record.ruleset.clone(),
+            ruleset: self.ruleset().clone(),
+            autoplayed: self.record.autoplay.is_some(),
         }
     }
 
@@ -318,6 +362,9 @@ impl Replay {
             .and_then(|v| serde_json::from_value::<Settings>(v.clone()).ok());
         let read = snapshot.is_some();
         let mut s = snapshot.unwrap_or_else(|| current.clone());
+        // As kept: the default ruleset's move is the player's settings',
+        // not a record's.
+        s.rules_moved = true;
         s.sanitize();
         let drawn = &self.record.setup.drawn;
         let named = |name: &str| serde_json::Value::String(name.to_string());
@@ -365,6 +412,7 @@ impl Replay {
         s.debug = current.debug;
         s.reduced_motion = current.reduced_motion;
         s.results_panels = current.results_panels.clone();
+        s.ddi_score = current.ddi_score;
         s.audio_offset = current.audio_offset;
         s.visual_offset = current.visual_offset;
         s.audio_profiles = current.audio_profiles.clone();
@@ -400,13 +448,21 @@ impl Replay {
     /// by today's judge, with the timing and summary it kept.
     pub fn check(&self, watched: &Results, offline: &Results) -> ReplayCheck {
         let mut problems = Vec::new();
+        // The watched replay does not know who played either.
+        let mut graded = watched.clone();
+        self.grade_as_played(&mut graded);
+        let watched = &graded;
         if comparable(watched) != comparable(offline) {
             problems.push(ReplayProblem::Inputs);
         }
         let with_record = self.record.judge_version == JUDGE_VERSION;
         if with_record {
             match &self.timing {
-                Some(t) if !t.agrees(&PlayTiming::from_results(watched)) => {
+                // The timing kept is the play's own rules'.
+                Some(t)
+                    if self.rejudged().is_none()
+                        && !t.agrees(&PlayTiming::from_results(watched)) =>
+                {
                     problems.push(ReplayProblem::Timing)
                 }
                 _ => {}
@@ -417,9 +473,12 @@ impl Replay {
             let reread = |w: &Worked| -> Option<Worked> {
                 serde_json::from_str(&serde_json::to_string(w).ok()?).ok()
             };
-            if let Some(w) = self.summary.as_ref().and_then(|s| s.worked.as_ref())
+            if let Some(w) = self.summary.as_ref().and_then(|s| s.view(None).1)
                 && w.judge_version == JUDGE_VERSION
-                && let Some(now) = reread(&Worked::from_results(watched))
+                && let Some(now) = reread(&Worked::from_replay(
+                    watched,
+                    self.record.autoplay.is_some(),
+                ))
                 && comparable_worked(w) != comparable_worked(&now)
             {
                 problems.push(ReplayProblem::Score);
@@ -475,6 +534,7 @@ pub fn local_time(ms: f64, tz_minutes: i32) -> String {
 /// A ruleset's name as the plays list shows it.
 fn ruleset_name(key: &RulesetKey) -> String {
     match key.id.as_str() {
+        "ddi" => "DDI".into(),
         "itg" => "ITG".into(),
         "itg-fa+" => "ITG FA+".into(),
         "sm5" => "StepMania 5".into(),
@@ -488,41 +548,42 @@ fn ruleset_name(key: &RulesetKey) -> String {
 }
 
 /// The plays kept of a chart's content (under any song id), newest
-/// first, as song select's plays list shows them; `best` is the chart's
-/// best play's id under the rules chosen now. Times in the player's
-/// time: `tz` gives the minutes east of UTC at a time (ms since the
-/// epoch).
+/// first, as song select's plays list shows them, each as it was judged
+/// last (judged again under other rules: those, marked); `best` is the
+/// chart's best play's id under the rules chosen now, `percent` whether
+/// a DDI score shows as its percent. Times in the player's time: `tz`
+/// gives the minutes east of UTC at a time (ms since the epoch).
 pub fn play_rows(
     history: &History,
     digest: ChartDigest,
     best: Option<&str>,
+    percent: bool,
     tz: &dyn Fn(f64) -> i32,
 ) -> Vec<PlayRow> {
     let mut rows: Vec<PlayRow> = history
         .iter()
         .filter(|(_, s)| s.chart.digest == digest)
         .map(|(id, s)| {
-            let (lamp, lamp_text) = match &s.worked {
+            let (ruleset, worked, rejudged) = s.view(None);
+            let (lamp, lamp_text) = match worked {
                 Some(w) => w.lamp.names(),
                 None => ("None", ""),
             };
             PlayRow {
                 id: id.clone(),
                 when: local_time(s.time, tz(s.time)),
-                grade: s.worked.as_ref().map_or(String::new(), |w| w.grade.clone()),
-                score: s
-                    .worked
-                    .as_ref()
-                    .map_or("…".into(), |w| score_text(&w.score)),
+                grade: worked.map_or(String::new(), |w| super::list_grade(&w.grade).to_string()),
+                score: worked.map_or("…".into(), |w| score_text_as(&w.score, percent)),
                 lamp: lamp.into(),
                 lamp_text: lamp_text.into(),
-                ruleset: ruleset_name(&s.ruleset),
+                ruleset: ruleset_name(ruleset),
+                rejudged,
                 mods: s
                     .options
                     .as_ref()
                     .map(crate::screens::play::options_line)
                     .into_iter()
-                    .chain(crate::screens::play::rules_summary(&s.ruleset.stepmania))
+                    .chain(crate::screens::play::ruleset_summary(ruleset))
                     .collect::<Vec<_>>()
                     .join(" · "),
                 autoplay: s.autoplay,
@@ -548,7 +609,8 @@ pub fn plays_list(
             return Vec::new();
         };
         let best = chart.best.as_ref().map(|b| b.play.as_str());
-        play_rows(&plays.history(), digest, best, &*tz)
+        let percent = Settings::cached().ddi_percent();
+        play_rows(&plays.history(), digest, best, percent, &*tz)
     })
 }
 
@@ -569,6 +631,9 @@ pub struct Ghost {
     /// Seconds from the play's song time to the ghost's: the song
     /// offsets each was played with differ (`Ghost::for_play`).
     shift: f64,
+    /// A DDI score's lead in percentage points, not in points of its
+    /// score ([`Ghost::showing_percent`]).
+    ddi_percent: bool,
 }
 
 /// [`GhostRun::delta`]'s answer: percentage points, or points (money,
@@ -587,11 +652,12 @@ impl Ghost {
         Ok(Ghost {
             song: replay.played_song(song),
             chart,
-            ruleset: replay.record.ruleset.clone(),
+            ruleset: replay.ruleset().clone(),
             options: replay.record.options,
             log: replay.log.clone(),
             last,
             shift: replay.record.song_offset,
+            ddi_percent: false,
         })
     }
 
@@ -600,6 +666,16 @@ impl Ghost {
     pub fn for_play(self, played: f64) -> Ghost {
         Ghost {
             shift: self.shift - played,
+            ..self
+        }
+    }
+
+    /// Under DDI, the lead as the score is shown: in points of the score
+    /// (the proportional part plus the absolute score), or (`percent`,
+    /// `Settings::ddi_percent`) in percentage points.
+    pub fn showing_percent(self, percent: bool) -> Ghost {
+        Ghost {
+            ddi_percent: percent,
             ..self
         }
     }
@@ -620,7 +696,10 @@ impl Ghost {
             player,
             inputs: self.log.inputs.clone(),
             next: 0,
-            percent: view.money.is_none() && view.percent.is_some(),
+            percent: match view.ddi {
+                Some(_) => self.ddi_percent,
+                None => view.money.is_none() && view.percent.is_some(),
+            },
             shift: self.shift,
         }
     }
@@ -647,7 +726,18 @@ impl GhostRun {
             self.next += 1;
         }
         self.player.update_at(t);
-        let d = super::score_value(score) - super::score_value(&self.player.ruleset().score.view());
+        let theirs = self.player.ruleset().score.view();
+        // DDI: the lead as the score is shown, exact in whole points:
+        // of the score (the sum), or of the percent (the proportional
+        // part alone, a millionth a point).
+        if let (Some(a), Some(b)) = (&score.ddi, &theirs.ddi) {
+            return if self.percent {
+                GhostDelta::Percent((a.ratio - b.ratio) as f64 / 10_000.0)
+            } else {
+                GhostDelta::Points((a.score - b.score) as f64)
+            };
+        }
+        let d = super::score_value(score) - super::score_value(&theirs);
         if self.percent {
             GhostDelta::Percent(d * 100.0)
         } else {

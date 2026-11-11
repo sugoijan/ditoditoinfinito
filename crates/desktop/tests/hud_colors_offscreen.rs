@@ -109,6 +109,7 @@ fn hud_and_menu_colors_draw_as_written() {
                 age: 0.3,
                 combo_at: 0,
                 w0,
+                boo: false,
             }),
             holds: Default::default(),
             combo: 0,

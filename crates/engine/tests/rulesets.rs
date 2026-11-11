@@ -508,7 +508,22 @@ fn ddr_x_grades_by_the_charts_difficulty() {
     assert_eq!(presets::by_id("ddr-x").unwrap().id, "ddr-x");
     // In the list, after DDR A.
     let ids: Vec<_> = presets::all().into_iter().map(|r| r.id).collect();
-    assert_eq!(ids[3..5], ["ddr-a", "ddr-x"]);
+    assert_eq!(ids[4..6], ["ddr-a", "ddr-x"]);
+    // The game's own ruleset first, with its default options; never
+    // ticked, whatever the holds asked for.
+    assert_eq!(ids[0], "ddi");
+    let ddi = presets::by_id("ddi").unwrap();
+    assert_eq!(ddi.ddi, Some(Default::default()));
+    let ticked = presets::stepmania("ddi", HoldStyle::Ticked, &song.charts[0]);
+    assert!(ticked.is_ddi() && !ticked.judge.hold.is_ticked());
+    let hard = ddi_engine::rules::ddi::DdiOptions {
+        difficulty: ddi_engine::rules::ddi::Difficulty::Hard,
+        boos: true,
+        practice: true,
+    };
+    assert_eq!(ddi.with_ddi(&hard).key().ddi, Some(hard));
+    // Other rules take none of them.
+    assert_eq!(presets::itg().with_ddi(&hard).key(), presets::itg().key());
 }
 
 #[test]

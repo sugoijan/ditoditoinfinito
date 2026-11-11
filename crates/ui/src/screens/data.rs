@@ -174,8 +174,11 @@ pub struct PlayRow {
     /// The lamp's name and short text ([`Best::lamp`]).
     pub lamp: String,
     pub lamp_text: String,
-    /// The rules it was played by ("ITG").
+    /// The rules it was judged by ("ITG"): those it was played by, or
+    /// those it was judged again under (`rejudged`).
     pub ruleset: String,
+    /// Judged again under rules other than those it was played by.
+    pub rejudged: bool,
     /// The options as played ("×2 · reverse · mirror"); empty when not
     /// known (a play kept before summaries kept them).
     pub mods: String,
@@ -659,6 +662,9 @@ pub struct JudgementCount {
     /// Its color's name (`Judgement.W1` … `Judgement.Miss`).
     pub color: String,
     pub count: u32,
+    /// DDI's rules: how many of them were early and late (the name then
+    /// says both words, "Awesome / Amazing").
+    pub sides: Option<[u32; 2]>,
 }
 
 /// One hit of a play: when (seconds into the song) and how far off

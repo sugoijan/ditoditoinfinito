@@ -333,22 +333,50 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
         r.iter().all(|r| r.stage_started(stage))
     });
     assert_eq!((orders[0].others, orders[1].others), (1, 1));
+    // The host's report says how they performed (feedback round B); the
+    // guest's only its run.
+    let detail = ddi_room::RunDetail {
+        percent: Some(9_000),
+        grade: "AA".into(),
+        life_ppm: 1_000_000,
+        max_combo: 77,
+        tiers: vec![70, 5, 2, 0, 0, 0, 1],
+        ..Default::default()
+    };
     a.borrow_mut()
         .report_run(
             stage,
             ddi_room::Run::Live {
                 life: 1.0,
                 accuracy: 0.9,
+                absolute: None,
+                score: None,
             },
+            Some(detail.clone()),
         )
         .unwrap();
     b.borrow_mut()
-        .report_run(stage, ddi_room::Run::Out { at: 30.0 })
+        .report_run(stage, ddi_room::Run::Out { at: 30.0 }, None)
         .unwrap();
     tick_until(&mut [&mut a.borrow_mut(), &mut b.borrow_mut()], |r| {
         r.iter()
             .all(|r| r.state().phase.kind() == ddi_room::PhaseKind::Intermission)
     });
+    // The guest's standings of the stage: the host first with what they
+    // said, as the server passed it on (a server built before the detail
+    // drops it: build it again against this checkout).
+    let table = b
+        .borrow()
+        .stage_table(stage)
+        .expect("the stage's standings");
+    assert!(table.confirmed);
+    assert_eq!(table.rows[0].placement.unwrap().place, 1);
+    assert_eq!(
+        table.rows[0].detail.as_ref(),
+        Some(&detail),
+        "the server passed the report's detail on"
+    );
+    assert_eq!(table.rows[1].detail, None);
     assert_eq!(a.borrow().mark_of(stage).unwrap().placement.place, 1);
     assert_eq!(b.borrow().mark_of(stage).unwrap().placement.place, 2);
     let mut a = Rc::try_unwrap(a).ok().unwrap().into_inner();

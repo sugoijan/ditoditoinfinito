@@ -52,6 +52,12 @@ numbers_weight = 800
 "Thumb" = "#6d6676"
 "Preview" = "#0f0d14"
 "Gold" = "#ffd166"
+# A CPU's level as five stars (`ddi_ui::stars`): levels 1 to 5 silver
+# from the left over empty outlines, 6 to 10 gold over silver. The
+# play's miniatures draw them in the same colors (`star_colors`).
+"Star.Gold" = "#ffc83d"
+"Star.Silver" = "#c8ced9"
+"Star.Empty" = "#6d6676"
 "Danger" = "#e8584a"
 # The ring around what the announcer studio's scenes point at.
 "Mark" = "#ff3b30"
@@ -82,6 +88,16 @@ numbers_weight = 800
 "Lamp.Blackflag" = "#d8d3df"
 "Lamp.Booflag" = "#c4935e"
 "Lamp.Aaa" = "#fff35c"
+# DDI's lamps: its full combos in its tiers' shines (white-blue for
+# Amazing, yellow for Glorious; its plain full combo is "Lamp.FullCombo"),
+# each flag a paler shade of the full combo it is one judgment short of,
+# and a near-white Absolute Dito.
+"Lamp.BreakFlag" = "#9db7d6"
+"Lamp.GreatFlag" = "#ecdf9a"
+"Lamp.GloriousFullCombo" = "#ffe659"
+"Lamp.GloriousFlag" = "#c8f1f4"
+"Lamp.AmazingFullCombo" = "#8cf2ff"
+"Lamp.AbsoluteDito" = "#fbf7ff"
 # Judgements as the HUD draws them (crates/render/src/scene.rs,
 # `judgement_color`), so results read as play does.
 "Judgement.W1" = "#8cf2ff"
@@ -92,6 +108,9 @@ numbers_weight = 800
 "Judgement.W4" = "#bf80ff"
 "Judgement.W5" = "#ff8c4d"
 "Judgement.Miss" = "#ff4d4d"
+# DDI's Boo, a stray press counted: beside Miss's red, toward pink
+# (`ddi_render::scene::BOO_COLOR`).
+"Judgement.Boo" = "#ff5c9e"
 "Graph.Line" = "#6ee08a"
 "Graph.Bar" = "#ffe55a"
 "Graph.Point" = "#8ef2ff"

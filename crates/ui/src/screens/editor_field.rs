@@ -475,6 +475,7 @@ pub fn passed(editor: &Editor, from: f64, to: f64, seconds: f64, seq: &mut u64) 
             autoplay: true,
             danoni_judgments: false,
             note: Some(SkinNote { index, y: 0.0 }),
+            dim: false,
         });
         *seq += 1;
     };

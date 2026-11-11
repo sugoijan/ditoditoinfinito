@@ -377,3 +377,29 @@ fn dancing_onigiri_on_its_frame_grid_judges_alike_at_every_cadence() {
         );
     }
 }
+
+#[test]
+fn ddi_judges_alike_at_every_cadence() {
+    use ddi_engine::rules::ddi::{self, DdiOptions, Difficulty};
+    let song = chart(41, "dance-single");
+    for options in [
+        DdiOptions::default(),
+        DdiOptions {
+            difficulty: Difficulty::Hard,
+            boos: true,
+            practice: true,
+        },
+        DdiOptions {
+            difficulty: Difficulty::Easy,
+            boos: true,
+            practice: false,
+        },
+    ] {
+        same_at_every_cadence(
+            &format!("ddi {options:?}"),
+            &song,
+            &|| ddi::ruleset(&options),
+            PlayOptions::default(),
+        );
+    }
+}

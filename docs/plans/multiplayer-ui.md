@@ -448,6 +448,26 @@ pixel fidelity. Its fictitious songs and people are sample content. The live
 implementation should reuse the shared selection components and input behavior,
 not introduce an unrelated card gallery or a new list convention.
 
+Built, 2026-11-12 (the maintainer's feedback on the prototype: the
+players visible without pressing Players): the participant column is the
+**players panel under the song**, not a column at the far left. In a
+room the song's side is short (a small banner with the title and a line,
+one row of chart buttons, the style button only where the room plays
+more than one style) and the panel takes the rest of its column: place,
+name with role or stars, state in words, match points, a line a player,
+nine without scrolling at 1280×720; the same for the host and the
+followers. A phone shows them as one line over the list that opens the
+full list. The wheel stays the host's library (M7b), not the match's
+songs; the match's picks are in the followers' list's place and in the
+Players pop-up. What is built and why the far-left column was not
+chosen: `docs/plans/multiplayer-prototype-progress.md`, "Feedback round
+B".
+
+Decided (maintainer, 2026-11-12): a room opens straight on its song
+select with the default rules; the Rules pop-up no longer opens by
+itself on entering (a hidden option, off by default, keeps that:
+`mprules=1`, `--mp-rules-first on`). Rules stays behind its button.
+
 ### Role differences
 
 Host/co-host/admin control is separate from the participant/waiting role below.
@@ -761,6 +781,19 @@ it for the power bar. During a stage the dancing hand goes behind the
 field and never claims a side of the screen: the miniatures use both
 sides.
 
+Decided (maintainer, 2026-11-12): no list of opponents. Every opponent of
+a room's stage (eight at most) keeps its own miniature at every size, as
+large as the sides allow, with lyrics shown too; a phone held upright
+seats them in the margins beside the field. What is built:
+`docs/plans/multiplayer-prototype-progress.md`, "Feedback round A".
+
+Decided (maintainer, 2026-11-12): CPU levels. Ten levels, the five there
+were as the upper five and five weaker ones under them, and a level is
+shown as five stars wherever it shows (levels 1 to 5 silver from the left
+over empty outlines, 6 to 10 gold from the left over silver), never as a
+number or "of 5". This overrides the earlier lines of this document that
+write a CPU's level as text.
+
 Decided (maintainer, 2026-11-11): attacks. These decisions answer the
 attack plan's open questions and override the earlier lines of this
 document where they differ
@@ -813,6 +846,24 @@ document where they differ
   hand" removes. CPU shock sensitivity is by level only (no Rules row,
   no roster override), modeled as one avoidance value per CPU so that it
   can become a skill axis later.
+
+Decided (maintainer, 2026-11-12): DDI in rooms, and attacks as a rule.
+These override D0, D1, D3 and D8's first sentence above
+(`docs/plans/ddi-ruleset.md`, "What it means for multiplayer (M8)" and
+"Round 3 (built)"; `docs/plans/multiplayer-prototype-progress.md`, "The
+DDI ruleset's round 3", for what is built):
+
+- D0: rooms play DDI alone; the Ruleset row is gone; DDI's Difficulty
+  (Normal by default) and Boos (Off by default) are match rules;
+  Practice is never offered.
+- D1 and D3: a shock is a mine: −5 life on Normal (−1 Easy, −10 Hard),
+  the combo broken and its lane locked for a second.
+- D2: DDI's W0 and W1 earn 2, W2 earns 1.
+- Attacks are a match rule, Off by default and fully accessible, not a
+  development switch ("multiplayer itself is already behind a
+  development flag"): the Rules pop-up's Attacks row. Offered in CPU
+  practice; an online room shows it unavailable until online attacks
+  are built.
 
 ### Concrete play HUD study
 
@@ -1005,6 +1056,23 @@ remain. Viewing another player's incoming warning does not make it an attack
 against the spectator.
 
 ## Stage results, intermission and match results
+
+Built, 2026-11-12 (the maintainer's feedback on the prototype: the
+standings and the match's final result on the results view, where the
+four graphs are): a stage's results have two tabs in the panels' place.
+**Standings**, shown first, lists every starter in the stage's order
+with the points awarded, the match total and place after it (a quiet
+mark where it moved) and how each performed (score or percent, grade,
+life or when they went out, combo, the judgments as one stacked bar,
+exact counts on a second line or for the pointed line; attacks and
+shocks with attacks on); the lines fill in as reports come and settle
+when the room confirms; after the last stage the match's result (the
+winner or the tie, everyone's final place and total) is on top.
+**Graphs** is the four graphs. Left and Right or the shoulders change
+the tab. The evaluation composition at the left is the play's own,
+unchanged. What is built, the data a report carries and what the
+deployed server needs: `docs/plans/multiplayer-prototype-progress.md`,
+"Feedback round B".
 
 ### Concrete ending study
 

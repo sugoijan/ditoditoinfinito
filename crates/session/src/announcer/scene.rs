@@ -495,7 +495,9 @@ fn known() -> Prior {
 pub fn results(line: Line, ruleset: &str, has: &dyn Fn(Line) -> bool) -> Option<ResultsScene> {
     let mut ids: Vec<&str> = Vec::new();
     for id in [ruleset, "itg", "ddr-a"] {
-        if id != "ffr" && presets::by_id(id).is_some() && !ids.contains(&id) {
+        // Neither FFR's (no grades) nor DDI's (its plays are not staged
+        // yet: ITG's stand in).
+        if id != "ffr" && id != "ddi" && presets::by_id(id).is_some() && !ids.contains(&id) {
             ids.push(id);
         }
     }
@@ -676,6 +678,10 @@ fn scaled(v: &ScoreView, k: f64) -> ScoreView {
         ex: v.ex.map(|e| (f64::from(e) * k).round() as u32),
         max_ex: v.max_ex,
         ex_percent: v.ex_percent.map(|p| p * k),
+        ddi: v.ddi.map(|d| {
+            let points = (d.points as f64 * k).round() as i64;
+            ddi_engine::rules::ddi::DdiScoreView::of(points, d.most, 0)
+        }),
     }
 }
 

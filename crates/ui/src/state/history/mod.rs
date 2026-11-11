@@ -223,6 +223,11 @@ pub enum Lamp {
     Quit,
     Failed,
     Clear,
+    /// DDI's: one break short of a full combo. DDI's lamps
+    /// (`ddi_engine::rules::ddi::Lamp`) are this one, [`Lamp::FullCombo`]
+    /// and the five at the end, in its ladder's order; like FFR's flags
+    /// they compare only among themselves (bests are kept by ruleset).
+    BreakFlag,
     Life4Clear,
     FullCombo,
     GreatFullCombo,
@@ -236,6 +241,16 @@ pub enum Lamp {
     Blackflag,
     Booflag,
     Aaa,
+    /// DDI's: a full combo with one W3, the rest W2 or better.
+    GreatFlag,
+    /// DDI's: a full combo, the worst a W2.
+    GloriousFullCombo,
+    /// DDI's: a full combo with one W2, the rest W1 or better.
+    GloriousFlag,
+    /// DDI's: a full combo, every tap W1 or better.
+    AmazingFullCombo,
+    /// DDI's: every tap W0 (the grade's).
+    AbsoluteDito,
 }
 
 impl Lamp {
@@ -252,6 +267,19 @@ impl Lamp {
     /// The lamp the play's judgements earn, failed or not (the results
     /// show a full combo's kind beside FAILED).
     pub fn played(r: &Results) -> Lamp {
+        use ddi_engine::rules::ddi::Lamp as Ddi;
+        if let Some(ddi) = &r.ddi {
+            return match ddi.lamp {
+                Ddi::Failed | Ddi::Clear => Lamp::Clear,
+                Ddi::BreakFlag => Lamp::BreakFlag,
+                Ddi::FullCombo => Lamp::FullCombo,
+                Ddi::GreatFlag => Lamp::GreatFlag,
+                Ddi::GloriousFullCombo => Lamp::GloriousFullCombo,
+                Ddi::GloriousFlag => Lamp::GloriousFlag,
+                Ddi::AmazingFullCombo => Lamp::AmazingFullCombo,
+                Ddi::AbsoluteDito => Lamp::AbsoluteDito,
+            };
+        }
         if let Some(ffr) = &r.ffr {
             return match ffr.flag {
                 Flag::Pass => Lamp::Clear,
@@ -298,6 +326,13 @@ impl Lamp {
             Lamp::Blackflag => ("Blackflag", "BLACKFLAG"),
             Lamp::Booflag => ("Booflag", "BOOFLAG"),
             Lamp::Aaa => ("Aaa", "AAA"),
+            // DDI's, short enough for a chart's row (as FFR's flags).
+            Lamp::BreakFlag => ("BreakFlag", "BREAKFLAG"),
+            Lamp::GreatFlag => ("GreatFlag", "GREATFLAG"),
+            Lamp::GloriousFullCombo => ("GloriousFullCombo", "GFC"),
+            Lamp::GloriousFlag => ("GloriousFlag", "GLORYFLAG"),
+            Lamp::AmazingFullCombo => ("AmazingFullCombo", "AFC"),
+            Lamp::AbsoluteDito => ("AbsoluteDito", "AD"),
         }
     }
 
@@ -319,6 +354,12 @@ impl Lamp {
             Lamp::Blackflag => Some("BLACKFLAG"),
             Lamp::Booflag => Some("BOOFLAG"),
             Lamp::Aaa => Some("AAA"),
+            Lamp::BreakFlag => Some("BREAK FLAG"),
+            Lamp::GreatFlag => Some("GREAT FLAG"),
+            Lamp::GloriousFullCombo => Some("GLORIOUS FULL COMBO"),
+            Lamp::GloriousFlag => Some("GLORIOUS FLAG"),
+            Lamp::AmazingFullCombo => Some("AMAZING FULL COMBO"),
+            Lamp::AbsoluteDito => Some("ABSOLUTE DITO"),
         }
     }
 }
@@ -374,11 +415,66 @@ impl Worked {
     pub fn is_stale(&self) -> bool {
         self.judge_version < JUDGE_VERSION
     }
+
+    /// What a play judged again from its log comes to, `autoplay` when
+    /// its record says the game played it: the log does not say who
+    /// played, so DDI's Absolute Dito is then Absolute Bot, as the play
+    /// itself graded it (`ddi_engine::rules::ddi::bot_grade`).
+    pub fn from_replay(r: &Results, autoplay: bool) -> Worked {
+        let mut w = Worked::from_results(r);
+        if autoplay && r.ddi.is_some() {
+            w.grade = ddi_engine::rules::ddi::bot_grade(&w.grade).to_string();
+        }
+        w
+    }
+}
+
+/// A play judged again under rules other than those it was played by
+/// (`docs/plans/ddi-ruleset.md`, "Re-judging"): which, and what it came
+/// to. Kept beside what it came to as played ([`PlaySummary::worked`],
+/// never replaced), and counted for the bests under these rules too. The
+/// play did not react to these rules (a lane locked by a mine, Boos).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Rejudged {
+    pub ruleset: RulesetKey,
+    /// `None`: it did not read, and is judged again.
+    #[serde(default, deserialize_with = "lenient_some")]
+    pub worked: Option<Worked>,
+}
+
+impl Rejudged {
+    fn is_stale(&self) -> bool {
+        self.worked.as_ref().is_none_or(Worked::is_stale)
+    }
+}
+
+/// What judging a play again takes from its summary
+/// ([`Plays::asks`]): the rules it waits to be judged under, and the
+/// rules it was judged again under before.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Ask {
+    pub rules: Option<crate::state::settings::RuleChoice>,
+    pub rejudged: Option<RulesetKey>,
+}
+
+/// [`Ask`]s by play id.
+pub type Asks = HashMap<String, Ask>;
+
+/// What a play judged again comes to ([`rework`]): as played, and under
+/// the other rules asked for (none where they are the play's own).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Judged {
+    pub worked: Worked,
+    pub rejudged: Option<Rejudged>,
 }
 
 /// The score a best is chosen by: money where the ruleset counts it,
-/// else the percentage, else the EX score.
+/// else the percentage, else the EX score; DDI's as its score (the
+/// proportional part plus the absolute score, [`better_score`]'s order).
 pub fn score_value(v: &ScoreView) -> f64 {
+    if let Some(d) = &v.ddi {
+        return d.score as f64;
+    }
     v.money
         .map(|m| m as f64)
         .or(v.percent)
@@ -386,8 +482,45 @@ pub fn score_value(v: &ScoreView) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// A best's score as the ruleset scores: money, a percentage, EX.
+/// A grade as the lists show it, where there is room for a few letters
+/// (a chart's row, a play's): DDI's two long ones by their initials, AD
+/// and AB; the others as they are. The results write them out.
+pub fn list_grade(grade: &str) -> &str {
+    use ddi_engine::rules::ddi::{ABSOLUTE_BOT, ABSOLUTE_DITO};
+    match grade {
+        ABSOLUTE_DITO => "AD",
+        ABSOLUTE_BOT => "AB",
+        other => other,
+    }
+}
+
+/// Whether score `a` is a better best than `b`: DDI's by its score (the
+/// sum), then its absolute score (`DdiScoreView::best_cmp`); the others
+/// by [`score_value`].
+pub fn better_score(a: &ScoreView, b: &ScoreView) -> bool {
+    match (&a.ddi, &b.ddi) {
+        (Some(a), Some(b)) => a.best_cmp(b).is_gt(),
+        _ => score_value(a) > score_value(b),
+    }
+}
+
+/// A best's score as the ruleset scores: money, a percentage, EX; DDI's
+/// as its score, the proportional part plus the absolute score
+/// ([`score_text_as`] for its percent).
 pub fn score_text(v: &ScoreView) -> String {
+    score_text_as(v, false)
+}
+
+/// [`score_text`], a DDI score as its percent when `percent`
+/// (`Settings::ddi_percent`).
+pub fn score_text_as(v: &ScoreView, percent: bool) -> String {
+    if let Some(d) = &v.ddi {
+        return if percent {
+            format!("{}%", d.percent_text())
+        } else {
+            d.score.to_string()
+        };
+    }
     match (v.money, v.percent, v.ex) {
         (Some(m), _, _) => m.to_string(),
         (None, Some(p), _) => format!("{:.2}%", p * 100.0),
@@ -428,6 +561,21 @@ pub struct PlaySummary {
     /// were, which the verdict leaves out.
     #[serde(default, deserialize_with = "lenient_some")]
     pub clock: Option<SummaryClock>,
+    /// The play judged again under other rules ([`Rejudged`]).
+    #[serde(
+        default,
+        deserialize_with = "lenient_some",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub rejudged: Option<Rejudged>,
+    /// The rules it waits to be judged again under ([`Plays::rejudge`]);
+    /// stale until it is.
+    #[serde(
+        default,
+        deserialize_with = "lenient_some",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub rejudge: Option<crate::state::settings::RuleChoice>,
 }
 
 /// A play's devices and audio offset, as its summary keeps them.
@@ -457,9 +605,32 @@ impl PlaySummary {
         !self.autoplay && self.ended != Ending::Quit
     }
 
-    /// Worked out by an older judge, or not readable.
+    /// Worked out by an older judge, or not readable, or waiting to be
+    /// judged again under other rules.
     pub fn is_stale(&self) -> bool {
         self.worked.as_ref().is_none_or(Worked::is_stale)
+            || self.rejudge.is_some()
+            || self.rejudged.as_ref().is_some_and(Rejudged::is_stale)
+    }
+
+    /// What the play came to under the rules `now` keeps bests by (a
+    /// [`RulesetKey::best_key`]): judged again under them where it was
+    /// (`true`), else as played. With no `now`, as it was judged last.
+    pub fn view(&self, now: Option<&RulesetKey>) -> (&RulesetKey, Option<&Worked>, bool) {
+        match &self.rejudged {
+            Some(r) if now.is_none_or(|k| r.ruleset.best_key() == *k) => {
+                (&r.ruleset, r.worked.as_ref(), true)
+            }
+            _ => (&self.ruleset, self.worked.as_ref(), false),
+        }
+    }
+
+    /// What judging it again takes from it.
+    pub fn ask(&self) -> Ask {
+        Ask {
+            rules: self.rejudge.clone(),
+            rejudged: self.rejudged.as_ref().map(|r| r.ruleset.clone()),
+        }
     }
 
     /// The summary of a play from its record, to be worked out.
@@ -474,6 +645,8 @@ impl PlaySummary {
             worked: None,
             options: Some(record.options),
             clock: SummaryClock::of(&record.setup.clock),
+            rejudged: None,
+            rejudge: None,
         }
     }
 
@@ -508,6 +681,8 @@ impl PlaySummary {
             worked: None,
             options: k.options.and_then(|o| serde_json::from_value(o).ok()),
             clock,
+            rejudged: None,
+            rejudge: None,
         })
     }
 }
@@ -543,6 +718,8 @@ struct JudgedBy {
     options: PlayOptions,
     #[serde(default)]
     song_offset: f64,
+    #[serde(default)]
+    autoplay: Option<serde_json::Value>,
 }
 
 /// The chart a play was of in `song` (the song as stored, unshifted):
@@ -556,14 +733,32 @@ pub fn find_chart(song: &Song, chart: &ChartKey) -> Option<usize> {
 }
 
 /// Judges a stored play again from its log, on `song` (as stored, before
-/// any song offset): what it comes to under today's judge.
-pub fn rework(entry: &PlayEntry, song: &Song) -> Result<Worked, String> {
+/// any song offset): what it comes to under today's judge by the rules
+/// it was played by, and by the other rules `ask` names: those it waits
+/// for (the chart's, by the rules chosen then), else those it was judged
+/// again under before. Rules that are the play's own leave no second
+/// judgment.
+pub fn rework(entry: &PlayEntry, song: &Song, ask: &Ask) -> Result<Judged, String> {
     let by: JudgedBy = serde_json::from_str(&entry.record).map_err(|e| e.to_string())?;
     let index = find_chart(song, &by.chart).ok_or("the chart is no longer there")?;
     let log = PlayLog::decode(&entry.log).map_err(|e| e.to_string())?;
+    let autoplay = by.autoplay.as_ref().is_some_and(|a| !a.is_null());
+    let other = match &ask.rules {
+        Some(rules) => Some(rules.ruleset_for(&song.charts[index]).key()),
+        None => ask.rejudged.clone(),
+    }
+    .filter(|key| *key != by.ruleset);
     let song = song.shifted(by.song_offset);
-    let results = replay(&song, index, &by.ruleset, &by.options, &log);
-    Ok(Worked::from_results(&results))
+    let judge = |rules: &RulesetKey| {
+        Worked::from_replay(&replay(&song, index, rules, &by.options, &log), autoplay)
+    };
+    Ok(Judged {
+        worked: judge(&by.ruleset),
+        rejudged: other.map(|ruleset| Rejudged {
+            worked: Some(judge(&ruleset)),
+            ruleset,
+        }),
+    })
 }
 
 /// A best's key: a chart's content, the rules it was played by (without
@@ -675,11 +870,33 @@ impl History {
         }
     }
 
-    /// A play worked out again.
-    pub fn set_worked(&mut self, id: &str, worked: Worked) -> Option<&PlaySummary> {
+    /// A play worked out again: as played, and under the other rules
+    /// asked for (its wait for them is over).
+    pub fn set_worked(&mut self, id: &str, judged: Judged) -> Option<&PlaySummary> {
         let s = self.plays.get_mut(id)?;
-        s.worked = Some(worked);
+        s.worked = Some(judged.worked);
+        s.rejudged = judged.rejudged;
+        s.rejudge = None;
         Some(s)
+    }
+
+    /// Every play (those under ruleset `only`, a preset's id, when
+    /// given) waits to be judged again under `rules`; the summaries that
+    /// changed.
+    pub fn ask_rejudge(
+        &mut self,
+        rules: &crate::state::settings::RuleChoice,
+        only: Option<&str>,
+    ) -> Vec<(String, &PlaySummary)> {
+        let mut changed = Vec::new();
+        for (id, s) in self.plays.iter_mut() {
+            if only.is_some_and(|o| s.ruleset.id != o) || s.rejudge.as_ref() == Some(rules) {
+                continue;
+            }
+            s.rejudge = Some(rules.clone());
+            changed.push((id.clone(), &*s));
+        }
+        changed
     }
 
     pub fn remove(&mut self, ids: &[String]) {
@@ -776,36 +993,41 @@ impl History {
         // the others' values.
         let mut unread = Vec::new();
         for (id, s) in self.plays.iter().filter(|(_, s)| s.counts() && f(s)) {
-            let Some(w) = &s.worked else {
-                unread.push((s.chart.digest, s.ruleset.best_key()));
-                continue;
-            };
-            let key = BestKey {
-                digest: s.chart.digest,
-                ruleset: s.ruleset.best_key(),
-                assist: w.assist,
-            };
-            let b = out.entry(key).or_insert_with(|| Best {
-                score: w.score,
-                grade: w.grade.clone(),
-                lamp: w.lamp,
-                plays: 0,
-                last_played: s.time,
-                pending: false,
-                score_play: id.clone(),
-                lamp_play: id.clone(),
-            });
-            b.plays += 1;
-            b.last_played = b.last_played.max(s.time);
-            b.pending |= w.is_stale();
-            if score_value(&w.score) > score_value(&b.score) {
-                b.score = w.score;
-                b.grade = w.grade.clone();
-                b.score_play = id.clone();
-            }
-            if w.lamp > b.lamp {
-                b.lamp = w.lamp;
-                b.lamp_play = id.clone();
+            // As played, and under the rules it was judged again by.
+            let again = s.rejudged.as_ref().map(|r| (&r.ruleset, r.worked.as_ref()));
+            let waits = s.rejudge.is_some();
+            for (ruleset, worked) in std::iter::once((&s.ruleset, s.worked.as_ref())).chain(again) {
+                let Some(w) = worked else {
+                    unread.push((s.chart.digest, ruleset.best_key()));
+                    continue;
+                };
+                let key = BestKey {
+                    digest: s.chart.digest,
+                    ruleset: ruleset.best_key(),
+                    assist: w.assist,
+                };
+                let b = out.entry(key).or_insert_with(|| Best {
+                    score: w.score,
+                    grade: w.grade.clone(),
+                    lamp: w.lamp,
+                    plays: 0,
+                    last_played: s.time,
+                    pending: false,
+                    score_play: id.clone(),
+                    lamp_play: id.clone(),
+                });
+                b.plays += 1;
+                b.last_played = b.last_played.max(s.time);
+                b.pending |= w.is_stale() || waits;
+                if better_score(&w.score, &b.score) {
+                    b.score = w.score;
+                    b.grade = w.grade.clone();
+                    b.score_play = id.clone();
+                }
+                if w.lamp > b.lamp {
+                    b.lamp = w.lamp;
+                    b.lamp_play = id.clone();
+                }
             }
         }
         for (k, b) in out.iter_mut() {

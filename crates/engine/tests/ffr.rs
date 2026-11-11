@@ -242,6 +242,7 @@ fn keys_build_ffr_and_its_options_are_its_own() {
             holds: HoldStyle::Dance,
             danoni: None,
             stepmania: StepManiaOptions::default(),
+            ddi: None,
         }
     );
     assert_eq!(key.build(&song.charts[0]).id, "ffr");

@@ -11,7 +11,9 @@ local function file(button, element)
     if not buttons[button] then return nil end
     if e == "explosion" then return "explosion.lua" end
     if e == "tap note" or e == "tap fake" or e == "receptor" then return "component.lua" end
-    if e == "tap mine" then return "mine.lua" end
+    -- A multiplayer battle's shock (`UseTapShock=1`): the mine's file,
+    -- which draws it lane-shaped.
+    if e == "tap mine" or e == "tap shock" then return "mine.lua" end
     if string.find(e, "^hold ") or string.find(e, "^roll ") then return "hold.lua" end
     return nil
 end

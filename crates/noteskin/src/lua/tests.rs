@@ -1358,6 +1358,73 @@ fn a_song_script_that_fails_loads_blank_and_one_that_loops_stops() {
     assert!(lua.failure().is_some());
 }
 
+/// Our extension (`UseTapShock=1`, `docs/plans/noteskin-authoring.md`):
+/// a skin's `Tap Shock` is loaded as any element is, from a file of its
+/// name or by its `NoteSkin.lua`, and its Lua is told whether the play may
+/// be given a battle's shocks (`NOTESKIN:PlayHasShocks`), as Infinito's
+/// mine asks, to stay apart from them. A skin without the element's file
+/// has none to resolve: its shocks are drawn as its `Tap Mine`.
+#[test]
+fn a_skin_s_tap_shock_loads_and_its_lua_is_told_of_shocks() {
+    let lua = "local shock = string.lower(Var 'Element') == 'tap shock'\n\
+               local arrows = shock or not NOTESKIN:PlayHasShocks()\n\
+               return Def.Sprite {\n\
+                 Texture = 'tap.png';\n\
+                 InitCommand = function(self) self:rotationz(arrows and 90 or 0) end;\n\
+               }\n";
+    let folders = vec![folder(
+        "dance",
+        "p",
+        &[
+            (
+                "metrics.ini",
+                "[Global]\nFallbackNoteSkin=default\n[NoteDisplay]\nUseTapShock=1\n",
+            ),
+            ("Down Tap Mine.lua", lua),
+            ("Down Tap Shock.lua", lua),
+            ("tap.png", ""),
+        ],
+    )];
+    let skin = || Skin::load(&folders, "dance", "p").unwrap().into_owned();
+    // The file is found as any element's; a skin without one has none.
+    assert!(matches!(
+        skin().resolve(Button::Down, "Tap Shock"),
+        crate::load::Resolved::File { .. }
+    ));
+    let bare = vec![folder(
+        "dance",
+        "b",
+        &[("metrics.ini", "[Global]\nFallbackNoteSkin=default\n")],
+    )];
+    assert!(matches!(
+        Skin::load(&bare, "dance", "b")
+            .unwrap()
+            .resolve(Button::Down, "Tap Shock"),
+        crate::load::Resolved::Missing(_)
+    ));
+    let turned = |element: &str, shocks: bool| {
+        let mut skin = load(
+            skin(),
+            Env {
+                shocks,
+                ..Env::default()
+            },
+            LoadBudget::default(),
+            Box::new(|| 0.0),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        let images = Sizes(vec![("tap.png", (64, 64))]);
+        let e = built(skin.element(Button::Down, element, &mut Textures::default(), &images));
+        assert!(skin.warnings().is_empty(), "{:?}", skin.warnings());
+        e.current().rotation[2] == 90.0
+    };
+    // The shock is always its own look; the mine has it only where the
+    // play is given no shocks.
+    assert!(turned("Tap Shock", false) && turned("Tap Shock", true));
+    assert!(turned("Tap Mine", false));
+    assert!(!turned("Tap Mine", true));
+}
+
 #[test]
 fn a_skins_lua_reads_its_parameters_and_cannot_change_them() {
     use crate::params::Value;

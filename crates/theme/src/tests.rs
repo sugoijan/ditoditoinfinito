@@ -396,6 +396,10 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
     let _ = theme.color("Background");
     // An ITG FA+ play's white Fantastics (the sample plays ITG).
     let _ = theme.color("Judgement.W1White");
+    // DDI's Boo, whose word a play shows (the sample's results count
+    // none; the play's HUD has the color as its own constant,
+    // `ddi_render::scene::BOO_COLOR`).
+    let _ = theme.color("Judgement.Boo");
     // The results' timing histogram, in a panel set the results do not
     // show until the sets' picker comes (`Settings::results_panels`).
     let _ = theme.color("Graph.Bar");
@@ -409,6 +413,19 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
     assert_eq!(screens::design_for(&*theme, [390.0, 844.0]), COMPACT);
     assert_eq!(screens::design_for(&*theme, [844.0, 390.0]), COMPACT);
     assert_eq!(screens::design_for(&*theme, [1280.0, 720.0]), DESIGN);
+    // A CPU's level's stars (the room's screens).
+    let stars = theme
+        .component("Stars", &Spec::new([70.0, 12.0], "7"))
+        .unwrap();
+    assert_eq!(
+        ddi_ui::stars::shown(&stars),
+        ddi_ui::stars::fills(7),
+        "two gold, three silver"
+    );
+    assert_eq!(
+        crate::star_colors(),
+        ["Star.Gold", "Star.Silver", "Star.Empty"].map(|n| theme.color(n).unwrap())
+    );
     let used = theme.used();
     let keys = theme.keys();
     let unused: Vec<&String> = keys.difference(&used).collect();

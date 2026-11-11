@@ -338,6 +338,8 @@ select-plays-title-version = プレイ履歴 · { $chart } · { $version }
 
 select-plays-autoplay = AUTOPLAY
 
+select-plays-rejudged = 判定し直し
+
 select-plays-best = ★ ベスト
 
 select-plays-watch = 再生

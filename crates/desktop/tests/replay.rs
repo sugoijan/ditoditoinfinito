@@ -396,11 +396,17 @@ fn the_ghost_of_the_best_play_runs_beside_a_play() {
     assert!(deltas.len() > 1000);
     assert!(deltas.iter().all(|d| value(d) <= 1e-9));
     let score = ddi_ui::state::history::score_value;
-    let expected = (score(&late.score) - score(&best.score)) * 100.0;
+    // DDI, the default: the lead in points of its score as shown (the
+    // proportional part plus the absolute score).
+    assert!(matches!(
+        deltas.last(),
+        Some(ddi_ui::state::history::GhostDelta::Points(_))
+    ));
+    let expected = score(&late.score) - score(&best.score);
     assert!(
-        (value(deltas.last().unwrap()) - expected).abs() < 1e-9,
+        (value(deltas.last().unwrap()) - expected).abs() < 1e-6,
         "{:?} {expected}",
         deltas.last()
     );
-    assert!(expected < -1.0, "{expected}");
+    assert!(expected < -10_000.0, "{expected}");
 }

@@ -273,6 +273,15 @@ function NOTESKIN:GetParameter(name)
 	return v
 end
 
+-- Our extension (docs/plans/noteskin-authoring.md, "Tap Shock"): whether
+-- the play may be given a multiplayer battle's shocks, which a skin with
+-- `UseTapShock=1` draws with its `Tap Shock` element. A skin whose
+-- `Tap Mine` can look like that element asks, to keep a chart's own mines
+-- apart from them.
+function NOTESKIN:PlayHasShocks()
+	return H.play_has_shocks() == true
+end
+
 local loader -- the table the NoteSkin.lua chain returned
 
 -- `NoteSkinManager::PushActorTemplate`: the skin's `Load` with the element's

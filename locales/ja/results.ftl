@@ -34,6 +34,11 @@ results-max-combo = 最大コンボ
 
 results-fast-slow = FAST / SLOW
 
+results-early-late = 早い／遅い
+
+results-ddi-score = スコア
+results-ddi-percent = パーセント
+
 results-mean-offset = 平均のずれ
 
 results-flare-skill = FLARE SKILL
@@ -49,6 +54,10 @@ results-note-autoplay = オートプレイです。このプレイは自己ベ�
 results-note-device-changed = プレイ中にオーディオデバイスかディスプレイが変わりました。
 
 results-note-fail-delayed = { $at }に失敗しました。ライフが尽きた後もプレイは続きました（失敗後も継続）。
+
+results-note-practice = { $at }に失敗しました。ライフが尽きた後もプレイは続きました（練習）。
+
+results-note-rejudged = { $played }のルールでプレイし、ここでは{ $now }のルールで判定し直しています。プレイはこのルールに合わせた動きになっていません。
 
 results-note-fail-at-end = 終了時に失敗と判定されました。ライフは{ $at }に尽き、終了時も0でした。
 

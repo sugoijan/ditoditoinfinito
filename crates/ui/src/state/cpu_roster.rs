@@ -1,8 +1,9 @@
 //! The named CPUs practice seats (`docs/plans/multiplayer-prototype-progress.md`,
 //! M7b): our own catalog (`cpu_roster.json`), each CPU an invented name (data,
 //! the same in every language), a personality (`ddi_engine::cpu::Skills`: a
-//! preset's name or seven multipliers) and a level (the engine's strength,
-//! relative to the chart: never a skill rating). A match's CPUs are a roster
+//! preset's name or seven multipliers) and a level (one of the engine's
+//! ten, `ddi_engine::cpu::CPU_LEVELS_V0`: strength relative to the chart,
+//! never a skill rating; shown as five stars, `crate::stars`). A match's CPUs are a roster
 //! of them (`ddi_room::CpuMode::Roster`), edited in the Rules pop-up: Add
 //! random, or Add custom by level (several at once) or by name.
 
@@ -184,7 +185,8 @@ mod tests {
     fn the_catalog_reads_and_every_cpu_is_playable() {
         let all = catalog();
         assert_eq!(all.len(), 24);
-        let levels = ddi_engine::cpu::STRENGTHS.len() as u8;
+        let levels = ddi_engine::cpu::LEVELS as u8;
+        assert_eq!(levels, 10);
         let mut names = std::collections::BTreeSet::new();
         for c in all {
             assert!(names.insert(&c.name), "{} twice", c.name);
@@ -207,9 +209,9 @@ mod tests {
         let one = random_cpu(&roster, RosterAim::Any, 9).unwrap();
         assert!(!roster.iter().any(|s| s.name == one.name));
         roster.push(one);
-        let four = at_level(&roster, 4, 4, 3);
+        let four = at_level(&roster, 9, 4, 3);
         assert_eq!(four.len(), 4);
-        assert!(four.iter().all(|s| s.level == 4));
+        assert!(four.iter().all(|s| s.level == 9));
         roster.extend(four);
         let name = unseated(&roster)[0].name.clone();
         let named = by_name(&roster, &name, 1).unwrap();

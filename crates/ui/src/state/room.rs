@@ -44,9 +44,9 @@ use ddi_library::share::ShareError;
 use ddi_room::{
     BattlePreset, Capability, ChartKey, ClientId, Command, ContentCard, ContentId, ContentSource,
     ContentStatus, Finisher, Identity, LinkState, Loading, LocalAuthority, ManualClock, MatchId,
-    MatchRules, MemberKind, Mirror, OpponentSpec, ParticipantId, Phase, Placement, Rejection,
-    ReportedRun, Revision, Role, RoomAuthority, RoomId, RoomPolicy, RoomState, RulesProblem, Run,
-    ServerMessage, SongKey, Stage, StageId, Transport,
+    MatchRules, MemberKind, Mirror, OpponentSpec, ParticipantId, Phase, Placement, Points,
+    Rejection, ReportedRun, Revision, Role, RoomAuthority, RoomId, RoomPolicy, RoomState,
+    RulesProblem, Run, RunDetail, ServerMessage, SongKey, Stage, StageId, Transport,
 };
 
 use crate::state::online::SharedOnline;
@@ -54,17 +54,17 @@ use crate::state::online::link::{LinkNotice, OnlineLink};
 
 use crate::screens::data::{ChartEntry, SongEntry};
 
-/// The engine's CPU levels (`ddi_engine::cpu::STRENGTHS`), shown as
-/// "Level 1" to "Level 5": strength relative to the chart, never a skill
-/// claim (`docs/plans/cpu-player.md`).
+/// The engine's CPU levels (`ddi_engine::cpu::CPU_LEVELS_V0`, ten),
+/// shown as five stars (`crate::stars`): strength relative to the chart,
+/// never a skill claim (`docs/plans/cpu-player.md`).
 pub fn cpu_levels() -> u8 {
-    ddi_engine::cpu::STRENGTHS.len() as u8
+    ddi_engine::cpu::LEVELS as u8
 }
 
-/// Practice's starting CPU level: the engine's default strength (its
-/// `normal`, the third of five). PROVISIONAL: a convenient start, not a
-/// calibrated profile.
-pub const DEFAULT_CPU_LEVEL: u8 = 2;
+/// Practice's starting CPU level, as the engine's index: its default
+/// strength (the solo CPU's `normal`, level 8 of ten). PROVISIONAL: a
+/// convenient start, not a calibrated profile.
+pub const DEFAULT_CPU_LEVEL: u8 = 7;
 
 /// Practice's starting CPUs: three of the catalog (`cpu_roster`), drawn
 /// from the room's seed.
@@ -318,8 +318,11 @@ pub fn check_chart(
         log(&e);
         LoadProblem::CpuCannotPlay
     })?;
+    let level = ddi_engine::cpu::CPU_LEVELS_V0
+        .level(DEFAULT_CPU_LEVEL.into())
+        .ok_or(LoadProblem::CpuCannotPlay)?;
     plan.check_song(song, chart)
-        .and_then(|_| plan.script(DEFAULT_CPU_LEVEL.into(), 0))
+        .and_then(|_| plan.script_at(level, 0, ddi_engine::cpu::Skills::default()))
         .map(|_| ())
         .map_err(|e| {
             log(&e);
@@ -328,7 +331,7 @@ pub fn check_chart(
 }
 
 /// A CPU seat in a stage: who, which CPU (from 1), its level (an index
-/// into `ddi_engine::cpu::STRENGTHS`) and seed.
+/// into `ddi_engine::cpu::CPU_LEVELS_V0`'s ten) and seed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CpuSeat {
     pub participant: ParticipantId,
@@ -356,9 +359,9 @@ pub struct StageOrder {
     pub song: SongEntry,
     pub chart: ChartEntry,
     pub battle: BattlePreset,
-    /// The match's ruleset, everyone's (D0): the engine's preset id
-    /// (`MatchRules::ruleset`), played in place of the player's own.
-    pub ruleset: String,
+    /// The match's rules the stage is judged by, everyone's (D0), played
+    /// in place of the player's own.
+    pub rules: StageRules,
     pub me: ParticipantId,
     /// The local player's attack policy (M8b: Spread; chosen before the
     /// stage and in play from the next round on).
@@ -372,6 +375,68 @@ pub struct StageOrder {
     /// never on this device ([`RoomClient::report_run`]). Not shown during
     /// the play in this prototype.
     pub others: u16,
+}
+
+impl StageOrder {
+    /// The stage's play may be given a battle's shocks (its match has
+    /// attacks, or the development switch puts a section of them in): its
+    /// noteskin is told so (`ddi_noteskin::lua::Env::shocks`), so that a
+    /// chart's own mines and the shocks never look the same.
+    pub fn may_have_shocks(&self) -> bool {
+        self.battle.attacks() || self.dev_mines_at_beat.is_some()
+    }
+}
+
+/// The rules a match's stages are judged by, everyone's, the CPUs'
+/// included (`docs/plans/ddi-ruleset.md`, "What it means for
+/// multiplayer"): the ruleset by the engine's id (DDI,
+/// `MatchRules::ruleset_id`) and its options that are match rules.
+/// Practice (DDI's option) is never one: a stage is never played with it,
+/// whatever the player's own settings say.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StageRules {
+    pub ruleset: String,
+    pub difficulty: ddi_room::MatchDifficulty,
+    pub boos: bool,
+}
+
+impl StageRules {
+    pub fn of(rules: &MatchRules) -> StageRules {
+        StageRules {
+            ruleset: rules.ruleset_id().into(),
+            difficulty: rules.difficulty,
+            boos: rules.boos,
+        }
+    }
+
+    /// DDI's options for a stage under these rules: the match's
+    /// difficulty and Boos, never Practice.
+    pub fn ddi_options(&self) -> ddi_engine::rules::ddi::DdiOptions {
+        use ddi_engine::rules::ddi::Difficulty;
+        ddi_engine::rules::ddi::DdiOptions {
+            difficulty: match self.difficulty {
+                ddi_room::MatchDifficulty::Easy => Difficulty::Easy,
+                ddi_room::MatchDifficulty::Normal => Difficulty::Normal,
+                ddi_room::MatchDifficulty::Hard => Difficulty::Hard,
+            },
+            boos: self.boos,
+            practice: false,
+        }
+    }
+
+    /// The engine's ruleset a stage under these rules is played with:
+    /// DDI with the match's options, an empty life out of the stage.
+    pub fn build(&self) -> ddi_engine::Ruleset {
+        let mut rules = ddi_engine::rules::presets::ddi().with_ddi(&self.ddi_options());
+        rules.fail = ddi_engine::FailPolicy::Immediate;
+        rules
+    }
+}
+
+impl Default for StageRules {
+    fn default() -> StageRules {
+        StageRules::of(&MatchRules::hosted())
+    }
 }
 
 /// How the match ended for the local player, once the room has its
@@ -396,6 +461,88 @@ pub struct StageMark {
     pub field: u16,
     /// Its points came from an experimental rule.
     pub experimental: bool,
+}
+
+/// One starter's line of a stage's standings ([`StageTable`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct StageRow {
+    pub participant: ParticipantId,
+    /// What the room confirmed: the place, how the stage ended for them
+    /// and the points it awarded.
+    pub placement: Option<Placement>,
+    /// Their run as they reported it (an online stage's), confirmed or
+    /// not yet.
+    pub run: Option<Run>,
+    /// How they performed, where it is known (a practice's competitors;
+    /// an online starter whose report said so).
+    pub detail: Option<RunDetail>,
+    /// Once confirmed: their match total and place after this stage, and
+    /// their place before it (none on the match's first stage).
+    pub total: Option<Points>,
+    pub rank: Option<u16>,
+    pub rank_before: Option<u16>,
+}
+
+/// A stage's standings, as its results show them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StageTable {
+    pub stage: StageId,
+    /// The stage's number, from 1, and the match's stages.
+    pub number: u16,
+    pub of: u16,
+    /// The room confirmed the outcome: the places, awards and order are
+    /// final. Before, the rows are as seated and fill in as reports come.
+    pub confirmed: bool,
+    /// The match's rules: the ruleset's tiers and score (the engine's
+    /// id), its difficulty and Boos.
+    pub rules: StageRules,
+    /// The battle has attacks: the rows say those launched and the
+    /// shocks stepped on.
+    pub attacks: bool,
+    /// The points came from an experimental rule.
+    pub experimental: bool,
+    pub rows: Vec<StageRow>,
+    /// The match's result, where this was its last stage and the match is
+    /// over: everyone in it with their place and total, best first.
+    pub result: Option<Vec<(ParticipantId, u16, Points)>>,
+}
+
+/// How a play went, for a stage's standings (`ddi_room::RunDetail`):
+/// `results` under `ruleset` (the match's), `life` its gauge's at the end,
+/// `launched` the attacks it launched where the battle has them.
+pub fn run_detail(
+    results: &ddi_engine::player::Results,
+    ruleset: &ddi_engine::Ruleset,
+    life: f32,
+    launched: Option<u32>,
+) -> RunDetail {
+    let score = &results.score;
+    let out = results.gauge_failed_at;
+    RunDetail {
+        // DDI's score as shown everywhere: the sum of the proportional
+        // part and the absolute score (a CPU's put on the chart's scale
+        // before it comes here, `ddi_session::battle::cpu_score`).
+        score: match &score.ddi {
+            Some(d) => Some(d.score),
+            None => score.money.and_then(|m| i64::try_from(m).ok()),
+        },
+        percent: match &score.ddi {
+            Some(d) => i32::try_from(d.percent).ok(),
+            None => score.percent.map(|p| (p * 10_000.0).round() as i32),
+        },
+        grade: results.grade.clone(),
+        life_ppm: if out.is_some() {
+            0
+        } else {
+            (f64::from(life.clamp(0.0, 1.0)) * ReportedRun::SCALE).round() as u32
+        },
+        out_at_ms: out.map(|at| (f64::from(at.max(0.0)) * 1_000.0).round() as u64),
+        max_combo: results.max_combo,
+        tiers: crate::screens::play::tier_counts(ruleset, &results.tally),
+        attacks: launched,
+        shocks: launched.map(|_| results.battle_mines.map_or(0, |b| b.hit)),
+    }
+    .bounded()
 }
 
 /// Whether the CPUs can play `chart`: a one-player chart with four lanes,
@@ -487,20 +634,27 @@ pub struct RoomClient {
     /// The last results the player was shown: the match and its confirmed
     /// stages (the match's results counted as one more).
     results_seen: (Option<MatchId>, usize),
+    /// How each competitor of the stages judged on this device performed
+    /// (a practice's: the player and the CPUs, [`RoomClient::set_stage_details`]);
+    /// an online stage's are the room's, with its reports.
+    details: BTreeMap<StageId, BTreeMap<ParticipantId, RunDetail>>,
 }
 
 /// The room shared by the screens that show it (the room, its song
 /// picker) and kept by the shell while the player goes elsewhere.
 pub type SharedRoom = Rc<RefCell<RoomClient>>;
 
-/// DEVELOPMENT ONLY: what the shells' development switches change in a
-/// practice room (`docs/plans/multiplayer-prototype-progress.md`, M8a),
-/// never reached from a menu.
+/// What the shells' switches change in a practice room
+/// (`docs/plans/multiplayer-prototype-progress.md`, M8a), never reached
+/// from a menu.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Development {
-    /// Practice under `BattlePreset::GaugeAttacksV0`, attack power shown
-    /// (desktop's `--mp-dev-attacks`, the web's `mpattacks=1`).
+    /// A CONVENIENCE, not a gate (the DDI ruleset's round 3): the next
+    /// practice room starts with its Attacks rule already On (desktop's
+    /// `--mp-attacks`, the web's `mpattacks=1`; for tests and
+    /// screenshots). Attacks are a match rule anyone sets in Rules.
     pub attacks: bool,
+    /// DEVELOPMENT ONLY.
     /// A section of battle shocks put into the player's own play of each
     /// stage from this beat on (desktop's `--mp-dev-mines BEAT`, the
     /// web's `mpdevmines=BEAT`; `ddi_engine::battle`).
@@ -512,8 +666,8 @@ thread_local! {
         const { std::cell::Cell::new(Development { attacks: false, mines_at_beat: None }) };
 }
 
-/// DEVELOPMENT ONLY: sets the practice rooms' development switches (the
-/// next practice room on; a stage's shocks from its next order).
+/// Sets the practice rooms' switches (the next practice room on; a
+/// stage's development shocks from its next order).
 pub fn set_development(d: Development) {
     DEVELOPMENT.set(d);
 }
@@ -524,11 +678,11 @@ pub fn development() -> Development {
 }
 
 /// Practice's rules for a common CPU profile `opponent`: `MatchRules::practice`,
-/// under the attacks' battle where the development switch says so.
+/// its Attacks rule On where the shells' convenience switch says so.
 pub fn practice_rules(opponent: OpponentSpec) -> MatchRules {
     let mut rules = MatchRules::practice(opponent);
     if development().attacks {
-        rules.battle = BattlePreset::GAUGE_ATTACKS_V0.into();
+        rules.set_attacks(true);
     }
     rules
 }
@@ -603,6 +757,7 @@ impl RoomClient {
             spotlight_asked: None,
             rules_seen: false,
             results_seen: (None, 0),
+            details: BTreeMap::new(),
         };
         room.pump();
         room
@@ -657,6 +812,7 @@ impl RoomClient {
             spotlight_asked: None,
             rules_seen: false,
             results_seen: (None, 0),
+            details: BTreeMap::new(),
         };
         room.tick(now_ms);
         room
@@ -1065,6 +1221,17 @@ impl RoomClient {
         }
     }
 
+    /// Whether the room can play charts of style `style` at all: a
+    /// practice's CPUs play one-player charts with four lanes
+    /// ([`eligible`]); an online room has none and plays any.
+    pub fn style_playable(&self, style: &str) -> bool {
+        self.is_online()
+            || matches!(
+                ddi_chart::Layout::builtin(style),
+                Some(l) if l.players == 1 && l.lanes.len() == 4
+            )
+    }
+
     /// The operator's pick (M7b): `song`'s `chart` becomes the song of the
     /// stage the room plays next, and the match starts (or goes on); the
     /// stage's readiness gathers on its start prompt. Refused when the
@@ -1414,10 +1581,136 @@ impl RoomClient {
 
     /// Report one's own run of stage `stage` (an online room's: it ranks
     /// everyone's reports).
-    pub fn report_run(&mut self, stage: StageId, run: Run) -> Result<(), Refusal> {
+    /// `detail`: how they performed, for the stage's standings
+    /// ([`run_detail`]; additive, a room that predates it passes none on).
+    pub fn report_run(
+        &mut self,
+        stage: StageId,
+        run: Run,
+        detail: Option<RunDetail>,
+    ) -> Result<(), Refusal> {
         self.send(Command::ReportOutcome {
             stage,
             run: ReportedRun::of(run),
+            detail,
+        })
+    }
+
+    /// How the competitors of `stage`, judged on this device, performed
+    /// (a practice's stage: the player and the CPUs), for its standings.
+    /// Kept by this client: a practice's authority ranks the stage and
+    /// takes no reports.
+    pub fn set_stage_details(&mut self, stage: StageId, details: Vec<(ParticipantId, RunDetail)>) {
+        self.details
+            .entry(stage)
+            .or_default()
+            .extend(details.into_iter().map(|(id, d)| (id, d.bounded())));
+        self.version += 1;
+    }
+
+    /// The match `stage` is of (the running one, else a finished one the
+    /// room keeps), the stage's place in it, and whether that match is
+    /// over with every stage played.
+    fn match_of(&self, stage: StageId) -> Option<(&ddi_room::state::Match, usize, bool)> {
+        let s = self.state();
+        if let Some(m) = &s.current
+            && let Some(i) = m.stage_index(stage)
+        {
+            return Some((m, i, s.phase == Phase::MatchResults));
+        }
+        s.history.iter().rev().find_map(|record| {
+            let i = record.played.stage_index(stage)?;
+            let completed = matches!(record.ending, ddi_room::state::MatchEnding::Completed);
+            Some((&record.played, i, completed))
+        })
+    }
+
+    /// A member by id: someone in the room, else a CPU that left it with
+    /// its match.
+    pub fn member_of(&self, id: ParticipantId) -> Option<&ddi_room::Member> {
+        let s = self.state();
+        s.member(id).or_else(|| {
+            s.history
+                .iter()
+                .rev()
+                .find_map(|record| record.cpus.get(&id))
+        })
+    }
+
+    /// Stage `stage`'s standings as its results show them
+    /// ([`StageTable`]): every starter, what the room confirmed of them
+    /// and how they performed, the match's totals after it, and the
+    /// match's result where it was its last.
+    pub fn stage_table(&self, stage: StageId) -> Option<StageTable> {
+        let (m, index, completed) = self.match_of(stage)?;
+        let st = &m.stages[index];
+        let play = st.play.as_ref()?;
+        let local = self.details.get(&stage);
+        // The match's totals over its first `n` stages.
+        let totals = |n: usize| -> BTreeMap<ParticipantId, Points> {
+            m.roster
+                .keys()
+                .map(|&id| {
+                    let total = m.stages[..n]
+                        .iter()
+                        .filter_map(|sg| sg.play.as_ref()?.result.as_ref()?.placement(id))
+                        .map(|p| p.points)
+                        .sum();
+                    (id, total)
+                })
+                .collect()
+        };
+        let rank_in = |totals: &BTreeMap<ParticipantId, Points>, id: ParticipantId| {
+            let mine = totals.get(&id)?;
+            let above = totals.values().filter(|t| *t > mine).count();
+            Some(u16::try_from(above + 1).unwrap_or(u16::MAX))
+        };
+        let (before, after) = (totals(index), totals(index + 1));
+        let confirmed = play.result.is_some();
+        let row = |id: ParticipantId| {
+            let detail = local
+                .and_then(|d| d.get(&id))
+                .or_else(|| play.details.get(&id))
+                .cloned();
+            let placement = play.result.as_ref().and_then(|r| r.placement(id)).copied();
+            StageRow {
+                participant: id,
+                placement,
+                run: play.reports.get(&id).map(|r| r.run()),
+                detail,
+                total: confirmed.then(|| after.get(&id).copied()).flatten(),
+                rank: confirmed.then(|| rank_in(&after, id)).flatten(),
+                rank_before: (confirmed && index > 0)
+                    .then(|| rank_in(&before, id))
+                    .flatten(),
+            }
+        };
+        // The stage's order once confirmed; before, as they were seated.
+        let rows: Vec<StageRow> = match &play.result {
+            Some(result) => result
+                .placements
+                .iter()
+                .map(|p| row(p.participant))
+                .collect(),
+            None => play.lineup.iter().map(|id| row(*id)).collect(),
+        };
+        let last = index + 1 == m.stages.len();
+        let result = (last && confirmed && completed).then(|| {
+            m.standings()
+                .into_iter()
+                .map(|st| (st.participant, st.rank, st.total))
+                .collect()
+        });
+        Some(StageTable {
+            stage,
+            number: u16::try_from(index + 1).unwrap_or(u16::MAX),
+            of: u16::try_from(m.stages.len()).unwrap_or(u16::MAX),
+            confirmed,
+            rules: StageRules::of(&m.rules),
+            attacks: m.rules.attacks(),
+            experimental: play.result.as_ref().is_some_and(|r| r.rule.experimental()),
+            rows,
+            result,
         })
     }
 
@@ -1461,7 +1754,7 @@ impl RoomClient {
             song: picked.song,
             chart: picked.chart,
             battle: BattlePreset::parse(&m.rules.battle).unwrap_or(BattlePreset::GaugeSurvivalV0),
-            ruleset: m.rules.ruleset.clone(),
+            rules: StageRules::of(&m.rules),
             dev_mines_at_beat: development().mines_at_beat,
             me: self.me,
             targeting: Default::default(),
@@ -1477,6 +1770,32 @@ impl RoomClient {
         };
         self.launched.insert(stage);
         Some(order)
+    }
+
+    /// A stage played on this device, reported to its room: an online
+    /// room hears the local player's own run `mine` with how they
+    /// performed (theirs of `details`), and ranks everyone's; a practice's
+    /// stage is reported as its authority ([`RoomClient::report_stage`]),
+    /// its competitors' `details` kept for its standings.
+    pub fn report_played(
+        &mut self,
+        stage: StageId,
+        mine: Run,
+        ranking: Vec<Vec<Finisher>>,
+        confirmed_early: bool,
+        details: Vec<(ParticipantId, RunDetail)>,
+    ) -> Result<(), Refusal> {
+        if self.is_online() {
+            let me = self.me;
+            let detail = details
+                .into_iter()
+                .find(|(id, _)| *id == me)
+                .map(|(_, d)| d);
+            self.report_run(stage, mine, detail)
+        } else {
+            self.set_stage_details(stage, details);
+            self.report_stage(stage, ranking, confirmed_early)
+        }
     }
 
     /// A stage's judged outcome, reported as its authority: its ranking

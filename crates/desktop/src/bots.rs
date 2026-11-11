@@ -121,7 +121,7 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   --api URL            the server (else DDI_API_URL, else the production one)
   --site URL           the game's page for invite links
   --names A,B,…        the bots' names (else the CPU roster's)
-  --level 1-5          every bot's CPU level (else the roster's)
+  --level 1-10         every bot's CPU level (else the roster's)
   --personality P      every bot's personality: a preset or seven multipliers
   --songs DIR          the host's songs from this folder (repeatable)
   --pick ID[:N],…      the host's songs in this order (chart index N)
@@ -176,7 +176,7 @@ impl Options {
                 }
                 "--level" => {
                     let l = value(i, a)?.parse::<u8>().ok();
-                    let levels = ddi_engine::cpu::STRENGTHS.len() as u8;
+                    let levels = ddi_engine::cpu::LEVELS as u8;
                     o.level = Some(
                         l.filter(|l| (1..=levels).contains(l))
                             .ok_or(format!("--level takes 1 to {levels}"))?,
@@ -268,7 +268,7 @@ impl Options {
     }
 }
 
-/// A bot's CPU: its name, its level (an index of the engine's strengths)
+/// A bot's CPU: its name, its level (an index of the engine's ten levels)
 /// and its personality (`ddi_engine::cpu::Skills`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Profile {
@@ -279,7 +279,7 @@ pub struct Profile {
 
 /// The run's bots' profiles: the names given, else the CPU roster's in an
 /// order drawn from `seed`; each its roster level and personality unless
-/// the options set them (a named bot not on the roster: level 3,
+/// the options set them (a named bot not on the roster: level 8,
 /// balanced).
 pub fn profiles(o: &Options, count: usize, seed: u64) -> Vec<Profile> {
     let roster = ddi_ui::state::cpu_roster::catalog();
@@ -308,7 +308,7 @@ pub fn profiles(o: &Options, count: usize, seed: u64) -> Vec<Profile> {
             let level = o
                 .level
                 .or_else(|| from_roster.map(|c| c.level))
-                .unwrap_or(3);
+                .unwrap_or(8);
             Profile {
                 name,
                 level: usize::from(level.saturating_sub(1)),
@@ -349,6 +349,10 @@ pub struct StagePlay {
     pub stage: StageId,
     pub number: u16,
     opponent: Opponent,
+    /// The most the whole chart gives (DDI): the scale its score is
+    /// reported on (`ddi_session::battle::cpu_score`, `CPU_SCORE_V0`: a
+    /// bot plays the CPU's tap-only copy beside people on the chart).
+    most: Option<i64>,
     started_ms: u64,
 }
 
@@ -364,12 +368,18 @@ impl StagePlay {
         seed: u64,
         now_ms: u64,
     ) -> Result<StagePlay, String> {
-        let mut opponent = cpu_for(song, chart, &order.ruleset, profile, seed)?;
+        let mut opponent = cpu_for(song, chart, &order.rules, profile, seed)?;
         opponent.start(0.0);
+        let most = ddi_session::battle::chart_most(
+            song,
+            chart,
+            &ddi_session::battle::stage_ruleset(&order.rules),
+        );
         Ok(StagePlay {
             stage: order.stage,
             number: order.number,
             opponent,
+            most,
             started_ms: now_ms,
         })
     }
@@ -389,34 +399,48 @@ impl StagePlay {
         }
         let end = self.opponent.player().end_time();
         let over = (self.opponent.finished() && t >= end + TAIL_S) || t >= end + 30.0;
-        over.then(|| Run::Live {
-            life: f64::from(self.opponent.life()),
-            accuracy: ddi_session::battle::accuracy(&self.opponent.score()),
+        over.then(|| {
+            ddi_session::battle::run_of(
+                None,
+                self.opponent.life(),
+                &ddi_session::battle::cpu_score(&self.opponent.score(), self.most),
+            )
         })
     }
 }
 
-/// `profile`'s CPU on chart `chart` of `song` under the match's ruleset
-/// `ruleset` (`ddi_session::battle::stage_ruleset`), or the engine's reason
+impl StagePlay {
+    /// How the bot performed so far (`ddi_room::RunDetail`), as judged by
+    /// its own play.
+    pub fn detail(&self) -> ddi_room::RunDetail {
+        let player = self.opponent.player();
+        let mut results = player.results_brief();
+        results.score = ddi_session::battle::cpu_score(&results.score, self.most);
+        ddi_ui::state::room::run_detail(&results, player.ruleset(), self.opponent.life(), None)
+    }
+}
+
+/// `profile`'s CPU on chart `chart` of `song` under the match's rules
+/// `rules` (`ddi_session::battle::stage_ruleset`), or the engine's reason
 /// why it cannot play it.
 fn cpu_for(
     song: &ddi_chart::Song,
     chart: usize,
-    ruleset: &str,
+    rules: &ddi_session::battle::StageRules,
     profile: &Profile,
     seed: u64,
 ) -> Result<Opponent, String> {
-    let c = song.charts.get(chart).ok_or("no such chart")?;
-    let rules = ddi_session::battle::stage_ruleset(ruleset, c);
+    song.charts.get(chart).ok_or("no such chart")?;
+    let rules = ddi_session::battle::stage_ruleset(rules);
     let skills = Skills::parse(&profile.skills).unwrap_or_default();
-    let level = profile.level.min(ddi_engine::cpu::STRENGTHS.len() - 1);
+    let level = profile.level.min(ddi_engine::cpu::LEVELS - 1);
     Opponent::with_skills(song, chart, rules, level, seed, skills)
 }
 
 /// A run in a line of the log.
 fn run_text(run: &Run) -> String {
     match run {
-        Run::Live { life, accuracy } => {
+        Run::Live { life, accuracy, .. } => {
             format!(
                 "life {:.0}%, accuracy {:.2}%",
                 life * 100.0,
@@ -784,10 +808,13 @@ impl Bot {
                 return;
             };
             let number = play.number;
+            // How it performed, for the stage's standings, as a player's
+            // report says it.
+            let detail = play.detail();
             self.play = None;
             self.order = None;
             self.say(format!("stage {number}: {}", run_text(&run)));
-            if let Err(why) = room.borrow_mut().report_run(order.stage, run) {
+            if let Err(why) = room.borrow_mut().report_run(order.stage, run, Some(detail)) {
                 self.say(format!("the report was refused: {why:?}"));
             }
             return;
@@ -814,7 +841,9 @@ impl Bot {
                         order.number
                     ));
                     self.order = None;
-                    let _ = room.borrow_mut().report_run(order.stage, Run::Forfeit);
+                    let _ = room
+                        .borrow_mut()
+                        .report_run(order.stage, Run::Forfeit, None);
                 }
             }
             return;
@@ -999,7 +1028,7 @@ fn checked(mut inbox: Inbox, profile: Profile) -> Inbox {
                             cpu_for(
                                 &song,
                                 picked.chart.index,
-                                ddi_room::MatchRules::DEFAULT_RULESET,
+                                &Default::default(),
                                 &profile,
                                 1,
                             )
@@ -1058,20 +1087,14 @@ fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
     }
     let profile = Profile {
         name: String::new(),
-        level: 2,
+        level: 7,
         skills: "balanced".into(),
     };
     let playable = |song: &SongEntry, chart: &ChartEntry| {
         crate::play::load::read_chart(&song.id)
             .map_err(|e| format!("{e:?}"))
             .and_then(|s| {
-                cpu_for(
-                    &s,
-                    chart.index,
-                    ddi_room::MatchRules::DEFAULT_RULESET,
-                    &profile,
-                    1,
-                )
+                cpu_for(&s, chart.index, &Default::default(), &profile, 1)
                 .map(|_| ())
             })
             .is_ok()
@@ -1298,7 +1321,9 @@ impl Bot {
         };
         if let (Some(play), Some(order)) = (self.play.take(), self.order.take()) {
             self.say(format!("stage {}: forfeit (stopped)", play.number));
-            let _ = room.borrow_mut().report_run(order.stage, Run::Forfeit);
+            let _ = room
+                .borrow_mut()
+                .report_run(order.stage, Run::Forfeit, None);
         }
         if room.borrow().link_state().ended() {
             self.done = true;
@@ -1345,7 +1370,8 @@ mod tests {
             "--mp-bots --guests 2",
             "--mp-bots --join nonsense",
             "--mp-bots --host --guests 8",
-            "--mp-bots --host --level 9",
+            "--mp-bots --host --level 11",
+            "--mp-bots --host --level 0",
             "--mp-bots --host --personality wobbly",
             "--mp-bots --host --stages 0",
             "--mp-bots --host --guests 2 --names A,B",
@@ -1410,7 +1436,7 @@ mod tests {
             song: SongEntry::default(),
             chart: ChartEntry::default(),
             battle: ddi_room::BattlePreset::GaugeSurvivalV0,
-            ruleset: "itg".into(),
+            rules: Default::default(),
             dev_mines_at_beat: None,
             me: ddi_room::ParticipantId(2),
             targeting: Default::default(),
@@ -1419,7 +1445,7 @@ mod tests {
         };
         let profile = Profile {
             name: "T".into(),
-            level: 4,
+            level: 9,
             skills: "balanced".into(),
         };
         let mut play = StagePlay::new(&order, &song, chart, &profile, 9, 1_000).unwrap();
@@ -1436,15 +1462,27 @@ mod tests {
             assert!(t < 1_000_000, "the song ends");
         };
         match run {
-            Run::Live { life, accuracy } => {
+            Run::Live {
+                life,
+                accuracy,
+                absolute,
+                score,
+            } => {
                 assert!((0.0..=1.0).contains(&life) && life > 0.0);
                 assert!(accuracy > 0.5 && accuracy <= 1.0, "{accuracy}");
+                // Under DDI its report carries the score, the sum on the
+                // chart's own scale (`CPU_SCORE_V0`), and its absolute
+                // part with that scale's most.
+                let a = absolute.expect("DDI");
+                assert!(a.most > 0);
+                let ratio = (accuracy * 1_000_000.0).round() as i64;
+                assert_eq!(score, Some(ratio + a.score));
             }
             Run::Out { at } => assert!(at > 0.0),
             Run::Forfeit => panic!("never a forfeit"),
         }
         // A chart the CPU cannot plan is refused.
-        assert!(cpu_for(&song, 99, "itg", &profile, 1).is_err());
+        assert!(cpu_for(&song, 99, &Default::default(), &profile, 1).is_err());
     }
 
     #[test]

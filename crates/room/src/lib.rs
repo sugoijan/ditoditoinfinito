@@ -43,7 +43,7 @@ pub mod state;
 
 pub use authority::{Clock, LocalAuthority, ManualClock, RoomAuthority};
 pub use awards::{AwardRule, AwardScheme, Finish, Finisher, Placement, StageResult};
-pub use battle::{BattlePreset, Entrant, ReportedRun, Run};
+pub use battle::{Absolute, BattlePreset, Entrant, ReportedRun, Run, RunDetail};
 pub use command::{Actor, CancelReason, Command, Event, RankingProblem, Rejection};
 pub use ids::{
     ChartKey, ClientId, ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomId,
@@ -60,7 +60,8 @@ pub use protocol::{
     Resync, ServerEnvelope, ServerMessage, Want,
 };
 pub use rules::{
-    Access, Admission, CapExceeded, ContentSource, CpuMode, CpuRules, MatchRules, OutcomePolicy,
+    Access, Admission, CapExceeded, ContentSource, CpuMode, CpuRules, MatchDifficulty, MatchRules,
+    OutcomePolicy,
     ReadinessPolicy, RoomPolicy, RulesProblem,
 };
 pub use state::{

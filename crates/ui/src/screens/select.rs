@@ -69,7 +69,7 @@ use super::data::PackEntry;
 #[path = "select_room.rs"]
 mod room_mode;
 
-const SELECT_PARTS: [(&str, super::Edge); 18] = {
+const SELECT_PARTS: [(&str, super::Edge); 19] = {
     use super::Edge::{FooterBar, HeaderBar, Left, None, Right};
     [
         ("Header", HeaderBar),
@@ -88,6 +88,7 @@ const SELECT_PARTS: [(&str, super::Edge); 18] = {
         ("Wheel.Track", Right),
         ("Wheel.Thumb", Right),
         ("Song", Left),
+        ("RoomPlayers", Left),
         ("Notices", None),
         ("Backdrop", None),
     ]
@@ -333,6 +334,16 @@ struct Layout {
     /// A phone upright: the song on top, the wheel under it, Play at
     /// the bottom.
     upright: bool,
+    /// The song's side in its short form: the style button and a row of
+    /// chart buttons (the compact layouts; a room's, whose players take
+    /// the room the banner and the ladder had, `Layout::for_room`).
+    chips: bool,
+    /// The song's info's width, and where the short form's style button,
+    /// chart buttons and Play go across the song's column: from, wide.
+    info_w: f32,
+    picker: [f32; 2],
+    /// A room's players panel beside the song (the wide layout's).
+    players: Option<[f32; 4]>,
     /// The compact layouts' side margin.
     margin: f32,
     /// The compact song column's parts, from its top: the info's height,
@@ -394,6 +405,10 @@ impl Layout {
             screen,
             compact: true,
             upright: true,
+            chips: true,
+            info_w: w,
+            picker: [0.0, w],
+            players: None,
             margin,
             info_h,
             style_y,
@@ -430,6 +445,10 @@ impl Layout {
                 screen,
                 compact,
                 upright: false,
+                chips: true,
+                info_w: 300.0,
+                picker: [0.0, 300.0],
+                players: None,
                 margin,
                 info_h: 140.0,
                 style_y: COMPACT_STYLE_Y,
@@ -462,6 +481,10 @@ impl Layout {
             screen,
             compact,
             upright: false,
+            chips: false,
+            info_w: m("Select.Song.Width", 560.0),
+            picker: [0.0, m("Select.Song.Width", 560.0)],
+            players: None,
             margin: m("Margin", 32.0),
             info_h: 0.0,
             style_y: 0.0,
@@ -494,6 +517,38 @@ impl Layout {
         }
     }
 }
+
+impl Layout {
+    /// A room's layout (`select_room.rs`): the wide one with the song's
+    /// side short (a banner as a phone's with the title and a line under
+    /// it, the style button and the chart buttons beside it) and the
+    /// players panel under it, down to where the ladder ended. The compact
+    /// layouts are short already: theirs keep the song's side and show
+    /// the players as a strip over the list.
+    fn for_room(mut self) -> Layout {
+        if self.compact {
+            return self;
+        }
+        let [x, y, w] = self.song;
+        let gap = 16.0;
+        self.chips = true;
+        self.info_w = 300.0;
+        self.info_h = ROOM_INFO_H;
+        self.picker = [self.info_w + gap, (w - self.info_w - gap).max(120.0)];
+        self.style_y = 18.0;
+        self.charts_y = 66.0;
+        self.chart_h = 44.0;
+        self.play_h = 0.0;
+        let top = y + ROOM_INFO_H + gap;
+        let bottom = self.ladder[0] + self.ladder[1];
+        self.players = Some([x, top, w, (bottom - top).max(60.0)]);
+        self
+    }
+}
+
+/// A room's song's side's height in the wide layout: a phone's banner
+/// (94), the title and a line.
+const ROOM_INFO_H: f32 = 140.0;
 
 /// The wheel's items for the list.
 struct Wheel<'a> {
@@ -1102,7 +1157,8 @@ impl SelectScreen {
 
     /// New data (the library read again, bests changed): what was shown
     /// stays, by name, where it still is.
-    fn set_data(&mut self, data: SelectData, first: bool) {
+    fn set_data(&mut self, mut data: SelectData, first: bool) {
+        self.room_styles(&mut data.styles);
         if first {
             self.autoplay = data.autoplay;
         }
@@ -1409,7 +1465,7 @@ impl SelectScreen {
         }
         // The selected song.
         let [sx, sy, sw] = l.song;
-        let info_h = if l.compact {
+        let info_h = if l.chips {
             l.info_h
         } else {
             l.tabs_y - sy - 12.0
@@ -1417,36 +1473,43 @@ impl SelectScreen {
         let info = env.component(
             "SongInfo",
             "Panel",
-            &Spec::new([sw, info_h], ""),
+            &Spec::new([l.info_w, info_h], ""),
             "Info",
             [0.0, 0.0],
         );
         let mut song = vec![info];
-        if l.compact {
-            let w = sw;
+        if l.chips {
+            let [px, w] = l.picker;
             let mut style = env.component(
                 "StyleButton",
                 "Button",
                 &Spec::new([w, 36.0], ""),
                 "StyleButton",
-                [w / 2.0, l.style_y],
+                [px + w / 2.0, l.style_y],
             );
             if let Some(p) = part(&mut style, "Label") {
                 call(p, "halign", &[0.0]);
                 call(p, "x", &[-w / 2.0 + 12.0]);
+                // A room's wide layout: a narrower button than a phone's.
+                if !l.compact {
+                    look::ellipsized(p, w - 24.0);
+                }
             }
             song.push(style);
             song.push(frame("Charts", Vec::new()));
-            let mut play = env.component(
-                "PlayButton",
-                "Button",
-                &Spec::new([w, l.play_h], msg::play_button()),
-                "Play",
-                [w / 2.0, l.play_y],
-            );
-            // A room's follower picks nothing.
-            play.visible = !self.following();
-            song.push(play);
+            // A room's wide layout has no Play: Start on the list picks.
+            if l.play_h > 0.0 {
+                let mut play = env.component(
+                    "PlayButton",
+                    "Button",
+                    &Spec::new([w, l.play_h], msg::play_button()),
+                    "Play",
+                    [px + w / 2.0, l.play_y],
+                );
+                // A room's follower picks nothing.
+                play.visible = !self.following();
+                song.push(play);
+            }
         } else {
             song.push(frame("Tabs", Vec::new()));
             let mut kbd = env.numbers("TabKey", &UiText::data(TAB_LEGEND), 11.0, "Muted");
@@ -1539,6 +1602,9 @@ impl SelectScreen {
         children.push(frame("Notices", Vec::new()));
         let parts = self.room_parts(cx);
         children.push(parts);
+        if self.room.is_some() {
+            children.push(self.room_players());
+        }
         let mut root = Actor::new(Kind::Frame(children));
         // The header's row from above, the footer from below, the wheel
         // from the right, the song's side from the left, the backdrop
@@ -1668,8 +1734,8 @@ impl SelectScreen {
             line.push_str(&format!(" · {offset}"));
         }
         set_text(info, "Line", &line);
-        let side = if self.layout.compact {
-            self.layout.song[2]
+        let side = if self.layout.chips {
+            self.layout.info_w
         } else {
             560.0
         };
@@ -1731,16 +1797,28 @@ impl SelectScreen {
 
     fn fill_tabs(&mut self, root: &mut Actor) {
         let counts = self.counts();
-        if self.layout.compact {
+        if self.layout.chips {
             let lit = counts.iter().filter(|&&n| n > 0).count();
             let n = counts.get(self.style).copied().unwrap_or(0);
-            let others = lit - usize::from(n > 0);
+            // A room's wide layout has a narrower button: the style and
+            // its charts alone.
+            let others = if self.layout.compact {
+                lit - usize::from(n > 0)
+            } else {
+                0
+            };
             super::set(
                 root,
                 "StyleButton",
                 "Label",
                 &msg::style_button(self.style_label(), n, others),
             );
+            // A room's wide layout: the styles only where there is one
+            // to change to.
+            let shown = self.style_button_shown();
+            if let Some(b) = hit::find_mut(root, "StyleButton") {
+                b.visible = shown;
+            }
             return;
         }
         let Some(tabs) = hit::find_mut(root, "Tabs") else {
@@ -1853,8 +1931,9 @@ impl SelectScreen {
         let same_size = self.ladder_rows.replace(size) == Some(size);
         let (charts, pick) = self.charts();
         let style_name = self.style_label();
-        if self.layout.compact {
-            let w = self.layout.song[2];
+        if self.layout.chips {
+            let [px, w] = self.layout.picker;
+            let charts_y = self.charts_y();
             let cell = (w - 4.0 * 5.0) / 5.0;
             let mut children = Vec::new();
             for k in 0..n {
@@ -1901,19 +1980,52 @@ impl SelectScreen {
                 call(
                     &mut b,
                     "xy",
-                    &[cell / 2.0 + k as f32 * (cell + 5.0), self.layout.charts_y],
+                    &[px + cell / 2.0 + k as f32 * (cell + 5.0), charts_y],
                 );
                 children.push(b);
             }
             if charts.is_empty() {
-                let t = env.text(
+                let mut t = env.text(
                     "NoChartsText",
                     &msg::no_charts(&style_name),
                     14.0,
                     600,
                     "Text",
                 );
-                children.push(left(t, 0.0, self.layout.charts_y));
+                // A room's wide layout: a narrower column than a phone's.
+                if !self.layout.compact {
+                    look::ellipsized(&mut t, w);
+                }
+                children.push(left(t, px, charts_y));
+            }
+            // A room's wide layout: the chart chosen in words under its
+            // buttons (a phone's Play button says it).
+            if self.layout.play_h == 0.0
+                && let Some(c) = pick.map(|p| charts[p])
+            {
+                let y = charts_y + self.layout.chart_h / 2.0;
+                let name = format!("{} {}", c.label().to_uppercase(), c.meter_text());
+                let mut t = env.text(
+                    "ChartName",
+                    &chart_text(c, name.trim_end()),
+                    14.0,
+                    700,
+                    "Text",
+                );
+                look::ellipsized(&mut t, w);
+                children.push(left(t, px, y + 16.0));
+                let mut notes: String = if c.credit.is_empty() {
+                    msg::chart_notes(c.notes)
+                } else {
+                    msg::chart_notes_by(c.notes, &c.credit)
+                }
+                .into();
+                if let Some(version) = c.version {
+                    notes = format!("{} · {notes}", version_name(version));
+                }
+                let mut t = env.text("ChartNotes", &notes, 12.0, 400, "Muted");
+                look::ellipsized(&mut t, w);
+                children.push(left(t, px, y + 34.0));
             }
             if let Some(f) = hit::find_mut(root, "Charts") {
                 f.kind = Kind::Frame(children);
@@ -2037,7 +2149,7 @@ impl SelectScreen {
     /// first, how many, and their height. Rows shrink (to 32 at least) so
     /// that all fit; more than fit scroll with the pick.
     fn ladder_window(&self, len: usize, pick: Option<usize>) -> (usize, usize, f32) {
-        if self.layout.compact {
+        if self.layout.chips {
             let (first, n) = window(len, pick, 5);
             return (first, n, 44.0);
         }
@@ -2261,6 +2373,10 @@ impl SelectScreen {
         }
         // A room's follower picks nothing: no Enter.
         hints.retain(|(_, label)| !label.is_empty());
+        // A room that plays one style has none to change to: no Tab.
+        if self.room.is_some() && self.data.styles.len() <= 1 {
+            hints.retain(|(keys, _)| keys != &["TAB"]);
+        }
         // A share's name and its time left, where nothing else is said.
         let shared_note: Option<String> = self.data.shared.as_ref().map(|v| {
             match &v.expires {
@@ -3117,7 +3233,17 @@ impl SelectScreen {
 
     fn publish(&self) {
         if self.room.is_some() {
-            let items = self.focusables().into_iter().map(|f| f.name).collect();
+            let mut items: Vec<String> = self.focusables().into_iter().map(|f| f.name).collect();
+            // The players beside the song (a phone's strip): taps open
+            // the full list.
+            items.extend(
+                [
+                    "RoomPlayers",
+                    super::room::PLAYERS_MORE,
+                    super::room::PLAYERS_STRIP,
+                ]
+                .map(String::from),
+            );
             self.room_publish(items);
         }
         let mut st = self.env.state.borrow_mut();
@@ -3359,7 +3485,7 @@ impl Screen for SelectScreen {
         let pick = pick?;
         let k = pick.checked_sub(first).filter(|k| *k < n)?;
         let played = charts.get(pick).is_some_and(|c| c.best.is_some());
-        let row = if self.layout.compact {
+        let row = if self.layout.chips {
             format!("Chart{k}")
         } else {
             format!("Ladder.Row{k}")
@@ -3367,7 +3493,7 @@ impl Screen for SelectScreen {
         let parts: &[&str] = match what {
             Mark::Chart => &[],
             Mark::ChartLevel => &["Meter"],
-            Mark::ChartBest if self.layout.compact => &[],
+            Mark::ChartBest if self.layout.chips => &[],
             Mark::ChartBest if played => &["Grade", "Score", "LampText"],
             Mark::ChartBest => &["Best"],
             _ => return None,
@@ -3391,7 +3517,7 @@ impl Screen for SelectScreen {
         let vp = cx.viewport().screen;
         let compact = super::is_compact(&*self.env.look, vp);
         self.reduced = self.env.reduced();
-        self.layout = Layout::fit(&self.env, [vp.width, vp.height], compact);
+        self.layout = self.fit_layout([vp.width, vp.height], compact);
         self.build_tree(cx)
     }
 
@@ -3468,8 +3594,16 @@ impl Screen for SelectScreen {
                 }
                 v.push(Focusable::new(n));
             }
-            v.extend((0..self.data.styles.len()).map(|i| Focusable::new(format!("Tab{i}"))));
-            v.extend((0..LADDER_ROWS).map(|k| Focusable::new(format!("Ladder.Row{k}"))));
+            if self.layout.chips {
+                // A room's: the style button and the chart buttons.
+                if self.style_button_shown() {
+                    v.push(Focusable::new("StyleButton"));
+                }
+                v.extend((0..5).map(|k| Focusable::new(format!("Chart{k}"))));
+            } else {
+                v.extend((0..self.data.styles.len()).map(|i| Focusable::new(format!("Tab{i}"))));
+                v.extend((0..LADDER_ROWS).map(|k| Focusable::new(format!("Ladder.Row{k}"))));
+            }
         }
         if !self.notices.is_empty() {
             v.push(Focusable::new("Notice"));
@@ -3558,7 +3692,7 @@ impl Screen for SelectScreen {
         {
             self.cancel_navigation();
             self.reduced = self.env.reduced();
-            self.layout = Layout::fit(&self.env, [vp.width, vp.height], compact);
+            self.layout = self.fit_layout([vp.width, vp.height], compact);
             let selected = self.list.selected();
             let left = root.tween_time_left();
             *root = self.build_tree(cx);

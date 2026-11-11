@@ -73,6 +73,15 @@ mods-battery = { $lives ->
    *[other] battery { $lives } lives
 }
 
+# DDI's options that differ from their defaults: its timing difficulty
+# (Easy or Hard; said with "timing" so that it is not read as a chart's
+# difficulty), stray presses counted as Boos (a judgment's name, never
+# translated), and Practice (an empty life does not end the play).
+mods-ddi-easy = easy timing
+mods-ddi-hard = hard timing
+mods-ddi-boos = Boos
+mods-ddi-practice = practice
+
 # StepMania's life difficulty level (1 to 7; 4 by default).
 # Variables:
 #   $level (Number) - the level

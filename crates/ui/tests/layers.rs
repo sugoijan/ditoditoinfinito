@@ -389,6 +389,92 @@ fn an_idle_shell_wakes_for_a_deadline_of_the_top_screen() {
     assert_eq!(log.borrow().len(), 1);
 }
 
+/// A screen that looks at something ten times a second while nothing
+/// moves (a room's stage prompt reads its room so): each update sets its
+/// next deadline a tenth of a second on.
+struct Ticker(f64, Rc<std::cell::Cell<usize>>);
+
+impl Screen for Ticker {
+    fn name(&self) -> &str {
+        "ticker"
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        self.0 = cx.time() + 0.1;
+        Actor::new(Kind::Frame(vec![]))
+    }
+
+    fn update(&mut self, _dt: f32, _root: &mut Actor, cx: &mut Cx) {
+        self.0 = cx.time() + 0.1;
+        self.1.set(self.1.get() + 1);
+    }
+
+    fn wake_at(&self) -> Option<f64> {
+        Some(self.0)
+    }
+}
+
+/// The stall of a stage's prompt under reduced motion
+/// (`docs/plans/multiplayer-prototype-progress.md`, the DDI ruleset's
+/// round 3): an idle shell waits for a screen's deadline on its own clock
+/// (a browser's, in whole tenths of a millisecond or whole milliseconds
+/// since the page loaded) and tells the UI how long it was idle. The two
+/// clocks' differences round, so a timer that fires right at the deadline
+/// could leave the UI's clock a hair short of it: the wait was over, the
+/// UI needed no frame and nothing was left to wake the shell, which stood
+/// still until the next input. Whatever the rounding, a wait that is over
+/// asks for a frame.
+#[test]
+fn a_wait_that_is_over_always_asks_for_a_frame() {
+    // The shell's clock's grid (seconds) and where it stands when the
+    // screen opens.
+    for (grid_ms, start_ms) in [
+        (0.1, 37_250.1),
+        (0.1, 3_100_000.3),
+        (1.0, 412_337.0),
+        (1.0, 86_400_125.0),
+        (0.005, 9_000.005),
+    ] {
+        let ticks = Rc::new(std::cell::Cell::new(0));
+        let mut h = Harness::new([1280.0, 720.0], [1280.0, 720.0], 1.0, TextMode::Own);
+        h.push(Ticker(0.0, ticks.clone()));
+        h.run(0.5);
+        // The shell's clock as a browser reads it: a count of grid steps,
+        // in milliseconds, divided into seconds.
+        let on_grid = |ms: f64| (ms / grid_ms).round() * grid_ms;
+        let mut now_ms = on_grid(start_ms);
+        let mut since = None;
+        let before = ticks.get();
+        const WAKES: usize = 4_000;
+        for wake in 0..WAKES {
+            // At rest between its looks.
+            if h.ui.needs_redraw() {
+                h.frame(1.0 / 60.0);
+            }
+            assert!(!h.ui.needs_redraw(), "at rest");
+            // Idle: the shell asks when to wake and sets its timer, which
+            // fires at the first instant of its clock at or past it.
+            let mut waits = 0;
+            while let Some(at) = h.ui.idle_wake(&mut since, now_ms / 1000.0) {
+                let next = on_grid((at * 1000.0 / grid_ms).ceil() * grid_ms);
+                now_ms = if next > now_ms { next } else { now_ms + grid_ms };
+                waits += 1;
+                assert!(waits < 8, "wake {wake}: never due");
+            }
+            assert_eq!(since, None);
+            assert!(
+                h.ui.needs_redraw(),
+                "grid {grid_ms} ms, wake {wake} at {now_ms} ms: the wait is over and \
+                 nothing asks for a frame"
+            );
+            h.frame(1.0 / 60.0);
+            // The frame took a few steps of the shell's clock.
+            now_ms = on_grid(now_ms + 3.0 * grid_ms.max(1.0));
+        }
+        assert_eq!(ticks.get() - before, WAKES, "one look a wake");
+    }
+}
+
 /// A screen whose button asks the shell to navigate (the web's way
 /// between pages); its root slides out over 0.2 s when it leaves.
 struct Leaver(&'static str);

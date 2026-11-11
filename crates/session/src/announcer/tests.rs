@@ -615,6 +615,39 @@ fn grades_become_the_old_seven_by_letter_or_by_place() {
     assert_eq!(g(&sm5, "AAAA"), Some(Grade::Aaaa));
     assert_eq!(g(&sm5, "D"), Some(Grade::D));
     assert_eq!(old_grade(&sm5, "F", true), Some(Grade::E));
+    // DDI's eight from the top: Absolute Dito (a bot's too) the best
+    // tier's lines, SSS the next, and so on down; its C and D the last.
+    let ddi = presets::ddi().grades;
+    let down: Vec<Option<Grade>> = [
+        "Absolute Dito",
+        "Absolute Bot",
+        "SSS",
+        "SS",
+        "S",
+        "A",
+        "B",
+        "C",
+        "D",
+    ]
+    .iter()
+    .map(|n| g(&ddi, n))
+    .collect();
+    assert_eq!(
+        down,
+        [
+            Some(Grade::Aaaa),
+            Some(Grade::Aaaa),
+            Some(Grade::Aaa),
+            Some(Grade::Aa),
+            Some(Grade::A),
+            Some(Grade::B),
+            Some(Grade::C),
+            Some(Grade::D),
+            Some(Grade::D),
+        ]
+    );
+    assert_eq!(old_grade(&ddi, "F", true), Some(Grade::E));
+    assert_eq!(g(&ddi, "AAA"), None);
     // DDR's by letter.
     let ddr = presets::ddr_a().grades;
     assert_eq!(g(&ddr, "AAA"), Some(Grade::Aaa));

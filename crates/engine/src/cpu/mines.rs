@@ -51,21 +51,35 @@ impl MineResponse {
 pub struct MineResponseTable {
     pub id: &'static str,
     /// At avoidance 0: steps on the most.
+    pub worst: MineResponse,
+    /// At avoidance 1/3.
     pub poor: MineResponse,
-    /// At avoidance 0.5.
+    /// At avoidance 2/3.
     pub typical: MineResponse,
     /// At avoidance 1: steps on the fewest.
     pub good: MineResponse,
-    /// Each level's avoidance (the engine's levels, [`super::STRENGTHS`]).
-    pub by_level: [f64; 5],
+    /// Each level's avoidance (an opponent's ten levels,
+    /// [`super::CPU_LEVELS_V0`]).
+    pub by_level: [f64; super::LEVELS],
 }
 
-/// `mine-response-v0` (PROVISIONAL, uncalibrated): levels 1–2 avoid
+/// The avoidance of the table's four responses.
+const ANCHORS: [f64; 4] = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0];
+
+/// `mine-response-v0` (PROVISIONAL, uncalibrated): levels 6–7 avoid
 /// poorly (14% of shocks stepped on, own presses near them ±45 ms, 4%
-/// left out), 3–4 typically (6%, ±25 ms, 1.5%), 5 well (2%, ±12 ms,
-/// 0.5%); disturbed within 0.3 s of a shock.
+/// left out), 8–9 typically (6%, ±25 ms, 1.5%), 10 well (2%, ±12 ms,
+/// 0.5%), as the five levels did before there were ten; levels 1 to 5
+/// worse step by step, from the worst (30%, ±65 ms, 8%) towards poorly;
+/// disturbed within 0.3 s of a shock.
 pub const MINE_RESPONSE_V0: MineResponseTable = MineResponseTable {
     id: "mine-response-v0",
+    worst: MineResponse {
+        hit: 0.30,
+        jitter: 0.065,
+        slip: 0.08,
+        near: 0.30,
+    },
     poor: MineResponse {
         hit: 0.14,
         jitter: 0.045,
@@ -84,29 +98,45 @@ pub const MINE_RESPONSE_V0: MineResponseTable = MineResponseTable {
         slip: 0.005,
         near: 0.30,
     },
-    by_level: [0.0, 0.0, 0.5, 0.5, 1.0],
+    by_level: [
+        0.0,
+        ANCHORS[1] * 0.2,
+        ANCHORS[1] * 0.4,
+        ANCHORS[1] * 0.6,
+        ANCHORS[1] * 0.8,
+        ANCHORS[1],
+        ANCHORS[1],
+        ANCHORS[2],
+        ANCHORS[2],
+        ANCHORS[3],
+    ],
 };
 
 impl MineResponseTable {
     /// The avoidance of a CPU at `level` (an index into
-    /// [`super::STRENGTHS`]; past the last, the last's).
+    /// [`super::CPU_LEVELS_V0`]'s ten; past the last, the last's).
     pub fn avoidance(&self, level: usize) -> f64 {
         self.by_level[level.min(self.by_level.len() - 1)]
     }
 
-    /// The response at `avoidance` (`0..=1`): between the table's three,
-    /// in a straight line.
+    /// The response at `avoidance` (`0..=1`): between the table's four
+    /// (at 0, 1/3, 2/3 and 1), in a straight line.
     pub fn response(&self, avoidance: f64) -> MineResponse {
         let a = if avoidance.is_finite() {
             avoidance.clamp(0.0, 1.0)
         } else {
-            0.5
+            ANCHORS[2]
         };
-        let (from, to, f) = if a <= 0.5 {
-            (self.poor, self.typical, a / 0.5)
+        let at = [self.worst, self.poor, self.typical, self.good];
+        let k = if a <= ANCHORS[1] {
+            0
+        } else if a <= ANCHORS[2] {
+            1
         } else {
-            (self.typical, self.good, (a - 0.5) / 0.5)
+            2
         };
+        let (from, to) = (at[k], at[k + 1]);
+        let f = (a - ANCHORS[k]) / (ANCHORS[k + 1] - ANCHORS[k]);
         let mix = |x: f64, y: f64| if f >= 1.0 { y } else { x + (y - x) * f };
         MineResponse {
             hit: mix(from.hit, to.hit),
@@ -151,13 +181,27 @@ mod tests {
     fn the_table_is_named_and_levels_avoid_better_as_they_rise() {
         let t = MINE_RESPONSE_V0;
         assert_eq!(t.id, "mine-response-v0");
-        assert_eq!(t.response(t.avoidance(0)), t.poor);
-        assert_eq!(t.response(t.avoidance(1)), t.poor);
-        assert_eq!(t.response(t.avoidance(2)), t.typical);
-        assert_eq!(t.response(t.avoidance(3)), t.typical);
-        assert_eq!(t.response(t.avoidance(4)), t.good);
-        assert_eq!(t.avoidance(9), 1.0);
-        let mid = t.response(0.75);
+        // Levels 6 to 10 exactly as the five levels were.
+        assert_eq!(t.response(t.avoidance(5)), t.poor);
+        assert_eq!(t.response(t.avoidance(6)), t.poor);
+        assert_eq!(t.response(t.avoidance(7)), t.typical);
+        assert_eq!(t.response(t.avoidance(8)), t.typical);
+        assert_eq!(t.response(t.avoidance(9)), t.good);
+        assert_eq!(t.avoidance(99), 1.0);
+        // Levels 1 to 5 worse step by step, the weakest the worst.
+        assert_eq!(t.response(t.avoidance(0)), t.worst);
+        for level in 0..5 {
+            let (a, b) = (
+                t.response(t.avoidance(level)),
+                t.response(t.avoidance(level + 1)),
+            );
+            assert!(
+                a.hit > b.hit && a.slip > b.slip && a.jitter > b.jitter,
+                "{level}"
+            );
+        }
+        assert!(t.by_level.windows(2).all(|w| w[0] <= w[1]));
+        let mid = t.response(0.85);
         assert!(mid.hit < t.typical.hit && mid.hit > t.good.hit);
         assert!(MineResponse::OFF.is_off() && !t.good.is_off());
     }

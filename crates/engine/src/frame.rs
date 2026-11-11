@@ -66,6 +66,10 @@ pub struct SkinEvent {
     pub danoni_judgments: bool,
     /// The note behind a tap explosion (each lane's own note on a row).
     pub note: Option<SkinNote>,
+    /// A tap in the best tier but outside the window within it (DDI's W1
+    /// outside W0): its explosion a little dimmer than a W0's, where the
+    /// skin's explosion is a component (a skin's own art is kept).
+    pub dim: bool,
 }
 
 /// Stable identity and fallback position for a hit whose sprite has disappeared.
@@ -91,6 +95,13 @@ pub struct JudgementFlash {
     /// inside it (a blue Fantastic; a `W1` outside it is a white one);
     /// `None` without one.
     pub w0: Option<bool>,
+    /// A stray press that counted against the play
+    /// ([`crate::JudgeEventKind::Boo`]) under a ruleset that names it
+    /// ([`crate::rules::JudgeNames::boo`], DDI's Boo): a judgment of its
+    /// own, shown by that word in its own color, with no early or late
+    /// word and no error. `judgement` is then `Miss` (the tier a consumer
+    /// that knows no Boo would show) and `delta_seconds` 0.
+    pub boo: bool,
 }
 
 /// Where a play shows its holds' (and shocks') outcomes, O.K. and N.G.
