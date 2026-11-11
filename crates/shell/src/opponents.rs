@@ -15,15 +15,16 @@
 //! judgment's color, [`draw_fields`]), and its name and level above it.
 //! The slots are split between the two sides of the field, the first half
 //! on the left, in the order the room seated them, in grids of the same
-//! size kept clear of the HUD's score, watermark and the quit button's
-//! place, and they never move: one that is out stays in place, dimmed,
-//! saying so. A heading above the left side says the CPUs play a
-//! tap-only copy; a battle's moment that no announcer line said takes its
-//! place for a few seconds (fading, at once under reduced motion), and
-//! "Stage won" shows above the right side. Where there are more opponents
-//! than slots at the smallest miniature (a development-only practice far
-//! beyond the cap), the first seats have one and a line says how many
-//! more.
+//! size, each side using its whole height clear of what is on it (the
+//! HUD's score, its watermark, the quit button's place), and they never
+//! move: one that is out stays in place, dimmed, saying so. A status line
+//! under the right side's slots says "Stage won", and a battle's moment
+//! that no announcer line said for a few seconds (fading, at once under
+//! reduced motion). Where there are more opponents than slots at the
+//! smallest miniature (a development-only practice far beyond the cap),
+//! the opponents take turns in the slots ([`rotate`], [`ROTATION_V0`]),
+//! but for those a stage keeps in view ([`priority_seats`]: none until
+//! attacks exist).
 //!
 //! Where a side is too narrow for a miniature (a phone held upright),
 //! or lyrics are shown over the play, the quiet column instead
@@ -60,15 +61,14 @@ const WON: [f32; 4] = [0.98, 0.84, 0.45, 1.0];
 #[derive(Clone, Debug, Default)]
 pub struct Column {
     pub opponents: Vec<OpponentView>,
-    /// "CPUs · taps-only copy", "Out" and "Stage won", worded.
-    pub heading: String,
+    /// "Out" and "Stage won", worded.
     pub out: String,
     pub won: Option<String>,
-    /// A battle's moment shown in the heading's place, worded, and how
-    /// opaque, `0..=1`.
+    /// A battle's moment no announcer line said, worded, and how opaque,
+    /// `0..=1`.
     pub cue: Option<(String, f32)>,
-    /// "+n more": the opponents there is no room for, worded (`None`:
-    /// nothing said of them).
+    /// "+n more": the opponents the column has no room for, worded
+    /// (`None`: nothing said of them).
     pub more: Option<fn(usize) -> String>,
 }
 
@@ -196,17 +196,9 @@ pub fn draw(
     }
     let mut cued = false;
     if names {
-        // The cue alone while it shows (fading in and out), never over
-        // the heading.
+        // A moment's line at the top while it shows (fading in and out).
         match column.cue.as_ref().filter(|(_, a)| *a > 0.0) {
-            None => text(
-                list,
-                &column.heading,
-                &style(12.0, 500),
-                [px(x0), px(top)],
-                false,
-                MUTED,
-            ),
+            None => {}
             Some((cue, alpha)) => {
                 let mut color = TEXT;
                 color[3] *= alpha.clamp(0.0, 1.0);
@@ -311,8 +303,9 @@ const MINI_RECEPTOR: f32 = 1.5;
 /// Above each field, logical pixels: its name line.
 const NAME_LINE: f32 = 18.0;
 const LABEL: f32 = NAME_LINE + 4.0;
-/// The heading line above the slots.
-const HEADING: f32 = 22.0;
+/// The status line under one side's slots (the right's, else the left's):
+/// a battle's moment no line said, and "Stage won".
+const STATUS: f32 = 22.0;
 /// Between slots, from the play's field's band, from the screen's edges and
 /// from what the slots keep clear of.
 const SLOT_GAP: f32 = 10.0;
@@ -326,7 +319,8 @@ const BAND_MORE: f32 = 0.3;
 /// Where an opponent's miniature goes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Slot {
-    /// The seat it shows (an index into the room's order).
+    /// The seat it shows (an index into the room's order): its place's
+    /// own until [`rotate`] says otherwise.
     pub seat: usize,
     /// The whole slot, its name line to its field's end, `[x, y, width,
     /// height]` in the target's pixels.
@@ -337,26 +331,24 @@ pub struct Slot {
     pub panel: [f32; 4],
     /// On the field's left.
     pub left: bool,
+    /// How dark it is drawn over, `0..=1`: a slot whose seat is changing
+    /// ([`rotate`]).
+    pub dim: f32,
 }
 
 /// The opponents' miniatures' places ([`arrange`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fields {
-    /// One a seat shown, in the order the room seated them.
+    /// The slots, the left side's first, each side's from the field out
+    /// row by row.
     pub slots: Vec<Slot>,
-    /// The heading's line above the left side's slots, and above the
-    /// right side's (where "Stage won" shows), `[x, y, width, height]`:
-    /// the side's room, from its edge to its slots' far end; a heading
-    /// starts over its first slot ([`Fields::heading_start`]) and moves
-    /// back into that room where it is longer.
-    pub heading: [f32; 4],
-    pub heading_start: f32,
-    pub right_heading: Option<[f32; 4]>,
-    /// The seats with no room, the last ones: said in a line under the
-    /// right side's slots ("+n more").
-    pub more: usize,
-    /// Where that line goes, `[x, y]`.
-    pub more_at: [f32; 2],
+    /// The status line under the right side's slots (the left's where
+    /// there is no right side), `[x, y, width, height]`: a battle's moment
+    /// no announcer line said, and "Stage won".
+    pub status: [f32; 4],
+    /// Fewer slots than opponents: whose miniature shows turns
+    /// ([`rotate`]).
+    pub rotating: bool,
     /// The miniatures' lane, logical pixels.
     pub lane: f32,
     /// Arrow heights shown past the receptors.
@@ -368,16 +360,18 @@ pub struct Fields {
 /// `reverse`) at `ratio` target pixels a logical one, clear of
 /// `keep_out` (`[left, top, right, bottom]`, the target's pixels: the
 /// HUD's score and watermark, the quit button's place, which the slots
-/// keep clear of whether it shows or not so that they never move: each
-/// moves the slots' band below or above it). The first half (rounded up)
-/// on the left, the rest on the right, each side a grid of the same size,
-/// its columns from the field out.
+/// keep clear of whether it shows or not so that they never move). Each
+/// side uses its whole height but for what it keeps clear of on that side
+/// (the watermark and the quit button at the left, the score at the
+/// right) and, under one side, the status line. The first half (rounded
+/// up) on the left, the rest on the right, each side a grid of slots of
+/// one size, its columns from the field out.
 ///
-/// Where all of them do not fit at [`MINI_LANE_MIN`] (far more opponents
-/// than the cap, a development-only practice; or a small window), as many
-/// as fit at it, the first seats, and a line saying how many more
-/// (PROVISIONAL: the design leaves the density of large parties open);
-/// `None` where not even one fits (a phone held upright): the column.
+/// Where all of them do not fit at [`MINI_LANE_MIN`] (more opponents than
+/// the cap, a development-only practice; or a small window), as many
+/// slots as fit at it, and the opponents take turns in them
+/// ([`rotate`]); `None` where not even one fits (a phone held upright):
+/// the column.
 pub fn arrange(
     n: usize,
     geo: &FieldGeometry,
@@ -400,25 +394,34 @@ pub fn arrange(
         [EDGE, field[0] - FIELD_GAP],
         [field[1] + FIELD_GAP, w - EDGE],
     ];
-    // One band for both sides, below what is above it, above what is
-    // below.
-    let (mut top, mut bottom) = (EDGE, h - EDGE);
-    for k in keep_out {
-        let k = k.map(|v| v / ratio);
-        if !wings.iter().any(|[a, b]| k[0] < *b && k[2] > *a) {
-            continue;
+    // The status line goes under the right side where there is one.
+    let status_side = usize::from(n > 1);
+    // Each side's band: below what is above it on that side, above what
+    // is below, and the status line under one.
+    let bands = wings.map(|[a, b]| {
+        let (mut top, mut bottom) = (EDGE, h - EDGE);
+        for k in keep_out {
+            let k = k.map(|v| v / ratio);
+            if !(k[0] < b && k[2] > a) {
+                continue;
+            }
+            if (k[1] + k[3]) / 2.0 < h / 2.0 {
+                top = top.max(k[3] + CLEAR);
+            } else {
+                bottom = bottom.min(k[1] - CLEAR);
+            }
         }
-        if (k[1] + k[3]) / 2.0 < h / 2.0 {
-            top = top.max(k[3] + CLEAR);
-        } else {
-            bottom = bottom.min(k[1] - CLEAR);
-        }
-    }
-    let room = bottom - top - HEADING;
+        [top, bottom]
+    });
+    let rooms: [f32; 2] = std::array::from_fn(|side| {
+        let [top, bottom] = bands[side];
+        let status = if side == status_side { STATUS } else { 0.0 };
+        (bottom - top - status).max(0.0)
+    });
     let slot_w = |lane: f32| (4.0 + BAND_MORE) * lane;
     let slot_h = |lane: f32| LABEL + MINI_ROWS * lane;
     // How many slots a side holds at a lane: columns and rows.
-    let holds = |width: f32, lane: f32| -> (usize, usize) {
+    let holds = |width: f32, room: f32, lane: f32| -> (usize, usize) {
         let cols = ((width + SLOT_GAP) / (slot_w(lane) + SLOT_GAP))
             .floor()
             .max(0.0) as usize;
@@ -428,8 +431,8 @@ pub fn arrange(
         (cols, rows)
     };
     let widths = wings.map(|[a, b]| (b - a).max(0.0));
-    // The largest lane each side's share fits at, over its grids.
-    let best = |width: f32, k: usize| -> f32 {
+    // The largest lane a side's share fits at, over its grids.
+    let best = |width: f32, room: f32, k: usize| -> f32 {
         (1..=k)
             .map(|cols| {
                 let rows = k.div_ceil(cols) as f32;
@@ -442,47 +445,40 @@ pub fn arrange(
     let cap = (geo.arrow / ratio * MINI_LANE_SHARE).min(MINI_LANE_MAX);
     let split = |n: usize| [n.div_ceil(2), n / 2];
     let lane_for = |counts: [usize; 2]| {
-        counts
-            .iter()
-            .zip(&widths)
-            .filter(|(k, _)| **k > 0)
-            .map(|(k, w)| best(*w, *k))
+        (0..2)
+            .filter(|&side| counts[side] > 0)
+            .map(|side| best(widths[side], rooms[side], counts[side]))
             .fold(cap, f32::min)
             .floor()
     };
     let mut shown = n;
     let mut lane = lane_for(split(n));
     if lane < MINI_LANE_MIN {
-        // As many as fit at the least lane, each side full.
+        // As many as fit at the least lane, each side full; the rest take
+        // turns.
         lane = MINI_LANE_MIN;
-        let fit: usize = widths
-            .iter()
-            .map(|w| {
-                let (c, r) = holds(*w, lane);
+        let fit: usize = (0..2)
+            .map(|side| {
+                let (c, r) = holds(widths[side], rooms[side], lane);
                 c * r
             })
             .sum();
         shown = fit.min(n);
-        // A line for the rest: one slot's place fewer.
-        if shown < n {
-            shown = shown.saturating_sub(1);
-        }
         if shown == 0 {
             return None;
         }
         lane = lane_for(split(shown)).max(MINI_LANE_MIN).min(cap);
     }
     let counts = split(shown);
-    let grids: Vec<Option<(usize, usize)>> = counts
-        .iter()
-        .zip(&widths)
-        .map(|(&k, &width)| {
+    let grids: Vec<Option<(usize, usize)>> = (0..2)
+        .map(|side| {
+            let k = counts[side];
             if k == 0 {
                 return None;
             }
             // As few columns as the rows allow: a side's grid as square
             // as it can be.
-            let (cols, rows) = holds(width, lane);
+            let (cols, rows) = holds(widths[side], rooms[side], lane);
             if cols == 0 || rows == 0 {
                 return None;
             }
@@ -499,42 +495,49 @@ pub fn arrange(
         return None;
     }
     let (sw, sh) = (slot_w(lane), slot_h(lane));
-    let rows = grids.iter().flatten().map(|g| g.1).max().unwrap_or(1) as f32;
-    let block = HEADING + rows * sh + (rows - 1.0) * SLOT_GAP;
-    let y0 = top + ((bottom - top - block) / 2.0).max(0.0);
     let px = |v: f32| v * ratio;
+    // Both sides' blocks on one middle where their rooms allow (the
+    // middle of the room both sides share), else moved into their own.
+    let shared = [
+        bands[0][0].max(bands[1][0]),
+        (0..2)
+            .map(|side| bands[side][0] + rooms[side])
+            .fold(f32::MAX, f32::min),
+    ];
+    let middle = (shared[0] + shared[1]) / 2.0;
     let mut slots = Vec::with_capacity(shown);
-    let mut headings = [None, None];
-    let mut more_at = [0.0; 2];
+    let mut status = None;
     let mut seat = 0;
     for (side, grid) in grids.iter().enumerate() {
-        let Some((cols, used_rows)) = *grid else {
+        let Some((cols, rows)) = *grid else {
             continue;
         };
         let k = counts[side];
         let used = cols as f32 * sw + (cols as f32 - 1.0) * SLOT_GAP;
+        let block = rows as f32 * sh + (rows as f32 - 1.0) * SLOT_GAP;
+        let [top, _] = bands[side];
+        let y0 = (middle - block / 2.0)
+            .min(top + rooms[side] - block)
+            .max(top);
         let x0 = if side == 0 {
             wings[0][1] - used
         } else {
             wings[1][0]
         };
-        headings[side] = Some(if side == 0 {
-            let from = wings[0][0];
-            (
-                [px(from), px(y0), px(x0 + used - from), px(HEADING)],
+        if side == status_side || status.is_none() {
+            // From the slots' left to the side's far edge.
+            let to = if side == 0 { x0 + used } else { wings[1][1] };
+            status = Some([
                 px(x0),
-            )
-        } else {
-            ([px(x0), px(y0), px(wings[1][1] - x0), px(HEADING)], px(x0))
-        });
-        more_at = [
-            px(x0),
-            px(y0 + HEADING + used_rows as f32 * (sh + SLOT_GAP)),
-        ];
+                px(y0 + block + SLOT_GAP / 2.0),
+                px(to - x0),
+                px(STATUS),
+            ]);
+        }
         for i in 0..k {
             let (row, col) = ((i / cols) as f32, (i % cols) as f32);
             let x = x0 + col * (sw + SLOT_GAP);
-            let y = y0 + HEADING + row * (sh + SLOT_GAP);
+            let y = y0 + row * (sh + SLOT_GAP);
             let (ft, fb) = (y + LABEL, y + sh);
             // Its lanes inside its band.
             let left = x + BAND_MORE / 2.0 * lane;
@@ -557,24 +560,111 @@ pub fn arrange(
                 },
                 panel: [px(x), px(ft), px(x + sw), px(fb)],
                 left: side == 0,
+                dim: 0.0,
             });
             seat += 1;
         }
     }
-    let (heading, right_heading) = match headings {
-        [Some(l), r] => (l, r.map(|r| r.0)),
-        [None, r] => (r?, None),
-    };
     Some(Fields {
         slots,
-        heading: heading.0,
-        heading_start: heading.1,
-        right_heading,
-        more: n - shown,
-        more_at,
+        status: status?,
+        rotating: shown < n,
         lane,
         range: MINI_ROWS - MINI_RECEPTOR,
     })
+}
+
+/// How the opponents take turns in too few slots ([`rotate`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Rotation {
+    /// Seconds each turn lasts.
+    pub every: f32,
+    /// Seconds a change takes, the slots darkening to it and back (none
+    /// under reduced motion).
+    pub fade: f32,
+}
+
+/// PROVISIONAL (`docs/plans/multiplayer-prototype-progress.md`, M7c):
+/// a calm turn of eight seconds, the change darkening for 0.4 s.
+pub const ROTATION_V0: Rotation = Rotation {
+    every: 8.0,
+    fade: 0.4,
+};
+
+/// Which seats the slots of `fields` show at song second `time`, of `n`
+/// opponents, by `policy`: every seat in its own slot where all fit (they
+/// never move); else the seats in `pinned` (the opponents the play must
+/// keep in view: later, who attacks the player and whom the player
+/// attacks) in the first slots for as long as they are pinned, and the
+/// others taking turns in the rest, a turn every `policy.every` seconds:
+/// each of those slots goes round its own seats (the `k`-th free slot
+/// showing the `k`-th, then the `k + free`-th, and so on), so an opponent
+/// always shows in the same place and a slot with one seat never changes.
+/// A slot whose seat changes darkens through the change (`Slot::dim`),
+/// at once under `reduced` motion.
+pub fn rotate(
+    fields: &mut Fields,
+    n: usize,
+    pinned: &[usize],
+    time: f64,
+    policy: Rotation,
+    reduced: bool,
+) {
+    let slots = fields.slots.len();
+    if !fields.rotating || slots == 0 {
+        for (i, s) in fields.slots.iter_mut().enumerate() {
+            s.seat = i;
+            s.dim = 0.0;
+        }
+        return;
+    }
+    let mut kept: Vec<usize> = Vec::new();
+    for &p in pinned {
+        if p < n && !kept.contains(&p) && kept.len() < slots {
+            kept.push(p);
+        }
+    }
+    let others: Vec<usize> = (0..n).filter(|s| !kept.contains(s)).collect();
+    let free = slots - kept.len();
+    let every = f64::from(policy.every.max(0.1));
+    let time = time.max(0.0);
+    let turn = (time / every).floor() as usize;
+    // Darkening around each change (none before the first).
+    let since = time - turn as f64 * every;
+    let near = if turn == 0 {
+        every - since
+    } else {
+        since.min(every - since)
+    };
+    let half = f64::from(policy.fade) / 2.0;
+    let dim = if reduced || half <= 0.0 {
+        0.0
+    } else {
+        (1.0 - near / half).clamp(0.0, 1.0) as f32
+    };
+    for (i, s) in fields.slots.iter_mut().enumerate() {
+        if i < kept.len() {
+            s.seat = kept[i];
+            s.dim = 0.0;
+            continue;
+        }
+        // Its own seats: every `free`-th from its place.
+        let k = i - kept.len();
+        let own = others.len().saturating_sub(k).div_ceil(free.max(1)).max(1);
+        s.seat = others
+            .get(k + free * (turn % own))
+            .or(others.get(k))
+            .copied()
+            .unwrap_or(0);
+        s.dim = if own > 1 { dim } else { 0.0 };
+    }
+}
+
+/// The seats a stage keeps in view whatever the turn ([`rotate`]): none
+/// yet. Once attacks exist, the opponent attacking the player and the
+/// one the player attacks.
+pub fn priority_seats(_battle: &ddi_session::battle::Battle) -> Vec<usize> {
+    Vec::new()
 }
 
 /// Cuts `s` to `room` pixels, an ellipsis at its end.
@@ -618,9 +708,9 @@ pub type Flashes = Vec<Vec<Option<(ddi_engine::rules::Judgement, f32)>>>;
 /// fields (drawn by the renderer before this, their life gauges and
 /// combos by the play's HUD): each one's name and level above its field,
 /// the flashes of its judgments where the skin does not draw them
-/// (`flashes`, in `0..`[`FLASH`] seconds), its Out; the heading, the
-/// battle's moment or "Stage won" above the slots, and how many more
-/// there are than slots. Whether a moment's cue was drawn.
+/// (`flashes`, in `0..`[`FLASH`] seconds), its Out, a slot darkening as
+/// its seat changes; in the status line, "Stage won" and a battle's moment
+/// no line said. Whether a moment's cue was drawn.
 pub fn draw_fields(
     list: &mut DrawList,
     column: &Column,
@@ -635,51 +725,28 @@ pub fn draw_fields(
         s.weight = weight;
         s
     };
-    let [hx, hy, hw, _] = fields.heading;
-    // Over the first slot, moved back into the side's room if longer.
-    let mut at = |t: &str, st: &TextStyle| {
-        let t = fitted(measure, t, st, hw);
-        let w = measure.measure(&t, st).advance;
-        (fields.heading_start.min(hx + hw - w).max(hx), t)
-    };
-    let cued = column.cue.as_ref().is_some_and(|(_, a)| *a > 0.0);
-    match column.cue.as_ref().filter(|(_, a)| *a > 0.0) {
-        None => {
-            let st = style(13.0, 500);
-            let (x, t) = at(&column.heading, &st);
-            list.push(run(t, &st, [x, hy], MUTED));
-        }
-        Some((cue, alpha)) => {
-            let st = style(14.0, 600);
-            let (x, t) = at(cue, &st);
-            let mut c = TEXT;
-            c[3] *= alpha.clamp(0.0, 1.0);
-            list.push(run(t, &st, [x, hy - ratio], c));
-        }
-    }
+    // The status line: "Stage won", then the moment, at its left.
+    let [sx, sy, sw, _] = fields.status;
+    let mut x = sx;
     if let Some(won) = &column.won {
         let st = style(14.0, 700);
-        let [x, y, w, _] = fields.right_heading.unwrap_or(fields.heading);
-        // Without a right side, above the heading's line.
-        let (x, y) = if fields.right_heading.is_some() {
-            (x, y)
-        } else {
-            (fields.heading_start, y - HEADING * ratio)
-        };
-        let t = fitted(measure, won, &st, w);
-        list.push(run(t, &st, [x, y], WON));
+        let t = fitted(measure, won, &st, sw);
+        x += measure.measure(&t, &st).advance + 12.0 * ratio;
+        list.push(run(t, &st, [sx, sy], WON));
     }
-    if fields.more > 0
-        && let Some(words) = column.more
-    {
-        let st = style(13.0, 500);
-        list.push(run(words(fields.more), &st, fields.more_at, MUTED));
+    let cue = column.cue.as_ref().filter(|(_, a)| *a > 0.0);
+    if let Some((cue, alpha)) = cue {
+        let st = style(14.0, 600);
+        let t = fitted(measure, cue, &st, (sx + sw - x).max(0.0));
+        let mut c = TEXT;
+        c[3] *= alpha.clamp(0.0, 1.0);
+        list.push(run(t, &st, [x, sy], c));
     }
     for (i, slot) in fields.slots.iter().enumerate() {
         let Some(o) = column.opponents.get(slot.seat) else {
             continue;
         };
-        let [x, y, w, _] = slot.rect;
+        let [x, y, w, h] = slot.rect;
         let dim = if o.out { 0.55 } else { 1.0 };
         let fade = |c: [f32; 4]| [c[0], c[1], c[2], c[3] * dim];
         // Name, then its level (or Out) at the right; smaller where the
@@ -690,19 +757,21 @@ pub fn draw_fields(
         let right = fitted(measure, right, &right_style, w * 0.45);
         let right_w = measure.measure(&right, &right_style).advance;
         let name_style = style(size, 600);
-        let name = fitted(
-            measure,
-            &o.name,
-            &name_style,
-            (w - right_w - 6.0 * ratio).max(0.0),
-        );
+        // The name whole before the level: where both do not fit, the
+        // level goes (Out shows on the field too).
+        let whole = measure.measure(&o.name, &name_style).advance;
+        let level = whole + right_w + 6.0 * ratio <= w;
+        let room = if level { w - right_w - 6.0 * ratio } else { w };
+        let name = fitted(measure, &o.name, &name_style, room.max(0.0));
         list.push(run(name, &name_style, [x, y], fade(TEXT)));
-        list.push(run(
-            right,
-            &right_style,
-            [x + w - right_w, y + 1.5 * ratio],
-            fade(MUTED),
-        ));
+        if level {
+            list.push(run(
+                right,
+                &right_style,
+                [x + w - right_w, y + 1.5 * ratio],
+                fade(MUTED),
+            ));
+        }
         // The judgments' flashes where the skin draws no hit effect.
         let geo = &slot.field;
         for (lane, flash) in flashes.get(i).into_iter().flatten().enumerate() {
@@ -742,8 +811,12 @@ pub fn draw_fields(
                 MUTED,
             ));
         }
+        // Its seat changing: the whole slot darkens through the change.
+        if slot.dim > 0.0 {
+            list.rect([x, y, x + w, y + h], [0.0, 0.0, 0.0, 0.9 * slot.dim]);
+        }
     }
-    cued
+    cue.is_some()
 }
 
 /// How long [`draw_fields`] flashes a judgment, seconds.
@@ -789,7 +862,6 @@ mod tests {
                     combo: 10,
                 })
                 .collect(),
-            heading: "CPUs · taps-only copy".into(),
             out: "Out".into(),
             won: None,
             cue: None,
@@ -808,7 +880,7 @@ mod tests {
     }
 
     #[test]
-    fn a_moment_takes_the_heading_s_place_while_it_shows() {
+    fn a_moment_shows_at_the_column_s_top_while_it_shows() {
         let g = geo(1280.0, 720.0);
         let plain = draw(
             &mut DrawList::new(),
@@ -830,15 +902,13 @@ mod tests {
         assert_eq!(placed.rect, plain.rect);
         let t = texts(&list);
         assert!(t.iter().any(|(s, a)| s == "Final stage" && *a > 0.9));
-        assert!(!t.iter().any(|(s, _)| s.starts_with("CPUs")));
-        // Fading: the cue alone, partly.
+        // Fading: partly.
         c.cue = Some(("Final stage".into(), 0.5));
         let mut list = DrawList::new();
         draw(&mut list, &c, &g, 4.0, 1.0, &[], &mut FixedMeasure).unwrap();
         let t = texts(&list);
         assert!(t.iter().any(|(s, a)| s == "Final stage" && *a < 0.9));
-        assert!(!t.iter().any(|(s, _)| s.starts_with("CPUs")));
-        // Gone: the heading back.
+        // Gone: nothing there, and no heading ever.
         c.cue = Some(("Final stage".into(), 0.0));
         let mut list = DrawList::new();
         assert!(
@@ -846,7 +916,7 @@ mod tests {
                 .unwrap()
                 .cue
         );
-        assert!(texts(&list).iter().any(|(s, _)| s.starts_with("CPUs")));
+        assert!(!texts(&list).iter().any(|(s, _)| s == "Final stage"));
     }
 
     fn geo(w: f32, h: f32) -> FieldGeometry {
@@ -873,7 +943,6 @@ mod tests {
             .collect();
         assert_eq!(texts.iter().filter(|t| *t == "Out").count(), 1);
         assert_eq!(texts.iter().filter(|t| *t == "Lv 3").count(), 2);
-        assert!(texts.iter().any(|t| t.starts_with("CPUs")));
     }
 
     #[test]
@@ -953,7 +1022,7 @@ mod tests {
             let k = keep(&g, 1.0);
             let f = arrange(8, &g, 4.0, false, 1.0, &k).unwrap_or_else(|| panic!("{w}x{h}"));
             assert_eq!(f.slots.len(), 8);
-            assert_eq!(f.more, 0);
+            assert!(!f.rotating);
             // The first four on the left, the rest on the right, in order.
             assert!(f.slots[..4].iter().all(|s| s.left));
             assert!(f.slots[4..].iter().all(|s| !s.left));
@@ -1001,9 +1070,12 @@ mod tests {
         assert!(two.slots[0].left && !two.slots[1].left);
         assert!(two.lane >= eight.lane);
         assert!(two.lane <= g.arrow * MINI_LANE_SHARE);
-        // One alone: on the left, no right side.
+        // One alone: on the left, its status line under it.
         let one = arrange(1, &g, 4.0, false, 1.0, &k).unwrap();
-        assert!(one.slots[0].left && one.right_heading.is_none());
+        assert!(one.slots[0].left);
+        assert!(one.status[0] < g.left);
+        // Two or more: the status line under the right side.
+        assert!(two.status[0] > g.left);
     }
 
     #[test]
@@ -1059,8 +1131,7 @@ mod tests {
         // The second is out: its slot says so, twice (its line, its field).
         assert_eq!(t.iter().filter(|(s, _)| s == "Out").count(), 2);
         assert_eq!(t.iter().filter(|(s, _)| s == "Lv 3").count(), 2);
-        assert!(t.iter().any(|(s, _)| s.starts_with("CPUs")));
-        // A moment in the heading's place.
+        // A moment and the stage won in the status line.
         let mut c = column(3);
         c.cue = Some(("Final stage".into(), 1.0));
         c.won = Some("Stage won".into());
@@ -1069,22 +1140,21 @@ mod tests {
         let t = texts(&list);
         assert!(t.iter().any(|(s, _)| s == "Final stage"));
         assert!(t.iter().any(|(s, _)| s == "Stage won"));
-        assert!(!t.iter().any(|(s, _)| s.starts_with("CPUs")));
     }
 
     #[test]
-    fn far_more_opponents_than_room_show_the_first_seats_and_a_count() {
+    fn far_more_opponents_than_room_take_turns_in_the_slots() {
         for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0)] {
             let g = geo(w, h);
             let k = keep(&g, 1.0);
             let mut last = 0;
             for n in [16, 32, 64, 128] {
-                let f = arrange(n, &g, 4.0, false, 1.0, &k).unwrap();
-                assert_eq!(f.slots.len() + f.more, n, "{w}x{h} {n}");
+                let mut f = arrange(n, &g, 4.0, false, 1.0, &k).unwrap();
+                assert!(f.slots.len() <= n, "{w}x{h} {n}");
+                assert_eq!(f.rotating, f.slots.len() < n);
                 assert!(f.lane >= MINI_LANE_MIN);
-                // The first seats, in order.
-                assert!(f.slots.iter().enumerate().all(|(i, s)| s.seat == i));
-                // Never over the field, the HUD or each other.
+                // Never over the field, the HUD or each other; the status
+                // line on the screen.
                 let [mid, band] = ddi_render::scene::filter_band(&g, 4.0);
                 for (i, s) in f.slots.iter().enumerate() {
                     let r = ltrb(s.rect);
@@ -1093,14 +1163,104 @@ mod tests {
                     assert!(k.iter().all(|k| !overlaps(r, *k)));
                     assert!(f.slots[i + 1..].iter().all(|t| !overlaps(r, ltrb(t.rect))));
                 }
-                // The count's line on the screen, under the slots.
-                if f.more > 0 {
-                    assert!(f.more_at[1] < h);
+                assert!(f.status[1] + f.status[3] <= h);
+                if f.rotating {
                     assert!(f.slots.len() >= last, "{n}: as many as fit");
+                    // Everyone has a turn, every slot always filled, no
+                    // seat twice at once.
+                    let mut seen = std::collections::BTreeSet::new();
+                    let turns = n.div_ceil(f.slots.len());
+                    let mut place = std::collections::BTreeMap::new();
+                    for turn in 0..turns {
+                        let t = f64::from(ROTATION_V0.every) * (turn as f64 + 0.5);
+                        rotate(&mut f, n, &[], t, ROTATION_V0, false);
+                        let seats: std::collections::BTreeSet<_> =
+                            f.slots.iter().map(|s| s.seat).collect();
+                        assert_eq!(seats.len(), f.slots.len());
+                        seen.extend(seats);
+                        // An opponent always in the same slot.
+                        for (i, s) in f.slots.iter().enumerate() {
+                            assert_eq!(*place.entry(s.seat).or_insert(i), i, "{n}");
+                        }
+                    }
+                    assert_eq!(seen.len(), n, "{w}x{h} {n}");
                 }
                 last = f.slots.len();
             }
         }
+    }
+
+    #[test]
+    fn the_sides_use_their_own_height() {
+        // The score keeps the right side lower; the left, with only the
+        // watermark and the quit button below, starts at the top.
+        let g = geo(1920.0, 1080.0);
+        let f = arrange(128, &g, 4.0, false, 1.0, &keep(&g, 1.0)).unwrap();
+        let top = |left: bool| {
+            f.slots
+                .iter()
+                .filter(|s| s.left == left)
+                .map(|s| s.rect[1])
+                .fold(f32::MAX, f32::min)
+        };
+        assert!(top(true) < top(false), "{} {}", top(true), top(false));
+        // Above where the score ends.
+        let score = ddi_render::scene::hud_areas(&g, 4.0)[1];
+        assert!(top(true) < score[3], "{} {score:?}", top(true));
+    }
+
+    #[test]
+    fn pinned_seats_stay_while_the_rest_turn() {
+        let g = geo(1280.0, 720.0);
+        let mut f = arrange(64, &g, 4.0, false, 1.0, &keep(&g, 1.0)).unwrap();
+        assert!(f.rotating);
+        let every = f64::from(ROTATION_V0.every);
+        // A stub's priority: seats 40 and 7 (later: the attacker and the
+        // attacked), always in the first slots.
+        let pinned = [40, 7];
+        let mut windows = Vec::new();
+        for turn in 0..4 {
+            rotate(
+                &mut f,
+                64,
+                &pinned,
+                every * (turn as f64 + 0.5),
+                ROTATION_V0,
+                false,
+            );
+            assert_eq!(f.slots[0].seat, 40);
+            assert_eq!(f.slots[1].seat, 7);
+            assert!(f.slots[2..].iter().all(|s| s.seat != 40 && s.seat != 7));
+            windows.push(f.slots[2].seat);
+        }
+        assert!(windows.windows(2).all(|w| w[0] != w[1]), "{windows:?}");
+        // A slot with one seat of its own never changes or darkens.
+        let mut f = arrange(128, &g, 4.0, false, 1.0, &keep(&g, 1.0)).unwrap();
+        let free = f.slots.len();
+        let last = free - 1;
+        if 128 - last <= free {
+            rotate(&mut f, 128, &[], every, ROTATION_V0, false);
+            let a = f.slots[last].seat;
+            assert_eq!(f.slots[last].dim, 0.0);
+            rotate(&mut f, 128, &[], every * 2.5, ROTATION_V0, false);
+            assert_eq!(f.slots[last].seat, a);
+        }
+        // A change darkens the turning slots, never the pinned ones, and
+        // not at all under reduced motion; between changes, nothing.
+        rotate(&mut f, 64, &pinned, every, ROTATION_V0, false);
+        assert_eq!(f.slots[0].dim, 0.0);
+        assert!(f.slots[2].dim > 0.9);
+        rotate(&mut f, 64, &pinned, every, ROTATION_V0, true);
+        assert!(f.slots.iter().all(|s| s.dim == 0.0));
+        rotate(&mut f, 64, &pinned, every * 1.5, ROTATION_V0, false);
+        assert!(f.slots.iter().all(|s| s.dim == 0.0));
+        // The first turn starts without a change.
+        rotate(&mut f, 64, &pinned, 0.0, ROTATION_V0, false);
+        assert!(f.slots.iter().all(|s| s.dim == 0.0));
+        // All fitting: seat order, pins ignored, never moving.
+        let mut eight = arrange(8, &g, 4.0, false, 1.0, &keep(&g, 1.0)).unwrap();
+        rotate(&mut eight, 8, &pinned, every * 3.0, ROTATION_V0, false);
+        assert!(eight.slots.iter().enumerate().all(|(i, s)| s.seat == i));
     }
 
     #[test]

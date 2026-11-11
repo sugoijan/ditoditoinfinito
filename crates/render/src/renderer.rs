@@ -70,7 +70,10 @@ pub struct Renderer {
     /// A work's back and mask layers' quads ([`Renderer::set_stage_quads`]).
     stage_back: Vec<crate::textured::TexQuad>,
     stage_mask: Vec<crate::textured::TexQuad>,
-    field_underlay: Option<crate::textured::TexQuad>,
+    field_underlay: Vec<crate::textured::TexQuad>,
+    /// The underlay fades in over this many target pixels from its top
+    /// ([`Renderer::set_field_underlay_fade`]).
+    underlay_fade: f32,
     underlay_image: Option<(u32, wgpu::Texture)>,
     underlay_back: Vec<crate::textured::TexQuad>,
     /// The last frame's scene, its lists' room reused by the next.
@@ -131,7 +134,8 @@ impl Renderer {
             srgb,
             stage_back: Vec::new(),
             stage_mask: Vec::new(),
-            field_underlay: None,
+            field_underlay: Vec::new(),
+            underlay_fade: 0.0,
             underlay_image: None,
             underlay_back: Vec::new(),
             scene: Default::default(),
@@ -458,7 +462,7 @@ impl Renderer {
         self.textured.clear_textures();
         self.stage_back.clear();
         self.stage_mask.clear();
-        self.field_underlay = None;
+        self.field_underlay.clear();
         self.underlay_image = None;
         self.underlay_back.clear();
     }
@@ -485,7 +489,7 @@ impl Renderer {
         image: Option<(&wgpu::Texture, [f32; 4], f32)>,
     ) {
         let Some((source, rect, opacity)) = image else {
-            self.field_underlay = None;
+            self.field_underlay.clear();
             return;
         };
         let size = [source.width(), source.height()];
@@ -520,15 +524,38 @@ impl Renderer {
             return false;
         };
         let [x, y, w, h] = rect;
-        self.field_underlay = Some(crate::textured::TexQuad::new(
-            crate::textured::Shape::Quad {
-                transform: [w, 0., 0., h, x + w / 2., y + h / 2.],
-                uv: [0., 0., 1., 1.],
-            },
-            [1., 1., 1., opacity],
-            *id,
-        ));
+        let quad = |top: f32, bottom: f32, v: [f32; 2]| {
+            crate::textured::TexQuad::new(
+                crate::textured::Shape::Quad {
+                    transform: [w, 0., 0., bottom - top, x + w / 2., (top + bottom) / 2.],
+                    uv: [0., v[0], 1., v[1]],
+                },
+                [1., 1., 1., opacity],
+                *id,
+            )
+        };
+        self.field_underlay.clear();
+        let fade = self.underlay_fade.clamp(0.0, h);
+        if fade > 0.0 && h > 0.0 {
+            // Its top fading in: the image's edge never shows as a line.
+            let split = fade / h;
+            let mut top = quad(y, y + fade, [0., split]);
+            let clear = [1., 1., 1., 0.];
+            let full = [1., 1., 1., opacity];
+            top.gradient = Some([clear, clear, full, full]);
+            self.field_underlay.push(top);
+            self.field_underlay.push(quad(y + fade, y + h, [split, 1.]));
+        } else {
+            self.field_underlay.push(quad(y, y + h, [0., 1.]));
+        }
         true
+    }
+
+    /// The field's underlay fades in over `pixels` (target pixels) from
+    /// its top, from the next placing on (0: a hard edge, as by default):
+    /// the dancing hand behind the field, cut at its frame's top.
+    pub fn set_field_underlay_fade(&mut self, pixels: f32) {
+        self.underlay_fade = pixels.max(0.0);
     }
 
     /// HUD runs shaped since the start (a counter for the debug state).
@@ -634,7 +661,7 @@ impl Renderer {
                 opts.place,
             ),
         };
-        let layers = !self.stage_back.is_empty() || self.field_underlay.is_some();
+        let layers = !self.stage_back.is_empty() || !self.field_underlay.is_empty();
         let path = filter_path(
             opts.field_filter,
             !layout.lanes.is_empty(),
@@ -656,9 +683,9 @@ impl Renderer {
         self.textured.draw_targets(device, queue, encoder);
         let mut scene = std::mem::take(&mut self.scene);
         self.underlay_back.clear();
-        let back = if let Some(quad) = self.field_underlay {
+        let back = if !self.field_underlay.is_empty() {
             self.underlay_back.extend_from_slice(&self.stage_back);
-            self.underlay_back.push(quad);
+            self.underlay_back.extend_from_slice(&self.field_underlay);
             &self.underlay_back
         } else {
             &self.stage_back

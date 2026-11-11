@@ -303,10 +303,6 @@ room-leave = Leave room
 ## field, each with its name, level, life bar and Out once its life is
 ## gone (a narrow column: a few letters each).
 
-# The column's heading: the CPUs play a copy of the chart with taps
-# only (holds as taps, no mines).
-room-play-heading = CPUs · taps-only copy
-
 # A CPU's level, short.
 # Variables:
 #   $level (Number) - its level, from 1
@@ -315,18 +311,21 @@ room-play-level = Lv { $level }
 # A CPU whose life is gone: out of this stage.
 room-play-out = Out
 
-# Over the column once the player has won the stage before the song's
-# end (they finish the song).
+# Once the player has won the stage before the song's end (they finish
+# the song): in the line under the opponents' small fields at the right,
+# or over the column.
 room-play-won = Stage won
 
-# Under the opponents' small fields beside the play, when there are more
-# opponents than room for their fields: how many are not shown. Short.
+# Under the quiet column of opponents beside the play (where there is no
+# room for their small fields), when there are more opponents than it
+# holds: how many are not shown. Short.
 # Variables:
 #   $count (Number) - how many are not shown
 room-play-more = +{ $count } more
 
-## A battle's moment no announcer line said, in the column's heading's
-## place for a few seconds (as narrow: about 22 letters).
+## A battle's moment no announcer line said, for a few seconds: in the
+## line under the opponents' small fields at the right, or at the
+## column's top (as narrow: about 22 letters).
 
 # The first stage of a match begins.
 room-play-cue-match-begin = Match begins

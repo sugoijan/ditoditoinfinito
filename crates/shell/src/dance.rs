@@ -407,7 +407,10 @@ impl Preview {
         }
         let rect = self.frame_rect(size);
         self.rect = rect;
-        let camera = self.look.map_or([-25., 14., 0.52], |l| l.camera);
+        let mut camera = self.look.map_or([-25., 14., 0.52], |l| l.camera);
+        if let Some([_, _, w, h]) = self.behind {
+            camera[2] = behind_field_distance(camera[2], w, h);
+        }
         self.host.set(Some(Picture {
             mat: self
                 .runtime
@@ -534,6 +537,24 @@ impl Preview {
             "warming"
         }})
     }
+}
+
+/// How much larger the hand is behind the field than its picture would
+/// be at the camera's own distance in a frame the band's width
+/// (PROVISIONAL, `docs/plans/multiplayer-prototype-progress.md`, M7c): the
+/// hand and the mat it plays on fill the room below the judgment, the
+/// arm above them cut at the frame's top.
+pub const BEHIND_FIELD_ZOOM: f32 = 1.9;
+
+/// The camera's distance for the hand behind the field in a frame `w`
+/// wide and `h` high: as large as [`BEHIND_FIELD_ZOOM`] says against a
+/// frame as wide, whatever its height (the picture is framed by its
+/// narrower side, `ddi_render::character::view_projection`).
+pub fn behind_field_distance(distance: f32, w: f32, h: f32) -> f32 {
+    if w <= 0.0 || h <= 0.0 {
+        return distance;
+    }
+    distance * w.min(h) / (BEHIND_FIELD_ZOOM * w)
 }
 
 pub fn gameplay_look() -> PlayLook {

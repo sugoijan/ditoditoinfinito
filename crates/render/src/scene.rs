@@ -517,6 +517,16 @@ pub fn hud_areas(geo: &FieldGeometry, span: f32) -> Vec<[f32; 4]> {
     ]
 }
 
+/// The tap judgment's place across the field `geo` (`span` lanes wide),
+/// `[left, top, right, bottom]` in target pixels, shown or not: its
+/// line at its largest (its pop), where `draw` puts it.
+pub fn judgement_area(geo: &FieldGeometry, span: f32) -> [f32; 4] {
+    let a = geo.arrow;
+    let size = (38.0 * crate::hud::scale(geo)).max(16.0);
+    let top = geo.height / 2.0 - a * 1.1;
+    [geo.left, top, geo.left + a * span, top + size * 1.15 * 1.2]
+}
+
 /// The receptor rows and the lanes' approach near them, `[left, top,
 /// right, bottom]` in the target's px, across the field: each row's
 /// receptors (half an arrow either side of their middle, a little more)

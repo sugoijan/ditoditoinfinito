@@ -932,11 +932,10 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         vec![
             info.mods,
             online.mods,
-            m::play_heading().into(),
             m::play_level(3).into(),
             m::play_out().into(),
             m::play_won().into(),
-            // A battle's moments shown in the column's heading's place.
+            // A battle's moments shown beside the play.
             m::play_cue_match_begin().into(),
             m::play_cue_stage_begin(2).into(),
             m::play_cue_final_stage().into(),

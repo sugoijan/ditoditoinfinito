@@ -560,14 +560,17 @@ Rust and the browser are implementation details, not advertised features.
   decks, its log, its text; the web's `GameLoop` and desktop's `View`
   keep their surfaces; a practice stage's CPU opponents beside the field,
   `crates/shell/src/opponents.rs`: miniature fields in stable slots of the
-  side space on both sides, clear of the HUD and the quit button's place
-  (the dancing hand goes behind the field during a stage,
-  `dance::Preview::set_behind_field`), drawn by the play's own noteskin
+  side space on both sides, each side its whole height clear of the HUD
+  and the quit button's place, a status line under the right side for
+  the battle's moment and "Stage won" (the dancing hand goes behind the
+  field during a stage, under the judgment, `play_view::behind_field`,
+  `dance::BEHIND_FIELD_ZOOM`), drawn by the play's own noteskin
   after its field on a band as its field's (`ddi_render::scene::Miniature`,
   `NoteLayer::miniature`: no Lua run, the play's field's state put back),
   each one's life gauge and combo by the play's HUD shader placed as the
   play's (`hud::Hud::prepare_minis`), names and Out by the 2D pass; past
-  what fits, the first seats and a count; where a side is too narrow or
+  what fits, the opponents take turns in the slots, each in its own,
+  `priority_seats` never rotating away (`opponents::rotate`); where a side is too narrow or
   lyrics show, the quiet column).
   Platform-free (native and wasm), natively tested.
 - `crates/app/` the game (`ddi`, the workspace's default member):

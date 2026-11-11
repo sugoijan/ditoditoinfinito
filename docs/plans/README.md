@@ -43,8 +43,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   cap. M7a: the multiplayer home as the start menu's column with every
   planned entry (the unbuilt ones grayed), sign-in at the footer's right
   and asked for where needed, and the header and footer staying put from
-  screen to screen everywhere. Provisional choices and open questions
-  listed.
+  screen to screen everywhere. M7c: the hand larger behind the field, no
+  heading beside the play (the battle's moment in a status line), the
+  sides' whole height for the miniatures, and turns where not everyone
+  fits. Provisional choices and open questions listed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two
   flows while the original design lane continues. Separates selected constraints,

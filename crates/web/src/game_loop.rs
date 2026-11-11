@@ -930,14 +930,17 @@ impl GameLoop {
                         "cue": p.cue,
                     })),
                     // Their miniature fields, where drawn instead: each
-                    // slot (target pixels: x, y, w, h), its side, the
-                    // miniatures' lane (CSS pixels), how many have none.
+                    // slot (target pixels: x, y, w, h), its side and the
+                    // seat it shows, the miniatures' lane (CSS pixels),
+                    // whether the opponents take turns in the slots.
                     "opponent_fields": self.view.opponent_fields().map(|f| json!({
                         "lane": f.lane,
-                        "more": f.more,
+                        "rotating": f.rotating,
+                        "status": f.status,
                         "slots": f.slots.iter().map(|s| json!({
                             "rect": s.rect,
                             "left": s.left,
+                            "seat": s.seat,
                         })).collect::<Vec<_>>(),
                     })),
                     "stage_won": s.battle().is_some_and(|b| b.won()),

@@ -200,8 +200,6 @@ room-results-none = —
 
 ## A stage's play.
 
-room-play-heading = CPU · タップのみの譜面
-
 room-play-level = Lv { $level }
 
 room-play-out = アウト

@@ -320,7 +320,7 @@ pub struct PlayView<H: PlayHost> {
     overlay: Option<(Painter, DrawList)>,
     /// A stage's opponents' column's words (`crate::opponents`), once
     /// worded, and where the last frame put it.
-    column_words: Option<[String; 3]>,
+    column_words: Option<[String; 2]>,
     column_drawn: Option<crate::opponents::Placed>,
     /// Where the last frame put the opponents' miniatures, if it did,
     /// and whether a battle's moment was shown above them.
@@ -1002,22 +1002,31 @@ impl<H: PlayHost> PlayView<H> {
             .battle()
             .filter(|_| crate::opponents::miniatures() && lyrics.is_none());
         // In a stage the dancing hand goes behind the field, out of the
-        // miniatures' way (the play study's "Hand behind field"); its
+        // miniatures' way (the play study's "Hand behind field"), as large
+        // as the band allows clear of the receptors and the judgment; its
         // Off still turns it off. Elsewhere where the settings put it.
-        self.dance.set_behind_field(session.battle().map(|_| {
-            let [mid, band] = ddi_render::scene::filter_band(&geo, span);
-            let margin = 12.0 * screen.ratio;
-            [mid - band / 2.0, margin, band, geo.height - 2.0 * margin]
-        }));
+        let behind = session
+            .battle()
+            .map(|_| behind_field(&geo, span, render.reverse, screen.ratio));
+        // Its arm cut at the frame's top, softly.
+        self.renderer
+            .set_field_underlay_fade(behind.map_or(0.0, |r| r[3] * BEHIND_FIELD_FADE));
+        self.dance.set_behind_field(behind);
         let fields = battle.and_then(|b| {
-            crate::opponents::arrange(
-                b.feeds().count(),
-                &geo,
-                span,
-                render.reverse,
-                screen.ratio,
-                &keep_out,
-            )
+            let n = b.feeds().count();
+            let mut f =
+                crate::opponents::arrange(n, &geo, span, render.reverse, screen.ratio, &keep_out)?;
+            // Too few slots: the opponents take turns in them, those the
+            // stage keeps in view staying.
+            crate::opponents::rotate(
+                &mut f,
+                n,
+                &crate::opponents::priority_seats(b),
+                frame.song_time,
+                crate::opponents::ROTATION_V0,
+                render.reduced_motion,
+            );
+            Some(f)
         });
         let mut minis = self.renderer.take_miniatures();
         minis.clear();
@@ -1081,8 +1090,8 @@ impl<H: PlayHost> PlayView<H> {
             frame.song_time,
         );
         self.host.lap(Lap::Hand);
-        // A battle's moment no line said, in the column's heading's place
-        // (`ddi_session::announcer::battle`).
+        // A battle's moment no line said, in the miniatures' status line
+        // or at the column's top (`ddi_session::announcer::battle`).
         let cue = session.battle_cue(moment.now.0).and_then(|(event, age)| {
             let policy = session.battle_policy()?;
             let number = session.battle().map_or(1, |b| b.setup().number);
@@ -1096,11 +1105,7 @@ impl<H: PlayHost> PlayView<H> {
         let column = session.battle().map(|b| {
             let words = self.column_words.get_or_insert_with(|| {
                 use ddi_l10n::msg::room as m;
-                [
-                    m::play_heading().into(),
-                    m::play_out().into(),
-                    m::play_won().into(),
-                ]
+                [m::play_out().into(), m::play_won().into()]
             });
             let mut keep_out = ddi_render::scene::hud_areas(&geo, span);
             keep_out.extend(quit.map(|[x, y, r]| [x - r, y - r, x + r, y + r]));
@@ -1116,9 +1121,8 @@ impl<H: PlayHost> PlayView<H> {
             (
                 crate::opponents::Column {
                     opponents,
-                    heading: words[0].clone(),
-                    out: words[1].clone(),
-                    won: b.won().then(|| words[2].clone()),
+                    out: words[0].clone(),
+                    won: b.won().then(|| words[1].clone()),
                     cue,
                     more: Some(|n| ddi_l10n::msg::room::play_more(n).into()),
                 },
@@ -1218,6 +1222,32 @@ impl<H: PlayHost> PlayView<H> {
             self.lyrics_shown = shown.map(str::to_string).collect();
         }
     }
+}
+
+/// How much of the hand's frame behind the field fades in from its top
+/// (its arm cut there).
+const BEHIND_FIELD_FADE: f32 = 0.25;
+
+/// Where the dancing hand goes behind the field `geo` (`span` lanes wide)
+/// in a stage, `[x, y, width, height]` in the target's pixels (`ratio` a
+/// logical pixel): the field's band, from the judgment's place to the end
+/// away from the receptors (the bottom; the top under Reverse), so the
+/// receptors and the judgment never stand over it. The combo may.
+pub fn behind_field(
+    geo: &ddi_render::FieldGeometry,
+    span: f32,
+    reverse: bool,
+    ratio: f32,
+) -> [f32; 4] {
+    let [mid, band] = ddi_render::scene::filter_band(geo, span);
+    let (margin, gap) = (12.0 * ratio, 8.0 * ratio);
+    let [_, top, _, bottom] = ddi_render::scene::judgement_area(geo, span);
+    let (y0, y1) = if reverse {
+        (margin, top - gap)
+    } else {
+        (bottom + gap, geo.height - margin)
+    };
+    [mid - band / 2.0, y0, band, (y1 - y0).max(0.0)]
 }
 
 /// A battle's moment as the opponents' column words it (`None`: one the

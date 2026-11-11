@@ -366,9 +366,12 @@ fn miniature_scenarios_pictures_and_costs() {
         shots: &[20.0],
         measure: Some(22.0),
     };
+    // Two pictures a turn apart: the opponents taking turns in the slots
+    // (`ddi_shell::opponents::ROTATION_V0`, eight seconds).
     let many = |name, cpus, size| Scenario {
         name,
         cpus,
+        shots: &[12.0, 21.0],
         ..eight("", size, None, false)
     };
     let scenarios = [
@@ -389,6 +392,18 @@ fn miniature_scenarios_pictures_and_costs() {
             [1920, 1080],
             None,
             false,
+        ),
+        eight(
+            "infinito-eight-cpus-hand-behind-field-1920x1080",
+            [1920, 1080],
+            None,
+            true,
+        ),
+        eight(
+            "infinito-eight-cpus-hand-behind-field-844x390",
+            [844, 390],
+            None,
+            true,
         ),
         eight(
             "peters-ddr-eight-cpus-hand-off-1280x720",
@@ -412,6 +427,7 @@ fn miniature_scenarios_pictures_and_costs() {
         },
         many("development-16-cpus-1280x720", 16, [1280, 720]),
         many("development-32-cpus-1280x720", 32, [1280, 720]),
+        many("development-32-cpus-1920x1080", 32, [1920, 1080]),
         many("development-64-cpus-1920x1080", 64, [1920, 1080]),
         many("development-128-cpus-1920x1080", 128, [1920, 1080]),
         many("development-128-cpus-1280x720", 128, [1280, 720]),

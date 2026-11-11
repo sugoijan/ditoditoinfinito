@@ -1024,6 +1024,78 @@ The maintainer's feedback on M6b's prototype, first part; both shells.
   entries, its sign-in dialog, Join by link and practice; the `qps-ploc`
   walk over the home, the dialog and Join by link).
 
+## M7c: the play's sides after review (implemented, 2026-11-11)
+
+The maintainer's feedback on M6b's play screen; both shells (the shared
+`PlayView`, `ddi_shell::opponents`).
+
+- **The hand is larger behind the field.** Its frame is the field's band
+  from just below the tap judgment's place (`ddi_render::scene::judgement_area`)
+  to the bottom (under Reverse: from the top to just above the judgment),
+  so the receptors and the judgment never stand over it; the combo may.
+  Inside it the hand is drawn 1.9 times as large as the band's width
+  framed it before (`dance::BEHIND_FIELD_ZOOM`, PROVISIONAL): the mat it
+  plays on is about two thirds of the band wide, the hand and wrist
+  filling the room under the judgment. The arm, cut at the frame's top,
+  fades in over its top quarter (`Renderer::set_field_underlay_fade`,
+  `BEHIND_FIELD_FADE`) rather than ending on a line. Pictures at
+  1280×720, 1920×1080 and a phone held sideways.
+- **No heading.** "CPUs · taps-only copy" is gone from the play screen
+  (the miniatures and the column; its message `room-play-heading` too).
+  The taps-only note stays on the stage's prompt. **The battle's moment**
+  (a line no announcer said) moved to a status line under the right
+  side's slots (the left's when there is only one opponent), beside
+  "Stage won", which moved there too; on the column (a phone held
+  upright, or lyrics) it is at the column's top, where the heading was.
+- **The sides' whole height.** Each side now keeps clear only of what is
+  on it: the left of the watermark and the quit button's place, the
+  right of the score and the status line, rather than one band for both
+  cut by all of them. Both sides' blocks stay on one middle where their
+  rooms allow (symmetric for eight), and move into their own room
+  where they need it. More fit, and larger: 32 CPUs at 1280×720 all in
+  miniature (29 before), 128 at 1280×720 in 40 slots (29), at 1920×1080
+  in 96 slots (79); eight at 1280×720 and 1920×1080 keep their lanes
+  (32 and 44 px, the size bound).
+- **Turns where not everyone fits** (`opponents::rotate`,
+  `ROTATION_V0`, PROVISIONAL: eight seconds a turn, a change darkening
+  the changing slots for 0.4 s, at once under reduced motion). Each free
+  slot goes round its own seats (the `k`-th slot the `k`-th, `k + free`-th,
+  ... of the seats not pinned), so an opponent always shows in the same
+  place and a slot with one seat never changes; the "+N more" line is
+  gone from the miniatures (the column keeps its count). The turn follows
+  the song's clock. **Priority slots:** `opponents::priority_seats` names
+  the seats that never rotate away and take the first slots (none yet;
+  later the player's attacker and target); tested with a stub. Where
+  everyone fits, nothing moves, as before ("never move" holds there).
+  Where a slot is too narrow for a name and its level, the level goes
+  (the seat's number in "CPU 117" shows through a turn). The web's
+  `__DDI_DEBUG.opponent_fields` says `rotating`, the status line and each
+  slot's seat (its `more` count went).
+- Tests: `ddi-shell` (eight slots at three sizes; the sides using their
+  own height; 16 to 128 opponents taking turns: every slot filled, every
+  seat shown within its turns, each always in the same slot; pinned seats
+  staying, the change's darkening only on changing slots and never under
+  reduced motion; the status line, the column's moment), the desktop
+  offscreen scenarios (pictures for review; costs below).
+
+Measured costs, desktop offscreen (`opponent_fields_offscreen`,
+`--ignored`; ms, mean (p95); "record" the frame body's CPU time, "with
+GPU" the frame waited for on the GPU):
+
+| Desktop | Slots | Miniatures: record / with GPU | Column: record / with GPU |
+| --- | --- | --- | --- |
+| 8 CPUs, 1280×720, hand behind the field | 8 | 1.36 / 3.60 (2.68 / 5.20) | 1.21 / 2.97 (2.66 / 4.95) |
+| 8 CPUs, 1920×1080, hand behind the field | 8 | 1.39 / 3.81 (2.75 / 6.05) | 1.21 / 2.99 (2.66 / 4.85) |
+| 8 CPUs, 844×390, hand behind the field | 8 | 1.28 / 3.42 (2.61 / 5.06) | 1.14 / 2.87 (2.55 / 4.66) |
+| 32 CPUs, 1280×720 (development) | 32 | 0.43 / 2.77 (0.63 / 3.80) | 0.18 / 1.09 (0.35 / 1.34) |
+| 64 CPUs, 1920×1080 (development) | 64 | 0.63 / 4.07 (0.90 / 5.08) | 0.20 / 1.17 (0.36 / 1.49) |
+| 128 CPUs, 1280×720 (development) | 40, turns | 0.52 / 3.03 (0.75 / 4.02) | 0.19 / 1.07 (0.30 / 1.30) |
+| 128 CPUs, 1920×1080 (development) | 96, turns | 0.84 / 5.27 (1.13 / 7.10) | 0.21 / 1.18 (0.35 / 1.45) |
+
+The larger hand costs nothing measurable over M6b's (the same picture,
+framed closer). 96 miniatures cost about 0.1 ms of GPU time more than
+M6b's 79.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -1053,7 +1125,7 @@ The maintainer's feedback on M6b's prototype, first part; both shells.
 | Stage plays are not kept in the play history or bests | both shells' record paths | A practice match leaves no history | Whether a stage counts as a personal play |
 | Battle voice `battle-voice-v0`: priorities outcomes/out 40, (attacks 30, none yet), life critical 20, players left 10, openings and the finished song 5; one battle line at a time, a lesser or equal one passed over, never queued | `ddi_session::announcer::battle::BATTLE_VOICE_V0` | Which battle line speaks when two meet | The battle voice's priorities and whether a line may cut another (needs a voice bus that can stop one sound) |
 | A stage leaves out a play's routine lines (combos, comments, life lost, last life, full combos, cleared, failed, grades, records, cheer) | `battle::stage_speaks`, `Announcer::tick` in a stage | A pack without battle lines says only ready, here we go, failed (out) and cleared (finished after a win) in a stage | Whether some routine lines (combo milestones) belong in a battle voice preset |
-| A moment shows only where its own line was not said; for 2.5 s with a 0.25 s fade; in the column's heading's place (above the miniatures from M6), nothing in bars-only columns or with no column | `VoicePolicy::cue_seconds`, `cue_fade`, `ddi_shell::opponents` | A phone's narrow column has no cue | Whether cues show always, and where on a phone |
+| A moment shows only where its own line was not said; for 2.5 s with a 0.25 s fade; in the status line under the right side's miniatures (M7c; at the column's top on the column), nothing in bars-only columns or with no column | `VoicePolicy::cue_seconds`, `cue_fade`, `ddi_shell::opponents` | A phone's narrow column has no cue | Whether cues show always, and where on a phone |
 | Survivors milestones at four and two only; life critical is the gauge's own danger, once a stage, never from the start | `SURVIVOR_MILESTONES`, `Battle::tell` | A one-life gauge never says life critical | The battle preset's danger threshold once battle life exists |
 | The match's line is said on the last stage's results, in the stage end's place; nothing is spoken in the room | `PlaySession::stage_reported` | The match's outcome is heard as the last results open | A room voice for intermission and match results |
 | Each stage is its own Start after the room's countdown (practice's prompt asks for Start) | shells | Two presses per stage: the room's Start, then the prompt's | A shared start in hosted rooms (the room's countdown starts the play) |
@@ -1074,14 +1146,14 @@ The maintainer's feedback on M6b's prototype, first part; both shells.
 | Any operator (owner, co-host, admin) may ask for a pending stage's grant; only the client that chose it asks by itself | `../ddi-server` `RoomCore::grant_request`, `RoomClient::sync_online` | A co-host can't take over a host's half-done upload from the room screen yet | The "host gone before upload" recovery the study proposes |
 | Start in the lobby is one command (`StartStage` on the first stage); `StartMatch` kept for protocol 1's older clients | `reduce.rs` | A refused Start locks nothing | None (M5c's question answered) |
 | Miniatures: lane at most 45% of the play's and 44 px, at least 16 px (else as many as fit at 16 px and a count, else the column); seven lanes tall, receptors a lane and a half from their end; 10 px between slots, 20 px from the field's band | `ddi_shell::opponents` constants | Eight miniatures at 1280×720 have 32 px lanes (2×2 each side), 44 px at 1920×1080, 16 px on a phone held sideways; a phone held upright shows the column | The miniatures' size, density and placement |
-| First half of the seats on the left, the rest on the right; in a stage the dancing hand is behind the field (its band) | `opponents::arrange`, `dance::Preview::set_behind_field` | The hand is smaller during a stage, darkened by the band | The hand's size and dimming behind the field |
+| First half of the seats on the left, the rest on the right, each side its own height; in a stage the dancing hand is behind the field, from below the judgment to the bottom (the top under Reverse), `BEHIND_FIELD_ZOOM` 1.9 against the band's width, its top quarter fading in | `opponents::arrange`, `play_view::behind_field`, `dance::BEHIND_FIELD_ZOOM` | The hand is large under the judgment, the combo over its wrist, darkened by the band | The hand's size, its overlap with the combo, its dimming |
 | Every miniature at the local player's speed and direction | `PlayView::draw` | Opponents' fields read like the player's own, not like theirs | Their own display settings once a remote stream carries them |
 | A judgment shows 0.4 s; a skin's explosion components drawn at 0.4 opacity on a miniature; a skin without them gets a soft glow of the judgment's color | `feed::FLASH_SECONDS`, `noteskin::MINIATURE_HIT_ALPHA`, `opponents::draw_fields` | Infinito's W1 burst is a faint flash on a miniature; Peters-DDR's miniatures glow instead of exploding | The miniature's hit effect |
 | An actor-drawn receptor is drawn as it rested a second into the play | `NoteskinPlay::rest_receptors` | StepMania skins' miniature receptors do not press | None expected (no Lua per miniature) |
 | Life, combo and moments drawn after a presentation delay, 0 for local CPUs | `feed::LOCAL_DELAY`, `FieldFeed::new` | None locally | The online delay and how it is corrected |
 | A miniature's combo never below 0.3 of the play's scale | `hud::MINI_COMBO_MIN_SCALE` | Below 22 px lanes the combo is larger than its field's scale | Legibility against faithfulness at small sizes |
 | Nine players: `ExperimentalNineV0`, the eight-player table and 0 for ninth | `ddi_room::awards` | A nine-player stage's ninth earns nothing, the first eight as in an eight-player field; marked experimental | The award rule for nine (and whether ninth should earn something) |
-| Development only: practice beyond the cap (129), linear points for any field; past what fits, the first seats in miniature and a count | `RoomPolicy::development`, `AwardScheme::DevelopmentV0`, `opponents::arrange` | Only through `mpcpus=` / `--mp-dev-cpus` | The large-party density policy |
+| Development only: practice beyond the cap (129), linear points for any field; past what fits, the opponents take turns in the slots, `ROTATION_V0` (8 s a turn, 0.4 s darkening, none under reduced motion), each always in its own slot, priority seats never rotating (none yet) | `RoomPolicy::development`, `AwardScheme::DevelopmentV0`, `opponents::rotate`, `opponents::priority_seats` | Only through `mpcpus=` / `--mp-dev-cpus` | The large-party density policy |
 | With lyrics shown the column is drawn instead | `PlayView::draw` | A work with lyrics shows the column | Where miniatures go around lyrics |
 | Desktop's session in the config folder's `online-session`, owner-only on Unix, plain text | `crates/desktop/src/online.rs` | Signed in across runs until the session's thirty days | The system keychain instead |
 
@@ -1158,14 +1230,21 @@ The maintainer's feedback on M6b's prototype, first part; both shells.
   is one enough?
 - M6: at 1920×1080 the miniatures stop growing at 44 px lanes; should they
   grow with the screen, or keep a fixed share of it?
-- M6b: the hand behind the field is small (the band's width) and
-  darkened by the band; should it be larger behind the field (past the
-  band, under the miniatures' gap), or dimmed further?
+- M6b: the hand behind the field was small. M7c made it as large as
+  the band allows under the judgment (the combo over its wrist, its arm
+  fading in at the top): is the combo's overlap acceptable, and should it
+  be dimmed further?
 - M6b: at the smallest lanes the combo is larger than its field's scale
   (legible rather than faithful): acceptable, or hide it there?
 - M6b: what should nine players' ninth place earn (0 now)?
-- M6b: for large parties, which miniatures (the proposal above: by
-  relevance, a fixed count, the rest as a count or a strip)?
+- M6b: for large parties, which miniatures? M7c: turns of eight
+  seconds in the slots, each opponent in its own slot, priority seats
+  (none yet) kept. Is eight seconds calm enough, should Out opponents
+  give up their turns, and which seats are priority once attacks exist
+  (the attacker and the target; the followed player?)
+- M7c: the battle's moment and "Stage won" now share a status line under
+  the right side's miniatures; is that noticeable enough, or should a
+  moment show over the field?
 - M5c: the sign-in prompt was the home's page itself. Answered in M7a:
   a dialog naming Twitch and what it is for, opened where a sign-in is
   needed.
