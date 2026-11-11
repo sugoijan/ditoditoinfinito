@@ -377,7 +377,10 @@ Rust and the browser are implementation details, not advertised features.
   a life gauge four lanes wide over the field, filling from the middle out
   and less than life's share below full (drawing only),
   with quiet jade/mint turbulence, coral damage and blue recovery trails,
-  Vivid at full life, Iosevka judgments and lighter SemiBold numbers,
+  Vivid at full life, a battle's attack power directly above life in
+  violet, half as thick, on the field and each miniature
+  (`hud::BattleBar`, `Renderer::set_battle_bar`, `Miniature::battle`),
+  Iosevka judgments and lighter SemiBold numbers,
   transparent combo outline gaps at each hundred and inverted color at 1000,
   and a still gray-outlined title watermark. Its host-time motion resets per
   play and follows reduced motion. The browser study remains independently
@@ -536,6 +539,10 @@ Rust and the browser are implementation details, not advertised features.
   out, the results' line once the shell's `stage_reported` passes the
   room's `MatchEnd`; where no line said one, `PlaySession::battle_cue`,
   shown in the opponents' column's heading, `ddi_shell::opponents`;
+  the match's ruleset for a stage, everyone's, `battle::stage_ruleset`;
+  the attack ledger run locally, `battle/attacks.rs`'s `AttackRunner`:
+  a checkpoint once every competitor still in is judged past it, so the
+  same at any frame rate and from a play's log;
   each CPU's miniature field fed by its stream of judged moments,
   `battle/feed.rs`: `Moment` (when, which note, judgment, life, combo, out),
   the tap-only copy it plays, `TapTrack`, and a presentation delay, 0
@@ -758,10 +765,17 @@ Rust and the browser are implementation details, not advertised features.
   development-only practice's 129), and stage awards as named rules (the
   eight-player table; provisional `ExperimentalLinearV0` under eight and
   `ExperimentalNineV0` for nine; development-only `DevelopmentLinearV0`;
-  exact fractions, `Points`); the battle a stage is played under, by name
-  and version, and its ranking of judged runs (`battle.rs`:
-  `BattlePreset::GaugeSurvivalV0`, provisional: each competitor's own
-  ruleset gauge as life, empty is out of the stage; `rank`, `decided`).
+  exact fractions, `Points`, shown as decimals); the battle a stage is
+  played under, by name and version, and its ranking of judged runs
+  (`battle.rs`: `BattlePreset::GaugeSurvivalV0`, provisional: each
+  competitor's gauge as life, empty is out of the stage; `rank`,
+  `decided`; `GaugeAttacksV0`, development only so far, the same with
+  attack power); the match's ruleset everyone plays (`MatchRules::ruleset`,
+  one of `MatchRules::RULESETS`, new rooms `itg-fa+`; decision D0 of
+  `docs/plans/multiplayer-ui.md`'s 2026-11-11 note); attack power's
+  ledger (`attacks.rs`: `StageBattle` credited at checkpoints every four
+  beats from reports of judged tiers, `ATTACKS_V0` cap and cost 100,
+  `POWER_CLASSES_V0` by the match's ruleset; no launches yet).
   M7b's match flow in the model: `Command::Pick` (the operator's Start on
   a song: the next stage's song, the match started or gone on, its
   readiness window opened, all as one change), `Command::Spotlight` and

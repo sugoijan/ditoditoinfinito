@@ -2,6 +2,7 @@
 struct Globals {
     screen: vec4<f32>, bar: vec4<f32>, combo_rect: vec4<f32>, mark: vec4<f32>,
     life: vec4<f32>, motion: vec4<f32>, combo: vec4<f32>, digits: array<vec4<f32>, 3>,
+    power_rect: vec4<f32>, power: vec4<f32>, power_style: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> g: Globals;
 @group(1) @binding(0) var atlas: texture_2d<f32>;
@@ -16,7 +17,8 @@ struct Vertex {
     var corners = array<vec2<f32>, 6>(vec2(0.,0.),vec2(1.,0.),vec2(0.,1.),vec2(0.,1.),vec2(1.,0.),vec2(1.,1.));
     var rect = g.bar;
     if kind == 1u { rect = g.combo_rect; }
-    if kind == 2u { rect = g.mark; }
+    if kind == 2u { rect = g.power_rect; }
+    if kind == 3u { rect = g.mark; }
     let uv = corners[vertex];
     let p = rect.xy + uv * rect.zw;
     return Vertex(vec4(p / g.screen.xy * vec2(2.,-2.) + vec2(-1.,1.), 0., 1.), uv, kind);
@@ -107,6 +109,42 @@ fn combo(uv: vec2<f32>) -> vec4<f32> {
     let alpha = fill + ring;
     return vec4((fill_color * fill + ring_color * ring) / max(alpha,.00001), alpha);
 }
+// Attack power: fills from the left in electric violet; full, a
+// restrained electric edge running along it (reduced motion: a steady
+// glow). The quad is the bar and its glow's room (`power.w` around it).
+fn power(uv: vec2<f32>) -> vec4<f32> {
+    if g.power_rect.z <= 0. { return vec4(0.); }
+    let m = g.power.w;
+    let size = g.power_rect.zw;
+    let inner = size - vec2(2. * m);
+    let p = (uv - vec2(.5)) * size;
+    let radius = inner.y * .5;
+    let b = abs(p) - inner * .5 + vec2(radius);
+    let d = length(max(b, vec2(0.))) + min(max(b.x, b.y), 0.) - radius;
+    let x = clamp((p.x + inner.x * .5) / max(inner.x, 1.), 0., 1.);
+    let t = g.power.z;
+    let shimmer = noise(vec2(x * 22. - t * 1.6, p.y / max(inner.y, 1.) * 2. + t * .5));
+    let edge = smoothstep(-.6, .6, (g.power.x - x) * inner.x);
+    let violet = mix(vec3(84., 46., 212.), vec3(178., 102., 255.), clamp(.25 + .55 * x + .3 * (shimmer - .5), 0., 1.)) / 255.;
+    var color = mix(vec3(36., 33., 43.) / 255., violet, edge);
+    var alpha = 1. - smoothstep(-.5, .5, d);
+    if g.power.y > .5 {
+        var spark = .55;
+        if g.power_style.x < .5 {
+            let arc = noise(vec2(x * 46. + t * 11., t * 4.3)) * noise(vec2(x * 13. - t * 7., 3.1));
+            spark = .25 + .75 * smoothstep(.18, .42, arc);
+        }
+        let light = vec3(222., 204., 255.) / 255.;
+        // A thin bright rim inside the edge, and a soft glow outside it.
+        let rim = (1. - smoothstep(0., max(inner.y * .3, .8), -d)) * alpha;
+        color = mix(color, light, rim * spark);
+        let outside = (1. - alpha) * (1. - smoothstep(0., m, d)) * spark * .8;
+        let a = alpha + outside;
+        color = (color * alpha + light * outside) / max(a, .00001);
+        alpha = a;
+    }
+    return vec4(color, alpha);
+}
 fn watermark(uv: vec2<f32>) -> vec4<f32> {
     let p = clamp(uv * vec2(640.,128.), vec2(.5), vec2(639.5,127.5));
     let letters = textureSampleLevel(atlas, atlas_sampler, (p + vec2(0.,96.)) / vec2(640.,352.), 0.).r;
@@ -118,6 +156,7 @@ fn watermark(uv: vec2<f32>) -> vec4<f32> {
     var color: vec4<f32>;
     if v.kind == 0u { color = life(v.uv); }
     else if v.kind == 1u { color = combo(v.uv); }
+    else if v.kind == 2u { color = power(v.uv); }
     else { color = watermark(v.uv); }
     if g.screen.z > .5 {
         color = vec4(select(color.rgb / 12.92, pow((color.rgb + vec3(.055)) / 1.055, vec3(2.4)), color.rgb > vec3(.04045)), color.a);

@@ -1184,7 +1184,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let mut moments = Vec::new();
         if let Some(b) = self.battle.as_mut() {
             let t = self.player.judge_time(HostTime(judge_now));
-            if b.advance(t, &self.player) == Some(true) {
+            if b.advance(t, &self.player, &events) == Some(true) {
                 self.player.set_fail(ddi_engine::FailPolicy::Off);
             }
             moments = b.take_events();

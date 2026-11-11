@@ -484,13 +484,53 @@ pub struct RoomClient {
 /// picker) and kept by the shell while the player goes elsewhere.
 pub type SharedRoom = Rc<RefCell<RoomClient>>;
 
+/// DEVELOPMENT ONLY: what the shells' development switches change in a
+/// practice room (`docs/plans/multiplayer-prototype-progress.md`, M8a),
+/// never reached from a menu.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Development {
+    /// Practice under `BattlePreset::GaugeAttacksV0`, attack power shown
+    /// (desktop's `--mp-dev-attacks`, the web's `mpattacks=1`).
+    pub attacks: bool,
+    /// A section of battle shocks put into the player's own play of each
+    /// stage from this beat on (desktop's `--mp-dev-mines BEAT`, the
+    /// web's `mpdevmines=BEAT`; `ddi_engine::battle`).
+    pub mines_at_beat: Option<u32>,
+}
+
+thread_local! {
+    static DEVELOPMENT: std::cell::Cell<Development> =
+        const { std::cell::Cell::new(Development { attacks: false, mines_at_beat: None }) };
+}
+
+/// DEVELOPMENT ONLY: sets the practice rooms' development switches (the
+/// next practice room on; a stage's shocks from its next order).
+pub fn set_development(d: Development) {
+    DEVELOPMENT.set(d);
+}
+
+/// The development switches set ([`set_development`]).
+pub fn development() -> Development {
+    DEVELOPMENT.get()
+}
+
+/// Practice's rules for a common CPU profile `opponent`: `MatchRules::practice`,
+/// under the attacks' battle where the development switch says so.
+pub fn practice_rules(opponent: OpponentSpec) -> MatchRules {
+    let mut rules = MatchRules::practice(opponent);
+    if development().attacks {
+        rules.battle = BattlePreset::GAUGE_ATTACKS_V0.into();
+    }
+    rules
+}
+
 impl RoomClient {
     /// A new practice room in its lobby: the local player, three CPUs at
     /// the default level, four empty stages (`MatchRules::practice`). The
     /// CPUs' seeds come from `seed` (the shells pass the time it was
     /// made, tests a fixed number).
     pub fn new(now_ms: u64, seed: u64) -> RoomClient {
-        let rules = MatchRules::practice(OpponentSpec {
+        let rules = practice_rules(OpponentSpec {
             level: DEFAULT_CPU_LEVEL,
             seed,
             personality: None,
@@ -511,7 +551,7 @@ impl RoomClient {
     pub fn development(now_ms: u64, seed: u64, cpus: u16) -> RoomClient {
         let policy = RoomPolicy::development();
         let cpus = cpus.clamp(1, policy.max_competitors - 1);
-        let mut rules = MatchRules::practice(OpponentSpec {
+        let mut rules = practice_rules(OpponentSpec {
             level: DEFAULT_CPU_LEVEL,
             seed,
             personality: None,

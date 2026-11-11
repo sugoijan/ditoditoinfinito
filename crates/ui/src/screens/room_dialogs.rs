@@ -129,7 +129,7 @@ fn defaults(room: &SharedRoom) -> MatchRules {
         return MatchRules::hosted();
     }
     let seed = r.state().next.rules.cpu.opponent.seed;
-    let rules = MatchRules::practice(OpponentSpec {
+    let rules = crate::state::room::practice_rules(OpponentSpec {
         level: crate::state::room::DEFAULT_CPU_LEVEL,
         seed,
         personality: None,
@@ -561,8 +561,16 @@ impl Screen for RulesDialog {
             }
         }
         // What is not chosen here yet.
+        let attacks = ddi_room::BattlePreset::parse(&draft.battle).is_some_and(|b| b.attacks());
         for (i, (label, value)) in [
-            (m::rules_battle(), m::rules_battle_value()),
+            (
+                m::rules_battle(),
+                if attacks {
+                    m::rules_battle_attacks_value()
+                } else {
+                    m::rules_battle_value()
+                },
+            ),
             (m::rules_points(), m::rules_points_value()),
         ]
         .iter()

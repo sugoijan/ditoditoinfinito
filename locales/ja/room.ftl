@@ -115,6 +115,8 @@ room-rules-level-value = { $level } / { $levels }
 
 room-rules-battle-value = サバイバル · 暫定
 
+room-rules-battle-attacks-value = サバイバル＋パワー · 開発用
+
 room-rules-points-value = 順位制 · 試験的
 
 room-rules-level-note = CPUのレベルは譜面に対する強さで、腕前の評価ではありません。

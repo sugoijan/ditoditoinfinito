@@ -27,20 +27,38 @@ pub enum BattlePreset {
     /// song's end (they finish the song; nothing they do after changes
     /// the result); otherwise at the song's end. Ranked by [`rank`].
     GaugeSurvivalV0,
+    /// PROVISIONAL, DEVELOPMENT ONLY in M8a: [`BattlePreset::GaugeSurvivalV0`]
+    /// with attack power (`crate::attacks`, [`crate::attacks::ATTACKS_V0`]):
+    /// each competitor earns power by timing, shown as a bar above life.
+    /// Nothing is launched yet (later rounds); ranked by [`rank`] as
+    /// survival. Reached only by the shells' development switches
+    /// (`--mp-dev-attacks`, the web's `mpattacks=1`).
+    GaugeAttacksV0,
 }
 
 impl BattlePreset {
     pub const GAUGE_SURVIVAL_V0: &'static str = "gauge-survival-v0";
+    pub const GAUGE_ATTACKS_V0: &'static str = "gauge-attacks-v0";
 
     pub fn id(self) -> &'static str {
         match self {
             Self::GaugeSurvivalV0 => Self::GAUGE_SURVIVAL_V0,
+            Self::GaugeAttacksV0 => Self::GAUGE_ATTACKS_V0,
         }
     }
 
     /// The preset an id names, if it is one this build plays.
     pub fn parse(id: &str) -> Option<Self> {
-        (id == Self::GAUGE_SURVIVAL_V0).then_some(Self::GaugeSurvivalV0)
+        match id {
+            Self::GAUGE_SURVIVAL_V0 => Some(Self::GaugeSurvivalV0),
+            Self::GAUGE_ATTACKS_V0 => Some(Self::GaugeAttacksV0),
+            _ => None,
+        }
+    }
+
+    /// Its competitors earn attack power (`crate::attacks`).
+    pub fn attacks(self) -> bool {
+        matches!(self, Self::GaugeAttacksV0)
     }
 
     /// Not a decided design: what shows it says so.
@@ -240,7 +258,11 @@ mod tests {
 
     #[test]
     fn the_preset_is_named_versioned_and_provisional() {
+        let a = BattlePreset::GaugeAttacksV0;
+        assert_eq!(BattlePreset::parse(a.id()), Some(a));
+        assert!(a.attacks() && a.provisional());
         let p = BattlePreset::GaugeSurvivalV0;
+        assert!(!p.attacks());
         assert_eq!(BattlePreset::parse(p.id()), Some(p));
         assert_eq!(BattlePreset::parse("provisional-standard"), None);
         assert!(p.provisional());

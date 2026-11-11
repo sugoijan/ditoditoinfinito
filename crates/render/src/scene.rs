@@ -1254,6 +1254,9 @@ pub struct Miniature {
     pub panel: [f32; 4],
     /// Out of the stage: no combo.
     pub out: bool,
+    /// Its attack power above its life, where the battle has attacks
+    /// (none once out).
+    pub battle: Option<crate::hud::BattleBar>,
 }
 
 /// Adds `minis` to a scene already built: their bands (at `band`'s
@@ -1540,6 +1543,7 @@ mod tests {
             geometry: mini_geo,
             panel: [850.0, 200.0, 930.0, 320.0],
             out: false,
+            battle: None,
         }];
         add_miniatures(
             &mut out,

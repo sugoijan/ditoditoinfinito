@@ -957,6 +957,24 @@ impl GameLoop {
                             ddi_library::announcer::Line::Battle(e).folder()
                         }),
                         "cue_drawn": self.view.battle_cue_drawn(),
+                        // Attack power (M8a): each competitor's, the
+                        // checkpoints run of the stage's, the last
+                        // events.
+                        "attacks": s.battle().and_then(|b| {
+                            let a = b.attacks()?;
+                            let (run, of) = a.checkpoints();
+                            let me = b.setup().me;
+                            Some(json!({
+                                "mine": a.power(me),
+                                "shown": b.my_power(&s.player).map(|(p, c)| json!([p, c])),
+                                "power": b.setup().cpus.iter().map(|c| json!({
+                                    "participant": c.participant.0,
+                                    "power": a.power(c.participant),
+                                })).collect::<Vec<_>>(),
+                                "checkpoints": [run, of],
+                                "events": a.recent().iter().map(|e| format!("{e:?}")).collect::<Vec<_>>(),
+                            }))
+                        }),
                     })),
                     "announcer": announcer_debug(s.announcer_report()),
                     "drift": clock.drift().unwrap_or(0.0),

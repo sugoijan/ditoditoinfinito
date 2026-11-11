@@ -38,6 +38,53 @@ pub(crate) fn life_rect(geo: &FieldGeometry, span: f32) -> [f32; 4] {
     [geo.center_x(span) - w / 2.0, 22.0 * s, w, 8.0 * s]
 }
 
+/// A battle's attack power as its bar shows it
+/// (`docs/plans/multiplayer-ui.md`, "Concrete play HUD study"; the
+/// maintainer, 2026-11-11: directly above life): its share of the bar
+/// and whether it is full (a restrained electric edge then; a steady glow
+/// under reduced motion). No number.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BattleBar {
+    /// `0..=1`.
+    pub power: f32,
+    pub charged: bool,
+}
+
+/// The power bar over a field whose life gauge is at `life` (its
+/// [`life_rect`] or a miniature's): as wide, half as thick, directly
+/// above it with a gap of a quarter of its own thickness (13 of the
+/// play's units from the field's top to life's 22 and 8). Above life
+/// whatever the scroll: life does not move under Reverse.
+pub(crate) fn power_rect(life: [f32; 4]) -> [f32; 4] {
+    let [x, y, w, h] = life;
+    let s = h / 8.0;
+    [x, y - 9.0 * s, w, 4.0 * s]
+}
+
+/// The glow's room around the power bar, in its own thickness.
+const POWER_GLOW: f32 = 0.75;
+
+/// The power bar's quad (its glow's room around it) and its values for
+/// the shader: `[fill, charged, time, glow]`, and `[reduced motion, …]`.
+fn power_globals(
+    life: [f32; 4],
+    bar: Option<BattleBar>,
+    now: f64,
+    reduced: bool,
+) -> ([f32; 4], [f32; 4], [f32; 4]) {
+    let Some(bar) = bar else {
+        return ([0.0; 4], [0.0; 4], [0.0; 4]);
+    };
+    let [x, y, w, h] = power_rect(life);
+    let m = h * POWER_GLOW;
+    let t = if reduced { 0.0 } else { (now % 1000.0) as f32 };
+    (
+        [x - m, y - m, w + 2.0 * m, h + 2.0 * m],
+        [bar.power.clamp(0.0, 1.0), f32::from(bar.charged), t, m],
+        [f32::from(reduced), 0.0, 0.0, 0.0],
+    )
+}
+
 pub(crate) fn mark_rect(geo: &FieldGeometry) -> [f32; 4] {
     let s = scale(geo);
     let h = 170.0 * 176.0 / 974.0;
@@ -232,6 +279,9 @@ struct Globals {
     motion: [f32; 4], // evolution, phase, full mix, danger
     combo: [f32; 4],  // count, tier, scale, outline width
     digits: [[f32; 4]; 3],
+    power_rect: [f32; 4],
+    power: [f32; 4],       // fill, charged, time, glow margin
+    power_style: [f32; 4], // reduced motion
 }
 
 pub(crate) struct Hud {
@@ -245,6 +295,8 @@ pub(crate) struct Hud {
     motion: Option<Motion>,
     visible: bool,
     minis: Minis,
+    /// The local player's attack power, where a battle has attacks.
+    battle: Option<BattleBar>,
 }
 
 /// The least a miniature's combo is scaled (the play's is 1 at a 72 px
@@ -353,6 +405,7 @@ impl Hud {
             motion: None,
             visible: false,
             minis,
+            battle: None,
         }
     }
 
@@ -376,6 +429,11 @@ impl Hud {
     pub fn retarget(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) {
         self.pipeline = Self::pipeline(device, &self.shader, &self.layout, format);
         self.minis.pipeline = Self::pipeline(device, &self.shader, &self.minis.layout, format);
+    }
+
+    /// The local player's attack power for the frames from now on.
+    pub fn set_battle(&mut self, bar: Option<BattleBar>) {
+        self.battle = bar;
     }
 
     pub fn reset(&mut self) {
@@ -456,9 +514,12 @@ impl Hud {
             let count = count as f32;
             let cs = s.max(MINI_COMBO_MIN_SCALE) * if tier == 10 { 1.2 } else { 1.0 } * pulse;
             let width = (count * 32.0 + 32.0) * cs;
+            let bar = [center - w / 2.0, top + 22.0 * s, w, 8.0 * s];
+            let (power_rect, power, power_style) =
+                power_globals(bar, m.battle.filter(|_| !m.out), now, opts.reduced_motion);
             let globals = Globals {
                 screen: [screen[0], screen[1], f32::from(self.linear), 1.0],
-                bar: [center - w / 2.0, top + 22.0 * s, w, 8.0 * s],
+                bar,
                 combo_rect: [
                     center - width / 2.0,
                     (top + bottom) / 2.0 - 16.0 * cs,
@@ -494,6 +555,9 @@ impl Hud {
                         * if tier == 10 { 1.2 } else { 1.0 },
                 ],
                 digits,
+                power_rect,
+                power,
+                power_style,
             };
             let at = i * stride as usize;
             let g = bytemuck::bytes_of(&globals);
@@ -514,6 +578,7 @@ impl Hud {
         opts: RenderOptions,
         quit: Option<[f32; 3]>,
     ) {
+        let battle = self.battle;
         self.visible = opts.preview.is_none();
         if !self.visible {
             self.reset();
@@ -548,9 +613,11 @@ impl Hud {
         {
             mark[2] = 0.0;
         }
+        let bar = life_rect(geo, field_span(layout));
+        let (power_rect, power, power_style) = power_globals(bar, battle, now, opts.reduced_motion);
         let globals = Globals {
             screen: [geo.width, geo.height, f32::from(self.linear), 1.0],
-            bar: life_rect(geo, field_span(layout)),
+            bar,
             combo_rect: [
                 geo.center_x(field_span(layout)) - width / 2.0,
                 geo.height / 2.0 - 16.0 * cs,
@@ -582,6 +649,9 @@ impl Hud {
                     * if tier == 10 { 1.2 } else { 1.0 },
             ],
             digits,
+            power_rect,
+            power,
+            power_style,
         };
         queue.write_buffer(&self.buffer, 0, bytemuck::bytes_of(&globals));
     }
@@ -593,15 +663,16 @@ impl Hud {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.group, &[]);
         pass.set_bind_group(1, &self.atlas, &[]);
-        pass.draw(0..6, 0..3);
+        // The gauge, the combo, the power bar, the watermark.
+        pass.draw(0..6, 0..4);
         if let (n @ 1.., Some((_, group, _))) = (self.minis.count, &self.minis.buffer) {
             pass.set_pipeline(&self.minis.pipeline);
             pass.set_bind_group(1, &self.atlas, &[]);
             for i in 0..n {
                 let offset = (i as u64 * self.minis.stride) as u32;
                 pass.set_bind_group(0, group, &[offset]);
-                // The gauge and the combo; no watermark.
-                pass.draw(0..6, 0..2);
+                // The gauge, the combo and the power bar; no watermark.
+                pass.draw(0..6, 0..3);
             }
         }
     }
@@ -648,6 +719,42 @@ mod tests {
             .expect("GLSL writer")
             .write()
             .expect("GLSL ES 3.0 HUD");
+        }
+    }
+
+    /// The power bar sits directly above life (the maintainer, 2026-11-11),
+    /// as wide, half as thick, on the play's field and a miniature's alike,
+    /// and its glow's room never reaches life.
+    #[test]
+    fn the_power_bar_is_directly_above_life() {
+        let geo = FieldGeometry {
+            left: 500.0,
+            arrow: 72.0,
+            receptor_y: 108.0,
+            direction: 1.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for life in [life_rect(&geo, 4.0), [40.0, 300.0 + 22.0 * 0.4, 115.2, 3.2]] {
+            let [x, y, w, h] = power_rect(life);
+            assert_eq!((x, w), (life[0], life[2]), "as wide");
+            assert!((h - life[3] / 2.0).abs() < 1e-4, "half as thick");
+            let gap = life[1] - (y + h);
+            assert!((gap - life[3] * 5.0 / 8.0).abs() < 1e-4, "{gap}");
+            assert!(y > 0.0);
+            let bar = Some(BattleBar {
+                power: 0.4,
+                charged: true,
+            });
+            let (quad, values, style) = power_globals(life, bar, 12.5, false);
+            assert!(quad[1] + quad[3] < life[1], "the glow stays above life");
+            assert_eq!(values[..2], [0.4, 1.0]);
+            assert_eq!(style[0], 0.0);
+            // Reduced motion: its clock stands still.
+            let (_, still, style) = power_globals(life, bar, 12.5, true);
+            assert_eq!((still[2], style[0]), (0.0, 1.0));
+            // None: nothing drawn.
+            assert_eq!(power_globals(life, None, 1.0, false).0[2], 0.0);
         }
     }
 

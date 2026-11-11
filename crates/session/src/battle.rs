@@ -28,11 +28,13 @@
 //! Each CPU's judged moments feed its miniature field ([`feed`], M6): the
 //! tap-only copy they play, shown on this play's song clock.
 
+pub mod attacks;
 pub mod feed;
 
 use ddi_chart::Song;
 use ddi_engine::JudgeEventKind;
 use ddi_engine::cpu::Opponent;
+use ddi_engine::judge::JudgeEvent;
 use ddi_engine::player::Player;
 use ddi_engine::rules::{Ruleset, ScoreView};
 use ddi_l10n::msg::room as m;
@@ -122,6 +124,9 @@ pub struct OpponentView {
     /// Its score as a fraction of the chart's best, and its combo.
     pub score: f64,
     pub combo: u32,
+    /// Its attack power as a share of the bar and whether the bar is
+    /// full, where the battle has attacks ([`attacks`]).
+    pub power: Option<(f32, bool)>,
 }
 
 /// A stage's judged outcome, for the room: its confirmed ranking (best
@@ -151,6 +156,9 @@ pub struct Battle {
     seats: Vec<Seat>,
     /// The chart's tap-only copy the CPUs play, as their fields draw it.
     track: feed::TapTrack,
+    /// The attack ledger, where the battle has attacks (a practice's
+    /// only: an online stage's would be the room's).
+    attacks: Option<attacks::AttackRunner>,
     /// The ranking, once decided before the song's end.
     decided: Option<Vec<Vec<Finisher>>>,
     /// The battle's events since they were last taken, and what tells
@@ -223,10 +231,19 @@ impl Battle {
             })
             .collect::<Result<Vec<_>, String>>()?;
         let live = seats.len() + 1 + usize::from(setup.others);
+        let attacks = (setup.battle.attacks() && !setup.remote()).then(|| {
+            attacks::AttackRunner::new(
+                song,
+                chart,
+                &setup.ruleset,
+                std::iter::once(setup.me).chain(seats.iter().map(|s| s.seat.participant)),
+            )
+        });
         Ok(Battle {
             setup,
             seats,
             track,
+            attacks,
             decided: None,
             events: Vec::new(),
             live,
@@ -241,17 +258,31 @@ impl Battle {
     }
 
     /// The opponents judged to judged song second `t`, beside `human`
-    /// judged to it too. `Some(true)` the moment the stage is decided with
-    /// the local player the winner (the session lets them finish the song
-    /// whatever their gauge does), `Some(false)` the moment it is decided
+    /// judged to it too (`judged`: what it was judged since the last
+    /// call). `Some(true)` the moment the stage is decided with the local
+    /// player the winner (the session lets them finish the song whatever
+    /// their gauge does), `Some(false)` the moment it is decided
     /// otherwise.
-    pub fn advance(&mut self, t: f64, human: &Player) -> Option<bool> {
+    pub fn advance(&mut self, t: f64, human: &Player, judged: &[JudgeEvent]) -> Option<bool> {
+        if let Some(a) = self.attacks.as_mut() {
+            a.judged(self.setup.me, judged);
+            if let Some(at) = human.gauge_failed_at() {
+                a.out_at(self.setup.me, at);
+            }
+        }
         for s in &mut self.seats {
             s.opponent.advance(t);
             // Its judgments as moments of its stream: what its field shows.
             let (life, combo, out_at) =
                 (s.opponent.life(), s.opponent.combo(), s.opponent.out_at());
-            for e in s.opponent.take_judged() {
+            let events = s.opponent.take_judged();
+            if let Some(a) = self.attacks.as_mut() {
+                a.judged(s.seat.participant, &events);
+                if let Some(at) = out_at {
+                    a.out_at(s.seat.participant, at);
+                }
+            }
+            for e in events {
                 let JudgeEventKind::Tap(judgment, _) = e.kind else {
                     continue;
                 };
@@ -265,6 +296,22 @@ impl Battle {
                     out: out_at.is_some_and(|o| o <= e.song_time),
                 };
                 s.feed.push(&self.track, moment);
+            }
+        }
+        // The attack checkpoints every competitor still in has been
+        // judged past (the slowest judge decides, whatever the frames).
+        if let Some(a) = self.attacks.as_mut() {
+            let until = std::iter::once((human.gauge_failed_at(), human.judge().last_time()))
+                .chain(
+                    self.seats
+                        .iter()
+                        .map(|s| (s.opponent.out_at(), s.opponent.player().judge().last_time())),
+                )
+                .filter(|(out, _)| out.is_none())
+                .map(|(_, last)| last.unwrap_or(f64::NEG_INFINITY))
+                .reduce(f64::min);
+            if let Some(until) = until {
+                a.run_due(until);
             }
         }
         if self.decided.is_some() {
@@ -357,6 +404,20 @@ impl Battle {
         })
     }
 
+    /// The attack ledger, where the battle has attacks.
+    pub fn attacks(&self) -> Option<&attacks::AttackRunner> {
+        self.attacks.as_ref()
+    }
+
+    /// The local player's power bar (its share and whether full), where
+    /// the battle has attacks: none once the stage is won or they are
+    /// out (`docs/plans/multiplayer-ui.md`: a confirmed winner's power
+    /// stops).
+    pub fn my_power(&self, human: &Player) -> Option<(f32, bool)> {
+        let a = self.attacks.as_ref()?;
+        (!self.won() && human.gauge_failed_at().is_none()).then(|| a.bar(self.setup.me))
+    }
+
     /// The chart's tap-only copy the CPUs play, as their fields draw it.
     pub fn track(&self) -> &feed::TapTrack {
         &self.track
@@ -380,6 +441,11 @@ impl Battle {
                 out: s.opponent.out_at().is_some(),
                 score: accuracy(&s.opponent.score()),
                 combo: s.opponent.combo(),
+                power: self
+                    .attacks
+                    .as_ref()
+                    .filter(|_| s.opponent.out_at().is_none())
+                    .map(|a| a.bar(s.seat.participant)),
             })
             .collect()
     }

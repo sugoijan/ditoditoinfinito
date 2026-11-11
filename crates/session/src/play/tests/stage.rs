@@ -751,3 +751,139 @@ fn a_stage_is_played_under_the_match_s_ruleset_not_the_player_s() {
     let fresh = RoomClient::new(0, 1);
     assert_eq!(fresh.rules().ruleset, "itg-fa+");
 }
+
+/// A practice room under the attacks' battle (M8a's development switch's).
+fn attacks_room(song: &Song, cpus: u16, level: u8) -> RoomClient {
+    let mut room = room(song, 1, cpus, level);
+    let rules = MatchRules {
+        battle: ddi_room::BattlePreset::GAUGE_ATTACKS_V0.into(),
+        ..room.rules().clone()
+    };
+    room.save_rules(rules).unwrap();
+    room
+}
+
+/// The stage of `order` autoplayed at `fps` to its end.
+fn play_at(song: &Song, order: &StageOrder, fps: f64) -> PlaySession<FakeAudio, FakeInputs> {
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let settings = Settings::default();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.opponents = Some(StageSetup::of(order));
+    let mut s = PlaySession::start(
+        song,
+        order.chart.index,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    run(&mut s, &clock, fps, 300.0).expect("the stage ends");
+    s
+}
+
+/// Attack power (M8a): earned by timing at checkpoints every four beats,
+/// the same ledger at any frame rate and again from the play's log and
+/// the CPUs' seeds; the bar full for an autoplayed player, never past
+/// its cap; none under the survival battle.
+#[test]
+fn attack_power_is_the_same_at_any_frame_rate_and_from_the_log() {
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(&song, 3, 2);
+    let mut now = 0;
+    let order = begin(&song, &mut practice, &mut now);
+    assert_eq!(order.battle, ddi_room::BattlePreset::GaugeAttacksV0);
+    let a = play_at(&song, &order, 60.0);
+    let b = play_at(&song, &order, 144.0);
+    let ra = a.battle().unwrap().attacks().unwrap();
+    let rb = b.battle().unwrap().attacks().unwrap();
+    let (run, of) = ra.checkpoints();
+    assert!(run > 20 && run <= of, "{run} of {of}");
+    assert_eq!(ra.record(), rb.record(), "60 and 144 frames a second");
+    // Autoplayed: every note in the best window, two each (the chart's
+    // 38 notes, the last ones after the last checkpoint run), shown as a
+    // share of the bar.
+    let tapped = a.player.tally().count(ddi_engine::rules::Judgement::W1);
+    let power = ra.power(order.me);
+    assert!(
+        power.is_multiple_of(2) && power >= 2 * (tapped - 2) && power <= 100,
+        "{power}"
+    );
+    assert_eq!(
+        a.battle().unwrap().my_power(&a.player),
+        Some((power as f32 / 100.0, false)),
+    );
+    let views = a.opponents();
+    assert!(views.iter().all(|v| v.power.is_some()));
+    // The record grows by checkpoints, never past the cap.
+    assert!(
+        ra.record()
+            .iter()
+            .flat_map(|c| c.power.iter())
+            .all(|(_, p)| *p <= 100)
+    );
+    // Again without frames: the player's log replayed, the CPUs from
+    // their seeds, judged in long steps.
+    let rules = a.player.ruleset().fresh();
+    let log = a.player.log().clone();
+    let mut human =
+        ddi_engine::player::Player::new(&song, CHART, rules.fresh(), *a.player.options());
+    human.start(0.0, log.start);
+    let mut cpus: Vec<_> = order
+        .cpus
+        .iter()
+        .map(|seat| {
+            let mut o = ddi_engine::cpu::Opponent::with_skills(
+                &song,
+                CHART,
+                rules.fresh(),
+                usize::from(seat.level),
+                seat.seed,
+                seat.skills
+                    .as_deref()
+                    .and_then(|v| ddi_engine::cpu::Skills::parse(v).ok())
+                    .unwrap_or_default(),
+            )
+            .unwrap();
+            o.start(0.0);
+            o
+        })
+        .collect();
+    let mut runner = crate::battle::attacks::AttackRunner::new(
+        &song,
+        CHART,
+        &order.ruleset,
+        std::iter::once(order.me).chain(order.cpus.iter().map(|c| c.participant)),
+    );
+    let mut inputs = log.inputs.iter().peekable();
+    let mut t = -1.0;
+    while t < human.end_time() + 2.0 {
+        t += 0.37;
+        let mut events = Vec::new();
+        while let Some(i) = inputs.next_if(|i| i.time <= t) {
+            events.extend(human.input_at(i.lane, i.pressed, i.time));
+        }
+        events.extend(human.update_at(t));
+        runner.judged(order.me, &events);
+        for (o, seat) in cpus.iter_mut().zip(&order.cpus) {
+            o.advance(t);
+            runner.judged(seat.participant, &o.take_judged());
+        }
+        let until = std::iter::once(human.judge().last_time())
+            .chain(cpus.iter().map(|o| o.player().judge().last_time()))
+            .map(|l| l.unwrap_or(f64::NEG_INFINITY))
+            .reduce(f64::min)
+            .unwrap();
+        runner.run_due(until);
+    }
+    let n = ra.record().len();
+    assert_eq!(&runner.record()[..n], ra.record(), "from the log");
+    // The survival battle has none.
+    let mut plain = room(&song, 1, 1, 2);
+    let order = begin(&song, &mut plain, &mut now);
+    let s = play_at(&song, &order, 60.0);
+    assert!(s.battle().unwrap().attacks().is_none());
+    assert_eq!(s.battle().unwrap().my_power(&s.player), None);
+    assert!(s.opponents().iter().all(|v| v.power.is_none()));
+}

@@ -529,7 +529,8 @@ fn share_switch(hash: &str) {
 /// route (or on an invite's link, `#/mp/join/<invite>?mp=1`) sets
 /// `Settings::multiplayer`, `mp=0` clears it; never a row of Options
 /// (DEVELOPMENT ONLY: `mpcpus=N` beside `mp=1`, practice against N CPUs
-/// beyond the cap, `crate::room::develop`). Off,
+/// beyond the cap, `crate::room::develop`; `mpattacks=1`, attack power,
+/// and `mpdevmines=BEAT`, a section of battle shocks, M8a). Off,
 /// the start menu's Multiplayer says "Coming soon" and the prototype's
 /// routes lead to the start menu.
 fn multiplayer_switch(hash: &str) {
@@ -558,6 +559,30 @@ fn multiplayer_switch(hash: &str) {
         })
     {
         crate::room::develop(n);
+    }
+    // DEVELOPMENT ONLY (M8a): `mpattacks=1` practices with attack power
+    // shown, `mpdevmines=BEAT` puts a section of battle shocks into each
+    // stage's play from that beat (`ddi_ui::state::room::Development`).
+    if on {
+        let param = |key: &str| {
+            query.split('&').find_map(|kv| match kv.split_once('=') {
+                Some((k, v)) if k == key => Some(v.to_string()),
+                _ => None,
+            })
+        };
+        let attacks = param("mpattacks").map(|v| v == "1");
+        let mines = param("mpdevmines").map(|v| v.parse::<u32>().ok());
+        if attacks.is_some() || mines.is_some() {
+            let mut d = ddi_ui::state::room::development();
+            if let Some(a) = attacks {
+                d.attacks = a;
+            }
+            if let Some(m) = mines {
+                d.mines_at_beat = m;
+            }
+            ddi_ui::state::room::set_development(d);
+            crate::room::discard();
+        }
     }
     let mut settings = crate::settings::Settings::load();
     if settings.multiplayer != on {

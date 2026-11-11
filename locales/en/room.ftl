@@ -219,6 +219,10 @@ room-rules-level-value = { $level } of { $levels }
 # The battle rules' value: not decided yet.
 room-rules-battle-value = Survival · provisional
 
+# The same with attack power shown (a development switch; about 32
+# letters).
+room-rules-battle-attacks-value = Survival with power · development
+
 # How stage points are given: by place, a rule still under study
 # (about 24 letters).
 room-rules-points-value = By place · experimental

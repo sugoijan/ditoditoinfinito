@@ -1202,10 +1202,12 @@ impl RoomState {
         }) else {
             return;
         };
-        // One preset exists; an unknown id ranks as it does
+        // Both presets rank alike; an unknown id ranks as survival does
         // (`BattlePreset::GaugeSurvivalV0`).
         let ranking = match preset.unwrap_or(BattlePreset::GaugeSurvivalV0) {
-            BattlePreset::GaugeSurvivalV0 => crate::battle::rank(&entrants),
+            BattlePreset::GaugeSurvivalV0 | BattlePreset::GaugeAttacksV0 => {
+                crate::battle::rank(&entrants)
+            }
         };
         if self.confirm(stage, &ranking, out).is_ok() {
             self.end_song(stage, out);

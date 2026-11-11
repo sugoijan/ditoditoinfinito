@@ -13,7 +13,9 @@
 //! and connection. Provisional choices sit behind named, versioned types:
 //! `awards::AwardRule::ExperimentalLinearV0`,
 //! `rules::ReadinessPolicy::HOSTED_DEADLINE_V0`,
-//! `battle::BattlePreset::GaugeSurvivalV0`.
+//! `battle::BattlePreset::GaugeSurvivalV0`; attack power's ledger,
+//! `attacks::StageBattle` under `attacks::ATTACKS_V0` and
+//! `attacks::POWER_CLASSES_V0`.
 //!
 //! Commands and events travel in a versioned envelope (`protocol`); the
 //! shells talk to a `RoomAuthority`: the deterministic `LocalAuthority`
@@ -23,6 +25,7 @@
 //! over a socket each shell supplies (`Transport`). `fake::FakeServer` is
 //! the server's room in process for tests, with faults in the way.
 
+pub mod attacks;
 pub mod authority;
 pub mod awards;
 pub mod battle;

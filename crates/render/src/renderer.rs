@@ -610,6 +610,12 @@ impl Renderer {
         self.quit_button = button;
     }
 
+    /// The local player's attack power over the plays drawn from now on
+    /// (a battle with attacks), or none.
+    pub fn set_battle_bar(&mut self, bar: Option<crate::hud::BattleBar>) {
+        self.hud.set_battle(bar);
+    }
+
     /// The opponents' fields the play's frames draw beside its own, from
     /// the next frame (none: the play's alone).
     pub fn set_miniatures(&mut self, miniatures: Vec<scene::Miniature>) {

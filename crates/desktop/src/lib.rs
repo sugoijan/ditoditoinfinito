@@ -422,6 +422,24 @@ pub fn run() {
         };
         room::develop(n);
     }
+    // DEVELOPMENT ONLY (M8a): `--mp-dev-attacks`, practice with attack
+    // power shown; `--mp-dev-mines BEAT`, a section of battle shocks put
+    // into each stage's play from that beat
+    // (`ddi_ui::state::room::Development`).
+    {
+        let mut d = ddi_ui::state::room::development();
+        if args.iter().any(|a| a == "--mp-dev-attacks") {
+            d.attacks = true;
+        }
+        if let Some(i) = args.iter().position(|a| a == "--mp-dev-mines") {
+            let Some(beat) = args.get(i + 1).and_then(|n| n.parse::<u32>().ok()) else {
+                eprintln!("--mp-dev-mines takes a beat");
+                std::process::exit(2);
+            };
+            d.mines_at_beat = Some(beat);
+        }
+        ddi_ui::state::room::set_development(d);
+    }
     // `--join LINK|INVITE`: an online room's invite page over the
     // multiplayer home (`crate::online`).
     if let Some(i) = args.iter().position(|a| a == "--join") {

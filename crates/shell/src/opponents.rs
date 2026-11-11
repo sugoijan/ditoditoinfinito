@@ -56,6 +56,9 @@ const TRACK: [f32; 4] = [1.0, 1.0, 1.0, 0.14];
 const LIFE: [f32; 4] = [0.45, 0.86, 0.72, 0.95];
 const LOW: [f32; 4] = [0.96, 0.49, 0.42, 0.95];
 const WON: [f32; 4] = [0.98, 0.84, 0.45, 1.0];
+/// Attack power: the HUD's electric violet, lighter when the bar is full.
+const POWER: [f32; 4] = [0.55, 0.36, 1.0, 0.95];
+const CHARGED: [f32; 4] = [0.80, 0.70, 1.0, 1.0];
 
 /// What the column shows.
 #[derive(Clone, Debug, Default)]
@@ -264,6 +267,25 @@ pub fn draw(
                 [px(bar_x), px(bar_y), px(bar_x + bw * life), px(bar_y + 4.0)],
                 color,
             );
+        }
+        // Its attack power: a thin line over its life, from the left.
+        if let Some((power, charged)) = o.power.filter(|_| !o.out) {
+            let power = power.clamp(0.0, 1.0);
+            list.rect(
+                [px(bar_x), px(bar_y - 3.0), px(bar_x + bw), px(bar_y - 1.0)],
+                TRACK,
+            );
+            if power > 0.0 {
+                list.rect(
+                    [
+                        px(bar_x),
+                        px(bar_y - 3.0),
+                        px(bar_x + bw * power),
+                        px(bar_y - 1.0),
+                    ],
+                    if charged { CHARGED } else { POWER },
+                );
+            }
         }
     }
     if more > 0
@@ -860,6 +882,7 @@ mod tests {
                     out: i == 1,
                     score: 0.9,
                     combo: 10,
+                    power: None,
                 })
                 .collect(),
             out: "Out".into(),

@@ -24,7 +24,7 @@ mod gaussian;
 pub mod generative;
 mod gpu;
 mod hud;
-pub use hud::HudSpots;
+pub use hud::{BattleBar, HudSpots};
 mod instances;
 pub mod lyrics;
 pub mod material;

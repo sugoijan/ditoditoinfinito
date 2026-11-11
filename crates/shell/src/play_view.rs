@@ -1028,6 +1028,16 @@ impl<H: PlayHost> PlayView<H> {
             );
             Some(f)
         });
+        // The local player's attack power above its life (a battle with
+        // attacks: M8a's development switch), each opponent's above theirs.
+        let bar = |p: Option<(f32, bool)>| {
+            p.map(|(power, charged)| ddi_render::BattleBar { power, charged })
+        };
+        self.renderer.set_battle_bar(
+            session
+                .battle()
+                .and_then(|b| bar(b.my_power(&session.player))),
+        );
         let mut minis = self.renderer.take_miniatures();
         minis.clear();
         let mut flashes = crate::opponents::Flashes::new();
@@ -1035,6 +1045,7 @@ impl<H: PlayHost> PlayView<H> {
             let scroll = session.player.options().scroll;
             let hits = layer.as_ref().is_some_and(|l| l.miniature_hits()) || layer.is_none();
             let feeds: Vec<_> = b.feeds().collect();
+            let views = b.views();
             for slot in &f.slots {
                 let Some(feed) = feeds.get(slot.seat) else {
                     continue;
@@ -1048,6 +1059,7 @@ impl<H: PlayHost> PlayView<H> {
                     frame,
                     geometry: slot.field,
                     panel: slot.panel,
+                    battle: bar(views.get(slot.seat).and_then(|v| v.power)),
                 });
             }
         }
