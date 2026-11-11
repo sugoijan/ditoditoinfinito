@@ -1042,9 +1042,10 @@ impl Infinito {
         b
     }
 
-    /// The quick volume's button: the level's speaker
-    /// (`ui/volume.svg`'s cells, picked by the widget) on a plate.
-    fn volume_button(&self, size: [f32; 2]) -> Actor {
+    /// A button showing an icon alone: a sprite `Icon` on a plate, its
+    /// image (a cell of an atlas: the quick volume's speaker,
+    /// `ui/volume.svg`; a page's, `ui/icons.svg`) the widget's to give.
+    fn icon_button(&self, size: [f32; 2]) -> Actor {
         let mut b = self.button(&Spec::new(size, ""), "Plate2", "Text", 20.0, 700);
         if let Kind::Frame(c) = &mut b.kind {
             c.retain(|a| a.name != "Label");
@@ -1243,6 +1244,7 @@ impl Look for Infinito {
             "PointerMask" => Some("ui/cursors.svg"),
             "PointerBurst" => Some("ui/cursor-burst.svg"),
             "Volume.Icon" => Some("ui/volume.svg"),
+            "Page.Icons" => Some("ui/icons.svg"),
             "TitleMenu.Background" => Some("ui/menu-rain.svg"),
             "KeyHint" => Some(self.keycap_material.get().image()),
             _ => None,
@@ -1300,7 +1302,7 @@ impl Look for Infinito {
             "PlayButton" => self.button(spec, "Accent", "OnAccent", 18.0, 700),
             "IconButton" => self.button(spec, "Plate2", "Text", 20.0, 700),
             "BackButton" => self.back_button(spec.size),
-            "Volume" => self.volume_button(spec.size),
+            "Volume" | "Page.Icon" => self.icon_button(spec.size),
             "Volume.Popup" => self.volume_popup(spec.size),
             "Search.Clear" => self.clear_button(spec.size),
             "StyleButton" => {

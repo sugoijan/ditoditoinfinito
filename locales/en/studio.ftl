@@ -26,6 +26,10 @@ studio-intro = { $platform ->
    *[desktop] Add each recording of your voice with its line's { -studio-button-add-recording } button below. Then use your announcer in the game, or export it to share.
 }
 
+# Under the intro: what the two icon buttons beside each recording and
+# example do (a play triangle; an eye, drawn, not written).
+studio-icons-help = ▶ plays a recording or an example. The eye shows it said in the game, on the screen it is said on.
+
 ## The fields: a label at the left (about 12 letters), what was typed at
 ## the right, or a hint while it is empty.
 
@@ -313,8 +317,9 @@ studio-line-folder = Folder: { $folder }
 studio-recordings-heading = Your recordings
 studio-examples-heading = Examples
 
-# An example: what an announcer might say, in quotes (a play button's
-# label where our announcer's sound of it can be heard).
+# An example: what an announcer might say, in quotes; where our
+# announcer's sound of it can be heard, a play button and an eye button
+# (studio-icons-help) beside it.
 # Variables:
 #   $words (String) - the example's words, in its set's language
 studio-example = “{ $words }”
@@ -340,18 +345,16 @@ studio-opening-long = Ready and here we go take { $seconds } s together: a song 
 # The line's buttons, as wide as their texts.
 studio-add-recording = { -studio-button-add-recording }…
 
-# Beside a recording, and beside an example our announcer says: shows
-# the line's scene (the screen the game says it on) with that one heard
-# in it.
-studio-hear-one = Hear in the game
+# Adds a text line to the line's recordings: a field to write what it
+# will say, to record it later (it then gets its own Add recording…).
+studio-add-text = Add a text line
 
-# Where the line has no recording or example of its own but something
-# speaks in its place (studio-missing-instead): shows its scene, the
-# recording heard in it.
-studio-hear-recorded = Hear it in the game
+# A text line's own button, under its field: picks the recording of
+# what it says, which takes its place.
+studio-add-text-recording = Add its recording…
 
-# The same where our announcer's example speaks in its place.
-studio-hear-example = Hear an example in the game
+# The hint in a text line's field, and in a recording's made for one.
+studio-words-hint = What it says
 
 # On a combo line with no recording: takes the line off the page (Add a
 # combo line… brings it back).
@@ -376,8 +379,9 @@ studio-combo-not-a-count = Type a whole number from 1.
 #   $count (Number) - the count typed (64)
 studio-combo-listed = There is a line for { $count } already.
 
-## A recording on a line: a button that plays it (its file's name and
-## length, after ▶), then buttons to move or remove it.
+## A recording on a line: its file's name and length, with a play
+## button and an eye button beside it (studio-icons-help), then buttons
+## to move or remove it.
 
 # Variables:
 #   $file (String) - its file's name ("ready 2.m4a")

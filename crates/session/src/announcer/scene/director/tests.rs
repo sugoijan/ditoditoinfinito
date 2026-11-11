@@ -633,4 +633,24 @@ fn the_draft_as_a_voice_takes_each_lines_next_recording_first() {
     assert_eq!(voice.next(Line::Ready).unwrap().1, &1.0);
     assert_eq!(voice.next(Line::Ready).unwrap().1, &1.0);
     assert_eq!(lengths[&Line::Cleared], 3.0);
+    // The words of a recording made for a text line, its one said first.
+    draft.take_mut(first).unwrap().words = Some(" Get ready! ".into());
+    let words = |turn: usize| {
+        draft_voice(
+            &draft,
+            |_| true,
+            &[(Line::Ready, turn)].into(),
+            None,
+            &decoded,
+            |_, s: &f64| Some(*s),
+            |s| *s,
+        )
+        .2
+    };
+    assert_eq!(
+        words(0).get(&Line::Ready).map(String::as_str),
+        Some("Get ready!")
+    );
+    assert_eq!(words(1).get(&Line::Ready), None, "the other's: none");
+    assert_eq!(words(0).get(&Line::Cleared), None);
 }

@@ -90,6 +90,14 @@ pub enum Block {
         id: String,
         body: Vec<Block>,
     },
+    /// A line of text (and a muted one under it, `detail`; either may
+    /// be left empty) with its buttons at the right, the text centered
+    /// on them: an item of a list, each alike whatever buttons it has.
+    Entry {
+        text: String,
+        detail: Option<String>,
+        actions: Vec<Action>,
+    },
     /// Two columns side by side, the second the wider, where the page is
     /// wide enough; else one after the other. Moving through the items
     /// goes down the first, then the second.
@@ -128,6 +136,41 @@ pub struct Action {
     /// Grayed out: it takes the focus and does nothing, as the start
     /// menu's Multiplayer does.
     pub off: bool,
+    /// Drawn as this icon alone, square (its label where the look has
+    /// no icons).
+    pub icon: Option<Icon>,
+}
+
+/// An icon a button shows ([`Action::icon`]): a cell of the look's
+/// `Page.Icons`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Icon {
+    Play,
+    Stop,
+    /// See it: a scene, where something is shown being said.
+    Eye,
+}
+
+impl Icon {
+    /// Its cell in the look's atlas, of [`Icon::CELLS`] across.
+    fn cell(self) -> usize {
+        match self {
+            Icon::Play => 0,
+            Icon::Stop => 1,
+            Icon::Eye => 2,
+        }
+    }
+
+    const CELLS: usize = 3;
+
+    /// A glyph for it, where the look has no icons.
+    fn glyph(self) -> &'static str {
+        match self {
+            Icon::Play => "▶",
+            Icon::Stop => "■",
+            Icon::Eye => "◉",
+        }
+    }
 }
 
 impl Action {
@@ -137,6 +180,23 @@ impl Action {
             label: label.into(),
             primary: false,
             off: false,
+            icon: None,
+        }
+    }
+
+    /// A square button showing `icon` alone.
+    pub fn icon(id: impl Into<String>, icon: Icon) -> Action {
+        Action {
+            icon: Some(icon),
+            ..Action::new(id, icon.glyph())
+        }
+    }
+
+    /// Its width in a row of buttons.
+    fn width(&self) -> f32 {
+        match self.icon {
+            Some(_) => ACTION_H,
+            None => action_width(&self.label, self.primary),
         }
     }
 
@@ -248,6 +308,7 @@ enum RowKind {
         label: String,
         primary: bool,
         off: bool,
+        icon: Option<Icon>,
         indent: f32,
     },
     /// A field: its label, then its box.
@@ -326,6 +387,8 @@ pub struct PageScreen {
     typing: Option<String>,
     /// Kept current, and opened at ([`PagePlace`]).
     place: Option<SharedPlace>,
+    /// The look's icons' texture ([`Icon`]), once asked for.
+    icons: Option<u32>,
 }
 
 const LINE: f32 = 6.0;
@@ -358,6 +421,7 @@ impl PageScreen {
             target: None,
             typing: None,
             place: None,
+            icons: None,
         }
     }
 
@@ -519,6 +583,7 @@ impl PageScreen {
                             label: label.clone(),
                             primary: *primary,
                             off: false,
+                            icon: None,
                             indent,
                         },
                     });
@@ -547,7 +612,7 @@ impl PageScreen {
                     *y += 4.0;
                     let mut x = indent;
                     for a in actions {
-                        let bw = action_width(&a.label, a.primary).min(width);
+                        let bw = a.width().min(width);
                         if x > indent && x + bw > w {
                             x = indent;
                             *y += ACTION_H + ACTION_GAP;
@@ -567,12 +632,89 @@ impl PageScreen {
                                 label: a.label.clone(),
                                 primary: a.primary,
                                 off: a.off,
+                                icon: a.icon,
                                 indent: x,
                             },
                         });
                         x += bw + ACTION_GAP;
                     }
                     *y += ACTION_H + ACTION_GAP;
+                }
+                Block::Entry {
+                    text,
+                    detail,
+                    actions,
+                } => {
+                    *y += 2.0;
+                    let aw = actions.iter().map(Action::width).sum::<f32>()
+                        + ACTION_GAP * actions.len().saturating_sub(1) as f32;
+                    let tw = if actions.is_empty() {
+                        width
+                    } else {
+                        (width - aw - ACTION_GAP).max(80.0)
+                    };
+                    // (An empty text: the detail alone.)
+                    let mut lines: Vec<(String, f32, &'static str)> = if text.is_empty() {
+                        Vec::new()
+                    } else {
+                        wrap_lines(text, tw, 14.0)
+                            .into_iter()
+                            .map(|l| (l, 14.0, "Text"))
+                            .collect()
+                    };
+                    if let Some(d) = detail {
+                        lines.extend(
+                            wrap_lines(d, tw, 13.0)
+                                .into_iter()
+                                .map(|l| (l, 13.0, "Muted")),
+                        );
+                    }
+                    let th: f32 = lines.iter().map(|(_, size, _)| size + LINE).sum();
+                    let h = if actions.is_empty() {
+                        th
+                    } else {
+                        th.max(ACTION_H)
+                    };
+                    let mut ty = *y + (h - th) / 2.0;
+                    for (l, size, color) in lines {
+                        rows.push(Row {
+                            y: ty,
+                            h: size + LINE,
+                            right: indent + tw,
+                            kind: RowKind::Text {
+                                text: l,
+                                size,
+                                weight: 400,
+                                color,
+                                indent,
+                            },
+                        });
+                        ty += size + LINE;
+                    }
+                    let mut x = w - aw;
+                    for a in actions {
+                        let item = items.len();
+                        items.push(if a.off {
+                            Item::Off(a.id.clone())
+                        } else {
+                            Item::Button(a.id.clone())
+                        });
+                        rows.push(Row {
+                            y: *y,
+                            h: ACTION_H,
+                            right: w,
+                            kind: RowKind::Button {
+                                item,
+                                label: a.label.clone(),
+                                primary: a.primary,
+                                off: a.off,
+                                icon: a.icon,
+                                indent: x,
+                            },
+                        });
+                        x += a.width() + ACTION_GAP;
+                    }
+                    *y += h + 6.0;
                 }
                 Block::Action { id, label } => {
                     let item = items.len();
@@ -696,6 +838,11 @@ impl PageScreen {
 
     fn tree(&mut self, cx: &mut Cx) -> Actor {
         let env = self.env.clone();
+        // An icon's cell drawn at most so long, its plate's 0.6.
+        self.icons = env
+            .look
+            .image("Page.Icons")
+            .map(|source| cx.texture(source, ACTION_H * 0.6 * Icon::CELLS as f32));
         let [w, h] = self.screen;
         let mut children = vec![ground(&env, self.screen)];
         children.push(self.column_actor());
@@ -800,28 +947,43 @@ impl PageScreen {
                     label,
                     primary,
                     off,
+                    icon,
                     indent,
                 } => {
                     // The primary button's label is larger; a row of
-                    // buttons' are as wide as their labels.
+                    // buttons' are as wide as their labels, an icon's
+                    // square.
                     let size = if *primary { 18.0 } else { 15.0 };
-                    let bw = if r.h < 40.0 {
+                    let bw = if icon.is_some() {
+                        r.h
+                    } else if r.h < 40.0 {
                         action_width(label, *primary)
                     } else {
                         look::mono_width(label, size) + 40.0
                     }
                     .min(r.right - indent);
+                    let drawn = icon.zip(self.icons);
                     let mut b = env.component(
                         match (*off, *primary) {
+                            _ if drawn.is_some() => "Page.Icon",
                             (true, _) => "Button.Disabled",
                             (false, true) => "PlayButton",
                             (false, false) => "Button",
                         },
                         "Button",
-                        &Spec::new([bw, r.h], label),
+                        &Spec::new([bw, r.h], if drawn.is_some() { "" } else { label }),
                         &format!("Item{item}"),
                         [indent + bw / 2.0, r.y + r.h / 2.0],
                     );
+                    if let Some((icon, texture)) = drawn
+                        && let Some(a) = hit::find_mut(&mut b, "Icon")
+                        && let Kind::Sprite(s) = &mut a.kind
+                    {
+                        let n = Icon::CELLS as f32;
+                        let c = icon.cell() as f32;
+                        s.texture = texture;
+                        s.custom = Some([c / n, 0.0, (c + 1.0) / n, 1.0]);
+                    }
                     crate::widgets::play(
                         &mut b,
                         if self.focus == Some(*item) {
@@ -839,14 +1001,18 @@ impl PageScreen {
                     label,
                     indent,
                 } => {
-                    let mut t = env.text("", label, 14.0, 500, "Secondary");
-                    call(&mut t, "maxwidth", &[FIELD_LABEL - 12.0]);
-                    c.push(left(t, *indent, r.y + r.h / 2.0));
+                    // A field without a label is as wide as its place.
+                    let lw = if label.is_empty() { 0.0 } else { FIELD_LABEL };
+                    if !label.is_empty() {
+                        let mut t = env.text("", label, 14.0, 500, "Secondary");
+                        call(&mut t, "maxwidth", &[FIELD_LABEL - 12.0]);
+                        c.push(left(t, *indent, r.y + r.h / 2.0));
+                    }
                     if let Some(f) = self.fields.get(id) {
-                        let fw = (r.right - indent - FIELD_LABEL).clamp(80.0, 480.0);
+                        let fw = (r.right - indent - lw).clamp(80.0, 480.0);
                         let mut built = f.build_at(
                             &*env.look,
-                            [indent + FIELD_LABEL + fw / 2.0, r.y + r.h / 2.0],
+                            [indent + lw + fw / 2.0, r.y + r.h / 2.0],
                             [fw, r.h],
                         );
                         if self.focus == Some(*item) {

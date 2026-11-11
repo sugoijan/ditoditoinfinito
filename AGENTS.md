@@ -244,8 +244,8 @@ Rust and the browser are implementation details, not advertised features.
   with what each sound says; `docs/plans/announcers.md`; every line,
   when it speaks and what it falls back to, for pack authors:
   `docs/announcer-lines.md`; the announcer studio's drafts, takes
-  matched to lines by name, their notes and the export's plan,
-  `announcer/draft.rs`, tidied as our packs are made,
+  matched to lines by name, their notes, the text lines planned and
+  the export's plan, `announcer/draft.rs`, tidied as our packs are made,
   `announcer/tidy.rs`, more examples of the lines,
   `announcer/examples.rs`, text only from `announcer/examples.toml`,
   which the library's `build.rs` makes a table, the game carrying no

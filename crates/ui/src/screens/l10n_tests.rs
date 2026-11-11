@@ -188,6 +188,15 @@ fn doc_texts(blocks: &[Block], out: &mut Vec<String>) {
             }
             Block::Actions(actions) => out.extend(actions.iter().map(|a| a.label.clone())),
             Block::Field { label, hint, .. } => out.extend([label.clone(), hint.clone()]),
+            Block::Entry {
+                text,
+                detail,
+                actions,
+            } => {
+                out.push(text.clone());
+                out.extend(detail.clone());
+                out.extend(actions.iter().map(|a| a.label.clone()));
+            }
             Block::Gap => {}
         }
     }
@@ -1718,6 +1727,15 @@ fn block_texts(blocks: &[Block], out: &mut Vec<String>) {
             }
             Block::Field { label, hint, .. } => out.extend([label.clone(), hint.clone()]),
             Block::Actions(actions) => out.extend(actions.iter().map(|a| a.label.clone())),
+            Block::Entry {
+                text,
+                detail,
+                actions,
+            } => {
+                out.push(text.clone());
+                out.extend(detail.clone());
+                out.extend(actions.iter().map(|a| a.label.clone()));
+            }
             Block::Mono(_) | Block::Gap => {}
         }
     }

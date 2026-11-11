@@ -8703,18 +8703,6 @@ text = "b633cd1be1c43f80"
 by = "agent"
 date = "2026-11-07"
 
-[studio-hear-example]
-source = "c1f2d77484bd3081"
-text = "cfc37649bce07ba8"
-by = "agent"
-date = "2026-11-07"
-
-[studio-hear-recorded]
-source = "c18f8ccd0c73f49d"
-text = "d5076df26d2ef42c"
-by = "agent"
-date = "2026-11-07"
-
 [studio-import-description]
 source = "eff736ce3cf27288"
 text = "29b492a51d94c76d"

@@ -481,3 +481,57 @@ fn columns_stand_side_by_side_where_they_fit() {
     assert!((c[0] - a[0]).abs() < 30.0, "under: {a:?} {c:?}");
     assert!(c[1] > b[1] && d[1] > c[1], "{b:?} {c:?} {d:?}");
 }
+
+#[test]
+fn an_entrys_buttons_stand_at_its_right_level_with_its_text() {
+    use super::page::{Action, Block, Icon, PageDoc};
+    let doc = PageDoc {
+        title: PageTitle::new("Studio", "STUDIO"),
+        blocks: vec![
+            Block::Entry {
+                text: "“Excellent!”".into(),
+                detail: None,
+                actions: vec![
+                    Action::icon("play", Icon::Play),
+                    Action::icon("see", Icon::Eye),
+                ],
+            },
+            Block::Entry {
+                text: "“Wonderful.”".into(),
+                detail: None,
+                actions: vec![],
+            },
+            Block::Entry {
+                text: String::new(),
+                detail: Some("Nothing yet.".into()),
+                actions: vec![Action::icon("line", Icon::Eye)],
+            },
+        ],
+    };
+    let env = env();
+    let state = env.state.clone();
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
+    h.push(PageScreen::new(env, "studio", doc));
+    h.run(0.3);
+    assert_eq!(
+        state.borrow().page_items,
+        ["button:play", "button:see", "button:line"]
+    );
+    let (play, see, line) = (h.centre("Item0"), h.centre("Item1"), h.centre("Item2"));
+    // Square (32, a gap of 8), side by side at the column's right edge
+    // (880 wide, in the middle of 1280), the eye last.
+    assert!((see[0] + 16.0 - (200.0 + 880.0)).abs() < 1.0, "{see:?}");
+    assert!((see[0] - play[0] - 40.0).abs() < 0.5 && (see[1] - play[1]).abs() < 0.5);
+    assert!((line[0] - see[0]).abs() < 0.5 && line[1] > see[1]);
+    // The text on the buttons' level, from the column's left; the one
+    // without buttons as the others.
+    let texts = h.texts();
+    assert!(texts.iter().any(|t| t == "“Excellent!”"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "“Wonderful.”"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "Nothing yet."), "{texts:?}");
+    // Where the look has no icons: their glyphs.
+    assert!(
+        texts.iter().any(|t| t == "▶") && texts.iter().any(|t| t == "◉"),
+        "{texts:?}"
+    );
+}

@@ -92,9 +92,13 @@ playtest.
    - Examples are suggestions, never checked against the recordings.
    - A line's zone has its recordings and its buttons on the left, its
      examples on the right (one after the other where the page is
-     narrow; the page's `Block::Columns`), each example our packs say a
-     button to hear it (2026-11-11; they were in a fold under the line
-     before).
+     narrow; the page's `Block::Columns`; 2026-11-11, they were in a
+     fold under the line before). Every example, and every recording,
+     is its words (a recording's file and length) with its buttons at
+     the right, ▶ to hear it and an eye to see it in its scene (the
+     page's `Block::Entry` and `Action::icon`, the look's
+     `ui/icons.svg`), so the examples with no sound look as the others
+     do, without the buttons (2026-11-11).
 4. **Recordings come in without anyone naming files.** Recording apps
    name them "New Recording 12".
    - **Each line has Add recording,** a picker for that line that takes
@@ -107,6 +111,14 @@ playtest.
    - **Names are matched where they help.** A path through a line folder
      (a whole pack), or a file named for its line (`gameplay ready.wav`,
      `Gameplay_Ready_2.m4a`).
+   - **Text lines plan what to record** (2026-11-11). A line's Add a
+     text line puts a field on its recordings' side for what it will
+     say (`Draft::scripts`, kept with the draft); its Add its
+     recording… picks the recording, which takes its place on the line
+     with its words (`Draft::add_to`, `Take::words`, still a field to
+     change), and a scene shows them as the line's subtitle. A
+     recording removed leaves its words a text line again. The words
+     are the studio's alone: an export does not write them.
    - **A pack made before** (here, or for StepMania) is imported from
      Advanced, as a zip or a folder: its recordings on their lines, its
      name, and the author and license its README gives, where the draft
@@ -133,12 +145,13 @@ playtest.
      formats StepMania reads: MP3, WAV and Ogg Vorbis. Anything else is
      written as WAV.
 7. **The previews are the game's own, staged, never a mock-up.** Each
-   recording, and each example our packs say, has its own Hear in the
-   game: its line's scene with that one sound said for the line (the
+   recording, and each example our packs say, has its own eye: its
+   line's scene with that one sound said for the line (the
    scene's other lines as before, the draft's for a recording, our
    pack's for an example), leaving the turns of the line's sounds as
    they were. A line with neither but something that speaks in its
-   place has Hear it in the game, said by that (2026-11-11; before, each
+   place has an eye beside what it says of that, said by that
+   (2026-11-11; before, each
    line had only the one button, its sounds taking turns scene by
    scene). Each scene has:
    - the real screen the line is spoken on, with a caption saying what

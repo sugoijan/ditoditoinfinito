@@ -495,3 +495,49 @@ fn a_finished_packs_files_install_under_its_own_folder() {
         Some("it has no lines yet")
     );
 }
+
+#[test]
+fn a_text_line_is_recorded_and_its_words_kept() {
+    let mut d = Draft::default();
+    let line = Line::Combo(64);
+    assert!(d.add_combo(64));
+    let s = d.write(line);
+    *d.words_mut(s).unwrap() = "Sixty-four!".into();
+    // Listed, and the combo line stays while it is there.
+    assert!(!d.remove_combo(64));
+    assert_eq!(d.scripts_of(line).count(), 1);
+    // A recording for it takes its place, on its line with its words.
+    let t = d.add_to(s, "take.mp3", 5, MP3);
+    assert_ne!(t, s);
+    assert_eq!(d.scripts_of(line).count(), 0);
+    let take = d.take(t).unwrap();
+    assert_eq!(take.line, Some(line));
+    assert_eq!(take.words.as_deref(), Some("Sixty-four!"));
+    // Its words are still the author's to change.
+    *d.words_mut(t).unwrap() = "Sixty-four combo!".into();
+    // Kept as JSON.
+    let json = serde_json::to_string(&d).unwrap();
+    assert_eq!(serde_json::from_str::<Draft>(&json).unwrap(), d);
+    // Removed, it leaves its words as a text line again.
+    d.remove(t);
+    let back: Vec<&Script> = d.scripts_of(line).collect();
+    assert_eq!(back.len(), 1);
+    assert_eq!(back[0].words, "Sixty-four combo!");
+    assert!(d.take(back[0].id).is_none());
+    // A recording without words leaves nothing; a text line gone, the
+    // combo line goes too.
+    let plain = d.add("other.mp3", 5, MP3);
+    d.take_mut(plain).unwrap().line = Some(Line::Ready);
+    d.remove(plain);
+    assert_eq!(d.scripts.len(), 1);
+    assert!(d.unwrite(back_id(&d)).is_some());
+    assert!(d.remove_combo(64));
+    // A take added for a text line already gone is added as any other.
+    let gone = d.add_to(999, "gameplay ready.wav", 5, MP3);
+    assert_eq!(d.take(gone).unwrap().line, Some(Line::Ready));
+    assert_eq!(d.take(gone).unwrap().words, None);
+}
+
+fn back_id(d: &Draft) -> u64 {
+    d.scripts[0].id
+}

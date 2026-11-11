@@ -254,6 +254,8 @@ enum Arrived {
 struct Adding {
     rx: Receiver<Arrived>,
     line: Option<Line>,
+    /// The text line the first is recorded for.
+    script: Option<u64>,
     added: usize,
 }
 
@@ -725,14 +727,20 @@ impl Studio {
     }
 
     /// Picked files added: read on a thread, each on `line` when given
-    /// (else by its name).
-    fn add(&self, picked: Vec<PathBuf>, line: Option<Line>) {
+    /// (else by its name), the first in text line `script`'s place when
+    /// given.
+    fn add(&self, picked: Vec<PathBuf>, line: Option<Line>, script: Option<u64>) {
         self.set_status(ms::status_adding(picked.len()));
         let (tx, rx) = mpsc::channel();
         let _ = std::thread::Builder::new()
             .name("ddi-studio-read".into())
             .spawn(move || read_picked(picked, tx));
-        self.adding.borrow_mut().push(Adding { rx, line, added: 0 });
+        self.adding.borrow_mut().push(Adding {
+            rx,
+            line,
+            script,
+            added: 0,
+        });
     }
 
     fn extension_of(t: &Take) -> Option<String> {
@@ -1161,25 +1169,45 @@ impl Studio {
         }
         match act {
             // ([`studio::apply`]'s.)
-            Act::Tidy | Act::StepMania | Act::Examples | Act::Details | Act::RemoveCombo(_) => None,
+            Act::Tidy
+            | Act::StepMania
+            | Act::Examples
+            | Act::Details
+            | Act::RemoveCombo(_)
+            | Act::Write(_)
+            | Act::Unwrite(_) => None,
             Act::Add(line) => {
                 let picked = crate::os::pick_recordings();
                 if !picked.is_empty() {
-                    self.add(picked, Some(line));
+                    self.add(picked, Some(line), None);
+                }
+                None
+            }
+            Act::AddTo(id) => {
+                let line = self
+                    .draft
+                    .borrow()
+                    .scripts
+                    .iter()
+                    .find(|s| s.id == id)?
+                    .line;
+                let picked = crate::os::pick_recordings();
+                if !picked.is_empty() {
+                    self.add(picked, Some(line), Some(id));
                 }
                 None
             }
             Act::ImportFiles => {
                 let picked = crate::os::pick(false);
                 if !picked.is_empty() {
-                    self.add(picked, None);
+                    self.add(picked, None, None);
                 }
                 None
             }
             Act::ImportFolder => {
                 let picked = crate::os::pick(true);
                 if !picked.is_empty() {
-                    self.add(picked, None);
+                    self.add(picked, None, None);
                 }
                 None
             }
@@ -1234,7 +1262,10 @@ impl Studio {
                         let id = {
                             let mut d = self.draft.borrow_mut();
                             let head = &bytes[..bytes.len().min(HEAD)];
-                            let id = d.add(&path, size, head);
+                            let id = match a.script.take() {
+                                Some(s) => d.add_to(s, &path, size, head),
+                                None => d.add(&path, size, head),
+                            };
                             if let Some(l) = a.line
                                 && let Some(t) = d.take_mut(id)
                             {

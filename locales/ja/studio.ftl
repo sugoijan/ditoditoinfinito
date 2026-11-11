@@ -12,6 +12,8 @@ studio-intro = { $platform ->
    *[desktop] 自分の声の録音は、下の各セリフの「{ -studio-button-add-recording }」ボタンで追加します。作ったアナウンサーはゲームで使ったり、書き出して共有したりできます。
 }
 
+studio-icons-help = ▶で録音や例を再生します。目のボタンでは、ゲームの中でそのセリフが言われる画面を見られます。
+
 studio-name = 名前
 studio-name-hint = アナウンサーの名前
 
@@ -207,11 +209,11 @@ studio-opening-long = 「準備」と「スタート」を合わせると{ $seco
 
 studio-add-recording = { -studio-button-add-recording }…
 
-studio-hear-one = ゲームで聞く
+studio-add-text = セリフの文を追加
 
-studio-hear-recorded = ゲームで聞く
+studio-add-text-recording = このセリフの録音を追加…
 
-studio-hear-example = ゲームで例を聞く
+studio-words-hint = 言うこと
 
 studio-remove-combo = このセリフを外す
 

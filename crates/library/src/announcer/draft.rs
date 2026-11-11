@@ -213,6 +213,10 @@ pub struct Take {
     pub tidy: Option<bool>,
     #[serde(default)]
     pub sound: Sound,
+    /// What it says, where it was recorded for a text line
+    /// ([`Script`]): kept, and shown as its words in a scene.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub words: Option<String>,
 }
 
 impl Take {
@@ -229,6 +233,16 @@ impl Take {
     }
 }
 
+/// A text line: what the author means to record for a line, before
+/// there is a recording of it ([`Draft::add_to`] gives it one).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Script {
+    /// From the takes' ids: none is both.
+    pub id: u64,
+    pub line: Line,
+    pub words: String,
+}
+
 /// An announcer being made.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Draft {
@@ -241,6 +255,9 @@ pub struct Draft {
     #[serde(default)]
     pub stepmania: bool,
     pub takes: Vec<Take>,
+    /// The text lines not recorded yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scripts: Vec<Script>,
     /// The combo lines listed however empty, in order: the author's to
     /// add to and take from (`gameplay 64 combo`, a pack counting so);
     /// [`OUR_COMBOS`] to begin with.
@@ -263,6 +280,7 @@ impl Default for Draft {
             tidy: true,
             stepmania: false,
             takes: Vec::new(),
+            scripts: Vec::new(),
             combos: our_combos(),
             next: 1,
         }
@@ -451,8 +469,56 @@ impl Draft {
             line,
             tidy: None,
             sound: Sound::Unread,
+            words: None,
         });
         id
+    }
+
+    /// A recording added for text line `script` (as [`Draft::add`], on
+    /// its line, with its words), which it takes the place of; one
+    /// added as `add` does where that line is gone. Its id.
+    pub fn add_to(&mut self, script: u64, source: &str, bytes: u64, head: &[u8]) -> u64 {
+        let id = self.add(source, bytes, head);
+        if let Some(i) = self.scripts.iter().position(|s| s.id == script) {
+            let s = self.scripts.remove(i);
+            if let Some(t) = self.take_mut(id) {
+                t.line = Some(s.line);
+                t.words = Some(s.words);
+            }
+        }
+        id
+    }
+
+    /// A text line on `line`, its words to be written. Its id.
+    pub fn write(&mut self, line: Line) -> u64 {
+        let id = self.next;
+        self.next += 1;
+        self.scripts.push(Script {
+            id,
+            line,
+            words: String::new(),
+        });
+        id
+    }
+
+    /// Text line `id` off the draft.
+    pub fn unwrite(&mut self, id: u64) -> Option<Script> {
+        let i = self.scripts.iter().position(|s| s.id == id)?;
+        Some(self.scripts.remove(i))
+    }
+
+    /// The words of text line or take `id` ([`Take::words`]), where it
+    /// has them to change.
+    pub fn words_mut(&mut self, id: u64) -> Option<&mut String> {
+        if let Some(s) = self.scripts.iter_mut().find(|s| s.id == id) {
+            return Some(&mut s.words);
+        }
+        self.takes.iter_mut().find(|t| t.id == id)?.words.as_mut()
+    }
+
+    /// The text lines on `line`, in the order they were written.
+    pub fn scripts_of(&self, line: Line) -> impl Iterator<Item = &Script> {
+        self.scripts.iter().filter(move |s| s.line == line)
     }
 
     /// Combo line `n` listed (in its place among them); whether it was
@@ -470,9 +536,12 @@ impl Draft {
         }
     }
 
-    /// Combo line `n` no longer listed; not while a take is on it.
+    /// Combo line `n` no longer listed; not while a take or a text line
+    /// is on it.
     pub fn remove_combo(&mut self, n: u32) -> bool {
-        if self.takes_of(Line::Combo(n)).next().is_some() {
+        if self.takes_of(Line::Combo(n)).next().is_some()
+            || self.scripts_of(Line::Combo(n)).next().is_some()
+        {
             return false;
         }
         let before = self.combos.len();
@@ -488,10 +557,18 @@ impl Draft {
         self.takes.iter_mut().find(|t| t.id == id)
     }
 
-    /// Takes it off the draft.
+    /// Takes it off the draft; one recorded for a text line leaves the
+    /// line's words, a text line again (with an id of its own).
     pub fn remove(&mut self, id: u64) -> Option<Take> {
         let i = self.takes.iter().position(|t| t.id == id)?;
-        Some(self.takes.remove(i))
+        let t = self.takes.remove(i);
+        if let (Some(line), Some(words)) = (t.line, &t.words) {
+            let id = self.write(line);
+            if let Some(s) = self.scripts.last_mut().filter(|s| s.id == id) {
+                s.words = words.clone();
+            }
+        }
+        Some(t)
     }
 
     /// What a pack made before says of itself, where the draft says
@@ -525,6 +602,7 @@ impl Draft {
         let mut lines: BTreeSet<Line> = listed().into_iter().collect();
         lines.extend(self.combos.iter().map(|&n| Line::Combo(n)));
         lines.extend(self.takes.iter().filter_map(|t| t.line));
+        lines.extend(self.scripts.iter().map(|s| s.line));
         lines.into_iter().collect()
     }
 

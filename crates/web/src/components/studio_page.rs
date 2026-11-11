@@ -145,10 +145,12 @@ struct Studio {
     feed: PageFeed,
     host: RefCell<Option<Weak<RefCell<Host>>>>,
     env: RefCell<Option<ddi_ui::screens::Env>>,
-    /// The pickers, and the line the next pick goes on.
+    /// The pickers, and the line the next pick goes on (and the text
+    /// line it is recorded for).
     files_input: RefCell<Option<HtmlInputElement>>,
     folder_input: RefCell<Option<HtmlInputElement>>,
     pick_line: Cell<Option<Line>>,
+    pick_script: Cell<Option<u64>>,
     /// What plays: its own context, closed when dropped.
     sound: RefCell<Option<Rc<RefCell<WebAudio>>>>,
     /// The export made: its name and its zip.
@@ -196,6 +198,7 @@ impl Studio {
             files_input: RefCell::new(None),
             folder_input: RefCell::new(None),
             pick_line: Cell::new(None),
+            pick_script: Cell::new(None),
             sound: RefCell::new(None),
             zip: RefCell::new(None),
             target: RefCell::new(None),
@@ -322,9 +325,23 @@ impl Studio {
             };
             set(&x, "write", write.into());
             set(&x, "format", format!("{:?}", t.format).into());
+            set(
+                &x,
+                "words",
+                t.words.as_deref().map_or(JsValue::NULL, JsValue::from),
+            );
             takes.push(&x);
         }
         set(&o, "takes", takes.into());
+        let scripts = js_sys::Array::new();
+        for s in &draft.scripts {
+            let x = js_sys::Object::new();
+            set(&x, "id", (s.id as f64).into());
+            set(&x, "line", s.line.folder().into());
+            set(&x, "words", s.words.as_str().into());
+            scripts.push(&x);
+        }
+        set(&o, "scripts", scripts.into());
         set(&o, "name", draft.name.as_str().into());
         set(&o, "author", draft.author.as_str().into());
         set(&o, "license", draft.license.as_str().into());
@@ -494,8 +511,10 @@ impl Studio {
     }
 
     /// Picked or dropped files added: zips opened, what is no recording
-    /// passed over, each on `line` when given (else by its name).
-    fn add(self: &Rc<Self>, picked: Vec<PickedFile>, line: Option<Line>) {
+    /// passed over, each on `line` when given (else by its name), the
+    /// first in text line `script`'s place when given.
+    fn add(self: &Rc<Self>, picked: Vec<PickedFile>, line: Option<Line>, script: Option<u64>) {
+        let mut script = script;
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let count = picked.len();
@@ -549,7 +568,10 @@ impl Studio {
                 }
                 let id = {
                     let mut d = this.draft.borrow_mut();
-                    let id = d.add(&path, blob.size() as u64, &head);
+                    let id = match script.take() {
+                        Some(s) => d.add_to(s, &path, blob.size() as u64, &head),
+                        None => d.add(&path, blob.size() as u64, &head),
+                    };
                     if let Some(l) = line
                         && let Some(t) = d.take_mut(id)
                     {
@@ -1293,9 +1315,30 @@ impl Studio {
         }
         match act {
             // ([`studio::apply`]'s.)
-            Act::Tidy | Act::StepMania | Act::Examples | Act::Details | Act::RemoveCombo(_) => None,
-            Act::Add(line) => {
+            Act::Tidy
+            | Act::StepMania
+            | Act::Examples
+            | Act::Details
+            | Act::RemoveCombo(_)
+            | Act::Write(_)
+            | Act::Unwrite(_) => None,
+            Act::Add(_) | Act::AddTo(_) => {
+                let (line, script) = match act {
+                    Act::AddTo(id) => {
+                        let line = self
+                            .draft
+                            .borrow()
+                            .scripts
+                            .iter()
+                            .find(|s| s.id == id)?
+                            .line;
+                        (line, Some(id))
+                    }
+                    Act::Add(line) => (line, None),
+                    _ => return None,
+                };
                 self.pick_line.set(Some(line));
+                self.pick_script.set(script);
                 if let Some(i) = self.files_input.borrow().as_ref() {
                     let _ = i.set_attribute("accept", RECORDING_TYPES);
                     i.click();
@@ -1304,6 +1347,7 @@ impl Studio {
             }
             Act::ImportFiles => {
                 self.pick_line.set(None);
+                self.pick_script.set(None);
                 if let Some(i) = self.files_input.borrow().as_ref() {
                     let _ = i.set_attribute("accept", PACK_TYPES);
                     i.click();
@@ -1312,6 +1356,7 @@ impl Studio {
             }
             Act::ImportFolder => {
                 self.pick_line.set(None);
+                self.pick_script.set(None);
                 if let Some(i) = self.folder_input.borrow().as_ref() {
                     i.click();
                 }
@@ -1660,7 +1705,7 @@ impl StudioPage {
                     && !picked.is_empty()
                 {
                     let line = s.pick_line.take();
-                    s.add(picked, line);
+                    s.add(picked, line, s.pick_script.take());
                 }
             }));
             if folder {
@@ -1725,7 +1770,7 @@ impl StudioPage {
                     let _ = crate::web::storage::request_persist();
                     wasm_bindgen_futures::spawn_local(async move {
                         match entries.collect().await {
-                            Ok(picked) => s.add(picked, line),
+                            Ok(picked) => s.add(picked, line, None),
                             Err(e) => s.status(ms::status_files_unreadable(error_text(&e))),
                         }
                     });

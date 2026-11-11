@@ -228,7 +228,8 @@ pub struct StagedPlay<S> {
     pub voice: Voice<S>,
     /// Each line's length (its next sound's), seconds.
     pub lengths: HashMap<Line, f64>,
-    /// Each line's words, where known (an example's).
+    /// Each line's words, where known (an example's, a recording's made
+    /// for a text line).
     pub words: HashMap<Line, String>,
 }
 
@@ -372,8 +373,8 @@ fn say(text: String, seconds: f64) -> Message {
 /// The draft as a voice for the lines `which` keeps: each line's
 /// recordings decoded so far (`decoded`, by take), as the pack has them,
 /// the line's next one (`turns`) first, each made a sound by `make`; with
-/// the first one's length of each line. The line of take `pinned` says
-/// it alone.
+/// the first one's length and words (where it has them) of each line.
+/// The line of take `pinned` says it alone.
 pub fn draft_voice<S>(
     draft: &Draft,
     which: impl Fn(Line) -> bool,
@@ -385,6 +386,7 @@ pub fn draft_voice<S>(
 ) -> Voiced<S> {
     let mut voice = Voice::default();
     let mut lengths = HashMap::new();
+    let mut words = HashMap::new();
     for line in draft.lines().into_iter().filter(|l| which(*l)) {
         let mut takes: Vec<&Take> = draft
             .takes_of(line)
@@ -400,6 +402,13 @@ pub fn draft_voice<S>(
         }
         voice.expect([line]);
         let first = turns.get(&line).copied().unwrap_or(0) % takes.len();
+        // The words of the one said first, where it was recorded for a
+        // text line; else its line by name.
+        if let Some(w) = takes[first].words.as_deref().map(str::trim)
+            && !w.is_empty()
+        {
+            words.insert(line, w.to_string());
+        }
         for k in 0..takes.len() {
             let t = takes[(first + k) % takes.len()];
             if let Some(b) = make(t, &decoded[&t.id]) {
@@ -408,8 +417,7 @@ pub fn draft_voice<S>(
             }
         }
     }
-    // A recording's words are not known: its line by name.
-    (voice, lengths, HashMap::new())
+    (voice, lengths, words)
 }
 
 /// The lines the results of `scene` may say, the cheer too.
@@ -532,7 +540,8 @@ struct Scene {
     /// The lines said, by folder, and when each starts (milliseconds):
     /// one cut by the scene's end was not heard.
     spoken: Vec<(String, f64)>,
-    /// Each line's words (an example's) and length, seconds.
+    /// Each line's words (an example's, a recording's made for a text
+    /// line) and length, seconds.
     words: HashMap<Line, String>,
     lengths: HashMap<Line, f64>,
     /// Its next step, and the steps under way (the mark, the words shown).

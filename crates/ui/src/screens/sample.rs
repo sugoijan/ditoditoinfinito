@@ -660,7 +660,7 @@ pub fn studio() -> (
         read(2.0, 0.3, 2.0, 1.0, false),
         None,
     );
-    take(
+    let hot = take(
         "hot.mp3",
         Some(Line::CommentHot),
         read(1.0, 0.0, 1.0, 1.0, false),
@@ -700,6 +700,10 @@ pub fn studio() -> (
         Some(false),
     );
     d.take_mut(big).expect("added").bytes = MAX_BYTES + 1;
+    // A text line to record, and a recording made for one.
+    let script = d.write(Line::Ready);
+    *d.words_mut(script).expect("written") = "Get ready!".into();
+    d.take_mut(hot).expect("added").words = Some("So hot!".into());
     let view = super::studio::View {
         examples: Set::English,
         details: true,
