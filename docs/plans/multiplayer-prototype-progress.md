@@ -1335,6 +1335,108 @@ DEVELOPMENT-ONLY: the whole tool. Its bots' runs are self-reported like
 everyone's, and they play the tap-only copy at the engine's levels;
 nothing about them is balance validation.
 
+## M8a: the match's ruleset, attack power shown, battle shocks in a play (implemented, 2026-11-11)
+
+The first round of battle attacks, under the maintainer's decisions of
+2026-11-11 (D0–D8, recorded in `docs/plans/multiplayer-ui.md`, "Decided
+(maintainer, 2026-11-11): attacks"). Nothing is launched yet: no
+targeting, commitments, CPUs receiving shocks, settlement or announcer
+lines (later rounds).
+
+- **The ruleset is a match rule** (real, D0): `MatchRules::ruleset`, one
+  of `MatchRules::RULESETS` (ITG, ITG FA+, SM5, DDR A, DDR X, DDR
+  Extreme, FFR: the four-lane keyboard presets the CPUs play, the
+  engine's ids), `itg-fa+` for new rooms and for rules kept before it
+  existed (serde default; protocol unchanged, an older client ignores
+  the field). Validated (`RulesProblem::UnknownRuleset`). A Rules row
+  (‹ ›, the name as Options writes it; "Everyone plays the match under
+  its ruleset, whatever their own options say"), the locked line, the
+  stage's prompt ("Ruleset: ITG FA+ (Simply Love)"). The stage's play,
+  its CPUs, a forfeit's CPUs and the bots all play
+  `ddi_session::battle::stage_ruleset(id, chart)`: the preset as it is
+  (no personal judge or life level, fail type or holds), fail immediate;
+  the player's other options are unchanged. Singleplayer is untouched.
+  Tests: `ddi-room` rules, `room_tests` (the row, the locked line),
+  `stage.rs` `a_stage_is_played_under_the_match_s_ruleset_not_the_player_s`;
+  the M3 stage tests that need CPUs to go out give the stage a one-life
+  ruleset through the tests-only `SessionConfig::stage_rules`.
+- **Points as decimals** (real): the standings, marks and rows show
+  `screens::room::points_text` ("1.5", "9.33", the language's decimal
+  mark; `room-points-value`), the model keeping exact fractions.
+- **Attack power** (development only: `--mp-dev-attacks`, the web's
+  `mpattacks=1` beside `mp=1`, practice under
+  `BattlePreset::GaugeAttacksV0`, "Survival with power · development" in
+  Rules): `ddi_room::attacks::StageBattle`, whole numbers keyed by
+  participant, credits each competitor at checkpoints every four beats
+  (from beat 4 to four beats past the last note) with what its tap
+  judgments before the checkpoint earned (`POWER_CLASSES_V0`), up to the
+  cap (overflow lost, `Charged` when it fills); nothing spends it yet.
+  `ddi_session::battle::attacks::AttackRunner` feeds it every
+  competitor's judge events (their exact instants) and runs a
+  checkpoint once every competitor still in has been judged past it, so
+  the ledger is the same at 60 and 144 frames a second and again from
+  the player's log and the CPUs' seeds (test
+  `attack_power_is_the_same_at_any_frame_rate_and_from_the_log`).
+  Online stages run none (the room would). The bar
+  (`ddi_render::BattleBar`): directly above life on the field and on
+  every miniature, as wide, half as thick, 5 units of the play's 72-px
+  lane apart, filling from the left in electric violet, no number; full,
+  a restrained electric edge running along it (a steady glow under
+  reduced motion); above life under Reverse too (life does not move);
+  hidden once out or after a confirmed win. The column draws a thin
+  violet line over each life bar. `__DDI_DEBUG.battle.attacks`: power
+  per seat, checkpoints run, the last events.
+- **Battle shocks in the player's play** (the engine's mechanics real
+  and tested; reached only through a development trigger,
+  `--mp-dev-mines BEAT` / `mpdevmines=BEAT`, which puts the first safe
+  section from that beat into each practice stage's play):
+  `ddi_engine::battle`. A `HazardJudge` beside the chart's judge (never
+  inserted into the chart: note indices stay), its events and sprites
+  numbered from `HAZARD_INDEX_BASE`: a press in a shock's window steps on
+  it, a lane held across it steps on it, one passed is avoided; exact
+  instants, the same however time is cut. `Player::add_hazards` (each
+  before its window, after those already in). A hit costs exactly the
+  ruleset's miss to the gauge (a `Tap(Miss)` given to the gauge alone),
+  never the score, the counts, the timing or the timeline; the combo
+  breaks only where the ruleset's mines do (`mine_breaks`: DDR A, DDR
+  X); a press that steps on one is not also the chart's Boo; FFR's
+  window 70 ms (`INJECTED_MINE_V0`). `Results::battle_mines` (hit,
+  avoided; absent from every single play's record). `PlayLog` version 4
+  keeps them (`LoggedHazard`; versions 1–3 still read, and written as
+  before when there are none); a replay puts them in at its start.
+  Drawn as the player's skin's mine (`SpriteKind::Mine`; Infinito's
+  spiked mine or its ShockArrows, Peters-DDR's layered mine), hidden by
+  Hidden and Sudden as notes are, upside down under Reverse; a hit is the
+  skin's mine explosion. `ddi_engine::battle::schedule`
+  (`PLACEMENT_V0`): one section a checkpoint, eight shocks over eight
+  beats on the eighths (sixteenths where the eighths have too few safe
+  places), one a beat where possible, at most two, one a row, each clear
+  of every step in its lane by the shock's window plus the widest judged
+  window plus 50 ms, of hold bodies across its window, of a tail in the
+  150 ms before and of a lift in the 0.5 s after; a section without
+  eight safe places is none, never filled with unsafe ones; pure in the
+  chart, the judge table and the seed. `__DDI_DEBUG.hazards`.
+  The bundled four-lane charts' share of sections with room
+  (`cargo test -p ddi-engine --test battle_shocks bundled -- --nocapture`;
+  under ITG FA+ / DDR A / FFR): 100% on every chart but Into My Dream's
+  Challenge 15 (79 of 83, 95%) and Some Things Must's Challenge 16
+  (87 of 92 under ITG FA+ and FFR, 92 of 92 under DDR A).
+- Tests: `ddi-room` `attacks` (classes, crediting, cap and overflow,
+  elimination, rising checkpoints); `ddi-engine` `battle` and
+  `tests/battle_shocks.rs` (a shock's cost equal to a miss from the same
+  life under every match ruleset, score/counts/timeline untouched, combo
+  per D3, no Boo double count, FFR's 70 ms, the same at 1/60, 1/144 and
+  0.7 s steps, version 4 written, read and replayed equal, sprites until
+  stepped on, late refusal, placement properties and shares over the
+  bundled charts); `ddi-render` `the_power_bar_is_directly_above_life`
+  (and the HUD shader for WebGL2); `ddi-session` stage tests.
+- Screenshots: `target/scratch/mp/m8a/shots/` (`s0-*` the ruleset row and
+  prompt, Chrome, Firefox, a phone in Japanese; `s1-*` the bar filling
+  and charged at 1280×720 and 1920×1080, a phone held sideways, the
+  column on a phone held upright, reduced motion, Firefox; `s2-*` shocks
+  with Infinito, its ShockArrows, Peters-DDR, Reverse and Hidden, Chrome
+  and Firefox).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -1357,12 +1459,12 @@ nothing about them is balance validation.
 | Practice CPUs start at level 3 of 5 (the engine's `normal`), seeds from the time the room was made | `state::room::DEFAULT_CPU_LEVEL`, `PracticeRoom::new` | A new practice room shows "Level 3 of 5"; two rooms differ in their CPUs' seeds | Practice's default profile; whether the seed should be shown or fixed |
 | A chart is playable by the CPUs when its style is a built-in one-player layout with four lanes; song-declared layouts are refused | `state::room::eligible` | Solo, Double, Pump, techno and DanOni 5–9 charts, and a song's own four-lane layout, are refused with a reason | Whether to accept song-declared four-lane layouts before M3's load check |
 | Chosen local content counts as loaded at once | `PracticeRoom::sync_loading` | Ready alone makes the player eligible | Replaced in M3 by the real load and plan check |
-| Battle `gauge-survival-v0` (`ddi_room::battle::BattlePreset::GaugeSurvivalV0`, practice's `MatchRules::battle`): life is each competitor's own ruleset gauge, empty is out of the stage | `crates/room/src/battle.rs`, `crates/session/src/battle.rs` | A stage is survival under the player's chosen ruleset's gauge; Rules says "Survival · provisional" | The standard battle (life, power, weakening) and its numbers |
+| Battle `gauge-survival-v0` (`ddi_room::battle::BattlePreset::GaugeSurvivalV0`, practice's `MatchRules::battle`): life is each competitor's gauge under the match's ruleset (M8a; before, the player's own), empty is out of the stage | `crates/room/src/battle.rs`, `crates/session/src/battle.rs` | A stage is survival under the match's ruleset's gauge; Rules says "Survival · provisional" | The standard battle (life, power) and its numbers |
 | Ranking: still in by life, then accuracy (the ruleset's percent, money or EX over its most); then the out, later first; then forfeits; exact ties share | `ddi_room::battle::rank` | Placements follow life first; the CPUs' accuracy is on the taps-only copy, the player's on the full chart (not like for like) | Ranking survivors; whether CPUs should play the full chart |
 | Decided once at most one competitor is still in; the last out together share first; the winner's fail is turned off to the song's end | `battle::decided`, `PlaySession::tick` | "Stage won" over the column; the player finishes the song whatever the gauge does after | Final-contender settlement once attacks exist |
 | The player out: the play ends as a failed play does, the remaining CPUs played to their end at once | `Battle::outcome` | No watching after elimination; the results come after the fail's hold | The spectator view and when the eliminated return to the room |
 | A quit, an interruption (page hidden, audio stopped) or Back on a stage's prompt is a forfeit; a song unreadable at play time stops the match (`Interruption::ContentLost`) | `PlaySession::tick`, shells | Losing focus mid-stage costs the stage | Local interruption versus forfeit; reconnection |
-| A stage plays with no turns, note removals or rate, the play options row not offered, no ghost, no singleplayer countdown | `SessionConfig::player_spec`, prompt | The player's other settings (speed, skin, rules) apply | Which personal options a stage allows |
+| A stage plays with no turns, note removals or rate, the play options row not offered, no ghost, no singleplayer countdown | `SessionConfig::player_spec`, prompt | The player's other settings (speed, skin) apply; the rules are the match's (M8a) | Which personal options a stage allows |
 | Stage plays are not kept in the play history or bests | both shells' record paths | A practice match leaves no history | Whether a stage counts as a personal play |
 | Battle voice `battle-voice-v0`: priorities outcomes/out 40, (attacks 30, none yet), life critical 20, players left 10, openings and the finished song 5; one battle line at a time, a lesser or equal one passed over, never queued | `ddi_session::announcer::battle::BATTLE_VOICE_V0` | Which battle line speaks when two meet | The battle voice's priorities and whether a line may cut another (needs a voice bus that can stop one sound) |
 | A stage leaves out a play's routine lines (combos, comments, life lost, last life, full combos, cleared, failed, grades, records, cheer) | `battle::stage_speaks`, `Announcer::tick` in a stage | A pack without battle lines says only ready, here we go, failed (out) and cleared (finished after a win) in a stage | Whether some routine lines (combo milestones) belong in a battle voice preset |
@@ -1403,6 +1505,13 @@ nothing about them is balance validation.
 | Practice starts with three CPUs drawn from the room's seed | `state::room::STARTING_CPUS` | Every practice room has a different three | Fixed starters, or the last roster kept |
 | A pick's readiness and the countdown: the host's Back on the prompt cancels the window (back to picking); a member's withdraws only themself | `RoomClient::leave_prompt` | The host can change their mind before the start | Whether the host's Back should keep the window for the others |
 | Desktop's session in the config folder's `online-session`, owner-only on Unix, plain text | `crates/desktop/src/online.rs` | Signed in across runs until the session's thirty days | The system keychain instead |
+| Ruleset as a match rule, `itg-fa+` by default, from `MatchRules::RULESETS`; a stage plays the preset as it is (default judge and life levels, holds by the chart's game, fail immediate) | `ddi_room::MatchRules::ruleset`, `ddi_session::battle::stage_ruleset` | Everyone's stage plays ITG FA+ unless Rules says otherwise; a player's judge or life level, battery or fail type do not apply in a stage | Whether personal StepMania options (judge difficulty) should be match rules too |
+| `attacks-v0`: a bar of 100, an attack 100, checkpoints every four beats from beat 4 to four beats past the last note; overflow lost | `ddi_room::attacks::ATTACKS_V0`, `AttackRunner::new` | The bar moves in steps every four beats and fills from about 50 best-window notes | The bar's size and the checkpoint's beat count |
+| `power-classes-v0`: the best window 2, the next 1, the rest 0, for every match ruleset (D2) | `ddi_room::attacks::POWER_CLASSES_V0` | Time to a full bar depends on timing, not on the ruleset's names | None (D2), unless play shows the classes too tight under FA+ or DDR A |
+| Attack power development only (`gauge-attacks-v0`) | `--mp-dev-attacks`, `mpattacks=1`, `ddi_ui::state::room::Development` | Not shown in ordinary practice | D8's "On by default" in a later round |
+| `injected-mine-v0`: a shock costs the ruleset's miss to the gauge, the ruleset's mine window (70 ms under FFR) | `ddi_engine::battle::INJECTED_MINE_V0` | A shock stepped on takes ITG's 10%, SM5's 8%, DDR A's miss | None (D1) |
+| `placement-v0`: eight shocks over eight beats from a checkpoint, the eighths then the sixteenths, at most two a beat, one a row, clear by window + widest judged window + 50 ms, no body across, no tail 150 ms before, no lift 0.5 s after | `ddi_engine::battle::PLACEMENT_V0` | Where the shocks fall; a dense chart has fewer sections | The clearances, and whether sixteenths are acceptable |
+| Development trigger: the first safe section from a beat in each practice stage, its seed the stage's id | `--mp-dev-mines`, `mpdevmines=`, `ddi_session::battle::dev_shocks` | Only through the switch | Replaced by the attack loop (S4) |
 
 ## Open questions
 
@@ -1525,6 +1634,17 @@ nothing about them is balance validation.
   should a bot host's room say it is a test room? Should bots be allowed
   on the deployed server at all outside the maintainer's tests (today:
   anyone holding an admin token)?
-- M7d: bots play the default ruleset (ITG's gauge) whatever the room's
-  people use; should a bot follow a ruleset the room names once rules
-  carry one?
+- M7d: bots played the default ruleset whatever the room's people
+  used. Answered in M8a: the ruleset is a match rule (D0) and bots play
+  it.
+- M8a: a stage plays the match ruleset's preset as it is, so a
+  player's judge difficulty, life difficulty, battery or fail type no
+  longer apply in a stage. Should any of them become match rules?
+- M8a: power is credited at checkpoints every four beats, so the bar
+  moves in steps; should it show earned power between checkpoints
+  (provisionally, the ledger still deciding at checkpoints)?
+- M8a: placement leaves room in almost every section of the bundled
+  charts (95–100%); is the clearance (window + widest window + 50 ms)
+  generous enough for dense charts, or too strict once play-tested?
+- M8a: a hit's explosion is the skin's mine explosion; should battle
+  shocks have a look of their own beside authored mines?

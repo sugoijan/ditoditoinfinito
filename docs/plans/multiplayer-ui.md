@@ -315,7 +315,10 @@ Competitive rules and match length lock at match start. The host may prepare
 changes explicitly labeled "Next match"; they do not affect current standings
 or reset current readiness. Choosing a different unstarted stage song clears
 that stage's readiness and names the change. Personal targeting is selected
-before the stage, not manipulated while hitting notes.
+before the stage, not manipulated while hitting notes. (Reversed by the
+maintainer on 2026-11-11: targeting can also be changed during play; see
+"Decided (maintainer, 2026-11-11): attacks" under "Play and spectator
+layout".)
 
 ### Room creation and rules study
 
@@ -757,6 +760,59 @@ places the local one (scaled to their lanes), leaving the same room above
 it for the power bar. During a stage the dancing hand goes behind the
 field and never claims a side of the screen: the miniatures use both
 sides.
+
+Decided (maintainer, 2026-11-11): attacks. These decisions answer the
+attack plan's open questions and override the earlier lines of this
+document where they differ
+(`docs/plans/multiplayer-prototype-progress.md`, M8a, for what is built):
+
+- D0, the ruleset is a match rule: everyone in the room plays the
+  match's ruleset (a Rules row; the match's rules carry its id), the
+  stage's play, the CPUs and the bots alike, never a player's own
+  Options ruleset. New rooms play ITG FA+.
+- D1, damage: a battle shock costs exactly the match ruleset's miss to
+  the gauge; score and accuracy are untouched; FFR's shocks are judged
+  in 70 ms.
+- D2, power by timing class: about the Fantastic window earns 2, about
+  the Excellent window 1, anything worse 0 (ITG Fantastic/Excellent;
+  ITG FA+ blue and white Fantastic/Excellent; SM5 Flawless/Perfect; DDR
+  A, X and Extreme Marvelous/Perfect; FFR Amazing/Perfect). A full bar
+  is 100 and an attack costs 100. Recent accuracy follows the same
+  classes.
+- D3, combo: a shock breaks the combo exactly where the match ruleset's
+  own mines do (DDR A, DDR X), nowhere else.
+- D4, no weakening: every attack is eight shocks. Recent accuracy no
+  longer removes any (the "Show weakening" lines above no longer apply);
+  a recent-accuracy figure stays only if Leader's tie-break needs it.
+- D5, lead per target: an attack's section starts at or after its
+  checkpoint plus the target's own lead (its reading horizon, a 1.5 s
+  warning and about 100 ms so the warning shows on time; at least four
+  beats, at most 10 s, slower settings raised on stages and said on the
+  prompt). Online play must start every player's stage together as
+  closely as reasonably possible; then the ~100 ms covers the warning
+  and everything runs on the target's time.
+- D6, settlement: no Stage won while an attack against the sole survivor
+  is outstanding; a knockout by it shares first with those out just
+  before; the results say "Drawn: final attack".
+- D7, the dancing hand does not dodge shocks in this version (it may
+  step through them; judging is unaffected); later through its streaming
+  input.
+- D8, rules: attacks are On by default in practice; online Off and
+  locked ("Online attacks come later"). Targeting Spread (default),
+  Retaliate or Leader (most life, ties by score, then seeded), chosen
+  before the stage (the prompt, the player rows) and changeable during
+  play: a small quiet label by the power bar shows the current policy,
+  and a tap or click on it, Tab or the controller's View/Select cycles
+  Spread, Retaliate, Leader (a control bound to a lane in the chart's
+  layout is skipped); the change applies from the next checkpoint and is
+  recorded in the play so replays and the authority agree. This reverses
+  "selected before the stage, not manipulated while hitting notes" and
+  "Retaliate/Spread/Leader is a quiet policy label; there is no
+  target-selection task during play" in its permanent-label sense, and
+  removes "targeting-policy text" from what "Less text and the dancing
+  hand" removes. CPU shock sensitivity is by level only (no Rules row,
+  no roster override), modeled as one avoidance value per CPU so that it
+  can become a skill axis later.
 
 ### Concrete play HUD study
 

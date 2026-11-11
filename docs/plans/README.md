@@ -51,8 +51,13 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   resting song, shared ahead), Rules first on entering, readiness on the
   stage's prompt (Ready, its countdown, the players; the stage starts once
   all are ready or at the deadline, the rest sit out), standings after
-  each stage, a named CPU roster. Provisional choices and open questions
-  listed.
+  each stage, a named CPU roster. M8a (the maintainer's attack decisions
+  of 2026-11-11): the ruleset a match rule everyone plays (ITG FA+ by
+  default), points shown as decimals, attack power earned by timing and
+  shown above life (a checkpoint ledger in `ddi-room`; development only),
+  and battle shocks judged beside the chart in the player's own play
+  (`ddi_engine::battle`, safe sections per chart; a development trigger).
+  Provisional choices and open questions listed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two
   flows while the original design lane continues. Separates selected constraints,
