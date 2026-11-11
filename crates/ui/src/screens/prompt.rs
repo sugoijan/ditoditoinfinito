@@ -492,6 +492,17 @@ impl PromptInfo {
         self.timing = None;
     }
 
+    /// A stage with attacks plays faster than the player's speed (an
+    /// extreme slow setting raised so that attacks can warn in time).
+    pub fn set_speed_raised(&mut self) {
+        let note: String = msg::room::prompt_speed_raised().into();
+        self.mods = if self.mods.is_empty() {
+            note
+        } else {
+            format!("{} · {note}", self.mods)
+        };
+    }
+
     /// A song's card: its title and artist (data, as read from its
     /// files), its chart's line and difficulty, the mods, the badge (the
     /// timing line stays the caller's).

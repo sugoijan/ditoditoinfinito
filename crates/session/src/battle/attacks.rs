@@ -1,15 +1,19 @@
-//! A practice stage's attack ledger run on this device
-//! (`docs/plans/multiplayer-prototype-progress.md`, M8a): every
+//! A practice stage's attacks run on this device
+//! (`docs/plans/multiplayer-prototype-progress.md`, M8a and M8b): every
 //! competitor's judgments handed to `ddi_room`'s [`StageBattle`] as
 //! reports, a checkpoint run once every competitor still in has been
 //! judged past its time. So what it comes to never depends on the frame
-//! rate (each judgment carries the instant it happened; a checkpoint
-//! waits for the slowest judge), and the same log and seeds come to the
-//! same ledger ([`AttackRunner::record`]).
+//! rate (each judgment carries the instant it happened, life is read from
+//! each play's record at the checkpoint's instant, a checkpoint waits for
+//! the slowest judge), and the same log and seeds come to the same record
+//! ([`AttackRunner::record`]).
 //!
-//! M8a shows the power only ([`BattlePreset::GaugeAttacksV0`], a
-//! development switch): nothing is launched. Later rounds run targeting,
-//! commitments and deliveries from the same checkpoints.
+//! The chart's sections with room for shocks come from the engine's
+//! placement (`ddi_engine::battle::schedule`, one for everyone), each
+//! competitor's lead from its reading horizon ([`LEAD_V0`]). What the
+//! checkpoints commit, the stage delivers (`crate::battle::Battle`).
+//!
+//! Behind a development switch ([`BattlePreset::GaugeAttacksV0`]).
 //!
 //! [`BattlePreset::GaugeAttacksV0`]: ddi_room::BattlePreset::GaugeAttacksV0
 
@@ -17,9 +21,12 @@ use std::collections::BTreeMap;
 
 use ddi_chart::{Song, TICKS_PER_BEAT, Tick};
 use ddi_engine::judge::{JudgeEvent, JudgeEventKind};
+use ddi_engine::rules::JudgeTable;
 use ddi_room::ParticipantId;
+pub use ddi_room::attacks::LEAD_V0;
 use ddi_room::attacks::{
-    ATTACKS_V0, AttackEvent, CheckpointRecord, Judged, POWER_CLASSES_V0, Report, StageBattle,
+    ATTACKS_V0, Attack, AttackEvent, BlockReason, Cell, CheckpointRecord, Judged, POWER_CLASSES_V0,
+    Report, Schedule, SeatStats, Section, Slot, StageBattle, StageRoster, Targeting,
 };
 
 /// The most checkpoints a stage has (a song of an hour at 240 BPM is
@@ -36,25 +43,81 @@ pub struct AttackRunner {
     pending: BTreeMap<ParticipantId, Vec<Judged>>,
     /// When each went out (judged song microseconds).
     out: BTreeMap<ParticipantId, i64>,
-    events: Vec<AttackEvent>,
+    /// The last events, each with its checkpoint's time.
+    events: Vec<(i64, AttackEvent)>,
 }
 
-fn micros(seconds: f64) -> i64 {
+pub(crate) fn micros(seconds: f64) -> i64 {
     (seconds * 1e6).round() as i64
+}
+
+/// The sections chart `chart` of `song` has room for shocks in under
+/// `judge` (`ddi_engine::battle::schedule`, drawn from `seed`), as the
+/// ledger has them: a slot every [`ATTACKS_V0`]'s checkpoint beats from
+/// the chart's start, each section's shocks timed, when it clears (its
+/// last shock and its window) and when its recipient may first recover.
+pub fn schedule(song: &Song, chart: usize, judge: &JudgeTable, seed: u64) -> Schedule {
+    let Some(c) = song.charts.get(chart) else {
+        return Schedule::default();
+    };
+    let timing = c.timing(song);
+    let window = ddi_engine::battle::INJECTED_MINE_V0.window(judge);
+    let every = i64::from(ddi_engine::battle::PLACEMENT_V0.every_beats.max(1));
+    let recover = f64::from(ATTACKS_V0.recover_beats);
+    let slots = ddi_engine::battle::schedule(song, chart, judge, seed)
+        .into_iter()
+        .enumerate()
+        .map(|(j, section)| Slot {
+            start_us: micros(timing.seconds_at(Tick(j as i64 * every * TICKS_PER_BEAT))),
+            section: section.map(|s| {
+                let cells: Vec<Cell> = s
+                    .cells
+                    .iter()
+                    .map(|h| Cell {
+                        tick: h.tick.0,
+                        lane: h.lane,
+                        at_us: micros(timing.seconds_at(h.tick)),
+                    })
+                    .collect();
+                let last = cells.iter().map(|c| c.at_us).max().unwrap_or(0);
+                let clear = last as f64 / 1e6 + window;
+                let after = timing.beat_at(clear) + recover;
+                let after = timing.seconds_at(Tick((after * TICKS_PER_BEAT as f64).ceil() as i64));
+                Section {
+                    cells,
+                    clear_us: micros(clear),
+                    recover_after_us: micros(after.max(clear)),
+                }
+            }),
+        })
+        .collect();
+    Schedule { slots }
+}
+
+/// An attack's shocks as a play takes them.
+pub fn hazards(attack: &Attack) -> Vec<ddi_engine::battle::Hazard> {
+    attack
+        .cells
+        .iter()
+        .map(|c| ddi_engine::battle::Hazard {
+            tick: Tick(c.tick),
+            lane: c.lane,
+        })
+        .collect()
 }
 
 impl AttackRunner {
     /// The ledger of chart `chart` of `song` (as played) under the match's
-    /// `ruleset`, for `participants`: its checkpoints every
+    /// `ruleset` (its judge `judge`), for `roster`: its checkpoints every
     /// [`ATTACKS_V0`]'s beats from the fourth on, to four beats past the
-    /// chart's last note.
+    /// chart's last note; its sections drawn from the roster's seed.
     pub fn new(
         song: &Song,
         chart: usize,
         ruleset: &str,
-        participants: impl IntoIterator<Item = ParticipantId>,
+        judge: &JudgeTable,
+        roster: StageRoster,
     ) -> AttackRunner {
-        let participants: Vec<ParticipantId> = participants.into_iter().collect();
         let mut checkpoints = Vec::new();
         if let Some(c) = song.charts.get(chart) {
             let timing = c.timing(song);
@@ -71,13 +134,16 @@ impl AttackRunner {
                 tick += step;
             }
         }
+        let participants: Vec<ParticipantId> = roster.seats.iter().map(|s| s.participant).collect();
+        let schedule = schedule(song, chart, judge, roster.seed);
         AttackRunner {
             ledger: StageBattle::new(
                 ATTACKS_V0,
                 POWER_CLASSES_V0,
                 ruleset,
                 checkpoints,
-                participants.iter().copied(),
+                roster,
+                schedule,
             ),
             pending: participants.iter().map(|&p| (p, Vec::new())).collect(),
             out: BTreeMap::new(),
@@ -108,15 +174,27 @@ impl AttackRunner {
         self.out.entry(participant).or_insert(micros(at));
     }
 
+    /// The next checkpoint's time, song seconds.
+    pub fn next_checkpoint(&self) -> Option<f64> {
+        self.ledger.next_checkpoint().map(|(_, at)| at as f64 / 1e6)
+    }
+
     /// Runs every checkpoint whose time is at or before `until`: the
-    /// least time any competitor still in has been judged to. What they
-    /// changed.
-    pub fn run_due(&mut self, until: f64) -> Vec<AttackEvent> {
+    /// least time any competitor still in has been judged to; `life`, a
+    /// competitor's life just before a song second (millionths, from its
+    /// play's record). What they changed, each with its checkpoint's time
+    /// (song microseconds).
+    pub fn run_due(
+        &mut self,
+        until: f64,
+        life: &dyn Fn(ParticipantId, f64) -> u32,
+    ) -> Vec<(i64, AttackEvent)> {
         let until = micros(until);
         let mut changed = Vec::new();
         while let Some((k, at)) = self.ledger.next_checkpoint()
             && at <= until
         {
+            let seconds = at as f64 / 1e6;
             let reports: Vec<Report> = self
                 .pending
                 .iter_mut()
@@ -125,16 +203,27 @@ impl AttackRunner {
                     Report {
                         participant: *p,
                         judged: judged.drain(..split).collect(),
+                        life_ppm: life(*p, seconds),
                         out_at_us: self.out.get(p).copied(),
                     }
                 })
                 .collect();
-            changed.extend(self.ledger.checkpoint(k, &reports));
+            changed.extend(
+                self.ledger
+                    .checkpoint(k, &reports)
+                    .into_iter()
+                    .map(|e| (at, e)),
+            );
         }
         self.events.extend(changed.iter().copied());
         let over = self.events.len().saturating_sub(EVENTS_KEPT);
         self.events.drain(..over);
         changed
+    }
+
+    /// The ledger itself (read only).
+    pub fn ledger(&self) -> &StageBattle {
+        &self.ledger
     }
 
     /// `participant`'s power as a share of the bar, `0..=1`, and whether
@@ -148,6 +237,17 @@ impl AttackRunner {
 
     pub fn power(&self, participant: ParticipantId) -> u32 {
         self.ledger.power(participant)
+    }
+
+    /// Why its full bar waits, if it does, and its policy.
+    pub fn waiting(&self, participant: ParticipantId) -> Option<(Targeting, BlockReason)> {
+        self.ledger
+            .waiting(participant)
+            .map(|r| (self.ledger.targeting(participant), r))
+    }
+
+    pub fn stats(&self, participant: ParticipantId) -> SeatStats {
+        self.ledger.stats(participant)
     }
 
     /// The checkpoints run so far, and how many there are.
@@ -165,7 +265,7 @@ impl AttackRunner {
     }
 
     /// The last few things the checkpoints changed (the debug state).
-    pub fn recent(&self) -> &[AttackEvent] {
-        &self.events
+    pub fn recent(&self) -> impl Iterator<Item = &AttackEvent> {
+        self.events.iter().map(|(_, e)| e)
     }
 }

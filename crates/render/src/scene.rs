@@ -517,6 +517,14 @@ pub fn hud_areas(geo: &FieldGeometry, span: f32) -> Vec<[f32; 4]> {
     ]
 }
 
+/// The battle's power bar over the field `geo` (`span` lanes wide) and the
+/// life gauge under it, `[left, top, width, height]` each, in target
+/// pixels: where the HUD draws them (`crate::hud`).
+pub fn power_and_life(geo: &FieldGeometry, span: f32) -> ([f32; 4], [f32; 4]) {
+    let life = crate::hud::life_rect(geo, span);
+    (crate::hud::power_rect(life), life)
+}
+
 /// The tap judgment's place across the field `geo` (`span` lanes wide),
 /// `[left, top, right, bottom]` in target pixels, shown or not: its
 /// line at its largest (its pop), where `draw` puts it.

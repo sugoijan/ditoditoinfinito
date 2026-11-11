@@ -457,6 +457,12 @@ fn full_info(request: &Request, loaded: &Loaded, settings: &Settings) -> PromptI
             order.others,
             &order.ruleset,
         );
+        if order.battle.attacks()
+            && order.others == 0
+            && ddi_session::battle::stage_speed_raised(&loaded.song, request.chart, settings)
+        {
+            info.set_speed_raised();
+        }
     }
     info
 }
@@ -1594,6 +1600,11 @@ impl Host {
             if let Some(run) = &r.scene {
                 run.spots.set(ddi_shell::play_spots(v.renderer.hud_spots()));
             }
+            // Each attack's commitment, to the log (M8b, development).
+            for line in play.session.take_battle_log() {
+                eprintln!("{line}");
+                self.log.push(line);
+            }
             // The scripts' sounds, at once on the play's sound.
             for sound in v.take_script_sounds() {
                 if let Err(e) = play.session.play_now(&sound) {
@@ -1936,6 +1947,15 @@ impl Host {
         }
         if play.request.stage.is_some() {
             data.kind = ddi_ui::screens::data::ResultsKind::Stage;
+            // A final attack's knockout drew it (`SETTLEMENT_V0`).
+            if play
+                .session
+                .battle()
+                .is_some_and(|b| b.drawn_by_final_attack())
+            {
+                data.notes
+                    .insert(0, ddi_l10n::msg::room::results_drawn_final_attack().into());
+            }
         }
         // The play just kept: its replay.
         let watch: Option<ActionFn> = play

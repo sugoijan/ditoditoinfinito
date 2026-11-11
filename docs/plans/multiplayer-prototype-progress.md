@@ -1437,10 +1437,15 @@ lines (later rounds).
   with Infinito, its ShockArrows, Peters-DDR, Reverse and Hidden, Chrome
   and Firefox).
 
-## M8b: attacks launched, CPUs shocked, settlement (in progress, 2026-11-11)
+## M8b: attacks launched, CPUs shocked, settlement (implemented, 2026-11-11)
 
 The second round of battle attacks, still behind the development switch
-(`--mp-dev-attacks`, the web's `mpattacks=1` beside `mp=1`).
+(`--mp-dev-attacks`, the web's `mpattacks=1` beside `mp=1`): with it,
+practice stages launch attacks; without it, nothing changes (the
+survival battle has no ledger). Not in this round: who-attacks-whom
+curves, priority seats, the targeting choice (before the stage and in
+play), attacks on by default, announcer lines, the results' battle
+detail (round 3). The dancing hand is not fed shocks (D7).
 
 - **CPUs receive shocks** (real mechanics; reached in this commit only by
   the development trigger `--mp-dev-mines BEAT` / `mpdevmines=BEAT`, which
@@ -1466,6 +1471,100 @@ The second round of battle attacks, still behind the development switch
   flashes its receptor with the skin's mine explosion
   (`ReceptorState::mine`, `NoteskinPlay::miniature`); avoided ones scroll
   on past the receptors and fade.
+- **The attack loop** (real mechanics, development switch only):
+  `ddi_room::attacks::StageBattle::checkpoint` in a fixed order: (1)
+  eliminations, (2) power by timing and life as reported (the life is
+  read from each play's record at the checkpoint's instant, so frames do
+  not matter), (3) attacks whose last shock passed clear, and a cleared
+  one's recipient recovers after eight of its own judgments past the
+  clear and four beats, (4) attacks against someone out expire (no
+  refund), (5) full bars launch in an order that turns each checkpoint
+  (from `k mod n` in participant order), each at the target its policy
+  picks among those who can be attacked (in, not itself, no attack
+  against them reserved, active or recovering): Spread, the fewest
+  attacks admitted this stage; Retaliate, the latest sender to it (as of
+  the previous batch) while it can be, else Spread; Leader, the most
+  life, then the most timing points earned (`earned`, standing in for
+  score), then seeded; ties seeded by (stage seed, checkpoint, sender,
+  candidate); judged on the state before the batch; (6) the first safe
+  section starting no sooner than the checkpoint plus the target's lead
+  and the next checkpoint (four beats), within 16 beats of that start,
+  else `Blocked { NoEligible | NoSafeSection }` (told when it starts
+  waiting or its reason changes; it tries again each checkpoint). Every
+  attack is all eight shocks (D4: no weakening). The ledger's record
+  keeps each checkpoint's power and events.
+- **Leads per target** (D5, `LEAD_V0`): the target's reading horizon
+  (`ddi_engine::battle::reading_horizon`: the longest a note is shown
+  before it is judged under the player's speed, scroll action, Hidden or
+  Sudden and visible range, over the chart's tempo; lane covers left
+  out) plus 1.5 s of warning and 0.1 s of delay, at most 10 s. A CPU's
+  lead is reckoned from the local player's horizon
+  (`CPU_HORIZON`, `local-player-horizon-v0`): its miniature is drawn
+  under the player's scroll, so its shocks come in from the far end. A
+  stage with attacks raises an extreme slow speed until the player's
+  lead fits under the cap (`ddi_session::battle::raised_speed`), and its
+  prompt says "Speed raised so attacks can warn in time".
+- **Delivery**: `Battle::advance` runs the due checkpoints after every
+  competitor is judged to the frame's time and delivers each commitment:
+  into the player's play (`Player::add_hazards`, kept in its log), into
+  a CPU's (`Opponent::receive_hazards`) and onto its field
+  (`FieldFeed::add_hazards`). One a frame stalled past the lead would
+  refuse is counted (`Battle::refused`, the debug state), never forced.
+- **Settlement** (D6, `SETTLEMENT_V0`): decided only once at most one
+  competitor is still in and no committed attack against anyone still
+  in is outstanding (an attack is outstanding until its recipient's play
+  is judged past its clear); no Stage won meanwhile (the winner's fail
+  stays on). If the last one in goes out while it waits, they share
+  first with those out in the same checkpoint interval as the one before
+  them, and the results say "Drawn: final attack"
+  (`StageOutcome::drawn_by_final_attack`, `room-results-drawn-final-attack`).
+- **Played out** (`Battle::play_out`): once the player is out or has
+  quit (a forfeit at its judged time), the CPUs and the attacks between
+  them are stepped a checkpoint at a time to the song's end and settled
+  as they come, replacing the per-CPU `finish()` in the outcome and in a
+  stage left at its prompt (`battle::forfeit`).
+- **Policies**: the player and every CPU play Spread (`StageOrder::targeting`,
+  `CpuSeat::targeting`): data on the seat, so round 3's choice sets it.
+- **Warning and waiting line** (`ddi_shell::battle_cue`): a shock glyph
+  drawn in quads (whatever the skin) beside the field's right edge on
+  the receptors' row (the bottom under Reverse), one dot a shock (eight)
+  under it; it scales in over 0.2 s (at once under reduced motion), dims
+  to 60% once the first shock is in sight on the field, becomes a small
+  shield once the last shock passed, until the player recovers; the
+  miniatures keep clear of its place. A muted 12 px line right-aligned
+  under the power bar's end (below life) while the player's full bar
+  waits: "Spread · waiting for target" (`room-play-attack-waiting`).
+- **Debug**: `__DDI_DEBUG.battle.attacks`: per seat power, launched,
+  received, checkpoints waited `[NoEligible, NoSafeSection]`, incoming
+  sender, outgoing recipients; the attacks so far, the player's incoming
+  attack, the warning and waiting line as drawn, settling, a final
+  attack's draw, refused deliveries, the last 16 events. The desktop
+  prints a line per commitment (`attack: committed CPU 2→you at 41.80 s,
+  8 shocks from 46.23 s`); the web logs it to the console (debug level).
+- **How often** (autoplayed player, the CPUs at their levels, two seeds
+  each; `launches/min/seat` over the checkpoints' span; NoSafeSection's
+  share of the checkpoints a full bar met, many at the song's tail where
+  no section starts): Beatucada Medium (217 notes, 1.7 min) 1.4–1.7 and
+  20–57%; Beatucada Hard (283) 2.0–2.5 and 0–51%; Sweeteners Hard
+  (424, 2.5 min) 2.1–2.8 and 10–32%; Into My Dream Medium (280) 1.5–1.8
+  and 13–66%; Some Things Must Hard (595, 2.3 min) 3.1–4.2 and 6–30%;
+  its Challenge (831) 4.2–5.2 and 12–18%, NoEligible waits common there
+  (everyone under attack). With seven CPUs at level 3 the CPUs stepped
+  on 8–42 shocks a stage; nobody went out to attacks alone in these runs
+  (the autoplayed player steps on none).
+- Tests: `ddi-room` `attacks/tests.rs` (a full bar spent on eight shocks
+  from the target's lead and the next checkpoint; a duel waiting for
+  recovery; Leader falling back when its target is taken; Spread to the
+  fewest attacked and the turning order; Retaliate's memory from the next
+  batch over eight seeds; expiry unrefunded; no safe section in reach
+  waits; 128 seats bounded, one attack a recipient; the same reports the
+  same record; settlement and a final attack's shared first);
+  `ddi-session` (`attacks_are_launched_delivered_and_the_same_at_any_frame_rate_and_from_the_log`,
+  `an_early_win_waits_for_the_last_attack_to_clear` over 60 seeded
+  battery stages, 4 of which waited, `the_player_gone_the_cpus_and_their_attacks_are_played_out`,
+  `an_extreme_slow_speed_is_raised_to_fit_the_lead`); `ddi-shell`
+  `battle_cue`; `ddi-desktop`
+  `a_practice_stage_with_attacks_launches_them_through_the_window`.
 - Tests: `ddi-engine` `cpu::mines` (the table, keyed draws),
   `cpu::opponent` (judged and the same at 60/144 frames a second, the
   control unchanged, a poor avoider steps on more than a good one over
@@ -1495,6 +1594,13 @@ The second round of battle attacks, still behind the development switch
 | Practice CPUs start at level 3 of 5 (the engine's `normal`), seeds from the time the room was made | `state::room::DEFAULT_CPU_LEVEL`, `PracticeRoom::new` | A new practice room shows "Level 3 of 5"; two rooms differ in their CPUs' seeds | Practice's default profile; whether the seed should be shown or fixed |
 | A chart is playable by the CPUs when its style is a built-in one-player layout with four lanes; song-declared layouts are refused | `state::room::eligible` | Solo, Double, Pump, techno and DanOni 5–9 charts, and a song's own four-lane layout, are refused with a reason | Whether to accept song-declared four-lane layouts before M3's load check |
 | Chosen local content counts as loaded at once | `PracticeRoom::sync_loading` | Ready alone makes the player eligible | Replaced in M3 by the real load and plan check |
+| Attacks `attacks-v0`: a commitment looks 16 beats past its earliest start; recovery after eight of the recipient's judgments past the attack's last shock and four beats | `ddi_room::attacks::ATTACKS_V0` | How long a full bar waits for a place, how soon someone can be attacked again | The numbers, once played |
+| Lead `lead-v0`: the target's reading horizon + 1.5 s warning + 0.1 s, at least the next checkpoint (four beats), at most 10 s; slower settings raised on a stage | `ddi_room::attacks::LEAD_V0`, `ddi_session::battle::raised_speed` | An attack's shocks never appear before the warning has shown 1.5 s; a very slow player plays a stage faster (said on the prompt) | Whether online adds a network budget (D5 says synchronized starts instead) |
+| A CPU's lead from the local player's horizon (`local-player-horizon-v0`) | `ddi_session::battle::CPU_HORIZON` | Shocks on a miniature come in from its far end | Whether CPUs should have a horizon of their own |
+| Targeting ties: seeded by stage, checkpoint, sender and candidate; Leader's tie-break the timing points earned (cap aside) standing in for score | `StageBattle::launch` | Who gets attacked when several are equal | Whether Leader should use the real score at the checkpoint |
+| Launch order turns each checkpoint (`k mod n` in participant order) | `StageBattle::launch` | With several full bars at once, who picks first | None unless play shows a bias |
+| Settlement `settlement-v0`: decided only without an outstanding attack against the last one in; a knockout while waiting shares first with those out in the same checkpoint interval as the one before | `ddi_room::attacks::SETTLEMENT_V0` | "Stage won" waits for the last attack to pass; "Drawn: final attack" | As decided (D6) |
+| A stage with the player gone is played out a checkpoint at a time (CPUs, their attacks, settled as they come) | `ddi_session::battle::Battle::play_out` | The ranking of the CPUs after the player leaves includes their attacks on one another | None until watching exists |
 | CPU shock response `mine-response-v0` (uncalibrated): avoidance from level (1–2: 0, 3–4: 0.5, 5: 1); at 0 a CPU steps on 14% of shocks, its presses within 0.3 s of one moved ±45 ms and 4% left out; at 0.5 6%, ±25 ms, 1.5%; at 1 2%, ±12 ms, 0.5% | `ddi_engine::cpu::MINE_RESPONSE_V0` | How often a CPU's life drops to an attack, and how much its timing suffers near one | Calibration against people; whether avoidance joins `Skills` |
 | Battle `gauge-survival-v0` (`ddi_room::battle::BattlePreset::GaugeSurvivalV0`, practice's `MatchRules::battle`): life is each competitor's gauge under the match's ruleset (M8a; before, the player's own), empty is out of the stage | `crates/room/src/battle.rs`, `crates/session/src/battle.rs` | A stage is survival under the match's ruleset's gauge; Rules says "Survival · provisional" | The standard battle (life, power) and its numbers |
 | Ranking: still in by life, then accuracy (the ruleset's percent, money or EX over its most); then the out, later first; then forfeits; exact ties share | `ddi_room::battle::rank` | Placements follow life first; the CPUs' accuracy is on the taps-only copy, the player's on the full chart (not like for like) | Ranking survivors; whether CPUs should play the full chart |
@@ -1685,3 +1791,21 @@ The second round of battle attacks, still behind the development switch
   generous enough for dense charts, or too strict once play-tested?
 - M8a: a hit's explosion is the skin's mine explosion; should battle
   shocks have a look of their own beside authored mines?
+- M8b: NoSafeSection waits gather at a song's tail (no section starts in
+  its last eight beats while checkpoints run four beats past its last
+  note): should a full bar at the end be told it will not be spent, or
+  power stop being earned there?
+- M8b: a CPU's lead uses the local player's horizon (so its miniature
+  shows its shocks scrolling in); should CPUs have a horizon of their
+  own (or none) once watching exists?
+- M8b: Leader breaks life ties by timing points earned (the cap aside),
+  standing in for score; the real score at the checkpoint would need
+  each play's score history. Good enough?
+- M8b: an attack against the player stays "incoming" in the ledger
+  until the next checkpoint after its clear; the warning turns into the
+  shield at the clear itself. Should the shield show the recovery's
+  progress (eight judgments and four beats)?
+- M8b: the incoming warning sits at the field's right edge; in a stage
+  with lyrics or a narrow side it may meet the quiet column. Left or
+  right, and should it move to the side away from the miniatures?
+

@@ -41,7 +41,9 @@ use ddi_engine::player::Player;
 use ddi_engine::rules::{Ruleset, ScoreView};
 use ddi_l10n::msg::room as m;
 use ddi_library::announcer::{Battle as Event, SURVIVOR_MILESTONES};
-use ddi_room::battle::{decided, rank};
+use ddi_room::attacks::{AttackEvent, LEAD_V0, RosterSeat, SETTLEMENT_V0, Settling, StageRoster};
+pub use ddi_room::attacks::{BlockReason, Targeting};
+use ddi_room::battle::decided;
 use ddi_room::{BattlePreset, Entrant, Finisher, ParticipantId, Run, StageId};
 use ddi_ui::state::room::{CpuSeat, StageOrder};
 
@@ -58,6 +60,9 @@ pub struct StageSetup {
     /// CPUs' and the bots' ([`stage_ruleset`]).
     pub ruleset: String,
     pub me: ParticipantId,
+    /// The local player's attack policy (M8b: Spread; chosen before the
+    /// stage and in play from the next round on).
+    pub targeting: Targeting,
     pub cpus: Vec<CpuSeat>,
     /// DEVELOPMENT ONLY: a section of battle shocks put into the local
     /// player's play from this beat on (`--mp-dev-mines`, `mpdevmines=`).
@@ -90,6 +95,7 @@ impl StageSetup {
             ruleset: order.ruleset.clone(),
             dev_mines_at_beat: order.dev_mines_at_beat,
             me: order.me,
+            targeting: order.targeting,
             cpus: order.cpus.clone(),
             others: order.others,
         }
@@ -116,6 +122,65 @@ pub fn stage_ruleset(id: &str, chart: &ddi_chart::Chart) -> Ruleset {
     rules
 }
 
+/// A stage's scroll speed raised so that its player's lead fits under
+/// [`LEAD_V0`]'s cap (D5: an extreme slow setting would read further ahead
+/// than an attack may wait): the speed `options` play chart `chart` of
+/// `song` at, multiplied until the longest a note is shown before it is
+/// judged leaves room for the warning and the delay; `None` where it fits
+/// already.
+pub fn raised_speed(
+    song: &Song,
+    chart: usize,
+    options: &ddi_engine::player::PlayOptions,
+) -> Option<ddi_engine::scroll::SpeedMod> {
+    use ddi_engine::scroll::SpeedMod;
+    let c = song.charts.get(chart)?;
+    let timing = c.timing(song);
+    let seconds = c
+        .notes
+        .iter()
+        .map(|n| timing.seconds_at(n.tick))
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), t| {
+            (a.min(t), b.max(t))
+        });
+    if !seconds.0.is_finite() {
+        return None;
+    }
+    let cap = LEAD_V0.horizon_cap_us() as f64 / 1e6;
+    let mut o = *options;
+    let mut raised = false;
+    for _ in 0..8 {
+        let h = ddi_engine::battle::reading_horizon(&o, timing, seconds.0 - 2.0, seconds.1);
+        if h <= cap {
+            break;
+        }
+        let k = h / cap * 1.05;
+        o.scroll.speed = match o.scroll.speed {
+            SpeedMod::XMod(m) => SpeedMod::XMod(m * k),
+            SpeedMod::CMod(b) => SpeedMod::CMod(b * k),
+        };
+        raised = true;
+    }
+    raised.then_some(o.scroll.speed)
+}
+
+/// Whether a stage with attacks raises the speed `settings` would play
+/// chart `chart` of `song` at ([`raised_speed`]): what its prompt says.
+pub fn stage_speed_raised(
+    song: &Song,
+    chart: usize,
+    settings: &ddi_ui::state::settings::Settings,
+) -> bool {
+    let mut options = settings.play_options(None);
+    options.scroll.speed = ddi_engine::scroll::speed_for_chart(
+        song,
+        chart,
+        options.scroll.speed,
+        settings.speed_source,
+    );
+    raised_speed(song, chart, &options).is_some()
+}
+
 /// DEVELOPMENT ONLY: the first section of battle shocks chart `chart` of
 /// `song` has from beat `beat` on under `judge` (`ddi_engine::battle::schedule`,
 /// drawn from `seed`), put into `player`'s play: what it put in, if any.
@@ -132,6 +197,18 @@ pub fn dev_shocks(
     let section = schedule.into_iter().skip(first).flatten().next()?;
     player.add_hazards(&section.cells).ok()?;
     Some(section)
+}
+
+/// The seed a stage's battle draws its sections and ties from: the
+/// stage's and its CPUs' (the match's profile), so that two stages on the
+/// same chart differ.
+pub fn battle_seed(setup: &StageSetup) -> u64 {
+    setup
+        .cpus
+        .iter()
+        .fold(setup.stage.0.wrapping_mul(0x9E37_79B9_7F4A_7C15), |s, c| {
+            s.rotate_left(7) ^ c.seed
+        })
 }
 
 /// An opponent as the play shows it, in its stable slot.
@@ -163,7 +240,42 @@ pub struct StageOutcome {
     /// The local player's own run: what an online room is told
     /// (`RoomClient::report_run`); the ranking is this device's alone.
     pub mine: Run,
+    /// First shared because the last one in was knocked out while the
+    /// stage waited on an attack against them (`SETTLEMENT_V0`; the
+    /// results say "Drawn: final attack").
+    pub drawn_by_final_attack: bool,
 }
+
+/// An attack against the local player, as its warning shows it
+/// (`ddi_shell`'s cue by the field's receptors).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Incoming {
+    /// Its shocks (all eight, D4).
+    pub shocks: u8,
+    /// When it was committed, its first shock and when it clears
+    /// (judged song seconds).
+    pub committed: f64,
+    pub first: f64,
+    pub clear: f64,
+}
+
+/// A full bar of the local player's waiting, as the line under it says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Waiting {
+    pub targeting: Targeting,
+    pub reason: BlockReason,
+}
+
+/// The reading horizon a CPU's lead is reckoned from (D5): the local
+/// player's own, so that the shocks on its miniature field, drawn under
+/// the local player's scroll, come in from the far end as the player's
+/// own would. PROVISIONAL (`docs/plans/multiplayer-prototype-progress.md`,
+/// M8b).
+pub const CPU_HORIZON: &str = "local-player-horizon-v0";
+
+/// The horizon a stage left at its prompt reckons CPUs' leads from (no
+/// play to read it from), seconds.
+pub const FORFEIT_HORIZON: f64 = 2.0;
 
 struct Seat {
     seat: CpuSeat,
@@ -183,8 +295,20 @@ pub struct Battle {
     /// The attack ledger, where the battle has attacks (a practice's
     /// only: an online stage's would be the room's).
     attacks: Option<attacks::AttackRunner>,
-    /// The ranking, once decided before the song's end.
+    /// The ranking, once decided before the song's end, and whether a
+    /// final attack drew it.
     decided: Option<Vec<Vec<Finisher>>>,
+    drawn: bool,
+    /// When it was decided (the local player's judged song second).
+    decided_at: Option<f64>,
+    /// At most one competitor left, waiting on an attack against them
+    /// (`SETTLEMENT_V0`).
+    settling: Option<Settling>,
+    /// The commitments since they were last taken, worded for a log.
+    log: Vec<String>,
+    /// Shocks a play refused (arrived too late: a frame stalled past the
+    /// lead).
+    refused: u32,
     /// The battle's events since they were last taken, and what tells
     /// them: the competitors still in at the last frame, the local
     /// player's life in danger then, and whether its critical moment and
@@ -212,14 +336,17 @@ pub fn accuracy(view: &ScoreView) -> f64 {
 impl Battle {
     /// The CPUs of `setup` on chart `chart` of `song` (as played), under
     /// `ruleset` (the player's, its fail immediate: out of the stage),
-    /// started at song second `song_offset`. Refused, with the engine's
-    /// reason, where the CPUs cannot plan the chart.
+    /// started at song second `song_offset`; `horizon`, how far ahead the
+    /// local player reads (`Player::reading_horizon`, seconds: every
+    /// competitor's lead is reckoned from it, [`CPU_HORIZON`]). Refused,
+    /// with the engine's reason, where the CPUs cannot plan the chart.
     pub fn new(
         setup: StageSetup,
         song: &Song,
         chart: usize,
         ruleset: &Ruleset,
         song_offset: f64,
+        horizon: f64,
     ) -> Result<Battle, String> {
         let levels = ddi_engine::cpu::STRENGTHS.len();
         let track = feed::TapTrack::new(song, chart)?;
@@ -256,12 +383,22 @@ impl Battle {
             .collect::<Result<Vec<_>, String>>()?;
         let live = seats.len() + 1 + usize::from(setup.others);
         let attacks = (setup.battle.attacks() && !setup.remote()).then(|| {
-            attacks::AttackRunner::new(
-                song,
-                chart,
-                &setup.ruleset,
-                std::iter::once(setup.me).chain(seats.iter().map(|s| s.seat.participant)),
-            )
+            let lead = LEAD_V0.of(attacks::micros(horizon));
+            let roster = StageRoster {
+                seats: std::iter::once(RosterSeat {
+                    participant: setup.me,
+                    targeting: setup.targeting,
+                    lead_us: lead,
+                })
+                .chain(seats.iter().map(|s| RosterSeat {
+                    participant: s.seat.participant,
+                    targeting: s.seat.targeting,
+                    lead_us: lead,
+                }))
+                .collect(),
+                seed: battle_seed(&setup),
+            };
+            attacks::AttackRunner::new(song, chart, &setup.ruleset, &ruleset.judge, roster)
         });
         Ok(Battle {
             setup,
@@ -269,6 +406,11 @@ impl Battle {
             track,
             attacks,
             decided: None,
+            drawn: false,
+            decided_at: None,
+            settling: None,
+            log: Vec::new(),
+            refused: 0,
             events: Vec::new(),
             live,
             danger: None,
@@ -294,17 +436,27 @@ impl Battle {
 
     /// The opponents judged to judged song second `t`, beside `human`
     /// judged to it too (`judged`: what it was judged since the last
-    /// call). `Some(true)` the moment the stage is decided with the local
+    /// call); the attack checkpoints everyone has been judged past run,
+    /// their commitments delivered (into `human`'s play, a CPU's and its
+    /// field). `Some(true)` the moment the stage is decided with the local
     /// player the winner (the session lets them finish the song whatever
     /// their gauge does), `Some(false)` the moment it is decided
     /// otherwise.
-    pub fn advance(&mut self, t: f64, human: &Player, judged: &[JudgeEvent]) -> Option<bool> {
+    pub fn advance(&mut self, t: f64, human: &mut Player, judged: &[JudgeEvent]) -> Option<bool> {
         if let Some(a) = self.attacks.as_mut() {
             a.judged(self.setup.me, judged);
             if let Some(at) = human.gauge_failed_at() {
                 a.out_at(self.setup.me, at);
             }
         }
+        self.step_cpus(t);
+        self.run_attacks(Some(human));
+        self.settle(human)
+    }
+
+    /// Each CPU judged to `t`, its judgments to the ledger and to its
+    /// field.
+    fn step_cpus(&mut self, t: f64) {
         for s in &mut self.seats {
             s.opponent.advance(t);
             // Its judgments as moments of its stream: what its field shows.
@@ -342,40 +494,185 @@ impl Battle {
                 s.feed.push(&self.track, moment);
             }
         }
-        // The attack checkpoints every competitor still in has been
-        // judged past (the slowest judge decides, whatever the frames).
-        if let Some(a) = self.attacks.as_mut() {
-            let until = std::iter::once((human.gauge_failed_at(), human.judge().last_time()))
-                .chain(
+    }
+
+    /// The attack checkpoints every competitor still in has been judged
+    /// past (the slowest judge decides, whatever the frames; one whose
+    /// play is over has been judged to its end), and their commitments
+    /// delivered: into `human`'s play where it is given (not after the
+    /// play: it is out then), into a CPU's and onto its field.
+    fn run_attacks(&mut self, mut human: Option<&mut Player>) {
+        let Some(a) = self.attacks.as_mut() else {
+            return;
+        };
+        let me = self.setup.me;
+        let judged_to = |p: &Player| {
+            if p.finished() {
+                f64::INFINITY
+            } else {
+                p.judge().last_time().unwrap_or(f64::NEG_INFINITY)
+            }
+        };
+        let until = human
+            .as_deref()
+            .filter(|h| h.gauge_failed_at().is_none())
+            .map(judged_to)
+            .into_iter()
+            .chain(
+                self.seats
+                    .iter()
+                    .filter(|s| s.opponent.out_at().is_none())
+                    .map(|s| judged_to(s.opponent.player())),
+            )
+            .reduce(f64::min);
+        let Some(until) = until else {
+            return;
+        };
+        let seats = &self.seats;
+        let human_ref = human.as_deref();
+        let life = |p: ParticipantId, at: f64| -> u32 {
+            let l = if p == me {
+                human_ref.map_or(0.0, |h| h.life_at(at))
+            } else {
+                seats
+                    .iter()
+                    .find(|s| s.seat.participant == p)
+                    .map_or(0.0, |s| s.opponent.player().life_at(at))
+            };
+            (f64::from(l.clamp(0.0, 1.0)) * 1e6).round() as u32
+        };
+        let events = a.run_due(until, &life);
+        for (at, e) in events {
+            let AttackEvent::Committed {
+                attack,
+                sender,
+                recipient,
+            } = e
+            else {
+                continue;
+            };
+            let Some(attack) = a.ledger().attack(attack) else {
+                continue;
+            };
+            let cells = attacks::hazards(attack);
+            let committed = at as f64 / 1e6;
+            let delivered = if recipient == me {
+                human
+                    .as_deref_mut()
+                    .is_some_and(|h| h.add_hazards(&cells).is_ok())
+            } else if let Some(s) = self
+                .seats
+                .iter_mut()
+                .find(|s| s.seat.participant == recipient)
+            {
+                let ok = s.opponent.receive_hazards(&cells).is_ok();
+                if ok {
+                    s.feed.add_hazards(&self.track, &cells, committed);
+                }
+                ok
+            } else {
+                false
+            };
+            if !delivered {
+                self.refused += 1;
+            }
+            let name = |p: ParticipantId| {
+                if p == me {
+                    "you".to_string()
+                } else {
                     self.seats
                         .iter()
-                        .map(|s| (s.opponent.out_at(), s.opponent.player().judge().last_time())),
-                )
-                .filter(|(out, _)| out.is_none())
-                .map(|(_, last)| last.unwrap_or(f64::NEG_INFINITY))
-                .reduce(f64::min);
-            if let Some(until) = until {
-                a.run_due(until);
-            }
+                        .find(|s| s.seat.participant == p)
+                        .map_or_else(|| format!("{p:?}"), |s| s.name.clone())
+                }
+            };
+            self.log.push(format!(
+                "attack: committed {}→{} at {committed:.2} s, {} shocks from {:.2} s{}",
+                name(sender),
+                name(recipient),
+                cells.len(),
+                attack.cells.first().map_or(0.0, |c| c.at_us as f64 / 1e6),
+                if delivered {
+                    ""
+                } else {
+                    " (refused: too late)"
+                },
+            ));
         }
+    }
+
+    /// Whether the stage is decided now (`SETTLEMENT_V0`): at most one
+    /// competitor in and no attack against anyone still in outstanding;
+    /// the ranking then, and what it tells.
+    fn settle(&mut self, human: &Player) -> Option<bool> {
         if self.decided.is_some() {
             return None;
         }
         let entrants = self.entrants(human, false);
         // Others play on their own devices: nothing is decided here.
-        let decided_now = !self.setup.remote() && decided(&entrants);
+        if self.setup.remote() {
+            self.tell(human, false);
+            return None;
+        }
+        // Attacks still to clear against those in: an attack clears once
+        // its recipient's play is judged past it.
+        let me = self.setup.me;
+        let outstanding: Vec<ParticipantId> = self.attacks.as_ref().map_or_else(Vec::new, |a| {
+            a.ledger()
+                .outstanding()
+                .filter(|(p, clear)| {
+                    let judged = if *p == me {
+                        human.judge().last_time()
+                    } else {
+                        self.seats
+                            .iter()
+                            .find(|s| s.seat.participant == *p)
+                            .and_then(|s| s.opponent.player().judge().last_time())
+                    };
+                    judged.is_none_or(|t| attacks::micros(t) <= *clear)
+                })
+                .map(|(p, _)| p)
+                .collect()
+        });
+        let decided_now = SETTLEMENT_V0.decided(&entrants, &outstanding);
+        // At most one left, an attack against them still to come: the
+        // stage waits for it.
+        if !decided_now && decided(&entrants) && self.settling.is_none() {
+            let survivor = entrants
+                .iter()
+                .find(|e| matches!(e.run, Run::Live { .. }))
+                .map(|e| e.participant);
+            let last_out = entrants
+                .iter()
+                .filter_map(|e| match e.run {
+                    Run::Out { at } => Some(attacks::micros(at)),
+                    _ => None,
+                })
+                .max();
+            if let (Some(survivor), Some(last_out_us)) = (survivor, last_out) {
+                self.settling = Some(Settling {
+                    survivor,
+                    last_out_us,
+                });
+            }
+        }
         self.tell(human, decided_now);
         if !decided_now {
             return None;
         }
-        let ranking = rank(&entrants);
+        let checkpoints = self
+            .attacks
+            .as_ref()
+            .map_or(&[][..], |a| a.ledger().checkpoints_us());
+        let (ranking, drawn) = SETTLEMENT_V0.rank(&entrants, checkpoints, self.settling);
         let won = ranking.first().is_some_and(|g| {
             g.len() == 1
                 && g[0].participant == self.setup.me
                 && g[0].finish == ddi_room::Finish::Survived
         });
         // The outcome as it is confirmed: won alone, or first shared (the
-        // last ones out together); out, the elimination told it.
+        // last ones out together, or a final attack's knockout); out, the
+        // elimination told it.
         let shared = ranking
             .first()
             .is_some_and(|g| g.len() > 1 && g.iter().any(|f| f.participant == self.setup.me));
@@ -385,8 +682,115 @@ impl Battle {
             self.events.retain(|e| *e != Event::Eliminated);
             self.events.push(Event::StageDrawn);
         }
+        self.drawn = drawn;
         self.decided = Some(ranking);
+        self.decided_at = human.judge().last_time();
         Some(won)
+    }
+
+    /// The local player out of the play (out, or `quit` while in: a
+    /// forfeit at its judged time): the CPUs and the attacks between them
+    /// played out a checkpoint at a time to the song's end, as they would
+    /// have gone on (nothing they do depends on the player any more),
+    /// the stage settled as it comes.
+    pub fn play_out(&mut self, human: &Player, quit: bool) {
+        if let Some(a) = self.attacks.as_mut() {
+            let at = human
+                .gauge_failed_at()
+                .or_else(|| quit.then(|| human.judge().last_time().unwrap_or(f64::NEG_INFINITY)));
+            if let Some(at) = at {
+                a.out_at(self.setup.me, at);
+            }
+        }
+        let me = self.entrants(human, quit)[0].run;
+        self.play_out_as(me);
+    }
+
+    /// [`Battle::play_out`] with the local player's run `me` (out, or a
+    /// forfeit) already given to the ledger.
+    fn play_out_as(&mut self, me: Run) {
+        // A bound: one step a checkpoint, and a last one.
+        let mut steps = 0;
+        while self.decided.is_none() && steps < 10_000 {
+            steps += 1;
+            let Some(next) = self.attacks.as_ref().and_then(|a| a.next_checkpoint()) else {
+                break;
+            };
+            if self.seats.iter().all(|s| s.opponent.out_at().is_some()) {
+                break;
+            }
+            let before = self.attacks.as_ref().map(|a| a.checkpoints().0);
+            self.step_cpus(next + ddi_engine::player::JUDGE_LAG + 0.001);
+            self.run_attacks(None);
+            self.settle_quietly(me);
+            if self.attacks.as_ref().map(|a| a.checkpoints().0) == before
+                && self
+                    .seats
+                    .iter()
+                    .all(|s| s.opponent.finished() || s.opponent.out_at().is_some())
+            {
+                break;
+            }
+        }
+        for s in &mut self.seats {
+            s.opponent.finish();
+        }
+    }
+
+    /// [`Battle::settle`] for a play over: decided as it comes, nothing
+    /// told (the player's results are on their way).
+    fn settle_quietly(&mut self, me: Run) {
+        if self.decided.is_some() || self.setup.remote() {
+            return;
+        }
+        let entrants = self.entrants_as(me);
+        let outstanding: Vec<ParticipantId> = self.attacks.as_ref().map_or_else(Vec::new, |a| {
+            a.ledger()
+                .outstanding()
+                .filter(|(p, clear)| {
+                    self.seats
+                        .iter()
+                        .find(|s| s.seat.participant == *p)
+                        .and_then(|s| s.opponent.player().judge().last_time())
+                        .is_none_or(|t| attacks::micros(t) <= *clear)
+                })
+                .map(|(p, _)| p)
+                .collect()
+        });
+        if !SETTLEMENT_V0.decided(&entrants, &outstanding) {
+            if decided(&entrants) && self.settling.is_none() {
+                let survivor = entrants
+                    .iter()
+                    .find(|e| matches!(e.run, Run::Live { .. }))
+                    .map(|e| e.participant);
+                let last_out = entrants
+                    .iter()
+                    .filter_map(|e| match e.run {
+                        Run::Out { at } => Some(attacks::micros(at)),
+                        _ => None,
+                    })
+                    .max();
+                if let (Some(survivor), Some(last_out_us)) = (survivor, last_out) {
+                    self.settling = Some(Settling {
+                        survivor,
+                        last_out_us,
+                    });
+                }
+            }
+            return;
+        }
+        // Only once the attacks matter: without them a stage played out
+        // is ranked at the song's end, as before.
+        if self.attacks.is_none() {
+            return;
+        }
+        let checkpoints = self
+            .attacks
+            .as_ref()
+            .map_or(&[][..], |a| a.ledger().checkpoints_us());
+        let (ranking, drawn) = SETTLEMENT_V0.rank(&entrants, checkpoints, self.settling);
+        self.drawn = drawn;
+        self.decided = Some(ranking);
     }
 
     /// The moments of this frame (before the stage is decided): the local
@@ -462,6 +866,71 @@ impl Battle {
         (!self.won() && human.gauge_failed_at().is_none()).then(|| a.bar(self.setup.me))
     }
 
+    /// The attack against the local player it has not recovered from, as
+    /// its warning shows it (none once out or after a confirmed win).
+    pub fn incoming(&self, human: &Player) -> Option<Incoming> {
+        let a = self.attacks.as_ref()?;
+        if self.won() || human.gauge_failed_at().is_some() {
+            return None;
+        }
+        let attack = a.ledger().incoming(self.setup.me)?;
+        let committed = a
+            .ledger()
+            .checkpoints_us()
+            .get(attack.checkpoint)
+            .copied()
+            .unwrap_or(0);
+        Some(Incoming {
+            shocks: attack.cells.len().min(usize::from(u8::MAX)) as u8,
+            committed: committed as f64 / 1e6,
+            first: attack.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6,
+            clear: attack.clear_us as f64 / 1e6,
+        })
+    }
+
+    /// The local player's full bar waiting, and why (none once out or
+    /// after a confirmed win).
+    pub fn waiting(&self, human: &Player) -> Option<Waiting> {
+        let a = self.attacks.as_ref()?;
+        if self.won() || human.gauge_failed_at().is_some() {
+            return None;
+        }
+        a.waiting(self.setup.me)
+            .map(|(targeting, reason)| Waiting { targeting, reason })
+    }
+
+    /// The commitments since the last call, worded for a log (English).
+    pub fn take_log(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.log)
+    }
+
+    /// Shocks a play refused so far (a frame stalled past the lead).
+    pub fn refused(&self) -> u32 {
+        self.refused
+    }
+
+    /// Decided by a final attack's knockout (`SETTLEMENT_V0`).
+    pub fn drawn_by_final_attack(&self) -> bool {
+        self.drawn
+    }
+
+    /// Waiting on an attack against the last one in.
+    pub fn settling(&self) -> Option<Settling> {
+        self.settling.filter(|_| self.decided.is_none())
+    }
+
+    /// The stage waited for an attack against the last one in before it
+    /// was decided (`SETTLEMENT_V0`).
+    pub fn waited_to_settle(&self) -> bool {
+        self.settling.is_some()
+    }
+
+    /// When the stage was decided during the play (the local player's
+    /// judged song second).
+    pub fn decided_at(&self) -> Option<f64> {
+        self.decided_at
+    }
+
     /// The chart's tap-only copy the CPUs play, as their fields draw it.
     pub fn track(&self) -> &feed::TapTrack {
         &self.track
@@ -495,28 +964,37 @@ impl Battle {
     }
 
     /// The stage's outcome now the play is over: the ranking decided
-    /// during the song, else the opponents played to their end (nothing
-    /// they do depends on the player) and everyone ranked; `quit`, the
-    /// local player left while still in (a forfeit; never after the stage
-    /// was decided).
+    /// during the song, else the opponents and the attacks between them
+    /// played out ([`Battle::play_out`]: nothing they do depends on the
+    /// player any more) and everyone ranked (`SETTLEMENT_V0`); `quit`,
+    /// the local player left while still in (a forfeit; never after the
+    /// stage was decided).
     pub fn outcome(&mut self, human: &Player, quit: bool) -> StageOutcome {
         let mine = self.entrants(human, quit)[0].run;
+        if self.decided.is_none() {
+            self.play_out(human, quit);
+        }
         if let Some(ranking) = &self.decided {
             return StageOutcome {
                 stage: self.setup.stage,
                 ranking: ranking.clone(),
                 confirmed_early: true,
                 mine,
+                drawn_by_final_attack: self.drawn,
             };
         }
-        for s in &mut self.seats {
-            s.opponent.finish();
-        }
+        let checkpoints = self
+            .attacks
+            .as_ref()
+            .map_or(&[][..], |a| a.ledger().checkpoints_us());
+        let (ranking, drawn) =
+            SETTLEMENT_V0.rank(&self.entrants(human, quit), checkpoints, self.settling);
         StageOutcome {
             stage: self.setup.stage,
-            ranking: rank(&self.entrants(human, quit)),
+            ranking,
             confirmed_early: false,
             mine,
+            drawn_by_final_attack: drawn,
         }
     }
 
@@ -551,17 +1029,22 @@ impl Battle {
     }
 
     fn entrants(&self, human: &Player, quit: bool) -> Vec<Entrant> {
+        self.entrants_as(if quit && human.gauge_failed_at().is_none() {
+            Run::Forfeit
+        } else {
+            run_of(
+                human.gauge_failed_at(),
+                human.ruleset().gauge.life(),
+                &human.ruleset().score.view(),
+            )
+        })
+    }
+
+    /// Every competitor's run, the local player's `me`.
+    fn entrants_as(&self, me: Run) -> Vec<Entrant> {
         let mut out = vec![Entrant {
             participant: self.setup.me,
-            run: if quit && human.gauge_failed_at().is_none() {
-                Run::Forfeit
-            } else {
-                run_of(
-                    human.gauge_failed_at(),
-                    human.ruleset().gauge.life(),
-                    &human.ruleset().score.view(),
-                )
-            },
+            run: me,
         }];
         out.extend(self.seats.iter().map(|s| Entrant {
             participant: s.seat.participant,
@@ -580,23 +1063,26 @@ pub fn forfeit(
     chart: usize,
     ruleset: &Ruleset,
 ) -> Result<StageOutcome, String> {
-    let mut b = Battle::new(setup, song, chart, ruleset, 0.0)?;
-    for s in &mut b.seats {
-        s.opponent.finish();
+    let mut b = Battle::new(setup, song, chart, ruleset, 0.0, FORFEIT_HORIZON)?;
+    if let Some(a) = b.attacks.as_mut() {
+        a.out_at(b.setup.me, f64::NEG_INFINITY);
     }
-    let mut entrants = vec![Entrant {
-        participant: b.setup.me,
-        run: Run::Forfeit,
-    }];
-    entrants.extend(b.seats.iter().map(|s| Entrant {
-        participant: s.seat.participant,
-        run: run_of(s.opponent.out_at(), s.opponent.life(), &s.opponent.score()),
-    }));
+    b.play_out_as(Run::Forfeit);
+    let entrants = b.entrants_as(Run::Forfeit);
+    let checkpoints = b
+        .attacks
+        .as_ref()
+        .map_or(&[][..], |a| a.ledger().checkpoints_us());
+    let (ranking, drawn) = match &b.decided {
+        Some(r) => (r.clone(), b.drawn),
+        None => SETTLEMENT_V0.rank(&entrants, checkpoints, b.settling),
+    };
     Ok(StageOutcome {
         stage: b.setup.stage,
-        ranking: rank(&entrants),
+        ranking,
         confirmed_early: false,
         mine: Run::Forfeit,
+        drawn_by_final_attack: drawn,
     })
 }
 
@@ -607,5 +1093,28 @@ fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView) -> Run {
             life: f64::from(life),
             accuracy: accuracy(score),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_extreme_slow_speed_is_raised_to_fit_the_lead() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/songs/beatucada/Beatucada.ssc");
+        let song = ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc")
+            .unwrap();
+        let mut o = ddi_engine::player::PlayOptions::default();
+        o.scroll.speed = ddi_engine::scroll::SpeedMod::XMod(2.5);
+        assert_eq!(raised_speed(&song, 4, &o), None);
+        o.scroll.speed = ddi_engine::scroll::SpeedMod::XMod(0.25);
+        let raised = raised_speed(&song, 4, &o).expect("raised");
+        let mut r = o;
+        r.scroll.speed = raised;
+        let timing = song.charts[4].timing(&song);
+        let h = ddi_engine::battle::reading_horizon(&r, timing, 0.0, 60.0);
+        assert!(h <= LEAD_V0.horizon_cap_us() as f64 / 1e6, "{h}");
     }
 }

@@ -551,7 +551,13 @@ Rust and the browser are implementation details, not advertised features.
   the match's ruleset for a stage, everyone's, `battle::stage_ruleset`;
   the attack ledger run locally, `battle/attacks.rs`'s `AttackRunner`:
   a checkpoint once every competitor still in is judged past it, so the
-  same at any frame rate and from a play's log;
+  same at any frame rate and from a play's log; the chart's sections
+  from the engine's placement, each competitor's lead from the player's
+  reading horizon; commitments delivered by `Battle` (into the play,
+  a CPU's and its field), the stage settled by `SETTLEMENT_V0`, the CPUs
+  and their attacks played out once the player is gone,
+  `Battle::play_out`; an extreme slow speed raised on such a stage,
+  `battle::raised_speed`;
   each CPU's miniature field fed by its stream of judged moments,
   `battle/feed.rs`: `Moment` (when, which note or shock, a tap's judgment
   or a shock stepped on, life, combo, out), the shocks put into its play
@@ -577,6 +583,8 @@ Rust and the browser are implementation details, not advertised features.
   `PlayView` over each shell's `PlayHost`: its pictures, its movie
   decks, its log, its text; the web's `GameLoop` and desktop's `View`
   keep their surfaces; a practice stage's CPU opponents beside the field,
+  the incoming attack's warning by the receptors and the waiting line
+  under the power bar, `crates/shell/src/battle_cue.rs`;
   `crates/shell/src/opponents.rs`: miniature fields in stable slots of the
   side space on both sides, each side its whole height clear of the HUD
   and the quit button's place, a status line under the right side for
@@ -784,9 +792,16 @@ Rust and the browser are implementation details, not advertised features.
   attack power); the match's ruleset everyone plays (`MatchRules::ruleset`,
   one of `MatchRules::RULESETS`, new rooms `itg-fa+`; decision D0 of
   `docs/plans/multiplayer-ui.md`'s 2026-11-11 note); attack power's
-  ledger (`attacks.rs`: `StageBattle` credited at checkpoints every four
-  beats from reports of judged tiers, `ATTACKS_V0` cap and cost 100,
-  `POWER_CLASSES_V0` by the match's ruleset; no launches yet).
+  ledger and its attacks (`attacks.rs`: `StageBattle` credited at
+  checkpoints every four beats from reports of judged tiers and life,
+  `ATTACKS_V0` cap and cost 100, `POWER_CLASSES_V0` by the match's
+  ruleset; a full bar launched in a turning order at the target its
+  `Targeting` picks (Spread, Retaliate, Leader), eight shocks in the
+  first safe `Schedule` section past the target's lead (`LEAD_V0`), one
+  attack against anyone until they recover, expiry when they go out;
+  `Blocked` waits; `SETTLEMENT_V0`, decided only with no attack against
+  the last one in outstanding, a knockout by it a shared first; trace
+  tests in `attacks/tests.rs`).
   M7b's match flow in the model: `Command::Pick` (the operator's Start on
   a song: the next stage's song, the match started or gone on, its
   readiness window opened, all as one change), `Command::Spotlight` and

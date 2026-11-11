@@ -20,9 +20,12 @@
 //!   platform parts;
 //! - [`opponents`]: a multiplayer stage's CPU opponents in a quiet column
 //!   beside the field, drawn by the play's 2D pass.
+//! - [`battle_cue`]: a battle's incoming attack warning by the receptors
+//!   and the waiting line under the power bar, drawn by the same pass.
 //!
 //! Platform-free: built natively and for wasm, with no platform code.
 
+pub mod battle_cue;
 pub mod dance;
 pub mod editor_field;
 pub mod field_preview;

@@ -57,6 +57,11 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   shown above life (a checkpoint ledger in `ddi-room`; development only),
   and battle shocks judged beside the chart in the player's own play
   (`ddi_engine::battle`, safe sections per chart; a development trigger).
+  M8b (development only): full bars launch eight-shock attacks at
+  checkpoints by policy (Spread for everyone so far) from each target's
+  lead, one at a time against anyone until they recover; CPUs receive
+  shocks and answer them by level; miniatures show them; the incoming
+  warning and the waiting line; settlement waits for the last attack.
   Provisional choices and open questions listed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two

@@ -2721,6 +2721,14 @@ impl GameCanvas {
                 order.others,
                 &order.ruleset,
             );
+            if let (Status::Ready(song), SongSource::Song { chart, .. }) =
+                (&self.song, &props.source)
+                && order.battle.attacks()
+                && order.others == 0
+                && ddi_session::battle::stage_speed_raised(&song.song, *chart, &self.settings)
+            {
+                info.set_speed_raised();
+            }
         }
         info
     }
@@ -3218,6 +3226,16 @@ impl GameCanvas {
         }
         if stage.is_some() {
             data.kind = ddi_ui::screens::data::ResultsKind::Stage;
+            // A final attack's knockout drew it (`SETTLEMENT_V0`).
+            if self
+                .game
+                .borrow()
+                .as_ref()
+                .is_some_and(|g| g.drawn_by_final_attack())
+            {
+                data.notes
+                    .insert(0, ddi_l10n::msg::room::results_drawn_final_attack().into());
+            }
         }
         // Its replay: the play just kept's, or the kept play's.
         let replay_id = match &kept {

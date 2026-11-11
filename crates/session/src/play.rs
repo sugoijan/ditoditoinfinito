@@ -227,6 +227,16 @@ impl SessionConfig {
                 settings.speed_source,
             );
         }
+        // A stage with attacks: an extreme slow speed raised so that the
+        // attacks' warning comes in time (D5; its prompt says so).
+        if let Some(stage) = &self.opponents
+            && stage.battle.attacks()
+            && !stage.remote()
+            && self.replay.is_none()
+            && let Some(speed) = crate::battle::raised_speed(song, chart_index, &options)
+        {
+            options.scroll.speed = speed;
+        }
         Ok((rules, options))
     }
 
@@ -815,13 +825,23 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         // A stage's CPU opponents, on the same song and rules, from the
         // same second.
         let battle = match config.opponents.take() {
-            Some(setup) => Some(Battle::new(
-                setup,
-                song,
-                chart_index,
-                player.ruleset(),
-                song_offset,
-            )?),
+            Some(setup) => {
+                // How far ahead the player reads: the attacks' leads
+                // (only a battle with attacks needs it).
+                let horizon = if setup.battle.attacks() {
+                    player.reading_horizon()
+                } else {
+                    0.0
+                };
+                Some(Battle::new(
+                    setup,
+                    song,
+                    chart_index,
+                    player.ruleset(),
+                    song_offset,
+                    horizon,
+                )?)
+            }
             None => None,
         };
         // DEVELOPMENT ONLY: a section of battle shocks in the stage's
@@ -1198,7 +1218,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let mut moments = Vec::new();
         if let Some(b) = self.battle.as_mut() {
             let t = self.player.judge_time(HostTime(judge_now));
-            if b.advance(t, &self.player, &events) == Some(true) {
+            if b.advance(t, &mut self.player, &events) == Some(true) {
                 self.player.set_fail(ddi_engine::FailPolicy::Off);
             }
             moments = b.take_events();
@@ -1394,6 +1414,14 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// A stage's opponents, while one is played.
     pub fn battle(&self) -> Option<&Battle> {
         self.battle.as_ref()
+    }
+
+    /// A stage's attack commitments since the last call, worded for a
+    /// log (English; `Battle::take_log`).
+    pub fn take_battle_log(&mut self) -> Vec<String> {
+        self.battle
+            .as_mut()
+            .map_or_else(Vec::new, crate::battle::Battle::take_log)
     }
 
     /// The battle's moments this frame (`crate::announcer::battle`), at

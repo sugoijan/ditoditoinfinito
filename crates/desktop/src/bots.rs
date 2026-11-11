@@ -1413,6 +1413,7 @@ mod tests {
             ruleset: "itg".into(),
             dev_mines_at_beat: None,
             me: ddi_room::ParticipantId(2),
+            targeting: Default::default(),
             cpus: Vec::new(),
             others: 3,
         };

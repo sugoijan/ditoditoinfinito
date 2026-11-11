@@ -252,6 +252,15 @@ impl GameLoop {
         self.gfx.backend_name()
     }
 
+    /// The stage just played was drawn by a final attack's knockout
+    /// (`ddi_room::attacks::SETTLEMENT_V0`): its results say so.
+    pub(crate) fn drawn_by_final_attack(&self) -> bool {
+        self.session
+            .as_ref()
+            .and_then(|s| s.battle())
+            .is_some_and(|b| b.drawn_by_final_attack())
+    }
+
     pub(crate) fn set_session(&mut self, session: PlaySession) {
         self.end_perf();
         perf::begin_play();
@@ -546,6 +555,10 @@ impl GameLoop {
             }
             // A practice stage's outcome, to the room as the play ends
             // (before its results ask the room how it went).
+            // Each attack's commitment, to the console (M8b, development).
+            for line in session.take_battle_log() {
+                web_sys::console::debug_1(&line.into());
+            }
             if let Some(o) = session.take_stage_outcome() {
                 let ending = crate::room::report(o);
                 // The results' battle line, now the room has confirmed it.
@@ -960,21 +973,11 @@ impl GameLoop {
                         // Attack power (M8a): each competitor's, the
                         // checkpoints run of the stage's, the last
                         // events.
-                        "attacks": s.battle().and_then(|b| {
-                            let a = b.attacks()?;
-                            let (run, of) = a.checkpoints();
-                            let me = b.setup().me;
-                            Some(json!({
-                                "mine": a.power(me),
-                                "shown": b.my_power(&s.player).map(|(p, c)| json!([p, c])),
-                                "power": b.setup().cpus.iter().map(|c| json!({
-                                    "participant": c.participant.0,
-                                    "power": a.power(c.participant),
-                                })).collect::<Vec<_>>(),
-                                "checkpoints": [run, of],
-                                "events": a.recent().iter().map(|e| format!("{e:?}")).collect::<Vec<_>>(),
-                            }))
-                        }),
+                        // M8b: each seat's attacks (launched, received,
+                        // checkpoints waited by reason), what is incoming
+                        // and outgoing, the warning and waiting line as
+                        // drawn, a final attack's draw.
+                        "attacks": attacks_debug(s, self.view.attack_drawn()),
                     })),
                     // A battle's shocks in the play (M8a): their window,
                     // each one's beat, lane and state, the counts.
@@ -1197,6 +1200,66 @@ pub(crate) fn upload_noteskin(
 /// `__DDI_DEBUG.announcer`: the lines spoken (folders) and when (context
 /// seconds), how many its gate dropped, those due but not decoded yet,
 /// and those not in the pack (`docs/plans/announcers.md`).
+/// A stage's attacks for `__DDI_DEBUG.battle.attacks` (M8a, M8b): each
+/// seat's power and attacks (launched, received, checkpoints waited by
+/// reason, incoming and outgoing), the checkpoints run, the warning and
+/// waiting line as drawn (`drawn`), a final attack's draw, the last
+/// events.
+fn attacks_debug(
+    s: &PlaySession,
+    drawn: (Option<ddi_shell::battle_cue::Cue>, bool),
+) -> Option<Value> {
+    let b = s.battle()?;
+    let a = b.attacks()?;
+    let (run, of) = a.checkpoints();
+    let me = b.setup().me;
+    let ledger = a.ledger();
+    let seat = |p: ddi_room::ParticipantId| {
+        let st = a.stats(p);
+        json!({
+            "participant": p.0,
+            "power": a.power(p),
+            "launched": st.launched,
+            "received": st.received,
+            "waited": [st.waited_no_eligible, st.waited_no_safe_section],
+            "incoming": ledger.incoming(p).map(|x| x.sender.0),
+            "outgoing": ledger.outgoing(p).map(|x| x.recipient.0).collect::<Vec<_>>(),
+        })
+    };
+    let incoming = b.incoming(&s.player).map(|i| {
+        json!({
+            "shocks": i.shocks,
+            "committed": i.committed,
+            "first": i.first,
+            "clear": i.clear,
+        })
+    });
+    let cue = drawn.0.map(|c| {
+        json!({
+            "shocks": c.shocks,
+            "shield": c.shield,
+            "dim": c.dim,
+            "scale": c.scale,
+        })
+    });
+    Some(json!({
+        "mine": a.power(me),
+        "shown": b.my_power(&s.player).map(|(p, c)| json!([p, c])),
+        "me": seat(me),
+        "power": b.setup().cpus.iter().map(|c| seat(c.participant)).collect::<Vec<_>>(),
+        "checkpoints": [run, of],
+        "attacks": ledger.attacks().len(),
+        "incoming": incoming,
+        "cue": cue,
+        "waiting_drawn": drawn.1,
+        "waiting": b.waiting(&s.player).map(|w| format!("{:?} {:?}", w.targeting, w.reason)),
+        "settling": b.settling().map(|x| x.survivor.0),
+        "drawn_final": b.drawn_by_final_attack(),
+        "refused": b.refused(),
+        "events": a.recent().map(|e| format!("{e:?}")).collect::<Vec<_>>(),
+    }))
+}
+
 fn announcer_debug(a: &ddi_session::announcer::Report) -> Value {
     json!({
         "spoken": a.spoken.iter().map(|(f, _)| f).collect::<Vec<_>>(),

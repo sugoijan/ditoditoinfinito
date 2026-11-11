@@ -303,6 +303,34 @@ room-play-cue-eliminated = You're out
 # The player and others went out last together: first place shared.
 room-play-cue-stage-drawn = Stage drawn
 
+## A battle's attacks during a stage (development only for now).
+
+# An attack policy's name: how a player's full power bar picks whom to
+# attack. Spread: whoever has been attacked least (short, one word).
+room-attack-policy-spread = Spread
+
+# Retaliate: whoever attacked the player last (short, one word).
+room-attack-policy-retaliate = Retaliate
+
+# Leader: whoever has the most life (short, one word).
+room-attack-policy-leader = Leader
+
+# A small muted line under the power bar over the field, while the
+# player's full bar waits: nobody can be attacked right now, or no safe
+# moment in the song is near (about 30 letters).
+# Variables:
+#   $policy (String) - the policy's name ("Spread")
+room-play-attack-waiting = { $policy } · waiting for target
+
+# A note on a stage's results: the last player left was knocked out by
+# an attack while the stage waited for it, so first place is shared.
+room-results-drawn-final-attack = Drawn: final attack
+
+# On a stage's start prompt, in the line of the play's modifiers: the
+# player's scroll speed is so slow that attacks could not warn in time,
+# so this stage plays it faster.
+room-prompt-speed-raised = Speed raised so attacks can warn in time
+
 ## A stage's start prompt, results and the room between stages.
 
 # On a stage's start prompt, in the line of the play's modifiers: the

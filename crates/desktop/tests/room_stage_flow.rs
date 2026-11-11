@@ -297,3 +297,164 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
     assert!(room.borrow().last_mark().is_none(), "no stage played");
     assert_eq!(store.len(), 0);
 }
+
+/// M8b: a practice stage under the attacks' battle (the development
+/// switch's) through the window: full bars launch attacks at the
+/// checkpoints, each commitment logged, the shocks delivered into the
+/// recipients' plays (the player's own among them, avoided by autoplay),
+/// and the play ends on its results as any stage's.
+#[test]
+fn a_practice_stage_with_attacks_launches_them_through_the_window() {
+    common::indexes();
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let (device, queue) = gpu::device(&adapter).unwrap();
+    let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
+    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("start", fold);
+    env.reduced_motion.set(true);
+    ui.handle(UiEvent::Resize {
+        size: [SIZE[0] as f32, SIZE[1] as f32],
+        ratio: 1.0,
+    });
+    let store = Rc::new(MemoryPlayStore::default());
+    let mut host = Host::new(Rc::default(), Some(Plays::new(store.clone())));
+    let clock = Arc::new(AtomicU64::new(1_000_000_000));
+    let c = clock.clone();
+    host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
+    let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
+    let dev = || Device {
+        device: &device,
+        queue: &queue,
+        formats,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: SIZE[0],
+            height: SIZE[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+    });
+    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
+        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+        ..Default::default()
+    });
+    let plain = texture.create_view(&Default::default());
+    let room = ddi_desktop::room::current();
+    room.borrow_mut().set_rules_seen(true);
+    ui.push(ddi_desktop::room::room_screen_with(
+        &env,
+        None,
+        None,
+        Some(host.requested.clone()),
+    ));
+    ui.update(0.5);
+    // Beatucada's Medium chart: long enough for full bars.
+    let chart = 4;
+    let song = ddi_desktop::play::load::read_chart("beatucada").unwrap();
+    let entry = SongEntry {
+        id: "beatucada".into(),
+        title: "Beatucada".into(),
+        charts: vec![ChartEntry {
+            style: "dance-single".into(),
+            difficulty: Difficulty::Medium,
+            index: chart,
+            digest: Some(song.chart_digest(chart)),
+            ..ChartEntry::default()
+        }],
+        ..SongEntry::default()
+    };
+    {
+        let mut r = room.borrow_mut();
+        let rules = ddi_room::MatchRules {
+            stages: 1,
+            battle: ddi_room::BattlePreset::GAUGE_ATTACKS_V0.into(),
+            ..r.rules().clone()
+        };
+        r.save_rules(rules).unwrap();
+    }
+    room.borrow_mut().pick(&entry, &entry.charts[0]).unwrap();
+    ui.update(0.1);
+    let mut request = host.requested.borrow_mut().take().expect("asked for");
+    assert_eq!(
+        request.stage.as_ref().map(|s| s.battle),
+        Some(ddi_room::BattlePreset::GaugeAttacksV0)
+    );
+    request.auto = true;
+    *host.requested.borrow_mut() = Some(request);
+    let mut waited = 0;
+    while !host.prompt_ready() {
+        host.poll(&mut ui, &env, Some(dev()), 48_000);
+        ui.update(0.05);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        waited += 1;
+        assert!(waited < 1000, "the song was never read");
+    }
+    ui.update(0.5);
+    key(&mut ui, "Enter", "Enter");
+    ui.update(0.05);
+    {
+        let mut r = room.borrow_mut();
+        let later = r.now_ms() + 3_000;
+        r.tick(later);
+    }
+    ui.update(0.05);
+    host.poll(&mut ui, &env, Some(dev()), 48_000);
+    assert!(host.playing(), "{:?}", ui.layers());
+    let mut frames = 0;
+    let mut attacks = 0;
+    let mut against_me = 0;
+    while host.playing() {
+        let now = clock.fetch_add(1_000_000_000 / 4, Ordering::SeqCst) + 1_000_000_000 / 4;
+        let mut encoder = device.create_command_encoder(&Default::default());
+        host.draw_play(
+            &dev(),
+            &mut encoder,
+            &srgb,
+            Some(&plain),
+            SIZE,
+            HostTime(now as f64 / 1e9),
+            &mut ui,
+            &env,
+        );
+        queue.submit(Some(encoder.finish()));
+        if let Some(p) = host.running()
+            && let Some(b) = p.session.battle()
+            && let Some(a) = b.attacks()
+        {
+            attacks = a.ledger().attacks().len();
+            against_me = p.session.player.log().hazards.len() / 8;
+        }
+        if frames % 16 == 0 {
+            let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        }
+        frames += 1;
+        assert!(frames < 4 * 400, "the play never ended");
+    }
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
+    ui.update(0.05);
+    assert_eq!(top(&ui), "results");
+    assert!(attacks > 0, "full bars launched");
+    let logged = host
+        .log
+        .iter()
+        .filter(|l| l.starts_with("attack: committed"))
+        .count();
+    assert!(logged >= attacks, "{:?}", host.log);
+    assert!(
+        host.log.iter().filter(|l| l.contains("→you")).count() >= against_me,
+        "{:?}",
+        host.log
+    );
+    assert!(store.is_empty(), "a stage is not kept in the history");
+    eprintln!("attacks: {attacks}, {against_me} against the player");
+}

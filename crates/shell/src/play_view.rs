@@ -326,6 +326,10 @@ pub struct PlayView<H: PlayHost> {
     /// and whether a battle's moment was shown above them.
     fields_drawn: Option<crate::opponents::Fields>,
     fields_cue: bool,
+    /// The last frame's attack warning and waiting line
+    /// (`crate::battle_cue`), if it drew them.
+    attack_drawn: Option<crate::battle_cue::Cue>,
+    waiting_drawn: bool,
     /// The song's generated background (`docs/plans/phase-8-gaps.md`,
     /// step 5).
     generated: Option<Generated>,
@@ -371,6 +375,8 @@ impl<H: PlayHost> PlayView<H> {
             column_drawn: None,
             fields_drawn: None,
             fields_cue: false,
+            attack_drawn: None,
+            waiting_drawn: false,
             generated: None,
             entrance: None,
             playing_at: None,
@@ -724,6 +730,12 @@ impl<H: PlayHost> PlayView<H> {
         self.column_drawn.is_some_and(|p| p.cue) || (self.fields_drawn.is_some() && self.fields_cue)
     }
 
+    /// The attack warning the last frame drew beside the field, if any,
+    /// and whether it drew the waiting line (`crate::battle_cue`).
+    pub fn attack_drawn(&self) -> (Option<crate::battle_cue::Cue>, bool) {
+        (self.attack_drawn, self.waiting_drawn)
+    }
+
     /// What the last frame drew behind the field.
     pub fn backdrop_drawn(&self) -> &Backdrop {
         &self.backdrop_drawn
@@ -998,6 +1010,11 @@ impl<H: PlayHost> PlayView<H> {
             let [x, y, r] = quit_place;
             [x - r, y - r, x + r, y + r]
         });
+        // The attack warning's place, shown or not (the slots never move).
+        let attacks = session.battle().is_some_and(|b| b.attacks().is_some());
+        if attacks {
+            keep_out.push(crate::battle_cue::place(&geo, span));
+        }
         let battle = session
             .battle()
             .filter(|_| crate::opponents::miniatures() && lyrics.is_none());
@@ -1121,6 +1138,9 @@ impl<H: PlayHost> PlayView<H> {
             });
             let mut keep_out = ddi_render::scene::hud_areas(&geo, span);
             keep_out.extend(quit.map(|[x, y, r]| [x - r, y - r, x + r, y + r]));
+            if attacks {
+                keep_out.push(crate::battle_cue::place(&geo, span));
+            }
             let mut opponents = b.views();
             // In miniature, life and out as their streams show them.
             if fields.is_some() {
@@ -1144,9 +1164,44 @@ impl<H: PlayHost> PlayView<H> {
         if lyrics.is_none() {
             self.lyrics_shown.clear();
         }
+        // An attack against the player (its warning by the receptors) and
+        // a full bar waiting (its line under the bar).
+        let attack = session.battle().map(|b| {
+            let t = frame.song_time;
+            let in_sight = frame.notes.iter().any(|n| {
+                n.note_index >= ddi_engine::battle::HAZARD_INDEX_BASE
+                    && n.alpha > 0.0
+                    && (0.0..=geo.height).contains(&geo.y(n.y))
+            });
+            let cue = crate::battle_cue::cue(
+                b.incoming(&session.player),
+                t,
+                in_sight,
+                render.reduced_motion,
+            );
+            let waiting = b.waiting(&session.player).map(|w| {
+                use ddi_l10n::msg::room as m;
+                use ddi_session::battle::Targeting;
+                let policy = match w.targeting {
+                    Targeting::Spread => m::attack_policy_spread(),
+                    Targeting::Retaliate => m::attack_policy_retaliate(),
+                    Targeting::Leader => m::attack_policy_leader(),
+                };
+                String::from(m::play_attack_waiting(String::from(policy)))
+            });
+            Attack {
+                cue,
+                waiting,
+                geo,
+                span,
+                ratio: screen.ratio,
+            }
+        });
+        self.attack_drawn = attack.as_ref().and_then(|a| a.cue);
+        self.waiting_drawn = attack.as_ref().is_some_and(|a| a.waiting.is_some());
         let column = column.map(|(c, place)| (c, place, fields, flashes));
         if lyrics.is_some() || column.is_some() {
-            self.draw_overlay((device, queue, encoder), target, lyrics, column);
+            self.draw_overlay((device, queue, encoder), target, lyrics, column, attack);
         } else {
             self.column_drawn = None;
             self.fields_drawn = None;
@@ -1176,6 +1231,7 @@ impl<H: PlayHost> PlayView<H> {
             Option<crate::opponents::Fields>,
             crate::opponents::Flashes,
         )>,
+        attack: Option<Attack>,
     ) {
         if !self.ensure_overlay(device, queue, target.format) {
             return;
@@ -1211,6 +1267,21 @@ impl<H: PlayHost> PlayView<H> {
                 }
                 None => {}
             }
+            if let Some(a) = &attack {
+                if let Some(cue) = &a.cue {
+                    crate::battle_cue::draw(list, cue, &a.geo, a.span);
+                }
+                if let Some(text) = &a.waiting {
+                    crate::battle_cue::draw_waiting(
+                        list,
+                        text,
+                        &a.geo,
+                        a.span,
+                        a.ratio,
+                        &mut measure,
+                    );
+                }
+            }
         }
         painter.draw(
             device,
@@ -1234,6 +1305,15 @@ impl<H: PlayHost> PlayView<H> {
             self.lyrics_shown = shown.map(str::to_string).collect();
         }
     }
+}
+
+/// A battle's attacks as a frame shows them (`crate::battle_cue`).
+struct Attack {
+    cue: Option<crate::battle_cue::Cue>,
+    waiting: Option<String>,
+    geo: ddi_render::FieldGeometry,
+    span: f32,
+    ratio: f32,
 }
 
 /// How much of the hand's frame behind the field fades in from its top

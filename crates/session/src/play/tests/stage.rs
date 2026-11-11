@@ -34,16 +34,16 @@ fn room_seeded(_song: &Song, stages: u16, cpus: u16, level: u8, seed: u64) -> Ro
     room
 }
 
-/// Beatucada's chart as the library lists it.
-fn entry(song: &Song) -> SongEntry {
+/// Beatucada's chart `index` as the library lists it.
+fn entry_at(song: &Song, index: usize) -> SongEntry {
     SongEntry {
         id: "beatucada".into(),
         title: "Beatucada".into(),
         charts: vec![ChartEntry {
             style: "dance-single".into(),
             difficulty: Difficulty::Hard,
-            index: CHART,
-            digest: Some(song.chart_digest(CHART)),
+            index,
+            digest: Some(song.chart_digest(index)),
             ..ChartEntry::default()
         }],
         ..SongEntry::default()
@@ -54,7 +54,12 @@ fn entry(song: &Song) -> SongEntry {
 /// checked, as a shell does), Ready, the countdown: the stage the room
 /// hands over.
 fn begin(song: &Song, room: &mut RoomClient, now: &mut u64) -> StageOrder {
-    let e = entry(song);
+    begin_at(song, room, now, CHART)
+}
+
+/// [`begin`] on chart `index`.
+fn begin_at(song: &Song, room: &mut RoomClient, now: &mut u64, index: usize) -> StageOrder {
+    let e = entry_at(song, index);
     room.pick(&e, &e.charts[0]).unwrap();
     let order = room.take_stage_order().expect("its prompt");
     for job in room.take_load_jobs() {
@@ -684,6 +689,7 @@ fn an_online_stage_is_never_decided_here_and_reports_the_players_own_run() {
         CHART,
         &rules_of(&settings, &order, &song),
         0.0,
+        0.0,
     )
     .unwrap();
     assert_eq!(battle.end_event(&outcome, false), None);
@@ -825,60 +831,10 @@ fn attack_power_is_the_same_at_any_frame_rate_and_from_the_log() {
     );
     // Again without frames: the player's log replayed, the CPUs from
     // their seeds, judged in long steps.
-    let rules = a.player.ruleset().fresh();
-    let log = a.player.log().clone();
-    let mut human =
-        ddi_engine::player::Player::new(&song, CHART, rules.fresh(), *a.player.options());
-    human.start(0.0, log.start);
-    let mut cpus: Vec<_> = order
-        .cpus
-        .iter()
-        .map(|seat| {
-            let mut o = ddi_engine::cpu::Opponent::with_skills(
-                &song,
-                CHART,
-                rules.fresh(),
-                usize::from(seat.level),
-                seat.seed,
-                seat.skills
-                    .as_deref()
-                    .and_then(|v| ddi_engine::cpu::Skills::parse(v).ok())
-                    .unwrap_or_default(),
-            )
-            .unwrap();
-            o.start(0.0);
-            o
-        })
-        .collect();
-    let mut runner = crate::battle::attacks::AttackRunner::new(
-        &song,
-        CHART,
-        &order.ruleset,
-        std::iter::once(order.me).chain(order.cpus.iter().map(|c| c.participant)),
-    );
-    let mut inputs = log.inputs.iter().peekable();
-    let mut t = -1.0;
-    while t < human.end_time() + 2.0 {
-        t += 0.37;
-        let mut events = Vec::new();
-        while let Some(i) = inputs.next_if(|i| i.time <= t) {
-            events.extend(human.input_at(i.lane, i.pressed, i.time));
-        }
-        events.extend(human.update_at(t));
-        runner.judged(order.me, &events);
-        for (o, seat) in cpus.iter_mut().zip(&order.cpus) {
-            o.advance(t);
-            runner.judged(seat.participant, &o.take_judged());
-        }
-        let until = std::iter::once(human.judge().last_time())
-            .chain(cpus.iter().map(|o| o.player().judge().last_time()))
-            .map(|l| l.unwrap_or(f64::NEG_INFINITY))
-            .reduce(f64::min)
-            .unwrap();
-        runner.run_due(until);
-    }
-    let n = ra.record().len();
-    assert_eq!(&runner.record()[..n], ra.record(), "from the log");
+    let again = replayed(&song, &order, &a);
+    let n = ra.record().len().min(again.len());
+    assert!(n + 1 >= ra.record().len(), "{n}");
+    assert_eq!(&again[..n], &ra.record()[..n], "from the log");
     // The survival battle has none.
     let mut plain = room(&song, 1, 1, 2);
     let order = begin(&song, &mut plain, &mut now);
@@ -886,6 +842,51 @@ fn attack_power_is_the_same_at_any_frame_rate_and_from_the_log() {
     assert!(s.battle().unwrap().attacks().is_none());
     assert_eq!(s.battle().unwrap().my_power(&s.player), None);
     assert!(s.opponents().iter().all(|v| v.power.is_none()));
+}
+
+/// The stage `s` played, again without frames: the player's log replayed
+/// in long steps into a fresh battle (its shocks delivered again as the
+/// checkpoints commit them), the CPUs from their seeds. Its record.
+fn replayed(
+    song: &Song,
+    order: &StageOrder,
+    s: &PlaySession<FakeAudio, FakeInputs>,
+) -> Vec<ddi_room::attacks::CheckpointRecord> {
+    let rules = s.player.ruleset().fresh();
+    let log = s.player.log().clone();
+    let mut human = ddi_engine::player::Player::new(
+        song,
+        order.chart.index,
+        rules.fresh(),
+        *s.player.options(),
+    );
+    human.start(0.0, log.start);
+    let mut battle = crate::battle::Battle::new(
+        StageSetup::of(order),
+        song,
+        order.chart.index,
+        &rules,
+        log.start,
+        human.reading_horizon(),
+    )
+    .unwrap();
+    let mut inputs = log.inputs.iter().peekable();
+    let mut t = log.start - 1.0;
+    while t < human.end_time() + 2.0 {
+        t += 0.37;
+        let mut events = Vec::new();
+        while let Some(i) = inputs.next_if(|i| i.time <= t) {
+            events.extend(human.input_at(i.lane, i.pressed, i.time));
+        }
+        events.extend(human.update_at(t));
+        battle.advance(human.judge().last_time().unwrap_or(t), &mut human, &events);
+        if human.finished() {
+            break;
+        }
+    }
+    // The shocks put into the replayed play are those the log kept.
+    assert_eq!(human.log().hazards, log.hazards);
+    battle.attacks().unwrap().record().to_vec()
 }
 
 /// DEVELOPMENT ONLY (M8a): a section of battle shocks from a beat put into
@@ -959,4 +960,167 @@ fn cpus_receive_shocks_judged_alike_at_any_frame_rate() {
     // Level 1 avoids poorly; whether any of these 32 is stepped on is
     // the seeds' (the engine's tests check the rates).
     assert!(hit <= 32);
+}
+
+/// Beatucada's Medium chart: long enough for full bars (217 notes).
+const LONG: usize = 4;
+
+/// M8b: full bars launch attacks of eight shocks at the checkpoints,
+/// delivered into the recipients' plays (the player's own, a CPU's and
+/// its field); the record the same at 60 and 144 frames a second and
+/// again from the play's log and the CPUs' seeds.
+#[test]
+fn attacks_are_launched_delivered_and_the_same_at_any_frame_rate_and_from_the_log() {
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(&song, 3, 2);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let a = play_at(&song, &order, 60.0);
+    let b = play_at(&song, &order, 144.0);
+    let ra = a.battle().unwrap().attacks().unwrap();
+    let rb = b.battle().unwrap().attacks().unwrap();
+    assert_eq!(ra.record(), rb.record(), "60 and 144 frames a second");
+    let attacks = ra.ledger().attacks();
+    assert!(!attacks.is_empty(), "full bars launch");
+    assert!(
+        attacks.iter().all(|x| x.cells.len() == 8),
+        "never fewer (D4)"
+    );
+    // Delivered: the player's own (autoplayed, every one avoided), and
+    // each CPU's field shows those sent to it.
+    let me = order.me;
+    let mine = attacks.iter().filter(|x| x.recipient == me).count();
+    assert_eq!(a.player.log().hazards.len(), 8 * mine);
+    if mine > 0 {
+        assert_eq!(
+            a.player.results().battle_mines.map(|m| m.hit),
+            Some(0),
+            "autoplay steps on none"
+        );
+    }
+    for (feed, seat) in a.battle().unwrap().feeds().zip(&order.cpus) {
+        let sent = attacks
+            .iter()
+            .filter(|x| x.recipient == seat.participant)
+            .count();
+        assert_eq!(feed.shocks().len(), 8 * sent, "{seat:?}");
+    }
+    // One attack at a time against anyone, each from a full bar.
+    for x in attacks {
+        assert_ne!(x.sender, x.recipient);
+    }
+    let again = replayed(&song, &order, &a);
+    let n = ra.record().len().min(again.len());
+    assert!(n + 1 >= ra.record().len());
+    assert_eq!(&again[..n], &ra.record()[..n], "from the log");
+    // The log line of each commitment.
+    eprintln!(
+        "attacks: {} ({} against the player), stats {:?}",
+        attacks.len(),
+        mine,
+        std::iter::once(me)
+            .chain(order.cpus.iter().map(|c| c.participant))
+            .map(|p| ra.stats(p))
+            .collect::<Vec<_>>()
+    );
+}
+
+/// SETTLEMENT_V0 (D6): no Stage won while an attack against the last one
+/// in is outstanding. CPUs on a battery of a few lives go out to their
+/// misses and to the attacks; the autoplayed player (who never steps on
+/// a shock) is the last one in. Whenever the stage is decided early,
+/// every attack committed against the player before then had cleared;
+/// over these seeds it waits for one at least once.
+#[test]
+fn an_early_win_waits_for_the_last_attack_to_clear() {
+    let song = bundled("beatucada");
+    let mut waited = 0;
+    let mut early = 0;
+    for seed in 1..=60u64 {
+        let mut settings = Settings::default();
+        settings.stepmania.life_type = ddi_engine::rules::LifeType::Battery;
+        settings.stepmania.lives = 1 + (seed % 5) as u8;
+        let mut practice = room_seeded(&song, 1, 3 + (seed % 5) as u16, 2 + (seed % 3) as u8, seed);
+        let rules = MatchRules {
+            battle: ddi_room::BattlePreset::GAUGE_ATTACKS_V0.into(),
+            ..practice.rules().clone()
+        };
+        practice.save_rules(rules).unwrap();
+        let mut now = 0;
+        let order = begin_at(&song, &mut practice, &mut now, LONG);
+        let (s, _, outcome) = play(&song, &settings, &order, true, &[]);
+        let b = s.battle().unwrap();
+        let Some(at) = b.decided_at() else {
+            continue;
+        };
+        early += 1;
+        assert!(outcome.confirmed_early);
+        let ledger = b.attacks().unwrap().ledger();
+        for x in ledger.attacks() {
+            let committed = ledger.checkpoints_us()[x.checkpoint] as f64 / 1e6;
+            if x.recipient == order.me && committed < at {
+                assert!(
+                    x.clear_us as f64 / 1e6 <= at + 0.05,
+                    "seed {seed}: decided at {at} before {} cleared",
+                    x.clear_us
+                );
+            }
+        }
+        // Won alone (the player never steps on one).
+        assert_eq!(ids(&outcome)[0], vec![(order.me.0, Finish::Survived)]);
+        assert!(!outcome.drawn_by_final_attack);
+        waited += usize::from(b.waited_to_settle());
+    }
+    assert!(early > 0 && waited > 0, "{early} {waited}");
+}
+
+/// M8b: once the player has left (a quit: a forfeit), the CPUs and the
+/// attacks between them are played out a checkpoint at a time to the
+/// song's end, as they would have gone on; a stage left at its prompt
+/// plays them out the same way.
+#[test]
+fn the_player_gone_the_cpus_and_their_attacks_are_played_out() {
+    let song = bundled("beatucada");
+    let settings = Settings::default();
+    let mut practice = attacks_room(&song, 4, 3);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let keys = [
+        (20.0, "Escape", true),
+        (20.05, "Escape", false),
+        (20.2, "Escape", true),
+    ];
+    let (s, event, outcome) = play(&song, &settings, &order, true, &keys);
+    assert!(matches!(event, SessionEvent::Aborted { .. }));
+    let ledger = s.battle().unwrap().attacks().unwrap().ledger();
+    let (run, of) = s.battle().unwrap().attacks().unwrap().checkpoints();
+    assert!(run + 1 >= of, "played out: {run} of {of}");
+    // Attacks between CPUs after the player left; none against the
+    // player after that.
+    let after: Vec<_> = ledger
+        .attacks()
+        .iter()
+        .filter(|x| ledger.checkpoints_us()[x.checkpoint] > 21_000_000)
+        .collect();
+    assert!(!after.is_empty());
+    assert!(
+        after
+            .iter()
+            .all(|x| x.recipient != order.me && x.sender != order.me)
+    );
+    assert_eq!(
+        ids(&outcome).last().unwrap(),
+        &vec![(order.me.0, Finish::Forfeit)]
+    );
+    assert_eq!(ids(&outcome).iter().flatten().count(), 5);
+    // Left at the prompt: the same CPUs played out with attacks.
+    let f = crate::battle::forfeit(
+        StageSetup::of(&order),
+        &song,
+        LONG,
+        &rules_of(&settings, &order, &song),
+    )
+    .unwrap();
+    assert_eq!(f.mine, ddi_room::Run::Forfeit);
+    assert_eq!(ids(&f).iter().flatten().count(), 5);
 }

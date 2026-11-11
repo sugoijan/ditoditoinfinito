@@ -338,6 +338,9 @@ pub struct CpuSeat {
     /// A roster CPU's name (data) and personality (`ddi_engine::cpu::Skills`).
     pub name: Option<String>,
     pub skills: Option<String>,
+    /// Its attack policy (M8b): Spread for every CPU for now; the roster
+    /// and the Rules may set it from the next round on.
+    pub targeting: ddi_room::attacks::Targeting,
 }
 
 /// A stage to play now, handed to the shell once its countdown is over
@@ -357,6 +360,9 @@ pub struct StageOrder {
     /// (`MatchRules::ruleset`), played in place of the player's own.
     pub ruleset: String,
     pub me: ParticipantId,
+    /// The local player's attack policy (M8b: Spread; chosen before the
+    /// stage and in play from the next round on).
+    pub targeting: ddi_room::attacks::Targeting,
     pub cpus: Vec<CpuSeat>,
     /// DEVELOPMENT ONLY: a section of battle shocks put into the local
     /// player's play from this beat on ([`Development::mines_at_beat`]).
@@ -1443,6 +1449,7 @@ impl RoomClient {
                     seed: opponent.seed,
                     name: opponent.name.clone(),
                     skills: opponent.personality.clone(),
+                    targeting: Default::default(),
                 }),
                 MemberKind::Human { .. } => None,
             })
@@ -1457,6 +1464,7 @@ impl RoomClient {
             ruleset: m.rules.ruleset.clone(),
             dev_mines_at_beat: development().mines_at_beat,
             me: self.me,
+            targeting: Default::default(),
             cpus,
             others: u16::try_from(
                 field
