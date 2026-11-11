@@ -1552,6 +1552,19 @@ detail (round 3). The dancing hand is not fed shocks (D7).
   (everyone under attack). With seven CPUs at level 3 the CPUs stepped
   on 8–42 shocks a stage; nobody went out to attacks alone in these runs
   (the autoplayed player steps on none).
+- Screenshots (`target/scratch/mp/m8b/shots/`, `shots.mjs`; Some Things
+  Must Hard, the player autoplayed): `watch7-chrome-*` seven CPUs with
+  shocks on their miniatures, the warning fresh, dimmed and as a shield,
+  CPU hits (`*-cpu-hit-zoom-*`: the skin's mine explosion on the hit
+  receptor), the waiting line, a sequence every 8 s and the results;
+  `watch3-firefox-*` the same with three CPUs in Firefox; `reverse-chrome-*`
+  the warning at the bottom under Reverse, reduced motion; `hit3-chrome-*`
+  the player stepping on every shock (the script holds the shock's lane
+  across it over the autoplay: a test drive, not a player) and going out
+  to attacks at 38 s. Under ITG FA+ an attack stepped on whole costs about
+  80% of a full gauge (eight misses), so two such attacks end a stage.
+  `__DDI_DEBUG.hazards.mines` gives each shock's second;
+  `__DDI_DEBUG.battle.attacks.cpu_hits` each CPU's shocks stepped on.
 - Tests: `ddi-room` `attacks/tests.rs` (a full bar spent on eight shocks
   from the target's lead and the next checkpoint; a duel waiting for
   recovery; Leader falling back when its target is taken; Spread to the
@@ -1808,4 +1821,7 @@ detail (round 3). The dancing hand is not fed shocks (D7).
 - M8b: the incoming warning sits at the field's right edge; in a stage
   with lyrics or a narrow side it may meet the quiet column. Left or
   right, and should it move to the side away from the miniatures?
+- M8b: an attack stepped on whole costs about 80% of an ITG FA+ gauge
+  (eight shocks, each the ruleset's miss, D1). Is that the intended
+  weight, now that every attack is all eight (D4)?
 

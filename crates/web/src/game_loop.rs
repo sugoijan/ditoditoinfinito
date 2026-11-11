@@ -988,7 +988,7 @@ impl GameLoop {
                             "hit": hit,
                             "avoided": avoided,
                             "mines": h.mines().iter().map(|m| json!([
-                                m.tick.beat(), m.lane, format!("{:?}", m.state),
+                                m.tick.beat(), m.lane, format!("{:?}", m.state), m.seconds,
                             ])).collect::<Vec<_>>(),
                         })
                     }),
@@ -1247,6 +1247,11 @@ fn attacks_debug(
         "shown": b.my_power(&s.player).map(|(p, c)| json!([p, c])),
         "me": seat(me),
         "power": b.setup().cpus.iter().map(|c| seat(c.participant)).collect::<Vec<_>>(),
+        // Each CPU's shocks stepped on, as its field was told (in seat
+        // order).
+        "cpu_hits": b.feeds().map(|f| f.moments().iter().filter(|m| {
+            m.kind == ddi_session::battle::feed::MomentKind::ShockHit
+        }).count()).collect::<Vec<_>>(),
         "checkpoints": [run, of],
         "attacks": ledger.attacks().len(),
         "incoming": incoming,
