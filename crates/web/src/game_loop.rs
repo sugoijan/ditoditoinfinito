@@ -976,6 +976,19 @@ impl GameLoop {
                             }))
                         }),
                     })),
+                    // A battle's shocks in the play (M8a): their window,
+                    // each one's beat, lane and state, the counts.
+                    "hazards": s.player.hazards().map(|h| {
+                        let (hit, avoided) = h.counts();
+                        json!({
+                            "window": h.window(),
+                            "hit": hit,
+                            "avoided": avoided,
+                            "mines": h.mines().iter().map(|m| json!([
+                                m.tick.beat(), m.lane, format!("{:?}", m.state),
+                            ])).collect::<Vec<_>>(),
+                        })
+                    }),
                     "announcer": announcer_debug(s.announcer_report()),
                     "drift": clock.drift().unwrap_or(0.0),
                     "output_latency": clock.output_latency(),

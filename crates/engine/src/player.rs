@@ -5,6 +5,7 @@ use ddi_platform::{ClockSample, HostTime};
 use serde::{Deserialize, Serialize};
 
 use crate::appearance::Appearance;
+use crate::battle::{HAZARD_INDEX_BASE, Hazard, HazardError, HazardHit, HazardJudge};
 use crate::clock::{ClockOptions, SongClock};
 use crate::cover::{COVER_LABEL_SECONDS, CoverChange, CoverView, LaneCover};
 use std::collections::VecDeque;
@@ -13,7 +14,7 @@ use crate::frame::{
     Frame, HoldFlash, HoldJudgements, HoldKind, HoldPlace, JudgementFlash, NoteSprite,
     ReceptorState, SkinEvent, SkinEventKind, SpriteKind,
 };
-use crate::history::{LoggedInput, PlayLog};
+use crate::history::{LoggedHazard, LoggedInput, PlayLog};
 use crate::input::InputEvent;
 use crate::judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};
 use crate::rules::ddr::{DdrClear, flare_points};
@@ -163,6 +164,17 @@ pub struct Results {
     /// Under FFR's rules, its flag, total score and raw goods.
     #[serde(default)]
     pub ffr: Option<FfrResult>,
+    /// A battle's shocks put into the play (`crate::battle`), stepped on
+    /// and avoided; `None` where none were (every single play).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battle_mines: Option<BattleMines>,
+}
+
+/// A play's battle shocks ([`Results::battle_mines`]).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BattleMines {
+    pub hit: u32,
+    pub avoided: u32,
 }
 
 /// One judgement of a play ([`Results::timeline`]); a tap's offset to
@@ -285,6 +297,9 @@ pub struct Player {
     cover: LaneCover,
     cover_changed: Option<f64>,
     shown_cover: LaneCover,
+    /// A battle's shocks, judged apart from the chart
+    /// ([`Player::add_hazards`]).
+    hazards: Option<HazardJudge>,
 }
 
 /// One note's place for [`Player::frame`]'s walk.
@@ -429,6 +444,7 @@ impl Player {
             cover: options.cover,
             cover_changed: None,
             shown_cover: options.cover,
+            hazards: None,
             judge,
             ruleset,
         };
@@ -710,6 +726,59 @@ impl Player {
         self.input_at(ev.lane, ev.pressed, t)
     }
 
+    /// Puts a battle's shocks into the play (`crate::battle`): judged
+    /// apart from the chart in [`crate::battle::INJECTED_MINE_V0`]'s
+    /// window, drawn as the skin's mines, a hit costing the ruleset's miss
+    /// to the gauge and nothing else. Each must arrive before its window
+    /// and after the shocks already in; kept in the log
+    /// ([`PlayLog::hazards`]) so a replay has them.
+    pub fn add_hazards(&mut self, cells: &[Hazard]) -> Result<(), HazardError> {
+        let window = crate::battle::INJECTED_MINE_V0.window(&self.ruleset.judge);
+        let lanes = usize::from(self.lanes);
+        let judged = self.judge.last_time();
+        let mines: Vec<(Hazard, f64)> = cells
+            .iter()
+            .map(|c| (*c, self.timing.seconds_at(c.tick)))
+            .collect();
+        let hazards = self
+            .hazards
+            .get_or_insert_with(|| HazardJudge::new(window, lanes));
+        hazards.add(&mines, judged)?;
+        self.log.hazards.extend(cells.iter().map(|c| LoggedHazard {
+            tick: c.tick.0,
+            lane: c.lane,
+        }));
+        Ok(())
+    }
+
+    /// The battle's shocks put into the play, as judged so far.
+    pub fn hazards(&self) -> Option<&HazardJudge> {
+        self.hazards.as_ref()
+    }
+
+    /// Merges the shocks' `hits` into `events`, in time order (the chart's
+    /// first at the same instant), as events of their own
+    /// ([`HAZARD_INDEX_BASE`]).
+    fn merge_hazards(&self, events: &mut Vec<JudgeEvent>, hits: Vec<HazardHit>) {
+        let Some(h) = self.hazards.as_ref() else {
+            return;
+        };
+        if hits.is_empty() {
+            return;
+        }
+        events.extend(hits.into_iter().map(|hit| {
+            let m = h.mines()[hit.index];
+            JudgeEvent {
+                note_index: Some(HAZARD_INDEX_BASE + hit.index),
+                lane: m.lane,
+                tick: m.tick,
+                kind: JudgeEventKind::HitMine,
+                song_time: hit.at,
+            }
+        }));
+        events.sort_by(|a, b| a.song_time.total_cmp(&b.song_time));
+    }
+
     /// [`Player::input`] at a judged song time (already after the clock,
     /// the latency and the offsets): what a replay feeds.
     pub fn input_at(&mut self, lane: u8, pressed: bool, song_time: f64) -> Vec<JudgeEvent> {
@@ -734,14 +803,26 @@ impl Player {
         }
         self.held[usize::from(lane)] = pressed;
         let target = self.judged_lane.unwrap_or(lane);
-        let events = if pressed {
+        let held_on = !pressed && self.judged_lane.is_some() && self.held.iter().any(|&h| h);
+        let mut events = if pressed {
             self.judge.press(target, t)
-        } else if self.judged_lane.is_some() && self.held.iter().any(|&h| h) {
+        } else if held_on {
             // Another lane still holds the judged one down.
             Vec::new()
         } else {
             self.judge.release(target, t)
         };
+        // A battle's shocks, beside the chart: a press that steps on one
+        // is not also a stray press (`Boo`) of the chart's.
+        let hits = match self.hazards.as_mut() {
+            Some(h) if pressed => h.press(target, t),
+            Some(h) if !held_on => h.release(target, t),
+            _ => Vec::new(),
+        };
+        if hits.iter().any(|hit| hit.at == t) {
+            events.retain(|e| !(e.kind == JudgeEventKind::Boo && e.song_time == t));
+        }
+        self.merge_hazards(&mut events, hits);
         if pressed {
             // `ReceptorArrow::Step` plays the press's score at once; `Press`
             // comes from the next draw (`ReceptorArrow::DrawPrimitives`).
@@ -764,7 +845,6 @@ impl Player {
             self.skin_event(lane, SkinEventKind::Lift, t);
         }
         self.pressing = self.judged_lane.map(|_| lane);
-        let mut events = events;
         self.apply(&mut events);
         self.pressing = None;
         events
@@ -821,7 +901,13 @@ impl Player {
             return Vec::new();
         }
         let t = to_microsecond(song_time);
-        let mut events = self.judge.update(to_microsecond(t - JUDGE_LAG));
+        let at = to_microsecond(t - JUDGE_LAG);
+        let mut events = self.judge.update(at);
+        let hits = self
+            .hazards
+            .as_mut()
+            .map_or_else(Vec::new, |h| h.update(at));
+        self.merge_hazards(&mut events, hits);
         self.apply(&mut events);
         if !self.finished && t >= self.end_time() && self.judge.all_resolved() {
             self.finish();
@@ -846,7 +932,13 @@ impl Player {
         // miss, the notes left are not judged at all (as an immediate
         // fail leaves them), so the counts and the timing are of what
         // was played.
-        let mut events = self.judge.update(to_microsecond(song_time));
+        let at = to_microsecond(song_time);
+        let mut events = self.judge.update(at);
+        let hits = self
+            .hazards
+            .as_mut()
+            .map_or_else(Vec::new, |h| h.update(at));
+        self.merge_hazards(&mut events, hits);
         self.apply(&mut events);
         self.finished = true;
     }
@@ -871,6 +963,10 @@ impl Player {
             if self.finished {
                 events.truncate(i);
                 return;
+            }
+            if ev.note_index.is_some_and(|n| n >= HAZARD_INDEX_BASE) {
+                self.hazard_event(ev);
+                continue;
             }
             // The offset to the microsecond, as a record keeps it
             // ([`crate::history::PlayTiming`]).
@@ -1149,6 +1245,33 @@ impl Player {
         self.ctx.combo = self.combo;
         self.ctx.w0 = w0;
         self.ruleset.score.on_event(ev, &self.ctx);
+        self.gauge_event(ev);
+        if let JudgeEventKind::Tap(j, delta) = ev.kind {
+            let delta = if j.is_miss() { 0.0 } else { delta };
+            self.last_flash = Some((j, delta, ev.song_time, self.combo, is_w0));
+        }
+    }
+
+    /// A battle shock stepped on (`crate::battle`, D1 and D3): the
+    /// ruleset's miss to the gauge, the combo broken where the ruleset's
+    /// mines break it; never the score, the counts or the timeline.
+    fn hazard_event(&mut self, ev: &JudgeEvent) {
+        self.skin_event(ev.lane, SkinEventKind::HitMine, ev.song_time);
+        if self.ruleset.combo.mine_breaks {
+            self.combo = 0;
+            self.ctx.combo = 0;
+        }
+        let miss = JudgeEvent {
+            note_index: None,
+            kind: JudgeEventKind::Tap(Judgement::Miss, 0.0),
+            ..*ev
+        };
+        self.gauge_event(&miss);
+    }
+
+    /// `ev` to the gauge, and what follows from its life: the life's
+    /// record, the gauge's first fail, the fail policy.
+    fn gauge_event(&mut self, ev: &JudgeEvent) {
         // A player failed and playing on gets no life back (StepMania's
         // `LifeMeterBar::ChangeLife`: "no point in letting them fill up
         // the bar again").
@@ -1161,10 +1284,6 @@ impl Player {
             // update may be stamped a little before it.
             let at = (ev.song_time as f32).max(self.life.last().map_or(f32::MIN, |l| l[0]));
             self.life.push([at, life]);
-        }
-        if let JudgeEventKind::Tap(j, delta) = ev.kind {
-            let delta = if j.is_miss() { 0.0 } else { delta };
-            self.last_flash = Some((j, delta, ev.song_time, self.combo, is_w0));
         }
         if self.gauge_failed_at.is_none() && self.ruleset.gauge.failed() {
             self.gauge_failed_at = Some(ev.song_time);
@@ -1333,6 +1452,38 @@ impl Player {
             });
         }
 
+        // A battle's shocks, as the skin's mines: those not stepped on,
+        // hidden as the notes are.
+        if let Some(h) = self.hazards.as_ref().filter(|_| !field_cleared) {
+            for (i, m) in h.mines().iter().enumerate() {
+                if m.state == crate::battle::HazardState::Hit
+                    || (blind.is_some() && m.state == crate::battle::HazardState::Pending)
+                {
+                    continue;
+                }
+                let beat = self.timing.displayed_beat(m.tick.beat());
+                let y = scroll.y_displayed(beat, m.seconds);
+                if !(-2.0..=visible_range).contains(&y) {
+                    continue;
+                }
+                let (alpha, glow) = self.options.appearance.visibility(y);
+                let beat_pos = m.tick.beat();
+                notes.push(NoteSprite {
+                    note_index: HAZARD_INDEX_BASE + i,
+                    lane: m.lane,
+                    y,
+                    kind: SpriteKind::Mine,
+                    quantization: m.tick.quantization(),
+                    beat_frac: (beat_pos - beat_pos.floor()) as f32,
+                    color: None,
+                    alpha,
+                    glow,
+                    beat: beat_pos as f32,
+                    hold_life: 1.0,
+                });
+            }
+        }
+
         let receptors = (0..usize::from(self.lanes))
             .map(|lane| ReceptorState {
                 pressed: self.held[lane],
@@ -1462,6 +1613,10 @@ impl Player {
                 .ruleset
                 .is_ffr()
                 .then(|| FfrResult::of(&self.tally, self.max_combo, self.ctx.steps)),
+            battle_mines: self.hazards.as_ref().map(|h| {
+                let (hit, avoided) = h.counts();
+                BattleMines { hit, avoided }
+            }),
         }
     }
 

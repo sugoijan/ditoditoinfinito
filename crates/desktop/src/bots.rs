@@ -1411,6 +1411,7 @@ mod tests {
             chart: ChartEntry::default(),
             battle: ddi_room::BattlePreset::GaugeSurvivalV0,
             ruleset: "itg".into(),
+            dev_mines_at_beat: None,
             me: ddi_room::ParticipantId(2),
             cpus: Vec::new(),
             others: 3,

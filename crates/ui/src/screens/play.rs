@@ -650,6 +650,7 @@ mod tests {
             gauge_failed_at: None,
             ddr: None,
             ffr: None,
+            battle_mines: None,
         }
     }
 

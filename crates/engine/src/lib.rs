@@ -27,6 +27,7 @@
 
 pub mod appearance;
 pub mod autoplay;
+pub mod battle;
 pub mod bindings;
 pub mod calibration;
 pub mod clock;

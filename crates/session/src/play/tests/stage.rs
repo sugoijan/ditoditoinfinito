@@ -887,3 +887,40 @@ fn attack_power_is_the_same_at_any_frame_rate_and_from_the_log() {
     assert_eq!(s.battle().unwrap().my_power(&s.player), None);
     assert!(s.opponents().iter().all(|v| v.power.is_none()));
 }
+
+/// DEVELOPMENT ONLY (M8a): a section of battle shocks from a beat put into
+/// the player's own play of a stage, judged beside the chart (autoplayed,
+/// every one avoided: the placement keeps them clear of every step), the
+/// score as without them.
+#[test]
+fn a_stage_s_development_shocks_are_judged_beside_the_chart() {
+    let song = bundled("beatucada");
+    let mut practice = room(&song, 2, 1, 2);
+    let mut now = 0;
+    let plain = begin(&song, &mut practice, &mut now);
+    let without = play_at(&song, &plain, 60.0);
+    let mut order = plain.clone();
+    order.dev_mines_at_beat = Some(16);
+    let with = play_at(&song, &order, 60.0);
+    let h = with.player.hazards().expect("its shocks");
+    assert_eq!(h.mines().len(), 8);
+    assert!(h.mines().iter().all(|m| m.tick.beat() >= 16.0));
+    let r = with.player.results();
+    assert_eq!(
+        r.battle_mines,
+        Some(ddi_engine::player::BattleMines { hit: 0, avoided: 8 })
+    );
+    let w = without.player.results();
+    assert_eq!((r.score, r.tally), (w.score, w.tally));
+    assert_eq!(w.battle_mines, None);
+    // In its log, and judged alike again from it.
+    assert_eq!(with.player.log().hazards.len(), 8);
+    let again = ddi_engine::history::replay_with(
+        &song,
+        order.chart.index,
+        with.player.ruleset().fresh(),
+        with.player.options(),
+        with.player.log(),
+    );
+    assert_eq!(again.battle_mines, r.battle_mines);
+}

@@ -358,6 +358,9 @@ pub struct StageOrder {
     pub ruleset: String,
     pub me: ParticipantId,
     pub cpus: Vec<CpuSeat>,
+    /// DEVELOPMENT ONLY: a section of battle shocks put into the local
+    /// player's play from this beat on ([`Development::mines_at_beat`]).
+    pub dev_mines_at_beat: Option<u32>,
     /// Other people starting it, each on their own device (an online
     /// room's): the stage is decided by the room from everyone's reports,
     /// never on this device ([`RoomClient::report_run`]). Not shown during
@@ -1452,6 +1455,7 @@ impl RoomClient {
             chart: picked.chart,
             battle: BattlePreset::parse(&m.rules.battle).unwrap_or(BattlePreset::GaugeSurvivalV0),
             ruleset: m.rules.ruleset.clone(),
+            dev_mines_at_beat: development().mines_at_beat,
             me: self.me,
             cpus,
             others: u16::try_from(

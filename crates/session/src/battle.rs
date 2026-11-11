@@ -57,6 +57,9 @@ pub struct StageSetup {
     pub ruleset: String,
     pub me: ParticipantId,
     pub cpus: Vec<CpuSeat>,
+    /// DEVELOPMENT ONLY: a section of battle shocks put into the local
+    /// player's play from this beat on (`--mp-dev-mines`, `mpdevmines=`).
+    pub dev_mines_at_beat: Option<u32>,
     /// Other people starting the stage on their own devices (an online
     /// room's): the room decides it from everyone's reports.
     pub others: u16,
@@ -83,6 +86,7 @@ impl StageSetup {
             of: order.of,
             battle: order.battle,
             ruleset: order.ruleset.clone(),
+            dev_mines_at_beat: order.dev_mines_at_beat,
             me: order.me,
             cpus: order.cpus.clone(),
             others: order.others,
@@ -108,6 +112,24 @@ pub fn stage_ruleset(id: &str, chart: &ddi_chart::Chart) -> Ruleset {
     );
     rules.fail = ddi_engine::FailPolicy::Immediate;
     rules
+}
+
+/// DEVELOPMENT ONLY: the first section of battle shocks chart `chart` of
+/// `song` has from beat `beat` on under `judge` (`ddi_engine::battle::schedule`,
+/// drawn from `seed`), put into `player`'s play: what it put in, if any.
+pub fn dev_shocks(
+    player: &mut Player,
+    song: &Song,
+    chart: usize,
+    beat: u32,
+    seed: u64,
+) -> Option<ddi_engine::battle::Section> {
+    let schedule = ddi_engine::battle::schedule(song, chart, &player.ruleset().judge, seed);
+    let every = ddi_engine::battle::PLACEMENT_V0.every_beats.max(1);
+    let first = beat.div_ceil(every) as usize;
+    let section = schedule.into_iter().skip(first).flatten().next()?;
+    player.add_hazards(&section.cells).ok()?;
+    Some(section)
 }
 
 /// An opponent as the play shows it, in its stable slot.

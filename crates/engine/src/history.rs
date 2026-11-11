@@ -27,6 +27,14 @@ pub struct LoggedInput {
     pub pressed: bool,
 }
 
+/// A battle shock put into the play ([`crate::Player::add_hazards`]): its
+/// row's tick and its lane as played.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoggedHazard {
+    pub tick: i64,
+    pub lane: u8,
+}
+
 /// A play's presses and releases ([`crate::Player::log`]).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayLog {
@@ -43,6 +51,10 @@ pub struct PlayLog {
     /// a replay quits there, and judging the log again ends there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end: Option<f64>,
+    /// A battle's shocks put into the play, in order (`crate::battle`):
+    /// a replay puts them in at its start.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hazards: Vec<LoggedHazard>,
 }
 
 /// Why a stored log or timing could not be read.
@@ -83,6 +95,9 @@ impl std::error::Error for LogError {}
 const LOG_VERSION: u8 = 1;
 const LOG_VERSION_COVERS: u8 = 2;
 const LOG_VERSION_END: u8 = 3;
+/// 4: a battle's shocks too (the covers' count, whether it quit and
+/// where, then the shocks).
+const LOG_VERSION_HAZARDS: u8 = 4;
 /// The timing's binary format: 1, then 2 with each judgement's place in
 /// the beat in its kind byte's upper bits.
 const TIMING_VERSION_1: u8 = 1;
@@ -210,10 +225,17 @@ impl PlayLog {
     /// change before, a signed varint), its mode (a byte) and its two
     /// heights (a byte each); a log without them keeps version 1. A quit
     /// play's (version 3) has the covers' count (0 or more) and then where
-    /// it quit, the judged song second as an f64.
+    /// it quit, the judged song second as an f64. A play with a battle's
+    /// shocks (version 4) has the covers' count (0 or more) and their
+    /// changes, a byte saying whether it quit (then where, as version 3),
+    /// then the shocks' number and per shock its tick from the one before
+    /// (a signed varint) and its lane (a byte).
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(24 + self.inputs.len() * 3 + self.covers.len() * 6);
-        out.push(if self.end.is_some() {
+        let hazards = !self.hazards.is_empty();
+        out.push(if hazards {
+            LOG_VERSION_HAZARDS
+        } else if self.end.is_some() {
             LOG_VERSION_END
         } else if self.covers.is_empty() {
             LOG_VERSION
@@ -234,7 +256,7 @@ impl PlayLog {
                 out.push(i.lane);
             }
         }
-        if !self.covers.is_empty() || self.end.is_some() {
+        if !self.covers.is_empty() || self.end.is_some() || hazards {
             put_varint(&mut out, self.covers.len() as u64);
             let mut last = 0i64;
             for c in &self.covers {
@@ -246,8 +268,20 @@ impl PlayLog {
                 out.push(c.cover.hidden);
             }
         }
+        if hazards {
+            out.push(u8::from(self.end.is_some()));
+        }
         if let Some(end) = self.end {
             out.extend_from_slice(&end.to_le_bytes());
+        }
+        if hazards {
+            put_varint(&mut out, self.hazards.len() as u64);
+            let mut last = 0i64;
+            for h in &self.hazards {
+                put_signed(&mut out, h.tick.wrapping_sub(last));
+                last = h.tick;
+                out.push(h.lane);
+            }
         }
         out
     }
@@ -256,7 +290,10 @@ impl PlayLog {
     pub fn decode(bytes: &[u8]) -> Result<PlayLog, LogError> {
         let mut r = Reader { bytes, at: 0 };
         let version = r.byte().map_err(|_| LogError::Empty)?;
-        if !matches!(version, LOG_VERSION | LOG_VERSION_COVERS | LOG_VERSION_END) {
+        if !matches!(
+            version,
+            LOG_VERSION | LOG_VERSION_COVERS | LOG_VERSION_END | LOG_VERSION_HAZARDS
+        ) {
             return Err(LogError::Version(version));
         }
         let start = r.f64()?;
@@ -299,13 +336,36 @@ impl PlayLog {
                 });
             }
         }
-        let end = (version == LOG_VERSION_END).then(|| r.f64()).transpose()?;
+        let quit = match version {
+            LOG_VERSION_END => true,
+            LOG_VERSION_HAZARDS => match r.byte()? {
+                0 => false,
+                1 => true,
+                k => return Err(LogError::Kind(k)),
+            },
+            _ => false,
+        };
+        let end = quit.then(|| r.f64()).transpose()?;
+        let mut hazards = Vec::new();
+        if version == LOG_VERSION_HAZARDS {
+            let n = r.count(2)?;
+            hazards.reserve(n);
+            let mut last = 0i64;
+            for _ in 0..n {
+                last = last.checked_add(r.signed()?).ok_or(LogError::Overflow)?;
+                hazards.push(LoggedHazard {
+                    tick: last,
+                    lane: r.byte()?,
+                });
+            }
+        }
         r.end()?;
         Ok(PlayLog {
             start,
             inputs,
             covers,
             end,
+            hazards,
         })
     }
 
@@ -336,6 +396,8 @@ impl PlayLog {
                 })
                 .collect(),
             end: self.end.map(|e| to_microsecond(e + seconds)),
+            // Rows, not times: the shocks keep theirs.
+            hazards: self.hazards.clone(),
         }
     }
 }
@@ -371,6 +433,19 @@ pub fn replay_with(
 ) -> Results {
     let mut player = Player::new(song, chart, ruleset, *options);
     player.start(0.0, log.start);
+    // A battle's shocks, as the play had them (each arrived before its
+    // window; judged only inside it).
+    if !log.hazards.is_empty() {
+        let cells: Vec<crate::battle::Hazard> = log
+            .hazards
+            .iter()
+            .map(|h| crate::battle::Hazard {
+                tick: ddi_chart::Tick(h.tick),
+                lane: h.lane,
+            })
+            .collect();
+        let _ = player.add_hazards(&cells);
+    }
     // The covers as the play changed them (the results say the last).
     let mut covers = log.covers.iter().peekable();
     for i in &log.inputs {

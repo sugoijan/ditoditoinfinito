@@ -32,7 +32,12 @@ Rust and the browser are implementation details, not advertised features.
   editor saves with (`formats/sm_write.rs`: what is read is written back
   equal). Pure, natively tested.
 - `crates/engine/` deterministic gameplay: clock, judge, rulesets, scoring, gauges,
-  scroll, calibration maths. No I/O. Replay fixtures in `crates/engine/tests/`.
+  scroll, calibration maths; a battle's shocks in a play (`battle.rs`:
+  `HazardJudge` beside the chart's judge, `Player::add_hazards`, events
+  and sprites from `HAZARD_INDEX_BASE`, a hit the ruleset's miss to the
+  gauge alone, `INJECTED_MINE_V0`; `schedule` and `PLACEMENT_V0`, where
+  a chart has room for eight; kept in `PlayLog` version 4). No I/O.
+  Replay fixtures in `crates/engine/tests/`.
 - `crates/render/` wgpu scene (the built-in notes: Infinito's shapes as
   distance fields in `shader.wgsl`, made light, PLAN.md decision 80;
   glyphon text) and the 2D pass
@@ -1058,7 +1063,9 @@ Rust and the browser are implementation details, not advertised features.
   multiplayer prototype's switch; `--screen multiplayer|room`; `--join
   LINK|INVITE` an online room's invite; development only, `--mp-dev-cpus
   N`, practice against N CPUs beyond the cap, as the web's `mpcpus=N`
-  beside `mp=1`), `--share IDS|pack:NAME
+  beside `mp=1`; `--mp-dev-attacks`, attack power, as `mpattacks=1`;
+  `--mp-dev-mines BEAT`, a section of battle shocks in each stage's play
+  from that beat, as `mpdevmines=BEAT`), `--share IDS|pack:NAME
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--mp-bots [--host] [--join LINK] [--guests N] [--api URL] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
