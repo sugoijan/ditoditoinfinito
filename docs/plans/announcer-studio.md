@@ -90,6 +90,11 @@ playtest.
      combo), which anyone may add to: the library's build turns it into
      a table, and its tests check it names real sets and lines.
    - Examples are suggestions, never checked against the recordings.
+   - A line's zone has its recordings and its buttons on the left, its
+     examples on the right (one after the other where the page is
+     narrow; the page's `Block::Columns`), each example our packs say a
+     button to hear it (2026-11-11; they were in a fold under the line
+     before).
 4. **Recordings come in without anyone naming files.** Recording apps
    name them "New Recording 12".
    - **Each line has Add recording,** a picker for that line that takes
@@ -128,7 +133,14 @@ playtest.
      formats StepMania reads: MP3, WAV and Ogg Vorbis. Anything else is
      written as WAV.
 7. **The previews are the game's own, staged, never a mock-up.** Each
-   line has one button, Hear it in the game. Each scene has:
+   recording, and each example our packs say, has its own Hear in the
+   game: its line's scene with that one sound said for the line (the
+   scene's other lines as before, the draft's for a recording, our
+   pack's for an example), leaving the turns of the line's sounds as
+   they were. A line with neither but something that speaks in its
+   place has Hear it in the game, said by that (2026-11-11; before, each
+   line had only the one button, its sounds taking turns scene by
+   scene). Each scene has:
    - the real screen the line is spoken on, with a caption saying what
      is happening ("The combo reaches 100");
    - the real announcer deciding when the line speaks: the gaps, the

@@ -90,6 +90,33 @@ pub enum Block {
         id: String,
         body: Vec<Block>,
     },
+    /// Two columns side by side, the second the wider, where the page is
+    /// wide enough; else one after the other. Moving through the items
+    /// goes down the first, then the second.
+    Columns {
+        left: Vec<Block>,
+        right: Vec<Block>,
+    },
+}
+
+impl Block {
+    /// The blocks inside this one: a fold's (open or not), a zone's, the
+    /// columns'.
+    pub fn inner(&self) -> Vec<&Block> {
+        match self {
+            Block::Fold { body, .. } | Block::Zone { body, .. } => body.iter().collect(),
+            Block::Columns { left, right } => left.iter().chain(right).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    fn inner_mut(&mut self) -> Vec<&mut Block> {
+        match self {
+            Block::Fold { body, .. } | Block::Zone { body, .. } => body.iter_mut().collect(),
+            Block::Columns { left, right } => left.iter_mut().chain(right.iter_mut()).collect(),
+            _ => Vec::new(),
+        }
+    }
 }
 
 /// A button of [`Block::Actions`].
@@ -195,6 +222,8 @@ pub type SharedPlace = Rc<RefCell<PagePlace>>;
 struct Row {
     y: f32,
     h: f32,
+    /// Its right edge: the column's, or its side's of [`Block::Columns`].
+    right: f32,
     kind: RowKind,
 }
 
@@ -251,6 +280,11 @@ const ACTION_H: f32 = 32.0;
 const ACTION_GAP: f32 = 8.0;
 /// A zone's padding.
 const ZONE_PAD: f32 = 12.0;
+/// [`Block::Columns`] side by side from this width, the first this share
+/// of it, the gap between them.
+const COLUMNS_FROM: f32 = 560.0;
+const COLUMNS_SHARE: f32 = 0.45;
+const COLUMNS_GAP: f32 = 20.0;
 
 /// A button's width in a row of them (a primary one's label is larger).
 fn action_width(label: &str, primary: bool) -> f32 {
@@ -410,6 +444,7 @@ impl PageScreen {
                 rows.push(Row {
                     y: *y,
                     h,
+                    right: w,
                     kind: RowKind::Text {
                         text: l,
                         size,
@@ -460,6 +495,7 @@ impl PageScreen {
                         rows.push(Row {
                             y: *y,
                             h: 14.0 + LINE + 4.0,
+                            right: w,
                             kind: RowKind::Item {
                                 item,
                                 text: l,
@@ -477,6 +513,7 @@ impl PageScreen {
                     rows.push(Row {
                         y: *y,
                         h: 40.0,
+                        right: w,
                         kind: RowKind::Button {
                             item,
                             label: label.clone(),
@@ -494,6 +531,7 @@ impl PageScreen {
                     rows.push(Row {
                         y: *y,
                         h: 24.0,
+                        right: w,
                         kind: RowKind::Item {
                             item,
                             text: format!("{} {label}", if open { "▾" } else { "▸" }),
@@ -523,6 +561,7 @@ impl PageScreen {
                         rows.push(Row {
                             y: *y,
                             h: ACTION_H,
+                            right: w,
                             kind: RowKind::Button {
                                 item,
                                 label: a.label.clone(),
@@ -542,6 +581,7 @@ impl PageScreen {
                         rows.push(Row {
                             y: *y,
                             h: 14.0 + LINE + 4.0,
+                            right: w,
                             kind: RowKind::Item {
                                 item,
                                 text: l,
@@ -558,6 +598,7 @@ impl PageScreen {
                     rows.push(Row {
                         y: *y,
                         h: FIELD_H,
+                        right: w,
                         kind: RowKind::Field {
                             item,
                             id: id.clone(),
@@ -583,6 +624,7 @@ impl PageScreen {
                         Row {
                             y: top,
                             h: *y - top,
+                            right: w,
                             kind: RowKind::Zone {
                                 id: id.clone(),
                                 indent,
@@ -590,6 +632,18 @@ impl PageScreen {
                         },
                     );
                     *y += 6.0;
+                }
+                Block::Columns { left, right } => {
+                    if right.is_empty() || width < COLUMNS_FROM {
+                        self.lay_blocks(left, indent, w, y, rows, items);
+                        self.lay_blocks(right, indent, w, y, rows, items);
+                        continue;
+                    }
+                    let split = indent + ((width - COLUMNS_GAP) * COLUMNS_SHARE).round();
+                    let (mut ly, mut ry) = (*y, *y);
+                    self.lay_blocks(left, indent, split, &mut ly, rows, items);
+                    self.lay_blocks(right, split + COLUMNS_GAP, w, &mut ry, rows, items);
+                    *y = ly.max(ry);
                 }
             }
         }
@@ -604,8 +658,11 @@ impl PageScreen {
                     Block::Field {
                         id, value, hint, ..
                     } => out.push((id, value, hint)),
-                    Block::Fold { body, .. } | Block::Zone { body, .. } => walk(body, out),
-                    _ => {}
+                    b => {
+                        for inner in b.inner() {
+                            walk(std::slice::from_ref(inner), out);
+                        }
+                    }
                 }
             }
         }
@@ -629,7 +686,8 @@ impl PageScreen {
     }
 
     fn total(&self) -> f32 {
-        self.rows.last().map_or(0.0, |r| r.y + r.h) + 24.0
+        // (Columns' rows are not in order of their places.)
+        self.rows.iter().map(|r| r.y + r.h).fold(0.0, f32::max) + 24.0
     }
 
     fn max_scroll(&self) -> f32 {
@@ -721,7 +779,7 @@ impl PageScreen {
                     indent,
                 } => {
                     let mut t = env.text("", text, *size, *weight, color);
-                    call(&mut t, "maxwidth", &[w - indent]);
+                    call(&mut t, "maxwidth", &[r.right - indent]);
                     c.push(left(t, *indent, r.y + r.h / 2.0));
                 }
                 RowKind::Item { item, text, indent } => {
@@ -733,9 +791,9 @@ impl PageScreen {
                     };
                     let mut t =
                         env.text("", &text, 14.0, if focused { 700 } else { 500 }, "Accent");
-                    call(&mut t, "maxwidth", &[w - indent]);
+                    call(&mut t, "maxwidth", &[r.right - indent]);
                     c.push(left(t, *indent + 6.0, r.y + r.h / 2.0));
-                    item_rows.push((*item, [*indent, r.y, w - indent, r.h]));
+                    item_rows.push((*item, [*indent, r.y, r.right - indent, r.h]));
                 }
                 RowKind::Button {
                     item,
@@ -752,7 +810,7 @@ impl PageScreen {
                     } else {
                         look::mono_width(label, size) + 40.0
                     }
-                    .min(w - indent);
+                    .min(r.right - indent);
                     let mut b = env.component(
                         match (*off, *primary) {
                             (true, _) => "Button.Disabled",
@@ -785,7 +843,7 @@ impl PageScreen {
                     call(&mut t, "maxwidth", &[FIELD_LABEL - 12.0]);
                     c.push(left(t, *indent, r.y + r.h / 2.0));
                     if let Some(f) = self.fields.get(id) {
-                        let fw = (w - indent - FIELD_LABEL).clamp(80.0, 480.0);
+                        let fw = (r.right - indent - FIELD_LABEL).clamp(80.0, 480.0);
                         let mut built = f.build_at(
                             &*env.look,
                             [indent + FIELD_LABEL + fw / 2.0, r.y + r.h / 2.0],
@@ -802,7 +860,7 @@ impl PageScreen {
                 }
                 RowKind::Zone { id, indent } => {
                     let lit = self.target.as_deref() == Some(id.as_str());
-                    let zw = w - indent;
+                    let zw = r.right - indent;
                     let mut plate = quad(
                         &format!("Zone.{id}"),
                         [zw, r.h],
@@ -1201,8 +1259,11 @@ fn set_value(blocks: &mut [Block], id: &str, text: &str) {
     for b in blocks {
         match b {
             Block::Field { id: i, value, .. } if i == id => *value = text.to_string(),
-            Block::Fold { body, .. } | Block::Zone { body, .. } => set_value(body, id, text),
-            _ => {}
+            b => {
+                for inner in b.inner_mut() {
+                    set_value(std::slice::from_mut(inner), id, text);
+                }
+            }
         }
     }
 }

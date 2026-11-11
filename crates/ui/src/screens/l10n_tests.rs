@@ -181,7 +181,11 @@ fn doc_texts(blocks: &[Block], out: &mut Vec<String>) {
                 out.push(label.clone());
                 doc_texts(body, out);
             }
-            Block::Zone { body, .. } => doc_texts(body, out),
+            Block::Zone { .. } | Block::Columns { .. } => {
+                for inner in b.inner() {
+                    doc_texts(std::slice::from_ref(inner), out);
+                }
+            }
             Block::Actions(actions) => out.extend(actions.iter().map(|a| a.label.clone())),
             Block::Field { label, hint, .. } => out.extend([label.clone(), hint.clone()]),
             Block::Gap => {}
@@ -1707,7 +1711,11 @@ fn block_texts(blocks: &[Block], out: &mut Vec<String>) {
                 out.push(label.clone());
                 block_texts(body, out);
             }
-            Block::Zone { body, .. } => block_texts(body, out),
+            Block::Zone { .. } | Block::Columns { .. } => {
+                for inner in b.inner() {
+                    block_texts(std::slice::from_ref(inner), out);
+                }
+            }
             Block::Field { label, hint, .. } => out.extend([label.clone(), hint.clone()]),
             Block::Actions(actions) => out.extend(actions.iter().map(|a| a.label.clone())),
             Block::Mono(_) | Block::Gap => {}

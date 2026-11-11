@@ -434,3 +434,50 @@ fn a_grayed_out_button_does_nothing() {
     h.run(0.05);
     assert_eq!(*calls.borrow(), [PageCall::Button("on".into())]);
 }
+
+/// Columns stand side by side where the page is wide, the second the wider,
+/// and one after the other where it is narrow; the items go down the
+/// first, then the second.
+#[test]
+fn columns_stand_side_by_side_where_they_fit() {
+    use super::page::{Action, Block, PageDoc};
+    let doc = || PageDoc {
+        title: PageTitle::new("Studio", "STUDIO"),
+        blocks: vec![Block::Zone {
+            id: "z".into(),
+            body: vec![
+                Block::Subheading("A line".into()),
+                Block::Columns {
+                    left: vec![
+                        Block::Actions(vec![Action::new("a", "One")]),
+                        Block::Actions(vec![Action::new("b", "Two")]),
+                    ],
+                    right: vec![Block::Actions(vec![Action::new("c", "Three")])],
+                },
+                Block::Actions(vec![Action::new("d", "After")]),
+            ],
+        }],
+    };
+    let shown = |size: [f32; 2], design: [f32; 2]| {
+        let env = env();
+        let state = env.state.clone();
+        let mut h = Harness::new(design, size, 1.0, TextMode::Mirror);
+        h.ui.set_design(design);
+        h.push(PageScreen::new(env, "studio", doc()));
+        h.run(0.3);
+        assert_eq!(
+            state.borrow().page_items,
+            ["button:a", "button:b", "button:c", "button:d"]
+        );
+        let at = |i: usize| h.centre(&format!("Item{i}"));
+        (at(0), at(1), at(2), at(3))
+    };
+    let (a, b, c, d) = shown([1280.0, 720.0], DESIGN);
+    assert!(c[0] > a[0] + 300.0, "beside: {a:?} {c:?}");
+    assert!((c[1] - a[1]).abs() < 0.5, "level: {a:?} {c:?}");
+    assert!(b[1] > a[1] && d[1] > b[1], "{a:?} {b:?} {d:?}");
+    // A phone: one after the other.
+    let (a, b, c, d) = shown([390.0, 844.0], super::COMPACT);
+    assert!((c[0] - a[0]).abs() < 30.0, "under: {a:?} {c:?}");
+    assert!(c[1] > b[1] && d[1] > c[1], "{b:?} {c:?} {d:?}");
+}

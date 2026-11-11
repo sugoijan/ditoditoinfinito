@@ -53,7 +53,7 @@ use ddi_library::announcer::examples::Set;
 use ddi_library::announcer::{Bundled, Line, OUR_COMBOS, Spoken, tidy};
 use ddi_platform::AudioBackend;
 use ddi_session::announcer::scene::director::{
-    self, Director, Said, SceneHost, StagedVoice, Timer, UiFn, Voiced,
+    self, Director, Pin, Said, SceneHost, StagedVoice, Timer, UiFn, Voiced,
 };
 use ddi_session::announcer::{Voice, scene};
 use ddi_ui::event::{MenuEvent, UiEvent};
@@ -373,6 +373,13 @@ impl Studio {
                 let x = js_sys::Object::new();
                 set(&x, "line", sc.line.folder().into());
                 set(&x, "said", sc.said.key().into());
+                set(
+                    &x,
+                    "pin",
+                    self.director
+                        .pin_key()
+                        .map_or(JsValue::NULL, |p| p.as_str().into()),
+                );
                 set(&x, "screen", sc.screen.key().into());
                 set(&x, "caption", sc.caption.as_str().into());
                 set(&x, "chosen", sc.chosen.into());
@@ -993,6 +1000,7 @@ impl Studio {
             &draft,
             which,
             &self.director.turns.borrow(),
+            self.director.pinned_take(),
             &self.decoded.borrow(),
             |t, b| {
                 let (pcm, rate) = self.shaped(t.id, b, draft.tidies(t));
@@ -1004,13 +1012,16 @@ impl Studio {
 
     /// Hears `line` in the game, in the press: its scene over the studio,
     /// said by the draft where it has something to say for the line, else
-    /// by our pack of the examples chosen.
-    fn hear(self: &Rc<Self>, line: Line) {
+    /// by our pack of the examples chosen; `pin`, the recording or example
+    /// pressed beside, said for it.
+    fn hear(self: &Rc<Self>, line: Line, pin: Option<Pin>) {
         if self.director.busy() {
             return;
         }
         self.stop();
-        let said = Said::of(line, &self.draft.borrow(), self.view.borrow().examples);
+        let said =
+            self.director
+                .hearing(line, pin, &self.draft.borrow(), self.view.borrow().examples);
         match line.spoken() {
             Spoken::Menu => self.menu_scene(line, said),
             Spoken::Results => self.results_scene(line, said),
@@ -1379,8 +1390,11 @@ impl Studio {
                 self.use_in_game();
                 None
             }
-            Act::Hear(line) => {
-                self.hear(line);
+            Act::Hear(_) | Act::HearTake(_) | Act::HearExample(..) => {
+                let hear = director::hear_of(act, &self.draft.borrow(), &self.examples.borrow());
+                if let Some((line, pin)) = hear {
+                    self.hear(line, pin);
+                }
                 None
             }
         }

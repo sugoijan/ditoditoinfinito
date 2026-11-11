@@ -567,6 +567,28 @@ fn an_example_plan_says_each_line_once_with_its_next_sound() {
     assert_eq!(words.get(&line).map(String::as_str), Some("Ready!"));
     let (_, lengths, _) = voiced_from(plan, |_| None, |s: &Sound| *s);
     assert!(lengths.is_empty());
+    // An example pinned is said in place of the next one, and only on
+    // its line; the turns stay as they were after its scene.
+    let draft = Draft::default();
+    let said = t
+        .director
+        .hearing(line, Some(Pin::Example("ready/a.ogg".into())), &draft, set);
+    assert_eq!(said, Said::Example(set));
+    assert_eq!(t.director.pin_key().as_deref(), Some("example:ready/a.ogg"));
+    let plan = t.director.example_plan(&pack, set, &[line]);
+    assert_eq!(plan[0].path, "ready/a.ogg");
+    t.director.left(line, said, vec![line.folder()]);
+    assert_eq!(t.director.pin_key(), None);
+    assert_eq!(t.director.example_turn(set, line), 1);
+    // Not pinned, as before.
+    assert_eq!(
+        t.director.hearing(line, None, &draft, set),
+        Said::Example(set)
+    );
+    assert_eq!(
+        t.director.example_plan(&pack, set, &[line])[0].path,
+        "ready/b.ogg"
+    );
 }
 
 /// The draft as a voice: the line's next recording first, the length its.
@@ -587,6 +609,7 @@ fn the_draft_as_a_voice_takes_each_lines_next_recording_first() {
         &draft,
         |l| l == Line::Ready,
         &turns,
+        None,
         &decoded,
         |_, s: &f64| Some(*s),
         |s| *s,
@@ -595,4 +618,19 @@ fn the_draft_as_a_voice_takes_each_lines_next_recording_first() {
     assert_eq!(lengths.get(&Line::Cleared), None);
     assert_eq!(voice.next(Line::Ready).unwrap().1, &2.0);
     assert_eq!(voice.next(Line::Ready).unwrap().1, &1.0);
+    // A recording pinned: its line says it alone, the others as before.
+    let first = draft.takes_of(Line::Ready).next().unwrap().id;
+    let (mut voice, lengths, _) = draft_voice(
+        &draft,
+        |_| true,
+        &turns,
+        Some(first),
+        &decoded,
+        |_, s: &f64| Some(*s),
+        |s| *s,
+    );
+    assert_eq!(lengths[&Line::Ready], 1.0);
+    assert_eq!(voice.next(Line::Ready).unwrap().1, &1.0);
+    assert_eq!(voice.next(Line::Ready).unwrap().1, &1.0);
+    assert_eq!(lengths[&Line::Cleared], 3.0);
 }

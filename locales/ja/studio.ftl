@@ -192,7 +192,8 @@ studio-when-battle-match-drawn = 対戦の最後のステージのリザルト�
 
 studio-line-folder = フォルダー：{ $folder }
 
-studio-examples-fold = 例（{ $count }）
+studio-recordings-heading = 録音
+studio-examples-heading = 例
 
 studio-example = 「{ $words }」
 
@@ -205,6 +206,8 @@ studio-missing-shown = まだありません。その場面は画面に表示さ
 studio-opening-long = 「準備」と「スタート」を合わせると{ $seconds }秒かかります。最初のノーツがそれより早い曲では「スタート」だけを言います。
 
 studio-add-recording = { -studio-button-add-recording }…
+
+studio-hear-one = ゲームで聞く
 
 studio-hear-recorded = ゲームで聞く
 

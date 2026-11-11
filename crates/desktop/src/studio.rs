@@ -39,7 +39,7 @@ use ddi_library::path::RelPath;
 use ddi_library::scan::Reader;
 use ddi_platform::SoundId;
 use ddi_session::announcer::scene::director::{
-    self, Director, Heard, Planned, Said, SceneHost, StagedVoice, Timer, UiFn, Voiced,
+    self, Director, Heard, Pin, Planned, Said, SceneHost, StagedVoice, Timer, UiFn, Voiced,
 };
 use ddi_session::announcer::scene::{ResultsScene, in_play};
 use ddi_session::announcer::{SharedVoice, Voice};
@@ -927,6 +927,7 @@ impl Studio {
             &draft,
             which,
             &self.director.turns.borrow(),
+            self.director.pinned_take(),
             &self.decoded.borrow(),
             |t, s| {
                 let m = draft.tidies(t).then(|| t.measure().copied()).flatten();
@@ -992,13 +993,16 @@ impl Studio {
 
     /// Hears `line` in the game: its scene, said by the draft where it
     /// has something to say for the line, else by our pack of the
-    /// examples chosen.
-    fn hear(self: &Rc<Self>, line: Line) {
+    /// examples chosen; `pin`, the recording or example pressed beside,
+    /// said for it.
+    fn hear(self: &Rc<Self>, line: Line, pin: Option<Pin>) {
         if self.director.busy() {
             return;
         }
         self.stop();
-        let said = Said::of(line, &self.draft.borrow(), self.view.borrow().examples);
+        let said =
+            self.director
+                .hearing(line, pin, &self.draft.borrow(), self.view.borrow().examples);
         match line.spoken() {
             Spoken::Menu => self.menu_scene(line, said),
             Spoken::Results => self.results_scene(line, said),
@@ -1209,8 +1213,11 @@ impl Studio {
                 self.pack(Packing::Game);
                 Some(self.doc())
             }
-            Act::Hear(line) => {
-                self.hear(line);
+            Act::Hear(_) | Act::HearTake(_) | Act::HearExample(..) => {
+                let hear = director::hear_of(act, &self.draft.borrow(), &self.examples.borrow());
+                if let Some((line, pin)) = hear {
+                    self.hear(line, pin);
+                }
                 None
             }
         }

@@ -14,7 +14,7 @@
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
 
 use ddi_l10n::UiText;
@@ -152,6 +152,45 @@ impl Said {
             Said::Draft => ms::stage_voice_recording(),
             Said::Example(set) => ms::stage_voice_example(set.pack()),
         }
+    }
+}
+
+/// The one sound a scene says for its line, chosen on the studio's page
+/// (Hear in the game beside it): a recording, or our pack's sound of an
+/// example, by its path in the pack.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Pin {
+    Take(u64),
+    Example(String),
+}
+
+impl Pin {
+    /// As the debug state says it: `take:3`, `example:<path>`.
+    pub fn key(&self) -> String {
+        match self {
+            Pin::Take(id) => format!("take:{id}"),
+            Pin::Example(path) => format!("example:{path}"),
+        }
+    }
+}
+
+/// The line a press of Hear in the game shows, and the sound pinned
+/// for it: the recording pressed beside (on its line), our example
+/// pressed beside (`examples`, the page's; one our announcer says), or
+/// none for the line's own button.
+pub fn hear_of(
+    act: studio::Act,
+    draft: &Draft,
+    examples: &BTreeMap<Line, Vec<studio::Example>>,
+) -> Option<(Line, Option<Pin>)> {
+    match act {
+        studio::Act::Hear(line) => Some((line, None)),
+        studio::Act::HearTake(id) => Some((draft.take(id)?.line?, Some(Pin::Take(id)))),
+        studio::Act::HearExample(line, i) => {
+            let path = examples.get(&line)?.get(i)?.sound.clone()?;
+            Some((line, Some(Pin::Example(path))))
+        }
+        _ => None,
     }
 }
 
@@ -333,11 +372,13 @@ fn say(text: String, seconds: f64) -> Message {
 /// The draft as a voice for the lines `which` keeps: each line's
 /// recordings decoded so far (`decoded`, by take), as the pack has them,
 /// the line's next one (`turns`) first, each made a sound by `make`; with
-/// the first one's length of each line.
+/// the first one's length of each line. The line of take `pinned` says
+/// it alone.
 pub fn draft_voice<S>(
     draft: &Draft,
     which: impl Fn(Line) -> bool,
     turns: &HashMap<Line, usize>,
+    pinned: Option<u64>,
     decoded: &HashMap<u64, S>,
     make: impl Fn(&Take, &S) -> Option<S>,
     length: impl Fn(&S) -> f64,
@@ -345,10 +386,15 @@ pub fn draft_voice<S>(
     let mut voice = Voice::default();
     let mut lengths = HashMap::new();
     for line in draft.lines().into_iter().filter(|l| which(*l)) {
-        let takes: Vec<&Take> = draft
+        let mut takes: Vec<&Take> = draft
             .takes_of(line)
             .filter(|t| decoded.contains_key(&t.id))
             .collect();
+        if let Some(id) = pinned
+            && takes.iter().any(|t| t.id == id)
+        {
+            takes.retain(|t| t.id == id);
+        }
         if takes.is_empty() {
             continue;
         }
@@ -531,6 +577,9 @@ pub struct Director<H: SceneHost> {
     pub turns: RefCell<HashMap<Line, usize>>,
     /// Each line's next example, by set.
     pub example_turns: RefCell<HashMap<(&'static str, Line), usize>>,
+    /// The sound the scene says for its line, where one was chosen
+    /// ([`Director::hearing`]).
+    pin: RefCell<Option<Pin>>,
 }
 
 impl<H: SceneHost> Director<H> {
@@ -541,7 +590,34 @@ impl<H: SceneHost> Director<H> {
             scenes: Cell::new(0),
             turns: RefCell::default(),
             example_turns: RefCell::default(),
+            pin: RefCell::default(),
         })
+    }
+
+    /// Who says the scene of `line` about to begin: the draft for a
+    /// recording pinned (`pin`), our pack of `set` for an example pinned,
+    /// else as [`Said::of`]; the pin kept for its voice.
+    pub fn hearing(&self, line: Line, pin: Option<Pin>, draft: &Draft, set: Set) -> Said {
+        let said = match &pin {
+            Some(Pin::Take(_)) => Said::Draft,
+            Some(Pin::Example(_)) => Said::Example(set),
+            None => Said::of(line, draft, set),
+        };
+        *self.pin.borrow_mut() = pin;
+        said
+    }
+
+    /// The recording pinned for the scene, if one is.
+    pub fn pinned_take(&self) -> Option<u64> {
+        match *self.pin.borrow() {
+            Some(Pin::Take(id)) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// What is pinned for the scene, as the debug state says it.
+    pub fn pin_key(&self) -> Option<String> {
+        self.pin.borrow().as_ref().map(Pin::key)
     }
 
     /// A scene is under way.
@@ -573,8 +649,12 @@ impl<H: SceneHost> Director<H> {
 
     /// What `pack` (our pack of `set`) says for `lines`: one sound of
     /// each (as the first of its chain the pack has, once), the line's
-    /// next each scene.
+    /// next each scene, or the example pinned where it is the line's.
     pub fn example_plan(&self, pack: &Bundled, set: Set, lines: &[Line]) -> Vec<Planned> {
+        let pinned = match &*self.pin.borrow() {
+            Some(Pin::Example(path)) => Some(path.clone()),
+            _ => None,
+        };
         let mut plan = Vec::new();
         let mut seen = BTreeSet::new();
         for &line in lines {
@@ -587,8 +667,13 @@ impl<H: SceneHost> Director<H> {
             if !seen.insert(found) {
                 continue;
             }
-            let turn = self.example_turn(set, found);
-            let path = files[turn % files.len()].to_string();
+            let path = match pinned
+                .as_ref()
+                .filter(|p| files.iter().any(|f| f.as_str() == p.as_str()))
+            {
+                Some(p) => p.clone(),
+                None => files[self.example_turn(set, found) % files.len()].to_string(),
+            };
             plan.push(Planned {
                 line: found,
                 key: format!("{}/{path}", pack.path),
@@ -657,6 +742,7 @@ impl<H: SceneHost> Director<H> {
             self.host.preview_close();
         }
         self.host.stop_sound();
+        self.pin.borrow_mut().take();
         self.host.gave_up(why);
     }
 
@@ -1156,7 +1242,9 @@ impl<H: SceneHost> Director<H> {
     /// and the studio says what was heard.
     fn left(&self, line: Line, said: Said, heard: Vec<String>) {
         let lines: Vec<Line> = heard.iter().filter_map(|f| Line::parse(f)).collect();
-        for &l in &lines {
+        // A scene of a sound chosen leaves the turns as they were.
+        let pinned = self.pin.borrow_mut().take().is_some();
+        for &l in lines.iter().filter(|_| !pinned) {
             match said {
                 Said::Draft => *self.turns.borrow_mut().entry(l).or_insert(0) += 1,
                 Said::Example(set) => {

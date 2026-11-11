@@ -276,14 +276,18 @@ fn tidied(draft: &Draft, t: &Take) -> Option<UiText> {
     ))
 }
 
-/// A take's blocks: the button to hear it, what can be done with it,
-/// what tidying did (with the details) and its notes.
+/// A take's blocks: the button to hear it, its scene's where it is on a
+/// line heard in one, what can be done with it, what tidying did (with
+/// the details) and its notes.
 fn take_blocks(draft: &Draft, view: &View, t: &Take, sorted: bool, out: &mut Vec<Block>) {
     let playing = view.playing.as_deref() == Some(&format!("take:{}", t.id));
     let mut actions = vec![Action::new(
         format!("play:{}", t.id),
         take_label(draft, t, playing),
     )];
+    if t.line.is_some_and(hearable) && matches!(t.sound, Sound::Read(_)) {
+        actions.push(Action::new(format!("hear-take:{}", t.id), m::hear_one()));
+    }
     actions.push(Action::new(
         format!("move:{}", t.id),
         if sorted {
@@ -304,7 +308,37 @@ fn take_blocks(draft: &Draft, view: &View, t: &Take, sorted: bool, out: &mut Vec
     }
 }
 
-/// A line's zone.
+/// A line's examples: each our announcer says a button to hear it and
+/// one to hear it in the line's scene, the others their words.
+fn example_blocks(view: &View, line: Line, ex: &[Example]) -> Vec<Block> {
+    let folder = line.folder();
+    let mut out = vec![Block::Muted(m::examples_heading().into())];
+    for (i, e) in ex.iter().enumerate() {
+        let words = m::example(&e.text);
+        if e.sound.is_none() {
+            out.push(Block::Text(words.into()));
+            continue;
+        }
+        let id = format!("example:{folder}:{i}");
+        let icon = if view.playing.as_deref() == Some(&id) {
+            "■"
+        } else {
+            "▶"
+        };
+        let mut actions = vec![Action::new(id, format!("{icon} {words}"))];
+        if hearable(line) {
+            actions.push(Action::new(
+                format!("hear-example:{folder}:{i}"),
+                m::hear_one(),
+            ));
+        }
+        out.push(Block::Actions(actions));
+    }
+    out
+}
+
+/// A line's zone: its name and when it is said, then its recordings and
+/// its buttons beside its examples.
 fn line_zone(
     draft: &Draft,
     view: &View,
@@ -319,53 +353,31 @@ fn line_zone(
     if view.details {
         body.push(Block::Muted(m::line_folder(&folder).into()));
     }
-    if let Some(ex) = examples.get(&line).filter(|e| !e.is_empty()) {
-        let items = ex
-            .iter()
-            .enumerate()
-            .map(|(i, e)| match &e.sound {
-                Some(_) => {
-                    let id = format!("example:{folder}:{i}");
-                    let icon = if view.playing.as_deref() == Some(&id) {
-                        "■"
-                    } else {
-                        "▶"
-                    };
-                    Block::Action {
-                        id,
-                        label: format!("{icon} {}", m::example(&e.text)),
-                    }
-                }
-                None => Block::Text(m::example(&e.text).into()),
-            })
-            .collect();
-        body.push(Block::Fold {
-            id: format!("examples:{folder}"),
-            label: m::examples_fold(ex.len()).into(),
-            body: items,
-        });
-    }
+    let ex = examples.get(&line).map(Vec::as_slice).unwrap_or_default();
+    let mut left = vec![Block::Muted(m::recordings_heading().into())];
     let takes: Vec<&Take> = draft.takes_of(line).collect();
     if takes.is_empty() {
-        body.push(Block::Muted(without(line, draft).into()));
+        left.push(Block::Muted(without(line, draft).into()));
     }
     let unrecorded = takes.is_empty();
     for t in takes {
-        take_blocks(draft, view, t, true, &mut body);
+        take_blocks(draft, view, t, true, &mut left);
     }
     if line == Line::HereWeGo
         && let Some(s) = draft.opening()
         && s > ddi_library::announcer::draft::OPENING_ROOM
     {
-        body.push(Block::Note(m::opening_long(seconds(s)).into()));
+        left.push(Block::Note(m::opening_long(seconds(s)).into()));
     }
     let mut actions = vec![Action::new(format!("add:{folder}"), m::add_recording())];
-    if hearable(line) && (recorded(line, draft) || has_example(line)) {
-        let label = if recorded(line, draft) {
-            m::hear_recorded()
-        } else {
-            m::hear_example()
-        };
+    // Each recording and example has its own Hear in the game; the line
+    // has one where neither is there but something speaks in its place.
+    let hear = if recorded(line, draft) {
+        unrecorded.then(m::hear_recorded)
+    } else {
+        (has_example(line) && !ex.iter().any(|e| e.sound.is_some())).then(m::hear_example)
+    };
+    if let Some(label) = hear.filter(|_| hearable(line)) {
         actions.push(Action::new(format!("hear:{folder}"), label));
     }
     if let Line::Combo(n) = line
@@ -373,7 +385,13 @@ fn line_zone(
     {
         actions.push(Action::new(format!("remove-combo:{n}"), m::remove_combo()));
     }
-    body.push(Block::Actions(actions));
+    left.push(Block::Actions(actions));
+    let right = if ex.is_empty() {
+        Vec::new()
+    } else {
+        example_blocks(view, line, ex)
+    };
+    body.push(Block::Columns { left, right });
     Block::Zone { id: folder, body }
 }
 
@@ -593,6 +611,10 @@ pub enum Act {
     UseInGame,
     /// Hear a line in the game: its scene on the screen it is spoken on.
     Hear(Line),
+    /// The same with a recording of it, by its id, said in it.
+    HearTake(u64),
+    /// The same with our example `i` of a line said in it.
+    HearExample(Line, usize),
     /// A combo line for a count typed in a dialog ([`combo_dialog`]).
     AddCombo,
     /// Combo line `n` off the page.
@@ -618,13 +640,19 @@ pub fn act(id: &str) -> Option<Act> {
             match kind {
                 "add" => Act::Add(Line::parse(rest)?),
                 "hear" => Act::Hear(Line::parse(rest)?),
+                "hear-take" => Act::HearTake(take(rest)?),
                 "play" => Act::Play(take(rest)?),
                 "move" => Act::Move(take(rest)?),
                 "remove" => Act::Remove(take(rest)?),
                 "remove-combo" => Act::RemoveCombo(rest.parse().ok()?),
-                "example" => {
+                "example" | "hear-example" => {
                     let (folder, i) = rest.rsplit_once(':')?;
-                    Act::Example(Line::parse(folder)?, i.parse().ok()?)
+                    let (line, i) = (Line::parse(folder)?, i.parse().ok()?);
+                    if kind == "example" {
+                        Act::Example(line, i)
+                    } else {
+                        Act::HearExample(line, i)
+                    }
                 }
                 _ => return None,
             }
@@ -818,6 +846,16 @@ mod tests {
 
     const MP3: &[u8] = b"ID3\x04\x00";
 
+    /// Take `name` added to `d`, read as a tenth of a second.
+    fn add_read(d: &mut Draft, name: &str) -> u64 {
+        let id = d.add(name, 1, MP3);
+        d.take_mut(id).unwrap().sound = Sound::Read(ddi_library::announcer::tidy::measure(
+            &[vec![0.0; 4800]],
+            48000,
+        ));
+        id
+    }
+
     #[test]
     fn every_line_has_a_name_and_a_moment() {
         let mut names = std::collections::BTreeSet::new();
@@ -917,12 +955,12 @@ mod tests {
             doc(&d, &View::default(), &BTreeMap::new(), Default::default()).blocks
         );
         assert!(!text.contains("\"hear:gameplay 64 combo\""));
-        d.add("gameplay 64 combo.wav", 1, MP3);
+        let id = add_read(&mut d, "gameplay 64 combo.wav");
         let text = format!(
             "{:?}",
             doc(&d, &View::default(), &BTreeMap::new(), Default::default()).blocks
         );
-        assert!(text.contains("\"hear:gameplay 64 combo\""));
+        assert!(text.contains(&format!("\"hear-take:{id}\"")));
         assert!(!text.contains("\"remove-combo:64\""));
         assert!(text.contains("\"remove-combo:128\""));
         assert_eq!(apply(Act::RemoveCombo(64), &mut d, &mut v), None);
@@ -976,9 +1014,9 @@ mod tests {
     #[test]
     fn song_select_and_results_lines_can_be_heard_recorded_or_not() {
         let mut d = Draft::default();
-        d.add("evaluation aaaa.wav", 1, MP3);
-        d.add("select music intro.wav", 2, MP3);
-        d.add("gameplay ready.wav", 3, MP3);
+        let aaaa = add_read(&mut d, "evaluation aaaa.wav");
+        let intro = d.add("select music intro.wav", 2, MP3);
+        let ready = add_read(&mut d, "gameplay ready.wav");
         for line in [
             Line::Grade(Grade::Aaaa),
             Line::Grade(Grade::Aaa),
@@ -996,15 +1034,66 @@ mod tests {
         assert!(!recorded(Line::Grade(Grade::F), &d));
         d.add("evaluation e.wav", 4, MP3);
         assert!(recorded(Line::Grade(Grade::F), &d));
-        let text = format!(
-            "{:?}",
-            doc(&d, &View::default(), &BTreeMap::new(), Default::default()).blocks
-        );
-        assert!(text.contains("\"hear:evaluation aaaa\", label: \"Hear it in the game\""));
-        assert!(text.contains("\"hear:evaluation aaa\", label: \"Hear an example in the game\""));
-        assert!(text.contains("\"hear:gameplay ready\", label: \"Hear it in the game\""));
+        let aaa = Line::Grade(Grade::Aaa);
+        let ours = BTreeMap::from([(
+            aaa,
+            vec![
+                Example {
+                    text: "Triple A!".into(),
+                    sound: Some("evaluation aaa/1.ogg".into()),
+                },
+                Example {
+                    text: "Wonderful.".into(),
+                    sound: None,
+                },
+            ],
+        )]);
+        add_read(&mut d, &format!("{}.wav", Line::FullCombo.folder()));
+        let page = doc(&d, &View::default(), &ours, Default::default());
+        let text = format!("{:?}", page.blocks);
+        // Each recording and each example our announcer says has its own
+        // button; the line has one only where neither is there and
+        // something speaks in its place.
+        assert!(text.contains(&format!(
+            "\"hear-take:{aaaa}\", label: \"Hear in the game\""
+        )));
+        assert!(text.contains(&format!("\"hear-take:{ready}\"")));
+        assert!(!text.contains("\"hear:evaluation aaaa\""));
+        assert!(!text.contains("\"hear:gameplay ready\""));
+        assert!(text.contains("\"hear-example:evaluation aaa:0\", label: \"Hear in the game\""));
+        assert!(!text.contains("\"hear-example:evaluation aaa:1\""));
+        assert!(!text.contains("\"hear:evaluation aaa\""));
+        assert!(text.contains(&format!(
+            "\"hear:{}\", label: \"Hear it in the game\"",
+            Line::FullComboW(1).folder()
+        )));
+        assert!(text.contains("\"hear:evaluation aa\", label: \"Hear an example in the game\""));
         assert!(!text.contains("\"hear:evaluation aaaaa\""));
+        // Not read yet: no scene to hear it in.
+        assert!(!text.contains("\"hear:select music intro\""));
+        assert!(!text.contains(&format!("\"hear-take:{intro}\"")));
+        // The recordings beside the examples, in the line's zone.
+        let zone = page
+            .blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::Zone { id, body } if id == "evaluation aaa" => Some(body),
+                _ => None,
+            })
+            .unwrap();
+        let Some(Block::Columns { left, right }) = zone.last() else {
+            panic!("{zone:?}");
+        };
+        assert!(format!("{left:?}").contains("\"add:evaluation aaa\""));
+        assert!(format!("{right:?}").contains("▶ “Triple A!”"));
+        assert!(format!("{right:?}").contains("Text(\"“Wonderful.”\")"));
         assert_eq!(act("hear:evaluation cheer"), Some(Act::Hear(Line::Cheer)));
+        assert_eq!(act(&format!("hear-take:{aaaa}")), Some(Act::HearTake(aaaa)));
+        assert_eq!(
+            act("hear-example:evaluation aaa:0"),
+            Some(Act::HearExample(aaa, 0))
+        );
+        assert_eq!(act("example:evaluation aaa:0"), Some(Act::Example(aaa, 0)));
         // A scene in play says more besides its line: that one is named.
         let restart = [Line::Ready, Line::HereWeGo, Line::Restart, Line::HereWeGo];
         let text = heard(Line::Restart, &restart, None).to_string();
@@ -1095,8 +1184,8 @@ mod tests {
         let mut out = Vec::new();
         for b in blocks {
             out.push(b);
-            if let Block::Fold { body, .. } | Block::Zone { body, .. } = b {
-                out.extend(flat(body));
+            for inner in b.inner() {
+                out.extend(flat(std::slice::from_ref(inner)));
             }
         }
         out

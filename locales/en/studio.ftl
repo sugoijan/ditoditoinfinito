@@ -307,13 +307,14 @@ studio-when-battle-match-drawn = On the results of a match's last stage, first p
 #   $folder (String) - the folder, as StepMania names it ("gameplay ready")
 studio-line-folder = Folder: { $folder }
 
-# A fold of the line's examples (its label, about 16 letters).
-# Variables:
-#   $count (Number) - how many examples
-studio-examples-fold = Examples ({ $count })
+# The headings of the zone's two columns, side by side on a wide
+# screen (one after the other on a narrow one): the line's recordings,
+# with their buttons, then its examples (about 20 letters each).
+studio-recordings-heading = Your recordings
+studio-examples-heading = Examples
 
-# An example in the fold: what an announcer might say, in quotes (a
-# play button's label where our announcer's sound of it can be heard).
+# An example: what an announcer might say, in quotes (a play button's
+# label where our announcer's sound of it can be heard).
 # Variables:
 #   $words (String) - the example's words, in its set's language
 studio-example = “{ $words }”
@@ -339,12 +340,17 @@ studio-opening-long = Ready and here we go take { $seconds } s together: a song 
 # The line's buttons, as wide as their texts.
 studio-add-recording = { -studio-button-add-recording }…
 
-# Shows the line's scene: the screen the game says it on, the recording
-# heard in it.
+# Beside a recording, and beside an example our announcer says: shows
+# the line's scene (the screen the game says it on) with that one heard
+# in it.
+studio-hear-one = Hear in the game
+
+# Where the line has no recording or example of its own but something
+# speaks in its place (studio-missing-instead): shows its scene, the
+# recording heard in it.
 studio-hear-recorded = Hear it in the game
 
-# The same where the line has no recording: our announcer's example is
-# heard.
+# The same where our announcer's example speaks in its place.
 studio-hear-example = Hear an example in the game
 
 # On a combo line with no recording: takes the line off the page (Add a
