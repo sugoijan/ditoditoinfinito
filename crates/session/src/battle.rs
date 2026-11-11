@@ -10,8 +10,10 @@
 //! one competitor is still in; a local winner then plays on to the song's
 //! end with its fail turned off (nothing after changes the result). The
 //! CPUs ([`ddi_engine::cpu::Opponent`]) play a tap-only copy of the chart
-//! at a level relative to it and respond to nothing: what shows them says
-//! so, and their life is their engine-judged gauge, nothing else.
+//! at a level relative to it; battle shocks put into their plays (M8b) are
+//! judged by their own players and responded to by level alone
+//! (`ddi_engine::cpu::MINE_RESPONSE_V0`); their life is their
+//! engine-judged gauge, nothing else.
 //!
 //! An online room's stage (M5d) is played on each member's own device:
 //! the others are not judged here, nor shown during the play in this
@@ -279,6 +281,17 @@ impl Battle {
         &self.setup
     }
 
+    /// DEVELOPMENT ONLY (`--mp-dev-mines`): `section`'s shocks put into
+    /// every CPU's play too, at song second `at` (the play's start), and
+    /// shown on their fields.
+    pub fn dev_shocks(&mut self, section: &ddi_engine::battle::Section, at: f64) {
+        for s in &mut self.seats {
+            if s.opponent.receive_hazards(&section.cells).is_ok() {
+                s.feed.add_hazards(&self.track, &section.cells, at);
+            }
+        }
+    }
+
     /// The opponents judged to judged song second `t`, beside `human`
     /// judged to it too (`judged`: what it was judged since the last
     /// call). `Some(true)` the moment the stage is decided with the local
@@ -305,14 +318,23 @@ impl Battle {
                 }
             }
             for e in events {
-                let JudgeEventKind::Tap(judgment, _) = e.kind else {
-                    continue;
+                let kind = match e.kind {
+                    JudgeEventKind::Tap(judgment, _) => feed::MomentKind::Tap(judgment),
+                    // A battle shock stepped on (its copy has no mines of
+                    // its own).
+                    JudgeEventKind::HitMine
+                        if e.note_index
+                            .is_some_and(|n| n >= ddi_engine::battle::HAZARD_INDEX_BASE) =>
+                    {
+                        feed::MomentKind::ShockHit
+                    }
+                    _ => continue,
                 };
                 let moment = feed::Moment {
                     at: e.song_time,
                     tick: e.tick,
                     lane: e.lane,
-                    judgment,
+                    kind,
                     life,
                     combo,
                     out: out_at.is_some_and(|o| o <= e.song_time),

@@ -1486,6 +1486,7 @@ mod tests {
             receptors: vec![
                 ReceptorState {
                     pressed: false,
+                    mine: None,
                     flash: None,
                     holding: None,
                 };

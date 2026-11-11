@@ -924,3 +924,39 @@ fn a_stage_s_development_shocks_are_judged_beside_the_chart() {
     );
     assert_eq!(again.battle_mines, r.battle_mines);
 }
+
+/// M8b: the CPUs receive battle shocks too (the development trigger's
+/// section, `Battle::dev_shocks`), judged by their own players and
+/// responded to by level alone; their fields draw them from the
+/// commitment; the same at 60 and 144 frames a second.
+#[test]
+fn cpus_receive_shocks_judged_alike_at_any_frame_rate() {
+    let song = bundled("beatucada");
+    let mut practice = room(&song, 1, 4, 0);
+    let mut now = 0;
+    let mut order = begin(&song, &mut practice, &mut now);
+    order.dev_mines_at_beat = Some(16);
+    let a = play_at(&song, &order, 60.0);
+    let b = play_at(&song, &order, 144.0);
+    let (ba, bb) = (a.battle().unwrap(), b.battle().unwrap());
+    assert_eq!(ba.views(), bb.views());
+    let mut hit = 0;
+    for (fa, fb) in ba.feeds().zip(bb.feeds()) {
+        assert_eq!(fa.shocks().len(), 8);
+        assert_eq!(fa.moments(), fb.moments());
+        let hits = fa
+            .moments()
+            .iter()
+            .filter(|m| m.kind == crate::battle::feed::MomentKind::ShockHit)
+            .count();
+        // A shock stepped on leaves its field.
+        assert_eq!(
+            fa.shocks().iter().filter(|s| s.gone.is_finite()).count(),
+            hits
+        );
+        hit += hits;
+    }
+    // Level 1 avoids poorly; whether any of these 32 is stepped on is
+    // the seeds' (the engine's tests check the rates).
+    assert!(hit <= 32);
+}

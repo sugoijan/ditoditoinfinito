@@ -1437,6 +1437,42 @@ lines (later rounds).
   with Infinito, its ShockArrows, Peters-DDR, Reverse and Hidden, Chrome
   and Firefox).
 
+## M8b: attacks launched, CPUs shocked, settlement (in progress, 2026-11-11)
+
+The second round of battle attacks, still behind the development switch
+(`--mp-dev-attacks`, the web's `mpattacks=1` beside `mp=1`).
+
+- **CPUs receive shocks** (real mechanics; reached in this commit only by
+  the development trigger `--mp-dev-mines BEAT` / `mpdevmines=BEAT`, which
+  now puts the section into every CPU's play too):
+  `ddi_engine::cpu::Opponent::receive_hazards` puts them into the CPU's
+  own player (judged as anyone's: a press in a shock's window or a lane
+  held across it steps on it, the ruleset's miss to its gauge) and
+  rewrites only its presses still to come: a shock it steps on is an
+  extra 12 ms press within 60% of the shock's window; its own presses
+  within 0.3 s of a shock move by up to its jitter or are left out
+  (slip); every draw keyed by the CPU's seed, the shock (tick, lane) and
+  the press, never by the frames; presses already fed or due before its
+  judged time are never changed; a script that would not validate is
+  kept as it was. By level alone (D8): one *avoidance* value a CPU,
+  `MINE_RESPONSE_V0.avoidance(level)` (levels 1–2: 0, 3–4: 0.5, 5: 1),
+  its response read from it (`MineResponseTable::response`), shaped to
+  become an eighth `Skills` axis later. `MineResponse::OFF` is the
+  study's control, for tests only.
+- **Miniatures show them**: `feed::Moment::kind` (`MomentKind::Tap`, or
+  `ShockHit`); `FieldFeed::add_hazards` takes an attack's shocks at its
+  commitment, drawn as the skin's mines (`SpriteKind::Mine`, numbered
+  from `HAZARD_INDEX_BASE`) from then on; a hit takes the shock off and
+  flashes its receptor with the skin's mine explosion
+  (`ReceptorState::mine`, `NoteskinPlay::miniature`); avoided ones scroll
+  on past the receptors and fade.
+- Tests: `ddi-engine` `cpu::mines` (the table, keyed draws),
+  `cpu::opponent` (judged and the same at 60/144 frames a second, the
+  control unchanged, a poor avoider steps on more than a good one over
+  24 seeds, late shocks refused and nothing changed), `battle`
+  (`reading_horizon`); `ddi-session` feed (`shocks_show_from_their_commitment_and_a_hit_takes_one_off`),
+  stage (`cpus_receive_shocks_judged_alike_at_any_frame_rate`).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -1459,6 +1495,7 @@ lines (later rounds).
 | Practice CPUs start at level 3 of 5 (the engine's `normal`), seeds from the time the room was made | `state::room::DEFAULT_CPU_LEVEL`, `PracticeRoom::new` | A new practice room shows "Level 3 of 5"; two rooms differ in their CPUs' seeds | Practice's default profile; whether the seed should be shown or fixed |
 | A chart is playable by the CPUs when its style is a built-in one-player layout with four lanes; song-declared layouts are refused | `state::room::eligible` | Solo, Double, Pump, techno and DanOni 5–9 charts, and a song's own four-lane layout, are refused with a reason | Whether to accept song-declared four-lane layouts before M3's load check |
 | Chosen local content counts as loaded at once | `PracticeRoom::sync_loading` | Ready alone makes the player eligible | Replaced in M3 by the real load and plan check |
+| CPU shock response `mine-response-v0` (uncalibrated): avoidance from level (1–2: 0, 3–4: 0.5, 5: 1); at 0 a CPU steps on 14% of shocks, its presses within 0.3 s of one moved ±45 ms and 4% left out; at 0.5 6%, ±25 ms, 1.5%; at 1 2%, ±12 ms, 0.5% | `ddi_engine::cpu::MINE_RESPONSE_V0` | How often a CPU's life drops to an attack, and how much its timing suffers near one | Calibration against people; whether avoidance joins `Skills` |
 | Battle `gauge-survival-v0` (`ddi_room::battle::BattlePreset::GaugeSurvivalV0`, practice's `MatchRules::battle`): life is each competitor's gauge under the match's ruleset (M8a; before, the player's own), empty is out of the stage | `crates/room/src/battle.rs`, `crates/session/src/battle.rs` | A stage is survival under the match's ruleset's gauge; Rules says "Survival · provisional" | The standard battle (life, power) and its numbers |
 | Ranking: still in by life, then accuracy (the ruleset's percent, money or EX over its most); then the out, later first; then forfeits; exact ties share | `ddi_room::battle::rank` | Placements follow life first; the CPUs' accuracy is on the taps-only copy, the player's on the full chart (not like for like) | Ranking survivors; whether CPUs should play the full chart |
 | Decided once at most one competitor is still in; the last out together share first; the winner's fail is turned off to the song's end | `battle::decided`, `PlaySession::tick` | "Stage won" over the column; the player finishes the song whatever the gauge does after | Final-contender settlement once attacks exist |

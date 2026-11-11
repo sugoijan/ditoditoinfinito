@@ -36,7 +36,11 @@ Rust and the browser are implementation details, not advertised features.
   `HazardJudge` beside the chart's judge, `Player::add_hazards`, events
   and sprites from `HAZARD_INDEX_BASE`, a hit the ruleset's miss to the
   gauge alone, `INJECTED_MINE_V0`; `schedule` and `PLACEMENT_V0`, where
-  a chart has room for eight; kept in `PlayLog` version 4). No I/O.
+  a chart has room for eight; kept in `PlayLog` version 4;
+  `reading_horizon`, how long a play's notes are shown before they are
+  judged); a CPU opponent's response to shocks put into its play
+  (`cpu/mines.rs`: one avoidance value a CPU from its level,
+  `MINE_RESPONSE_V0`, `Opponent::receive_hazards`). No I/O.
   Replay fixtures in `crates/engine/tests/`.
 - `crates/render/` wgpu scene (the built-in notes: Infinito's shapes as
   distance fields in `shader.wgsl`, made light, PLAN.md decision 80;
@@ -549,7 +553,9 @@ Rust and the browser are implementation details, not advertised features.
   a checkpoint once every competitor still in is judged past it, so the
   same at any frame rate and from a play's log;
   each CPU's miniature field fed by its stream of judged moments,
-  `battle/feed.rs`: `Moment` (when, which note, judgment, life, combo, out),
+  `battle/feed.rs`: `Moment` (when, which note or shock, a tap's judgment
+  or a shock stepped on, life, combo, out), the shocks put into its play
+  drawn from their commitment as the skin's mines (`FieldFeed::add_hazards`),
   the tap-only copy it plays, `TapTrack`, and a presentation delay, 0
   for local CPUs, so a network stream can feed the same view later).
   Platform-free, natively tested on a fake clock.

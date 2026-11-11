@@ -697,6 +697,7 @@ fn still_frame(o: &PreviewOptions, layout: &Layout, beat: f64) -> Frame {
         receptors: vec![
             ReceptorState {
                 pressed: false,
+                mine: None,
                 flash: None,
                 holding: None,
             };

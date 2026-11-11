@@ -417,6 +417,7 @@ pub fn frame(
             .iter()
             .map(|h| ReceptorState {
                 pressed: false,
+                mine: None,
                 flash: None,
                 holding: *h,
             })

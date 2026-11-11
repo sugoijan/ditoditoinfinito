@@ -751,6 +751,35 @@ impl Player {
         Ok(())
     }
 
+    /// How far ahead this play reads (`crate::battle::reading_horizon`):
+    /// the longest a note is shown before it is judged under its options,
+    /// over the chart's whole length, seconds.
+    pub fn reading_horizon(&self) -> f64 {
+        let first = self
+            .judge
+            .notes()
+            .iter()
+            .map(|n| n.seconds)
+            .fold(f64::INFINITY, f64::min);
+        crate::battle::reading_horizon(
+            &self.options,
+            &self.timing,
+            first.min(self.song_offset) - 2.0,
+            self.end_time(),
+        )
+    }
+
+    /// Life as it was just before judged song second `t` (its record:
+    /// the same whatever the frames).
+    pub fn life_at(&self, t: f64) -> f32 {
+        let t = t as f32;
+        let i = self.life.partition_point(|l| l[0] < t);
+        i.checked_sub(1)
+            .and_then(|i| self.life.get(i))
+            .or(self.life.first())
+            .map_or_else(|| self.ruleset.gauge.life(), |l| l[1])
+    }
+
     /// The battle's shocks put into the play, as judged so far.
     pub fn hazards(&self) -> Option<&HazardJudge> {
         self.hazards.as_ref()
@@ -1488,6 +1517,7 @@ impl Player {
             .map(|lane| ReceptorState {
                 pressed: self.held[lane],
                 holding: holding[lane],
+                mine: None,
                 flash: self.lane_flash[lane]
                     .map(|(j, at)| (j, age(at)))
                     .filter(|(_, a)| *a < FLASH_SECONDS),

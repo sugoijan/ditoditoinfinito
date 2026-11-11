@@ -230,6 +230,53 @@ pub fn schedule(song: &Song, chart: usize, table: &JudgeTable, seed: u64) -> Vec
         .collect()
 }
 
+/// The longest a horizon is looked for, seconds: past any lead a stage
+/// allows (`ddi_room::attacks::LEAD_V0`'s cap).
+pub const HORIZON_MAX: f64 = 12.0;
+
+/// How far ahead a player reads (`docs/plans/multiplayer-prototype-progress.md`,
+/// M8b, D5): the longest, over `from..=to` (judged song seconds, sampled
+/// every half second), that a note is shown before it reaches the
+/// receptors under `options` (the scroll's speed and action, Hidden and
+/// Sudden, the frame's visible range) on `timing` (its tempo, stops,
+/// scroll and speed segments), in seconds, to the next twentieth above;
+/// [`HORIZON_MAX`] where a note is shown longer. Lane covers, which change
+/// in play, are left out (a cover only shortens it).
+pub fn reading_horizon(
+    options: &crate::player::PlayOptions,
+    timing: &TimingMap,
+    from: f64,
+    to: f64,
+) -> f64 {
+    // The farthest a note is shown, in arrow heights.
+    let range = options.visible_range.max(0.0);
+    let mut reach = range;
+    while reach > 0.0 && options.appearance.visibility(reach).0 <= 0.0 {
+        reach -= 0.05;
+    }
+    if reach <= 0.0 || !from.is_finite() || !to.is_finite() {
+        return 0.0;
+    }
+    const STEP: f64 = 0.05;
+    let mut longest: f64 = 0.0;
+    let mut t = from;
+    while t <= to && longest < HORIZON_MAX {
+        let state = crate::scroll::ScrollState::at(options.scroll, timing, t);
+        let mut ahead = STEP;
+        while ahead < HORIZON_MAX {
+            let s = t + ahead;
+            let y = state.y_displayed(timing.displayed_beat(timing.beat_at(s)), s);
+            if y >= reach {
+                break;
+            }
+            ahead += STEP;
+        }
+        longest = longest.max(ahead.min(HORIZON_MAX));
+        t += 0.5;
+    }
+    longest
+}
+
 /// A shock in a play, judged.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HazardMine {
@@ -489,6 +536,29 @@ mod tests {
         assert_eq!(run(1.0 / 60.0), run(1.0 / 144.0));
         assert_eq!(run(1.0 / 60.0), run(0.9));
         assert_eq!(run(0.9).1, (2, 1));
+    }
+
+    #[test]
+    fn a_reading_horizon_follows_the_speed_the_tempo_and_sudden() {
+        let timing = TimingMap::constant(150.0, 0.0);
+        let mut o = crate::player::PlayOptions::default();
+        o.scroll.speed = crate::scroll::SpeedMod::XMod(1.0);
+        // Twelve arrows at x1 and 150 BPM: 4.8 s.
+        let h = reading_horizon(&o, &timing, 0.0, 10.0);
+        assert!((h - 4.8).abs() <= 0.06, "{h}");
+        o.scroll.speed = crate::scroll::SpeedMod::XMod(2.0);
+        let h2 = reading_horizon(&o, &timing, 0.0, 10.0);
+        assert!((h2 - 2.4).abs() <= 0.06, "{h2}");
+        o.scroll.speed = crate::scroll::SpeedMod::CMod(300.0);
+        let c = reading_horizon(&o, &timing, 0.0, 10.0);
+        assert!((c - 2.4).abs() <= 0.06, "{c}");
+        // Sudden shows them later.
+        o.appearance = crate::appearance::Appearance::Sudden;
+        assert!(reading_horizon(&o, &timing, 0.0, 10.0) < c);
+        // Very slow: capped.
+        o.appearance = Default::default();
+        o.scroll.speed = crate::scroll::SpeedMod::XMod(0.25);
+        assert_eq!(reading_horizon(&o, &timing, 0.0, 10.0), HORIZON_MAX);
     }
 
     #[test]

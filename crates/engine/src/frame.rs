@@ -10,6 +10,10 @@ use crate::rules::{Judgement, ScoreView};
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ReceptorState {
     pub pressed: bool,
+    /// A battle shock stepped on in this lane and its age in seconds
+    /// (a miniature field's: `ddi_session::battle::feed`; a play's own
+    /// field shows its skin's events instead).
+    pub mine: Option<f32>,
     /// Most recent hit in this lane and its age in seconds.
     pub flash: Option<(Judgement, f32)>,
     /// A hold (or roll) of this lane is held with life left (StepMania's

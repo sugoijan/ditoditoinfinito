@@ -19,8 +19,17 @@
 //! leaves the field when a moment says it was hit; a missed one scrolls
 //! on past the receptors, as a play shows it. Nothing is inferred from
 //! a note reaching the receptors.
+//!
+//! A battle's shocks put into their play (M8b) come with the attack's
+//! commitment ([`FieldFeed::add_hazards`]) and are drawn as the skin's
+//! mines (`SpriteKind::Mine`, numbered from
+//! `ddi_engine::battle::HAZARD_INDEX_BASE`); a moment saying one was
+//! stepped on ([`MomentKind::ShockHit`]) takes it off the field and
+//! flashes its receptor ([`ReceptorState::mine`]); one avoided scrolls on
+//! past the receptors.
 
 use ddi_chart::{Quantization, Song, Tick, TimingMap};
+use ddi_engine::battle::{HAZARD_INDEX_BASE, Hazard};
 use ddi_engine::frame::{Frame, HoldJudgements, NoteSprite, ReceptorState, SpriteKind};
 use ddi_engine::rules::Judgement;
 use ddi_engine::scroll::{ScrollOptions, ScrollState};
@@ -33,15 +42,25 @@ pub const LOCAL_DELAY: f64 = 0.0;
 /// effect's time in a skin that draws its own, the flash's otherwise.
 pub const FLASH_SECONDS: f32 = 0.4;
 
+/// What a moment judged.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MomentKind {
+    /// A note of the copy, and its judgment.
+    Tap(Judgement),
+    /// A battle shock stepped on (M8b).
+    ShockHit,
+}
+
 /// One judged moment of a player's run.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Moment {
     /// When it was judged: judged song seconds.
     pub at: f64,
-    /// Which note of the copy it judged: its tick and its lane.
+    /// Which note of the copy (or which shock) it judged: its tick and
+    /// its lane.
     pub tick: Tick,
     pub lane: u8,
-    pub judgment: Judgement,
+    pub kind: MomentKind,
     /// The player's life after it, `0..=1`, their combo after it, and
     /// whether it put them out of the stage.
     pub life: f32,
@@ -129,6 +148,20 @@ pub struct Shown {
     pub out: bool,
 }
 
+/// A battle shock in a player's field ([`FieldFeed::add_hazards`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FeedShock {
+    pub tick: Tick,
+    pub lane: u8,
+    pub seconds: f64,
+    displayed: f64,
+    /// Drawn from this song second on (its attack's commitment plus the
+    /// delay).
+    pub shown_from: f64,
+    /// When it leaves the field: stepped on (its moment plus the delay).
+    pub gone: f64,
+}
+
 /// One player's stream of moments and what it says of their field.
 #[derive(Clone, Debug)]
 pub struct FieldFeed {
@@ -136,6 +169,8 @@ pub struct FieldFeed {
     /// For each note of the track: when it leaves the field (its hit's
     /// moment plus the delay), if it was hit.
     gone: Vec<f64>,
+    /// The battle's shocks put into their play, in time order.
+    shocks: Vec<FeedShock>,
     delay: f64,
     /// Life before any moment.
     life: f32,
@@ -148,6 +183,7 @@ impl FieldFeed {
         FieldFeed {
             moments: Vec::new(),
             gone: vec![f64::INFINITY; track.len()],
+            shocks: Vec::new(),
             delay: delay.max(0.0),
             life,
         }
@@ -162,13 +198,49 @@ impl FieldFeed {
         &self.moments
     }
 
+    /// The battle's shocks put into their play, in time order.
+    pub fn shocks(&self) -> &[FeedShock] {
+        &self.shocks
+    }
+
+    /// An attack's shocks `cells` put into their play at song second `at`
+    /// (its commitment): drawn from the delay after it (on `track`'s
+    /// timing), as they scroll in.
+    pub fn add_hazards(&mut self, track: &TapTrack, cells: &[Hazard], at: f64) {
+        for c in cells {
+            let seconds = track.timing.seconds_at(c.tick);
+            let shock = FeedShock {
+                tick: c.tick,
+                lane: c.lane,
+                seconds,
+                displayed: track.timing.displayed_beat(c.tick.beat()),
+                shown_from: at + self.delay,
+                gone: f64::INFINITY,
+            };
+            let i = self.shocks.partition_point(|s| s.seconds <= seconds);
+            self.shocks.insert(i, shock);
+        }
+    }
+
     /// Takes in a moment of the stream (they come in the order they
     /// happened; one out of order is put in its place).
     pub fn push(&mut self, track: &TapTrack, m: Moment) {
-        if !m.judgment.is_miss()
-            && let Some(i) = track.find(m.tick, m.lane)
-        {
-            self.gone[i] = self.gone[i].min(m.at + self.delay);
+        match m.kind {
+            MomentKind::Tap(j) if !j.is_miss() => {
+                if let Some(i) = track.find(m.tick, m.lane) {
+                    self.gone[i] = self.gone[i].min(m.at + self.delay);
+                }
+            }
+            MomentKind::Tap(_) => {}
+            MomentKind::ShockHit => {
+                if let Some(s) = self
+                    .shocks
+                    .iter_mut()
+                    .find(|s| s.tick == m.tick && s.lane == m.lane)
+                {
+                    s.gone = s.gone.min(m.at + self.delay);
+                }
+            }
         }
         let at = self.moments.partition_point(|x| x.at <= m.at);
         self.moments.insert(at, m);
@@ -204,6 +276,7 @@ impl FieldFeed {
         let mut receptors = vec![
             ReceptorState {
                 pressed: false,
+                mine: None,
                 flash: None,
                 holding: None,
             };
@@ -214,10 +287,13 @@ impl FieldFeed {
             if age > FLASH_SECONDS {
                 break;
             }
-            if let Some(r) = receptors.get_mut(usize::from(m.lane))
-                && r.flash.is_none()
-            {
-                r.flash = Some((m.judgment, age.max(0.0)));
+            let Some(r) = receptors.get_mut(usize::from(m.lane)) else {
+                continue;
+            };
+            match m.kind {
+                MomentKind::Tap(j) if r.flash.is_none() => r.flash = Some((j, age.max(0.0))),
+                MomentKind::ShockHit if r.mine.is_none() => r.mine = Some(age.max(0.0)),
+                _ => {}
             }
         }
         let mut notes = Vec::new();
@@ -241,6 +317,32 @@ impl FieldFeed {
                     y,
                     kind: SpriteKind::Tap,
                     quantization: n.quantization,
+                    beat_frac: (beat - beat.floor()) as f32,
+                    color: None,
+                    alpha,
+                    glow: 0.0,
+                    beat: beat as f32,
+                    hold_life: 1.0,
+                });
+            }
+            // The battle's shocks: from their commitment, until stepped
+            // on; avoided ones scroll on past the receptors.
+            for (i, s) in self.shocks.iter().enumerate() {
+                if s.shown_from > t || s.gone <= t {
+                    continue;
+                }
+                let y = state.y_displayed(s.displayed, s.seconds);
+                if y > range || y < -0.6 {
+                    continue;
+                }
+                let alpha = ((range - y) / 0.8).min((y + 0.6) / 0.6).clamp(0.0, 1.0);
+                let beat = s.tick.beat();
+                notes.push(NoteSprite {
+                    note_index: HAZARD_INDEX_BASE + i,
+                    lane: s.lane,
+                    y,
+                    kind: SpriteKind::Mine,
+                    quantization: s.tick.quantization(),
                     beat_frac: (beat - beat.floor()) as f32,
                     color: None,
                     alpha,
@@ -297,7 +399,7 @@ mod tests {
             at: n.seconds + late,
             tick: n.tick,
             lane: n.lane,
-            judgment: j,
+            kind: MomentKind::Tap(j),
             life: 0.5,
             combo: 3,
             out: false,
@@ -400,6 +502,60 @@ mod tests {
             }
         );
         assert_eq!(f.combo, 3);
+    }
+
+    #[test]
+    fn shocks_show_from_their_commitment_and_a_hit_takes_one_off() {
+        let song = song();
+        let track = TapTrack::new(&song, 1).unwrap();
+        let mut feed = FieldFeed::new(&track, 1.0, LOCAL_DELAY);
+        let scroll = ScrollOptions::default();
+        let section =
+            ddi_engine::battle::schedule(&song, 1, &ddi_engine::rules::presets::itg().judge, 3)
+                .into_iter()
+                .flatten()
+                .nth(2)
+                .unwrap();
+        let first = track.timing.seconds_at(section.cells[0].tick);
+        let committed = first - 3.0;
+        feed.add_hazards(&track, &section.cells, committed);
+        assert_eq!(feed.shocks().len(), 8);
+        let mines = |f: &Frame| {
+            f.notes
+                .iter()
+                .filter(|n| n.kind == SpriteKind::Mine)
+                .map(|n| n.note_index - HAZARD_INDEX_BASE)
+                .collect::<Vec<_>>()
+        };
+        // Not before the commitment, in view after it.
+        assert!(mines(&feed.frame(&track, scroll, committed - 0.1, 12.0)).is_empty());
+        assert!(mines(&feed.frame(&track, scroll, first - 0.5, 12.0)).contains(&0));
+        // The first stepped on: gone, its receptor flashing; the second
+        // avoided: on past the receptor.
+        let c = section.cells[0];
+        feed.push(
+            &track,
+            Moment {
+                at: first + 0.01,
+                tick: c.tick,
+                lane: c.lane,
+                kind: MomentKind::ShockHit,
+                life: 0.4,
+                combo: 0,
+                out: false,
+            },
+        );
+        let second = track.timing.seconds_at(section.cells[1].tick);
+        let f = feed.frame(&track, scroll, first + 0.05, 12.0);
+        assert!(!mines(&f).contains(&0));
+        assert!(f.receptors[usize::from(c.lane)].mine.is_some());
+        assert_eq!(feed.shown(first + 0.05).life, 0.4);
+        let after = feed.frame(&track, scroll, second + 0.05, 12.0);
+        let passed = after
+            .notes
+            .iter()
+            .find(|n| n.note_index == HAZARD_INDEX_BASE + 1);
+        assert!(passed.is_some_and(|n| n.y < 0.0), "avoided: scrolls past");
     }
 
     #[test]

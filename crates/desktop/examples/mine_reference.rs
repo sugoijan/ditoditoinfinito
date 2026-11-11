@@ -126,6 +126,7 @@ fn main() -> reference::Result<()> {
             frame.receptors = vec![
                 ReceptorState {
                     pressed: false,
+                    mine: None,
                     flash: None,
                     holding: None
                 };

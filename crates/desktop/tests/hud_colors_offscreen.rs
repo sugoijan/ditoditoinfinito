@@ -96,6 +96,7 @@ fn hud_and_menu_colors_draw_as_written() {
             receptors: vec![
                 ReceptorState {
                     pressed: false,
+                    mine: None,
                     flash: None,
                     holding: None,
                 };

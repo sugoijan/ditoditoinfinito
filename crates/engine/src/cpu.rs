@@ -9,9 +9,11 @@ use std::collections::BTreeMap;
 
 mod automatic;
 mod basis;
+mod mines;
 mod opponent;
 mod personality;
 pub use automatic::{Automatic, Plan};
+pub use mines::{MINE_RESPONSE_V0, MineResponse, MineResponseTable};
 pub use opponent::Opponent;
 pub use personality::{SKILL_NAMES, Skills};
 

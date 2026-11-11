@@ -16,6 +16,7 @@ fn frame(life: f32, combo: u32) -> Frame {
         receptors: vec![
             ReceptorState {
                 pressed: false,
+                mine: None,
                 flash: None,
                 holding: None
             };

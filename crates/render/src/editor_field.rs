@@ -257,6 +257,7 @@ mod tests {
             lanes: 1,
             receptors: vec![ddi_engine::frame::ReceptorState {
                 pressed: true,
+                mine: None,
                 flash: None,
                 holding: Some(ddi_engine::frame::HoldKind::Hold),
             }],

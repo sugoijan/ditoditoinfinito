@@ -2287,16 +2287,23 @@ impl NoteLayer for NoteskinPlay {
             .iter_mut()
             .enumerate()
             .map(|(i, lane)| {
-                let hit = frame
-                    .receptors
-                    .get(i)
+                let r = frame.receptors.get(i);
+                let hit = r
                     .and_then(|r| r.flash)
                     .filter(|(j, _)| !j.is_miss())
-                    .map(|(j, age)| Hit {
-                        at: now - f64::from(age),
-                        name: score_name(j),
-                        bright: false,
-                    });
+                    .map(|(j, age)| (age, score_name(j)));
+                // A battle shock stepped on: the skin's mine explosion,
+                // where it is the latest.
+                let mine = r.and_then(|r| r.mine).map(|age| (age, "HitMine"));
+                let hit = match (hit, mine) {
+                    (Some(h), Some(m)) => Some(if m.0 <= h.0 { m } else { h }),
+                    (h, m) => h.or(m),
+                }
+                .map(|(age, name)| Hit {
+                    at: now - f64::from(age),
+                    name,
+                    bright: false,
+                });
                 (
                     std::mem::replace(&mut lane.step, hit),
                     std::mem::replace(&mut lane.hits, hit.into_iter().collect()),
@@ -3532,6 +3539,7 @@ mod tests {
             receptors: vec![
                 ReceptorState {
                     pressed: false,
+                    mine: None,
                     flash: None,
                     holding,
                 };

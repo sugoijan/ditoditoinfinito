@@ -825,13 +825,18 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             None => None,
         };
         // DEVELOPMENT ONLY: a section of battle shocks in the stage's
-        // play (`--mp-dev-mines`, `mpdevmines=`).
-        if let Some(b) = &battle
+        // play and each CPU's (`--mp-dev-mines`, `mpdevmines=`).
+        let mut battle = battle;
+        if let Some(b) = battle.as_mut()
             && let Some(beat) = b.setup().dev_mines_at_beat
         {
             let seed = b.setup().stage.0;
             // None fit from there: none (the debug state says so).
-            let _ = crate::battle::dev_shocks(&mut player, song, chart_index, beat, seed);
+            if let Some(section) =
+                crate::battle::dev_shocks(&mut player, song, chart_index, beat, seed)
+            {
+                b.dev_shocks(&section, song_offset);
+            }
         }
         // The announcer, on the music's timeline: its first note is the
         // first judged one the play reaches.
