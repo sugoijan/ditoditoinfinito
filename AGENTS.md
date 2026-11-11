@@ -890,6 +890,15 @@ Rust and the browser are implementation details, not advertised features.
   named by `DDI_ONLINE_API` (sign-in, a room, the resting song uploaded
   under the spotlight's grant and read by the guest, the pick reusing it,
   both ready and both runs reported).
+  Bots for testing rooms (M7d, a DEVELOPMENT TOOL,
+  `crates/desktop/src/bots.rs`): `ddi --mp-bots`, headless, each bot a
+  `RoomClient` over desktop's HTTP, socket and sharing (its own inbox,
+  `room::news_inbox`), its play `ddi_engine::cpu`'s `Opponent` on a
+  real-time song clock, reported as a player's run; signed in by the
+  server's `POST /auth/bots` for an admin share token, identity
+  `bot:<slug>` (`ddi_room::Identity::is_bot`), never an admin, labeled
+  Bot wherever players are listed (`screens::room::person_name`, the
+  invite's `host_bot`).
   The web keeps it for the session (`crates/web/src/room.rs`, thread-local
   as `crate::share` is): `#/?mp=1` (`mp=0`) sets the switch, `#/mp` is the
   home, `#/room` the practice room's song select
@@ -1037,6 +1046,14 @@ Rust and the browser are implementation details, not advertised features.
   N`, practice against N CPUs beyond the cap, as the web's `mpcpus=N`
   beside `mp=1`), `--share IDS|pack:NAME
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
+  `--mp-bots [--host] [--join LINK] [--guests N] [--api URL] [--site URL]
+  [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
+  [--pick ID[:N],…] [--names A,B] [--level 1-5] [--personality P]`
+  (DEVELOPMENT TOOL: bots in a private online room, played by the CPU,
+  no window or sound; the admin share token from `DDI_SHARE_TOKEN`;
+  locally `DDI_SHARE_TOKEN=test-token … --api
+  http://127.0.0.1:8787/ditoditoinfinito/api --site http://localhost:8080/`;
+  `--help` lists the flags; Ctrl-C leaves),
   `--fake-pad "1.0:13+,1.1:13-"`, `--silent` (no sound device: plays run
   on the host clock), `--lang TAG` (the UI's language for the run: `ja`,
   `qps-ploc`, `qps-wide`), `--volume V`, `--seconds N` (quits, printing the

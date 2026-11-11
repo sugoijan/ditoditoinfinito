@@ -22,6 +22,7 @@
 
 pub mod app_menu;
 pub mod audio;
+pub mod bots;
 pub mod calibrate;
 pub mod clock;
 pub mod devices;
@@ -290,6 +291,11 @@ pub fn run() {
     }
     clock::epoch();
     store::install();
+    // DEVELOPMENT TOOL: `--mp-bots …`, simulated players in a private
+    // online room, played by the CPU (`bots`; no window, no sound device).
+    if args.iter().any(|a| a == "--mp-bots") {
+        std::process::exit(bots::run(&args));
+    }
     // Flags that would be misread: said before anything opens.
     if let Some(i) = args.iter().position(|a| a == "--calibrate")
         && !args

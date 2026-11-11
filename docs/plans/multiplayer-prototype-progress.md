@@ -1230,10 +1230,117 @@ stage prompt's debug state (`__DDI_DEBUG.ui.theme.room`) now follows the
 room as its card does; it had stayed as the prompt opened, and a test
 reading it pressed Ready again after the automatic Ready, canceling it.
 
+## M7d: bots for testing rooms (implemented, 2026-11-11)
+
+A DEVELOPMENT TOOL: simulated players that fill a private online room
+for testing, driven by the game's CPU player. Against the deployed server
+or a local one; never part of the game's menus.
+
+- **A bot is its own kind of player**: identity `bot:<slug>`
+  (`ddi_room::Identity::bot`, `is_bot`; `Member::is_bot`), its slug its
+  name's letters and digits in lower case (`Lumen Kite` is
+  `bot:lumen-kite`). Only the server makes one (`../ddi-server`, its
+  README, "Bots": `POST /auth/bots {name}` for an **admin** share token,
+  a line of `SHARE_TOKENS` without the `upload` role; the local server
+  the same with its development tokens, `test-token`, whatever
+  `DEV_FAKE_AUTH` says); a Twitch or development identity can never be
+  one, and a client cannot claim one. A bot is never an administrator:
+  the server's session and admin check drop it, and the room's reducer
+  drops the flag on a bot's join too. Its session lasts twelve hours and
+  is never re-signed. Limits: 60 sessions an hour per admin token, 8 bots
+  in a room (`409 too_many_bots`).
+- **Labeled Bot** wherever players are listed (`room-bot-name`, "{ $name }
+  (Bot)", ja "{ $name }（ボット）"; `screens::room::person_name`,
+  `shown_name`): the room's panel and Players, the stage prompt's rows
+  (both `player_rows`), the standings and match results, and an invite's
+  host (`Preview::host_bot`, sent by the server). The miniature fields
+  show no online players yet (M6), so there is nothing to label there.
+  The debug state's members carry `bot`.
+- **The tool**: `ddi --mp-bots …`, a mode of the desktop binary
+  (`crates/desktop/src/bots.rs`), headless (no window, no sound device),
+  before anything of the shell starts. Chosen over a crate of its own
+  because a bot is the game's own room client: desktop's HTTP and socket
+  (`crate::online`), its sharing under a room's grant and reading of a
+  room's share into the cache (`crate::share`, `crate::room`'s threads,
+  each bot with an inbox of its own, `room::news_inbox`), its library and
+  chart reading, all reused rather than copied; a separate binary would
+  have depended on the whole desktop crate anyway. Each bot drives a
+  `RoomClient` as the screens drive it, so it follows the protocol (2)
+  exactly as the game does: Rules (the host saves them; a guest has read
+  them), the host's resting song (the spotlight, shared ahead), the pick,
+  the stage's song read from the room's share and checked for the CPU (a
+  chart it cannot plan fails to load: it sits that stage out), Ready on
+  the stage's prompt after a person's moment (0.7 to 2.5 s), the stage
+  played, its run reported (`report_run`: life and accuracy, or out at a
+  song second; self-reported as everyone's is), the standings, the next
+  stage and match. Ctrl-C forfeits a stage being played and leaves the
+  room (each bot's `Leave`, waited for at most 4 s); a second Ctrl-C ends
+  at once.
+- **The play**: `ddi_engine::cpu::Opponent` (the chart's tap-only copy,
+  a level relative to the chart, a personality) under the default
+  settings' ruleset for the chart, fail immediate, judged on a real-time
+  song clock from the stage's start (a 2 s lead-in), reported once out or
+  2 s after its last note. Each bot's name, level and personality come
+  from the CPU roster (`cpu_roster.json`) in an order drawn from the
+  run's seed, or from `--names`, `--level`, `--personality`. It is not a
+  skill-tuned player and plays nothing but taps.
+- **The host bot** (`--host`): makes a room, prints its invite link,
+  saves its Rules (`--stages N`), waits for players (`--wait-for N`,
+  default 2), rests on a song (`--rest S`, default 8 s; the others see
+  and hear it from 3 s on) and picks it, waits 15 s after each stage's
+  results for the standings, and plays too. Its songs: the bundled
+  songs and the settings' folders, or `--songs DIR` alone, or a fixed
+  list (`--pick ID[:CHART],…`), each one original chart one player plays
+  on four lanes with a digest (closest to meter 7 unless named), in an
+  order drawn from the seed. Guest bots (`--guests N`) join the host
+  bot's room or `--join LINK|INVITE`'s. `--matches N` leaves after N
+  matches. The log: one terse line a moment per bot (signed in, the room,
+  connected, Rules, following the host's song, loading, ready, the stage
+  started and its run, the standings, leaving).
+- **Running it.** Locally: the server's `just dev` (or `cargo xtask
+  worker-dev`) and the app's `just dev`, then
+  `DDI_HOME=$PWD/target/scratch/bots/home DDI_SHARE_TOKEN=test-token
+  cargo run -- --mp-bots --host --guests 3 --api
+  http://127.0.0.1:8787/ditoditoinfinito/api --site http://localhost:8080/`
+  prints an invite to open in a browser; `--join <link> --guests 3`
+  instead fills a room someone made in the browser. Against the deployed
+  server: `DDI_SHARE_TOKEN=<an admin token of SHARE_TOKENS> ddi --mp-bots
+  --host --guests 3` (the API and the site default to production's). The
+  token comes from `DDI_SHARE_TOKEN`, else the settings' share token;
+  never put it on the command line.
+- Found on the way: the room's Durable Object read a request's body after
+  loading the room, and that await let a second request in: two joins at
+  once each saved over the other's room, one bot then refused its ticket
+  as not a member. It now reads the body first (`../ddi-server`,
+  `room_do.rs`). Desktop's share download named its temporary file by
+  the process alone, which two bots of one run fetching the same file
+  shared; it is now unique to the download too.
+- Tests: `ddi-room` (a bot's identity, never an admin); `ddi-ui` (the
+  labels in the debug state, `player_rows`, the standings' name and the
+  invite's host); `ddi-desktop` (the flags, profiles from the roster or
+  the flags, a stage played frame by frame to its run, the host's chart
+  choice); the server natively (slugs and names, the admin token check:
+  missing, wrong and an uploader's refused; the session never an
+  admin's, never refreshed; the hourly cap; a bot host's preview, bots
+  never admins in a room, the room's cap) and against `wrangler dev`
+  (the refusals and `/me`'s admin flag false for a bot listed in
+  `ADMIN_TWITCH_IDS`). At runtime against a local `worker-dev`: a host
+  bot and three guest bots playing a two-stage match; headless Chrome as
+  a guest in a host bot's room (the invite's host labeled, the bots
+  labeled, the host's resting song followed, both stages played, the same
+  standings as the bots logged); headless Chrome as the host with three
+  guest bots joining by its invite (`target/scratch/mp/m7d/`).
+
+DEVELOPMENT-ONLY: the whole tool. Its bots' runs are self-reported like
+everyone's, and they play the tap-only copy at the engine's levels;
+nothing about them is balance validation.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| Bots: 12 h sessions, never re-signed; 60 sessions an hour per admin token; 8 bots in a room | `../ddi-server` `bots.rs` | A long bot run stops after 12 h (signed out); a ninth bot is refused | The limits for bots on the deployed server |
+| Bot tool pacing: Ready after 0.7–2.5 s, host rests 8 s on a song, 15 s after each stage's results, waits for 2 players | `crates/desktop/src/bots.rs` | How quickly a room of bots moves | None (a test tool), unless it should mimic people more closely |
 | Under-eight awards: `ExperimentalLinearV0`, place `p` of `n` earns `n + 1 - p` (practice's 4-player field: 4, 3, 2, 1) | `awards::AwardRule` | Practice and small rooms show points on this scale, marked experimental | The award rule for fields under eight |
 | Award field = the stage's committed starters; sit-outs are not counted | `awards::AwardScheme::rule_for` | A stage with seven starters out of eight seats uses the small-field rule | The population basis for points with sit-outs |
 | A confirmed forfeit earns zero; its place's award goes unused | `awards::StageResult::award` | A disconnect forfeit adds nothing, earlier points stay | Forfeit scoring (the connection-loss study proposes zero) |
@@ -1414,3 +1521,10 @@ reading it pressed Ready again after the automatic Ready, canceling it.
 - M5c: the room's countdown seconds briefly replay part of the screen's
   entrance on each rebuild (seen in practice too: a short dim flash each
   second in headless screenshots); not changed here.
+- M7d: a bot's room is named "<bot>'s room" by the server's default;
+  should a bot host's room say it is a test room? Should bots be allowed
+  on the deployed server at all outside the maintainer's tests (today:
+  anyone holding an admin token)?
+- M7d: bots play the default ruleset (ITG's gauge) whatever the room's
+  people use; should a bot follow a ruleset the room names once rules
+  carry one?

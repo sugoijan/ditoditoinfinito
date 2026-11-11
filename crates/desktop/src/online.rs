@@ -80,7 +80,7 @@ fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
 
 /// The game's web page, where invite links open: `DDI_SITE_URL`, else the
 /// API's base without its `api`.
-fn site() -> String {
+pub(crate) fn site() -> String {
     if let Ok(s) = std::env::var("DDI_SITE_URL")
         && !s.is_empty()
     {

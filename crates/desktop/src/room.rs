@@ -74,11 +74,23 @@ struct SharedSong {
     banner: Option<String>,
 }
 
+/// Where an online room's threads send their news: one room client's
+/// [`Inbox`] (the run's room's, [`inbox`], or a bot's, `crate::bots`).
+#[derive(Clone)]
+pub struct NewsTx(Sender<News>);
+
 /// The online room client's inbox: what this module's threads report.
 pub fn inbox() -> Inbox {
+    let (tx, inbox) = news_inbox();
+    NEWS.with_borrow_mut(|n| *n = Some(tx.0));
+    inbox
+}
+
+/// A room client's inbox of its own, and where its threads' news goes
+/// ([`upload_with`], [`prepare_online_with`]).
+pub fn news_inbox() -> (NewsTx, Inbox) {
     let (tx, rx) = channel::<News>();
-    NEWS.with_borrow_mut(|n| *n = Some(tx));
-    Box::new(move || {
+    let inbox: Inbox = Box::new(move || {
         rx.try_iter()
             .map(|n| match n {
                 News::Progress { stage, done, total } => ShellNews::Progress { stage, done, total },
@@ -93,20 +105,26 @@ pub fn inbox() -> Inbox {
                 },
             })
             .collect()
-    })
+    });
+    (NewsTx(tx), inbox)
 }
 
-fn news() -> Option<Sender<News>> {
-    NEWS.with_borrow(Clone::clone)
+fn news() -> Option<NewsTx> {
+    NEWS.with_borrow(|n| n.clone().map(NewsTx))
 }
 
 /// An online room's stage song uploaded as the room's share under its
 /// grant, on a thread (`crate::share::upload_room`), its news to the
 /// online room's [`inbox`].
 pub fn upload(job: UploadJob) {
-    let Some(tx) = news() else {
-        return;
-    };
+    if let Some(tx) = news() {
+        upload_with(&tx, job);
+    }
+}
+
+/// [`upload`], its news to `tx`.
+pub fn upload_with(tx: &NewsTx, job: UploadJob) {
+    let tx = tx.0.clone();
     let song = job.song.id.clone();
     let stage = job.stage;
     let grant = job.grant;
@@ -133,6 +151,11 @@ pub fn upload(job: UploadJob) {
 /// cache on a thread and found by the digest chosen (its news to the
 /// online room's [`inbox`]).
 pub fn prepare_online(room: &SharedRoom, job: LoadJob) {
+    prepare_online_with(news().as_ref(), room, job);
+}
+
+/// [`prepare_online`], a share's news to `tx`.
+pub fn prepare_online_with(tx: Option<&NewsTx>, room: &SharedRoom, job: LoadJob) {
     let Some(share) = job.share.clone() else {
         let result = crate::play::load::read_chart(&job.song)
             .map_err(|e| {
@@ -147,7 +170,7 @@ pub fn prepare_online(room: &SharedRoom, job: LoadJob) {
         room.borrow_mut().finish_load(&job, result.map(|_| ()));
         return;
     };
-    let Some(tx) = news() else {
+    let Some(tx) = tx.map(|t| t.0.clone()) else {
         return;
     };
     let spawned = std::thread::Builder::new()

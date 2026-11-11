@@ -27,9 +27,13 @@ use ddi_ui::screens::data::{ShareState, ShareView};
 use crate::library::LibSong;
 use crate::play::load::Files;
 
-/// The server's base URL: `DDI_API_URL`, else the production one (the
-/// Worker's route beside the app's page).
+/// The server's base URL set for this run ([`set_base`]: the bot tool's
+/// `--api`), else `DDI_API_URL`, else the production one (the Worker's
+/// route beside the app's page).
 pub fn base() -> String {
+    if let Some(b) = BASE.get() {
+        return b.clone();
+    }
     std::env::var("DDI_API_URL")
         .ok()
         .filter(|s| !s.trim().is_empty())
@@ -37,6 +41,13 @@ pub fn base() -> String {
         .trim()
         .trim_end_matches('/')
         .to_string()
+}
+
+static BASE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The server's base URL for the rest of the run (once; `crate::bots`).
+pub fn set_base(url: &str) {
+    let _ = BASE.set(url.trim().trim_end_matches('/').to_string());
 }
 
 /// The link to share `id`, as the web opens it.
@@ -303,13 +314,17 @@ fn ensure_file(
             )
         })?;
     }
+    // One of this process's, and of this download's: threads of one run
+    // (the bot tool's players) may fetch the same file at once.
+    static PARTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let tmp = target.with_extension(format!(
-        "{}.{}.tmp",
+        "{}.{}-{}.tmp",
         target
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("part"),
-        std::process::id()
+        std::process::id(),
+        PARTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let total = resp
         .headers()
