@@ -450,7 +450,13 @@ fn full_info(request: &Request, loaded: &Loaded, settings: &Settings) -> PromptI
         info.set_cpu_with_skills(cpu.level, cpu.seed, cpu.skills);
     }
     if let Some(order) = &request.stage {
-        info.set_stage(order.number, order.of, order.cpus.len(), order.others);
+        info.set_stage(
+            order.number,
+            order.of,
+            order.cpus.len(),
+            order.others,
+            &order.ruleset,
+        );
     }
     info
 }
@@ -2250,8 +2256,11 @@ fn leave_stage(r: &Readied) {
     }
     match &r.loaded {
         Some(loaded) => {
-            let settings = r.settings();
-            let ruleset = settings.ruleset_for(&loaded.song.charts[r.request.chart]);
+            // The match's ruleset, everyone's (D0).
+            let ruleset = ddi_session::battle::stage_ruleset(
+                &order.ruleset,
+                &loaded.song.charts[r.request.chart],
+            );
             match ddi_session::battle::forfeit(
                 ddi_session::battle::StageSetup::of(order),
                 &loaded.song,

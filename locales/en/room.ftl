@@ -208,6 +208,7 @@ room-rules-cpus = CPU opponents
 room-rules-level = CPU level
 room-rules-battle = Battle
 room-rules-points = Points
+room-rules-ruleset = Ruleset
 
 # The CPU level's value.
 # Variables:
@@ -225,12 +226,18 @@ room-rules-points-value = By place · experimental
 # Lines under the rows, muted.
 room-rules-level-note = A CPU's level is its strength relative to the chart, not a skill rating.
 room-rules-points-note = Points for fields other than eight players follow an experimental rule.
+room-rules-ruleset-note = Everyone plays the match under its ruleset, whatever their own options say.
 room-rules-locked-note = Changes apply to the next match; this one keeps its rules.
 room-rules-clears-note = Applying clears readiness.
 
 # The buttons that lower and raise a number (one sign each).
 room-rules-less = −
 room-rules-more = +
+
+# The buttons that choose the previous and the next ruleset in the list
+# (one sign each).
+room-rules-previous = ‹
+room-rules-next = ›
 
 # The button that saves the changes.
 room-rules-apply = Apply
@@ -320,13 +327,19 @@ room-prompt-stage-online = Stage { $number } of { $stages } · { $others ->
 # list is after a single play; about 16 letters).
 room-results-back = Back to room
 
+# A stage's prompt: the ruleset everyone plays the match under, after the
+# stage's line.
+# Variables:
+#   $ruleset (String) - its name, as its game names it ("ITG FA+ (Simply Love)")
+room-prompt-ruleset = Ruleset: { $ruleset }
+
 # A note on a stage's results and under the song in the room: how the
 # player did, by how the stage ended for them.
 # Variables:
 #   $number (Number) - the stage, from 1
 #   $place (Number) - the place, from 1 (tied players share it)
 #   $field (Number) - how many played the stage
-#   $points (String) - the points it gave, as the room keeps them ("3", "5/2")
+#   $points (String) - the points it gave, as a number ("3", "2.5")
 room-mark-survived = Stage { $number }: place { $place } of { $field } · +{ $points } pts
 
 # The same, when the player's life ran out during the stage.
@@ -334,7 +347,7 @@ room-mark-survived = Stage { $number }: place { $place } of { $field } · +{ $po
 #   $number (Number) - the stage, from 1
 #   $place (Number) - the place, from 1 (tied players share it)
 #   $field (Number) - how many played the stage
-#   $points (String) - the points it gave, as the room keeps them ("3", "5/2")
+#   $points (String) - the points it gave, as a number ("3", "2.5")
 room-mark-out = Stage { $number }: out of life · place { $place } of { $field } · +{ $points } pts
 
 # The same, when the player left the stage while playing (no points).
@@ -351,8 +364,14 @@ room-mark-experimental = points experimental
 # A player's place and points in the players' column during a match.
 # Variables:
 #   $rank (Number) - their place in the match so far
-#   $points (String) - their points, as the room keeps them
+#   $points (String) - their points, as a number ("3", "2.5")
 room-rank-points = #{ $rank } · { $points } pts
+
+# Match points as a number, where the room's points show (a share of a
+# tied place's points comes out a fraction: 1.5, 9.33).
+# Variables:
+#   $points (Number) - the points, to hundredths
+room-points-value = { $points }
 
 ## The match's results, in the room where the song was.
 
@@ -645,7 +664,7 @@ room-state-sitting-out = Sitting out
 # Variables:
 #   $place (Number) - the place, from 1
 #   $field (Number) - how many played the stage
-#   $points (String) - the points it gave, as the room keeps them ("3", "5/2")
+#   $points (String) - the points it gave, as a number ("3", "2.5")
 room-mark-short = { $place } of { $field } · +{ $points } pts
 # The same for a stage the player left.
 # Variables:
@@ -686,13 +705,14 @@ room-rules-ok = OK
 # Variables:
 #   $stages (Number) - the match's stages
 #   $cpus (Number) - its CPU opponents
+#   $ruleset (String) - its ruleset's name, as its game names it ("ITG FA+ (Simply Love)")
 room-rules-locked-line = { $stages ->
     [one] One stage
    *[other] { $stages } stages
 } · { $cpus ->
     [one] one CPU
    *[other] { $cpus } CPUs
-}
+} · { $ruleset }
 
 room-rules-no-cpus = No CPU opponents.
 

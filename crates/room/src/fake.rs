@@ -288,7 +288,7 @@ impl FakeServer {
                     self.push(conn, &reply);
                     return;
                 }
-                self.authority.submit(envelope);
+                self.authority.submit(*envelope);
                 let accepted = self.route(Some((conn, &client, seq)));
                 if leave && accepted {
                     self.close_conn(conn, close::LEFT);

@@ -50,6 +50,9 @@ pub struct StageSetup {
     pub number: u16,
     pub of: u16,
     pub battle: BattlePreset,
+    /// The match's ruleset (D0), the engine's preset id: the play's, the
+    /// CPUs' and the bots' ([`stage_ruleset`]).
+    pub ruleset: String,
     pub me: ParticipantId,
     pub cpus: Vec<CpuSeat>,
     /// Other people starting the stage on their own devices (an online
@@ -77,6 +80,7 @@ impl StageSetup {
             number: order.number,
             of: order.of,
             battle: order.battle,
+            ruleset: order.ruleset.clone(),
             me: order.me,
             cpus: order.cpus.clone(),
             others: order.others,
@@ -87,6 +91,21 @@ impl StageSetup {
     pub fn remote(&self) -> bool {
         self.others > 0
     }
+}
+
+/// The ruleset a stage of a match under ruleset `id` (`MatchRules::ruleset`,
+/// D0) is played with on `chart`, by everyone in it: the engine's preset
+/// as it is (no player's own judge or life level, fail type or holds:
+/// StepMania's own for the chart's game), its fail immediate (an empty
+/// gauge is out of the stage). ITG where the id is not a preset.
+pub fn stage_ruleset(id: &str, chart: &ddi_chart::Chart) -> Ruleset {
+    let mut rules = ddi_engine::rules::presets::stepmania(
+        id,
+        ddi_engine::rules::presets::HoldStyle::ByGame,
+        chart,
+    );
+    rules.fail = ddi_engine::FailPolicy::Immediate;
+    rules
 }
 
 /// An opponent as the play shows it, in its stable slot.

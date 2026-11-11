@@ -1299,7 +1299,8 @@ impl GameCanvas {
                     };
                     let rules = song
                         .and_then(|s| s.charts.get(order.chart.index))
-                        .map(|c| self.settings.ruleset_for(c));
+                        // The match's ruleset, everyone's (D0).
+                        .map(|c| ddi_session::battle::stage_ruleset(&order.ruleset, c));
                     crate::room::leave_before_play(order, song, rules.as_ref());
                 }
                 if let Some(game) = self.game.borrow_mut().as_mut() {
@@ -2713,7 +2714,13 @@ impl GameCanvas {
             info.set_cpu_with_skills(cpu.level, cpu.seed, cpu.skills);
         }
         if let Some(order) = &props.room_stage {
-            info.set_stage(order.number, order.of, order.cpus.len(), order.others);
+            info.set_stage(
+                order.number,
+                order.of,
+                order.cpus.len(),
+                order.others,
+                &order.ruleset,
+            );
         }
         info
     }

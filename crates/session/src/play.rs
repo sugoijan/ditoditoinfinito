@@ -150,6 +150,10 @@ pub struct SessionConfig {
     /// no quick restart; a quit is a forfeit. The solo CPU demonstration
     /// ([`Self::cpu`]) is another thing and is not combined with it.
     pub opponents: Option<StageSetup>,
+    /// TESTS ONLY: a stage's ruleset as built here, in place of the match's
+    /// (`crate::battle::stage_ruleset`): a gauge of one life, say, so that
+    /// CPUs go out. Never set by a shell.
+    pub stage_rules: Option<Ruleset>,
 }
 
 impl SessionConfig {
@@ -180,6 +184,7 @@ impl SessionConfig {
             restart: false,
             staging: None,
             opponents: None,
+            stage_rules: None,
         }
     }
 
@@ -193,10 +198,16 @@ impl SessionConfig {
     ) -> Result<(Ruleset, PlayOptions), String> {
         let chart = song.charts.get(chart_index).ok_or("chart missing")?;
         song.layout_of(chart).ok_or("layout not playable")?;
-        let rules = match (&self.replay, self.calibration) {
-            (Some(r), _) => r.ruleset.build(chart),
-            (None, Some(_)) => self.ruleset.fresh(),
-            (None, None) => settings.ruleset_for(chart),
+        let rules = match (&self.replay, self.calibration, &self.opponents) {
+            (Some(r), ..) => r.ruleset.build(chart),
+            (None, Some(_), _) => self.ruleset.fresh(),
+            // A stage: the match's ruleset, everyone's (D0), never the
+            // player's own.
+            (None, None, Some(stage)) => self.stage_rules.as_ref().map_or_else(
+                || crate::battle::stage_ruleset(&stage.ruleset, chart),
+                Ruleset::fresh,
+            ),
+            (None, None, None) => settings.ruleset_for(chart),
         };
         let mut options = self.replay.as_ref().map_or(self.options, |r| r.options);
         let mut rules = rules;

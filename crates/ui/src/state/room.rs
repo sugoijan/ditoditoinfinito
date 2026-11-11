@@ -353,6 +353,9 @@ pub struct StageOrder {
     pub song: SongEntry,
     pub chart: ChartEntry,
     pub battle: BattlePreset,
+    /// The match's ruleset, everyone's (D0): the engine's preset id
+    /// (`MatchRules::ruleset`), played in place of the player's own.
+    pub ruleset: String,
     pub me: ParticipantId,
     pub cpus: Vec<CpuSeat>,
     /// Other people starting it, each on their own device (an online
@@ -1408,6 +1411,7 @@ impl RoomClient {
             song: picked.song,
             chart: picked.chart,
             battle: BattlePreset::parse(&m.rules.battle).unwrap_or(BattlePreset::GaugeSurvivalV0),
+            ruleset: m.rules.ruleset.clone(),
             me: self.me,
             cpus,
             others: u16::try_from(

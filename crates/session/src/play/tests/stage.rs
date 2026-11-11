@@ -68,6 +68,19 @@ fn begin(song: &Song, room: &mut RoomClient, now: &mut u64) -> StageOrder {
     order
 }
 
+/// The stage's ruleset as [`play`] gives it: the match's (D0), under
+/// `settings`' StepMania options where a test sets them (a gauge of one
+/// life, so that CPUs go out), its fail immediate.
+fn rules_of(settings: &Settings, order: &StageOrder, song: &Song) -> ddi_engine::rules::Ruleset {
+    let r = crate::battle::stage_ruleset(&order.ruleset, &song.charts[order.chart.index]);
+    if settings.stepmania.is_default() {
+        return r;
+    }
+    let mut r = r.with_stepmania(&settings.stepmania);
+    r.fail = ddi_engine::FailPolicy::Immediate;
+    r
+}
+
 /// The stage's session on the fake clock (`auto`: autoplayed), what it
 /// ended with and its outcome.
 fn play(
@@ -88,6 +101,9 @@ fn play(
     }
     let mut config = SessionConfig::from_settings(settings, auto, None);
     config.opponents = Some(StageSetup::of(order));
+    if !settings.stepmania.is_default() {
+        config.stage_rules = Some(rules_of(settings, order, song));
+    }
     let mut s = PlaySession::start(
         song,
         order.chart.index,
@@ -133,11 +149,7 @@ fn a_whole_match_of_judged_stages_reaches_its_results_and_the_next_lobby() {
             let mut alone = ddi_engine::cpu::Opponent::new(
                 &song,
                 CHART,
-                {
-                    let mut r = settings.ruleset_for(&song.charts[CHART]);
-                    r.fail = ddi_engine::FailPolicy::Immediate;
-                    r
-                },
+                rules_of(&settings, &order, &song),
                 usize::from(seat.level),
                 seat.seed,
             )
@@ -248,9 +260,9 @@ fn the_winner_finishes_the_song_whatever_the_gauge_does_after() {
     let slips = |seed: u64| {
         let mut probe = room_seeded(&song, 1, 1, 0, seed);
         let mut now = 0;
-        let seat = begin(&song, &mut probe, &mut now).cpus[0].clone();
-        let mut rules = settings.ruleset_for(&song.charts[CHART]);
-        rules.fail = ddi_engine::FailPolicy::Immediate;
+        let order = begin(&song, &mut probe, &mut now);
+        let seat = order.cpus[0].clone();
+        let rules = rules_of(&settings, &order, &song);
         let mut alone = ddi_engine::cpu::Opponent::new(&song, CHART, rules, 0, seat.seed).unwrap();
         alone.start(0.0);
         alone.finish();
@@ -335,6 +347,9 @@ fn play_voiced(
     let clock: Clock = Rc::new(RefCell::new(0.0));
     let mut config = SessionConfig::from_settings(settings, auto, None);
     config.opponents = Some(StageSetup::of(order));
+    if !settings.stepmania.is_default() {
+        config.stage_rules = Some(rules_of(settings, order, song));
+    }
     let mut s = PlaySession::start(
         song,
         order.chart.index,
@@ -576,8 +591,7 @@ fn the_players_left_and_an_early_win_are_told_as_they_happen() {
             .cpus
             .iter()
             .map(|seat| {
-                let mut rules = settings.ruleset_for(&song.charts[CHART]);
-                rules.fail = ddi_engine::FailPolicy::Immediate;
+                let rules = rules_of(&settings, order, &song);
                 let mut alone =
                     ddi_engine::cpu::Opponent::new(&song, CHART, rules, 0, seat.seed).unwrap();
                 alone.start(0.0);
@@ -668,7 +682,7 @@ fn an_online_stage_is_never_decided_here_and_reports_the_players_own_run() {
         setup,
         &song,
         CHART,
-        &settings.ruleset_for(&song.charts[CHART]),
+        &rules_of(&settings, &order, &song),
         0.0,
     )
     .unwrap();
@@ -706,4 +720,34 @@ fn each_cpu_s_miniature_is_fed_its_judged_moments() {
         let frame = feed.frame(track, Default::default(), end + 2.0, 5.3);
         assert!(frame.notes.is_empty());
     }
+}
+
+/// The ruleset is a match rule (D0): the stage is played under the
+/// match's, whatever the player's own Options say; every ruleset a match
+/// may name is one of the engine's presets.
+#[test]
+fn a_stage_is_played_under_the_match_s_ruleset_not_the_player_s() {
+    for id in MatchRules::RULESETS {
+        assert!(ddi_engine::rules::presets::by_id(id).is_some(), "{id}");
+    }
+    let song = bundled("beatucada");
+    let mut room = room(&song, 1, 1, 2);
+    let rules = MatchRules {
+        ruleset: "sm5".into(),
+        ..room.rules().clone()
+    };
+    room.save_rules(rules).unwrap();
+    let mut now = 0;
+    let order = begin(&song, &mut room, &mut now);
+    assert_eq!(order.ruleset, "sm5");
+    let settings = Settings {
+        ruleset: "ddr-a".into(),
+        ..Settings::default()
+    };
+    let (s, _, _) = play(&song, &settings, &order, true, &[]);
+    assert_eq!(s.player.ruleset().id, "sm5");
+    assert_eq!(s.player.ruleset().fail, ddi_engine::FailPolicy::Immediate);
+    // New rooms play ITG FA+.
+    let fresh = RoomClient::new(0, 1);
+    assert_eq!(fresh.rules().ruleset, "itg-fa+");
 }

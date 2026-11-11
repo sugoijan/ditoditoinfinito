@@ -989,9 +989,9 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
     shown(&mut h, found);
     use ddi_l10n::msg::room as m;
     let mut info = super::prompt::PromptInfo::default();
-    info.set_stage(1, 4, 3, 0);
+    info.set_stage(1, 4, 3, 0, "itg-fa+");
     let mut online = super::prompt::PromptInfo::default();
-    online.set_stage(2, 4, 0, 2);
+    online.set_stage(2, 4, 0, 2, "ddr-a");
     checked(
         vec![
             info.mods,

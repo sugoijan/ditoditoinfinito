@@ -85,7 +85,7 @@ impl Resync {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ClientFrame {
-    Command(ClientEnvelope),
+    Command(Box<ClientEnvelope>),
     Resync(Resync),
 }
 

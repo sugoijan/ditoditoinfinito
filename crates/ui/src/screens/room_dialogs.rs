@@ -112,6 +112,15 @@ fn scrolled(first: usize, by: i32, len: usize, fit: usize) -> usize {
     (first as i64 + i64::from(by)).clamp(0, max as i64) as usize
 }
 
+/// Where ruleset `id` is in [`MatchRules::RULESETS`] (the first where it
+/// is not there).
+fn ruleset_at(id: &str) -> usize {
+    MatchRules::RULESETS
+        .iter()
+        .position(|r| *r == id)
+        .unwrap_or(0)
+}
+
 /// The defaults Reset restores: practice's rules and starting CPUs (from
 /// the room's seed), or a hosted room's.
 fn defaults(room: &SharedRoom) -> MatchRules {
@@ -221,11 +230,13 @@ impl RulesDialog {
         let draft = self.draft.borrow();
         let cpus = u16::try_from(self.roster().len()).unwrap_or(u16::MAX);
         let (stages, problem, first) = (draft.stages, self.problem.clone(), self.first);
+        let ruleset = draft.ruleset.clone();
         drop(draft);
         publish_dialog(&self.env, |v| {
             v.rules_open = true;
             v.rules_first = first;
             v.draft = vec![stages, cpus];
+            v.draft_ruleset = Some(ruleset);
             v.rules_problem = problem;
         });
     }
@@ -284,6 +295,7 @@ impl Screen for RulesDialog {
             notes.push((m::rules_level_note().into(), "Muted"));
         }
         notes.push((m::rules_points_note().into(), "Muted"));
+        notes.push((m::rules_ruleset_note().into(), "Muted"));
         // What applying does: nothing to say where the player cannot.
         if editable {
             notes.push((
@@ -320,8 +332,15 @@ impl Screen for RulesDialog {
         } else {
             0.0
         };
-        let h =
-            64.0 + locked_h + 28.0 + ROW + cpu_h + 2.0 * ROW + 12.0 + lines as f32 * 17.0 + 72.0;
+        let h = 64.0
+            + locked_h
+            + 28.0
+            + 2.0 * ROW
+            + cpu_h
+            + 2.0 * ROW
+            + 12.0
+            + lines as f32 * 17.0
+            + 72.0;
         let (mut c, [x, y]) = shell(&env, screen, [w, h], &m::rules_title());
         let x0 = x + 24.0;
         let mut ry = y + 64.0;
@@ -332,8 +351,11 @@ impl Screen for RulesDialog {
                 x0,
                 ry + 8.0,
             ));
-            let line =
-                m::rules_locked_line(rules.stages, cpu_roster::roster_of(rules, humans).len());
+            let line = m::rules_locked_line(
+                rules.stages,
+                cpu_roster::roster_of(rules, humans).len(),
+                super::room::ruleset_name(&rules.ruleset),
+            );
             let mut t = env.text("Locked.Line", &line, 14.0, 400, "Secondary");
             look::ellipsized(&mut t, inner);
             c.push(left(t, x0, ry + 32.0));
@@ -391,6 +413,45 @@ impl Screen for RulesDialog {
             ry + ROW / 2.0,
         );
         ry += ROW;
+        // The match's ruleset, everyone's (D0): the previous and next of
+        // the list, its name before them.
+        {
+            let row_y = ry + ROW / 2.0;
+            let at = ruleset_at(&draft.ruleset);
+            let mut l = env.text("Rule.ruleset", &m::rules_ruleset(), 14.0, 400, "Secondary");
+            look::ellipsized(&mut l, inner * 0.3);
+            c.push(left(l, x0, row_y));
+            let name = super::room::ruleset_name(&draft.ruleset);
+            let mut v = env.text("Rule.ruleset.Value", &name, 14.0, 600, "Text");
+            if editable {
+                look::ellipsized(&mut v, inner * 0.7 - 100.0);
+                c.push(right(v, x0 + inner - 92.0, row_y));
+                c.push(button(
+                    &env,
+                    "Dec.ruleset",
+                    &m::rules_previous(),
+                    [x0 + inner - 64.0, row_y],
+                    36.0,
+                    if at > 0 { "Button" } else { "Button.Disabled" },
+                ));
+                c.push(button(
+                    &env,
+                    "Inc.ruleset",
+                    &m::rules_next(),
+                    [x0 + inner - 18.0, row_y],
+                    36.0,
+                    if at + 1 < MatchRules::RULESETS.len() {
+                        "Button"
+                    } else {
+                        "Button.Disabled"
+                    },
+                ));
+            } else {
+                look::ellipsized(&mut v, inner * 0.7);
+                c.push(right(v, x0 + inner, row_y));
+            }
+            ry += ROW;
+        }
         // Practice's CPUs: the roster, each removable, then the adds.
         if cpus {
             c.push(left(
@@ -552,6 +613,8 @@ impl Screen for RulesDialog {
         if self.editable() {
             v.push(Focusable::new("Dec.stages"));
             v.push(Focusable::new("Inc.stages"));
+            v.push(Focusable::new("Dec.ruleset"));
+            v.push(Focusable::new("Inc.ruleset"));
             if self.cpus_shown() {
                 let roster = self.roster();
                 for k in (self.cpu_first..roster.len()).take(CPU_ROWS) {
@@ -603,6 +666,18 @@ impl Screen for RulesDialog {
                             d.stages.saturating_sub(1)
                         }
                         .clamp(1, max_stages);
+                        drop(d);
+                        rebuild(self, root, cx, name);
+                    }
+                    "Dec.ruleset" | "Inc.ruleset" if self.editable() => {
+                        let mut d = self.draft.borrow_mut();
+                        let at = ruleset_at(&d.ruleset);
+                        let at = if name == "Inc.ruleset" {
+                            (at + 1).min(MatchRules::RULESETS.len() - 1)
+                        } else {
+                            at.saturating_sub(1)
+                        };
+                        d.ruleset = MatchRules::RULESETS[at].into();
                         drop(d);
                         rebuild(self, root, cx, name);
                     }
@@ -1341,14 +1416,19 @@ impl Screen for StandingsDialog {
             look::ellipsized(&mut n, room.max(40.0));
             c.push(left(n, x0 + 36.0, cy));
             c.push(right(
-                env.numbers(&format!("Total{k}"), &st.total.to_string(), 14.0, color),
+                env.numbers(
+                    &format!("Total{k}"),
+                    &super::room::points_text(st.total),
+                    14.0,
+                    color,
+                ),
                 x0 + inner,
                 cy,
             ));
             if show_stages {
                 for (i, cell_of) in st.stages.iter().enumerate() {
                     let text: String = match cell_of {
-                        StageStanding::Placed(p) => p.points.to_string(),
+                        StageStanding::Placed(p) => super::room::points_text(p.points).into(),
                         _ => m::results_none().into(),
                     };
                     let at = x0 + inner - total_w - cell * (stages - 1 - i) as f32;

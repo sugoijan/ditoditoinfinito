@@ -321,10 +321,26 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     assert_eq!(view(&env).draft, vec![4, 8], "the cap holds");
     press(&mut h, "Dec.stages");
     press(&mut h, "Dec.stages");
+    // The match's ruleset (D0): ITG FA+ first, then the next in the list.
+    assert_eq!(view(&env).draft_ruleset.as_deref(), Some("itg-fa+"));
+    assert!(has(&h, "ITG FA+ (Simply Love)"), "{:?}", h.texts());
+    press(&mut h, "Inc.ruleset");
+    assert_eq!(view(&env).draft_ruleset.as_deref(), Some("sm5"));
+    press(&mut h, "Dec.ruleset");
+    press(&mut h, "Dec.ruleset");
+    press(&mut h, "Dec.ruleset");
+    assert_eq!(
+        view(&env).draft_ruleset.as_deref(),
+        Some("itg"),
+        "stops at the first"
+    );
+    press(&mut h, "Inc.ruleset");
+    press(&mut h, "Inc.ruleset");
     press(&mut h, "Apply");
     assert_eq!(top(&h), "select");
     let v = view(&env);
     assert_eq!((v.stage_count, v.cpus), (2, 8));
+    assert_eq!(v.ruleset, "sm5");
     let at_five = room
         .borrow()
         .rules()
@@ -353,7 +369,13 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     assert_eq!(view(&env).phase, "preparing");
     press(&mut h, "Room.Rules");
     assert!(has(&h, "This match · locked"), "{:?}", h.texts());
-    assert!(has(&h, "4 stages · 3 CPUs"), "{:?}", h.texts());
+    assert!(
+        h.texts()
+            .iter()
+            .any(|t| t.starts_with("4 stages · 3 CPUs · ITG FA+")),
+        "{:?}",
+        h.texts()
+    );
 }
 
 /// The stage's prompt in a room: Start is Ready (toggled, the shell told
@@ -882,4 +904,16 @@ fn bots_are_labeled_wherever_players_are_listed() {
         ))),
         "Hosted by Lumen Kite (Bot)"
     );
+}
+
+/// Match points show as the language writes a number, the room keeping
+/// the exact fraction: a tied place's share is 1.5, not "3/2".
+#[test]
+fn points_show_as_decimals() {
+    use super::room::points_text;
+    use ddi_room::Points;
+    assert_eq!(points_text(Points::ratio(3, 2)).as_str(), "1.5");
+    assert_eq!(points_text(Points::ratio(28, 3)).as_str(), "9.33");
+    assert_eq!(points_text(Points::whole(12)).as_str(), "12");
+    assert_eq!(points_text(Points::ZERO).as_str(), "0");
 }

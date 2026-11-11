@@ -213,10 +213,38 @@ pub struct MatchRules {
     /// The battle preset, opaque to the room (attacks, defense, gauge).
     pub battle: String,
     pub awards: AwardScheme,
+    /// The ruleset everyone plays the match's stages under (the
+    /// maintainer, 2026-11-11, D0): its judge, life and score, by the
+    /// engine's preset id (`ddi_engine::rules::presets::by_id`), one of
+    /// [`MatchRules::RULESETS`]. Never a player's own Options ruleset. Rules
+    /// kept before it was a rule read as [`MatchRules::DEFAULT_RULESET`].
+    #[serde(default = "MatchRules::default_ruleset")]
+    pub ruleset: String,
 }
 
 impl MatchRules {
     pub const PROVISIONAL_BATTLE: &'static str = "provisional-standard";
+
+    /// A new room's ruleset: ITG FA+ (D0).
+    pub const DEFAULT_RULESET: &'static str = "itg-fa+";
+
+    /// The rulesets a match may be played under, in the game's menu order:
+    /// the four-lane keyboard presets the CPUs can play (the engine's
+    /// `presets::all`; Dancing☆Onigiri's rules, built per chart, are not
+    /// among them).
+    pub const RULESETS: [&'static str; 7] = [
+        "itg",
+        "itg-fa+",
+        "sm5",
+        "ddr-a",
+        "ddr-x",
+        "ddr-extreme",
+        "ffr",
+    ];
+
+    fn default_ruleset() -> String {
+        Self::DEFAULT_RULESET.into()
+    }
 
     /// Local CPU practice: one player and three CPUs, four stages, the
     /// battle the practice stages are played under (PROVISIONAL:
@@ -254,6 +282,7 @@ impl MatchRules {
             mid_match_entry: false,
             battle: Self::PROVISIONAL_BATTLE.into(),
             awards: AwardScheme::PlacementPointsV1,
+            ruleset: Self::DEFAULT_RULESET.into(),
         }
     }
 
@@ -305,6 +334,9 @@ impl MatchRules {
         }
         if !self.cpu.opponent.fits() || !self.cpu.roster.iter().all(OpponentSpec::fits) {
             return Err(RulesProblem::CpuText);
+        }
+        if !Self::RULESETS.contains(&self.ruleset.as_str()) {
+            return Err(RulesProblem::UnknownRuleset);
         }
         let seats = usize::from(self.seats);
         if humans > seats {
@@ -378,11 +410,28 @@ pub enum RulesProblem {
     },
     /// A CPU's name or personality is too long.
     CpuText,
+    /// Not one of [`MatchRules::RULESETS`].
+    UnknownRuleset,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ruleset_is_a_match_rule_and_old_rules_read_as_the_default() {
+        assert_eq!(MatchRules::hosted().ruleset, "itg-fa+");
+        assert_eq!(MatchRules::practice(spec()).ruleset, "itg-fa+");
+        let mut json = serde_json::to_value(MatchRules::hosted()).unwrap();
+        json.as_object_mut().unwrap().remove("ruleset");
+        let old: MatchRules = serde_json::from_value(json).unwrap();
+        assert_eq!(old, MatchRules::hosted());
+        for id in MatchRules::RULESETS {
+            let mut r = MatchRules::hosted();
+            r.ruleset = id.into();
+            assert!(r.validate(&RoomPolicy::default(), 1).is_ok(), "{id}");
+        }
+    }
 
     fn spec() -> OpponentSpec {
         OpponentSpec {
@@ -452,6 +501,9 @@ mod tests {
             both.validate(&policy, 1),
             Err(RulesProblem::EliminationWithLateEntry)
         );
+        let mut odd = MatchRules::hosted();
+        odd.ruleset = "danoni".into();
+        assert_eq!(odd.validate(&policy, 1), Err(RulesProblem::UnknownRuleset));
         let mut none = MatchRules::hosted();
         none.stages = 0;
         assert!(matches!(

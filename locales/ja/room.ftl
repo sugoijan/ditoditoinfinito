@@ -109,6 +109,7 @@ room-rules-cpus = CPUの人数
 room-rules-level = CPUのレベル
 room-rules-battle = バトル
 room-rules-points = 得点
+room-rules-ruleset = ルールセット
 
 room-rules-level-value = { $level } / { $levels }
 
@@ -118,11 +119,15 @@ room-rules-points-value = 順位制 · 試験的
 
 room-rules-level-note = CPUのレベルは譜面に対する強さで、腕前の評価ではありません。
 room-rules-points-note = 8人以外の人数での得点は試験的なルールによります。
+room-rules-ruleset-note = 試合では各自のオプションではなく、このルールセットで全員がプレイします。
 room-rules-locked-note = 変更は次の対戦から適用され、この対戦のルールは変わりません。
 room-rules-clears-note = 適用すると準備OKが解除されます。
 
 room-rules-less = −
 room-rules-more = +
+
+room-rules-previous = ‹
+room-rules-next = ›
 
 room-rules-apply = 適用
 
@@ -138,6 +143,8 @@ room-prompt-stage-online = ステージ { $number } / { $stages } · ほかの�
 
 room-results-back = ルームに戻る
 
+room-prompt-ruleset = ルールセット：{ $ruleset }
+
 room-mark-survived = ステージ { $number }: { $field }人中 { $place }位 · +{ $points }点
 
 room-mark-out = ステージ { $number }: ゲージ切れ · { $field }人中 { $place }位 · +{ $points }点
@@ -147,6 +154,8 @@ room-mark-forfeit = ステージ { $number }: 途中でやめた · { $field }�
 room-mark-experimental = 得点は試験的
 
 room-rank-points = { $rank }位 · { $points }点
+
+room-points-value = { $points }
 
 room-results-title = 対戦結果
 
@@ -345,7 +354,7 @@ room-refused-title = できません
 
 room-rules-ok = OK
 
-room-rules-locked-line = { $stages }ステージ · CPU { $cpus }人
+room-rules-locked-line = { $stages }ステージ · CPU { $cpus }人 · { $ruleset }
 
 room-rules-no-cpus = CPU対戦相手なし。
 

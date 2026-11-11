@@ -354,8 +354,8 @@ pub struct StagePlay {
 
 impl StagePlay {
     /// Chart `chart` of `song` (as read) played by `profile` with `seed`,
-    /// under the default settings' ruleset for it (its fail immediate:
-    /// out of the stage, as everyone's is), from `now_ms`.
+    /// under the match's ruleset (`StageOrder::ruleset`, everyone's; its
+    /// fail immediate: out of the stage), from `now_ms`.
     pub fn new(
         order: &StageOrder,
         song: &ddi_chart::Song,
@@ -364,7 +364,7 @@ impl StagePlay {
         seed: u64,
         now_ms: u64,
     ) -> Result<StagePlay, String> {
-        let mut opponent = cpu_for(song, chart, profile, seed)?;
+        let mut opponent = cpu_for(song, chart, &order.ruleset, profile, seed)?;
         opponent.start(0.0);
         Ok(StagePlay {
             stage: order.stage,
@@ -396,17 +396,18 @@ impl StagePlay {
     }
 }
 
-/// `profile`'s CPU on chart `chart` of `song`, or the engine's reason why
-/// it cannot play it.
+/// `profile`'s CPU on chart `chart` of `song` under the match's ruleset
+/// `ruleset` (`ddi_session::battle::stage_ruleset`), or the engine's reason
+/// why it cannot play it.
 fn cpu_for(
     song: &ddi_chart::Song,
     chart: usize,
+    ruleset: &str,
     profile: &Profile,
     seed: u64,
 ) -> Result<Opponent, String> {
     let c = song.charts.get(chart).ok_or("no such chart")?;
-    let mut rules = ddi_ui::state::settings::Settings::default().ruleset_for(c);
-    rules.fail = ddi_engine::FailPolicy::Immediate;
+    let rules = ddi_session::battle::stage_ruleset(ruleset, c);
     let skills = Skills::parse(&profile.skills).unwrap_or_default();
     let level = profile.level.min(ddi_engine::cpu::STRENGTHS.len() - 1);
     Opponent::with_skills(song, chart, rules, level, seed, skills)
@@ -995,7 +996,14 @@ fn checked(mut inbox: Inbox, profile: Profile) -> Inbox {
                     let playable = crate::play::load::read_chart(&picked.song.id)
                         .map_err(|e| format!("{e:?}"))
                         .and_then(|song| {
-                            cpu_for(&song, picked.chart.index, &profile, 1).map(|_| ())
+                            cpu_for(
+                                &song,
+                                picked.chart.index,
+                                ddi_room::MatchRules::DEFAULT_RULESET,
+                                &profile,
+                                1,
+                            )
+                            .map(|_| ())
                         });
                     ShellNews::PreparedShared {
                         job,
@@ -1056,7 +1064,16 @@ fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
     let playable = |song: &SongEntry, chart: &ChartEntry| {
         crate::play::load::read_chart(&song.id)
             .map_err(|e| format!("{e:?}"))
-            .and_then(|s| cpu_for(&s, chart.index, &profile, 1).map(|_| ()))
+            .and_then(|s| {
+                cpu_for(
+                    &s,
+                    chart.index,
+                    ddi_room::MatchRules::DEFAULT_RULESET,
+                    &profile,
+                    1,
+                )
+                .map(|_| ())
+            })
             .is_ok()
     };
     let entry = ddi_ui::state::select_view::plain_song_entry;
@@ -1393,6 +1410,7 @@ mod tests {
             song: SongEntry::default(),
             chart: ChartEntry::default(),
             battle: ddi_room::BattlePreset::GaugeSurvivalV0,
+            ruleset: "itg".into(),
             me: ddi_room::ParticipantId(2),
             cpus: Vec::new(),
             others: 3,
@@ -1424,7 +1442,7 @@ mod tests {
             Run::Forfeit => panic!("never a forfeit"),
         }
         // A chart the CPU cannot plan is refused.
-        assert!(cpu_for(&song, 99, &profile, 1).is_err());
+        assert!(cpu_for(&song, 99, "itg", &profile, 1).is_err());
     }
 
     #[test]

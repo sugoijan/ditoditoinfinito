@@ -81,6 +81,8 @@ pub struct RoomView {
     /// The CPUs the shown rules seat, and the stages.
     pub cpus: u16,
     pub stage_count: u16,
+    /// The shown rules' ruleset (`MatchRules::ruleset`, the engine's id).
+    pub ruleset: String,
     /// The running match's rules are locked (a match exists).
     pub locked: bool,
     pub ready: bool,
@@ -98,6 +100,8 @@ pub struct RoomView {
     pub rules_open: bool,
     pub rules_first: bool,
     pub draft: Vec<u16>,
+    /// The draft's ruleset (the engine's id).
+    pub draft_ruleset: Option<String>,
     pub rules_problem: Option<String>,
     /// The roster pop-ups: Add custom, Players, the stage's standings.
     pub add_open: bool,
@@ -415,7 +419,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
             .iter()
             .find(|st| st.participant == id)
             .filter(|_| in_match)
-            .map(|st| m::rank_points(st.rank, st.total.to_string()).into())
+            .map(|st| m::rank_points(st.rank, points_text(st.total)).into())
     };
     let upcoming = s.upcoming_stage().and_then(|id| s.stage(id));
     let mut rows = Vec::new();
@@ -592,7 +596,7 @@ fn mark_short(mark: &StageMark) -> String {
     let p = &mark.placement;
     match p.finish {
         Finish::Forfeit => m::mark_short_forfeit(p.place, mark.field).into(),
-        _ => m::mark_short(p.place, mark.field, p.points.to_string()).into(),
+        _ => m::mark_short(p.place, mark.field, points_text(p.points)).into(),
     }
 }
 
@@ -927,6 +931,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         cpus: u16::try_from(crate::state::cpu_roster::roster_of(rules, r.humans()).len())
             .unwrap_or(u16::MAX),
         stage_count: rules.stages,
+        ruleset: rules.ruleset.clone(),
         locked: r.locked_rules().is_some(),
         ready: r.ready(),
         countdown: seconds_left(&r),
@@ -985,6 +990,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         rules_open: kept.rules_open,
         rules_first: kept.rules_first,
         draft: kept.draft,
+        draft_ruleset: kept.draft_ruleset,
         rules_problem: kept.rules_problem,
         add_open: kept.add_open,
         players_open: kept.players_open,
@@ -1029,7 +1035,7 @@ pub(crate) fn member_name(m: &ddi_room::Member) -> String {
 /// the stage's results).
 pub fn mark_text(mark: &StageMark) -> String {
     let p = &mark.placement;
-    let points = p.points.to_string();
+    let points = points_text(p.points);
     let line: String = match p.finish {
         Finish::Survived => m::mark_survived(mark.number, p.place, mark.field, points),
         Finish::Eliminated => m::mark_out(mark.number, p.place, mark.field, points),
@@ -1121,6 +1127,26 @@ pub fn refusal_text(why: &Refusal) -> UiText {
                 m::refused_other(UiText::data(code))
             }
         },
+    }
+}
+
+/// Match points as the language writes a number ("1.5", "9.33"; "1,5"
+/// where its decimal mark is a comma): the room's exact fraction rounded
+/// to hundredths, for showing only (`ddi_room::Points` keeps and compares
+/// the fraction).
+pub fn points_text(p: ddi_room::Points) -> UiText {
+    m::points_value((p.as_f64() * 100.0).round() / 100.0)
+}
+
+/// A ruleset's name by the engine's preset id, as Options names it: as
+/// its game names it (data), "(approximate)" where this game follows it
+/// only approximately.
+pub fn ruleset_name(id: &str) -> UiText {
+    let r = ddi_engine::rules::presets::by_id(id).unwrap_or_else(ddi_engine::rules::presets::itg);
+    if r.approximate {
+        ddi_l10n::msg::options::ruleset_approximate(&r.name)
+    } else {
+        UiText::data(&r.name)
     }
 }
 
