@@ -134,6 +134,7 @@ impl PromptScreen {
             if first {
                 self.countdown = Countdown::Done;
                 self.rebuild(root, cx);
+                self.publish();
             }
             return;
         }
@@ -141,6 +142,7 @@ impl PromptScreen {
         if changed || rm.seen.get() != key {
             rm.seen.set(key);
             self.rebuild(root, cx);
+            self.publish();
         }
     }
 

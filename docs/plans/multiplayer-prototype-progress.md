@@ -1218,6 +1218,18 @@ Development-only or mocked in M7b: the development identity provider for
 online runs; `mpcpus`; online rooms seat no CPUs (Rules shows no roster
 there).
 
+Found on the way: the server's room sent its departure notice to the
+socket it had just closed, which throws past `send_with_str`'s result in
+workers-rs and aborted the handler, the others' events lost (clients then
+stale); it now skips that socket (`../ddi-server`, `broadcast_except`).
+The room's screens look at the room ten times a second while nothing
+moves (`wake_at`), as M2's room screen did; headless Firefox still
+stopped a still page's frames at times in the three-browser run (the page
+caught up at its next input), so the run nudges that page's mouse. The
+stage prompt's debug state (`__DDI_DEBUG.ui.theme.room`) now follows the
+room as its card does; it had stayed as the prompt opened, and a test
+reading it pressed Ready again after the automatic Ready, canceling it.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -1299,6 +1311,10 @@ there).
   list)?
 - M7b: the 24 CPU names in `crates/ui/src/state/cpu_roster.json` are
   invented, for your review.
+- M7b: a room's socket is read on the page's frames; a page whose
+  frames stop (a hidden tab, headless Firefox at times) falls behind
+  until it draws again, and may sit a stage out. Read the socket off the
+  frame loop?
 - M7b: the server's `ROOM_READINESS_WINDOW_MS` is 15 s in its
   `wrangler.toml` (your file); the model's default is now 30 s, counted
   from the song's availability. Raise it there?

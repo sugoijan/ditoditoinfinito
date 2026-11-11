@@ -427,8 +427,12 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     UiText::data(member_name(member)).into()
                 };
                 let prep = upcoming.map(|st| st.prep(member.id));
-                let ready = prep.as_ref().is_some_and(|p| p.ready);
-                let state: String = match s.participation(member.id) {
+                let part = s.participation(member.id);
+                // Ready for the upcoming stage, or in the lineup of the one
+                // counting down (the prompt's count and rows agree).
+                let ready = prep.as_ref().is_some_and(|p| p.ready)
+                    || matches!(part, Some(Participation::Committed { .. }));
+                let state: String = match part {
                     Some(Participation::ReadyLoaded { .. } | Participation::Committed { .. }) => {
                         m::state_ready().into()
                     }
