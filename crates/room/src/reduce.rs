@@ -375,19 +375,25 @@ impl RoomState {
             }
             Command::ReportOutcome { stage, run, detail } => {
                 let id = self.own(actor)?;
-                match self.phase {
-                    Phase::Stage { stage: s } if s == *stage => {}
-                    Phase::SongCompletion { stage: s } if s == *stage => {
-                        return Err(Rejection::ResultAlreadyConfirmed);
-                    }
+                // After a result confirmed before the song's end (a live
+                // room's, decided as the stage went), a report is taken
+                // for the standings' detail alone, and the song ends once
+                // everyone reported.
+                let confirmed = match self.phase {
+                    Phase::Stage { stage: s } if s == *stage => false,
+                    Phase::SongCompletion { stage: s } if s == *stage => true,
                     _ => return Err(self.wrong_phase()),
-                }
+                };
                 let play = self
                     .stage(*stage)
                     .and_then(|s| s.play.as_ref())
                     .ok_or(Rejection::UnknownStage)?;
                 if !play.lineup.contains(&id) {
                     return Err(Rejection::NotInLineup);
+                }
+                if confirmed && (!play.self_reported(&self.members) || play.song_zero_at.is_none())
+                {
+                    return Err(Rejection::ResultAlreadyConfirmed);
                 }
                 // A stage with CPUs is ranked by the authority that judges
                 // them (practice), never from reports.
@@ -413,7 +419,9 @@ impl RoomState {
                     .stage(*stage)
                     .and_then(|s| s.play.as_ref())
                     .is_some_and(|p| p.lineup.iter().all(|id| p.reports.contains_key(id)));
-                if all {
+                if all && confirmed {
+                    self.end_song(*stage, out);
+                } else if all {
                     self.settle(*stage, out);
                 }
                 Ok(())
@@ -469,6 +477,7 @@ impl RoomState {
                             status,
                             share: None,
                             card: None,
+                            battle: None,
                         }),
                     },
                 );
@@ -834,6 +843,25 @@ impl RoomState {
                 self.content_status(*stage, status.clone(), share.clone(), now, out);
                 Ok(())
             }
+            Command::SetBattlePlan { stage, digest } => {
+                Self::authority_only(actor)?;
+                let s = self.stage(*stage).ok_or(Rejection::UnknownStage)?;
+                if s.play.is_some() {
+                    return Err(Rejection::StageStarted);
+                }
+                let content = s.content.as_ref().ok_or(Rejection::NoContent)?;
+                if content.battle.as_ref() == Some(digest) {
+                    return Ok(());
+                }
+                self.emit(
+                    out,
+                    Event::BattlePlanSet {
+                        stage: *stage,
+                        digest: digest.clone(),
+                    },
+                );
+                Ok(())
+            }
             Command::ConfirmStage { stage, ranking } => {
                 Self::authority_only(actor)?;
                 match self.phase {
@@ -1031,6 +1059,7 @@ impl RoomState {
                         status,
                         share,
                         card: card.cloned(),
+                        battle: None,
                     }),
                 },
             );
@@ -1315,6 +1344,11 @@ impl RoomState {
         out: &mut Vec<Event>,
     ) {
         let start_at = now.after(self.policy.readiness.countdown_ms);
+        let song_zero_at = self
+            .policy
+            .live
+            .as_ref()
+            .map(|l| start_at.after(l.prelude_ms));
         self.emit(
             out,
             Event::StartCommitted {
@@ -1322,6 +1356,7 @@ impl RoomState {
                 lineup,
                 sat_out,
                 start_at,
+                song_zero_at,
             },
         );
         self.emit(
@@ -1509,6 +1544,11 @@ impl RoomState {
             Phase::Stage { stage } if self.report_deadline(stage).is_some_and(|at| now >= at) => {
                 self.settle(stage, out);
             }
+            Phase::SongCompletion { stage }
+                if self.report_deadline(stage).is_some_and(|at| now >= at) =>
+            {
+                self.end_song(stage, out);
+            }
             Phase::Countdown { stage, start_at } if now >= start_at => {
                 self.emit(
                     out,
@@ -1650,6 +1690,11 @@ impl RoomState {
                     }
                 }
             }
+            Event::BattlePlanSet { stage, digest } => {
+                if let Some(c) = self.stage_mut(*stage).and_then(|s| s.content.as_mut()) {
+                    c.battle = Some(digest.clone());
+                }
+            }
             Event::PlaylistReadinessCleared => {
                 for s in &mut self.playlist {
                     s.readiness_rev += 1;
@@ -1744,6 +1789,7 @@ impl RoomState {
                 lineup,
                 sat_out,
                 start_at,
+                song_zero_at,
             } => {
                 if let Some(s) = self.stage_mut(*stage) {
                     s.play = Some(StagePlay {
@@ -1756,6 +1802,7 @@ impl RoomState {
                         reports: BTreeMap::new(),
                         song_end_at: None,
                         details: BTreeMap::new(),
+                        song_zero_at: *song_zero_at,
                     });
                 }
             }

@@ -24,6 +24,12 @@
 //! well, or the `OnlineAuthority` (`online`), that server's room reached
 //! over a socket each shell supplies (`Transport`). `fake::FakeServer` is
 //! the server's room in process for tests, with faults in the way.
+//!
+//! Live play in an online room (`live`, `docs/plans/multiplayer-online-play.md`):
+//! a shared clock, a stage started at one instant, each competitor's play
+//! streamed and gathered into one frame a tick, attacks and settlement
+//! decided by the room; the room's side sans-IO (`live::LiveServer`, which
+//! the fake runs too) and the client's inside `OnlineAuthority`.
 
 pub mod attacks;
 pub mod authority;
@@ -32,6 +38,7 @@ pub mod battle;
 pub mod command;
 pub mod fake;
 pub mod ids;
+pub mod live;
 pub mod member;
 pub mod online;
 pub mod phase;
@@ -60,9 +67,8 @@ pub use protocol::{
     Resync, ServerEnvelope, ServerMessage, Want,
 };
 pub use rules::{
-    Access, Admission, CapExceeded, ContentSource, CpuMode, CpuRules, MatchDifficulty, MatchRules,
-    OutcomePolicy,
-    ReadinessPolicy, RoomPolicy, RulesProblem,
+    Access, Admission, CapExceeded, ContentSource, CpuMode, CpuRules, LivePolicy, MatchDifficulty,
+    MatchRules, OutcomePolicy, ReadinessPolicy, RoomPolicy, RulesProblem,
 };
 pub use state::{
     Closure, ContentCard, ContentStatus, HostDeparture, HostLeaves, Hosting, Loading, Match,

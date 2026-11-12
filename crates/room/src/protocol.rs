@@ -91,13 +91,16 @@ impl Resync {
     }
 }
 
-/// What a client sends over its socket: a command in its envelope, or a
-/// resync request.
+/// What a client sends over its socket as text: a command in its
+/// envelope, a resync request, or a live message (`crate::live`: sent only
+/// to a room whose policy plays live, `RoomPolicy::live`; an authority
+/// that predates it would close the socket on it).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ClientFrame {
     Command(Box<ClientEnvelope>),
     Resync(Resync),
+    Live(Box<crate::live::ClientLiveEnvelope>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -870,6 +870,94 @@ impl StageBattle {
     }
 }
 
+/// One competitor's reports, from its play as it is judged: its judgments,
+/// its going out and its policy changes in; each checkpoint's [`Report`]
+/// out once the play has been judged past it. The same reports the local
+/// stage runner hands its ledger (`ddi_session::battle::attacks`), so a
+/// device of an online room reports what practice would have counted
+/// (`crate::live`).
+#[derive(Clone, Debug)]
+pub struct Reporter {
+    participant: ParticipantId,
+    checkpoints_us: Vec<i64>,
+    next: usize,
+    pending: Vec<Judged>,
+    out_at_us: Option<i64>,
+    out_told: bool,
+    retargets: Vec<(i64, Targeting)>,
+}
+
+impl Reporter {
+    pub fn new(participant: ParticipantId, checkpoints_us: Vec<i64>) -> Reporter {
+        Reporter {
+            participant,
+            checkpoints_us,
+            next: 0,
+            pending: Vec::new(),
+            out_at_us: None,
+            out_told: false,
+            retargets: Vec::new(),
+        }
+    }
+
+    /// A judgment of a note of the chart (in the order judged).
+    pub fn judged(&mut self, j: Judged) {
+        self.pending.push(j);
+    }
+
+    /// It went out (its gauge emptied) at song µs `at_us`.
+    pub fn out_at(&mut self, at_us: i64) {
+        self.out_at_us.get_or_insert(at_us);
+    }
+
+    /// It changed its policy at song µs `at_us`.
+    pub fn retarget(&mut self, at_us: i64, targeting: Targeting) {
+        self.retargets.push((at_us, targeting));
+    }
+
+    /// The next checkpoint to report, if any.
+    pub fn next(&self) -> Option<usize> {
+        (self.next < self.checkpoints_us.len()).then_some(self.next)
+    }
+
+    /// The reports of the checkpoints at or before `judged_to_us` (the song
+    /// time its play has been judged to), `life` its life just before a
+    /// song µs (millionths). Once out, one report more carries it and its
+    /// last judgments, and nothing after (the ledger takes it as out from
+    /// then on).
+    pub fn due(&mut self, judged_to_us: i64, life: &dyn Fn(i64) -> u32) -> Vec<(usize, Report)> {
+        let mut out = Vec::new();
+        while let Some(k) = self.next() {
+            let at = self.checkpoints_us[k];
+            let out_now = self.out_at_us.is_some() && !self.out_told;
+            if at > judged_to_us && !out_now {
+                break;
+            }
+            if self.out_told {
+                break;
+            }
+            let split = self.pending.partition_point(|j| j.at_us < at);
+            let n = self.retargets.partition_point(|(t, _)| *t < at);
+            let targeting = self.retargets.drain(..n).next_back().map(|(_, t)| t);
+            out.push((
+                k,
+                Report {
+                    participant: self.participant,
+                    judged: self.pending.drain(..split).collect(),
+                    life_ppm: life(at),
+                    out_at_us: self.out_at_us,
+                    targeting,
+                },
+            ));
+            self.next += 1;
+            if self.out_at_us.is_some() {
+                self.out_told = true;
+            }
+        }
+        out
+    }
+}
+
 /// How a stage is settled once attacks exist (D6). PROVISIONAL.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settlement {

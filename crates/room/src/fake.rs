@@ -16,10 +16,22 @@
 //! server's reconnect grace; none by default) Disconnected once it has
 //! passed; a room that ended ([`RoomState::closed`]) closes every socket
 //! with 4410 and opens none. Not the server: no HTTP, no invites.
+//!
+//! Live play (`crate::live`) where the room's policy has it: the room's
+//! live side ([`LiveServer`], the same the server runs) beside the
+//! reducer, its commands applied as the authority's, its frames to every
+//! socket that said hello, binary messages both ways. A live message to a
+//! room without it closes the socket with 4400, as an authority that
+//! predates it would. Each socket may be given a latency
+//! ([`FakeServer::set_latency`]: a floor and a jitter each way, in order
+//! as a stream keeps it) and faults on what it sends
+//! ([`FakeServer::fault_uplink`]: delay, drop).
 
 use crate::authority::{Clock, LocalAuthority, ManualClock, RoomAuthority};
 use crate::command::{Command, Event, Rejection};
-use crate::ids::{ClientId, Identity, ParticipantId, RoomId};
+use crate::ids::{ClientId, Identity, Millis, ParticipantId, RoomId};
+use crate::live::server::{LiveOut, LiveReply, LiveServer};
+use crate::live::{ClientLive, ServerLiveEnvelope};
 use crate::member::{Connection, Intent};
 use crate::online::{Transport, TransportEvent, close};
 use crate::protocol::{ClientFrame, ServerEnvelope, ServerMessage};
@@ -48,7 +60,60 @@ pub enum Fault {
 
 enum Frame {
     Text(String),
+    Binary(Vec<u8>),
     Close(u16),
+}
+
+impl Frame {
+    fn copy(&self) -> Frame {
+        match self {
+            Frame::Text(t) => Frame::Text(t.clone()),
+            Frame::Binary(b) => Frame::Binary(b.clone()),
+            Frame::Close(c) => Frame::Close(*c),
+        }
+    }
+}
+
+/// What a client sent, on its way to the room.
+enum Up {
+    Text(String),
+    Binary(Vec<u8>),
+}
+
+/// A socket's latency: each message's one-way delay is the floor plus up
+/// to the jitter, drawn from the seed; messages keep their order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Latency {
+    pub down_ms: u64,
+    pub down_jitter_ms: u64,
+    pub up_ms: u64,
+    pub up_jitter_ms: u64,
+    pub seed: u64,
+}
+
+impl Latency {
+    fn draw(&mut self, floor: u64, jitter: u64) -> u64 {
+        self.seed = self.seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.seed;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^= z >> 31;
+        floor + if jitter == 0 { 0 } else { z % (jitter + 1) }
+    }
+}
+
+/// A clock for a client of the fake room: the room's own, `offset_ms`
+/// ahead (negative: behind), as a device's clock would be.
+#[derive(Clone, Debug)]
+pub struct OffsetClock {
+    pub base: ManualClock,
+    pub offset_ms: i64,
+}
+
+impl Clock for OffsetClock {
+    fn now(&self) -> Millis {
+        Millis(self.base.now().0.saturating_add_signed(self.offset_ms))
+    }
 }
 
 struct Conn {
@@ -63,6 +128,14 @@ struct Conn {
     open: bool,
     /// The server closed it: its close frame is on its way.
     closing: bool,
+    /// It said hello (`ClientLive::Hello`): it gets the frames.
+    live: bool,
+    latency: Option<Latency>,
+    /// When its last frame arrives (a later one never overtakes it).
+    last_down: u64,
+    /// What it sent, on its way, with when each arrives.
+    uplink: VecDeque<(u64, Up)>,
+    up_faults: VecDeque<Fault>,
 }
 
 /// The fake room. Share it ([`FakeServer::shared`]) between the sockets.
@@ -80,6 +153,11 @@ pub struct FakeServer {
     grace_ms: Option<u64>,
     /// When each Reconnecting member becomes Disconnected.
     grace: BTreeMap<ParticipantId, u64>,
+    /// The room's live side, where its policy plays live.
+    live: Option<LiveServer>,
+    /// Latencies and uplink faults for the next sockets people open.
+    pending_latency: BTreeMap<ParticipantId, Latency>,
+    pending_up_faults: BTreeMap<ParticipantId, Vec<Fault>>,
 }
 
 pub type SharedFake = Rc<RefCell<FakeServer>>;
@@ -111,6 +189,12 @@ impl FakeServer {
     }
 
     pub fn with_state(state: RoomState, clock: ManualClock) -> Self {
+        let live = state
+            .policy
+            .live
+            .as_ref()
+            .and_then(|l| l.rules())
+            .map(LiveServer::new);
         let mut authority = LocalAuthority::new(state, clock.clone());
         // The constructor's snapshot is no one's.
         let _ = authority.poll();
@@ -124,7 +208,51 @@ impl FakeServer {
             pending_faults: BTreeMap::new(),
             grace_ms: None,
             grace: BTreeMap::new(),
+            live,
+            pending_latency: BTreeMap::new(),
+            pending_up_faults: BTreeMap::new(),
         }
+    }
+
+    /// The room's live side, where it plays live.
+    pub fn live(&self) -> Option<&LiveServer> {
+        self.live.as_ref()
+    }
+
+    /// `participant`'s sockets' latency, from now on (and for the next
+    /// one they open).
+    pub fn set_latency(&mut self, participant: ParticipantId, latency: Latency) {
+        for c in self
+            .conns
+            .values_mut()
+            .filter(|c| c.participant == participant)
+        {
+            c.latency = Some(latency);
+        }
+        self.pending_latency.insert(participant, latency);
+    }
+
+    /// A fault on what `participant`'s socket sends next (a delay or a
+    /// drop).
+    pub fn fault_uplink(&mut self, participant: ParticipantId, fault: Fault) {
+        match self
+            .conns
+            .values_mut()
+            .find(|c| c.open && c.participant == participant)
+        {
+            Some(c) => c.up_faults.push_back(fault),
+            None => self
+                .pending_up_faults
+                .entry(participant)
+                .or_default()
+                .push(fault),
+        }
+    }
+
+    /// Time passes: what arrived is read, what is due runs.
+    pub fn pump(&mut self) {
+        self.uplinks();
+        self.route(None);
     }
 
     /// The server's reconnect grace (`ROOM_RECONNECT_GRACE_MS`, 30 s
@@ -281,6 +409,15 @@ impl FakeServer {
             held: None,
             open: true,
             closing: false,
+            live: false,
+            latency: self.pending_latency.get(&participant).copied(),
+            last_down: 0,
+            uplink: VecDeque::new(),
+            up_faults: self
+                .pending_up_faults
+                .remove(&participant)
+                .unwrap_or_default()
+                .into(),
         };
         let now = self.now();
         for f in faults {
@@ -306,6 +443,146 @@ impl FakeServer {
         Some(conn)
     }
 
+    /// What a client's socket sent: on its way (its latency, its faults),
+    /// or read at once.
+    fn client_send(&mut self, conn: u64, up: Up) {
+        let now = self.now();
+        let Some(c) = self.conns.get_mut(&conn).filter(|c| c.open) else {
+            return;
+        };
+        let mut at = now;
+        match c.up_faults.pop_front() {
+            Some(Fault::Drop) => return,
+            Some(Fault::Delay(ms)) => at = now + ms,
+            _ => {}
+        }
+        if let Some(l) = c.latency.as_mut() {
+            at = at.max(now + l.draw(l.up_ms, l.up_jitter_ms));
+        }
+        if let Some((last, _)) = c.uplink.back() {
+            at = at.max(*last);
+        }
+        if at > now || !c.uplink.is_empty() {
+            c.uplink.push_back((at, up));
+            return;
+        }
+        match up {
+            Up::Text(t) => self.receive(conn, &t),
+            Up::Binary(b) => self.receive_binary(conn, &b),
+        }
+    }
+
+    /// What arrived by now from every socket, in order.
+    fn uplinks(&mut self) {
+        let now = self.now();
+        loop {
+            let next = self
+                .conns
+                .iter_mut()
+                .filter(|(_, c)| c.open)
+                .find_map(|(k, c)| {
+                    (c.uplink.front().is_some_and(|(at, _)| *at <= now))
+                        .then(|| (*k, c.uplink.pop_front().expect("checked").1))
+                });
+            let Some((conn, up)) = next else { break };
+            match up {
+                Up::Text(t) => self.receive(conn, &t),
+                Up::Binary(b) => self.receive_binary(conn, &b),
+            }
+        }
+    }
+
+    fn receive_binary(&mut self, conn: u64, bytes: &[u8]) {
+        let Some(participant) = self
+            .conns
+            .get(&conn)
+            .filter(|c| c.open)
+            .map(|c| c.participant)
+        else {
+            return;
+        };
+        let now = Millis(self.now());
+        let Some(live) = self.live.as_mut() else {
+            // An authority that predates live play reads no binary.
+            self.close_conn(conn, close::BAD_MESSAGE);
+            return;
+        };
+        let out = live.receive_binary(self.authority.state(), participant, bytes, now);
+        self.live_out(Some(conn), out);
+    }
+
+    fn live_text(&mut self, conn: u64, participant: ParticipantId, msg: ClientLive) {
+        let now = Millis(self.now());
+        if matches!(msg, ClientLive::Hello { .. })
+            && let Some(c) = self.conns.get_mut(&conn)
+        {
+            c.live = true;
+        }
+        let Some(live) = self.live.as_mut() else {
+            self.close_conn(conn, close::BAD_MESSAGE);
+            return;
+        };
+        let out = live.receive(self.authority.state(), participant, msg, now);
+        self.live_out(Some(conn), out);
+        self.live_tick();
+    }
+
+    /// What the live side said, to whom it goes; its commands applied as
+    /// the authority's, their events to every socket.
+    fn live_out(&mut self, sender: Option<u64>, out: LiveOut) {
+        let LiveOut {
+            reply,
+            broadcast,
+            commands,
+        } = out;
+        if let Some(conn) = sender {
+            for r in reply {
+                match r {
+                    LiveReply::Message(m) => {
+                        if let Ok(t) = serde_json::to_string(&ServerLiveEnvelope::new(m)) {
+                            self.push_frame(conn, Frame::Text(t), false);
+                        }
+                    }
+                    LiveReply::Frame(b) => self.push_frame(conn, Frame::Binary(b), false),
+                }
+            }
+        }
+        for b in broadcast {
+            let live: Vec<u64> = self
+                .conns
+                .iter()
+                .filter(|(_, c)| c.open && c.live)
+                .map(|(k, _)| *k)
+                .collect();
+            for k in live {
+                self.push_frame(k, Frame::Binary(b.clone()), false);
+            }
+        }
+        if !commands.is_empty() {
+            for cmd in commands {
+                let _ = self.authority.authority(cmd);
+            }
+            self.send_out(None);
+        }
+    }
+
+    /// The live side's time: its stage follows the room's, what is due
+    /// runs (again after its own commands changed the room).
+    fn live_tick(&mut self) {
+        for _ in 0..4 {
+            let now = Millis(self.now());
+            let Some(live) = self.live.as_mut() else {
+                return;
+            };
+            let out = live.tick(self.authority.state(), now);
+            let again = !out.commands.is_empty();
+            self.live_out(None, out);
+            if !again {
+                return;
+            }
+        }
+    }
+
     fn receive(&mut self, conn: u64, text: &str) {
         let Some(participant) = self
             .conns
@@ -320,6 +597,7 @@ impl FakeServer {
             return;
         };
         match frame {
+            ClientFrame::Live(env) => self.live_text(conn, participant, env.live),
             ClientFrame::Resync(_) => {
                 let snapshot = ServerEnvelope::new(
                     self.state().revision,
@@ -348,6 +626,7 @@ impl FakeServer {
                 self.graces();
                 self.authority.submit(*envelope);
                 let accepted = self.send_out(Some((conn, &client, seq)));
+                self.live_tick();
                 // The one who left is told so, also where their leaving
                 // ended the room for the others.
                 if leave && accepted {
@@ -364,6 +643,7 @@ impl FakeServer {
     fn route(&mut self, sender: Option<(u64, &ClientId, u64)>) -> bool {
         self.graces();
         let accepted = self.send_out(sender);
+        self.live_tick();
         self.close_if_ended();
         accepted
     }
@@ -454,35 +734,49 @@ impl FakeServer {
         let Ok(text) = serde_json::to_string(envelope) else {
             return;
         };
-        let now = self.now();
         let events = matches!(envelope.msg, ServerMessage::Events { .. });
+        self.push_frame(conn, Frame::Text(text), events);
+    }
+
+    fn push_frame(&mut self, conn: u64, frame: Frame, events: bool) {
+        let now = self.now();
         let Some(c) = self.conns.get_mut(&conn).filter(|c| c.open) else {
             return;
         };
         let mut at = now;
-        let mut copies = vec![text.clone()];
+        let mut copies = vec![frame.copy()];
         let mut stale = None;
         if let Some(held) = c.held.take() {
             // The frame held back goes after this one.
-            copies.push(held);
+            copies.push(Frame::Text(held));
         } else {
             match c.faults.pop_front() {
                 Some(Fault::Delay(ms)) => at = now + ms,
-                Some(Fault::Duplicate) => copies.push(text.clone()),
+                Some(Fault::Duplicate) => copies.push(frame.copy()),
                 Some(Fault::Drop) => copies.clear(),
-                Some(Fault::Reorder) => {
-                    c.held = Some(text.clone());
-                    copies.clear();
-                }
-                Some(Fault::Stale) => stale = c.last_events.clone(),
+                Some(Fault::Reorder) => match &frame {
+                    Frame::Text(t) => {
+                        c.held = Some(t.clone());
+                        copies.clear();
+                    }
+                    // Held back for the next text.
+                    _ => c.faults.push_front(Fault::Reorder),
+                },
+                Some(Fault::Stale) => stale = c.last_events.clone().map(Frame::Text),
                 Some(Fault::Close(_)) | None => {}
             }
         }
-        if events {
-            c.last_events = Some(text);
+        if let Some(l) = c.latency.as_mut() {
+            at = at.max(now + l.draw(l.down_ms, l.down_jitter_ms));
         }
-        for t in copies.into_iter().chain(stale) {
-            c.queue.push_back((at, Frame::Text(t)));
+        // A stream never lets a later message overtake an earlier one.
+        at = at.max(c.last_down);
+        c.last_down = at;
+        if events && let Frame::Text(t) = frame {
+            c.last_events = Some(t);
+        }
+        for f in copies.into_iter().chain(stale) {
+            c.queue.push_back((at, f));
         }
     }
 
@@ -499,7 +793,7 @@ impl FakeServer {
     /// The socket's frames due by now (time passes first: deadlines and
     /// countdowns, to every socket).
     fn deliver(&mut self, conn: u64) -> Vec<TransportEvent> {
-        self.route(None);
+        self.pump();
         let now = self.now();
         let mut out = Vec::new();
         let mut closed = None;
@@ -515,6 +809,7 @@ impl FakeServer {
                 let (_, frame) = c.queue.pop_front().expect("checked");
                 match frame {
                     Frame::Text(t) => out.push(TransportEvent::Text(t)),
+                    Frame::Binary(b) => out.push(TransportEvent::Binary(b)),
                     Frame::Close(code) => {
                         out.push(TransportEvent::Closed { code });
                         closed = Some(c.participant);
@@ -605,8 +900,20 @@ impl Transport for FakeSocket {
 
     fn send(&mut self, text: String) {
         if let Some(conn) = self.conn {
-            self.server.borrow_mut().receive(conn, &text);
+            self.server.borrow_mut().client_send(conn, Up::Text(text));
         }
+    }
+
+    fn send_binary(&mut self, bytes: Vec<u8>) {
+        if let Some(conn) = self.conn {
+            self.server
+                .borrow_mut()
+                .client_send(conn, Up::Binary(bytes));
+        }
+    }
+
+    fn binary(&self) -> bool {
+        true
     }
 
     fn close(&mut self) {

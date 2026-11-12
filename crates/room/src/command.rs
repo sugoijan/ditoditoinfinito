@@ -7,6 +7,7 @@ use crate::attacks::Targeting;
 use crate::awards::{Finisher, NoAwardRule, StageResult};
 use crate::battle::{ReportedRun, RunDetail};
 use crate::ids::{ContentId, Identity, MatchId, Millis, ParticipantId, Revision, StageId};
+use crate::live::PlanDigest;
 use crate::member::{Capability, Connection, Intent, Member, Role};
 use crate::phase::{Interruption, Phase, PhaseKind};
 use crate::rules::{Access, Admission, CapExceeded, MatchRules, RulesProblem};
@@ -196,6 +197,15 @@ pub enum Command {
         chart: crate::ids::ChartKey,
         share: String,
     },
+    /// The battle plan the room keeps for `stage` (live play,
+    /// `crate::live::plan`: offered by its picker's device, checked by the
+    /// authority), named by its digest for every device to compare its own
+    /// with. Additive to protocol 2: only an authority that plays live
+    /// issues it, and a client that predates it never sees the field.
+    SetBattlePlan {
+        stage: StageId,
+        digest: PlanDigest,
+    },
     /// The stage's result is confirmed before the song ends; the winner may
     /// finish the song.
     ConfirmStage {
@@ -282,6 +292,12 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         share: Option<String>,
     },
+    /// The battle plan the room keeps for `stage`
+    /// ([`Command::SetBattlePlan`]): its digest, on the stage's content.
+    BattlePlanSet {
+        stage: StageId,
+        digest: PlanDigest,
+    },
     /// Clears every stage of the playlist's readiness (the lobby's rules
     /// changed).
     PlaylistReadinessCleared,
@@ -336,6 +352,11 @@ pub enum Event {
         lineup: Vec<ParticipantId>,
         sat_out: Vec<(ParticipantId, SitOutReason)>,
         start_at: Millis,
+        /// Where the room plays live (`RoomPolicy::live`): the instant on
+        /// its clock of the song's time zero, for every device to schedule
+        /// its audio on. Additive: none from an authority that predates it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        song_zero_at: Option<Millis>,
     },
     StartCanceled {
         stage: StageId,

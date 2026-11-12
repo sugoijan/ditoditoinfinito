@@ -285,6 +285,11 @@ pub struct StageContent {
     /// What to show of it before it is loaded (M7b's picks history).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card: Option<ContentCard>,
+    /// The digest of the battle plan the room keeps for it (live play
+    /// with attacks, `crate::live::plan`), which every device compares
+    /// its own with before it says it is ready to play live. Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battle: Option<crate::live::PlanDigest>,
 }
 
 /// Whether the room can use a stage's content, as its authority knows.
@@ -348,6 +353,10 @@ pub struct StagePlay {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub details: BTreeMap<ParticipantId, RunDetail>,
+    /// Where the room plays live: the instant of the song's time zero on
+    /// the room's clock (`Event::StartCommitted`). Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub song_zero_at: Option<Millis>,
 }
 
 impl StagePlay {
@@ -767,7 +776,9 @@ impl RoomState {
                 window: Some(w),
             } => (!self.content_pending(*stage)).then_some(w.deadline),
             Phase::Countdown { start_at, .. } => Some(*start_at),
-            Phase::Stage { stage } => self.report_deadline(*stage),
+            Phase::Stage { stage } | Phase::SongCompletion { stage } => {
+                self.report_deadline(*stage)
+            }
             _ => None,
         }
     }
@@ -814,7 +825,13 @@ impl RoomState {
     /// without the reports still missing (`OutcomePolicy`).
     pub fn report_deadline(&self, stage: StageId) -> Option<Millis> {
         let play = self.stage(stage)?.play.as_ref()?;
-        if !play.self_reported(&self.members) || play.result.is_some() {
+        // A live room's result confirmed before the song's end still waits
+        // for the reports (the standings' detail) until the song ends.
+        let waits = play.result.is_none()
+            || (play.song_zero_at.is_some()
+                && !play.song_ended
+                && matches!(self.phase, Phase::SongCompletion { stage: s } if s == stage));
+        if !play.self_reported(&self.members) || !waits {
             return None;
         }
         let p = &self.policy.outcomes;

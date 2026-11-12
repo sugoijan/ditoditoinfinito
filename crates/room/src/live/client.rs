@@ -1,0 +1,276 @@
+//! The client's side of live play, sans-IO, inside
+//! [`crate::OnlineAuthority`]: on every socket to a room that plays live
+//! it says [`ClientLive::Hello`], pings for the clock (a burst at first,
+//! then every few seconds), sends what the game queues ([`LiveLink::send`]:
+//! a stage's readiness to play live, its battle plan), cuts the local
+//! play's stream into batches ([`LiveLink::stream`]) and sends them again
+//! until a frame acknowledges them, and reads the room's frames in order
+//! ([`FrameReader`]), asking for them again after a gap or a reconnect.
+//! What the game draws comes out of [`LiveLink::take_news`].
+
+use crate::ids::{Millis, ParticipantId, StageId};
+use crate::live::clock::{ClockEstimate, ClockEstimator, Ping};
+use crate::live::server::LiveSnapshot;
+use crate::live::stream::{Frame, FrameReader, Outbox};
+use crate::live::{
+    ClientLive, ClientLiveEnvelope, LIVE_VERSION, LiveRefusal, LiveRules, ServerLive, wire,
+};
+use std::collections::BTreeMap;
+
+/// What the room's live side said, for the game.
+#[derive(Clone, Debug, PartialEq)]
+pub enum LiveNews {
+    /// A frame, taken in order (the reader has it too).
+    Frame(Frame),
+    /// The stage as it stands; the frames after it follow.
+    Snapshot(Box<LiveSnapshot>),
+    Refused(LiveRefusal),
+}
+
+/// What to put on the socket.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LiveSend {
+    Text(String),
+    Binary(Vec<u8>),
+}
+
+/// The live link of one client.
+#[derive(Clone, Debug)]
+pub struct LiveLink {
+    rules: LiveRules,
+    clock: ClockEstimator,
+    on: bool,
+    hello_due: bool,
+    next_ping: u32,
+    ping_at: u64,
+    burst: u32,
+    me: Option<ParticipantId>,
+    outboxes: BTreeMap<StageId, Outbox>,
+    reader: Option<FrameReader>,
+    queued: Vec<ClientLive>,
+    news: Vec<LiveNews>,
+    fresh: bool,
+}
+
+impl LiveLink {
+    pub fn new(rules: LiveRules) -> Self {
+        Self {
+            rules,
+            clock: ClockEstimator::new(),
+            on: false,
+            hello_due: false,
+            next_ping: 1,
+            ping_at: 0,
+            burst: 0,
+            me: None,
+            outboxes: BTreeMap::new(),
+            reader: None,
+            queued: Vec::new(),
+            news: Vec::new(),
+            fresh: false,
+        }
+    }
+
+    pub fn rules(&self) -> LiveRules {
+        self.rules
+    }
+
+    /// Whether the socket open now plays live (its room's policy says so
+    /// and the transport carries binary messages).
+    pub fn is_on(&self) -> bool {
+        self.on
+    }
+
+    /// The room's clock as estimated so far.
+    pub fn clock(&self) -> Option<ClockEstimate> {
+        self.clock.estimate()
+    }
+
+    /// The room's time at the device's `local_ms`, once estimated.
+    pub fn room_ms(&self, local_ms: u64) -> Option<Millis> {
+        let e = self.clock()?;
+        let us = e.room_us(local_ms as i64 * 1_000);
+        Some(Millis(u64::try_from(us.max(0) / 1_000).unwrap_or(0)))
+    }
+
+    /// Who this client is in the room (its stream's acknowledgements are
+    /// read from its own frame entries).
+    pub fn set_me(&mut self, me: ParticipantId) {
+        self.me = Some(me);
+    }
+
+    /// Send a live message (on the next poll; held while no live socket
+    /// is open). [`ClientLive::Hello`] and pings are the link's own.
+    pub fn send(&mut self, msg: ClientLive) {
+        self.queued.push(msg);
+    }
+
+    /// The local play's stream of `stage`.
+    pub fn stream(&mut self, stage: StageId) -> &mut Outbox {
+        let rules = self.rules;
+        self.outboxes
+            .entry(stage)
+            .or_insert_with(|| Outbox::new(stage, rules))
+    }
+
+    pub fn outbox(&self, stage: StageId) -> Option<&Outbox> {
+        self.outboxes.get(&stage)
+    }
+
+    /// The frames read so far of the stage followed.
+    pub fn reader(&self) -> Option<&FrameReader> {
+        self.reader.as_ref()
+    }
+
+    pub fn take_news(&mut self) -> Vec<LiveNews> {
+        std::mem::take(&mut self.news)
+    }
+
+    /// A socket to a room that plays live gave its first snapshot.
+    pub(crate) fn opened(&mut self, now: u64) {
+        self.on = true;
+        self.hello_due = true;
+        self.burst = self.rules.ping_burst;
+        self.ping_at = now;
+        // Everything not acknowledged goes again on the new socket.
+        self.fresh = true;
+        if let Some(r) = self.reader.as_mut() {
+            r.ask_resume();
+        }
+    }
+
+    /// The socket closed.
+    pub(crate) fn closed(&mut self) {
+        self.on = false;
+    }
+
+    /// The stage the room plays live now, if any (from the mirror): a
+    /// reader for it.
+    pub(crate) fn follow(&mut self, stage: Option<StageId>) {
+        if let Some(stage) = stage
+            && self
+                .reader
+                .as_ref()
+                .is_none_or(|r| r.stage().is_none_or(|s| s < stage))
+        {
+            self.reader = Some(FrameReader::new(stage));
+        }
+    }
+
+    pub(crate) fn text(&mut self, msg: ServerLive, now: u64) {
+        match msg {
+            ServerLive::Pong(p) => {
+                self.clock.pong(&p, now);
+            }
+            ServerLive::Refused { refusal } => self.news.push(LiveNews::Refused(refusal)),
+            ServerLive::Snapshot(snap) => {
+                if self
+                    .reader
+                    .as_ref()
+                    .is_none_or(|r| r.stage().is_none_or(|s| s <= snap.stage))
+                {
+                    let r = self
+                        .reader
+                        .get_or_insert_with(|| FrameReader::new(snap.stage));
+                    if r.stage() != Some(snap.stage) {
+                        *r = FrameReader::new(snap.stage);
+                    }
+                    r.snapshot(&snap);
+                }
+                if let Some(me) = self.me
+                    && let Some(c) = snap.competitors.iter().find(|c| c.participant == me)
+                    && let Some(o) = self.outboxes.get_mut(&snap.stage)
+                {
+                    o.ack(c.seq);
+                }
+                self.news.push(LiveNews::Snapshot(snap));
+            }
+        }
+    }
+
+    pub(crate) fn binary(&mut self, bytes: &[u8], now: u64) {
+        let Ok(wire::Binary::Frame(frame)) = wire::decode(bytes) else {
+            return;
+        };
+        self.follow(Some(frame.stage));
+        let Some(r) = self.reader.as_mut() else {
+            return;
+        };
+        if !r.take(&frame, now) {
+            return;
+        }
+        if let Some(me) = self.me
+            && let Some(e) = frame.entries.iter().find(|e| e.participant == me)
+            && let Some(o) = self.outboxes.get_mut(&frame.stage)
+        {
+            o.ack(e.seq);
+        }
+        self.news.push(LiveNews::Frame(frame));
+    }
+
+    /// What to send now: the hello, pings, queued messages, batches, a
+    /// resume after a gap.
+    pub(crate) fn due(&mut self, now: u64) -> Vec<LiveSend> {
+        let mut out = Vec::new();
+        if !self.on {
+            return out;
+        }
+        let text = |m: ClientLive| {
+            serde_json::to_string(&ClientLiveEnvelope::new(m))
+                .ok()
+                .map(LiveSend::Text)
+        };
+        if self.hello_due {
+            self.hello_due = false;
+            out.extend(text(ClientLive::Hello {
+                version: LIVE_VERSION,
+            }));
+        }
+        if now >= self.ping_at {
+            let n = self.next_ping;
+            self.next_ping = self.next_ping.wrapping_add(1);
+            out.extend(text(ClientLive::Ping(Ping { n, t: now })));
+            self.ping_at = if self.burst > 1 {
+                self.burst -= 1;
+                now + self.rules.ping_burst_gap_ms
+            } else {
+                self.burst = 0;
+                let busy = self.reader.is_some() || self.outboxes.values().any(|o| !o.done());
+                now + if busy {
+                    self.rules.ping_ms
+                } else {
+                    self.rules.idle_ping_ms
+                }
+            };
+        }
+        for m in std::mem::take(&mut self.queued) {
+            out.extend(text(m));
+        }
+        let fresh = std::mem::take(&mut self.fresh);
+        for o in self.outboxes.values_mut() {
+            let batches = if fresh {
+                let mut b = o.resend(now);
+                b.extend(o.due(now));
+                b
+            } else {
+                o.due(now)
+            };
+            out.extend(
+                batches
+                    .iter()
+                    .map(|b| LiveSend::Binary(wire::encode_batch(b))),
+            );
+        }
+        if let Some(r) = self.reader.as_mut()
+            && let Some(after) = r.wants_resume(now)
+            && let Some(stage) = r.stage()
+        {
+            out.extend(text(ClientLive::Resume { stage, after }));
+        }
+        // Streams of stages gone by, ended and acknowledged, are dropped.
+        let following = self.reader.as_ref().and_then(FrameReader::stage);
+        self.outboxes
+            .retain(|s, o| Some(*s) == following || !o.done());
+        out
+    }
+}

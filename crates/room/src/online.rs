@@ -13,6 +13,11 @@
 //! connected, reconnecting with a fresh ticket each time, and the ends a
 //! retry cannot mend (sign in again, the room closed, left).
 //!
+//! Live play (`crate::live`): on a socket to a room whose policy plays
+//! live, and a transport that carries binary messages, a [`LiveLink`]
+//! keeps the room's clock, sends the local play's stream and reads the
+//! room's frames ([`OnlineAuthority::live`], [`OnlineAuthority::live_mut`]).
+//!
 //! Sans-IO for tickets: a socket opens with a one-use ticket the shell
 //! gets over HTTP (`POST /rooms/<id>/ticket`). The authority says when it
 //! wants one ([`OnlineAuthority::wants_ticket`]) and is given the answer
@@ -20,7 +25,9 @@
 
 use crate::authority::{Clock, RoomAuthority};
 use crate::command::Rejection;
-use crate::ids::{Revision, RoomId};
+use crate::ids::{Millis, Revision, RoomId};
+use crate::live::client::{LiveLink, LiveSend};
+use crate::live::{LIVE_V1, ServerLiveEnvelope};
 use crate::member::Connection;
 use crate::protocol::{ClientEnvelope, Mirror, MirrorError, Resync, ServerEnvelope, ServerMessage};
 use crate::state::RoomState;
@@ -43,6 +50,8 @@ pub mod close {
 pub enum TransportEvent {
     Opened,
     Text(String),
+    /// A binary message (live play's frames, `crate::live::wire`).
+    Binary(Vec<u8>),
     /// The socket closed or failed (`1006` where no close frame came).
     Closed {
         code: u16,
@@ -55,6 +64,15 @@ pub trait Transport {
     /// server's address), closing any earlier one first.
     fn open(&mut self, room: &RoomId, ticket: &str);
     fn send(&mut self, text: String);
+    /// Send a binary message, where [`Transport::binary`] says it can.
+    fn send_binary(&mut self, bytes: Vec<u8>) {
+        let _ = bytes;
+    }
+    /// Whether it carries binary messages both ways (live play needs it;
+    /// a transport that does not leaves the room's live side alone).
+    fn binary(&self) -> bool {
+        false
+    }
     fn close(&mut self);
     /// What happened since the last poll, oldest first: the socket open
     /// now only (an earlier one's late close is not reported).
@@ -67,6 +85,12 @@ impl<T: Transport + ?Sized> Transport for Box<T> {
     }
     fn send(&mut self, text: String) {
         (**self).send(text)
+    }
+    fn send_binary(&mut self, bytes: Vec<u8>) {
+        (**self).send_binary(bytes)
+    }
+    fn binary(&self) -> bool {
+        (**self).binary()
     }
     fn close(&mut self) {
         (**self).close()
@@ -180,6 +204,7 @@ pub struct OnlineAuthority<T: Transport, C: Clock> {
     inbox: Vec<ServerEnvelope>,
     /// The highest revision handed on, so an old one is not again.
     handed: Option<Revision>,
+    live: LiveLink,
 }
 
 impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
@@ -199,6 +224,7 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
             unanswered: Vec::new(),
             inbox: Vec::new(),
             handed: None,
+            live: LiveLink::new(LIVE_V1),
         }
     }
 
@@ -221,6 +247,45 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
 
     pub fn transport_mut(&mut self) -> &mut T {
         &mut self.transport
+    }
+
+    /// Live play's link (`crate::live`): the room's clock, the frames read.
+    pub fn live(&self) -> &LiveLink {
+        &self.live
+    }
+
+    /// Live play's link, to queue live messages and the local play's
+    /// stream; sent on the next poll.
+    pub fn live_mut(&mut self) -> &mut LiveLink {
+        &mut self.live
+    }
+
+    /// The room's time now, once the clock is estimated.
+    pub fn room_now(&self) -> Option<Millis> {
+        self.live.room_ms(self.clock.now().0)
+    }
+
+    fn live_capable(&self) -> bool {
+        self.transport.binary()
+            && self
+                .mirror
+                .state()
+                .is_some_and(|r| r.policy.live.as_ref().and_then(|l| l.rules()).is_some())
+    }
+
+    fn pump_live(&mut self) {
+        let following = self
+            .mirror
+            .state()
+            .and_then(crate::live::server::live_stage)
+            .map(|(id, _)| id);
+        self.live.follow(following);
+        for send in self.live.due(self.clock.now().0) {
+            match send {
+                LiveSend::Text(t) => self.transport.send(t),
+                LiveSend::Binary(b) => self.transport.send_binary(b),
+            }
+        }
     }
 
     /// Commands not answered yet.
@@ -271,6 +336,7 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
         self.transport.close();
         self.link = LinkState::Joining;
         self.synced = false;
+        self.live.closed();
         self.resyncing = None;
         self.ticket = Ticket::Wanted {
             at: self.clock.now().0,
@@ -286,6 +352,7 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
     fn end(&mut self, link: LinkState) {
         self.link = link;
         self.synced = false;
+        self.live.closed();
         self.ticket = Ticket::Used;
     }
 
@@ -296,6 +363,7 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
         };
         self.link = LinkState::Reconnecting { attempt };
         self.synced = false;
+        self.live.closed();
         self.resyncing = None;
         self.ticket = Ticket::Wanted {
             at: self.clock.now().0 + self.policy.wait_ms(attempt),
@@ -314,7 +382,12 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
 
     fn received(&mut self, text: &str) {
         let Ok(envelope) = serde_json::from_str::<ServerEnvelope>(text) else {
-            // Not ours to read (a newer server's message): passed over.
+            if let Ok(live) = serde_json::from_str::<ServerLiveEnvelope>(text) {
+                let now = self.clock.now().0;
+                self.live.text(live.live, now);
+            }
+            // Otherwise not ours to read (a newer server's message):
+            // passed over.
             return;
         };
         match &envelope.msg {
@@ -330,6 +403,10 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
                     self.link = LinkState::Connected;
                     for e in self.unanswered.clone() {
                         self.send_envelope(&e);
+                    }
+                    if self.live_capable() {
+                        let now = self.clock.now().0;
+                        self.live.opened(now);
                     }
                 }
                 self.hand_on(envelope);
@@ -387,6 +464,9 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
 
 impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
     fn submit(&mut self, envelope: ClientEnvelope) {
+        // What the live side has to say goes first: a stream's end before
+        // the run it ends with (`ReportOutcome`).
+        self.pump_live();
         if self.synced {
             self.send_envelope(&envelope);
         }
@@ -398,6 +478,10 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
             match event {
                 TransportEvent::Opened => {}
                 TransportEvent::Text(text) => self.received(&text),
+                TransportEvent::Binary(bytes) => {
+                    let now = self.clock.now().0;
+                    self.live.binary(&bytes, now);
+                }
                 TransportEvent::Closed { code } => {
                     if self.link.ended() {
                         continue;
@@ -411,6 +495,7 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
                 }
             }
         }
+        self.pump_live();
         std::mem::take(&mut self.inbox)
     }
 

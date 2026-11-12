@@ -28,6 +28,51 @@ pub struct RoomPolicy {
     /// When an online stage settles on its members' reports (M5d).
     #[serde(default)]
     pub outcomes: OutcomePolicy,
+    /// Live play (`crate::live`, `docs/plans/multiplayer-online-play.md`):
+    /// a stage started at one instant on the room's clock, its competitors'
+    /// plays streamed, its attacks decided by the room. `None`: an authority
+    /// that predates it (or local practice, which judges every play on one
+    /// device). ADDITIVE to protocol 2: a client sends live frames only to a
+    /// room whose policy has it, so never to an authority that would close
+    /// the socket on a frame it cannot read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<LivePolicy>,
+}
+
+/// What a room that plays live tells its clients of how
+/// (`crate::live::LiveRules` by name, and when a stage's song begins).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LivePolicy {
+    /// The live rules' id (`crate::live::LIVE_V1`'s `live-v1`).
+    pub id: String,
+    /// From a stage's committed start (the countdown's end) to its song's
+    /// time zero, on the room's clock: room for every device's own lead-in
+    /// (a play is drawn from song second −0.8). PROVISIONAL.
+    pub prelude_ms: u64,
+}
+
+impl LivePolicy {
+    /// `live-v1` (PROVISIONAL): song zero one second after the countdown.
+    pub fn v1() -> Self {
+        Self {
+            id: crate::live::LIVE_V1.id.into(),
+            prelude_ms: 1_000,
+        }
+    }
+
+    /// The live rules it names, if this build knows them.
+    pub fn rules(&self) -> Option<crate::live::LiveRules> {
+        crate::live::LiveRules::named(&self.id)
+    }
+}
+
+impl RoomPolicy {
+    /// This policy with live play (`LivePolicy::v1`): what an online
+    /// room's authority that plays live sets.
+    pub fn with_live(mut self) -> Self {
+        self.live = Some(LivePolicy::v1());
+        self
+    }
 }
 
 impl RoomPolicy {
@@ -74,6 +119,7 @@ impl Default for RoomPolicy {
             history: 8,
             readiness: ReadinessPolicy::default(),
             outcomes: OutcomePolicy::default(),
+            live: None,
         }
     }
 }
