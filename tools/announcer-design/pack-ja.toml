@@ -276,3 +276,71 @@ texts = ["諦めないで！", "次はきっといける。", "気を取り直�
 [[line]]
 folder = "evaluation cheer"
 texts = ["イェーイ！", "ブラボー！", "やったー！最高！"]
+
+# --- In a multiplayer battle (ours) -------------------------------------------
+# Said over a stage's play: short. Counts of players in kana, which the
+# dictionary would read as numbers (二人 as ににん).
+
+[[line]]
+folder = "battle match begin"
+texts = ["対戦スタート！", "いよいよ対戦開始！", "さあ、対戦だ！"]
+
+[[line]]
+folder = "battle stage begin"
+texts = ["次のステージ！", "次のステージ、いくよ！"]
+
+[[line]]
+folder = "battle final stage"
+texts = ["ファイナルステージ！", "最後のステージだ！", "いよいよ最後！"]
+
+[[line]]
+folder = "battle life critical"
+texts = ["ライフが危ない！", "危ない、もう後がない！", "耐えて！落ちないで！"]
+
+[[line]]
+folder = "battle attack incoming"
+texts = ["攻撃が来る！", "来るよ、気をつけて！", "ショックに注意！", "足元に注意！"]
+
+[[line]]
+folder = "battle attack launched"
+texts = ["攻撃発射！", "いけー！", "攻撃、いったよ！", "それっ！"]
+
+[[line]]
+folder = "battle survivors 4"
+texts = ["残りよにん！", "よにんに絞られた！"]
+
+[[line]]
+folder = "battle survivors 2"
+texts = ["残りふたり！", "一騎打ちだ！", "最後のふたり！"]
+
+[[line]]
+folder = "battle eliminated"
+texts = ["脱落！", "ここでアウト！", "このステージはここまで。"]
+
+[[line]]
+folder = "battle stage won"
+texts = ["ステージ勝利！", "このステージはいただき！", "ステージ制覇！"]
+
+[[line]]
+folder = "battle stage not won"
+texts = ["一位ならず。", "おしい！次のステージへ！", "最後まで残った！"]
+
+[[line]]
+folder = "battle stage drawn"
+texts = ["一位タイ！", "引き分け！"]
+
+[[line]]
+folder = "battle song finished"
+texts = ["曲も踊りきった！", "勝者、完走！"]
+
+[[line]]
+folder = "battle match won"
+texts = ["対戦に勝利！", "チャンピオン！", "この対戦はきみのもの！"]
+
+[[line]]
+folder = "battle match not won"
+texts = ["対戦終了。おつかれさま！", "今回は届かず。", "次こそ勝とう！"]
+
+[[line]]
+folder = "battle match drawn"
+texts = ["対戦は引き分け！", "勝利を分け合った！"]

@@ -275,3 +275,65 @@ fn a_scratch_pack_s_attack_lines_are_said_in_a_practice_stage() {
         heard.moments
     );
 }
+
+/// Ours, which come with the game, chosen by their keys: each says a
+/// practice stage's battle lines from the assets, the two attack lines
+/// among them, each by its own line (never a play's routine line, never
+/// one in another's place), and the status line shows only the moments
+/// passed over for a line that mattered as much.
+#[test]
+fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
+    for key in ["bundled:mr. clank", "bundled:ガキンさん"] {
+        let Some(heard) = stage_with(key, None) else {
+            eprintln!("no GPU adapter: skipped");
+            return;
+        };
+        let said = |line: &str| heard.spoken.iter().filter(|l| *l == line).count();
+        // The opening, here we go, the attacks' two, and the results'.
+        assert_eq!(heard.spoken[0], "battle match begin", "{key}: {:?}", heard.spoken);
+        assert_eq!(heard.spoken[1], "gameplay here we go normal", "{key}");
+        assert!(said("battle attack incoming") > 0, "{key}: {:?}", heard.spoken);
+        assert!(said("battle attack launched") > 0, "{key}: {:?}", heard.spoken);
+        assert_eq!(
+            heard.spoken.last().map(String::as_str),
+            Some("battle match won"),
+            "{key}: {:?}",
+            heard.spoken
+        );
+        // Nothing but the battle's lines and here we go.
+        assert!(
+            heard
+                .spoken
+                .iter()
+                .all(|l| l.starts_with("battle ") || l == "gameplay here we go normal"),
+            "{key}: {:?}",
+            heard.spoken
+        );
+        // Each attack moment said or shown, the said ones by their line.
+        for line in ["battle attack incoming", "battle attack launched"] {
+            let told = heard
+                .attacks
+                .iter()
+                .filter(|(l, said)| l == line && *said)
+                .count();
+            assert_eq!(said(line), told, "{key}: {line}");
+        }
+        assert!(
+            heard
+                .attacks
+                .iter()
+                .all(|(l, said)| *said || l == "battle attack launched"),
+            "{key}: an attack against the player not said: {:?}",
+            heard.attacks
+        );
+        // The battle's moments in play were said too: nothing shown.
+        assert!(
+            heard
+                .moments
+                .iter()
+                .any(|(l, said)| l == "battle match begin" && *said),
+            "{key}: {:?}",
+            heard.moments
+        );
+    }
+}

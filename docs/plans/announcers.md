@@ -524,6 +524,17 @@ Decision 1's original pack, explored from 2026-11-03 with ElevenLabs
   removing the imported songs keeps one chosen. The web fetches a play's
   sounds from the site as it decodes them; a play on desktop takes ours
   without walking the song folders.
+- **The battle's lines** (2026-11-12): both packs gained the sixteen
+  `battle …` lines a multiplayer stage speaks
+  (`docs/announcer-lines.md`, "In battle"; the fourteen of M4 and the
+  attacks' two), two to four texts each, short, since they are said over
+  a play (0.6 to 1.6 s as made): 46 sounds for `Mr. Clank`, 45 for
+  `ガキンさん`, 211 and 210 in all over 66 lines. Each said after a lead
+  as the rest; `battle` is a place of its own for leads (`[lead] battle`
+  in `pack.toml`), and the Japanese pack writes counts of players in
+  kana (よにん, ふたり), which the dictionary would read as numbers.
+  The studio shows them as the battle lines' examples, before
+  `examples.toml`'s texts.
 
 ### Louder packs (2026-11-12)
 

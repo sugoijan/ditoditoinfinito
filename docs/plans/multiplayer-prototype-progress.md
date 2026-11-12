@@ -419,13 +419,27 @@ intermission cues in the room (the room has no voice: the play's opening
 coalesces them), attacks (incoming, launched, weakened), a stage
 interrupted and a match interrupted (the room shows "Match stopped"),
 the spectator's neutral milestones and outcome, participation ended by a
-disconnect. A studio scene for battle lines; recorded battle lines in
-our packs (`tools/announcer-design/pack.toml`/`pack-ja.toml` have no
-entries: adding them would make the next `kokoro.py pack --bundle`
-generate and ship them, and its lead style needs a `battle` place in
-`PLACES` and a `[lead] battle`; the texts are ready in `examples.toml`);
-the import report's per-place counts do not count battle lines
-separately.
+disconnect. A studio scene for battle lines; the import report's
+per-place counts do not count battle lines separately. (Recorded battle
+lines in our packs: done 2026-11-12, below.)
+
+**Our packs say the battle's lines** (2026-11-12, the announcer round):
+`tools/announcer-design/pack.toml` and `pack-ja.toml` have all sixteen
+(the fourteen above and the attacks' two), two to four short texts
+each, 46 sounds in English and 45 in Japanese, said after a lead of
+their own place (`battle` in `kokoro.py`'s `PLACES`; `Mr. Clank`'s
+"Players, the battle is on!"; `ガキンさん` has one lead for every
+line), made with the packs' other sounds through the game's tidy
+(`docs/plans/announcers.md`, "Louder packs") and bundled. So with
+`Mr. Clank` or `ガキンさん` chosen a practice stage is told by voice:
+the opening in ready's place, here we go, the attacks against the
+player and their own, their life running low, who is left, out, the
+stage's and the match's ends; the status line then shows only a moment
+passed over for a line that mattered as much. Checked through the
+window offscreen: `crates/desktop/tests/room_stage_voice.rs`
+(`our_announcers_say_the_battle_lines_in_a_practice_stage`: both, a
+stage with attacks, every attack against the player said, nothing but
+battle lines and here we go spoken).
 
 ## M5c: invite-only online rooms, the client (implemented, 2026-11-10)
 

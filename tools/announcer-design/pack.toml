@@ -34,6 +34,7 @@ style = "lead"
 select = "Hey there, welcome back.…"
 gameplay = "Oh yeah, here we go!…"
 evaluation = "And the results are in.…"
+battle = "Players, the battle is on!…"
 
 [kokoro]
 repo = "onnx-community/Kokoro-82M-v1.0-ONNX"
@@ -328,3 +329,72 @@ texts = ["Don't give up!", "Better luck next time.", "Shake it off and try again
 [[line]]
 folder = "evaluation cheer"  # 2.5 s after the line above, for the top three grades
 texts = ["Woo-hoo!", "Bravo!", "Yeah! Fantastic!"]
+
+# --- In a multiplayer battle (ours) -------------------------------------------
+# Said over a stage's play (the results' but for the last few): short, a
+# second and a half at the most. No play has these moments, so a battle
+# says none of the lines above but here we go.
+
+[[line]]
+folder = "battle match begin"  # the first stage of a match starts, in place of ready
+texts = ["The match begins!", "It's battle time!", "Let the match begin!"]
+
+[[line]]
+folder = "battle stage begin"  # a later stage starts
+texts = ["Next stage!", "On to the next stage!", "Here comes the next stage!"]
+
+[[line]]
+folder = "battle final stage"  # the last stage of a match starts
+texts = ["Final stage!", "This is the final stage!", "Last stage. Make it count!"]
+
+[[line]]
+folder = "battle life critical"  # your life is about to run out, once a stage
+texts = ["Your life is critical!", "Careful, you're nearly out!", "Hang on, life's low!"]
+
+[[line]]
+folder = "battle attack incoming"  # an attack against you is on its way
+texts = ["Attack incoming!", "Incoming!", "Watch out, shocks coming!", "Heads up, attack!"]
+
+[[line]]
+folder = "battle attack launched"  # your own attack was sent
+texts = ["Attack launched!", "Off it goes!", "Take that!", "Shocks away!"]
+
+[[line]]
+folder = "battle survivors 4"  # four players left in the stage
+texts = ["Four left!", "Only four remain!"]
+
+[[line]]
+folder = "battle survivors 2"  # two left
+texts = ["Two left!", "It's a duel!", "Down to two!"]
+
+[[line]]
+folder = "battle eliminated"  # your life ran out: out of the stage
+texts = ["You're out!", "Out of this stage!", "That's it for this stage."]
+
+[[line]]
+folder = "battle stage won"  # you alone win the stage
+texts = ["Stage won!", "The stage is yours!", "You win the stage!"]
+
+[[line]]
+folder = "battle stage not won"  # the results of a stage you finished without winning
+texts = ["Not this stage.", "So close! Next stage!", "You made it through."]
+
+[[line]]
+folder = "battle stage drawn"  # you share the stage's first place
+texts = ["First place is shared!", "It's a draw!"]
+
+[[line]]
+folder = "battle song finished"  # having won early, you reach the song's end
+texts = ["And the song is done!", "Winner, to the very end!"]
+
+[[line]]
+folder = "battle match won"  # the results of the last stage: the match won
+texts = ["You win the match!", "Champion!", "Victory is yours!"]
+
+[[line]]
+folder = "battle match not won"
+texts = ["Match over. Good fight!", "Not your match this time.", "Next time, it's yours!"]
+
+[[line]]
+folder = "battle match drawn"
+texts = ["The match is a tie!", "A shared victory!"]

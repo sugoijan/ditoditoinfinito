@@ -148,7 +148,8 @@ are left out (the combos, the comments, `life lost`, `last life`, the
 full combos, `cleared`, `failed` and the results' grades, records and
 cheer), so that a chart's clear is never heard as a win: the battle's
 lines speak instead, and a pack without them is quiet but for its
-fallbacks. A quit stage still says `evaluation quit`.
+fallbacks (our own announcers have them all). A quit stage still says
+`evaluation quit`.
 
 | Folder | When | Falls back to |
 |---|---|---|
