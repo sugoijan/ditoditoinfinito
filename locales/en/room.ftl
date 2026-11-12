@@ -242,6 +242,112 @@ room-rules-apply = Apply
 # Leaves the room for the multiplayer home, forgetting the practice.
 room-leave = Leave room
 
+## The room's host (2026-11-12). When its host goes, an online room is
+## passed on to someone else or closes, by a setting of the room's that
+## its host chooses. The host can make other players co-hosts (who help
+## run the room) and hand the room over to one of them ("Make host").
+## These are in the "Host options" pop-up, opened from the Players
+## pop-up by the host alone.
+
+# A button at the bottom of the Players pop-up (the host's alone, about
+# 14 letters), and the title of the pop-up it opens.
+room-host-options = Host options
+
+# A row's label in Host options (about 22 letters): what the room does
+# when its host leaves it or stays disconnected. Its value is one of the
+# two below, changed with the arrows beside it.
+room-host-leaves = If the host leaves
+
+# Its two values (about 16 letters each).
+room-host-leaves-pass = Pass it on
+room-host-leaves-close = Close the room
+
+# What each value does, in one sentence: under the row in Host options,
+# and as a quiet line in everyone's Players pop-up (wrapped, about 60
+# letters a line).
+room-host-leaves-pass-about = If the host leaves, a co-host becomes the host, or else the player who joined first.
+room-host-leaves-close-about = If the host leaves, the room closes for everyone.
+
+# The heading over the other players' rows in Host options (small, about
+# 20 letters): each row has the buttons below.
+room-host-people = Other players
+
+# In place of the rows when the host is alone in the room.
+room-host-nobody = Nobody else is here yet.
+
+# Buttons on another player's row in Host options (about 14 letters
+# each): make them a co-host, make a co-host an ordinary player again,
+# and hand the room over to them (asked once more first).
+room-make-co-host = Make co-host
+room-remove-co-host = Remove co-host
+room-make-host = Make host
+
+# The title of the question asked before the room is handed over.
+# Variables:
+#   $name (String) - the player's display name
+room-make-host-title = Make { $name } the host?
+
+# Its text (wrapped, about 60 letters a line): what happens. The button
+# that does it is room-make-host.
+# Variables:
+#   $name (String) - the player's display name
+room-make-host-body = { $name } will run the room and you will become a co-host. Only the new host can make you the host again.
+
+## Asking before leaving a room (2026-11-12): a dialog titled "Leave the
+## room?" with a sentence or two saying what leaving does in the case at
+## hand, and two buttons, Stay (chosen first) and Leave. It is shown only
+## where leaving costs the others or the player something: to an online
+## room's host; to someone playing, choosing the songs or co-hosting
+## while a match is running; in CPU practice with a match running. Back,
+## More's Leave room, closing the window and quitting the game all ask
+## it. The texts are wrapped, about 60 letters a line.
+
+# The dialog's title.
+room-leave-title = Leave the room?
+
+# Its first button (about 8 letters): nothing changes.
+room-leave-stay = Stay
+
+# Its second button (about 8 letters): leaves the room.
+room-leave-confirm = Leave
+
+# To the room's host, where the room is passed on to another player.
+# Variables:
+#   $name (String) - the display name of the player who becomes the host
+room-leave-host-pass = You are the host. { $name } will become the host.
+
+# The same while a match is running.
+# Variables:
+#   $name (String) - the display name of the player who becomes the host
+room-leave-host-pass-match = You are the host. { $name } will become the host, and the match goes on without you.
+
+# To the room's host, where the room's setting says it closes when the
+# host leaves (others are in it).
+room-leave-host-close = You are the host. The room will close for everyone.
+
+# The same while a match is running.
+room-leave-host-close-match = You are the host. The room will close for everyone, and the match in progress will end.
+
+# To the room's host with nobody else in the room.
+room-leave-host-alone = You are the only one here. The room will close.
+
+# To the host of a room on a server that does not pass rooms on yet.
+room-leave-host-stays = You are the host. The room stays open without a host, and you can come back by its link.
+
+# To a player in the running match (not the host).
+room-leave-playing = You are in the match in progress. It goes on without you, and you score nothing for the stages you miss.
+
+# To the player choosing the room's songs while a match is running (not
+# the host, not playing in it).
+room-leave-picking = You are choosing the songs. The host will choose them instead, and the match goes on without you.
+
+# To a co-host while a match is running (not playing in it, not choosing
+# the songs).
+room-leave-co-host = You are a co-host. The match in progress goes on without you.
+
+# In CPU practice with a match running.
+room-leave-practice = The match in progress will be lost.
+
 ## A stage's play: the CPU opponents' small fields beside the field,
 ## each with its name and its level's stars above it, and Out once its
 ## life is gone (narrow: a few letters each).

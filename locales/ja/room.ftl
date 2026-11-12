@@ -134,6 +134,58 @@ room-rules-apply = 適用
 
 room-leave = ルームを出る
 
+## The room's host.
+
+room-host-options = ホスト設定
+
+room-host-leaves = ホストが退出したとき
+
+room-host-leaves-pass = 引き継ぐ
+room-host-leaves-close = ルームを閉じる
+
+room-host-leaves-pass-about = ホストが退出すると、共同ホスト、いなければ最初に参加したプレイヤーがホストになります。
+room-host-leaves-close-about = ホストが退出すると、このルームは全員に対して閉じられます。
+
+room-host-people = ほかのプレイヤー
+
+room-host-nobody = まだほかに誰もいません。
+
+room-make-co-host = 共同ホストにする
+room-remove-co-host = 共同ホストから外す
+room-make-host = ホストにする
+
+room-make-host-title = { $name }をホストにしますか？
+
+room-make-host-body = { $name }がルームを管理し、あなたは共同ホストになります。もう一度ホストになるには、新しいホストに戻してもらう必要があります。
+
+## Asking before leaving a room.
+
+room-leave-title = ルームを出ますか？
+
+room-leave-stay = 残る
+
+room-leave-confirm = 出る
+
+room-leave-host-pass = あなたはホストです。{ $name }がホストになります。
+
+room-leave-host-pass-match = あなたはホストです。{ $name }がホストになり、対戦はあなた抜きで続きます。
+
+room-leave-host-close = あなたはホストです。ルームは全員に対して閉じられます。
+
+room-leave-host-close-match = あなたはホストです。ルームは全員に対して閉じられ、進行中の対戦は終了します。
+
+room-leave-host-alone = ここにはあなたしかいません。ルームは閉じられます。
+
+room-leave-host-stays = あなたはホストです。ルームはホストがいないまま開いた状態になり、リンクから戻れます。
+
+room-leave-playing = 進行中の対戦に参加しています。対戦はあなた抜きで続き、参加しなかったステージは0点になります。
+
+room-leave-picking = あなたが選曲しています。代わりにホストが選曲し、対戦はあなた抜きで続きます。
+
+room-leave-co-host = あなたは共同ホストです。進行中の対戦はあなた抜きで続きます。
+
+room-leave-practice = 進行中の対戦は失われます。
+
 ## A stage's prompt, results and the room between stages.
 
 room-prompt-stage = ステージ { $number } / { $stages } · CPU { $cpus }人とタップのみの譜面で対戦 · ゲージが尽きるとアウト

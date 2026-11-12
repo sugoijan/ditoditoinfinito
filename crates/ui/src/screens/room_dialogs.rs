@@ -2,10 +2,12 @@
 //! rules study"; M7b's flow): Rules (the first one entering opens, Reset and
 //! OK; from its button later, Cancel and Apply), with practice's CPU roster
 //! in it (Add random, Add custom by level or name: [`AddCpuDialog`]); the
-//! players and the match's picks ([`PlayersDialog`]); a stage's standings
-//! and the match's results ([`StandingsDialog`]); and a refusal said
-//! ([`NoticeDialog`]). The room validates what is applied; the dialogs
-//! only word its answer.
+//! players and the match's picks ([`PlayersDialog`]), from which an online
+//! room's host opens Host options ([`HostDialog`]: what the room does when
+//! its host leaves, co-hosts made and removed, the room handed over); a
+//! stage's standings and the match's results ([`StandingsDialog`]); and a
+//! refusal said ([`NoticeDialog`]). The room validates what is applied;
+//! the dialogs only word its answer.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -14,12 +16,14 @@ use ddi_actor::Actor;
 use ddi_l10n::UiText;
 use ddi_l10n::msg::{common, room as m};
 use ddi_room::{
-    Capability, MatchDifficulty, MatchRules, MemberKind, OpponentSpec, Phase, StageStanding,
+    Capability, HostLeaves, MatchDifficulty, MatchRules, MemberKind, OpponentSpec, ParticipantId,
+    Phase, Role, StageStanding,
 };
 
 use super::dialog::{button, fitted_dialog, shell};
 use super::room::{
-    cpu_level, cpu_name, cpu_sub, level_line_right, mark_text, panel, panel_rows, publish_dialog,
+    PanelRow, cpu_level, cpu_name, cpu_sub, level_line_right, mark_text, panel, person_name,
+    players_first_rows, publish_dialog,
 };
 use super::{Env, left, right};
 use crate::look;
@@ -1225,15 +1229,21 @@ impl Drop for AddCpuDialog {
     }
 }
 
-/// The players and the match's picks (M7b: the host's view of what the
-/// others see beside song select), scrolling: Up and Down, the wheel, or
-/// the marks.
+/// The players, then the match's picks (M7b: the host's view of what the
+/// others see beside song select; the players first since 2026-11-12:
+/// their rows are what an online room's host acts on), scrolling: Up and
+/// Down, the wheel, or the marks. Everyone's says what the room does when
+/// its host leaves; the host's has Host options ([`HostDialog`]) and a
+/// tap on another person's row opens it on them.
 pub struct PlayersDialog {
     env: Env,
     room: SharedRoom,
     first: usize,
     /// The room's version built.
     seen: u64,
+    /// The local player may change the room's hosts (as built): Host
+    /// options is offered.
+    manages: bool,
 }
 
 impl PlayersDialog {
@@ -1243,13 +1253,15 @@ impl PlayersDialog {
             room,
             first: 0,
             seen: u64::MAX,
+            manages: false,
         }
     }
 
     fn scroll(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
         self.first = (self.first as i64 + i64::from(by)).max(0) as usize;
+        let focused = cx.focused().map(str::to_string);
         *root = self.build(cx);
-        super::restore_focus(root, Some("Close"));
+        super::restore_focus(root, focused.as_deref().or(Some("Close")));
     }
 }
 
@@ -1271,8 +1283,23 @@ impl Screen for PlayersDialog {
         let (mut c, [x, y]) = shell(&env, screen, [w, h], &m::players());
         let r = self.room.borrow();
         self.seen = r.version();
-        let rows = panel_rows(&r);
+        let mut rows = players_first_rows(&r);
         let status: String = super::room::status(&r).into();
+        // What the room does when its host leaves, said to everyone
+        // (where the room says).
+        let about: Option<String> = r.has_succession().then(|| host_leaves_about(&r).into());
+        // The host's: Host options, and a tap on another person's row.
+        self.manages = r.manages_hosts();
+        if self.manages {
+            let others: Vec<u64> = r.other_people().iter().map(|mb| mb.id.0).collect();
+            for row in &mut rows {
+                if let PanelRow::Player(p) = row
+                    && p.id.is_some_and(|id| others.contains(&id))
+                {
+                    p.manage = true;
+                }
+            }
+        }
         drop(r);
         let mut sy = y + 64.0;
         for (i, line) in super::dialog::wrap_lines(&status, w - 48.0, 13.0)
@@ -1284,6 +1311,19 @@ impl Screen for PlayersDialog {
             look::ellipsized(&mut t, w - 48.0);
             c.push(left(t, x + 24.0, sy + 8.0));
             sy += 18.0;
+        }
+        if let Some(about) = &about {
+            for (i, line) in super::dialog::wrap_lines(about, w - 48.0, 12.0)
+                .iter()
+                .take(2)
+                .enumerate()
+            {
+                let mut t = env.text(&format!("HostLeaves{i}"), line, 12.0, 400, "Muted");
+                look::ellipsized(&mut t, w - 48.0);
+                c.push(left(t, x + 24.0, sy + 10.0));
+                sy += 17.0;
+            }
+            sy += 2.0;
         }
         let (p, first) = panel(
             &env,
@@ -1301,19 +1341,54 @@ impl Screen for PlayersDialog {
             140.0,
             "Button",
         ));
-        self.env.state.borrow_mut().page_items = vec!["Close".into()];
+        if self.manages {
+            let label = m::host_options();
+            let bw = (look::mono_width(&label, 15.0) + 32.0).clamp(120.0, w - 48.0 - 150.0);
+            c.push(button(
+                &env,
+                HOST_OPTIONS,
+                &label,
+                [x + 24.0 + bw / 2.0, y + h - 36.0],
+                bw,
+                "Button",
+            ));
+        }
+        self.env.state.borrow_mut().page_items =
+            self.focusables().into_iter().map(|f| f.name).collect();
         publish_dialog(&env, |v| v.players_open = true);
         fitted_dialog(c, screen, h, scale)
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        vec![Focusable::new("Close")]
+        if self.manages {
+            // Close first: the pop-up opens on it, as everyone's.
+            vec![
+                Focusable {
+                    left: Some(HOST_OPTIONS.into()),
+                    ..Focusable::new("Close")
+                },
+                Focusable {
+                    right: Some("Close".into()),
+                    ..Focusable::new(HOST_OPTIONS)
+                },
+            ]
+        } else {
+            vec![Focusable::new("Close")]
+        }
     }
 
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
         if self.room.borrow().version() != self.seen {
             *root = self.build(cx);
-            super::restore_focus(root, Some("Close"));
+            // The host's button goes with the role.
+            let focused = cx.focused().map(str::to_string);
+            let kept = focused
+                .filter(|f| self.focusables().iter().any(|n| n.name == *f))
+                .unwrap_or_else(|| {
+                    cx.focus("Close");
+                    "Close".into()
+                });
+            super::restore_focus(root, Some(&kept));
         }
     }
 
@@ -1342,12 +1417,486 @@ impl Screen for PlayersDialog {
                 self.scroll(by, root, cx);
                 Handled::Yes
             }
+            Input::Activate { name } if name == HOST_OPTIONS => {
+                if self.manages {
+                    cx.overlay(
+                        HostDialog::new(self.env.clone(), self.room.clone(), None),
+                        true,
+                    );
+                }
+                Handled::Yes
+            }
+            // The host taps another person's row: Host options, on them.
+            Input::Pointer {
+                target: Some(t),
+                gesture: crate::Gesture::Tap,
+                ..
+            } if self.manages && t.name.starts_with("Person.") => {
+                let id = t.name.strip_prefix("Person.").and_then(|n| n.parse().ok());
+                cx.overlay(
+                    HostDialog::new(self.env.clone(), self.room.clone(), id),
+                    true,
+                );
+                Handled::Yes
+            }
             Input::Activate { .. } | Input::Outside => {
                 cx.close(true);
                 Handled::Yes
             }
             _ => Handled::No,
         }
+    }
+}
+
+/// What the room does when its host leaves, in a sentence.
+fn host_leaves_about(r: &crate::state::room::RoomClient) -> UiText {
+    match r.if_host_leaves() {
+        HostLeaves::PassOn => m::host_leaves_pass_about(),
+        HostLeaves::Close => m::host_leaves_close_about(),
+    }
+}
+
+/// The Players pop-up's button that opens Host options (the host's).
+pub const HOST_OPTIONS: &str = "HostOptions";
+
+/// A person's row in Host options: its height with the buttons beside
+/// the name, and with them under it (a narrow pop-up).
+const PERSON_ROW: f32 = 48.0;
+const PERSON_ROW_TALL: f32 = 80.0;
+
+/// Host options (2026-11-12): an online room's host's own. What the room
+/// does when its host leaves (`ddi_room::HostLeaves`, where the room
+/// passes on: its two values, each said in a sentence), and the other
+/// people in the room, each with Make co-host or Remove co-host and Make
+/// host (asked once more: the giver cannot undo it alone). Never a bot or
+/// a CPU: they follow a room. The room decides; the rows follow it.
+pub struct HostDialog {
+    env: Env,
+    room: SharedRoom,
+    /// The people's first row shown.
+    first: usize,
+    /// The person to show first (their row tapped).
+    at: Option<u64>,
+    /// What to focus on opening: that person's first button, else Close
+    /// (nothing changes by a press too many).
+    focus_first: Option<String>,
+    /// The room's version built.
+    seen: u64,
+    /// The rows that fit.
+    fit: usize,
+}
+
+/// One of the other people, as Host options lists them.
+struct Person {
+    id: u64,
+    name: String,
+    sub: String,
+    co_host: bool,
+    /// The room may be handed to them now (there, connected).
+    can_host: bool,
+}
+
+impl HostDialog {
+    pub fn new(env: Env, room: SharedRoom, at: Option<u64>) -> HostDialog {
+        HostDialog {
+            env,
+            room,
+            first: 0,
+            at,
+            focus_first: Some(at.map_or_else(|| "Close".to_string(), |id| format!("CoHost.{id}"))),
+            seen: u64::MAX,
+            fit: 1,
+        }
+    }
+
+    fn people(&self) -> Vec<Person> {
+        let r = self.room.borrow();
+        r.other_people()
+            .into_iter()
+            .map(|mb| {
+                let role: Option<String> = match (mb.role, mb.admin) {
+                    (Role::CoHost, _) => Some(m::role_co_host().into()),
+                    (_, true) => Some(m::role_admin().into()),
+                    _ => None,
+                };
+                let away: Option<String> = match mb.connection {
+                    ddi_room::Connection::Connected => None,
+                    ddi_room::Connection::Joining => Some(m::conn_joining().into()),
+                    ddi_room::Connection::Reconnecting => Some(m::conn_reconnecting().into()),
+                    ddi_room::Connection::Disconnected => Some(m::conn_away().into()),
+                };
+                Person {
+                    id: mb.id.0,
+                    name: person_name(mb),
+                    sub: [role, away]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .join(" · "),
+                    co_host: mb.role == Role::CoHost,
+                    can_host: r.may_make_host(mb.id),
+                }
+            })
+            .collect()
+    }
+
+    fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx) {
+        let focused = cx.focused().map(str::to_string);
+        *root = self.build(cx);
+        let kept = focused
+            .filter(|f| self.focusables().iter().any(|n| n.name == *f))
+            .unwrap_or_else(|| {
+                cx.focus("Close");
+                "Close".into()
+            });
+        super::restore_focus(root, Some(&kept));
+    }
+
+    fn scroll(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
+        let len = self.people().len();
+        self.first = scrolled(self.first, by, len, len.min(self.fit));
+        self.rebuild(root, cx);
+    }
+}
+
+impl Screen for HostDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
+    fn name(&self) -> &str {
+        "room-host"
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        let vp = cx.viewport().screen;
+        let (screen, scale) = super::narrow_fit(&self.env, vp);
+        let env = self.env.clone();
+        let w = 560.0_f32.min(screen[0] - 16.0);
+        let inner = w - 48.0;
+        let people = self.people();
+        let (succession, policy) = {
+            let r = self.room.borrow();
+            self.seen = r.version();
+            (r.has_succession(), r.if_host_leaves())
+        };
+        let about: Vec<String> = if succession {
+            let text: String = host_leaves_about(&self.room.borrow()).into();
+            super::dialog::wrap_lines(&text, inner, 13.0)
+        } else {
+            Vec::new()
+        };
+        let setting_h = if succession {
+            ROW + about.len() as f32 * 18.0 + 14.0
+        } else {
+            0.0
+        };
+        // The buttons beside the name where there is room, else under it.
+        let one_line = inner >= 500.0;
+        let row_h = if one_line { PERSON_ROW } else { PERSON_ROW_TALL };
+        let fixed = 64.0 + setting_h + 28.0 + 72.0;
+        // As many rows as the screen has room for (six at most); where
+        // not everyone fits, the marks that scroll them take their room.
+        let rows_in = |h: f32| ((h / row_h).floor().max(1.0) as usize).min(6);
+        let room_for = screen[1] - 32.0 - fixed;
+        self.fit = rows_in(room_for);
+        if people.len() > self.fit {
+            self.fit = rows_in(room_for - 2.0 * MARK);
+        }
+        let shown = people.len().min(self.fit);
+        // The person whose row was tapped is in view.
+        if let Some(at) = self.at
+            && let Some(k) = people.iter().position(|p| p.id == at)
+            && !(self.first..self.first + shown).contains(&k)
+        {
+            self.first = k;
+        }
+        self.first = scrolled(self.first, 0, people.len(), shown);
+        let marks = if people.len() > shown { 2.0 * MARK } else { 0.0 };
+        let h = fixed + shown.max(1) as f32 * row_h + marks;
+        let (mut c, [x, y]) = shell(&env, screen, [w, h], &m::host_options());
+        let x0 = x + 24.0;
+        let mut ry = y + 64.0;
+        if succession {
+            // The setting: its label, its value between the two buttons
+            // that change it, and what the value does.
+            let mid = ry + ROW / 2.0;
+            let mut label = env.text("HostLeaves", &m::host_leaves(), 14.0, 400, "Secondary");
+            look::ellipsized(&mut label, inner - 250.0);
+            c.push(left(label, x0, mid));
+            let (value, lo, hi) = match policy {
+                HostLeaves::PassOn => (m::host_leaves_pass(), false, true),
+                HostLeaves::Close => (m::host_leaves_close(), true, false),
+            };
+            c.push(button(
+                &env,
+                "Dec.leaves",
+                &m::rules_previous(),
+                [x0 + inner - 210.0, mid],
+                36.0,
+                if lo { "Button" } else { "Button.Disabled" },
+            ));
+            let mut v = env.text("HostLeaves.Value", &value, 14.0, 600, "Text");
+            look::ellipsized(&mut v, 150.0);
+            look::call(&mut v, "xy", &[x0 + inner - 114.0, mid]);
+            c.push(v);
+            c.push(button(
+                &env,
+                "Inc.leaves",
+                &m::rules_next(),
+                [x0 + inner - 18.0, mid],
+                36.0,
+                if hi { "Button" } else { "Button.Disabled" },
+            ));
+            let mut ay = ry + ROW + 8.0;
+            for (i, line) in about.iter().enumerate() {
+                let t = env.text(&format!("HostLeaves.About{i}"), line, 13.0, 400, "Muted");
+                c.push(left(t, x0, ay));
+                ay += 18.0;
+            }
+            ry += setting_h;
+        }
+        c.push(left(
+            look::tracked(
+                env.text("People.Heading", &m::host_people(), 11.0, 700, "Faint"),
+                120,
+            ),
+            x0,
+            ry + 12.0,
+        ));
+        ry += 28.0;
+        if people.is_empty() {
+            c.push(left(
+                env.text("People.None", &m::host_nobody(), 14.0, 400, "Muted"),
+                x0,
+                ry + row_h / 2.0,
+            ));
+        }
+        if people.len() > shown {
+            c.push(env.component(
+                "Link",
+                "Button",
+                &look::Spec::new([inner, 22.0], &*m::panel_more_above(self.first)),
+                "People.Up",
+                [x0 + inner / 2.0, ry + MARK / 2.0],
+            ));
+            ry += MARK;
+        }
+        // The two buttons' widths, as wide as their longer labels.
+        let width = |t: &str| look::mono_width(t, 15.0) + 28.0;
+        let co_w = width(&m::make_co_host())
+            .max(width(&m::remove_co_host()))
+            .min((inner - 10.0) * 0.58);
+        let host_w = width(&m::make_host()).min((inner - 10.0) * 0.42);
+        for p in people.iter().skip(self.first).take(shown) {
+            let name_w = if one_line {
+                (inner - co_w - host_w - 28.0).max(60.0)
+            } else {
+                inner
+            };
+            let (name_y, sub_y) = if one_line {
+                (ry + row_h / 2.0 - 9.0, ry + row_h / 2.0 + 10.0)
+            } else {
+                (ry + 12.0, ry + 30.0)
+            };
+            let alone = p.sub.is_empty() && one_line;
+            let mut name = env.text(&format!("Person{}.Name", p.id), &p.name, 15.0, 600, "Text");
+            look::ellipsized(&mut name, name_w);
+            c.push(left(
+                name,
+                x0,
+                if alone { ry + row_h / 2.0 } else { name_y },
+            ));
+            if !p.sub.is_empty() {
+                let mut sub = env.text(&format!("Person{}.Sub", p.id), &p.sub, 12.0, 400, "Muted");
+                look::ellipsized(&mut sub, name_w);
+                c.push(left(sub, x0, sub_y));
+            }
+            let by = if one_line {
+                ry + row_h / 2.0
+            } else {
+                ry + row_h - 26.0
+            };
+            let co_label = if p.co_host {
+                m::remove_co_host()
+            } else {
+                m::make_co_host()
+            };
+            c.push(button(
+                &env,
+                &format!("CoHost.{}", p.id),
+                &co_label,
+                [x0 + inner - host_w - 10.0 - co_w / 2.0, by],
+                co_w,
+                "Button",
+            ));
+            if succession {
+                c.push(button(
+                    &env,
+                    &format!("MakeHost.{}", p.id),
+                    &m::make_host(),
+                    [x0 + inner - host_w / 2.0, by],
+                    host_w,
+                    if p.can_host {
+                        "Button"
+                    } else {
+                        "Button.Disabled"
+                    },
+                ));
+            }
+            ry += row_h;
+        }
+        if people.len() > shown {
+            let below = people.len() - self.first - shown;
+            c.push(env.component(
+                "Link",
+                "Button",
+                &look::Spec::new([inner, 22.0], &*m::panel_more_below(below)),
+                "People.Down",
+                [x0 + inner / 2.0, ry + MARK / 2.0],
+            ));
+        }
+        c.push(button(
+            &env,
+            "Close",
+            &common::close(),
+            [x + w - 24.0 - 70.0, y + h - 36.0],
+            140.0,
+            "Button",
+        ));
+        self.env.state.borrow_mut().page_items =
+            self.focusables().into_iter().map(|f| f.name).collect();
+        publish_dialog(&env, |v| v.host_open = true);
+        fitted_dialog(c, screen, h, scale)
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        let pair = |v: &mut Vec<Focusable>, a: String, b: String| {
+            v.push(Focusable {
+                right: Some(b.clone()),
+                ..Focusable::new(a.clone())
+            });
+            v.push(Focusable {
+                left: Some(a),
+                ..Focusable::new(b)
+            });
+        };
+        let mut v = Vec::new();
+        let succession = self.room.borrow().has_succession();
+        if succession {
+            pair(&mut v, "Dec.leaves".into(), "Inc.leaves".into());
+        }
+        let people = self.people();
+        let shown = people.len().min(self.fit);
+        if people.len() > shown {
+            v.push(Focusable::new("People.Up"));
+        }
+        for p in people.iter().skip(self.first).take(shown) {
+            if succession {
+                pair(
+                    &mut v,
+                    format!("CoHost.{}", p.id),
+                    format!("MakeHost.{}", p.id),
+                );
+            } else {
+                v.push(Focusable::new(format!("CoHost.{}", p.id)));
+            }
+        }
+        if people.len() > shown {
+            v.push(Focusable::new("People.Down"));
+        }
+        v.push(Focusable::new("Close"));
+        v
+    }
+
+    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+        // No longer the host's (the room handed over, the link gone).
+        if !self.room.borrow().manages_hosts() {
+            cx.close(true);
+            return;
+        }
+        if let Some(name) = self.focus_first.take() {
+            self.at = None;
+            if self.focusables().iter().any(|f| f.name == name) {
+                cx.focus(name);
+            }
+            self.rebuild(root, cx);
+            return;
+        }
+        if self.room.borrow().version() != self.seen {
+            self.rebuild(root, cx);
+        }
+    }
+
+    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        match input {
+            Input::Wheel { delta, .. } => {
+                self.scroll(if delta[1] > 0.0 { 1 } else { -1 }, root, cx);
+                Handled::Yes
+            }
+            Input::Activate { name } => {
+                match name.as_str() {
+                    "Dec.leaves" | "Inc.leaves" => {
+                        let policy = if name == "Inc.leaves" {
+                            HostLeaves::Close
+                        } else {
+                            HostLeaves::PassOn
+                        };
+                        let _ = self.room.borrow_mut().set_host_leaves(policy);
+                        self.rebuild(root, cx);
+                    }
+                    "People.Up" => self.scroll(-1, root, cx),
+                    "People.Down" => self.scroll(1, root, cx),
+                    "Close" => cx.close(true),
+                    other => {
+                        let person = |prefix: &str| {
+                            other
+                                .strip_prefix(prefix)
+                                .and_then(|n| n.parse::<u64>().ok())
+                                .and_then(|id| self.people().into_iter().find(|p| p.id == id))
+                        };
+                        if let Some(p) = person("CoHost.") {
+                            let _ = self
+                                .room
+                                .borrow_mut()
+                                .set_co_host(ParticipantId(p.id), !p.co_host);
+                            self.rebuild(root, cx);
+                        } else if let Some(p) = person("MakeHost.")
+                            && p.can_host
+                        {
+                            // Asked once more: the giver cannot take it
+                            // back alone.
+                            let room = self.room.clone();
+                            let id = ParticipantId(p.id);
+                            cx.overlay(
+                                super::dialog::ConfirmDialog::new(
+                                    self.env.clone(),
+                                    &m::make_host_title(p.name.as_str()),
+                                    &m::make_host_body(p.name.as_str()),
+                                    &m::make_host(),
+                                    Rc::new(move |_| {
+                                        let _ = room.borrow_mut().make_host(id);
+                                    }),
+                                ),
+                                true,
+                            );
+                        }
+                    }
+                }
+                Handled::Yes
+            }
+            Input::Outside => {
+                cx.close(true);
+                Handled::Yes
+            }
+            _ => Handled::No,
+        }
+    }
+}
+
+impl Drop for HostDialog {
+    fn drop(&mut self) {
+        publish_dialog(&self.env, |v| v.host_open = false);
     }
 }
 

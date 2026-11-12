@@ -3522,6 +3522,53 @@ capability.
   `room_closed`), from a message or from the alarm that ends a reconnect
   grace.
 
+### Promoting someone (the screens)
+
+`Command::SetCoHost` had no screen. Now:
+
+- **Host options** (`room_dialogs::HostDialog`), an online room's
+  owner's alone, opened from the Players pop-up: its button at the
+  pop-up's bottom left (keyboard and controller: Left from Close), or a
+  tap on another person's row there (the rows the owner can act on sit
+  on a faint plate; the pop-up opens on that person). It holds:
+  - **"If the host leaves"**, as a row like the Rules pop-up's (its
+    value between two arrows: Pass it on, Close the room), with the
+    value's sentence under it ("If the host leaves, a co-host becomes
+    the host, or else the player who joined first." / "If the host
+    leaves, the room closes for everyone."). Applied at once, in every
+    phase. Chosen over the Rules pop-up: Rules is the next match's
+    draft with Cancel and Apply and locks with a match; this is the
+    room's, changes at once and belongs with who runs it.
+  - **Other players**, each on a row with **Make co-host** or **Remove
+    co-host** and **Make host**. Make host asks once more ("Make carol
+    the host?", Cancel first): the giver becomes a co-host and cannot
+    take it back alone. Make host is grayed for someone who is not
+    connected (the room would refuse); a co-host may be made while
+    away. Never a bot's row or a CPU's.
+  - It closes by itself when the player stops being the owner (the room
+    handed over).
+- **Everyone's Players pop-up** says the room's setting in the same
+  sentence, under the status, and lists the players before the picks
+  now (it listed the picks first; the players' rows are what the host
+  acts on, and on a phone they were below the fold).
+- **The roles as they change**: every client's rows say Host, Co-host
+  and who is picking from the room's state, as before; a co-host gets
+  Pick songs at once; a new owner the controls. A change of owner alone
+  rebuilds nothing (the rows refill); where the pick moves with it (a
+  host who left while choosing), the new picker's view changes hands by
+  the existing one swap.
+- **A room whose authority does not pass on** (no `hosting`): Host
+  options has the co-host buttons alone (that command is older); no
+  setting, no Make host, no line in the Players pop-up, and nothing is
+  sent that it could not read (`RoomClient::set_host_leaves` and
+  `make_host` send nothing there).
+- **Bots**: a bot that made the room (`--mp-bots --host`) is its owner
+  as before and never opens Host options; a bot's row has no controls
+  and the room refuses a bot as co-host or host.
+- The debug state (`ThemeState::room`): `manages_hosts`, `host_leaves`
+  (`pass_on`, `close`; none where the room does not pass on),
+  `host_open`.
+
 ### Tested (the model and the server)
 
 - `crates/room` (108 tests, 10 new): the walkthroughs (leaving with
@@ -3536,6 +3583,22 @@ capability.
   fake server's grace (`FakeServer::set_grace`) and close (every socket
   4410, the leaver 4000, no ticket after). The picker's fallback test
   was rewritten for a room that passes on.
+- `ddi-ui` (4 new tests; 510 in its library): over the fake room with
+  three clients and their screens: the owner makes and removes a
+  co-host, sets Close and back, and hands the room over (asked once
+  more, Cancel changing nothing), the views of the owner, the one
+  promoted and a member after each, the new owner handing it back; the
+  same by keyboard and by controller, and a touch on a person's row; a
+  bot's row without controls, someone away never handed the room, a
+  room that does not pass on with co-hosts alone and nothing sent; the
+  owner leaving and the room changing hands on the others' screens. The
+  `qps-ploc` walk has the pop-ups, wide and narrow.
+- Desktop, offscreen in the game's theme over the fake room
+  (`tests/room_host_offscreen.rs`, the harness shared with the picker's
+  pictures in `tests/room_fake/`): the owner's Players pop-up, Host
+  options with each value, a member's Players pop-up, the question
+  before the handover, both sides after it, at 1280×720 and 844×390,
+  English and Japanese; looked at.
 - `../ddi-server` (56 tests, 2 new; 57 with the development provider):
   a host who leaves passes the room on, comes back a co-host with no
   invite, and under Close ends the room for every request and socket;

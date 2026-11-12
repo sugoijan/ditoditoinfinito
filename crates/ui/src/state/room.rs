@@ -960,6 +960,81 @@ impl RoomClient {
         self.send(Command::TakePick)
     }
 
+    /// Whether this online room's authority passes a room on when its
+    /// host goes (`ddi_room::Hosting`: the room says its setting). Not
+    /// where it predates that: its commands are never sent there, and a
+    /// host's leaving leaves the room without one. Practice: no.
+    pub fn has_succession(&self) -> bool {
+        self.is_online() && self.state().has_succession()
+    }
+
+    /// What the room does when its host goes (meaningful where
+    /// [`RoomClient::has_succession`]).
+    pub fn if_host_leaves(&self) -> ddi_room::HostLeaves {
+        self.state().if_host_leaves()
+    }
+
+    /// Whether the local player may change the room's hosts now: an
+    /// online room's owner, connected (co-hosts made and removed, and
+    /// where the room passes on, the room handed over and its setting).
+    pub fn manages_hosts(&self) -> bool {
+        self.is_online()
+            && self.link_state() == LinkState::Connected
+            && self.may(Capability::ManageCoHosts)
+    }
+
+    /// The people whose role the owner may change: everyone else present,
+    /// by joining order; never a bot (a bot follows a room) nor a CPU.
+    pub fn other_people(&self) -> Vec<&ddi_room::Member> {
+        self.state()
+            .members
+            .values()
+            .filter(|m| m.id != self.me && !m.left && !m.is_cpu() && !m.is_bot())
+            .collect()
+    }
+
+    /// The owner sets what the room does when its host goes. Nothing is
+    /// sent where the room does not pass on or the player may not.
+    pub fn set_host_leaves(&mut self, policy: ddi_room::HostLeaves) -> Result<(), Refusal> {
+        if !self.has_succession() || !self.manages_hosts() || self.if_host_leaves() == policy {
+            return Ok(());
+        }
+        self.send(Command::SetHostLeaves { policy })
+    }
+
+    /// The owner makes `participant` a co-host, or a member again.
+    pub fn set_co_host(&mut self, participant: ParticipantId, on: bool) -> Result<(), Refusal> {
+        if !self.manages_hosts() {
+            return Ok(());
+        }
+        self.send(Command::SetCoHost { participant, on })
+    }
+
+    /// Whether the owner may hand the room to `participant` now: a room
+    /// that passes on, and someone there to run it (present, connected,
+    /// a person).
+    pub fn may_make_host(&self, participant: ParticipantId) -> bool {
+        self.has_succession()
+            && self.manages_hosts()
+            && self.may(Capability::MakeHost)
+            && self.state().member(participant).is_some_and(|m| {
+                m.id != self.me
+                    && !m.left
+                    && !m.is_cpu()
+                    && !m.is_bot()
+                    && m.connection == ddi_room::Connection::Connected
+            })
+    }
+
+    /// The owner hands the room to `participant` and becomes a co-host.
+    /// Nothing is sent where it may not be.
+    pub fn make_host(&mut self, participant: ParticipantId) -> Result<(), Refusal> {
+        if !self.may_make_host(participant) {
+            return Ok(());
+        }
+        self.send(Command::MakeHost { participant })
+    }
+
     /// The local player's role and admin flag.
     pub fn my_role(&self) -> Option<(Role, bool)> {
         self.state().member(self.me).map(|m| (m.role, m.admin))

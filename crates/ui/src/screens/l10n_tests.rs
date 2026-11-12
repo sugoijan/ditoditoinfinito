@@ -1420,6 +1420,42 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     step(400);
     shown(&mut ha, found);
     shown(&mut hb, found);
+    // The host's: the Players pop-up with Host options, the setting's two
+    // values, a co-host's and a member's buttons, the question before
+    // the room is handed over. A member's Players pop-up says the
+    // setting too.
+    for h in [&mut ha, &mut hb] {
+        // Its button in the header, or More's item where there is no
+        // room for it.
+        if h.ui.actor("Room.Players").is_some() {
+            h.tap(PointerKind::Mouse, "Room.Players");
+        } else {
+            h.tap(PointerKind::Mouse, "More");
+            h.run(0.3);
+            h.tap(PointerKind::Mouse, "Item.players");
+        }
+        shown(h, found);
+    }
+    hb.tap(PointerKind::Mouse, "Close");
+    hb.run(0.3);
+    ha.tap(PointerKind::Mouse, super::room_dialogs::HOST_OPTIONS);
+    shown(&mut ha, found);
+    for name in ["Inc.leaves", "Dec.leaves", "CoHost.2"] {
+        ha.tap(PointerKind::Mouse, name);
+        step(400);
+        shown(&mut ha, found);
+    }
+    ha.tap(PointerKind::Mouse, "MakeHost.2");
+    shown(&mut ha, found);
+    ha.tap(PointerKind::Mouse, "Cancel");
+    ha.run(0.3);
+    ha.tap(PointerKind::Mouse, "CoHost.2");
+    step(400);
+    shown(&mut ha, found);
+    for _ in 0..2 {
+        ha.tap(PointerKind::Mouse, "Close");
+        ha.run(0.3);
+    }
     hb.tap(PointerKind::Mouse, "More");
     shown(&mut hb, found);
     hb.key("Escape", "Escape");

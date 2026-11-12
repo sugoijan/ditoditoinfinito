@@ -2488,3 +2488,325 @@ fn a_room_that_cannot_be_joined_says_why() {
     assert_eq!(alpha(&h, "RoomJoining"), 1.0);
     assert_eq!(view(&env).status, "You left this room.");
 }
+
+fn role_of(v: &super::room::RoomView, id: u64) -> String {
+    v.members
+        .iter()
+        .find(|m| m.id == id)
+        .map(|m| m.role.clone())
+        .unwrap_or_default()
+}
+
+/// The host's controls (2026-11-12). An online room's owner alone has
+/// Host options in the Players pop-up: Make co-host and Remove co-host,
+/// the room's "If the host leaves" setting with each value said in a
+/// sentence (said to everyone in their Players pop-up), and Make host,
+/// asked once more. After each, the views of the owner, of the one
+/// promoted and of a member say the roles as the room has them; the one
+/// made a co-host gets Pick songs, and a handed-over room's new owner
+/// the controls.
+#[test]
+fn the_host_makes_co_hosts_sets_what_leaving_does_and_hands_the_room_over() {
+    let t = Three::new(false);
+    let (ea, eb, ec) = (env(), env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    let (a, b, c) = (view(&ea), view(&eb), view(&ec));
+    assert!(a.manages_hosts && !b.manages_hosts && !c.manages_hosts);
+    for v in [&a, &b, &c] {
+        assert_eq!(v.host_leaves.as_deref(), Some("pass_on"));
+    }
+    let pass = "If the host leaves, a co-host becomes the host, or else the player who joined first.";
+    let close = "If the host leaves, the room closes for everyone.";
+    // A member's Players pop-up says what the room does, and has no
+    // controls; a tap on someone's row does nothing.
+    press(&mut hb, "Room.Players");
+    assert_eq!(top(&hb), "room-players");
+    assert!(has(&hb, pass) && !there(&hb, "HostOptions"));
+    assert!(!there(&hb, "Person.1") && !there(&hb, "Person.3"));
+    press(&mut hb, "Close");
+    // The owner's: the others' rows to tap, never their own, and Host
+    // options.
+    press(&mut ha, "Room.Players");
+    assert!(has(&ha, pass) && there(&ha, "HostOptions"));
+    assert!(there(&ha, "Person.2") && there(&ha, "Person.3") && !there(&ha, "Person.1"));
+    press(&mut ha, "HostOptions");
+    assert_eq!(top(&ha), "room-host");
+    assert!(view(&ea).host_open);
+    assert!(has(&ha, "bob") && has(&ha, "carol") && has(&ha, "Pass it on"));
+    // Make co-host: everyone's rows say so, and Bob may pick songs.
+    press(&mut ha, "CoHost.2");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    for e in [&ea, &eb, &ec] {
+        assert_eq!(role_of(&view(e), 2), "co_host");
+    }
+    assert!(has(&ha, "Remove co-host") && has(&ha, "Co-host"));
+    assert!(there(&hb, "Room.TakePick") && view(&eb).can_take_pick);
+    assert!(!view(&eb).manages_hosts, "a co-host has no such controls");
+    assert!(has(&hc, "Co-host"), "the member's players panel says it");
+    // Remove co-host.
+    press(&mut ha, "CoHost.2");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    for e in [&ea, &eb, &ec] {
+        assert_eq!(role_of(&view(e), 2), "member");
+    }
+    assert!(!there(&hb, "Room.TakePick") && !has(&ha, "Remove co-host"));
+    // The setting, to Close and back: each value in its sentence, told
+    // everyone.
+    press(&mut ha, "Inc.leaves");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert!(has(&ha, "Close the room") && has(&ha, close));
+    assert_eq!(view(&ec).host_leaves.as_deref(), Some("close"));
+    press(&mut hc, "Room.Players");
+    assert!(has(&hc, close));
+    press(&mut hc, "Close");
+    press(&mut ha, "Dec.leaves");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert!(has(&ha, "Pass it on") && has(&ha, pass));
+    assert_eq!(view(&eb).host_leaves.as_deref(), Some("pass_on"));
+    // Make host is asked once more; Cancel changes nothing.
+    press(&mut ha, "MakeHost.3");
+    assert_eq!(top(&ha), "confirm");
+    assert!(has(&ha, "Make carol the host?"));
+    assert_eq!(ha.ui.focused(), Some("Cancel"));
+    press(&mut ha, "Cancel");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(role_of(&view(&ec), 1), "owner");
+    press(&mut ha, "MakeHost.3");
+    press(&mut ha, "Confirm");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    // Carol owns the room; Alice is a co-host and her Host options are
+    // gone with the role; Bob is a member as before.
+    for e in [&ea, &eb, &ec] {
+        let v = view(e);
+        assert_eq!(
+            (role_of(&v, 1), role_of(&v, 2), role_of(&v, 3)),
+            ("co_host".into(), "member".into(), "owner".into())
+        );
+    }
+    assert_eq!(top(&ha), "room-players");
+    assert!(!view(&ea).host_open && !there(&ha, "HostOptions"));
+    assert_eq!(ha.ui.focused(), Some("Close"));
+    press(&mut ha, "Close");
+    assert!(view(&ec).manages_hosts && !view(&ea).manages_hosts);
+    // The pick stays with whoever has it: Alice still chooses, her list
+    // as it was; the new owner follows, with Pick songs.
+    assert!(view(&ea).host && list_shows(&ha) && has(&ha, "Alpha One"));
+    assert!(!view(&ec).host && there(&hc, "Room.TakePick"));
+    assert_eq!(view(&ec).status, "alice is choosing the first song.");
+    // The new owner hands it back with the same controls.
+    press(&mut hc, "Room.Players");
+    press(&mut hc, "HostOptions");
+    assert!(has(&hc, "Remove co-host"), "Alice, a co-host");
+    press(&mut hc, "MakeHost.1");
+    press(&mut hc, "Confirm");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(role_of(&view(&eb), 1), "owner");
+    assert_eq!(role_of(&view(&eb), 3), "co_host");
+}
+
+/// Host options by keyboard and by controller, and a tap on a person's
+/// row: the Players pop-up's Host options beside Close, the setting's
+/// arrows, a person's two buttons side by side, the question's Cancel
+/// first.
+#[test]
+fn host_options_work_by_keyboard_controller_and_a_tap_on_a_row() {
+    use crate::nav::MenuAction;
+    let t = Three::new(false);
+    let (ea, eb, ec) = (env(), env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    let step = |h: &mut Harness, action: MenuAction, pad: bool| {
+        if pad {
+            h.pad(action, true);
+            h.pad(action, false);
+        } else {
+            let code = match action {
+                MenuAction::Left => "ArrowLeft",
+                MenuAction::Right => "ArrowRight",
+                MenuAction::Up => "ArrowUp",
+                MenuAction::Down => "ArrowDown",
+                _ => "Enter",
+            };
+            h.key(code, code);
+        }
+        h.run(0.2);
+    };
+    let walk = |h: &mut Harness, name: &str, action: MenuAction, pad: bool| {
+        for _ in 0..12 {
+            if h.ui.focused() == Some(name) {
+                return;
+            }
+            step(h, action, pad);
+        }
+        panic!("never reached {name}: {:?}", h.ui.focused());
+    };
+    // A keyboard: Players, Left to Host options, Enter.
+    press(&mut ha, "Room.Players");
+    assert_eq!(ha.ui.focused(), Some("Close"));
+    walk(&mut ha, "HostOptions", MenuAction::Left, false);
+    step(&mut ha, MenuAction::Start, false);
+    assert_eq!(top(&ha), "room-host");
+    let names: Vec<String> = ea.state.borrow().page_items.clone();
+    assert_eq!(
+        names,
+        [
+            "Dec.leaves",
+            "Inc.leaves",
+            "CoHost.2",
+            "MakeHost.2",
+            "CoHost.3",
+            "MakeHost.3",
+            "Close"
+        ]
+    );
+    // The setting by its arrows.
+    walk(&mut ha, "Inc.leaves", MenuAction::Right, false);
+    step(&mut ha, MenuAction::Start, false);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(said(&ha, "HostLeaves.Value"), "Close the room");
+    assert_eq!(ha.ui.focused(), Some("Inc.leaves"), "the focus stays");
+    walk(&mut ha, "Dec.leaves", MenuAction::Left, false);
+    step(&mut ha, MenuAction::Start, false);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(said(&ha, "HostLeaves.Value"), "Pass it on");
+    // Down to Bob's row: Make co-host, then along it to Make host.
+    walk(&mut ha, "CoHost.2", MenuAction::Down, false);
+    step(&mut ha, MenuAction::Start, false);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(role_of(&view(&ec), 2), "co_host");
+    assert_eq!(ha.ui.focused(), Some("CoHost.2"));
+    // A controller: along the row to Make host, Start, then the question
+    // (Cancel first; Right, Start).
+    walk(&mut ha, "MakeHost.2", MenuAction::Right, true);
+    step(&mut ha, MenuAction::Start, true);
+    assert_eq!(top(&ha), "confirm");
+    assert_eq!(ha.ui.focused(), Some("Cancel"));
+    walk(&mut ha, "Confirm", MenuAction::Right, true);
+    step(&mut ha, MenuAction::Start, true);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(role_of(&view(&ec), 2), "owner");
+    assert_eq!(top(&ha), "room-players");
+    // Back in the pop-up closes it, as before.
+    step(&mut ha, MenuAction::Back, true);
+    ha.run(0.3);
+    assert_eq!(top(&ha), "select");
+    // Touch: the new owner taps Carol's row in their Players pop-up, and
+    // Host options opens on her.
+    press(&mut hb, "Room.Players");
+    hb.tap(PointerKind::Touch, "Person.3");
+    hb.run(0.5);
+    assert_eq!(top(&hb), "room-host");
+    assert_eq!(hb.ui.focused(), Some("CoHost.3"));
+    hb.tap(PointerKind::Touch, "CoHost.3");
+    hb.run(0.3);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(role_of(&view(&ea), 3), "co_host");
+}
+
+/// Who may be promoted and where: never a bot (its row has no controls),
+/// someone away cannot be handed the room, and a room whose authority
+/// does not pass rooms on offers co-hosts alone: no setting, no Make
+/// host, nothing sent that it could not read.
+#[test]
+fn host_options_leave_out_bots_the_away_and_what_an_older_room_cannot_do() {
+    use ddi_room::{Command, Connection, Identity, Intent, ParticipantId};
+    let t = Three::new(false);
+    t.server
+        .borrow_mut()
+        .join(Identity::new("bot:robo"), "robo", Intent::Play)
+        .unwrap();
+    let (ea, eb) = (env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    // Carol's connection is lost past the room's patience.
+    t.server
+        .borrow_mut()
+        .authority(Command::SetConnection {
+            participant: ParticipantId(3),
+            connection: Connection::Disconnected,
+        })
+        .unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    press(&mut ha, "Room.Players");
+    assert!(there(&ha, "Person.2") && there(&ha, "Person.3"));
+    assert!(!there(&ha, "Person.4"), "a bot's row has no controls");
+    press(&mut ha, "HostOptions");
+    assert!(there(&ha, "CoHost.2") && there(&ha, "CoHost.3") && !there(&ha, "CoHost.4"));
+    assert!(!has(&ha, "robo"));
+    // Away: a co-host still, never the host.
+    press(&mut ha, "MakeHost.3");
+    assert_eq!(top(&ha), "room-host", "nothing is asked");
+    press(&mut ha, "CoHost.3");
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    assert_eq!(role_of(&view(&eb), 3), "co_host");
+    press(&mut ha, "Close");
+    press(&mut ha, "Close");
+
+    // A room from before the succession: co-hosts alone.
+    let t = Three::new(false);
+    let ea = env();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    t.settle(400, &mut [&mut ha]);
+    // Everyone is connected; from here the room is as an older authority
+    // has it, and nothing is decided there that would say otherwise.
+    t.server.borrow_mut().rewrite(|s| s.hosting = None);
+    t.step(200);
+    ha.run(0.5);
+    let v = view(&ea);
+    assert!(v.manages_hosts);
+    assert_eq!(v.host_leaves, None);
+    press(&mut ha, "Room.Players");
+    assert!(!has(
+        &ha,
+        "If the host leaves, a co-host becomes the host, or else the player who joined first."
+    ));
+    press(&mut ha, "HostOptions");
+    assert!(there(&ha, "CoHost.2") && !there(&ha, "MakeHost.2") && !there(&ha, "Dec.leaves"));
+    let before = t.server.borrow().state().revision;
+    assert!(t.alice.borrow_mut().make_host(ParticipantId(2)).is_ok());
+    assert!(
+        t.alice
+            .borrow_mut()
+            .set_host_leaves(ddi_room::HostLeaves::Close)
+            .is_ok()
+    );
+    t.step(200);
+    assert_eq!(t.server.borrow().state().revision, before, "nothing sent");
+}
+
+/// The succession on the screens: the owner leaves and the room passes
+/// to the co-host, whose view changes hands by the one swap (their own
+/// list coming in, the bars kept); the member's rows name the new host;
+/// the one before comes back a co-host, following, with Pick songs.
+#[test]
+fn a_room_passed_on_changes_hands_on_everyones_screens() {
+    let t = Three::new(true);
+    let (ea, eb, ec) = (env(), env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert!(view(&ea).host && !view(&eb).host && !list_shows(&hb));
+    t.alice.borrow_mut().leave();
+    t.settle(400, &mut [&mut hb, &mut hc]);
+    t.settle(400, &mut [&mut hb, &mut hc]);
+    let (b, c) = (view(&eb), view(&ec));
+    assert_eq!(b.online.as_ref().unwrap().role, "owner");
+    assert!(b.host && b.manages_hosts && list_shows(&hb) && has(&hb, "Bravo One"));
+    assert_eq!(c.status, "bob is choosing the first song.");
+    assert_eq!((role_of(&c, 2), c.picker), ("owner".into(), Some(2)));
+    assert!(!c.members.iter().any(|m| m.id == 1), "alice is gone");
+    assert!(has(&hc, "Host · Picking"));
+    // Bob's link is as it was: the room did not close.
+    assert_eq!(b.online.as_ref().unwrap().link, "connected");
+}

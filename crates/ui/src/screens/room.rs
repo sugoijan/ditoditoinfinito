@@ -124,6 +124,13 @@ pub struct RoomView {
     pub add_open: bool,
     pub players_open: bool,
     pub standings_open: bool,
+    /// The host's: Host options is open; the local player may change the
+    /// room's hosts (an online room's owner); and what the room does when
+    /// its host leaves (`pass_on`, `close`; none: a room that does not
+    /// pass on, or practice).
+    pub host_open: bool,
+    pub manages_hosts: bool,
+    pub host_leaves: Option<String>,
     /// The local player's last stage result, as said.
     pub mark: Option<String>,
     /// The match's standings (in a match or its results), best first.
@@ -454,6 +461,17 @@ pub struct PlayerRow {
     /// Their attack policy's word, where the match has attacks (empty
     /// otherwise): shown quietly, a policy and never a skill.
     pub policy: String,
+    /// A person's id in the room (none: a CPU).
+    pub id: Option<u64>,
+    /// The Players pop-up of the room's host: a tap on this row opens
+    /// Host options (the row is drawn on a faint plate named
+    /// [`person_row_name`]). Set by the pop-up, never by the rows' maker.
+    pub manage: bool,
+}
+
+/// The name of a person's row in the host's Players pop-up.
+pub fn person_row_name(id: u64) -> String {
+    format!("Person.{id}")
 }
 
 /// How a player's status reads in the players panel.
@@ -668,6 +686,8 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     status,
                     tone,
                     policy: policy(member.targeting()),
+                    id: Some(member.id.0),
+                    manage: false,
                 });
             }
             MemberKind::Cpu { ordinal, opponent } => {
@@ -686,6 +706,8 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     status: String::new(),
                     tone: Tone::Plain,
                     policy: policy(member.targeting()),
+                    id: None,
+                    manage: false,
                 });
             }
         }
@@ -709,6 +731,8 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                 status: m::cpu_at_start().into(),
                 tone: Tone::Plain,
                 policy: policy(spec.targeting.unwrap_or_default()),
+                id: None,
+                manage: false,
             });
         }
     }
@@ -1015,6 +1039,18 @@ pub fn panel_rows(r: &RoomClient) -> Vec<PanelRow> {
     rows
 }
 
+/// [`panel_rows`] with the players before the picks: the Players
+/// pop-up's order (its rows are what the host acts on).
+pub fn players_first_rows(r: &RoomClient) -> Vec<PanelRow> {
+    let rows = panel_rows(r);
+    let at = rows
+        .iter()
+        .rposition(|row| matches!(row, PanelRow::Heading(..)))
+        .unwrap_or(0);
+    let (picks, players) = rows.split_at(at);
+    players.iter().chain(picks).cloned().collect()
+}
+
 /// A row's height in the panel.
 pub fn panel_row_height(row: &PanelRow) -> f32 {
     match row {
@@ -1109,6 +1145,17 @@ pub fn panel(
                 }
             }
             PanelRow::Player(p) => {
+                // The host's pop-up: a row to tap, on a faint plate.
+                if let (true, Some(id)) = (p.manage, p.id) {
+                    let mut plate = look::quad_at(
+                        &person_row_name(id),
+                        [w + 12.0, h - 4.0],
+                        look::with_alpha(env.color("Text"), 0.05),
+                        [x + w / 2.0, ry + h / 2.0 - 2.0],
+                    );
+                    look::call(&mut plate, "cornerradius", &[6.0]);
+                    children.push(plate);
+                }
                 let color = if p.me { "Text" } else { "Secondary" };
                 let state_w = look::mono_width(&p.state, 13.0).min(w * 0.45);
                 let mut name = env.text(&format!("Panel{k}.Name"), &p.name, 15.0, 600, color);
@@ -1567,6 +1614,8 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                 None => p.stage,
             })
             .collect(),
+        manages_hosts: r.manages_hosts(),
+        host_leaves: r.has_succession().then(|| snake(&r.if_host_leaves())),
         online: r.online_link().map(|l| RoomOnlineView {
             room_id: l.room_id().into(),
             name: l.name().map(str::to_string),
@@ -1594,6 +1643,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         add_open: kept.add_open,
         players_open: kept.players_open,
         standings_open: kept.standings_open,
+        host_open: kept.host_open,
         ..view
     });
 }
