@@ -184,8 +184,13 @@ pub enum Capability {
     StopMatch,
     /// Grant or revoke co-hosts.
     ManageCoHosts,
-    /// Change admission and replace the invite.
+    /// Change admission and replace the invite, and choose what the room
+    /// does when its host goes (`crate::Command::SetHostLeaves`): the
+    /// room's own settings.
     ChangeAccess,
+    /// Hand the room over (`crate::Command::MakeHost`): the owner's, who
+    /// becomes a co-host.
+    MakeHost,
 }
 
 /// Whether a member with `role` (and `admin`) may use `capability` in a
@@ -202,7 +207,9 @@ pub fn can(role: Role, admin: bool, capability: Capability, phase: PhaseKind) ->
         Capability::StopMatch => operator && phase.match_running(),
         // Owner-only: co-host status and implicit admin access do not grant
         // these.
-        Capability::ManageCoHosts | Capability::ChangeAccess => role == Role::Owner,
+        Capability::ManageCoHosts | Capability::ChangeAccess | Capability::MakeHost => {
+            role == Role::Owner
+        }
     }
 }
 
@@ -224,7 +231,11 @@ mod tests {
             assert!(can(Role::Member, true, cap, p), "admin operates {cap:?}");
             assert!(!can(Role::Member, false, cap, p), "member cannot {cap:?}");
         }
-        for cap in [Capability::ManageCoHosts, Capability::ChangeAccess] {
+        for cap in [
+            Capability::ManageCoHosts,
+            Capability::ChangeAccess,
+            Capability::MakeHost,
+        ] {
             assert!(can(Role::Owner, false, cap, p));
             assert!(!can(Role::CoHost, false, cap, p));
             assert!(

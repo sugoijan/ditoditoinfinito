@@ -12,8 +12,8 @@ use crate::member::{Capability, Connection, Intent, Member, MemberKind, Role, ca
 use crate::phase::{Phase, ReadinessWindow};
 use crate::rules::{Access, Admission, ContentSource};
 use crate::state::{
-    ContentCard, ContentStatus, Match, MatchEnding, MatchRecord, RoomState, Seat, SitOutReason,
-    Spotlight, Stage, StageContent, StagePlay,
+    Closure, ContentCard, ContentStatus, HostLeaves, Hosting, Match, MatchEnding, MatchRecord,
+    RoomState, Seat, SitOutReason, Spotlight, Stage, StageContent, StagePlay,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -31,10 +31,20 @@ impl RoomState {
         command: &Command,
         now: Millis,
     ) -> Result<Vec<Event>, Rejection> {
+        if self.closed.is_some() {
+            return Err(Rejection::RoomClosed);
+        }
         let mut work = self.clone();
         let mut out = Vec::new();
         work.decide(actor, base, command, now, &mut out)?;
+        work.settle_host(&mut out);
         work.maybe_commit(now, &mut out);
+        // A room from before the host's succession says its setting from
+        // the first change this reducer makes there.
+        if !out.is_empty() && work.hosting.is_none() && work.closed.is_none() {
+            let policy = work.if_host_leaves();
+            work.emit(&mut out, Event::HostLeavesChanged { policy });
+        }
         if !out.is_empty() {
             work.revision = work.revision.next();
             *self = work;
@@ -45,6 +55,9 @@ impl RoomState {
     /// Run what time decides: a readiness window's deadline, a committed
     /// countdown's start.
     pub fn advance(&mut self, now: Millis) -> Vec<Event> {
+        if self.closed.is_some() {
+            return Vec::new();
+        }
         let mut work = self.clone();
         let mut out = Vec::new();
         work.tick(now, &mut out);
@@ -117,10 +130,11 @@ impl RoomState {
     /// `from` can hold the pick no longer (they left the room, lost the
     /// role that lets one take it, or were disconnected past the
     /// authority's patience): it is the owner's again while the owner is
-    /// in the room and not disconnected, else nobody's until an operator
-    /// takes it.
+    /// in the room and not disconnected (the new owner's, where the one
+    /// gone was the owner: call this after [`Self::settle_host`]), else
+    /// nobody's until the owner is back or an operator takes it.
     fn release_pick(&mut self, from: ParticipantId, out: &mut Vec<Event>) {
-        if self.picking.as_ref().and_then(|p| p.picker) != Some(from) {
+        if self.closed.is_some() || self.picking.as_ref().and_then(|p| p.picker) != Some(from) {
             return;
         }
         let picker = self
@@ -128,6 +142,69 @@ impl RoomState {
             .filter(|o| o.id != from && !o.left && o.connection != Connection::Disconnected)
             .map(|o| o.id);
         self.emit(out, Event::PickerChanged { picker });
+    }
+
+    /// The host's succession ([`Hosting`]), from the room's facts alone,
+    /// so it holds whatever led to them: a host who left the room, or who
+    /// is away past the authority's patience (`Disconnected`), no longer
+    /// has it. By the room's setting it ends ([`HostLeaves::Close`]) or
+    /// goes to [`RoomState::heir`]: at once for one who left (anyone
+    /// present, else the room ends), and for one who is away to someone
+    /// connected, as soon as there is one (the room keeps its absent host
+    /// meanwhile: nobody is there to run it for). Then a pick nobody
+    /// holds is the host's while the host is there.
+    fn settle_host(&mut self, out: &mut Vec<Event>) {
+        if self.closed.is_some() {
+            return;
+        }
+        if let Some(owner) = self.owner().filter(|o| !o.is_cpu()) {
+            let (from, left) = (owner.id, owner.left);
+            if left || owner.connection == Connection::Disconnected {
+                let heir = match self.if_host_leaves() {
+                    HostLeaves::Close => None,
+                    HostLeaves::PassOn => self.heir(from, left),
+                };
+                match heir {
+                    Some(to) => self.hand_over(from, to, out),
+                    None if left || self.if_host_leaves() == HostLeaves::Close => {
+                        self.emit(
+                            out,
+                            Event::RoomClosed {
+                                reason: Closure::HostLeft,
+                            },
+                        );
+                        return;
+                    }
+                    None => {}
+                }
+            }
+        }
+        if self.picking.as_ref().is_some_and(|p| p.picker.is_none())
+            && let Some(owner) = self.owner().filter(|o| {
+                !o.left && !o.is_cpu() && o.connection != Connection::Disconnected
+            })
+        {
+            let picker = Some(owner.id);
+            self.emit(out, Event::PickerChanged { picker });
+        }
+    }
+
+    /// The room changes hands: `from` a co-host, `to` its owner.
+    fn hand_over(&mut self, from: ParticipantId, to: ParticipantId, out: &mut Vec<Event>) {
+        self.emit(
+            out,
+            Event::RoleChanged {
+                participant: from,
+                role: Role::CoHost,
+            },
+        );
+        self.emit(
+            out,
+            Event::RoleChanged {
+                participant: to,
+                role: Role::Owner,
+            },
+        );
     }
 
     fn present_human(&self, id: ParticipantId) -> Result<&Member, Rejection> {
@@ -286,11 +363,14 @@ impl RoomState {
                 // Cancel first, so the departure also clears the readiness
                 // the canceled start held.
                 self.cancel_if_committed(id, out);
+                self.emit(out, Event::MemberLeft { participant: id });
+                // A host's leaving passes the room on (or ends it) before
+                // the pick they held goes to its owner: the new one.
+                self.settle_host(out);
                 self.release_pick(id, out);
-                if self.spotlight.as_ref().is_some_and(|s| s.by == id) {
+                if self.closed.is_none() && self.spotlight.as_ref().is_some_and(|s| s.by == id) {
                     self.emit(out, Event::SpotlightChanged { spotlight: None });
                 }
-                self.emit(out, Event::MemberLeft { participant: id });
                 Ok(())
             }
             Command::ReportOutcome { stage, run, detail } => {
@@ -578,6 +658,10 @@ impl RoomState {
                 if m.role == Role::Owner {
                     return Err(Rejection::OwnerRole);
                 }
+                // A bot follows a room; it never operates one.
+                if *on && m.is_bot() {
+                    return Err(Rejection::NotAHuman);
+                }
                 let role = if *on { Role::CoHost } else { Role::Member };
                 let operates = can(role, m.admin, Capability::TakePick, self.phase.kind());
                 if m.role != role {
@@ -606,6 +690,33 @@ impl RoomState {
                 };
                 if access != self.access {
                     self.emit(out, Event::AccessChanged { access });
+                }
+                Ok(())
+            }
+            Command::SetHostLeaves { policy } => {
+                self.require(actor, Capability::ChangeAccess)?;
+                if self.hosting.as_ref().map(|h| h.if_host_leaves) != Some(*policy) {
+                    self.emit(out, Event::HostLeavesChanged { policy: *policy });
+                }
+                Ok(())
+            }
+            Command::MakeHost { participant } => {
+                self.require(actor, Capability::MakeHost)?;
+                let from = self.own(actor)?;
+                let m = self
+                    .members
+                    .get(participant)
+                    .ok_or(Rejection::UnknownParticipant)?;
+                if m.is_cpu() || m.is_bot() {
+                    return Err(Rejection::NotAHuman);
+                }
+                // Someone who is there to run it: a room handed to one
+                // who is away would only pass on again.
+                if m.left || m.connection != Connection::Connected {
+                    return Err(Rejection::NotPresent);
+                }
+                if *participant != from {
+                    self.hand_over(from, *participant, out);
                 }
                 Ok(())
             }
@@ -696,8 +807,10 @@ impl RoomState {
                     },
                 );
                 // Gone past the authority's patience (Reconnecting keeps
-                // everything): the pick does not wait for them.
+                // everything): the room does not wait for its host where
+                // someone is there to run it, nor the pick for its holder.
                 if *connection == Connection::Disconnected {
+                    self.settle_host(out);
                     self.release_pick(*participant, out);
                 }
                 Ok(())
@@ -945,6 +1058,9 @@ impl RoomState {
     /// commits at once. A member whose connection is down does not hold
     /// it; the deadline still waits for them.
     fn maybe_commit(&mut self, now: Millis, out: &mut Vec<Event>) {
+        if self.closed.is_some() {
+            return;
+        }
         let Phase::Preparing {
             stage,
             window: Some(_),
@@ -1464,6 +1580,12 @@ impl RoomState {
                 }
             }
             Event::AccessChanged { access } => self.access = *access,
+            Event::HostLeavesChanged { policy } => {
+                self.hosting = Some(Hosting {
+                    if_host_leaves: *policy,
+                });
+            }
+            Event::RoomClosed { reason } => self.closed = Some(*reason),
             Event::SpotlightChanged { spotlight } => self.spotlight = spotlight.clone(),
             Event::PickerChanged { picker } => {
                 let mut picking = self.picking.take().unwrap_or_default();

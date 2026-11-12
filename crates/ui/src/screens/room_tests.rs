@@ -2124,8 +2124,9 @@ fn a_pick_left_behind_goes_to_the_owner_or_is_there_to_take() {
     assert!(a.host && !b.host && !b.can_take_pick);
     assert!(list_shows(&ha) && !list_shows(&hb));
     assert!(has(&ha, "Alpha One") && !there(&hb, "Room.TakePick"));
-    // The owner away past the room's patience, a co-host there: nobody
-    // chooses, and the co-host is told how to.
+    // Nobody chooses (a room whose authority does not pass it on: its
+    // owner away past its patience, a co-host there): said to everyone,
+    // with how to take the pick to those who may.
     let co_host = |on| {
         t.server
             .borrow_mut()
@@ -2136,13 +2137,11 @@ fn a_pick_left_behind_goes_to_the_owner_or_is_there_to_take() {
             .unwrap();
     };
     co_host(true);
-    t.server
-        .borrow_mut()
-        .authority(Command::SetConnection {
-            participant: ParticipantId(1),
-            connection: Connection::Disconnected,
-        })
-        .unwrap();
+    t.server.borrow_mut().rewrite(|s| {
+        s.hosting = None;
+        s.members.get_mut(&ParticipantId(1)).unwrap().connection = Connection::Disconnected;
+        s.picking.as_mut().unwrap().picker = None;
+    });
     t.settle(400, &mut [&mut hb, &mut hc]);
     let (b, c) = (view(&eb), view(&ec));
     assert_eq!((b.picker, c.picker), (None, None));

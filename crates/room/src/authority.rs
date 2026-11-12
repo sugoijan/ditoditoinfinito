@@ -124,6 +124,12 @@ impl<C: Clock> LocalAuthority<C> {
         &self.state
     }
 
+    /// The room itself, for the fake server's rewriting
+    /// (`fake::FakeServer::rewrite`).
+    pub(crate) fn state_mut(&mut self) -> &mut RoomState {
+        &mut self.state
+    }
+
     pub fn participant(&self, client: &ClientId) -> Option<ParticipantId> {
         self.clients.get(client).copied()
     }

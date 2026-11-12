@@ -12,7 +12,10 @@
 //! answer (and, after a stale refusal, the room) to the sender; a
 //! [`Resync`](crate::Resync) answered with the room; an accepted `Leave`
 //! closes the socket with 4000; a socket gone makes its member
-//! Reconnecting. Not the server: no HTTP, no invites, no grace period.
+//! Reconnecting, and with a grace set ([`FakeServer::set_grace`]: the
+//! server's reconnect grace; none by default) Disconnected once it has
+//! passed; a room that ended ([`RoomState::closed`]) closes every socket
+//! with 4410 and opens none. Not the server: no HTTP, no invites.
 
 use crate::authority::{Clock, LocalAuthority, ManualClock, RoomAuthority};
 use crate::command::{Command, Event, Rejection};
@@ -58,6 +61,8 @@ struct Conn {
     /// A frame held back to swap with the next ([`Fault::Reorder`]).
     held: Option<String>,
     open: bool,
+    /// The server closed it: its close frame is on its way.
+    closing: bool,
 }
 
 /// The fake room. Share it ([`FakeServer::shared`]) between the sockets.
@@ -70,6 +75,11 @@ pub struct FakeServer {
     tickets: BTreeMap<String, ParticipantId>,
     /// Faults for the next socket a person opens, by participant.
     pending_faults: BTreeMap<ParticipantId, Vec<Fault>>,
+    /// How long a member whose socket is gone stays Reconnecting before
+    /// they are Disconnected; none: for ever, as before.
+    grace_ms: Option<u64>,
+    /// When each Reconnecting member becomes Disconnected.
+    grace: BTreeMap<ParticipantId, u64>,
 }
 
 pub type SharedFake = Rc<RefCell<FakeServer>>;
@@ -112,7 +122,16 @@ impl FakeServer {
             next_ticket: 1,
             tickets: BTreeMap::new(),
             pending_faults: BTreeMap::new(),
+            grace_ms: None,
+            grace: BTreeMap::new(),
         }
+    }
+
+    /// The server's reconnect grace (`ROOM_RECONNECT_GRACE_MS`, 30 s
+    /// there): a member whose last socket is gone is Disconnected once it
+    /// has passed without another.
+    pub fn set_grace(&mut self, ms: Option<u64>) {
+        self.grace_ms = ms;
     }
 
     pub fn shared(self) -> SharedFake {
@@ -158,8 +177,13 @@ impl FakeServer {
         Ok(id)
     }
 
-    /// `POST /rooms/<id>/ticket`: a one-use ticket for a present member.
+    /// `POST /rooms/<id>/ticket`: a one-use ticket for a present member
+    /// (`Rejection::RoomClosed` for a room that ended: the server's `410
+    /// room_closed`).
     pub fn ticket(&mut self, identity: &Identity) -> Result<String, Rejection> {
+        if self.state().closed.is_some() {
+            return Err(Rejection::RoomClosed);
+        }
         let id = self
             .state()
             .member_by_identity(identity)
@@ -177,6 +201,34 @@ impl FakeServer {
         let out = self.authority.authority(command);
         self.route(None);
         out
+    }
+
+    /// The room put, outside the reducer, into a state another authority
+    /// would have it in (one that predates something this reducer does:
+    /// a room nobody chooses in while its host is away, say), as one more
+    /// revision; every socket is sent the room. For tests of what a
+    /// client shows of such a room: this reducer decides the next command
+    /// as it does.
+    pub fn rewrite(&mut self, f: impl FnOnce(&mut RoomState)) {
+        self.route(None);
+        let state = self.authority.state_mut();
+        f(state);
+        state.revision = state.revision.next();
+        let snapshot = ServerEnvelope::new(
+            self.state().revision,
+            ServerMessage::Snapshot {
+                room: Box::new(self.state().clone()),
+            },
+        );
+        let open: Vec<u64> = self
+            .conns
+            .iter()
+            .filter(|(_, c)| c.open)
+            .map(|(k, _)| *k)
+            .collect();
+        for k in open {
+            self.push(k, &snapshot);
+        }
     }
 
     /// Faults for what `participant`'s socket gets, from now on (or, with
@@ -213,7 +265,11 @@ impl FakeServer {
     }
 
     fn connect(&mut self, ticket: &str) -> Option<u64> {
+        if self.state().closed.is_some() {
+            return None;
+        }
         let participant = self.tickets.remove(ticket)?;
+        self.grace.remove(&participant);
         let conn = self.next_conn;
         self.next_conn += 1;
         let faults = self.pending_faults.remove(&participant).unwrap_or_default();
@@ -224,6 +280,7 @@ impl FakeServer {
             last_events: None,
             held: None,
             open: true,
+            closing: false,
         };
         let now = self.now();
         for f in faults {
@@ -288,11 +345,15 @@ impl FakeServer {
                     self.push(conn, &reply);
                     return;
                 }
+                self.graces();
                 self.authority.submit(*envelope);
-                let accepted = self.route(Some((conn, &client, seq)));
+                let accepted = self.send_out(Some((conn, &client, seq)));
+                // The one who left is told so, also where their leaving
+                // ended the room for the others.
                 if leave && accepted {
                     self.close_conn(conn, close::LEFT);
                 }
+                self.close_if_ended();
             }
         }
     }
@@ -301,6 +362,53 @@ impl FakeServer {
     /// an answer and a snapshot to the sender. Whether the sender's
     /// command (if any) was accepted.
     fn route(&mut self, sender: Option<(u64, &ClientId, u64)>) -> bool {
+        self.graces();
+        let accepted = self.send_out(sender);
+        self.close_if_ended();
+        accepted
+    }
+
+    /// Reconnect graces that ended by now: their members Disconnected.
+    fn graces(&mut self) {
+        let now = self.now();
+        let due: Vec<ParticipantId> = self
+            .grace
+            .iter()
+            .filter(|(_, at)| **at <= now)
+            .map(|(id, _)| *id)
+            .collect();
+        for participant in due {
+            self.grace.remove(&participant);
+            if self
+                .state()
+                .member(participant)
+                .is_some_and(|m| m.connection == Connection::Reconnecting)
+            {
+                let _ = self.authority.authority(Command::SetConnection {
+                    participant,
+                    connection: Connection::Disconnected,
+                });
+            }
+        }
+    }
+
+    /// The room ended: every socket is closed with 4410, after what was
+    /// on its way.
+    fn close_if_ended(&mut self) {
+        if self.state().closed.is_some() {
+            let open: Vec<u64> = self
+                .conns
+                .iter()
+                .filter(|(_, c)| c.open && !c.closing)
+                .map(|(k, _)| *k)
+                .collect();
+            for k in open {
+                self.close_conn(k, close::ROOM_CLOSED);
+            }
+        }
+    }
+
+    fn send_out(&mut self, sender: Option<(u64, &ClientId, u64)>) -> bool {
         let mut accepted = false;
         for envelope in self.authority.poll() {
             match &envelope.msg {
@@ -380,7 +488,10 @@ impl FakeServer {
 
     fn close_conn(&mut self, conn: u64, code: u16) {
         let now = self.now();
-        if let Some(c) = self.conns.get_mut(&conn) {
+        if let Some(c) = self.conns.get_mut(&conn)
+            && !c.closing
+        {
+            c.closing = true;
             c.queue.push_back((now, Frame::Close(code)));
         }
     }
@@ -435,6 +546,9 @@ impl FakeServer {
                 participant,
                 connection: Connection::Reconnecting,
             });
+            if let Some(ms) = self.grace_ms {
+                self.grace.insert(participant, self.now() + ms);
+            }
             self.route(None);
         }
     }

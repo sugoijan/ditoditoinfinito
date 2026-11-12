@@ -3385,12 +3385,176 @@ on its first frame, invisibly.
   JSON both ways) and the pictures above; `tests/online.rs` was not
   run.
 
+## A room's host: succession, promoting someone, asking before leaving (2026-11-12)
+
+The maintainer: "when hosting a room, I think it's too easy to abandon
+it, maybe we should add some confirmation prompt when going back or
+closing the tab or app", and on what leaving should do: "the policy
+should be configurable, by default we could promote a co-host to host,
+and if no co-host than a viewer, maybe in order of who joined first.
+But also adding controls to promot a viewer to host/co-host which could
+be used for a smoother transition." Three parts: the host's succession
+(the room's model), the controls to promote someone, the confirmation.
+
+### What leaving did before this round (as found)
+
+- **An online room's owner leaving** (More's Leave room,
+  `Command::Leave`): their row marked left, **still the owner**; their
+  socket closed with 4000; the pick nobody's. The room stayed open with
+  no host in it: an administrator could still operate it (no screen
+  could make a co-host), everyone else could only follow, and nobody
+  could change its access. It closed only at the server's idle end
+  (`ROOM_IDLE_TTL_SECS`, seven days without a change and with nobody
+  connected).
+- **Its owner dropping** (the tab closed, the app quit, the network
+  gone): the server marks them Reconnecting, and after its reconnect
+  grace (`ROOM_RECONNECT_GRACE_MS`, 30 s) Disconnected: their readiness
+  for a stage not started cleared, a countdown they were in canceled,
+  the pick nobody's. Still the owner; the room waited for them.
+- **Coming back by the link**: always possible. The server's join needs
+  no invite from someone it knows: one who left gets the same row back
+  (the owner the room again), one who dropped reconnects with a ticket.
+- **Back on the room's song select** did not leave the room: the screen
+  went to the multiplayer home and the room's client was kept for the
+  session with its socket open and nobody reading it, so the room saw
+  its host connected while they were gone. Only More's Leave room told
+  the room.
+- **A member leaving between stages**: marked left; the stages after
+  count them as sitting out (`SitOutReason::Left`), and a readiness
+  window does not wait for them. **During a countdown** they are in:
+  the start is canceled for everyone (`CancelReason::RosterChanged`).
+  **During a stage**: they stay in its lineup, no report comes from
+  them, and the stage settles without it at its report deadline (60 s
+  after the first report of the song played to its end, 20 minutes at
+  most), where they are a forfeit with no points; their earlier points
+  stay.
+- **CPU practice**: Back kept the practice room for the session; More's
+  Leave room forgot it, its match with it.
+- **The server** (`../ddi-server`) decides nothing about a room's
+  lifetime but its idle end, and treats the creator specially only in
+  making them the first owner.
+
+### The host's succession (the room's model)
+
+- **A room setting, "If the host leaves"** (`ddi_room::Hosting` in
+  `RoomState::hosting`, `HostLeaves`): Pass it on (the default) or Close
+  the room. The owner's to change (`Command::SetHostLeaves`, under
+  `Capability::ChangeAccess`, as the room's access is), in every phase:
+  not a match rule, never locked by a match.
+- **When it applies** (`settle_host` in the reducer, from the room's
+  facts alone, after every command): the owner **left** the room
+  (`Command::Leave`): at once. The owner **away past the authority's
+  patience** (`Connection::Disconnected`): the room's existing notion
+  and grace, the server's 30 s, the one a picker is given. Reconnecting
+  keeps everything, so a reload costs nothing.
+- **Pass it on** (`RoomState::heir`): among the people present, those
+  connected first, then those whose connection is coming or coming back,
+  then those away; among equals a co-host before a member, then whoever
+  joined first (the lower id), playing or watching. The one before
+  becomes a co-host and the new one the owner (two `RoleChanged`, which
+  every client reads), with everything an owner has; nobody is asked.
+- **Nobody to pass it to**: an owner who **leaves** alone, or with only
+  bots or nobody else present, ends the room, as Close does. An owner
+  who is **away** passes it only to someone connected; with nobody
+  connected the room keeps its absent host (nobody is there to run it
+  for, and a lost connection should not destroy a room) until the host
+  is back or someone else connects (or comes in by the link), who then
+  has it. The server's idle end still closes a room nobody returns to.
+- **Close the room**: the room ends for everyone when its owner leaves
+  or is away past the grace, with others there or not
+  (`Event::RoomClosed`, `RoomState::closed`, `Closure::HostLeft`). A room
+  that ended decides nothing more (`Rejection::RoomClosed`); its
+  authority closes every socket with 4410, the existing close, with its
+  wording ("This room has closed.").
+- **Bots** are never passed the room and cannot be made co-hosts or
+  hosts (`Rejection::NotAHuman`): a bot follows a room, it does not run
+  one, so a room left to bots would be a room nobody runs. A bot that
+  made the room (`--mp-bots --host`) is its owner as before, and when it
+  leaves the room passes to a person.
+- **The one before, back**: a co-host (their role changed at the
+  handover, so also after leaving and coming back by the link). The new
+  owner hands the room back with one command (`Command::MakeHost`).
+- **The pick** agrees with it: an owner's pick goes to the new owner
+  (the succession runs before `release_pick`); a co-host who holds the
+  pick keeps it when the room changes hands around them. And the open
+  question of the round before is answered: **a pick nobody holds is the
+  owner's whenever the owner is there** (`settle_host`), so an owner who
+  comes back while still the owner chooses again without taking it.
+  Nobody chooses only while the owner is away with nobody connected to
+  pass the room to.
+- **A running match goes on** under the new owner: the stage in play
+  keeps its lineup (the one who left is a forfeit when it settles), the
+  next pick is the new owner's, and what the one before sends as an
+  owner is refused whole (`Unauthorized`, `NotPicker`).
+- **`Command::MakeHost { participant }`** (`Capability::MakeHost`, the
+  owner's): hands the room to someone present and connected, never a
+  bot; the giver becomes a co-host and cannot take it back alone. The
+  pick stays with whoever has it.
+
+### Old and new, both ways (protocol 2 stays)
+
+All additive: `hosting` and `closed` in the room's JSON, the
+`set_host_leaves` and `make_host` commands, the `host_leaves_changed`
+and `room_closed` events, the `room_closed` refusal, the `make_host`
+capability.
+
+- **A new client and a server that predates it**: that server's rooms
+  have no `hosting`, pass nothing on, and would close the socket on a
+  command they cannot read. The missing state is the signal
+  (`RoomState::has_succession`): the client never sends
+  `SetHostLeaves` or `MakeHost` there, offers neither, and says of a
+  host's leaving what that server does (the room stays open without a
+  host). `SetCoHost` is older than this round and is sent to any room.
+- **A room made before the server's deploy and still open after it**
+  (no `hosting` in its stored state): this reducer reads it as Pass it
+  on, and writes the setting with the first change it makes there
+  (`HostLeavesChanged`, one more event of that revision), so such a
+  room has the setting and the succession from its first command after
+  the deploy.
+- **An old client and a new server**: a handover is `RoleChanged`,
+  which it reads; `host_leaves_changed` and `room_closed` are frames it
+  cannot read, passed over, and mended by the room asked for again (or
+  the socket's 4410).
+- **Online rooms need the next server deploy** for all of it. The
+  server (`../ddi-server`) runs this reducer; one small change there: a
+  room the model ended is closed as an idle one is (every socket 4410,
+  the one who left 4000, its shares deleted, every request refused
+  `room_closed`), from a message or from the alarm that ends a reconnect
+  grace.
+
+### Tested (the model and the server)
+
+- `crates/room` (108 tests, 10 new): the walkthroughs (leaving with
+  co-hosts, with members only by join order, connected before away,
+  never a bot; alone and with only bots, the room ended and refusing
+  everything; a drop inside the grace and past it, the owner back as a
+  co-host and handed the room back, nobody connected and the first one
+  there; Close for a leave and for a drop; mid-match and mid-countdown;
+  Make host and its refusals; a room from before the setting), the
+  adapter contract (the same script through `LocalAuthority` and through
+  `OnlineAuthority` + `FakeServer`, with the network's faults), and the
+  fake server's grace (`FakeServer::set_grace`) and close (every socket
+  4410, the leaver 4000, no ticket after). The picker's fallback test
+  was rewritten for a room that passes on.
+- `../ddi-server` (56 tests, 2 new; 57 with the development provider):
+  a host who leaves passes the room on, comes back a co-host with no
+  invite, and under Close ends the room for every request and socket;
+  a host away past the grace at the alarm. Clippy natively and for
+  wasm, with and without `dev-auth`. Its `xtask` test
+  `the_deployed_config_keeps_the_scripts_names_and_bindings` fails on
+  the maintainer's own `wrangler.toml` (a value where the test expects
+  none), before and after this round; left alone.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
 | A room from before the picker (no `picking` in its state) keeps every operator choosing and offers no take, for as long as it lives | `ddi_room::RoomState::chooses`, `may_take_pick` | A room open across the server's deploy never gets Pick songs; a new one does | Whether such a room should turn into a one-picker room at the deploy |
-| The pick returns to the owner, or to nobody with the owner gone, when its holder is Disconnected: the server's reconnect grace (30 s) | `reduce.rs` `release_pick`; `../ddi-server` `ROOM_RECONNECT_GRACE_MS` | A picker whose connection is down for more than 30 s finds the owner choosing (or nobody) on return | The grace for a picker; whether a returning owner should get a pick nobody took |
+| The pick returns to the owner when its holder is Disconnected: the server's reconnect grace (30 s); a pick nobody holds is the owner's whenever the owner is there | `reduce.rs` `release_pick`, `settle_host`; `../ddi-server` `ROOM_RECONNECT_GRACE_MS` | A picker whose connection is down for more than 30 s finds the owner choosing on return; nobody chooses only while the owner is away with nobody connected | The grace for a picker |
+| A host away is given the room's reconnect grace, 30 s (`Connection::Disconnected`), then the room passes on or closes by its setting | `reduce.rs` `settle_host`; `../ddi-server` `ROOM_RECONNECT_GRACE_MS` | A host whose connection is down for more than 30 s comes back a co-host (one press by the new host hands it back), or to a closed room under Close | Whether a host should be waited for longer than a picker (a minute, say), above all under Close |
+| A host away with nobody connected keeps the room (Pass it on); a host who leaves with nobody to pass it to ends it | `reduce.rs` `settle_host` | A host alone whose connection drops finds their room as it was; the first other person to connect meanwhile becomes its host | Whether an absent host's empty room should close after a while sooner than the server's idle end (7 days) |
+| Succession order: connected, then coming back, then away; a co-host before a member among equals; then join order; never a bot; administrators as anyone | `ddi_room::RoomState::heir` | A connected member is passed the room before a co-host who is away; a watching administrator can be passed it | Whether a co-host inside the grace should come before a connected member; whether administrators who only watch should be skipped |
+| A room from before the setting passes on from its first change after the deploy | `reduce.rs` `apply` | A room open across the server's deploy gets the succession without being made again | None, unless such rooms should stay as they were |
 | A resting song's share is kept across changes of hands, the newest eight | `ddi_room::Picking::KEPT_SHARES` | A song rested on again after taking the pick back is shown to the others without a second upload | None unless rooms change hands over many songs |
 | The joining line shows after 0.4 s of joining (`JOINING_AFTER`) | `select_room.rs` | A room that answers quickly shows the bars alone, then its view | The delay |
 | A report's detail (`RunDetail`) is self-reported and shown as sent, bounded only in size | `crates/room/src/battle.rs`, `reduce.rs` | An online player's grade, combo and judgments on the standings are what their device said | Whether the room should check a detail against the run, or wait for server-judged plays |
@@ -3490,15 +3654,19 @@ on its first frame, invisibly.
 
 ## Open questions
 
-- One picker: there is no way in the game to make someone a co-host
-  (`SetCoHost` exists in the model and on the server; no screen sends
-  it). Today the only other operators are the server's administrators
-  (the maintainer in a bot-hosted room). Should the owner get "Make
-  co-host" on a player's row of the Players pop-up?
-- One picker: with nobody choosing (the owner gone too long), the owner
-  coming back finds the following view and Pick songs, like any
-  operator. Should a pick nobody took go back to the owner by itself
-  when they return?
+- The host's succession: a host away is given 30 s (the room's
+  reconnect grace) before the room passes on or, under Close, ends.
+  Enough, or should a host be waited for longer than anyone else?
+- The host's succession: a host alone whose connection is lost keeps
+  the room (it waits, and the first other person to connect becomes its
+  host); only a host who leaves ends an empty room. The brief had both
+  end it. Right?
+- The host's succession: a connected member is passed the room before
+  a co-host who is away or reconnecting. Should a named co-host inside
+  the grace come first?
+- The host's succession: an administrator who only watches a room can
+  be passed it like anyone (after everyone who joined before them).
+  Should observers be skipped?
 - One picker: after taking the pick, the song the new picker's list
   shows is told the room only once it has rested 3 s, as any song.
   Should the first one after a take be shown at once?

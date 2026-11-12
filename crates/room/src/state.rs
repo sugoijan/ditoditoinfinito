@@ -49,6 +49,69 @@ pub struct RoomState {
     /// from its absence that the pick cannot be taken there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picking: Option<Picking>,
+    /// What the room does when its host goes ([`Hosting`]). `None` is a
+    /// room whose authority predates the host's succession, or one it has
+    /// decided nothing for yet: this reducer reads it as Pass it on
+    /// ([`RoomState::if_host_leaves`]) and writes the setting with the
+    /// first change it makes there, so a client reads from its absence
+    /// that the authority may not know the commands that came with it
+    /// ([`crate::Command::SetHostLeaves`], [`crate::Command::MakeHost`])
+    /// and never sends them. Additive to protocol 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hosting: Option<Hosting>,
+    /// The room ended ([`crate::Event::RoomClosed`]), and why: nothing is
+    /// decided there any more (`Rejection::RoomClosed`), and its authority
+    /// closes its sockets (4410). Additive to protocol 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed: Option<Closure>,
+}
+
+/// What a room does when its host goes (2026-11-12), the host's to choose
+/// ([`crate::Command::SetHostLeaves`]): a room setting, not a match rule,
+/// never locked by a match.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HostLeaves {
+    /// The room goes on under someone else ([`RoomState::heir`]): a
+    /// co-host, the one who joined first among them, else the member who
+    /// joined first; people who are connected before ones who are away,
+    /// never a bot. With nobody to pass it to, a host who leaves closes
+    /// the room; one whose connection is lost keeps it until someone
+    /// connected is there to take it.
+    #[default]
+    PassOn,
+    /// The room ends for everyone.
+    Close,
+}
+
+/// The host's succession ([`RoomState::hosting`]). It applies when the
+/// host leaves the room (at once), and when the host has been away past
+/// the authority's patience (`Connection::Disconnected`: the server's
+/// reconnect grace, the one a picker is given; Reconnecting keeps
+/// everything). The new host has everything a host has; the one before is
+/// a co-host from then on, also when they come back.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Hosting {
+    #[serde(default)]
+    pub if_host_leaves: HostLeaves,
+}
+
+/// Why a room ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Closure {
+    /// Its host went and the room was not passed on: the setting says
+    /// Close ([`HostLeaves::Close`]), or nobody was there to pass it to.
+    HostLeft,
+}
+
+/// What the host's leaving would do now ([`RoomState::if_host_left`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostDeparture {
+    /// The room goes on under this member.
+    PassTo(ParticipantId),
+    /// The room ends for everyone.
+    Close,
 }
 
 /// Who chooses the room's songs now (2026-11-12): one picker at a time.
@@ -554,6 +617,55 @@ impl RoomState {
                 picker: Some(owner_id),
                 shares: Vec::new(),
             }),
+            hosting: Some(Hosting::default()),
+            closed: None,
+        }
+    }
+
+    /// What the room does when its host goes; a room that does not say
+    /// (from before the setting) passes it on.
+    pub fn if_host_leaves(&self) -> HostLeaves {
+        self.hosting
+            .as_ref()
+            .map(|h| h.if_host_leaves)
+            .unwrap_or_default()
+    }
+
+    /// Whether the room's authority runs the host's succession, as far as
+    /// this state says ([`RoomState::hosting`]): what a client checks
+    /// before it sends [`crate::Command::SetHostLeaves`] or
+    /// [`crate::Command::MakeHost`], or says what a host's leaving does.
+    pub fn has_succession(&self) -> bool {
+        self.hosting.is_some()
+    }
+
+    /// Who the room passes to when host `from` goes
+    /// ([`HostLeaves::PassOn`]): among the people present (never a bot: a
+    /// bot follows a room, it does not run one), those connected first,
+    /// then those whose connection is coming or coming back, then those
+    /// away, and only with `away_too`; among equals a co-host before a
+    /// member, then whoever joined first. None: nobody to pass it to.
+    pub fn heir(&self, from: ParticipantId, away_too: bool) -> Option<ParticipantId> {
+        let rank = |c: Connection| match c {
+            Connection::Connected => 0,
+            Connection::Joining | Connection::Reconnecting => 1,
+            Connection::Disconnected => 2,
+        };
+        self.members
+            .values()
+            .filter(|m| m.id != from && !m.left && !m.is_cpu() && !m.is_bot())
+            .filter(|m| away_too || m.connection == Connection::Connected)
+            .min_by_key(|m| (rank(m.connection), m.role != Role::CoHost, m.id))
+            .map(|m| m.id)
+    }
+
+    /// What the host's leaving the room now would do, by the room's
+    /// setting: for a screen to say before they leave.
+    pub fn if_host_left(&self) -> HostDeparture {
+        let heir = self.owner().and_then(|o| self.heir(o.id, true));
+        match (self.if_host_leaves(), heir) {
+            (HostLeaves::PassOn, Some(heir)) => HostDeparture::PassTo(heir),
+            _ => HostDeparture::Close,
         }
     }
 

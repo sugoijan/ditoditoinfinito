@@ -1416,15 +1416,6 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
             })
             .unwrap();
     };
-    let owner = |connection| {
-        server
-            .borrow_mut()
-            .authority(ddi_room::Command::SetConnection {
-                participant: ParticipantId(1),
-                connection,
-            })
-            .unwrap();
-    };
     co_host(true);
     step(400);
     shown(&mut ha, found);
@@ -1438,14 +1429,26 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     shown(&mut ha, found);
     shown(&mut hb, found);
     alice.borrow_mut().take_pick().unwrap();
-    owner(ddi_room::Connection::Disconnected);
+    step(400);
+    // Nobody choosing: a room whose authority does not pass it on, its
+    // owner away, said to one who may take the pick and to one who may
+    // not.
+    let older = |connection, role, picker| {
+        server.borrow_mut().rewrite(|s| {
+            s.hosting = None;
+            s.members.get_mut(&ParticipantId(1)).unwrap().connection = connection;
+            s.members.get_mut(&ParticipantId(2)).unwrap().role = role;
+            s.picking.as_mut().unwrap().picker = picker;
+        });
+    };
+    use ddi_room::{Connection, Role};
+    older(Connection::Disconnected, Role::CoHost, None);
     step(400);
     shown(&mut hb, found);
-    co_host(false);
+    older(Connection::Disconnected, Role::Member, None);
     step(400);
     shown(&mut hb, found);
-    owner(ddi_room::Connection::Connected);
-    alice.borrow_mut().take_pick().unwrap();
+    older(Connection::Connected, Role::Member, Some(ParticipantId(1)));
     step(400);
     shown(&mut ha, found);
     shown(&mut hb, found);

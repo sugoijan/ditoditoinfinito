@@ -64,7 +64,10 @@ impl Client {
         if self.link.wants_ticket() {
             self.link.ticket_asked();
             let t = self.server.borrow_mut().ticket(&self.who);
-            self.link.ticket(t.map_err(|_| TicketProblem::NotAMember));
+            self.link.ticket(t.map_err(|r| match r {
+                Rejection::RoomClosed => TicketProblem::RoomClosed,
+                _ => TicketProblem::NotAMember,
+            }));
         }
         for e in self.link.poll() {
             match e.msg {
@@ -1139,4 +1142,201 @@ fn frames_a_client_cannot_read_are_passed_over_and_mended_by_the_room_again() {
     link.transport_mut().incoming = vec![snapshot(&now, true)];
     assert_eq!(link.poll().len(), 1);
     assert_eq!(link.room().unwrap().revision, Revision(2));
+}
+
+/// The host's succession (2026-11-12, additive to protocol 2): the
+/// setting, the handover and back, the refusals of those who may not,
+/// and the room passing to the co-host when its owner leaves are kept
+/// alike by the local authority, the online one and every mirror,
+/// whatever the network does to Bob's frames.
+#[test]
+fn the_hosts_succession_is_kept_alike_by_both_authorities_and_every_mirror() {
+    use ddi_room::{Capability, HostLeaves, Role};
+    let (alice, bob, carol) = (ParticipantId(1), ParticipantId(2), ParticipantId(3));
+    let policy = |policy| Command::SetHostLeaves { policy };
+    let make = |participant| Command::MakeHost { participant };
+    let steps = vec![
+        Step::Connect("dev:alice"),
+        Step::Join("dev:bob", "Bob"),
+        Step::Connect("dev:bob"),
+        Step::Join("dev:carol", "Carol"),
+        Step::Cmd(
+            "dev:alice",
+            Command::SetCoHost {
+                participant: bob,
+                on: true,
+            },
+        ),
+        // 1: the setting is the owner's (2, 3).
+        Step::Cmd("dev:bob", policy(HostLeaves::Close)),
+        Step::Cmd("dev:alice", policy(HostLeaves::Close)),
+        Step::Cmd("dev:alice", policy(HostLeaves::PassOn)),
+        // 4: so is handing the room over (5), never to one who is not
+        // connected (6).
+        Step::Cmd("dev:bob", make(bob)),
+        Step::Cmd("dev:alice", make(bob)),
+        Step::Cmd("dev:bob", make(carol)),
+        // 7: the one before is a co-host; 8: handed back.
+        Step::Cmd(
+            "dev:alice",
+            Command::SetCoHost {
+                participant: carol,
+                on: true,
+            },
+        ),
+        Step::Cmd("dev:bob", make(alice)),
+        // 9: the owner leaves; the room is the co-host's.
+        Step::Cmd("dev:alice", Command::Leave),
+    ];
+    let (local, local_answers) = run_local(&steps);
+    assert_eq!(
+        local_answers,
+        vec![
+            None,
+            Some(Rejection::Unauthorized {
+                capability: Capability::ChangeAccess
+            }),
+            None,
+            None,
+            Some(Rejection::Unauthorized {
+                capability: Capability::MakeHost
+            }),
+            None,
+            Some(Rejection::NotPresent),
+            Some(Rejection::Unauthorized {
+                capability: Capability::ManageCoHosts
+            }),
+            None,
+            None,
+        ]
+    );
+    assert_eq!(local.owner().map(|m| m.id), Some(bob));
+    assert_eq!(local.picker(), Some(bob));
+    let a = local.member(alice).unwrap();
+    assert!(a.left && a.role == Role::CoHost);
+    assert_eq!(local.if_host_leaves(), HostLeaves::PassOn);
+    assert_eq!(local.closed, None);
+    for faults in [
+        vec![],
+        vec![Fault::Duplicate, Fault::Duplicate, Fault::Duplicate],
+        vec![Fault::Delay(0), Fault::Stale, Fault::Stale, Fault::Stale],
+        vec![Fault::Reorder, Fault::Duplicate, Fault::Reorder],
+        vec![Fault::Delay(0), Fault::Drop, Fault::Delay(0), Fault::Drop],
+        vec![Fault::Delay(300), Fault::Delay(50), Fault::Duplicate],
+    ] {
+        let (server, answers, mirrors) = run_online(&steps, &faults);
+        assert_eq!(answers, local_answers, "{faults:?}");
+        assert_eq!(server, local, "{faults:?}");
+        for m in &mirrors {
+            assert_eq!(m, &server, "{faults:?}");
+        }
+    }
+}
+
+/// A host whose socket is gone keeps the room inside the server's
+/// reconnect grace (a reload); past it the room passes to whoever is
+/// connected, and the host comes back a co-host.
+#[test]
+fn a_dropped_host_is_waited_for_then_the_room_passes_on() {
+    use ddi_room::Role;
+    let (a, b) = (ParticipantId(1), ParticipantId(2));
+    let owner = |c: &Client| c.room().owner().map(|m| m.id);
+    // Inside the grace: back with everything.
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    server.borrow_mut().set_grace(Some(30_000));
+    server.borrow_mut().drop_socket(a);
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(
+        bob.room().member(a).unwrap().connection,
+        Connection::Reconnecting
+    );
+    clock.advance(29_000);
+    pump_all(&mut [&mut bob]);
+    assert_eq!(owner(&bob), Some(a));
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(alice.link.link(), LinkState::Connected);
+    clock.advance(120_000);
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!((owner(&bob), bob.room().picker()), (Some(a), Some(a)));
+
+    // Past it: Bob's, with the pick; Alice, back, is a co-host and in
+    // step.
+    server.borrow_mut().drop_socket(a);
+    pump_all(&mut [&mut alice, &mut bob]);
+    clock.advance(30_000);
+    pump_all(&mut [&mut bob]);
+    assert_eq!((owner(&bob), bob.room().picker()), (Some(b), Some(b)));
+    assert_eq!(
+        bob.room().member(a).unwrap().connection,
+        Connection::Disconnected
+    );
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(alice.link.link(), LinkState::Connected);
+    assert_eq!(alice.room(), server.borrow().state());
+    assert_eq!(alice.room().member(a).unwrap().role, Role::CoHost);
+    // One command hands it back.
+    let seq = bob.send(Command::MakeHost { participant: a });
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.answer(seq), Some(&None));
+    assert_eq!(owner(&alice), Some(a));
+    assert_eq!(bob.room(), server.borrow().state());
+}
+
+/// A room that ends closes every socket with 4410 (the one who left is
+/// told they left), opens none again and gives no ticket: under "Close
+/// the room" when its host leaves or is away past the grace, and when a
+/// host leaves with nobody to pass it to.
+#[test]
+fn a_room_that_ends_closes_every_socket() {
+    use ddi_room::{Closure, HostLeaves};
+    let a = ParticipantId(1);
+    let close = Command::SetHostLeaves {
+        policy: HostLeaves::Close,
+    };
+    // Leaving under Close.
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    alice.send(close.clone());
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.room().if_host_leaves(), HostLeaves::Close);
+    let seq = alice.send(Command::Leave);
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(alice.answer(seq), Some(&None));
+    assert_eq!(alice.link.link(), LinkState::Left);
+    assert_eq!(bob.link.link(), LinkState::Closed);
+    assert_eq!(bob.room().closed, Some(Closure::HostLeft));
+    assert_eq!(server.borrow().sockets(), 0);
+    clock.advance(60_000);
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert!(!bob.link.wants_ticket());
+    assert_eq!(
+        server.borrow_mut().ticket(&Identity::new("dev:bob")),
+        Err(Rejection::RoomClosed)
+    );
+
+    // Away past the grace under Close: for everyone, the host included
+    // when they come back.
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    server.borrow_mut().set_grace(Some(30_000));
+    alice.send(close);
+    pump_all(&mut [&mut alice, &mut bob]);
+    server.borrow_mut().drop_socket(a);
+    pump_all(&mut [&mut alice, &mut bob]);
+    clock.advance(30_000);
+    pump_all(&mut [&mut bob]);
+    assert_eq!(bob.link.link(), LinkState::Closed);
+    pump_all(&mut [&mut alice]);
+    assert_eq!(alice.link.link(), LinkState::Closed);
+
+    // Alone, passing it on: nobody to pass it to.
+    let clock = ManualClock::new(1_000);
+    let server = hosted(&clock).shared();
+    let mut alice = Client::new(&server, &clock, "dev:alice");
+    pump_all(&mut [&mut alice]);
+    alice.send(Command::Leave);
+    pump_all(&mut [&mut alice]);
+    assert_eq!(alice.link.link(), LinkState::Left);
+    assert_eq!(server.borrow().state().closed, Some(Closure::HostLeft));
 }

@@ -11,7 +11,8 @@ use crate::member::{Capability, Connection, Intent, Member, Role};
 use crate::phase::{Interruption, Phase, PhaseKind};
 use crate::rules::{Access, Admission, CapExceeded, MatchRules, RulesProblem};
 use crate::state::{
-    ContentCard, ContentStatus, Loading, MatchEnding, SitOutReason, Spotlight, StageContent,
+    Closure, ContentCard, ContentStatus, HostLeaves, Loading, MatchEnding, SitOutReason, Spotlight,
+    StageContent,
 };
 use serde::{Deserialize, Serialize};
 
@@ -148,6 +149,22 @@ pub enum Command {
         admission: Admission,
         rotate_invite: bool,
     },
+    /// What the room does when its host goes (2026-11-12,
+    /// [`HostLeaves`]): a room setting, taken in every phase. Additive to
+    /// protocol 2: sent only to a room that says it has the setting
+    /// (`RoomState::has_succession`), so never to an authority that could
+    /// not read it.
+    SetHostLeaves {
+        policy: HostLeaves,
+    },
+    /// Hand the room over to `participant` (a person present and
+    /// connected, never a bot): they are the owner at once, with
+    /// everything an owner has, and the sender a co-host, who cannot take
+    /// it back by themselves. The pick stays with whoever has it. Additive
+    /// to protocol 2, sent as [`Command::SetHostLeaves`] is.
+    MakeHost {
+        participant: ParticipantId,
+    },
 
     // The authority alone.
     /// A person entered (or returned to) the room, as the authority
@@ -229,6 +246,19 @@ pub enum Event {
     },
     AccessChanged {
         access: Access,
+    },
+    /// What the room does when its host goes ([`Command::SetHostLeaves`];
+    /// also the first change this reducer makes in a room from before the
+    /// setting, which says so from then on).
+    HostLeavesChanged {
+        policy: HostLeaves,
+    },
+    /// The room ended: nothing more is decided there, and its authority
+    /// closes its sockets (4410). A change of host is two
+    /// [`Event::RoleChanged`]: the one before a co-host, then the new
+    /// owner.
+    RoomClosed {
+        reason: Closure,
     },
     /// The song the picker's song select rests on, or none (M7b).
     SpotlightChanged {
@@ -425,6 +455,8 @@ pub enum Rejection {
     NotPicker {
         picker: Option<ParticipantId>,
     },
+    /// The room ended (`RoomState::closed`).
+    RoomClosed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
