@@ -2044,6 +2044,11 @@ impl Screen for PromptScreen {
             self.rebuild(root, cx);
             self.draw_controls(root, cx);
         }
+        self.room_message(m, cx);
+    }
+
+    fn guards_leaving(&self) -> bool {
+        self.room_guards()
     }
 
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {

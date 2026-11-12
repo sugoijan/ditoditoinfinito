@@ -51,6 +51,9 @@ pub(super) struct PromptRoom {
     first: Cell<usize>,
     /// The UI's clock at the last update.
     time: Cell<f64>,
+    /// The game is quitting once the room has answered the player's
+    /// leaving, or at this time on the UI's clock.
+    quit_at: Cell<Option<f64>>,
 }
 
 impl PromptScreen {
@@ -68,6 +71,7 @@ impl PromptScreen {
             gone: Cell::new(None),
             first: Cell::new(0),
             time: Cell::new(0.0),
+            quit_at: Cell::new(None),
         });
         self
     }
@@ -109,6 +113,13 @@ impl PromptScreen {
         };
         rm.time.set(cx.time());
         let changed = rm.pump.borrow_mut().run(&rm.room, &rm.shell, cx);
+        if let Some(at) = rm.quit_at.get()
+            && (cx.time() >= at || rm.room.borrow().link_state().ended())
+        {
+            rm.quit_at.set(None);
+            cx.request(crate::UiRequest::Quit);
+            return;
+        }
         if rm.started.get() {
             return;
         }
@@ -150,6 +161,40 @@ impl PromptScreen {
             rm.seen.set(key);
             self.rebuild(root, cx);
             self.publish();
+        }
+    }
+
+    /// Whether closing the game from the stage's prompt asks first
+    /// ([`crate::Screen::guards_leaving`]): leaving the room costs
+    /// something (Back here only leaves the prompt, for the room).
+    pub(super) fn room_guards(&self) -> bool {
+        self.room.as_ref().is_some_and(|rm| {
+            rm.quit_at.get().is_none() && rm.room.borrow().leave_cost().is_some()
+        })
+    }
+
+    /// The window asked to close on the stage's prompt: asked, and the
+    /// game quit once the room is told if the player says Leave.
+    pub(super) fn room_message(&mut self, msg: &crate::Message, cx: &mut Cx) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        if !cx.is_current_screen() {
+            return;
+        }
+        if msg.name == crate::ui::CLOSE_REQUESTED
+            && !room::ask_leave(&self.env, &rm.room, room::LeaveBy::Quit, cx)
+        {
+            cx.request(crate::UiRequest::Quit);
+        }
+        if room::left_by(msg) == Some(room::LeaveBy::Quit) {
+            let told = {
+                let r = rm.room.borrow();
+                r.is_online() && r.link_state() == ddi_room::LinkState::Connected
+            };
+            rm.room.borrow_mut().leave();
+            rm.quit_at
+                .set(Some(cx.time() + if told { room::QUIT_WAIT } else { 0.0 }));
         }
     }
 

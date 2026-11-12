@@ -374,9 +374,10 @@ pub fn prompt_shell(room: &SharedRoom) -> RoomShell {
     room_shell(room.clone(), true, None, Rc::new(|_, _| {}))
 }
 
-/// An online room (`crate::online::room`): its song select (M7b), Back to
-/// the home, Leave room tells the room and forgets it, Sign in again
-/// opens the browser. The host's picks and resting song are uploaded as
+/// An online room (`crate::online::room`): its song select (M7b). Back
+/// and Leave room both leave it (asked first where leaving costs
+/// something, `ddi_ui::screens::room::ask_leave`): the room is told and
+/// forgotten, then the home. Sign in again opens the browser. The host's picks and resting song are uploaded as
 /// the room's shares, each member prepares the stage's song from its
 /// library or the share, and a stage's prompt opens over the room.
 pub fn online_room_screen(
@@ -396,8 +397,9 @@ pub fn online_room_screen(
 }
 
 /// The practice room's song select (M7b: the room's main view): Back to
-/// the home, Leave room forgets it first, a stage played through the
-/// library's play call.
+/// the home (the room kept between matches; with a match running, asked
+/// first and then forgotten), Leave room forgets it first, a stage played
+/// through the library's play call.
 pub fn room_screen(
     env: &Env,
     songs: Option<Rc<Songs>>,

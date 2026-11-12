@@ -2066,8 +2066,15 @@ impl Host {
         }
         // Screens and dialogs shown (`ddi_ui::back_stack`): nothing while
         // a `go` of ours is on its way (an entry pushed before its pop
-        // makes Firefox drop the `go` and Chrome the entry).
-        let depth = ddi_ui::back_stack::depth(&self.ui.layers());
+        // makes Firefox drop the `go` and Chrome the entry). A screen
+        // that asks before it is left (a room whose leaving costs
+        // something, `Screen::guards_leaving`) has one entry more, over
+        // the route's own: the browser's Back then pops that one and
+        // reaches the screen as the menu's Back (which asks and stays)
+        // instead of navigating away; the entry is pushed again with the
+        // question's.
+        let depth = ddi_ui::back_stack::depth(&self.ui.layers())
+            + usize::from(self.ui.guards_leaving());
         let step = self.entries.sync(depth, now);
         for mark in step.push {
             let marker = crate::router::history_state();
@@ -2097,6 +2104,9 @@ impl Host {
     }
 
     fn draw_frame(&mut self, time_ms: f64) {
+        // The browser's own question before the tab closes, exactly while
+        // leaving a room costs something.
+        crate::room::sync_unload_guard();
         let Some(gfx) = self.gfx.clone() else {
             return;
         };
@@ -2505,6 +2515,10 @@ fn publish(h: &Host) {
     // still on its way (a navigation waits for it).
     set(&ui, "historyDepth", (h.entries.depth() as f64).into());
     set(&ui, "historyBusy", h.entries.busy().into());
+    // Leaving the screen asks first (a history entry keeps the browser's
+    // Back on it), and whether `beforeunload` is registered for it.
+    set(&ui, "leaveGuard", h.ui.guards_leaving().into());
+    set(&ui, "unloadGuard", crate::room::unload_guarded().into());
     set(&ui, "padGesture", (!is_webkit()).into());
     {
         let d = h.dev.borrow();

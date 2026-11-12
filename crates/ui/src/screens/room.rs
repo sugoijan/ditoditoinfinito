@@ -41,9 +41,12 @@ use crate::state::room::{
 /// What the room asks of its shell.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RoomCall {
-    /// Back: to the multiplayer home, the room kept for the session.
+    /// Back from a practice room between matches: to the multiplayer
+    /// home, the room kept for the session.
     Leave,
-    /// Leave room: the practice forgotten, then back to the home.
+    /// The room left (`leave_now`: More's Leave room, Back on an online
+    /// room's song select, a practice with a match running): forgotten
+    /// (an online one told first), then back to the home.
     Discard,
     /// Prepare a stage's song on this device (read its chart, check the
     /// CPUs' plan) and answer `RoomClient::finish_load`; the spotlight's
@@ -124,6 +127,14 @@ pub struct RoomView {
     pub add_open: bool,
     pub players_open: bool,
     pub standings_open: bool,
+    /// What leaving the room now would cost (`RoomClient::leave_cost`:
+    /// `host_pass`, `host_close`, `host_alone`, `host_stays`, `playing`,
+    /// `picking`, `co_host`, `practice`; none: nothing, Back leaves at
+    /// once), the sentence the question would say, and whether the
+    /// question is open.
+    pub leave_cost: Option<String>,
+    pub leave_text: Option<String>,
+    pub leave_open: bool,
     /// The host's: Host options is open; the local player may change the
     /// room's hosts (an online room's owner); and what the room does when
     /// its host leaves (`pass_on`, `close`; none: a room that does not
@@ -969,12 +980,181 @@ pub fn open_more(env: &Env, room: &SharedRoom, compact: bool, cx: &mut Cx) {
 pub enum MoreAction {
     Rules,
     Players,
+    /// Leave room: asked first where it costs something ([`leave`]).
+    Leave,
     /// Done here (or nothing): the screen redraws.
     Done,
 }
 
+/// How the player set about leaving the room.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeaveBy {
+    /// Back on the room's song select (a key, the header's, a
+    /// controller's, the browser's).
+    Back,
+    /// More's Leave room.
+    More,
+    /// The window's close button or the app's Quit
+    /// ([`crate::ui::CLOSE_REQUESTED`]): the game quits once the room is
+    /// told.
+    Quit,
+}
+
+impl LeaveBy {
+    fn id(self) -> &'static str {
+        match self {
+            LeaveBy::Back => "back",
+            LeaveBy::More => "more",
+            LeaveBy::Quit => "quit",
+        }
+    }
+}
+
+/// Broadcast by the question when the player chose Leave; its `Action`
+/// says how they set about it ([`left_by`]).
+pub const LEAVE_CONFIRMED: &str = "Room.LeaveConfirmed";
+
+/// What leaving costs, in a sentence or two: what the room will do.
+pub fn leave_text(cost: &crate::state::room::LeaveCost) -> UiText {
+    use crate::state::room::LeaveCost;
+    match cost {
+        LeaveCost::HostPass {
+            to,
+            match_running: false,
+        } => m::leave_host_pass(to.as_str()),
+        LeaveCost::HostPass {
+            to,
+            match_running: true,
+        } => m::leave_host_pass_match(to.as_str()),
+        LeaveCost::HostClose {
+            match_running: false,
+        } => m::leave_host_close(),
+        LeaveCost::HostClose {
+            match_running: true,
+        } => m::leave_host_close_match(),
+        LeaveCost::HostAlone => m::leave_host_alone(),
+        LeaveCost::HostStays => m::leave_host_stays(),
+        LeaveCost::Playing => m::leave_playing(),
+        LeaveCost::Picking => m::leave_picking(),
+        LeaveCost::CoHost => m::leave_co_host(),
+        LeaveCost::Practice => m::leave_practice(),
+    }
+}
+
+/// The player sets about leaving the room: where it costs something
+/// (`RoomClient::leave_cost`) they are asked first ("Leave the room?",
+/// what it does, Stay chosen first; Escape and Back there are Stay),
+/// and [`LEAVE_CONFIRMED`] is broadcast if they say Leave; whether they
+/// were asked. Where it costs nothing the screen leaves at once
+/// ([`leave_now`]). Asked once: the question open already is not asked
+/// again.
+pub fn ask_leave(env: &Env, room: &SharedRoom, by: LeaveBy, cx: &mut Cx) -> bool {
+    let Some(cost) = room.borrow().leave_cost() else {
+        return false;
+    };
+    let asking = room.borrow().asking_leave();
+    if asking.replace(true) {
+        return true;
+    }
+    let id = by.id();
+    let on_yes: super::dialog::ConfirmFn = Rc::new(move |cx| {
+        cx.broadcast(
+            crate::Message::new(LEAVE_CONFIRMED)
+                .with("Action", crate::message::Param::Str(id.into())),
+        )
+    });
+    publish_dialog(env, |v| v.leave_open = true);
+    cx.overlay(
+        LeaveDialog(
+            super::dialog::ConfirmDialog::new(
+                env.clone(),
+                &m::leave_title(),
+                &leave_text(&cost),
+                &m::leave_confirm(),
+                on_yes,
+            )
+            .with_no(&m::leave_stay())
+            .named(crate::ui::LEAVE_QUESTION),
+            env.clone(),
+            asking,
+        ),
+        true,
+    );
+    true
+}
+
+/// The question: the room's "asking" flag is its own while it is open
+/// (cleared when it goes, however it goes), and the debug state says so.
+struct LeaveDialog(super::dialog::ConfirmDialog, Env, Rc<std::cell::Cell<bool>>);
+
+impl crate::screen::Screen for LeaveDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        self.0.presentation()
+    }
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        // Where the shells' debug views find its buttons.
+        self.1.state.borrow_mut().page_items = vec!["Cancel".into(), "Confirm".into()];
+        self.0.build(cx)
+    }
+    fn focusables(&self) -> Vec<crate::nav::Focusable> {
+        self.0.focusables()
+    }
+    fn input(
+        &mut self,
+        input: &crate::screen::Input,
+        root: &mut Actor,
+        cx: &mut Cx,
+    ) -> crate::screen::Handled {
+        self.0.input(input, root, cx)
+    }
+}
+
+impl Drop for LeaveDialog {
+    fn drop(&mut self) {
+        self.2.set(false);
+        publish_dialog(&self.1, |v| v.leave_open = false);
+    }
+}
+
+/// How the player set about the leaving a [`LEAVE_CONFIRMED`] message
+/// confirms.
+pub fn left_by(msg: &crate::Message) -> Option<LeaveBy> {
+    match super::menu_pick(msg, LEAVE_CONFIRMED)? {
+        "back" => Some(LeaveBy::Back),
+        "more" => Some(LeaveBy::More),
+        "quit" => Some(LeaveBy::Quit),
+        _ => None,
+    }
+}
+
+/// Leaves the room, without asking (it was asked, or costs nothing): an
+/// online room is told (`Command::Leave`) and forgotten, a practice with
+/// a match lost with it; then the multiplayer home. Practice between
+/// matches is kept for the session on Back, as it was, and forgotten by
+/// More's Leave room.
+pub fn leave_now(room: &SharedRoom, shell: &RoomShell, by: LeaveBy, cx: &mut Cx) {
+    let keep = by == LeaveBy::Back && {
+        let r = room.borrow();
+        !r.is_online() && r.leave_cost().is_none()
+    };
+    room.borrow_mut().set_rules_seen(false);
+    if keep {
+        shell(RoomCall::Leave, cx);
+    } else {
+        room.borrow_mut().leave();
+        shell(RoomCall::Discard, cx);
+    }
+}
+
+/// How long a quitting game waits for the room's answer to its leaving
+/// before it goes, seconds.
+pub const QUIT_WAIT: f64 = 0.6;
+
 /// Does what More's `id` asks.
-pub fn more_picked(id: &str, room: &SharedRoom, shell: &RoomShell, cx: &mut Cx) -> MoreAction {
+pub fn more_picked(id: &str, room: &SharedRoom, cx: &mut Cx) -> MoreAction {
     match id {
         "rules" => return MoreAction::Rules,
         "players" => return MoreAction::Players,
@@ -1000,11 +1180,7 @@ pub fn more_picked(id: &str, room: &SharedRoom, shell: &RoomShell, cx: &mut Cx) 
                 room.borrow_mut().retry_sharing(up);
             }
         }
-        "leave" => {
-            room.borrow_mut().leave();
-            room.borrow_mut().set_rules_seen(false);
-            shell(RoomCall::Discard, cx);
-        }
+        "leave" => return MoreAction::Leave,
         _ => {}
     }
     MoreAction::Done
@@ -1614,6 +1790,8 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                 None => p.stage,
             })
             .collect(),
+        leave_cost: r.leave_cost().as_ref().map(snake),
+        leave_text: r.leave_cost().as_ref().map(|c| leave_text(c).into()),
         manages_hosts: r.manages_hosts(),
         host_leaves: r.has_succession().then(|| snake(&r.if_host_leaves())),
         online: r.online_link().map(|l| RoomOnlineView {
@@ -1644,6 +1822,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         players_open: kept.players_open,
         standings_open: kept.standings_open,
         host_open: kept.host_open,
+        leave_open: kept.leave_open,
         ..view
     });
 }

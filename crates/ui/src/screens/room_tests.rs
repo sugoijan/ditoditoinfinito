@@ -2810,3 +2810,432 @@ fn a_room_passed_on_changes_hands_on_everyones_screens() {
     // Bob's link is as it was: the room did not close.
     assert_eq!(b.online.as_ref().unwrap().link, "connected");
 }
+
+/// What a room's screen asked of its shell about leaving: `leave` (the
+/// home, the room kept) or `discard` (the room forgotten).
+type Calls = Rc<RefCell<Vec<&'static str>>>;
+
+/// [`shell`], its leaving kept in `calls` (the screen stays up: a test
+/// looks at it after).
+fn leaving_shell(room: &SharedRoom, orders: &Orders, calls: &Calls) -> RoomShell {
+    let inner = shell(room, orders);
+    let calls = calls.clone();
+    Rc::new(move |call, cx| match call {
+        RoomCall::Leave => calls.borrow_mut().push("leave"),
+        RoomCall::Discard => calls.borrow_mut().push("discard"),
+        other => inner(other, cx),
+    })
+}
+
+fn asked(h: &Harness) -> bool {
+    top(h) == crate::LEAVE_QUESTION
+}
+
+/// Asking before leaving (2026-11-12), CPU practice. Between matches Back
+/// leaves at once, the room kept, as it was. With a match running every
+/// way out asks once: Escape, Backspace, the header's Back, a
+/// controller's Back, More's Leave room. Stay (chosen first; Escape and
+/// Back in the question are Stay) keeps everything: the room, the match,
+/// the readiness, the list's place. Leave forgets the practice, with no
+/// second question.
+#[test]
+fn practice_asks_before_leaving_only_with_a_match_running() {
+    use crate::nav::MenuAction;
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let (orders, calls) = (Orders::default(), Calls::default());
+    let screen = |room: &SharedRoom| {
+        sample::room_select(&env, room.clone(), library("dance-single"))
+            .with_room(room.clone(), leaving_shell(room, &orders, &calls))
+    };
+    let mut h = harness();
+    h.push(screen(&room));
+    h.run(0.5);
+    // No match: nothing to lose, nothing guarded, Back leaves at once.
+    assert_eq!(view(&env).leave_cost, None);
+    assert!(!h.ui.guards_leaving());
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    assert!(!asked(&h));
+    assert_eq!(*calls.borrow(), ["leave"]);
+    calls.borrow_mut().clear();
+    // Back in the room (the shell of this test kept the screen up, which
+    // has left): the first song picked, a match is running.
+    let mut h = harness();
+    h.push(screen(&room));
+    h.run(0.5);
+    let s = &library("dance-single").songs[0];
+    room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+    h.run(0.3);
+    let before = view(&env);
+    assert_eq!(before.leave_cost.as_deref(), Some("practice"));
+    assert!(h.ui.guards_leaving());
+    let running = room.borrow().state().current.as_ref().map(|m| m.id);
+    assert!(running.is_some());
+    let stay = |h: &mut Harness, how: &str| {
+        assert!(asked(h), "{how}: {}", top(h));
+        assert!(has(h, "Leave the room?"), "{how}: {:?}", h.texts());
+        assert!(has(h, "The match in progress will be lost."), "{how}");
+        assert!(has(h, "Stay") && has(h, "Leave"), "{how}");
+        assert_eq!(h.ui.focused(), Some("Cancel"), "{how}: Stay is chosen first");
+        assert!(view(&env).leave_open);
+    };
+    let kept = |h: &Harness, how: &str| {
+        assert_eq!(top(h), "select", "{how}");
+        assert!(calls.borrow().is_empty(), "{how}: {:?}", calls.borrow());
+        let r = room.borrow();
+        assert_eq!(r.state().current.as_ref().map(|m| m.id), running, "{how}");
+        assert!(r.state().phase.kind().match_running(), "{how}: the match");
+        assert!(!view(&env).leave_open, "{how}");
+        assert!(has(h, "Single Song"), "{how}: the list is as it was");
+    };
+    // Escape, then Escape in the question: Stay.
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    stay(&mut h, "Escape");
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    kept(&h, "Escape in the question");
+    // Backspace, then the Stay button.
+    h.key("Backspace", "Backspace");
+    h.run(0.3);
+    stay(&mut h, "Backspace");
+    press(&mut h, "Cancel");
+    kept(&h, "Stay");
+    // The header's Back, then Enter on Stay.
+    press(&mut h, "Back");
+    stay(&mut h, "the header's Back");
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    kept(&h, "Enter on Stay");
+    // A controller's Back, then its Back again: Stay.
+    for _ in 0..2 {
+        h.pad(MenuAction::Back, true);
+        h.pad(MenuAction::Back, false);
+        h.run(0.3);
+        if asked(&h) {
+            stay(&mut h, "a controller's Back");
+        }
+    }
+    kept(&h, "a controller's Back in the question");
+    // More's Leave room asks once.
+    press(&mut h, "More");
+    press(&mut h, "Item.leave");
+    stay(&mut h, "More");
+    assert_eq!(
+        h.ui.layers()
+            .iter()
+            .filter(|l| l.name == crate::LEAVE_QUESTION)
+            .count(),
+        1
+    );
+    press(&mut h, "Cancel");
+    kept(&h, "Stay after More");
+    // Leave: the practice forgotten, and no second question.
+    press(&mut h, "More");
+    press(&mut h, "Item.leave");
+    press(&mut h, "Confirm");
+    assert_eq!(*calls.borrow(), ["discard"]);
+    assert!(!asked(&h) && !view(&env).leave_open);
+    assert!(!h.ui.guards_leaving(), "nothing guards a room left");
+    // The same by Back: Leave there forgets the practice too (the match
+    // would be lost by the question's word).
+    calls.borrow_mut().clear();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+    let mut h = harness();
+    h.push(screen(&room));
+    h.run(0.5);
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    assert!(asked(&h));
+    h.key("ArrowRight", "ArrowRight");
+    h.run(0.1);
+    assert_eq!(h.ui.focused(), Some("Confirm"));
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(*calls.borrow(), ["discard"]);
+    // After the match: nothing to ask again.
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+    room.borrow_mut().stop_match().unwrap();
+    assert_eq!(room.borrow().leave_cost(), None);
+}
+
+/// Asking before leaving, an online room: its host always (what the room
+/// will do, by name where there is one), a member only while a match is
+/// running; each case's sentence; Leave tells the room and the room does
+/// what was said; nothing is asked once the link has ended.
+#[test]
+fn an_online_room_asks_its_host_always_and_the_others_during_a_match() {
+    use ddi_room::fake::Fault;
+    use ddi_room::{Command, ParticipantId};
+    let t = Three::new(false);
+    let (ea, eb, ec) = (env(), env(), env());
+    let (orders, calls) = (Orders::default(), Calls::default());
+    let select = |e: &Env, room: &SharedRoom, title: &str| {
+        let mut h = harness();
+        h.push(
+            sample::room_select(e, room.clone(), songs_of(&[title]))
+                .with_room(room.clone(), leaving_shell(room, &orders, &calls)),
+        );
+        h
+    };
+    let mut ha = select(&ea, &t.alice, "Alpha One");
+    let mut hb = select(&eb, &t.bob, "Bravo One");
+    let mut hc = select(&ec, &t.carol, "Charlie One");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    let cost = |e: &Env| view(e).leave_cost;
+    let text = |e: &Env| view(e).leave_text.unwrap_or_default();
+    // The host, between matches: the room passes to whoever joined first.
+    assert_eq!(cost(&ea).as_deref(), Some("host_pass"));
+    assert_eq!(text(&ea), "You are the host. bob will become the host.");
+    assert!(ha.ui.guards_leaving());
+    // A member between matches: nothing, and nothing guarded.
+    assert_eq!((cost(&eb), cost(&ec)), (None, None));
+    assert!(!hb.ui.guards_leaving());
+    // A co-host comes first.
+    t.alice.borrow_mut().set_co_host(ParticipantId(3), true).unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(text(&ea), "You are the host. carol will become the host.");
+    assert_eq!(cost(&ec), None, "a co-host between matches is not asked");
+    // The setting says Close.
+    t.alice
+        .borrow_mut()
+        .set_host_leaves(ddi_room::HostLeaves::Close)
+        .unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(cost(&ea).as_deref(), Some("host_close"));
+    assert_eq!(text(&ea), "You are the host. The room will close for everyone.");
+    t.alice
+        .borrow_mut()
+        .set_host_leaves(ddi_room::HostLeaves::PassOn)
+        .unwrap();
+    // A room whose authority does not pass on.
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    let hosting = t.server.borrow().state().hosting.clone();
+    t.server.borrow_mut().rewrite(|s| s.hosting = None);
+    t.step(200);
+    ha.run(0.3);
+    assert_eq!(
+        text(&ea),
+        "You are the host. The room stays open without a host, and you can come back by its link."
+    );
+    t.server.borrow_mut().rewrite(|s| s.hosting = hosting);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+
+    // A match running (the host picked; the song is being shared).
+    let song = songs_of(&["Alpha One"]).songs.remove(0);
+    t.alice.borrow_mut().pick(&song, &song.charts[0]).unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert!(t.server.borrow().state().phase.kind().match_running());
+    assert_eq!(
+        text(&ea),
+        "You are the host. carol will become the host, and the match goes on without you."
+    );
+    assert_eq!(cost(&eb).as_deref(), Some("playing"));
+    assert_eq!(
+        text(&eb),
+        "You are in the match in progress. It goes on without you, and you score nothing for the stages you miss."
+    );
+    assert!(hb.ui.guards_leaving());
+    // Someone who is not in the match: the one choosing its songs, a
+    // co-host, and a member who only watches.
+    t.server.borrow_mut().rewrite(|s| {
+        let m = s.current.as_mut().unwrap();
+        m.roster.remove(&ParticipantId(2));
+        m.roster.remove(&ParticipantId(3));
+    });
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(cost(&eb), None, "a member not in the match");
+    assert_eq!(cost(&ec).as_deref(), Some("co_host"));
+    assert_eq!(
+        text(&ec),
+        "You are a co-host. The match in progress goes on without you."
+    );
+    t.carol.borrow_mut().take_pick().unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(cost(&ec).as_deref(), Some("picking"));
+    assert_eq!(
+        text(&ec),
+        "You are choosing the songs. The host will choose them instead, and the match goes on without you."
+    );
+    // The member's Back leaves at once, the room told; the co-host's
+    // asks, and Stay keeps them in it.
+    hb.key("Escape", "Escape");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert!(!asked(&hb));
+    assert_eq!(*calls.borrow(), ["discard"]);
+    assert!(t.server.borrow().state().member(ParticipantId(2)).unwrap().left);
+    calls.borrow_mut().clear();
+    hc.key("Escape", "Escape");
+    hc.run(0.3);
+    assert!(asked(&hc));
+    assert_eq!(hc.ui.focused(), Some("Cancel"));
+    hc.key("Escape", "Escape");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert!(!asked(&hc) && calls.borrow().is_empty());
+    assert!(!t.server.borrow().state().member(ParticipantId(3)).unwrap().left);
+    assert_eq!(view(&ec).picker, Some(3), "still choosing");
+    // The host leaves: asked, then the room does what was said.
+    let revision = t.server.borrow().state().revision;
+    ha.key("Backspace", "Backspace");
+    ha.run(0.3);
+    assert!(asked(&ha));
+    assert!(
+        ha.texts()
+            .iter()
+            .any(|t| t.starts_with("You are the host. carol will become")),
+        "{:?}",
+        ha.texts()
+    );
+    assert_eq!(t.server.borrow().state().revision, revision, "nothing sent yet");
+    press(&mut ha, "Confirm");
+    t.settle(400, &mut [&mut hc]);
+    assert_eq!(*calls.borrow(), ["discard"]);
+    let s = t.server.borrow().state().clone();
+    assert!(s.member(ParticipantId(1)).unwrap().left);
+    assert_eq!(s.owner().map(|m| m.id), Some(ParticipantId(3)));
+    assert!(s.phase.kind().match_running(), "the match goes on");
+    assert_eq!(view(&ec).online.unwrap().role, "owner");
+    // The new host, alone now: the room will close; and it does.
+    assert_eq!(cost(&ec).as_deref(), Some("host_alone"));
+    assert_eq!(text(&ec), "You are the only one here. The room will close.");
+    calls.borrow_mut().clear();
+    press(&mut hc, "More");
+    press(&mut hc, "Item.leave");
+    assert!(asked(&hc));
+    press(&mut hc, "Confirm");
+    t.step(400);
+    assert_eq!(*calls.borrow(), ["discard"]);
+    assert_eq!(
+        t.server.borrow().state().closed,
+        Some(ddi_room::Closure::HostLeft)
+    );
+
+    // A link that ended asks nothing: the room closed under its host.
+    let t = Three::new(false);
+    let ea = env();
+    let calls = Calls::default();
+    let mut ha = harness();
+    ha.push(
+        sample::room_select(&ea, t.alice.clone(), songs_of(&["Alpha One"]))
+            .with_room(t.alice.clone(), leaving_shell(&t.alice, &orders, &calls)),
+    );
+    t.settle(400, &mut [&mut ha]);
+    assert!(ha.ui.guards_leaving());
+    t.server.borrow_mut().fault(
+        ParticipantId(1),
+        Fault::Close(ddi_room::online::close::ROOM_CLOSED),
+    );
+    t.settle(400, &mut [&mut ha]);
+    assert_eq!(view(&ea).online.unwrap().link, "closed");
+    assert_eq!(cost(&ea), None);
+    assert!(!ha.ui.guards_leaving());
+    ha.key("Escape", "Escape");
+    ha.run(0.3);
+    assert!(!asked(&ha));
+    assert_eq!(*calls.borrow(), ["discard"]);
+    let _ = Command::Leave;
+}
+
+/// The window asked to close (desktop's close button and Quit,
+/// `CLOSE_REQUESTED`): the room's screen asks, the stage's prompt too;
+/// Stay keeps the game; Leave tells the room and quits once it has
+/// answered. Where nothing guards the screen the shell is not held.
+#[test]
+fn a_close_request_asks_and_quits_only_on_leave() {
+    use crate::UiRequest;
+    let quits = |h: &Harness| h.requested(|r| matches!(r, UiRequest::Quit));
+    let close = |h: &mut Harness| {
+        h.ui.broadcast(crate::Message::new(crate::CLOSE_REQUESTED));
+        h.run(0.3);
+    };
+    // Practice with a match running, on its song select.
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let (orders, calls) = (Orders::default(), Calls::default());
+    let s = &library("dance-single").songs[0];
+    room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+    let mut h = harness();
+    h.push(
+        sample::room_select(&env, room.clone(), library("dance-single"))
+            .with_room(room.clone(), leaving_shell(&room, &orders, &calls)),
+    );
+    h.run(0.5);
+    assert!(h.ui.guards_leaving());
+    close(&mut h);
+    assert!(asked(&h) && has(&h, "The match in progress will be lost."));
+    assert_eq!(quits(&h), 0);
+    // Asked again while it is open: the question stays one (the shell
+    // closes without it).
+    close(&mut h);
+    assert_eq!(
+        h.ui.layers()
+            .iter()
+            .filter(|l| l.name == crate::LEAVE_QUESTION)
+            .count(),
+        1
+    );
+    press(&mut h, "Cancel");
+    assert_eq!((quits(&h), top(&h).as_str()), (0, "select"));
+    close(&mut h);
+    press(&mut h, "Confirm");
+    h.run(0.3);
+    assert_eq!(quits(&h), 1);
+    assert!(calls.borrow().is_empty(), "the game quits; no home");
+
+    // The stage's prompt.
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+    let order = room.borrow_mut().take_stage_order().unwrap();
+    let state = Rc::new(RefCell::new(PromptState::default()));
+    let mut h = harness();
+    h.push(
+        PromptScreen::new(env.clone(), state, Rc::new(|_, _| {}))
+            .with_room(room.clone(), order.stage, shell(&room, &orders)),
+    );
+    h.run(0.5);
+    assert!(h.ui.guards_leaving());
+    // Ready, then asked and Stay: still ready, the countdown going on.
+    press(&mut h, "Start");
+    assert!(room.borrow().ready());
+    close(&mut h);
+    assert!(asked(&h));
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    assert_eq!((quits(&h), top(&h).as_str()), (0, "play-prompt"));
+    assert!(room.borrow().ready(), "Stay keeps the readiness");
+    assert!(matches!(
+        room.borrow().state().phase,
+        Phase::Countdown { .. }
+    ));
+    close(&mut h);
+    press(&mut h, "Confirm");
+    h.run(0.3);
+    assert_eq!(quits(&h), 1);
+
+    // An online room's host: the room is told, then the game quits.
+    let t = Three::new(true);
+    let ea = env.clone();
+    let mut ha = harness();
+    ha.push(
+        sample::room_select(&ea, t.alice.clone(), songs_of(&["Alpha One"]))
+            .with_room(t.alice.clone(), leaving_shell(&t.alice, &orders, &calls)),
+    );
+    t.settle(400, &mut [&mut ha]);
+    close(&mut ha);
+    assert!(asked(&ha) && has(&ha, "You are the host. bob will become the host."));
+    press(&mut ha, "Confirm");
+    t.settle(400, &mut [&mut ha]);
+    ha.run(1.0);
+    assert_eq!(quits(&ha), 1, "once the room answered (or a moment passed)");
+    let s = t.server.borrow().state().clone();
+    assert!(s.member(ddi_room::ParticipantId(1)).unwrap().left);
+    assert_eq!(s.owner().map(|m| m.id), Some(ddi_room::ParticipantId(2)));
+}

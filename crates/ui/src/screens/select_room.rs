@@ -151,6 +151,12 @@ pub(super) struct RoomMode {
     standings: Option<Option<u16>>,
     /// The UI's clock at the last update ([`SelectScreen::room_wake_at`]).
     time: f64,
+    /// The game is quitting once the room has answered the player's
+    /// leaving, or at this time on the UI's clock.
+    quit_at: Option<f64>,
+    /// The player left the room from this screen (asked or not): nothing
+    /// guards it any more.
+    left: bool,
 }
 
 impl SelectScreen {
@@ -176,6 +182,8 @@ impl SelectScreen {
             hovered: None,
             standings: None,
             time: 0.0,
+            quit_at: None,
+            left: false,
         });
         // The styles the room can play, the one shown kept where it is
         // among them.
@@ -566,6 +574,15 @@ impl SelectScreen {
         let (room, shell) = (rm.room.clone(), rm.shell.clone());
         rm.time = cx.time();
         let changed = rm.pump.run(&room, &shell, cx);
+        // Quitting (the window closed, the leaving confirmed): once the
+        // room has answered, or after a moment.
+        if let Some(at) = rm.quit_at
+            && (cx.time() >= at || room.borrow().link_state().ended())
+        {
+            rm.quit_at = None;
+            cx.request(crate::UiRequest::Quit);
+            return;
+        }
         if !cx.is_current_screen() {
             return;
         }
@@ -887,15 +904,57 @@ impl SelectScreen {
         }
     }
 
-    /// Back from the room's song select: to the multiplayer home, the room
-    /// kept; its Rules open again when the player comes back.
+    /// Back from the room's song select leaves the room: asked first
+    /// where leaving costs something (`room::ask_leave`), else at once.
+    /// An online room is told and forgotten; practice between matches is
+    /// kept for the session, as it was.
     pub(super) fn room_back(&mut self, cx: &mut Cx) -> bool {
+        self.room_leave(room::LeaveBy::Back, cx)
+    }
+
+    /// The player sets about leaving the room.
+    fn room_leave(&mut self, by: room::LeaveBy, cx: &mut Cx) -> bool {
         let Some(rm) = &self.room else {
             return false;
         };
-        rm.room.borrow_mut().set_rules_seen(false);
-        (rm.shell)(room::RoomCall::Leave, cx);
+        if !room::ask_leave(&self.env, &rm.room, by, cx) {
+            self.room_left(by, cx);
+        }
         true
+    }
+
+    /// The room is left, asked or at no cost: told, then the home; a
+    /// quitting game waits a moment for the room's answer first.
+    fn room_left(&mut self, by: room::LeaveBy, cx: &mut Cx) {
+        if self.room.is_none() {
+            return;
+        }
+        // The room's preview stops as song select's does.
+        self.told_shown = false;
+        self.call(SelectCall::Shown(false), cx);
+        let Some(rm) = &mut self.room else {
+            return;
+        };
+        rm.left = true;
+        if by == room::LeaveBy::Quit {
+            // An online room is told first; nothing else to wait for.
+            let told = {
+                let r = rm.room.borrow();
+                r.is_online() && r.link_state() == ddi_room::LinkState::Connected
+            };
+            rm.room.borrow_mut().leave();
+            rm.quit_at = Some(cx.time() + if told { room::QUIT_WAIT } else { 0.0 });
+        } else {
+            room::leave_now(&rm.room, &rm.shell, by, cx);
+        }
+    }
+
+    /// Whether leaving the room's song select asks first
+    /// ([`crate::Screen::guards_leaving`]).
+    pub(super) fn room_guards(&self) -> bool {
+        self.room
+            .as_ref()
+            .is_some_and(|rm| !rm.left && rm.room.borrow().leave_cost().is_some())
     }
 
     /// The room's More menu in song select's place.
@@ -1029,14 +1088,28 @@ impl SelectScreen {
         let Some(rm) = &self.room else {
             return;
         };
-        let (room, shell) = (rm.room.clone(), rm.shell.clone());
+        let room = rm.room.clone();
         if msg.name == crate::screens::room_dialogs::RULES_SAVED {
             self.refill_room(root, cx);
         }
+        // The window asked to close while leaving costs something: asked
+        // here, where the room's screen is the one shown.
+        if msg.name == crate::ui::CLOSE_REQUESTED && cx.is_current_screen() {
+            self.room_leave(room::LeaveBy::Quit, cx);
+        }
+        // The question's Leave: no second question.
+        if let Some(by) = room::left_by(msg)
+            && cx.is_current_screen()
+        {
+            self.room_left(by, cx);
+        }
         if let Some(id) = crate::screens::menu_pick(msg, room::MORE) {
-            match room::more_picked(id, &room, &shell, cx) {
+            match room::more_picked(id, &room, cx) {
                 room::MoreAction::Rules => self.open_rules(cx),
                 room::MoreAction::Players => self.open_players(cx),
+                room::MoreAction::Leave => {
+                    self.room_leave(room::LeaveBy::More, cx);
+                }
                 room::MoreAction::Done => self.refill_room(root, cx),
             }
         }

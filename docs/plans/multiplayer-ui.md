@@ -503,6 +503,29 @@ now, whatever the role. Built the same day
 later match rule may pass the pick around every player each stage (the model
 names "who chooses now", only the taking is an operator's).
 
+Decided (maintainer, 2026-11-12): **a room's host: succession, promoting
+someone, asking before leaving.** What a room does when its host goes is a
+setting of the room's, "If the host leaves", the host's to change: **Pass it
+on** (the default: to a co-host, the one who joined first among them, else to
+the member who joined first; people who are connected before those away, never
+a bot) or **Close the room**. It applies when the host leaves, at once, and
+when the host has been away past the room's reconnect grace; a host who comes
+back after the room passed on is a co-host. The host has **Host options** in
+the Players pop-up (its button, or a tap on another player's row): the setting
+with each value in a sentence, and for each other player Make co-host or Remove
+co-host and Make host (asked once more; the giver becomes a co-host).
+Everyone's Players pop-up says the setting, and lists the players before the
+picks. Leaving asks first where it costs something ("Leave the room?", Stay
+chosen first): the host always, and during a running match a player in it, the
+one choosing its songs and a co-host; CPU practice with a match running. Back,
+More's Leave room, the browser's Back, the tab's close (the browser's own
+prompt) and the desktop window's close and Quit all go through it. Back on an
+online room's song select now leaves the room (told, then forgotten). Built the
+same day ([progress](multiplayer-prototype-progress.md), "A room's host"); the
+"departing host is offered transfer" of "Navigation and exceptional states"
+below is this: the handover is Make host, before leaving, and the succession
+does the rest.
+
 Host authority remains separate from participation. A host who is not playing
 gets their watch/wait footer plus Start; they do not ready a noncompetitive seat.
 A playing host must ready themselves before starting. Ready counts exclude

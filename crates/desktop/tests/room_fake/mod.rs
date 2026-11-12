@@ -269,3 +269,13 @@ pub fn tap(ui: &mut Ui, name: &str, seconds: f32) {
         ui.update(1.0 / 60.0);
     }
 }
+
+/// A key pressed and released on `ui`, then `seconds` of frames.
+pub fn key(ui: &mut Ui, code: &str, seconds: f32) {
+    use ddi_ui::event::KeyEvent;
+    ui.handle(UiEvent::Key(KeyEvent::down(code, code)));
+    ui.handle(UiEvent::Key(KeyEvent::up(code, code)));
+    for _ in 0..(seconds * 60.0).round() as usize {
+        ui.update(1.0 / 60.0);
+    }
+}

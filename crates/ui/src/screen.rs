@@ -290,6 +290,18 @@ pub trait Screen {
         false
     }
 
+    /// Leaving this screen asks first (a multiplayer room whose leaving
+    /// costs something, `screens::room::ask_leave`): its Back opens the
+    /// question and stays. A shell lets nothing take the player off it
+    /// unasked ([`crate::Ui::guards_leaving`]): the web keeps a history
+    /// entry over its route so the browser's Back reaches the screen
+    /// instead of navigating away, and warns before the tab closes;
+    /// desktop tells the screens when its window is asked to close
+    /// ([`crate::ui::CLOSE_REQUESTED`]) and closes only once they say.
+    fn guards_leaving(&self) -> bool {
+        false
+    }
+
     /// The named actors focus moves between, in order (the first is
     /// focused when the screen comes in), with any explicit neighbours.
     fn focusables(&self) -> Vec<Focusable> {

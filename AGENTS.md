@@ -1000,6 +1000,21 @@ Rust and the browser are implementation details, not advertised features.
   `hosted-deadline-v1` (a window counts from the song's availability and
   ends early once every connected player who could join is ready and
   loaded); `CpuMode::Roster` (named CPUs, each its own `OpponentSpec`);
+  the host's succession (2026-11-12, `Hosting` in `RoomState::hosting`,
+  the room's setting "If the host leaves", `HostLeaves`: Pass it on or
+  Close, the owner's `Command::SetHostLeaves`): when the owner leaves,
+  or is away past the authority's patience (`Connection::Disconnected`,
+  the server's reconnect grace), the room passes to `RoomState::heir`
+  (people connected first, a co-host before a member, then whoever
+  joined first, never a bot; two `RoleChanged`, the one before a
+  co-host from then on) or ends (`Event::RoomClosed`,
+  `RoomState::closed`, `Rejection::RoomClosed`: its authority closes
+  every socket with 4410); an owner away with nobody connected keeps
+  the room; `Command::MakeHost` hands it over; a pick nobody holds is
+  the owner's while the owner is there (`settle_host`, run after every
+  command); additive, and a room without `hosting` (an authority that
+  predates it) is never sent the two commands
+  (`RoomState::has_succession`);
   protocol 2, still taking 1. The reducer (`reduce.rs`): commands from an
   `Actor` (a member, or the authority for joins, connections, content status
   and confirmed outcomes) decided into events, atomic, refusals typed
@@ -1025,7 +1040,9 @@ Rust and the browser are implementation details, not advertised features.
   4401 sign in again, 4410 closed, 4000 left); tickets sans-IO
   (`wants_ticket`, `ticket`). `fake.rs`: `FakeServer`, that room in
   process behind JSON text both ways with faults (delay, duplicate, drop,
-  reorder, stale, close codes). Tests:
+  reorder, stale, close codes), the server's reconnect grace where a
+  test sets one (`set_grace`), its 4410 for a room that ended, and
+  `rewrite`, the room put as another authority would have it. Tests:
   `crates/room/tests/walkthroughs.rs`, the handoff's walkthroughs;
   `tests/authority.rs`, the envelope and the authority; `tests/online.rs`,
   the adapter contract (one script through `LocalAuthority` and through
@@ -1146,8 +1163,26 @@ Rust and the browser are implementation details, not advertised features.
   (`room::attacks_offered`: practice, On by default; an online room says
   they are not there yet); the rules in a few words where they are
   summarized, `room::rules_words`: what differs from the usual, so "No
-  attacks" where a practice match has them turned off), `PlayersDialog`,
-  `StandingsDialog` and the refusal notice; `screens/prompt_room.rs` the
+  attacks" where a practice match has them turned off), `PlayersDialog`
+  (the players, then the picks; what the room does if its host leaves,
+  said to everyone; an online room's host has Host options there, a
+  button or a tap on another person's row: `HostDialog`, the "If the
+  host leaves" setting, Make co-host and Remove co-host, Make host
+  asked once more, never for a bot; `RoomClient::set_host_leaves`,
+  `set_co_host`, `make_host`, which send nothing a room could not
+  read), `StandingsDialog` and the refusal notice. Leaving asks first
+  where it costs something (`RoomClient::leave_cost`, `LeaveCost`: an
+  online room's host always; during a running match a player in it,
+  the one choosing its songs, a co-host; practice with a match
+  running): `room::ask_leave` ("Leave the room?", what the room will
+  do, Stay chosen first; the layer `ddi_ui::LEAVE_QUESTION`), from Back
+  on the room's song select, More's Leave room and a shell's close
+  request (`ddi_ui::CLOSE_REQUESTED`, broadcast where
+  `Ui::guards_leaving`, `Screen::guards_leaving`: desktop's
+  `Shell::close_requested`, the window's close and Quit, which quit
+  only on Leave or when asked again while the question is open); Back
+  on an online room's song select leaves the room (told, forgotten),
+  practice between matches is kept; `screens/prompt_room.rs` the
   stage's prompt (`PromptScreen::with_room`: Ready, its countdown, the
   players beside the diagram, where the match has attacks the player's
   attack policy as one quiet row with what it does
@@ -1653,7 +1688,13 @@ the UI stack. The web's history entries for dialogs take one operation at
 a time (`ddi_ui::back_stack::Entries`): nothing is pushed or navigated
 while a `history.go` of ours awaits its `popstate` (an entry pushed before
 it makes Firefox drop the `go` and Chrome the entry), and a pop that
-never comes is given up after a second. Every played layout's default keys end with the number pad as
+never comes is given up after a second. A screen that asks before it is
+left (`Screen::guards_leaving`: a multiplayer room whose leaving costs
+something) has one entry more over its route, so the browser's Back
+reaches it as the menu's Back (it asks and stays) instead of navigating
+away; `beforeunload` is registered only while that holds on a room's
+page (`crate::room::sync_unload_guard`; `__DDI_DEBUG.ui.leaveGuard`,
+`unloadGuard`), never in singleplayer. Every played layout's default keys end with the number pad as
 a second set (4 2 8 6 the arrows, 5 the middle, the corners the diagonals;
 `crates/chart/src/layout/mod.rs`, decision 70), the main keys first and
 unchanged; `Numpad*` codes are the number pad's alone, never the number

@@ -1456,6 +1456,38 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         ha.tap(PointerKind::Mouse, "Close");
         ha.run(0.3);
     }
+    // Asking before leaving: the question as the host gets it on Back
+    // (Escape there is Stay), then each case's sentence.
+    ha.key("Escape", "Escape");
+    shown(&mut ha, found);
+    ha.key("Escape", "Escape");
+    ha.run(0.3);
+    {
+        use crate::state::room::LeaveCost;
+        let host = |match_running| LeaveCost::HostPass {
+            to: "bob".into(),
+            match_running,
+        };
+        let close = |match_running| LeaveCost::HostClose { match_running };
+        checked(
+            [
+                host(false),
+                host(true),
+                close(false),
+                close(true),
+                LeaveCost::HostAlone,
+                LeaveCost::HostStays,
+                LeaveCost::Playing,
+                LeaveCost::Picking,
+                LeaveCost::CoHost,
+                LeaveCost::Practice,
+            ]
+            .iter()
+            .map(|c| super::room::leave_text(c).into())
+            .collect(),
+            found,
+        );
+    }
     hb.tap(PointerKind::Mouse, "More");
     shown(&mut hb, found);
     hb.key("Escape", "Escape");

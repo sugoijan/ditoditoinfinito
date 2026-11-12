@@ -3119,9 +3119,8 @@ impl SelectScreen {
         self.cancel_navigation();
         self.tell(cx);
         if self.room.is_some() {
-            // The room's preview stops as song select's does.
-            self.told_shown = false;
-            self.call(SelectCall::Shown(false), cx);
+            // Asked first where leaving costs something; the room's
+            // preview stops once it is left (`room_left`).
             self.room_back(cx);
             return Handled::Yes;
         }
@@ -3493,6 +3492,10 @@ impl ListModel for EmptyModel {
 impl Screen for SelectScreen {
     fn shared_bars(&self) -> bool {
         true
+    }
+
+    fn guards_leaving(&self) -> bool {
+        self.room_guards()
     }
 
     fn active_element(&self, _focused: Option<&str>) -> Option<String> {

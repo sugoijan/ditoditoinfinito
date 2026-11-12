@@ -9,7 +9,9 @@
 //! line saying what the room does when its host leaves, Host options),
 //! Host options (the setting, each person's buttons), the question
 //! before the room is handed over, a member's Players pop-up (no
-//! controls), and the room after the handover as its new owner sees it.
+//! controls), the room after the handover as its new owner sees it, and
+//! "Leave the room?" as the host is asked it on Back: with someone to pass
+//! the room to, and alone.
 //! `DDI_OFFSCREEN_PPM=<dir>` keeps them.
 
 mod room_fake;
@@ -19,7 +21,7 @@ use std::rc::Rc;
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::fake::FakeServer;
 use ddi_room::{Command, Identity, Intent, ManualClock, ParticipantId, RoomPolicy};
-use room_fake::{ROOM, Scene, Songs, drawn, keep, library, person, tap};
+use room_fake::{ROOM, Scene, Songs, drawn, keep, key, library, person, tap};
 
 /// Opens the Players pop-up on `ui`: its button in the header, or More's
 /// item where the header has no room for it (a phone).
@@ -109,6 +111,15 @@ fn the_hosts_pop_ups_and_a_room_handed_over() {
         let (va, vb, vc) = (view(&scene, 0), view(&scene, 1), view(&scene, 2));
         assert!(va.manages_hosts && !vb.manages_hosts && !vc.manages_hosts);
         assert_eq!(va.host_leaves.as_deref(), Some("pass_on"), "{lang} {size:?}");
+        // Back on the host's song select asks first, saying who the room
+        // passes to; Escape there is Stay.
+        assert_eq!(va.leave_cost.as_deref(), Some("host_pass"));
+        key(&mut scene.people[0].ui, "Escape", 0.5);
+        assert_eq!(top(&scene, 0), ddi_ui::LEAVE_QUESTION, "{lang} {size:?}");
+        let asked = shot(&mut scene, 0, "leave-0-host");
+        assert!(drawn(&asked, size, [0.3, 0.35, 0.7, 0.65]));
+        key(&mut scene.people[0].ui, "Escape", 0.5);
+        assert_eq!(top(&scene, 0), "select");
         // The owner's Players pop-up, then Host options.
         open_players(&mut scene.people[0].ui);
         assert_eq!(top(&scene, 0), "room-players", "{lang} {size:?}");
@@ -158,5 +169,16 @@ fn the_hosts_pop_ups_and_a_room_handed_over() {
         tap(&mut scene.people[2].ui, "HostOptions", 0.6);
         assert_eq!(top(&scene, 2), "room-host");
         shot(&mut scene, 2, "host-6-new-owner-options");
+        for _ in 0..2 {
+            tap(&mut scene.people[2].ui, "Close", 0.4);
+        }
+        // The others leave; the host, alone, is told the room will close.
+        scene.people[0].room.borrow_mut().leave();
+        scene.people[1].room.borrow_mut().leave();
+        scene.run(1.0);
+        assert_eq!(view(&scene, 2).leave_cost.as_deref(), Some("host_alone"));
+        key(&mut scene.people[2].ui, "Escape", 0.5);
+        assert_eq!(top(&scene, 2), ddi_ui::LEAVE_QUESTION, "{lang} {size:?}");
+        shot(&mut scene, 2, "leave-1-host-alone");
     }
 }

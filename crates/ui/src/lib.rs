@@ -52,7 +52,7 @@ pub use nav::{Focusable, MenuAction};
 pub use request::{InputHints, UiRequest};
 pub use screen::{Cx, Handled, Input, Mark, Screen, Spot, Stage, TextChange};
 pub use text_field::{TextField, TextMode};
-pub use ui::{ACTIVATION_WINDOW, DESIGN_MESSAGE, RING_COLOR};
+pub use ui::{ACTIVATION_WINDOW, CLOSE_REQUESTED, DESIGN_MESSAGE, LEAVE_QUESTION, RING_COLOR};
 pub use ui::{LayerInfo, Outcome, Ui};
 
 pub mod controller_hints;

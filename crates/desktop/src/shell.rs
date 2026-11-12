@@ -693,6 +693,40 @@ impl Shell {
         self.run(out.requests);
     }
 
+    /// The window was asked to close (its close button, the app's Quit:
+    /// ⌘Q, the Dock's). Where the screen shown asks before it is left (a
+    /// multiplayer room whose leaving costs something,
+    /// `ddi_ui::Screen::guards_leaving`), the screens are told and ask
+    /// ("Leave the room?"); the game quits only if the player says Leave
+    /// (the screen's `UiRequest::Quit`, once the room is told). Asked
+    /// again while the question is open, the game quits without it: a
+    /// person who wants out is not held. A play on screen is not held
+    /// either (no question can be shown over it), nor is a signal or a
+    /// forced quit, which never comes here.
+    pub fn close_requested(&mut self) {
+        let asks = !self.quitting
+            && !self.play.playing()
+            && self.ui.guards_leaving()
+            && !self
+                .ui
+                .layers()
+                .iter()
+                .any(|l| l.name == ddi_ui::LEAVE_QUESTION);
+        if asks {
+            self.ui
+                .broadcast(ddi_ui::Message::new(ddi_ui::CLOSE_REQUESTED));
+            let out = self.ui.take_requests();
+            self.run(out);
+        } else {
+            self.request_quit();
+        }
+    }
+
+    /// Whether the game is quitting (asked, and nothing held it).
+    pub fn quitting(&self) -> bool {
+        self.quitting
+    }
+
     fn request_quit(&mut self) {
         self.set_native_cursor(Cursor::Default);
         if !self.quitting {
@@ -1507,8 +1541,8 @@ impl ApplicationHandler for Shell {
         };
         match event {
             WindowEvent::CloseRequested => {
-                self.request_quit();
-                if self.may_exit() {
+                self.close_requested();
+                if self.quitting && self.may_exit() {
                     self.exit(event_loop);
                 }
             }
@@ -1720,7 +1754,7 @@ impl ApplicationHandler for Shell {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         crate::app_menu::follow_language();
         if crate::quit::asked() {
-            self.request_quit();
+            self.close_requested();
         }
         if self.quitting && self.may_exit() {
             self.exit(event_loop);
@@ -2303,6 +2337,98 @@ mod tests {
         assert!(shell.quit_ready);
         assert!(shell.may_exit());
         assert!(shell.sound.borrow().status().1.is_none());
+    }
+
+    /// The window's close button and the app's Quit in a multiplayer
+    /// room (`Shell::close_requested`): where leaving costs nothing the
+    /// game quits at once, as anywhere; with a practice match running the
+    /// room's screen asks and the game does not quit; Stay keeps it;
+    /// asked again while the question is open, it quits without it; Leave
+    /// quits.
+    #[test]
+    fn a_close_request_in_a_room_asks_where_leaving_costs_and_quits_only_on_leave() {
+        use ddi_ui::event::KeyEvent;
+        crate::audio::set_headless(true);
+        let top = |shell: &Shell| {
+            shell
+                .ui
+                .layers()
+                .last()
+                .map(|l| l.name.clone())
+                .unwrap_or_default()
+        };
+        let frames = |shell: &mut Shell, seconds: f32| {
+            for _ in 0..(seconds * 30.0) as usize {
+                shell.ui.update(1.0 / 30.0);
+                let out = shell.ui.take_requests();
+                shell.run(out);
+            }
+        };
+        let key = |shell: &mut Shell, code: &str| {
+            shell.send(UiEvent::Key(KeyEvent::down(code, code)));
+            shell.send(UiEvent::Key(KeyEvent::up(code, code)));
+        };
+        // A practice room with its first song picked: a match is running.
+        let room = |running: bool| {
+            crate::room::discard();
+            let mut shell = Shell::named("room");
+            frames(&mut shell, 0.5);
+            if running {
+                let songs = sample::select().songs;
+                let (song, chart) = songs
+                    .iter()
+                    .find_map(|s| {
+                        let c = s
+                            .charts
+                            .iter()
+                            .find(|c| ddi_ui::state::room::eligible(c).is_ok())?;
+                        Some((s.clone(), c.clone()))
+                    })
+                    .expect("a sample chart the CPUs can play");
+                crate::room::current()
+                    .borrow_mut()
+                    .pick(&song, &chart)
+                    .expect("picked");
+                frames(&mut shell, 0.3);
+            }
+            shell
+        };
+        // No case: the start menu, and a room between matches.
+        let mut shell = Shell::named("start");
+        shell.close_requested();
+        assert!(shell.quitting());
+        let mut shell = room(false);
+        assert_eq!(top(&shell), "select");
+        shell.close_requested();
+        assert!(shell.quitting(), "nothing to lose: at once");
+        // A match running: asked, not quitting.
+        let mut shell = room(true);
+        shell.close_requested();
+        frames(&mut shell, 0.3);
+        assert_eq!(top(&shell), ddi_ui::LEAVE_QUESTION);
+        assert!(!shell.quitting());
+        // Stay (Escape): the room is as it was.
+        key(&mut shell, "Escape");
+        frames(&mut shell, 0.3);
+        assert_eq!(top(&shell), "select");
+        assert!(!shell.quitting());
+        assert!(crate::room::current().borrow().leave_cost().is_some());
+        // Asked, and asked again while the question is open: quits.
+        shell.close_requested();
+        frames(&mut shell, 0.3);
+        assert!(!shell.quitting());
+        shell.close_requested();
+        assert!(shell.quitting(), "a second request is not held");
+        // Asked, and Leave: quits.
+        let mut shell = room(true);
+        shell.close_requested();
+        frames(&mut shell, 0.3);
+        assert_eq!(shell.ui.focused(), Some("Cancel"), "Stay is chosen first");
+        key(&mut shell, "ArrowRight");
+        key(&mut shell, "Enter");
+        frames(&mut shell, 0.5);
+        assert!(shell.quitting());
+        crate::room::discard();
     }
 
     #[test]

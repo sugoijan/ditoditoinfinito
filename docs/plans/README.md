@@ -102,7 +102,16 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   holder leaves, loses the role or is gone too long; a room from before
   it chooses as it did. And the room's song select shows nothing of a
   view until the room says who the player is, then brings it in once,
-  a change of hands one swap.
+  a change of hands one swap. A room's host (2026-11-12): what the
+  room does when its host goes is a room setting ("If the host leaves":
+  pass it on, to a co-host or whoever joined first, or close the room),
+  applied when the host leaves and when they are away past the
+  reconnect grace; the host's Host options in the Players pop-up (Make
+  co-host, Remove co-host, Make host); and leaving asks first where it
+  costs something (the host always; players, the picker and co-hosts
+  during a match; practice with a match running), from Back, More, the
+  browser's Back and tab close, and the desktop window's close and
+  Quit.
   Provisional choices and open questions listed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two

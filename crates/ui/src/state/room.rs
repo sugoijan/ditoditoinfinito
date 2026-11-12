@@ -123,6 +123,34 @@ pub enum Unsupported {
     NoDigest,
 }
 
+/// What leaving the room now would cost, where it costs something
+/// ([`RoomClient::leave_cost`]): the cases the screens ask before leaving
+/// in, each with what the room will do.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeaveCost {
+    /// An online room's host: the room passes to `to` (their name as the
+    /// screens show it), a match running or not.
+    HostPass { to: String, match_running: bool },
+    /// An online room's host with others in it: the room closes for
+    /// everyone (its setting, or only bots to pass it to).
+    HostClose { match_running: bool },
+    /// An online room's host with nobody else in it: the room closes.
+    HostAlone,
+    /// The host of a room whose authority does not pass rooms on: it
+    /// stays open without a host.
+    HostStays,
+    /// In the running match (not the host): it goes on without them.
+    Playing,
+    /// Choosing the room's songs while a match runs (not the host, not
+    /// playing): the host chooses instead.
+    Picking,
+    /// A co-host while a match runs (neither playing nor choosing).
+    CoHost,
+    /// CPU practice with a match running: the match is lost.
+    Practice,
+}
+
 /// Why something asked of the room did not happen.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refusal {
@@ -677,6 +705,9 @@ pub struct RoomClient {
     /// The local player's attacks of each stage played here with attacks
     /// ([`RoomClient::set_stage_summary`]).
     summaries: BTreeMap<StageId, AttackSummary>,
+    /// The question before leaving is open on a screen of this room
+    /// ([`RoomClient::asking_leave`]).
+    asking: Rc<std::cell::Cell<bool>>,
 }
 
 /// The room shared by the screens that show it (the room, its song
@@ -803,6 +834,7 @@ impl RoomClient {
             results_seen: (None, 0),
             details: BTreeMap::new(),
             summaries: BTreeMap::new(),
+            asking: Rc::default(),
         };
         room.pump();
         room
@@ -859,6 +891,7 @@ impl RoomClient {
             results_seen: (None, 0),
             details: BTreeMap::new(),
             summaries: BTreeMap::new(),
+            asking: Rc::default(),
         };
         room.tick(now_ms);
         room
@@ -1075,6 +1108,72 @@ impl RoomClient {
     pub fn sign_in_again(&mut self) {
         if let Some(l) = self.online_link_mut() {
             l.sign_in_again();
+        }
+    }
+
+    /// Whether a screen of this room has the question before leaving
+    /// open (`screens::room::ask_leave` sets it, the question clears it
+    /// when it goes): asked once, however many ways out are pressed.
+    pub fn asking_leave(&self) -> Rc<std::cell::Cell<bool>> {
+        self.asking.clone()
+    }
+
+    /// What leaving the room now would cost, if anything: the cases a
+    /// screen asks before leaving in (2026-11-12). An online room's host,
+    /// always (what the room will do: pass on, close, or stay without a
+    /// host on an authority that does not pass on); someone in the
+    /// running match, choosing its songs or co-hosting it; CPU practice
+    /// with a match running. None for everyone else (a member between
+    /// matches, a watcher, practice between matches), for a room not
+    /// known yet, and once the link has ended (the room closed, the
+    /// sign-in ended, left): nothing is left to lose there.
+    pub fn leave_cost(&self) -> Option<LeaveCost> {
+        let s = self.state();
+        let running = s.phase.kind().match_running();
+        if !self.is_online() {
+            return running.then_some(LeaveCost::Practice);
+        }
+        if self.link_state().ended() {
+            return None;
+        }
+        let me = s.member(self.me).filter(|m| !m.left)?;
+        if me.role == Role::Owner {
+            if !s.has_succession() {
+                return Some(LeaveCost::HostStays);
+            }
+            let others = s
+                .members
+                .values()
+                .any(|m| m.id != self.me && !m.left && !m.is_cpu());
+            return Some(match s.if_host_left() {
+                ddi_room::HostDeparture::PassTo(id) => LeaveCost::HostPass {
+                    to: s
+                        .member(id)
+                        .map(crate::screens::room::person_name)
+                        .unwrap_or_default(),
+                    match_running: running,
+                },
+                ddi_room::HostDeparture::Close if others => LeaveCost::HostClose {
+                    match_running: running,
+                },
+                ddi_room::HostDeparture::Close => LeaveCost::HostAlone,
+            });
+        }
+        if !running {
+            return None;
+        }
+        let playing = me.intent == ddi_room::Intent::Play
+            && s.running_match()
+                .and_then(|m| m.roster.get(&self.me))
+                .is_some_and(|seat| !seat.out_for_match);
+        if playing {
+            Some(LeaveCost::Playing)
+        } else if s.one_picker() && s.picker() == Some(self.me) {
+            Some(LeaveCost::Picking)
+        } else if me.role == Role::CoHost {
+            Some(LeaveCost::CoHost)
+        } else {
+            None
         }
     }
 

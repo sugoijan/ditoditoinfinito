@@ -234,6 +234,17 @@ enum Held {
     Unbound,
 }
 
+/// Broadcast by a shell whose window was asked to close (its close
+/// button, the app's Quit) while the current screen asks before it is
+/// left ([`Screen::guards_leaving`]): that screen asks, and requests
+/// [`crate::UiRequest::Quit`] itself if the player says to leave. A shell
+/// asked again while the question is open ([`LEAVE_QUESTION`] among the
+/// layers) closes without it.
+pub const CLOSE_REQUESTED: &str = "App.CloseRequested";
+
+/// The name of the question's layer.
+pub const LEAVE_QUESTION: &str = "room-leave";
+
 /// The UI: screens, input routing, focus, typing, transitions.
 pub struct Ui {
     /// What controller hints are drawn from ([`Ui::hints`]).
@@ -1505,6 +1516,19 @@ impl Ui {
         self.dirty = true;
         *since = None;
         None
+    }
+
+    /// Whether the current screen asks before it is left
+    /// ([`Screen::guards_leaving`]): the topmost screen that is neither a
+    /// dialog nor the chrome, while it is not leaving.
+    pub fn guards_leaving(&self) -> bool {
+        self.layers
+            .iter()
+            .rev()
+            .find(|l| !l.chrome && !l.overlay)
+            .is_some_and(|l| {
+                !matches!(l.phase, Phase::Leaving(_) | Phase::Left) && l.screen.guards_leaving()
+            })
     }
 
     /// The layers, bottom first (not the chrome).

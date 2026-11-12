@@ -162,6 +162,11 @@ pub struct ConfirmDialog {
     /// A button between the two that does something first and leaves the
     /// dialog open ("Export first").
     extra: Option<(String, ConfirmFn)>,
+    /// The first button's words where they are not Cancel ("Stay").
+    no: Option<String>,
+    /// The screen's name where a shell or a test tells it from the other
+    /// questions.
+    name: &'static str,
 }
 
 impl ConfirmDialog {
@@ -173,7 +178,22 @@ impl ConfirmDialog {
             yes: yes.into(),
             on_yes,
             extra: None,
+            no: None,
+            name: "confirm",
         }
+    }
+
+    /// With `label` on the button that changes nothing, in Cancel's
+    /// place (still the one chosen first).
+    pub fn with_no(mut self, label: &str) -> ConfirmDialog {
+        self.no = Some(label.into());
+        self
+    }
+
+    /// Named `name` among the layers.
+    pub fn named(mut self, name: &'static str) -> ConfirmDialog {
+        self.name = name;
+        self
     }
 
     /// With a button `label` between Cancel and the confirmation that
@@ -190,7 +210,7 @@ impl Screen for ConfirmDialog {
     }
 
     fn name(&self) -> &str {
-        "confirm"
+        self.name
     }
 
     fn build(&mut self, cx: &mut Cx) -> Actor {
@@ -202,7 +222,11 @@ impl Screen for ConfirmDialog {
         let h = 160.0 + body.len() as f32 * 18.0;
         let (mut c, [x, y]) = shell(&env, screen, [w, h], &self.title);
         dialog_body(&env, &mut c, &body, [x, y], w, |_| "Muted");
-        let mut buttons = vec![("Cancel", common::cancel().into(), "Button")];
+        let no: String = match &self.no {
+            Some(label) => label.clone(),
+            None => common::cancel().into(),
+        };
+        let mut buttons = vec![("Cancel", no, "Button")];
         if let Some((label, _)) = &self.extra {
             buttons.push(("Extra", label.clone(), "Button"));
         }

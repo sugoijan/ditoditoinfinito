@@ -71,9 +71,79 @@ impl RoomRoute {
     }
 }
 
+thread_local! {
+    /// The `beforeunload` listener, registered exactly while leaving a
+    /// room costs something ([`sync_unload_guard`]).
+    static UNLOAD_GUARD: RefCell<Option<gloo::events::EventListener>> =
+        const { RefCell::new(None) };
+}
+
+/// Whether the page is a room's (its song select, or a stage's prompt,
+/// play or results) and leaving that room would cost something now
+/// (`RoomClient::leave_cost`: the cases its screens ask before leaving
+/// in).
+fn leaving_costs() -> bool {
+    let hash = web_sys::window()
+        .and_then(|w| w.location().hash().ok())
+        .unwrap_or_default();
+    let room = match Route::parse(&hash) {
+        Route::Room => ROOM.with(|r| r.borrow().clone()),
+        Route::MpRoom { .. } => crate::online::kept_room(),
+        // The stage handed to the play route, or (on its results) the
+        // one handed over last.
+        Route::Play(p) if p.stage.is_some() => PLAYING
+            .with(|p| p.borrow().as_ref().map(|p| p.room.clone()))
+            .or_else(|| LAST.with(|l| l.borrow().as_ref().map(|(_, room)| room.clone()))),
+        _ => None,
+    };
+    room.is_some_and(|r| r.try_borrow().is_ok_and(|r| r.leave_cost().is_some()))
+}
+
+/// Registers the browser's `beforeunload` question (closing or reloading
+/// the tab: the browser shows its own words, and only once the person
+/// has used the page) while leaving a room costs something, and removes
+/// it otherwise: never there for singleplayer, nor for a room that can be
+/// left at no cost. Called each frame of the UI's pages; cheap.
+///
+/// The page cannot tell the room it goes (nothing sent from an unload
+/// arrives reliably, and a reload must not make its player leave): the
+/// socket closes with the page, and the room gives the player its
+/// reconnect grace before it counts them away.
+pub(crate) fn sync_unload_guard() {
+    let want = leaving_costs();
+    UNLOAD_GUARD.with_borrow_mut(|guard| {
+        if !want {
+            *guard = None;
+        } else if guard.is_none()
+            && let Some(window) = web_sys::window()
+        {
+            let options = gloo::events::EventListenerOptions::enable_prevent_default();
+            *guard = Some(gloo::events::EventListener::new_with_options(
+                &window,
+                "beforeunload",
+                options,
+                |e| {
+                    e.prevent_default();
+                    // What browsers took before `preventDefault` counted.
+                    let _ = js_sys::Reflect::set(e, &"returnValue".into(), &true.into());
+                },
+            ));
+        }
+    });
+}
+
+/// Whether the `beforeunload` question is registered now
+/// (`__DDI_DEBUG.ui.unloadGuard`: headless browsers show no prompt).
+pub(crate) fn unload_guarded() -> bool {
+    UNLOAD_GUARD.with_borrow(Option::is_some)
+}
+
 /// The room's calls from its screens (song select, a stage's prompt):
-/// Back to the multiplayer home, Leave room forgets the room first (an
-/// online one told), Sign in again leaves for the server's sign-in, its
+/// Back to the multiplayer home (practice between matches, the room
+/// kept), Leave room forgets the room first (an online one told; Back on
+/// an online room's song select and a practice with a match running come
+/// here too, asked first where leaving costs something), Sign in again
+/// leaves for the server's sign-in, its
 /// songs prepared (`prepare_for`) and uploaded (`upload`), and a stage's
 /// prompt opened on the play route (`play_in`), song select's running
 /// preview context handed over to it so its audio starts without another

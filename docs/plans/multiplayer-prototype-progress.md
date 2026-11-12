@@ -3569,6 +3569,84 @@ capability.
   (`pass_on`, `close`; none where the room does not pass on),
   `host_open`.
 
+### Asking before leaving
+
+- **When the game asks** (`RoomClient::leave_cost`, `LeaveCost`): an
+  online room's **host**, always (with others in it or not, a match
+  running or not); a **player in the running match**, the one
+  **choosing its songs**, or a **co-host**, while a match is running;
+  **CPU practice with a match running**. Nobody else (a member between
+  matches, a watcher, practice between matches), nothing before the
+  room is known, and nothing once the link has ended (the room closed,
+  the sign-in ended, left).
+- **The question** (`screens::room::ask_leave`, the theme's confirm
+  dialog named `room-leave`): "Leave the room?", one or two sentences
+  saying what leaving does in the case at hand, **Stay** chosen first
+  and **Leave**; Escape and Back in it are Stay. Its sentences, from
+  what the room will do:
+  - the host, the room passing on: "You are the host. alice will become
+    the host." (with a match: "…, and the match goes on without you.")
+  - the host, the setting on Close (or only bots to pass it to): "You
+    are the host. The room will close for everyone." (with a match:
+    "…, and the match in progress will end.")
+  - the host alone: "You are the only one here. The room will close."
+  - the host of a room whose server does not pass rooms on: "You are
+    the host. The room stays open without a host, and you can come back
+    by its link."
+  - in the match: "You are in the match in progress. It goes on without
+    you, and you score nothing for the stages you miss."
+  - choosing its songs: "You are choosing the songs. The host will
+    choose them instead, and the match goes on without you."
+  - a co-host: "You are a co-host. The match in progress goes on
+    without you."
+  - practice: "The match in progress will be lost."
+- **Every way out goes through it**, once: Back on the room's song
+  select (Escape, Backspace, the header's Back, a controller's Back,
+  the browser's Back), More's Leave room, and the window's close and
+  the app's Quit on desktop. Leave after the question leaves without
+  another. Back on a stage's prompt only leaves the prompt, as before
+  (it withdraws to the room's song select).
+- **Leaving, now**: Back on an online room's song select **leaves the
+  room** (the room told, `Command::Leave`, and forgotten), asked or
+  not; it used to keep the room's client connected behind the home
+  with nobody at it. CPU practice between matches is kept for the
+  session on Back, as before; with a match running, Leave forgets the
+  practice (the question says the match is lost), where Back used to
+  keep the match as it stood.
+- **The web**: a screen that asks before it is left
+  (`Screen::guards_leaving`) has one history entry more over its route
+  (`ddi_ui::back_stack`'s depth plus one), so the browser's Back pops
+  that entry and reaches the screen as the menu's Back: the question
+  opens and the route stays; the entry is pushed again with the
+  question's own, and is gone back over quietly when nothing guards the
+  screen any more. Closing or reloading the tab: `beforeunload` is
+  registered exactly while the page is a room's (its song select, a
+  stage's prompt, play or results) and leaving costs something
+  (`crate::room::sync_unload_guard`), never in singleplayer; the browser
+  shows its own words, and only once the person has used the page. The
+  page cannot tell the room it goes (nothing sent from an unload
+  arrives reliably, and a reload must not make its player leave): the
+  socket closes with the page and the room gives the player its
+  reconnect grace, then counts them away (a host's room then passes on
+  or closes, by its setting). `__DDI_DEBUG.ui.leaveGuard` and
+  `unloadGuard` say both.
+- **Desktop** (`Shell::close_requested`): the window's close button and
+  the app's Quit (⌘Q, the Dock's) tell the screens
+  (`ddi_ui::CLOSE_REQUESTED`) where the one shown guards its leaving;
+  the room's song select and a stage's prompt ask, and the game quits
+  only on Leave, once the room has answered its leaving or after
+  0.6 s (`QUIT_WAIT`). Asked again while the question is open, the game
+  quits without it. A signal or a forced quit is not intercepted.
+- **Not covered**: a stage being **played** (the field on screen). No
+  question can be shown over a running play in either shell: the
+  window's close and Quit end the game at once there, as before (the
+  room sees a dropped connection), and the browser's Back leaves the
+  play for the room's song select, as before (a forfeit of the stage).
+  The web's `beforeunload` does cover the tab's close during a play.
+  And a member's **browser** Back off an online room's route where
+  nothing is asked still only changes the page (the room keeps them,
+  silent, until the tab closes); the game's own Back tells the room.
+
 ### Tested (the model and the server)
 
 - `crates/room` (108 tests, 10 new): the walkthroughs (leaving with
@@ -3597,8 +3675,47 @@ capability.
   (`tests/room_host_offscreen.rs`, the harness shared with the picker's
   pictures in `tests/room_fake/`): the owner's Players pop-up, Host
   options with each value, a member's Players pop-up, the question
-  before the handover, both sides after it, at 1280×720 and 844×390,
-  English and Japanese; looked at.
+  before the handover, both sides after it, and "Leave the room?" for
+  a host and for a host alone, at 1280×720 and 844×390, English and
+  Japanese; looked at.
+- Asking before leaving, `ddi-ui` (3 new tests; 513 in its library):
+  practice (no question between matches; with a match running the
+  question by Escape, Backspace, the header's Back, a controller's
+  Back and More, once each; Stay by Escape, Back, its button and Enter
+  keeping the room, the match and the list; Leave forgetting the
+  practice with no second question); an online room over the fake
+  server (each case's sentence; a member between matches leaving at
+  once with the room told; a co-host asked and staying; the host
+  leaving and the room passing on with the match going on; the last one
+  leaving and the room closed; nothing asked once the link has ended);
+  the window's close request (asked on the song select and on a
+  stage's prompt, Stay keeping the readiness, Leave quitting once the
+  room is told). The desktop shell (`shell.rs`, 1 new test, headless):
+  a close request quits at once on the start menu and in a room between
+  matches, asks with a match running and does not quit, quits on a
+  second request while the question is open, and on Leave.
+- Browsers (headless Chrome and Firefox, 1280×720 in English and
+  844×390 in Japanese; CPU practice): nothing guarded on the start
+  menu, song select or a room between matches (Back leaves at once);
+  with a match running (the pick, then back out of the stage's prompt)
+  the room's song select has its history entry and `beforeunload`
+  registered, as has the stage's prompt; Escape, the header's Back and
+  the browser's Back (twice in a row, and once more inside the
+  question) each open the question or close it, the route staying
+  `#/room` and the history's entries in step; Leave goes to the home
+  with nothing left registered; then the browser's Back shows the
+  room's address with a new practice (nothing to lose), Forward the
+  home, and two more Backs each move. The browser's own prompt on
+  closing the tab was not seen: headless browsers show none, so only
+  its registration is checked (`__DDI_DEBUG.ui.unloadGuard`). The
+  multiplayer home's sign-in check (`GET api/me`) answers 404 on the
+  static test server, as before this round; the script counts those
+  apart and fails on any other error.
+- **Not run**: an online room in a browser or on desktop against a
+  server (none was started: the online cases rest on the fake room in
+  the harness and the offscreen pictures); a real desktop window's
+  close button and ⌘Q (the shell's logic is tested headless, the
+  window never opened); Safari.
 - `../ddi-server` (56 tests, 2 new; 57 with the development provider):
   a host who leaves passes the room on, comes back a co-host with no
   invite, and under Close ends the room for every request and socket;
@@ -3618,6 +3735,8 @@ capability.
 | A host away with nobody connected keeps the room (Pass it on); a host who leaves with nobody to pass it to ends it | `reduce.rs` `settle_host` | A host alone whose connection drops finds their room as it was; the first other person to connect meanwhile becomes its host | Whether an absent host's empty room should close after a while sooner than the server's idle end (7 days) |
 | Succession order: connected, then coming back, then away; a co-host before a member among equals; then join order; never a bot; administrators as anyone | `ddi_room::RoomState::heir` | A connected member is passed the room before a co-host who is away; a watching administrator can be passed it | Whether a co-host inside the grace should come before a connected member; whether administrators who only watch should be skipped |
 | A room from before the setting passes on from its first change after the deploy | `reduce.rs` `apply` | A room open across the server's deploy gets the succession without being made again | None, unless such rooms should stay as they were |
+| A quitting game waits 0.6 s for the room's answer to its leaving | `screens::room::QUIT_WAIT` | Leave from the window's close takes up to 0.6 s to close the window | The time; whether to wait at all |
+| Asked again while the question is open, desktop quits without it | `Shell::close_requested` | Closing the window twice always closes it; the room then sees a dropped connection, not a leaving | Whether the second request should still tell the room first |
 | A resting song's share is kept across changes of hands, the newest eight | `ddi_room::Picking::KEPT_SHARES` | A song rested on again after taking the pick back is shown to the others without a second upload | None unless rooms change hands over many songs |
 | The joining line shows after 0.4 s of joining (`JOINING_AFTER`) | `select_room.rs` | A room that answers quickly shows the bars alone, then its view | The delay |
 | A report's detail (`RunDetail`) is self-reported and shown as sent, bounded only in size | `crates/room/src/battle.rs`, `reduce.rs` | An online player's grade, combo and judgments on the standings are what their device said | Whether the room should check a detail against the run, or wait for server-judged plays |
@@ -3730,6 +3849,24 @@ capability.
 - The host's succession: an administrator who only watches a room can
   be passed it like anyone (after everyone who joined before them).
   Should observers be skipped?
+- Leaving: Back on an online room's song select now leaves the room
+  (it used to keep the player in it, silent, behind the home). Right
+  for a member between matches too, who is not asked, or should that
+  Back keep them in the room?
+- Leaving: in CPU practice with a match running, Back used to keep the
+  match as it stood for the session; it now asks and, on Leave, forgets
+  the practice. Should Back there keep the match instead (and nothing
+  be asked), leaving the question to Leave room and to closing the
+  window or tab?
+- Leaving: nothing is asked while a stage is being played, and
+  desktop's close or Quit on a stage's results quits at once. A
+  question over a running play needs a way to show one there. Wanted?
+- Leaving: a member's browser Back off an online room's page, where
+  nothing is asked, only changes the page: the room keeps them until
+  the tab closes. Should leaving the room's page always tell the room?
+- Host options: a landscape phone shows one or two other players at a
+  time (the rest scroll). Enough, or should the pop-up take the whole
+  screen there?
 - One picker: after taking the pick, the song the new picker's list
   shows is told the room only once it has rested 3 s, as any song.
   Should the first one after a take be shown at once?

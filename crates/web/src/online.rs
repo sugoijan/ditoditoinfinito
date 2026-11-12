@@ -149,6 +149,11 @@ pub(crate) fn room(id: &str) -> SharedRoom {
     room
 }
 
+/// The online room kept for the session, if any.
+pub(crate) fn kept_room() -> Option<SharedRoom> {
+    ROOM.with_borrow(|r| r.as_ref().map(|(_, room)| room.clone()))
+}
+
 /// Leave room: forgotten (its socket closed once the room answered).
 pub(crate) fn discard() {
     ROOM.with_borrow_mut(|r| *r = None);
