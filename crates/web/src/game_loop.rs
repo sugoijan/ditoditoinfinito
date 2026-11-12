@@ -629,6 +629,7 @@ impl GameLoop {
                         ratio,
                         quit,
                         lyrics: self.framed.is_none(),
+                        touch: crate::web::touch::is_touch_screen(),
                     },
                 );
                 // Where the quit button is (nowhere while it is not: no
@@ -636,6 +637,8 @@ impl GameLoop {
                 crate::web::touch::set_quit_at(drawn.quit_at);
                 // And where a stage's attack policy label takes a press.
                 crate::web::touch::set_policy_at(drawn.policy_at);
+                // And a watched stage's fields and its skip.
+                crate::web::touch::set_watch_at(drawn.watch_at, drawn.skip_at);
                 // The song time of each drawn frame, for tests that read
                 // the screen (the debug state is refreshed every 10 frames).
                 if self.automated
@@ -992,6 +995,21 @@ impl GameLoop {
                         })).collect::<Vec<_>>(),
                     })),
                     "stage_won": s.battle().is_some_and(|b| b.won()),
+                    // A watched stage (`watch-v0`), as the last frame
+                    // drew it: `view` is `grid` (every field over the
+                    // whole screen), `focus` (the seat in `focus` large,
+                    // the others beside), or, for a player out of the
+                    // stage they go on watching, `out` (their life ran
+                    // out) or `left` (they left its play: a forfeit);
+                    // the fields' lane and bands (CSS pixels, each with
+                    // its seat; the large one last), the status line's
+                    // `label` and `cue`, the seats with an attack
+                    // warning, the `mark` over the player's own field
+                    // and the `skip`'s words, where presses land
+                    // (`fields_at`: seat or null for "every field",
+                    // `skip_at`), and whether the stage is decided
+                    // (`over`). Null while the player plays.
+                    "watch": watch_debug(self.view.watch_drawn()),
                     // A stage's battle moments as told (said by a line, or
                     // shown beside the field), and the one showing now.
                     "battle": s.battle_policy().map(|policy| json!({
@@ -1328,6 +1346,38 @@ fn attacks_debug(
         "refused": b.refused(),
         "events": a.recent().map(|e| format!("{e:?}")).collect::<Vec<_>>(),
     }))
+}
+
+/// `__DDI_DEBUG.watch`: a watched stage as the last frame drew it
+/// (`ddi_shell::play_view::WatchDrawn`), and where its presses land.
+fn watch_debug(watch: Option<&ddi_shell::play_view::WatchDrawn>) -> Value {
+    let Some(w) = watch else {
+        return Value::Null;
+    };
+    let (fields_at, skip_at) = crate::web::touch::watch_at();
+    let fields = |list: &[(usize, [f32; 4])]| -> Vec<Value> {
+        list.iter()
+            .map(|(seat, rect)| json!({ "seat": seat, "rect": rect }))
+            .collect()
+    };
+    let presses: Vec<Value> = fields_at
+        .iter()
+        .map(|(seat, rect)| json!({ "seat": seat, "rect": rect }))
+        .collect();
+    json!({
+        "view": w.view,
+        "focus": w.focus,
+        "lane": w.lane,
+        "fields": fields(&w.fields),
+        "label": w.label,
+        "cue": w.cue,
+        "warned": w.warned,
+        "mark": w.mark,
+        "skip": w.skip,
+        "over": w.over,
+        "fields_at": presses,
+        "skip_at": skip_at,
+    })
 }
 
 fn announcer_debug(a: &ddi_session::announcer::Report) -> Value {

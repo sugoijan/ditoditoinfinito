@@ -147,8 +147,6 @@ pub enum LeaveCost {
     Picking,
     /// A co-host while a match runs (neither playing nor choosing).
     CoHost,
-    /// CPU practice with a match running: the match is lost.
-    Practice,
 }
 
 /// Why something asked of the room did not happen.
@@ -414,6 +412,10 @@ pub struct StageOrder {
     /// never on this device ([`RoomClient::report_run`]). Not shown during
     /// the play in this prototype.
     pub others: u16,
+    /// The local player is not in the stage: they watch it
+    /// ([`RoomClient::watches`]: CPU practice, the CPUs' plays judged on
+    /// this device). `me` is then nobody's seat in it.
+    pub watching: bool,
 }
 
 impl StageOrder {
@@ -1122,16 +1124,19 @@ impl RoomClient {
     /// screen asks before leaving in (2026-11-12). An online room's host,
     /// always (what the room will do: pass on, close, or stay without a
     /// host on an authority that does not pass on); someone in the
-    /// running match, choosing its songs or co-hosting it; CPU practice
-    /// with a match running. None for everyone else (a member between
-    /// matches, a watcher, practice between matches), for a room not
-    /// known yet, and once the link has ended (the room closed, the
-    /// sign-in ended, left): nothing is left to lose there.
+    /// running match, choosing its songs or co-hosting it. None for
+    /// everyone else (a member between matches, a watcher), for a room
+    /// not known yet, and once the link has ended (the room closed, the
+    /// sign-in ended, left): nothing is left to lose there. Never in CPU
+    /// practice (the maintainer, 2026-11-12: "even silently dropping the
+    /// match is fine … a prompt would be annoying"): leaving it with a
+    /// match running forgets the practice and the match
+    /// (`crate::screens::room::leave_now`).
     pub fn leave_cost(&self) -> Option<LeaveCost> {
         let s = self.state();
         let running = s.phase.kind().match_running();
         if !self.is_online() {
-            return running.then_some(LeaveCost::Practice);
+            return None;
         }
         if self.link_state().ended() {
             return None;
@@ -1305,33 +1310,86 @@ impl RoomClient {
 
     /// The stage whose start prompt this player belongs on: gathering
     /// readiness after a pick (and they a candidate who has the song), or
-    /// counting down or played with them in its lineup.
+    /// counting down or played with them in its lineup; and, where the
+    /// stages are watched on this device ([`RoomClient::watches`]), one
+    /// they are not in.
     fn prompt_stage(&self) -> Option<StageId> {
         let s = self.state();
-        let (stage, gathering) = match s.phase {
+        let stage = match s.phase {
             Phase::Preparing {
                 stage,
                 window: Some(_),
-            } => (stage, true),
-            Phase::Countdown { stage, .. } | Phase::Stage { stage } => (stage, false),
+            }
+            | Phase::Countdown { stage, .. }
+            | Phase::Stage { stage } => stage,
             _ => return None,
         };
         let st = s.stage(stage)?;
         if !self.picks.contains_key(&st.content.as_ref()?.id) {
             return None;
         }
+        (self.in_stage(stage) || self.watches()).then_some(stage)
+    }
+
+    /// Whether the local player is in `stage` as a competitor: a candidate
+    /// who wants to play while it gathers readiness, in its lineup once
+    /// its start is committed.
+    pub fn in_stage(&self, stage: StageId) -> bool {
+        let s = self.state();
         let me = self.me;
-        if gathering {
-            let candidate = s.candidates().contains(&me)
-                && s.member(me)
-                    .is_some_and(|m| m.intent == ddi_room::Intent::Play);
-            candidate.then_some(stage)
-        } else {
-            st.play
-                .as_ref()
-                .is_some_and(|p| p.lineup.contains(&me))
-                .then_some(stage)
+        match s.stage(stage).and_then(|st| st.play.as_ref()) {
+            Some(play) => play.lineup.contains(&me),
+            None => {
+                s.candidates().contains(&me)
+                    && s.member(me)
+                        .is_some_and(|m| m.intent == ddi_room::Intent::Play)
+            }
         }
+    }
+
+    /// Whether a stage the local player is not in is watched on this
+    /// device (`watch-v0`): CPU practice, where the CPUs' plays are judged
+    /// here and feed the spectator view. An online room's are not
+    /// streamed yet: a watcher there stays on the room's song select.
+    pub fn watches(&self) -> bool {
+        !self.is_online()
+    }
+
+    /// The local player's own choice, Play or Watch
+    /// (`ddi_room::Intent`): Watch takes no seat, is ranked nowhere and
+    /// needs no Ready; it holds across stages and matches until changed.
+    pub fn my_intent(&self) -> ddi_room::Intent {
+        self.member_of(self.me)
+            .map_or(ddi_room::Intent::Play, |m| m.intent)
+    }
+
+    /// The local player chose Watch.
+    pub fn watching(&self) -> bool {
+        self.my_intent() == ddi_room::Intent::Watch
+    }
+
+    /// Whether the local player may change between Play and Watch now:
+    /// outside a stage they are committed to (its countdown, its play).
+    /// A change during a match is the room's rule for it: one of the
+    /// match sits its next stages out (or comes back for them), one who
+    /// was watching when it began waits for the next match.
+    pub fn may_choose_intent(&self) -> bool {
+        let s = self.state();
+        match s.phase {
+            Phase::Countdown { stage, .. }
+            | Phase::Stage { stage }
+            | Phase::SongCompletion { stage } => !self.in_stage(stage),
+            _ => true,
+        }
+    }
+
+    /// Play or Watch, the local player's own (`Command::SetIntent`).
+    /// Nothing is sent where it is theirs already.
+    pub fn set_intent(&mut self, intent: ddi_room::Intent) -> Result<(), Refusal> {
+        if self.my_intent() == intent {
+            return Ok(());
+        }
+        self.send(Command::SetIntent { intent })
     }
 
     /// Whether the room's stage `stage` has started with this player in it:
@@ -1341,7 +1399,7 @@ impl RoomClient {
         matches!(s.phase, Phase::Stage { stage: p } | Phase::SongCompletion { stage: p } if p == stage)
             && s.stage(stage)
                 .and_then(|st| st.play.as_ref())
-                .is_some_and(|p| p.lineup.contains(&self.me))
+                .is_some_and(|p| p.lineup.contains(&self.me) || self.watches())
     }
 
     /// What leaving stage `stage`'s prompt means now; withdrawing clears
@@ -1368,6 +1426,15 @@ impl RoomClient {
             {
                 let _ = self.cancel_start();
             }
+        }
+        // A watcher leaving a start already committed (the CPUs wait for
+        // nobody): the start canceled, so that no stage runs unwatched.
+        if self.watches()
+            && !self.in_stage(stage)
+            && self.may(Capability::Advance)
+            && matches!(self.state().phase, Phase::Countdown { stage: p, .. } if p == stage)
+        {
+            let _ = self.cancel_start();
         }
         PromptExit::Withdraw
     }
@@ -2102,6 +2169,7 @@ impl RoomClient {
                     .count(),
             )
             .unwrap_or(u16::MAX),
+            watching: !self.in_stage(stage),
         };
         self.launched.insert(stage);
         Some(order)
@@ -2190,6 +2258,10 @@ impl RoomClient {
     pub fn match_end(&self) -> Option<MatchEnd> {
         let s = self.state();
         if s.phase != Phase::MatchResults {
+            return None;
+        }
+        // Not of the match (they watched it): it ended for nobody here.
+        if !s.current.as_ref().is_some_and(|m| m.roster.contains_key(&self.me)) {
             return None;
         }
         let winners = s.match_winners();
@@ -2756,6 +2828,61 @@ mod tests {
     /// A whole practice match with outcomes reported as a stage runner
     /// does: the standings once, the next pick, the match's results, and
     /// a pick opening the next match.
+    /// A watched match (`watch-v0`): its stages are handed over as
+    /// watched, with nobody else and no seat of the player's; reported,
+    /// it reaches its results, where it ended for nobody on this device
+    /// (no "match not won" for someone who only watched) and the player
+    /// has no mark; watching holds into the next match.
+    #[test]
+    fn a_watched_match_is_played_by_the_cpus_and_ends_for_nobody_here() {
+        let mut room = RoomClient::new(0, 1);
+        let rules = MatchRules {
+            stages: 1,
+            ..room.rules().clone()
+        };
+        room.save_rules(rules).unwrap();
+        assert!(room.may_choose_intent() && !room.watching());
+        room.set_intent(ddi_room::Intent::Watch).unwrap();
+        assert!(room.watching());
+        let s = song("a");
+        room.pick(&s, &s.charts[0]).unwrap();
+        let order = room.take_stage_order().unwrap();
+        assert!(order.watching && order.others == 0);
+        assert!(!room.in_stage(order.stage));
+        // Not theirs to change during a stage they are in; a watcher may.
+        assert!(room.may_choose_intent());
+        room.tick(3_000);
+        assert!(room.stage_started(order.stage));
+        assert_eq!(room.leave_prompt(order.stage), PromptExit::Forfeit);
+        let ranking: Vec<Vec<Finisher>> = order
+            .cpus
+            .iter()
+            .map(|c| {
+                vec![Finisher {
+                    participant: c.participant,
+                    finish: Finish::Survived,
+                }]
+            })
+            .collect();
+        room.report_played(
+            order.stage,
+            ddi_room::Run::Forfeit,
+            ranking,
+            false,
+            Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(room.state().phase, Phase::MatchResults);
+        assert_eq!(room.match_end(), None);
+        assert!(room.mark_of(order.stage).is_none() && room.last_mark().is_none());
+        let table = room.stage_table(order.stage).unwrap();
+        assert_eq!(table.rows.len(), order.cpus.len());
+        // The next match: still watching.
+        room.pick(&s, &s.charts[0]).unwrap();
+        assert!(room.watching());
+        assert!(room.take_stage_order().unwrap().watching);
+    }
+
     #[test]
     fn reported_stages_run_a_match_to_its_results_and_the_next_one() {
         let mut room = RoomClient::new(0, 1);

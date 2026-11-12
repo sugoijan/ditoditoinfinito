@@ -55,6 +55,14 @@ thread_local! {
     /// Where a stage's attack policy label is drawn now (CSS pixels of the
     /// canvas: left, top, right, bottom).
     static POLICY_AT: std::cell::Cell<Option<[f32; 4]>> = const { std::cell::Cell::new(None) };
+    /// A watched stage's fields a press follows (each with its seat;
+    /// none: back to every field) and where one skips a stage the player
+    /// is out of to its results (CSS pixels of the canvas: left, top,
+    /// right, bottom), as the play drew them
+    /// (`ddi_shell::play_view::Drawn`).
+    static WATCH_AT: std::cell::RefCell<WatchFields> =
+        const { std::cell::RefCell::new(Vec::new()) };
+    static SKIP_AT: std::cell::Cell<Option<[f32; 4]>> = const { std::cell::Cell::new(None) };
     /// The safe area's insets (top, right, bottom, left, CSS pixels), read
     /// again when the canvas's size changes (a rotation).
     static INSETS: std::cell::Cell<Option<Insets>> = const { std::cell::Cell::new(None) };
@@ -68,6 +76,8 @@ pub(crate) fn set_quit_shown(playing: bool, touch: bool) {
     if !playing {
         QUIT_AT.with(|q| q.set(None));
         POLICY_AT.with(|p| p.set(None));
+        WATCH_AT.with(|w| w.borrow_mut().clear());
+        SKIP_AT.with(|s| s.set(None));
     }
 }
 
@@ -91,6 +101,12 @@ pub(crate) fn quit_shown(now_ms: f64) -> bool {
             TOUCH.with(|t| t.get()),
             Some((now_ms - MOUSE_AT.with(|m| m.get())) / 1000.0),
         )
+}
+
+/// Whether a touch screen plays the play that runs (what a key does is
+/// then said as what a tap does).
+pub(crate) fn is_touch_screen() -> bool {
+    TOUCH.with(|t| t.get())
 }
 
 /// The safe area's insets for a canvas of `css` size, read again when
@@ -130,6 +146,46 @@ pub(crate) fn set_policy_at(at: Option<[f32; 4]>) {
 /// (`__DDI_DEBUG.battle.attacks.policy_at`).
 pub(crate) fn policy_at() -> Option<[f32; 4]> {
     POLICY_AT.with(|p| p.get())
+}
+
+/// A watched stage's fields that take a press: each with the seat it
+/// follows (none: back to every field) and its place (CSS pixels: left,
+/// top, right, bottom).
+pub(crate) type WatchFields = Vec<(Option<usize>, [f32; 4])>;
+
+/// Where a watched stage takes presses this frame (CSS pixels): its
+/// fields (the play's `watch` control: that competitor is followed, or
+/// every field again) and the skip's plate over the field of a player
+/// out of the stage (the `skip` control).
+pub(crate) fn set_watch_at(fields: WatchFields, skip: Option<[f32; 4]>) {
+    WATCH_AT.with(|w| *w.borrow_mut() = fields);
+    SKIP_AT.with(|s| s.set(skip));
+}
+
+/// Where a watched stage's fields and its skip take a press now
+/// (`__DDI_DEBUG.watch`).
+pub(crate) fn watch_at() -> (WatchFields, Option<[f32; 4]>) {
+    (WATCH_AT.with(|w| w.borrow().clone()), SKIP_AT.with(|s| s.get()))
+}
+
+/// The control a press at `(x, y)` (CSS pixels of the canvas) on a
+/// watched stage sends, if it lands on its skip or on one of its fields.
+fn watch_control(x: f64, y: f64) -> Option<String> {
+    let inside = |[l, t, r, b]: [f32; 4]| {
+        (f64::from(l)..=f64::from(r)).contains(&x) && (f64::from(t)..=f64::from(b)).contains(&y)
+    };
+    if SKIP_AT.with(|s| s.get()).is_some_and(inside) {
+        return Some(ddi_session::play::TOUCH_SKIP_CONTROL.to_string());
+    }
+    WATCH_AT.with(|w| {
+        w.borrow()
+            .iter()
+            .find(|(_, r)| inside(*r))
+            .map(|(seat, _)| match seat {
+                Some(seat) => format!("{}{seat}", ddi_session::play::TOUCH_WATCH_CONTROL),
+                None => ddi_session::play::TOUCH_WATCH_ALL.to_string(),
+            })
+    })
 }
 
 /// What a tracked pointer is holding.
@@ -232,6 +288,25 @@ impl TouchLanes {
                             (f64::from(l)..=f64::from(r)).contains(&x)
                                 && (f64::from(t)..=f64::from(b)).contains(&y)
                         });
+                    // A watched stage: a press on a field follows it, one
+                    // on the skip's plate skips (any pointer type; a
+                    // press, with nothing to hold).
+                    if !on_quit && !on_policy && event.button() == 0 {
+                        let rect = s.canvas.get_bounding_client_rect();
+                        let x = event.client_x() as f64 - rect.left();
+                        let y = event.client_y() as f64 - rect.top();
+                        if let Some(control) = watch_control(x, y) {
+                            event.prevent_default();
+                            s.queue.push(RawInput {
+                                device: DeviceId::Touch,
+                                control,
+                                pressed: true,
+                                host_time: PerformanceClock::from_dom_ms(event.time_stamp()),
+                                slot: 0,
+                            });
+                            return;
+                        }
+                    }
                     let hold = if on_quit || on_policy {
                         if event.button() != 0 {
                             return;

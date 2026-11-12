@@ -102,6 +102,10 @@ pub struct RoomView {
     /// The local player's attack policy (`spread`, `retaliate`,
     /// `leader`).
     pub targeting: String,
+    /// The local player chose Watch (`watch-v0`: `RoomClient::watching`),
+    /// and whether they may change between Play and Watch now.
+    pub watching: bool,
+    pub can_choose_intent: bool,
     /// The running match's rules are locked (a match exists).
     pub locked: bool,
     pub ready: bool,
@@ -129,9 +133,9 @@ pub struct RoomView {
     pub standings_open: bool,
     /// What leaving the room now would cost (`RoomClient::leave_cost`:
     /// `host_pass`, `host_close`, `host_alone`, `host_stays`, `playing`,
-    /// `picking`, `co_host`, `practice`; none: nothing, Back leaves at
-    /// once), the sentence the question would say, and whether the
-    /// question is open.
+    /// `picking`, `co_host`; none: nothing, Back leaves at once, as
+    /// always in CPU practice), the sentence the question would say, and
+    /// whether the question is open.
     pub leave_cost: Option<String>,
     pub leave_text: Option<String>,
     pub leave_open: bool,
@@ -941,6 +945,10 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
     if r.may_take_pick() {
         items.push((MORE_TAKE_PICK.to_string(), m::take_pick().into()));
     }
+    // Play or Watch, the player's own, outside a stage they are in.
+    if r.may_choose_intent() {
+        items.push((MORE_INTENT.to_string(), intent_label(r).into()));
+    }
     let running = r.state().phase.kind().match_running();
     if running && r.may(Capability::StopMatch) {
         items.push(("stop".to_string(), m::stop_match().into()));
@@ -964,6 +972,32 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
     }
     items.push(("leave".to_string(), m::leave().into()));
     items
+}
+
+/// More's item that changes between Play and Watch.
+const MORE_INTENT: &str = "intent";
+
+/// What the control that changes the local player between Play and Watch
+/// says: what a press does (Watch only, while they play; Play, while
+/// they watch).
+pub fn intent_label(r: &RoomClient) -> UiText {
+    if r.watching() {
+        m::intent_play()
+    } else {
+        m::intent_watch()
+    }
+}
+
+/// The local player changes between Play and Watch (More's item, the
+/// Players pop-up's button): the room is told; a refusal shows on the
+/// status line.
+pub fn toggle_intent(room: &SharedRoom) {
+    let next = if room.borrow().watching() {
+        ddi_room::Intent::Play
+    } else {
+        ddi_room::Intent::Watch
+    };
+    let _ = room.borrow_mut().set_intent(next);
 }
 
 /// The name of the room's More menu's pick message.
@@ -1037,7 +1071,17 @@ pub fn leave_text(cost: &crate::state::room::LeaveCost) -> UiText {
         LeaveCost::Playing => m::leave_playing(),
         LeaveCost::Picking => m::leave_picking(),
         LeaveCost::CoHost => m::leave_co_host(),
-        LeaveCost::Practice => m::leave_practice(),
+    }
+}
+
+/// The question's words: what leaving costs, after the sentence saying
+/// the stage was left where it was (each on lines of its own).
+pub fn leave_question(cost: &crate::state::room::LeaveCost, left_stage: bool) -> UiText {
+    let cost = leave_text(cost);
+    if left_stage {
+        UiText::data(format!("{}\n{}", m::leave_forfeited(), cost))
+    } else {
+        cost
     }
 }
 
@@ -1049,6 +1093,22 @@ pub fn leave_text(cost: &crate::state::room::LeaveCost) -> UiText {
 /// ([`leave_now`]). Asked once: the question open already is not asked
 /// again.
 pub fn ask_leave(env: &Env, room: &SharedRoom, by: LeaveBy, cx: &mut Cx) -> bool {
+    ask_leave_after(env, room, by, false, cx)
+}
+
+/// [`ask_leave`], asked over the results of a stage the player has just
+/// left by setting about leaving the room during its play (`left_stage`:
+/// the window's close, the browser's Back: the stage is forfeited first,
+/// the maintainer, 2026-11-12): the question then says so before what
+/// leaving the room does. Stay keeps the room; the forfeit is not
+/// undone.
+pub fn ask_leave_after(
+    env: &Env,
+    room: &SharedRoom,
+    by: LeaveBy,
+    left_stage: bool,
+    cx: &mut Cx,
+) -> bool {
     let Some(cost) = room.borrow().leave_cost() else {
         return false;
     };
@@ -1069,7 +1129,7 @@ pub fn ask_leave(env: &Env, room: &SharedRoom, by: LeaveBy, cx: &mut Cx) -> bool
             super::dialog::ConfirmDialog::new(
                 env.clone(),
                 &m::leave_title(),
-                &leave_text(&cost),
+                &leave_question(&cost, left_stage),
                 &m::leave_confirm(),
                 on_yes,
             )
@@ -1131,14 +1191,16 @@ pub fn left_by(msg: &crate::Message) -> Option<LeaveBy> {
 }
 
 /// Leaves the room, without asking (it was asked, or costs nothing): an
-/// online room is told (`Command::Leave`) and forgotten, a practice with
-/// a match lost with it; then the multiplayer home. Practice between
-/// matches is kept for the session on Back, as it was, and forgotten by
-/// More's Leave room.
+/// online room is told (`Command::Leave`) and forgotten; then the
+/// multiplayer home. CPU practice is never asked about: between matches
+/// it is kept for the session on Back, as it was, and forgotten by
+/// More's Leave room; with a match running, any way out forgets the
+/// practice and its unfinished match silently (the maintainer,
+/// 2026-11-12), so that coming back starts a fresh room.
 pub fn leave_now(room: &SharedRoom, shell: &RoomShell, by: LeaveBy, cx: &mut Cx) {
     let keep = by == LeaveBy::Back && {
         let r = room.borrow();
-        !r.is_online() && r.leave_cost().is_none()
+        !r.is_online() && !r.state().phase.kind().match_running()
     };
     room.borrow_mut().set_rules_seen(false);
     if keep {
@@ -1164,6 +1226,7 @@ pub fn more_picked(id: &str, room: &SharedRoom, cx: &mut Cx) -> MoreAction {
         MORE_TAKE_PICK => {
             let _ = room.borrow_mut().take_pick();
         }
+        MORE_INTENT => toggle_intent(room),
         "copy" => {
             let link = room.borrow().invite_link();
             if let Some(link) = link {
@@ -1754,6 +1817,8 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         attacks: r.attacks_played(rules),
         attacks_offered: attacks_offered(&r),
         targeting: snake(&r.my_targeting()),
+        watching: r.watching(),
+        can_choose_intent: r.may_choose_intent(),
         locked: r.locked_rules().is_some(),
         ready: r.ready(),
         countdown: seconds_left(&r),
@@ -1943,6 +2008,7 @@ pub fn refusal_text(why: &Refusal) -> UiText {
         Refusal::Room(r) => match r {
             Rejection::NoContent | Rejection::ContentPending => m::refused_no_song(),
             Rejection::NotEnoughReady { .. } => m::refused_too_few(),
+            Rejection::NoPlayingHumans => m::refused_all_watching(),
             Rejection::StageStarted | Rejection::StartCommitted => m::refused_started(),
             Rejection::WrongPhase { .. } | Rejection::NotUpcoming | Rejection::WindowOpen => {
                 m::refused_phase()

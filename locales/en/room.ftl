@@ -345,9 +345,6 @@ room-leave-picking = You are choosing the songs. The host will choose them inste
 # the songs).
 room-leave-co-host = You are a co-host. The match in progress goes on without you.
 
-# In CPU practice with a match running.
-room-leave-practice = The match in progress will be lost.
-
 ## A stage's play: the CPU opponents' small fields beside the field,
 ## each with its name and its level's stars above it, and Out once its
 ## life is gone (narrow: a few letters each).
@@ -1082,3 +1079,85 @@ room-summary-shocks = Shocks stepped on: { $count }
 # The heading over the match's result on the last stage's Standings (in
 # small letters, about 16).
 room-final-heading = Match result
+
+## Watching (a member chooses for themselves to play the stages or only
+## to watch them; a watcher takes no seat and has no place in the
+## standings).
+
+# An item of the room's More menu and a button at the foot of the
+# Players pop-up (about 12 letters), shown while the player plays:
+# from now on they only watch the stages.
+room-intent-watch = Watch only
+
+# The same control while the player watches: they play the stages
+# again.
+room-intent-play = Play
+
+# On the status line: a song was picked but every person in the room
+# has chosen to watch, so there is nobody to play the stage.
+room-refused-all-watching = Everyone is watching. Someone has to play.
+
+## A stage watched: everyone's fields over the whole screen, or one
+## player's field large in the middle with the others beside it.
+
+# In the line under the fields while all of them show, for the first
+# seconds of a stage: how to follow one player.
+room-watch-hint = Tab or tap a field to follow one player
+
+# In the same line while one player's field is the large one in the
+# middle.
+# Variables:
+#   $name (String) - the player followed
+room-watch-following = Watching { $name }
+
+# In the line under the fields, for a few seconds: a player's life ran
+# out.
+# Variables:
+#   $name (String) - who
+room-watch-cue-out = { $name } is out
+
+# The stage is decided: this player won it.
+# Variables:
+#   $name (String) - who
+room-watch-cue-won = { $name } wins the stage
+
+# One player attacks another (shocks are sent into the other's notes).
+# Variables:
+#   $from (String) - who attacks
+#   $to (String) - who is attacked
+room-watch-cue-attack = { $from } attacks { $to }
+
+## The player's own field after they are out of a stage, which they go
+## on watching to its end.
+
+# Over the player's own dimmed field after they quit the stage's play:
+# they left the stage (as "Out" is shown where their life ran out; the
+# standings say "left" for it too, room-mark-short-forfeit).
+room-play-forfeit = Left the stage
+
+# Under the field while the player watches the rest of a stage they are
+# out of: the key (or button) that ends the watching and shows the
+# stage's results.
+# Variables:
+#   $key (String) - the key's or button's name ("Enter", "Start")
+room-play-skip = { $key }: skip to results
+
+# The same on a touch screen, a button to tap (about 16 letters).
+room-play-skip-tap = Skip to results
+
+# The first sentence of the "Leave the room?" question when it is asked
+# over a stage the player has just left by closing the game or going
+# back; what leaving the room does follows it on a line of its own.
+room-leave-forfeited = You left this stage: no points for it.
+
+## A stage's results for someone who watched it (no play of their own).
+
+# The small heading over the stage's winner, where a player's own
+# judgments would be (about 16 letters).
+room-watched-winner = Stage winner
+
+# In its place when first place was shared.
+room-watched-winners = Stage winners
+
+# Under the winner: the viewer took no part.
+room-watched-note = You watched this stage.

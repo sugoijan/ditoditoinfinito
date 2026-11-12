@@ -96,6 +96,13 @@ pub(super) struct StageMode {
     /// The UI's clock at the last update (the room is looked at ten times
     /// a second while nothing moves).
     time: f64,
+    /// The local player watched the stage (`watch-v0`): no play of their
+    /// own, so the stage's winner where their judgments would be and no
+    /// Graphs tab (there are none of theirs to draw).
+    pub(super) watched: bool,
+    /// The game is quitting once the room has answered the player's
+    /// leaving, or at this time on the UI's clock.
+    quit_at: Option<f64>,
 }
 
 /// The stage's standings as the debug state shows them
@@ -117,6 +124,10 @@ pub struct StageView {
     /// last stage once the match is over.
     pub winners: Vec<String>,
     pub result: Vec<(String, u16, String)>,
+    /// The local player watched the stage: its winner or winners as the
+    /// results' left side names them (no play of their own).
+    pub watched: bool,
+    pub stage_winners: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -473,7 +484,27 @@ fn view_of(r: &RoomClient, table: &StageTable, tab: Tab, cols: &[Col]) -> StageV
             .iter()
             .map(|(id, rank, total)| (name(*id), *rank, points_text(*total).into()))
             .collect(),
+        watched: false,
+        stage_winners: stage_winners(r, table),
     }
+}
+
+/// The stage's winner or winners by name (first place, once the room
+/// confirmed it), each with a CPU's level.
+fn stage_winners_of(r: &RoomClient, table: &StageTable) -> Vec<(String, Option<u8>)> {
+    table
+        .rows
+        .iter()
+        .filter(|row| row.placement.as_ref().is_some_and(|p| p.place == 1))
+        .map(|row| name_of(r, row.participant))
+        .collect()
+}
+
+fn stage_winners(r: &RoomClient, table: &StageTable) -> Vec<String> {
+    stage_winners_of(r, table)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
 }
 
 /// Whether the player's settings show the match's ruleset's score as its
@@ -913,8 +944,120 @@ impl ResultsScreen {
             pointed: None,
             first: 0,
             time: 0.0,
+            watched: false,
+            quit_at: None,
         });
         self
+    }
+
+    /// Whether closing the game from a stage's results asks first
+    /// ([`crate::Screen::guards_leaving`]): leaving the room costs
+    /// something (Back here only goes back to the room).
+    pub(super) fn stage_guards(&self) -> bool {
+        self.stage
+            .as_ref()
+            .is_some_and(|sm| sm.quit_at.is_none() && sm.room.borrow().leave_cost().is_some())
+    }
+
+    /// The window asked to close on a stage's results: asked ("Leave the
+    /// room?", saying first that the stage was left where the player
+    /// left its play: a close request during the play forfeits the stage
+    /// and comes here), and the game quit once the room is told if the
+    /// player says Leave.
+    pub(super) fn stage_message(&mut self, msg: &crate::Message, cx: &mut Cx) {
+        use crate::screens::room;
+        let Some(sm) = &mut self.stage else {
+            return;
+        };
+        if !cx.is_current_screen() {
+            return;
+        }
+        // (A watcher who left the stage left no play of their own.)
+        let left_stage = self.data.quit && !sm.watched;
+        if msg.name == crate::ui::CLOSE_REQUESTED
+            && !room::ask_leave_after(&self.env, &sm.room, room::LeaveBy::Quit, left_stage, cx)
+        {
+            cx.request(crate::UiRequest::Quit);
+        }
+        if room::left_by(msg) == Some(room::LeaveBy::Quit) {
+            let told = {
+                let r = sm.room.borrow();
+                r.is_online() && r.link_state() == ddi_room::LinkState::Connected
+            };
+            sm.room.borrow_mut().leave();
+            sm.quit_at = Some(cx.time() + if told { room::QUIT_WAIT } else { 0.0 });
+        }
+    }
+
+    /// The local player watched this stage (`watch-v0`: they were not in
+    /// it): its results have no play of their own. The left side names
+    /// the stage's song and its winner where the grade and the judgments
+    /// would be, and there is no Graphs tab.
+    pub fn watched(mut self) -> ResultsScreen {
+        if let Some(sm) = &mut self.stage {
+            sm.watched = true;
+            sm.tab = Tab::Standings;
+        }
+        self
+    }
+
+    /// Whether these are a watched stage's results.
+    pub(super) fn stage_watched(&self) -> bool {
+        self.stage.as_ref().is_some_and(|sm| sm.watched)
+    }
+
+    /// The left side of a watched stage's results, from `y` down, `w`
+    /// wide: the stage's winner or winners (once the room confirmed it)
+    /// under a small heading, a CPU's stars after its name, then that
+    /// the viewer watched; where it ends.
+    pub(super) fn watched_column(&self, y: f32, w: f32, children: &mut Vec<Actor>) -> f32 {
+        let Some(sm) = &self.stage else {
+            return y;
+        };
+        let env = &self.env;
+        let r = sm.room.borrow();
+        let winners = r
+            .stage_table(sm.stage)
+            .map(|t| stage_winners_of(&r, &t))
+            .unwrap_or_default();
+        let mut ty = y + 8.0;
+        if !winners.is_empty() {
+            let heading = if winners.len() > 1 {
+                m::watched_winners()
+            } else {
+                m::watched_winner()
+            };
+            let head = look::tracked(env.text("Watched.Heading", &heading, 12.0, 600, "Faint"), 120);
+            children.push(left(head, 0.0, ty));
+            ty += 26.0;
+            for (i, (name, level)) in winners.iter().enumerate() {
+                let stars = level.map(|_| crate::stars::width(14.0) + 10.0).unwrap_or(0.0);
+                let mut t = env.text(
+                    &format!("Watched.Winner{i}"),
+                    &UiText::data(name.clone()),
+                    24.0,
+                    700,
+                    "Gold",
+                );
+                look::ellipsized(&mut t, (w - stars).max(40.0));
+                children.push(left(t, 0.0, ty));
+                if let Some(level) = level {
+                    children.push(crate::stars::stars_right(
+                        env,
+                        &format!("Watched.Winner{i}.Stars"),
+                        *level,
+                        14.0,
+                        w,
+                        ty,
+                    ));
+                }
+                ty += 32.0;
+            }
+            ty += 4.0;
+        }
+        let note = env.text("Watched.Note", &m::watched_note(), 13.0, 400, "Muted");
+        children.push(left(note, 0.0, ty));
+        ty + 20.0
     }
 
     /// The tabs' row from `[x, y]`: Standings, Graphs.
@@ -924,10 +1067,15 @@ impl ResultsScreen {
         };
         let env = &self.env;
         let mut tx = x;
-        for (tab, name, label) in [
+        // A watched stage has no graphs of the viewer's own.
+        let tabs = [
             (Tab::Standings, "Tab.Standings", m::results_tab_standings()),
             (Tab::Graphs, "Tab.Graphs", m::results_tab_graphs()),
-        ] {
+        ];
+        for (tab, name, label) in tabs
+            .into_iter()
+            .filter(|(tab, ..)| *tab == Tab::Standings || !sm.watched)
+        {
             let w = (look::mono_width(&label, 13.0) + 32.0).max(104.0);
             let mut b = look::component_or(
                 &*env.look,
@@ -1031,13 +1179,13 @@ impl ResultsScreen {
 
     /// The tabs' place in the focus walk.
     pub(super) fn stage_focusables(&self) -> Vec<Focusable> {
-        if self.stage.is_some() {
-            vec![
+        match &self.stage {
+            Some(sm) if sm.watched => vec![Focusable::new("Tab.Standings")],
+            Some(_) => vec![
                 Focusable::new("Tab.Standings"),
                 Focusable::new("Tab.Graphs"),
-            ]
-        } else {
-            Vec::new()
+            ],
+            None => Vec::new(),
         }
     }
 
@@ -1047,7 +1195,7 @@ impl ResultsScreen {
         let Some(sm) = &mut self.stage else {
             return;
         };
-        if sm.tab == tab {
+        if sm.tab == tab || (sm.watched && tab == Tab::Graphs) {
             return;
         }
         sm.tab = tab;
@@ -1098,6 +1246,13 @@ impl ResultsScreen {
         let room = sm.room.clone();
         room.borrow_mut()
             .tick((cx.clock() * 1000.0).max(0.0) as u64);
+        if let Some(at) = sm.quit_at
+            && (cx.time() >= at || room.borrow().link_state().ended())
+        {
+            sm.quit_at = None;
+            cx.request(crate::UiRequest::Quit);
+            return;
+        }
         let version = room.borrow().version();
         let changed = sm.seen.replace(version) != Some(version);
         let (tab, stage) = (sm.tab, sm.stage);
@@ -1132,14 +1287,19 @@ impl ResultsScreen {
                 w if w > 0.0 => w,
                 _ => self.places().1[2] - 28.0,
             };
-            Some(view_of(&r, &table, sm.tab, &columns(w, table.attacks)))
+            let mut view = view_of(&r, &table, sm.tab, &columns(w, table.attacks));
+            view.watched = sm.watched;
+            Some(view)
         });
         self.env.state.borrow_mut().stage = view;
     }
 
     /// The footer's hints for the tabs: a keyboard's and a controller's.
     pub(super) fn stage_hint(&self) -> Option<UiText> {
-        self.stage.as_ref().map(|_| m::results_hint_tabs())
+        self.stage
+            .as_ref()
+            .filter(|sm| !sm.watched)
+            .map(|_| m::results_hint_tabs())
     }
 
     /// The stage's input: Left and Right (a keyboard's) and the shoulders

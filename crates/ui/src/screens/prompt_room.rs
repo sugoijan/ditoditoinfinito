@@ -79,12 +79,17 @@ impl PromptScreen {
     /// Start's label in a room: Ready, or Cancel ready once ready.
     pub(super) fn room_start_label(&self) -> Option<UiText> {
         let rm = self.room.as_ref()?;
-        Some(if rm.room.borrow().ready() {
+        let r = rm.room.borrow();
+        Some(if !r.in_stage(rm.stage) {
+            // A watcher has nothing to be ready for.
+            msg::room::watching()
+        } else if r.ready() {
             msg::room::unready()
         } else {
             msg::room::ready()
         })
     }
+
 
     /// Start in a room: Ready set (`Some`) or toggled (`None`), the shell
     /// told inside the press ([`PromptChoice::Ready`]). Whether the room
@@ -96,9 +101,12 @@ impl PromptScreen {
         if rm.started.get() || rm.gone.get().is_some() {
             return true;
         }
-        let ready = set.unwrap_or(!rm.room.borrow().ready());
-        if ready != rm.room.borrow().ready() {
-            let _ = rm.room.borrow_mut().set_ready(ready);
+        // A watcher's press readies nothing: the shell's sound alone.
+        if rm.room.borrow().in_stage(rm.stage) {
+            let ready = set.unwrap_or(!rm.room.borrow().ready());
+            if ready != rm.room.borrow().ready() {
+                let _ = rm.room.borrow_mut().set_ready(ready);
+            }
         }
         (self.act)(PromptChoice::Ready, cx);
         true
@@ -346,7 +354,8 @@ impl PromptScreen {
         }
         let policy = {
             let r = rm.room.borrow();
-            r.attacks_on().then(|| r.my_targeting())?
+            // A watcher sends no attacks: no policy to choose.
+            (r.attacks_on() && r.in_stage(rm.stage)).then(|| r.my_targeting())?
         };
         let env = &self.env;
         let name = TARGETING;
@@ -429,7 +438,7 @@ impl PromptScreen {
         let Some(rm) = &self.room else {
             return;
         };
-        if rm.started.get() || rm.gone.get().is_some() {
+        if rm.started.get() || rm.gone.get().is_some() || !rm.room.borrow().in_stage(rm.stage) {
             return;
         }
         let all = ddi_room::attacks::Targeting::ALL;

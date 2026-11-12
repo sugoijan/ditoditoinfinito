@@ -139,12 +139,13 @@ fn stage(
             .collect(),
         dev_mines_at_beat: None,
         others: 0,
+        watching: false,
     };
     let mut b = Battle::new(setup, song, chart, &ruleset, 0.0, FORFEIT_HORIZON).unwrap();
     if let Some(a) = b.attacks.as_mut() {
         a.out_at(b.setup.me, f64::NEG_INFINITY);
     }
-    b.play_out_as(Run::Forfeit);
+    b.play_out_as(Some(Run::Forfeit));
     let ledger = b.attacks.as_ref().unwrap().ledger();
     let table = ruleset.judge.clone();
     let (lock, window, reach) = (

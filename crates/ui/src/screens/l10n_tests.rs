@@ -1104,6 +1104,17 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             shown(&mut h, found);
             h.key("ArrowLeft", "ArrowLeft");
             shown(&mut h, found);
+            // The same stage's results as someone who watched it has
+            // them: the stage's winner where their own play would be.
+            let mut data = sample::results();
+            data.kind = super::data::ResultsKind::Stage;
+            let mut hw = harness();
+            hw.push(
+                ResultsScreen::new(env.clone(), data, Default::default())
+                    .with_room(room.clone(), order.stage)
+                    .watched(),
+            );
+            shown(&mut hw, found);
         }
         checked(
             vec![
@@ -1480,7 +1491,6 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
                 LeaveCost::Playing,
                 LeaveCost::Picking,
                 LeaveCost::CoHost,
-                LeaveCost::Practice,
             ]
             .iter()
             .map(|c| super::room::leave_text(c).into())

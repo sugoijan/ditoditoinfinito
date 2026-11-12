@@ -64,6 +64,13 @@ pub struct Shown {
     pub cue: Option<(String, f32)>,
     /// How each opponent's score shows on its miniature.
     pub score: ScoreShown,
+    /// A quiet word at the status line's start (a watched stage's: who
+    /// is followed, how to follow someone).
+    pub label: Option<String>,
+    /// The slot of `fields` that is the field shown large (a watched
+    /// stage's focus: the play's own field's place): no name line, no
+    /// stars and no small score there (the HUD's places say them).
+    pub large: Option<usize>,
 }
 
 /// What a miniature says of its opponent's score, as the local player's
@@ -462,34 +469,8 @@ pub fn arrange(
         };
         let bottom = h - edge - if status { STATUS } else { 0.0 };
         let whole = [wing[0], edge, wing[1], bottom];
-        // What is on it, each avoided by height or by width.
-        let on: Vec<[f32; 4]> = keep
-            .iter()
-            .copied()
-            .filter(|k| k[0] < wing[1] && k[2] > wing[0] && k[1] < h && k[3] > 0.0)
-            .take(4)
-            .collect();
-        let mut regions: Vec<Region> = Vec::new();
-        for mut choice in 0..3_u32.pow(on.len() as u32) {
-            let mut r = whole;
-            for k in &on {
-                match choice % 3 {
-                    // By height: above what is at the bottom, below what
-                    // is at the top.
-                    0 if (k[1] + k[3]) / 2.0 < h / 2.0 => r[1] = r[1].max(k[3] + CLEAR),
-                    0 => r[3] = r[3].min(k[1] - CLEAR),
-                    // By width: to its left, or to its right.
-                    1 => r[2] = r[2].min(k[0] - CLEAR),
-                    _ => r[0] = r[0].max(k[2] + CLEAR),
-                }
-                choice /= 3;
-            }
-            if r[2] > r[0] && r[3] > r[1] && !regions.contains(&r) {
-                regions.push(r);
-            }
-        }
         Side {
-            regions,
+            regions: rooms(whole, &keep, h),
             gap: part(SLOT_GAP, raw[side]),
             left: side == 0,
         }
@@ -678,6 +659,213 @@ pub fn arrange(
     })
 }
 
+/// The rooms `whole` (`[left, top, right, bottom]`, logical pixels, on a
+/// screen `h` tall) has for slots clear of `keep`: what is on it, each
+/// avoided either by height (the room ends above or below it) or by
+/// width (beside it).
+fn rooms(whole: Region, keep: &[[f32; 4]], h: f32) -> Vec<Region> {
+    let on: Vec<[f32; 4]> = keep
+        .iter()
+        .copied()
+        .filter(|k| k[0] < whole[2] && k[2] > whole[0] && k[1] < h && k[3] > 0.0)
+        .take(4)
+        .collect();
+    let mut regions: Vec<Region> = Vec::new();
+    for mut choice in 0..3_u32.pow(on.len() as u32) {
+        let mut r = whole;
+        for k in &on {
+            match choice % 3 {
+                // By height: above what is at the bottom, below what
+                // is at the top.
+                0 if (k[1] + k[3]) / 2.0 < h / 2.0 => r[1] = r[1].max(k[3] + CLEAR),
+                0 => r[3] = r[3].min(k[1] - CLEAR),
+                // By width: to its left, or to its right.
+                1 => r[2] = r[2].min(k[0] - CLEAR),
+                _ => r[0] = r[0].max(k[2] + CLEAR),
+            }
+            choice /= 3;
+        }
+        if r[2] > r[0] && r[3] > r[1] && !regions.contains(&r) {
+            regions.push(r);
+        }
+    }
+    regions
+}
+
+/// PROVISIONAL (`watch-v0`, `docs/plans/multiplayer-prototype-progress.md`,
+/// "Watching a stage"): a watched stage's grid, where nobody's field is
+/// the large one ([`arrange_grid`]).
+///
+/// A field of the grid is at most this share of the lane the play's own
+/// field would have on the screen: all of it, a field as a player's own.
+/// The cap that keeps a player's miniatures at half their own lane
+/// ([`MINI_LANE_SHARE`]) is for miniatures beside a field of one's own;
+/// where there is none it does not apply.
+pub const GRID_LANE_SHARE: f32 = 1.0;
+/// Of the ways to lay the fields out, the one with the largest lane; one
+/// with more rows whose lane is at least this share of it is preferred
+/// (it fills the screen: eight are four by two, not eight in a row).
+pub const GRID_FILL: f32 = 0.9;
+/// Between the grid's fields, a share of the screen's width within these
+/// bounds; and beside each field, on its right, the room its attack
+/// warning takes (`crate::battle_cue::place`: a lane, less a little), in
+/// lanes, kept whether a warning shows or not (the fields never move).
+const GRID_GAP: (f32, f32, f32) = (0.012, 6.0, 20.0);
+const GRID_CUE: f32 = 1.0;
+/// The least lane a grid's field has: under it the grid shows nothing
+/// (a window far too small).
+const GRID_LANE_MIN: f32 = 4.0;
+
+/// Places `n` competitors' fields over the whole screen (a watched
+/// stage's grid: no field of the watcher's own, so no side space), on
+/// the screen of the play's field `geo` (its size, its proportion and
+/// its lane are what the fields follow) at `ratio` target pixels a
+/// logical one, clear of `keep_out` (the quit button's place). Rows of
+/// fields of one size, each a field in the play's proportion
+/// ([`rows_for`]) with its name line above it and the room of its attack
+/// warning on its right, as large as the screen allows up to
+/// [`GRID_LANE_SHARE`] of the play's own lane, in the layout that gives
+/// the largest lane ([`GRID_FILL`]: two side by side nearly the screen's
+/// height, eight four by two), the block in the screen's middle, a short
+/// last row in its own middle, and the status line under the block.
+///
+/// Beyond a room's eight (a development-only practice), where they do
+/// not fit at [`MINI_LANE_CROWD`]: as many as do, the rest taking turns
+/// ([`rotate`]). `None` where not even one fits.
+pub fn arrange_grid(
+    n: usize,
+    geo: &FieldGeometry,
+    reverse: bool,
+    ratio: f32,
+    keep_out: &[[f32; 4]],
+) -> Option<Fields> {
+    if n == 0 || ratio <= 0.0 {
+        return None;
+    }
+    let (w, h) = (geo.width / ratio, geo.height / ratio);
+    let keep: Vec<[f32; 4]> = keep_out.iter().map(|k| k.map(|v| v / ratio)).collect();
+    let edge = part(EDGE, w);
+    let gap = part(GRID_GAP, w);
+    let whole_room = [edge, edge, w - edge, h - edge - STATUS - 4.0];
+    let rows = rows_for(geo);
+    let cap = geo.arrow / ratio * GRID_LANE_SHARE;
+    let whole = |lane: f32| (lane * ratio).floor() / ratio;
+    // A slot with its warning's room, in lanes.
+    let wide = SLOT_LANES + GRID_CUE;
+    // The best layout of `k` fields: its lane, its room and its columns.
+    let best = |k: usize| -> Option<(f32, Region, usize)> {
+        let mut ways: Vec<(f32, Region, usize)> = Vec::new();
+        for room in rooms(whole_room, &keep, h) {
+            let (rw, rh) = (room[2] - room[0], room[3] - room[1]);
+            for cols in 1..=k {
+                let lines = k.div_ceil(cols);
+                let by_width = (rw - (cols as f32 - 1.0) * gap) / (cols as f32 * wide);
+                let cell = (rh - (lines as f32 - 1.0) * gap) / lines as f32;
+                let lane = whole(lane_for_height(by_width.min(cap), cell, rows));
+                if lane > 0.0 {
+                    ways.push((lane, room, cols));
+                }
+            }
+        }
+        let most = ways.iter().map(|w| w.0).fold(0.0, f32::max);
+        // The fewest columns (the most rows) among those nearly as large.
+        ways.into_iter()
+            .filter(|w| w.0 >= most * GRID_FILL)
+            .min_by(|a, b| a.2.cmp(&b.2).then(b.0.total_cmp(&a.0)))
+    };
+    let least = if n <= ROOM_OPPONENTS {
+        GRID_LANE_MIN
+    } else {
+        MINI_LANE_CROWD
+    };
+    // As many as fit at the least lane; the rest take turns.
+    let mut shown = n;
+    let mut way = best(shown);
+    while shown > 1 && way.is_none_or(|w| w.0 < least) {
+        shown -= 1;
+        way = best(shown);
+    }
+    let (lane, room, cols) = way.filter(|w| w.0 >= GRID_LANE_MIN)?;
+    let lines = shown.div_ceil(cols);
+    let (sw, sh) = (SLOT_LANES * lane, label(lane) + rows * lane);
+    let cue = GRID_CUE * lane;
+    let px = |v: f32| v * ratio;
+    let block = lines as f32 * sh + (lines as f32 - 1.0) * gap;
+    let line_width = |m: usize| m as f32 * (sw + cue) + (m as f32 - 1.0) * gap;
+    let y0 = room[1] + ((room[3] - room[1] - block) / 2.0).max(0.0);
+    // Each row on the screen's own middle where its room has it there (a
+    // room narrowed by the quit button's place only moves a row that
+    // would reach it).
+    let row_left = |m: usize| {
+        let lw = line_width(m);
+        (w / 2.0 - lw / 2.0).clamp(room[0], (room[2] - lw).max(room[0]))
+    };
+    let mut slots = Vec::with_capacity(shown);
+    for i in 0..shown {
+        let (line, col) = (i / cols, i % cols);
+        // A short last row in its own middle.
+        let in_line = if line + 1 == lines {
+            shown - line * cols
+        } else {
+            cols
+        };
+        let x = row_left(in_line) + col as f32 * (sw + cue + gap);
+        let y = y0 + line as f32 * (sh + gap);
+        let (ft, fb) = (y + label(lane), y + sh);
+        let lanes = x + BAND_MORE / 2.0 * lane;
+        let receptor = if reverse {
+            fb - MINI_RECEPTOR * lane
+        } else {
+            ft + MINI_RECEPTOR * lane
+        };
+        slots.push(Slot {
+            seat: i,
+            rect: [px(x), px(y), px(sw), px(sh)],
+            field: FieldGeometry {
+                arrow: px(lane),
+                left: px(lanes),
+                receptor_y: px(receptor),
+                direction: if reverse { -1.0 } else { 1.0 },
+                width: px(2.0 * (lanes + 2.0 * lane)),
+                height: px(ft + fb),
+            },
+            panel: [px(x), px(ft), px(x + sw), px(fb)],
+            left: false,
+            dim: 0.0,
+        });
+    }
+    let used = line_width(cols.min(shown)).max(320.0_f32.min(room[2] - room[0]));
+    let sx = (w / 2.0 - used / 2.0).clamp(room[0], (room[2] - used).max(room[0]));
+    Some(Fields {
+        slots,
+        status: [px(sx), px(y0 + block + 4.0), px(used), px(STATUS)],
+        rotating: shown < n,
+        lane,
+        rows,
+        range: rows - MINI_RECEPTOR,
+        name: name_size(lane),
+        stars: stars_at(lane),
+    })
+}
+
+/// The place of the field a watcher follows, shown large as a player's
+/// own is: the play's field `geo` (`span` lanes wide) as a slot for
+/// `seat`, its band the field's from the screen's top to its bottom, so
+/// that what a miniature has over its field (its lanes a shock locked,
+/// its judgments' glow, Out) is drawn on it the same way.
+pub fn large_slot(seat: usize, geo: &FieldGeometry, span: f32) -> Slot {
+    let [mid, band] = ddi_render::scene::filter_band(geo, span);
+    let panel = [mid - band / 2.0, 0.0, mid + band / 2.0, geo.height];
+    Slot {
+        seat,
+        rect: [panel[0], 0.0, band, geo.height],
+        field: *geo,
+        panel,
+        left: false,
+        dim: 0.0,
+    }
+}
+
 /// How the opponents take turns in too few slots ([`rotate`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rotation {
@@ -843,11 +1031,18 @@ pub fn draw_fields(
     // The status line: "Stage won", then the moment, at its left.
     let [sx, sy, sw, _] = fields.status;
     let mut x = sx;
+    if let Some(label) = &shown.label {
+        let st = style(14.0, 600);
+        let t = fitted(measure, label, &st, sw);
+        x += measure.measure(&t, &st).advance + 12.0 * ratio;
+        list.push(run(t, &st, [sx, sy], MUTED));
+    }
     if let Some(won) = &shown.won {
         let st = style(14.0, 700);
-        let t = fitted(measure, won, &st, sw);
+        let t = fitted(measure, won, &st, (sx + sw - x).max(0.0));
+        let at = x;
         x += measure.measure(&t, &st).advance + 12.0 * ratio;
-        list.push(run(t, &st, [sx, sy], WON));
+        list.push(run(t, &st, [at, sy], WON));
     }
     let cue = shown.cue.as_ref().filter(|(_, a)| *a > 0.0);
     if let Some((cue, alpha)) = cue {
@@ -870,7 +1065,11 @@ pub fn draw_fields(
         // level; a person has none). Out shows on the field.
         let size = fields.name;
         let name_style = style(size, 600);
-        let stars = o.level.map(|level| (level, fields.stars));
+        let large = shown.large == Some(i);
+        let stars = o
+            .level
+            .filter(|_| !large)
+            .map(|level| (level, fields.stars));
         let room = match stars {
             Some((level, Stars::Beside(tall))) => {
                 let sw = ddi_ui::stars::width(tall * ratio);
@@ -897,8 +1096,10 @@ pub fn draw_fields(
             }
             _ => w,
         };
-        let name = fitted(measure, &o.name, &name_style, room.max(0.0));
-        list.push(run(name, &name_style, [x, y], fade(TEXT)));
+        if !large {
+            let name = fitted(measure, &o.name, &name_style, room.max(0.0));
+            list.push(run(name, &name_style, [x, y], fade(TEXT)));
+        }
         let geo = &slot.field;
         // Its lanes a shock locked (DDI): the lane darkened to its end,
         // its receptor's place tinted, for the lock's time.
@@ -913,7 +1114,7 @@ pub fn draw_fields(
             list.rect([cx - half, cy - half, cx + half, cy + half], LOCK_TINT);
         }
         // Its score, small, under its life gauge's right end.
-        {
+        if !large {
             let s = geo.arrow / 72.0;
             let size = (size * SCORE_SIZE.0).clamp(SCORE_SIZE.1, SCORE_SIZE.2);
             let mut st = style(size, 600);
@@ -982,6 +1183,65 @@ pub fn draw_fields(
         }
     }
     cue.is_some()
+}
+
+/// A player's own field after they are out of a stage they go on
+/// watching (`watch-v0`): its band, the mark over it (Out, or that they
+/// left the stage) and the skip's words, while it can be skipped.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnOut {
+    /// The field's band, `[left, top, right, bottom]`, target pixels.
+    pub panel: [f32; 4],
+    pub mark: String,
+    pub skip: Option<String>,
+}
+
+impl OwnOut {
+    /// Where a tap or a click skips to the results (target pixels): a
+    /// plate under the mark, in the band's middle.
+    pub fn skip_area(&self, ratio: f32) -> [f32; 4] {
+        let [l, t, r, b] = self.panel;
+        let (cx, cy) = ((l + r) / 2.0, (t + b) / 2.0);
+        let half = ((r - l) / 2.0 - 8.0 * ratio).clamp(40.0 * ratio, 130.0 * ratio);
+        [cx - half, cy + 22.0 * ratio, cx + half, cy + 52.0 * ratio]
+    }
+}
+
+/// Draws a player's own field as out of the stage: dimmed in place, as
+/// a miniature's (the same darkness), its mark in its middle and, under
+/// it, the skip's words on a quiet plate.
+pub fn draw_own_out(list: &mut DrawList, own: &OwnOut, ratio: f32, measure: &mut dyn TextMeasure) {
+    let face = ddi_l10n::font_stack(FACE);
+    let style = |size: f32, weight: u16| {
+        let mut s = TextStyle::new(face.as_str(), size * ratio);
+        s.weight = weight;
+        s
+    };
+    let [l, t, r, b] = own.panel;
+    list.rect([l, t, r, b], [0.0, 0.0, 0.0, 0.45]);
+    let (cx, cy) = ((l + r) / 2.0, (t + b) / 2.0);
+    let st = style(24.0, 700);
+    let mark = fitted(measure, &own.mark, &st, r - l - 8.0 * ratio);
+    let w = measure.measure(&mark, &st).advance;
+    list.push(run(mark, &st, [cx - w / 2.0, cy - 24.0 * ratio], TEXT));
+    if let Some(skip) = &own.skip {
+        let [pl, pt, pr, pb] = own.skip_area(ratio);
+        let mut plate = Quad::plain([pl, pt, pr, pb], [1.0, 1.0, 1.0, 0.08]);
+        plate.shape = Shape {
+            radius: [6.0 * ratio; 2],
+            ..Shape::NONE
+        };
+        list.push(Command::Quad(plate));
+        let st = style(13.0, 600);
+        let text = fitted(measure, skip, &st, pr - pl - 12.0 * ratio);
+        let w = measure.measure(&text, &st).advance;
+        list.push(run(
+            text,
+            &st,
+            [cx - w / 2.0, (pt + pb) / 2.0 - 13.0 * 0.6 * ratio],
+            MUTED,
+        ));
+    }
 }
 
 /// Draws `level`'s five stars (`ddi_ui::stars`: gold, silver, empty
@@ -1071,6 +1331,8 @@ pub(crate) mod tests {
             won: None,
             cue: None,
             score: ScoreShown::Sum,
+            label: None,
+            large: None,
         }
     }
 
@@ -1177,6 +1439,236 @@ pub(crate) mod tests {
         assert!((MINI_ROWS_MIN..=MINI_ROWS_MAX).contains(&f.rows), "{what}");
         assert_eq!(f.rows, rows_for(g), "{what}");
         assert!((f.range - (f.rows - 1.5)).abs() < 1e-4);
+    }
+
+    /// The quit button's place alone: what a watched stage's grid keeps
+    /// clear of (it has no HUD of its own).
+    pub(crate) fn keep_grid(g: &FieldGeometry, ratio: f32) -> Vec<[f32; 4]> {
+        let [x, y, r] =
+            ddi_render::scene::quit_button(g, &ddi_chart::Layout::dance_single(), ratio, [0.0; 4]);
+        vec![[x - r, y - r, x + r, y + r]]
+    }
+
+    /// A watched stage's grid (`watch-v0`): one to eight fields over the
+    /// whole screen at every size of the miniatures' table, each on the
+    /// screen with its attack warning's room, clear of the quit button's
+    /// place, of the status line and of each other, all of one size, in
+    /// the play's field's proportion, never larger than a play's own
+    /// field; the block in the screen's middle.
+    #[test]
+    fn a_watched_grid_fills_the_screen_for_one_to_eight() {
+        for (w, h, ratio) in SIZES {
+            for reverse in [false, true] {
+                let g =
+                    FieldGeometry::placed(w * ratio, h * ratio, 4.0, reverse, Default::default());
+                let k = keep_grid(&g, ratio);
+                for n in 1..=8 {
+                    let what = format!("{n} at {w}x{h}@{ratio} reverse {reverse}");
+                    let f = arrange_grid(n, &g, reverse, ratio, &k)
+                        .unwrap_or_else(|| panic!("{what}"));
+                    assert_eq!(f.slots.len(), n, "{what}");
+                    assert!(!f.rotating, "{what}");
+                    assert!(f.slots.iter().enumerate().all(|(i, s)| s.seat == i));
+                    let (sw, sh) = (g.width, g.height);
+                    for (i, s) in f.slots.iter().enumerate() {
+                        let r = ltrb(s.rect);
+                        // With its warning's room on its right.
+                        let cue = crate::battle_cue::place(&s.field, 4.0);
+                        let all = [r[0], r[1], r[2].max(cue[2]), r[3]];
+                        assert!(
+                            all[0] >= 0.0
+                                && all[2] <= sw + 0.01
+                                && all[1] >= 0.0
+                                && all[3] <= sh + 0.01,
+                            "{what} slot {i} {all:?} off the screen"
+                        );
+                        assert!(cue[1] >= s.panel[1] && cue[3] <= s.panel[3], "{what}");
+                        for keep in &k {
+                            assert!(!overlaps(all, *keep), "{what} slot {i} over {keep:?}");
+                        }
+                        for t in &f.slots[i + 1..] {
+                            let o = ltrb(t.rect);
+                            let oc = crate::battle_cue::place(&t.field, 4.0);
+                            let other = [o[0], o[1], o[2].max(oc[2]), o[3]];
+                            assert!(!overlaps(all, other), "{what} slot {i} over another");
+                            assert_eq!([s.rect[2], s.rect[3]], [t.rect[2], t.rect[3]], "{what}");
+                        }
+                        assert!(!overlaps(all, ltrb(f.status)), "{what} over the status");
+                        let a = s.field.arrow;
+                        assert!(s.field.lane_x(0.0) - a / 2.0 > s.panel[0]);
+                        assert!(s.field.lane_x(3.0) + a / 2.0 < s.panel[2]);
+                        let from = if reverse {
+                            s.panel[3] - s.field.receptor_y
+                        } else {
+                            s.field.receptor_y - s.panel[1]
+                        };
+                        assert!((from - 1.5 * a).abs() < 0.01, "{what} slot {i}");
+                        let tall = (s.panel[3] - s.panel[1]) / a;
+                        assert!((tall - rows_for(&g)).abs() < 0.01, "{what} {tall}");
+                        // A field as a player's own, at the most.
+                        assert!(a <= g.arrow * GRID_LANE_SHARE + 0.01, "{what}");
+                        assert!(!s.left);
+                    }
+                    let st = ltrb(f.status);
+                    assert!(
+                        st[0] >= 0.0 && st[2] <= sw + 0.01 && st[3] <= sh + 0.01,
+                        "{what} status {st:?}"
+                    );
+                    // In the screen's middle: as much room left as right.
+                    let left = f.slots.iter().map(|s| s.rect[0]).fold(f32::MAX, f32::min);
+                    let right = f
+                        .slots
+                        .iter()
+                        .map(|s| crate::battle_cue::place(&s.field, 4.0)[2])
+                        .fold(0.0, f32::max);
+                    if k.iter().all(|keep| keep[3] < f.slots[0].rect[1]) {
+                        assert!(
+                            (left - (sw - right)).abs() <= 1.5 * ratio + (sw * 0.2),
+                            "{what}: {left} and {}",
+                            sw - right
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The grid's sizes at the two sizes the miniatures' table gives:
+    /// one and two nearly the screen's height, eight four by two; larger
+    /// than the miniatures beside a player's own field at every count.
+    #[test]
+    fn the_grid_s_fields_are_as_large_as_the_screen_allows() {
+        let lanes = |w: f32, h: f32| -> Vec<(f32, usize)> {
+            let g = geo(w, h);
+            let k = keep_grid(&g, 1.0);
+            (1..=8)
+                .map(|n| {
+                    let f = arrange_grid(n, &g, false, 1.0, &k).unwrap();
+                    let top = f.slots[0].rect[1];
+                    let cols = f.slots.iter().filter(|s| s.rect[1] == top).count();
+                    (f.lane, cols)
+                })
+                .collect()
+        };
+        let small = lanes(1280.0, 720.0);
+        let large = lanes(1920.0, 1080.0);
+        // (lane, fields in the first row) for one to eight.
+        assert_eq!(
+            small,
+            [
+                (65.0, 1),
+                (65.0, 2),
+                (63.0, 3),
+                (57.0, 4),
+                (45.0, 5),
+                (37.0, 6),
+                (29.0, 4),
+                (29.0, 4)
+            ]
+        );
+        assert_eq!(
+            large,
+            [
+                (101.0, 1),
+                (101.0, 2),
+                (99.0, 3),
+                (86.0, 4),
+                (68.0, 5),
+                (56.0, 6),
+                (48.0, 4),
+                (48.0, 4)
+            ]
+        );
+        for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0)] {
+            let g = geo(w, h);
+            // Two: nearly the screen's height.
+            let two = arrange_grid(2, &g, false, 1.0, &keep_grid(&g, 1.0)).unwrap();
+            let tall = two.slots[0].rect[3];
+            assert!(tall > 0.9 * h, "{tall} of {h}");
+            // Eight: two rows of four.
+            let eight = arrange_grid(8, &g, false, 1.0, &keep_grid(&g, 1.0)).unwrap();
+            let rows: std::collections::BTreeSet<i32> =
+                eight.slots.iter().map(|s| s.rect[1] as i32).collect();
+            assert_eq!(rows.len(), 2);
+            // Larger than a player's miniatures at every count.
+            for n in 1..=8 {
+                let grid = arrange_grid(n, &g, false, 1.0, &keep_grid(&g, 1.0)).unwrap();
+                let side = arrange(n, &g, 4.0, false, 1.0, &keep(&g, 1.0, true)).unwrap();
+                assert!(grid.lane > side.lane, "{n}: {} and {}", grid.lane, side.lane);
+            }
+        }
+    }
+
+    /// The field a watcher follows is the play's field's place: its band
+    /// from the screen's top to its bottom, its geometry the play's; the
+    /// others go beside it as a player's opponents do, never over it;
+    /// what it has over it is drawn as a miniature's, without the name
+    /// line and the small score (the HUD's places say them).
+    #[test]
+    fn the_followed_field_is_the_play_s_place_and_the_others_go_beside_it() {
+        let g = geo(1280.0, 720.0);
+        let big = large_slot(3, &g, 4.0);
+        assert_eq!(big.field, g);
+        let [mid, band] = ddi_render::scene::filter_band(&g, 4.0);
+        assert_eq!(big.panel, [mid - band / 2.0, 0.0, mid + band / 2.0, 720.0]);
+        assert_eq!(big.seat, 3);
+        let k = keep(&g, 1.0, true);
+        let mut f = arrange(3, &g, 4.0, false, 1.0, &k).unwrap();
+        sound(&f, &g, &k, false, "beside the followed");
+        for s in &f.slots {
+            assert!(!overlaps(ltrb(s.rect), big.panel));
+        }
+        // Drawn with the others: Out over it, no name and no score.
+        f.slots.push(big);
+        let mut shown = shown(4);
+        shown.large = Some(3);
+        shown.opponents[3].out = true;
+        shown.opponents[3].name = "Followed".into();
+        shown.label = Some("Watching Followed".into());
+        let mut list = DrawList::new();
+        let mut measure = FixedMeasure;
+        draw_fields(&mut list, &shown, &f, &[], &[], 1.0, &mut measure);
+        let texts = texts(&list);
+        let words: Vec<&str> = texts.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(words.contains(&"Watching Followed"), "{words:?}");
+        assert!(!words.contains(&"Followed"), "{words:?}");
+        assert_eq!(words.iter().filter(|t| **t == "Out").count(), 2, "{words:?}");
+        // Three small scores (the others'), none for the large field.
+        assert_eq!(words.iter().filter(|t| **t == "5900000").count(), 3);
+    }
+
+    /// A player's own field after they are out of the stage: dimmed as a
+    /// miniature's, its mark in its middle, the skip's plate under it
+    /// inside the band.
+    #[test]
+    fn a_player_s_own_field_out_of_the_stage_says_so_and_how_to_skip() {
+        for (w, h, ratio) in SIZES {
+            let g = FieldGeometry::placed(w * ratio, h * ratio, 4.0, false, Default::default());
+            let [mid, band] = ddi_render::scene::filter_band(&g, 4.0);
+            let own = OwnOut {
+                panel: [mid - band / 2.0, 0.0, mid + band / 2.0, g.height],
+                mark: "Left the stage".into(),
+                skip: Some("Enter: skip to results".into()),
+            };
+            let [l, t, r, b] = own.skip_area(ratio);
+            assert!(l >= own.panel[0] && r <= own.panel[2], "{w}x{h}");
+            assert!(t > g.height / 2.0 && b < g.height, "{w}x{h}");
+            let mut list = DrawList::new();
+            let mut measure = FixedMeasure;
+            draw_own_out(&mut list, &own, ratio, &mut measure);
+            let texts = texts(&list);
+            assert!(texts.iter().any(|(t, _)| t.starts_with("Left")), "{texts:?}");
+            assert!(texts.iter().any(|(t, _)| t.contains("skip")), "{texts:?}");
+            // Once it cannot be skipped (the results are coming): no plate.
+            let over = OwnOut { skip: None, ..own };
+            let mut list = DrawList::new();
+            draw_own_out(&mut list, &over, ratio, &mut measure);
+            assert!(!texts_of(&list).iter().any(|t| t.contains("skip")));
+        }
+    }
+
+    fn texts_of(list: &DrawList) -> Vec<String> {
+        texts(list).into_iter().map(|(t, _)| t).collect()
     }
 
     #[test]

@@ -442,6 +442,14 @@ impl ResultsScreen {
             ty += 18.0;
         }
         ty += 2.0;
+        // A stage the viewer watched: no play of their own to show, the
+        // stage's winner in its place.
+        if self.stage_watched() {
+            let height = self.watched_column(ty, w, &mut children);
+            let mut f = frame("ScoreColumn", children);
+            call(&mut f, "xy", &[x, y]);
+            return (f, height);
+        }
         // Grade, score, EX.
         let mut score = env.component(
             "Results.Score",
@@ -1588,7 +1596,12 @@ impl Screen for ResultsScreen {
         self.stage_wake_at()
     }
 
+    fn guards_leaving(&self) -> bool {
+        self.stage_guards()
+    }
+
     fn message(&mut self, m: &crate::Message, root: &mut Actor, cx: &mut Cx) {
+        self.stage_message(m, cx);
         if m.name == crate::controller_hints::CHANGED {
             let left = root.tween_time_left();
             *root = self.make_root(cx);

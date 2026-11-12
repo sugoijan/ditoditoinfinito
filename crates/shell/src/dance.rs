@@ -135,7 +135,8 @@ impl Preview {
     /// Prepare the same effective Player as the eventual session, without audio
     /// scheduling or input capture. Presentation changes reuse the motion buffer.
     /// The hand plays where `settings` accompany the chart's layout
-    /// ([`Settings::dancing_hand_for`]), never in calibration; `song` is
+    /// ([`Settings::dancing_hand_for`]), never in calibration nor in a
+    /// stage the player watches; `song` is
     /// shifted by the song offset `shift` only then. Shells call it when the
     /// song is read, when the play's options change and while
     /// [`Preview::needs_preload`].
@@ -150,7 +151,10 @@ impl Preview {
         config: &ddi_session::play::SessionConfig,
     ) {
         self.configure(settings);
+        // (A watched stage has no play of the viewer's own for it to
+        // play beside.)
         let enabled = config.calibration.is_none()
+            && !config.opponents.as_ref().is_some_and(|s| s.watching)
             && song
                 .charts
                 .get(chart)

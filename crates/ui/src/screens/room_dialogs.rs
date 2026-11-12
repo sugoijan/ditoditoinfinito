@@ -1244,6 +1244,9 @@ pub struct PlayersDialog {
     /// The local player may change the room's hosts (as built): Host
     /// options is offered.
     manages: bool,
+    /// The local player may change between Play and Watch now (as
+    /// built): its button is offered.
+    chooses: bool,
 }
 
 impl PlayersDialog {
@@ -1254,6 +1257,7 @@ impl PlayersDialog {
             first: 0,
             seen: u64::MAX,
             manages: false,
+            chooses: false,
         }
     }
 
@@ -1290,6 +1294,7 @@ impl Screen for PlayersDialog {
         let about: Option<String> = r.has_succession().then(|| host_leaves_about(&r).into());
         // The host's: Host options, and a tap on another person's row.
         self.manages = r.manages_hosts();
+        self.chooses = r.may_choose_intent();
         if self.manages {
             let others: Vec<u64> = r.other_people().iter().map(|mb| mb.id.0).collect();
             for row in &mut rows {
@@ -1341,14 +1346,33 @@ impl Screen for PlayersDialog {
             140.0,
             "Button",
         ));
+        // The foot's buttons from the left: Play or Watch (the player's
+        // own), then the host's Host options.
+        let mut bx = x + 24.0;
+        let room_left = w - 48.0 - 150.0;
+        if self.chooses {
+            let label = super::room::intent_label(&self.room.borrow());
+            let share = if self.manages { 0.5 } else { 1.0 };
+            let bw = (look::mono_width(&label, 15.0) + 32.0).clamp(96.0, room_left * share - 4.0);
+            c.push(button(
+                &env,
+                INTENT,
+                &label,
+                [bx + bw / 2.0, y + h - 36.0],
+                bw,
+                "Button",
+            ));
+            bx += bw + 8.0;
+        }
         if self.manages {
             let label = m::host_options();
-            let bw = (look::mono_width(&label, 15.0) + 32.0).clamp(120.0, w - 48.0 - 150.0);
+            let bw = (look::mono_width(&label, 15.0) + 32.0)
+                .clamp(96.0, (x + 24.0 + room_left - bx).max(96.0));
             c.push(button(
                 &env,
                 HOST_OPTIONS,
                 &label,
-                [x + 24.0 + bw / 2.0, y + h - 36.0],
+                [bx + bw / 2.0, y + h - 36.0],
                 bw,
                 "Button",
             ));
@@ -1360,21 +1384,25 @@ impl Screen for PlayersDialog {
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        if self.manages {
-            // Close first: the pop-up opens on it, as everyone's.
-            vec![
-                Focusable {
-                    left: Some(HOST_OPTIONS.into()),
-                    ..Focusable::new("Close")
-                },
-                Focusable {
-                    right: Some("Close".into()),
-                    ..Focusable::new(HOST_OPTIONS)
-                },
-            ]
-        } else {
-            vec![Focusable::new("Close")]
+        // Close first: the pop-up opens on it, as everyone's; the foot's
+        // other buttons to its left, in their order.
+        let mut row: Vec<&str> = Vec::new();
+        if self.chooses {
+            row.push(INTENT);
         }
+        if self.manages {
+            row.push(HOST_OPTIONS);
+        }
+        row.push("Close");
+        let link = |i: usize| Focusable {
+            left: i.checked_sub(1).map(|k| row[k].to_string()),
+            right: row.get(i + 1).map(|n| n.to_string()),
+            ..Focusable::new(row[i])
+        };
+        let last = row.len() - 1;
+        std::iter::once(link(last))
+            .chain((0..last).map(link))
+            .collect()
     }
 
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
@@ -1415,6 +1443,10 @@ impl Screen for PlayersDialog {
             Input::Activate { name } if name == "Panel.Up" || name == "Panel.Down" => {
                 let by = if name == "Panel.Down" { 3 } else { -3 };
                 self.scroll(by, root, cx);
+                Handled::Yes
+            }
+            Input::Activate { name } if name == INTENT => {
+                super::room::toggle_intent(&self.room);
                 Handled::Yes
             }
             Input::Activate { name } if name == HOST_OPTIONS => {
@@ -1458,6 +1490,10 @@ fn host_leaves_about(r: &crate::state::room::RoomClient) -> UiText {
 
 /// The Players pop-up's button that opens Host options (the host's).
 pub const HOST_OPTIONS: &str = "HostOptions";
+
+/// The Players pop-up's button that changes the local player between
+/// Play and Watch (`watch-v0`): it says what a press does.
+pub const INTENT: &str = "Intent";
 
 /// A person's row in Host options: its height with the buttons beside
 /// the name, and with them under it (a narrow pop-up).

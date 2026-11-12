@@ -670,10 +670,11 @@ impl Renderer {
             ),
         };
         let layers = !self.stage_back.is_empty() || !self.field_underlay.is_empty();
+        let behind = layers || (opts.background > 0.0 && self.background.shows(&opts.backdrop));
         let path = filter_path(
             opts.field_filter,
-            !layout.lanes.is_empty(),
-            layers || (opts.background > 0.0 && self.background.shows(&opts.backdrop)),
+            !layout.lanes.is_empty() && !opts.no_field,
+            behind,
             !layers && opts.backdrop.first.iter().any(Option::is_some),
         );
         let band = (path == FilterPath::Shaders).then(|| {
@@ -711,8 +712,9 @@ impl Renderer {
         );
         if opts.preview.is_none() {
             // Their bands as the play's field's: its filter's darkness,
-            // where the play's is drawn.
-            let band = (path != FilterPath::None)
+            // where the play's is drawn (or would be: a watched stage's
+            // grid has no field of the play's own).
+            let band = (opts.field_filter > 0.0 && !layout.lanes.is_empty() && behind)
                 .then(|| scene::filter_alpha(opts.field_filter, self.srgb));
             scene::add_miniatures(
                 &mut scene,

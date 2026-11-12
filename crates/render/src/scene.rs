@@ -309,6 +309,12 @@ pub struct RenderOptions {
     /// A DDI score (`ScoreView::ddi`) shown as its percent, not as its
     /// score (the player's Score display).
     pub ddi_percent: bool,
+    /// Draw no field and no HUD of the play's own: the background, then
+    /// the miniatures alone (with their own gauges and combos), the quit
+    /// button and the quit's hint. A watched stage's grid
+    /// (`ddi_shell::opponents::arrange_grid`): everyone's fields over the
+    /// whole screen, nobody's large.
+    pub no_field: bool,
 }
 
 impl RenderOptions {
@@ -954,8 +960,8 @@ pub fn build_into(
     mut layer: Option<&mut (dyn NoteLayer + '_)>,
     stage: (&[TexQuad], &[TexQuad]),
 ) {
-    // A preview without receptors.
-    let no_receptors = opts.preview.is_some_and(|p| !p.receptors);
+    // A preview without receptors; no field at all.
+    let no_receptors = opts.preview.is_some_and(|p| !p.receptors) || opts.no_field;
     fn reuse<T>(v: &mut Vec<T>) -> Vec<T> {
         let mut v = std::mem::take(v);
         v.clear();
@@ -981,7 +987,7 @@ pub fn build_into(
 
     let span = field_span(layout);
     // Field filter: a dark band behind the lanes, over the background.
-    if opts.field_filter > 0.0 && !layout.lanes.is_empty() {
+    if opts.field_filter > 0.0 && !layout.lanes.is_empty() && !opts.no_field {
         let [mid, w] = filter_band(geo, span);
         instances.push(
             Instance::new(
@@ -1111,10 +1117,17 @@ pub fn build_into(
     }
     order.quads(quads.len());
     // The lane covers over the notes, under the explosions and the HUD.
-    push_covers(&mut instances, &mut text, frame, layout, geo, span);
+    if !opts.no_field {
+        push_covers(&mut instances, &mut text, frame, layout, geo, span);
+    }
     order.sprites(instances.len());
     if let Some(l) = layer.as_mut() {
+        // (The call goes on with the layer's frame, drawn or not.)
+        let before = quads.len();
         l.explosions(frame, layout, geo, &mut quads);
+        if opts.no_field {
+            quads.truncate(before);
+        }
     }
     // Its mask layers, over the field and under the HUD.
     quads.extend_from_slice(stage.1);

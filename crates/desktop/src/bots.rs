@@ -1484,6 +1484,7 @@ mod tests {
             targeting: Default::default(),
             cpus: Vec::new(),
             others: 3,
+            watching: false,
         };
         let profile = Profile {
             name: "T".into(),

@@ -758,3 +758,88 @@ fn a_phones_table_drops_columns() {
     }
     crate::screens::results::forget_tab();
 }
+
+/// A stage the player watched (`watch-v0`): its results have no play of
+/// their own. The left side names the stage's winner where the grade and
+/// the judgments would be and says they watched; the standings list the
+/// competitors alone; there is no Graphs tab, and Right changes nothing.
+#[test]
+fn a_watched_stages_results_name_the_winner_and_have_no_graphs() {
+    super::results::forget_tab();
+    let env = env();
+    let room = practice(2, 3);
+    room.borrow_mut()
+        .set_intent(ddi_room::Intent::Watch)
+        .unwrap();
+    // The stage as a watched play reports it: the CPUs alone.
+    let order = {
+        let mut r = room.borrow_mut();
+        let s = song();
+        r.pick(&s, &s.charts[0]).unwrap();
+        let now = r.now_ms() + 3_000;
+        r.tick(now);
+        let order = r.take_stage_order().expect("the stage's order");
+        assert!(order.watching);
+        let ranking: Vec<Vec<Finisher>> = [1, 0, 2]
+            .iter()
+            .map(|&i: &usize| {
+                vec![Finisher {
+                    participant: order.cpus[i].participant,
+                    finish: Finish::Survived,
+                }]
+            })
+            .collect();
+        let details: Vec<(ParticipantId, RunDetail)> = order
+            .cpus
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.participant, descending(i).detail))
+            .collect();
+        r.report_played(order.stage, ddi_room::Run::Forfeit, ranking, true, details)
+            .unwrap();
+        order
+    };
+    let winner = order.cpus[1].name.clone().unwrap();
+    let mut h = harness();
+    h.push(results(&env, &room, &order).watched());
+    h.run(0.5);
+    let v = view(&env);
+    assert!(v.watched && v.confirmed, "{v:?}");
+    assert_eq!(v.tab, Tab::Standings);
+    assert_eq!(v.stage_winners, std::slice::from_ref(&winner));
+    // The competitors alone: no line of the viewer's.
+    assert_eq!(v.rows.len(), 3);
+    assert!(v.rows.iter().all(|r| !r.me));
+    assert_eq!(v.rows[0].name, winner);
+    assert!(v.summary.is_empty());
+    // The left side: the winner under its heading, and that they watched.
+    let texts = h.texts();
+    for want in ["Stage winner", winner.as_str(), "You watched this stage."] {
+        assert!(texts.iter().any(|t| t == want), "{want}: {texts:?}");
+    }
+    assert!(there(&h, "Watched.Winner0.Stars"), "a CPU's stars");
+    // No grade, no judgments of their own.
+    assert!(!there(&h, "ScoreBox") && !there(&h, "Judgement0"));
+    // One tab: the standings; Right and the shoulders change nothing.
+    assert!(there(&h, "Tab.Standings") && !there(&h, "Tab.Graphs"));
+    h.key("ArrowRight", "ArrowRight");
+    h.run(0.3);
+    h.pad(MenuAction::Next, true);
+    h.pad(MenuAction::Next, false);
+    h.run(0.3);
+    assert_eq!(view(&env).tab, Tab::Standings);
+    assert!(!there(&h, "Panel.Life"));
+    // A phone's: the same, in its one column.
+    let mut phone = Harness::new(super::COMPACT, [390.0, 844.0], 1.0, TextMode::Own);
+    phone.push(results(&env, &room, &order).watched());
+    phone.run(0.5);
+    let texts = phone.texts();
+    assert!(texts.iter().any(|t| t == "Stage winner"), "{texts:?}");
+    assert!(!there(&phone, "Tab.Graphs"));
+    // The match goes on: the next stage is the room's to pick.
+    assert!(matches!(
+        room.borrow().state().phase,
+        ddi_room::Phase::Intermission { .. }
+    ));
+    assert!(room.borrow().mark_of(order.stage).is_none());
+}

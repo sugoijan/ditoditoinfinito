@@ -3336,6 +3336,10 @@ impl GameCanvas {
         );
         // A stage's: its room's standings where the graphs are.
         ui.push(match &stage {
+            // A stage the player watched: no play of their own.
+            Some(order) if order.watching => results
+                .with_room(crate::room::last_room(), order.stage)
+                .watched(),
             Some(order) => results.with_room(crate::room::last_room(), order.stage),
             None => results,
         });

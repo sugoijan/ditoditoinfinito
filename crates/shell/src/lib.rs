@@ -95,6 +95,7 @@ pub fn render_options(settings: &Settings) -> RenderOptions {
         preview: None,
         ghost: None,
         ddi_percent: settings.ddi_percent(),
+        no_field: false,
     }
 }
 

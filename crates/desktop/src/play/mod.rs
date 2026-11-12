@@ -258,6 +258,12 @@ pub struct Feed {
     /// pixels: left, top, right, bottom), and whether one is down on it.
     pub policy_at: Option<[f32; 4]>,
     pub policy_down: bool,
+    /// A watched stage's fields a press follows (each with its seat;
+    /// none: back to every field), and where one skips a stage the
+    /// player is out of to its results (logical pixels: left, top,
+    /// right, bottom).
+    pub watch_at: Vec<(Option<usize>, [f32; 4])>,
+    pub skip_at: Option<[f32; 4]>,
     /// The window was hidden or the sound stopped.
     pub interrupted: bool,
     /// The display or the audio device changed.

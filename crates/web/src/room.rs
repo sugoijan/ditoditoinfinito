@@ -99,6 +99,33 @@ fn leaving_costs() -> bool {
     room.is_some_and(|r| r.try_borrow().is_ok_and(|r| r.leave_cost().is_some()))
 }
 
+/// CPU practice left with a match running is forgotten, silently (the
+/// maintainer, 2026-11-12): the page is no longer one of the practice
+/// room's (its song select, or a stage's prompt, play or results), by
+/// whatever way (the game's Back, the browser's, an address typed), and
+/// the session's practice has a match running, so the room and its
+/// unfinished match go; coming back to CPU practice makes a fresh room.
+/// Between matches the practice is kept for the session, as it was.
+fn forget_left_practice() {
+    let hash = web_sys::window()
+        .and_then(|w| w.location().hash().ok())
+        .unwrap_or_default();
+    if matches!(Route::parse(&hash), Route::Room)
+        || matches!(Route::parse(&hash), Route::Play(p) if p.stage.is_some())
+    {
+        return;
+    }
+    let running = ROOM.with(|r| {
+        r.borrow().as_ref().is_some_and(|room| {
+            room.try_borrow()
+                .is_ok_and(|r| r.state().phase.kind().match_running())
+        })
+    });
+    if running {
+        discard();
+    }
+}
+
 /// Registers the browser's `beforeunload` question (closing or reloading
 /// the tab: the browser shows its own words, and only once the person
 /// has used the page) while leaving a room costs something, and removes
@@ -110,6 +137,7 @@ fn leaving_costs() -> bool {
 /// socket closes with the page, and the room gives the player its
 /// reconnect grace before it counts them away.
 pub(crate) fn sync_unload_guard() {
+    forget_left_practice();
     let want = leaving_costs();
     UNLOAD_GUARD.with_borrow_mut(|guard| {
         if !want {
@@ -141,8 +169,9 @@ pub(crate) fn unload_guarded() -> bool {
 /// The room's calls from its screens (song select, a stage's prompt):
 /// Back to the multiplayer home (practice between matches, the room
 /// kept), Leave room forgets the room first (an online one told; Back on
-/// an online room's song select and a practice with a match running come
-/// here too, asked first where leaving costs something), Sign in again
+/// an online room's song select comes here too, asked first where
+/// leaving costs something, and Back on a practice with a match running,
+/// never asked), Sign in again
 /// leaves for the server's sign-in, its
 /// songs prepared (`prepare_for`) and uploaded (`upload`), and a stage's
 /// prompt opened on the play route (`play_in`), song select's running

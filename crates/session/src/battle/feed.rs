@@ -34,7 +34,8 @@
 use ddi_chart::{Quantization, Song, Tick, TimingMap};
 use ddi_engine::battle::{HAZARD_INDEX_BASE, Hazard};
 use ddi_engine::frame::{Frame, HoldJudgements, NoteSprite, ReceptorState, SpriteKind};
-use ddi_engine::rules::Judgement;
+use ddi_engine::frame::JudgementFlash;
+use ddi_engine::rules::{Judgement, ScoreView};
 use ddi_engine::scroll::{ScrollOptions, ScrollState};
 
 /// A local opponent's presentation delay: none (its moments are judged
@@ -44,6 +45,10 @@ pub const LOCAL_DELAY: f64 = 0.0;
 /// How long a receptor shows a judgment after it (seconds): the hit
 /// effect's time in a skin that draws its own, the flash's otherwise.
 pub const FLASH_SECONDS: f32 = 0.4;
+
+/// How long a field shown large shows a judgment's word after it,
+/// seconds (a play's own: `ddi_engine::player`'s flash).
+pub const WORD_SECONDS: f32 = 1.0;
 
 /// What a moment judged.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -69,6 +74,16 @@ pub struct Moment {
     pub life: f32,
     pub combo: u32,
     pub out: bool,
+    /// What their field shown large says of it (a watched stage's
+    /// focus, [`FieldFeed::frame_large`]): how early or late the press
+    /// was (press − note, seconds: the judgment's early or late word; 0
+    /// for a miss and a shock), whether a top hit was inside the
+    /// ruleset's inner window (`JudgeTable::is_w0`; none where it has
+    /// none), and their score after it as the room shows it (a CPU's on
+    /// the chart's own scale).
+    pub offset: f32,
+    pub w0: Option<bool>,
+    pub score: ScoreView,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -413,11 +428,81 @@ impl FieldFeed {
             cover: Default::default(),
         }
     }
+
+    /// [`FieldFeed::frame`] for a field shown large, as a play's own is
+    /// (a watched stage's focus): with the judgment's word of the last
+    /// note judged, its early or late and its combo, for
+    /// [`WORD_SECONDS`], and the score after the last moment shown, all
+    /// as the stream said them (nothing is judged here).
+    pub fn frame_large(
+        &self,
+        track: &TapTrack,
+        scroll: ScrollOptions,
+        t: f64,
+        range: f32,
+    ) -> Frame {
+        let mut frame = self.frame(track, scroll, t, range);
+        let shown = self.shown_moments(t);
+        frame.score = shown.last().map(|m| m.score).unwrap_or_default();
+        frame.judgement = shown
+            .iter()
+            .rev()
+            .find_map(|m| match m.kind {
+                MomentKind::Tap(judgement) => Some(JudgementFlash {
+                    judgement,
+                    delta_seconds: f64::from(m.offset),
+                    age: (t - (m.at + self.delay)).max(0.0) as f32,
+                    combo_at: m.combo,
+                    w0: m.w0,
+                    boo: false,
+                }),
+                MomentKind::ShockHit => None,
+            })
+            .filter(|f| f.age < WORD_SECONDS);
+        frame
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A field shown large says the judgment's word from the stream: the
+    /// last note judged, how early or late, the inner window, the combo
+    /// and the score after it, for the word's time; a miniature's frame
+    /// says none of it.
+    #[test]
+    fn a_field_shown_large_says_the_judgment_the_stream_told() {
+        let song = song();
+        let track = TapTrack::new(&song, 1).unwrap();
+        let mut feed = FieldFeed::new(&track, 1.0, LOCAL_DELAY);
+        let scroll = ScrollOptions::default();
+        let mut m = moment(&track, 0, Judgement::W1, -0.012);
+        m.w0 = Some(true);
+        m.combo = 7;
+        m.score = ScoreView {
+            percent: Some(0.5),
+            ..ScoreView::default()
+        };
+        let at = m.at;
+        feed.push(&track, m);
+        let small = feed.frame(&track, scroll, at + 0.1, 8.5);
+        assert_eq!(small.judgement, None);
+        assert_eq!(small.score, ScoreView::default());
+        let large = feed.frame_large(&track, scroll, at + 0.1, 8.5);
+        let flash = large.judgement.expect("its word shows");
+        assert_eq!(flash.judgement, Judgement::W1);
+        assert!((flash.delta_seconds + 0.012).abs() < 1e-6, "early");
+        assert_eq!((flash.w0, flash.combo_at, flash.boo), (Some(true), 7, false));
+        assert!((flash.age - 0.1).abs() < 1e-3);
+        assert_eq!(large.score.percent, Some(0.5));
+        assert_eq!((large.combo, large.notes), (small.combo, small.notes));
+        // Before the moment and after the word's time: no word.
+        assert!(feed.frame_large(&track, scroll, at - 0.01, 8.5).judgement.is_none());
+        let late = feed.frame_large(&track, scroll, at + f64::from(WORD_SECONDS) + 0.01, 8.5);
+        assert!(late.judgement.is_none());
+        assert_eq!(late.score.percent, Some(0.5), "the score stays");
+    }
 
     fn song() -> Song {
         let path =
@@ -441,6 +526,9 @@ mod tests {
             life: 0.5,
             combo: 3,
             out: false,
+            offset: late as f32,
+            w0: None,
+            score: ScoreView::default(),
         }
     }
 
@@ -581,6 +669,9 @@ mod tests {
                 life: 0.4,
                 combo: 0,
                 out: false,
+                offset: 0.0,
+                w0: None,
+                score: ScoreView::default(),
             },
         );
         let second = track.timing.seconds_at(section.cells[1].tick);

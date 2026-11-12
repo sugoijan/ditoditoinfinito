@@ -109,9 +109,19 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   reconnect grace; the host's Host options in the Players pop-up (Make
   co-host, Remove co-host, Make host); and leaving asks first where it
   costs something (the host always; players, the picker and co-hosts
-  during a match; practice with a match running), from Back, More, the
-  browser's Back and tab close, and the desktop window's close and
-  Quit.
+  during a match), from Back, More, the browser's Back and tab close,
+  and the desktop window's close and Quit; CPU practice is never asked
+  about, and a practice left with a match running is forgotten
+  (2026-11-13). Watching a stage (2026-11-13, CPU practice first): a
+  member chooses Play or Watch for themselves, a watching host still
+  hosts, and where every person watches the CPUs play alone; a watched
+  stage is a grid of everyone's fields over the whole screen, or one
+  competitor followed (Tab, a press on a field) in the play's own
+  field's place with the others beside it, drawn from the competitors'
+  streams of judged moments, to results that name the stage's winner; a
+  player out of a stage watches it on from their own dimmed field and
+  can skip to the results, and leaving a stage's play forfeits it and
+  comes to the same view.
   Provisional choices and open questions listed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two

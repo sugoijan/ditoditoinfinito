@@ -249,6 +249,9 @@ pub struct Shell {
     pub error: Option<String>,
     quitting: bool,
     quit_ready: bool,
+    /// A close request left a stage's play: asked about once its results
+    /// are up ([`Shell::ask_after_play`]).
+    close_after_play: bool,
     /// What the shell does last as it quits, before the process ends with
     /// the window still open (`Shell::exit`): the lines printed at exit.
     pub on_exit: Option<OnExit>,
@@ -427,6 +430,7 @@ impl Shell {
             error: None,
             quitting: false,
             quit_ready: false,
+            close_after_play: false,
             on_exit: None,
             theme,
             loaded: false,
@@ -702,9 +706,24 @@ impl Shell {
     /// again while the question is open, the game quits without it: a
     /// person who wants out is not held. A play on screen is not held
     /// either (no question can be shown over it), nor is a signal or a
-    /// forced quit, which never comes here.
+    /// forced quit, which never comes here; but a room's stage being
+    /// played, where leaving the room costs something (an online
+    /// room's), is left first (the play's quit: a forfeit of the stage,
+    /// the maintainer, 2026-11-12) and the question asked over its
+    /// results, saying so ([`Shell::ask_after_play`]); asked again
+    /// meanwhile, the game quits. CPU practice is never asked about.
     pub fn close_requested(&mut self) {
+        if !self.quitting
+            && !self.close_after_play
+            && self.play.stage_playing()
+            && crate::room::stage_room().borrow().leave_cost().is_some()
+            && self.play.leave_stage_play()
+        {
+            self.close_after_play = true;
+            return;
+        }
         let asks = !self.quitting
+            && !self.close_after_play
             && !self.play.playing()
             && self.ui.guards_leaving()
             && !self
@@ -713,6 +732,24 @@ impl Shell {
                 .iter()
                 .any(|l| l.name == ddi_ui::LEAVE_QUESTION);
         if asks {
+            self.ui
+                .broadcast(ddi_ui::Message::new(ddi_ui::CLOSE_REQUESTED));
+            let out = self.ui.take_requests();
+            self.run(out);
+        } else {
+            self.request_quit();
+        }
+    }
+
+    /// A close request left a stage's play ([`Shell::close_requested`]):
+    /// once the play is over (its results are up), the screen shown is
+    /// told and asks; where nothing guards it after all, the game quits.
+    fn ask_after_play(&mut self) {
+        if !self.close_after_play || self.play.playing() {
+            return;
+        }
+        self.close_after_play = false;
+        if self.ui.guards_leaving() {
             self.ui
                 .broadcast(ddi_ui::Message::new(ddi_ui::CLOSE_REQUESTED));
             let out = self.ui.take_requests();
@@ -1172,6 +1209,7 @@ impl Shell {
         let rate = self.sound.borrow().audio.sample_rate();
         let dev = self.target.as_ref().map(Target::device);
         self.play.poll(&mut self.ui, &env, dev, rate);
+        self.ask_after_play();
         // The prompt's generated still, for the painter that draws it.
         let (source, still) = self.play.prompt_still();
         if let Some(gpu) = self.gpu_mut() {
@@ -1306,6 +1344,38 @@ impl Shell {
             device: ddi_platform::DeviceId::Touch,
             control: ddi_session::play::TOUCH_POLICY_CONTROL.into(),
             pressed,
+            host_time: crate::clock::now(),
+            slot: 0,
+        });
+        true
+    }
+
+    /// A primary press at `pos` on a watched stage: on one of its fields
+    /// (the play's `watch` control: that competitor is followed, or
+    /// every field again), or on the skip's plate over the field of a
+    /// player out of the stage (the `skip` control). Whether it was
+    /// taken.
+    fn watch_press(&mut self, phase: PointerPhase, pos: [f32; 2]) -> bool {
+        if !self.play.playing() || phase != PointerPhase::Down {
+            return false;
+        }
+        let mut feed = self.play.feed.borrow_mut();
+        let inside = |[l, t, r, b]: [f32; 4]| (l..=r).contains(&pos[0]) && (t..=b).contains(&pos[1]);
+        let control = if feed.skip_at.is_some_and(inside) {
+            ddi_session::play::TOUCH_SKIP_CONTROL.to_string()
+        } else {
+            match feed.watch_at.iter().find(|(_, r)| inside(*r)) {
+                Some((Some(seat), _)) => {
+                    format!("{}{seat}", ddi_session::play::TOUCH_WATCH_CONTROL)
+                }
+                Some((None, _)) => ddi_session::play::TOUCH_WATCH_ALL.to_string(),
+                None => return false,
+            }
+        };
+        feed.edges.push(ddi_platform::RawInput {
+            device: ddi_platform::DeviceId::Touch,
+            control,
+            pressed: true,
             host_time: crate::clock::now(),
             slot: 0,
         });
@@ -1620,6 +1690,7 @@ impl ApplicationHandler for Shell {
                 if bit == buttons::PRIMARY {
                     if self.quit_button(phase, self.cursor)
                         || self.policy_label(phase, self.cursor)
+                        || self.watch_press(phase, self.cursor)
                     {
                         return;
                     }
@@ -1670,7 +1741,10 @@ impl ApplicationHandler for Shell {
                 };
                 let pos = to_logical(t.location, self.scale);
                 self.pointer_over_play();
-                if self.quit_button(phase, pos) || self.policy_label(phase, pos) {
+                if self.quit_button(phase, pos)
+                    || self.policy_label(phase, pos)
+                    || self.watch_press(phase, pos)
+                {
                     return;
                 }
                 self.pointer(t.id + 1, PointerKind::Touch, phase, pos);
@@ -2339,15 +2413,15 @@ mod tests {
         assert!(shell.sound.borrow().status().1.is_none());
     }
 
-    /// The window's close button and the app's Quit in a multiplayer
-    /// room (`Shell::close_requested`): where leaving costs nothing the
-    /// game quits at once, as anywhere; with a practice match running the
-    /// room's screen asks and the game does not quit; Stay keeps it;
-    /// asked again while the question is open, it quits without it; Leave
-    /// quits.
+    /// The window's close button and the app's Quit in a CPU practice
+    /// room (`Shell::close_requested`): practice is never asked about
+    /// (the maintainer, 2026-11-12), so the game quits at once between
+    /// matches and with a match running alike, as anywhere. (An online
+    /// room's question is `ddi-ui`'s
+    /// `a_close_request_asks_and_quits_only_on_leave`: the same message,
+    /// its screens asking.)
     #[test]
-    fn a_close_request_in_a_room_asks_where_leaving_costs_and_quits_only_on_leave() {
-        use ddi_ui::event::KeyEvent;
+    fn a_close_request_in_practice_quits_at_once_whatever_the_match() {
         crate::audio::set_headless(true);
         let top = |shell: &Shell| {
             shell
@@ -2364,11 +2438,7 @@ mod tests {
                 shell.run(out);
             }
         };
-        let key = |shell: &mut Shell, code: &str| {
-            shell.send(UiEvent::Key(KeyEvent::down(code, code)));
-            shell.send(UiEvent::Key(KeyEvent::up(code, code)));
-        };
-        // A practice room with its first song picked: a match is running.
+        // A practice room, with its first song picked or not.
         let room = |running: bool| {
             crate::room::discard();
             let mut shell = Shell::named("room");
@@ -2393,7 +2463,6 @@ mod tests {
             }
             shell
         };
-        // No case: the start menu, and a room between matches.
         let mut shell = Shell::named("start");
         shell.close_requested();
         assert!(shell.quitting());
@@ -2401,33 +2470,22 @@ mod tests {
         assert_eq!(top(&shell), "select");
         shell.close_requested();
         assert!(shell.quitting(), "nothing to lose: at once");
-        // A match running: asked, not quitting.
+        // A match running: nothing guards the screen, nothing is asked.
         let mut shell = room(true);
+        assert!(
+            crate::room::current()
+                .borrow()
+                .state()
+                .phase
+                .kind()
+                .match_running()
+        );
+        assert!(crate::room::current().borrow().leave_cost().is_none());
+        assert!(!shell.ui.guards_leaving());
         shell.close_requested();
         frames(&mut shell, 0.3);
-        assert_eq!(top(&shell), ddi_ui::LEAVE_QUESTION);
-        assert!(!shell.quitting());
-        // Stay (Escape): the room is as it was.
-        key(&mut shell, "Escape");
-        frames(&mut shell, 0.3);
-        assert_eq!(top(&shell), "select");
-        assert!(!shell.quitting());
-        assert!(crate::room::current().borrow().leave_cost().is_some());
-        // Asked, and asked again while the question is open: quits.
-        shell.close_requested();
-        frames(&mut shell, 0.3);
-        assert!(!shell.quitting());
-        shell.close_requested();
-        assert!(shell.quitting(), "a second request is not held");
-        // Asked, and Leave: quits.
-        let mut shell = room(true);
-        shell.close_requested();
-        frames(&mut shell, 0.3);
-        assert_eq!(shell.ui.focused(), Some("Cancel"), "Stay is chosen first");
-        key(&mut shell, "ArrowRight");
-        key(&mut shell, "Enter");
-        frames(&mut shell, 0.5);
-        assert!(shell.quitting());
+        assert_ne!(top(&shell), ddi_ui::LEAVE_QUESTION);
+        assert!(shell.quitting(), "the match is dropped silently");
         crate::room::discard();
     }
 

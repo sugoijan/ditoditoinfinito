@@ -938,6 +938,47 @@ decision left room.
   ledger with the next checkpoint's report; the room's member keeps what
   the play left the policy at for the next stage.
 
+Built (2026-11-13; `docs/plans/multiplayer-prototype-progress.md`,
+"Watching a stage"), first in CPU practice, where the CPUs' plays are
+at hand; an online room's plays are not streamed yet. Where this
+differs from the paragraphs above, this is what the prototype does.
+
+- A member chooses **Play or Watch** for themselves (the room's More
+  and the Players pop-up; "Watching" on their line). A watcher is no
+  competitor (no seat, no place, no Ready, no attacks); a watching host
+  still picks, edits the rules and starts. Where every person watches,
+  practice plays its CPUs against each other; a hosted room is refused
+  ("Everyone is watching. Someone has to play.").
+- **One spectator screen with both views.** Nobody followed: a grid of
+  everyone's fields over the whole screen, each in the play's
+  proportion, as large as the screen allows up to a play's own field
+  (two side by side nearly the screen's height, eight four by two).
+  One followed: that competitor's field in the play's own place and
+  size with its judgment's word, combo, score, life and power, the
+  others beside it as a player's opponents. Tab and Shift+Tab, a
+  controller's shoulders or a press on a field change who is followed;
+  Escape once, or a press on the large field, goes back to the grid;
+  the status line says "Watching [name]". This replaces "a spectator
+  follows one selected field" as the only view, and the label is in the
+  status line, not an identity strip on the field.
+- Who attacks whom is drawn between the fields involved (the grid), or
+  as the followed competitor's own (the focus); the warning stands
+  beside the recipient's receptors. The status line says the stage's
+  moments in the third person; the announcer says none of the lines
+  addressed to "you".
+- A watched stage's results follow 2.5 s after it is decided (the
+  winner named meanwhile), not after the song's completion
+  (PROVISIONAL: "A watcher sees the winner finishing" above is not
+  built). They show the standings and the stage's winner, with no
+  play of the viewer's own.
+- **On elimination** the player's field stays in place, dimmed, saying
+  Out, and the stage is watched on from there with the others beside
+  it, until it is decided or the player skips to the results (Enter,
+  Start, a press on the plate); there is no outcome interval and no
+  following of another player's field from there. **Leaving a play**
+  (its quit) forfeits the stage and comes to the same view, saying
+  "Left the stage"; no question is asked over a running play.
+
 ### Concrete play HUD study
 
 Follow-up, 2026-11-09. The play/watch study contains Automatic attack, Incoming

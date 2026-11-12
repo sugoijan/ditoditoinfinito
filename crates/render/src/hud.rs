@@ -303,6 +303,9 @@ pub(crate) struct Hud {
     linear: bool,
     motion: Option<Motion>,
     visible: bool,
+    /// The play's own HUD is drawn (not a watched stage's grid, where
+    /// the miniatures' alone are: `RenderOptions::no_field`).
+    own: bool,
     minis: Minis,
     /// The local player's attack power, where a battle has attacks.
     battle: Option<BattleBar>,
@@ -413,6 +416,7 @@ impl Hud {
             linear,
             motion: None,
             visible: false,
+            own: true,
             minis,
             battle: None,
         }
@@ -592,6 +596,8 @@ impl Hud {
             self.reset();
             return;
         }
+        // No field of the play's own: the miniatures' HUDs alone.
+        self.own = !opts.no_field;
         let now = opts.hud_time.unwrap_or(frame.song_time);
         let life = frame.life.clamp(0.0, 1.0);
         let m = self
@@ -668,11 +674,13 @@ impl Hud {
         if !self.visible {
             return;
         }
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &self.group, &[]);
-        pass.set_bind_group(1, &self.atlas, &[]);
-        // The gauge, the combo, the power bar, the watermark.
-        pass.draw(0..6, 0..4);
+        if self.own {
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.group, &[]);
+            pass.set_bind_group(1, &self.atlas, &[]);
+            // The gauge, the combo, the power bar, the watermark.
+            pass.draw(0..6, 0..4);
+        }
         if let (n @ 1.., Some((_, group, _))) = (self.minis.count, &self.minis.buffer) {
             pass.set_pipeline(&self.minis.pipeline);
             pass.set_bind_group(1, &self.atlas, &[]);

@@ -550,6 +550,37 @@ impl Host {
             .unwrap_or_default()
     }
 
+    /// A room's stage is being played (not a solo play, a replay or a
+    /// test).
+    pub fn stage_playing(&self) -> bool {
+        matches!(&self.stage, Stage::Playing(r, ..) if r.request.stage.is_some())
+    }
+
+    /// The player leaves the stage's play from outside it (the window
+    /// asked to close): the play's quit (`PlaySession::leave`: a
+    /// forfeit), its results at the next frame. Whether a stage was
+    /// being played.
+    pub fn leave_stage_play(&mut self) -> bool {
+        match &mut self.stage {
+            Stage::Playing(r, play, _) if r.request.stage.is_some() => {
+                play.session.leave();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// A watched stage as the play's last frame drew it (tests;
+    /// `ddi_shell::play_view::WatchDrawn`): the grid or the competitor
+    /// followed, or a player's own field after they are out of the
+    /// stage; none while the player plays.
+    pub fn watch(&self) -> Option<ddi_shell::play_view::WatchDrawn> {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return None;
+        };
+        r.view.as_ref()?.watch_drawn().cloned()
+    }
+
     /// Gives the running play lyrics and says what its last frame drew
     /// of them (tests: a stage's miniatures with lyrics over the play).
     pub fn set_lyrics(&mut self, lyrics: Option<ddi_engine::lyrics::LyricTrack>) {
@@ -1630,6 +1661,8 @@ impl Host {
             );
             self.feed.borrow_mut().quit_at = v.quit_at;
             self.feed.borrow_mut().policy_at = v.policy_at;
+            self.feed.borrow_mut().watch_at.clone_from(&v.watch_at);
+            self.feed.borrow_mut().skip_at = v.skip_at;
             // Where the play showed what its scene can ring.
             if let Some(run) = &r.scene {
                 run.spots.set(ddi_shell::play_spots(v.renderer.hud_spots()));
@@ -2036,6 +2069,10 @@ impl Host {
         );
         // A stage's: its room's standings where the graphs are.
         ui.push(match &play.request.stage {
+            // A stage the player watched: no play of their own.
+            Some(order) if order.watching => results
+                .with_room(crate::room::stage_room(), order.stage)
+                .watched(),
             Some(order) => results.with_room(crate::room::stage_room(), order.stage),
             None => results,
         });

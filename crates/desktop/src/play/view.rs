@@ -192,6 +192,10 @@ pub struct View {
     /// Where a stage's attack policy label takes a press (logical
     /// pixels: left, top, right, bottom), while it shows.
     pub policy_at: Option<[f32; 4]>,
+    /// A watched stage's fields a press follows, and where one skips to
+    /// the results (`ddi_shell::play_view::Drawn`).
+    pub watch_at: Vec<(Option<usize>, [f32; 4])>,
+    pub skip_at: Option<[f32; 4]>,
     /// The refresh the next frame is for, when the shell's pacing knows
     /// it (`crate::pacing`); else the session predicts it.
     pub present_at: Option<HostTime>,
@@ -231,6 +235,8 @@ impl View {
             quit_shown: false,
             quit_at: None,
             policy_at: None,
+            watch_at: Vec::new(),
+            skip_at: None,
             present_at: None,
         }
     }
@@ -460,6 +466,7 @@ impl View {
             ratio: self.scale,
             quit: self.quit_shown.then_some([0.0; 4]),
             lyrics: true,
+            touch: false,
         };
         let drawn = self.view.draw(
             (device, queue, encoder),
@@ -471,6 +478,8 @@ impl View {
         );
         self.quit_at = drawn.quit_at;
         self.policy_at = drawn.policy_at;
+        self.watch_at = drawn.watch_at;
+        self.skip_at = drawn.skip_at;
     }
 
     /// The lyrics of the play about to start (`None`: none shown); the

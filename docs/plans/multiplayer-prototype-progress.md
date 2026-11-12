@@ -3574,11 +3574,11 @@ capability.
 - **When the game asks** (`RoomClient::leave_cost`, `LeaveCost`): an
   online room's **host**, always (with others in it or not, a match
   running or not); a **player in the running match**, the one
-  **choosing its songs**, or a **co-host**, while a match is running;
-  **CPU practice with a match running**. Nobody else (a member between
-  matches, a watcher, practice between matches), nothing before the
-  room is known, and nothing once the link has ended (the room closed,
-  the sign-in ended, left).
+  **choosing its songs**, or a **co-host**, while a match is running.
+  Nobody else (a member between matches, a watcher), nothing before
+  the room is known, and nothing once the link has ended (the room
+  closed, the sign-in ended, left). (CPU practice with a match running
+  asked too until 2026-11-13: never now, "Watching a stage" below.)
 - **The question** (`screens::room::ask_leave`, the theme's confirm
   dialog named `room-leave`): "Leave the room?", one or two sentences
   saying what leaving does in the case at hand, **Stay** chosen first
@@ -3599,7 +3599,6 @@ capability.
     choose them instead, and the match goes on without you."
   - a co-host: "You are a co-host. The match in progress goes on
     without you."
-  - practice: "The match in progress will be lost."
 - **Every way out goes through it**, once: Back on the room's song
   select (Escape, Backspace, the header's Back, a controller's Back,
   the browser's Back), More's Leave room, and the window's close and
@@ -3725,10 +3724,338 @@ capability.
   the maintainer's own `wrangler.toml` (a value where the test expects
   none), before and after this round; left alone.
 
+## Watching a stage: Play or Watch, the spectator view, watching on after going out (2026-11-12, 2026-11-13)
+
+The maintainer: "it could be useful to have a host that doesn't play,
+only chooses the songs and watches the plays (which on the view could
+either have one user in focus which is switchable, or no one in focus
+and only show miniatures)." Built first where the plays are at hand:
+CPU practice, each CPU's play judged on this device and fed to its
+field as a stream of moments (`ddi_session::battle::feed`). Everything
+here is real unless it says otherwise; nothing is mocked. An online
+room's plays are not streamed yet: a watcher there keeps the room's
+song select during a stage, as before (the next round). Names:
+`watch-v0` (PROVISIONAL) for the choices below.
+
+### Play or Watch (the room's model and its screens)
+
+- **The choice is the member's own**: `ddi_room::Intent` (`Play`,
+  `Watch`), `Command::SetIntent`, both there since M1. Chosen on the
+  room's song select: More's item and the Players pop-up's button at
+  its foot (it says what a press does: **Watch only** while they play,
+  **Play** while they watch; keyboard, controller, touch); everyone's
+  players panel and pop-up say **Watching** on their line. It holds
+  across stages and matches until changed (the room keeps it; a
+  practice room for the session).
+- **A watcher is no competitor** (the model, tested): not in the
+  match's roster, so not ranked, not awarded and not in the standings;
+  no Ready (`Rejection::NotPlaying`); nothing a readiness window waits
+  for (`SitOutReason::Watching` never holds one); not counted against
+  the cap of nine (`RoomState::reserved_humans` counts those who want
+  to play; `RoomPolicy::check_competitors` is asked with that); no seat
+  in the attack ledger, so never a target or a sender.
+- **A watching host still hosts** (`ddi_room::can` goes by role, never
+  by participation): picks (where they are the picker), edits the
+  rules, starts the stage.
+- **A stage needs competitors**: where every person watches, a match
+  starts only if CPUs compete (`RoomState::start_match`: CPU practice),
+  and its stages start with the CPUs alone
+  (`RoomState::humans_needed`: the ready people a start needs are never
+  more than the people of the match who want to play); the policy's two
+  competitors still hold (one CPU alone is refused: "Not enough players
+  to start a stage."). A hosted room where everyone watches is refused
+  whole, typed (`Rejection::NoPlayingHumans`), said as "Everyone is
+  watching. Someone has to play." Nothing else of the reducer changed,
+  no command, event or field was added, and the protocol, `online.rs`
+  and `fake.rs` are untouched: an older server refuses the same hosted
+  rooms it did (its rooms seat no CPUs).
+- **A change during a match** is the model's rule as it stood, kept:
+  Play to Watch applies from the stage being prepared (the Ready is
+  cleared; a stage counting down or in play with them in it is played);
+  one of the match who watches sits its next stages out with nothing
+  for them and keeps what they won; back to Play, they are in from the
+  next stage. One who was watching when the match began is not of it:
+  choosing Play then waits for the next match ("Next match"), the
+  room's rule for arrivals (practice admits nobody into a running
+  match). The control is offered wherever the player is not committed
+  to a stage (`RoomClient::may_choose_intent`).
+- **The watcher's prompt**: "Watching" where Ready is; a press readies
+  nothing (it only gives the shell its sound, as Ready's does); no
+  attack policy row. In practice the start is committed with the pick
+  (nobody is waited for), so the room's three-second countdown runs and
+  the stage starts by itself; where the web has no sound context
+  running the prompt asks for a press, as for any automatic start.
+  Leaving the prompt before the start cancels the start (no stage runs
+  unwatched); leaving once it is on plays the CPUs out at once and
+  reports the stage (nobody forfeits).
+- Client: `RoomClient::my_intent`, `watching`, `set_intent`,
+  `may_choose_intent`, `watches` (a stage the player is not in is
+  watched on this device: CPU practice), `in_stage`;
+  `StageOrder::watching`. Debug: `ui.theme.room.watching`,
+  `can_choose_intent`, each member's `participation` (`watching`).
+
+### The spectator view
+
+A watched stage is a play session without a play of its own
+(`StageSetup::watching`): the song's music, background, lyrics and
+clock as a play has them; the session's own player is never judged
+(nothing is pressed, missed, clapped or logged), there is no hand, and
+nothing is kept in the history. The battle runs the CPUs on the song
+clock exactly as beside a player (`Battle::advance_watched`), with the
+watcher in no roster.
+
+- **Nobody followed: the grid** (`ddi_shell::opponents::arrange_grid`):
+  everyone's fields over the whole screen, each a field in the play's
+  proportion with what a miniature has (name, a CPU's stars, life,
+  power bar, combo, score, locked lanes, shocks, Out), drawn by the
+  play's skin as miniatures are (`ddi_render::scene::Miniature`; the
+  renderer draws no field and no HUD of its own,
+  `RenderOptions::no_field`). One size for all, the layout that gives
+  the largest lane, one with more rows preferred where its lane is
+  within a tenth (`GRID_FILL`: eight are four by two), the block in
+  the screen's middle, a short last row in its own middle, the status
+  line under it. **The size rule**: a grid's field is at most a play's
+  own field (`GRID_LANE_SHARE` 1.0 of the lane the play's field would
+  have); the cap that keeps a player's miniatures at half their own
+  lane (`MINI_LANE_SHARE`) is for miniatures beside a field of one's
+  own and does not apply where there is none. Each field keeps the
+  room of its attack warning on its right (a lane), shown or not.
+
+  | Competitors | 1280×720 (play lane 72) | 1920×1080 (play lane 108) |
+  | --- | --- | --- |
+  | 1 | 65 | 101 |
+  | 2 | 65, side by side | 101 |
+  | 3 | 63 | 99 |
+  | 4 | 57, four in a row | 86 |
+  | 5 | 45 | 68 |
+  | 6 | 37, six in a row | 56 |
+  | 7 | 29, four and three | 48 |
+  | 8 | 29, four by two | 48 |
+
+  (A player's miniatures at the same counts: 36 or less at 1280×720,
+  25 for eight with the attack warning's place kept clear. Two rows of
+  fields ten lanes tall cannot have lanes over about 30 px at 720 px:
+  eight in the play's proportion are only a little larger than a
+  player's eight.) Beyond a room's eight (the development practice)
+  as many as fit at lanes of 16 px, the rest taking turns.
+- **One followed** (the focus): that competitor's field in the play's
+  own field's place and size, as a player's own is: its judgment's word
+  with its early or late, its combo, its score in the HUD's place, its
+  life and power bar, its locked lanes, its Out; the others beside it
+  exactly as a player's opponents are (`arrange`, the half-lane cap).
+  Tab and Shift+Tab or a controller's shoulders go round the seats, the
+  grid again past the last; a click or a tap on a field follows it; a
+  click on the large field, or Escape once, goes back to the grid.
+  Escape held or pressed twice still leaves the stage, as a play's quit
+  (nobody forfeits; the CPUs are played out and the stage reported).
+  The focus is the session's alone: remembered for the stage, never
+  saved. The status line says "Watching [name]"; for a stage's first
+  six seconds in the grid, "Tab or tap a field to follow one player".
+- **Attacks**: in the grid a line from the sender's field (at its power
+  bar) to the warning beside the recipient's field, the recipient's
+  field outlined while the attack is on its way and passing, each
+  recipient's warning beside its own receptors
+  (`attack_links::shown_between`, in straight legs along the gaps
+  between the fields); followed, the competitor's attacks as a player's
+  own (`SeenLink::of`, the same `attack_links::shown` and the same
+  warning by the receptors). The status line says the stage's moments,
+  nobody's "you" (`WatchMoment`): "[name] is out", "[a] attacks [b]",
+  "[name] wins the stage" (which stays), "Stage drawn", and the
+  players-left milestones. The announcer speaks the stage's opening
+  and the players-left lines; the lines addressed to "you" (attack
+  incoming and launched, life critical, out, won) are not said to a
+  watcher (the battle tells none of those moments).
+- **The end**: a while after the stage is decided
+  (`WATCH_END_HOLD` 2.5 s, the music fading as after a fail, the
+  winner's name in the status line), or at the song's end, the watcher
+  goes to the stage's results: the Standings alone (no Graphs tab:
+  there is no play of theirs to draw), and on the left, where a
+  player's grade and judgments are, the stage's song, **Stage winner**
+  with the name (a CPU's stars) and "You watched this stage."
+  (`ResultsScreen::watched`).
+- Debug: `__DDI_DEBUG.watch` (`view`: `grid`, `focus`, `out`, `left`;
+  `focus`, `lane`, `fields`, `label`, `cue`, `warned`, `mark`, `skip`,
+  `fields_at`, `skip_at`, `over`), `battle.attacks.links` (between two
+  seats in the grid), `ui.theme.stage.watched` and `stage_winners`;
+  desktop's `Host::watch`.
+
+### What the feed gained, and what an online stream must carry
+
+The followed field is drawn from the competitor's stream of judged
+moments, never by a second judge. A moment
+(`ddi_session::battle::feed::Moment`) had: when (judged song seconds),
+which note or shock (tick and lane), what (a tap's judgment, or a shock
+stepped on), and after it the life, the combo and whether it put them
+out. For a field shown large it gained **`offset`** (press minus note,
+seconds: the word's early or late), **`w0`** (whether a top hit was
+inside the ruleset's inner window: the word's tier under DDI) and
+**`score`** (the score after it as the room shows it, a CPU's on the
+chart's scale); `FieldFeed::frame_large` makes the frame with the
+word, for one second as a play's. **Hold states were not added**: the
+CPUs play a tap-only copy, so there are none to show; a person's
+stream will need them (a hold's head hit, held, let go and done) and
+the notes of the chart they play rather than the copy, with their
+turns and removals.
+
+What an online stream must carry for this view, per competitor: the
+moments above in order (with a presentation delay the feed already
+takes), the attack commitments that reach them (each shock's tick and
+lane and the commitment's time: `FieldFeed::add_hazards`), and from
+the room's ledger the attacks between competitors (sender, recipient,
+commitment, first shock, clear) and each one's power, for the bars,
+the lines and the warnings. The scroll each field is drawn under is
+the viewer's own.
+
+### Out of a stage: watching on, and leaving a play as a forfeit
+
+- **Out by life**: the play no longer ends for the player at once.
+  Their field stays in place, blank and dimmed with **Out** as their
+  miniature would be, the music plays on, and the stage goes on in
+  real time between the others (the CPUs and their attacks really
+  played, as they already were during the fail's hold), the others'
+  miniatures beside it as before, who attacks whom drawn between them.
+  **Enter**, a controller's Start or South, or a press on the plate
+  under the mark ("Enter: skip to results"; "Skip to results" on a
+  touch screen) skips to the results (the rest played out at once, as
+  going out did before); so does the quit (Escape held or twice).
+  Else the results follow a while after the stage is decided
+  (`WATCH_END_HOLD`), or at the song's end. Where nothing is left to
+  watch (the stage decided by their going out, an online room's) the
+  fail's fade and hold are as before.
+- **The results' timing data** are those of the moment they went out:
+  the play ended there (its fail is final then, as before), and the
+  time watched adds nothing to their judgments, score or graphs.
+- **Leaving the play is a forfeit, then watching on** (the maintainer,
+  2026-11-12, asked whether a question is wanted over a running play:
+  "'forfeit' the stage and drop into watching the stage until a
+  decision to quit is made"). One path for out by life and out by
+  quitting: the play's quit (Escape held or twice, the quit button, a
+  controller's hold) forfeits the stage (`Battle::forfeit_now`: out of
+  the stage from then, no target and no sender; the play judged to the
+  quit, `Player::quit_at`) and the screen becomes the same watching
+  view, the mark **Left the stage**. From there: skip to the results,
+  keep watching, or quit again (the results). **What the standings
+  show for it**, as a forfeit did before: last of the stage, no points,
+  life "Left", the grade QUIT, their score and judgments to the quit;
+  the room's mark "Stage n: left the stage · place p of f · no
+  points". A quit after the stage is decided (the winner finishing the
+  song) ends the play as before, and is no forfeit. Restart (R or `\`)
+  stays unavailable in a stage (tested as before). A solo play's quit
+  is unchanged (its results at once).
+- **Online**: nobody else's play is streamed yet, so after a forfeit
+  there is nothing to watch: the play ends and its results follow as
+  before (the Standings filling in as reports come). The path is the
+  same code: where the battle has others playing here
+  (`Battle::goes_on`) the session watches on, so a stream of the
+  others' plays plugs into it.
+- **A close request during a stage's play** (desktop's window close
+  and Quit): where leaving the room costs something (an online room),
+  the stage is left first (the forfeit above, `PlaySession::leave`)
+  and the room's question is asked over its results, saying so first:
+  "You left this stage: no points for it." and then what leaving the
+  room does. Stay keeps the results (the forfeit is not undone); Leave
+  tells the room and quits; asked again meanwhile, the game quits. A
+  stage's results reached the ordinary way now ask too
+  (`ResultsScreen` guards its leaving where the room's leaving costs).
+  The web: closing the tab during a play is covered by `beforeunload`
+  as before; **the browser's Back during a play is unchanged** (not
+  done, below).
+
+### CPU practice is never asked about (the maintainer, 2026-11-12)
+
+"For practice I think even silently dropping the match is fine. I
+actually don't like the behavior of keeping the unfinished match, and
+a prompt would be annoying." `RoomClient::leave_cost` is none in
+practice, always (`LeaveCost::Practice` and its sentence are gone):
+Back on the room's song select, More's Leave room, desktop's close and
+Quit, the web's history guard and `beforeunload` all behave with a
+match running as they do without one. Leaving with a match running
+**forgets the practice and its unfinished match**: the game's Back and
+Leave room discard it (`screens::room::leave_now`), and on the web a
+practice whose pages were left by any way with a match running is
+dropped (`crate::room::forget_left_practice`: the browser's Back, an
+address typed), so coming back to CPU practice is a fresh room.
+Between matches (the lobby, a finished or stopped match) Back keeps
+the practice for the session, as it was. Online rooms ask exactly as
+built. The table of cases in "Asking before leaving" above stands
+without its practice line.
+
+### Tested
+
+- `ddi-room` (111 tests, 3 new): `walkthroughs`
+  `a_watcher_is_no_competitor_and_a_watching_host_still_runs_the_room`
+  (the cap, no Ready, the pick, the roster, the window, no placement,
+  a change during a match both ways) and
+  `a_stage_needs_competitors_and_practice_cpus_play_alone_for_a_watcher`
+  (a hosted room refused whole, practice's CPUs alone committed with
+  the pick, one CPU refused); `online`
+  `a_members_watching_is_kept_alike_by_both_authorities_and_every_mirror`
+  (`LocalAuthority` and `OnlineAuthority` + `FakeServer`).
+- `ddi-session` (170 and one ignored, 10 new): a watched stage to its settlement, the
+  same ranking at 60 and 144 frames a second and as played out at
+  once, the watcher in no ranking and no attack; the focus by Tab and
+  Escape, the followed frame equal to the feed's; the end a hold after
+  the decision; a watcher's quit; going out then watching on to the
+  ranking, the draw flag and the player's own results that skipping
+  (playing out at once) gives, at 60 and 144; a quit forfeits, watches
+  on and is skipped by Enter or a second quit; leaving from outside the
+  play (online: at once; practice: watching on); the feed's large
+  frame; the watch's keys.
+- `ddi-shell` (61, 5 new): the grid for one to eight at the ten sizes
+  of the miniatures' table, with and without Reverse (on the screen
+  with its warning's room, clear of the quit button's place, the status
+  line and each other, the play's proportion, never over a play's own
+  lane); the table above; the followed field's place and what is drawn
+  over it; the out field's mark and plate; the grid's lines (every pair
+  for two to eight at the ten sizes: from the sender's bar to the
+  recipient's warning, straight legs, over no field).
+- `ddi-ui` (518 and two ignored; 5 new, 2 rewritten): the control (More by a controller, the
+  Players pop-up by keys and a tap), the watcher's prompt, leaving it,
+  the sentence; a watched match through the client (it ends for nobody
+  here: no "match not won" for a watcher); the watched results (wide
+  and a phone's); practice never asking (rewritten, with the close
+  request's test); the results' question after a close request; the
+  `qps-ploc` walk (the watched results joined it); `xtask l10n check`.
+- `ddi-desktop` `tests/room_watch_offscreen.rs` (2): a practice stage
+  watched through the window offscreen (the prompt, the grid, Tab, a
+  press on a field, on the large field, Shift+Tab, Escape, lines and
+  warnings drawn, the results, back to the room; then a stage left by
+  Escape twice, nobody forfeiting); a player going out and watching on
+  (Enter), then leaving a play (Escape twice: the forfeit, watching on,
+  a press on the plate). `room_stage_flow` unchanged for a playing
+  person.
+- Runtime, headless Chrome and Firefox
+  (`target/scratch/mp/watch/watch.mjs`, screenshots in
+  `target/scratch/mp/watch/shots/`).
+
+### Not done in this round
+
+- **The web's browser Back during a stage's play** is as it was: no
+  forfeit-then-question there (the play route's own handling of Back
+  during a play was left alone). Desktop's close request has it.
+- **The desktop's close request during an online stage's play** is
+  wired (`Shell::close_requested`, `ask_after_play`) and its parts are
+  tested (the session's `leave`, the results' question), but no test
+  plays an online stage through the window to close it.
+- A watching member of an **online** room sees nobody's play (no
+  stream yet); they stay on the room's song select through a stage.
+- The followed field's hit effects are the miniatures' (the skin's own
+  explosions run on a play's skin events, which a stream does not
+  carry); hold states (above); the dancing hand never follows a
+  competitor.
+- A player out of a stage cannot follow one competitor large: their
+  own field stays where it is.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `watch-v0`: a grid's field is at most a play's own field (`GRID_LANE_SHARE` 1.0); a layout with more rows wins within a tenth of the largest lane (`GRID_FILL` 0.9) | `ddi_shell::opponents::arrange_grid` | One to three watched fields are nearly the screen's height; eight are four by two at lanes of 29 px (1280×720) | The sizes; whether eight should give up the play's proportion (shorter fields, larger lanes) |
+| `watch-v0`: a watched stage's results follow 2.5 s after it is decided, the music fading (`WATCH_END_HOLD`) | `ddi_session::play::watch` | A watcher (and a player out of the stage) does not see the winner finish the song | Whether to stay to the song's end (the design study's "winner finishing") |
+| `watch-v0`: where every person watches, a practice stage starts with the pick (the room's countdown), with no press of the watcher's | `ddi_room` `humans_needed`, `maybe_commit` | A watching host's pick is followed by the stage three seconds later | Whether a watching host should start it with a press |
+| `watch-v0`: the status line's moments for a watcher: out, attacks, the win; an attack never takes the line from someone going out | `ddi_session::play::watch::Watch::tell` | With eight CPUs attacking the line changes every few seconds | Which moments a watcher is told, and whether as a line of the announcer's |
+| A forfeit in play: the stage is watched on; the player's results are graded QUIT, their line last with no points | `Battle::forfeit_now`, `PlaySession::tick` | Escape twice in a stage shows "Left the stage" over the field and the stage goes on | Whether leaving should ask first, or be undoable for a moment |
+| CPU practice with a match running is forgotten when left, silently | `screens::room::leave_now`, the web's `forget_left_practice` | Back from a running practice match, then CPU practice again, is a new room with the default rules | Whether the practice's own rules (its roster) should survive |
 | A room from before the picker (no `picking` in its state) keeps every operator choosing and offers no take, for as long as it lives | `ddi_room::RoomState::chooses`, `may_take_pick` | A room open across the server's deploy never gets Pick songs; a new one does | Whether such a room should turn into a one-picker room at the deploy |
 | The pick returns to the owner when its holder is Disconnected: the server's reconnect grace (30 s); a pick nobody holds is the owner's whenever the owner is there | `reduce.rs` `release_pick`, `settle_host`; `../ddi-server` `ROOM_RECONNECT_GRACE_MS` | A picker whose connection is down for more than 30 s finds the owner choosing on return; nobody chooses only while the owner is away with nobody connected | The grace for a picker |
 | A host away is given the room's reconnect grace, 30 s (`Connection::Disconnected`), then the room passes on or closes by its setting | `reduce.rs` `settle_host`; `../ddi-server` `ROOM_RECONNECT_GRACE_MS` | A host whose connection is down for more than 30 s comes back a co-host (one press by the new host hands it back), or to a closed room under Close | Whether a host should be waited for longer than a picker (a minute, say), above all under Close |
@@ -3853,14 +4180,29 @@ capability.
   (it used to keep the player in it, silent, behind the home). Right
   for a member between matches too, who is not asked, or should that
   Back keep them in the room?
-- Leaving: in CPU practice with a match running, Back used to keep the
-  match as it stood for the session; it now asks and, on Leave, forgets
-  the practice. Should Back there keep the match instead (and nothing
-  be asked), leaving the question to Leave room and to closing the
-  window or tab?
-- Leaving: nothing is asked while a stage is being played, and
-  desktop's close or Quit on a stage's results quits at once. A
-  question over a running play needs a way to show one there. Wanted?
+- Leaving, answered (the maintainer, 2026-11-12): CPU practice is
+  never asked about and a match left running is dropped silently; a
+  stage's play is left as a forfeit and watched on, the question asked
+  from there ("Watching a stage"); the host's 30 s grace stays; a host
+  away alone keeps the room.
+- Watching: a watched stage ends 2.5 s after it is decided. Should a
+  watcher (and a player out of it) see the winner finish the song
+  instead, as the design study has it?
+- Watching: eight fields in the play's proportion are four by two at
+  lanes of 29 px on 1280×720, hardly larger than a player's eight
+  miniatures. Shorter fields with larger lanes for seven and eight?
+- Watching: a watching host's pick starts the practice stage by itself
+  after the room's countdown. Wanted, or a press to start?
+- Watching: the control is More's item and a button at the Players
+  pop-up's foot, saying what a press does ("Watch only", "Play").
+  Enough, or a line of its own on the players panel?
+- Watching: a watcher who chooses Play during a match waits for the
+  next match (they were not of it). Should practice let them into the
+  next stage?
+- Watching: a player out of a stage keeps their own dimmed field.
+  Should they be able to follow one competitor large instead?
+- Leaving a play: the quit forfeits at once and cannot be undone.
+  Right, given how easy Escape twice is?
 - Leaving: a member's browser Back off an online room's page, where
   nothing is asked, only changes the page: the room keeps them until
   the tab closes. Should leaving the room's page always tell the room?

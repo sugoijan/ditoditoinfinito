@@ -2831,15 +2831,15 @@ fn asked(h: &Harness) -> bool {
     top(h) == crate::LEAVE_QUESTION
 }
 
-/// Asking before leaving (2026-11-12), CPU practice. Between matches Back
-/// leaves at once, the room kept, as it was. With a match running every
-/// way out asks once: Escape, Backspace, the header's Back, a
-/// controller's Back, More's Leave room. Stay (chosen first; Escape and
-/// Back in the question are Stay) keeps everything: the room, the match,
-/// the readiness, the list's place. Leave forgets the practice, with no
-/// second question.
+/// CPU practice never asks before it is left (the maintainer,
+/// 2026-11-12: "even silently dropping the match is fine … a prompt
+/// would be annoying"). Between matches Back leaves at once, the room
+/// kept, as it was. With a match running every way out leaves at once
+/// too, with no question, and the practice and its unfinished match are
+/// forgotten: Escape, Backspace, the header's Back, a controller's Back,
+/// More's Leave room.
 #[test]
-fn practice_asks_before_leaving_only_with_a_match_running() {
+fn practice_never_asks_and_forgets_a_match_left_running() {
     use crate::nav::MenuAction;
     let env = env();
     let room = RoomClient::shared(0, 1);
@@ -2852,117 +2852,80 @@ fn practice_asks_before_leaving_only_with_a_match_running() {
     let mut h = harness();
     h.push(screen(&room));
     h.run(0.5);
-    // No match: nothing to lose, nothing guarded, Back leaves at once.
+    // No match: nothing guarded, Back leaves at once, the room kept.
     assert_eq!(view(&env).leave_cost, None);
     assert!(!h.ui.guards_leaving());
     h.key("Escape", "Escape");
     h.run(0.3);
     assert!(!asked(&h));
     assert_eq!(*calls.borrow(), ["leave"]);
-    calls.borrow_mut().clear();
-    // Back in the room (the shell of this test kept the screen up, which
-    // has left): the first song picked, a match is running.
-    let mut h = harness();
-    h.push(screen(&room));
-    h.run(0.5);
+    // A match running: still nothing asked or guarded (the window's
+    // close, the tab's and the browser's Back are then as anywhere), and
+    // each way out forgets the practice.
     let s = &library("dance-single").songs[0];
-    room.borrow_mut().pick(s, &s.charts[0]).unwrap();
-    h.run(0.3);
-    let before = view(&env);
-    assert_eq!(before.leave_cost.as_deref(), Some("practice"));
-    assert!(h.ui.guards_leaving());
-    let running = room.borrow().state().current.as_ref().map(|m| m.id);
-    assert!(running.is_some());
-    let stay = |h: &mut Harness, how: &str| {
-        assert!(asked(h), "{how}: {}", top(h));
-        assert!(has(h, "Leave the room?"), "{how}: {:?}", h.texts());
-        assert!(has(h, "The match in progress will be lost."), "{how}");
-        assert!(has(h, "Stay") && has(h, "Leave"), "{how}");
-        assert_eq!(h.ui.focused(), Some("Cancel"), "{how}: Stay is chosen first");
-        assert!(view(&env).leave_open);
-    };
-    let kept = |h: &Harness, how: &str| {
-        assert_eq!(top(h), "select", "{how}");
-        assert!(calls.borrow().is_empty(), "{how}: {:?}", calls.borrow());
-        let r = room.borrow();
-        assert_eq!(r.state().current.as_ref().map(|m| m.id), running, "{how}");
-        assert!(r.state().phase.kind().match_running(), "{how}: the match");
-        assert!(!view(&env).leave_open, "{how}");
-        assert!(has(h, "Single Song"), "{how}: the list is as it was");
-    };
-    // Escape, then Escape in the question: Stay.
-    h.key("Escape", "Escape");
-    h.run(0.3);
-    stay(&mut h, "Escape");
-    h.key("Escape", "Escape");
-    h.run(0.3);
-    kept(&h, "Escape in the question");
-    // Backspace, then the Stay button.
-    h.key("Backspace", "Backspace");
-    h.run(0.3);
-    stay(&mut h, "Backspace");
-    press(&mut h, "Cancel");
-    kept(&h, "Stay");
-    // The header's Back, then Enter on Stay.
-    press(&mut h, "Back");
-    stay(&mut h, "the header's Back");
-    h.key("Enter", "Enter");
-    h.run(0.3);
-    kept(&h, "Enter on Stay");
-    // A controller's Back, then its Back again: Stay.
-    for _ in 0..2 {
-        h.pad(MenuAction::Back, true);
-        h.pad(MenuAction::Back, false);
-        h.run(0.3);
-        if asked(&h) {
-            stay(&mut h, "a controller's Back");
-        }
+    type Way = fn(&mut Harness);
+    let ways: [(&str, Way); 5] = [
+        ("Escape", |h| {
+            h.key("Escape", "Escape");
+        }),
+        ("Backspace", |h| {
+            h.key("Backspace", "Backspace");
+        }),
+        ("the header's Back", |h| {
+            h.tap(PointerKind::Mouse, "Back");
+        }),
+        ("a controller's Back", |h| {
+            h.pad(MenuAction::Back, true);
+            h.pad(MenuAction::Back, false);
+        }),
+        ("More's Leave room", |h| {
+            h.tap(PointerKind::Mouse, "More");
+            h.run(0.5);
+            h.tap(PointerKind::Mouse, "Item.leave");
+        }),
+    ];
+    for (how, leave) in ways {
+        calls.borrow_mut().clear();
+        let room = RoomClient::shared(0, 1);
+        room.borrow_mut().set_rules_seen(true);
+        room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+        assert!(room.borrow().state().phase.kind().match_running());
+        let mut h = harness();
+        h.push(screen(&room));
+        h.run(0.5);
+        let v = view(&env);
+        assert_eq!(v.leave_cost, None, "{how}");
+        assert_eq!(v.leave_text, None, "{how}");
+        assert!(!h.ui.guards_leaving(), "{how}");
+        leave(&mut h);
+        h.run(0.5);
+        assert!(!asked(&h) && !view(&env).leave_open, "{how}: asked");
+        assert!(!has(&h, "Leave the room?"), "{how}: {:?}", h.texts());
+        assert_eq!(*calls.borrow(), ["discard"], "{how}: forgotten");
     }
-    kept(&h, "a controller's Back in the question");
-    // More's Leave room asks once.
-    press(&mut h, "More");
-    press(&mut h, "Item.leave");
-    stay(&mut h, "More");
-    assert_eq!(
-        h.ui.layers()
-            .iter()
-            .filter(|l| l.name == crate::LEAVE_QUESTION)
-            .count(),
-        1
-    );
-    press(&mut h, "Cancel");
-    kept(&h, "Stay after More");
-    // Leave: the practice forgotten, and no second question.
-    press(&mut h, "More");
-    press(&mut h, "Item.leave");
-    press(&mut h, "Confirm");
-    assert_eq!(*calls.borrow(), ["discard"]);
-    assert!(!asked(&h) && !view(&env).leave_open);
-    assert!(!h.ui.guards_leaving(), "nothing guards a room left");
-    // The same by Back: Leave there forgets the practice too (the match
-    // would be lost by the question's word).
+    // After the match (stopped): kept on Back, as between matches.
     calls.borrow_mut().clear();
-    let room = RoomClient::shared(0, 1);
-    room.borrow_mut().set_rules_seen(true);
-    room.borrow_mut().pick(s, &s.charts[0]).unwrap();
-    let mut h = harness();
-    h.push(screen(&room));
-    h.run(0.5);
-    h.key("Escape", "Escape");
-    h.run(0.3);
-    assert!(asked(&h));
-    h.key("ArrowRight", "ArrowRight");
-    h.run(0.1);
-    assert_eq!(h.ui.focused(), Some("Confirm"));
-    h.key("Enter", "Enter");
-    h.run(0.3);
-    assert_eq!(*calls.borrow(), ["discard"]);
-    // After the match: nothing to ask again.
     let room = RoomClient::shared(0, 1);
     room.borrow_mut().set_rules_seen(true);
     room.borrow_mut().pick(s, &s.charts[0]).unwrap();
     room.borrow_mut().stop_match().unwrap();
     assert_eq!(room.borrow().leave_cost(), None);
+    let mut h = harness();
+    h.push(screen(&room));
+    h.run(0.5);
+    // (The stopped match's results pop up first: closed.)
+    for _ in 0..3 {
+        if top(&h) == "select" {
+            break;
+        }
+        h.key("Escape", "Escape");
+        h.run(0.5);
+    }
+    assert_eq!(top(&h), "select");
+    assert!(calls.borrow().is_empty());
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    assert_eq!(*calls.borrow(), ["leave"]);
 }
 
 /// Asking before leaving, an online room: its host always (what the room
@@ -3155,7 +3118,9 @@ fn a_close_request_asks_and_quits_only_on_leave() {
         h.ui.broadcast(crate::Message::new(crate::CLOSE_REQUESTED));
         h.run(0.3);
     };
-    // Practice with a match running, on its song select.
+    // Practice with a match running, on its song select: nothing guards
+    // it (the shell quits at once, as anywhere); told all the same, it
+    // asks nothing and quits.
     let env = env();
     let room = RoomClient::shared(0, 1);
     room.borrow_mut().set_rules_seen(true);
@@ -3168,29 +3133,12 @@ fn a_close_request_asks_and_quits_only_on_leave() {
             .with_room(room.clone(), leaving_shell(&room, &orders, &calls)),
     );
     h.run(0.5);
-    assert!(h.ui.guards_leaving());
+    assert!(!h.ui.guards_leaving());
     close(&mut h);
-    assert!(asked(&h) && has(&h, "The match in progress will be lost."));
-    assert_eq!(quits(&h), 0);
-    // Asked again while it is open: the question stays one (the shell
-    // closes without it).
-    close(&mut h);
-    assert_eq!(
-        h.ui.layers()
-            .iter()
-            .filter(|l| l.name == crate::LEAVE_QUESTION)
-            .count(),
-        1
-    );
-    press(&mut h, "Cancel");
-    assert_eq!((quits(&h), top(&h).as_str()), (0, "select"));
-    close(&mut h);
-    press(&mut h, "Confirm");
-    h.run(0.3);
+    assert!(!asked(&h));
     assert_eq!(quits(&h), 1);
-    assert!(calls.borrow().is_empty(), "the game quits; no home");
 
-    // The stage's prompt.
+    // Its stage's prompt: the same.
     let room = RoomClient::shared(0, 1);
     room.borrow_mut().pick(s, &s.charts[0]).unwrap();
     let order = room.borrow_mut().take_stage_order().unwrap();
@@ -3201,26 +3149,14 @@ fn a_close_request_asks_and_quits_only_on_leave() {
             .with_room(room.clone(), order.stage, shell(&room, &orders)),
     );
     h.run(0.5);
-    assert!(h.ui.guards_leaving());
-    // Ready, then asked and Stay: still ready, the countdown going on.
-    press(&mut h, "Start");
-    assert!(room.borrow().ready());
+    assert!(!h.ui.guards_leaving());
     close(&mut h);
-    assert!(asked(&h));
-    h.key("Escape", "Escape");
-    h.run(0.3);
-    assert_eq!((quits(&h), top(&h).as_str()), (0, "play-prompt"));
-    assert!(room.borrow().ready(), "Stay keeps the readiness");
-    assert!(matches!(
-        room.borrow().state().phase,
-        Phase::Countdown { .. }
-    ));
-    close(&mut h);
-    press(&mut h, "Confirm");
-    h.run(0.3);
+    assert!(!asked(&h));
     assert_eq!(quits(&h), 1);
 
-    // An online room's host: the room is told, then the game quits.
+    // An online room's host: asked; Stay keeps the room; asked again
+    // while the question is open, it stays one (the shell closes without
+    // it); Leave tells the room, then the game quits.
     let t = Three::new(true);
     let ea = env.clone();
     let mut ha = harness();
@@ -3229,13 +3165,232 @@ fn a_close_request_asks_and_quits_only_on_leave() {
             .with_room(t.alice.clone(), leaving_shell(&t.alice, &orders, &calls)),
     );
     t.settle(400, &mut [&mut ha]);
+    assert!(ha.ui.guards_leaving());
     close(&mut ha);
     assert!(asked(&ha) && has(&ha, "You are the host. bob will become the host."));
+    assert_eq!(quits(&ha), 0);
+    close(&mut ha);
+    assert_eq!(
+        ha.ui
+            .layers()
+            .iter()
+            .filter(|l| l.name == crate::LEAVE_QUESTION)
+            .count(),
+        1
+    );
+    press(&mut ha, "Cancel");
+    assert_eq!((quits(&ha), top(&ha).as_str()), (0, "select"));
+    close(&mut ha);
     press(&mut ha, "Confirm");
     t.settle(400, &mut [&mut ha]);
     ha.run(1.0);
     assert_eq!(quits(&ha), 1, "once the room answered (or a moment passed)");
+    assert!(calls.borrow().is_empty(), "the game quits; no home");
     let s = t.server.borrow().state().clone();
     assert!(s.member(ddi_room::ParticipantId(1)).unwrap().left);
     assert_eq!(s.owner().map(|m| m.id), Some(ddi_room::ParticipantId(2)));
+}
+
+/// Watching (`watch-v0`): the player chooses Play or Watch for
+/// themselves, from More (a controller's way too) and from the Players
+/// pop-up's button; their line says Watching; a pick then starts a stage
+/// of the CPUs alone at once, its prompt says Watching in Ready's place
+/// and readies nothing, has no attack policy, and starts with the room;
+/// its order says the player watches.
+#[test]
+fn a_player_chooses_to_watch_and_the_stage_starts_without_them() {
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    let v = view(&env);
+    assert!(!v.watching && v.can_choose_intent, "{v:?}");
+    // More, by a controller: Watch only.
+    h.pad(crate::nav::MenuAction::More, true);
+    h.pad(crate::nav::MenuAction::More, false);
+    h.run(0.3);
+    assert!(has(&h, "Watch only"), "{:?}", h.texts());
+    press(&mut h, "Item.intent");
+    assert!(room.borrow().watching());
+    assert!(view(&env).watching);
+    let me = view(&env)
+        .members
+        .iter()
+        .find(|m| !m.cpu)
+        .unwrap()
+        .participation
+        .clone();
+    assert_eq!(me, "watching");
+    // The Players pop-up: their line says so, and its button plays again.
+    press(&mut h, "Room.Players");
+    assert_eq!(top(&h), "room-players");
+    assert!(has(&h, "Watching") && has(&h, "Play"), "{:?}", h.texts());
+    // By keys: Left from Close reaches the button, Enter presses it.
+    h.key("ArrowLeft", "ArrowLeft");
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert!(!room.borrow().watching());
+    assert_eq!(top(&h), "room-players", "the pop-up stays");
+    assert!(has(&h, "Watch only"), "{:?}", h.texts());
+    press(&mut h, super::room_dialogs::INTENT);
+    assert!(room.borrow().watching());
+    h.key("Escape", "Escape");
+    h.run(0.5);
+    assert_eq!(top(&h), "select");
+    // The watching host picks: the match starts with the CPUs alone,
+    // committed at once (nobody is waited for), and its prompt opens.
+    h.key("Enter", "Enter");
+    h.run(0.5);
+    let v = view(&env);
+    assert_eq!(v.phase, "countdown", "{v:?}");
+    assert_eq!(orders.borrow().len(), 1, "the stage's prompt opened");
+    let order = orders.borrow()[0].clone();
+    assert!(order.watching);
+    assert_eq!(order.cpus.len(), 3);
+    assert_eq!(order.others, 0);
+
+    // Its prompt: Watching where Ready is, no policy row, the CPUs listed.
+    let seen: Rc<RefCell<Vec<PromptChoice>>> = Rc::default();
+    let sink = seen.clone();
+    let state = Rc::new(RefCell::new(PromptState::default()));
+    state.borrow_mut().info.title = "Single Song".into();
+    let mut p = harness();
+    p.push(
+        PromptScreen::new(
+            env.clone(),
+            state.clone(),
+            Rc::new(move |c, _| sink.borrow_mut().push(c)),
+        )
+        .with_room(room.clone(), order.stage, shell(&room, &orders)),
+    );
+    p.run(0.3);
+    assert!(has(&p, "Watching"), "{:?}", p.texts());
+    assert!(!has(&p, "Ready") && !has(&p, "Targeting"), "{:?}", p.texts());
+    let cpu = order.cpus[0].name.clone().unwrap();
+    assert!(has(&p, &cpu), "{cpu}: {:?}", p.texts());
+    // A press readies nothing; the shell is told (its sound).
+    press(&mut p, "Start");
+    assert!(!room.borrow().ready());
+    assert_eq!(*seen.borrow(), [PromptChoice::Ready]);
+    // (This harness's clock starts behind the room's: past it, and the
+    // countdown.)
+    p.run(12.0);
+    assert_eq!(
+        seen.borrow().last(),
+        Some(&PromptChoice::Start),
+        "the room started it"
+    );
+    assert!(room.borrow().stage_started(order.stage));
+}
+
+/// Leaving a watched stage's prompt before its start cancels the start
+/// (no stage runs unwatched); and a room where everyone watches and no
+/// CPU plays says so in a plain sentence.
+#[test]
+fn a_watcher_leaving_the_prompt_cancels_the_start_and_all_watching_is_refused_plainly() {
+    use crate::state::room::{PromptExit, Refusal, RoomView};
+    let mut room = RoomClient::new(0, 1);
+    room.set_intent(ddi_room::Intent::Watch).unwrap();
+    let s = &library("dance-single").songs[0];
+    room.pick(s, &s.charts[0]).unwrap();
+    let first = room.stages()[0].id;
+    assert!(matches!(room.state().phase, Phase::Countdown { .. }));
+    assert_eq!(room.view(), RoomView::Prompt(first));
+    assert!(room.take_stage_order().unwrap().watching);
+    assert_eq!(room.leave_prompt(first), PromptExit::Withdraw);
+    assert!(matches!(
+        room.state().phase,
+        Phase::Preparing { window: None, .. }
+    ));
+    assert_eq!(room.view(), RoomView::Select);
+    // Nothing runs behind song select.
+    room.tick(10_000);
+    assert!(matches!(
+        room.state().phase,
+        Phase::Preparing { window: None, .. }
+    ));
+    // The sentence for a room where nobody plays.
+    let text: String = super::room::refusal_text(&Refusal::Room(
+        ddi_room::Rejection::NoPlayingHumans,
+    ))
+    .into();
+    assert_eq!(text, "Everyone is watching. Someone has to play.");
+}
+
+/// A close request during a stage's play forfeits the stage and comes to
+/// its results (the shells: nothing can be asked over a running play);
+/// there the question is asked, saying first that the stage was left,
+/// then what leaving the room does. Stay keeps the results (the forfeit
+/// is not undone); Leave tells the room and the game quits. A stage's
+/// results reached the ordinary way ask too, without the first sentence.
+/// CPU practice's results ask nothing.
+#[test]
+fn a_stages_results_ask_before_the_game_closes_and_say_the_stage_was_left() {
+    use super::data::ResultsKind;
+    use super::results::{ResultsActions, ResultsScreen};
+    use crate::UiRequest;
+    let quits = |h: &Harness| h.requested(|r| matches!(r, UiRequest::Quit));
+    let close = |h: &mut Harness| {
+        h.ui.broadcast(crate::Message::new(crate::CLOSE_REQUESTED));
+        h.run(0.3);
+    };
+    let env = env();
+    let results = |room: &SharedRoom, quit: bool| {
+        let mut data = sample::results();
+        data.kind = ResultsKind::Stage;
+        data.quit = quit;
+        ResultsScreen::new(env.clone(), data, ResultsActions::default())
+            .with_room(room.clone(), ddi_room::StageId(1))
+    };
+    // An online room's host, on the results of a stage they left.
+    let t = Three::new(true);
+    let mut h = harness();
+    h.push(results(&t.alice, true));
+    t.settle(400, &mut [&mut h]);
+    assert!(h.ui.guards_leaving());
+    close(&mut h);
+    assert!(asked(&h), "{}", top(&h));
+    let texts = h.texts();
+    let line = |want: &str| texts.iter().position(|t| t == want);
+    let (left, cost) = (
+        line("You left this stage: no points for it."),
+        line("You are the host. bob will become the host."),
+    );
+    assert!(left.is_some() && cost.is_some() && left < cost, "{texts:?}");
+    assert_eq!(h.ui.focused(), Some("Cancel"), "Stay is chosen first");
+    // Stay: the results as they were.
+    h.key("Escape", "Escape");
+    h.run(0.3);
+    assert_eq!((quits(&h), top(&h).as_str()), (0, "results"));
+    // Leave: the room told, then the game quits.
+    close(&mut h);
+    press(&mut h, "Confirm");
+    t.settle(400, &mut [&mut h]);
+    h.run(1.0);
+    assert_eq!(quits(&h), 1);
+    let s = t.server.borrow().state().clone();
+    assert!(s.member(ddi_room::ParticipantId(1)).unwrap().left);
+    // Reached the ordinary way: asked without the stage's sentence.
+    let t = Three::new(true);
+    let mut h = harness();
+    h.push(results(&t.alice, false));
+    t.settle(400, &mut [&mut h]);
+    close(&mut h);
+    assert!(asked(&h));
+    assert!(!has(&h, "You left this stage: no points for it."));
+    assert!(has(&h, "You are the host. bob will become the host."));
+    // CPU practice: nothing guarded, nothing asked.
+    let room = RoomClient::shared(0, 1);
+    let s = &library("dance-single").songs[0];
+    room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+    let mut h = harness();
+    h.push(results(&room, true));
+    h.run(0.5);
+    assert!(!h.ui.guards_leaving());
+    close(&mut h);
+    assert!(!asked(&h));
+    assert_eq!(quits(&h), 1);
 }

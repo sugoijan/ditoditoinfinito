@@ -485,6 +485,11 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     /// seconds): released soon, it cycles the attack policy (D8); held,
     /// it quits.
     policy_pad: Option<f64>,
+    /// The stage is watched ([`watch`]): by a spectator from its start, by
+    /// a player from when they are out of it (their life gone, or left).
+    watch: Option<watch::Watch>,
+    /// The session's event was given: the song goes on for nothing more.
+    over: bool,
 }
 
 /// Which cue a simulated player follows. In calibration it plays as a
@@ -687,7 +692,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             ddi_engine::cpu::validate_script(config.cpu.as_ref().unwrap())?;
         }
         let staging = config.staging.clone().filter(|_| config.replay.is_none());
-        let auto_play = (config.auto || cpu || staging.is_some()) && config.replay.is_none();
+        // (A watched stage has no play of the viewer's own to autoplay.)
+        let watched = config.opponents.as_ref().is_some_and(|s| s.watching);
+        let auto_play =
+            (config.auto || cpu || staging.is_some()) && config.replay.is_none() && !watched;
         let rules = ruleset.fresh();
         let duration = audio.duration(&buffer);
         // Any key for the one lane (calibration by ear): judged there, shown
@@ -733,10 +741,13 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         if config
             .opponents
             .as_ref()
-            .is_some_and(|s| s.battle.attacks() && !s.remote())
+            .is_some_and(|s| (s.battle.attacks() || s.watching) && !s.remote())
         {
             capture.push(POLICY_KEY.into());
         }
+        // A watched stage: nothing of the session's own player is played
+        // or judged (its clock alone runs).
+        let spectating = config.opponents.as_ref().is_some_and(|s| s.watching);
         inputs.begin(capture, &layout, config.reverse, config.place);
 
         let mut player = Player::new(song, chart_index, ruleset, options);
@@ -939,8 +950,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
             None => announcer,
         };
-        // Nothing may cue the player in calibration.
-        let sounds = if config.calibration.is_some() {
+        // Nothing may cue the player in calibration; a watcher has no notes
+        // of their own to clap or step on.
+        let sounds = if config.calibration.is_some() || spectating {
             EventSounds::none()
         } else {
             EventSounds::new(
@@ -998,7 +1010,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             latency,
             fail_report: None,
             replay: config.replay.map(|r| (r.log, 0, 0)),
-            ghost: config.ghost.as_ref().map(Ghost::run),
+            ghost: config.ghost.as_ref().filter(|_| !spectating).map(Ghost::run),
             ghost_delta: None,
             sounds,
             timing,
@@ -1013,6 +1025,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             last_host: 0.0,
             attack_told: Vec::new(),
             policy_pad: None,
+            // The watching begins with the first frame's host time.
+            watch: spectating.then(|| watch::Watch::new(Watching::Spectator, f64::NAN)),
+            over: false,
         })
     }
 
@@ -1128,6 +1143,14 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 continue;
             }
             if self.is_cancel(&raw) {
+                // A spectator's Escape goes back to every field; held or
+                // pressed twice it still leaves, as ever.
+                if raw.pressed
+                    && raw.device == DeviceId::Keyboard
+                    && let Some(w) = self.watch.as_mut()
+                {
+                    w.focus = None;
+                }
                 self.aborted |= self.cancel.edge(raw.pressed, raw.host_time.0);
                 if raw.pressed {
                     self.view.restarting = false;
@@ -1156,6 +1179,25 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
             // A replay's lanes and covers are its log's.
             if self.replay.is_some() || self.cpu {
+                continue;
+            }
+            // Watching: no lane is played; the edges choose who is
+            // followed, or skip to the results.
+            if let Some(w) = self.watch.as_mut() {
+                let menu = match &raw.device {
+                    DeviceId::Gamepad(id) => {
+                        let standard = self
+                            .known_pads
+                            .iter()
+                            .any(|p| p.id == *id && p.index == raw.slot && p.standard);
+                        self.controls.menu_input(id, standard, &raw.control)
+                    }
+                    _ => None,
+                };
+                if let Some(ask) = w.read(&raw, menu) {
+                    let seats = self.battle.as_ref().map_or(0, |b| b.feeds().count());
+                    w.apply(ask, seats);
+                }
                 continue;
             }
             // A stage's attack policy: Tab (unless a lane has it) or a
@@ -1287,9 +1329,21 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
         }
 
-        // Up to the time the update judges to.
-        self.feed_replay(HostTime(judge_now), &mut events);
-        events.extend(self.player.update(HostTime(judge_now)));
+        // Up to the time the update judges to (a watcher's own player
+        // is never judged: its clock alone runs).
+        let spectating = self
+            .watch
+            .as_ref()
+            .is_some_and(|w| w.why == Watching::Spectator);
+        if !spectating {
+            self.feed_replay(HostTime(judge_now), &mut events);
+            events.extend(self.player.update(HostTime(judge_now)));
+        }
+        if let Some(w) = self.watch.as_mut()
+            && w.since.is_nan()
+        {
+            w.since = host_now.0;
+        }
         // The ghost judged to the same point (a failed play's stops).
         if let Some(g) = self.ghost.as_mut()
             && !self.player.finished()
@@ -1308,6 +1362,14 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
             moments = b.take_events();
             attack_moments = b.take_attack_moments();
+            // What someone watching is told of it (dropped while the
+            // player plays: they are told their own).
+            let seen = b.take_watch_moments();
+            if let Some(w) = self.watch.as_mut() {
+                for m in seen {
+                    w.tell(m, host_now.0);
+                }
+            }
         }
         // The event sounds: a mine stepped on now (the step that failed
         // the play too), the claps due soon while it goes on.
@@ -1340,8 +1402,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         // An immediate fail: the engine has stopped judging and the field is
         // blank; fade the music and hold the FAILED banner before the results.
         // (A delayed fail plays on: it comes here once the play ends.)
-        if self.player.failed() && self.player.finished() && self.failed_at.is_none() {
-            self.failed_at = Some(host_now.0);
+        if self.player.failed()
+            && self.player.finished()
+            && self.failed_at.is_none()
+            && self.watch.is_none()
+        {
             // Final now: kept even if the hold is cut short (a replay's is
             // not kept).
             if self.calibration.is_none() && self.replay.is_none() {
@@ -1350,8 +1415,19 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                     facts: Box::new(self.facts()),
                 });
             }
-            self.audio.master_ramp(None, 0.0, None, FAIL_FADE);
-            self.inputs.release();
+            if self.battle.as_ref().is_some_and(Battle::goes_on) {
+                // Out of a stage that goes on between the others: it is
+                // watched to its end from the player's own dimmed field
+                // (`watch-v0`), the music playing on; their play ended
+                // here, and so did its results.
+                self.watch = Some(watch::Watch::new(Watching::Out, host_now.0));
+                self.held.iter_mut().for_each(|h| *h = false);
+                self.cover.release();
+            } else {
+                self.failed_at = Some(host_now.0);
+                self.audio.master_ramp(None, 0.0, None, FAIL_FADE);
+                self.inputs.release();
+            }
         }
 
         // A quit play's replay quits where the play did.
@@ -1373,7 +1449,66 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             self.view.restarting = true;
         }
         let over = self.scene_until.is_some_and(|at| song_now >= at);
-        let outcome = if self.aborted {
+        // Leaving a stage's play while still in it forfeits the stage and
+        // goes on to watch the rest of it (the maintainer, 2026-11-12):
+        // out by quitting is out by life's path. Where nothing is left to
+        // watch (the stage decided, an online room's: nobody else's play
+        // is here) the play ends as ever.
+        if self.aborted
+            && self.watch.is_none()
+            && let Some(b) = self.battle.as_mut()
+            && b.goes_on()
+            && b.forfeit_now(song_now, &self.player)
+        {
+            self.player.quit_at(song_now);
+            self.aborted = false;
+            self.cancel = Gesture::default();
+            self.policy_pad = None;
+            self.view.cancel_progress = 0.0;
+            self.watch = Some(watch::Watch::new(Watching::Left, host_now.0));
+            self.held.iter_mut().for_each(|h| *h = false);
+            self.cover.release();
+        }
+        // A watched stage's end: the player's skip or quit, the song's
+        // end, or a while after it was decided (the music fading).
+        let mut watch_ended = None;
+        if let (Some(w), Some(b)) = (self.watch.as_mut(), self.battle.as_ref()) {
+            if w.over_at.is_none() && !b.goes_on() {
+                w.over_at = Some(host_now.0);
+                self.audio
+                    .master_ramp(None, 0.0, None, watch::WATCH_END_FADE);
+            }
+            let held = w
+                .over_at
+                .is_some_and(|at| host_now.0 - at >= WATCH_END_HOLD);
+            let song_over = song_now >= self.player.end_time();
+            if w.skip || self.aborted || held || song_over {
+                watch_ended = Some((w.why, self.aborted));
+            }
+        }
+        let outcome = if let Some((why, quit)) = watch_ended {
+            let left = why == Watching::Left || (why == Watching::Spectator && quit);
+            if left {
+                self.audio.stop_all();
+            } else {
+                self.audio.stop_music();
+            }
+            let results = self.player.results();
+            self.announce_results(&results);
+            let (results, facts) = (Box::new(results), Box::new(self.facts()));
+            Some(if left {
+                // A play left (its results graded QUIT), or a watcher
+                // leaving the stage.
+                SessionEvent::Aborted { results, facts }
+            } else {
+                SessionEvent::Finished {
+                    results,
+                    facts,
+                    calibration: None,
+                    device_changed: self.inputs.device_changed(),
+                }
+            })
+        } else if self.aborted {
             self.audio.stop_all();
             // The play ends here, judged to now (`Player::quit_at`).
             self.player.quit_at(self.player.judge_time(host_now));
@@ -1415,7 +1550,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             // the chart scroll on behind the result card.
             self.view.hide_notes = true;
             Some(self.finished_event())
-        } else if self.player.finished() {
+        } else if self.player.finished() && self.watch.is_none() {
             Some(self.finished_event())
         } else {
             None
@@ -1433,6 +1568,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             self.stage_outcome = Some(o);
         }
         if outcome.is_some() {
+            self.over = true;
             self.inputs.release();
             self.inputs.pads_running(None);
             self.cover.release();
@@ -1896,12 +2032,81 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// The player's frame presented at `present`. With the notes hidden
     /// (the audio test) its beat is held too, so that a skin pulsing on
     /// the beat gives no cue to follow.
+    ///
+    /// A watched stage's ([`PlaySession::watch`]): a spectator's is the
+    /// field of the competitor they follow as its stream of judged
+    /// moments says it (`crate::battle::feed::FieldFeed::frame_large`:
+    /// its notes, its judgment's word, its life, combo and score), or an
+    /// empty field while every field shows; a player's out of the stage
+    /// is their own field, blank (the shell dims it and says why).
     pub fn frame(&self, present: HostTime) -> Frame {
         let mut frame = self.player.frame(present);
         if self.view.hide_notes {
             frame.beat = 0.0;
         }
+        let Some(w) = &self.watch else {
+            return frame;
+        };
+        let feed = self
+            .battle
+            .as_ref()
+            .filter(|_| w.why == Watching::Spectator)
+            .and_then(|b| Some((b, b.feeds().nth(w.focus?)?)));
+        if let Some((b, feed)) = feed {
+            let options = self.player.options();
+            let mut large = feed.frame_large(
+                b.track(),
+                options.scroll,
+                frame.song_time,
+                options.visible_range,
+            );
+            // Out is said over the field, as a miniature's.
+            large.failed = false;
+            return large;
+        }
+        frame.notes.clear();
+        frame.receptors.fill(ddi_engine::frame::ReceptorState {
+            pressed: false,
+            mine: None,
+            flash: None,
+            holding: None,
+        });
+        frame.judgement = None;
+        frame.holds = Default::default();
+        frame.failed = false;
+        frame.danger = false;
+        if w.why == Watching::Spectator {
+            frame.combo = 0;
+            frame.score = Default::default();
+            frame.life = 0.0;
+        }
         frame
+    }
+
+    /// The player leaves the play from outside it (the window asked to
+    /// close, the browser's Back): as their quit gesture made whole. A
+    /// stage's is a forfeit: where its others play on here (CPU
+    /// practice) the rest of it is watched on, else (an online room's:
+    /// nobody else's play is here yet) the play ends at the next frame
+    /// and its results follow, where the room's question can be asked.
+    pub fn leave(&mut self) {
+        self.aborted = true;
+    }
+
+    /// The stage as it is watched, at host second `host`: by a spectator
+    /// from its start, by a player from when they are out of it; none
+    /// while the player plays (and outside a stage).
+    pub fn watch(&self, host: f64) -> Option<WatchView> {
+        self.watch.as_ref().map(|w| w.view(host))
+    }
+
+    /// The song goes on for what is drawn: the play's own, or a stage
+    /// watched on after the player's play ended; not once the session
+    /// has given its event.
+    pub fn song_going(&self) -> bool {
+        self.player.started()
+            && !self.over
+            && (self.watch.is_some() || !self.player.finished())
     }
 }
 
@@ -1950,6 +2155,11 @@ pub fn play_bindings(
 
 mod cover;
 pub mod staging;
+pub mod watch;
 pub use staging::{How, Staging, Touch};
+pub use watch::{
+    TOUCH_SKIP_CONTROL, TOUCH_WATCH_ALL, TOUCH_WATCH_CONTROL, WATCH_END_HOLD, WATCH_HINT_SECONDS,
+    WatchView, Watching,
+};
 #[cfg(test)]
 mod tests;

@@ -106,6 +106,9 @@ pub struct Shown {
     /// where it goes (empty where there is no clear way: the outline
     /// alone says it).
     pub path: Vec<[f32; 2]>,
+    /// A watched stage's grid ([`shown_between`]): the sender's seat (the
+    /// link is then between two competitors, `seat` its recipient).
+    pub from: Option<usize>,
 }
 
 /// What a link's line needs of the play's layout: the field `geo`
@@ -376,23 +379,7 @@ pub fn shown(links: &[Link], layout: &Layout, t: f64, reduced: bool, look: Look)
         .iter()
         .filter_map(|l| {
             let slot = layout.fields.slots.iter().position(|s| s.seat == l.seat)?;
-            let age = (t - l.shown_from).max(0.0) as f32;
-            let quiet = if l.chained { look.quiet } else { 1.0 };
-            let (phase, line, pulse) = if age >= look.line {
-                (Phase::Outline, 0.0, None)
-            } else if reduced {
-                (Phase::Still, 1.0, None)
-            } else if age < look.pulse {
-                (Phase::Pulse, 1.0, Some(age / look.pulse.max(1e-3)))
-            } else {
-                let left = 1.0 - (age - look.pulse) / (look.line - look.pulse).max(1e-3);
-                (Phase::Fade, left.clamp(0.0, 1.0), None)
-            };
-            let outline = if reduced {
-                1.0
-            } else {
-                (age / look.outline_in.max(1e-3)).clamp(0.0, 1.0)
-            };
+            let (phase, line, pulse, outline) = timing(l, t, reduced, look);
             let path = if line > 0.0 {
                 layout.path(&layout.fields.slots[slot], l.outgoing)
             } else {
@@ -405,13 +392,187 @@ pub fn shown(links: &[Link], layout: &Layout, t: f64, reduced: bool, look: Look)
                 outgoing: l.outgoing,
                 chained: l.chained,
                 phase,
-                line: line * quiet,
+                line,
                 pulse,
-                outline: outline * quiet,
+                outline,
                 path,
+                from: None,
             })
         })
         .collect()
+}
+
+/// What a line between two fields of a watched stage's grid needs
+/// (`crate::opponents::arrange_grid`): the fields, the screen's `size`
+/// (target pixels), the lanes' `span`, a logical pixel `ratio` and what
+/// the line keeps clear of besides the fields (the quit button's place).
+#[derive(Clone, Copy)]
+pub struct GridLayout<'a> {
+    pub fields: &'a Fields,
+    pub size: [f32; 2],
+    pub span: f32,
+    pub ratio: f32,
+    pub keep_out: &'a [[f32; 4]],
+}
+
+impl GridLayout<'_> {
+    /// The line of an attack from the field in `from` to the field in
+    /// `to`: from the sender's field at its power bar (the side that
+    /// gives the shorter way) to the warning beside the recipient's
+    /// field, in straight legs along the gaps between the fields. Empty
+    /// where there is no clear way.
+    pub fn path(&self, from: &Slot, to: &Slot) -> Vec<[f32; 2]> {
+        let r = self.ratio;
+        let grow = 1.5 * r;
+        let step = grow + 0.5;
+        let mut blocked: Vec<[f32; 4]> = self
+            .fields
+            .slots
+            .iter()
+            .map(|s| {
+                [
+                    s.rect[0].min(s.panel[0]),
+                    s.rect[1].min(s.panel[1]),
+                    (s.rect[0] + s.rect[2]).max(s.panel[2]),
+                    (s.rect[1] + s.rect[3]).max(s.panel[3]),
+                ]
+            })
+            .collect();
+        blocked.extend(self.keep_out.iter().copied());
+        let [x, y, w, h] = self.fields.status;
+        if w > 0.0 && h > 0.0 {
+            blocked.push([x, y, x + w, y + h]);
+        }
+        let blocked: Vec<[f32; 4]> = blocked
+            .iter()
+            .map(|b| [b[0] - grow, b[1] - grow, b[2] + grow, b[3] + grow])
+            .collect();
+        let (mini, _) =
+            ddi_render::scene::miniature_power_and_life(&from.field, from.panel, self.span);
+        let y_m = mini[1] + mini[3] / 2.0;
+        let starts = [
+            ([from.panel[0], y_m], [from.panel[0] - step, y_m]),
+            ([from.panel[2], y_m], [from.panel[2] + step, y_m]),
+        ];
+        let cue = crate::battle_cue::place(&to.field, self.span);
+        let (cx, cy) = ((cue[0] + cue[2]) / 2.0, (cue[1] + cue[3]) / 2.0);
+        let ends = [
+            ([cx, cue[1]], [cx, cue[1] - step]),
+            ([cx, cue[3]], [cx, cue[3] + step]),
+            ([cue[2], cy], [cue[2] + step, cy]),
+        ];
+        let bounds = [r, r, self.size[0] - r, self.size[1] - r];
+        let corner = 24.0 * r;
+        let cost = |way: &Vec<[f32; 2]>| {
+            way.windows(2)
+                .map(|w| (w[1][0] - w[0][0]).abs() + (w[1][1] - w[0][1]).abs())
+                .sum::<f32>()
+                + corner * way.len() as f32
+        };
+        let mut best: Option<Vec<[f32; 2]>> = None;
+        for (at, off) in starts {
+            for (on, before) in ends {
+                let Some(mut way) = route(off, before, &blocked, bounds, corner) else {
+                    continue;
+                };
+                way.insert(0, at);
+                way.push(on);
+                if best.as_ref().is_none_or(|b| cost(&way) < cost(b)) {
+                    best = Some(way);
+                }
+            }
+        }
+        let mut pts = best.unwrap_or_default();
+        pts.dedup_by(|a, b| (a[0] - b[0]).abs() < 0.25 && (a[1] - b[1]).abs() < 0.25);
+        // A stub and the leg after it in one line are one leg.
+        let mut out: Vec<[f32; 2]> = Vec::new();
+        for p in pts {
+            if let [.., a, b] = out[..]
+                && (((a[0] - b[0]).abs() < 0.01 && (b[0] - p[0]).abs() < 0.01)
+                    || ((a[1] - b[1]).abs() < 0.01 && (b[1] - p[1]).abs() < 0.01))
+            {
+                out.pop();
+            }
+            out.push(p);
+        }
+        if out.len() < 2 {
+            return Vec::new();
+        }
+        out
+    }
+}
+
+/// Who attacks whom among the fields of a watched stage's grid
+/// (`watch-v0`): each of `links` (between two competitors) as the frame
+/// at judged song second `t` shows it over `layout`, under `look`: its
+/// line from the sender's field to the warning beside the recipient's,
+/// the recipient's field outlined while the attack is on its way and
+/// passing. Those with an end not in view are left out.
+pub fn shown_between(
+    links: &[ddi_session::battle::SeenLink],
+    layout: &GridLayout,
+    t: f64,
+    reduced: bool,
+    look: Look,
+) -> Vec<Shown> {
+    let slot_of = |seat: usize| layout.fields.slots.iter().position(|s| s.seat == seat);
+    links
+        .iter()
+        .filter_map(|l| {
+            let (from, to) = (slot_of(l.from)?, slot_of(l.to)?);
+            let own = Link {
+                attack: l.attack,
+                seat: l.to,
+                outgoing: true,
+                shown_from: l.shown_from,
+                first: l.first,
+                clear: l.clear,
+                chained: l.chained,
+            };
+            let (phase, line, pulse, outline) = timing(&own, t, reduced, look);
+            let path = if line > 0.0 {
+                layout.path(&layout.fields.slots[from], &layout.fields.slots[to])
+            } else {
+                Vec::new()
+            };
+            Some(Shown {
+                attack: l.attack,
+                seat: l.to,
+                slot: to,
+                outgoing: true,
+                chained: l.chained,
+                phase,
+                line,
+                pulse,
+                outline,
+                path,
+                from: Some(l.from),
+            })
+        })
+        .collect()
+}
+
+/// A link's phase, its line's opacity, its pulse's place and its
+/// outline's opacity at judged song second `t` (a chained one quieter).
+fn timing(l: &Link, t: f64, reduced: bool, look: Look) -> (Phase, f32, Option<f32>, f32) {
+    let age = (t - l.shown_from).max(0.0) as f32;
+    let quiet = if l.chained { look.quiet } else { 1.0 };
+    let (phase, line, pulse) = if age >= look.line {
+        (Phase::Outline, 0.0, None)
+    } else if reduced {
+        (Phase::Still, 1.0, None)
+    } else if age < look.pulse {
+        (Phase::Pulse, 1.0, Some(age / look.pulse.max(1e-3)))
+    } else {
+        let left = 1.0 - (age - look.pulse) / (look.line - look.pulse).max(1e-3);
+        (Phase::Fade, left.clamp(0.0, 1.0), None)
+    };
+    let outline = if reduced {
+        1.0
+    } else {
+        (age / look.outline_in.max(1e-3)).clamp(0.0, 1.0)
+    };
+    (phase, line * quiet, pulse, outline * quiet)
 }
 
 fn with_alpha(c: [f32; 4], a: f32) -> [f32; 4] {
@@ -533,13 +694,19 @@ pub fn debug(shown: &[Shown]) -> serde_json::Value {
             serde_json::json!(seat)
         }
     };
+    // Between two competitors (a watched stage's grid): the sender's
+    // seat in the player's place.
+    let from = |s: &Shown| match s.from {
+        Some(seat) => serde_json::json!(seat),
+        None => end(s.outgoing, s.seat),
+    };
     serde_json::Value::Array(
         shown
             .iter()
             .map(|s| {
                 serde_json::json!({
                     "attack": s.attack,
-                    "from": end(s.outgoing, s.seat),
+                    "from": from(s),
                     "to": end(!s.outgoing, s.seat),
                     "seat": s.seat,
                     "slot": s.slot,
@@ -584,6 +751,146 @@ mod tests {
             clear: 18.0,
             chained,
         }
+    }
+
+    /// A watched stage's grid: at every size of the miniatures' table,
+    /// with and without Reverse, for two to eight fields, the line of
+    /// every attack from one field to another starts at the sender's
+    /// field at its power bar, ends on the warning's place beside the
+    /// recipient's field, goes in straight legs, and none of its legs is
+    /// over a field, the status line or the quit button's place; and a
+    /// link shows its line for its time and outlines the recipient.
+    #[test]
+    fn a_grid_s_lines_go_between_its_fields() {
+        use crate::opponents::tests::keep_grid;
+        let (mut lines, mut none) = (0, 0);
+        for (w, h, ratio) in SIZES {
+            for reverse in [false, true] {
+                for n in 2..=8 {
+                    let g = FieldGeometry::placed(
+                        w * ratio,
+                        h * ratio,
+                        4.0,
+                        reverse,
+                        Default::default(),
+                    );
+                    let k = keep_grid(&g, ratio);
+                    let f = crate::opponents::arrange_grid(n, &g, reverse, ratio, &k).unwrap();
+                    let what = format!("{w}x{h}@{ratio} reverse {reverse} n {n}");
+                    let layout = GridLayout {
+                        fields: &f,
+                        size: [g.width, g.height],
+                        span: 4.0,
+                        ratio,
+                        keep_out: &k,
+                    };
+                    for (i, from) in f.slots.iter().enumerate() {
+                        for (j, to) in f.slots.iter().enumerate() {
+                            if i == j {
+                                continue;
+                            }
+                            let p = layout.path(from, to);
+                            if p.is_empty() {
+                                none += 1;
+                                continue;
+                            }
+                            lines += 1;
+                            let (mini, _) = ddi_render::scene::miniature_power_and_life(
+                                &from.field,
+                                from.panel,
+                                4.0,
+                            );
+                            let start = p[0];
+                            assert!(
+                                (start[0] - from.panel[0]).abs() < 0.01
+                                    || (start[0] - from.panel[2]).abs() < 0.01,
+                                "{what} {i}→{j}: {start:?}"
+                            );
+                            assert!(
+                                start[1] >= mini[1] && start[1] <= mini[1] + mini[3],
+                                "{what} {i}→{j}"
+                            );
+                            let cue = crate::battle_cue::place(&to.field, 4.0);
+                            let end = p[p.len() - 1];
+                            assert!(
+                                end[0] >= cue[0] - 0.5
+                                    && end[0] <= cue[2] + 0.5
+                                    && end[1] >= cue[1] - 0.5
+                                    && end[1] <= cue[3] + 0.5,
+                                "{what} {i}→{j}: {end:?} {cue:?}"
+                            );
+                            for leg_ in p.windows(2) {
+                                let (a, b) = (leg_[0], leg_[1]);
+                                assert!(
+                                    (a[0] - b[0]).abs() < 0.01 || (a[1] - b[1]).abs() < 0.01,
+                                    "{what} {i}→{j}: a diagonal"
+                                );
+                                let b_ = leg(a, b);
+                                for (m, s) in f.slots.iter().enumerate() {
+                                    let r = [
+                                        s.rect[0] + 0.6,
+                                        s.rect[1] + 0.6,
+                                        s.rect[0] + s.rect[2] - 0.6,
+                                        s.rect[1] + s.rect[3] - 0.6,
+                                    ];
+                                    assert!(!overlaps(b_, r), "{what} {i}→{j} over field {m}");
+                                }
+                                for keep in &k {
+                                    assert!(!overlaps(b_, *keep), "{what} {i}→{j} over {keep:?}");
+                                }
+                                let [x, y, sw, sh] = f.status;
+                                assert!(
+                                    !overlaps(b_, [x, y, x + sw, y + sh]),
+                                    "{what} {i}→{j} over the status"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Nearly every pair has a clear way (where it has none, the
+        // outline alone says the attack).
+        assert!(lines > 3000 && none * 50 < lines, "{lines} lines, {none} without");
+        // A link over its time.
+        let g = FieldGeometry::placed(1280.0, 720.0, 4.0, false, Default::default());
+        let k = keep_grid(&g, 1.0);
+        let f = crate::opponents::arrange_grid(4, &g, false, 1.0, &k).unwrap();
+        let layout = GridLayout {
+            fields: &f,
+            size: [1280.0, 720.0],
+            span: 4.0,
+            ratio: 1.0,
+            keep_out: &k,
+        };
+        let seen = [ddi_session::battle::SeenLink {
+            attack: 5,
+            from: 3,
+            to: 1,
+            shown_from: 10.0,
+            first: 14.0,
+            clear: 18.0,
+            chained: false,
+        }];
+        let at = |t: f64, reduced: bool| shown_between(&seen, &layout, t, reduced, ATTACK_LINKS_V0);
+        let pulse = &at(10.3, false)[0];
+        assert_eq!((pulse.from, pulse.seat, pulse.slot), (Some(3), 1, 1));
+        assert_eq!(pulse.phase, Phase::Pulse);
+        assert!(pulse.path.len() >= 2 && pulse.line == 1.0);
+        let later = &at(13.0, false)[0];
+        assert_eq!(later.phase, Phase::Outline);
+        assert!(later.path.is_empty() && later.outline == 1.0);
+        assert_eq!(at(10.3, true)[0].phase, Phase::Still);
+        // The debug state says who attacks whom by seat.
+        let d = debug(&at(10.3, false));
+        assert_eq!((d[0]["from"].clone(), d[0]["to"].clone()), (3.into(), 1.into()));
+        // The same link as the followed competitor's own.
+        assert_eq!(seen[0].of(1).map(|l| (l.seat, l.outgoing)), Some((3, false)));
+        assert_eq!(seen[0].of(3).map(|l| (l.seat, l.outgoing)), Some((1, true)));
+        assert_eq!(seen[0].of(0), None);
+        let mut list = DrawList::new();
+        draw(&mut list, &at(10.3, false), &f, 1.0);
+        assert!(list.commands.len() > 3);
     }
 
     /// At every size the miniatures' table uses, with and without

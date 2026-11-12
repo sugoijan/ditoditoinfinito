@@ -653,7 +653,24 @@ Rust and the browser are implementation details, not advertised features.
   drawn from their commitment as the skin's mines (`FieldFeed::add_hazards`),
   a lane a shock locked for the lock's time (`FieldFeed::locks`),
   the tap-only copy it plays, `TapTrack`, and a presentation delay, 0
-  for local CPUs, so a network stream can feed the same view later).
+  for local CPUs, so a network stream can feed the same view later;
+  a stage watched (`play/watch.rs`, `watch-v0`,
+  `docs/plans/multiplayer-prototype-progress.md`, "Watching a stage"):
+  by a spectator, a member who chose Watch (`StageSetup::watching`: the
+  session's own player never judged, its clock alone; the CPUs alone on
+  the song clock, `Battle::advance_watched`, the watcher in no roster;
+  every field, or one competitor followed, `PlaySession::watch`, whose
+  `frame` is then the followed stream's, `FieldFeed::frame_large`: a
+  moment's `offset`, `w0` and `score` say the judgment's word and the
+  score, nothing is judged twice), and by a player out of a stage that
+  goes on (`Battle::goes_on`): out by life, or by leaving its play,
+  which is a forfeit (`Battle::forfeit_now`; `PlaySession::leave` from
+  outside the play), watched on from their own field until it is
+  decided (`WATCH_END_HOLD`), the song ends or they skip (Enter, Start,
+  `TOUCH_SKIP_CONTROL`); who attacks whom for a watcher,
+  `Battle::seen_links`, and the stage's moments in the third person,
+  `WatchMoment`; an online room's stage has nothing to watch yet and
+  ends as before).
   Platform-free, natively tested on a fake clock.
 - `crates/shell/` what both shells do between the settings (`ddi-ui`) and
   `render` (`ddi-shell`), so neither keeps a copy: a play's
@@ -719,7 +736,20 @@ Rust and the browser are implementation details, not advertised features.
   their own; never the proportional part alone; a CPU's sum put on the
   chart's own scale, `ddi_session::battle::cpu_score`, the engine's
   `CPU_SCORE_V0`) and a lane a shock
-  locked darkened with its receptor's place tinted for the lock's time; only
+  locked darkened with its receptor's place tinted for the lock's time;
+  a watched stage (`PlayView::watch_drawn`): a spectator's grid,
+  everyone's fields over the whole screen in the play's proportion, up
+  to a play's own lane (`opponents::arrange_grid`, `GRID_LANE_SHARE`:
+  the half-lane cap is for miniatures beside a field of one's own; the
+  renderer draws no field and no HUD of its own,
+  `RenderOptions::no_field`), or the competitor followed in the play's
+  field's place (`opponents::large_slot`) with the others beside it,
+  who attacks whom between the fields (`attack_links::shown_between`)
+  and each recipient's warning, the status line's "Watching [name]" and
+  the stage's moments; a player's own field out of the stage, dimmed
+  with Out or "Left the stage" and the skip's plate
+  (`opponents::draw_own_out`); presses on the fields and the plate come
+  back as `Drawn::watch_at` and `skip_at`; only
   beyond the cap (the development-only practice, at lanes of 16 px) do
   the opponents take turns in the slots, each in its own,
   `priority_seats` never rotating away (`opponents::rotate`): whoever
@@ -1104,6 +1134,24 @@ Rust and the browser are implementation details, not advertised features.
   room's song select pops the standings and the match's results up
   (`StandingsDialog`) for those who did not see them there; stage plays
   are never kept in the history.
+  Watching (`watch-v0`, 2026-11-13): a member chooses Play or Watch for
+  themselves (`ddi_room::Intent`; `RoomClient::set_intent`, `watching`,
+  `may_choose_intent`; More's item and the Players pop-up's `Intent`
+  button, `screens::room::toggle_intent`); a watcher is no competitor
+  and a watching host still hosts; where every person watches, practice
+  plays its CPUs alone (`ddi_room`'s `humans_needed`) and a hosted room
+  is refused (`NoPlayingHumans`). In CPU practice a stage the player is
+  not in is watched on this device (`RoomClient::watches`,
+  `StageOrder::watching`): its prompt says Watching and readies
+  nothing, its results name the stage's winner and have no Graphs tab
+  (`ResultsScreen::watched`). CPU practice is never asked about before
+  it is left (`RoomClient::leave_cost` none), and one left with a match
+  running is forgotten (`screens::room::leave_now`; the web's
+  `crate::room::forget_left_practice`); a stage's results ask where
+  leaving the room costs (`ResultsScreen` guards its leaving), saying
+  first that the stage was left where a close request left its play
+  (`screens::room::ask_leave_after`; desktop's
+  `Shell::close_requested`).
   Online rooms (M5c, M5d): `RoomClient::online` holds an online link
   instead (`crates/ui/src/state/online/link.rs`: `ddi_room`'s
   `OnlineAuthority` over the shell's socket, its tickets, the room's name
@@ -1635,7 +1683,11 @@ the prompt asks for a tap or key, as for a pad's Start
 (`docs/plans/start-prompt.md`). The results' Retry counts down too: its
 press hands a context over the same way (desktop sets the prompt's
 countdown again). A quit (Escape held or twice, the quit button) ends
-the play on the results: judged to the quit with the notes left
+the play on the results (in a room's stage whose others play on here it
+forfeits the stage and the rest of it is watched on from the player's
+own dimmed field, the results following its decision, a skip or a
+second quit: "Watching a stage" in
+`docs/plans/multiplayer-prototype-progress.md`): judged to the quit with the notes left
 unjudged (not misses, as after a fail: the counts and the timing are
 of what was played),
 graded QUIT in place of a letter (`Results::quit`, `Player::quit_at`),

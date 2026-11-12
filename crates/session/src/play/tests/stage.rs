@@ -2108,3 +2108,470 @@ fn the_player_gone_the_cpus_and_their_attacks_are_played_out() {
     assert_eq!(f.mine, ddi_room::Run::Forfeit);
     assert_eq!(ids(&f).iter().flatten().count(), 5);
 }
+
+// ---- Watching a stage (`watch-v0`, 2026-11-12) ----
+
+/// The room's person chooses Watch, the pick, the countdown: the watched
+/// stage the room hands over (nobody readies: the CPUs wait for nobody).
+fn begin_watching(song: &Song, room: &mut RoomClient, now: &mut u64, index: usize) -> StageOrder {
+    room.set_intent(ddi_room::Intent::Watch).unwrap();
+    let e = entry_at(song, index);
+    room.pick(&e, &e.charts[0]).unwrap();
+    let order = room.take_stage_order().expect("its prompt");
+    assert!(order.watching);
+    *now += 3_000;
+    room.tick(*now);
+    assert!(room.stage_started(order.stage), "the stage is on");
+    order
+}
+
+/// The stage of `order` on the fake clock from host second 0, `keys`
+/// queued, nothing autoplayed.
+fn stage_session(
+    song: &Song,
+    order: &StageOrder,
+    auto: bool,
+    keys: &[(f64, &str, bool)],
+) -> (PlaySession<FakeAudio, FakeInputs>, Clock) {
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let settings = Settings::default();
+    let mut inputs = FakeInputs::new(&clock);
+    for &(at, code, pressed) in keys {
+        inputs.key(at, code, pressed);
+    }
+    let mut config = SessionConfig::from_settings(&settings, auto, None);
+    config.opponents = Some(StageSetup::of(order));
+    let s = PlaySession::start(
+        song,
+        order.chart.index,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        inputs,
+    )
+    .unwrap();
+    (s, clock)
+}
+
+/// Ticks `s` at `fps` until host second `until` (or its event).
+fn run_until(
+    s: &mut PlaySession<FakeAudio, FakeInputs>,
+    clock: &Clock,
+    fps: f64,
+    until: f64,
+) -> Option<SessionEvent> {
+    while *clock.borrow() < until {
+        *clock.borrow_mut() += 1.0 / fps;
+        let now = *clock.borrow();
+        let (_, event) = s.tick(HostTime(now));
+        if event.is_some() {
+            return event;
+        }
+    }
+    None
+}
+
+/// A stage with no local player: the CPUs run on the song clock to its
+/// settlement, the same at 60 and 144 frames a second and as played out
+/// at once; the watcher is nobody's seat (not ranked, no sender and no
+/// target), nothing of theirs is judged; they follow a competitor (Tab,
+/// a tap), whose field is drawn from its stream, and go back to every
+/// field (Tab past the last, Escape).
+#[test]
+fn a_watched_stage_runs_its_cpus_to_its_settlement_at_any_frame_rate() {
+    use crate::battle::WatchMoment;
+    let song = bundled("beatucada");
+    let settings = Settings::default();
+    let mut rankings = Vec::new();
+    for fps in [60.0, 144.0] {
+        let mut practice = attacks_room(&song, 4, 2);
+        let mut now = 0;
+        let order = begin_watching(&song, &mut practice, &mut now, LONG);
+        assert_eq!(order.cpus.len(), 4);
+        let keys = [
+            (12.0, "Tab", true),
+            (12.05, "Tab", false),
+            (14.0, "Tab", true),
+            (14.05, "Tab", false),
+            (16.0, "Escape", true),
+            (16.05, "Escape", false),
+            // Lane keys are nobody's.
+            (17.0, "ArrowLeft", true),
+            (17.05, "ArrowLeft", false),
+        ];
+        let (mut s, clock) = stage_session(&song, &order, false, &keys);
+        assert!(run_until(&mut s, &clock, fps, 11.0).is_none());
+        let w = s.watch(11.0).expect("watched from the start");
+        assert_eq!((w.why, w.focus, w.over), (Watching::Spectator, None, false));
+        // Every field: the session's own frame is empty.
+        let grid = s.frame(HostTime(11.0));
+        assert!(grid.notes.is_empty() && grid.judgement.is_none());
+        assert_eq!((grid.combo, grid.life, grid.failed), (0, 0.0, false));
+        assert!(grid.song_time > 5.0, "on the song clock");
+        assert!(s.song_going());
+        // Tab: the first competitor, drawn from its stream.
+        assert!(run_until(&mut s, &clock, fps, 13.0).is_none());
+        assert_eq!(s.watch(13.0).unwrap().focus, Some(0));
+        let large = s.frame(HostTime(13.0));
+        let feed = s.battle().unwrap().feeds().next().unwrap();
+        let shown = feed.shown(large.song_time);
+        assert_eq!((large.life, large.combo), (shown.life, shown.combo));
+        assert!(!large.notes.is_empty(), "its notes");
+        assert!(large.score.ddi.is_some(), "its score, as the room shows it");
+        assert_eq!(
+            large.score.ddi.map(|d| d.score),
+            s.opponents()[0].sum,
+            "on the chart's scale"
+        );
+        // Tab again: the second; Escape once: every field, the stage on.
+        assert!(run_until(&mut s, &clock, fps, 15.0).is_none());
+        assert_eq!(s.watch(15.0).unwrap().focus, Some(1));
+        assert!(run_until(&mut s, &clock, fps, 18.0).is_none());
+        assert_eq!(s.watch(18.0).unwrap().focus, None);
+        // Nothing of the watcher's own was judged or played.
+        assert_eq!(s.player.judge().last_time(), None);
+        assert!(!s.player.finished() && s.held().iter().all(|h| !h));
+        let event = run(&mut s, &clock, fps, 300.0).expect("the stage ends");
+        assert!(matches!(event, SessionEvent::Finished { .. }));
+        assert!(!s.song_going());
+        let outcome = s.take_stage_outcome().expect("its outcome");
+        assert!(outcome.watched && outcome.summary.is_none());
+        let ranking = ids(&outcome);
+        assert_eq!(ranking.iter().flatten().count(), 4);
+        assert!(ranking.iter().flatten().all(|(p, _)| *p != order.me.0));
+        assert_eq!(outcome.details.len(), 4);
+        assert!(outcome.details.iter().all(|(p, _)| *p != order.me));
+        // Attacks between the CPUs alone; told as moments of the stage.
+        let ledger = s.battle().unwrap().attacks().unwrap().ledger();
+        assert!(!ledger.attacks().is_empty(), "the CPUs attacked each other");
+        assert!(
+            ledger
+                .attacks()
+                .iter()
+                .all(|x| x.sender != order.me && x.recipient != order.me)
+        );
+        assert!(s.attacks_told().is_empty(), "nobody is you");
+        // Played out at once (the watcher leaving as it starts): the
+        // same ranking.
+        let leave = [
+            (0.2, "Escape", true),
+            (0.25, "Escape", false),
+            (0.4, "Escape", true),
+        ];
+        let (mut gone, gone_clock) = stage_session(&song, &order, false, &leave);
+        let left = run(&mut gone, &gone_clock, fps, 300.0).expect("left");
+        assert!(matches!(left, SessionEvent::Aborted { .. }));
+        assert!(*gone_clock.borrow() < 1.0);
+        let at_once = gone.take_stage_outcome().unwrap();
+        assert!(at_once.watched);
+        assert_eq!(ids(&at_once), ranking);
+        // A watched stage left at its prompt: the CPUs alone, ranked.
+        let prompt = crate::battle::forfeit(
+            StageSetup::of(&order),
+            &song,
+            LONG,
+            &rules_of(&settings, &order, &song),
+        )
+        .unwrap();
+        assert!(prompt.watched);
+        assert_eq!(ids(&prompt).iter().flatten().count(), 4);
+        assert!(ids(&prompt).iter().flatten().all(|(p, _)| *p != order.me.0));
+        // The room takes it: the CPUs placed, the watcher nowhere.
+        practice
+            .report_played(
+                outcome.stage,
+                outcome.mine,
+                outcome.ranking.clone(),
+                outcome.confirmed_early,
+                outcome.details.clone(),
+            )
+            .unwrap();
+        assert!(practice.mark_of(order.stage).is_none());
+        assert_eq!(practice.state().standings().unwrap().len(), 4);
+        rankings.push(ranking);
+        let _ = WatchMoment::Drawn;
+    }
+    assert_eq!(rankings[0], rankings[1], "the same at 60 and 144");
+}
+
+/// A watched stage ends a while after it is decided (the winner said),
+/// and a watcher's quit leaves it at once with nobody forfeiting.
+#[test]
+fn a_watched_stage_ends_after_its_decision_and_a_watcher_leaves_freely() {
+    use crate::battle::WatchMoment;
+    let song = bundled("beatucada");
+    // CPUs that go out (a battery of one life, TESTS ONLY): decided
+    // before the song's end.
+    let mut settings = Settings::default();
+    settings.stepmania.life_type = ddi_engine::rules::LifeType::Battery;
+    settings.stepmania.lives = 1;
+    let mut practice = attacks_room(&song, 3, 1);
+    let mut now = 0;
+    let order = begin_watching(&song, &mut practice, &mut now, LONG);
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let mut config = SessionConfig::from_settings(&settings, false, None);
+    config.opponents = Some(StageSetup::of(&order));
+    config.stage_rules = Some(rules_of(&settings, &order, &song));
+    let mut s = PlaySession::start(
+        &song,
+        LONG,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    let mut decided_at = None;
+    let mut outs = 0;
+    let event = loop {
+        *clock.borrow_mut() += 1.0 / 60.0;
+        let host = *clock.borrow();
+        let (_, event) = s.tick(HostTime(host));
+        if let Some((WatchMoment::Out { .. }, age)) = s.watch(host).and_then(|w| w.cue)
+            && age == 0.0
+        {
+            outs += 1;
+        }
+        if decided_at.is_none() && s.battle().unwrap().decided() {
+            decided_at = Some(host);
+            let w = s.watch(host).unwrap();
+            assert!(w.over);
+            assert!(
+                matches!(w.cue, Some((WatchMoment::Won { .. } | WatchMoment::Drawn, _))),
+                "{:?}",
+                w.cue
+            );
+        }
+        if let Some(e) = event {
+            break e;
+        }
+        assert!(host < 300.0);
+    };
+    let at = decided_at.expect("decided before the song's end");
+    assert!(outs > 0, "each going out was told");
+    let host = *clock.borrow();
+    assert!(
+        (host - at - WATCH_END_HOLD).abs() < 0.05,
+        "the results {} s after the decision",
+        host - at
+    );
+    assert!(matches!(event, SessionEvent::Finished { .. }));
+    let outcome = s.take_stage_outcome().unwrap();
+    assert!(outcome.confirmed_early && outcome.watched);
+
+    // Escape twice: the watcher leaves; the CPUs are played out, nobody
+    // forfeits.
+    let mut practice = attacks_room(&song, 3, 2);
+    let mut now = 0;
+    let order = begin_watching(&song, &mut practice, &mut now, LONG);
+    let keys = [
+        (8.0, "Escape", true),
+        (8.05, "Escape", false),
+        (8.2, "Escape", true),
+    ];
+    let (mut s, clock) = stage_session(&song, &order, false, &keys);
+    let event = run(&mut s, &clock, 60.0, 300.0).expect("left");
+    assert!(matches!(event, SessionEvent::Aborted { .. }));
+    assert!(*clock.borrow() < 9.0, "at once");
+    let outcome = s.take_stage_outcome().unwrap();
+    assert!(outcome.watched);
+    assert_eq!(ids(&outcome).iter().flatten().count(), 3);
+    assert!(
+        ids(&outcome)
+            .iter()
+            .flatten()
+            .all(|(_, f)| *f != Finish::Forfeit)
+    );
+}
+
+/// A player whose life runs out no longer ends the stage for themselves
+/// at once: their field goes blank and the stage is watched on in real
+/// time (the CPUs and their attacks really played), to the same ranking
+/// as skipping to the results (which plays the rest out at once, as
+/// going out did before), at 60 and 144 frames a second. Their own
+/// results are those of the moment they went out.
+#[test]
+fn going_out_then_watching_on_gives_the_outcome_playing_out_did() {
+    let song = bundled("beatucada");
+    let mut seen = Vec::new();
+    for (fps, skip) in [(60.0, true), (60.0, false), (144.0, false)] {
+        let mut practice = attacks_room(&song, 4, 3);
+        let mut now = 0;
+        let order = begin_at(&song, &mut practice, &mut now, LONG);
+        assert!(!order.watching);
+        // Nobody presses: out of life. Enter (asked every half second,
+        // nobody's lane) skips once the player watches.
+        let mut keys = Vec::new();
+        if skip {
+            for i in 0..400 {
+                let at = f64::from(i) * 0.5;
+                keys.push((at, "Enter", true));
+                keys.push((at + 0.05, "Enter", false));
+            }
+        }
+        let (mut s, clock) = stage_session(&song, &order, false, &keys);
+        let mut out_at = None;
+        let event = loop {
+            *clock.borrow_mut() += 1.0 / fps;
+            let host = *clock.borrow();
+            let (_, event) = s.tick(HostTime(host));
+            if out_at.is_none()
+                && let Some(w) = s.watch(host)
+            {
+                out_at = Some(host);
+                assert_eq!((w.why, w.focus), (Watching::Out, None));
+                assert!(s.player.failed() && s.player.finished());
+                assert!(s.song_going(), "the song goes on");
+                // The player's own field: blank, nothing more judged.
+                let f = s.frame(HostTime(host));
+                assert!(f.notes.is_empty() && !f.failed && f.judgement.is_none());
+                // No bar, no warning, no policy: they battle no more.
+                let b = s.battle().unwrap();
+                assert!(b.my_power(&s.player).is_none() && b.policy(&s.player).is_none());
+                assert!(s.take_fail_report().is_some(), "the fail is final now");
+            }
+            if let Some(e) = event {
+                break e;
+            }
+            assert!(host < 300.0);
+        };
+        let out_at = out_at.expect("the player went out and watched on");
+        let host = *clock.borrow();
+        let SessionEvent::Finished { results, .. } = event else {
+            panic!("a failed play's results");
+        };
+        assert!(results.failed);
+        if skip {
+            assert!(host - out_at < 0.6, "skipped: {}", host - out_at);
+        } else {
+            assert!(host - out_at > 5.0, "watched on: {}", host - out_at);
+            // The CPUs' attacks went on in real time after the player
+            // was out.
+            let ledger = s.battle().unwrap().attacks().unwrap().ledger();
+            let failed = s.player.gauge_failed_at().unwrap();
+            assert!(
+                ledger
+                    .attacks()
+                    .iter()
+                    .any(|x| ledger.checkpoints_us()[x.checkpoint] as f64 / 1e6 > failed + 1.0),
+                "attacks after the player was out"
+            );
+        }
+        let outcome = s.take_stage_outcome().unwrap();
+        assert!(!outcome.watched);
+        let ranking = ids(&outcome);
+        assert_eq!(
+            ranking.last().unwrap(),
+            &vec![(order.me.0, Finish::Eliminated)]
+        );
+        seen.push((
+            ranking,
+            outcome.drawn_by_final_attack,
+            results.max_combo,
+            results.gauge_failed_at,
+        ));
+    }
+    assert_eq!(seen[0], seen[1], "watched on as played out at once");
+    assert_eq!(seen[1], seen[2], "the same at 60 and 144");
+}
+
+/// Leaving a stage's play while still in it forfeits the stage and goes
+/// on to watch the rest of it (out by quitting is out by life's path);
+/// the forfeit is ranked as one; Enter skips to the results, and so does
+/// a second quit.
+#[test]
+fn a_quit_in_a_stage_forfeits_and_watches_on_until_skipped() {
+    let song = bundled("beatucada");
+    for second in ["Enter", "Escape"] {
+        let mut practice = attacks_room(&song, 3, 3);
+        let mut now = 0;
+        let order = begin_at(&song, &mut practice, &mut now, LONG);
+        let mut keys = vec![
+            (8.0, "Escape", true),
+            (8.05, "Escape", false),
+            (8.2, "Escape", true),
+            (8.25, "Escape", false),
+            // Not a skip while it is a lane's or anyone's: Tab changes
+            // nothing for a player out of the stage.
+            (10.0, "Tab", true),
+            (10.05, "Tab", false),
+        ];
+        if second == "Enter" {
+            keys.push((14.0, "Enter", true));
+        } else {
+            keys.push((14.0, "Escape", true));
+            keys.push((14.05, "Escape", false));
+            keys.push((14.2, "Escape", true));
+        }
+        let (mut s, clock) = stage_session(&song, &order, true, &keys);
+        assert!(run_until(&mut s, &clock, 60.0, 8.1).is_none());
+        assert!(s.watch(8.1).is_none(), "one press only shows the hint");
+        assert!(run_until(&mut s, &clock, 60.0, 13.0).is_none(), "no results yet");
+        let w = s.watch(13.0).expect("watching on");
+        assert_eq!((w.why, w.focus), (Watching::Left, None));
+        let b = s.battle().unwrap();
+        assert!(b.forfeited() && !b.me_in(&s.player));
+        assert!(s.player.finished() && !s.player.failed());
+        assert!(s.frame(HostTime(13.0)).notes.is_empty());
+        assert_eq!(s.view.cancel_progress, 0.0, "the quit's bar is gone");
+        // Nothing is sent at them or by them any more.
+        let ledger = b.attacks().unwrap().ledger();
+        assert!(ledger.attacks().iter().all(|x| {
+            ledger.checkpoints_us()[x.checkpoint] < 9_000_000
+                || (x.sender != order.me && x.recipient != order.me)
+        }));
+        let event = run(&mut s, &clock, 60.0, 300.0).expect("skipped");
+        let host = *clock.borrow();
+        assert!((14.0..14.4).contains(&host), "{second}: at {host}");
+        let SessionEvent::Aborted { results, .. } = event else {
+            panic!("a play left: its results say so");
+        };
+        assert!(results.quit);
+        let outcome = s.take_stage_outcome().unwrap();
+        assert_eq!(outcome.mine, ddi_room::Run::Forfeit);
+        assert_eq!(
+            ids(&outcome).last().unwrap(),
+            &vec![(order.me.0, Finish::Forfeit)]
+        );
+        assert_eq!(ids(&outcome).iter().flatten().count(), 4);
+    }
+}
+
+/// Leaving the play from outside it (a close request, the browser's
+/// Back: `PlaySession::leave`) is the play's quit: in an online room's
+/// stage (nobody else's play is here to watch) it ends at the next frame
+/// as a forfeit, its results following, where the room's question is
+/// asked; in practice the forfeit goes on to watch the rest of the stage.
+#[test]
+fn leaving_from_outside_the_play_forfeits_and_ends_an_online_stage_at_once() {
+    let song = bundled("beatucada");
+    // An online room's: the others on their own devices.
+    let mut practice = room(&song, 1, 1, 2);
+    let mut now = 0;
+    let mut order = begin(&song, &mut practice, &mut now);
+    order.cpus.clear();
+    order.others = 1;
+    let (mut s, clock) = stage_session(&song, &order, true, &[]);
+    assert!(run_until(&mut s, &clock, 60.0, 6.0).is_none());
+    s.leave();
+    let event = run_until(&mut s, &clock, 60.0, 6.2).expect("at the next frame");
+    let SessionEvent::Aborted { results, .. } = event else {
+        panic!("a play left");
+    };
+    assert!(results.quit);
+    assert!(s.watch(6.2).is_none(), "nothing to watch there yet");
+    let outcome = s.take_stage_outcome().unwrap();
+    assert_eq!(outcome.mine, ddi_room::Run::Forfeit);
+    // Practice: the same call forfeits and watches on.
+    let mut practice = attacks_room(&song, 3, 3);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let (mut s, clock) = stage_session(&song, &order, true, &[]);
+    assert!(run_until(&mut s, &clock, 60.0, 6.0).is_none());
+    s.leave();
+    assert!(run_until(&mut s, &clock, 60.0, 9.0).is_none(), "watching on");
+    assert_eq!(s.watch(9.0).map(|w| w.why), Some(Watching::Left));
+    assert!(s.battle().unwrap().forfeited());
+}

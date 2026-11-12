@@ -397,9 +397,9 @@ pub fn online_room_screen(
 }
 
 /// The practice room's song select (M7b: the room's main view): Back to
-/// the home (the room kept between matches; with a match running, asked
-/// first and then forgotten), Leave room forgets it first, a stage played
-/// through the library's play call.
+/// the home (the room kept between matches; with a match running,
+/// forgotten with its match, never asked), Leave room forgets it first, a
+/// stage played through the library's play call.
 pub fn room_screen(
     env: &Env,
     songs: Option<Rc<Songs>>,

@@ -79,6 +79,11 @@ pub struct StageSetup {
     /// Other people starting the stage on their own devices (an online
     /// room's): the room decides it from everyone's reports.
     pub others: u16,
+    /// The local player is not in the stage: they watch it (`watch-v0`,
+    /// `StageOrder::watching`). `me` is then nobody's seat: the CPUs
+    /// alone are its competitors, judged on the song clock as ever, and
+    /// nothing of the session's own player is judged.
+    pub watching: bool,
 }
 
 impl StageSetup {
@@ -107,6 +112,7 @@ impl StageSetup {
             targeting: order.targeting,
             cpus: order.cpus.clone(),
             others: order.others,
+            watching: order.watching,
         }
     }
 
@@ -285,6 +291,11 @@ pub struct StageOutcome {
     /// they sent how many, who sent them how many, the shocks they
     /// stepped on, a final attack's draw (the results' battle summary).
     pub summary: Option<AttackSummary>,
+    /// The local player was not in the stage (they watched it): `mine`
+    /// is then no run of theirs (a forfeit's placeholder, never
+    /// reported: a watched stage is a practice's, ranked here), and
+    /// `details` are the CPUs' alone.
+    pub watched: bool,
 }
 
 /// An attack against the local player, as its warning shows it
@@ -356,6 +367,61 @@ pub struct Waiting {
     pub reason: BlockReason,
 }
 
+/// An attack between two competitors as someone watching sees it
+/// (`watch-v0`: [`Battle::seen_links`]): the seats at its ends (their
+/// places in [`Battle::views`] and [`Battle::feeds`]), and its times as a
+/// [`Link`]'s.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SeenLink {
+    pub attack: u32,
+    pub from: usize,
+    pub to: usize,
+    pub shown_from: f64,
+    pub first: f64,
+    pub clear: f64,
+    /// It waits behind another attack against the same recipient.
+    pub chained: bool,
+}
+
+impl SeenLink {
+    /// The link as `seat`'s own relationship ([`Link`]: what a play
+    /// draws for its player), where it is at one of its ends: what a
+    /// watcher following `seat` is shown.
+    pub fn of(&self, seat: usize) -> Option<Link> {
+        let (other, outgoing) = if self.from == seat {
+            (self.to, true)
+        } else if self.to == seat {
+            (self.from, false)
+        } else {
+            return None;
+        };
+        Some(Link {
+            attack: self.attack,
+            seat: other,
+            outgoing,
+            shown_from: self.shown_from,
+            first: self.first,
+            clear: self.clear,
+            chained: self.chained,
+        })
+    }
+}
+
+/// A stage's moment as someone watching it is told (`watch-v0`), in the
+/// status line: nobody's "you". The seats are places in
+/// [`Battle::views`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WatchMoment {
+    /// A competitor's life ran out.
+    Out { seat: usize },
+    /// The stage is decided: this competitor won it alone.
+    Won { seat: usize },
+    /// The stage is decided with first place shared.
+    Drawn,
+    /// An attack committed.
+    Attack { from: usize, to: usize },
+}
+
 /// The reading horizon a CPU's lead is reckoned from (D5): the local
 /// player's own, so that the shocks on its miniature field, drawn under
 /// the local player's scroll, come in from the far end as the player's
@@ -425,6 +491,15 @@ pub struct Battle {
     out: bool,
     /// The local player's judged song second, as of the last frame.
     now: f64,
+    /// The local player left the stage's play while still in (a forfeit),
+    /// at this judged song second ([`Battle::forfeit_now`]): out of the
+    /// stage from then, the rest of it watched.
+    forfeit: Option<f64>,
+    /// The stage's moments for someone watching, since they were last
+    /// taken ([`Battle::take_watch_moments`]), and the seats whose going
+    /// out was told.
+    watch_moments: Vec<WatchMoment>,
+    outs_told: Vec<bool>,
 }
 
 /// The most points chart `chart` of `song`, whole, gives under `ruleset`
@@ -518,15 +593,18 @@ impl Battle {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
-        let live = seats.len() + 1 + usize::from(setup.others);
+        let live = seats.len() + usize::from(!setup.watching) + usize::from(setup.others);
         let attacks = (setup.battle.attacks() && !setup.remote()).then(|| {
             let lead = LEAD_V0.of(attacks::micros(horizon));
             let roster = StageRoster {
-                seats: std::iter::once(RosterSeat {
-                    participant: setup.me,
-                    targeting: setup.targeting,
-                    lead_us: lead,
-                })
+                // A watcher has no seat: neither a sender nor a target.
+                seats: (!setup.watching)
+                    .then_some(RosterSeat {
+                        participant: setup.me,
+                        targeting: setup.targeting,
+                        lead_us: lead,
+                    })
+                    .into_iter()
                 .chain(seats.iter().map(|s| RosterSeat {
                     participant: s.seat.participant,
                     targeting: s.seat.targeting,
@@ -558,7 +636,60 @@ impl Battle {
             critical: false,
             out: false,
             now: f64::NEG_INFINITY,
+            forfeit: None,
+            watch_moments: Vec::new(),
+            outs_told: Vec::new(),
         })
+    }
+
+    /// The local player competes in the stage (they do not watch it).
+    pub fn competes(&self) -> bool {
+        !self.setup.watching
+    }
+
+    /// The local player is still in the stage: competing, their gauge
+    /// not emptied and not left ([`Battle::forfeit_now`]).
+    pub fn me_in(&self, human: &Player) -> bool {
+        self.competes() && self.forfeit.is_none() && human.gauge_failed_at().is_none()
+    }
+
+    /// The local player's battle goes on: still in, the stage not won.
+    fn me_battling(&self, human: &Player) -> bool {
+        !self.won() && self.me_in(human)
+    }
+
+    /// The local player leaves the stage's play while still in, at
+    /// judged song second `at` (their quit: a forfeit, ranked as one):
+    /// out of the stage from then, a target and a sender of attacks no
+    /// more; the stage goes on between the others, watched. Whether it
+    /// was one (not for a watcher, once out, or after the stage was
+    /// decided).
+    pub fn forfeit_now(&mut self, at: f64, human: &Player) -> bool {
+        if self.decided.is_some() || !self.me_in(human) {
+            return false;
+        }
+        self.forfeit = Some(at);
+        if let Some(a) = self.attacks.as_mut() {
+            a.out_at(self.setup.me, at);
+        }
+        true
+    }
+
+    /// The local player left the stage's play while still in.
+    pub fn forfeited(&self) -> bool {
+        self.forfeit.is_some()
+    }
+
+    /// Whether anything is left to watch of a stage the local player is
+    /// not in (or no longer in): it is not decided and a competitor is
+    /// still playing it.
+    pub fn goes_on(&self) -> bool {
+        self.decided.is_none()
+            && !self.setup.remote()
+            && self
+                .seats
+                .iter()
+                .any(|s| s.opponent.out_at().is_none() && !s.opponent.finished())
     }
 
     pub fn setup(&self) -> &StageSetup {
@@ -585,6 +716,9 @@ impl Battle {
     /// their gauge does), `Some(false)` the moment it is decided
     /// otherwise.
     pub fn advance(&mut self, t: f64, human: &mut Player, judged: &[JudgeEvent]) -> Option<bool> {
+        if !self.competes() {
+            return self.advance_watched(t);
+        }
         self.now = t;
         if let Some(a) = self.attacks.as_mut() {
             a.judged(self.setup.me, judged);
@@ -593,8 +727,25 @@ impl Battle {
             }
         }
         self.step_cpus(t);
-        self.run_attacks(Some(human));
-        self.settle(human)
+        // Out of the stage (by life, or left): nothing more is put into
+        // their play.
+        if self.me_in(human) {
+            self.run_attacks(Some(human));
+        } else {
+            self.run_attacks(None);
+        }
+        self.settle(Some(human))
+    }
+
+    /// [`Battle::advance`] for a stage the local player is not in (a
+    /// watcher's): its competitors judged to song second `t`, the attacks
+    /// between them run and delivered, the stage settled as it comes.
+    /// `Some(false)` the moment it is decided.
+    pub fn advance_watched(&mut self, t: f64) -> Option<bool> {
+        self.now = t;
+        self.step_cpus(t);
+        self.run_attacks(None);
+        self.settle(None)
     }
 
     /// Each CPU judged to `t`, its judgments to the ledger and to its
@@ -605,14 +756,28 @@ impl Battle {
             // Its judgments as moments of its stream: what its field shows.
             let (life, combo, out_at) =
                 (s.opponent.life(), s.opponent.combo(), s.opponent.out_at());
+            // Its score as the room shows it, for its field shown large.
+            let score = cpu_score(&s.opponent.score(), self.most);
             let events = s.opponent.take_judged();
+            let judge = &s.opponent.player().ruleset().judge;
+            // What a field shown large says of each: early or late, and
+            // the ruleset's inner window.
+            let said: Vec<(f32, Option<bool>)> = events
+                .iter()
+                .map(|e| match e.kind {
+                    JudgeEventKind::Tap(j, delta) if !j.is_miss() => {
+                        (delta as f32, judge.is_w0(j, delta))
+                    }
+                    _ => (0.0, None),
+                })
+                .collect();
             if let Some(a) = self.attacks.as_mut() {
                 a.judged(s.seat.participant, &events);
                 if let Some(at) = out_at {
                     a.out_at(s.seat.participant, at);
                 }
             }
-            for e in events {
+            for (e, (offset, w0)) in events.into_iter().zip(said) {
                 let kind = match e.kind {
                     JudgeEventKind::Tap(judgment, _) => feed::MomentKind::Tap(judgment),
                     // A battle shock stepped on (its copy has no mines of
@@ -633,6 +798,9 @@ impl Battle {
                     life,
                     combo,
                     out: out_at.is_some_and(|o| o <= e.song_time),
+                    offset,
+                    w0,
+                    score,
                 };
                 s.feed.push(&self.track, moment);
             }
@@ -728,6 +896,12 @@ impl Battle {
                 } else if sender == me {
                     self.attack_moments.push((AttackMoment::Launched, first));
                 }
+            } else if delivered {
+                // Watched: who attacks whom, nobody's "you".
+                let seat = |p: ParticipantId| self.seats.iter().position(|s| s.seat.participant == p);
+                if let (Some(from), Some(to)) = (seat(sender), seat(recipient)) {
+                    self.watch_moments.push(WatchMoment::Attack { from, to });
+                }
             }
             let name = |p: ParticipantId| {
                 if p == me {
@@ -756,12 +930,14 @@ impl Battle {
 
     /// Whether the stage is decided now (`SETTLEMENT_V0`): at most one
     /// competitor in and no attack against anyone still in outstanding;
-    /// the ranking then, and what it tells.
-    fn settle(&mut self, human: &Player) -> Option<bool> {
+    /// the ranking then, and what it tells. `human`: the local player's
+    /// play (none: a watcher's stage, the CPUs alone).
+    fn settle(&mut self, human: Option<&Player>) -> Option<bool> {
         if self.decided.is_some() {
             return None;
         }
-        let entrants = self.entrants(human, false);
+        let human = human.filter(|_| self.competes());
+        let entrants = self.entrants_as(human.map(|h| self.my_run(h, false)));
         // Others play on their own devices: nothing is decided here.
         if self.setup.remote() {
             self.tell(human, false);
@@ -775,7 +951,7 @@ impl Battle {
                 .outstanding()
                 .filter(|(p, clear)| {
                     let judged = if *p == me {
-                        human.judge().last_time()
+                        human.and_then(|h| h.judge().last_time())
                     } else {
                         self.seats
                             .iter()
@@ -818,26 +994,45 @@ impl Battle {
             .as_ref()
             .map_or(&[][..], |a| a.ledger().checkpoints_us());
         let (ranking, drawn) = SETTLEMENT_V0.rank(&entrants, checkpoints, self.settling);
-        let won = ranking.first().is_some_and(|g| {
-            g.len() == 1
-                && g[0].participant == self.setup.me
-                && g[0].finish == ddi_room::Finish::Survived
-        });
+        let won = human.is_some()
+            && ranking.first().is_some_and(|g| {
+                g.len() == 1
+                    && g[0].participant == self.setup.me
+                    && g[0].finish == ddi_room::Finish::Survived
+            });
         // The outcome as it is confirmed: won alone, or first shared (the
         // last ones out together, or a final attack's knockout); out, the
         // elimination told it.
-        let shared = ranking
-            .first()
-            .is_some_and(|g| g.len() > 1 && g.iter().any(|f| f.participant == self.setup.me));
+        let shared = human.is_some()
+            && ranking
+                .first()
+                .is_some_and(|g| g.len() > 1 && g.iter().any(|f| f.participant == self.setup.me));
         if won {
             self.events.push(Event::StageWon);
         } else if shared {
             self.events.retain(|e| *e != Event::Eliminated);
             self.events.push(Event::StageDrawn);
         }
+        // For someone watching: who won it, or that first is shared.
+        match ranking.first().map(Vec::as_slice) {
+            Some([one]) => {
+                if let Some(seat) = self
+                    .seats
+                    .iter()
+                    .position(|s| s.seat.participant == one.participant)
+                {
+                    self.watch_moments.push(WatchMoment::Won { seat });
+                }
+            }
+            Some([_, _, ..]) => self.watch_moments.push(WatchMoment::Drawn),
+            _ => {}
+        }
         self.drawn = drawn;
         self.decided = Some(ranking);
-        self.decided_at = human.judge().last_time();
+        self.decided_at = match human {
+            Some(h) => h.judge().last_time(),
+            None => Some(self.now),
+        };
         Some(won)
     }
 
@@ -847,21 +1042,25 @@ impl Battle {
     /// have gone on (nothing they do depends on the player any more),
     /// the stage settled as it comes.
     pub fn play_out(&mut self, human: &Player, quit: bool) {
+        if !self.competes() {
+            return self.play_out_as(None);
+        }
         if let Some(a) = self.attacks.as_mut() {
             let at = human
                 .gauge_failed_at()
+                .or(self.forfeit)
                 .or_else(|| quit.then(|| human.judge().last_time().unwrap_or(f64::NEG_INFINITY)));
             if let Some(at) = at {
                 a.out_at(self.setup.me, at);
             }
         }
-        let me = self.entrants(human, quit)[0].run;
-        self.play_out_as(me);
+        let me = self.my_run(human, quit);
+        self.play_out_as(Some(me));
     }
 
     /// [`Battle::play_out`] with the local player's run `me` (out, or a
-    /// forfeit) already given to the ledger.
-    fn play_out_as(&mut self, me: Run) {
+    /// forfeit) already given to the ledger; none: a watcher's stage.
+    fn play_out_as(&mut self, me: Option<Run>) {
         // A bound: one step a checkpoint, and a last one.
         let mut steps = 0;
         while self.decided.is_none() && steps < 10_000 {
@@ -892,7 +1091,7 @@ impl Battle {
 
     /// [`Battle::settle`] for a play over: decided as it comes, nothing
     /// told (the player's results are on their way).
-    fn settle_quietly(&mut self, me: Run) {
+    fn settle_quietly(&mut self, me: Option<Run>) {
         if self.decided.is_some() || self.setup.remote() {
             return;
         }
@@ -933,8 +1132,9 @@ impl Battle {
             return;
         }
         // Only once the attacks matter: without them a stage played out
-        // is ranked at the song's end, as before.
-        if self.attacks.is_none() {
+        // is ranked at the song's end, as before (a watcher's is decided
+        // as it comes either way, as it is while they watch).
+        if self.attacks.is_none() && me.is_some() {
             return;
         }
         let checkpoints = self
@@ -951,39 +1151,72 @@ impl Battle {
     /// (once; it silences the same frame's critical life and players
     /// left), and the players still in becoming one of
     /// [`SURVIVOR_MILESTONES`] (only the count reached, never one passed
-    /// over; not at one: that decides the stage).
-    fn tell(&mut self, human: &Player, decided: bool) {
-        let rules = human.ruleset();
-        let out = human.gauge_failed_at().is_some();
-        let danger =
-            !out && rules.gauge.danger() && !matches!(rules.fail, ddi_engine::FailPolicy::Off);
-        let live = usize::from(!out)
+    /// over; not at one: that decides the stage; told to someone watching
+    /// too, a spectator or a player out of the stage: it is nobody's
+    /// "you"). For someone watching, each competitor's going out as well
+    /// ([`WatchMoment::Out`]).
+    fn tell(&mut self, human: Option<&Player>, decided: bool) {
+        let out = human.is_some_and(|h| h.gauge_failed_at().is_some());
+        let in_stage = human.is_some_and(|h| self.me_in(h));
+        let danger = human.is_some_and(|h| {
+            let rules = h.ruleset();
+            in_stage && rules.gauge.danger() && !matches!(rules.fail, ddi_engine::FailPolicy::Off)
+        });
+        let live = usize::from(in_stage)
             + usize::from(self.setup.others)
             + self
                 .seats
                 .iter()
                 .filter(|s| s.opponent.out_at().is_none())
                 .count();
+        let milestone = |live: usize, before: usize| {
+            (live < before && !decided)
+                .then(|| u8::try_from(live).ok())
+                .flatten()
+                .filter(|n| SURVIVOR_MILESTONES.contains(n))
+        };
         if out && !self.out {
             self.out = true;
             self.events.push(Event::Eliminated);
-        } else if !out {
+        } else if in_stage {
             // Entering danger, not in it from the start (a gauge of one
             // life is in danger throughout: nothing crosses).
             if danger && self.danger == Some(false) && !self.critical && !decided {
                 self.critical = true;
                 self.events.push(Event::LifeCritical);
             }
-            if live < self.live
-                && !decided
-                && let Ok(n) = u8::try_from(live)
-                && SURVIVOR_MILESTONES.contains(&n)
-            {
+            if let Some(n) = milestone(live, self.live) {
                 self.events.push(Event::Survivors(n));
             }
+        } else if let Some(n) = milestone(live, self.live) {
+            // Watching (never in, or out of it since an earlier frame).
+            self.events.push(Event::Survivors(n));
+        }
+        // Who went out, for someone watching.
+        if !in_stage {
+            self.outs_told.resize(self.seats.len(), false);
+            for (seat, s) in self.seats.iter().enumerate() {
+                if s.opponent.out_at().is_some() && !self.outs_told[seat] {
+                    self.outs_told[seat] = true;
+                    self.watch_moments.push(WatchMoment::Out { seat });
+                }
+            }
+        } else {
+            // Told once they watch: only what happens from then.
+            self.outs_told = self
+                .seats
+                .iter()
+                .map(|s| s.opponent.out_at().is_some())
+                .collect();
         }
         self.danger = Some(danger);
         self.live = live;
+    }
+
+    /// The stage's moments for someone watching since the last call
+    /// ([`WatchMoment`]), in the order they came.
+    pub fn take_watch_moments(&mut self) -> Vec<WatchMoment> {
+        std::mem::take(&mut self.watch_moments)
     }
 
     /// The local player's attack moments since the last call (an attack
@@ -1023,7 +1256,7 @@ impl Battle {
     /// stops).
     pub fn my_power(&self, human: &Player) -> Option<(f32, bool)> {
         let a = self.attacks.as_ref()?;
-        (!self.won() && human.gauge_failed_at().is_none()).then(|| a.bar(self.setup.me))
+        self.me_battling(human).then(|| a.bar(self.setup.me))
     }
 
     /// The attack against the local player on its way or passing, as its
@@ -1032,14 +1265,29 @@ impl Battle {
     /// by `more`), the next once the first's last shock has passed, none
     /// once every one has (there is no recovery to wait for).
     pub fn incoming(&self, human: &Player) -> Option<Incoming> {
-        let a = self.attacks.as_ref()?;
-        if self.won() || human.gauge_failed_at().is_some() {
+        if !self.me_battling(human) {
             return None;
         }
+        self.incoming_of(self.setup.me)
+    }
+
+    /// The attack against the competitor in `seat` on its way or passing,
+    /// as a watcher following them is shown it ([`Battle::incoming`] for
+    /// that competitor): none once they are out or the stage is decided.
+    pub fn incoming_for(&self, seat: usize) -> Option<Incoming> {
+        let s = self.seats.get(seat)?;
+        if self.decided.is_some() || s.opponent.out_at().is_some() {
+            return None;
+        }
+        self.incoming_of(s.seat.participant)
+    }
+
+    fn incoming_of(&self, participant: ParticipantId) -> Option<Incoming> {
+        let a = self.attacks.as_ref()?;
         let now = attacks::micros(self.now);
         let mut all = a
             .ledger()
-            .incoming_all(self.setup.me)
+            .incoming_all(participant)
             .filter(|x| x.clear_us >= now);
         let attack = all.next()?;
         let more = all.next().is_some();
@@ -1066,7 +1314,7 @@ impl Battle {
         let Some(a) = self.attacks.as_ref() else {
             return Vec::new();
         };
-        if self.won() || human.gauge_failed_at().is_some() {
+        if !self.me_battling(human) {
             return Vec::new();
         }
         let me = self.setup.me;
@@ -1126,7 +1374,7 @@ impl Battle {
         let Some(a) = self.attacks.as_ref() else {
             return Vec::new();
         };
-        if self.won() || human.gauge_failed_at().is_some() {
+        if !self.me_battling(human) {
             return Vec::new();
         }
         let me = self.setup.me;
@@ -1151,11 +1399,67 @@ impl Battle {
         kept
     }
 
+    /// Who attacks whom among the competitors, as someone watching sees
+    /// it (`watch-v0`): each attack between two of them that has not
+    /// cleared yet, in the order committed; none once the stage is
+    /// decided, none against a recipient who went out.
+    pub fn seen_links(&self) -> Vec<SeenLink> {
+        let Some(a) = self.attacks.as_ref() else {
+            return Vec::new();
+        };
+        if self.decided.is_some() {
+            return Vec::new();
+        }
+        let now = attacks::micros(self.now);
+        let seat = |p: ParticipantId| self.seats.iter().position(|s| s.seat.participant == p);
+        let live: Vec<&ddi_room::attacks::Attack> = a
+            .ledger()
+            .attacks()
+            .iter()
+            .filter(|x| {
+                matches!(
+                    x.state,
+                    ddi_room::attacks::AttackState::Active | ddi_room::attacks::AttackState::Cleared
+                ) && x.clear_us >= now
+            })
+            .collect();
+        live.iter()
+            .filter_map(|x| {
+                let (from, to) = (seat(x.sender)?, seat(x.recipient)?);
+                if self.seats[to].opponent.out_at().is_some() {
+                    return None;
+                }
+                let committed = a
+                    .ledger()
+                    .checkpoints_us()
+                    .get(x.checkpoint)
+                    .copied()
+                    .unwrap_or(0) as f64
+                    / 1e6;
+                Some(SeenLink {
+                    attack: x.id,
+                    from,
+                    to,
+                    shown_from: self
+                        .seen
+                        .iter()
+                        .find(|(id, _)| *id == x.id)
+                        .map_or(committed, |(_, t)| *t),
+                    first: x.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6,
+                    clear: x.clear_us as f64 / 1e6,
+                    chained: live
+                        .iter()
+                        .any(|y| y.recipient == x.recipient && y.id < x.id),
+                })
+            })
+            .collect()
+    }
+
     /// The local player's full bar waiting, and why (none once out or
     /// after a confirmed win).
     pub fn waiting(&self, human: &Player) -> Option<Waiting> {
         let a = self.attacks.as_ref()?;
-        if self.won() || human.gauge_failed_at().is_some() {
+        if !self.me_battling(human) {
             return None;
         }
         a.waiting(self.setup.me)
@@ -1167,7 +1471,7 @@ impl Battle {
     /// once out or after a confirmed win, as the bar).
     pub fn policy(&self, human: &Player) -> Option<Targeting> {
         self.attacks.as_ref()?;
-        (!self.won() && human.gauge_failed_at().is_none()).then_some(self.policy)
+        self.me_battling(human).then_some(self.policy)
     }
 
     /// The local player changes their policy to `targeting` at judged
@@ -1265,20 +1569,34 @@ impl Battle {
     /// the local player left while still in (a forfeit; never after the
     /// stage was decided).
     pub fn outcome(&mut self, human: &Player, quit: bool) -> StageOutcome {
-        let mine = self.entrants(human, quit)[0].run;
+        let watched = !self.competes();
+        let quit = quit || self.forfeit.is_some();
+        let mine = if watched {
+            Run::Forfeit
+        } else {
+            self.my_run(human, quit)
+        };
         if self.decided.is_none() {
             self.play_out(human, quit);
         }
-        let mut details = vec![(
-            self.setup.me,
-            run_detail(
-                &human.results_brief(),
-                human.ruleset(),
-                human.ruleset().gauge.life(),
-                self.launched(self.setup.me),
-            ),
-        )];
+        let mut details = Vec::new();
+        if !watched {
+            details.push((
+                self.setup.me,
+                run_detail(
+                    &human.results_brief(),
+                    human.ruleset(),
+                    human.ruleset().gauge.life(),
+                    self.launched(self.setup.me),
+                ),
+            ));
+        }
         details.extend(self.cpu_details());
+        let summary = if watched {
+            None
+        } else {
+            self.attack_summary(human)
+        };
         if let Some(ranking) = &self.decided {
             return StageOutcome {
                 stage: self.setup.stage,
@@ -1288,15 +1606,16 @@ impl Battle {
                 drawn_by_final_attack: self.drawn,
                 details,
                 targeting: self.policy,
-                summary: self.attack_summary(human),
+                summary,
+                watched,
             };
         }
         let checkpoints = self
             .attacks
             .as_ref()
             .map_or(&[][..], |a| a.ledger().checkpoints_us());
-        let (ranking, drawn) =
-            SETTLEMENT_V0.rank(&self.entrants(human, quit), checkpoints, self.settling);
+        let me = (!watched).then_some(mine);
+        let (ranking, drawn) = SETTLEMENT_V0.rank(&self.entrants_as(me), checkpoints, self.settling);
         StageOutcome {
             stage: self.setup.stage,
             ranking,
@@ -1305,10 +1624,11 @@ impl Battle {
             drawn_by_final_attack: drawn,
             details,
             targeting: self.policy,
-            summary: self.attack_summary(human).map(|mut s| {
+            summary: summary.map(|mut s| {
                 s.drawn_by_final_attack = drawn;
                 s
             }),
+            watched,
         }
     }
 
@@ -1377,8 +1697,9 @@ impl Battle {
     /// won while still in; nothing for one who went out (that was told)
     /// or forfeited.
     pub fn end_event(&self, o: &StageOutcome, quit: bool) -> Option<Event> {
-        // An online stage's outcome is the room's, not known here yet.
-        if self.setup.remote() {
+        // An online stage's outcome is the room's, not known here yet;
+        // a watcher has no end of their own.
+        if self.setup.remote() || !self.competes() {
             return None;
         }
         let me = self.setup.me;
@@ -1401,8 +1722,10 @@ impl Battle {
         })
     }
 
-    fn entrants(&self, human: &Player, quit: bool) -> Vec<Entrant> {
-        self.entrants_as(if quit && human.gauge_failed_at().is_none() {
+    /// The local player's run now: a forfeit where they left while in
+    /// (`quit`, or [`Battle::forfeit_now`]), else out or still in.
+    fn my_run(&self, human: &Player, quit: bool) -> Run {
+        if (quit || self.forfeit.is_some()) && human.gauge_failed_at().is_none() {
             Run::Forfeit
         } else {
             run_of(
@@ -1410,15 +1733,19 @@ impl Battle {
                 human.ruleset().gauge.life(),
                 &human.ruleset().score.view(),
             )
-        })
+        }
     }
 
-    /// Every competitor's run, the local player's `me`.
-    fn entrants_as(&self, me: Run) -> Vec<Entrant> {
-        let mut out = vec![Entrant {
-            participant: self.setup.me,
-            run: me,
-        }];
+    /// Every competitor's run, the local player's `me` first (none: a
+    /// watcher's stage, the CPUs alone).
+    fn entrants_as(&self, me: Option<Run>) -> Vec<Entrant> {
+        let mut out: Vec<Entrant> = me
+            .map(|run| Entrant {
+                participant: self.setup.me,
+                run,
+            })
+            .into_iter()
+            .collect();
         out.extend(self.seats.iter().map(|s| Entrant {
             participant: s.seat.participant,
             run: run_of(
@@ -1441,11 +1768,15 @@ pub fn forfeit(
     ruleset: &Ruleset,
 ) -> Result<StageOutcome, String> {
     let mut b = Battle::new(setup, song, chart, ruleset, 0.0, FORFEIT_HORIZON)?;
-    if let Some(a) = b.attacks.as_mut() {
+    // A watcher left it: the CPUs alone, nobody forfeits.
+    let me = b.competes().then_some(Run::Forfeit);
+    if me.is_some()
+        && let Some(a) = b.attacks.as_mut()
+    {
         a.out_at(b.setup.me, f64::NEG_INFINITY);
     }
-    b.play_out_as(Run::Forfeit);
-    let entrants = b.entrants_as(Run::Forfeit);
+    b.play_out_as(me);
+    let entrants = b.entrants_as(me);
     let checkpoints = b
         .attacks
         .as_ref()
@@ -1464,6 +1795,7 @@ pub fn forfeit(
         targeting: b.policy,
         // Left at the prompt: nothing of their own to sum up.
         summary: None,
+        watched: me.is_none(),
     })
 }
 

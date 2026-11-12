@@ -184,8 +184,6 @@ room-leave-picking = あなたが選曲しています。代わりにホスト�
 
 room-leave-co-host = あなたは共同ホストです。進行中の対戦はあなた抜きで続きます。
 
-room-leave-practice = 進行中の対戦は失われます。
-
 ## A stage's prompt, results and the room between stages.
 
 room-prompt-stage = ステージ { $number } / { $stages } · CPU { $cpus }人とタップのみの譜面で対戦 · ゲージが尽きるとアウト
@@ -525,3 +523,35 @@ room-summary-taken-none = 攻撃されず
 room-summary-shocks = 踏んだショック: { $count }
 
 room-final-heading = 対戦結果
+
+## 観戦
+
+room-intent-watch = 観戦のみ
+
+room-intent-play = プレイする
+
+room-refused-all-watching = プレイする人がいません。
+
+room-watch-hint = Tabかタップでプレイヤーを選べます
+
+room-watch-following = { $name }を観戦中
+
+room-watch-cue-out = { $name } アウト
+
+room-watch-cue-won = { $name } 1位確定
+
+room-watch-cue-attack = { $from }が{ $to }を攻撃
+
+room-play-forfeit = 退出
+
+room-play-skip = { $key }: 結果へ
+
+room-play-skip-tap = 結果へ
+
+room-leave-forfeited = このステージを途中でやめました。得点はありません。
+
+room-watched-winner = ステージ1位
+
+room-watched-winners = ステージ1位
+
+room-watched-note = このステージは観戦しました。
