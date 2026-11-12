@@ -163,6 +163,23 @@ impl RoomState {
                 );
                 Ok(())
             }
+            Command::SetTargeting { targeting } => {
+                let id = self.own(actor)?;
+                // A stage in play carries its own changes (its reports).
+                if matches!(self.phase, Phase::Stage { .. } | Phase::SongCompletion { .. }) {
+                    return Err(self.wrong_phase());
+                }
+                if self.members[&id].targeting != *targeting {
+                    self.emit(
+                        out,
+                        Event::TargetingChanged {
+                            participant: id,
+                            targeting: *targeting,
+                        },
+                    );
+                }
+                Ok(())
+            }
             Command::SetReady {
                 stage,
                 readiness_rev,
@@ -582,6 +599,7 @@ impl RoomState {
                             intent: *intent,
                             connection: Connection::Connected,
                             left: false,
+                            targeting: Default::default(),
                         },
                     },
                 );
@@ -931,6 +949,7 @@ impl RoomState {
                     intent: Intent::Play,
                     connection: Connection::Connected,
                     left: false,
+                    targeting: Default::default(),
                 }
             })
             .collect();
@@ -1359,6 +1378,14 @@ impl RoomState {
                 }
                 if *intent == Intent::Watch {
                     self.drop_prep(*participant, false);
+                }
+            }
+            Event::TargetingChanged {
+                participant,
+                targeting,
+            } => {
+                if let Some(m) = self.members.get_mut(participant) {
+                    m.targeting = *targeting;
                 }
             }
             Event::RoleChanged { participant, role } => {

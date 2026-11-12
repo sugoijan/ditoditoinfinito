@@ -506,6 +506,95 @@ fn a_reports_detail_is_kept_alike_by_both_authorities_and_every_mirror() {
     assert_eq!(result.placement(ParticipantId(2)).unwrap().place, 2);
 }
 
+/// M8 round 3 (D8): a member's own attack policy (`SetTargeting`,
+/// additive to protocol 2) is kept alike by the local authority, the
+/// online one and every mirror: set before the match and while a stage
+/// gathers readiness (nobody's readiness cleared: the stage starts with
+/// both), refused during the stage's play; the default is left out of the
+/// room's JSON, which a peer that predates the field reads and writes.
+#[test]
+fn a_members_attack_policy_is_kept_alike_by_both_authorities_and_every_mirror() {
+    use ddi_room::attacks::Targeting;
+    let mut steps = script();
+    // After the joins: Bob picks Leader, Alice Retaliate then Spread again.
+    let early = [
+        Step::Cmd(
+            "dev:bob",
+            Command::SetTargeting {
+                targeting: Targeting::Leader,
+            },
+        ),
+        Step::Cmd(
+            "dev:alice",
+            Command::SetTargeting {
+                targeting: Targeting::Retaliate,
+            },
+        ),
+        Step::Cmd(
+            "dev:alice",
+            Command::SetTargeting {
+                targeting: Targeting::Spread,
+            },
+        ),
+    ];
+    steps.splice(4..4, early);
+    // Both ready, the window not opened yet: Alice changes hers again.
+    let start = steps
+        .iter()
+        .position(|s| matches!(s, Step::Cmd(_, Command::StartStage { .. })))
+        .unwrap();
+    steps.insert(
+        start,
+        Step::Cmd(
+            "dev:alice",
+            Command::SetTargeting {
+                targeting: Targeting::Retaliate,
+            },
+        ),
+    );
+    // The stage in play: refused (the play's own reports carry a change).
+    steps.push(Step::Cmd(
+        "dev:bob",
+        Command::SetTargeting {
+            targeting: Targeting::Spread,
+        },
+    ));
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    assert_eq!(&local_answers[..3], &[None, None, None]);
+    assert_eq!(
+        local_answers.last().unwrap(),
+        &Some(Rejection::WrongPhase {
+            phase: PhaseKind::Stage
+        })
+    );
+    let policy = |id: u64| local.member(ParticipantId(id)).unwrap().targeting;
+    assert_eq!(
+        (policy(1), policy(2), policy(3)),
+        (Targeting::Retaliate, Targeting::Leader, Targeting::Spread)
+    );
+    // Nobody's readiness was cleared: the stage began with both.
+    assert_eq!(local.phase.kind(), PhaseKind::Stage);
+    let play = local.current.as_ref().unwrap().stages[0]
+        .play
+        .as_ref()
+        .unwrap();
+    assert_eq!(play.lineup.len(), 2);
+    // Additive: Carol's default is not in the JSON, and a room written
+    // without the field reads as Spread.
+    let carol = serde_json::to_value(local.member(ParticipantId(3)).unwrap()).unwrap();
+    assert!(carol.get("targeting").is_none(), "{carol}");
+    let bob = serde_json::to_value(local.member(ParticipantId(2)).unwrap()).unwrap();
+    assert_eq!(bob["targeting"], "leader");
+    let read: ddi_room::Member = serde_json::from_value(carol).unwrap();
+    assert_eq!(read.targeting, Targeting::Spread);
+}
+
 /// The DDI ruleset's round 3: Difficulty and Boos are match rules, saved
 /// like the others, locked with the match, and kept alike by the local
 /// authority, the online one and every mirror; rules that name a ruleset

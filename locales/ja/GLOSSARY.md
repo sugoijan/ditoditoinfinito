@@ -64,6 +64,10 @@ alike. Changes to this list are the maintainer's.
 | mods (as the results list them) | オプション |
 | attack (a battle's) | 攻撃 |
 | attack power | パワー |
+| targeting (whom a full power bar attacks) | ターゲット |
+| Spread (an attack policy) | 均等 |
+| Retaliate (an attack policy) | 仕返し |
+| Leader (an attack policy) | トップ |
 
 ## Terms the screens' drafts settled on (step 3)
 

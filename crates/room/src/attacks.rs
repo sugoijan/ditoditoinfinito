@@ -195,6 +195,11 @@ pub enum Targeting {
     Leader,
 }
 
+impl Targeting {
+    /// The policies in the order a press cycles them (D8).
+    pub const ALL: [Targeting; 3] = [Targeting::Spread, Targeting::Retaliate, Targeting::Leader];
+}
+
 /// One competitor of a stage's battle: its policy and its lead (D5,
 /// [`LEAD_V0`]: how soon an attack's section may start for it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,13 +264,18 @@ pub struct Judged {
 /// What a competitor's play reports at a checkpoint: its judgments since
 /// the previous one (each before this checkpoint's time), its life just
 /// before the checkpoint (millionths) and when it went out, if it did.
-/// Power is the ledger's to compute, never reported.
+/// Power is the ledger's to compute, never reported. `targeting`: its
+/// policy as it stood just before the checkpoint, where it changed it
+/// during the play (M8 round 3, D8: a change applies from the next
+/// checkpoint); none, the policy it has. Additive.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Report {
     pub participant: ParticipantId,
     pub judged: Vec<Judged>,
     pub life_ppm: u32,
     pub out_at_us: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targeting: Option<Targeting>,
 }
 
 /// Why a full bar waits.
@@ -343,6 +353,12 @@ pub enum AttackEvent {
     },
     Expired {
         attack: AttackId,
+    },
+    /// A competitor changed its policy during the play: `targeting` from
+    /// this checkpoint's launches on.
+    Retargeted {
+        participant: ParticipantId,
+        targeting: Targeting,
     },
 }
 
@@ -488,7 +504,8 @@ impl StageBattle {
     /// Checkpoint `k` (the next one) from everyone's `reports`, in this
     /// order: (1) those out before it are out; (2) each competitor still
     /// in is credited what its judgments earned, up to the cap (the rest
-    /// lost), and its life is as reported; (3) attacks whose last shock
+    /// lost), its life is as reported and its policy as it left it
+    /// ([`Report::targeting`]); (3) attacks whose last shock
     /// passed are cleared, and a cleared one's recipient recovers once
     /// enough of its judgments came after it and enough beats passed;
     /// (4) attacks against those out expire; (5) full bars launch, in an
@@ -526,6 +543,17 @@ impl StageBattle {
                 continue;
             }
             seat.life_ppm = r.life_ppm.min(1_000_000);
+            // Its policy, where it changed it since the last checkpoint:
+            // this checkpoint's launches go by it.
+            if let Some(t) = r.targeting
+                && t != seat.targeting
+            {
+                seat.targeting = t;
+                events.push(AttackEvent::Retargeted {
+                    participant: r.participant,
+                    targeting: t,
+                });
+            }
             let earned: u32 = r
                 .judged
                 .iter()

@@ -12,8 +12,14 @@
 //!   since `attacks-v1`, so no shield. Where one more attack waits behind
 //!   it (a chain), a second, smaller glyph stands beside it; once the
 //!   first has passed, the warning is the next one's.
-//! - The waiting line: a muted line under the power bar's right end
-//!   while the player's full bar waits ("Spread · waiting for target").
+//! - The waiting line: a muted line under the life gauge's right end
+//!   while the player's full bar waits ("Waiting for target").
+//! - The policy label ([`draw_policy`], M8 round 3, D8): the player's
+//!   attack policy, one small muted word under the life gauge's left end,
+//!   as steady as the waiting line (nothing flashes, nothing moves). A
+//!   tap or a click on it or on the bars above it ([`policy_area`])
+//!   cycles the policy, as Tab and a pad's View do
+//!   (`ddi_session::play`).
 
 use ddi_actor::text::{TextMeasure, TextStyle};
 use ddi_render::FieldGeometry;
@@ -183,9 +189,104 @@ pub fn draw_waiting(
     }));
 }
 
+/// Where a tap or a click cycles the attack policy, `[left, top, right,
+/// bottom]` in target pixels: the label's place under the life gauge's
+/// left end and the left of the two bars above it, over the field `geo`
+/// (`span` lanes wide); `ratio` a logical pixel. Inside the field's own
+/// width: clear of the quit button, the warning and the miniatures,
+/// which all stand beside the field.
+pub fn policy_area(geo: &FieldGeometry, span: f32, ratio: f32) -> [f32; 4] {
+    let (power, life) = ddi_render::scene::power_and_life(geo, span);
+    let pad = 4.0 * ratio;
+    [
+        (power[0] - pad).max(0.0),
+        (power[1] - pad).max(0.0),
+        power[0] + power[2] * 0.45,
+        life[1] + life[3] + 3.0 * ratio + POLICY_SIZE * ratio * 1.3 + pad,
+    ]
+}
+
+/// The policy label's size, logical pixels (the waiting line's).
+const POLICY_SIZE: f32 = 12.0;
+
+/// Draws `text`, the player's attack policy, under the life gauge's left
+/// end over the field `geo` (`span` lanes wide), left-aligned to it;
+/// `ratio` a logical pixel.
+pub fn draw_policy(list: &mut DrawList, text: &str, geo: &FieldGeometry, span: f32, ratio: f32) {
+    let (_, life) = ddi_render::scene::power_and_life(geo, span);
+    let face = ddi_l10n::font_stack(FACE);
+    let mut style = TextStyle::new(face.as_str(), POLICY_SIZE * ratio);
+    style.weight = 500;
+    list.push(Command::Text(TextRun {
+        curve: None,
+        text: text.into(),
+        style,
+        transform: Affine::translate(life[0], life[1] + life[3] + 3.0 * ratio),
+        color: MUTED,
+        blend: Blend::Normal,
+        mask: Mask::None,
+        perspective: None,
+        blur: [0.0; 2],
+    }));
+}
+
+/// An attack policy's word, as the label and the rooms say it.
+pub fn policy_word(t: ddi_session::battle::Targeting) -> String {
+    use ddi_l10n::msg::room as m;
+    use ddi_session::battle::Targeting;
+    match t {
+        Targeting::Spread => m::attack_policy_spread(),
+        Targeting::Retaliate => m::attack_policy_retaliate(),
+        Targeting::Leader => m::attack_policy_leader(),
+    }
+    .into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The policy label: under the life gauge's left end, inside the
+    /// field's width at every size the miniatures' table uses, so the
+    /// quit button, the warning and the miniatures never meet it; its
+    /// tap area covers it and the left of the bars, and never reaches
+    /// the waiting line's half.
+    #[test]
+    fn the_policy_label_is_under_the_gauge_inside_the_field() {
+        for (w, h, ratio) in [
+            (1280.0, 720.0, 1.0),
+            (1920.0, 1080.0, 1.0),
+            (844.0, 390.0, 1.0),
+            (390.0, 844.0, 1.0),
+            (2560.0, 1440.0, 2.0),
+        ] {
+            for reverse in [false, true] {
+                let geo = FieldGeometry::new(w, h, 4.0, reverse);
+                let (power, life) = ddi_render::scene::power_and_life(&geo, 4.0);
+                let [l, t, r, b] = policy_area(&geo, 4.0, ratio);
+                assert!(l >= 0.0 && t >= 0.0, "{w}x{h}");
+                assert!(t <= power[1] && b > life[1] + life[3], "{w}x{h}");
+                // Within the field's band, left of the bars' middle.
+                assert!(l >= geo.left - 4.0 * ratio - 0.5, "{w}x{h}: {l} {}", geo.left);
+                assert!(r < power[0] + power[2] / 2.0, "{w}x{h}");
+                // Clear of the warning's place and the quit button's.
+                let cue = place(&geo, 4.0);
+                assert!(r < cue[0] || b < cue[1] || t > cue[3], "{w}x{h}");
+                let layout = ddi_chart::Layout::dance_single();
+                let [qx, qy, qr] = ddi_render::scene::quit_button(&geo, &layout, ratio, [0.0; 4]);
+                let clear = qx + qr <= l || qx - qr >= r || qy + qr <= t || qy - qr >= b;
+                assert!(clear, "{w}x{h} reverse {reverse}: quit {qx} {qy} {qr}, label {l} {t} {r} {b}");
+                let mut list = DrawList::new();
+                draw_policy(&mut list, "Spread", &geo, 4.0, ratio);
+                let Command::Text(run) = &list.commands[0] else {
+                    panic!("a text");
+                };
+                assert_eq!(run.text.as_ref(), "Spread");
+                assert_eq!(run.color, MUTED);
+            }
+        }
+        assert_eq!(policy_word(ddi_session::battle::Targeting::Leader), "Leader");
+    }
 
     fn incoming() -> Incoming {
         Incoming {

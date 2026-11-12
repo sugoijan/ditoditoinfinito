@@ -21,7 +21,9 @@
 //! and for a moment after the mouse moved, [`set_quit_shown`],
 //! [`mouse_moved`], `ddi_render::scene::quit_button`) is the `cancel`
 //! control instead, which the play session treats like Escape (hold or
-//! double tap to quit). Touch is not a sync-accuracy target: event
+//! double tap to quit). A press on a multiplayer stage's attack policy
+//! label (any pointer type; [`set_policy_at`]) is the `policy` control,
+//! which cycles the policy. Touch is not a sync-accuracy target: event
 //! timestamps are as good as the browser's touch pipeline.
 
 use std::cell::RefCell;
@@ -50,6 +52,9 @@ thread_local! {
     static MOUSE_AT: std::cell::Cell<f64> = const { std::cell::Cell::new(f64::NEG_INFINITY) };
     /// Where it is drawn now (CSS pixels of the canvas: middle and radius).
     static QUIT_AT: std::cell::Cell<Option<[f32; 3]>> = const { std::cell::Cell::new(None) };
+    /// Where a stage's attack policy label is drawn now (CSS pixels of the
+    /// canvas: left, top, right, bottom).
+    static POLICY_AT: std::cell::Cell<Option<[f32; 4]>> = const { std::cell::Cell::new(None) };
     /// The safe area's insets (top, right, bottom, left, CSS pixels), read
     /// again when the canvas's size changes (a rotation).
     static INSETS: std::cell::Cell<Option<Insets>> = const { std::cell::Cell::new(None) };
@@ -62,6 +67,7 @@ pub(crate) fn set_quit_shown(playing: bool, touch: bool) {
     TOUCH.with(|t| t.set(touch));
     if !playing {
         QUIT_AT.with(|q| q.set(None));
+        POLICY_AT.with(|p| p.set(None));
     }
 }
 
@@ -113,11 +119,26 @@ pub(crate) fn quit_at() -> Option<[f32; 3]> {
     QUIT_AT.with(|q| q.get())
 }
 
+/// Where the play drew a stage's attack policy label this frame (CSS
+/// pixels), for the presses on it (`ddi_shell::battle_cue::policy_area`).
+pub(crate) fn set_policy_at(at: Option<[f32; 4]>) {
+    POLICY_AT.with(|p| p.set(at));
+}
+
+/// Where the attack policy's label takes a press now (CSS pixels: left,
+/// top, right, bottom), `None` while it is not shown
+/// (`__DDI_DEBUG.battle.attacks.policy_at`).
+pub(crate) fn policy_at() -> Option<[f32; 4]> {
+    POLICY_AT.with(|p| p.get())
+}
+
 /// What a tracked pointer is holding.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Hold {
     Lane(u8),
     Cancel,
+    /// A stage's attack policy label.
+    Policy,
 }
 
 struct Shared {
@@ -136,6 +157,7 @@ struct Shared {
     /// Pointers holding each lane, then the quit button.
     lane_count: Vec<u32>,
     cancel_count: u32,
+    policy_count: u32,
 }
 
 pub(crate) struct TouchLanes {
@@ -173,6 +195,7 @@ impl TouchLanes {
             host: host.clone(),
             lane_count: vec![0; count],
             cancel_count: 0,
+            policy_count: 0,
         }));
         let opts = EventListenerOptions::enable_prevent_default();
         let mut listeners = Vec::new();
@@ -201,11 +224,19 @@ impl TouchLanes {
                         let dy = event.client_y() as f64 - rect.top() - f64::from(y);
                         dx * dx + dy * dy <= f64::from(r * r)
                     });
-                    let hold = if on_quit {
+                    let on_policy = !on_quit
+                        && POLICY_AT.with(|p| p.get()).is_some_and(|[l, t, r, b]| {
+                            let rect = s.canvas.get_bounding_client_rect();
+                            let x = event.client_x() as f64 - rect.left();
+                            let y = event.client_y() as f64 - rect.top();
+                            (f64::from(l)..=f64::from(r)).contains(&x)
+                                && (f64::from(t)..=f64::from(b)).contains(&y)
+                        });
+                    let hold = if on_quit || on_policy {
                         if event.button() != 0 {
                             return;
                         }
-                        Hold::Cancel
+                        if on_quit { Hold::Cancel } else { Hold::Policy }
                     } else if !is_touch(event) || within("a, button") {
                         // Mouse clicks press nothing; links and buttons
                         // keep working.
@@ -358,6 +389,7 @@ impl Shared {
         match hold {
             Hold::Lane(l) => self.lane_count.get_mut(l as usize),
             Hold::Cancel => Some(&mut self.cancel_count),
+            Hold::Policy => Some(&mut self.policy_count),
         }
     }
 
@@ -390,6 +422,7 @@ impl Shared {
         let control = match hold {
             Hold::Lane(l) => format!("lane:{l}"),
             Hold::Cancel => CANCEL_CONTROL.to_string(),
+            Hold::Policy => ddi_session::play::TOUCH_POLICY_CONTROL.to_string(),
         };
         self.queue.push(RawInput {
             device: DeviceId::Touch,

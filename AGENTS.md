@@ -49,7 +49,10 @@ Rust and the browser are implementation details, not advertised features.
   before a step, spread over lanes and beats, one a note, a second
   between two shocks of a lane unless the section has no other room;
   `placement-v1` and `placement-v0` kept for comparison through
-  `schedule_with`; kept in `PlayLog` version 4;
+  `schedule_with`; kept in `PlayLog` version 4; a battle's attack policy
+  as the player changed it during the play in version 5,
+  `PlayLog::policies`, `Player::set_policy_at`: a number of the
+  battle's own, nothing judged by it;
   `reading_horizon`, how long a play's notes are shown before they are
   judged); a CPU opponent's ten levels (`cpu/levels.rs`,
   `CPU_LEVELS_V0`, `docs/plans/cpu-player.md`: levels 6 to 10 the solo
@@ -602,6 +605,15 @@ Rust and the browser are implementation details, not advertised features.
   an opt-in study of attack rates between CPUs over the bundled charts,
   `battle/study.rs` (`cargo test --release -p ddi-session --lib
   attack_rates -- --ignored --nocapture`);
+  the local player's attack policy changed in play (D8,
+  `Battle::policy`, `retarget`): Tab unless the player's bindings give
+  it to a lane (`play::POLICY_KEY`), a tap or click on its label
+  (`TOUCH_POLICY_CONTROL`) and a pad's Back pressed briefly (held it
+  quits as ever; pressed twice it is two steps, never a quit, where the
+  policy cycles: `play.rs`'s `policy_pad`), each kept in the play's log
+  at its judged second and given to the ledger, whose launches follow
+  it from the next checkpoint, the same at any frame rate and from the
+  log; `StageOutcome::targeting`, what the play left it at;
   the attack ledger run locally, `battle/attacks.rs`'s `AttackRunner`:
   a checkpoint once every competitor still in is judged past it, so the
   same at any frame rate and from a play's log; the chart's sections
@@ -639,8 +651,11 @@ Rust and the browser are implementation details, not advertised features.
   keep their surfaces; a practice stage's CPU opponents beside the field,
   the incoming attack's warning by the receptors (the nearer attack's,
   with a second, smaller glyph where one more waits behind it; gone once
-  its last shock has passed: no recovery since `attacks-v1`) and the
-  waiting line under the power bar, `crates/shell/src/battle_cue.rs`;
+  its last shock has passed: no recovery since `attacks-v1`) the
+  waiting line under the life gauge's right end and the player's
+  attack policy, one small muted word under its left end, where a tap
+  or a click cycles it (`battle_cue::draw_policy`, `policy_area`,
+  `Drawn::policy_at`), `crates/shell/src/battle_cue.rs`;
   `crates/shell/src/opponents.rs`: miniature fields in stable slots of the
   side space on both sides, every opponent of a room its own at every
   size (eight at most; each a small copy of the play's field, in its
@@ -869,7 +884,14 @@ Rust and the browser are implementation details, not advertised features.
   same notes, DDI's absolute score, `Absolute`; both additive on
   `Run::Live` and `ReportedRun::Live`;
   `GaugeAttacksV0`, the same with attacks, chosen by the match's Attacks
-  rule, `MatchRules::attacks`, Off by default; `RunDetail`, how a starter performed for the stage's
+  rule, `MatchRules::attacks`, Off by default; a member's own attack policy, `Member::targeting`
+  (Spread until they choose; `Command::SetTargeting`, taken outside a
+  stage's play, nobody's readiness cleared; a CPU's its
+  `OpponentSpec::targeting`, which a roster entry may name; additive,
+  left out of the JSON at its default), and a change made during a play
+  carried by the ledger's reports (`attacks::Report::targeting`, applied
+  from that checkpoint's launches, `AttackEvent::Retargeted`);
+  `RunDetail`, how a starter performed for the stage's
   standings: optional on `Command::ReportOutcome` and
   `Event::OutcomeReported`, kept in `StagePlay::details`, self-reported,
   never ranked by, ADDITIVE to protocol 2 with serde defaults and no new
@@ -1038,7 +1060,13 @@ Rust and the browser are implementation details, not advertised features.
   `room::rules_words`), `PlayersDialog`,
   `StandingsDialog` and the refusal notice; `screens/prompt_room.rs` the
   stage's prompt (`PromptScreen::with_room`: Ready, its countdown, the
-  players beside the diagram, `PromptChoice::Ready` for the shell's audio
+  players beside the diagram, where the match has attacks the player's
+  attack policy as one quiet row with what it does
+  (`Opt.room.targeting`: Left and Right, its arrows, a tap or Enter;
+  `RoomClient::set_targeting`, the play given the room's policy as it
+  starts and the room told what the play left it at,
+  `played_targeting`; the players panel and the Players pop-up say
+  everyone's policy quietly, `PlayerRow::policy`), `PromptChoice::Ready` for the shell's audio
   in the press, Start chosen when the room starts the stage). Text in
   `locales/*/room.ftl`. Desktop keeps the room for the run
   (`crates/desktop/src/room.rs`: the home and the room's song select on

@@ -3,6 +3,7 @@
 //! payloads (`protocol.rs` wraps them); their serde form is the JSON the
 //! private server will speak.
 
+use crate::attacks::Targeting;
 use crate::awards::{Finisher, NoAwardRule, StageResult};
 use crate::battle::{ReportedRun, RunDetail};
 use crate::ids::{ContentId, Identity, MatchId, Millis, ParticipantId, Revision, StageId};
@@ -46,6 +47,17 @@ pub enum Command {
         loading: Loading,
     },
     Leave,
+    /// One's own attack policy (M8 round 3, D8: how they pick whom to
+    /// attack where a match has attacks), what the next stage's battle
+    /// starts them with. Taken outside a stage's play (before a match,
+    /// between stages, while a stage gathers readiness and through its
+    /// countdown); during one the play itself carries a change
+    /// (`attacks::Report::targeting`), and the room is told what it was
+    /// left at afterwards. Clears nobody's readiness: it is nobody else's
+    /// rule, and it may change mid-play anyway. Additive to protocol 2.
+    SetTargeting {
+        targeting: Targeting,
+    },
     /// One's own run of a stage played on one's own device (an online
     /// room's, whose result comes from its starters' reports). SELF-REPORTED:
     /// the room trusts it.
@@ -197,6 +209,11 @@ pub enum Event {
     RoleChanged {
         participant: ParticipantId,
         role: Role,
+    },
+    /// A member's own attack policy ([`Command::SetTargeting`]).
+    TargetingChanged {
+        participant: ParticipantId,
+        targeting: Targeting,
     },
     AccessChanged {
         access: Access,

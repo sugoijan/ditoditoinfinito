@@ -2130,11 +2130,13 @@ impl GameCanvas {
             config.session.options.transform = Default::default();
             config.session.options.clock.rate = 1.;
         }
-        config.session.opponents = ctx
-            .props()
-            .room_stage
-            .as_deref()
-            .map(ddi_session::battle::StageSetup::of);
+        config.session.opponents = ctx.props().room_stage.as_deref().map(|order| {
+            let mut setup = ddi_session::battle::StageSetup::of(order);
+            // The policy the player has as the play starts (it may have
+            // changed on the stage's prompt since the order was made).
+            setup.targeting = crate::room::my_targeting();
+            setup
+        });
         config.session.auto_bias = ctx.props().auto_bias;
         config.session.auto_pad = ctx.props().auto_pad;
         // The editor's playtest from its cursor.

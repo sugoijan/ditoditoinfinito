@@ -1243,6 +1243,41 @@ impl Shell {
         true
     }
 
+    /// A primary press or release at `pos` on a stage's attack policy
+    /// label (or the release of one begun there): the play's `policy`
+    /// control, which cycles the policy. Whether it was taken.
+    fn policy_label(&mut self, phase: PointerPhase, pos: [f32; 2]) -> bool {
+        if !self.play.playing() {
+            return false;
+        }
+        let mut feed = self.play.feed.borrow_mut();
+        let pressed = match phase {
+            PointerPhase::Down => {
+                let Some([l, t, r, b]) = feed.policy_at else {
+                    return false;
+                };
+                if !(l..=r).contains(&pos[0]) || !(t..=b).contains(&pos[1]) {
+                    return false;
+                }
+                feed.policy_down = true;
+                true
+            }
+            PointerPhase::Up | PointerPhase::Cancel if feed.policy_down => {
+                feed.policy_down = false;
+                false
+            }
+            _ => return false,
+        };
+        feed.edges.push(ddi_platform::RawInput {
+            device: ddi_platform::DeviceId::Touch,
+            control: ddi_session::play::TOUCH_POLICY_CONTROL.into(),
+            pressed,
+            host_time: crate::clock::now(),
+            slot: 0,
+        });
+        true
+    }
+
     fn set_native_cursor(&mut self, cursor: Cursor) {
         if self.window().is_none() {
             return;
@@ -1549,7 +1584,9 @@ impl ApplicationHandler for Shell {
                 // Only the primary button presses (other buttons change
                 // what is held, as the DOM's `pointermove` would say).
                 if bit == buttons::PRIMARY {
-                    if self.quit_button(phase, self.cursor) {
+                    if self.quit_button(phase, self.cursor)
+                        || self.policy_label(phase, self.cursor)
+                    {
                         return;
                     }
                     self.pointer(MOUSE, PointerKind::Mouse, phase, self.cursor);
@@ -1599,7 +1636,7 @@ impl ApplicationHandler for Shell {
                 };
                 let pos = to_logical(t.location, self.scale);
                 self.pointer_over_play();
-                if self.quit_button(phase, pos) {
+                if self.quit_button(phase, pos) || self.policy_label(phase, pos) {
                     return;
                 }
                 self.pointer(t.id + 1, PointerKind::Touch, phase, pos);

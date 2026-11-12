@@ -189,6 +189,9 @@ pub struct View {
     /// where it was (logical pixels: middle and radius).
     pub quit_shown: bool,
     pub quit_at: Option<[f32; 3]>,
+    /// Where a stage's attack policy label takes a press (logical
+    /// pixels: left, top, right, bottom), while it shows.
+    pub policy_at: Option<[f32; 4]>,
     /// The refresh the next frame is for, when the shell's pacing knows
     /// it (`crate::pacing`); else the session predicts it.
     pub present_at: Option<HostTime>,
@@ -227,6 +230,7 @@ impl View {
             scale: 1.0,
             quit_shown: false,
             quit_at: None,
+            policy_at: None,
             present_at: None,
         }
     }
@@ -466,6 +470,7 @@ impl View {
             screen,
         );
         self.quit_at = drawn.quit_at;
+        self.policy_at = drawn.policy_at;
     }
 
     /// The lyrics of the play about to start (`None`: none shown); the

@@ -212,7 +212,11 @@ impl Request {
             config.calibrate(mode);
         }
         if let Some(order) = &self.stage {
-            config.opponents = Some(ddi_session::battle::StageSetup::of(order));
+            let mut setup = ddi_session::battle::StageSetup::of(order);
+            // The policy the player has as the play starts (it may have
+            // changed on the stage's prompt since the order was made).
+            setup.targeting = crate::room::stage_targeting(order);
+            config.opponents = Some(setup);
         }
         // A replay: its log on the lanes, its options and rules, the
         // offsets this device needs.
@@ -250,6 +254,10 @@ pub struct Feed {
     /// radius), for the presses on it, and whether one is down on it.
     pub quit_at: Option<[f32; 3]>,
     pub quit_down: bool,
+    /// Where a stage's attack policy label takes a press (logical
+    /// pixels: left, top, right, bottom), and whether one is down on it.
+    pub policy_at: Option<[f32; 4]>,
+    pub policy_down: bool,
     /// The window was hidden or the sound stopped.
     pub interrupted: bool,
     /// The display or the audio device changed.

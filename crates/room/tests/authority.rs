@@ -16,6 +16,7 @@ fn opponent() -> OpponentSpec {
         seed: 7,
         personality: None,
         name: None,
+        targeting: None,
     }
 }
 

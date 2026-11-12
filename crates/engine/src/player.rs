@@ -753,6 +753,24 @@ impl Player {
         self.log.covers.push(CoverChange { time, cover });
     }
 
+    /// A battle's attack policy changed at a judged song second (a key
+    /// during a stage's play): kept in the log ([`PlayLog::policies`]) so
+    /// the stage judged again from it launches its attacks alike. The
+    /// number is the battle's own; nothing judged changes. Ignored before
+    /// the start or after the end. The second it was kept at: never
+    /// before the time the play was last judged at, as an edge's.
+    pub fn set_policy_at(&mut self, policy: u8, song_time: f64) -> Option<f64> {
+        if !self.started || self.finished || !song_time.is_finite() {
+            return None;
+        }
+        let judged = self.judge.last_time().unwrap_or(f64::NEG_INFINITY);
+        let time = to_microsecond(song_time.max(judged));
+        self.log
+            .policies
+            .push(crate::history::PolicyChange { time, policy });
+        Some(time)
+    }
+
     /// Feeds a lane edge. Returns the per-note judge events it caused.
     ///
     /// It is judged at its heard song time, to the microsecond (what the

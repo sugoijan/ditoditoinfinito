@@ -2601,6 +2601,10 @@ fn publish(h: &Host) {
                     }
                 }
             }
+            // A room's stage with attacks: the attack policy's row.
+            for part in ["", ".Down", ".Up", ".Value"] {
+                names.push(format!("Opt.room.targeting{part}"));
+            }
         } else if st.screen == "editor" {
             // The chart editor's buttons, field and dialogs (a list's
             // `Item.<id>` in `page_items`).

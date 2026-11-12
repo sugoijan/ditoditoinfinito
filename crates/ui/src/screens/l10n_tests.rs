@@ -1114,6 +1114,59 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             found,
         );
     }
+    // M8 round 3: a match with attacks. The room's song select and the
+    // Players pop-up with everyone's attack policy, and the stage's
+    // prompt with the player's own, each of the three.
+    {
+        let room = RoomClient::shared(0, 1);
+        room.borrow_mut().set_rules_seen(true);
+        let mut rules = room.borrow().rules().clone();
+        rules.set_attacks(true);
+        room.borrow_mut().save_rules(rules).unwrap();
+        let mut h = harness();
+        h.push(sample::room_screen(env, room.clone()));
+        shown(&mut h, found);
+        let mut hd = harness();
+        hd.push(super::room_dialogs::PlayersDialog::new(
+            env.clone(),
+            room.clone(),
+        ));
+        shown(&mut hd, found);
+        room.borrow_mut().pick(&song, &chart).unwrap();
+        let stage = room.borrow().stages()[0].id;
+        let quiet: super::room::RoomShell = Rc::new(|_, _| {});
+        for _ in 0..3 {
+            let state = Rc::new(std::cell::RefCell::new(
+                super::prompt::PromptState::default(),
+            ));
+            state.borrow_mut().info.title = ddi_l10n::UiText::data(&song.title).into();
+            let mut hp = harness();
+            hp.push(
+                super::prompt::PromptScreen::new(env.clone(), state, Rc::new(|_, _| {}))
+                    .with_room(room.clone(), stage, quiet.clone()),
+            );
+            shown(&mut hp, found);
+            assert!(
+                hp.ui.actor("Opt.room.targeting").is_some(),
+                "the policy's row"
+            );
+            room.borrow_mut().cycle_targeting().unwrap();
+        }
+        use ddi_room::attacks::Targeting;
+        checked(
+            Targeting::ALL
+                .iter()
+                .flat_map(|t| {
+                    [
+                        super::room::policy_word(*t).into(),
+                        super::room::policy_about(*t).into(),
+                    ]
+                })
+                .chain([m::play_attack_waiting().into(), m::targeting().into()])
+                .collect(),
+            found,
+        );
+    }
     let mut info = super::prompt::PromptInfo::default();
     info.set_stage(1, 4, 3, 0, &Default::default(), false);
     let mut online = super::prompt::PromptInfo::default();

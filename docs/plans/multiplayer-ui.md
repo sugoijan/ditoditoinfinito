@@ -865,6 +865,30 @@ DDI ruleset's round 3", for what is built):
   practice; an online room shows it unavailable until online attacks
   are built.
 
+Built (2026-11-12, M8 round 3; `docs/plans/multiplayer-prototype-progress.md`,
+"M8 round 3"): D8's targeting as decided, with these choices where the
+decision left room.
+
+- The policy is each member's own in the room's model (`Member::targeting`,
+  Spread until chosen), shown quietly on every player's line of the players
+  panel and of the Players pop-up while the match has attacks, and chosen
+  on the stage's prompt: one row, "Targeting ◀ Spread ▶", with a line
+  saying what the policy does. Changing it clears nobody's readiness,
+  one's own included (the plan said it would): it is nobody else's rule,
+  and it can change in play anyway.
+- In play the label is one small muted word under the life gauge's left
+  end (the waiting line keeps the right end and no longer repeats the
+  policy). Tab, a tap or a click on the label (or on the left of the two
+  bars above it) cycle it. On a controller View/Select is the button that
+  quits a play (held, or pressed twice), so in a stage with attacks a
+  short press of it cycles the policy on its release, holding it still
+  quits, and pressing it twice no longer quits there (two quick presses
+  are two steps of the cycle, never a forfeit). A key the player's
+  bindings give to a lane stays the lane's.
+- The change is in the play's log at its judged second and reaches the
+  ledger with the next checkpoint's report; the room's member keeps what
+  the play left the policy at for the next stage.
+
 ### Concrete play HUD study
 
 Follow-up, 2026-11-09. The play/watch study contains Automatic attack, Incoming

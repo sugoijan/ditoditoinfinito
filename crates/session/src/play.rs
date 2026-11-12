@@ -42,6 +42,16 @@ pub const CANCEL_HOLD: f64 = 0.7;
 pub const CANCEL_HINT: f64 = 1.5;
 /// The control the touch lanes' quit button sends.
 pub const TOUCH_CANCEL_CONTROL: &str = "cancel";
+/// The control a tap or a click on a stage's attack policy label sends
+/// (`ddi_shell`'s label by the power bar): it cycles the policy.
+pub const TOUCH_POLICY_CONTROL: &str = "policy";
+/// The key that cycles a stage's attack policy (D8), unless a lane is
+/// bound to it.
+pub const POLICY_KEY: &str = "Tab";
+/// How long a pad's Back is held in a stage with attacks before its
+/// quit's hint and bar show: a shorter press is the policy's (D8), which
+/// shows nothing of the quit.
+const POLICY_TAP: f64 = 0.25;
 /// How long a play's quit button stays after the pointer moved over the
 /// play, seconds ([`quit_shown`]).
 pub const QUIT_LINGER: f64 = 2.0;
@@ -468,6 +478,10 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     /// seconds (when the results' moments are told).
     stage_end: Option<ddi_library::announcer::Battle>,
     last_host: f64,
+    /// A pad's Back down in a stage with attacks, since when (host
+    /// seconds): released soon, it cycles the attack policy (D8); held,
+    /// it quits.
+    policy_pad: Option<f64>,
 }
 
 /// Which cue a simulated player follows. In calibration it plays as a
@@ -711,6 +725,15 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .iter()
             .map(|s| s.to_string()),
         );
+        // A stage with attacks: Tab cycles the policy, never the page's
+        // focus.
+        if config
+            .opponents
+            .as_ref()
+            .is_some_and(|s| s.battle.attacks() && !s.remote())
+        {
+            capture.push(POLICY_KEY.into());
+        }
         inputs.begin(capture, &layout, config.reverse, config.place);
 
         let mut player = Player::new(song, chart_index, ruleset, options);
@@ -985,6 +1008,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             opening_told: false,
             stage_end: None,
             last_host: 0.0,
+            policy_pad: None,
         })
     }
 
@@ -1068,6 +1092,37 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             {
                 self.adopt_pads();
             }
+            // A stage with attacks: a pad's Back pressed briefly cycles
+            // the attack policy (D8); held, it quits as ever. Pressing it
+            // twice does not quit there: two quick presses are two steps
+            // of the cycle, never a forfeit.
+            if self.is_cancel(&raw)
+                && matches!(raw.device, DeviceId::Gamepad(_))
+                && (self.policy_pad.is_some() || self.policy_cycles())
+            {
+                if raw.pressed {
+                    self.cancel.edge(true, raw.host_time.0);
+                    self.policy_pad = Some(raw.host_time.0);
+                    self.view.restarting = false;
+                    self.view.cancel_hint = ddi_ui::controller_hints::quit_hold_hint(
+                        &raw,
+                        &self.known_pads,
+                        &self.styles,
+                    );
+                } else {
+                    self.cancel.edge(false, raw.host_time.0);
+                    // Nothing of the quit lingers after a short press.
+                    self.cancel.pressed_at = None;
+                    if self
+                        .policy_pad
+                        .take()
+                        .is_some_and(|at| raw.host_time.0 - at < CANCEL_HOLD)
+                    {
+                        self.cycle_policy(raw.host_time);
+                    }
+                }
+                continue;
+            }
             if self.is_cancel(&raw) {
                 self.aborted |= self.cancel.edge(raw.pressed, raw.host_time.0);
                 if raw.pressed {
@@ -1099,6 +1154,14 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             if self.replay.is_some() || self.cpu {
                 continue;
             }
+            // A stage's attack policy: Tab (unless a lane has it) or a
+            // tap on its label.
+            if self.is_policy_control(&raw) {
+                if raw.pressed {
+                    self.cycle_policy(raw.host_time);
+                }
+                continue;
+            }
             if self.cover.feed(
                 &raw,
                 &self.input.bindings,
@@ -1122,7 +1185,17 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let restart = self.restart.map_or(0.0, |r| r.progress(host_now.0));
         self.aborted |= quit >= 1.0;
         self.restarted |= restart >= 1.0;
-        self.view.cancel_progress = if self.view.restarting { restart } else { quit } as f32;
+        // A pad's Back in a stage with attacks: nothing of the quit shows
+        // until it is held past a press of the policy's.
+        let quit_shown = match self.policy_pad {
+            Some(at) if host_now.0 - at < POLICY_TAP => 0.0,
+            _ => quit,
+        };
+        self.view.cancel_progress = if self.view.restarting {
+            restart
+        } else {
+            quit_shown
+        } as f32;
 
         if let Some(auto) = self.auto.as_mut() {
             let opts = *self.player.clock().options();
@@ -1653,6 +1726,59 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             _ => return None,
         };
         Some(ddi_ui::controller_hints::restart_hint(key))
+    }
+
+    /// Whether the attack policy can be cycled now: a stage with attacks
+    /// played live, the player still in and the stage not won.
+    fn policy_cycles(&self) -> bool {
+        self.replay.is_none()
+            && !self.cpu
+            && self
+                .battle
+                .as_ref()
+                .is_some_and(|b| b.policy(&self.player).is_some())
+    }
+
+    /// The attack policy's own controls (D8): Tab, unless the layout or
+    /// the player's bindings give it to a lane (it then plays the lane),
+    /// and a tap or a click on its label. (A pad's Back is told apart in
+    /// the quit's place: pressed briefly it cycles, held it quits.)
+    fn is_policy_control(&self, raw: &RawInput) -> bool {
+        if !self.policy_cycles() {
+            return false;
+        }
+        match &raw.device {
+            DeviceId::Keyboard => {
+                raw.control == POLICY_KEY
+                    && self
+                        .input
+                        .bindings
+                        .lane_of_slot(&raw.device, raw.slot, &raw.control)
+                        .is_none()
+            }
+            DeviceId::Touch => raw.control == TOUCH_POLICY_CONTROL,
+            _ => false,
+        }
+    }
+
+    /// The next attack policy, from the judged song second of host time
+    /// `host`: kept in the play's log and given to the ledger, which
+    /// launches by it from its next checkpoint.
+    fn cycle_policy(&mut self, host: HostTime) {
+        let Some(b) = self.battle.as_mut() else {
+            return;
+        };
+        let Some(now) = b.policy(&self.player) else {
+            return;
+        };
+        let next = crate::battle::next_policy(now);
+        let t = self.player.judge_time(host);
+        if let Some(at) = self
+            .player
+            .set_policy_at(crate::battle::policy_code(next), t)
+        {
+            b.retarget(next, at);
+        }
     }
 
     /// Escape/Backspace, a pad's Back control, or the touch quit button.

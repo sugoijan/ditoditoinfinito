@@ -1237,6 +1237,7 @@ fn practice_plays_a_match_with_cpus_and_starts_another_with_fresh_readiness() {
         seed: 42,
         personality: None,
         name: None,
+        targeting: None,
     };
     let mut rules = MatchRules::practice(opponent);
     rules.stages = 2;
@@ -1749,6 +1750,7 @@ fn self_reported_stages_have_a_cap_and_cpu_stages_take_no_reports() {
             seed: 1,
             personality: None,
             name: None,
+            targeting: None,
         }),
         ContentSource::LocalLibrary,
     );
@@ -2030,12 +2032,14 @@ fn a_roster_seats_its_own_named_cpus_and_bounds_their_text() {
             seed: 11,
             personality: Some("jacks".into()),
             name: Some("Mira".into()),
+            targeting: None,
         },
         OpponentSpec {
             level: 4,
             seed: 12,
             personality: None,
             name: Some("Tobi".into()),
+            targeting: None,
         },
     ];
     assert_eq!(rules.cpu_seats(1), 2);
@@ -2099,4 +2103,96 @@ fn a_bot_is_its_own_kind_of_player_and_never_an_administrator() {
         r.s.participation(id),
         Some(Participation::NotReady { .. })
     ));
+}
+
+/// M8 round 3 (D8): a member's own attack policy. Set by the member
+/// themselves outside a stage's play (the lobby, between stages, with
+/// their readiness kept), refused while a stage is played and to a CPU,
+/// the authority or someone who left; a CPU's is its opponent's (a
+/// roster entry may name one), Spread where it names none.
+#[test]
+fn a_member_sets_their_own_attack_policy_outside_a_stage() {
+    use ddi_room::attacks::Targeting;
+    let roster = vec![
+        OpponentSpec {
+            level: 1,
+            seed: 11,
+            personality: None,
+            name: Some("Mira".into()),
+            targeting: Some(Targeting::Leader),
+        },
+        OpponentSpec {
+            level: 4,
+            seed: 12,
+            personality: None,
+            name: Some("Tobi".into()),
+            targeting: None,
+        },
+    ];
+    let mut rules = MatchRules::practice(roster[0].clone());
+    rules.cpu.mode = CpuMode::Roster;
+    rules.cpu.roster = roster;
+    rules.stages = 2;
+    let mut r = Room::new(rules, ContentSource::LocalLibrary);
+    let me = r.host;
+    for s in r.s.playlist.iter().map(|s| s.id).collect::<Vec<_>>() {
+        r.choose(s, s.0 as u32);
+    }
+    assert_eq!(r.s.member(me).unwrap().targeting(), Targeting::Spread);
+    let set = |targeting| Command::SetTargeting { targeting };
+    // In the lobby; the same again changes nothing.
+    let e = r.by(me, set(Targeting::Retaliate)).unwrap();
+    assert_eq!(
+        e,
+        vec![Event::TargetingChanged {
+            participant: me,
+            targeting: Targeting::Retaliate
+        }]
+    );
+    assert_eq!(r.by(me, set(Targeting::Retaliate)).unwrap(), vec![]);
+    // Ready, then changed: still ready (it is nobody else's rule).
+    r.ready(me);
+    r.by(me, set(Targeting::Leader)).unwrap();
+    assert_eq!(
+        r.part(me),
+        Participation::ReadyLoaded {
+            stage: r.upcoming()
+        }
+    );
+    // Never the authority's to set, nor anyone's but one's own.
+    assert_eq!(r.sys(set(Targeting::Spread)), Err(Rejection::NotAMember));
+    r.start_match();
+    let cpus: Vec<ParticipantId> =
+        r.s.members
+            .values()
+            .filter(|m| m.is_cpu())
+            .map(|m| m.id)
+            .collect();
+    assert!(matches!(
+        r.by(cpus[0], set(Targeting::Spread)),
+        Err(Rejection::Unauthorized { .. })
+    ));
+    // The CPUs' policies are their opponents'.
+    assert_eq!(r.s.member(cpus[0]).unwrap().targeting(), Targeting::Leader);
+    assert_eq!(r.s.member(cpus[1]).unwrap().targeting(), Targeting::Spread);
+    r.start_stage().unwrap();
+    // The stage in play: refused, nothing changed.
+    let s1 = r.play();
+    assert_eq!(
+        r.by(me, set(Targeting::Spread)),
+        Err(Rejection::WrongPhase {
+            phase: PhaseKind::Stage
+        })
+    );
+    assert_eq!(r.s.member(me).unwrap().targeting(), Targeting::Leader);
+    r.end(s1, &[&[me], &[cpus[0]], &[cpus[1]]]);
+    // Between stages: taken again, for the next stage.
+    r.by(me, set(Targeting::Spread)).unwrap();
+    assert_eq!(r.s.member(me).unwrap().targeting(), Targeting::Spread);
+    // Gone from the room: refused.
+    r.by(me, Command::Leave).unwrap();
+    assert_eq!(
+        r.by(me, set(Targeting::Leader)),
+        Err(Rejection::NotPresent)
+    );
 }

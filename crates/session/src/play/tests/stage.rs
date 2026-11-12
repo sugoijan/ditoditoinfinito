@@ -987,12 +987,17 @@ fn replayed(
     )
     .unwrap();
     let mut inputs = log.inputs.iter().peekable();
+    let mut policies = log.policies.iter().peekable();
     let mut t = log.start - 1.0;
     while t < human.end_time() + 2.0 {
         t += 0.37;
         let mut events = Vec::new();
         while let Some(i) = inputs.next_if(|i| i.time <= t) {
             events.extend(human.input_at(i.lane, i.pressed, i.time));
+        }
+        // The policy as the log has it changed.
+        while let Some(c) = policies.next_if(|c| c.time <= t) {
+            battle.retarget(crate::battle::policy_of(c.policy).unwrap(), c.time);
         }
         events.extend(human.update_at(t));
         battle.advance(human.judge().last_time().unwrap_or(t), &mut human, &events);
@@ -1225,6 +1230,210 @@ fn attacks_are_launched_delivered_and_the_same_at_any_frame_rate_and_from_the_lo
             .map(|p| ra.stats(p))
             .collect::<Vec<_>>()
     );
+}
+
+/// The stage of `order` autoplayed at `fps` to its end with `edges`
+/// queued (host seconds, the device, its control, pressed) under
+/// `settings`, one standard pad connected.
+fn play_with(
+    song: &Song,
+    order: &StageOrder,
+    fps: f64,
+    settings: &Settings,
+    edges: &[(f64, DeviceId, &str, bool)],
+) -> PlaySession<FakeAudio, FakeInputs> {
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let mut config = SessionConfig::from_settings(settings, true, None);
+    config.opponents = Some(StageSetup::of(order));
+    let mut inputs = FakeInputs::new(&clock);
+    inputs.pads.push(ConnectedPad {
+        vendor_product: None,
+        id: PAD.into(),
+        index: 0,
+        standard: true,
+    });
+    for (at, device, control, pressed) in edges {
+        inputs.queued.push(RawInput {
+            device: device.clone(),
+            control: (*control).into(),
+            pressed: *pressed,
+            host_time: HostTime(*at),
+            slot: 0,
+        });
+    }
+    let mut s = PlaySession::start(
+        song,
+        order.chart.index,
+        settings,
+        config,
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        inputs,
+    )
+    .unwrap();
+    run(&mut s, &clock, fps, 300.0).expect("the stage ends");
+    s
+}
+
+const PAD: &str = "Pad (STANDARD GAMEPAD)";
+
+/// M8 round 3 (D8): the attack policy changed during the play. Tab, a
+/// tap on its label and a short press of a pad's Back each cycle it
+/// (Spread, Retaliate, Leader, Spread); the change is in the play's log
+/// at its judged second and goes to the ledger, whose launches follow it
+/// from the next checkpoint: the same record at 60 and 144 frames a
+/// second and again from the log; the stage's outcome says what the play
+/// left it at. A pad's Back held quits as ever; pressed twice it is two
+/// steps of the cycle, never a quit.
+#[test]
+fn a_policy_changed_in_play_applies_from_the_next_checkpoint_at_any_frame_rate_and_from_the_log() {
+    use crate::battle::Targeting;
+    use ddi_room::attacks::AttackEvent;
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(&song, 3, 2);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    assert_eq!(order.targeting, Targeting::Spread);
+    let settings = Settings::default();
+    let key = || DeviceId::Keyboard;
+    let pad = || DeviceId::Gamepad(PAD.into());
+    let back = "button:8";
+    let edges = [
+        // Tab: Retaliate.
+        (12.0, key(), "Tab", true),
+        (12.08, key(), "Tab", false),
+        // The label tapped: Leader.
+        (25.3, DeviceId::Touch, crate::play::TOUCH_POLICY_CONTROL, true),
+        (25.4, DeviceId::Touch, crate::play::TOUCH_POLICY_CONTROL, false),
+        // A pad's Back pressed twice, quickly: Spread, then Retaliate
+        // (each on its release), and no quit.
+        (40.0, pad(), back, true),
+        (40.1, pad(), back, false),
+        (40.25, pad(), back, true),
+        (40.35, pad(), back, false),
+    ];
+    let a = play_with(&song, &order, 60.0, &settings, &edges);
+    let b = play_with(&song, &order, 144.0, &settings, &edges);
+    let log = a.player.log().clone();
+    assert_eq!(
+        log.policies.iter().map(|c| c.policy).collect::<Vec<_>>(),
+        vec![1, 2, 0, 1],
+        "Retaliate, Leader, Spread, Retaliate"
+    );
+    assert_eq!(log.policies, b.player.log().policies);
+    assert_eq!(log.end, None, "two presses of Back are no quit");
+    let ra = a.battle().unwrap().attacks().unwrap();
+    let rb = b.battle().unwrap().attacks().unwrap();
+    assert_eq!(ra.record(), rb.record(), "60 and 144 frames a second");
+    assert_eq!(ra.ledger().targeting(order.me), Targeting::Retaliate);
+    // Each change is the ledger's at the first checkpoint after it, and
+    // not before.
+    let heard: Vec<(i64, Targeting)> = ra
+        .record()
+        .iter()
+        .flat_map(|c| {
+            c.events.iter().filter_map(move |e| match e {
+                AttackEvent::Retargeted {
+                    participant,
+                    targeting,
+                } if *participant == order.me => Some((c.at_us, *targeting)),
+                _ => None,
+            })
+        })
+        .collect();
+    // What it should hear: at each checkpoint, the policy as it stood
+    // just before it, where that is not the one it had.
+    let checkpoints = ra.ledger().checkpoints_us();
+    let mut expected = Vec::new();
+    let mut has = Targeting::Spread;
+    let mut changes = log.policies.iter().peekable();
+    for &c in checkpoints {
+        let mut last = None;
+        while let Some(ch) = changes.next_if(|ch| crate::battle::attacks::micros(ch.time) < c) {
+            last = crate::battle::policy_of(ch.policy);
+        }
+        if let Some(t) = last.filter(|t| *t != has) {
+            has = t;
+            expected.push((c, t));
+        }
+    }
+    assert_eq!(heard, expected);
+    assert!(heard.len() >= 3, "{heard:?}");
+    assert_eq!(heard[0].1, Targeting::Retaliate);
+    // The first change at 12 s is heard at the first checkpoint after
+    // it, not at one before.
+    let first = crate::battle::attacks::micros(log.policies[0].time);
+    assert_eq!(
+        heard[0].0,
+        checkpoints.iter().copied().find(|c| *c > first).unwrap()
+    );
+    // Again without frames, from the log.
+    let again = replayed(&song, &order, &a);
+    let n = ra.record().len().min(again.len());
+    assert!(n + 1 >= ra.record().len());
+    assert_eq!(&again[..n], &ra.record()[..n], "from the log");
+    // The log's own form keeps them (version 5).
+    let bytes = log.encode();
+    assert_eq!(bytes[0], 5);
+    assert_eq!(ddi_engine::history::PlayLog::decode(&bytes).unwrap(), log);
+    // The outcome says what the play left the policy at.
+    let mut a = a;
+    assert_eq!(
+        a.take_stage_outcome().unwrap().targeting,
+        Targeting::Retaliate
+    );
+    // Held, a pad's Back quits (a forfeit), and cycles nothing.
+    let held = [(20.0, pad(), back, true), (21.5, pad(), back, false)];
+    let mut q = play_with(&song, &order, 60.0, &settings, &held);
+    assert!(q.player.log().policies.is_empty());
+    assert!(q.player.log().end.is_some(), "quit");
+    assert_eq!(q.take_stage_outcome().unwrap().mine, ddi_room::Run::Forfeit);
+}
+
+/// D8: a control the player's bindings give to a lane is never the
+/// policy's: Tab bound to a lane plays the lane, and the policy stays.
+/// Without attacks nothing cycles either (no label, no policy).
+#[test]
+fn a_lane_s_key_is_never_the_policy_s() {
+    use crate::battle::Targeting;
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(&song, 2, 2);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let mut settings = Settings::default();
+    let layout = song.layout_of(&song.charts[LONG]).unwrap();
+    let mut table = settings.controls.keyboard(&layout);
+    table[0].push("Tab".into());
+    settings.controls.set_keyboard(&layout, table);
+    let edges = [
+        (12.0, DeviceId::Keyboard, "Tab", true),
+        (12.08, DeviceId::Keyboard, "Tab", false),
+    ];
+    let s = play_with(&song, &order, 60.0, &settings, &edges);
+    assert!(s.player.log().policies.is_empty());
+    assert_eq!(
+        s.battle().unwrap().attacks().unwrap().ledger().targeting(order.me),
+        Targeting::Spread
+    );
+    // The same key under the default bindings cycles it, and the page
+    // never takes Tab for its focus.
+    let s = play_with(&song, &order, 60.0, &Settings::default(), &edges);
+    assert_eq!(s.player.log().policies.len(), 1);
+    assert!(
+        s.inputs()
+            .begun
+            .as_ref()
+            .unwrap()
+            .0
+            .contains(&"Tab".to_string())
+    );
+    // The survival battle: nothing to cycle.
+    let mut plain = room(&song, 1, 2, 2);
+    let order = begin_at(&song, &mut plain, &mut now, LONG);
+    let s = play_with(&song, &order, 60.0, &Settings::default(), &edges);
+    assert!(s.player.log().policies.is_empty());
+    assert_eq!(s.battle().unwrap().policy(&s.player), None);
+    assert!(!s.inputs().begun.as_ref().unwrap().0.contains(&"Tab".to_string()));
 }
 
 /// `attacks-v1` (round 3b): no recovery, and one more attack may be

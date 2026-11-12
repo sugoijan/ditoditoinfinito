@@ -254,6 +254,11 @@ pub struct Drawn {
     /// Where the quit button is (logical pixels: middle and radius),
     /// while it shows.
     pub quit_at: Option<[f32; 3]>,
+    /// Where a tap or a click cycles a stage's attack policy (logical
+    /// pixels: left, top, right, bottom), while its label shows: the
+    /// shell sends `ddi_session::play::TOUCH_POLICY_CONTROL` for a press
+    /// there.
+    pub policy_at: Option<[f32; 4]>,
 }
 
 /// A skin readied for a play: the skin, its images by texture index
@@ -335,6 +340,9 @@ pub struct PlayView<H: PlayHost> {
     /// (`crate::battle_cue`), if it drew them.
     attack_drawn: Option<crate::battle_cue::Cue>,
     waiting_drawn: bool,
+    /// The last frame's attack policy label: the policy and where a tap
+    /// cycles it, target pixels (`crate::battle_cue::policy_area`).
+    policy_drawn: Option<(ddi_session::battle::Targeting, [f32; 4])>,
     /// The song's generated background (`docs/plans/phase-8-gaps.md`,
     /// step 5).
     generated: Option<Generated>,
@@ -382,6 +390,7 @@ impl<H: PlayHost> PlayView<H> {
             fields_cue: false,
             fields_score: Default::default(),
             attack_drawn: None,
+            policy_drawn: None,
             waiting_drawn: false,
             generated: None,
             entrance: None,
@@ -741,6 +750,12 @@ impl<H: PlayHost> PlayView<H> {
     /// and whether it drew the waiting line (`crate::battle_cue`).
     pub fn attack_drawn(&self) -> (Option<crate::battle_cue::Cue>, bool) {
         (self.attack_drawn, self.waiting_drawn)
+    }
+
+    /// The attack policy's label as the last frame drew it: the policy,
+    /// and where a tap or a click cycles it (target pixels).
+    pub fn policy_drawn(&self) -> Option<(ddi_session::battle::Targeting, [f32; 4])> {
+        self.policy_drawn
     }
 
     /// What the last frame drew behind the field.
@@ -1208,19 +1223,13 @@ impl<H: PlayHost> PlayView<H> {
                 in_sight,
                 render.reduced_motion,
             );
-            let waiting = b.waiting(&session.player).map(|w| {
-                use ddi_l10n::msg::room as m;
-                use ddi_session::battle::Targeting;
-                let policy = match w.targeting {
-                    Targeting::Spread => m::attack_policy_spread(),
-                    Targeting::Retaliate => m::attack_policy_retaliate(),
-                    Targeting::Leader => m::attack_policy_leader(),
-                };
-                String::from(m::play_attack_waiting(String::from(policy)))
-            });
+            let waiting = b
+                .waiting(&session.player)
+                .map(|_| String::from(ddi_l10n::msg::room::play_attack_waiting()));
             Attack {
                 cue,
                 waiting,
+                policy: b.policy(&session.player),
                 geo,
                 span,
                 ratio: screen.ratio,
@@ -1228,7 +1237,18 @@ impl<H: PlayHost> PlayView<H> {
         });
         self.attack_drawn = attack.as_ref().and_then(|a| a.cue);
         self.waiting_drawn = attack.as_ref().is_some_and(|a| a.waiting.is_some());
-        if lyrics.is_some() || shown.is_some() {
+        self.policy_drawn = attack.as_ref().and_then(|a| {
+            Some((
+                a.policy?,
+                crate::battle_cue::policy_area(&a.geo, a.span, a.ratio),
+            ))
+        });
+        let policy_at = self.policy_drawn.map(|(_, r)| r.map(|v| v / screen.ratio));
+        // (An attack's parts show even where no miniature fits.)
+        let attack_shown = attack
+            .as_ref()
+            .is_some_and(|a| a.cue.is_some() || a.waiting.is_some() || a.policy.is_some());
+        if lyrics.is_some() || shown.is_some() || attack_shown {
             self.draw_overlay((device, queue, encoder), target, lyrics, shown, attack);
         } else {
             self.fields_drawn = None;
@@ -1236,6 +1256,7 @@ impl<H: PlayHost> PlayView<H> {
         Drawn {
             song_time: frame.song_time,
             quit_at: quit.map(|b| b.map(|v| v / screen.ratio)),
+            policy_at,
         }
     }
 
@@ -1293,6 +1314,15 @@ impl<H: PlayHost> PlayView<H> {
                 if let Some(cue) = &a.cue {
                     crate::battle_cue::draw(list, cue, &a.geo, a.span);
                 }
+                if let Some(policy) = a.policy {
+                    crate::battle_cue::draw_policy(
+                        list,
+                        &crate::battle_cue::policy_word(policy),
+                        &a.geo,
+                        a.span,
+                        a.ratio,
+                    );
+                }
                 if let Some(text) = &a.waiting {
                     crate::battle_cue::draw_waiting(
                         list,
@@ -1344,6 +1374,8 @@ struct FieldsKey {
 struct Attack {
     cue: Option<crate::battle_cue::Cue>,
     waiting: Option<String>,
+    /// The player's attack policy, while its label shows.
+    policy: Option<ddi_session::battle::Targeting>,
     geo: ddi_render::FieldGeometry,
     span: f32,
     ratio: f32,

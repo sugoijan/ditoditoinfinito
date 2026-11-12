@@ -88,6 +88,7 @@ fn report(p: ParticipantId, tiers: &[(i64, u8)]) -> Report {
             .collect(),
         life_ppm: 1_000_000,
         out_at_us: None,
+        targeting: None,
     }
 }
 
@@ -406,6 +407,93 @@ fn retaliate_remembers_from_the_next_batch_on() {
         let e = l.checkpoint(14, &[rep(B, 14, true, 0)]);
         assert_eq!(committed(&e), vec![(B, A)], "seed {seed}");
     }
+}
+
+/// M8 round 3 (D8): a policy changed during the play, as the reports
+/// carry it, goes for the launches of the checkpoint that hears it and
+/// those after, never for one already run; a report naming none keeps the
+/// policy; the change is in the record.
+#[test]
+fn a_policy_changed_in_play_applies_from_the_next_checkpoint() {
+    let seats = [
+        (A, Targeting::Spread),
+        (B, Targeting::Spread),
+        (C, Targeting::Spread),
+    ];
+    // B at half its life, C at full: Leader picks C, whatever the seed.
+    let lives = |k: usize| {
+        let mut b = rep(B, k, false, 0);
+        b.life_ppm = 500_000;
+        vec![b, rep(C, k, false, 0)]
+    };
+    // Spread throughout: whoever the seed draws.
+    let spread = |seed: u64| {
+        let mut l = battle(&seats, seed);
+        let mut r = lives(0);
+        r.push(rep(A, 0, true, 0));
+        committed(&l.checkpoint(0, &r))[0].1
+    };
+    let seed = (0..64).find(|&s| spread(s) == B).expect("a seed whose Spread picks B");
+    // Leader chosen before the first checkpoint: this launch goes by it.
+    let mut l = battle(&seats, seed);
+    let mut r = lives(0);
+    let mut a = rep(A, 0, true, 0);
+    a.targeting = Some(Targeting::Leader);
+    r.push(a);
+    let e = l.checkpoint(0, &r);
+    assert_eq!(committed(&e), vec![(A, C)], "the leader, not Spread's B");
+    assert!(e.contains(&AttackEvent::Retargeted {
+        participant: A,
+        targeting: Targeting::Leader,
+    }));
+    assert_eq!(l.targeting(A), Targeting::Leader);
+    assert!(l.record()[0].events.contains(&AttackEvent::Retargeted {
+        participant: A,
+        targeting: Targeting::Leader,
+    }));
+    // Changed after a checkpoint ran: that one launched by the old
+    // policy, and the next reports say nothing new.
+    let mut l = battle(&seats, seed);
+    let mut r = lives(0);
+    r.push(rep(A, 0, true, 0));
+    assert_eq!(committed(&l.checkpoint(0, &r)), vec![(A, B)]);
+    let mut r = lives(1);
+    let mut a = rep(A, 1, false, 0);
+    a.targeting = Some(Targeting::Leader);
+    r.push(a);
+    let e = l.checkpoint(1, &r);
+    assert_eq!(
+        e.iter()
+            .filter(|e| matches!(e, AttackEvent::Retargeted { .. }))
+            .count(),
+        1
+    );
+    // The same policy again is no change; none named keeps it.
+    let mut r = lives(2);
+    let mut a = rep(A, 2, false, 0);
+    a.targeting = Some(Targeting::Leader);
+    r.push(a);
+    let retargeted = |e: &[AttackEvent]| {
+        e.iter()
+            .any(|e| matches!(e, AttackEvent::Retargeted { .. }))
+    };
+    assert!(!retargeted(&l.checkpoint(2, &r)));
+    let mut r = lives(3);
+    r.push(rep(A, 3, false, 0));
+    assert!(!retargeted(&l.checkpoint(3, &r)));
+    assert_eq!(l.targeting(A), Targeting::Leader);
+    // Someone out changes nothing.
+    let mut out = rep(B, 4, false, 0);
+    out.out_at_us = Some(1);
+    out.targeting = Some(Targeting::Retaliate);
+    l.checkpoint(4, &[out]);
+    assert_eq!(l.targeting(B), Targeting::Spread);
+    // The report's field is additive: left out of the JSON when none,
+    // read where it is missing.
+    let plain = serde_json::to_string(&rep(A, 0, false, 1)).unwrap();
+    assert!(!plain.contains("targeting"), "{plain}");
+    let read: Report = serde_json::from_str(&plain).unwrap();
+    assert_eq!(read.targeting, None);
 }
 
 #[test]

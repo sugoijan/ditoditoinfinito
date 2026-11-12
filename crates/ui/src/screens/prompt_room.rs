@@ -30,6 +30,11 @@ const LIST_ROW: f32 = 22.0;
 /// A CPU's level's stars at the end of its row.
 const LIST_STARS: f32 = 11.0;
 
+/// The attack policy's row: its name as a control (one of the play
+/// options' rows, so the focus and the lighting are theirs) and its id.
+pub(super) const TARGETING: &str = "Opt.room.targeting";
+pub(super) const TARGETING_ID: &str = "room.targeting";
+
 pub(super) struct PromptRoom {
     room: SharedRoom,
     stage: StageId,
@@ -282,6 +287,113 @@ impl PromptScreen {
             ry += 20.0;
         }
         (out, ry - y)
+    }
+
+    /// The player's attack policy, where the stage's match has attacks
+    /// and the room still has this prompt for them (M8 round 3, D8): a
+    /// row `inner` wide from `y` (a label, ◀ the policy ▶) with a line
+    /// under it saying what the policy does; its control's name and its
+    /// height.
+    pub(super) fn room_targeting_row(&self, inner: f32, y: f32) -> Option<(Actor, String, f32)> {
+        let rm = self.room.as_ref()?;
+        if rm.gone.get().is_some() {
+            return None;
+        }
+        let policy = {
+            let r = rm.room.borrow();
+            r.attacks_on().then(|| r.my_targeting())?
+        };
+        let env = &self.env;
+        let name = TARGETING;
+        let x0 = 24.0;
+        let mid = OPTION_ROW / 2.0;
+        let label_text = msg::room::targeting();
+        let label_w = look::mono_width(&label_text, 14.0).min(inner * 0.4);
+        // Wide enough for the longest policy's word, so the arrows stay.
+        let vw = ddi_room::attacks::Targeting::ALL
+            .iter()
+            .map(|t| look::mono_width(&room::policy_word(*t), 14.0))
+            .fold(60.0, f32::max)
+            .min(inner - label_w - 70.0)
+            + 8.0;
+        let vx = x0 + label_w + 14.0;
+        let row_w = label_w + 14.0 + 44.0 + vw;
+        let mut light = quad(
+            &format!("{name}.Light"),
+            [row_w + 12.0, OPTION_ROW - 2.0],
+            [1.0, 1.0, 1.0, 0.004],
+        );
+        call(&mut light, "cornerradius", &[6.0]);
+        call(&mut light, "xy", &[x0 + row_w / 2.0, mid]);
+        let mut label = env.text(&format!("{name}.Label"), &label_text, 14.0, 400, "Muted");
+        call(&mut label, "maxwidth", &[label_w]);
+        let mut value = env.text(
+            &format!("{name}.Value"),
+            &room::policy_word(policy),
+            14.0,
+            600,
+            "Text",
+        );
+        call(&mut value, "maxwidth", &[vw]);
+        call(&mut value, "xy", &[vx + 22.0 + vw / 2.0, mid]);
+        // An arrow and the box a press on it lands in (drawn all but
+        // clear: a clear box takes no press).
+        let arrow = |part: &str, glyph: &str, x: f32| {
+            let mut hit = quad(
+                &format!("{name}.{part}"),
+                [26.0, OPTION_ROW],
+                [1.0, 1.0, 1.0, 0.004],
+            );
+            call(&mut hit, "xy", &[x, mid]);
+            let mut g = env.text("", glyph, 12.0, 400, "Accent");
+            call(&mut g, "xy", &[x, mid]);
+            frame(&format!("{name}.{part}"), vec![hit, g])
+        };
+        let mut parts = vec![
+            light,
+            left(label, x0, mid),
+            arrow("Down", "◀", vx + 9.0),
+            value,
+            arrow("Up", "▶", vx + 22.0 + vw + 13.0),
+        ];
+        // What it does: beside the row where the card is wide, else
+        // under it.
+        let about = room::policy_about(policy);
+        let beside = x0 + row_w + 18.0;
+        let room_beside = inner + 24.0 - beside;
+        let mut height = OPTION_ROW;
+        if look::mono_width(&about, 12.0) <= room_beside {
+            let text = env.text(&format!("{name}.About"), &about, 12.0, 400, "Muted");
+            parts.push(left(text, beside, mid));
+        } else {
+            for (i, l) in wrap_lines(&about, inner, 12.0).into_iter().enumerate() {
+                let mut text = env.text(&format!("{name}.About{i}"), &l, 12.0, 400, "Muted");
+                look::ellipsized(&mut text, inner);
+                parts.push(left(text, x0, height + 8.0));
+                height += 16.0;
+            }
+        }
+        let mut row = frame(name, parts);
+        call(&mut row, "y", &[y]);
+        Some((row, name.into(), height))
+    }
+
+    /// The policy stepped by `by` in its ring (Left, Right, ◀ ▶, a tap or
+    /// Enter on the row): the room is told, and the card built again.
+    pub(super) fn room_targeting_step(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        if rm.started.get() || rm.gone.get().is_some() {
+            return;
+        }
+        let all = ddi_room::attacks::Targeting::ALL;
+        let now = rm.room.borrow().my_targeting();
+        let i = all.iter().position(|t| *t == now).unwrap_or(0) as i32;
+        let next = all[(i + by).rem_euclid(all.len() as i32) as usize];
+        let _ = rm.room.borrow_mut().set_targeting(next);
+        self.rebuild(root, cx);
+        self.publish();
     }
 
     /// The players' column scrolled by `by` rows (its marks, the wheel).

@@ -43,6 +43,9 @@ pub struct AttackRunner {
     pending: BTreeMap<ParticipantId, Vec<Judged>>,
     /// When each went out (judged song microseconds).
     out: BTreeMap<ParticipantId, i64>,
+    /// Each competitor's policy changes not yet reported: when (judged
+    /// song microseconds) and to what, in order.
+    retargets: BTreeMap<ParticipantId, Vec<(i64, Targeting)>>,
     /// The last events, each with its checkpoint's time.
     events: Vec<(i64, AttackEvent)>,
 }
@@ -177,7 +180,20 @@ impl AttackRunner {
             ),
             pending: participants.iter().map(|&p| (p, Vec::new())).collect(),
             out: BTreeMap::new(),
+            retargets: BTreeMap::new(),
             events: Vec::new(),
+        }
+    }
+
+    /// `participant` changed its policy to `targeting` at judged song
+    /// second `at` (D8): reported at the first checkpoint after it, whose
+    /// launches go by it, whatever the frames.
+    pub fn retarget(&mut self, participant: ParticipantId, at: f64, targeting: Targeting) {
+        if self.pending.contains_key(&participant) {
+            self.retargets
+                .entry(participant)
+                .or_default()
+                .push((micros(at), targeting));
         }
     }
 
@@ -225,16 +241,23 @@ impl AttackRunner {
             && at <= until
         {
             let seconds = at as f64 / 1e6;
+            let retargets = &mut self.retargets;
             let reports: Vec<Report> = self
                 .pending
                 .iter_mut()
                 .map(|(p, judged)| {
                     let split = judged.partition_point(|j| j.at_us < at);
+                    // Its policy as it stood just before the checkpoint.
+                    let targeting = retargets.get_mut(p).and_then(|changes| {
+                        let n = changes.partition_point(|(t, _)| *t < at);
+                        changes.drain(..n).next_back().map(|(_, t)| t)
+                    });
                     Report {
                         participant: *p,
                         judged: judged.drain(..split).collect(),
                         life_ppm: life(*p, seconds),
                         out_at_us: self.out.get(p).copied(),
+                        targeting,
                     }
                 })
                 .collect();

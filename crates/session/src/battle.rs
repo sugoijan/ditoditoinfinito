@@ -67,8 +67,9 @@ pub struct StageSetup {
     /// and Boos): the play's, the CPUs' and the bots' ([`stage_ruleset`]).
     pub rules: StageRules,
     pub me: ParticipantId,
-    /// The local player's attack policy (M8b: Spread; chosen before the
-    /// stage and in play from the next round on).
+    /// The local player's attack policy as the stage begins (their
+    /// member's, chosen before it: the room's players panel, the stage's
+    /// prompt); changed in play by [`Battle::set_targeting`].
     pub targeting: Targeting,
     pub cpus: Vec<CpuSeat>,
     /// DEVELOPMENT ONLY: a section of battle shocks put into the local
@@ -112,6 +113,26 @@ impl StageSetup {
     pub fn remote(&self) -> bool {
         self.others > 0
     }
+}
+
+/// The policies in the order a press cycles them (D8), and each one's
+/// number in a play's log (`ddi_engine::history::PolicyChange`).
+pub const POLICIES: [Targeting; 3] = Targeting::ALL;
+
+/// The policy after `t` in the cycle.
+pub fn next_policy(t: Targeting) -> Targeting {
+    let i = POLICIES.iter().position(|p| *p == t).unwrap_or(0);
+    POLICIES[(i + 1) % POLICIES.len()]
+}
+
+/// A policy's number in a play's log.
+pub fn policy_code(t: Targeting) -> u8 {
+    POLICIES.iter().position(|p| *p == t).unwrap_or(0) as u8
+}
+
+/// The policy a log's number names (none: one this build does not know).
+pub fn policy_of(code: u8) -> Option<Targeting> {
+    POLICIES.get(usize::from(code)).copied()
 }
 
 /// The ruleset a stage of a match under `rules` (`MatchRules`: D0, DDI
@@ -256,6 +277,9 @@ pub struct StageOutcome {
     /// (`ddi_ui::state::room::run_detail`): the local player's goes with
     /// its report to an online room, a practice's stay with its client.
     pub details: Vec<(ParticipantId, RunDetail)>,
+    /// The local player's attack policy as the play left it (changed in
+    /// play or not): what the room keeps as theirs for the next stage.
+    pub targeting: Targeting,
 }
 
 /// An attack against the local player, as its warning shows it
@@ -313,6 +337,9 @@ pub struct Battle {
     /// The attack ledger, where the battle has attacks (a practice's
     /// only: an online stage's would be the room's).
     attacks: Option<attacks::AttackRunner>,
+    /// The local player's policy as they have it now (the ledger takes a
+    /// change at its next checkpoint).
+    policy: Targeting,
     /// The ranking, once decided before the song's end, and whether a
     /// final attack drew it.
     decided: Option<Vec<Vec<Finisher>>>,
@@ -451,6 +478,7 @@ impl Battle {
             attacks::AttackRunner::new(song, chart, &setup.rules.ruleset, &ruleset.judge, roster)
         });
         Ok(Battle {
+            policy: setup.targeting,
             setup,
             seats,
             track,
@@ -962,6 +990,35 @@ impl Battle {
             .map(|(targeting, reason)| Waiting { targeting, reason })
     }
 
+    /// The local player's attack policy as they have it now, where the
+    /// battle has attacks: what the label by the power bar says (none
+    /// once out or after a confirmed win, as the bar).
+    pub fn policy(&self, human: &Player) -> Option<Targeting> {
+        self.attacks.as_ref()?;
+        (!self.won() && human.gauge_failed_at().is_none()).then_some(self.policy)
+    }
+
+    /// The local player changes their policy to `targeting` at judged
+    /// song second `at` (D8: Tab, a pad's View, a tap on the label): the
+    /// ledger launches by it from the next checkpoint. Whether it changed
+    /// (nothing does without attacks, once out or after a confirmed win).
+    pub fn set_targeting(&mut self, targeting: Targeting, at: f64, human: &Player) -> bool {
+        if self.policy(human).is_none_or(|p| p == targeting) {
+            return false;
+        }
+        self.retarget(targeting, at);
+        true
+    }
+
+    /// A policy change as a log kept it (a stage judged again from its
+    /// log): given to the ledger whatever the play's state.
+    pub fn retarget(&mut self, targeting: Targeting, at: f64) {
+        self.policy = targeting;
+        if let Some(a) = self.attacks.as_mut() {
+            a.retarget(self.setup.me, at, targeting);
+        }
+    }
+
     /// The commitments since the last call, worded for a log (English).
     pub fn take_log(&mut self) -> Vec<String> {
         std::mem::take(&mut self.log)
@@ -1058,6 +1115,7 @@ impl Battle {
                 mine,
                 drawn_by_final_attack: self.drawn,
                 details,
+                targeting: self.policy,
             };
         }
         let checkpoints = self
@@ -1073,6 +1131,7 @@ impl Battle {
             mine,
             drawn_by_final_attack: drawn,
             details,
+            targeting: self.policy,
         }
     }
 
@@ -1193,6 +1252,7 @@ pub fn forfeit(
         mine: Run::Forfeit,
         drawn_by_final_attack: drawn,
         details: b.cpu_details(),
+        targeting: b.policy,
     })
 }
 

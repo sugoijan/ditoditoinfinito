@@ -604,6 +604,27 @@ pub fn quit_hint(
     })
 }
 
+/// The hint while a pad's Back is held in a multiplayer stage with
+/// attacks, where a short press of it changes the attack policy and only
+/// holding it quits (`ddi_session::play`).
+pub fn quit_hold_hint(
+    raw: &RawInput,
+    pads: &[ConnectedPad],
+    styles: &BTreeMap<String, Style>,
+) -> &'static str {
+    use ddi_l10n::msg::prompt;
+    let named = pads
+        .iter()
+        .find(|p| p.index == raw.slot && raw.device == DeviceId::Gamepad(p.id.clone()))
+        .map(|p| Cap::control(p, family(styles, p), &raw.control))
+        .filter(Cap::standard)
+        .map(|cap| cap.name());
+    kept(match named {
+        Some(control) => prompt::play_quit_hold(control),
+        None => prompt::play_quit_hold_this(),
+    })
+}
+
 /// The hint after the touch screen's quit button was pressed.
 pub fn quit_button_hint() -> &'static str {
     kept(ddi_l10n::msg::prompt::play_quit_button())

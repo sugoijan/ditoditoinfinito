@@ -35,6 +35,15 @@ pub struct LoggedHazard {
     pub lane: u8,
 }
 
+/// A battle's attack policy changed during the play
+/// ([`crate::Player::set_policy_at`]): the judged song second and the
+/// policy's number, the battle's own (the engine judges nothing by it).
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PolicyChange {
+    pub time: f64,
+    pub policy: u8,
+}
+
 /// A play's presses and releases ([`crate::Player::log`]).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayLog {
@@ -55,6 +64,11 @@ pub struct PlayLog {
     /// a replay puts them in at its start.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hazards: Vec<LoggedHazard>,
+    /// A battle's attack policy as the player changed it during the play,
+    /// in order: a stage judged again from its log launches its attacks
+    /// at the same targets.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub policies: Vec<PolicyChange>,
 }
 
 /// Why a stored log or timing could not be read.
@@ -98,6 +112,9 @@ const LOG_VERSION_END: u8 = 3;
 /// 4: a battle's shocks too (the covers' count, whether it quit and
 /// where, then the shocks).
 const LOG_VERSION_HAZARDS: u8 = 4;
+/// 5: a battle's attack policy changes too, after the shocks (their
+/// count then present, 0 or more).
+const LOG_VERSION_POLICIES: u8 = 5;
 /// The timing's binary format: 1, then 2 with each judgement's place in
 /// the beat in its kind byte's upper bits.
 const TIMING_VERSION_1: u8 = 1;
@@ -229,11 +246,17 @@ impl PlayLog {
     /// shocks (version 4) has the covers' count (0 or more) and their
     /// changes, a byte saying whether it quit (then where, as version 3),
     /// then the shocks' number and per shock its tick from the one before
-    /// (a signed varint) and its lane (a byte).
+    /// (a signed varint) and its lane (a byte). A play whose attack policy
+    /// changed (version 5) is version 4's form (the shocks' number 0 or
+    /// more), then the changes' number and per change its time from the
+    /// change before (a signed varint) and the policy (a byte).
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(24 + self.inputs.len() * 3 + self.covers.len() * 6);
-        let hazards = !self.hazards.is_empty();
-        out.push(if hazards {
+        let policies = !self.policies.is_empty();
+        let hazards = !self.hazards.is_empty() || policies;
+        out.push(if policies {
+            LOG_VERSION_POLICIES
+        } else if hazards {
             LOG_VERSION_HAZARDS
         } else if self.end.is_some() {
             LOG_VERSION_END
@@ -283,6 +306,16 @@ impl PlayLog {
                 out.push(h.lane);
             }
         }
+        if policies {
+            put_varint(&mut out, self.policies.len() as u64);
+            let mut last = 0i64;
+            for c in &self.policies {
+                let us = micros(c.time);
+                put_signed(&mut out, us.saturating_sub(last));
+                last = us;
+                out.push(c.policy);
+            }
+        }
         out
     }
 
@@ -292,7 +325,11 @@ impl PlayLog {
         let version = r.byte().map_err(|_| LogError::Empty)?;
         if !matches!(
             version,
-            LOG_VERSION | LOG_VERSION_COVERS | LOG_VERSION_END | LOG_VERSION_HAZARDS
+            LOG_VERSION
+                | LOG_VERSION_COVERS
+                | LOG_VERSION_END
+                | LOG_VERSION_HAZARDS
+                | LOG_VERSION_POLICIES
         ) {
             return Err(LogError::Version(version));
         }
@@ -338,7 +375,7 @@ impl PlayLog {
         }
         let quit = match version {
             LOG_VERSION_END => true,
-            LOG_VERSION_HAZARDS => match r.byte()? {
+            LOG_VERSION_HAZARDS | LOG_VERSION_POLICIES => match r.byte()? {
                 0 => false,
                 1 => true,
                 k => return Err(LogError::Kind(k)),
@@ -347,7 +384,7 @@ impl PlayLog {
         };
         let end = quit.then(|| r.f64()).transpose()?;
         let mut hazards = Vec::new();
-        if version == LOG_VERSION_HAZARDS {
+        if matches!(version, LOG_VERSION_HAZARDS | LOG_VERSION_POLICIES) {
             let n = r.count(2)?;
             hazards.reserve(n);
             let mut last = 0i64;
@@ -359,6 +396,19 @@ impl PlayLog {
                 });
             }
         }
+        let mut policies = Vec::new();
+        if version == LOG_VERSION_POLICIES {
+            let n = r.count(2)?;
+            policies.reserve(n);
+            let mut last = 0i64;
+            for _ in 0..n {
+                last = last.checked_add(r.signed()?).ok_or(LogError::Overflow)?;
+                policies.push(PolicyChange {
+                    time: from_micros(last),
+                    policy: r.byte()?,
+                });
+            }
+        }
         r.end()?;
         Ok(PlayLog {
             start,
@@ -366,6 +416,7 @@ impl PlayLog {
             covers,
             end,
             hazards,
+            policies,
         })
     }
 
@@ -398,6 +449,14 @@ impl PlayLog {
             end: self.end.map(|e| to_microsecond(e + seconds)),
             // Rows, not times: the shocks keep theirs.
             hazards: self.hazards.clone(),
+            policies: self
+                .policies
+                .iter()
+                .map(|c| PolicyChange {
+                    time: to_microsecond(c.time + seconds),
+                    ..*c
+                })
+                .collect(),
         }
     }
 }
@@ -808,6 +867,67 @@ mod tests {
             PlayLog::decode(&bytes[..bytes.len() - 1]),
             Err(LogError::Truncated)
         );
+    }
+
+    /// A battle's attack policy changes: version 5 (with or without
+    /// shocks, a quit or covers), read back equal, shifted with the
+    /// edges; a log without them keeps its older version.
+    #[test]
+    fn policy_changes_round_trip_as_version_5() {
+        let mut log = PlayLog {
+            start: 0.25,
+            inputs: vec![LoggedInput {
+                time: 1.5,
+                lane: 2,
+                pressed: true,
+            }],
+            ..PlayLog::default()
+        };
+        log.policies = vec![
+            PolicyChange {
+                time: 0.5,
+                policy: 1,
+            },
+            PolicyChange {
+                time: to_microsecond(42.123_456_7),
+                policy: 2,
+            },
+            PolicyChange {
+                time: 42.5,
+                policy: 0,
+            },
+        ];
+        let bytes = log.encode();
+        assert_eq!(bytes[0], LOG_VERSION_POLICIES);
+        assert_eq!(PlayLog::decode(&bytes), Ok(log.clone()));
+        assert_eq!(
+            PlayLog::decode(&bytes[..bytes.len() - 1]),
+            Err(LogError::Truncated)
+        );
+        assert_eq!(log.shifted(0.5).policies[0].time, 1.0);
+        // With shocks, a quit and a cover change too.
+        log.hazards = vec![
+            LoggedHazard { tick: 96, lane: 1 },
+            LoggedHazard { tick: 120, lane: 3 },
+        ];
+        log.end = Some(to_microsecond(50.0));
+        log.covers = vec![CoverChange {
+            time: 0.75,
+            cover: LaneCover {
+                mode: CoverMode::Sudden,
+                sudden: 26,
+                hidden: 25,
+            },
+        }];
+        let bytes = log.encode();
+        assert_eq!(bytes[0], LOG_VERSION_POLICIES);
+        assert_eq!(PlayLog::decode(&bytes), Ok(log.clone()));
+        // Without them: the version it had.
+        log.policies.clear();
+        assert_eq!(log.encode()[0], LOG_VERSION_HAZARDS);
+        // As JSON too, the field left out when empty.
+        let json = serde_json::to_string(&log).unwrap();
+        assert!(!json.contains("policies"));
     }
 
     #[test]

@@ -41,6 +41,7 @@ use std::rc::Rc;
 use std::collections::BTreeSet;
 
 use ddi_library::share::ShareError;
+use ddi_room::attacks::Targeting;
 use ddi_room::{
     BattlePreset, Capability, ChartKey, ClientId, Command, ContentCard, ContentId, ContentSource,
     ContentStatus, Finisher, Identity, LinkState, Loading, LocalAuthority, ManualClock, MatchId,
@@ -341,8 +342,8 @@ pub struct CpuSeat {
     /// A roster CPU's name (data) and personality (`ddi_engine::cpu::Skills`).
     pub name: Option<String>,
     pub skills: Option<String>,
-    /// Its attack policy (M8b): Spread for every CPU for now; the roster
-    /// and the Rules may set it from the next round on.
+    /// Its attack policy: its roster entry's (`OpponentSpec::targeting`),
+    /// Spread where it names none. Never shown as a skill.
     pub targeting: ddi_room::attacks::Targeting,
 }
 
@@ -363,8 +364,9 @@ pub struct StageOrder {
     /// in place of the player's own.
     pub rules: StageRules,
     pub me: ParticipantId,
-    /// The local player's attack policy (M8b: Spread; chosen before the
-    /// stage and in play from the next round on).
+    /// The local player's attack policy as the order was made (their
+    /// member's, `RoomClient::my_targeting`): the shells give the play the
+    /// one they have as it starts (it may change on the stage's prompt).
     pub targeting: ddi_room::attacks::Targeting,
     pub cpus: Vec<CpuSeat>,
     /// DEVELOPMENT ONLY: a section of battle shocks put into the local
@@ -698,6 +700,7 @@ impl RoomClient {
             seed,
             personality: None,
             name: None,
+            targeting: None,
         });
         let roster = super::cpu_roster::starting(STARTING_CPUS, seed);
         let rules = super::cpu_roster::with_roster(rules, roster, 1);
@@ -719,6 +722,7 @@ impl RoomClient {
             seed,
             personality: None,
             name: None,
+            targeting: None,
         });
         rules.stages = 1;
         rules.seats = cpus + 1;
@@ -1282,6 +1286,57 @@ impl RoomClient {
         })
     }
 
+    /// How `id` picks whom to attack (M8 round 3): a person's own choice,
+    /// a CPU's as its roster entry names it; Spread for anyone unknown.
+    pub fn targeting_of(&self, id: ParticipantId) -> Targeting {
+        self.member_of(id)
+            .map_or_else(Targeting::default, ddi_room::Member::targeting)
+    }
+
+    /// The local player's attack policy.
+    pub fn my_targeting(&self) -> Targeting {
+        self.targeting_of(self.me)
+    }
+
+    /// The local player's attack policy, chosen outside a stage's play
+    /// (the players panel, a stage's prompt): the next stage's battle
+    /// starts them with it. Nothing is sent where it is theirs already.
+    pub fn set_targeting(&mut self, targeting: Targeting) -> Result<(), Refusal> {
+        if self.my_targeting() == targeting {
+            return Ok(());
+        }
+        self.send(Command::SetTargeting { targeting })
+    }
+
+    /// The next policy in the cycle (Spread, Retaliate, Leader): what a
+    /// press on the prompt's line does.
+    pub fn cycle_targeting(&mut self) -> Result<(), Refusal> {
+        let all = Targeting::ALL;
+        let i = all
+            .iter()
+            .position(|t| *t == self.my_targeting())
+            .unwrap_or(0);
+        self.set_targeting(all[(i + 1) % all.len()])
+    }
+
+    /// The policy a stage's play left the local player with (changed in
+    /// play or not, `ddi_session::battle::StageOutcome::targeting`): kept
+    /// as theirs for the next stage, once the room is past the stage. A
+    /// refusal is not shown (the stage's outcome was reported already).
+    pub fn played_targeting(&mut self, targeting: Targeting) {
+        if self.my_targeting() != targeting {
+            let kept = self.refusal.clone();
+            let _ = self.send(Command::SetTargeting { targeting });
+            self.refusal = kept;
+        }
+    }
+
+    /// Whether the match being played (else the next one's rules) has
+    /// attacks: where the screens show the policies.
+    pub fn attacks_on(&self) -> bool {
+        self.locked_rules().unwrap_or_else(|| self.rules()).attacks()
+    }
+
     /// Whether the local player is ready for the upcoming stage (or in
     /// the lineup of the stage counting down).
     pub fn ready(&self) -> bool {
@@ -1742,7 +1797,7 @@ impl RoomClient {
                     seed: opponent.seed,
                     name: opponent.name.clone(),
                     skills: opponent.personality.clone(),
-                    targeting: Default::default(),
+                    targeting: opponent.targeting.unwrap_or_default(),
                 }),
                 MemberKind::Human { .. } => None,
             })
@@ -1757,7 +1812,7 @@ impl RoomClient {
             rules: StageRules::of(&m.rules),
             dev_mines_at_beat: development().mines_at_beat,
             me: self.me,
-            targeting: Default::default(),
+            targeting: self.my_targeting(),
             cpus,
             others: u16::try_from(
                 field

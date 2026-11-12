@@ -1184,6 +1184,15 @@ impl PromptScreen {
             }
             y = top + per as f32 * OPTION_ROW;
         }
+        // A room's stage with attacks: the player's attack policy, one
+        // quiet row (Left and Right or a tap change it) and what it does.
+        if state.step == PromptStep::Ready
+            && let Some((row, name, height)) = self.room_targeting_row(inner, y + 10.0)
+        {
+            c.push(row);
+            controls.push(name);
+            y += 10.0 + height;
+        }
         y += 14.0;
         // The step.
         let mut buttons: Vec<(String, String, &str)> = Vec::new();
@@ -2092,12 +2101,19 @@ impl Screen for PromptScreen {
             if let (
                 Input::Menu {
                     action: action @ (MenuAction::Left | MenuAction::Right),
-                    ..
+                    repeat,
                 },
                 Some(id),
             ) = (input, &row)
             {
                 let by = if *action == MenuAction::Left { -1 } else { 1 };
+                if id == room_mode::TARGETING_ID {
+                    // Three policies in a ring: a held key steps once.
+                    if !repeat {
+                        self.room_targeting_step(by, root, cx);
+                    }
+                    return Handled::Yes;
+                }
                 self.change_option(id, by, false, cx);
                 return Handled::Yes;
             }
@@ -2121,6 +2137,10 @@ impl Screen for PromptScreen {
                     (1, true)
                 };
                 cx.focus(name.clone());
+                if id == room_mode::TARGETING_ID {
+                    self.room_targeting_step(by, root, cx);
+                    return Handled::Yes;
+                }
                 self.change_option(id, by, wrap, cx);
                 return Handled::Yes;
             }
@@ -2143,6 +2163,10 @@ impl Screen for PromptScreen {
                 && !matches!(cx.focused(), Some("Back" | "SaveOptions" | "Calibrate")) =>
             {
                 self.choose(PromptChoice::Start, cx);
+                Handled::Yes
+            }
+            Input::Activate { name } if name == room_mode::TARGETING => {
+                self.room_targeting_step(1, root, cx);
                 Handled::Yes
             }
             Input::Activate { name } if name == "Room.Up" || name == "Room.Down" => {

@@ -80,6 +80,11 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   and chained attacks (`attacks-v1`); a battle's shocks drawn by a
   skin's `Tap Shock` (Infinito's shock arrows), a chart's mines as
   mines; the attack rates measured again.
+  M8 round 3 (2026-11-12): each player's own attack policy (Spread,
+  Retaliate, Leader) in the room's model, chosen on the stage's prompt,
+  shown on the players' lines and changeable during the play (Tab, a
+  controller's View, a tap on its label by the power bar), from the
+  next checkpoint and kept in the play's log.
   Provisional choices and open questions listed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two

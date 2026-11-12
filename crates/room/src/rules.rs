@@ -347,6 +347,7 @@ impl MatchRules {
                     seed: 0,
                     personality: None,
                     name: None,
+                    targeting: None,
                 },
                 roster: Vec::new(),
             },
@@ -561,6 +562,7 @@ mod tests {
             seed: 1,
             personality: None,
             name: None,
+            targeting: None,
         }
     }
 

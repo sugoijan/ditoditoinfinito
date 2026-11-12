@@ -5,6 +5,7 @@
 //! never of participation: a watching co-host operates the room, and a
 //! playing member does not.
 
+use crate::attacks::Targeting;
 use crate::ids::{Identity, ParticipantId};
 use crate::phase::PhaseKind;
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,18 @@ pub struct Member {
     pub connection: Connection,
     /// Left the room. The record and its results stay.
     pub left: bool,
+    /// How they pick whom to attack where a match has attacks (M8 round
+    /// 3, D8): their own choice ([`crate::Command::SetTargeting`]), Spread
+    /// until they make one; what a stage's battle starts them with. A
+    /// CPU's is its opponent's ([`OpponentSpec::targeting`]). Additive:
+    /// left out of the JSON at its default, so a peer that predates it
+    /// reads and writes the same room.
+    #[serde(default, skip_serializing_if = "is_spread")]
+    pub targeting: Targeting,
+}
+
+fn is_spread(t: &Targeting) -> bool {
+    *t == Targeting::Spread
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +70,15 @@ impl Member {
         }
     }
 
+    /// How this member picks whom to attack: a person's own choice, a
+    /// CPU's as its opponent names it (Spread where it names none).
+    pub fn targeting(&self) -> Targeting {
+        match &self.kind {
+            MemberKind::Human { .. } => self.targeting,
+            MemberKind::Cpu { opponent, .. } => opponent.targeting.unwrap_or_default(),
+        }
+    }
+
     /// Present and connected: a CPU always, a person while connected.
     pub fn reachable(&self) -> bool {
         !self.left && (self.is_cpu() || self.connection == Connection::Connected)
@@ -67,7 +89,8 @@ impl Member {
 /// into a real opponent. `level` and `seed` are today's CPU controls;
 /// `personality` its skills (`ddi_engine::cpu::Skills`: a preset's name or
 /// seven multipliers) and `name` what the room calls it (a roster's CPU,
-/// M7b; none: "CPU n").
+/// M7b; none: "CPU n"); `targeting` how it picks whom to attack (M8 round
+/// 3: a roster's CPU may name one; none: Spread), never shown as a skill.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpponentSpec {
     pub level: u8,
@@ -76,6 +99,8 @@ pub struct OpponentSpec {
     pub personality: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targeting: Option<Targeting>,
 }
 
 impl OpponentSpec {
@@ -245,6 +270,7 @@ mod tests {
             seed: 7,
             personality: None,
             name: None,
+            targeting: None,
         };
         let (a, b) = (spec.for_seat(1), spec.for_seat(2));
         assert_ne!(a.seed, b.seed);

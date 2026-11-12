@@ -196,7 +196,11 @@ room-play-cue-stage-drawn = 1位タイ
 room-attack-policy-spread = 均等
 room-attack-policy-retaliate = 仕返し
 room-attack-policy-leader = トップ
-room-play-attack-waiting = { $policy }・攻撃先を待機中
+room-play-attack-waiting = 攻撃先を待機中
+room-targeting = ターゲット
+room-attack-policy-spread-about = 攻撃された回数が最も少ない相手を攻撃します。
+room-attack-policy-retaliate-about = 最後に自分を攻撃した相手を攻撃します。
+room-attack-policy-leader-about = ライフが最も多い相手を攻撃します。
 room-results-drawn-final-attack = 最後の攻撃で1位タイ
 room-prompt-speed-raised = 攻撃の予告が間に合うようスピードを上げています
 

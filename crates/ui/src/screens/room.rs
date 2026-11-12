@@ -89,6 +89,9 @@ pub struct RoomView {
     pub boos: bool,
     pub attacks: bool,
     pub attacks_offered: bool,
+    /// The local player's attack policy (`spread`, `retaliate`,
+    /// `leader`).
+    pub targeting: String,
     /// The running match's rules are locked (a match exists).
     pub locked: bool,
     pub ready: bool,
@@ -186,6 +189,9 @@ pub struct RoomMemberView {
     pub admin: bool,
     pub connection: String,
     pub participation: String,
+    /// Their attack policy (`spread`, `retaliate`, `leader`), whatever
+    /// the match's rules.
+    pub targeting: String,
 }
 
 /// A room screen's per-frame work: the client ticked on the UI's clock,
@@ -394,6 +400,9 @@ pub struct PlayerRow {
     /// away, sitting out, watching), and how it reads.
     pub status: String,
     pub tone: Tone,
+    /// Their attack policy's word, where the match has attacks (empty
+    /// otherwise): shown quietly, a policy and never a skill.
+    pub policy: String,
 }
 
 /// How a player's status reads in the players panel.
@@ -500,6 +509,27 @@ pub fn level_line_right(
     }
 }
 
+/// An attack policy's word (Spread, Retaliate, Leader).
+pub fn policy_word(t: ddi_room::attacks::Targeting) -> UiText {
+    use ddi_room::attacks::Targeting;
+    match t {
+        Targeting::Spread => m::attack_policy_spread(),
+        Targeting::Retaliate => m::attack_policy_retaliate(),
+        Targeting::Leader => m::attack_policy_leader(),
+    }
+}
+
+/// What a policy does, in a line (where there is room for it: a stage's
+/// prompt; never in play).
+pub fn policy_about(t: ddi_room::attacks::Targeting) -> UiText {
+    use ddi_room::attacks::Targeting;
+    match t {
+        Targeting::Spread => m::attack_policy_spread_about(),
+        Targeting::Retaliate => m::attack_policy_retaliate_about(),
+        Targeting::Leader => m::attack_policy_leader_about(),
+    }
+}
+
 /// Everyone in the room: the people present, then the CPUs (the match's,
 /// or before it those its rules will seat).
 pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
@@ -528,6 +558,14 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
             .map(|st| (st.rank, String::from(points_text(st.total))))
     };
     let upcoming = s.upcoming_stage().and_then(|id| s.stage(id));
+    let attacks = r.attacks_on();
+    let policy = |t: ddi_room::attacks::Targeting| -> String {
+        if attacks {
+            policy_word(t).into()
+        } else {
+            String::new()
+        }
+    };
     let mut rows = Vec::new();
     for member in s.members.values().filter(|mb| !mb.left) {
         match &member.kind {
@@ -578,6 +616,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     role: person_role(s, member).unwrap_or_default(),
                     status,
                     tone,
+                    policy: policy(member.targeting()),
                 });
             }
             MemberKind::Cpu { ordinal, opponent } => {
@@ -595,6 +634,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     role: String::new(),
                     status: String::new(),
                     tone: Tone::Plain,
+                    policy: policy(member.targeting()),
                 });
             }
         }
@@ -617,6 +657,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                 role: String::new(),
                 status: m::cpu_at_start().into(),
                 tone: Tone::Plain,
+                policy: policy(spec.targeting.unwrap_or_default()),
             });
         }
     }
@@ -1020,6 +1061,13 @@ pub fn panel(
                 let mut state = env.text(&format!("Panel{k}.State"), &p.state, 13.0, 600, color);
                 look::ellipsized(&mut state, w * 0.45);
                 children.push(right(state, x + w, ry + 13.0));
+                // Their attack policy, quietly, under the state.
+                if !p.policy.is_empty() {
+                    let mut policy =
+                        env.text(&format!("Panel{k}.Policy"), &p.policy, 12.0, 400, "Faint");
+                    look::ellipsized(&mut policy, w * 0.3);
+                    children.push(right(policy, x + w, ry + 31.0));
+                }
             }
         }
         ry += h;
@@ -1152,7 +1200,18 @@ pub fn players_panel(env: &Env, r: &RoomClient, [x, y, w, h]: [f32; 4]) -> Actor
         } else {
             look::mono_width(&p.status, 13.0).min(170.0) + 12.0
         };
-        let room = (end - status_w - name_x).max(60.0);
+        // Their attack policy, a quiet word before the status.
+        let policy_w = if p.policy.is_empty() {
+            0.0
+        } else {
+            look::mono_width(&p.policy, 12.0).min(90.0) + 12.0
+        };
+        if !p.policy.is_empty() {
+            let mut policy = env.text(&format!("{id}.Policy"), &p.policy, 12.0, 400, "Faint");
+            look::ellipsized(&mut policy, 90.0);
+            c.push(right(policy, end - status_w, mid + 1.0));
+        }
+        let room = (end - status_w - policy_w - name_x).max(60.0);
         let color = match (p.me, p.tone) {
             (_, Tone::Away) => "Faint",
             (true, _) => "Text",
@@ -1360,6 +1419,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                 .map(|st| st.total.to_string())
                 .unwrap_or_default(),
             at_start: false,
+            targeting: snake(&mb.targeting()),
         })
         .collect();
     let roster = crate::state::cpu_roster::roster_of(&s.next.rules, r.humans());
@@ -1374,6 +1434,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                 level: Some(cpu_level(spec)),
                 personality: spec.personality.clone(),
                 at_start: true,
+                targeting: snake(&spec.targeting.unwrap_or_default()),
                 ..RoomMemberView::default()
             });
         }
@@ -1394,6 +1455,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         boos: rules.boos,
         attacks: rules.attacks(),
         attacks_offered: attacks_offered(&r),
+        targeting: snake(&r.my_targeting()),
         locked: r.locked_rules().is_some(),
         ready: r.ready(),
         countdown: seconds_left(&r),

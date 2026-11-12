@@ -657,6 +657,168 @@ fn the_prompt_is_ready_lists_the_players_and_starts_with_the_room() {
     assert!(room.borrow().stage_started(order.stage));
 }
 
+/// A practice room with the Attacks rule on, its first song picked: the
+/// stage's order and its prompt on the harness.
+fn attacks_prompt(env: &Env, room: &SharedRoom, h: &mut Harness) -> StageOrder {
+    let mut rules = room.borrow().rules().clone();
+    rules.set_attacks(true);
+    room.borrow_mut().save_rules(rules).unwrap();
+    let s = &library("dance-single").songs[0];
+    room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+    let order = room.borrow_mut().take_stage_order().unwrap();
+    let state = Rc::new(RefCell::new(PromptState::default()));
+    state.borrow_mut().info.title = "Single Song".into();
+    h.push(
+        PromptScreen::new(env.clone(), state, Rc::new(|_, _| {})).with_room(
+            room.clone(),
+            order.stage,
+            shell(room, &Orders::default()),
+        ),
+    );
+    h.run(0.5);
+    order
+}
+
+/// M8 round 3 (D8): where the match has attacks, the stage's prompt has
+/// the player's attack policy as one quiet row with what it does: Left
+/// and Right, a tap on its arrows or on the row, and Enter change it
+/// (Spread, Retaliate, Leader, in a ring), the room told each time,
+/// readiness untouched. Without attacks the row is not there.
+#[test]
+fn the_prompt_has_the_attack_policy_where_the_match_has_attacks() {
+    use crate::MenuAction;
+    use ddi_room::attacks::Targeting;
+    let row = "Opt.room.targeting";
+    // Without attacks: no row.
+    let plain = RoomClient::shared(0, 1);
+    let mut h = harness();
+    let s = &library("dance-single").songs[0];
+    plain.borrow_mut().pick(s, &s.charts[0]).unwrap();
+    let order = plain.borrow_mut().take_stage_order().unwrap();
+    h.push(
+        PromptScreen::new(
+            env(),
+            Rc::new(RefCell::new(PromptState::default())),
+            Rc::new(|_, _| {}),
+        )
+        .with_room(plain.clone(), order.stage, shell(&plain, &Orders::default())),
+    );
+    h.run(0.5);
+    assert!(!there(&h, row));
+    assert!(!has(&h, "Targeting"));
+    // With attacks.
+    let room = RoomClient::shared(0, 1);
+    let mut h = harness();
+    let e = env();
+    let order = attacks_prompt(&e, &room, &mut h);
+    assert_eq!(order.targeting, Targeting::Spread);
+    assert!(there(&h, row));
+    assert_eq!(said(&h, &format!("{row}.Label")), "Targeting");
+    assert_eq!(said(&h, &format!("{row}.Value")), "Spread");
+    assert!(
+        has(&h, "Your attacks go to whoever has been attacked least."),
+        "{:?}",
+        h.texts()
+    );
+    // Up from Ready reaches the row; Right and Left step it.
+    assert_eq!(h.ui.focused(), Some("Start"));
+    h.pad(MenuAction::Up, true);
+    h.pad(MenuAction::Up, false);
+    h.run(0.2);
+    assert_eq!(h.ui.focused(), Some(row));
+    h.pad(MenuAction::Right, true);
+    h.pad(MenuAction::Right, false);
+    h.run(0.2);
+    assert_eq!(room.borrow().my_targeting(), Targeting::Retaliate);
+    assert_eq!(said(&h, &format!("{row}.Value")), "Retaliate");
+    assert!(has(&h, "Your attacks go to whoever attacked you last."));
+    h.pad(MenuAction::Left, true);
+    h.pad(MenuAction::Left, false);
+    h.pad(MenuAction::Left, true);
+    h.pad(MenuAction::Left, false);
+    h.run(0.2);
+    assert_eq!(room.borrow().my_targeting(), Targeting::Leader, "a ring");
+    assert!(has(&h, "Your attacks go to whoever has the most life."));
+    // A tap on the row cycles; on its arrows steps.
+    press(&mut h, &format!("{row}.Label"));
+    assert_eq!(room.borrow().my_targeting(), Targeting::Spread);
+    press(&mut h, &format!("{row}.Up"));
+    assert_eq!(room.borrow().my_targeting(), Targeting::Retaliate);
+    press(&mut h, &format!("{row}.Down"));
+    assert_eq!(room.borrow().my_targeting(), Targeting::Spread);
+    // Ready, then changed: still ready (the countdown goes on), and the
+    // room has the policy for the play.
+    press(&mut h, "Start");
+    assert!(room.borrow().ready());
+    assert!(matches!(
+        room.borrow().state().phase,
+        Phase::Countdown { .. }
+    ));
+    press(&mut h, &format!("{row}.Up"));
+    assert_eq!(room.borrow().my_targeting(), Targeting::Retaliate);
+    assert!(room.borrow().ready());
+    assert!(matches!(
+        room.borrow().state().phase,
+        Phase::Countdown { .. }
+    ));
+    // The debug state says it.
+    assert_eq!(
+        e.state.borrow().room.as_ref().unwrap().targeting,
+        "retaliate"
+    );
+    // The stage in play: the room refuses a change (the play's own), and
+    // takes what the play left the policy at afterwards.
+    h.run(3.5);
+    assert!(room.borrow().stage_started(order.stage));
+    assert!(room.borrow_mut().set_targeting(Targeting::Leader).is_err());
+    room.borrow_mut().clear_refusal();
+    assert_eq!(room.borrow().my_targeting(), Targeting::Retaliate);
+}
+
+/// The players' rows say each one's attack policy, quietly, where the
+/// match has attacks (the panel beside the song, the Players pop-up),
+/// and nothing of it where it has none; a roster CPU's is its own.
+#[test]
+fn the_players_rows_say_each_policy_where_the_match_has_attacks() {
+    use super::room::player_rows;
+    use ddi_room::attacks::Targeting;
+    let room = RoomClient::shared(0, 1);
+    assert!(player_rows(&room.borrow()).iter().all(|p| p.policy.is_empty()));
+    let mut rules = room.borrow().rules().clone();
+    rules.set_attacks(true);
+    // A roster CPU with a policy of its own.
+    rules.cpu.roster[0].targeting = Some(Targeting::Leader);
+    rules.cpu.roster[1].targeting = None;
+    room.borrow_mut().save_rules(rules).unwrap();
+    room.borrow_mut().set_targeting(Targeting::Retaliate).unwrap();
+    let rows = player_rows(&room.borrow());
+    assert_eq!(rows[0].policy, "Retaliate", "You");
+    assert_eq!(rows[1].policy, "Leader");
+    assert_eq!(rows[2].policy, "Spread");
+    // Drawn on the panel and in the pop-up.
+    let e = env();
+    let panel = super::room::players_panel(&e, &room.borrow(), [0.0, 0.0, 520.0, 200.0]);
+    fn collect(a: &ddi_actor::Actor, out: &mut Vec<String>) {
+        if let ddi_actor::Kind::Text(t) = &a.kind {
+            out.push(t.text().to_string());
+        }
+        for c in a.children() {
+            collect(c, out);
+        }
+    }
+    let texts = |a: &ddi_actor::Actor| {
+        let mut out = Vec::new();
+        collect(a, &mut out);
+        out
+    };
+    let t = texts(&panel);
+    assert!(t.contains(&"Retaliate".to_string()) && t.contains(&"Leader".to_string()), "{t:?}");
+    let rows = super::room::panel_rows(&room.borrow());
+    let (popup, _) = super::room::panel(&e, &rows, 0, [0.0, 0.0, 420.0, 600.0]);
+    let t = texts(&popup);
+    assert!(t.contains(&"Retaliate".to_string()) && t.contains(&"Leader".to_string()), "{t:?}");
+}
+
 /// One not ready at the deadline sits the stage out: the prompt says so
 /// and goes back to the room.
 #[test]

@@ -172,6 +172,15 @@ prompt-play-quit = hold or double-tap { $control } to quit
 # A controller's control the game has no name for.
 prompt-play-quit-this = hold or double-tap this control to quit
 
+# A multiplayer stage with attacks, a controller: pressing this control
+# briefly changes the attack policy there, so only holding it quits.
+# Variables:
+#   $control (String) - the controller's button, as its cap prints it (View, Share, −)
+prompt-play-quit-hold = hold { $control } to quit
+
+# The same for a control the game has no name for.
+prompt-play-quit-hold-this = hold this control to quit
+
 # A touch screen: the round ✕ button over the play.
 prompt-play-quit-button = hold or double-tap the quit button
 

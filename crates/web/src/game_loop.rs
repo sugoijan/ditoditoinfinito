@@ -634,6 +634,8 @@ impl GameLoop {
                 // Where the quit button is (nowhere while it is not: no
                 // press lands on it).
                 crate::web::touch::set_quit_at(drawn.quit_at);
+                // And where a stage's attack policy label takes a press.
+                crate::web::touch::set_policy_at(drawn.policy_at);
                 // The song time of each drawn frame, for tests that read
                 // the screen (the debug state is refreshed every 10 frames).
                 if self.automated
@@ -1292,6 +1294,14 @@ fn attacks_debug(
         "cue": cue,
         "waiting_drawn": drawn.1,
         "waiting": b.waiting(&s.player).map(|w| format!("{:?} {:?}", w.targeting, w.reason)),
+        // The player's attack policy as its label says it (none once
+        // out or after a win), where a press on it lands (CSS pixels),
+        // the policy the ledger launches by, and the changes the play's
+        // log keeps.
+        "policy": b.policy(&s.player).map(|p| format!("{p:?}").to_lowercase()),
+        "policy_at": crate::web::touch::policy_at(),
+        "policy_ledger": format!("{:?}", ledger.targeting(me)).to_lowercase(),
+        "policy_changes": s.player.log().policies.iter().map(|c| json!([c.time, c.policy])).collect::<Vec<_>>(),
         "settling": b.settling().map(|x| x.survivor.0),
         "drawn_final": b.drawn_by_final_attack(),
         "refused": b.refused(),

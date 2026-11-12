@@ -434,6 +434,23 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
         assert!(waited < 1000, "the song was never read");
     }
     ui.update(0.5);
+    // M8 round 3: the prompt's attack policy row (the match has attacks):
+    // Up from Ready reaches it, Right makes it Retaliate; the play starts
+    // with the policy the room has then.
+    use ddi_room::attacks::Targeting;
+    for _ in 0..4 {
+        if ui.focused() == Some("Opt.room.targeting") {
+            break;
+        }
+        key(&mut ui, "ArrowUp", "ArrowUp");
+        ui.update(0.05);
+    }
+    assert_eq!(ui.focused(), Some("Opt.room.targeting"), "{:?}", ui.layers());
+    key(&mut ui, "ArrowRight", "ArrowRight");
+    ui.update(0.05);
+    assert_eq!(room.borrow().my_targeting(), Targeting::Retaliate);
+    key(&mut ui, "ArrowDown", "ArrowDown");
+    ui.update(0.05);
     key(&mut ui, "Enter", "Enter");
     ui.update(0.05);
     {
@@ -447,8 +464,33 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
     let mut frames = 0;
     let mut attacks = 0;
     let mut against_me = 0;
+    let mut label = None;
     while host.playing() {
         let now = clock.fetch_add(1_000_000_000 / 4, Ordering::SeqCst) + 1_000_000_000 / 4;
+        // In play: the label by the power bar says the policy, and a
+        // press on it (as Tab) makes it the next one.
+        if frames == 40 {
+            let p = host.running().expect("playing");
+            let b = p.session.battle().expect("a stage");
+            assert_eq!(b.policy(&p.session.player), Some(Targeting::Retaliate));
+            let at = host.feed.borrow().policy_at.expect("its label drawn");
+            label = Some(at);
+            for pressed in [true, false] {
+                host.feed.borrow_mut().edges.push(ddi_platform::RawInput {
+                    device: ddi_platform::DeviceId::Touch,
+                    control: ddi_session::play::TOUCH_POLICY_CONTROL.into(),
+                    pressed,
+                    host_time: HostTime(now as f64 / 1e9 - 0.2),
+                    slot: 0,
+                });
+            }
+        }
+        if frames == 44 {
+            let p = host.running().expect("playing");
+            let b = p.session.battle().expect("a stage");
+            assert_eq!(b.policy(&p.session.player), Some(Targeting::Leader));
+            assert_eq!(p.session.player.log().policies.len(), 1);
+        }
         let mut encoder = device.create_command_encoder(&Default::default());
         host.draw_play(
             &dev(),
@@ -502,5 +544,10 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
         host.log
     );
     assert!(store.is_empty(), "a stage is not kept in the history");
+    // The label under the gauge's left end, inside the field, and the
+    // policy the play left is the room's for the next stage.
+    let [l, t, r, b] = label.expect("the label's place");
+    assert!(l > 400.0 && r < 640.0 && t < 20.0 && b > 30.0 && b < 80.0, "{l} {t} {r} {b}");
+    assert_eq!(room.borrow().my_targeting(), Targeting::Leader);
     eprintln!("attacks: {attacks}, {against_me} against the player");
 }

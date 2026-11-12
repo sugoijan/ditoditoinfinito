@@ -131,6 +131,7 @@ fn defaults(room: &SharedRoom) -> MatchRules {
         seed,
         personality: None,
         name: None,
+        targeting: None,
     });
     cpu_roster::with_roster(
         rules,

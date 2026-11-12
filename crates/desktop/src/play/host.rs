@@ -1617,6 +1617,7 @@ impl Host {
                 dev.device, dev.queue, encoder, view, plain, size, play, **render, now,
             );
             self.feed.borrow_mut().quit_at = v.quit_at;
+            self.feed.borrow_mut().policy_at = v.policy_at;
             // Where the play showed what its scene can ring.
             if let Some(run) = &r.scene {
                 run.spots.set(ddi_shell::play_spots(v.renderer.hud_spots()));

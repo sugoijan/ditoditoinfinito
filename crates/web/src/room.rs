@@ -266,6 +266,12 @@ pub(crate) fn playing(id: u64) -> Option<Rc<StageOrder>> {
     })
 }
 
+/// The local player's attack policy in the room of the stage being
+/// played, as its play starts.
+pub(crate) fn my_targeting() -> ddi_room::attacks::Targeting {
+    playing_room().borrow().my_targeting()
+}
+
 /// Where a stage's results go back to: the room it was played in.
 pub(crate) fn back_route() -> Route {
     LAST.with(|l| l.borrow().as_ref().map(|(r, _)| r.clone()))
@@ -295,6 +301,11 @@ pub(crate) fn report(
     outcome: ddi_session::battle::StageOutcome,
 ) -> Option<ddi_ui::state::room::MatchEnd> {
     let room = playing_room();
+    let has_attacks = PLAYING.with(|p| {
+        p.borrow()
+            .as_ref()
+            .is_some_and(|p| p.order.stage == outcome.stage && p.order.battle.attacks())
+    });
     PLAYING.with(|p| {
         p.borrow_mut().take_if(|p| p.order.stage == outcome.stage);
     });
@@ -307,6 +318,11 @@ pub(crate) fn report(
     );
     if let Err(why) = reported {
         web_sys::console::warn_1(&format!("room: the stage's outcome was refused: {why:?}").into());
+    }
+    // The policy the play left them with is theirs for the next stage
+    // (where the stage had attacks: an online room's has none yet).
+    if has_attacks {
+        room.borrow_mut().played_targeting(outcome.targeting);
     }
     room.borrow().match_end()
 }

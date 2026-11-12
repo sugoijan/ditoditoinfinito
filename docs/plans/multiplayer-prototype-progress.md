@@ -2847,6 +2847,114 @@ could be interesting in intense battles)."
   second attack arriving right behind the first. A duel's rates were
   not measured.
 
+## M8 round 3: personal targeting, who attacks whom, the attack lines and the results (2026-11-12)
+
+The third round of the attack work, for where attacks work: CPU
+practice with the match's Attacks rule On (Off by default; an online
+room does not offer it). Everything here is real unless it says
+otherwise; the room's model carries what online attacks would need of
+it, and nothing here asks the server to behave differently.
+
+### Personal targeting (S6)
+
+- **Each competitor's own policy** (D8): Spread (the default),
+  Retaliate, Leader, as `ddi_room::attacks::Targeting` has them. In the
+  room's model: `Member::targeting` and `Command::SetTargeting` /
+  `Event::TargetingChanged` (additive: the field left out of the JSON at
+  its default, protocol 2 unchanged; a peer that predates them reads and
+  writes the same room so long as nobody sends the command, and nothing
+  sends it where attacks are not offered). A member sets their own alone
+  (no participant in the command; the authority's and a CPU's are
+  refused, a departed member's too), outside a stage's play: the lobby,
+  between stages, while a stage gathers readiness and through its
+  countdown. During a stage's play and its song's completion the
+  command is refused (`WrongPhase`): the play itself carries a change,
+  and the room is told afterwards what the play left the policy at.
+  **It clears nobody's readiness** (the plan said it would): it is
+  nobody else's rule, and since D8 it may change in play anyway, so
+  un-readying a player for it on the prompt would only cost a press.
+- **A CPU's policy**: `OpponentSpec::targeting`, optional (Spread where
+  none). Eight of the roster's twenty-four name one
+  (`crates/ui/src/state/cpu_roster.json`: five Retaliate, three Leader;
+  PROVISIONAL, for review with the names). Shown as a policy on its
+  line, nowhere as a skill.
+- **Before the stage**: the stage's prompt, where the match has attacks,
+  has one quiet row under the diagram, "Targeting ◀ Spread ▶", and a
+  line saying what the policy does ("Your attacks go to whoever has been
+  attacked least."). Up from Ready reaches it; Left and Right, a tap on
+  its arrows, a tap on the row and Enter change it, in a ring. The
+  players panel on the room's song select and the Players pop-up say
+  each player's policy as one faint word (the panel before the status,
+  the pop-up under it) while the match has attacks; nothing of it
+  without.
+- **During the play** (D8): one small muted word under the life gauge's
+  left end, the policy (the waiting line keeps the right end and now
+  says only "Waiting for target"). It never flashes or moves; under
+  Reverse it stays with the bars. It cycles Spread, Retaliate, Leader
+  on Tab (unless the player's bindings give Tab to a lane: the lane
+  keeps it), on a tap or a click on the label or on the left of the two
+  bars above it, and on a controller's View/Select. That button is also
+  the one that quits a play (held, or pressed twice), so where the
+  policy cycles (a stage with attacks, the player still in, the stage
+  not won) a short press cycles it on its release, holding it quits as
+  ever, and pressing it twice does not quit (two quick presses are two
+  steps, never a forfeit); the quit's hint then says "hold View to
+  quit" and shows only once the press is held past a quarter second.
+  Escape, Backspace and the quit button are unchanged. PROVISIONAL
+  (`policy-pad-v0`).
+- **From the next checkpoint, and in the record**: a change is kept in
+  the play's log at its judged song second (`PlayLog::policies`, never
+  before the time the play was last judged at, as an edge's; binary
+  version 5, written only for a play that has one, versions 1 to 4 read
+  and written as before) and given to the attack runner, which reports
+  the policy as it stood just before each checkpoint
+  (`attacks::Report::targeting`); the ledger launches by it from that
+  checkpoint on and records `AttackEvent::Retargeted`. So the record is
+  the same at 60 and 144 frames a second and again from the log. Stage
+  plays are still not kept in the history, so no kept log has needed
+  version 5 yet; it exists so that a stage's log, where one is kept or
+  sent, judges again to the same attacks. The play starts with the
+  policy the room has for the player as it starts (the shells read it
+  then, after the prompt), and the room keeps what the play left it at
+  (`StageOutcome::targeting`, `RoomClient::played_targeting`).
+- **Debug**: `__DDI_DEBUG.ui.theme.room.targeting` and each member's
+  `targeting`; in a play `__DDI_DEBUG.battle.attacks.policy` (as the
+  label says it), `policy_at` (where a press on it lands, CSS pixels),
+  `policy_ledger` (what the ledger launches by) and `policy_changes`
+  (the log's).
+- **Tests**: `ddi-room` `attacks/tests.rs`
+  `a_policy_changed_in_play_applies_from_the_next_checkpoint`;
+  `tests/walkthroughs.rs`
+  `a_member_sets_their_own_attack_policy_outside_a_stage` (the lobby,
+  readiness kept, the authority and a CPU refused, a roster CPU's own,
+  refused during the play, taken between stages, refused once gone);
+  `tests/online.rs`
+  `a_members_attack_policy_is_kept_alike_by_both_authorities_and_every_mirror`
+  (`LocalAuthority` and `OnlineAuthority` + `FakeServer`, the JSON's
+  default left out and read back); `ddi-engine` `history`
+  `policy_changes_round_trip_as_version_5`; `ddi-session`
+  `a_policy_changed_in_play_applies_from_the_next_checkpoint_at_any_frame_rate_and_from_the_log`
+  (Tab, the label, a pad's View twice; the record equal at 60 and 144
+  frames a second and from the log; a held View quits) and
+  `a_lane_s_key_is_never_the_policy_s`; `ddi-ui` `room_tests`
+  `the_prompt_has_the_attack_policy_where_the_match_has_attacks`,
+  `the_players_rows_say_each_policy_where_the_match_has_attacks`, the
+  roster's policies, the `qps-ploc` walk; `ddi-shell` `battle_cue`
+  `the_policy_label_is_under_the_gauge_inside_the_field` (inside the
+  field's width, clear of the quit button and the warning at 1280×720,
+  1920×1080, 844×390, 390×844 and a doubled 2560×1440, with and without
+  Reverse); `ddi-desktop` `room_stage_flow`
+  `a_practice_stage_with_attacks_launches_them_through_the_window` (the
+  prompt's row by keys, the play started with it, the label pressed,
+  the room told afterwards).
+- **Found, not changed**: the singleplayer prompt's play options rows
+  have the same ◀ ▶ as this row, and a tap on their ◀ steps forward: the
+  arrows' boxes are drawn clear, a clear box takes no press, and the
+  press lands on the row, which cycles forward
+  (`crates/ui/src/screens/prompt.rs`, the `arrow` closure). The new row
+  draws its boxes all but clear instead. Left for the maintainer: it is
+  singleplayer's behavior.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

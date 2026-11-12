@@ -211,6 +211,19 @@ pub fn stage_room() -> SharedRoom {
     PLAYING.with_borrow(Clone::clone).unwrap_or_else(current)
 }
 
+/// The local player's attack policy as stage `order`'s play starts: the
+/// one they have in its room now where it is the room's stage (it may
+/// have changed on the stage's prompt), else the order's own.
+pub fn stage_targeting(order: &ddi_ui::state::room::StageOrder) -> ddi_room::attacks::Targeting {
+    let room = stage_room();
+    let r = room.borrow();
+    if r.me() == order.me && r.stage_started(order.stage) {
+        r.my_targeting()
+    } else {
+        order.targeting
+    }
+}
+
 /// A stage's prompt left (M7b): before the room started it, the player
 /// withdraws (not ready; the host's pick reopened), `true`; once it is
 /// being played with them, a forfeit: an online room's reported here as
@@ -426,6 +439,11 @@ pub fn report(outcome: ddi_session::battle::StageOutcome) -> Option<ddi_ui::stat
     );
     if let Err(why) = reported {
         eprintln!("room: the stage's outcome was refused: {why:?}");
+    }
+    // The policy the play left them with is theirs for the next stage
+    // (where the match has attacks: an online room's has none yet).
+    if room.borrow().attacks_on() && !room.borrow().is_online() {
+        room.borrow_mut().played_targeting(outcome.targeting);
     }
     room.borrow().match_end()
 }

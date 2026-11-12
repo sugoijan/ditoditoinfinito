@@ -474,6 +474,7 @@ impl RoomState {
                 intent: Intent::Play,
                 connection: Connection::Connected,
                 left: false,
+                targeting: Default::default(),
             },
         );
         Self {

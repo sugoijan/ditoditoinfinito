@@ -20,6 +20,10 @@ pub struct RosterCpu {
     pub skills: String,
     /// From 1 (the file's); [`RosterCpu::spec`] gives the engine's index.
     pub level: u8,
+    /// How it picks whom to attack where a match has attacks (M8 round
+    /// 3); none: Spread. A policy, never a skill.
+    #[serde(default)]
+    pub targeting: Option<ddi_room::attacks::Targeting>,
 }
 
 impl RosterCpu {
@@ -30,6 +34,7 @@ impl RosterCpu {
             seed,
             personality: Some(self.skills.clone()),
             name: Some(self.name.clone()),
+            targeting: self.targeting,
         }
     }
 }
@@ -194,6 +199,14 @@ mod tests {
             ddi_engine::cpu::Skills::parse(&c.skills).unwrap();
             assert!(c.spec(1).fits());
         }
+        // Most play Spread; some name a policy of their own, carried to
+        // their seat (a policy, never a skill).
+        use ddi_room::attacks::Targeting;
+        let named = |t| all.iter().filter(|c| c.targeting == Some(t)).count();
+        assert!(named(Targeting::Retaliate) > 0 && named(Targeting::Leader) > 0);
+        assert!(all.iter().filter(|c| c.targeting.is_none()).count() > all.len() / 2);
+        let leader = all.iter().find(|c| c.targeting.is_some()).unwrap();
+        assert_eq!(leader.spec(1).targeting, leader.targeting);
         // Every level and every preset is somebody's.
         for l in 1..=levels {
             assert!(all.iter().any(|c| c.level == l), "level {l}");
