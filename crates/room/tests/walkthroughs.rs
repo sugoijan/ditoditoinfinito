@@ -3099,3 +3099,186 @@ fn a_room_from_before_the_setting_reads_as_pass_it_on() {
     assert_eq!(owner(&r), a);
     assert!(r.s.has_succession());
 }
+
+// ---- Watching (2026-11-12, `watch-v0`): Play or Watch, each member's own ----
+
+fn intent(intent: Intent) -> Command {
+    Command::SetIntent { intent }
+}
+
+/// A member who watches is no competitor: no seat, no place in the cap,
+/// nothing the readiness window waits for, no placement and no award; a
+/// watching host still picks and starts.
+#[test]
+fn a_watcher_is_no_competitor_and_a_watching_host_still_runs_the_room() {
+    let mut r = Room::hosted(3);
+    let host = r.host;
+    let ana = r.join("ana", Intent::Play);
+    let bo = r.join("bo", Intent::Play);
+    let cy = r.join("cy", Intent::Play);
+    assert_eq!(r.s.reserved_humans(), 4);
+    // In the lobby; the same again changes nothing.
+    assert_eq!(
+        r.by(host, intent(Intent::Watch)).unwrap(),
+        vec![Event::IntentChanged {
+            participant: host,
+            intent: Intent::Watch
+        }]
+    );
+    assert_eq!(r.by(host, intent(Intent::Watch)).unwrap(), vec![]);
+    assert_eq!(r.part(host), Participation::Watching);
+    // The cap counts those who want to play.
+    assert_eq!(r.s.reserved_humans(), 3);
+    assert!(
+        r.s.policy
+            .check_competitors(r.s.reserved_humans() + 6)
+            .is_ok()
+    );
+    assert!(
+        r.s.policy
+            .check_competitors(r.s.reserved_humans() + 7)
+            .is_err()
+    );
+    // No readiness for a watcher.
+    assert_eq!(r.set_ready(host, true), Err(Rejection::NotPlaying));
+    // The watching host picks: the match starts without them.
+    r.pick(1).unwrap();
+    let s1 = r.upcoming();
+    let m = r.s.running_match().unwrap();
+    assert!(!m.roster.contains_key(&host));
+    assert_eq!(m.roster.len(), 3);
+    assert_eq!(r.part(host), Participation::Watching);
+    // The window waits for the players alone: it ends once they are ready.
+    r.ready(ana);
+    r.ready(bo);
+    assert!(matches!(r.s.phase, Phase::Preparing { .. }));
+    r.ready(cy);
+    assert!(matches!(r.s.phase, Phase::Countdown { .. }));
+    assert_eq!(r.play(), s1);
+    assert_eq!(r.part(host), Participation::Watching);
+    r.end(s1, &[&[ana], &[bo], &[cy]]);
+    // Not ranked, not awarded, not in the standings.
+    let result = r.s.stage(s1).unwrap().play.clone().unwrap().result.unwrap();
+    assert!(result.placement(host).is_none());
+    assert!(
+        r.s.standings()
+            .unwrap()
+            .iter()
+            .all(|s| s.participant != host)
+    );
+    // Stage 2: Ana chooses to watch while it gathers readiness: her Ready
+    // is cleared, she sits it out as watching, the others start without
+    // waiting for her.
+    r.pick(2).unwrap();
+    let s2 = r.upcoming();
+    r.ready(ana);
+    r.by(ana, intent(Intent::Watch)).unwrap();
+    assert_eq!(r.part(ana), Participation::Watching);
+    r.ready(bo);
+    r.ready(cy);
+    assert!(matches!(r.s.phase, Phase::Countdown { .. }));
+    let play = r.s.stage(s2).unwrap().play.clone().unwrap();
+    assert_eq!(play.lineup.len(), 2);
+    assert_eq!(play.sat_out.get(&ana), Some(&SitOutReason::Watching));
+    r.play();
+    r.end(s2, &[&[bo], &[cy]]);
+    // She keeps what she won, with nothing for the stage she watched.
+    let total = r.total(ana);
+    assert!(total > Points::whole(0));
+    let s2_result = r.s.stage(s2).unwrap().play.clone().unwrap().result.unwrap();
+    assert!(s2_result.placement(ana).is_none_or(|p| p.points == Points::whole(0)));
+    assert_eq!(r.total(ana), total);
+    // Back to Play: in from the next stage (she is of the match).
+    r.by(ana, intent(Intent::Play)).unwrap();
+    r.pick(3).unwrap();
+    let s3 = r.upcoming();
+    assert_eq!(r.part(ana), Participation::NotReady { stage: s3 });
+    // The host, who watched when the match began, waits for the next one.
+    r.by(host, intent(Intent::Play)).unwrap();
+    assert_eq!(r.part(host), Participation::WaitingNextMatch);
+}
+
+/// Where every person watches there is nothing to start, unless CPUs
+/// compete: a hosted room refuses the pick whole; CPU practice plays its
+/// CPUs against each other, started at once (nobody is waited for).
+#[test]
+fn a_stage_needs_competitors_and_practice_cpus_play_alone_for_a_watcher() {
+    let mut r = Room::hosted(1);
+    let host = r.host;
+    let ana = r.join("ana", Intent::Play);
+    r.by(host, intent(Intent::Watch)).unwrap();
+    r.by(ana, intent(Intent::Watch)).unwrap();
+    let before = r.s.clone();
+    assert_eq!(r.pick(1), Err(Rejection::NoPlayingHumans));
+    assert_eq!(r.s, before);
+    assert_eq!(r.s.phase, Phase::Lobby);
+    // One of them plays: too few to compete (the policy's two).
+    r.by(ana, intent(Intent::Play)).unwrap();
+    assert!(matches!(
+        r.pick(1),
+        Err(Rejection::NotEnoughReady {
+            ready_humans: 1,
+            competitors: 1
+        })
+    ));
+
+    // CPU practice, its person watching.
+    let opponent = OpponentSpec {
+        level: 0,
+        seed: 42,
+        personality: None,
+        name: None,
+        targeting: None,
+    };
+    let mut rules = MatchRules::practice(opponent.clone());
+    rules.stages = 2;
+    let mut r = Room::new(rules, ContentSource::LocalLibrary);
+    let me = r.host;
+    r.by(me, intent(Intent::Watch)).unwrap();
+    let events = r.pick(1).unwrap();
+    assert!(matches!(
+        &events[0],
+        Event::MatchStarted { humans, cpus, .. } if humans.is_empty() && cpus.len() == 3
+    ));
+    // Nobody to wait for: the start is committed with the pick.
+    assert!(matches!(r.s.phase, Phase::Countdown { .. }));
+    let s1 = r.play();
+    let cpus: Vec<ParticipantId> =
+        r.s.members
+            .values()
+            .filter(|m| m.is_cpu())
+            .map(|m| m.id)
+            .collect();
+    let play = r.s.stage(s1).unwrap().play.clone().unwrap();
+    assert_eq!(play.lineup.iter().copied().collect::<Vec<_>>(), cpus);
+    assert_eq!(r.part(me), Participation::Watching);
+    r.end(s1, &[&[cpus[0]], &[cpus[1]], &[cpus[2]]]);
+    assert_eq!(r.s.standings().unwrap().len(), 3);
+    // Playing again mid-match: the next match's (practice admits nobody
+    // into a running match).
+    r.by(me, intent(Intent::Play)).unwrap();
+    assert_eq!(r.part(me), Participation::WaitingNextMatch);
+    r.by(me, intent(Intent::Watch)).unwrap();
+    r.pick(2).unwrap();
+    let s2 = r.play();
+    r.end(s2, &[&[cpus[1]], &[cpus[0]], &[cpus[2]]]);
+    assert_eq!(r.s.phase, Phase::MatchResults);
+    assert!(!r.s.match_winners().contains(&me));
+
+    // A single CPU has nobody to compete against.
+    let mut rules = MatchRules::practice(opponent);
+    rules.cpu.mode = CpuMode::Fixed { count: 1 };
+    rules.seats = 2;
+    let mut r = Room::new(rules, ContentSource::LocalLibrary);
+    let me = r.host;
+    r.by(me, intent(Intent::Watch)).unwrap();
+    let before = r.s.clone();
+    assert!(matches!(
+        r.pick(1),
+        Err(Rejection::NotEnoughReady {
+            ready_humans: 0,
+            competitors: 1
+        })
+    ));
+    assert_eq!(r.s, before);
+}

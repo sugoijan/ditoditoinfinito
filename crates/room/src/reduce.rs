@@ -1004,9 +1004,7 @@ impl RoomState {
             .filter(|id| self.members.get(id).is_some_and(|m| !m.is_cpu()))
             .count();
         let p = &self.policy.readiness;
-        if humans < usize::from(p.min_ready_humans)
-            || candidates.len() < usize::from(p.min_competitors)
-        {
+        if humans < self.humans_needed() || candidates.len() < usize::from(p.min_competitors) {
             return Err(Rejection::NotEnoughReady {
                 ready_humans: u16::try_from(humans).unwrap_or(u16::MAX),
                 competitors: u16::try_from(candidates.len()).unwrap_or(u16::MAX),
@@ -1117,7 +1115,9 @@ impl RoomState {
             .filter(|m| !m.left && !m.is_cpu() && m.intent == Intent::Play)
             .map(|m| m.id)
             .collect();
-        if humans.is_empty() {
+        // Nobody wants to play: a match of the CPUs alone, watched
+        // (`watch-v0`: CPU practice), or nothing to start.
+        if humans.is_empty() && rules.cpu_seats(0) == 0 {
             return Err(Rejection::NoPlayingHumans);
         }
         let cpus = (1..=rules.cpu_seats(humans.len()))
@@ -1237,13 +1237,29 @@ impl RoomState {
             .filter(|id| !self.members[id].is_cpu())
             .count();
         let p = &self.policy.readiness;
-        let humans = u16::try_from(humans).unwrap_or(u16::MAX);
+        let needed = self.humans_needed();
         let all = u16::try_from(lineup.len()).unwrap_or(u16::MAX);
         (
-            humans >= p.min_ready_humans && all >= p.min_competitors,
-            humans,
+            humans >= needed && all >= p.min_competitors,
+            u16::try_from(humans).unwrap_or(u16::MAX),
             all,
         )
+    }
+
+    /// The ready people a start needs (`ReadinessPolicy::min_ready_humans`),
+    /// never more than the people of the match who want to play
+    /// (`watch-v0`): where every person watches, the CPUs start alone.
+    fn humans_needed(&self) -> usize {
+        let wanting = self
+            .candidates()
+            .iter()
+            .filter(|id| {
+                self.members
+                    .get(id)
+                    .is_some_and(|m| !m.is_cpu() && !m.left && m.intent == Intent::Play)
+            })
+            .count();
+        usize::from(self.policy.readiness.min_ready_humans).min(wanting)
     }
 
     fn start_stage(

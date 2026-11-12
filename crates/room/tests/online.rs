@@ -599,6 +599,54 @@ fn a_members_attack_policy_is_kept_alike_by_both_authorities_and_every_mirror() 
     assert_eq!(read.targeting, Targeting::Spread);
 }
 
+/// Watching (2026-11-12, `watch-v0`): a member's Play or Watch is kept
+/// alike by the local authority, the online one and every mirror. The
+/// host watches and still starts the match; their Ready is refused (a
+/// watcher has none); with Carol away, Bob alone is too few to start, and
+/// both authorities say so alike.
+#[test]
+fn a_members_watching_is_kept_alike_by_both_authorities_and_every_mirror() {
+    let mut steps = script();
+    // After the joins: Alice chooses to watch.
+    steps.insert(
+        4,
+        Step::Cmd(
+            "dev:alice",
+            Command::SetIntent {
+                intent: Intent::Watch,
+            },
+        ),
+    );
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    assert_eq!(local_answers[0], None);
+    // Alice's Ready was refused: a watcher has none.
+    assert!(local_answers.contains(&Some(Rejection::NotPlaying)));
+    // One player ready, one away: too few to start, said alike.
+    assert_eq!(
+        local_answers.last().unwrap(),
+        &Some(Rejection::NotEnoughReady {
+            ready_humans: 1,
+            competitors: 1
+        })
+    );
+    let alice = ParticipantId(1);
+    assert_eq!(local.member(alice).unwrap().intent, Intent::Watch);
+    assert_eq!(
+        local.participation(alice),
+        Some(ddi_room::Participation::Watching)
+    );
+    // The match began without her: its seats are the two who play.
+    let m = local.current.as_ref().unwrap();
+    assert!(!m.roster.contains_key(&alice));
+    assert_eq!(m.roster.len(), 2);
+}
+
 /// The DDI ruleset's round 3: Difficulty and Boos are match rules, saved
 /// like the others, locked with the match, and kept alike by the local
 /// authority, the online one and every mirror; rules that name a ruleset
