@@ -26,9 +26,15 @@ use serde::{Deserialize, Serialize};
 /// still accepted. Additive since, with no new version (an authority or a
 /// client that predates it ignores it): a report's optional `detail`
 /// (`crate::RunDetail`, feedback round B) on `report_outcome` and
-/// `outcome_reported`, kept in a stage's `details`. A new version is for
-/// what the other side must understand; it would turn away every client
-/// or server one step behind.
+/// `outcome_reported`, kept in a stage's `details`; one picker at a time
+/// (2026-11-12): the room's `picking`, the `take_pick` command, the
+/// `picker_changed` event and the `not_picker` refusal. A client sends
+/// `take_pick` only to a room whose state has `picking` (an authority
+/// that predates it has none, and would close the socket on a command it
+/// cannot read); a client that predates it passes over the frames it
+/// cannot read and asks for the room again (`Resync`). A new version is
+/// for what the other side must understand; it would turn away every
+/// client or server one step behind.
 pub const PROTOCOL_VERSION: u32 = 2;
 /// The oldest protocol an authority still accepts. The web app deploys on
 /// push, the server separately and desktop builds lag, so an authority

@@ -829,7 +829,25 @@ fn host_cohost_admin_observer_and_member_permissions_stay_distinct() {
             capability: Capability::ChooseContent
         })
     );
+    // One picker at a time, the owner at first: another operator is told
+    // who has the pick, takes it, and chooses; a member cannot take it.
+    assert_eq!(
+        r.by(co, choose(2)),
+        Err(Rejection::NotPicker { picker: Some(host) })
+    );
+    assert_eq!(
+        r.by(mem, Command::TakePick),
+        Err(Rejection::Unauthorized {
+            capability: Capability::TakePick
+        })
+    );
+    r.by(co, Command::TakePick).unwrap();
     r.by(co, choose(2)).unwrap();
+    assert_eq!(
+        r.by(admin, choose(3)),
+        Err(Rejection::NotPicker { picker: Some(co) })
+    );
+    r.by(admin, Command::TakePick).unwrap();
     r.by(admin, choose(3)).unwrap();
     let access = Command::SetAccess {
         admission: Admission::Closed,
@@ -2195,4 +2213,316 @@ fn a_member_sets_their_own_attack_policy_outside_a_stage() {
         r.by(me, set(Targeting::Leader)),
         Err(Rejection::NotPresent)
     );
+}
+
+// ---- One picker at a time (2026-11-12): taking the pick over ----
+
+fn rest(n: u32) -> Command {
+    Command::Spotlight {
+        content: Some(song(n)),
+        card: Some(Box::new(card(n))),
+    }
+}
+
+fn pick_cmd(n: u32) -> Command {
+    Command::Pick {
+        content: song(n),
+        card: Some(Box::new(card(n))),
+    }
+}
+
+fn co_host(r: &mut Room, who: ParticipantId, on: bool) {
+    r.by(
+        r.host,
+        Command::SetCoHost {
+            participant: who,
+            on,
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_co_host_takes_the_pick_over_and_the_owner_takes_it_back() {
+    let mut r = Room::hosted(2);
+    let host = r.host;
+    let co = r.join("co", Intent::Play);
+    let mem = r.join("mem", Intent::Play);
+    co_host(&mut r, co, true);
+    // The owner picks by default: theirs to rest on, the others' refused,
+    // an operator told who has the pick and a member that it is not theirs
+    // to choose.
+    assert_eq!(r.s.picker(), Some(host));
+    assert!(r.s.chooses(host) && !r.s.chooses(co) && !r.s.chooses(mem));
+    assert!(r.s.may_take_pick(co) && !r.s.may_take_pick(host) && !r.s.may_take_pick(mem));
+    r.by(host, rest(1)).unwrap();
+    let not_theirs = Err(Rejection::Unauthorized {
+        capability: Capability::ChooseContent,
+    });
+    assert_eq!(
+        r.by(co, rest(2)),
+        Err(Rejection::NotPicker { picker: Some(host) })
+    );
+    assert_eq!(
+        r.by(co, pick_cmd(2)),
+        Err(Rejection::NotPicker { picker: Some(host) })
+    );
+    assert_eq!(r.by(mem, rest(2)), not_theirs);
+    assert_eq!(r.by(mem, pick_cmd(2)), not_theirs);
+    assert_eq!(
+        r.by(mem, Command::TakePick),
+        Err(Rejection::Unauthorized {
+            capability: Capability::TakePick
+        })
+    );
+    assert_eq!(r.s.spotlight.as_ref().unwrap().by, host);
+    // Taken at once: one event, the last picker's resting song gone with
+    // them. Taking what one has changes nothing.
+    assert_eq!(
+        r.by(co, Command::TakePick).unwrap(),
+        vec![Event::PickerChanged { picker: Some(co) }]
+    );
+    assert_eq!(r.s.picker(), Some(co));
+    assert_eq!(r.s.spotlight, None);
+    assert!(r.s.may_take_pick(host) && !r.s.may_take_pick(co));
+    let rev = r.s.revision;
+    assert_eq!(r.by(co, Command::TakePick).unwrap(), vec![]);
+    assert_eq!(r.s.revision, rev);
+    // The owner follows now, as anyone.
+    assert_eq!(
+        r.by(host, rest(1)),
+        Err(Rejection::NotPicker { picker: Some(co) })
+    );
+    assert_eq!(
+        r.by(host, pick_cmd(1)),
+        Err(Rejection::NotPicker { picker: Some(co) })
+    );
+    let s1 = r.upcoming();
+    assert_eq!(
+        r.by(
+            host,
+            Command::ChooseContent {
+                stage: s1,
+                content: Some(song(1)),
+            }
+        ),
+        Err(Rejection::NotPicker { picker: Some(co) })
+    );
+    // The co-host rests on their song and picks it: the match starts.
+    r.by(co, rest(2)).unwrap();
+    assert_eq!(r.s.spotlight.as_ref().unwrap().by, co);
+    r.by(co, pick_cmd(2)).unwrap();
+    assert!(matches!(
+        r.s.phase,
+        Phase::Preparing {
+            window: Some(_),
+            ..
+        }
+    ));
+    for p in [host, co, mem] {
+        r.ready(p);
+    }
+    let s1 = r.play();
+    // During the stage's play the owner takes the pick back: the stage's
+    // song stays, the next choice is theirs.
+    r.by(host, Command::TakePick).unwrap();
+    assert_eq!(r.s.picker(), Some(host));
+    assert_eq!(r.s.stage(s1).unwrap().content.as_ref().unwrap().id, song(2));
+    assert_eq!(r.s.phase, Phase::Stage { stage: s1 });
+    r.end(s1, &[&[host], &[co], &[mem]]);
+    // It stays with whoever has it across stages: the owner's now.
+    assert_eq!(
+        r.by(co, pick_cmd(3)),
+        Err(Rejection::NotPicker { picker: Some(host) })
+    );
+    r.by(host, pick_cmd(3)).unwrap();
+    for p in [host, co, mem] {
+        r.ready(p);
+    }
+    let s2 = r.play();
+    // And across matches: the co-host takes it during the last stage and
+    // has it for the next match's first song.
+    r.by(co, Command::TakePick).unwrap();
+    r.end(s2, &[&[co], &[host], &[mem]]);
+    assert_eq!(r.s.phase, Phase::MatchResults);
+    assert_eq!(r.s.picker(), Some(co));
+    r.by(co, pick_cmd(4)).unwrap();
+    assert_eq!(r.s.history.len(), 1);
+    assert_eq!(r.s.picker(), Some(co));
+}
+
+#[test]
+fn the_pick_goes_back_to_the_owner_when_its_holder_cannot_hold_it() {
+    let mut r = Room::hosted(1);
+    let host = r.host;
+    let a = r.join("a", Intent::Play);
+    let b = r.join("b", Intent::Play);
+    let admin = r.join_as("admin", Intent::Watch, true).unwrap();
+    co_host(&mut r, a, true);
+    co_host(&mut r, b, true);
+    let gone = |participant, connection| Command::SetConnection {
+        participant,
+        connection,
+    };
+    // Leaving the room: the owner's again, the song they rested on gone.
+    r.by(a, Command::TakePick).unwrap();
+    r.by(a, rest(1)).unwrap();
+    let events = r.by(a, Command::Leave).unwrap();
+    assert!(events.contains(&Event::PickerChanged { picker: Some(host) }));
+    assert_eq!((r.s.picker(), r.s.spotlight.clone()), (Some(host), None));
+    // Losing the role.
+    r.by(b, Command::TakePick).unwrap();
+    co_host(&mut r, b, false);
+    assert_eq!(r.s.picker(), Some(host));
+    assert_eq!(
+        r.by(b, Command::TakePick),
+        Err(Rejection::Unauthorized {
+            capability: Capability::TakePick
+        })
+    );
+    // An administrator operates without the role: demoted from co-host,
+    // they keep the pick.
+    r.by(admin, Command::TakePick).unwrap();
+    co_host(&mut r, admin, true);
+    co_host(&mut r, admin, false);
+    assert_eq!(r.s.picker(), Some(admin));
+    // A dropped connection keeps everything while the authority waits
+    // (Reconnecting); past its patience (Disconnected) the pick does not
+    // wait for them.
+    r.sys(gone(admin, Connection::Reconnecting)).unwrap();
+    assert_eq!(r.s.picker(), Some(admin));
+    r.sys(gone(admin, Connection::Disconnected)).unwrap();
+    assert_eq!(r.s.picker(), Some(host));
+    // The owner gone: nobody's, until an operator takes it. The owner
+    // back in the room is an operator like another: theirs to take.
+    r.by(host, rest(2)).unwrap();
+    r.sys(gone(host, Connection::Disconnected)).unwrap();
+    assert_eq!((r.s.picker(), r.s.spotlight.clone()), (None, None));
+    assert!(r.s.one_picker());
+    co_host(&mut r, b, true);
+    assert_eq!(
+        r.by(b, rest(3)),
+        Err(Rejection::NotPicker { picker: None })
+    );
+    r.sys(Command::Join {
+        identity: Identity::new("twitch:host"),
+        name: "Host".into(),
+        admin: false,
+        intent: Intent::Play,
+    })
+    .unwrap();
+    assert_eq!(r.s.member(host).unwrap().connection, Connection::Connected);
+    assert_eq!(r.s.picker(), None);
+    assert!(r.s.may_take_pick(host) && r.s.may_take_pick(b));
+    r.by(b, Command::TakePick).unwrap();
+    assert_eq!(r.s.picker(), Some(b));
+    // A picker leaving while the owner is away: nobody's.
+    r.sys(gone(host, Connection::Disconnected)).unwrap();
+    assert_eq!(r.s.picker(), Some(b));
+    r.by(b, Command::Leave).unwrap();
+    assert_eq!(r.s.picker(), None);
+}
+
+#[test]
+fn a_resting_songs_share_stays_known_when_the_pick_changes_hands() {
+    let mut rules = MatchRules::hosted();
+    rules.stages = 1;
+    let mut r = Room::new(rules, ContentSource::Shared);
+    let host = r.host;
+    let co = r.join("co", Intent::Play);
+    co_host(&mut r, co, true);
+    r.by(host, rest(1)).unwrap();
+    r.sys(Command::SetSpotlightShare {
+        chart: song(1).chart,
+        share: "Share001".into(),
+    })
+    .unwrap();
+    // The spotlight goes with its picker; the room's share of it is kept.
+    r.by(co, Command::TakePick).unwrap();
+    assert_eq!(r.s.spotlight, None);
+    assert_eq!(r.s.known_share(&song(1)).as_deref(), Some("Share001"));
+    assert_eq!(r.s.known_share(&song(2)), None);
+    // The co-host's own song has no share yet; the owner, back, rests on
+    // theirs again and it is shared at once, and so is its pick.
+    r.by(co, rest(2)).unwrap();
+    assert_eq!(r.s.spotlight.as_ref().unwrap().share, None);
+    r.by(host, Command::TakePick).unwrap();
+    r.by(host, rest(1)).unwrap();
+    let spot = r.s.spotlight.clone().unwrap();
+    assert_eq!((spot.by, spot.share.as_deref()), (host, Some("Share001")));
+    r.by(co, Command::TakePick).unwrap();
+    r.by(co, pick_cmd(1)).unwrap();
+    let c = r.s.stage(r.upcoming()).unwrap().content.clone().unwrap();
+    assert_eq!(
+        (c.status, c.share.as_deref()),
+        (ContentStatus::Available, Some("Share001"))
+    );
+    // A few are kept, the newest: never without bound.
+    let mut room = r.s.clone();
+    for n in 10..30u32 {
+        room.spotlight = Some(Spotlight {
+            content: song(n),
+            card: card(n),
+            by: co,
+            share: Some(format!("Share{n:03}")),
+        });
+        let to = if n % 2 == 0 { host } else { co };
+        room.commit(&[Event::PickerChanged { picker: Some(to) }]);
+    }
+    let kept = &room.picking.as_ref().unwrap().shares;
+    assert_eq!(kept.len(), Picking::KEPT_SHARES);
+    assert_eq!(room.known_share(&song(29)).as_deref(), Some("Share029"));
+    assert_eq!(room.known_share(&song(10)), None);
+}
+
+/// A room from before the picker (its state has no `picking`: an
+/// authority that predates it made it or still runs it) reads, names its
+/// owner as the picker, and plays as it did: every operator chooses, and
+/// nothing says the pick could be taken.
+#[test]
+fn a_room_from_before_the_picker_reads_and_chooses_as_it_did() {
+    let mut r = Room::hosted(1);
+    let host = r.host;
+    let co = r.join("co", Intent::Play);
+    let mem = r.join("mem", Intent::Play);
+    co_host(&mut r, co, true);
+    // A room made now says who picks, on the wire.
+    let mut json = serde_json::to_value(&r.s).unwrap();
+    assert_eq!(json["picking"], serde_json::json!({ "picker": 1 }));
+    // The same room as an older authority has it: no such field (and one
+    // this build does not know, which it passes over).
+    json.as_object_mut().unwrap().remove("picking");
+    json["from_a_later_build"] = serde_json::json!({ "x": 1 });
+    let old: RoomState = serde_json::from_value(json).unwrap();
+    assert!(!old.one_picker());
+    assert_eq!(old.picker(), Some(host), "the owner, as it always was");
+    assert!(old.chooses(host) && old.chooses(co) && !old.chooses(mem));
+    assert!(!old.may_take_pick(co) && !old.may_take_pick(host));
+    assert!(
+        serde_json::to_value(&old).unwrap().get("picking").is_none(),
+        "written back as it was read"
+    );
+    // Run by this build's reducer, it still lets every operator choose.
+    r.s = old.clone();
+    r.mirror = old;
+    r.by(co, rest(1)).unwrap();
+    r.by(host, rest(2)).unwrap();
+    assert_eq!(
+        r.by(mem, rest(3)),
+        Err(Rejection::Unauthorized {
+            capability: Capability::ChooseContent
+        })
+    );
+    // Leaving, a demotion and a lost connection move no pick there.
+    r.sys(Command::SetConnection {
+        participant: co,
+        connection: Connection::Disconnected,
+    })
+    .unwrap();
+    assert!(!r.s.one_picker());
+    // Taking the pick is what turns one picker at a time on.
+    r.by(host, Command::TakePick).unwrap();
+    assert!(r.s.one_picker());
+    assert_eq!(r.s.picker(), Some(host));
+    assert_eq!(r.s.spotlight, None);
 }

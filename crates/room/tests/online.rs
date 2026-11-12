@@ -951,3 +951,192 @@ fn the_resync_frame_is_the_servers_first_one() {
         serde_json::from_str(r#"{"v":1,"client":"c","seq":3,"cmd":"leave"}"#).unwrap();
     assert!(matches!(cmd, ddi_room::ClientFrame::Command(e) if e.seq == 3));
 }
+
+/// One picker at a time (2026-11-12, additive to protocol 2): the pick
+/// taken over by a co-host and back by the owner, the refusals a
+/// non-picker gets, the spotlight going with its picker (its share kept
+/// known) and the fallback when the picker loses the role are kept alike
+/// by the local authority, the online one and every mirror, whatever the
+/// network does to Bob's frames.
+#[test]
+fn taking_the_pick_is_kept_alike_by_both_authorities_and_every_mirror() {
+    let (alice, bob) = (ParticipantId(1), ParticipantId(2));
+    let rest = |n| Command::Spotlight {
+        content: Some(content(n)),
+        card: None,
+    };
+    let co_host = |on| {
+        Step::Cmd(
+            "dev:alice",
+            Command::SetCoHost {
+                participant: bob,
+                on,
+            },
+        )
+    };
+    let steps = vec![
+        Step::Connect("dev:alice"),
+        Step::Join("dev:bob", "Bob"),
+        Step::Connect("dev:bob"),
+        co_host(true),
+        Step::Cmd("dev:alice", rest(1)),
+        Step::Authority(Command::SetSpotlightShare {
+            chart: content(1).chart,
+            share: "abc12345".into(),
+        }),
+        // 2: the co-host does not choose until they take the pick (3).
+        Step::Cmd("dev:bob", rest(2)),
+        Step::Cmd("dev:bob", Command::TakePick),
+        // 4, 5: the owner follows now.
+        Step::Cmd(
+            "dev:alice",
+            Command::Pick {
+                content: content(1),
+                card: None,
+            },
+        ),
+        Step::Cmd("dev:alice", rest(1)),
+        Step::Cmd("dev:bob", rest(2)),
+        // 7, 8: taken back; the song rested on before is shared already.
+        Step::Cmd("dev:alice", Command::TakePick),
+        Step::Cmd("dev:alice", rest(1)),
+        // 9, 10: taken again, then the role gone: the owner's again, and
+        // a member cannot take it (11).
+        Step::Cmd("dev:bob", Command::TakePick),
+        co_host(false),
+        Step::Cmd("dev:bob", Command::TakePick),
+    ];
+    let (local, local_answers) = run_local(&steps);
+    assert_eq!(
+        local_answers,
+        vec![
+            None,
+            None,
+            Some(Rejection::NotPicker {
+                picker: Some(alice)
+            }),
+            None,
+            Some(Rejection::NotPicker { picker: Some(bob) }),
+            Some(Rejection::NotPicker { picker: Some(bob) }),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(Rejection::Unauthorized {
+                capability: ddi_room::Capability::TakePick
+            }),
+        ]
+    );
+    assert_eq!(local.picker(), Some(alice));
+    assert_eq!(local.spotlight, None, "it went with Bob's pick");
+    assert_eq!(
+        local.known_share(&content(1)).as_deref(),
+        Some("abc12345"),
+        "kept from the owner's resting song"
+    );
+    for faults in [
+        vec![],
+        vec![Fault::Duplicate, Fault::Duplicate, Fault::Duplicate],
+        vec![Fault::Delay(0), Fault::Stale, Fault::Stale, Fault::Stale],
+        vec![Fault::Reorder, Fault::Duplicate, Fault::Reorder],
+        vec![Fault::Delay(0), Fault::Drop, Fault::Delay(0), Fault::Drop],
+        vec![Fault::Delay(300), Fault::Delay(50), Fault::Duplicate],
+    ] {
+        let (server, answers, mirrors) = run_online(&steps, &faults);
+        assert_eq!(answers, local_answers, "{faults:?}");
+        assert_eq!(server, local, "{faults:?}");
+        for m in &mirrors {
+            assert_eq!(m, &server, "{faults:?}");
+        }
+    }
+}
+
+/// A socket scripted by hand: what it is given to say, and what was sent
+/// on it.
+#[derive(Default)]
+struct Scripted {
+    incoming: Vec<ddi_room::TransportEvent>,
+    sent: Vec<String>,
+}
+
+impl ddi_room::Transport for Scripted {
+    fn open(&mut self, _room: &RoomId, _ticket: &str) {}
+    fn send(&mut self, text: String) {
+        self.sent.push(text);
+    }
+    fn close(&mut self) {}
+    fn poll(&mut self) -> Vec<ddi_room::TransportEvent> {
+        std::mem::take(&mut self.incoming)
+    }
+}
+
+/// How a client that predates something meets an authority that has it
+/// (as a build from before the picker meets `picker_changed` and
+/// `not_picker`): a frame it cannot read is passed over, never an error;
+/// the revision it missed shows as a gap at the next one it can read, and
+/// the room asked for again brings it back in step, unknown fields and
+/// all.
+#[test]
+fn frames_a_client_cannot_read_are_passed_over_and_mended_by_the_room_again() {
+    let clock = ManualClock::new(0);
+    let mut link = OnlineAuthority::new(RoomId::new(ROOM), Scripted::default(), clock.clone());
+    link.ticket_asked();
+    link.ticket(Ok("ticket".into()));
+    let room = RoomState::new(
+        RoomId::new(ROOM),
+        Identity::new("dev:alice"),
+        "Alice".into(),
+        policy(),
+        MatchRules::hosted(),
+        ContentSource::Shared,
+    );
+    let snapshot = |room: &RoomState, extra: bool| {
+        let mut v = serde_json::json!({ "v": 2, "rev": room.revision, "msg": {
+            "kind": "snapshot", "room": room } });
+        if extra {
+            v["msg"]["room"]["a_later_builds_field"] = serde_json::json!({ "who": 2 });
+        }
+        ddi_room::TransportEvent::Text(v.to_string())
+    };
+    let text = |v: serde_json::Value| ddi_room::TransportEvent::Text(v.to_string());
+    link.transport_mut().incoming = vec![ddi_room::TransportEvent::Opened, snapshot(&room, false)];
+    assert_eq!(link.poll().len(), 1);
+    assert_eq!(link.link(), LinkState::Connected);
+    // A command of ours, then the frames of a later build: an event and a
+    // refusal this build has no name for.
+    link.submit(ClientEnvelope::new(
+        ClientId::new("c"),
+        1,
+        Some(Revision(0)),
+        Command::Spotlight {
+            content: Some(content(1)),
+            card: None,
+        },
+    ));
+    link.transport_mut().incoming = vec![
+        text(serde_json::json!({ "v": 2, "rev": 1, "msg": { "kind": "events",
+            "events": [{ "a_later_builds_event": { "who": 2 } }] } })),
+        text(serde_json::json!({ "v": 2, "rev": 1, "msg": { "kind": "reject",
+            "client": "c", "seq": 1,
+            "rejection": { "a_later_builds_refusal": { "who": 2 } } } })),
+    ];
+    assert!(link.poll().is_empty(), "passed over, nothing handed on");
+    assert_eq!(link.link(), LinkState::Connected);
+    assert_eq!(link.room().unwrap().revision, Revision(0));
+    assert_eq!(link.unanswered(), 1, "its answer was not read");
+    let asked = link.transport().sent.len();
+    // The next revision it can read is a gap: the room asked for again.
+    link.transport_mut().incoming = vec![text(serde_json::json!({ "v": 2, "rev": 2,
+        "msg": { "kind": "events", "events": [{ "spotlight_changed": { "spotlight": null } }] } }))];
+    assert!(link.poll().is_empty());
+    let sent = &link.transport().sent;
+    assert_eq!(sent.len(), asked + 1);
+    assert_eq!(sent[asked], r#"{"v":2,"want":"snapshot"}"#);
+    // The room as it is now (a field of the later build in it): in step.
+    let mut now = room.clone();
+    now.revision = Revision(2);
+    link.transport_mut().incoming = vec![snapshot(&now, true)];
+    assert_eq!(link.poll().len(), 1);
+    assert_eq!(link.room().unwrap().revision, Revision(2));
+}

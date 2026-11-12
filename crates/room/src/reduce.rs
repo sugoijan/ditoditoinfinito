@@ -85,6 +85,51 @@ impl RoomState {
         }
     }
 
+    /// Whether `actor` chooses the room's songs now: the picker
+    /// (`Picking`), whatever their role; another operator is told who has
+    /// it. In a room from before the picker, every operator, as it was.
+    fn require_picker(&self, actor: Actor) -> Decided {
+        let Actor::Member(id) = actor else {
+            return Ok(());
+        };
+        let m = self.present_human(id)?;
+        let Some(picking) = &self.picking else {
+            return self.require(actor, Capability::ChooseContent);
+        };
+        if picking.picker == Some(id) {
+            Ok(())
+        } else if can(
+            m.role,
+            m.admin,
+            Capability::ChooseContent,
+            self.phase.kind(),
+        ) {
+            Err(Rejection::NotPicker {
+                picker: picking.picker,
+            })
+        } else {
+            Err(Rejection::Unauthorized {
+                capability: Capability::ChooseContent,
+            })
+        }
+    }
+
+    /// `from` can hold the pick no longer (they left the room, lost the
+    /// role that lets one take it, or were disconnected past the
+    /// authority's patience): it is the owner's again while the owner is
+    /// in the room and not disconnected, else nobody's until an operator
+    /// takes it.
+    fn release_pick(&mut self, from: ParticipantId, out: &mut Vec<Event>) {
+        if self.picking.as_ref().and_then(|p| p.picker) != Some(from) {
+            return;
+        }
+        let picker = self
+            .owner()
+            .filter(|o| o.id != from && !o.left && o.connection != Connection::Disconnected)
+            .map(|o| o.id);
+        self.emit(out, Event::PickerChanged { picker });
+    }
+
     fn present_human(&self, id: ParticipantId) -> Result<&Member, Rejection> {
         let m = self.members.get(&id).ok_or(Rejection::NotAMember)?;
         if m.left {
@@ -241,6 +286,7 @@ impl RoomState {
                 // Cancel first, so the departure also clears the readiness
                 // the canceled start held.
                 self.cancel_if_committed(id, out);
+                self.release_pick(id, out);
                 if self.spotlight.as_ref().is_some_and(|s| s.by == id) {
                     self.emit(out, Event::SpotlightChanged { spotlight: None });
                 }
@@ -293,7 +339,7 @@ impl RoomState {
                 Ok(())
             }
             Command::ChooseContent { stage, content } => {
-                self.require(actor, Capability::ChooseContent)?;
+                self.require_picker(actor)?;
                 let s = self.stage(*stage).ok_or(Rejection::UnknownStage)?;
                 Self::check_base(base, s.content_changed_at)?;
                 if s.play.is_some() {
@@ -442,15 +488,29 @@ impl RoomState {
                 self.open_next_match(out)
             }
             Command::Pick { content, card } => {
-                self.require(actor, Capability::ChooseContent)?;
+                // The picker's; starting (or going on with) the match is
+                // still an operator's, which a picker is today. A rule
+                // that passes the pick around would let the picker's pick
+                // advance here.
+                self.require_picker(actor)?;
                 self.require(actor, Capability::Advance)?;
                 if card.as_ref().is_some_and(|c| !c.fits()) {
                     return Err(Rejection::InvalidCard);
                 }
                 self.pick(base, content, card.as_deref(), now, out)
             }
+            Command::TakePick => {
+                self.require(actor, Capability::TakePick)?;
+                let id = self.own(actor)?;
+                // In a room from before the picker this turns one picker
+                // at a time on.
+                if self.picking.as_ref().is_none_or(|p| p.picker != Some(id)) {
+                    self.emit(out, Event::PickerChanged { picker: Some(id) });
+                }
+                Ok(())
+            }
             Command::Spotlight { content, card } => {
-                self.require(actor, Capability::ChooseContent)?;
+                self.require_picker(actor)?;
                 let by = self.own(actor)?;
                 if card.as_ref().is_some_and(|c| !c.fits()) {
                     return Err(Rejection::InvalidCard);
@@ -519,6 +579,7 @@ impl RoomState {
                     return Err(Rejection::OwnerRole);
                 }
                 let role = if *on { Role::CoHost } else { Role::Member };
+                let operates = can(role, m.admin, Capability::TakePick, self.phase.kind());
                 if m.role != role {
                     self.emit(
                         out,
@@ -527,6 +588,10 @@ impl RoomState {
                             role,
                         },
                     );
+                    // The pick is not kept without the role to take it.
+                    if !operates {
+                        self.release_pick(*participant, out);
+                    }
                 }
                 Ok(())
             }
@@ -630,6 +695,11 @@ impl RoomState {
                         connection: *connection,
                     },
                 );
+                // Gone past the authority's patience (Reconnecting keeps
+                // everything): the pick does not wait for them.
+                if *connection == Connection::Disconnected {
+                    self.release_pick(*participant, out);
+                }
                 Ok(())
             }
             Command::SetContentStatus {
@@ -1395,6 +1465,18 @@ impl RoomState {
             }
             Event::AccessChanged { access } => self.access = *access,
             Event::SpotlightChanged { spotlight } => self.spotlight = spotlight.clone(),
+            Event::PickerChanged { picker } => {
+                let mut picking = self.picking.take().unwrap_or_default();
+                // The song the last picker rested on goes with them; the
+                // room's share of it stays known by its chart.
+                if let Some(s) = self.spotlight.take()
+                    && let Some(share) = s.share
+                {
+                    picking.keep_share(s.content.chart, share);
+                }
+                picking.picker = *picker;
+                self.picking = Some(picking);
+            }
             Event::ContentChosen { stage, content } => {
                 if let Some(s) = self.stage_mut(*stage) {
                     s.content = content.clone();

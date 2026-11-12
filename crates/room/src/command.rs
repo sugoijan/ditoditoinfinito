@@ -70,7 +70,9 @@ pub enum Command {
         detail: Option<RunDetail>,
     },
 
-    // Operators (owner, co-hosts, admins). Edits carry the envelope's base.
+    // The picker (`crate::state::Picking`: who chooses the room's songs
+    // now; in a room from before the picker, every operator). Edits carry
+    // the envelope's base.
     /// Choose (or clear) an unstarted stage's song and chart.
     ChooseContent {
         stage: StageId,
@@ -90,7 +92,7 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         card: Option<Box<ContentCard>>,
     },
-    /// The song an operator's song select rests on (M7b), for the others
+    /// The song the picker's song select rests on (M7b), for the others
     /// to see and hear before it is picked; `None` clears it. Changes
     /// nothing else (no readiness, no stage).
     Spotlight {
@@ -98,6 +100,16 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         card: Option<Box<ContentCard>>,
     },
+
+    // Operators (owner, co-hosts, admins). Edits carry the envelope's base.
+    /// Take the pick (2026-11-12): the sender chooses the room's songs
+    /// from now on, at once, with no request and no confirmation; whoever
+    /// had it follows. Taken in any phase: during a stage's readiness,
+    /// countdown or play it is the next choice that changes hands (the
+    /// stage's song stays). Additive to protocol 2: sent only to a room
+    /// that says it has one picker at a time (`RoomState::one_picker`), so
+    /// never to an authority that could not read it.
+    TakePick,
     /// Save the next match's rules. Never touches a running match's rules.
     SaveNextRules {
         rules: MatchRules,
@@ -218,9 +230,16 @@ pub enum Event {
     AccessChanged {
         access: Access,
     },
-    /// The song an operator's song select rests on, or none (M7b).
+    /// The song the picker's song select rests on, or none (M7b).
     SpotlightChanged {
         spotlight: Option<Spotlight>,
+    },
+    /// The pick changed hands ([`Command::TakePick`], or its holder could
+    /// hold it no longer); none: nobody chooses until an operator takes
+    /// it. The spotlight goes with the picker it was: cleared, the room's
+    /// share of it kept known by chart.
+    PickerChanged {
+        picker: Option<ParticipantId>,
     },
     /// Replaces the stage's content and clears its readiness.
     ContentChosen {
@@ -401,6 +420,11 @@ pub enum Rejection {
     AlreadyReported,
     /// A content card's text is too long (`ContentCard::MAX_TEXT`).
     InvalidCard,
+    /// An operator who is not the one choosing the room's songs now
+    /// (`picker`: who is; none: nobody, the pick is there to take).
+    NotPicker {
+        picker: Option<ParticipantId>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

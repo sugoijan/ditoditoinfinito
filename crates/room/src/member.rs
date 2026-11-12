@@ -167,8 +167,14 @@ pub enum Capability {
     Inspect,
     /// Take part: set one's own intent, readiness and loading.
     Participate,
-    /// Choose an unstarted stage's song and chart.
+    /// Choose an unstarted stage's song and chart: an operator's. In a
+    /// room with one picker at a time (`crate::state::Picking`) the
+    /// choosing itself is the picker's alone (`RoomState::chooses`),
+    /// whatever their role.
     ChooseContent,
+    /// Take the pick: become the one who chooses the room's songs
+    /// (`crate::Command::TakePick`). An operator's.
+    TakePick,
     /// Save the next match's rules.
     EditNextRules,
     /// Start a match or a stage, cancel a start, move to the next stage or
@@ -189,7 +195,7 @@ pub fn can(role: Role, admin: bool, capability: Capability, phase: PhaseKind) ->
     let operator = admin || matches!(role, Role::Owner | Role::CoHost);
     match capability {
         Capability::Inspect | Capability::Participate => true,
-        Capability::ChooseContent | Capability::EditNextRules => operator,
+        Capability::ChooseContent | Capability::EditNextRules | Capability::TakePick => operator,
         Capability::Advance => {
             operator && !matches!(phase, PhaseKind::Stage | PhaseKind::SongCompletion)
         }
@@ -211,6 +217,7 @@ mod tests {
             Capability::ChooseContent,
             Capability::EditNextRules,
             Capability::Advance,
+            Capability::TakePick,
         ] {
             assert!(can(Role::Owner, false, cap, p));
             assert!(can(Role::CoHost, false, cap, p));

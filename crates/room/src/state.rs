@@ -5,8 +5,10 @@
 
 use crate::awards::{Finish, Placement, StageResult};
 use crate::battle::{ReportedRun, RunDetail};
-use crate::ids::{ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomId, StageId};
-use crate::member::{Connection, Intent, Member, MemberKind, OpponentSpec, Role};
+use crate::ids::{
+    ChartKey, ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomId, StageId,
+};
+use crate::member::{Capability, Connection, Intent, Member, MemberKind, OpponentSpec, Role, can};
 use crate::phase::{Interruption, Phase};
 use crate::points::Points;
 use crate::rules::{Access, ContentSource, MatchRules, RoomPolicy, RulesProblem};
@@ -39,6 +41,55 @@ pub struct RoomState {
     /// and hear before it is picked (M7b), or none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spotlight: Option<Spotlight>,
+    /// One picker at a time ([`Picking`]): who chooses the room's songs
+    /// now. `None` is a room from before the picker (made by, or kept
+    /// on, an authority that predates it): every operator chooses there,
+    /// as it was, and its owner is named as the picker
+    /// ([`RoomState::picker`]). Additive to protocol 2: a client reads
+    /// from its absence that the pick cannot be taken there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picking: Option<Picking>,
+}
+
+/// Who chooses the room's songs now (2026-11-12): one picker at a time.
+/// Only the picker rests on songs for the others to see
+/// ([`crate::Command::Spotlight`]) and picks ([`crate::Command::Pick`],
+/// [`crate::Command::ChooseContent`]); everyone else follows, co-hosts
+/// and the owner included when they are not the picker. A room starts
+/// with its owner; an operator takes the pick at once
+/// ([`crate::Command::TakePick`]) and it stays with whoever has it, across
+/// stages and matches, until someone takes it or they can hold it no
+/// longer (they leave, lose the role, or are disconnected past the
+/// authority's patience): then it is the owner's again, or nobody's
+/// where the owner is the one gone.
+///
+/// The picker is "who chooses now", any participant in principle (a
+/// later match rule may pass the pick around every player each stage);
+/// only the taking is an operator's.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Picking {
+    /// Who chooses now; none: nobody, until an operator takes the pick.
+    pub picker: Option<ParticipantId>,
+    /// The room's shares of the songs a picker rested on when the pick
+    /// changed hands (the spotlight goes with its picker), by chart,
+    /// newest last, [`Picking::KEPT_SHARES`] at most: a rest on one of
+    /// them again reuses it ([`RoomState::known_share`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shares: Vec<(ChartKey, String)>,
+}
+
+impl Picking {
+    /// The shares kept across changes of hands.
+    pub const KEPT_SHARES: usize = 8;
+
+    pub(crate) fn keep_share(&mut self, chart: ChartKey, share: String) {
+        self.shares.retain(|(c, _)| *c != chart);
+        self.shares.push((chart, share));
+        if self.shares.len() > Self::KEPT_SHARES {
+            let drop = self.shares.len() - Self::KEPT_SHARES;
+            self.shares.drain(..drop);
+        }
+    }
 }
 
 /// What the room shows of a song before anyone has loaded it: the words
@@ -499,7 +550,61 @@ impl RoomState {
             phase: Phase::Lobby,
             history: Vec::new(),
             spotlight: None,
+            picking: Some(Picking {
+                picker: Some(owner_id),
+                shares: Vec::new(),
+            }),
         }
+    }
+
+    /// The room's owner (the host).
+    pub fn owner(&self) -> Option<&Member> {
+        self.members.values().find(|m| m.role == Role::Owner)
+    }
+
+    /// Whether the room has one picker at a time ([`Picking`]); a room
+    /// from before the picker has not, and every operator chooses there.
+    pub fn one_picker(&self) -> bool {
+        self.picking.is_some()
+    }
+
+    /// Who chooses the room's songs now; none: nobody, until an operator
+    /// takes the pick. A room from before the picker names its owner.
+    pub fn picker(&self) -> Option<ParticipantId> {
+        match &self.picking {
+            Some(p) => p.picker,
+            None => self.owner().map(|m| m.id),
+        }
+    }
+
+    /// Whether `id` chooses the room's songs now (rests on them for the
+    /// others, picks them): the picker; in a room from before the picker,
+    /// every operator.
+    pub fn chooses(&self, id: ParticipantId) -> bool {
+        let Some(m) = self.members.get(&id).filter(|m| !m.left && !m.is_cpu()) else {
+            return false;
+        };
+        match &self.picking {
+            Some(p) => p.picker == Some(id),
+            None => can(
+                m.role,
+                m.admin,
+                Capability::ChooseContent,
+                self.phase.kind(),
+            ),
+        }
+    }
+
+    /// Whether `id` may take the pick now ([`crate::Command::TakePick`]):
+    /// an operator who does not have it, in a room with one picker.
+    pub fn may_take_pick(&self, id: ParticipantId) -> bool {
+        self.one_picker()
+            && self.picker() != Some(id)
+            && self
+                .members
+                .get(&id)
+                .filter(|m| !m.left && !m.is_cpu())
+                .is_some_and(|m| can(m.role, m.admin, Capability::TakePick, self.phase.kind()))
     }
 
     pub fn member(&self, id: ParticipantId) -> Option<&Member> {
@@ -564,14 +669,24 @@ impl RoomState {
 
     /// A share the room already has of `content`'s chart (shares are told
     /// apart by their chart's digest, as the server's reuse is): the
-    /// spotlight's, or an available stage's (this match's, the next one's,
-    /// or a recorded match's), which a pick of the same chart reuses.
+    /// spotlight's, one kept from a spotlight that went with its picker
+    /// ([`Picking::shares`]), or an available stage's (this match's, the
+    /// next one's, or a recorded match's), which a pick of the same chart
+    /// reuses.
     pub fn known_share(&self, content: &ContentId) -> Option<String> {
         if let Some(s) = &self.spotlight
             && s.content.chart == content.chart
             && s.share.is_some()
         {
             return s.share.clone();
+        }
+        if let Some((_, share)) = self
+            .picking
+            .iter()
+            .flat_map(|p| p.shares.iter().rev())
+            .find(|(chart, _)| *chart == content.chart)
+        {
+            return Some(share.clone());
         }
         self.current
             .iter()

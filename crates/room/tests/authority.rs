@@ -267,7 +267,9 @@ fn a_stale_edit_is_refused_with_the_room_as_it_is() {
     // The co-host's mirror starts from a snapshot of its own.
     cohost.mirror = host.mirror.clone();
     let stage = host.state().upcoming_stage().unwrap();
-    // Both choose a song for the same stage from the same view.
+    // Both choose a song for the same stage from the same view: the
+    // host, who picks, and the co-host, who takes the pick over and
+    // chooses without having seen the host's choice.
     let view = host.state().revision;
     authority.submit(ClientEnvelope::new(
         ClientId::new("host"),
@@ -281,6 +283,12 @@ fn a_stale_edit_is_refused_with_the_room_as_it_is() {
     authority.submit(ClientEnvelope::new(
         ClientId::new("co"),
         1,
+        Some(view),
+        Command::TakePick,
+    ));
+    authority.submit(ClientEnvelope::new(
+        ClientId::new("co"),
+        2,
         Some(view),
         Command::ChooseContent {
             stage,
