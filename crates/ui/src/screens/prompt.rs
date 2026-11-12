@@ -1162,12 +1162,15 @@ impl PromptScreen {
                 let mut value = env.text(&format!("{name}.Value"), o.value(), 14.0, 600, "Text");
                 call(&mut value, "maxwidth", &[vw]);
                 call(&mut value, "xy", &[vx + 22.0 + vw / 2.0, mid]);
+                // An arrow and the box a press on it lands in (drawn all
+                // but clear: a fully clear quad takes no press, and the
+                // row under it would then cycle forward for ◀ too).
                 let arrow = |part: &str, glyph: &str, x: f32| {
-                    let mut hit = quad(&format!("{name}.{part}"), [26.0, OPTION_ROW], [0.0; 4]);
+                    let mut hit = quad("", [26.0, OPTION_ROW], [1.0, 1.0, 1.0, 0.004]);
                     call(&mut hit, "xy", &[x, mid]);
                     let mut g = env.text("", glyph, 12.0, 400, "Accent");
                     call(&mut g, "xy", &[x, mid]);
-                    frame("", vec![hit, g])
+                    frame(&format!("{name}.{part}"), vec![hit, g])
                 };
                 let mut row = frame(
                     &name,
@@ -3037,6 +3040,17 @@ mod tests {
         h.tap(PointerKind::Mouse, "Opt.reverse.Up");
         h.run(0.05);
         assert_eq!(view().options[1], "reverse=On");
+        // ◀ steps back, never forward: the speed up one step, then down two.
+        h.tap(PointerKind::Mouse, "Opt.speed.Up");
+        h.run(0.05);
+        assert_eq!(view().options[0], "speed=×3");
+        h.tap(PointerKind::Mouse, "Opt.speed.Down");
+        h.tap(PointerKind::Mouse, "Opt.speed.Down");
+        h.run(0.05);
+        assert_eq!(view().options[0], "speed=×2.5");
+        h.tap(PointerKind::Mouse, "Opt.speed.Up");
+        h.run(0.05);
+        assert_eq!(view().options[0], "speed=×2.75");
         h.tap(PointerKind::Mouse, "Opt.turn.Label");
         h.run(0.05);
         assert_eq!(view().options[2], "turn=Mirror");
