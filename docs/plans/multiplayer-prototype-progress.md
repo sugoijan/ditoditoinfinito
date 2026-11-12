@@ -2820,6 +2820,11 @@ could be interesting in intense battles)."
   one before it had cleared, all in their recipients' plays and fields,
   the record the same at 60 and 144 frames a second); `ddi-shell`
   `it_scales_in_dims_in_sight_and_marks_one_more_waiting`.
+- Looked at in headless Chrome (`target/scratch/ddi/r3b/look5.mjs`,
+  `shots/i5-*`): a stage of eight CPUs with Attacks on, on Some Things
+  Must's Challenge chart (68 attacks): the plain warning, and at 82 s
+  the warning with its second, smaller bolt while one attack against
+  the player was on its way and one more waited behind it.
 - **The attack-rate study again** (the same six charts and seeds,
   `placement-v2` under both; `DDI_ATTACK_RULES=v0` for the older
   rules). `attacks-v0` then `attacks-v1`:
