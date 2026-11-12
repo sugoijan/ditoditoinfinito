@@ -2738,12 +2738,19 @@ impl SelectScreen {
             self.fill_info(root, cx);
             self.publish_dirty = true;
         }
-        // A room's follower shows the host's song, not its own list.
-        if let Some(d) = data.filter(|_| !self.following()) {
-            self.cancel_navigation();
-            self.set_data(d, false);
-            self.fill_tabs(root);
-            self.fill_charts(root);
+        // A room's follower shows the host's song, not its own list,
+        // which is kept for when they pick.
+        if let Some(d) = data {
+            if self.following() {
+                if let Some(rm) = &mut self.room {
+                    rm.library = Some(d);
+                }
+            } else {
+                self.cancel_navigation();
+                self.set_data(d, false);
+                self.fill_tabs(root);
+                self.fill_charts(root);
+            }
         }
         if let Some(i) = import {
             *self.import.borrow_mut() = i;

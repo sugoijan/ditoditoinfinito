@@ -1330,6 +1330,58 @@ fn a_stages_results_go_back_to_the_room_and_never_retry() {
     assert_eq!(*back.borrow(), 1);
 }
 
+/// An online room's host whose screen is built before the room's first
+/// snapshot comes (a real server's latency: the role is not known yet, so
+/// they are a follower for a moment) has their own songs to pick from
+/// once it comes.
+#[test]
+fn an_online_rooms_host_has_their_songs_though_the_room_answers_late() {
+    use crate::state::online::tests::room::{client, person, song, tick};
+    use ddi_room::fake::FakeServer;
+    use ddi_room::{Identity, ManualClock, RoomPolicy};
+    let clock = ManualClock::new(1_000);
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy::default(),
+        clock.clone(),
+    )
+    .shared();
+    let alice = Rc::new(RefCell::new(client(
+        &server,
+        person(&server, "alice"),
+        "alice",
+        1_000,
+    )));
+    // The room's first answer (its snapshot) is a second on its way.
+    server
+        .borrow_mut()
+        .fault(ddi_room::ParticipantId(1), ddi_room::fake::Fault::Delay(1_000));
+    let ea = env();
+    let orders = Orders::default();
+    let uploads = Uploads::default();
+    let mut data = library("dance-single");
+    data.songs.insert(0, song());
+    let mut ha = harness();
+    ha.push(
+        sample::room_select(&ea, alice.clone(), data)
+            .with_room(alice.clone(), shell_with(&alice, &orders, &uploads)),
+    );
+    // Frames before anything came from the room: nobody's role is known.
+    tick(&clock, &mut [&mut alice.borrow_mut()], 200);
+    ha.run(0.3);
+    assert!(!view(&ea).host, "not known as the host yet");
+    // The snapshot comes: the host picks, from their own list.
+    for _ in 0..4 {
+        tick(&clock, &mut [&mut alice.borrow_mut()], 400);
+        ha.run(0.3);
+    }
+    assert!(view(&ea).host);
+    assert!(has(&ha, "Single Song"), "{:?}", ha.texts());
+    assert!(ha.ui.actor("Wheel").is_some_and(|w| w.visible), "the list shows");
+}
+
 /// An online room over the fake room: the host's song select and the
 /// member's following one; the member's Rules read only; the host's
 /// resting song shown to the member (its card, then the song once read

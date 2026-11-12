@@ -56,6 +56,11 @@ pub(super) struct RoomMode {
     /// The song the others' side shows (its content's chart key, read or
     /// not), to set it again only when it changes.
     following: Option<(String, bool)>,
+    /// The player's own list, kept while the others' view replaces it
+    /// with the host's resting song: put back when this player picks (a
+    /// role given, or an online room's first snapshot saying they are its
+    /// host, which comes after the screen is built).
+    pub(super) library: Option<SelectData>,
     /// What was told the room the song select rests on.
     hovered: Option<(String, usize)>,
     /// The results whose standings were opened (a stage's number, or the
@@ -80,6 +85,7 @@ impl SelectScreen {
             // Never a chart's key: the first update sets the follower's
             // song (none yet, or the host's), not their own list.
             following: Some((String::from("\u{0}"), false)),
+            library: None,
             hovered: None,
             standings: None,
             time: 0.0,
@@ -323,7 +329,9 @@ impl SelectScreen {
         let host = self.room_host() == Some(true);
         if host {
             self.tell_hover();
-        } else {
+        } else if known {
+            // Not before the room says who this player is: an online
+            // room's host is a follower until its first snapshot.
             self.follow_host(root);
         }
         let seconds = room::seconds_left(&room.borrow());
@@ -346,6 +354,9 @@ impl SelectScreen {
             // whole screen again.
             if self.room_built_host != Some(host) {
                 self.room_built_host = Some(host);
+                if host {
+                    self.take_back_library();
+                }
                 let left = root.tween_time_left();
                 *root = self.build_tree(cx);
                 self.reload();
@@ -437,11 +448,31 @@ impl SelectScreen {
             data.resume = Some((song.id.clone(), Some(chart)));
             data.songs = vec![song];
         }
+        // The player's own list is kept for when they pick.
+        if let Some(rm) = &mut self.room
+            && rm.library.is_none()
+        {
+            rm.library = Some((*self.data).clone());
+        }
         self.cancel_navigation();
         self.set_data(data, false);
         self.fill_tabs(root);
         self.fill_charts(root);
         self.left_dirty = true;
+    }
+
+    /// This player picks now (their role is known, or was given): their
+    /// own list back in the place of the host's song they followed.
+    fn take_back_library(&mut self) {
+        let Some(rm) = &mut self.room else {
+            return;
+        };
+        // Followed again from scratch should the role go.
+        rm.following = Some((String::from("\u{0}"), false));
+        if let Some(library) = rm.library.take() {
+            self.cancel_navigation();
+            self.set_data(library, false);
+        }
     }
 
     /// Start on a song in the room: the host's pick (the shell's play
