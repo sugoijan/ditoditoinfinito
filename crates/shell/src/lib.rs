@@ -26,6 +26,7 @@
 //!
 //! Platform-free: built natively and for wasm, with no platform code.
 
+pub mod attack_links;
 pub mod battle_cue;
 pub mod dance;
 pub mod editor_field;

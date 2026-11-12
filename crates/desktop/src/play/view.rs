@@ -498,6 +498,12 @@ impl View {
         self.view.opponent_fields()
     }
 
+    /// Who attacks whom as the last frame drew it, for the player's own
+    /// attacks (`ddi_shell::attack_links`).
+    pub fn attack_links(&self) -> &[ddi_shell::attack_links::Shown] {
+        self.view.links_drawn()
+    }
+
     /// Waits for the lyrics' fonts (tests).
     pub fn wait_for_fonts(&mut self) {
         let host = &mut self.view.host;

@@ -343,6 +343,9 @@ pub struct PlayView<H: PlayHost> {
     /// The last frame's attack policy label: the policy and where a tap
     /// cycles it, target pixels (`crate::battle_cue::policy_area`).
     policy_drawn: Option<(ddi_session::battle::Targeting, [f32; 4])>,
+    /// The last frame's lines and outlines of who attacks whom
+    /// (`crate::attack_links`).
+    links_drawn: Vec<crate::attack_links::Shown>,
     /// The song's generated background (`docs/plans/phase-8-gaps.md`,
     /// step 5).
     generated: Option<Generated>,
@@ -391,6 +394,7 @@ impl<H: PlayHost> PlayView<H> {
             fields_score: Default::default(),
             attack_drawn: None,
             policy_drawn: None,
+            links_drawn: Vec::new(),
             waiting_drawn: false,
             generated: None,
             entrance: None,
@@ -752,6 +756,13 @@ impl<H: PlayHost> PlayView<H> {
         (self.attack_drawn, self.waiting_drawn)
     }
 
+    /// Who attacks whom as the last frame drew it, for the player's own
+    /// attacks: each link's ends, phase, line and outline
+    /// (`crate::attack_links`).
+    pub fn links_drawn(&self) -> &[crate::attack_links::Shown] {
+        &self.links_drawn
+    }
+
     /// The attack policy's label as the last frame drew it: the policy,
     /// and where a tap or a click cycles it (target pixels).
     pub fn policy_drawn(&self) -> Option<(ddi_session::battle::Targeting, [f32; 4])> {
@@ -1032,6 +1043,10 @@ impl<H: PlayHost> PlayView<H> {
             let [x, y, r] = quit_place;
             [x - r, y - r, x + r, y + r]
         });
+        // What a line of who attacks whom keeps clear of besides the band
+        // and the miniatures (`crate::attack_links`): the HUD and the
+        // quit button's place (the warning's is where one ends).
+        let line_keep = keep_out.clone();
         // The attack warning's place, shown or not (the slots never move).
         let attacks = session.battle().is_some_and(|b| b.attacks().is_some());
         if attacks {
@@ -1075,7 +1090,11 @@ impl<H: PlayHost> PlayView<H> {
             crate::opponents::rotate(
                 &mut f,
                 n,
-                &crate::opponents::priority_seats(b),
+                &crate::opponents::priority_seats(
+                    b,
+                    &session.player,
+                    crate::opponents::ROTATION_V0,
+                ),
                 frame.song_time,
                 crate::opponents::ROTATION_V0,
                 render.reduced_motion,
@@ -1170,6 +1189,25 @@ impl<H: PlayHost> PlayView<H> {
                 policy.cue_alpha(age, render.reduced_motion),
             ))
         });
+        // Who attacks whom, for the player's own attacks: a line and the
+        // opponent's miniature outlined (`crate::attack_links`).
+        let mut links = match (session.battle(), &fields) {
+            (Some(b), Some(f)) => crate::attack_links::shown(
+                &b.links(&session.player),
+                &crate::attack_links::Layout {
+                    geo: &geo,
+                    span,
+                    fields: f,
+                    ratio: screen.ratio,
+                    keep_out: &line_keep,
+                },
+                frame.song_time,
+                render.reduced_motion,
+                crate::attack_links::ATTACK_LINKS_V0,
+            ),
+            _ => Vec::new(),
+        };
+        self.links_drawn.clone_from(&links);
         // A stage's opponents beside the field: what their miniatures
         // show around them.
         let shown = session.battle().zip(fields).map(|(b, fields)| {
@@ -1230,6 +1268,7 @@ impl<H: PlayHost> PlayView<H> {
                 cue,
                 waiting,
                 policy: b.policy(&session.player),
+                links: std::mem::take(&mut links),
                 geo,
                 span,
                 ratio: screen.ratio,
@@ -1310,6 +1349,10 @@ impl<H: PlayHost> PlayView<H> {
                 );
                 self.fields_drawn = Some(fields);
             }
+            // Who attacks whom, over the miniatures.
+            if let (Some(a), Some(fields)) = (&attack, &self.fields_drawn) {
+                crate::attack_links::draw(list, &a.links, fields, a.ratio);
+            }
             if let Some(a) = &attack {
                 if let Some(cue) = &a.cue {
                     crate::battle_cue::draw(list, cue, &a.geo, a.span);
@@ -1376,6 +1419,8 @@ struct Attack {
     waiting: Option<String>,
     /// The player's attack policy, while its label shows.
     policy: Option<ddi_session::battle::Targeting>,
+    /// Who attacks whom, for the player's own attacks.
+    links: Vec<crate::attack_links::Shown>,
     geo: ddi_render::FieldGeometry,
     span: f32,
     ratio: f32,

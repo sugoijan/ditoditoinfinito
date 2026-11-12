@@ -566,6 +566,19 @@ pub fn power_and_life(geo: &FieldGeometry, span: f32) -> ([f32; 4], [f32; 4]) {
     (crate::hud::power_rect(life), life)
 }
 
+/// A miniature's power bar and the life gauge under it, `[left, top,
+/// width, height]` each, in target pixels: on its field `geo` (`span`
+/// lanes wide) whose band is `panel` (`[left, top, right, bottom]`),
+/// where the HUD draws them (`crate::hud`'s miniatures).
+pub fn miniature_power_and_life(
+    geo: &FieldGeometry,
+    panel: [f32; 4],
+    span: f32,
+) -> ([f32; 4], [f32; 4]) {
+    let life = crate::hud::mini_life_rect(geo, panel[1], span);
+    (crate::hud::power_rect(life), life)
+}
+
 /// The tap judgment's place across the field `geo` (`span` lanes wide),
 /// `[left, top, right, bottom]` in target pixels, shown or not: its
 /// line at its largest (its pop), where `draw` puts it.

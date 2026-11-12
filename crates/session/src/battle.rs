@@ -297,6 +297,31 @@ pub struct Incoming {
     pub more: bool,
 }
 
+/// One of the local player's attack relationships, while its attack is
+/// on its way or passing (M8 round 3, S5): an attack they sent to an
+/// opponent, or one an opponent sent them. What the play draws large
+/// (`ddi_shell::attack_links`: a curve at the commitment, the opponent's
+/// miniature outlined); CPU against CPU has none.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Link {
+    /// The attack's number in the stage.
+    pub attack: u32,
+    /// The opponent at its other end: its seat (its place in
+    /// [`Battle::views`] and [`Battle::feeds`]).
+    pub seat: usize,
+    /// The local player sent it (else it is against them).
+    pub outgoing: bool,
+    /// When this play learned of its commitment (the judged song second
+    /// of the frame that ran its checkpoint: what its curve is timed
+    /// from), its first shock and when it clears (judged song seconds).
+    pub shown_from: f64,
+    pub first: f64,
+    pub clear: f64,
+    /// It waits behind another attack against the same recipient that
+    /// has not cleared yet (a chain): shown quieter.
+    pub chained: bool,
+}
+
 /// A full bar of the local player's waiting, as the line under it says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Waiting {
@@ -351,6 +376,10 @@ pub struct Battle {
     settling: Option<Settling>,
     /// The commitments since they were last taken, worded for a log.
     log: Vec<String>,
+    /// When this play learned of each attack's commitment (its number,
+    /// the judged song second): what the local player's links are timed
+    /// from ([`Battle::links`]).
+    seen: Vec<(u32, f64)>,
     /// Shocks a play refused (arrived too late: a frame stalled past the
     /// lead).
     refused: u32,
@@ -489,6 +518,7 @@ impl Battle {
             decided_at: None,
             settling: None,
             log: Vec::new(),
+            seen: Vec::new(),
             refused: 0,
             events: Vec::new(),
             live,
@@ -637,6 +667,7 @@ impl Battle {
             };
             let cells = attacks::hazards(attack);
             let committed = at as f64 / 1e6;
+            self.seen.push((attack.id, self.now.max(committed)));
             let delivered = if recipient == me {
                 human
                     .as_deref_mut()
@@ -977,6 +1008,99 @@ impl Battle {
             clear: attack.clear_us as f64 / 1e6,
             more,
         })
+    }
+
+    /// The local player's attack relationships now ([`Link`]): each attack
+    /// they sent or were sent that has not cleared yet, in the order
+    /// committed; none once out or after a confirmed win (as the bar and
+    /// the warning).
+    pub fn links(&self, human: &Player) -> Vec<Link> {
+        let Some(a) = self.attacks.as_ref() else {
+            return Vec::new();
+        };
+        if self.won() || human.gauge_failed_at().is_some() {
+            return Vec::new();
+        }
+        let me = self.setup.me;
+        let now = attacks::micros(self.now);
+        let live: Vec<&ddi_room::attacks::Attack> = a
+            .ledger()
+            .attacks()
+            .iter()
+            .filter(|x| {
+                matches!(
+                    x.state,
+                    ddi_room::attacks::AttackState::Active | ddi_room::attacks::AttackState::Cleared
+                ) && x.clear_us >= now
+            })
+            .collect();
+        live.iter()
+            .filter(|x| x.sender == me || x.recipient == me)
+            .filter_map(|x| {
+                let other = if x.sender == me { x.recipient } else { x.sender };
+                let seat = self.seats.iter().position(|s| s.seat.participant == other)?;
+                // Out since: its miniature says so, nothing to point at.
+                if x.sender == me && self.seats[seat].opponent.out_at().is_some() {
+                    return None;
+                }
+                let committed = a
+                    .ledger()
+                    .checkpoints_us()
+                    .get(x.checkpoint)
+                    .copied()
+                    .unwrap_or(0) as f64
+                    / 1e6;
+                Some(Link {
+                    attack: x.id,
+                    seat,
+                    outgoing: x.sender == me,
+                    shown_from: self
+                        .seen
+                        .iter()
+                        .find(|(id, _)| *id == x.id)
+                        .map_or(committed, |(_, t)| *t),
+                    first: x.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6,
+                    clear: x.clear_us as f64 / 1e6,
+                    chained: live
+                        .iter()
+                        .any(|y| y.recipient == x.recipient && y.id < x.id),
+                })
+            })
+            .collect()
+    }
+
+    /// The seats a stage keeps in view where the opponents take turns
+    /// (beyond the cap: `ddi_shell::opponents::rotate`): the senders of
+    /// the attacks against the local player, then the recipient of their
+    /// latest attack, while those attacks last and `after` seconds more
+    /// (one rotation turn).
+    pub fn kept_seats(&self, human: &Player, after: f64) -> Vec<usize> {
+        let Some(a) = self.attacks.as_ref() else {
+            return Vec::new();
+        };
+        if self.won() || human.gauge_failed_at().is_some() {
+            return Vec::new();
+        }
+        let me = self.setup.me;
+        let now = self.now;
+        let lasts = |x: &&ddi_room::attacks::Attack| {
+            x.state != ddi_room::attacks::AttackState::Expired
+                && x.clear_us as f64 / 1e6 + after >= now
+        };
+        let seat = |p: ParticipantId| self.seats.iter().position(|s| s.seat.participant == p);
+        let mut kept: Vec<usize> = Vec::new();
+        let all = a.ledger().attacks();
+        for x in all.iter().filter(|x| x.recipient == me).filter(lasts) {
+            if let Some(s) = seat(x.sender).filter(|s| !kept.contains(s)) {
+                kept.push(s);
+            }
+        }
+        if let Some(x) = all.iter().rev().find(|x| x.sender == me).filter(lasts)
+            && let Some(s) = seat(x.recipient).filter(|s| !kept.contains(s))
+        {
+            kept.push(s);
+        }
+        kept
     }
 
     /// The local player's full bar waiting, and why (none once out or

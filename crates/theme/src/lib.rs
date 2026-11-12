@@ -57,6 +57,18 @@ pub fn star_colors() -> [Rgba; 3] {
     })
 }
 
+/// A battle's attack colors (the power bar's violet family), as the
+/// tunables have them: the line and outline of who attacks whom, and the
+/// glow under the line (`ddi_shell::attack_links`), outside the look.
+pub fn attack_colors() -> [Rgba; 2] {
+    ["Attack.Line", "Attack.Glow"].map(|name| {
+        tables::COLORS
+            .iter()
+            .find(|(k, _)| *k == name)
+            .map_or([1.0, 0.0, 1.0, 1.0], |(_, c)| *c)
+    })
+}
+
 /// Our theme.
 pub struct Infinito {
     keycap_material: std::cell::Cell<KeycapMaterial>,

@@ -764,11 +764,17 @@ pub fn rotate(
     }
 }
 
-/// The seats a stage keeps in view whatever the turn ([`rotate`]): none
-/// yet. Once attacks exist, the opponent attacking the player and the
-/// one the player attacks.
-pub fn priority_seats(_battle: &ddi_session::battle::Battle) -> Vec<usize> {
-    Vec::new()
+/// The seats a stage keeps in view whatever the turn ([`rotate`]: only
+/// beyond the cap, where the opponents take turns): whoever attacks the
+/// player, then whom the player attacked last, while those attacks last
+/// and one turn of `policy` after (`ddi_session::battle::Battle::kept_seats`),
+/// so that who attacks whom can be shown.
+pub fn priority_seats(
+    battle: &ddi_session::battle::Battle,
+    player: &ddi_engine::player::Player,
+    policy: Rotation,
+) -> Vec<usize> {
+    battle.kept_seats(player, f64::from(policy.every))
 }
 
 /// Cuts `s` to `room` pixels, an ellipsis at its end.
@@ -1041,7 +1047,7 @@ pub fn draw_stars(list: &mut DrawList, level: u8, at: [f32; 2], tall: f32, alpha
 pub const FLASH: f32 = ddi_session::battle::feed::FLASH_SECONDS;
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use ddi_actor::text::FixedMeasure;
     use ddi_room::ParticipantId;
@@ -1092,7 +1098,7 @@ mod tests {
 
     /// The play's own keep-outs: its HUD, the quit button's place and,
     /// with `attacks`, the attack warning's.
-    fn keep(g: &FieldGeometry, ratio: f32, attacks: bool) -> Vec<[f32; 4]> {
+    pub(crate) fn keep(g: &FieldGeometry, ratio: f32, attacks: bool) -> Vec<[f32; 4]> {
         let mut k = ddi_render::scene::hud_areas(g, 4.0);
         let [x, y, r] =
             ddi_render::scene::quit_button(g, &ddi_chart::Layout::dance_single(), ratio, [0.0; 4]);
@@ -1105,7 +1111,7 @@ mod tests {
 
     /// The sizes a stage is looked at (the feedback round's table),
     /// logical pixels and target pixels to one.
-    const SIZES: [(f32, f32, f32); 10] = [
+    pub(crate) const SIZES: [(f32, f32, f32); 10] = [
         (1280.0, 720.0, 1.0),
         (1920.0, 1080.0, 1.0),
         (1024.0, 768.0, 1.0),

@@ -76,8 +76,8 @@ pub fn place(geo: &FieldGeometry, span: f32) -> [f32; 4] {
     [left, y - a * 0.5, left + a * 0.8, y + a * 0.55]
 }
 
-/// A bar from `p` to `q`, `thick` across.
-fn segment(p: [f32; 2], q: [f32; 2], thick: f32, color: [f32; 4]) -> Quad {
+/// A bar from `p` to `q`, `thick` across, its ends round.
+pub(crate) fn segment(p: [f32; 2], q: [f32; 2], thick: f32, color: [f32; 4]) -> Quad {
     let (dx, dy) = (q[0] - p[0], q[1] - p[1]);
     let len = (dx * dx + dy * dy).sqrt();
     let mut quad = Quad::plain([-len / 2.0, -thick / 2.0, len / 2.0, thick / 2.0], color);

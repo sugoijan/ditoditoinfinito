@@ -1008,6 +1008,21 @@ manual attack control in the game or a battle simulation. Motion and reduced
 motion are implemented in the study, but rendered animation/readability have
 not yet been visually validated in the game.
 
+Built (2026-11-12, M8 round 3; `docs/plans/multiplayer-prototype-progress.md`,
+"Who attacks whom"): the connection as proposed, for the local player's
+own attacks, with these differences. The line is drawn in straight legs
+through the side space's gaps (along the top at the power bar's height,
+down beside the miniature's column), not as one free curve, so that it
+is never over the field, the HUD, the judgment, the quit button or
+another miniature at any size. The pulse is a bright dot along it
+(0.6 s), not a shock-arrow motif. The miniature is outlined for as long
+as the attack is on its way and passing, not for one highlight. An
+incoming line from a miniature on the left ends at the field's left edge
+on the receptors' row (the warning stands at the right edge). Beyond the
+cap the attacker and the latest target stay in view while their attacks
+last and one turn after. Looked at in headless Chrome and Firefox; not
+yet judged by a person in play.
+
 ### Faithful miniature fields
 
 Treat an opponent miniature as a small rendering of that player's gameplay,

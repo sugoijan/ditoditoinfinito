@@ -426,6 +426,11 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
         crate::star_colors(),
         ["Star.Gold", "Star.Silver", "Star.Empty"].map(|n| theme.color(n).unwrap())
     );
+    // A battle's attack colors (the play's lines of who attacks whom).
+    assert_eq!(
+        crate::attack_colors(),
+        ["Attack.Line", "Attack.Glow"].map(|n| theme.color(n).unwrap())
+    );
     let used = theme.used();
     let keys = theme.keys();
     let unused: Vec<&String> = keys.difference(&used).collect();

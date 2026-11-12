@@ -1395,6 +1395,130 @@ fn a_policy_changed_in_play_applies_from_the_next_checkpoint_at_any_frame_rate_a
     assert_eq!(q.take_stage_outcome().unwrap().mine, ddi_room::Run::Forfeit);
 }
 
+/// M8 round 3 (S5): the local player's attack relationships, as the play
+/// draws them. Over a stage against strong CPUs: every attack the player
+/// sent or was sent is a link from the frame its checkpoint ran (never
+/// before its commitment) until it has cleared, naming the opponent's
+/// seat and its direction; one waiting behind another against the same
+/// recipient is chained while the earlier one lasts; CPU against CPU is
+/// never one. The seats kept in view (where opponents take turns) are
+/// the senders of the attacks against the player and the recipient of
+/// their latest, while those last and a turn after.
+#[test]
+fn the_player_s_attacks_are_links_while_they_last() {
+    use std::collections::BTreeMap;
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(&song, 3, 9);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let settings = Settings::default();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.opponents = Some(StageSetup::of(&order));
+    let mut s = PlaySession::start(
+        &song,
+        order.chart.index,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    let me = order.me;
+    // Each link's first and last sighting (judged song seconds), and
+    // whether it was ever chained.
+    let mut seen: BTreeMap<u32, (f64, f64, crate::battle::Link, bool)> = BTreeMap::new();
+    let mut kept_after = 0;
+    let after = 8.0;
+    loop {
+        *clock.borrow_mut() += 1.0 / 60.0;
+        let (_, event) = s.tick(HostTime(*clock.borrow()));
+        let t = s.player.judge().last_time().unwrap_or(f64::NEG_INFINITY);
+        let b = s.battle().unwrap();
+        let links = b.links(&s.player);
+        let kept = b.kept_seats(&s.player, after);
+        for l in &links {
+            let e = seen.entry(l.attack).or_insert((t, t, *l, false));
+            e.1 = t;
+            e.3 |= l.chained;
+            // Its opponent is kept in view while it lasts.
+            assert!(kept.contains(&l.seat) || l.outgoing, "{l:?} {kept:?}");
+        }
+        if kept.len() > links.len() {
+            kept_after += 1;
+        }
+        // Never more seats than opponents, none twice.
+        let mut k = kept.clone();
+        k.dedup();
+        assert!(k.len() == kept.len() && kept.iter().all(|s| *s < order.cpus.len()));
+        if event.is_some() {
+            break;
+        }
+        assert!(*clock.borrow() < 300.0, "the stage never ended");
+    }
+    let ledger = s.battle().unwrap().attacks().unwrap().ledger();
+    let mine: Vec<_> = ledger
+        .attacks()
+        .iter()
+        .filter(|a| a.sender == me || a.recipient == me)
+        .collect();
+    assert!(mine.iter().any(|a| a.sender == me), "the player launched");
+    assert!(mine.iter().any(|a| a.recipient == me), "and was attacked");
+    let checkpoints = ledger.checkpoints_us();
+    let mut shown = 0;
+    for a in &mine {
+        // One whose recipient went out before it showed has none.
+        let Some((first, last, l, _)) = seen.get(&a.id) else {
+            assert_eq!(a.state, ddi_room::attacks::AttackState::Expired, "{a:?}");
+            continue;
+        };
+        shown += 1;
+        let committed = checkpoints[a.checkpoint] as f64 / 1e6;
+        let clear = a.clear_us as f64 / 1e6;
+        assert_eq!(l.outgoing, a.sender == me);
+        let other = if l.outgoing { a.recipient } else { a.sender };
+        assert_eq!(order.cpus[l.seat].participant, other);
+        // From its commitment (the frame that ran it: within the judge's
+        // lag and a frame), timed from then, to its clear.
+        assert!(*first >= committed && *first < committed + 0.5, "{first} {committed}");
+        assert!(l.shown_from >= committed && l.shown_from <= *first + 0.1, "{l:?}");
+        assert!((l.first - a.cells[0].at_us as f64 / 1e6).abs() < 1e-9);
+        assert!((l.clear - clear).abs() < 1e-9);
+        if a.state != ddi_room::attacks::AttackState::Expired {
+            assert!(*last <= clear + 1e-9 && *last > clear - 0.5, "{last} {clear}");
+        }
+    }
+    assert!(shown >= 2, "{shown}");
+    // No link for an attack between CPUs.
+    for a in ledger.attacks() {
+        if a.sender != me && a.recipient != me {
+            assert!(!seen.contains_key(&a.id));
+        }
+    }
+    // Chained: exactly those committed while an earlier one against the
+    // same recipient had not cleared.
+    for a in &mine {
+        let behind = ledger.attacks().iter().any(|b| {
+            b.id < a.id
+                && b.recipient == a.recipient
+                && b.clear_us >= checkpoints[a.checkpoint]
+                && b.state != ddi_room::attacks::AttackState::Expired
+        });
+        if let Some((.., chained)) = seen.get(&a.id) {
+            assert_eq!(*chained, behind, "{a:?}");
+        }
+    }
+    // Kept a turn after an attack is over.
+    assert!(kept_after > 60, "{kept_after}");
+    // The survival battle has neither.
+    let mut plain = room(&song, 1, 2, 2);
+    let order = begin_at(&song, &mut plain, &mut now, LONG);
+    let s = play_at(&song, &order, 60.0);
+    assert!(s.battle().unwrap().links(&s.player).is_empty());
+    assert!(s.battle().unwrap().kept_seats(&s.player, 8.0).is_empty());
+}
+
 /// D8: a control the player's bindings give to a lane is never the
 /// policy's: Tab bound to a lane plays the lane, and the policy stays.
 /// Without attacks nothing cycles either (no label, no policy).

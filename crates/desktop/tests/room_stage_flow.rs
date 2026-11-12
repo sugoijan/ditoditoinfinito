@@ -465,6 +465,7 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
     let mut attacks = 0;
     let mut against_me = 0;
     let mut label = None;
+    let (mut links, mut lines, mut outlines) = ((0, 0), 0, 0);
     while host.playing() {
         let now = clock.fetch_add(1_000_000_000 / 4, Ordering::SeqCst) + 1_000_000_000 / 4;
         // In play: the label by the power bar says the policy, and a
@@ -510,6 +511,27 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
             attacks = a.ledger().attacks().len();
             against_me = p.session.player.log().hazards.len() / 8;
         }
+        // M8 round 3 (S5): who attacks whom, as drawn for the player's
+        // own attacks: a line (while it shows) between the field and the
+        // opponent's miniature, which is outlined while the attack lasts.
+        let fields = host.opponent_fields();
+        for l in host.attack_links() {
+            let f = fields.as_ref().expect("the miniatures");
+            assert_eq!(f.slots[l.slot].seat, l.seat);
+            assert!(l.outline > 0.0 || l.line > 0.0, "{l:?}");
+            if l.line > 0.0 {
+                assert!(l.path.len() >= 2, "{l:?}");
+                lines += 1;
+            } else {
+                assert!(l.path.is_empty());
+                outlines += 1;
+            }
+            if l.outgoing {
+                links.0 += 1;
+            } else {
+                links.1 += 1;
+            }
+        }
         if frames % 16 == 0 {
             let _ = device.poll(wgpu::PollType::wait_indefinitely());
         }
@@ -520,6 +542,11 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
     ui.update(0.05);
     assert_eq!(top(&ui), "results");
     assert!(attacks > 0, "full bars launched");
+    // The player launched (autoplayed, its bar fills) and its links
+    // showed: lines for their time, outlines after.
+    assert!(links.0 > 0, "outgoing links drawn: {links:?}");
+    assert!(lines > 0 && outlines > lines, "{lines} lines, {outlines} outlines");
+    eprintln!("links drawn: {} outgoing, {} incoming frames", links.0, links.1);
     // The standings count them: every line says its attacks and shocks,
     // and those launched add up to the ledger's.
     ui.update(1.0);

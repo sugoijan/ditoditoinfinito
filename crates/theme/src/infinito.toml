@@ -58,6 +58,12 @@ numbers_weight = 800
 "Star.Gold" = "#ffc83d"
 "Star.Silver" = "#c8ced9"
 "Star.Empty" = "#6d6676"
+# A battle's attacks in the play (`attack_colors`): the line from the
+# power bar to the opponent attacked (or from the attacker to the
+# warning) and the outline around that opponent's miniature, and the
+# glow under the line; the power bar's electric violet, lighter.
+"Attack.Line" = "#d6c2ff"
+"Attack.Glow" = "#8c5cff73"
 "Danger" = "#e8584a"
 # The ring around what the announcer studio's scenes point at.
 "Mark" = "#ff3b30"

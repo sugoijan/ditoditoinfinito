@@ -538,6 +538,18 @@ impl Host {
         r.view.as_ref()?.opponent_fields().cloned()
     }
 
+    /// Who attacks whom as the play's last frame drew it, for the
+    /// player's own attacks (tests; `ddi_shell::attack_links`).
+    pub fn attack_links(&self) -> Vec<ddi_shell::attack_links::Shown> {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return Vec::new();
+        };
+        r.view
+            .as_ref()
+            .map(|v| v.attack_links().to_vec())
+            .unwrap_or_default()
+    }
+
     /// Gives the running play lyrics and says what its last frame drew
     /// of them (tests: a stage's miniatures with lyrics over the play).
     pub fn set_lyrics(&mut self, lyrics: Option<ddi_engine::lyrics::LyricTrack>) {

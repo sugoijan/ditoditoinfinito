@@ -86,7 +86,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   Retaliate, Leader) in the room's model, chosen on the stage's prompt,
   shown on the players' lines and changeable during the play (Tab, a
   controller's View, a tap on its label by the power bar), from the
-  next checkpoint and kept in the play's log.
+  next checkpoint and kept in the play's log; who attacks whom for the
+  player's own attacks (a line through the side space with a pulse, the
+  opponent's miniature outlined while the attack lasts, a chained one
+  quieter, the attacker and the target kept in view beyond the cap).
   Provisional choices and open questions listed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two

@@ -3002,6 +3002,72 @@ above and is D8's first sentence again.
   draws its boxes all but clear instead. Left for the maintainer: it is
   singleplayer's behavior.
 
+### Who attacks whom (S5)
+
+Only the local player's own relationships are drawn large; CPU against
+CPU stays what it was (shocks in their fields, the lock's look).
+
+- **What the session tells** (`ddi_session::battle::Battle::links`):
+  each attack the player sent or was sent, from the frame its checkpoint
+  ran until it has cleared: the opponent's seat, the direction, when
+  this play learned of it (what the drawing is timed from), its first
+  shock and its clear, and whether it waits behind another against the
+  same recipient (a chain). None once the player is out or the stage is
+  won, none for a recipient who went out.
+- **What is drawn** (`ddi_shell::attack_links`, the 2D pass over the
+  miniatures, both shells through the shared play view;
+  `attack-links-v0`, PROVISIONAL): **outgoing**, a thin violet line from
+  the power bar's end at the band's edge to the recipient's miniature at
+  its own power bar, a pulse (a bright dot) running along it for 0.6 s,
+  the line whole meanwhile and faded out by 1.5 s, the recipient's
+  miniature outlined (it comes in over 0.2 s) until the attack has
+  passed. **Incoming**, the same the other way: from the sender's
+  miniature to the warning by the receptors, the sender's miniature
+  outlined. The warning stands at the field's right edge, so a sender on
+  the left ends at the field's left edge on the receptors' row (a line
+  never crosses the field). **Chained**: the waiting attack's line and
+  outline at 0.45 until the one before it has passed. Colors from the
+  theme (`Attack.Line`, `Attack.Glow`: the power bar's violet, lighter).
+- **Where the line goes**: straight legs only, the shortest way with the
+  fewest corners that stays out of the field's band (the HUD's bars and
+  the judgment are in it), the score, the watermark, the quit button's
+  place, the status line, the warning's place (unless it ends there) and
+  every miniature with its name line, each kept 1.5 px away
+  (`attack_links::route`: a search over the lines just off those boxes'
+  edges). In practice: along the top at the power bar's height, down the
+  gap beside the miniature's column, into it at its bar. Under Reverse
+  the bars stay at the top and the outgoing line with them; the incoming
+  line's end follows the receptors. Where there is no clear way (the
+  margins of a phone held upright: 14 of the 960 lines the test looks
+  at, all outgoing under Reverse at 360×640) the outline alone
+  says it.
+- **Reduced motion**: no pulse and no fade; the line stands still for
+  its 1.5 s, then goes; the outline at once.
+- **Priority seats** (`opponents::priority_seats`, from
+  `Battle::kept_seats`; only where the opponents take turns, beyond the
+  cap): the senders of the attacks against the player, then the
+  recipient of the player's latest attack, stay in view while those
+  attacks last and one rotation turn (8 s) after. A link whose
+  opponent is not in view is not drawn.
+- **Debug**: `__DDI_DEBUG.battle.attacks.links`, each
+  `{attack, from, to, seat, slot, phase, chained, line, pulse, outline,
+  path}` (`from`/`to`: `"me"` or the opponent's seat; `phase`: `pulse`,
+  `fade`, `still`, `outline`), and `kept_seats`. Desktop:
+  `Host::attack_links`.
+- **Tests**: `ddi-session`
+  `the_player_s_attacks_are_links_while_they_last` (from the commitment
+  to the clear, the seat and direction, chained exactly while an earlier
+  one lasts, none between CPUs, kept seats a turn after); `ddi-shell`
+  `attack_links` `every_line_keeps_to_the_side_space` (one to eight
+  opponents at the ten sizes of the miniatures' table, with and without
+  Reverse: each line's ends where they should be, straight legs, none
+  over the band, the HUD's areas, the judgment, the quit button, the
+  warning (outgoing) or any miniature) and
+  `a_link_pulses_fades_and_keeps_its_outline` (the phases, chained,
+  reduced motion, what is drawn, the debug state); `ddi-theme` (the two
+  colors); `ddi-desktop` `room_stage_flow` (links drawn through the
+  window: lines for their time, outlines after).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

@@ -1012,7 +1012,11 @@ impl GameLoop {
                         // checkpoints waited by reason), what is incoming
                         // and outgoing, the warning and waiting line as
                         // drawn, a final attack's draw.
-                        "attacks": attacks_debug(s, self.view.attack_drawn()),
+                        "attacks": attacks_debug(
+                            s,
+                            self.view.attack_drawn(),
+                            self.view.links_drawn(),
+                        ),
                     })),
                     // A battle's shocks in the play (M8a): their window,
                     // each one's beat, lane and state, the counts.
@@ -1243,6 +1247,7 @@ pub(crate) fn upload_noteskin(
 fn attacks_debug(
     s: &PlaySession,
     drawn: (Option<ddi_shell::battle_cue::Cue>, bool),
+    links: &[ddi_shell::attack_links::Shown],
 ) -> Option<Value> {
     let b = s.battle()?;
     let a = b.attacks()?;
@@ -1294,6 +1299,14 @@ fn attacks_debug(
         "cue": cue,
         "waiting_drawn": drawn.1,
         "waiting": b.waiting(&s.player).map(|w| format!("{:?} {:?}", w.targeting, w.reason)),
+        // Who attacks whom as drawn for the player's own attacks: each
+        // link's attack, `from` and `to` (`"me"` or an opponent's seat),
+        // its `phase` (`pulse`, `fade`, `still`, `outline`), whether it
+        // is `chained`, its line's and outline's opacity and the line's
+        // corners; and the seats kept in view where the opponents take
+        // turns.
+        "links": ddi_shell::attack_links::debug(links),
+        "kept_seats": b.kept_seats(&s.player, f64::from(ddi_shell::opponents::ROTATION_V0.every)),
         // The player's attack policy as its label says it (none once
         // out or after a win), where a press on it lands (CSS pixels),
         // the policy the ledger launches by, and the changes the play's

@@ -61,6 +61,15 @@ pub(crate) fn power_rect(life: [f32; 4]) -> [f32; 4] {
     [x, y - 9.0 * s, w, 4.0 * s]
 }
 
+/// A miniature's life gauge on its field `geo` (`span` lanes wide) whose
+/// band's top is `top`: placed as [`life_rect`] is on the play's field,
+/// from its own top, scaled by its lane.
+pub(crate) fn mini_life_rect(geo: &FieldGeometry, top: f32, span: f32) -> [f32; 4] {
+    let s = scale(geo);
+    let w = geo.arrow * LIFE_LANES;
+    [geo.center_x(span) - w / 2.0, top + 22.0 * s, w, 8.0 * s]
+}
+
 /// The glow's room around the power bar, in its own thickness.
 const POWER_GLOW: f32 = 0.75;
 
@@ -500,7 +509,6 @@ impl Hud {
             let s = scale(geo);
             let [top, bottom] = [m.panel[1], m.panel[3]];
             let center = geo.center_x(span);
-            let w = geo.arrow * LIFE_LANES;
             let tier = (combo / 100).min(10);
             let pulse =
                 1.0 + 0.07 * (1.0 - ((now - motion.pulse_at) / 0.280).clamp(0.0, 1.0)) as f32;
@@ -514,7 +522,7 @@ impl Hud {
             let count = count as f32;
             let cs = s.max(MINI_COMBO_MIN_SCALE) * if tier == 10 { 1.2 } else { 1.0 } * pulse;
             let width = (count * 32.0 + 32.0) * cs;
-            let bar = [center - w / 2.0, top + 22.0 * s, w, 8.0 * s];
+            let bar = mini_life_rect(geo, top, span);
             let (power_rect, power, power_style) =
                 power_globals(bar, m.battle.filter(|_| !m.out), now, opts.reduced_motion);
             let globals = Globals {

@@ -614,6 +614,11 @@ Rust and the browser are implementation details, not advertised features.
   at its judged second and given to the ledger, whose launches follow
   it from the next checkpoint, the same at any frame rate and from the
   log; `StageOutcome::targeting`, what the play left it at;
+  the local player's own attack relationships while they last
+  (`Battle::links`: each attack they sent or were sent, its opponent's
+  seat, when this play learned of it, whether it waits behind another,
+  a chain) and the seats kept in view beyond the cap for them
+  (`kept_seats`);
   the attack ledger run locally, `battle/attacks.rs`'s `AttackRunner`:
   a checkpoint once every competitor still in is judged past it, so the
   same at any frame rate and from a play's log; the chart's sections
@@ -655,7 +660,18 @@ Rust and the browser are implementation details, not advertised features.
   waiting line under the life gauge's right end and the player's
   attack policy, one small muted word under its left end, where a tap
   or a click cycles it (`battle_cue::draw_policy`, `policy_area`,
-  `Drawn::policy_at`), `crates/shell/src/battle_cue.rs`;
+  `Drawn::policy_at`), `crates/shell/src/battle_cue.rs`; who attacks
+  whom for the player's own attacks, `crates/shell/src/attack_links.rs`
+  (`attack-links-v0`): a line in the side space from the power bar's end
+  to the recipient's miniature at its own bar, or from the sender's to
+  the warning (a sender on the left: to the field's left edge on the
+  receptors' row), a pulse along it for 0.6 s, the line gone after
+  1.5 s, the miniature outlined while the attack lasts, a chained
+  attack's quieter; the line in straight legs by the shortest clear way
+  (`route`), never over the band, the HUD, the judgment, the quit
+  button, the status line or a miniature; no pulse and no fade under
+  reduced motion; the theme's `Attack.Line` and `Attack.Glow`
+  (`ddi_theme::attack_colors`); `PlayView::links_drawn`;
   `crates/shell/src/opponents.rs`: miniature fields in stable slots of the
   side space on both sides, every opponent of a room its own at every
   size (eight at most; each a small copy of the play's field, in its
@@ -685,8 +701,10 @@ Rust and the browser are implementation details, not advertised features.
   locked darkened with its receptor's place tinted for the lock's time; only
   beyond the cap (the development-only practice, at lanes of 16 px) do
   the opponents take turns in the slots, each in its own,
-  `priority_seats` never rotating away (`opponents::rotate`); there is
-  no list of opponents any more).
+  `priority_seats` never rotating away (`opponents::rotate`): whoever
+  attacks the player and whom the player attacked last, while those
+  attacks last and a turn after; there is no list of opponents any
+  more).
   Platform-free (native and wasm), natively tested.
 - `crates/app/` the game (`ddi`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell
