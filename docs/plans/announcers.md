@@ -524,3 +524,102 @@ Decision 1's original pack, explored from 2026-11-03 with ElevenLabs
   removing the imported songs keeps one chosen. The web fetches a play's
   sounds from the site as it decodes them; a play on desktop takes ours
   without walking the song folders.
+
+### Louder packs (2026-11-12)
+
+The maintainer: our announcers were too quiet, at their full volume
+still under the music at its default, reduced one.
+
+- **Measured** (`ffmpeg -af ebur128`, integrated loudness and true
+  peak): our 330 sounds sat at −19.6 LUFS (`Mr. Clank`, −20.7 to −18.8,
+  true peaks to −2.1 dBFS) and −20.2 LUFS (`ガキンさん`, −23.9 to −18.5,
+  to −1.2); the bundled songs' music at −9.9 to −10.4 LUFS (true peaks
+  about 0). About 10 LU apart.
+- **The gain path is right.** The voice plays at `Settings::voice_volume`,
+  the music's volume times the announcer's share (1 by default, never
+  more), applied once: on the web as the sound's own gain into the
+  voice's bus, whose gain is the master's volume (1 in a play, the
+  music's volume on song select, where the share alone is the sound's
+  gain); on desktop the same through the mixer's bus. Neither bus is
+  ramped by the fail's or a work's fades, nothing ducks it, and a mono
+  sound goes to both channels at unity. The cause was the level the
+  sounds were made at: a voiced RMS of −18 dBFS, lower still where a
+  peak held the gain down.
+- **One leveler, the game's** (the maintainer's asking):
+  `crates/library/src/announcer/tidy.rs`, the announcer studio's tidy,
+  levels our packs too. `kokoro.py` makes each line's speech as before
+  and cuts its lead off (the model's durations, the quietest 10 ms: its
+  own, nothing of the tidy's), then hands the sounds a batch at a time
+  to `cargo run -q -p xtask -- announcer tidy` (float WAVs in and out, a
+  line of JSON each: what was cut, the gain, what the limiter took), and
+  encodes the MP3s as before. What moved out of the script: the trim
+  (now the studio's: the floor, 30 ms kept before and 100 ms after where
+  the script kept 20 and 80, so every sound is 30 ms longer: 10 at its
+  start, 20 at its end; `here we go` still ends half a second before
+  the first note by its sound's length, its word 20 ms sooner), the
+  fades (the same 5 and 15 ms) and the level. `sample`, `speak`,
+  `context` and `pack` all go through it. `crates/desktop/tests/studio.rs`
+  holds the two together: a take as the studio's export put it in a pack
+  and the same recording through the command are the same samples.
+- **The level, `announcer-level-v2`** (`tidy::LEVELING`): the voiced RMS
+  of what comes out at −9 dBFS (`VOICED_RMS_DB`; the frames within 30 dB
+  of the loudest), about −10.5 LUFS, under a limiter with a ceiling of
+  −1.5 dBFS (`LIMIT_DB`) for the samples and the wave between them (four
+  points a sample, a windowed sinc), so that true peaks stay under
+  −1 dBFS once encoded (`PEAK_DB`: a sound with nothing over that is
+  left to the gain alone). The limiter: a soft knee from 1.5 dB under
+  the ceiling (a parabola in amplitude, flat at the ceiling), the gain
+  seen 0.5 ms ahead, let back up over 1.5 ms and averaged over the
+  look-ahead (it moves smoothly and never over what its own sample
+  needs: no click), one gain for every channel. The gain before it is
+  found by halving, so that the limited sound's voiced RMS is the
+  target. A tidied sound read back from its encoded file asks for
+  nothing more: its peaks are under what the limiter leaves alone, and
+  within 0.75 dB of the target it is tidy already
+  (`Measure::already_tidy`; our MP3s read back ask for 0.4 to 0.5 dB),
+  so a pack opened in the studio and exported again is not encoded
+  twice. v1 was a voiced RMS of −18 dBFS with peaks under −1 and no
+  limiter.
+- **What it costs, measured** (PROVISIONAL: nobody has listened yet).
+  Speech this short has more crest than the 13 dB reckoned with: the
+  loudest sample is 13.7 dB over the voiced RMS for `Mr. Clank` (10.6
+  to 16.2) and 17.3 dB for `ガキンさん` (13.8 to 20.4: `jm_kumo`'s
+  voice is narrow pulses), and both come out at 7.5. The limiter's
+  largest reduction is 8.1 dB at the median for `Mr. Clank` (4.0 to
+  11.3) and 14.9 dB for `ガキンさん` (9.0 to 18.4), not the 4 to 6
+  expected: that is what the music's loudness takes of these voices.
+  What of each result is not its sound times one gain (the shaping,
+  `shaped_db` in the tool's records) is −13.5 dB of it at the median
+  for `Mr. Clank` and −7.3 dB for `ガキンさん`. At −12 dBFS the limiter
+  takes about 3 dB of `Mr. Clank` and 8 of `ガキンさん`, at about
+  −13.7 LUFS. `kokoro.py loudness --dest DIR` makes six lines of each
+  pack at several levels with a table of each one's LUFS, true peak and
+  limiting, to choose by ear; the level is one constant
+  (`VOICED_RMS_DB`, and the script's `PROCESS` raised), and the packs
+  are made again from the recipes.
+- **After**: 330 sounds at −10.4 LUFS (`Mr. Clank`, −11.7 to −9.3, true
+  peaks to −1.5 dBFS) and −10.7 LUFS (`ガキンさん`, −11.8 to −9.5, to
+  −1.4). Read back from their MP3s, all 330 are tidy already (nothing
+  to cut, 0.41 to 0.49 dB asked for, the limiter not at work again).
+- **The same bytes again** on the same machine (checked: both packs
+  made twice from nothing, 330 files, none differing): the model, the
+  tidy and ffmpeg's encoder each give the same output from the same
+  input.
+  Between machines it was never promised (onnxruntime's sums differ by
+  processor, ffmpeg's builds by version), and the tidy adds nothing to
+  that but one thing: its leveling is exact arithmetic in a fixed order
+  (sums, products, quotients and square roots of IEEE floats, no fused
+  operations, its constants written out), the same on every system,
+  while its cut and its voiced frames compare levels in decibels, a
+  logarithm a system's library may round differently in its last bit,
+  which matters only to a frame exactly on a threshold.
+- **Other packs** are played as they are. None is on the maintainer's
+  machine to measure (no announcer under the simfiles' folder, the
+  StepMania forks' `Announcers` folders empty). Should packs vary
+  widely, a correction at load would take: each pack's loudness measured
+  once as its sounds are decoded (the median of its lines' voiced RMS,
+  or LUFS), kept with the pack's record, and one gain a pack toward our
+  level, bounded (say ±9 dB, never past what its peaks allow without a
+  limiter), applied as the voice's gain and shown nowhere. Not built.
+- **No boost.** The announcer's volume stays a share of the music's, 0
+  to 1; at this level the packs want none.

@@ -278,8 +278,13 @@ Rust and the browser are implementation details, not advertised features.
   when it speaks and what it falls back to, for pack authors:
   `docs/announcer-lines.md`; the announcer studio's drafts, takes
   matched to lines by name, their notes, the text lines planned and
-  the export's plan, `announcer/draft.rs`, tidied as our packs are made,
-  `announcer/tidy.rs`, more examples of the lines,
+  the export's plan, `announcer/draft.rs`, tidied by `announcer/tidy.rs`,
+  the one leveler, which our packs' sounds are made through too (`xtask
+  announcer tidy`): the ends cut and faded, the voiced RMS of what comes
+  out at −9 dBFS, about a song's music's loudness, under a limiter that
+  keeps true peaks under −1 dBFS, `tidy::LEVELING`, exact arithmetic in
+  a fixed order (`docs/plans/announcers.md`, "Louder packs"), more
+  examples of the lines,
   `announcer/examples.rs`, text only from `announcer/examples.toml`,
   which the library's `build.rs` makes a table, the game carrying no
   TOML parser; `docs/plans/announcer-studio.md`), zips
@@ -1251,7 +1256,10 @@ Rust and the browser are implementation details, not advertised features.
   by `--danoni-bundle-info`. No shader or editor runs during builds.
 - `xtask/` generators: target-specific icons (`icons --target
   web|windows|linux|macos`, cached under `target/icons/`), SEO fragments, the song manifest, `credits/CREDITS.md`
-  and `credits/THIRD_PARTY_RUST.md`.
+  and `credits/THIRD_PARTY_RUST.md`; and `announcer tidy --dir IN --out
+  OUT [--level DB]` (`xtask/src/tidy.rs`): a folder of WAVs tidied by
+  the game's own code, a line of JSON each, which
+  `tools/announcer-design/kokoro.py` makes our packs' sounds through.
 - `tools/package/` the desktop's packaging (`package.py`: the relocatable
   folder and each system's archives; the app's `Info.plist`, the Linux
   desktop entry, the icon), run by `just package` and
@@ -1520,7 +1528,10 @@ Rust and the browser are implementation details, not advertised features.
   and `kokoro.py pack` our announcers: every line the game speaks with
   its variants, in English (`tools/announcer-design/pack.toml`) and
   Japanese (`pack-ja.toml`), made there too, byte for byte the same each
-  time; `pack --bundle` puts them in `assets/announcers/`, which the game
+  time on the same machine, each sound tidied by the game's own code
+  (`cargo run -q -p xtask -- announcer tidy`, so the tool takes cargo
+  beside uv and ffmpeg; `kokoro.py loudness --dest DIR` makes a few
+  lines at several levels with each one's LUFS and true peak); `pack --bundle` puts them in `assets/announcers/`, which the game
   ships (run `gen-announcers` and `gen-credits` after).
 
 Prefer the latest released versions of dependencies; check crates.io before

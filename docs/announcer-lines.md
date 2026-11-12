@@ -42,6 +42,10 @@ Announcers/
 - **Folders inside a line folder** are passed over (a copy of the pack
   zipped into itself is common), and so are names no line uses. The
   import's report lists both.
+- **Loudness:** a pack is played as it is, at the announcer's volume (a
+  share of the music's). Our own announcers sit at about −10.5 LUFS,
+  about as loud as the bundled songs' music, with true peaks under
+  −1 dBFS; the announcer studio tidies recordings to the same level.
 
 To make one from recordings of your own, the game's announcer studio
 (on the web, Options → Sound → Your own announcer) puts each recording

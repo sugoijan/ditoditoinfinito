@@ -158,13 +158,13 @@ Our own, made by `tools/announcer-design/kokoro.py` from the pack files beside i
 
 ### Mr. Clank — すごいジャン
 
-British English. Made with Kokoro-82M (hexgrad, Apache-2.0), voice bm_george: [https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) at revision `1939ad2a8e416c0acfeecc08a694d14ef25f2231` (made 2026-11-06).
+British English. Made with Kokoro-82M (hexgrad, Apache-2.0), voice bm_george: [https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) at revision `1939ad2a8e416c0acfeecc08a694d14ef25f2231` (made 2026-11-12).
 
 - **all**: すごいジャン — [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)
 
 ### ガキンさん — すごいジャン
 
-Japanese. Made with Kokoro-82M (hexgrad, Apache-2.0), voice jm_kumo: [https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) at revision `1939ad2a8e416c0acfeecc08a694d14ef25f2231` (made 2026-11-06).
+Japanese. Made with Kokoro-82M (hexgrad, Apache-2.0), voice jm_kumo: [https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) at revision `1939ad2a8e416c0acfeecc08a694d14ef25f2231` (made 2026-11-12).
 
 - **all**: すごいジャン — [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)
 - **What its voice (jm_kumo) learned from**: [A TV Nishinippon announcer reading kumonoito (the Koniwa corpus, tnc)](https://github.com/koniwa/koniwa/blob/master/source/tnc/tnc__kumonoito.txt) — テレビ西日本 (TV Nishinippon) — [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)

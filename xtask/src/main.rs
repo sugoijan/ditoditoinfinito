@@ -16,6 +16,7 @@ mod l10n;
 mod noteskins;
 mod rust_credits;
 mod songs;
+mod tidy;
 
 #[derive(Parser)]
 #[command(about = "Build and maintenance tasks for the DitoDitoInfinito workspace")]
@@ -45,6 +46,13 @@ enum Commands {
     L10n {
         #[command(subcommand)]
         action: l10n::Action,
+    },
+    /// Announcer sounds: tidy a folder of them as the announcer studio
+    /// tidies a take (tools/announcer-design/kokoro.py makes our packs
+    /// through it).
+    Announcer {
+        #[command(subcommand)]
+        action: tidy::Action,
     },
     /// Regenerate the SEO metadata fragments and sitemap from site/seo/metadata.toml.
     #[command(name = "regen-seo")]
@@ -590,6 +598,7 @@ fn main() -> Result<()> {
             layers,
         } => icons::generate(target, variant, out, layers),
         Commands::L10n { action } => l10n::run(action),
+        Commands::Announcer { action } => tidy::run(action),
         Commands::RegenSeo => regen_seo(&seo_paths()),
         Commands::GenSongs { check } => songs::gen_songs(check),
         Commands::GenNoteskins { check } => noteskins::gen_noteskins(check),

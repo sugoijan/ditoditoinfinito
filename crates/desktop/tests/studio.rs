@@ -26,20 +26,77 @@ use ddi_ui::screens::studio::Act;
 const SIZE: [u32; 2] = [1280, 720];
 const FRAME_NS: u64 = 1_000_000_000 / 60;
 
-/// `seconds` of a 16-bit mono WAV tone at 48 kHz, with silence around it.
+/// `seconds` of a 16-bit mono WAV at 48 kHz, with silence around it: a
+/// tone under narrow pulses two hundred times a second, as a voice's,
+/// whose peaks stand far over its level (the tidy's limiter has work).
 fn wav(seconds: f64) -> Vec<u8> {
     let n = (48_000.0 * seconds) as usize;
     let quiet = 4_800;
     let samples: Vec<f32> = (0..n + 2 * quiet)
         .map(|i| {
             if i < quiet || i >= n + quiet {
-                0.0
-            } else {
-                ((i as f64 * 440.0 * std::f64::consts::TAU / 48_000.0).sin() * 0.25) as f32
+                return 0.0;
             }
+            let tone = (i as f64 * 440.0 * std::f64::consts::TAU / 48_000.0).sin() * 0.1;
+            let k = (i % 240) as f64;
+            let pulse = if k < 12.0 {
+                0.3 * (1.0 - (k * std::f64::consts::TAU / 12.0).cos())
+            } else {
+                0.0
+            };
+            (tone + pulse) as f32
         })
         .collect();
     ddi_library::wav::write(&[samples], 48_000)
+}
+
+/// A 16-bit WAV's samples (one of `ddi_library::wav::write`'s).
+fn pcm16(wav: &[u8]) -> Vec<i16> {
+    assert_eq!((&wav[..4], &wav[36..40]), (&b"RIFF"[..], &b"data"[..]));
+    wav[44..]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| i16::from_le_bytes(*b))
+        .collect()
+}
+
+/// `recording` (a WAV file) tidied by `cargo run -p xtask -- announcer
+/// tidy`, the command our own packs' sounds are made through
+/// (`tools/announcer-design/kokoro.py`), as 16-bit samples and what the
+/// command said it did.
+fn tidied_by_xtask(recording: &std::path::Path, scratch: &std::path::Path) -> (Vec<i16>, String) {
+    let (input, output) = (scratch.join("tidy-in"), scratch.join("tidy-out"));
+    std::fs::create_dir_all(&input).unwrap();
+    std::fs::copy(recording, input.join("take.wav")).unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let ran = std::process::Command::new(cargo)
+        .current_dir(&root)
+        .args(["run", "-q", "-p", "xtask", "--", "announcer", "tidy", "--dir"])
+        .arg(&input)
+        .arg("--out")
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        ran.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let wav = std::fs::read(output.join("take.wav")).unwrap();
+    // 32-bit float, mono, written as the studio writes a 16-bit WAV.
+    assert_eq!(wav[20..24], [3, 0, 1, 0]);
+    let samples: Vec<f32> = wav[44..]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
+        .collect();
+    (
+        pcm16(&ddi_library::wav::write(&[samples], 48_000)),
+        String::from_utf8_lossy(&ran.stdout).into_owned(),
+    )
 }
 
 struct Test {
@@ -325,6 +382,31 @@ fn the_studio_on_desktop() {
         "{:?}",
         read.names
     );
+    // The studio and our own packs have one leveler: a take as the studio
+    // put it in the pack and the same recording through the command our
+    // packs' sounds are made with are the same samples, the limiter at
+    // work in both.
+    let take = draft
+        .takes
+        .iter()
+        .find(|t| t.source.ends_with("New Recording 12.wav"))
+        .expect("the first recording");
+    let stem = take.file_name();
+    let stem = stem.rsplit_once('.').map_or(stem, |(s, _)| s);
+    let in_pack = read
+        .names
+        .iter()
+        .find(|n| n.to_string().ends_with(&format!("{stem}.wav")))
+        .unwrap_or_else(|| panic!("{stem}.wav in {:?}", read.names));
+    let mut bytes = Vec::new();
+    read.extract_to(in_pack, &mut bytes).unwrap();
+    let (by_xtask, said) = tidied_by_xtask(&ready, &dir);
+    assert_eq!(pcm16(&bytes), by_xtask, "{said}");
+    let report: serde_json::Value = serde_json::from_str(said.trim()).unwrap();
+    assert!(report["limited_db"].as_f64().unwrap() > 3.0, "{said}");
+    assert_eq!(report["leveling"], tidy::LEVELING);
+    let m = take.measure().unwrap();
+    assert!((report["gain_db"].as_f64().unwrap() - m.gain_db()).abs() < 1e-6);
     studio.act(Act::StepMania);
 
     // Use in the game: listed beside the song folders', played from there.

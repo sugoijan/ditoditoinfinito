@@ -1,5 +1,7 @@
 # Made by `uv run tools/announcer-design/kokoro.py pack --bundle`
-# from tools/announcer-design/pack.toml with the sounds beside it:
+# from tools/announcer-design/pack.toml with the sounds beside it,
+# each tidied by the game's own code (the announcer studio's,
+# crates/library/src/announcer/tidy.rs, through `xtask announcer tidy`):
 # made again with them, never edited by hand. Each sound's text, lead,
 # phonemes and cut are in the run's state.json
 # (target/scratch/announcer-audition/); the same pack file makes them
@@ -7,7 +9,7 @@
 name = "Mr. Clank"
 author = "すごいジャン"
 language = "British English"
-made = "2026-11-06"
+made = "2026-11-12"
 made_with = "Kokoro-82M (hexgrad, Apache-2.0), voice bm_george"
 
 [kokoro]
@@ -16,7 +18,7 @@ model = "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX"
 revision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
 voice = "bm_george"
 speed = 1
-sound = "MP3, 44.1 kHz mono, 128 kb/s (ffmpeg's libmp3lame), voiced RMS -18 dBFS"
+sound = "MP3, 44.1 kHz mono, 128 kb/s (ffmpeg's libmp3lame), tidied by the game's own code (announcer-level-v2: voiced RMS -9 dBFS under a limiter at -1.5 dBFS, true peaks under -1 dBFS)"
 versions = { "en_core_web_sm" = "3.8.0", "misaki" = "0.9.4", "onnxruntime" = "1.31.1", "spacy" = "3.8.18" }
 
 [[licenses]]

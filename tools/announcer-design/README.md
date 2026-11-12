@@ -75,6 +75,7 @@ $K context                    # lines said around [[kokoro.context]]'s leads and
 $K pack                       # our announcers, pack.toml's and pack-ja.toml's (below)
 $K pack tools/announcer-design/pack-ja.toml
 $K pack --bundle              # ...and put in the game, assets/announcers/ (below)
+$K loudness --dest target/scratch/announcer-loudness   # a few lines at several levels, measured
 ```
 
 - **Voices** (`[[kokoro.voice]]`) are one of Kokoro's (`af_heart`: US
@@ -94,12 +95,25 @@ $K pack --bundle              # ...and put in the game, assets/announcers/ (belo
   page.
 - **Words** its dictionary lacks stop the run until `[kokoro.words]` gives
   them in misaki's phonemes (the game's name is there).
-- **The sound** is trimmed, faded at its ends and leveled (voiced RMS
-  −18 dBFS, peaks under −1 dBFS), at 44.1 kHz in 128 kb/s MP3. The same
-  configuration makes the same bytes, so a pack can be made again
-  exactly: what each was made from is in `state.json`, beside the
-  versions of misaki, spaCy and onnxruntime. A clip is made again only
-  when that changed.
+- **The sound** is tidied by the game's own code, the announcer
+  studio's (`crates/library/src/announcer/tidy.rs`, run a batch at a time
+  through `cargo run -q -p xtask -- announcer tidy`): the silence at its
+  ends cut, short fades, and its level evened to a voiced RMS of −9 dBFS
+  under a limiter that keeps true peaks under −1 dBFS
+  (`announcer-level-v2`; about −10.5 LUFS, a song's music's loudness).
+  This script only cuts a lead or a closer off before that and encodes
+  the result after, at 44.1 kHz in 128 kb/s MP3. So the tool takes
+  cargo (the repository's Rust toolchain) beside uv and ffmpeg. The same
+  configuration makes the same bytes on the same machine, so a pack can
+  be made again exactly: what each was made from, and what the tidy did
+  to it, is in `state.json`, beside the versions of misaki, spaCy and
+  onnxruntime. A clip is made again only when that changed (or the
+  script's `PROCESS`: raise it when the tidy changes what it makes).
+- **How loud** is heard with `kokoro.py loudness --dest DIR`: six lines
+  of each pack at several levels (`--levels`, voiced RMS in dBFS; −12,
+  −9 and −7 by default), as `DIR/<level>/<pack>/<line>/`, with a table
+  (`DIR/table.txt`) of each one's LUFS, true peak and what the limiter
+  took. Nothing of it is kept in the state or bundled.
 
 ### Lead and closer
 

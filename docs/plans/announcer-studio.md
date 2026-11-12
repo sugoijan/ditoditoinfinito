@@ -126,7 +126,10 @@ playtest.
 5. **Recordings are tidied, by default.**
    - The silence at both ends is cut, since the game times `here we go`
      and the cheer from a sound's first sample. The volume is evened out
-     to our packs' level.
+     to our packs' level (since 2026-11-12 `announcer-level-v2`: a
+     voiced RMS of −9 dBFS under a limiter, about a song's music's
+     loudness; our packs are made through this same code,
+     `docs/plans/announcers.md`, "Louder packs").
    - Advanced → Tidy recordings turns it off for every take; Advanced →
      Details shows what it did to each (the silence cut, the volume
      change).
@@ -233,7 +236,8 @@ as JSON; `Format::sniff`; `match_line` and `by_name`; the notes and
 `limit`; `opening`; `size`; `export`'s plan), `announcer::tidy` (a port
 of kokoro.py's `trim` and `finish`: the floor rises over a recording's
 noise, never within 20 dB of the loudest frame, and the cut keeps 30 ms
-before and 100 ms after), `announcer::examples` (the English and
+before and 100 ms after; since 2026-11-12 the one leveler, which
+kokoro.py calls in its turn, louder and with a limiter), `announcer::examples` (the English and
 Japanese sets, more for the combos and full combos, from
 `examples.toml` since), `zip::write_stored`
 and `wav::write`. The timings the notes measure against moved into the
