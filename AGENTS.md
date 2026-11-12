@@ -1082,7 +1082,21 @@ Rust and the browser are implementation details, not advertised features.
   `tests/authority.rs`, the envelope and the authority; `tests/online.rs`,
   the adapter contract (one script through `LocalAuthority` and through
   `OnlineAuthority` + `FakeServer`, the same rooms) and the network's
-  faults. Pure (serde and JSON), natively tested.
+  faults. Live play (`live.rs`, `docs/plans/multiplayer-online-play.md`):
+  where `RoomPolicy::live` says so, the room's clock (`live/clock.rs`:
+  pings, the estimator), a stage's song zero on it
+  (`StartCommitted::song_zero_at`), the battle plan that comes with the
+  pick (`live/plan.rs`: checkpoints and safe sections, `seed_for`, its
+  digest on the content, `SetBattlePlan`), each competitor's moments and
+  checkpoint reports (`attacks::Reporter`) in numbered batches gathered
+  into one frame a tick (`live/stream.rs`; binary, `live/wire.rs`), the
+  room's side sans-IO (`live/server.rs`, `LiveServer`: the ledger at
+  deadlines, the decision as practice makes it, resume and snapshots,
+  `LiveDurable` for the server's storage) and the client's in
+  `OnlineAuthority` (`live/client.rs`, `LiveLink`); `FakeServer` runs it
+  with latency and faults both ways (`Latency`, `OffsetClock`,
+  `fault_uplink`); `tests/live.rs`. All live numbers in `LIVE_V1`.
+  Pure (serde and JSON), natively tested.
 - The multiplayer prototype's CPU practice (M2 and M3,
   `docs/plans/multiplayer-prototype-progress.md`), behind a hidden switch
   (`Settings::multiplayer`; desktop's `--multiplayer on|off`): off, the

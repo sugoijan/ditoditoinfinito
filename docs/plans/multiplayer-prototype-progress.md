@@ -4046,6 +4046,39 @@ without its practice line.
 - A player out of a stage cannot follow one competitor large: their
   own field stays where it is.
 
+## Online play's shared base: the contract in `crates/room` (implemented, 2026-11-13)
+
+The base the server's and the game's fronts build on, described in full in
+[Online play: the shared base](multiplayer-online-play.md). Built and
+tested in `ddi-room` alone; nothing in the game's screens, shells or
+server changed, so nothing of it is reachable yet.
+
+- Real and tested (in process, through `FakeServer`): the room's clock
+  estimated from pings; a stage's song zero on it where the room's policy
+  plays live; the battle plan offered with the pick, checked by digest,
+  kept, its digest on the stage's content; each competitor's moments and
+  checkpoint reports in batches, one binary frame a tick to everyone,
+  resumed after a gap or a reconnect; the attack ledger run by the room at
+  deadlines, giving the same record as practice for the same reports;
+  the stage decided by the room as practice decides it (final attacks
+  included), reports after an early decision kept for the standings, the
+  song ended once every stream ended.
+- Reducer changes (additive to protocol 2): `RoomPolicy::live`,
+  `StartCommitted::song_zero_at`, `SetBattlePlan`/`BattlePlanSet`,
+  `StageContent::battle`; in a live room's stage confirmed early, a
+  `ReportOutcome` in SongCompletion is taken as detail and the song ends on
+  the last one or the report deadline. Nothing changes for a room without
+  live play or for practice.
+- Development only: the 73-competitor tests use the development award
+  scheme (no award rule exists over nine); the cap stays nine.
+- Provisional (each in the plan's table, with its effect and the decision
+  it waits for): `live-v1`'s numbers (250 ms tick and batches, 1 s view
+  delay, 750 ms report deadline, 1.25 s network lead, 5 s late join, 30 s
+  of frames kept), song zero 1 s after the countdown, a late attack dropped
+  rather than moved, early decisions for online survival rooms, devices
+  that predate live play left out of attacks and early decisions,
+  Disconnected past the grace as a forfeit.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

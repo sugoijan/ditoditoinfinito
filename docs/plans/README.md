@@ -18,6 +18,14 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
 
 ## Multiplayer design
 
+- [Online play: the shared base](multiplayer-online-play.md) (2026-11-13):
+  the contract for live online stages, built and tested in `crates/room`
+  (`ddi_room::live`): one clock, one start, each competitor's moments and
+  checkpoint reports gathered into one binary frame a tick, attacks decided
+  by the room at deadlines from a battle plan that comes with the pick,
+  settlement by the room; the fake room runs all of it. The server's and
+  the game's fronts, the timing budget, the sizes and costs at 9, 33 and 73
+  competitors, and the open questions.
 - [Multiplayer prototype progress](multiplayer-prototype-progress.md)
   (2026-11-10): what the prototype has actually built and tested, kept apart
   from the design studies below. M1: the shared room, match and stage model
