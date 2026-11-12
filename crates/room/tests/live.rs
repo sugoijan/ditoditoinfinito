@@ -1452,3 +1452,60 @@ fn the_streams_sizes() {
         assert!(bin * 5 < json);
     }
 }
+
+#[test]
+fn someone_who_comes_in_mid_stage_gets_the_stage_as_it_stands_and_follows_it() {
+    let mut r = room(&Setup::new(2));
+    start(&mut r, None, 2);
+    started(&r);
+    let scripts = vec![script(1, 140, 30_000, None), script(2, 140, 30_000, None)];
+    give_plays(&mut r, &scripts, None);
+    r.run(14_000);
+    // A member enters to watch while the song plays.
+    let who = Identity::new("p:9");
+    let id = r
+        .server
+        .borrow_mut()
+        .join(who.clone(), "P9", Intent::Watch)
+        .unwrap();
+    let clock = OffsetClock {
+        base: r.clock.clone(),
+        offset_ms: 4_321,
+    };
+    let mut link =
+        OnlineAuthority::new(RoomId::new(ROOM), FakeSocket::new(r.server.clone()), clock);
+    link.live_mut().set_me(id);
+    r.players.push(Player {
+        who,
+        id,
+        client: ClientId::new("p9"),
+        seq: 0,
+        link,
+        server: r.server.clone(),
+        play: None,
+        sent: 0,
+        reporter: None,
+        judged: Vec::new(),
+        judged_sent: 0,
+        ended: false,
+        gone_at: None,
+        news: Vec::new(),
+    });
+    r.run(20_000);
+    let watcher = r.players.last().unwrap();
+    assert!(
+        watcher
+            .news
+            .iter()
+            .any(|n| matches!(n, LiveNews::Snapshot(s) if s.competitors.len() == 2)),
+        "the stage as it stood"
+    );
+    let reader = watcher.link.live().reader().unwrap();
+    for (q, sc) in r.players.iter().zip(&scripts) {
+        let seen = reader.moments(q.id);
+        // The last few seconds before it came, then everything.
+        assert!(seen.len() > sc.moments.len() / 2, "{}", seen.len());
+        assert_eq!(seen, &sc.moments[sc.moments.len() - seen.len()..]);
+        assert_eq!(reader.end(q.id), Some(StreamEnd::Finished));
+    }
+}

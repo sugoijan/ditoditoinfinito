@@ -274,12 +274,15 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
     }
 
     fn pump_live(&mut self) {
-        let following = self
+        let (following, started) = self
             .mirror
             .state()
-            .and_then(crate::live::server::live_stage)
-            .map(|(id, _)| id);
-        self.live.follow(following);
+            .and_then(|r| {
+                let (id, _) = crate::live::server::live_stage(r)?;
+                Some((Some(id), !matches!(r.phase, crate::Phase::Countdown { .. })))
+            })
+            .unwrap_or((None, false));
+        self.live.follow(following, started);
         for send in self.live.due(self.clock.now().0) {
             match send {
                 LiveSend::Text(t) => self.transport.send(t),

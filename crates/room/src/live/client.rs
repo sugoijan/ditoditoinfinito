@@ -146,14 +146,20 @@ impl LiveLink {
 
     /// The stage the room plays live now, if any (from the mirror): a
     /// reader for it.
-    pub(crate) fn follow(&mut self, stage: Option<StageId>) {
+    /// `started`: its song is playing already (a socket opened mid-stage):
+    /// the stage as it stands is asked for at once.
+    pub(crate) fn follow(&mut self, stage: Option<StageId>, started: bool) {
         if let Some(stage) = stage
             && self
                 .reader
                 .as_ref()
                 .is_none_or(|r| r.stage().is_none_or(|s| s < stage))
         {
-            self.reader = Some(FrameReader::new(stage));
+            let mut r = FrameReader::new(stage);
+            if started {
+                r.ask_resume();
+            }
+            self.reader = Some(r);
         }
     }
 
@@ -192,7 +198,7 @@ impl LiveLink {
         let Ok(wire::Binary::Frame(frame)) = wire::decode(bytes) else {
             return;
         };
-        self.follow(Some(frame.stage));
+        self.follow(Some(frame.stage), false);
         let Some(r) = self.reader.as_mut() else {
             return;
         };
