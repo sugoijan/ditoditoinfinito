@@ -3164,10 +3164,221 @@ CPU stays what it was (shocks in their fields, the lock's look).
 - Online attacks, retuning, a duel's attack rates, phone polish (out of
   scope, as the brief has it).
 
+## One picker at a time, and the room's song select coming in once (2026-11-12)
+
+The maintainer asked for a way to "take over" picking, so that a
+co-host can pick from their own library instead of following and the
+host can take it back, and agreed to the design in
+`multiplayer-ui.md`, "Role differences" (the 2026-11-12 note). Before,
+every operator of a room saw their own list at once, each one's resting
+song became the room's spotlight, and the first pick took the stage.
+Everything here is real; nothing is mocked. What could not be run is at
+the end.
+
+### The room's model
+
+- **The picker is the room's** (`ddi_room::Picking` in
+  `RoomState::picking`): who chooses the songs now, and the shares the
+  room keeps of songs a picker rested on when the pick changed hands. A
+  new room starts with its owner. `RoomState::picker()`, `chooses(id)`,
+  `may_take_pick(id)`, `one_picker()`.
+- **The picker alone chooses**: `Command::Spotlight`, `Command::Pick`
+  and `Command::ChooseContent` are the picker's. Another operator is
+  refused with `Rejection::NotPicker { picker }` (who has it, or nobody);
+  a member with `Unauthorized { ChooseContent }`, as before. The pick's
+  start of the match is still an operator's (`Advance`), which a picker
+  is today.
+- **Taking it**: `Command::TakePick`, an operator's
+  (`Capability::TakePick`: owner, co-host, admin), accepted at once in
+  every phase, with one event, `Event::PickerChanged { picker }`. During
+  a stage's readiness, countdown or play it is the next choice that
+  changes hands: the stage's song stays as it was chosen. Taking what
+  one has changes nothing (no revision).
+- **It stays** with whoever has it across stages and matches.
+- **Its holder gone** (`release_pick` in the reducer): they leave the
+  room, lose the role that lets one take it (a co-host made a member; an
+  administrator demoted keeps it), or the authority reports them
+  `Connection::Disconnected`. The pick goes to the owner while the owner
+  is in the room and not Disconnected, else to nobody
+  (`picker: None`) until an operator takes it. The trigger for "gone
+  too long" is the room's existing one: the server sets a dropped socket
+  Reconnecting and, after its reconnect grace (30 s,
+  `ROOM_RECONNECT_GRACE_MS`), Disconnected; Reconnecting keeps
+  everything, the pick included.
+- **The spotlight goes with its picker**: `PickerChanged` clears it (in
+  `evolve`, so a mirror does the same) and keeps its share by chart
+  (`Picking::shares`, the newest eight), which `known_share` finds: the
+  song rested on again, or picked, is shared already. (The server's
+  index also reuses a share by content key when a grant is asked for;
+  this saves the request.)
+- **Leaving room for taking turns**: the model says "who chooses now"
+  and checks the picker by id, whatever their role; only `TakePick` is
+  an operator's. A rule that passes the pick around would set the picker
+  itself and let the picker's `Pick` advance.
+
+### Old and new, both ways (protocol 2 stays)
+
+All of it is additive: `picking` in the room's JSON, the `take_pick`
+command, the `picker_changed` event, the `not_picker` refusal, the
+`take_pick` capability.
+
+- **A new client and a server that predates it** (the web deploys on
+  push, the server separately). That server's rooms have no `picking`
+  in their state, and it would close the socket (4400) on a command it
+  cannot read, which the client would send again on every reconnect. So
+  the missing state is the signal, in the model and on the screens: a
+  room without `picking` is a room from before the picker. The reducer
+  lets every operator choose there, as it did (`chooses` is the old
+  operator check), `may_take_pick` is false, the client never sends
+  `TakePick`, the action is not shown, nobody is marked, and the others'
+  status line says "The host is choosing…" as before. Nothing appears to
+  work and do nothing. The same holds for a room made before the
+  server's deploy and still open after it: it stays as it was until it
+  closes.
+- **An old client and a new server**. As the owner it is the picker and
+  works as before; as a member it follows as before. A `picker_changed`
+  frame it cannot read is passed over (`OnlineAuthority::received`), the
+  missed revision shows as a gap at the next frame and it asks for the
+  room again (unknown fields are ignored): in step. An old client that
+  is a co-host or an administrator still shows its own list, but the
+  room refuses its rests and picks with `not_picker`, which it cannot
+  read: its pick does nothing visible, and the unanswered command is
+  sent again after a reconnect (refused again). Such a client needs the
+  new build to pick.
+- **Online rooms need the next server deploy for taking over** (the
+  server runs this reducer; `../ddi-server` needed no change and its
+  tests pass against the new crate).
+
+### The client and the screens
+
+- `RoomClient::chooses()`, `picker()`, `may_take_pick()` (connected, and
+  the room's `may_take_pick`), `take_pick()`. What was "an operator" is
+  the picker now: the resting song told the room, the spotlight's and a
+  pick's upload, More's Retry sharing, and a stage prompt's Back
+  cancelling the pick (another operator's Back only withdraws them).
+- **Song select** (`select_room.rs`): the picker has their own list; the
+  others the following view. An operator who follows has **Pick songs**:
+  a button in the header where the picker's search is
+  (`Room.TakePick`), an item of the room's More on every layout (a
+  phone has no room for the button; a controller's way to it), and T,
+  with its hint in the footer. A member has none of them.
+- **Each player's own list is kept** through a change of hands
+  (`RoomMode::library`, from 33697787) with where they were in it
+  (`Place`: the song and chart shown, the open pack, the style, the
+  search): a picker who becomes a follower and takes the pick back has
+  them as they left them. A search being typed is ended first.
+- **Who chooses, said**: the others' status line names the picker
+  ("alice is choosing the first song.", "… stage 2's song.", "Match
+  over. … the next match's first song."); with nobody choosing,
+  "Nobody is choosing songs right now.", and for one who may take it
+  "Nobody is choosing songs. Use Pick songs to choose them."; the
+  picker's own lines are as they were ("Pick a song to start the
+  match."). The players' rows mark the picker after their role
+  ("Host · Picking", "Co-host · Picking"; 選曲中) in an online room;
+  practice, with one person, shows nothing. A refused rest or pick of a
+  non-picker is not a status of its own: the line says who chooses.
+- **After taking it back**, the song shown is told the room again once
+  it has rested (`SPOTLIGHT_REST_MS`, 3 s), as any song.
+- **Bots** (`bots.rs`): a host bot picks while the pick is its own. A
+  person who takes it over chooses until they give it up (the room
+  hands it back when they leave, lose the role or are gone too long);
+  the bot follows meanwhile, says who chooses, and takes the pick only
+  when nobody has it. It never takes it back from anyone.
+- The debug state (`ThemeState::room`): `host` is "this player
+  chooses", with `picker` (a member's id or none), `can_take_pick`, and
+  each member's `picker`.
+
+### The room's song select comes in once
+
+The maintainer, the same day: "some 'animation flicker' when creating a
+private room." Confirmed in the harness: an online room's song select
+is built before the room's first answer, so it was built as the
+following view (no list, the picks' panel), and when the answer said who
+the player is the whole tree was built again and shown at once: one
+layout, then the other. A member got the same rebuild; so did practice
+on its first frame, invisibly.
+
+- **One side at a time** (`select_room::Side`: Joining, Picker,
+  Follower): what the screen is built as, its data with it, changed only
+  by `swap_side`. The rest of the screen reads the side shown, never the
+  room's state of the moment.
+- **Before the room is known** (no member for this player in the state:
+  an online room before its first snapshot) nothing role-specific is
+  built or shown: no list, no song's side, no backdrop, no status line,
+  no panel, no players, no room buttons, no preview. The bars, and one
+  quiet line in the middle, "Joining the room…" (the link's existing
+  words), which shows only if joining takes more than 0.4 s, and says
+  instead why the link ended where it ends before the room is known
+  (closed, signed out, not a member). The footer has Back alone; keys
+  but Back and More do nothing.
+- **Once known, the view comes in once**: its parts play the screen's
+  own entrance; the bars are the same actors as before (carried into
+  the new tree with their tweens, only what is inside them changed), so
+  an answer that comes while the screen is still coming in neither
+  begins the bars' entrance again nor cuts it short; the joining line
+  fades from wherever it is.
+- **A change of hands is one swap**: the view's parts leave
+  (`Motion.Screen.Out`, 0.15 s; the list is still the player's own
+  while it does), then the tree is built as the other side and its parts
+  come in; the bars stay. Under reduced motion, and under the web's
+  loader, the other view stands at once. The room's name arriving
+  changes the header in place (it used to rebuild the screen too).
+- **CPU practice** is known from its first frame: built as the picker's
+  at once, no line, no swap; its first-frame rebuild is gone.
+- Chosen: the two-step swap rather than a crossfade (the two views
+  share the list's place, and a crossfade shows both); an instant swap
+  under reduced motion rather than fades (as asked).
+
+### Tested
+
+- `crates/room` (98 tests, 6 new): the reducer's walkthroughs (taken by
+  a co-host and back by the owner, during a stage, across stages and
+  matches; a member's and a non-picker's rest, pick and choice refused;
+  the fallback on leaving, demotion and disconnection, the owner gone,
+  nobody until taken; the share kept, eight at most; a room from before
+  the picker read, written back and run as it was), the adapter
+  contract (the same script through `LocalAuthority` and through
+  `OnlineAuthority` + `FakeServer`, with the network's faults), and a
+  client meeting frames it cannot read (passed over, the room asked for
+  again).
+- `ddi-ui` (12 new tests; 508 in its library at the time): the client over the fake room (taken
+  over and back, the resting song the picker's, its upload the picker's,
+  the kept share reused; a room from before the picker); the screens
+  with three clients (the owner picks and the co-host follows; the
+  co-host takes over and has their own list, the owner follows their
+  song; the owner takes it back with T and has their song and search
+  again; a member has no action; a phone's More; the pick left behind;
+  a room from before the picker; the late first snapshot of 33697787
+  still holds); the entrances (nothing of a view before the answer, then
+  each part's entrance begun once and never falling back, the bars
+  untouched, for the host and for a member; an answer during the
+  screen's own entrance; one swap on a change of hands; reduced motion;
+  practice; a link that ends before the room is known); the `qps-ploc`
+  walk.
+- Desktop, offscreen in the game's theme over the fake room
+  (`tests/room_picker_offscreen.rs`, `DDI_OFFSCREEN_PPM=<dir>` keeps the
+  pictures): joining, the owner's list, the co-host's following view
+  with Pick songs, the member's without, both sides after the take, at
+  1280×720 and 844×390, English and Japanese.
+- Browsers (headless Chrome and Firefox, 1280×720 and 844×390, English
+  and Japanese, with and without reduced motion): CPU practice as
+  before, the picker's from its first frame, no line, no action, the
+  pick starting the match.
+- **Not run**: an online room in a browser or on desktop against a
+  server. The maintainer's local server signs in with Twitch (no
+  development sign-in), and no server of our own was started. The
+  online behavior rests on the fake room (the same reducer, the wire's
+  JSON both ways) and the pictures above; `tests/online.rs` was not
+  run.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| A room from before the picker (no `picking` in its state) keeps every operator choosing and offers no take, for as long as it lives | `ddi_room::RoomState::chooses`, `may_take_pick` | A room open across the server's deploy never gets Pick songs; a new one does | Whether such a room should turn into a one-picker room at the deploy |
+| The pick returns to the owner, or to nobody with the owner gone, when its holder is Disconnected: the server's reconnect grace (30 s) | `reduce.rs` `release_pick`; `../ddi-server` `ROOM_RECONNECT_GRACE_MS` | A picker whose connection is down for more than 30 s finds the owner choosing (or nobody) on return | The grace for a picker; whether a returning owner should get a pick nobody took |
+| A resting song's share is kept across changes of hands, the newest eight | `ddi_room::Picking::KEPT_SHARES` | A song rested on again after taking the pick back is shown to the others without a second upload | None unless rooms change hands over many songs |
+| The joining line shows after 0.4 s of joining (`JOINING_AFTER`) | `select_room.rs` | A room that answers quickly shows the bars alone, then its view | The delay |
 | A report's detail (`RunDetail`) is self-reported and shown as sent, bounded only in size | `crates/room/src/battle.rs`, `reduce.rs` | An online player's grade, combo and judgments on the standings are what their device said | Whether the room should check a detail against the run, or wait for server-judged plays |
 | The stage's standings seen on its results count as seen: no pop-up back on song select | `results_stage.rs` `stage_update` | One screen fewer after each stage for those who saw the standings | Keep, or always pop the standings up |
 | The results' tab is remembered for the session, the last stage always opening on the standings | `results_stage.rs` `CHOSEN` | A player who prefers the graphs sees them after middle stages | Whether it should be a saved setting, or always the standings |
@@ -3265,6 +3476,29 @@ CPU stays what it was (shocks in their fields, the lock's look).
 
 ## Open questions
 
+- One picker: there is no way in the game to make someone a co-host
+  (`SetCoHost` exists in the model and on the server; no screen sends
+  it). Today the only other operators are the server's administrators
+  (the maintainer in a bot-hosted room). Should the owner get "Make
+  co-host" on a player's row of the Players pop-up?
+- One picker: with nobody choosing (the owner gone too long), the owner
+  coming back finds the following view and Pick songs, like any
+  operator. Should a pick nobody took go back to the owner by itself
+  when they return?
+- One picker: after taking the pick, the song the new picker's list
+  shows is told the room only once it has rested 3 s, as any song.
+  Should the first one after a take be shown at once?
+- One picker: the mark is words after the role ("Host · Picking") on
+  every online room's rows, also where the owner has always picked. Too
+  much where nobody else could pick?
+- One picker: an operator who follows and backs out of a stage's prompt
+  only withdraws now (it used to cancel the pick for everyone). Should
+  an operator keep a way to cancel a start from the prompt?
+- One picker: Pick songs is T on a keyboard and More on a controller.
+  Should a controller have a button of its own for it?
+- The room's song select: the swap on a change of hands takes 0.15 s to
+  leave and the usual entrance to come in. Right, or should it be
+  instant always?
 - M8 round 3: the two announcer lines for attacks could not be added
   without touching the announcer studio's files (its screen names every
   line in a match with no catch-all). May the next round add the four

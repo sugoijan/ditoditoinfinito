@@ -94,6 +94,15 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   not in the lines' table yet), and the stage's standings with attacks
   sent, taken and shocks stepped on a line and the player's own battle
   summed up.
+  One picker at a time (2026-11-12): the room names who chooses its
+  songs (its owner at first); only they see their own list, rest on
+  songs for the room and pick, everyone else following; an operator
+  takes the pick over at once with Pick songs and has their own list,
+  place and search back; it goes to the owner (or nobody) when its
+  holder leaves, loses the role or is gone too long; a room from before
+  it chooses as it did. And the room's song select shows nothing of a
+  view until the room says who the player is, then brings it in once,
+  a change of hands one swap.
   Provisional choices and open questions listed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two

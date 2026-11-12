@@ -484,6 +484,25 @@ still says Watch rather than Ready until admitted to play.
 | Footer | Own Ready, then a separated Start action | Ready / Cancel ready | Watch; no disabled Ready control |
 | Other controls | Rules, More, Invite and player management | Rules and personal options | Rules and personal options |
 
+Decided (maintainer, 2026-11-12): **one picker at a time.** The room has a
+picker, by default its owner. Only the picker sees their own library on the
+room's song select, tells the room their resting song and picks; everyone else
+follows the picker's resting song, co-hosts and the owner included when they
+are not the picker. An operator (owner, co-host, admin) who follows has Pick
+songs (a header button where the picker's search is, the room's More, T in the
+footer's hints): it takes the pick over at once, with no request and no
+confirmation, and the previous picker's screen becomes the following view with
+the same action. The pick stays with whoever has it across stages and matches;
+when its holder leaves the room, loses the role or is disconnected past the
+room's patience it goes back to the owner, or to nobody (until an operator
+takes it) where the owner is the one gone. The status line names who chooses;
+the players' rows mark them ("Host · Picking"). CPU practice has one person and
+shows none of it. The table's "Song selection" row above is the picker's column
+now, whatever the role. Built the same day
+([progress](multiplayer-prototype-progress.md), "One picker at a time"); a
+later match rule may pass the pick around every player each stage (the model
+names "who chooses now", only the taking is an operator's).
+
 Host authority remains separate from participation. A host who is not playing
 gets their watch/wait footer plus Start; they do not ready a noncompetitive seat.
 A playing host must ready themselves before starting. Ready counts exclude

@@ -975,10 +975,23 @@ Rust and the browser are implementation details, not advertised features.
   M7b's match flow in the model: `Command::Pick` (the operator's Start on
   a song: the next stage's song, the match started or gone on, its
   readiness window opened, all as one change), `Command::Spotlight` and
-  `Event::SpotlightChanged` (the song an operator's song select rests on,
+  `Event::SpotlightChanged` (the song the picker's song select rests on,
   `RoomState::spotlight`, with a `ContentCard` to show before it is
   loaded), `Command::SetSpotlightShare` (the authority's: its share, by
   chart, which a pick of that chart reuses, `RoomState::known_share`);
+  one picker at a time (2026-11-12, `state::Picking` in
+  `RoomState::picking`: who chooses the room's songs now, its owner at
+  first; `picker()`, `chooses`, `may_take_pick`): `Spotlight`, `Pick`
+  and `ChooseContent` are the picker's alone (another operator refused
+  with `Rejection::NotPicker`, naming who has it), an operator takes the
+  pick at once in any phase (`Command::TakePick`, `Capability::TakePick`,
+  `Event::PickerChanged`, which clears the spotlight and keeps its share
+  known by chart), and it goes back to the owner, or to nobody with the
+  owner gone, when its holder leaves, loses the role or is set
+  `Disconnected` (`release_pick`); additive to protocol 2: a room without
+  `picking` (an authority that predates it) lets every operator choose
+  as it did and is never sent `TakePick`; the picker is "who chooses
+  now", any participant in principle, only the taking an operator's;
   `hosted-deadline-v1` (a window counts from the song's availability and
   ends early once every connected player who could join is ready and
   loaded); `CpuMode::Roster` (named CPUs, each its own `OpponentSpec`);
@@ -1029,8 +1042,10 @@ Rust and the browser are implementation details, not advertised features.
   of its own), knows which library song and chart a stage's opaque content
   names (`Picked`), refuses charts the CPU cannot play (`eligible`: one
   player, four lanes), picks (`pick`: M7b's flow, `Command::Pick`),
-  tells the room the operator's resting song after `SPOTLIGHT_REST_MS`
-  (`hover`), hands the shell each chosen song to prepare (`LoadJob`,
+  knows whether this player chooses the room's songs (`chooses`: the
+  room's picker; `may_take_pick` and `take_pick` for an operator who
+  follows), tells the room the picker's resting song after
+  `SPOTLIGHT_REST_MS` (`hover`), hands the shell each chosen song to prepare (`LoadJob`,
   `RoomCall::Prepare`: the chart read and `check_chart`, the CPUs' plan
   built; `finish_load` reports it loaded or a `LoadProblem`), and the
   stage whose readiness gathers with this player in it, once, for its
@@ -1066,7 +1081,7 @@ Rust and the browser are implementation details, not advertised features.
   instead (`crates/ui/src/state/online/link.rs`: `ddi_room`'s
   `OnlineAuthority` over the shell's socket, its tickets, the room's name
   and invite, a stage's upload grant); its roles come from the shared
-  `ddi_room::can` (`RoomClient::may`). The operator's resting song is
+  `ddi_room::can` (`RoomClient::may`). The picker's resting song is
   shared ahead (`SPOTLIGHT`, a grant for stage 0) and read from the share
   by the others (their song select shows and previews it); the pick
   reuses that share where it can. Otherwise the pick is pending: the client asks the room for the
@@ -1089,10 +1104,22 @@ Rust and the browser are implementation details, not advertised features.
   invite's page as pages made from it (`OnlineScreen`, `OnlineCall` to
   the shell). M7b: the room's main view is song select
   (`SelectScreen::with_room`, `screens/select_room.rs`, a child module of
-  `select`): the host's library, Enter "Pick for stage N"; the others
-  following the host's song with the room's panel (status, picks; a
+  `select`): the picker's library, Enter "Pick for stage N"; the others
+  following the picker's song with the room's panel (status, picks; a
   phone's the players too) in the list's place; Rules and Players in the
-  header (More on a phone), the status line over the list. The players
+  header (More on a phone), the status line over the list. An operator
+  who follows has Pick songs (`screens::room::TAKE_PICK`: a header
+  button where the picker's search is, the room's More, T): the pick
+  taken at once, their own list back with their place and search
+  (`RoomMode::library`, `Place`); the status line names who chooses and
+  the players' rows mark them. The screen is built as one side at a time
+  (`select_room::Side`: nothing of a view until the room says who the
+  player is, an online room's first answer coming after the screen is
+  built, only the bars and a quiet line; then the picker's or the
+  follower's view, coming in once with the bars kept; a change of hands
+  one swap, the old view's parts out and the new one's in, at once under
+  reduced motion; `crates/desktop/tests/room_picker_offscreen.rs` draws
+  the views over the fake room). The players
   are always there (feedback round B): a room's wide layout has the
   song's side short (`Layout::for_room`: a small banner, the title and a
   line, the style button only where the room plays more than one style,
