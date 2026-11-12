@@ -301,8 +301,12 @@ impl MatchRules {
         Self::DEFAULT_RULESET
     }
 
-    /// The Attacks rule (Off by default): the stage's battle has attack
-    /// power, launches and shocks ([`crate::BattlePreset::GaugeAttacksV0`]).
+    /// The Attacks rule: the stage's battle has attack power, launches
+    /// and shocks ([`crate::BattlePreset::GaugeAttacksV0`]). On by default
+    /// where attacks are offered, which is CPU practice
+    /// ([`MatchRules::practice`]; the maintainer, 2026-11-12); a hosted
+    /// room's rules name no such battle ([`MatchRules::hosted`]), so an
+    /// online room, whoever made it, has none until online attacks exist.
     pub fn attacks(&self) -> bool {
         crate::battle::BattlePreset::parse(&self.battle)
             .is_some_and(crate::battle::BattlePreset::attacks)
@@ -320,7 +324,8 @@ impl MatchRules {
 
     /// Local CPU practice: one player and three CPUs, four stages, the
     /// battle the practice stages are played under (PROVISIONAL:
-    /// `BattlePreset::GaugeSurvivalV0`).
+    /// `BattlePreset::GaugeAttacksV0`, the Attacks rule On: anyone turns
+    /// it Off in Rules, [`MatchRules::set_attacks`]).
     pub fn practice(opponent: OpponentSpec) -> Self {
         Self {
             stages: 4,
@@ -330,7 +335,7 @@ impl MatchRules {
                 opponent,
                 roster: Vec::new(),
             },
-            battle: crate::battle::BattlePreset::GAUGE_SURVIVAL_V0.into(),
+            battle: crate::battle::BattlePreset::GAUGE_ATTACKS_V0.into(),
             ..Self::hosted()
         }
     }
@@ -544,16 +549,21 @@ mod tests {
 
     #[test]
     fn attacks_are_a_match_rule_that_chooses_the_battle() {
+        // On by default where attacks are offered: CPU practice.
         let mut rules = MatchRules::practice(spec());
-        assert!(!rules.attacks(), "off by default");
+        assert!(rules.attacks(), "on by default in practice");
+        assert_eq!(rules.battle, "gauge-attacks-v0");
+        rules.set_attacks(false);
+        assert!(!rules.attacks());
         assert_eq!(rules.battle, "gauge-survival-v0");
         rules.set_attacks(true);
         assert!(rules.attacks());
         assert_eq!(rules.battle, "gauge-attacks-v0");
-        rules.set_attacks(false);
-        assert_eq!(rules.battle, "gauge-survival-v0");
-        // A hosted room's battle is not one with attacks.
+        // A hosted room's battle is not one with attacks, whoever made
+        // the room (an older client's and an older server's rules name
+        // the same battle).
         assert!(!MatchRules::hosted().attacks());
+        assert_eq!(MatchRules::hosted().battle, MatchRules::PROVISIONAL_BATTLE);
     }
 
     fn spec() -> OpponentSpec {

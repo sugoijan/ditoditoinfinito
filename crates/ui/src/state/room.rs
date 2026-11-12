@@ -360,6 +360,9 @@ pub struct StageOrder {
     pub song: SongEntry,
     pub chart: ChartEntry,
     pub battle: BattlePreset,
+    /// Attacks can be played in the stage's room (CPU practice): its
+    /// prompt then says where the match has none.
+    pub attacks_offered: bool,
     /// The match's rules the stage is judged by, everyone's (D0), played
     /// in place of the player's own.
     pub rules: StageRules,
@@ -386,6 +389,12 @@ impl StageOrder {
     /// chart's own mines and the shocks never look the same.
     pub fn may_have_shocks(&self) -> bool {
         self.battle.attacks() || self.dev_mines_at_beat.is_some()
+    }
+
+    /// The Attacks rule as the stage's summary says it: on or off where
+    /// attacks are offered, none where they are not (nothing to say).
+    pub fn attacks_rule(&self) -> Option<bool> {
+        self.attacks_offered.then(|| self.battle.attacks())
     }
 }
 
@@ -651,11 +660,13 @@ pub type SharedRoom = Rc<RefCell<RoomClient>>;
 /// from a menu.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Development {
-    /// A CONVENIENCE, not a gate (the DDI ruleset's round 3): the next
-    /// practice room starts with its Attacks rule already On (desktop's
-    /// `--mp-attacks`, the web's `mpattacks=1`; for tests and
-    /// screenshots). Attacks are a match rule anyone sets in Rules.
-    pub attacks: bool,
+    /// A CONVENIENCE, not a gate: how the next practice room's Attacks
+    /// rule starts, where a switch says (the web's `mpattacks=0`, Off;
+    /// `mpattacks=1` and desktop's `--mp-attacks`, On, which it is by
+    /// default since 2026-11-12, so those are kept only for old commands
+    /// and scripts); none: the rules' default. Attacks are a match rule
+    /// anyone sets in Rules.
+    pub attacks: Option<bool>,
     /// DEVELOPMENT ONLY.
     /// A section of battle shocks put into the player's own play of each
     /// stage from this beat on (desktop's `--mp-dev-mines BEAT`, the
@@ -665,7 +676,7 @@ pub struct Development {
 
 thread_local! {
     static DEVELOPMENT: std::cell::Cell<Development> =
-        const { std::cell::Cell::new(Development { attacks: false, mines_at_beat: None }) };
+        const { std::cell::Cell::new(Development { attacks: None, mines_at_beat: None }) };
 }
 
 /// Sets the practice rooms' switches (the next practice room on; a
@@ -679,12 +690,13 @@ pub fn development() -> Development {
     DEVELOPMENT.get()
 }
 
-/// Practice's rules for a common CPU profile `opponent`: `MatchRules::practice`,
-/// its Attacks rule On where the shells' convenience switch says so.
+/// Practice's rules for a common CPU profile `opponent`: `MatchRules::practice`
+/// (its Attacks rule On), the rule as the shells' convenience switch has
+/// it where one was given.
 pub fn practice_rules(opponent: OpponentSpec) -> MatchRules {
     let mut rules = MatchRules::practice(opponent);
-    if development().attacks {
-        rules.set_attacks(true);
+    if let Some(on) = development().attacks {
+        rules.set_attacks(on);
     }
     rules
 }
@@ -1331,10 +1343,26 @@ impl RoomClient {
         }
     }
 
-    /// Whether the match being played (else the next one's rules) has
-    /// attacks: where the screens show the policies.
+    /// Whether attacks can be played in this room: where its ledger runs
+    /// on this device and the shocks go into the plays judged here,
+    /// which is CPU practice. An online room has neither yet, whatever
+    /// its rules say (`crate::screens::room::attacks_offered`).
+    pub fn attacks_offered(&self) -> bool {
+        !self.is_online()
+    }
+
+    /// Whether a match under `rules` is really played with attacks here:
+    /// its Attacks rule, where attacks are offered. What the stage's
+    /// battle, its standings and every summary follow, never a rule that
+    /// does nothing.
+    pub fn attacks_played(&self, rules: &MatchRules) -> bool {
+        self.attacks_offered() && rules.attacks()
+    }
+
+    /// Whether the match being played (else the next one's rules) is
+    /// played with attacks: where the screens show the policies.
     pub fn attacks_on(&self) -> bool {
-        self.locked_rules().unwrap_or_else(|| self.rules()).attacks()
+        self.attacks_played(self.locked_rules().unwrap_or_else(|| self.rules()))
     }
 
     /// Whether the local player is ready for the upcoming stage (or in
@@ -1762,7 +1790,7 @@ impl RoomClient {
             of: u16::try_from(m.stages.len()).unwrap_or(u16::MAX),
             confirmed,
             rules: StageRules::of(&m.rules),
-            attacks: m.rules.attacks(),
+            attacks: self.attacks_played(&m.rules),
             experimental: play.result.as_ref().is_some_and(|r| r.rule.experimental()),
             rows,
             result,
@@ -1808,7 +1836,14 @@ impl RoomClient {
             of: u16::try_from(m.stages.len()).unwrap_or(u16::MAX),
             song: picked.song,
             chart: picked.chart,
-            battle: BattlePreset::parse(&m.rules.battle).unwrap_or(BattlePreset::GaugeSurvivalV0),
+            // What is really played: attacks only where they are
+            // offered (never a rule that silently does nothing).
+            battle: if self.attacks_played(&m.rules) {
+                BattlePreset::GaugeAttacksV0
+            } else {
+                BattlePreset::GaugeSurvivalV0
+            },
+            attacks_offered: self.attacks_offered(),
             rules: StageRules::of(&m.rules),
             dev_mines_at_beat: development().mines_at_beat,
             me: self.me,
@@ -2367,7 +2402,10 @@ mod tests {
         assert_eq!((order.stage, order.number, order.of), (first, 1, 4));
         assert_eq!(order.cpus.len(), 3);
         assert!(order.cpus.iter().all(|c| c.name.is_some()));
-        assert_eq!(order.battle, BattlePreset::GaugeSurvivalV0);
+        // Practice plays with attacks by default; the order says what
+        // is played.
+        assert_eq!(order.battle, BattlePreset::GaugeAttacksV0);
+        assert_eq!(order.attacks_rule(), Some(true));
         assert!(room.take_stage_order().is_none());
         // Loading until the shell prepared it; Ready while loading holds.
         assert!(room.loading(first));

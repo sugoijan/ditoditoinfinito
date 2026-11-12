@@ -30,6 +30,10 @@ fn room_seeded(_song: &Song, stages: u16, cpus: u16, level: u8, seed: u64) -> Ro
     rules.cpu.mode = ddi_room::CpuMode::Fixed { count: cpus };
     rules.cpu.roster.clear();
     rules.cpu.opponent.level = level;
+    // Survival alone (the Attacks rule, On by default in practice,
+    // turned off): what these stages' tests are about; `attacks_room`
+    // turns it on again.
+    rules.set_attacks(false);
     room.save_rules(rules).unwrap();
     room
 }
@@ -874,7 +878,8 @@ fn a_stage_is_played_under_the_match_s_rules_not_the_player_s() {
     assert_eq!(normal.fail, ddi_engine::FailPolicy::Immediate);
 }
 
-/// A practice room under the attacks' battle (M8a's development switch's).
+/// A practice room under the attacks' battle (the Attacks rule On, as a
+/// practice room has it by default).
 fn attacks_room(song: &Song, cpus: u16, level: u8) -> RoomClient {
     let mut room = room(song, 1, cpus, level);
     let rules = MatchRules {

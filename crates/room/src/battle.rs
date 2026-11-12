@@ -34,8 +34,8 @@ pub enum BattlePreset {
     /// earns power by timing, shown as a bar above life; a full bar is
     /// spent on eight shocks in someone's play; settled by
     /// [`crate::attacks::SETTLEMENT_V0`], ranked by [`rank`] as survival.
-    /// The match's Attacks rule (`MatchRules::attacks`, Off by default)
-    /// chooses it.
+    /// The match's Attacks rule (`MatchRules::attacks`: On by default in
+    /// CPU practice, where attacks are offered) chooses it.
     GaugeAttacksV0,
 }
 

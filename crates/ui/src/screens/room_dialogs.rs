@@ -368,7 +368,7 @@ impl Screen for RulesDialog {
                 cpu_roster::roster_of(rules, humans).len(),
                 super::room::rules_words(
                     &crate::state::room::StageRules::of(rules),
-                    rules.attacks(),
+                    self.attacks_offered().then(|| rules.attacks()),
                 ),
             );
             let mut t = env.text("Locked.Line", &line, 14.0, 400, "Secondary");

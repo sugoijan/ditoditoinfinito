@@ -1168,7 +1168,9 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         );
     }
     let mut info = super::prompt::PromptInfo::default();
-    info.set_stage(1, 4, 3, 0, &Default::default(), false);
+    // (Practice with its attacks turned off: said. An online room's has
+    // none to turn off: nothing said.)
+    info.set_stage(1, 4, 3, 0, &Default::default(), Some(false));
     let mut online = super::prompt::PromptInfo::default();
     online.set_stage(
         2,
@@ -1180,7 +1182,7 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             boos: true,
             ..Default::default()
         },
-        true,
+        None,
     );
     checked(
         vec![

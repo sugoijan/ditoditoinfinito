@@ -2732,7 +2732,7 @@ impl GameCanvas {
                 order.cpus.len(),
                 order.others,
                 &order.rules,
-                order.battle.attacks(),
+                order.attacks_rule(),
             );
             if let (Status::Ready(song), SongSource::Song { chart, .. }) =
                 (&self.song, &props.source)

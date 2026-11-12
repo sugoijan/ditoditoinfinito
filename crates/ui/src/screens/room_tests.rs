@@ -424,7 +424,8 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     press(&mut h, "Dec.stages");
     press(&mut h, "Dec.stages");
     // The match's rules (D0): DDI, with no row of its own; its
-    // difficulty and Boos, and Attacks, each Off or Normal first.
+    // difficulty (Normal first) and Boos (Off first), and Attacks, On
+    // first in practice (the maintainer, 2026-11-12).
     assert!(!there(&h, "Dec.ruleset") && !there(&h, "Rule.ruleset"));
     assert!(
         has(&h, "Everyone plays the match under DDI with these rules, whatever their own options say."),
@@ -432,7 +433,7 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
         h.texts()
     );
     let draft = |env: &Env| view(env).draft_rules.expect("the draft");
-    assert_eq!(draft(&env), ("normal".to_string(), false, false));
+    assert_eq!(draft(&env), ("normal".to_string(), false, true));
     assert_eq!(said(&h, "Rule.difficulty.Value"), "Normal");
     press(&mut h, "Inc.difficulty");
     assert_eq!(said(&h, "Rule.difficulty.Value"), "Hard");
@@ -453,7 +454,10 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     press(&mut h, "Dec.boos");
     assert!(!draft(&env).1);
     press(&mut h, "Inc.boos");
+    assert_eq!(said(&h, "Rule.attacks.Value"), "On");
+    press(&mut h, "Dec.attacks");
     assert_eq!(said(&h, "Rule.attacks.Value"), "Off");
+    assert_eq!(draft(&env), ("hard".to_string(), true, false));
     press(&mut h, "Inc.attacks");
     assert_eq!(said(&h, "Rule.attacks.Value"), "On");
     assert_eq!(draft(&env), ("hard".to_string(), true, true));
@@ -496,16 +500,16 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     assert_eq!(view(&env).draft, vec![4, 3]);
     press(&mut h, "Ok");
     assert_eq!(view(&env).stage_count, 4);
-    // Reset put the match's rules back too: Normal, no Boos, no attacks.
+    // Reset put the match's rules back too: Normal, no Boos, attacks On.
     let v = view(&env);
-    assert_eq!((v.difficulty.as_str(), v.boos, v.attacks), ("normal", false, false));
+    assert_eq!((v.difficulty.as_str(), v.boos, v.attacks), ("normal", false, true));
     // A running match: its rules locked, shown in a line that names what
     // differs from the usual.
     {
         let mut rules = room.borrow().rules().clone();
         rules.difficulty = ddi_room::MatchDifficulty::Easy;
         rules.boos = true;
-        rules.set_attacks(true);
+        rules.set_attacks(false);
         room.borrow_mut().save_rules(rules).unwrap();
     }
     let s = &library("dance-single").songs[0];
@@ -517,10 +521,44 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     assert!(
         h.texts()
             .iter()
-            .any(|t| t == "4 stages · 3 CPUs · DDI · Easy timing · Boos · Attacks"),
+            .any(|t| t == "4 stages · 3 CPUs · DDI · Easy timing · Boos · No attacks"),
         "{:?}",
         h.texts()
     );
+}
+
+/// The rules' summary says what differs from the usual: attacks are On by
+/// default where they are offered, so it says "No attacks" where the
+/// match has them turned off, and nothing of them where it has them or
+/// where the room offers none (an online room).
+#[test]
+fn the_rules_summary_says_no_attacks_only_where_they_are_turned_off() {
+    use super::room::rules_words;
+    let rules = crate::state::room::StageRules::default();
+    let words = |r: &crate::state::room::StageRules, attacks| String::from(rules_words(r, attacks));
+    assert_eq!(words(&rules, Some(true)), "DDI");
+    assert_eq!(words(&rules, Some(false)), "DDI · No attacks");
+    assert_eq!(words(&rules, None), "DDI");
+    let hard = crate::state::room::StageRules {
+        difficulty: ddi_room::MatchDifficulty::Hard,
+        boos: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        words(&hard, Some(false)),
+        "DDI · Hard timing · Boos · No attacks"
+    );
+    // A stage's prompt: the same words after the stage's line.
+    use super::prompt::PromptInfo;
+    let mut info = PromptInfo::default();
+    info.set_stage(1, 4, 3, 0, &rules, Some(false));
+    assert!(info.mods.ends_with("Rules: DDI · No attacks"), "{}", info.mods);
+    let mut info = PromptInfo::default();
+    info.set_stage(1, 4, 3, 0, &rules, Some(true));
+    assert!(info.mods.ends_with("Rules: DDI"), "{}", info.mods);
+    // A new practice room has attacks, and Reset's defaults too.
+    let room = RoomClient::shared(0, 1);
+    assert!(room.borrow().rules().attacks() && room.borrow().attacks_on());
 }
 
 /// The DDI ruleset's round 3: the match's Difficulty, Boos and Attacks are
@@ -689,8 +727,13 @@ fn the_prompt_has_the_attack_policy_where_the_match_has_attacks() {
     use crate::MenuAction;
     use ddi_room::attacks::Targeting;
     let row = "Opt.room.targeting";
-    // Without attacks: no row.
+    // Without attacks (the rule turned off): no row.
     let plain = RoomClient::shared(0, 1);
+    {
+        let mut rules = plain.borrow().rules().clone();
+        rules.set_attacks(false);
+        plain.borrow_mut().save_rules(rules).unwrap();
+    }
     let mut h = harness();
     let s = &library("dance-single").songs[0];
     plain.borrow_mut().pick(s, &s.charts[0]).unwrap();
@@ -783,8 +826,10 @@ fn the_players_rows_say_each_policy_where_the_match_has_attacks() {
     use super::room::player_rows;
     use ddi_room::attacks::Targeting;
     let room = RoomClient::shared(0, 1);
-    assert!(player_rows(&room.borrow()).iter().all(|p| p.policy.is_empty()));
     let mut rules = room.borrow().rules().clone();
+    rules.set_attacks(false);
+    room.borrow_mut().save_rules(rules.clone()).unwrap();
+    assert!(player_rows(&room.borrow()).iter().all(|p| p.policy.is_empty()));
     rules.set_attacks(true);
     // A roster CPU with a policy of its own.
     rules.cpu.roster[0].targeting = Some(Targeting::Leader);

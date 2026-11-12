@@ -474,8 +474,9 @@ impl PromptInfo {
     /// M3): stage `number` of `stages` against `cpus` CPUs on a tap-only
     /// copy, out when the gauge empties, under the match's rules
     /// (`rules`, everyone's: the ruleset, its difficulty where not Normal,
-    /// Boos where on; `attacks`, the match's Attacks rule), before the
-    /// mods; no timing line (a stage is no time to calibrate).
+    /// Boos where on; `attacks`, the match's Attacks rule where its room
+    /// offers attacks, said where it is Off, `StageOrder::attacks_rule`),
+    /// before the mods; no timing line (a stage is no time to calibrate).
     pub fn set_stage(
         &mut self,
         number: u16,
@@ -483,7 +484,7 @@ impl PromptInfo {
         cpus: usize,
         others: u16,
         rules: &crate::state::room::StageRules,
-        attacks: bool,
+        attacks: Option<bool>,
     ) {
         // An online room's stage: other people on their own devices.
         let note: String = if others > 0 {

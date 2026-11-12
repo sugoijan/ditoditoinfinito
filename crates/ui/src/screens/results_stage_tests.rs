@@ -578,13 +578,13 @@ fn an_online_stages_lines_fill_in_as_the_reports_come() {
     assert!(room_unseen(&bob).is_some());
 }
 
-/// With attacks (the development switch), a line's counts are followed by
-/// the attacks its starter launched and the shocks they stepped on.
+/// With attacks (a practice room's default), a line's counts are followed
+/// by the attacks its starter launched and the shocks they stepped on.
 #[test]
 fn with_attacks_the_lines_count_them() {
     crate::screens::results::forget_tab();
     crate::state::room::set_development(crate::state::room::Development {
-        attacks: true,
+        attacks: Some(true),
         ..Default::default()
     });
     let env = env();
@@ -607,7 +607,12 @@ fn with_attacks_the_lines_count_them() {
         assert!(texts.iter().any(|t| t == line), "{line}: {texts:?}");
     }
     // Without attacks nothing is said of them, whatever a report says.
+    crate::state::room::set_development(crate::state::room::Development {
+        attacks: Some(false),
+        ..Default::default()
+    });
     let room = practice(2, 1);
+    crate::state::room::set_development(Default::default());
     let order = play(&room, &[&[0], &[1]], &how);
     let mut h = harness();
     h.push(results(&env, &room, &order));

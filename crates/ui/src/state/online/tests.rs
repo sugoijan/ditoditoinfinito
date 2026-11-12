@@ -700,6 +700,20 @@ pub(crate) mod room {
             bob.refusal(),
             Some(Refusal::Room(ddi_room::Rejection::Unauthorized { .. }))
         ));
+        // An online room does not run attacks yet. Its rules name no
+        // battle with them (`MatchRules::hosted`, whoever made the room);
+        // and should they (a client that sent the practice room's
+        // battle), nothing of it is played here and nothing says it is.
+        assert!(!alice.rules().attacks());
+        let mut with = alice.rules().clone();
+        with.set_attacks(true);
+        alice.save_rules(with).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        assert!(bob.rules().attacks(), "the rule as sent");
+        for r in [&alice, &bob] {
+            assert!(!r.attacks_offered() && !r.attacks_on());
+            assert!(!r.attacks_played(r.rules()));
+        }
         // The pick: the match starts, the stage available with the
         // spotlight's share at once; nothing to upload again.
         alice.pick(&s, &s.charts[0]).unwrap();
@@ -725,13 +739,16 @@ pub(crate) mod room {
         assert!(!b[0].cpus);
         // The prompt opens for the one who picked at once, for Bob once he
         // has the song, never for Carol who never answers.
-        assert!(alice.take_stage_order().is_some());
+        let oa = alice.take_stage_order().expect("the picker's prompt");
+        assert_eq!(oa.battle, ddi_room::BattlePreset::GaugeSurvivalV0);
+        assert_eq!(oa.attacks_rule(), None, "nothing to say of attacks");
         assert!(bob.take_stage_order().is_none(), "not read yet");
         alice.finish_load(&a[0], Ok(()));
         bob.finish_shared_load(&b[0], Ok(shared_pick(&s)));
         let _ = carol.take_load_jobs();
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
         let ob = bob.take_stage_order().unwrap();
+        assert_eq!(ob.battle, ddi_room::BattlePreset::GaugeSurvivalV0);
         assert_eq!(ob.song.id, "shared:abc12345:0");
         assert_eq!(ob.others, 2);
         assert!(carol.take_stage_order().is_none());

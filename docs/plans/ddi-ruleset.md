@@ -707,6 +707,17 @@ has no shocks, and the other rulesets judge a shock as before.
   `--mp-attacks` (its old name `--mp-dev-attacks` still taken) and
   `mpattacks=1` are conveniences that start a practice room with the
   rule already On.
+  **On by default since later that day** (the maintainer, 2026-11-12,
+  after testing them: "it's working really well, we can switch it to On
+  by default"): a practice room's rules start with attacks
+  (`MatchRules::practice`), Reset goes back to them, and anyone turns
+  them Off in Rules; the summaries then say "No attacks". An online
+  room's rules name no battle with attacks (`MatchRules::hosted`), and a
+  room where attacks are not offered plays none whatever its rules say
+  (`RoomClient::attacks_played`). `--mp-attacks` and `mpattacks=1` are
+  still taken and change nothing; `mpattacks=0` starts a practice room
+  with the rule Off (`docs/plans/multiplayer-prototype-progress.md`,
+  "M8 round 3").
 - **Measured again** (the tables are in the progress note). The ten CPU
   levels alone on their tap-only copies over the same twelve local
   arcade mixes (2,974 charts, sixteen seeds; aggregates only), not

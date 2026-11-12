@@ -357,19 +357,20 @@ room-results-back = Back to room
 # A stage's prompt: the rules everyone plays the match under, after the
 # stage's line.
 # Variables:
-#   $rules (String) - the rules in a few words, as room-rules-words writes them ("DDI · Hard timing · Boos")
+#   $rules (String) - the rules in a few words, as room-rules-words writes them ("DDI · Hard timing · Boos · No attacks")
 room-prompt-ruleset = Rules: { $rules }
 
 # The match's rules in a few words, where they are summarized (the Rules
 # pop-up's locked line, a stage's prompt): the ruleset's name, then only
 # what differs from the usual: the timing difficulty when it is not Normal
 # ("Hard timing", "Easy timing": never a chart's difficulty), Boos
-# when they are on, attacks when they are on.
+# when they are on, and that there are no attacks when the match has
+# them turned off (they are on by default).
 # Variables:
 #   $ruleset (String) - the ruleset's name ("DDI")
 #   $difficulty (String) - "easy", "normal" or "hard"
 #   $boos (String) - "on" or "off"
-#   $attacks (String) - "on" or "off"
+#   $attacks (String) - "off" when the match's attacks are turned off, else "on"
 room-rules-words = { $ruleset }{ $difficulty ->
     [easy] {" "}· Easy timing
     [hard] {" "}· Hard timing
@@ -378,8 +379,8 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [on] {" "}· Boos
    *[off] {""}
 }{ $attacks ->
-    [on] {" "}· Attacks
-   *[off] {""}
+    [off] {" "}· No attacks
+   *[on] {""}
 }
 
 # A note on a stage's results and under the song in the room: how the

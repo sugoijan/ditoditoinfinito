@@ -456,7 +456,7 @@ fn full_info(request: &Request, loaded: &Loaded, settings: &Settings) -> PromptI
             order.cpus.len(),
             order.others,
             &order.rules,
-            order.battle.attacks(),
+            order.attacks_rule(),
         );
         if order.battle.attacks()
             && order.others == 0

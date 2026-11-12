@@ -152,8 +152,8 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [on] {" "}· Booあり
    *[off] {""}
 }{ $attacks ->
-    [on] {" "}· 攻撃あり
-   *[off] {""}
+    [off] {" "}· 攻撃なし
+   *[on] {""}
 }
 
 room-mark-survived = ステージ { $number }: { $field }人中 { $place }位 · +{ $points }点

@@ -1436,6 +1436,7 @@ mod tests {
             song: SongEntry::default(),
             chart: ChartEntry::default(),
             battle: ddi_room::BattlePreset::GaugeSurvivalV0,
+            attacks_offered: false,
             rules: Default::default(),
             dev_mines_at_beat: None,
             me: ddi_room::ParticipantId(2),

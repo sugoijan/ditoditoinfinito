@@ -2850,10 +2850,57 @@ could be interesting in intense battles)."
 ## M8 round 3: personal targeting, who attacks whom, the attack lines and the results (2026-11-12)
 
 The third round of the attack work, for where attacks work: CPU
-practice with the match's Attacks rule On (Off by default; an online
-room does not offer it). Everything here is real unless it says
+practice with the match's Attacks rule On (the default since this
+round, below; an online room does not offer it). Everything here is real unless it says
 otherwise; the room's model carries what online attacks would need of
 it, and nothing here asks the server to behave differently.
+
+### Attacks On by default
+
+The maintainer, 2026-11-12, after testing them: "I've been testing
+attacks and I think it's working really well, we can switch it to On by
+default." This reverses "Off by default" in the DDI ruleset's round 3
+above and is D8's first sentence again.
+
+- **Where the default lives**: in the practice room's rules.
+  `MatchRules::practice` names the battle with attacks
+  (`gauge-attacks-v0`), so a new practice room, the Rules pop-up's Reset
+  and every test that starts from practice's rules have attacks, and
+  anyone turns the rule Off in Rules as before. A hosted room's rules
+  (`MatchRules::hosted`) are untouched: they name no battle with attacks
+  (`provisional-standard`), so an online room has none whoever made it,
+  an older client and an older server included (the model's serde and
+  protocol did not change).
+- **What is played follows what is offered, never the rule alone**:
+  `RoomClient::attacks_offered` (not an online room) and
+  `attacks_played(rules)` (the rule, where offered) decide the stage's
+  battle in its order (`StageOrder::battle`: with attacks only where
+  they are played, survival otherwise, whatever id the rules carry), the
+  policies' rows, the standings' attack columns and the debug state's
+  `attacks`. An online room whose rules were sent the practice battle's
+  id still plays survival and says nothing of attacks but its Rules
+  row's "Off · not in online rooms yet" (test
+  `state::online::tests`, the pick's order).
+- **Summaries say what differs from the default**, so now "No attacks"
+  where a practice match has them turned off and nothing where it has
+  them: the Rules pop-up's locked line ("4 stages · 3 CPUs · DDI · Easy
+  timing · Boos · No attacks") and the stage's prompt ("Rules: DDI · No
+  attacks"); Japanese 「攻撃なし」. Where attacks are not offered (an
+  online room) nothing is said either way (`room::rules_words`,
+  `StageOrder::attacks_rule`).
+- **Switches**: desktop's `--mp-attacks` (and `--mp-dev-attacks`) and
+  the web's `mpattacks=1` are still taken and now change nothing; the
+  web's `mpattacks=0` starts a practice room with the rule Off, for
+  tests and screenshots (`Development::attacks`, an `Option` now).
+  Desktop got no opposite flag: its tests set the rule.
+- Tests: `ddi-room` `rules`
+  `attacks_are_a_match_rule_that_chooses_the_battle`; `ddi-ui`
+  `the_rules_summary_says_no_attacks_only_where_they_are_turned_off`,
+  the Rules pop-up's rows (On first, Reset back to On, the locked line),
+  the client's first order (`gauge-attacks-v0`), the online room's
+  (survival, nothing said); `ddi-session`'s survival stages turn the
+  rule off in their room (`room_seeded`), its attack stages leave it.
+  Singleplayer is untouched (the smoke check).
 
 ### Personal targeting (S6)
 
@@ -3038,7 +3085,7 @@ it, and nothing here asks the server to behave differently.
 | The match's ruleset is DDI alone (the DDI ruleset's round 3; `itg-fa+` and six more until then, whose ids are still read and played as DDI), its Difficulty (Normal by default) and Boos (Off) match rules; never Practice; fail immediate | `ddi_room::MatchRules::{ruleset, difficulty, boos}`, `ruleset_id`, `ddi_session::battle::stage_ruleset` | Everyone's stage plays DDI under the match's difficulty and Boos, whatever their own options say | The defaults; whether a match should be able to mix difficulties (a handicap) |
 | `attacks-v0`: a bar of 100, an attack 100, checkpoints every four beats from beat 4 to four beats past the last note; overflow lost | `ddi_room::attacks::ATTACKS_V0`, `AttackRunner::new` | The bar moves in steps every four beats and fills from about 50 best-window notes | The bar's size and the checkpoint's beat count |
 | `power-classes-v0`: the best window 2, the next 1, the rest 0, for every match ruleset (D2); DDI's W0 and W1 2 (±16.67 ms on Normal), W2 1 | `ddi_room::attacks::POWER_CLASSES_V0` | A bar fills from 50 notes in the top class: a strong CPU fills about three and a half a minute on the bundled charts, a one-star CPU one (the round's tables) | The classes, the bar's size and an attack's cost, from the measured rates |
-| Attacks are a match rule, Off by default (`gauge-attacks-v0` when On), offered in CPU practice; an online room shows them as not there yet | `ddi_room::MatchRules::attacks`, `screens::room::attacks_offered`; conveniences `--mp-attacks`, `mpattacks=1` | Anyone in practice turns attacks on in Rules; an online host cannot | D8's "On by default" in a later round; online attacks |
+| Attacks are a match rule, On by default where they are offered (CPU practice: `gauge-attacks-v0`; Off by default until M8 round 3); an online room shows them as not there yet and plays none whatever its rules say | `ddi_room::MatchRules::practice`, `attacks`, `ddi_ui`'s `RoomClient::attacks_played`, `screens::room::attacks_offered`; conveniences `mpattacks=0` (Off), `--mp-attacks` and `mpattacks=1` (redundant) | A practice match has attacks unless someone turns them off in Rules; an online host cannot turn them on | Online attacks |
 | A shock is a mine under DDI: −5 life on Normal (−1 Easy, −10 Hard), −10 points, the combo, the floors, the lamp, and its lane locked a second; `injected-mine-v0` (the ruleset's miss to the gauge alone) only under a ruleset without the lock, which no room plays | `ddi_engine::Player::shock_is_mine`, `ddi_engine::battle::INJECTED_MINE_V0` | A shock stepped on costs what a chart's mine costs and a second of its lane | The lock's second and the mine's cost (DDI's *tune* values) |
 | `placement-v1`: eight shocks over eight beats from a checkpoint, the eighths then the sixteenths, at most two a beat, one a row; margins about each step of the lane: none within 0.25 s after it nor within W3 before it, none from a hold's or roll's head to 0.25 s past its end, none from 1 s before a lift (`placement-v0`'s clearances by windows kept for comparison) | `ddi_engine::battle::PLACEMENT`, `Clearance::Margins` | Where the shocks fall: a shock may sit a sixteenth before a note of its lane from 150 BPM on, where a press more than half of W3 early steps on it | The 0.25 s; whether "before" should be W3 plus the mine window; whether sixteenths are acceptable |
 | Development trigger: the first safe section from a beat in each practice stage, its seed the stage's id | `--mp-dev-mines`, `mpdevmines=`, `ddi_session::battle::dev_shocks` | Only through the switch | Replaced by the attack loop (S4) |

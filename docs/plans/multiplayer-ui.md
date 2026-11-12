@@ -865,6 +865,13 @@ DDI ruleset's round 3", for what is built):
   practice; an online room shows it unavailable until online attacks
   are built.
 
+Decided (maintainer, 2026-11-12, after testing attacks: "I think it's
+working really well, we can switch it to On by default"): the Attacks
+rule is On by default wherever attacks are offered (CPU practice today),
+still a rule anyone turns Off in Rules. This is D8's first sentence
+again. An online room keeps playing without them, and says so in its
+Rules row, until online attacks are built.
+
 Built (2026-11-12, M8 round 3; `docs/plans/multiplayer-prototype-progress.md`,
 "M8 round 3"): D8's targeting as decided, with these choices where the
 decision left room.

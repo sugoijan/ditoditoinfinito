@@ -444,9 +444,10 @@ pub fn run() {
         };
         room::develop(n);
     }
-    // `--mp-attacks` (its old name `--mp-dev-attacks` still taken): a
-    // convenience for tests and screenshots, the practice room starts
-    // with its Attacks rule already On (the rule is in Rules for anyone).
+    // `--mp-attacks` (its old name `--mp-dev-attacks` still taken): the
+    // practice room starts with its Attacks rule On, which it does by
+    // default since 2026-11-12 (the rule is in Rules for anyone); kept so
+    // that old commands and scripts go on working.
     // DEVELOPMENT ONLY (M8a): `--mp-dev-mines BEAT`, a section of battle
     // shocks put into each stage's play from that beat
     // (`ddi_ui::state::room::Development`).
@@ -456,7 +457,7 @@ pub fn run() {
             .iter()
             .any(|a| a == "--mp-attacks" || a == "--mp-dev-attacks")
         {
-            d.attacks = true;
+            d.attacks = Some(true);
         }
         if let Some(i) = args.iter().position(|a| a == "--mp-dev-mines") {
             let Some(beat) = args.get(i + 1).and_then(|n| n.parse::<u32>().ok()) else {

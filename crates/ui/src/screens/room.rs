@@ -1453,7 +1453,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         ruleset: rules.ruleset_id().into(),
         difficulty: difficulty_id(rules.difficulty).into(),
         boos: rules.boos,
-        attacks: rules.attacks(),
+        attacks: r.attacks_played(rules),
         attacks_offered: attacks_offered(&r),
         targeting: snake(&r.my_targeting()),
         locked: r.locked_rules().is_some(),
@@ -1701,20 +1701,23 @@ pub fn difficulty_name(d: ddi_room::MatchDifficulty) -> UiText {
 /// member's play yet, so the rule is shown there as unavailable rather
 /// than offered and doing nothing.
 pub fn attacks_offered(room: &crate::state::room::RoomClient) -> bool {
-    !room.is_online()
+    room.attacks_offered()
 }
 
 /// The match's rules in a few words, where they are summarized (the Rules
-/// pop-up's locked line, a stage's prompt): the ruleset's name, its
-/// difficulty where it is not Normal, Boos where they are on, Attacks
-/// where they are on.
-pub fn rules_words(rules: &crate::state::room::StageRules, attacks: bool) -> UiText {
+/// pop-up's locked line, a stage's prompt): the ruleset's name, then what
+/// differs from the usual: its difficulty where it is not Normal, Boos
+/// where they are on, and "No attacks" where the match has none though
+/// the room offers them (`attacks`: the rule where attacks are offered,
+/// which is On by default; none where they are not, and nothing is
+/// said).
+pub fn rules_words(rules: &crate::state::room::StageRules, attacks: Option<bool>) -> UiText {
     let on = |b: bool| if b { "on" } else { "off" };
     m::rules_words(
         ruleset_name(&rules.ruleset),
         difficulty_id(rules.difficulty),
         on(rules.boos),
-        on(attacks),
+        on(attacks.unwrap_or(true)),
     )
 }
 

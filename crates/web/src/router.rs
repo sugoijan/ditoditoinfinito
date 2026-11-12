@@ -530,9 +530,9 @@ fn share_switch(hash: &str) {
 /// `Settings::multiplayer`, `mp=0` clears it; never a row of Options
 /// (DEVELOPMENT ONLY: `mpcpus=N` beside `mp=1`, practice against N CPUs
 /// beyond the cap, `crate::room::develop`, and `mpdevmines=BEAT`, a
-/// section of battle shocks, M8a; a convenience, `mpattacks=1`: the next
-/// practice room starts with its Attacks rule On, which anyone sets in
-/// Rules; and a hidden
+/// section of battle shocks, M8a; a convenience, `mpattacks=0`: the next
+/// practice room starts with its Attacks rule Off, which anyone sets in
+/// Rules (`mpattacks=1`, On, is the default now); and a hidden
 /// option, `mprules=1`, a room's Rules opening by themselves on entering,
 /// `Settings::multiplayer_rules_first`). Off,
 /// the start menu's Multiplayer says "Coming soon" and the prototype's
@@ -564,9 +564,10 @@ fn multiplayer_switch(hash: &str) {
     {
         crate::room::develop(n);
     }
-    // `mpattacks=1`: a convenience for tests and screenshots, the next
-    // practice room starts with its Attacks rule already On (the rule is
-    // in Rules for anyone; `mpattacks=0` back to Off). DEVELOPMENT ONLY
+    // `mpattacks=0`: a convenience for tests and screenshots, the next
+    // practice room starts with its Attacks rule Off (the rule is in
+    // Rules for anyone, On by default since 2026-11-12; `mpattacks=1`,
+    // once the way to start with it On, is still taken). DEVELOPMENT ONLY
     // (M8a): `mpdevmines=BEAT` puts a section of battle shocks into each
     // stage's play from that beat (`ddi_ui::state::room::Development`).
     if on {
@@ -581,7 +582,7 @@ fn multiplayer_switch(hash: &str) {
         if attacks.is_some() || mines.is_some() {
             let mut d = ddi_ui::state::room::development();
             if let Some(a) = attacks {
-                d.attacks = a;
+                d.attacks = Some(a);
             }
             if let Some(m) = mines {
                 d.mines_at_beat = m;

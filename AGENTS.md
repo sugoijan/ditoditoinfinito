@@ -884,7 +884,10 @@ Rust and the browser are implementation details, not advertised features.
   same notes, DDI's absolute score, `Absolute`; both additive on
   `Run::Live` and `ReportedRun::Live`;
   `GaugeAttacksV0`, the same with attacks, chosen by the match's Attacks
-  rule, `MatchRules::attacks`, Off by default; a member's own attack policy, `Member::targeting`
+  rule, `MatchRules::attacks`, On by default where attacks are offered
+  (`MatchRules::practice`; a hosted room's rules name no battle with
+  them, and a room that offers none plays none whatever its rules say,
+  `ddi_ui`'s `RoomClient::attacks_played`); a member's own attack policy, `Member::targeting`
   (Spread until they choose; `Command::SetTargeting`, taken outside a
   stage's play, nobody's readiness cleared; a CPU's its
   `OpponentSpec::targeting`, which a roster entry may name; additive,
@@ -1055,9 +1058,10 @@ Rust and the browser are implementation details, not advertised features.
   default, opens them by themselves on entering in their first form,
   Reset and OK; its rows Stages, DDI's Difficulty and Boos, practice's
   roster, `AddCpuDialog`, and Attacks, offered where they work
-  (`room::attacks_offered`: practice; an online room says they are not
-  there yet); the rules in a few words where they are summarized,
-  `room::rules_words`), `PlayersDialog`,
+  (`room::attacks_offered`: practice, On by default; an online room says
+  they are not there yet); the rules in a few words where they are
+  summarized, `room::rules_words`: what differs from the usual, so "No
+  attacks" where a practice match has them turned off), `PlayersDialog`,
   `StandingsDialog` and the refusal notice; `screens/prompt_room.rs` the
   stage's prompt (`PromptScreen::with_room`: Ready, its countdown, the
   players beside the diagram, where the match has attacks the player's
@@ -1241,10 +1245,11 @@ Rust and the browser are implementation details, not advertised features.
   LINK|INVITE` an online room's invite; `--mp-rules-first on|off`, a
   hidden option, off by default: a room's Rules open by themselves on
   entering, as the web's `mprules=1` (`mprules=0`) beside `mp=1`,
-  `Settings::multiplayer_rules_first`; `--mp-attacks`, a convenience for
-  tests and screenshots, never a gate: the practice room starts with its
-  Attacks rule On, which anyone sets in Rules, as the web's `mpattacks=1`
-  (its old name `--mp-dev-attacks` still taken); development only, `--mp-dev-cpus
+  `Settings::multiplayer_rules_first`; `--mp-attacks` and its old name
+  `--mp-dev-attacks`, still taken and redundant: a practice room's
+  Attacks rule is On by default (anyone turns it Off in Rules), as the
+  web's `mpattacks=1`; the web's `mpattacks=0` starts a practice room
+  with the rule Off, for tests and screenshots; development only, `--mp-dev-cpus
   N`, practice against N CPUs beyond the cap, as the web's `mpcpus=N`
   beside `mp=1`; `--mp-dev-mines BEAT`, a section of battle shocks in each stage's play
   from that beat, as `mpdevmines=BEAT`), `--share IDS|pack:NAME
