@@ -1188,6 +1188,75 @@ same offset.
   `--calibrate visual|audio|combined`, `--songs <dir>`,
   `--backend metal|vulkan|dx12|gl`, `--seconds N`, `--debug-json`.
 
+### One app a data folder (2026-11-12)
+
+Several apps could be opened on one data folder. Each loads
+`storage.json` into memory at start and writes the whole file on every
+change (atomically, so nothing corrupts), so the last writer won: a
+setting changed in one window was silently undone by the other. The
+online session's file and the announcer studio's draft are kept the same
+way; the play history is a file a play.
+
+- **The lock** (`crates/desktop/src/instance.rs`): an advisory OS lock,
+  the standard library's `File::try_lock` (`flock` on Unix, `LockFileEx`
+  on Windows; no dependency), on `instance.lock` in the configuration
+  folder, taken before the settings are read and kept by keeping the
+  file open for the life of the process. The system releases it when the
+  process ends, however it ended (a crash, a kill). Only the lock
+  decides: the file's existence and contents never do. The process id
+  and start time written into it are for the message alone (Windows
+  refuses reads of a locked file, so the line there names no process),
+  and the file is never deleted, since deleting a lock file races.
+- **Who takes it:** every run that opens the window, whatever its flags
+  (`--play`, `--screen`, `--seconds`, `--replay`, `--calibrate`,
+  `--edit`, `--shared`, `--join`, `--dev`, `--widgets`, and a lone
+  `--help`, which the app has no page for). **Who does not:** the runs
+  that open none, `--danoni-bundle-info`, `--danoni-importer-check`,
+  `--mp-bots` (its `--help` too), `--video-check`, `--share`, `--shares`
+  and `--delete-share` (`instance::utility`), which may run beside an
+  open app. The offscreen tests and the `screenshot` example never go
+  through `run` and take none.
+- **A second app does not start:** a line on stderr naming the folder
+  and the other process, a system dialog (rfd's message dialog, its
+  words `shell-running-title` and `shell-running` in the player's
+  language, read from the settings without writing them) and exit
+  status 3 (`instance::EXIT_RUNNING`). The other window is not raised.
+  The dialog is for a player's own run: a run with `DDI_HOME` (an
+  agent's, a test's, a second game from a terminal) or with no display
+  says it on stderr alone, so an agent's stray second run never leaves a
+  modal dialog on the maintainer's screen.
+- **No lock possible** (the folder cannot be written, a file system
+  without locks, no configuration folder): the app starts as before,
+  with one line on stderr.
+- **A second player on one machine:** `DDI_HOME=<another folder>` is a
+  second, independent app with its own lock.
+- **The utilities write no settings.** They used to open the same
+  writing store: `Settings::load` writes back what it migrates or
+  clamps, and `--sharing`, `--multiplayer` or `--mp-rules-first` given
+  beside `--share`, `--shares` or `--delete-share` saved the switch, so
+  a utility beside an open app wrote a file the app would overwrite from
+  its memory (or the app's last change, if it quit first). A run without
+  a window now reads the settings into memory and never writes, moves or
+  makes the file (`store::install_reading`, `FileStore::reading`), and
+  says on stderr that such a switch is not saved: start the game with
+  it. None of them reads or writes the online session's file (the bots
+  sign in through the server each run and keep nothing), the studio's
+  draft or the play history. What they still write is derived: the
+  library's cache and a share's files in the cache folder (`--share`, a
+  hosting `--mp-bots`); `--danoni-importer-check` starts the importer's
+  helper on its own folders (`danoni/` under the data and cache
+  folders), which this lock does not cover.
+- **Children do not inherit it.** The standard library opens files
+  close-on-exec on Unix and not inheritable on Windows; the video
+  decoder is started with descriptor 3 alone passed on (Unix) or an
+  explicit handle list (Windows), the importer's helper and the
+  browser's command with plain `Command`. Tested on Unix: the
+  descriptor's flag, and a process the app started outliving a killed
+  app without keeping the folder (`crates/desktop/tests/instance.rs`,
+  where each "app" is the test binary started again to do what `run`
+  does first, with no window).
+- Checked on macOS; Linux and Windows by compilation only.
+
 ## 6. Testing
 
 - **Natively, in CI (Linux):**

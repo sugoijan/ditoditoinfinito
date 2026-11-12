@@ -846,7 +846,27 @@ Rust and the browser are implementation details, not advertised features.
   playtests; new songs from a music file, `editor/new_song.rs`); the
   devices' fingerprints and notices (`devices.rs`). Settings in
   `storage.json` in the config folder; `DDI_HOME` moves the config, data
-  and cache folders under it (`paths.rs`). Tested without a sound device
+  and cache folders under it (`paths.rs`). One app a data folder
+  (`instance.rs`; `docs/plans/desktop.md`, "One app a data folder"): a
+  run that opens the window takes an OS file lock (the standard
+  library's `File::try_lock`) on `instance.lock` in the config folder
+  before it reads its settings and keeps it, the file open, until the
+  process ends; started where another app has the folder it does not
+  start: a line on stderr naming the folder and the other process, a
+  system dialog for a player's own run (`shell-running-title`,
+  `shell-running`; never with `DDI_HOME` set or without a display) and
+  exit status 3. Only the lock decides, never the file's existence or
+  what is written in it (the process and its start, for the message),
+  and the file is never deleted; where no lock can be had the app starts
+  as before and says so in a line. The runs that open no window
+  (`--danoni-bundle-info`, `--danoni-importer-check`, `--mp-bots`,
+  `--video-check`, `--share`, `--shares`, `--delete-share`:
+  `instance::utility`, which a new one joins) take none, may run beside
+  an open app, and read the settings without ever writing them
+  (`store::install_reading`; a saved switch given beside one,
+  `--sharing`, `--multiplayer`, `--mp-rules-first`, is not saved, and
+  the run says so). A second app on one machine (a second player for a
+  room) is `DDI_HOME=<another folder>`. Tested without a sound device
   on a fake clock and offscreen (`crates/desktop/tests/`; GPU tests skip without
   an adapter or with `DDI_NO_GPU=1`, as in CI's `desktop` job on Linux,
   macOS and Windows, with and without `video`). The video decoder
@@ -1308,8 +1328,10 @@ Rust and the browser are implementation details, not advertised features.
   `--danoni-importer-check` takes one outside it, as under `/tmp`), use
   `--volume 0.005` or `--silent`, and run under
   `target/scratch/wd.sh`; prefer offscreen tests: a window takes the
-  Mac's focus. The same crate built for wasm is the web app, which Trunk
-  builds (`just dev`, `just build`).
+  Mac's focus. Two runs that open the window cannot share a home: the
+  second ends with status 3 and a line on stderr (`instance.rs`), so
+  runs at the same time take a home each. The same crate built for wasm
+  is the web app, which Trunk builds (`just dev`, `just build`).
 - The web build is compiled with wasm SIMD (`.cargo/config.toml`'s
   `+simd128` for `wasm32-unknown-unknown`, `--enable-simd` for wasm-opt in
   index.html; the page refuses a browser without it, `no-wasm-simd`).

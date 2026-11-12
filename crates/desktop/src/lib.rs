@@ -9,6 +9,7 @@
 //!
 //! - [`keys`]: winit's keys as the DOM names them.
 //! - [`store`]: settings in a file, through `ddi_platform::storage`.
+//! - [`instance`]: one app a data folder, by a lock on it.
 //! - [`gpu`]: the painter over a surface or an offscreen texture, with
 //!   the bundled faces (the HUD's, the theme's) and the system's.
 //! - [`images`]: banners and backgrounds for the texture cache.
@@ -35,6 +36,7 @@ pub mod gpu;
 pub mod history;
 pub mod images;
 pub mod input;
+pub mod instance;
 pub mod keyboard;
 pub mod keys;
 pub mod library;
@@ -247,6 +249,12 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// no fail, no personal history. Its artifact selects the chart.
 /// `--play SONG --chart N --cpu=1` prepares an analytical CPU directly from
 /// the library chart, with the same strength and seed flags.
+///
+/// A run that opens the window takes its data folder's lock first and
+/// does not start where another app has it; the runs that open none
+/// (`--danoni-bundle-info`, `--danoni-importer-check`, `--mp-bots`,
+/// `--video-check`, `--share`, `--shares`, `--delete-share`) take none,
+/// run beside an open app, and only read the settings ([`instance`]).
 pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     #[cfg(windows)]
@@ -289,8 +297,26 @@ pub fn run() {
         #[cfg(danoni_importer)]
         return;
     }
+    // One app a data folder: the window's run takes the folder's lock
+    // before it reads its settings, and ends here where another app has
+    // it. A run without a window takes none and may run beside the app,
+    // so it reads the settings and never writes them.
+    let utility = instance::utility(&args);
+    instance::start(&args);
     clock::epoch();
-    store::install();
+    match utility {
+        Some(utility) => {
+            store::install_reading();
+            for flag in ["--sharing", "--multiplayer", "--mp-rules-first"] {
+                if args.iter().any(|a| a == flag) {
+                    eprintln!(
+                        "{flag} is not saved by a run that opens no window ({utility}): start the game with it"
+                    );
+                }
+            }
+        }
+        None => store::install(),
+    }
     // DEVELOPMENT TOOL: `--mp-bots …`, simulated players in a private
     // online room, played by the CPU (`bots`; no window, no sound device).
     if args.iter().any(|a| a == "--mp-bots") {
@@ -388,7 +414,7 @@ pub fn run() {
         if settings.sharing != on {
             settings.sharing = on;
             settings.save();
-            // The commands below end the process without the shell.
+            // A flag refused below ends the process without the shell.
             let _ = ddi_platform::storage::flush();
         }
     }

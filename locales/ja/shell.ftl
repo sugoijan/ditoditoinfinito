@@ -28,6 +28,12 @@ shell-menu-show-all = すべてを表示
 
 shell-menu-quit = { -game-name }を終了
 
+## Desktop's notice when the game is started while it is already open.
+
+shell-running-title = { -game-name }はすでに起動しています
+
+shell-running = 開いているウィンドウをお使いください。
+
 ## The kinds of file desktop's file dialogs offer.
 
 shell-file-zips = ZIPアーカイブ

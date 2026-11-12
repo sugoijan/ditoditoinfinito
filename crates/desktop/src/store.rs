@@ -40,6 +40,9 @@ pub struct FileStore {
     /// The last write failed: the file may not have `values`.
     unsaved: Arc<AtomicBool>,
     session: MemoryStore,
+    /// The file is only read ([`FileStore::reading`]): changes stay in
+    /// memory.
+    reading: bool,
 }
 
 impl FileStore {
@@ -75,11 +78,35 @@ impl FileStore {
             thread,
             unsaved,
             session: MemoryStore::default(),
+            reading: false,
+        }
+    }
+
+    /// The values in `path` for a run that only reads them (a
+    /// command-line utility, which does not have the folder's lock,
+    /// `crate::instance`, while the app may be open on it): what the run
+    /// changes stays in its memory, and the file is never written, moved
+    /// or made. One that cannot be read as values reads as none.
+    pub fn reading(path: &std::path::Path) -> FileStore {
+        let values = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        FileStore {
+            values: RefCell::new(values),
+            jobs: None,
+            thread: None,
+            unsaved: Arc::new(AtomicBool::new(false)),
+            session: MemoryStore::default(),
+            reading: true,
         }
     }
 
     /// The values to the writing thread.
     fn write(&self) -> Result<(), String> {
+        if self.reading {
+            return Ok(());
+        }
         let json =
             serde_json::to_string_pretty(&*self.values.borrow()).map_err(|e| e.to_string())?;
         self.send(Job::Write(json))
@@ -170,6 +197,9 @@ impl Store for FileStore {
     }
 
     fn flush(&self) -> Result<(), String> {
+        if self.reading {
+            return Ok(());
+        }
         let (answer, answered) = mpsc::channel();
         self.send(Job::Flush(answer))?;
         answered
@@ -183,6 +213,17 @@ impl Store for FileStore {
 pub fn install() {
     match default_path() {
         Some(path) => storage::install(Rc::new(FileStore::open(path))),
+        None => storage::install(Rc::new(MemoryStore::default())),
+    }
+    storage::install_clock(crate::clock::epoch_ms);
+}
+
+/// Installs the stored values for reading alone ([`FileStore::reading`])
+/// and the system clock: a command-line utility's store, and the one an
+/// app that does not start reads its language from.
+pub fn install_reading() {
+    match default_path() {
+        Some(path) => storage::install(Rc::new(FileStore::reading(&path))),
         None => storage::install(Rc::new(MemoryStore::default())),
     }
     storage::install_clock(crate::clock::epoch_ms);
@@ -270,6 +311,48 @@ mod tests {
         s.set(Area::Local, "k", "v").unwrap();
         s.flush().unwrap();
         assert!(std::fs::read_to_string(&path).unwrap().contains("\"k\""));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_reading_store_never_touches_the_file() {
+        let dir = std::env::temp_dir().join(format!("ddi-store-reading-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("storage.json");
+        // No file, no folder: none is made.
+        let s = FileStore::reading(&path);
+        s.set(Area::Local, "k", "v").unwrap();
+        s.flush().unwrap();
+        assert_eq!(s.get(Area::Local, "k").as_deref(), Some("v"));
+        drop(s);
+        assert!(!dir.exists());
+        // The app's values are read; a change, a removal and the drop
+        // leave the file as it was.
+        let app = FileStore::open(path.clone());
+        app.set(Area::Local, "k", "app").unwrap();
+        app.set(Area::Local, "gone", "x").unwrap();
+        app.flush().unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let s = FileStore::reading(&path);
+        assert_eq!(s.get(Area::Local, "k").as_deref(), Some("app"));
+        s.set(Area::Local, "k", "utility").unwrap();
+        s.remove(Area::Local, "gone");
+        s.set(Area::Session, "s", "1").unwrap();
+        assert_eq!(s.get(Area::Local, "k").as_deref(), Some("utility"));
+        assert_eq!(s.get(Area::Local, "gone"), None);
+        assert_eq!(s.get(Area::Session, "s").as_deref(), Some("1"));
+        s.flush().unwrap();
+        drop(s);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        // An unreadable file is left where it is, read as no values.
+        drop(app);
+        std::fs::write(&path, "{not json").unwrap();
+        let s = FileStore::reading(&path);
+        assert_eq!(s.get(Area::Local, "k"), None);
+        drop(s);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{not json");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         let _ = std::fs::remove_dir_all(dir);
     }
 

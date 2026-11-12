@@ -462,7 +462,11 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   measured, simulated and rerun 2026-10-22: late·1 falls back, late·2
   halves its misses without); a whole fullscreen song of late·2 fell back
   on a fullscreen transition's stall, which no longer counts; left: that
-  run again, Windows (a hardware run, the helper's build).
+  run again, Windows (a hardware run, the helper's build). One app a data
+  folder (2026-11-12): the app takes an OS file lock on its configuration
+  folder and a second one does not start; the command-line utilities
+  take none and write no settings; left: the dialog seen by a person,
+  Windows and Linux run.
 - [Packaging and releases](packaging.md) (2026-10-21): done; the release
   workflow's first run waits for a tag. An ad hoc signed `.app` (zip,
   `.dmg`), a Linux tarball and a Windows zip, built for draft releases

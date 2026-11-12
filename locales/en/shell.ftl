@@ -49,6 +49,16 @@ shell-menu-show-all = Show All
 # Quits the game (⌘Q).
 shell-menu-quit = Quit { -game-name }
 
+## Desktop's notice when the game is started while it is already open
+## on the same data: a system dialog with a heading, one sentence and an
+## OK button, after which the second game closes.
+
+# The dialog's heading.
+shell-running-title = { -game-name } is already running
+
+# Under the heading: one short sentence saying what to do instead.
+shell-running = Use the window that is already open.
+
 ## The kinds of file desktop's file dialogs offer, in the dialog's list
 ## of file types (Windows, Linux).
 
