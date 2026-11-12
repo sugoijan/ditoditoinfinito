@@ -41,6 +41,16 @@
 //!   its results where they were not seen there; the stage's start prompt
 //!   opens when a pick gathers readiness.
 //!
+//! - **One view, coming in once** (2026-11-12): what the screen is built
+//!   as is its [`Side`], changed only by [`SelectScreen::swap_side`].
+//!   Before the room says who this player is (an online room's first
+//!   answer comes after the screen is built) nothing role-specific shows:
+//!   the bars and, if it takes a moment, one quiet line (`RoomJoining`).
+//!   Once known, the picker's or the follower's view comes in with the
+//!   screen's own entrance, once, the bars kept as they are. A later change
+//!   of hands is one swap: the view's parts leave, then the other view's
+//!   come in (at once under reduced motion).
+//!
 //! A child module of `select` (it reads the screen's own fields).
 
 use super::*;
@@ -67,10 +77,58 @@ struct Place {
     search: String,
 }
 
+/// What a room's song select shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Side {
+    /// The room has not said who this player is yet (an online room
+    /// before its first answer): nothing role-specific.
+    Joining,
+    /// This player's own list: they choose the room's songs.
+    Picker,
+    /// The picker's resting song and the room's panel.
+    Follower,
+}
+
+impl Side {
+    /// The side the room says this player is on now.
+    fn of(r: &crate::state::room::RoomClient) -> Side {
+        if r.state().member(r.me()).is_none() {
+            Side::Joining
+        } else if r.chooses() {
+            Side::Picker
+        } else {
+            Side::Follower
+        }
+    }
+}
+
+/// The view's own parts, which leave and come in when it changes hands
+/// (the bars stay; the backdrop follows the song shown).
+const SIDE_PARTS: [&str; 6] = [
+    "Wheel",
+    "Wheel.Track",
+    "Wheel.Thumb",
+    "RoomParts",
+    "Song",
+    "RoomPlayers",
+];
+
+/// The quiet line shown while the room is not known yet.
+const JOINING: &str = "RoomJoining";
+/// How long joining goes on before the line shows: a room that answers
+/// at once shows none.
+const JOINING_AFTER: f32 = 0.4;
+
 /// Song select's room: the client, the shell's calls and what was drawn.
 pub(super) struct RoomMode {
     pub(super) room: SharedRoom,
     pub(super) shell: RoomShell,
+    /// What the screen is built as (its data with it: the player's own
+    /// list, or the song followed).
+    side: Side,
+    /// A change of hands under way: when the leaving view's parts are
+    /// out and the other view is built.
+    leaving: Option<f64>,
     pump: Pump,
     /// The room's version and the seconds left the parts were built for.
     built: Option<(u64, Option<u64>, bool)>,
@@ -101,9 +159,12 @@ impl SelectScreen {
     /// following view. The data's list is the player's library (the
     /// others' is replaced by the host's resting song).
     pub fn with_room(mut self, room: SharedRoom, shell: RoomShell) -> SelectScreen {
+        let side = Side::of(&room.borrow());
         self.room = Some(RoomMode {
             room,
             shell,
+            side,
+            leaving: None,
             pump: Pump::default(),
             built: None,
             panel_first: 0,
@@ -131,10 +192,18 @@ impl SelectScreen {
         self
     }
 
-    /// The local player picks here (the room's picker); `None` outside a
-    /// room.
+    /// The screen shows the local player's own list to pick from (they
+    /// are the room's picker); `None` outside a room.
     pub(super) fn room_host(&self) -> Option<bool> {
-        self.room.as_ref().map(|rm| rm.room.borrow().chooses())
+        self.room.as_ref().map(|rm| rm.side == Side::Picker)
+    }
+
+    /// The room has not said who this player is yet: the screen shows
+    /// nothing of a view.
+    pub(super) fn room_joining(&self) -> bool {
+        self.room
+            .as_ref()
+            .is_some_and(|rm| rm.side == Side::Joining)
     }
 
     /// Whether this player may take the pick over now (an operator who
@@ -142,7 +211,7 @@ impl SelectScreen {
     pub(super) fn room_may_take(&self) -> bool {
         self.room
             .as_ref()
-            .is_some_and(|rm| rm.room.borrow().may_take_pick())
+            .is_some_and(|rm| rm.side == Side::Follower && rm.room.borrow().may_take_pick())
     }
 
     /// Takes the pick over: at once, this player's own list back when the
@@ -227,7 +296,9 @@ impl SelectScreen {
     /// layout's, empty elsewhere).
     pub(super) fn room_players(&self) -> Actor {
         match (&self.room, self.layout.players) {
-            (Some(rm), Some(rect)) => room::players_panel(&self.env, &rm.room.borrow(), rect),
+            (Some(rm), Some(rect)) if rm.side != Side::Joining => {
+                room::players_panel(&self.env, &rm.room.borrow(), rect)
+            }
             _ => frame("RoomPlayers", Vec::new()),
         }
     }
@@ -248,6 +319,11 @@ impl SelectScreen {
         let Some(rm) = &self.room else {
             return frame("RoomParts", Vec::new());
         };
+        // Nothing of a view before the room is known.
+        if rm.side == Side::Joining {
+            return frame("RoomParts", Vec::new());
+        }
+        let follower = rm.side == Side::Follower;
         let env = self.env.clone();
         let l = self.room_layout(self.layout);
         let r = rm.room.borrow();
@@ -271,7 +347,7 @@ impl SelectScreen {
             }
             // An operator who follows: Pick songs, where the picker's
             // search is (a follower has none).
-            if r.may_take_pick() {
+            if follower && r.may_take_pick() {
                 let label = ddi_l10n::msg::room::take_pick();
                 let w = (look::mono_width(&label, 15.0) + 24.0).max(72.0);
                 children.push(env.component(
@@ -321,12 +397,150 @@ impl SelectScreen {
         frame("RoomParts", children)
     }
 
+    /// The quiet line of a room not known yet (`RoomJoining`), centered
+    /// under the header: unseen unless joining takes a moment, and faded
+    /// out (from wherever it is) when the view comes in or the screen
+    /// goes.
+    pub(super) fn room_joining_line(&self) -> Option<Actor> {
+        if !self.room_joining() {
+            return None;
+        }
+        let env = &self.env;
+        let [w, h] = self.layout.screen;
+        let text = ddi_l10n::msg::room::link_joining();
+        let mut line = env.text(JOINING, &text, 14.0, 600, "Secondary");
+        look::ellipsized(&mut line, (w - 64.0).max(80.0));
+        call(&mut line, "xy", &[w / 2.0, h / 2.0]);
+        let t_in = env.metric("Motion.Screen", 0.2);
+        let t_out = env.metric("Motion.Screen.Out", 0.15);
+        let off = format!("stoptweening;linear,{t_out};diffusealpha,0");
+        look::command_of(
+            &mut line,
+            "On",
+            &format!("diffusealpha,0;sleep,{JOINING_AFTER};linear,{t_in};diffusealpha,1"),
+        );
+        look::command_of(&mut line, "Off", &off);
+        look::command_of(&mut line, "Cancel", &off);
+        Some(line)
+    }
+
+    /// A tree built for a room not known yet: nothing of a view shows
+    /// (the list, the song's side, its backdrop, the search), only the
+    /// bars and the joining line.
+    pub(super) fn room_joining_view(&self, root: &mut Actor) {
+        if !self.room_joining() {
+            return;
+        }
+        for name in [
+            "Wheel",
+            "Wheel.Track",
+            "Wheel.Thumb",
+            "Song",
+            "Backdrop",
+            "SearchIcon",
+            "AddIcon",
+        ] {
+            if let Some(part) = root.children_mut().iter_mut().find(|c| c.name == name) {
+                part.visible = false;
+            }
+        }
+        if let Some(line) = self.room_joining_line()
+            && let Kind::Frame(c) = &mut root.kind
+        {
+            c.push(line);
+        }
+    }
+
+    /// The room says this player is on side `to` now: the view built
+    /// again as that side's, its data with it (their own list back where
+    /// they pick, the song followed otherwise). The bars are kept as they
+    /// are, in motion or at rest; the new view's parts come in when
+    /// `enter` (else they stand as they are).
+    fn swap_side(&mut self, to: Side, enter: bool, root: &mut Actor, cx: &mut Cx) {
+        let from = match &mut self.room {
+            Some(rm) => std::mem::replace(&mut rm.side, to),
+            None => return,
+        };
+        match to {
+            Side::Picker => self.take_back_library(),
+            Side::Follower => self.follow_host(root, cx),
+            Side::Joining => {}
+        }
+        let left = root.tween_time_left();
+        let old = std::mem::replace(root, self.build_tree(cx));
+        self.reload();
+        // What had the focus may be gone (the search, Pick songs).
+        let names = self.focusables();
+        if cx
+            .focused()
+            .is_some_and(|f| !names.iter().any(|n| n.name == f))
+            || (to != Side::Picker
+                && cx
+                    .focused()
+                    .is_some_and(|f| f == self.search.name || f == "ClearSearch"))
+        {
+            cx.focus("Wheel");
+        }
+        if cx.holding() {
+            // Under the web's loader: its entrances are held for the fade.
+            crate::screens::relaid(root, left, cx);
+            return;
+        }
+        // The bars as they were (coming in still, or at rest): only what
+        // is inside them changes, at once, as between two screens.
+        let (Kind::Frame(mut old), Kind::Frame(now)) = (old.kind, &mut root.kind) else {
+            return;
+        };
+        for (name, edge) in super::SELECT_PARTS {
+            if !matches!(
+                edge,
+                crate::screens::Edge::HeaderBar | crate::screens::Edge::FooterBar
+            ) {
+                continue;
+            }
+            let Some(at) = old.iter().position(|c| c.name == name) else {
+                continue;
+            };
+            let mut kept = old.remove(at);
+            match now.iter_mut().find(|c| c.name == name) {
+                Some(fresh) => {
+                    kept.visible = fresh.visible;
+                    kept.kind = std::mem::replace(&mut fresh.kind, Kind::Frame(Vec::new()));
+                    *fresh = kept;
+                }
+                // The footer comes after a tree is built: the same one.
+                None if name == "Footer" => now.push(kept),
+                None => {}
+            }
+        }
+        let mut problems = ddi_actor::Problems::default();
+        // The joining line goes as the view comes.
+        if from == Side::Joining
+            && let Some(at) = old.iter().position(|c| c.name == JOINING)
+        {
+            let mut line = old.remove(at);
+            line.play("Off", &mut problems);
+            now.push(line);
+        }
+        if enter {
+            let backdrop = (from == Side::Joining).then_some("Backdrop");
+            for name in SIDE_PARTS.into_iter().chain(backdrop) {
+                if let Some(part) = now.iter_mut().find(|c| c.name == name) {
+                    part.play("On", &mut problems);
+                }
+            }
+        }
+    }
+
     /// Replaces the room's parts in `root` (the room changed).
     fn refill_room(&mut self, root: &mut Actor, cx: &mut Cx) {
+        if self.room_joining() {
+            return;
+        }
+        // Only what is inside changes: a part coming in goes on coming in.
         let fresh = self.room_parts(cx);
         if let Some(old) = hit::find_mut(root, "RoomParts") {
-            *old = fresh;
-            old.finish_tweening();
+            crate::screens::refill(old, fresh);
         }
         let players = self.room_players();
         if let Some(old) = hit::find_mut(root, "RoomPlayers") {
@@ -387,59 +601,88 @@ impl SelectScreen {
         if Pump::open_prompt(&room, &shell, cx) {
             return;
         }
-        let host = self.room_host() == Some(true);
-        if host {
-            // The pick came (the room said so at last, or it was taken or
-            // came back): this player's own list first, then what it
-            // rests on told the room.
-            if self.room_built_host != Some(true) {
-                self.take_back_library();
-            }
-            self.tell_hover();
-        } else if known {
-            // Not before the room says who this player is: an online
-            // room's host is a follower until its first snapshot.
-            self.follow_host(root, cx);
-        }
-        let seconds = room::seconds_left(&room.borrow());
-        let key = (room.borrow().version(), seconds, host);
-        // The header names the room: its name comes after the room.
+        // The header names the room: its name comes after the room, and
+        // changes in place (the bars stay put).
         let heading = String::from(room::heading(&room.borrow()));
         if self.room_built_heading.as_deref() != Some(heading.as_str()) {
+            if self.room_built_heading.is_some()
+                && !self.layout.compact
+                && let Some(old) = hit::find_mut(root, "Header")
+            {
+                let fresh = header(&self.env, cx, self.layout.screen[0], &heading);
+                crate::screens::refill(old, fresh);
+            }
             self.room_built_heading = Some(heading);
-            self.room_built_host = None;
+            self.left_dirty = true;
+        }
+        // The side the room says this player is on, against the one
+        // shown: known at last, or the pick changed hands.
+        let now = Side::of(&room.borrow());
+        let (shown, leaving) = match &self.room {
+            Some(rm) => (rm.side, rm.leaving),
+            None => return,
+        };
+        if now != shown && now != Side::Joining {
+            // From nothing the view comes in; from the other view, its
+            // parts leave first, then this one's come in: one swap (at
+            // once under reduced motion, and under the web's loader).
+            let at_once = shown == Side::Joining || self.env.reduced() || cx.holding();
+            if !at_once {
+                match leaving {
+                    None => {
+                        let mut problems = ddi_actor::Problems::default();
+                        for name in SIDE_PARTS {
+                            if let Some(part) =
+                                root.children_mut().iter_mut().find(|c| c.name == name)
+                            {
+                                part.play("Off", &mut problems);
+                            }
+                        }
+                        let out = f64::from(self.env.metric("Motion.Screen.Out", 0.15));
+                        if let Some(rm) = &mut self.room {
+                            rm.leaving = Some(cx.time() + out);
+                        }
+                        self.cancel_navigation();
+                        return;
+                    }
+                    Some(at) if cx.time() < at => return,
+                    Some(_) => {}
+                }
+            }
             if let Some(rm) = &mut self.room {
+                rm.leaving = None;
                 rm.built = None;
             }
+            let enter = shown == Side::Joining || !self.env.reduced();
+            self.swap_side(now, enter, root, cx);
+        } else if leaving.is_some() {
+            // Changed back before the swap (taken and returned at once):
+            // the same view's parts come back in.
+            if let Some(rm) = &mut self.room {
+                rm.leaving = None;
+            }
+            let mut problems = ddi_actor::Problems::default();
+            for name in SIDE_PARTS {
+                if let Some(part) = root.children_mut().iter_mut().find(|c| c.name == name) {
+                    part.play("On", &mut problems);
+                }
+            }
         }
+        let side = self.room.as_ref().map_or(Side::Joining, |rm| rm.side);
+        match side {
+            Side::Picker => self.tell_hover(),
+            Side::Follower => self.follow_host(root, cx),
+            // Nothing before the room says who this player is.
+            Side::Joining => return,
+        }
+        let seconds = room::seconds_left(&room.borrow());
+        let key = (room.borrow().version(), seconds, side == Side::Picker);
         let rebuilt = self.room.as_ref().is_some_and(|rm| rm.built != Some(key));
         if changed || rebuilt {
             if let Some(rm) = &mut self.room {
                 rm.built = Some(key);
             }
-            // The pick changed hands (taken, or come back): the whole
-            // screen again, this player's own list back where they pick.
-            if self.room_built_host != Some(host) {
-                self.room_built_host = Some(host);
-                let left = root.tween_time_left();
-                *root = self.build_tree(cx);
-                self.reload();
-                crate::screens::relaid(root, left, cx);
-                // What had the focus may be gone (the search, Pick songs).
-                let names = self.focusables();
-                if cx
-                    .focused()
-                    .is_some_and(|f| !names.iter().any(|n| n.name == f))
-                    || (!host
-                        && cx
-                            .focused()
-                            .is_some_and(|f| f == self.search.name || f == "ClearSearch"))
-                {
-                    cx.focus("Wheel");
-                }
-            } else {
-                self.refill_room(root, cx);
-            }
+            self.refill_room(root, cx);
         }
     }
 
@@ -478,6 +721,9 @@ impl SelectScreen {
         let Some(rm) = &mut self.room else {
             return;
         };
+        if rm.side != Side::Follower {
+            return;
+        }
         let r = rm.room.borrow();
         let now = r.state().spotlight.as_ref().map(|s| {
             let read = r.spotlight().is_some_and(|(_, p)| p.is_some());
@@ -613,7 +859,9 @@ impl SelectScreen {
         let Some(rm) = &self.room else {
             return;
         };
-        if self.room_host() != Some(true) {
+        // Theirs to pick as the room has it now, whatever the screen
+        // still shows while a change of hands is under way.
+        if self.room_host() != Some(true) || !rm.room.borrow().chooses() {
             return;
         }
         let picked = rm.room.borrow_mut().pick(song, chart);
@@ -718,6 +966,22 @@ impl SelectScreen {
         }
         if !self.following() {
             return None;
+        }
+        // Nothing to move or pick before the room is known: Back and More
+        // alone.
+        if self.room_joining() {
+            return match input {
+                Input::Key(k) if !matches!(k.key.as_str(), "Escape" | "Backspace") => {
+                    Some(Handled::Yes)
+                }
+                Input::Menu { action, .. }
+                    if !matches!(action, MenuAction::Back | MenuAction::More) =>
+                {
+                    Some(Handled::Yes)
+                }
+                Input::Wheel { .. } => Some(Handled::Yes),
+                _ => None,
+            };
         }
         // T: an operator who follows takes the pick over.
         if let Input::Key(k) = input

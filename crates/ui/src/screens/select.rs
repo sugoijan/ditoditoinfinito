@@ -791,7 +791,6 @@ pub struct SelectScreen {
     room: Option<room_mode::RoomMode>,
     /// Whether the room's parts were built for its host, and the room's
     /// name the header was built with.
-    room_built_host: Option<bool>,
     room_built_heading: Option<String>,
 }
 
@@ -901,7 +900,6 @@ impl SelectScreen {
             wheel_motion: None,
             open: 1.0,
             room: None,
-            room_built_host: None,
             room_built_heading: None,
         };
         let resume = data.resume.clone();
@@ -1622,6 +1620,8 @@ impl SelectScreen {
         self.publish_dirty = true;
         self.dimmed = false;
         self.backdrop.restore(&mut root, cx, &env);
+        // A room not known yet shows nothing of a view.
+        self.room_joining_view(&mut root);
         root
     }
 
@@ -2380,6 +2380,11 @@ impl SelectScreen {
         if take && now != Hints::Typing {
             hints.push(h(&["T"], &take_pick));
         }
+        // A room not known yet: the way back alone.
+        let joining = self.room_joining();
+        if joining {
+            hints.retain(|(keys, _)| keys == &["ESC"]);
+        }
         // A room that plays one style has none to change to: no Tab.
         if self.room.is_some() && self.data.styles.len() <= 1 {
             hints.retain(|(keys, _)| keys != &["TAB"]);
@@ -2409,7 +2414,7 @@ impl SelectScreen {
                 prefix: "",
             })
             .collect();
-        if now == Hints::Song {
+        if now == Hints::Song && !joining {
             hints[1].prefix = "2×";
         }
         let mut controller: Vec<(&[HintAction], &str)> = vec![(
@@ -2443,6 +2448,11 @@ impl SelectScreen {
                 esc.as_str()
             },
         ));
+        if joining {
+            controller.retain(|(actions, _)| {
+                matches!(actions, [HintAction::More] | [HintAction::Back])
+            });
+        }
         let mut f = footer_hints(
             &self.env,
             self.layout.screen,
@@ -2634,6 +2644,10 @@ impl SelectScreen {
     /// list's place.
     fn tell(&mut self, cx: &mut Cx) {
         if self.shell.is_none() || !cx.is_current_screen() {
+            return;
+        }
+        // A room not known yet shows no song: none is told (no preview).
+        if self.room_joining() {
             return;
         }
         let song = match self.shown {
@@ -3536,6 +3550,18 @@ impl Screen for SelectScreen {
     }
 
     fn focusables(&self) -> Vec<Focusable> {
+        // A room not known yet: the bars' own alone, the focus kept where
+        // the view's list will be (nothing there to press yet).
+        if self.room_joining() {
+            let names: &[&str] = if self.layout.compact {
+                &["Back", "More"]
+            } else {
+                &["Back", "Volume", "More", "Link.Options", "Link.Calibrate"]
+            };
+            return std::iter::once(Focusable::new_list("Wheel"))
+                .chain(names.iter().map(|n| Focusable::new(*n)))
+                .collect();
+        }
         // The header's row in order, explicitly (the wheel below lies
         // nearer than the next thing to the right): the search, its Clear
         // while it shows, the mods.

@@ -2187,3 +2187,283 @@ fn a_room_from_before_the_picker_shows_every_operator_their_list() {
     t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
     assert!(!t.server.borrow().state().one_picker());
 }
+
+/// A part's alpha as drawn now (0 where it is not there, hidden, or a
+/// frame with nothing in it).
+fn alpha(h: &Harness, name: &str) -> f32 {
+    h.ui.actor(name)
+        .filter(|a| a.visible)
+        .filter(|a| !matches!(&a.kind, ddi_actor::Kind::Frame(c) if c.is_empty()))
+        .map_or(0.0, |a| a.current().diffuse()[3])
+}
+
+/// How a part's alpha went over frames: how many times it began to
+/// rise from nothing (an entrance begun), and how many times it fell.
+fn runs(alphas: &[f32]) -> (usize, usize) {
+    let mut rises = 0;
+    let mut falls = 0;
+    let mut rising = false;
+    let mut falling = false;
+    for w in alphas.windows(2) {
+        if w[1] > w[0] + 1e-4 {
+            if !rising && w[0] < 0.05 {
+                rises += 1;
+            }
+            rising = true;
+            falling = false;
+        } else if w[1] < w[0] - 1e-4 {
+            if !falling {
+                falls += 1;
+            }
+            falling = true;
+            rising = false;
+        }
+    }
+    (rises, falls)
+}
+
+/// Whether nothing of a view shows: no list, no song's side, no status
+/// line, no panel, no players, no room buttons.
+fn no_view(h: &Harness) -> bool {
+    !list_shows(h)
+        && h.ui.actor("Song").is_none_or(|s| !s.visible)
+        && !there(h, "Room.Status")
+        && !there(h, "Panel")
+        && !there(h, "Players.Heading")
+        && !there(h, "Room.Rules")
+        && !there(h, "Room.TakePick")
+}
+
+/// An online room alone with its owner, whose first answer is `delay` ms
+/// on its way; the owner's song select on a harness.
+fn late_room(delay: u64, env: &Env) -> (ddi_room::ManualClock, SharedRoom, Harness) {
+    use crate::state::online::tests::room::{client, person};
+    use ddi_room::fake::FakeServer;
+    use ddi_room::{Identity, RoomPolicy};
+    let clock = ddi_room::ManualClock::new(1_000);
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy::default(),
+        clock.clone(),
+    )
+    .shared();
+    let alice = Rc::new(RefCell::new(client(
+        &server,
+        person(&server, "alice"),
+        "alice",
+        1_000,
+    )));
+    if delay > 0 {
+        server
+            .borrow_mut()
+            .fault(ddi_room::ParticipantId(1), ddi_room::fake::Fault::Delay(delay));
+    }
+    let h = online_select(env, &alice, songs_of(&["Alpha One", "Alpha Two"]), &Orders::default());
+    (clock, alice, h)
+}
+
+/// Frames of a 60th of a second for `seconds`, the room's time passing
+/// with them; each frame's alpha of `parts`.
+fn frames(
+    clock: &ddi_room::ManualClock,
+    rooms: &[&SharedRoom],
+    h: &mut Harness,
+    seconds: f32,
+    parts: &[&str],
+) -> Vec<Vec<f32>> {
+    let mut out = vec![Vec::new(); parts.len()];
+    for _ in 0..(seconds * 60.0).round() as usize {
+        clock.advance(16);
+        let now = ddi_room::Clock::now(clock).0;
+        for r in rooms {
+            r.borrow_mut().tick(now);
+        }
+        h.frame(1.0 / 60.0);
+        for (k, name) in parts.iter().enumerate() {
+            out[k].push(alpha(h, name));
+        }
+    }
+    out
+}
+
+/// Creating a private room (the maintainer, 2026-11-12: "some animation
+/// flicker"). The room's first answer comes after the screen is built:
+/// until then nothing of a view shows, only the bars and, after a
+/// moment, one quiet line. Then the host's view comes in, once: each of
+/// its parts begins one entrance and never falls back, the bars stay as
+/// they are, the line goes.
+#[test]
+fn a_room_made_shows_no_view_until_it_answers_and_then_the_hosts_once() {
+    let env = env();
+    let (clock, alice, mut h) = late_room(1_000, &env);
+    // Before the answer.
+    let mut seen = Vec::new();
+    for _ in 0..48 {
+        seen.extend(frames(&clock, &[&alice], &mut h, 1.0 / 60.0, &["RoomJoining", "Header"]));
+        assert!(no_view(&h), "{:?}", h.texts());
+        assert!(!view(&env).host);
+    }
+    assert!(has(&h, "Joining the room…"), "{:?}", h.texts());
+    assert_eq!(alpha(&h, "RoomJoining"), 1.0, "shown after a moment");
+    assert_eq!(alpha(&h, "Header"), 1.0);
+    // The answer comes (a second after the socket opened).
+    let parts = ["Wheel", "Song", "RoomParts", "RoomPlayers", "Header", "RoomJoining", "Footer"];
+    let after = frames(&clock, &[&alice], &mut h, 1.2, &parts);
+    assert!(view(&env).host && list_shows(&h));
+    assert!(has(&h, "Alpha One") && there(&h, "Room.Status"), "{:?}", h.texts());
+    for (k, name) in parts.iter().enumerate().take(4) {
+        assert_eq!(runs(&after[k]), (1, 0), "{name}: {:?}", after[k]);
+        assert_eq!(after[k].last(), Some(&1.0), "{name}");
+    }
+    // The bars never moved; the line went, once.
+    assert!(after[4].iter().all(|a| *a == 1.0), "{:?}", after[4]);
+    assert!(after[6].iter().all(|a| *a == 1.0), "{:?}", after[6]);
+    assert_eq!(runs(&after[5]), (0, 1), "{:?}", after[5]);
+    assert_eq!(alpha(&h, "RoomJoining"), 0.0);
+    // Nothing after: at rest.
+    let rest = frames(&clock, &[&alice], &mut h, 0.5, &parts);
+    for (k, name) in parts.iter().enumerate() {
+        assert_eq!(runs(&rest[k]), (0, 0), "{name}: {:?}", rest[k]);
+    }
+}
+
+/// A room that answers at once, or while the screen is still coming in
+/// (a server nearby): the line never shows, the bars' own entrance goes
+/// on from where it was (never begun again, never cut short), and the
+/// view comes in once.
+#[test]
+fn a_room_that_answers_at_once_shows_no_line_and_keeps_the_bars_coming_in() {
+    for delay in [0, 50, 120] {
+        let env = env();
+        let (clock, alice, mut h) = late_room(delay, &env);
+        // Known within the first frame, or a few frames in.
+        assert_eq!(no_view(&h), delay > 0, "{delay}");
+        let parts = ["Wheel", "Song", "RoomParts", "Header", "RoomJoining"];
+        let seen = frames(&clock, &[&alice], &mut h, 1.0, &parts);
+        assert!(view(&env).host && list_shows(&h), "{delay}");
+        for (k, name) in parts.iter().enumerate().take(3) {
+            assert_eq!(runs(&seen[k]), (1, 0), "{delay} {name}: {:?}", seen[k]);
+            assert_eq!(seen[k].last(), Some(&1.0), "{delay} {name}");
+        }
+        // The header: one entrance, as smooth as any screen's.
+        let header = &seen[3];
+        assert!(runs(header).0 <= 1 && runs(header).1 == 0, "{delay}: {header:?}");
+        assert_eq!(header.last(), Some(&1.0));
+        assert!(
+            header.windows(2).all(|w| w[1] - w[0] < 0.25),
+            "{delay}: no jump {header:?}"
+        );
+        assert!(seen[4].iter().all(|a| *a == 0.0), "{delay}: {:?}", seen[4]);
+    }
+}
+
+/// A member joining: nothing of a view before the room answers, then
+/// the following view, once.
+#[test]
+fn a_member_joining_gets_the_following_view_once() {
+    use ddi_room::fake::Fault;
+    let t = Three::new(false);
+    t.server
+        .borrow_mut()
+        .fault(ddi_room::ParticipantId(2), Fault::Delay(600));
+    let env = env();
+    let mut h = online_select(&env, &t.bob, songs_of(&["Bravo One"]), &Orders::default());
+    let rooms = [&t.alice, &t.bob, &t.carol];
+    for _ in 0..30 {
+        frames(&t.clock, &rooms, &mut h, 1.0 / 60.0, &[]);
+        assert!(no_view(&h), "{:?}", h.texts());
+    }
+    let parts = ["Song", "RoomParts", "RoomPlayers", "Header"];
+    let after = frames(&t.clock, &rooms, &mut h, 1.2, &parts);
+    assert!(!view(&env).host && !list_shows(&h));
+    assert!(there(&h, "Panel") && there(&h, "Room.Status"), "{:?}", h.texts());
+    assert_eq!(view(&env).status, "alice is choosing the first song.");
+    for (k, name) in parts.iter().enumerate().take(3) {
+        assert_eq!(runs(&after[k]), (1, 0), "{name}: {:?}", after[k]);
+        assert_eq!(after[k].last(), Some(&1.0), "{name}");
+    }
+    assert!(after[3].iter().all(|a| *a == 1.0), "{:?}", after[3]);
+}
+
+/// A change of hands is one swap: the view's parts leave (the list still
+/// the player's own while it does), then the other view's come in, each
+/// once; the bars stay. Under reduced motion the swap is at once.
+#[test]
+fn a_change_of_hands_is_one_swap() {
+    let t = Three::new(true);
+    let (ea, eb) = (env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    t.settle(600, &mut [&mut ha, &mut hb]);
+    let rooms = [&t.alice, &t.bob, &t.carol];
+    t.bob.borrow_mut().take_pick().unwrap();
+    // Alice's list leaves, then the following view comes in.
+    let parts = ["Wheel", "RoomParts", "Song", "Header", "Footer"];
+    let mut seen = vec![Vec::new(); parts.len()];
+    let mut list_gone_at = None;
+    for f in 0..60 {
+        let step = frames(&t.clock, &rooms, &mut ha, 1.0 / 60.0, &parts);
+        for (k, s) in step.into_iter().enumerate() {
+            seen[k].extend(s);
+        }
+        if list_shows(&ha) {
+            assert!(has(&ha, "Alpha One"), "her own list while it leaves");
+            assert_eq!(list_gone_at, None, "never back");
+        } else if list_gone_at.is_none() {
+            list_gone_at = Some(f);
+            assert!(*seen[0].last().unwrap() == 0.0, "gone only once out");
+        }
+    }
+    assert!(list_gone_at.is_some_and(|f| f > 2), "{list_gone_at:?}");
+    assert!(!view(&ea).host && there(&ha, "Panel") && there(&ha, "Room.TakePick"));
+    // The list: out, never in again. The room's parts and the song's
+    // side: out, then in, once each.
+    assert_eq!(runs(&seen[0]), (0, 1), "{:?}", seen[0]);
+    for k in [1, 2] {
+        assert_eq!(runs(&seen[k]), (1, 1), "{}: {:?}", parts[k], seen[k]);
+        assert_eq!(seen[k].last(), Some(&1.0));
+    }
+    for k in [3, 4] {
+        assert!(seen[k].iter().all(|a| *a == 1.0), "{}: {:?}", parts[k], seen[k]);
+    }
+    // Bob's side of it: the following view out, his list in.
+    let seen = frames(&t.clock, &rooms, &mut hb, 1.0, &["Wheel", "RoomParts"]);
+    assert!(view(&eb).host && list_shows(&hb) && has(&hb, "Bravo One"));
+    assert_eq!(runs(&seen[0]), (1, 0), "{:?}", seen[0]);
+    assert_eq!(runs(&seen[1]), (1, 1), "{:?}", seen[1]);
+    // Reduced motion: the other view at once, at rest.
+    ea.reduced_motion.set(true);
+    frames(&t.clock, &rooms, &mut ha, 0.5, &[]);
+    t.alice.borrow_mut().take_pick().unwrap();
+    let seen = frames(&t.clock, &rooms, &mut ha, 0.1, &["Wheel", "RoomParts", "Song"]);
+    assert!(view(&ea).host && list_shows(&ha) && has(&ha, "Alpha One"));
+    for (k, s) in seen.iter().enumerate() {
+        assert_eq!(s.last(), Some(&1.0), "{k}: {s:?}");
+    }
+    assert!(seen[1].iter().chain(&seen[2]).all(|a| *a == 1.0), "{seen:?}");
+}
+
+/// CPU practice is known from its first frame: its view is built at once
+/// and comes in with the screen, once, with no joining line.
+#[test]
+fn practice_is_known_from_its_first_frame() {
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    let clock = ddi_room::ManualClock::new(0);
+    let parts = ["Wheel", "Song", "RoomParts", "RoomPlayers", "Header"];
+    let first = frames(&clock, &[], &mut h, 1.0 / 60.0, &parts);
+    assert!(list_shows(&h) && there(&h, "Room.Status") && !there(&h, "RoomJoining"));
+    assert!(view(&env).host);
+    let seen = frames(&clock, &[], &mut h, 1.0, &parts);
+    for (k, name) in parts.iter().enumerate() {
+        let all: Vec<f32> = first[k].iter().chain(&seen[k]).copied().collect();
+        assert!(runs(&all).0 <= 1 && runs(&all).1 == 0, "{name}: {all:?}");
+        assert_eq!(all.last(), Some(&1.0), "{name}");
+    }
+}
