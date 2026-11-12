@@ -407,7 +407,9 @@ impl SelectScreen {
         }
         let env = &self.env;
         let [w, h] = self.layout.screen;
-        let text = ddi_l10n::msg::room::link_joining();
+        // The link's own words: joining, or why it ended before the room
+        // was known (closed, signed out).
+        let text: String = room::status(&self.room.as_ref()?.room.borrow()).into();
         let mut line = env.text(JOINING, &text, 14.0, 600, "Secondary");
         look::ellipsized(&mut line, (w - 64.0).max(80.0));
         call(&mut line, "xy", &[w / 2.0, h / 2.0]);
@@ -672,8 +674,16 @@ impl SelectScreen {
         match side {
             Side::Picker => self.tell_hover(),
             Side::Follower => self.follow_host(root, cx),
-            // Nothing before the room says who this player is.
-            Side::Joining => return,
+            // Nothing before the room says who this player is, but what
+            // the link says of itself (it may end before the room is
+            // known: closed, signed out).
+            Side::Joining => {
+                if changed {
+                    let text: String = room::status(&room.borrow()).into();
+                    set_text(root, JOINING, &text);
+                }
+                return;
+            }
         }
         let seconds = room::seconds_left(&room.borrow());
         let key = (room.borrow().version(), seconds, side == Side::Picker);

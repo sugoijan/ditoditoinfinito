@@ -2467,3 +2467,25 @@ fn practice_is_known_from_its_first_frame() {
         assert_eq!(all.last(), Some(&1.0), "{name}");
     }
 }
+
+/// A link that ends before the room is known (not a member any more, the
+/// room closed, the sign-in ended) says so where the joining line is:
+/// never "Joining the room…" for good.
+#[test]
+fn a_room_that_cannot_be_joined_says_why() {
+    use crate::state::online::tests::room::{client, person};
+    let t = Three::new(false);
+    let dave: SharedRoom = Rc::new(RefCell::new(client(
+        &t.server,
+        person(&t.server, "dave"),
+        "dave",
+        1_000,
+    )));
+    let env = env();
+    let mut h = online_select(&env, &dave, songs_of(&["Delta One"]), &Orders::default());
+    frames(&t.clock, &[&dave], &mut h, 1.0, &[]);
+    assert!(no_view(&h), "{:?}", h.texts());
+    assert_eq!(said(&h, "RoomJoining"), "You left this room.");
+    assert_eq!(alpha(&h, "RoomJoining"), 1.0);
+    assert_eq!(view(&env).status, "You left this room.");
+}
