@@ -717,7 +717,11 @@ encoder first and our own behind it:
   again finds at most 10 ms to cut at the start, 30 ms at the end and
   0.36 dB to change, over the 334 sounds of our packs and test voices.
   A take within a little more than that (`Measure::already_tidy`) that
-  is compressed already keeps its bytes.
+  is compressed already keeps its bytes. (Since 2026-11-12, with the
+  louder level and its limiter: nothing to cut and 0.41 to 0.49 dB over
+  our packs' 330 MP3s, up to 0.71 dB for the same sounds as Opus at
+  32 kb/s; a take within 0.75 dB of the level is tidy already, and a
+  limited sound read back is not limited again.)
 
 Checked: `ogg_opus`'s and `opus`'s tests, among them each page's CRC,
 the lacing at whole 255s, the second-long pages, the end's trimming,

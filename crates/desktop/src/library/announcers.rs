@@ -450,7 +450,17 @@ mod tests {
         assert_eq!(names, ["Mr. Clank", "ガキンさん"]);
         for a in &found {
             assert!(a.key().starts_with("bundled:"));
-            assert_eq!(a.kept.lines.len(), 50, "{}", a.kept.name);
+            // Every line the game speaks, the battle's sixteen among them.
+            assert_eq!(a.kept.lines.len(), 66, "{}", a.kept.name);
+            for b in announcer::Battle::ALL {
+                let line = announcer::Line::Battle(b);
+                assert_eq!(
+                    a.kept.files(line).map(|(l, _)| l),
+                    Some(line),
+                    "{}: {b:?}",
+                    a.kept.name
+                );
+            }
             let reader = a.reader().unwrap();
             for f in a.kept.lines.values().flatten() {
                 assert!(reader.read(&a.name_in_reader(f)).is_ok(), "{f}");
