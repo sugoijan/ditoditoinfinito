@@ -680,8 +680,9 @@ impl ListModel for Wheel<'_> {
 
 /// What song select's footer shows: its hints, whether a search is in
 /// them, its note (a gesture's, else the matches counted), whether Manage
-/// is offered and whether the header has the focus.
-type FooterKey = (Hints, bool, Result<String, usize>, bool, bool);
+/// is offered, whether the header has the focus and whether a room's
+/// Pick songs is offered.
+type FooterKey = (Hints, bool, Result<String, usize>, bool, bool, bool);
 
 /// Song select.
 pub struct SelectScreen {
@@ -2220,7 +2221,8 @@ impl SelectScreen {
             (Some(_), _) => Err(self.match_count),
         };
         let in_header = self.in_header(cx);
-        let key = (now, searching, found, manage, in_header);
+        let take = self.room_may_take();
+        let key = (now, searching, found, manage, in_header, take);
         if self.hints.as_ref() == Some(&key) {
             return;
         }
@@ -2276,6 +2278,7 @@ impl SelectScreen {
             ddi_l10n::msg::common::close(),
         );
         let (manage_hint, plays, edit) = (msg::hint_manage(), msg::hint_plays(), msg::hint_edit());
+        let take_pick = ddi_l10n::msg::room::take_pick();
         let (navigate, more, activate) = (
             msg::hint_navigate(),
             ddi_l10n::msg::common::more(),
@@ -2373,6 +2376,10 @@ impl SelectScreen {
         }
         // A room's follower picks nothing: no Enter.
         hints.retain(|(_, label)| !label.is_empty());
+        // An operator who follows takes the pick over (T).
+        if take && now != Hints::Typing {
+            hints.push(h(&["T"], &take_pick));
+        }
         // A room that plays one style has none to change to: no Tab.
         if self.room.is_some() && self.data.styles.len() <= 1 {
             hints.retain(|(keys, _)| keys != &["TAB"]);
@@ -3538,7 +3545,11 @@ impl Screen for SelectScreen {
             Vec::new()
         } else {
             let room: Vec<String> = if self.room.is_some() {
-                vec!["Room.Rules".into(), "Room.Players".into()]
+                ["Room.Rules", "Room.Players"]
+                    .into_iter()
+                    .chain(self.room_may_take().then_some(super::room::TAKE_PICK))
+                    .map(String::from)
+                    .collect()
             } else {
                 Vec::new()
             };
@@ -3621,6 +3632,9 @@ impl Screen for SelectScreen {
             if self.room.is_some() {
                 v.push(along("Room.Rules"));
                 v.push(along("Room.Players"));
+                if self.room_may_take() {
+                    v.push(along(super::room::TAKE_PICK));
+                }
             }
             v.push(along("Volume"));
             v.push(along("More"));

@@ -1,10 +1,12 @@
 //! The multiplayer prototype's room, as the maintainer's match flow shows it
 //! (`docs/plans/multiplayer-prototype-progress.md`, M7b): no room screen of
 //! its own any more. The room's main view is song select (`select_room.rs`):
-//! the host's own list, whose Start on a song picks the next stage's song
+//! the picker's own list (one picker at a time, the room's owner at first:
+//! `RoomClient::chooses`), whose Start on a song picks the next stage's song
 //! and starts (or goes on with) the match, and the others' song select
-//! following the host's resting song with the match's picks and the players
-//! beside it. Readiness gathers on the stage's start prompt (`prompt_room.rs`).
+//! following the picker's resting song with the match's picks and the
+//! players beside it; an operator who follows can take the pick over
+//! ([`TAKE_PICK`]). Readiness gathers on the stage's start prompt (`prompt_room.rs`).
 //! Rules, Players and the stage's standings are pop-ups (`room_dialogs.rs`).
 //!
 //! What lives here is what those screens share: the calls to the shell
@@ -74,8 +76,13 @@ pub struct RoomView {
     pub phase: String,
     /// The revision of the room the screen shows.
     pub revision: u64,
-    /// The local player may pick (an operator): song select is theirs.
+    /// The local player chooses the room's songs now (the picker): song
+    /// select is theirs.
     pub host: bool,
+    /// Who chooses now (a member's id; none: nobody), and whether the
+    /// local player may take the pick over (the Pick songs action shows).
+    pub picker: Option<u64>,
+    pub can_take_pick: bool,
     pub stages: Vec<RoomStageView>,
     pub members: Vec<RoomMemberView>,
     /// The CPUs the shown rules seat, and the stages.
@@ -192,6 +199,8 @@ pub struct RoomMemberView {
     /// Their attack policy (`spread`, `retaliate`, `leader`), whatever
     /// the match's rules.
     pub targeting: String,
+    /// They choose the room's songs now.
+    pub picker: bool,
 }
 
 /// A room screen's per-frame work: the client ticked on the UI's clock,
@@ -309,7 +318,11 @@ pub fn status(r: &RoomClient) -> UiText {
             LinkState::Connected => {}
         }
     }
-    if let Some(why) = r.refusal() {
+    // A refused pick or rest of someone who does not choose: the line
+    // below says who does.
+    if let Some(why) = r.refusal()
+        && !matches!(why, Refusal::Room(Rejection::NotPicker { .. }))
+    {
         return refusal_text(why);
     }
     if let Some(n) = r.link_notice() {
@@ -320,26 +333,30 @@ pub fn status(r: &RoomClient) -> UiText {
         };
     }
     let s = r.state();
-    let host = r.may(Capability::ChooseContent);
+    let host = r.chooses();
     let seconds = seconds_left(r).unwrap_or(0);
+    // Who the others follow: named where the room has one picker at a
+    // time; nobody, said with how to take the pick where this player may;
+    // "the host" in a room from before the picker.
+    let picker = follows(r);
     match &s.phase {
-        Phase::Lobby => {
-            if host {
-                m::status_pick_first()
-            } else {
-                m::status_host_picks_first()
-            }
-        }
+        Phase::Lobby => match picker {
+            _ if host => m::status_pick_first(),
+            Follows::Named(name) => m::status_picker_first(name),
+            Follows::Nobody(text) => text,
+            Follows::Host => m::status_host_picks_first(),
+        },
         Phase::Preparing {
             stage,
             window: None,
         }
         | Phase::Intermission { next: stage } => {
             let n = number_of(r, *stage);
-            if host {
-                m::status_pick_next(n)
-            } else {
-                m::status_host_chooses(n)
+            match picker {
+                _ if host => m::status_pick_next(n),
+                Follows::Named(name) => m::status_picker_next(name, n),
+                Follows::Nobody(text) => text,
+                Follows::Host => m::status_host_chooses(n),
             }
         }
         Phase::Preparing {
@@ -370,9 +387,43 @@ pub fn status(r: &RoomClient) -> UiText {
         }
         Phase::MatchResults if host => m::status_pick_new_match(),
         Phase::Interrupted { .. } if host => m::status_stopped_pick(),
-        Phase::MatchResults | Phase::Interrupted { .. } => m::status_host_picks_new_match(),
+        Phase::MatchResults | Phase::Interrupted { .. } => match picker {
+            Follows::Named(name) => m::status_picker_new_match(name),
+            Follows::Nobody(text) => text,
+            Follows::Host => m::status_host_picks_new_match(),
+        },
     }
 }
+
+/// Whom a player who does not choose the songs follows, for their status
+/// line.
+enum Follows {
+    /// The picker, by name (data; labeled Bot for a bot).
+    Named(String),
+    /// Nobody chooses: the line saying so (and how to take the pick, for
+    /// one who may).
+    Nobody(UiText),
+    /// A room from before the picker: its operators choose, "the host".
+    Host,
+}
+
+fn follows(r: &RoomClient) -> Follows {
+    let s = r.state();
+    if !s.one_picker() {
+        return Follows::Host;
+    }
+    match s.picker().and_then(|id| s.member(id)) {
+        Some(member) => Follows::Named(person_name(member)),
+        None if r.may_take_pick() => Follows::Nobody(m::status_nobody_picks_take()),
+        None => Follows::Nobody(m::status_nobody_picks()),
+    }
+}
+
+/// The name of the Pick songs button on a following operator's song
+/// select, and its item in the room's More menu: takes the pick over
+/// (`RoomClient::take_pick`).
+pub const TAKE_PICK: &str = "Room.TakePick";
+const MORE_TAKE_PICK: &str = "takepick";
 
 /// One person's or CPU's row, as the players panel, its pop-up and the
 /// prompt show it.
@@ -665,16 +716,29 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
 }
 
 /// A person's role as their rows say it: Host (an online room's owner),
-/// Co-host, Admin.
+/// Co-host, Admin; then, quietly, that they choose the room's songs now
+/// (an online room with one picker at a time; practice has one person
+/// and says nothing).
 fn person_role(s: &ddi_room::RoomState, member: &ddi_room::Member) -> Option<String> {
-    match (member.role, member.admin) {
+    let role: Option<String> = match (member.role, member.admin) {
         (Role::Owner, _) if s.source == ddi_room::ContentSource::Shared => {
             Some(m::role_host().into())
         }
         (Role::CoHost, _) => Some(m::role_co_host().into()),
         (Role::Member, true) => Some(m::role_admin().into()),
         _ => None,
-    }
+    };
+    let picking: Option<String> = picks_shown(s, member).then(|| m::role_picking().into());
+    let words: Vec<String> = [role, picking].into_iter().flatten().collect();
+    (!words.is_empty()).then(|| words.join(" · "))
+}
+
+/// Whether `member`'s rows mark them as the one choosing the room's
+/// songs: the picker of an online room with one picker at a time.
+fn picks_shown(s: &ddi_room::RoomState, member: &ddi_room::Member) -> bool {
+    s.source == ddi_room::ContentSource::Shared
+        && s.one_picker()
+        && s.picker() == Some(member.id)
 }
 
 /// A person's status on the players panel's line: their connection's
@@ -837,6 +901,11 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
         items.push(("rules".to_string(), m::rules().into()));
         items.push(("players".to_string(), m::players().into()));
     }
+    // An operator who follows takes the pick over (a controller's way to
+    // it on every layout; a phone has no room for its button).
+    if r.may_take_pick() {
+        items.push((MORE_TAKE_PICK.to_string(), m::take_pick().into()));
+    }
     let running = r.state().phase.kind().match_running();
     if running && r.may(Capability::StopMatch) {
         items.push(("stop".to_string(), m::stop_match().into()));
@@ -887,6 +956,9 @@ pub fn more_picked(id: &str, room: &SharedRoom, shell: &RoomShell, cx: &mut Cx) 
         "players" => return MoreAction::Players,
         "stop" => {
             let _ = room.borrow_mut().stop_match();
+        }
+        MORE_TAKE_PICK => {
+            let _ = room.borrow_mut().take_pick();
         }
         "copy" => {
             let link = room.borrow().invite_link();
@@ -1420,6 +1492,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                 .unwrap_or_default(),
             at_start: false,
             targeting: snake(&mb.targeting()),
+            picker: s.one_picker() && s.picker() == Some(mb.id),
         })
         .collect();
     let roster = crate::state::cpu_roster::roster_of(&s.next.rules, r.humans());
@@ -1444,7 +1517,9 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         view: view.into(),
         phase: format!("{:?}", s.phase.kind()).to_lowercase(),
         revision: s.revision.0,
-        host: r.may(Capability::ChooseContent),
+        host: r.chooses(),
+        picker: s.picker().map(|id| id.0),
+        can_take_pick: r.may_take_pick(),
         stages,
         members,
         cpus: u16::try_from(crate::state::cpu_roster::roster_of(rules, r.humans()).len())
@@ -1644,6 +1719,7 @@ pub fn refusal_text(why: &Refusal) -> UiText {
                 m::refused_phase()
             }
             Rejection::Unauthorized { .. } => m::refused_host_only(),
+            Rejection::NotPicker { .. } => m::refused_not_picker(),
             Rejection::InvalidRules(p) | Rejection::RulesNeedReview(p) => rules_problem(p),
             other => {
                 let code = format!("{other:?}");

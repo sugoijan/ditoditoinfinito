@@ -1489,12 +1489,12 @@ fn an_online_room_shows_the_host_and_the_follower_and_its_link() {
         ("connected", "owner")
     );
     assert!(a.host && !b.host);
-    assert_eq!(b.status, "The host is choosing the first song.");
+    assert_eq!(b.status, "alice is choosing the first song.");
     assert!(online.can_invite && online.can_rotate);
     assert!(!b.online.as_ref().unwrap().can_invite);
     assert!(has(&ha, "AFTER HOURS"), "{:?}", ha.texts());
     // Bob's panel: the picks, the players (the host's role).
-    assert!(has(&hb, "Picks") && has(&hb, "Host"), "{:?}", hb.texts());
+    assert!(has(&hb, "Picks") && has(&hb, "Host · Picking"), "{:?}", hb.texts());
     // Alice rests on her first song: Bob sees its card, then the song.
     for _ in 0..8 {
         step(500);
@@ -1625,7 +1625,10 @@ fn the_panels_lines_say_what_each_player_is_doing() {
     };
     // Before a pick: the host's role, the one watching.
     let host = row(&bob, "alice");
-    assert_eq!((host.role.as_str(), host.status.as_str()), ("Host", ""));
+    assert_eq!(
+        (host.role.as_str(), host.status.as_str()),
+        ("Host · Picking", "")
+    );
     assert!(row(&alice, "You").me);
     assert_eq!(says(&alice, "dave"), ("Watching".into(), Tone::Plain));
     assert_eq!(row(&alice, "bob").place, None);
@@ -1677,7 +1680,7 @@ fn the_panels_lines_say_what_each_player_is_doing() {
     ] {
         assert_eq!(said(h, "Players.Count"), "4 / 9");
         assert_eq!(said(h, "Players0.Name"), me);
-        assert_eq!(said(h, "Players0.Role"), "Host");
+        assert_eq!(said(h, "Players0.Role"), "Host · Picking");
         assert_eq!(said(h, "Players1.Name"), other);
         assert_eq!(
             said(
@@ -1801,4 +1804,386 @@ fn points_show_as_decimals() {
     assert_eq!(points_text(Points::ratio(28, 3)).as_str(), "9.33");
     assert_eq!(points_text(Points::whole(12)).as_str(), "12");
     assert_eq!(points_text(Points::ZERO).as_str(), "0");
+}
+
+/// An online room over the fake room with alice (its owner), bob and
+/// carol in it, each with a client; bob a co-host where `co_host`.
+struct Three {
+    clock: ddi_room::ManualClock,
+    server: ddi_room::fake::SharedFake,
+    alice: SharedRoom,
+    bob: SharedRoom,
+    carol: SharedRoom,
+}
+
+impl Three {
+    fn new(co_host: bool) -> Three {
+        Three::over(|_| {}, co_host)
+    }
+
+    /// [`Three::new`] over the room's state as `change` leaves it.
+    fn over(change: impl FnOnce(&mut ddi_room::RoomState), co_host: bool) -> Three {
+        use crate::state::online::tests::room::{client, person};
+        use ddi_room::fake::FakeServer;
+        use ddi_room::{Command, Connection, Identity, Intent, ParticipantId, RoomPolicy};
+        let clock = ddi_room::ManualClock::new(1_000);
+        let mut state = ddi_room::RoomState::new(
+            ddi_room::RoomId::new("Room000001"),
+            Identity::new("dev:alice"),
+            "alice".into(),
+            RoomPolicy::default(),
+            ddi_room::MatchRules::hosted(),
+            ddi_room::ContentSource::Shared,
+        );
+        change(&mut state);
+        let mut fake = FakeServer::with_state(state, clock.clone());
+        fake.authority(Command::SetConnection {
+            participant: ParticipantId(1),
+            connection: Connection::Joining,
+        })
+        .unwrap();
+        let server = fake.shared();
+        for who in ["bob", "carol"] {
+            server
+                .borrow_mut()
+                .join(Identity::new(format!("dev:{who}")), who, Intent::Play)
+                .unwrap();
+        }
+        if co_host {
+            server
+                .borrow_mut()
+                .authority(Command::SetCoHost {
+                    participant: ParticipantId(2),
+                    on: true,
+                })
+                .unwrap();
+        }
+        let room = |who: &'static str| {
+            Rc::new(RefCell::new(client(
+                &server,
+                person(&server, who),
+                who,
+                1_000,
+            )))
+        };
+        let (alice, bob, carol) = (room("alice"), room("bob"), room("carol"));
+        Three {
+            clock,
+            server,
+            alice,
+            bob,
+            carol,
+        }
+    }
+
+    /// Time passes for the three clients.
+    fn step(&self, ms: u64) {
+        crate::state::online::tests::room::tick(
+            &self.clock,
+            &mut [
+                &mut self.alice.borrow_mut(),
+                &mut self.bob.borrow_mut(),
+                &mut self.carol.borrow_mut(),
+            ],
+            ms,
+        );
+    }
+
+    /// Time passes and every screen runs.
+    fn settle(&self, ms: u64, screens: &mut [&mut Harness]) {
+        self.step(ms);
+        for h in screens.iter_mut() {
+            h.run(0.3);
+        }
+        self.step(200);
+        for h in screens.iter_mut() {
+            h.run(0.3);
+        }
+    }
+}
+
+/// A library of `titles`, each a Single song with a chart of its own
+/// digest.
+fn songs_of(titles: &[&str]) -> SelectData {
+    SelectData {
+        styles: sample::styles(),
+        songs: titles
+            .iter()
+            .enumerate()
+            .map(|(i, title)| SongEntry {
+                id: title.to_lowercase().replace(' ', "-"),
+                title: (*title).into(),
+                artist: "Artist".into(),
+                bpm_text: "150".into(),
+                length: 120.0,
+                charts: vec![ChartEntry {
+                    digest: Some(ddi_chart::ChartDigest(
+                        0x5000 + title.len() as u128 * 16 + i as u128,
+                    )),
+                    ..chart("dance-single", 0, 9)
+                }],
+                ..SongEntry::default()
+            })
+            .collect(),
+        style: Some("dance-single".into()),
+        ..SelectData::default()
+    }
+}
+
+/// The room's song select of `room` over `data`, on a harness of its own.
+fn online_select(env: &Env, room: &SharedRoom, data: SelectData, orders: &Orders) -> Harness {
+    let mut h = harness();
+    h.push(
+        sample::room_select(env, room.clone(), data).with_room(room.clone(), shell(room, orders)),
+    );
+    h
+}
+
+fn list_shows(h: &Harness) -> bool {
+    h.ui.actor("Wheel").is_some_and(|w| w.visible)
+}
+
+/// One picker at a time (2026-11-12). The owner picks and everyone else
+/// follows their resting song, the co-host included, who alone has Pick
+/// songs (the header's button, the footer's T). The co-host takes the
+/// pick: their own list comes back and their resting song is the room's;
+/// the owner follows it, with the same action, and takes the pick back
+/// with T: their list is as they left it (the song, the search). The
+/// status line names who chooses and the players' rows mark them; a
+/// member has no action.
+#[test]
+fn a_co_host_takes_the_pick_over_and_the_owner_takes_it_back() {
+    let t = Three::new(true);
+    let (ea, eb, ec) = (env(), env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(
+        &ea,
+        &t.alice,
+        songs_of(&["Alpha One", "Alpha Two", "Alpha Three"]),
+        &orders,
+    );
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One", "Bravo Two"]), &orders);
+    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    // The owner picks; the co-host and the member follow.
+    let (a, b, c) = (view(&ea), view(&eb), view(&ec));
+    assert!(a.host && !b.host && !c.host);
+    assert_eq!((a.picker, b.picker, c.picker), (Some(1), Some(1), Some(1)));
+    assert!(!a.can_take_pick && b.can_take_pick && !c.can_take_pick);
+    assert!(list_shows(&ha) && !list_shows(&hb) && !list_shows(&hc));
+    assert!(has(&ha, "Alpha One") && !has(&hb, "Bravo One") && !has(&hc, "Charlie One"));
+    for v in [&b, &c] {
+        assert_eq!(v.status, "alice is choosing the first song.");
+    }
+    assert_eq!(a.status, "Pick a song to start the match.");
+    // The action: a following operator's alone.
+    assert!(there(&hb, "Room.TakePick") && has(&hb, "Pick songs"));
+    assert!(!there(&ha, "Room.TakePick") && !there(&hc, "Room.TakePick"));
+    assert!(view(&eb).items.iter().any(|i| i == "Room.TakePick"));
+    let hint = |e: &Env| e.state.borrow().hints.iter().any(|h| h.contains("Pick songs"));
+    assert!(hint(&eb) && !hint(&ea) && !hint(&ec), "{:?}", eb.state.borrow().hints);
+    // The players' rows mark who chooses, quietly.
+    assert!(has(&hb, "Host · Picking") && has(&hb, "Co-host"), "{:?}", hb.texts());
+    assert!(b.members.iter().any(|m| m.picker && m.name == "alice"));
+    // Alice moves to her second song, searches and rests there: the
+    // others see it.
+    ha.key("Slash", "/");
+    ha.send(crate::UiEvent::Text(crate::event::TextEvent::Commit(
+        "alpha".into(),
+    )));
+    ha.run(0.1);
+    ha.key("Enter", "Enter");
+    ha.run(0.3);
+    ha.key("ArrowDown", "ArrowDown");
+    ha.run(0.5);
+    assert_eq!(ea.state.borrow().song, "Alpha Two");
+    assert_eq!(ea.state.borrow().search, "alpha");
+    for _ in 0..8 {
+        t.step(500);
+        ha.run(0.1);
+    }
+    t.settle(200, &mut [&mut hb, &mut hc]);
+    assert_eq!(view(&eb).spotlight.as_deref(), Some("Alpha Two"));
+    assert!(has(&hb, "Alpha Two") && has(&hc, "Alpha Two"));
+    // A member's T, and their Enter, do nothing.
+    hc.key("KeyT", "t");
+    hc.key("Enter", "Enter");
+    t.settle(200, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(view(&ec).picker, Some(1));
+    // The co-host takes the pick, at once: their own list, the owner's
+    // resting song gone; the owner follows, with the action.
+    press(&mut hb, "Room.TakePick");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    let (a, b, c) = (view(&ea), view(&eb), view(&ec));
+    assert!(!a.host && b.host && !c.host);
+    assert_eq!((a.picker, c.picker), (Some(2), Some(2)));
+    assert!(a.can_take_pick && !b.can_take_pick);
+    assert!(list_shows(&hb) && !list_shows(&ha));
+    assert!(has(&hb, "Bravo One") && !has(&ha, "Alpha One"), "{:?}", ha.texts());
+    assert!(there(&ha, "Room.TakePick") && !there(&hb, "Room.TakePick"));
+    assert!(hint(&ea) && !hint(&eb));
+    assert_eq!(a.spotlight, None, "the last picker's song went with them");
+    for v in [&a, &c] {
+        assert_eq!(v.status, "bob is choosing the first song.");
+    }
+    assert!(has(&ha, "Co-host · Picking") && has(&ha, "Host"), "{:?}", ha.texts());
+    // What the co-host's song select rests on is the room's now.
+    for _ in 0..8 {
+        t.step(500);
+        hb.run(0.1);
+    }
+    t.settle(200, &mut [&mut ha, &mut hc]);
+    assert_eq!(view(&ea).spotlight.as_deref(), Some("Bravo One"));
+    assert!(has(&ha, "Bravo One") && has(&hc, "Bravo One"), "{:?}", ha.texts());
+    // The owner's Enter picks nothing while they follow.
+    ha.key("Enter", "Enter");
+    t.settle(200, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(view(&ea).phase, "lobby");
+    // T: the owner takes the pick back, and has their list as they left
+    // it: the song they were on, their search.
+    ha.key("KeyT", "t");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    let (a, b) = (view(&ea), view(&eb));
+    assert!(a.host && !b.host && b.can_take_pick);
+    assert!(list_shows(&ha) && !list_shows(&hb));
+    assert_eq!(ea.state.borrow().song, "Alpha Two");
+    assert_eq!(ea.state.borrow().search, "alpha");
+    assert!(!has(&hb, "Bravo One"), "the co-host follows again");
+    assert_eq!(b.status, "alice is choosing the first song.");
+    // Her song, rested on again, is the room's again; her Enter picks it.
+    for _ in 0..8 {
+        t.step(500);
+        ha.run(0.1);
+    }
+    t.settle(200, &mut [&mut hb]);
+    assert_eq!(view(&eb).spotlight.as_deref(), Some("Alpha Two"));
+    ha.key("Enter", "Enter");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(view(&ec).phase, "preparing");
+    assert_eq!(view(&ec).picks[0], "Stage 1: Alpha Two Hard 9");
+}
+
+/// On a phone the following operator's Pick songs is in the room's More
+/// (a controller's way to it on every layout); a member's More has none.
+#[test]
+fn a_phones_more_takes_the_pick() {
+    let t = Three::new(true);
+    let (eb, ec) = (env(), env());
+    let orders = Orders::default();
+    let phone = |env: &Env, room: &SharedRoom| {
+        let mut h = Harness::new(super::COMPACT, [844.0, 390.0], 1.0, TextMode::Own);
+        h.push(
+            sample::room_select(env, room.clone(), songs_of(&["Bravo One"]))
+                .with_room(room.clone(), shell(room, &orders)),
+        );
+        h
+    };
+    let mut hb = phone(&eb, &t.bob);
+    let mut hc = phone(&ec, &t.carol);
+    t.settle(400, &mut [&mut hb, &mut hc]);
+    assert!(!there(&hb, "Room.TakePick"), "no room for a button");
+    press(&mut hc, "More");
+    assert!(!has(&hc, "Pick songs"), "{:?}", hc.texts());
+    hb.pad(crate::nav::MenuAction::More, true);
+    hb.pad(crate::nav::MenuAction::More, false);
+    hb.run(0.3);
+    assert!(has(&hb, "Pick songs"), "{:?}", hb.texts());
+    press(&mut hb, "Item.takepick");
+    t.settle(400, &mut [&mut hb, &mut hc]);
+    assert!(view(&eb).host && list_shows(&hb));
+    assert!(has(&hb, "Bravo One"), "{:?}", hb.texts());
+    assert_eq!(view(&ec).status, "bob is choosing the first song.");
+}
+
+/// The pick's holder gone: it is the owner's again; with the owner gone
+/// too it is nobody's, said to everyone, with how to take it to those who
+/// may.
+#[test]
+fn a_pick_left_behind_goes_to_the_owner_or_is_there_to_take() {
+    use ddi_room::{Command, Connection, ParticipantId};
+    let t = Three::new(true);
+    let (ea, eb, ec) = (env(), env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    press(&mut hb, "Room.TakePick");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert!(view(&eb).host);
+    // The co-host loses the role: the owner picks again, their list back.
+    t.server
+        .borrow_mut()
+        .authority(Command::SetCoHost {
+            participant: ParticipantId(2),
+            on: false,
+        })
+        .unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    let (a, b) = (view(&ea), view(&eb));
+    assert!(a.host && !b.host && !b.can_take_pick);
+    assert!(list_shows(&ha) && !list_shows(&hb));
+    assert!(has(&ha, "Alpha One") && !there(&hb, "Room.TakePick"));
+    // The owner away past the room's patience, a co-host there: nobody
+    // chooses, and the co-host is told how to.
+    let co_host = |on| {
+        t.server
+            .borrow_mut()
+            .authority(Command::SetCoHost {
+                participant: ParticipantId(2),
+                on,
+            })
+            .unwrap();
+    };
+    co_host(true);
+    t.server
+        .borrow_mut()
+        .authority(Command::SetConnection {
+            participant: ParticipantId(1),
+            connection: Connection::Disconnected,
+        })
+        .unwrap();
+    t.settle(400, &mut [&mut hb, &mut hc]);
+    let (b, c) = (view(&eb), view(&ec));
+    assert_eq!((b.picker, c.picker), (None, None));
+    assert_eq!(
+        b.status,
+        "Nobody is choosing songs. Use Pick songs to choose them."
+    );
+    assert_eq!(c.status, "Nobody is choosing songs right now.");
+    assert!(b.can_take_pick && !c.can_take_pick);
+    press(&mut hb, "Room.TakePick");
+    t.settle(400, &mut [&mut hb, &mut hc]);
+    assert!(view(&eb).host && list_shows(&hb));
+    assert_eq!(view(&ec).status, "bob is choosing the first song.");
+}
+
+/// A room whose authority predates the picker (no `picking` in its
+/// state): as it was. Every operator has their own list, nobody is offered
+/// the pick, and the others are told the host chooses.
+#[test]
+fn a_room_from_before_the_picker_shows_every_operator_their_list() {
+    let t = Three::over(|state| state.picking = None, true);
+    let (ea, eb, ec) = (env(), env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    let (a, b, c) = (view(&ea), view(&eb), view(&ec));
+    assert!(a.host && b.host && !c.host);
+    assert!(!a.can_take_pick && !b.can_take_pick && !c.can_take_pick);
+    assert!(list_shows(&ha) && list_shows(&hb) && !list_shows(&hc));
+    for h in [&ha, &hb, &hc] {
+        assert!(!there(h, "Room.TakePick") && !has(h, "Pick songs"));
+        assert!(!has(h, "Host · Picking"), "{:?}", h.texts());
+    }
+    assert_eq!(c.status, "The host is choosing the first song.");
+    hb.key("KeyT", "t");
+    hb.pad(crate::nav::MenuAction::More, true);
+    hb.pad(crate::nav::MenuAction::More, false);
+    hb.run(0.3);
+    assert!(!has(&hb, "Pick songs"), "{:?}", hb.texts());
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert!(!t.server.borrow().state().one_picker());
 }

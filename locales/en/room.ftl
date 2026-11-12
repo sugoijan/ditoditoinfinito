@@ -699,6 +699,51 @@ room-status-stopped-pick = Match stopped. Pick a song to start the next match.
 
 room-status-host-picks-new-match = Match over. The host picks the next match's first song.
 
+## One picker at a time: one player chooses the room's songs (its host at
+## first). A host or co-host who follows can take the choosing over at
+## once; everyone else follows the song that player's song select rests
+## on.
+
+# The status line of everyone who follows while another player chooses
+# the match's first song: one line.
+# Variables:
+#   $name (String) - the display name of the player who chooses
+room-status-picker-first = { $name } is choosing the first song.
+
+# The same between stages.
+# Variables:
+#   $name (String) - the display name of the player who chooses
+#   $number (Number) - the stage, from 1
+room-status-picker-next = { $name } is choosing stage { $number }'s song.
+
+# The same after a match ended or was stopped.
+# Variables:
+#   $name (String) - the display name of the player who chooses
+room-status-picker-new-match = Match over. { $name } is choosing the next match's first song.
+
+# The status line when nobody chooses the songs (the player who did is
+# gone and so is the host), for a player who cannot take the choosing
+# over.
+room-status-nobody-picks = Nobody is choosing songs right now.
+
+# The same for a host or co-host, who can: it names the Pick songs
+# button (room-take-pick; keep the two alike).
+room-status-nobody-picks-take = Nobody is choosing songs. Use Pick songs to choose them.
+
+# A button in the header of a following host's or co-host's song select,
+# an item of the room's More menu and a key's hint in the footer (about
+# 12 letters): takes the choosing of songs over at once; the player who
+# chose until then follows.
+room-take-pick = Pick songs
+
+# After a person's role in the players' lists ("Host · Picking"): this
+# player chooses the room's songs now (a word, about 8 letters).
+room-role-picking = Picking
+
+# Said in a pop-up when a host or co-host tried to choose a song while
+# another player chooses.
+room-refused-not-picker = Another player is choosing the songs now.
+
 # A CPU's personality, after its level under its name: what kind of
 # patterns it is good at (a word or two each).
 room-cpu-style-balanced = Balanced

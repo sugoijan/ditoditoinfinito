@@ -346,6 +346,24 @@ room-status-stopped-pick = 対戦を中止しました。曲を選んで次の�
 
 room-status-host-picks-new-match = 対戦終了。次の対戦の最初の曲はホストが選びます。
 
+## One picker at a time.
+
+room-status-picker-first = { $name }が最初の曲を選んでいます。
+
+room-status-picker-next = { $name }がステージ{ $number }の曲を選んでいます。
+
+room-status-picker-new-match = 対戦終了。{ $name }が次の対戦の最初の曲を選んでいます。
+
+room-status-nobody-picks = 今は誰も曲を選んでいません。
+
+room-status-nobody-picks-take = 誰も曲を選んでいません。「選曲する」で選べます。
+
+room-take-pick = 選曲する
+
+room-role-picking = 選曲中
+
+room-refused-not-picker = 今はほかのプレイヤーが曲を選んでいます。
+
 room-cpu-style-balanced = バランス
 room-cpu-style-stream = 連打
 room-cpu-style-jacks = 縦連

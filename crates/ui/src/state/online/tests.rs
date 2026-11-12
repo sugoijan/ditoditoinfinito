@@ -999,4 +999,156 @@ pub(crate) mod room {
         tick(&clock, &mut [&mut alice], 800);
         assert_eq!(alice.link_state(), LinkState::Connected);
     }
+
+    /// A co-host of the fake room.
+    fn co_host(server: &SharedFake, who: u64) {
+        server
+            .borrow_mut()
+            .authority(Command::SetCoHost {
+                participant: ddi_room::ParticipantId(who),
+                on: true,
+            })
+            .unwrap();
+    }
+
+    /// One picker at a time (2026-11-12): the owner chooses at first and
+    /// the co-host follows, whatever their own song select rests on; the
+    /// co-host takes the pick and their resting song is the room's, shared
+    /// from their device; the owner takes it back and the song they
+    /// rested on before is shared already; a member can do none of it.
+    #[test]
+    fn the_pick_is_taken_over_and_back_and_the_resting_song_is_the_pickers() {
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob", "carol"]);
+        co_host(&server, 2);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        let mut carol = client(&server, person(&server, "carol"), "carol", 1_000);
+        macro_rules! step {
+            ($ms:expr) => {
+                tick(&clock, &mut [&mut alice, &mut bob, &mut carol], $ms)
+            };
+        }
+        step!(400);
+        let (a, b) = (alice.me(), bob.me());
+        assert!(alice.chooses() && !bob.chooses() && !carol.chooses());
+        assert!(bob.may_take_pick() && !alice.may_take_pick() && !carol.may_take_pick());
+        assert_eq!(carol.picker(), Some(a));
+        // Both operators' song selects rest on a song: the picker's is the
+        // room's, the co-host's is nobody's business.
+        let s = song();
+        let mut other = song();
+        other.id = "bundled:b".into();
+        other.title = "B".into();
+        other.charts[0].digest = Some(ddi_chart::ChartDigest(8));
+        alice.hover(Some((&s, &s.charts[0])));
+        bob.hover(Some((&other, &other.charts[0])));
+        step!(3_400);
+        let spot = carol.state().spotlight.clone().unwrap();
+        assert_eq!((spot.by, spot.card.title.as_str()), (a, "A"));
+        step!(400);
+        assert_eq!(upload(&server, &mut alice, "abc12345").len(), 1);
+        step!(400);
+        assert!(bob.take_upload_jobs().is_empty());
+        // A member's take is not even sent; the room would refuse it.
+        carol.take_pick().unwrap();
+        step!(400);
+        assert_eq!(carol.picker(), Some(a));
+        // Taken at once: the co-host chooses, the owner follows, the
+        // owner's resting song gone with their pick.
+        bob.take_pick().unwrap();
+        step!(400);
+        assert!(bob.chooses() && !alice.chooses());
+        assert!(alice.may_take_pick() && !bob.may_take_pick());
+        assert_eq!(carol.picker(), Some(b));
+        assert!(
+            carol.state().spotlight.as_ref().is_none_or(|s| s.by == b),
+            "never the last picker's"
+        );
+        // The co-host's song select tells the room what it rests on (it
+        // rested there all along; the screen says so again as the pick
+        // comes), shared from their device.
+        bob.hover(Some((&other, &other.charts[0])));
+        step!(400);
+        let spot = alice.state().spotlight.clone().unwrap();
+        assert_eq!((spot.by, spot.card.title.as_str()), (b, "B"));
+        step!(400);
+        let jobs = upload(&server, &mut bob, "def67890");
+        assert_eq!(
+            (jobs.len(), jobs[0].grant.as_str()),
+            (1, "grant-bob-1"),
+            "the picker's own upload"
+        );
+        // The owner's pick is refused while they follow (the room says
+        // who chooses); nothing of theirs is uploaded.
+        assert_eq!(
+            alice.pick(&s, &s.charts[0]),
+            Err(Refusal::Room(ddi_room::Rejection::NotPicker {
+                picker: Some(b)
+            }))
+        );
+        step!(400);
+        assert_eq!(alice.state().phase, Phase::Lobby);
+        alice.clear_refusal();
+        // Taken back: the song the owner rested on before is told again
+        // and is shared already (the room kept its share): no upload.
+        alice.take_pick().unwrap();
+        step!(400);
+        assert!(alice.chooses() && bob.may_take_pick());
+        alice.hover(Some((&s, &s.charts[0])));
+        step!(400);
+        assert!(bob.state().spotlight.is_none(), "not rested yet");
+        step!(3_000);
+        let spot = bob.state().spotlight.clone().unwrap();
+        assert_eq!(
+            (spot.by, spot.share.as_deref()),
+            (a, Some("abc12345")),
+            "{spot:?}"
+        );
+        step!(400);
+        assert!(alice.take_upload_jobs().is_empty());
+        // The owner's pick starts the match, as before.
+        alice.pick(&s, &s.charts[0]).unwrap();
+        step!(400);
+        assert!(matches!(alice.state().phase, Phase::Preparing { .. }));
+    }
+
+    /// A room whose authority predates the picker (its state has no
+    /// `picking`): this client lets every operator choose, as that room
+    /// does, and never offers or sends the take it could not read.
+    #[test]
+    fn a_room_from_before_the_picker_has_every_operator_choosing_and_no_take() {
+        let clock = ManualClock::new(1_000);
+        let mut state = ddi_room::RoomState::new(
+            ddi_room::RoomId::new("Room000001"),
+            Identity::new("dev:alice"),
+            "alice".into(),
+            RoomPolicy::default(),
+            ddi_room::MatchRules::hosted(),
+            ddi_room::ContentSource::Shared,
+        );
+        state.picking = None;
+        let server = FakeServer::with_state(state, clock.clone()).shared();
+        server
+            .borrow_mut()
+            .join(Identity::new("dev:bob"), "bob", Intent::Play)
+            .unwrap();
+        co_host(&server, 2);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert!(alice.chooses() && bob.chooses());
+        assert!(!alice.may_take_pick() && !bob.may_take_pick());
+        let revision = server.borrow().state().revision;
+        bob.take_pick().unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(server.borrow().state().revision, revision, "nothing sent");
+        assert!(!server.borrow().state().one_picker());
+        // The co-host's resting song is the room's, as it was.
+        let s = song();
+        bob.hover(Some((&s, &s.charts[0])));
+        tick(&clock, &mut [&mut alice, &mut bob], 3_400);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+        assert_eq!(alice.state().spotlight.as_ref().unwrap().by, bob.me());
+    }
 }

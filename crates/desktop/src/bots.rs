@@ -18,7 +18,11 @@
 //!
 //! A host bot (`--host`) makes a room, prints its invite, accepts its
 //! Rules, rests on each song before picking it (so that the others see and
-//! hear it), and plays too; guest bots (`--guests N`) join the host bot's
+//! hear it), and plays too. It picks while the pick is its own (a room's
+//! owner has it at first, `ddi_room::Picking`): a person who takes the
+//! pick over chooses the songs until they give it up, the bot following
+//! like anyone and never taking it back from them; it takes it only when
+//! nobody has it; guest bots (`--guests N`) join the host bot's
 //! room or `--join`'s invite. They stay for the next stages and matches
 //! until stopped (`--matches N`, or Ctrl-C: each leaves the room).
 
@@ -505,6 +509,9 @@ struct Host {
     wait_for: usize,
     not_before: u64,
     waiting_said: bool,
+    /// Someone else chooses the songs (they took the pick over): who, as
+    /// last said.
+    following: Option<Option<ddi_room::ParticipantId>>,
 }
 
 enum Role {
@@ -746,7 +753,7 @@ impl Bot {
         };
         if spot.is_some() && spot != self.said.spotlight {
             self.say(format!(
-                "following the host's song: {}",
+                "following the picker's song: {}",
                 spot.clone().unwrap_or_default()
             ));
         }
@@ -918,6 +925,39 @@ impl Bot {
                 Err(why) => say(format!("Rules refused: {why:?}")),
             }
             host.not_before = now + 2_000;
+        }
+        // One picker at a time: the bot picks while the pick is its own.
+        // Someone who took it over chooses until they give it up (they
+        // leave, lose the role, are gone too long: the room hands it back
+        // to its owner, the bot); the bot never takes it from anyone, only
+        // when nobody has it.
+        let (chooses, picker, may_take) = {
+            let r = room.borrow();
+            (r.chooses(), r.picker(), r.may_take_pick())
+        };
+        if !chooses {
+            if host.following != Some(picker) {
+                host.following = Some(picker);
+                let name = picker
+                    .and_then(|id| {
+                        room.borrow().member_of(id).map(|m| match &m.kind {
+                            ddi_room::MemberKind::Human { name, .. } => name.clone(),
+                            ddi_room::MemberKind::Cpu { ordinal, .. } => format!("CPU {ordinal}"),
+                        })
+                    })
+                    .unwrap_or_else(|| "nobody".into());
+                say(format!("{name} chooses the songs now"));
+            }
+            if picker.is_none() && may_take {
+                let _ = room.borrow_mut().take_pick();
+            }
+            room.borrow_mut().hover(None);
+            host.resting = None;
+            return;
+        }
+        if host.following.take().is_some() {
+            say("choosing the songs again".into());
+            host.not_before = host.not_before.max(now + 2_000);
         }
         let waiting = matches!(
             phase,
@@ -1260,6 +1300,7 @@ pub fn run_with(o: Options, token: &str) -> i32 {
                 wait_for: o.wait_for,
                 not_before: 0,
                 waiting_said: false,
+                following: None,
             }))
         } else {
             Role::Guest(o.join.clone())

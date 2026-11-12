@@ -19,14 +19,20 @@
 //! to play, against whom); the shell plays it and reports the judged
 //! outcome as the authority ([`RoomClient::report_stage`]).
 //!
-//! M5d, online rooms: the operator's pick is the room's commit
+//! One picker at a time (2026-11-12): the room names who chooses its
+//! songs now (`ddi_room::Picking`, its owner at first). Only that player's
+//! client rests on songs for the room and picks ([`RoomClient::chooses`]);
+//! an operator takes the pick over at once ([`RoomClient::take_pick`],
+//! offered where [`RoomClient::may_take_pick`]), and everyone else follows.
+//!
+//! M5d, online rooms: the picker's pick is the room's commit
 //! (`ChooseContent`, pending); this client then asks the room for the
 //! stage's upload grant and hands the shell an [`UploadJob`] (its song
 //! uploaded as the room's share with the shell's own sharing code), whose
 //! progress and end the shell reports ([`RoomClient::upload_progress`],
 //! [`RoomClient::upload_finished`]); a failure is said with a retry. Once
 //! the room says the stage is available with its share, every member
-//! prepares it: the operator who chose it from its library, the others
+//! prepares it: the picker who chose it from its library, the others
 //! from the share ([`LoadJob::share`], answered by
 //! [`RoomClient::finish_shared_load`]), reported loaded only once the
 //! chart read has the chosen digest. A stage whose countdown is over is
@@ -71,7 +77,7 @@ pub const DEFAULT_CPU_LEVEL: u8 = 7;
 /// from the room's seed.
 pub const STARTING_CPUS: usize = 3;
 
-/// How long an operator's song select rests on a song before the room
+/// How long the picker's song select rests on a song before the room
 /// shows it to the others and an online room shares it (M7b). PROVISIONAL
 /// (`spotlight-rest-v0`): long enough that scrolling through the list
 /// sends nothing.
@@ -650,10 +656,10 @@ pub struct RoomClient {
     uploads: Vec<UploadJob>,
     /// The shell's threads' news ([`ShellNews`]).
     inbox: Option<Inbox>,
-    /// The song and chart an operator's song select rests on, since when
+    /// The song and chart the picker's song select rests on, since when
     /// (M7b): told to the room once it rested [`SPOTLIGHT_REST_MS`].
     resting: Option<(ContentId, ContentCard, u64)>,
-    /// This device's upload of the spotlight's song (an online operator's).
+    /// This device's upload of the spotlight's song (an online picker's).
     spotlight_sharing: Option<(ContentId, Sharing)>,
     /// The spotlight's song as read from the room's share (a member's), and
     /// the content asked for.
@@ -921,6 +927,39 @@ impl RoomClient {
             .is_some_and(|m| ddi_room::can(m.role, m.admin, capability, s.phase.kind()))
     }
 
+    /// Whether the local player chooses the room's songs now (one picker
+    /// at a time, `ddi_room::Picking`): their own list is the room's song
+    /// select, the song it rests on is told the room, their Start picks.
+    /// Everyone else follows the picker's song. In a room whose authority
+    /// predates the picker, every operator, as it was; in practice, the
+    /// player.
+    pub fn chooses(&self) -> bool {
+        self.state().chooses(self.me)
+    }
+
+    /// Who chooses the room's songs now; none: nobody, until an operator
+    /// takes the pick.
+    pub fn picker(&self) -> Option<ParticipantId> {
+        self.state().picker()
+    }
+
+    /// Whether the local player may take the pick over now: an operator
+    /// who does not have it, in a room that has one picker at a time
+    /// (never one whose authority predates it, which could not read the
+    /// command), while connected.
+    pub fn may_take_pick(&self) -> bool {
+        self.link_state() == LinkState::Connected && self.state().may_take_pick(self.me)
+    }
+
+    /// Take the pick over (`Command::TakePick`): at once, the previous
+    /// picker follows. Nothing is sent where it cannot be taken.
+    pub fn take_pick(&mut self) -> Result<(), Refusal> {
+        if !self.may_take_pick() {
+            return Ok(());
+        }
+        self.send(Command::TakePick)
+    }
+
     /// The local player's role and admin flag.
     pub fn my_role(&self) -> Option<(Role, bool)> {
         self.state().member(self.me).map(|m| (m.role, m.admin))
@@ -1024,7 +1063,7 @@ impl RoomClient {
         }
     }
 
-    /// The operator's song select rests on `song`'s `chart` (none: no
+    /// The picker's song select rests on `song`'s `chart` (none: no
     /// song). Once it has rested [`SPOTLIGHT_REST_MS`], an online room is
     /// told (the others see and hear it, and it is shared ahead); moving
     /// on before then sends nothing. Practice has nobody to show it to.
@@ -1043,12 +1082,9 @@ impl RoomClient {
         }
     }
 
-    /// Tells the room what the operator's song select has rested on.
+    /// Tells the room what the picker's song select has rested on.
     fn tell_spotlight(&mut self) {
-        if !self.is_online()
-            || self.link_state() != LinkState::Connected
-            || !self.may(Capability::ChooseContent)
-        {
+        if !self.is_online() || self.link_state() != LinkState::Connected || !self.chooses() {
             return;
         }
         let Some((id, card, since)) = self.resting.clone() else {
@@ -1070,7 +1106,7 @@ impl RoomClient {
         });
     }
 
-    /// The song the room's operator rests on, as this device can show it:
+    /// The song the room's picker rests on, as this device can show it:
     /// its card, and the song and chart once read (its own library's, or
     /// the room's share of it).
     pub fn spotlight(&self) -> Option<(&ContentCard, Option<&Picked>)> {
@@ -1135,8 +1171,8 @@ impl RoomClient {
     }
 
     /// What leaving stage `stage`'s prompt means now; withdrawing clears
-    /// this player's Ready (and an operator's pick: the window closed, back
-    /// to choosing).
+    /// this player's Ready (and the picker's pick: the window closed, back
+    /// to choosing; another operator following the picker only withdraws).
     pub fn leave_prompt(&mut self, stage: StageId) -> PromptExit {
         self.launched.remove(&stage);
         if self.stage_started(stage) {
@@ -1146,7 +1182,8 @@ impl RoomClient {
             if self.ready() {
                 let _ = self.set_ready(false);
             }
-            if self.may(Capability::Advance)
+            if self.chooses()
+                && self.may(Capability::Advance)
                 && matches!(
                     self.state().phase,
                     Phase::Preparing {
@@ -1272,7 +1309,7 @@ impl RoomClient {
             )
     }
 
-    /// The operator's pick (M7b): `song`'s `chart` becomes the song of the
+    /// The picker's pick (M7b): `song`'s `chart` becomes the song of the
     /// stage the room plays next, and the match starts (or goes on); the
     /// stage's readiness gathers on its start prompt. Refused when the
     /// CPUs cannot play it, or when the room refuses.
@@ -1591,7 +1628,7 @@ impl RoomClient {
             .content
             .as_ref()
             .is_some_and(|c| matches!(c.status, ContentStatus::Unavailable { .. }));
-        self.may(Capability::ChooseContent)
+        self.chooses()
             && st
                 .content
                 .as_ref()
@@ -2210,12 +2247,21 @@ impl RoomClient {
         }
     }
 
-    /// The spotlight's song (M7b): the operator who rests on it shares it
+    /// The spotlight's song (M7b): the picker who rests on it shares it
     /// ahead under the room's grant (once per song), so that its pick is
     /// available at once; the others read the room's share of it, to show
     /// its banner and play its preview before anything is picked.
     fn sync_spotlight(&mut self) {
         let Some(spot) = self.state().spotlight.clone() else {
+            // The spotlight went with its picker (the pick changed hands):
+            // a song rested on again is asked for again, once, and the
+            // room answers with the share it kept or made meanwhile.
+            if matches!(
+                self.spotlight_sharing,
+                Some((_, Sharing::Sent | Sharing::Failed(_)))
+            ) {
+                self.spotlight_sharing = None;
+            }
             return;
         };
         if spot.by == self.me {
@@ -2251,7 +2297,7 @@ impl RoomClient {
         });
     }
 
-    /// An online room's content (M5d). An operator's own pick waiting for
+    /// An online room's content (M5d). The picker's own pick waiting for
     /// its share (pending, or refused by the room) is shared from here
     /// once per choice: the room's grant asked for, then the upload handed
     /// to the shell ([`Self::take_upload_jobs`]). Content the room made
@@ -2264,7 +2310,7 @@ impl RoomClient {
         }
         self.sync_spotlight();
         let me = self.me;
-        let operator = self.may(Capability::ChooseContent);
+        let picker = self.chooses();
         let mut ask = Vec::new();
         let mut prepare = Vec::new();
         for st in self.stages().iter().filter(|st| st.play.is_none()) {
@@ -2273,7 +2319,7 @@ impl RoomClient {
             };
             match (&content.status, &content.share) {
                 (ContentStatus::Pending, _)
-                    if operator
+                    if picker
                         && self.picks.contains_key(&content.id)
                         && self
                             .sharing

@@ -902,6 +902,7 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         Rejection::Unauthorized {
             capability: ddi_room::Capability::ChooseContent,
         },
+        Rejection::NotPicker { picker: None },
         Rejection::InvalidRules(RulesProblem::StageCount { stages: 0, max: 16 }),
         Rejection::InvalidRules(RulesProblem::OverCap(CapExceeded {
             requested: 9,
@@ -1402,6 +1403,52 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         shown(h, found);
     }
     rules_first(false);
+    // One picker at a time: Bob, made co-host, follows with Pick songs
+    // (the header's button, the footer's hint, More's item); he takes the
+    // pick and Alice follows him; with nobody choosing, what each is told;
+    // then Alice has it again.
+    let co_host = |on| {
+        server
+            .borrow_mut()
+            .authority(ddi_room::Command::SetCoHost {
+                participant: ParticipantId(2),
+                on,
+            })
+            .unwrap();
+    };
+    let owner = |connection| {
+        server
+            .borrow_mut()
+            .authority(ddi_room::Command::SetConnection {
+                participant: ParticipantId(1),
+                connection,
+            })
+            .unwrap();
+    };
+    co_host(true);
+    step(400);
+    shown(&mut ha, found);
+    shown(&mut hb, found);
+    hb.tap(PointerKind::Mouse, "More");
+    shown(&mut hb, found);
+    hb.key("Escape", "Escape");
+    hb.run(0.3);
+    bob.borrow_mut().take_pick().unwrap();
+    step(400);
+    shown(&mut ha, found);
+    shown(&mut hb, found);
+    alice.borrow_mut().take_pick().unwrap();
+    owner(ddi_room::Connection::Disconnected);
+    step(400);
+    shown(&mut hb, found);
+    co_host(false);
+    step(400);
+    shown(&mut hb, found);
+    owner(ddi_room::Connection::Connected);
+    alice.borrow_mut().take_pick().unwrap();
+    step(400);
+    shown(&mut ha, found);
+    shown(&mut hb, found);
     // The host's resting song shown to Bob, then picked.
     let s = song();
     alice.borrow_mut().hover(Some((&s, &s.charts[0])));

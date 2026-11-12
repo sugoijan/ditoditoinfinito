@@ -1,17 +1,27 @@
 //! Song select as the multiplayer room's main view (M7b, the maintainer's
 //! match flow; `docs/plans/multiplayer-prototype-progress.md`).
 //!
-//! - **The host** (an operator) sees their own song list, the real song
-//!   select with the room around it: Start on a song picks it for the next
-//!   (or first) stage and starts the match or goes on with it
-//!   (`RoomClient::pick`); the song it rests on is told to the room once it
-//!   rested (`RoomClient::hover`, `SPOTLIGHT_REST_MS`). Nothing is added,
-//!   edited, managed or shared from here.
-//! - **The others** follow: the song side shows the host's resting song
-//!   (its card at once, its banner and preview once the room's share of it
-//!   is read), and the list's place holds the room's panel: the status and
-//!   the match's picks (on a phone the players too), scrolling with Up and
+//! - **The picker** (one at a time, `RoomClient::chooses`: the room's
+//!   owner at first; "the host" in this module's names) sees their own song
+//!   list, the real song select with the room around it: Start on a song
+//!   picks it for the next (or first) stage and starts the match or goes on
+//!   with it (`RoomClient::pick`); the song it rests on is told to the room
+//!   once it rested (`RoomClient::hover`, `SPOTLIGHT_REST_MS`). Nothing is
+//!   added, edited, managed or shared from here.
+//! - **The others** follow, co-hosts and the owner included when they are
+//!   not the picker: the song side shows the picker's resting song (its
+//!   card at once, its banner and preview once the room's share of it is
+//!   read), and the list's place holds the room's panel: the status and the
+//!   match's picks (on a phone the players too), scrolling with Up and
 //!   Down, the wheel or its marks. They cannot pick.
+//! - **Taking the pick over** (2026-11-12): an operator who follows has
+//!   Pick songs (`RoomClient::may_take_pick`): a button in the header where
+//!   the picker's search is (`room::TAKE_PICK`), the room's More, and T
+//!   with its hint in the footer. It is immediate: this player's own list
+//!   comes back (kept aside while they followed, with their place, style
+//!   and search: [`RoomMode::library`], [`Place`]) and the previous picker's
+//!   screen becomes the following one, with the same action to take it
+//!   back.
 //! - **The players, always** (feedback round B): in a room the song's side
 //!   is short (`Layout::for_room`: a phone's banner with the title and a
 //!   line, the style button only where the room can play more than one
@@ -44,6 +54,19 @@ const STATUS_H: f32 = 40.0;
 const STRIP_H: f32 = 28.0;
 const STRIP_GAP: f32 = 8.0;
 
+/// Where a player was in their own list when the others' view replaced it:
+/// put back with the list when they pick again.
+struct Place {
+    /// The song shown and its chart (the chart's index in the song).
+    song: Option<(String, Option<usize>)>,
+    /// The open pack's name (`None`: the bundled songs'); none: no pack
+    /// open.
+    open: Option<Option<String>>,
+    /// The style shown (its id) and the search.
+    style: String,
+    search: String,
+}
+
 /// Song select's room: the client, the shell's calls and what was drawn.
 pub(super) struct RoomMode {
     pub(super) room: SharedRoom,
@@ -57,10 +80,12 @@ pub(super) struct RoomMode {
     /// not), to set it again only when it changes.
     following: Option<(String, bool)>,
     /// The player's own list, kept while the others' view replaces it
-    /// with the host's resting song: put back when this player picks (a
-    /// role given, or an online room's first snapshot saying they are its
-    /// host, which comes after the screen is built).
+    /// with the picker's resting song: put back when this player picks
+    /// (the pick taken or come back to them, or an online room's first
+    /// snapshot saying they pick, which comes after the screen is built).
     pub(super) library: Option<SelectData>,
+    /// Where they were in it when they began to follow.
+    place: Option<Place>,
     /// What was told the room the song select rests on.
     hovered: Option<(String, usize)>,
     /// The results whose standings were opened (a stage's number, or the
@@ -86,6 +111,7 @@ impl SelectScreen {
             // song (none yet, or the host's), not their own list.
             following: Some((String::from("\u{0}"), false)),
             library: None,
+            place: None,
             hovered: None,
             standings: None,
             time: 0.0,
@@ -105,11 +131,33 @@ impl SelectScreen {
         self
     }
 
-    /// The local player picks here (an operator); `None` outside a room.
+    /// The local player picks here (the room's picker); `None` outside a
+    /// room.
     pub(super) fn room_host(&self) -> Option<bool> {
+        self.room.as_ref().map(|rm| rm.room.borrow().chooses())
+    }
+
+    /// Whether this player may take the pick over now (an operator who
+    /// follows): Pick songs is offered.
+    pub(super) fn room_may_take(&self) -> bool {
         self.room
             .as_ref()
-            .map(|rm| rm.room.borrow().may(ddi_room::Capability::ChooseContent))
+            .is_some_and(|rm| rm.room.borrow().may_take_pick())
+    }
+
+    /// Takes the pick over: at once, this player's own list back when the
+    /// room says so.
+    fn take_pick(&mut self, cx: &mut Cx) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        // The button goes with the following view: the focus to the list.
+        cx.focus("Wheel");
+        let taken = rm.room.borrow_mut().take_pick();
+        if let Err(why) = taken {
+            rm.room.borrow_mut().clear_refusal();
+            cx.overlay(NoticeDialog::refusal(self.env.clone(), &why), true);
+        }
     }
 
     /// The room's follower: song select shows the host's song, no list.
@@ -221,6 +269,19 @@ impl SelectScreen {
                 ));
                 x -= w + 12.0;
             }
+            // An operator who follows: Pick songs, where the picker's
+            // search is (a follower has none).
+            if r.may_take_pick() {
+                let label = ddi_l10n::msg::room::take_pick();
+                let w = (look::mono_width(&label, 15.0) + 24.0).max(72.0);
+                children.push(env.component(
+                    "Button",
+                    "Button",
+                    &Spec::new([w, 40.0], label.as_str()),
+                    room::TAKE_PICK,
+                    [l.field[0] + w / 2.0, 32.0],
+                ));
+            }
         }
         // The status line over the list's column.
         let [wx, wy, ww, wh] = l.wheel;
@@ -328,11 +389,17 @@ impl SelectScreen {
         }
         let host = self.room_host() == Some(true);
         if host {
+            // The pick came (the room said so at last, or it was taken or
+            // came back): this player's own list first, then what it
+            // rests on told the room.
+            if self.room_built_host != Some(true) {
+                self.take_back_library();
+            }
             self.tell_hover();
         } else if known {
             // Not before the room says who this player is: an online
             // room's host is a follower until its first snapshot.
-            self.follow_host(root);
+            self.follow_host(root, cx);
         }
         let seconds = room::seconds_left(&room.borrow());
         let key = (room.borrow().version(), seconds, host);
@@ -350,17 +417,26 @@ impl SelectScreen {
             if let Some(rm) = &mut self.room {
                 rm.built = Some(key);
             }
-            // The host's view changed hands (a role given or taken): the
-            // whole screen again.
+            // The pick changed hands (taken, or come back): the whole
+            // screen again, this player's own list back where they pick.
             if self.room_built_host != Some(host) {
                 self.room_built_host = Some(host);
-                if host {
-                    self.take_back_library();
-                }
                 let left = root.tween_time_left();
                 *root = self.build_tree(cx);
                 self.reload();
                 crate::screens::relaid(root, left, cx);
+                // What had the focus may be gone (the search, Pick songs).
+                let names = self.focusables();
+                if cx
+                    .focused()
+                    .is_some_and(|f| !names.iter().any(|n| n.name == f))
+                    || (!host
+                        && cx
+                            .focused()
+                            .is_some_and(|f| f == self.search.name || f == "ClearSearch"))
+                {
+                    cx.focus("Wheel");
+                }
             } else {
                 self.refill_room(root, cx);
             }
@@ -396,9 +472,9 @@ impl SelectScreen {
             .hover(song.as_ref().zip(chart.as_ref()));
     }
 
-    /// The others' side follows the host's resting song: its card first,
+    /// The others' side follows the picker's resting song: its card first,
     /// the song as the room's share has it once read.
-    fn follow_host(&mut self, root: &mut Actor) {
+    fn follow_host(&mut self, root: &mut Actor, cx: &mut Cx) {
         let Some(rm) = &mut self.room else {
             return;
         };
@@ -448,11 +524,27 @@ impl SelectScreen {
             data.resume = Some((song.id.clone(), Some(chart)));
             data.songs = vec![song];
         }
-        // The player's own list is kept for when they pick.
-        if let Some(rm) = &mut self.room
-            && rm.library.is_none()
-        {
-            rm.library = Some((*self.data).clone());
+        // The player's own list is kept for when they pick, with where
+        // they were in it; its search does not filter the song followed.
+        if self.room.as_ref().is_some_and(|rm| rm.library.is_none()) {
+            if self.typing {
+                self.leave_typing(root, cx);
+            }
+            let (charts, pick) = self.charts();
+            let chart = pick.and_then(|p| charts.get(p)).map(|c| c.index);
+            let place = Place {
+                song: self.song().map(|s| (s.id.clone(), chart)),
+                open: self
+                    .open_pack
+                    .and_then(|p| self.packs.get(p))
+                    .map(|(name, _)| name.clone()),
+                style: self.style_id().to_string(),
+                search: std::mem::take(&mut self.search.text),
+            };
+            if let Some(rm) = &mut self.room {
+                rm.library = Some((*self.data).clone());
+                rm.place = Some(place);
+            }
         }
         self.cancel_navigation();
         self.set_data(data, false);
@@ -461,17 +553,56 @@ impl SelectScreen {
         self.left_dirty = true;
     }
 
-    /// This player picks now (their role is known, or was given): their
-    /// own list back in the place of the host's song they followed.
+    /// This player picks now (the room said so at last, or the pick was
+    /// taken or came back): their own list back in the place of the song
+    /// they followed, where they left it (the song and chart shown, the
+    /// open pack, the style, the search).
     fn take_back_library(&mut self) {
         let Some(rm) = &mut self.room else {
             return;
         };
-        // Followed again from scratch should the role go.
+        // Followed again from scratch should the pick go.
         rm.following = Some((String::from("\u{0}"), false));
-        if let Some(library) = rm.library.take() {
-            self.cancel_navigation();
-            self.set_data(library, false);
+        // The song shown is told the room again: its spotlight went with
+        // the last picker.
+        rm.hovered = None;
+        let place = rm.place.take();
+        let Some(mut library) = rm.library.take() else {
+            return;
+        };
+        if let Some(p) = &place {
+            // Every pack closed but the one that was open.
+            let mut closed: Vec<Option<String>> = Vec::new();
+            for song in &library.songs {
+                if p.open.as_ref() != Some(&song.pack) && !closed.contains(&song.pack) {
+                    closed.push(song.pack.clone());
+                }
+            }
+            library.closed = closed;
+            self.resume = p.song.clone();
+            self.search.text = p.search.clone();
+        }
+        self.cancel_navigation();
+        self.set_data(library, false);
+        let Some(p) = place else {
+            return;
+        };
+        if let Some(i) = self.data.styles.iter().position(|st| st.id == p.style)
+            && i != self.style
+        {
+            self.style = i;
+            self.tabs_for = None;
+            self.pick = None;
+            self.reload();
+        }
+        if let Some((id, Some(chart))) = &p.song
+            && self.song().is_some_and(|song| song.id == *id)
+        {
+            let (charts, _) = self.charts();
+            if let Some(k) = charts.iter().position(|c| c.index == *chart) {
+                self.preferred = charts[k].difficulty;
+                self.pick = Some(k);
+            }
         }
     }
 
@@ -549,6 +680,7 @@ impl SelectScreen {
                 cx.focus("Wheel");
                 self.open_players(cx)
             }
+            room::TAKE_PICK => self.take_pick(cx),
             "Panel.Up" => self.scroll_panel(-3, root, cx),
             "Panel.Down" => self.scroll_panel(3, root, cx),
             _ => return None,
@@ -586,6 +718,15 @@ impl SelectScreen {
         }
         if !self.following() {
             return None;
+        }
+        // T: an operator who follows takes the pick over.
+        if let Input::Key(k) = input
+            && self.letter_shortcut(k)
+            && k.key.eq_ignore_ascii_case("t")
+            && self.room_may_take()
+        {
+            self.take_pick(cx);
+            return Some(Handled::Yes);
         }
         let by = match input {
             Input::Menu {
@@ -627,12 +768,12 @@ impl SelectScreen {
         }
     }
 
-    /// The footer's Start hint in a room: the host's pick, or none.
+    /// The footer's Start hint in a room: the picker's pick, or none.
     pub(super) fn room_play_hint(&self) -> Option<Option<UiText>> {
         let rm = self.room.as_ref()?;
         let r = rm.room.borrow();
         Some(
-            r.may(ddi_room::Capability::ChooseContent)
+            r.chooses()
                 .then(|| ddi_l10n::msg::room::pick_use(r.next_pick_number())),
         )
     }
