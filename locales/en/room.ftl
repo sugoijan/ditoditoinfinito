@@ -281,6 +281,14 @@ room-play-cue-eliminated = You're out
 # The player and others went out last together: first place shared.
 room-play-cue-stage-drawn = Stage drawn
 
+# An opponent's full power bar was spent on an attack against the
+# player: eight shocks are on their way into the player's field.
+room-play-cue-attack-incoming = Attack incoming
+
+# The player's own full power bar was spent on an attack against an
+# opponent.
+room-play-cue-attack-launched = Attack launched
+
 ## A battle's attacks during a stage (where the match's Attacks rule is on).
 
 # An attack policy's name: how a player's full power bar picks whom to
@@ -884,12 +892,41 @@ room-table-out = Out { $time }
 # A row's life column for a player who left the stage (about 6 letters).
 room-table-left = Left
 
-# After a row's judgment counts where the battle has attacks: the attacks
-# the player launched and the shocks they stepped on.
+# Three small columns at the table's end where the match has attacks,
+# a number under each (their headings as the others': capitals small,
+# very short: 4 to 6 letters). The attacks this player launched.
+room-table-sent = Sent
+
+# The attacks launched against this player.
+room-table-taken = Taken
+
+# The shocks (an attack's eight hazards) this player stepped on.
+room-table-shocks = Shocks
+
+## Under the standings on the local player's own results, where the
+## stage had attacks: their battle in a few short lines (small, muted),
+## joined by a dot where they fit on one line.
+
+# Whom their attacks went to.
 # Variables:
-#   $attacks (Number) - attacks launched
-#   $shocks (Number) - shocks stepped on
-room-table-attacks = Attacks { $attacks } · Shocks { $shocks }
+#   $list (String) - the opponents' names, with a count where more than one ("Mossy Accordion ×2, Tinsel Pike")
+room-summary-sent = Attacks sent: { $list }
+
+# They launched none.
+room-summary-sent-none = No attacks sent
+
+# Who attacked them.
+# Variables:
+#   $list (String) - the opponents' names, with a count where more than one ("Basalt Wren ×2")
+room-summary-taken = Attacks taken: { $list }
+
+# Nobody attacked them.
+room-summary-taken-none = No attacks taken
+
+# The shocks they stepped on.
+# Variables:
+#   $count (Number) - how many
+room-summary-shocks = Shocks stepped on: { $count }
 
 # The heading over the match's result on the last stage's Standings (in
 # small letters, about 16).

@@ -192,6 +192,8 @@ room-play-cue-life-critical = ライフ危険
 room-play-cue-survivors = 残り{ $count }人
 room-play-cue-eliminated = アウト
 room-play-cue-stage-drawn = 1位タイ
+room-play-cue-attack-incoming = 攻撃接近
+room-play-cue-attack-launched = 攻撃発動
 
 room-attack-policy-spread = 均等
 room-attack-policy-retaliate = 仕返し
@@ -436,6 +438,20 @@ room-table-out = アウト { $time }
 
 room-table-left = 退出
 
-room-table-attacks = 攻撃 { $attacks } · ショック { $shocks }
+room-table-sent = 発動
+
+room-table-taken = 被攻撃
+
+room-table-shocks = ショック
+
+room-summary-sent = 攻撃した相手: { $list }
+
+room-summary-sent-none = 攻撃なし
+
+room-summary-taken = 攻撃してきた相手: { $list }
+
+room-summary-taken-none = 攻撃されず
+
+room-summary-shocks = 踏んだショック: { $count }
 
 room-final-heading = 対戦結果

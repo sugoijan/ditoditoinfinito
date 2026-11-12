@@ -1299,6 +1299,13 @@ fn attacks_debug(
         "cue": cue,
         "waiting_drawn": drawn.1,
         "waiting": b.waiting(&s.player).map(|w| format!("{:?} {:?}", w.targeting, w.reason)),
+        // The player's attack moments as told (`incoming`, `launched`,
+        // each with its host second): shown in the status line (their
+        // lines are not in the lines' table yet).
+        "told": s.attacks_told().iter().map(|t| json!([
+            format!("{:?}", t.moment).to_lowercase(),
+            t.at,
+        ])).collect::<Vec<_>>(),
         // Who attacks whom as drawn for the player's own attacks: each
         // link's attack, `from` and `to` (`"me"` or an opponent's seat),
         // its `phase` (`pulse`, `fade`, `still`, `outline`), whether it

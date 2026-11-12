@@ -474,6 +474,9 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     /// stage's opening has been told yet.
     told: Vec<Told>,
     opening_told: bool,
+    /// The local player's attack moments as told (an attack against
+    /// them, one of their own): shown in the status line.
+    attack_told: Vec<crate::announcer::battle::AttackTold>,
     /// The stage's end as its results tell it, and the last frame's host
     /// seconds (when the results' moments are told).
     stage_end: Option<ddi_library::announcer::Battle>,
@@ -1008,6 +1011,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             opening_told: false,
             stage_end: None,
             last_host: 0.0,
+            attack_told: Vec::new(),
             policy_pad: None,
         })
     }
@@ -1296,12 +1300,14 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         // A stage's opponents judged to the same point; won, the player
         // finishes the song whatever the gauge does.
         let mut moments = Vec::new();
+        let mut attack_moments = Vec::new();
         if let Some(b) = self.battle.as_mut() {
             let t = self.player.judge_time(HostTime(judge_now));
             if b.advance(t, &mut self.player, &events) == Some(true) {
                 self.player.set_fail(ddi_engine::FailPolicy::Off);
             }
             moments = b.take_events();
+            attack_moments = b.take_attack_moments();
         }
         // The event sounds: a mine stepped on now (the step that failed
         // the play too), the claps due soon while it goes on.
@@ -1329,6 +1335,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         if self.battle.is_some() {
             self.last_host = host_now.0;
             self.tell(moments, now, host_now.0);
+            self.tell_attacks(attack_moments, host_now.0);
         }
 
         // An immediate fail: the engine has stopped judging and the field is
@@ -1531,6 +1538,59 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 at: host,
             });
         }
+    }
+
+    /// The local player's attack `moments` of this frame, at host time
+    /// `host`: each told (shown in the status line: their lines are not
+    /// in the lines' table yet, so none is said), but an attack against
+    /// the player within [`VoicePolicy::incoming_again`] seconds of the
+    /// one before it (a chained attack right behind it), which the
+    /// warning by the receptors says.
+    fn tell_attacks(&mut self, moments: Vec<crate::battle::AttackMoment>, host: f64) {
+        use crate::battle::AttackMoment;
+        let policy = BATTLE_VOICE_V0;
+        for moment in moments {
+            let again = moment == AttackMoment::Incoming
+                && self
+                    .attack_told
+                    .iter()
+                    .rev()
+                    .find(|t| t.moment == AttackMoment::Incoming)
+                    .is_some_and(|t| host - t.at < policy.incoming_again);
+            if !again {
+                self.attack_told
+                    .push(crate::announcer::battle::AttackTold { moment, at: host });
+            }
+        }
+    }
+
+    /// The local player's attack moments told so far (tests, the debug
+    /// state).
+    pub fn attacks_told(&self) -> &[crate::announcer::battle::AttackTold] {
+        &self.attack_told
+    }
+
+    /// What the status line shows at host time `host`, and how old it
+    /// is: of the battle's moment no line said ([`PlaySession::battle_cue`])
+    /// and the latest attack moment, each while it lasts, the one that
+    /// matters more (the policy's priorities), the newer of equals.
+    pub fn stage_cue(&self, host: f64) -> Option<(crate::announcer::battle::StageCue, f64)> {
+        use crate::announcer::battle::StageCue;
+        let policy = self.battle_policy()?;
+        let event = self
+            .battle_cue(host)
+            .map(|(e, age)| (policy.priority(e), StageCue::Event(e), age));
+        let attack = self
+            .attack_told
+            .last()
+            .map(|t| (t, host - t.at))
+            .filter(|(_, age)| *age < policy.cue_seconds)
+            .map(|(t, age)| (policy.attack_priority(t.moment), StageCue::Attack(t.moment), age));
+        [event, attack]
+            .into_iter()
+            .flatten()
+            .max_by(|a, b| a.0.cmp(&b.0).then(b.2.total_cmp(&a.2)))
+            .map(|(_, cue, age)| (cue, age))
     }
 
     /// The room confirmed this stage's outcome (the shell reported it),

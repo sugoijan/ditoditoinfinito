@@ -50,11 +50,19 @@ fn song() -> SongEntry {
     }
 }
 
-/// A practice room of `stages` stages against `cpus` CPUs.
+/// A practice room of `stages` stages against `cpus` CPUs, its Attacks
+/// rule turned off (the standings as survival has them).
 fn practice(stages: u16, cpus: usize) -> SharedRoom {
+    practice_with(stages, cpus, false)
+}
+
+/// A practice room of `stages` stages against `cpus` CPUs, with or
+/// without attacks.
+fn practice_with(stages: u16, cpus: usize, attacks: bool) -> SharedRoom {
     let room = RoomClient::shared(0, 1);
     room.borrow_mut().set_rules_seen(true);
     let mut rules = room.borrow().rules().clone();
+    rules.set_attacks(attacks);
     rules.stages = stages;
     rules.seats = rules.seats.max(cpus as u16 + 1);
     let first = rules.cpu.roster[0].clone();
@@ -578,46 +586,132 @@ fn an_online_stages_lines_fill_in_as_the_reports_come() {
     assert!(room_unseen(&bob).is_some());
 }
 
-/// With attacks (a practice room's default), a line's counts are followed
-/// by the attacks its starter launched and the shocks they stepped on.
+/// With attacks (a practice room's default), the standings have three
+/// small columns at the end (attacks launched, attacks received, shocks
+/// stepped on) in the combo's place, a number a line, nine lines fitting
+/// at 1280×720; and under the lines the local player's own battle in
+/// short: whom their attacks went to, who attacked them, the shocks they
+/// stepped on, a final attack's draw. Without attacks, none of it.
 #[test]
-fn with_attacks_the_lines_count_them() {
+fn with_attacks_the_lines_count_them_and_the_player_s_battle_is_summed_up() {
+    use crate::state::room::AttackSummary;
     crate::screens::results::forget_tab();
-    crate::state::room::set_development(crate::state::room::Development {
-        attacks: Some(true),
-        ..Default::default()
-    });
     let env = env();
-    let room = practice(2, 1);
-    crate::state::room::set_development(Default::default());
+    let room = practice_with(2, 8, true);
     let how = |i: usize| {
         let mut w = descending(i);
-        w.detail.attacks = Some(2 - i as u32);
+        w.detail.attacks = Some(8 - i as u32);
+        w.detail.received = Some(i as u32);
         w.detail.shocks = Some(1 + 7 * i as u32);
         w
     };
-    let order = play(&room, &[&[0], &[1]], &how);
+    let groups: Vec<Vec<usize>> = (0..9).map(|i| vec![i]).collect();
+    let groups: Vec<&[usize]> = groups.iter().map(Vec::as_slice).collect();
+    let order = play(&room, &groups, &how);
     assert!(order.battle.attacks());
+    // The player's own attacks, as the stage's runner sums them up.
+    let cpu = |k: usize| order.cpus[k].participant;
+    room.borrow_mut().set_stage_summary(
+        order.stage,
+        Some(AttackSummary {
+            sent: vec![(cpu(0), 2), (cpu(3), 1)],
+            taken: vec![(cpu(1), 1)],
+            shocks: 3,
+            drawn_by_final_attack: true,
+        }),
+    );
     let mut h = harness();
     h.push(results(&env, &room, &order));
     h.run(1.0);
-    assert_eq!(view(&env).rows[0].attacks, Some((2, 1)));
-    let texts = h.texts();
-    for line in ["Attacks 2 · Shocks 1", "Attacks 1 · Shocks 8"] {
-        assert!(texts.iter().any(|t| t == line), "{line}: {texts:?}");
+    let v = view(&env);
+    assert_eq!(
+        v.columns,
+        [
+            "award",
+            "total",
+            "match",
+            "score",
+            "grade",
+            "life",
+            "judgments",
+            "sent",
+            "taken",
+            "shocks"
+        ]
+    );
+    assert_eq!(v.rows[0].attacks, Some((8, 0, 1)));
+    assert_eq!(v.rows[8].attacks, Some((0, 8, 57)));
+    // Nine lines, each with its three numbers under their headings.
+    for k in 0..9 {
+        assert!(there(&h, &format!("Stand{k}")), "line {k}");
     }
+    assert_eq!(said(&h, "Stand0", "Sent"), "8");
+    assert_eq!(said(&h, "Stand0", "Taken"), "0");
+    assert_eq!(said(&h, "Stand0", "Shocks"), "1");
+    assert_eq!(said(&h, "Stand8", "Shocks"), "57");
+    for (head, word) in [("sent", "Sent"), ("taken", "Taken"), ("shocks", "Shocks")] {
+        let a = h.actor(&format!("Head.{head}"));
+        let Kind::Text(t) = &a.kind else {
+            panic!("a heading");
+        };
+        assert_eq!(t.text(), word);
+    }
+    // The names keep room beside ten columns.
+    let name = h.ui.bounds("Stand0").unwrap();
+    let head = h.ui.bounds("Head.award").unwrap();
+    assert!(head[0] - name[0] > 180.0, "{name:?} {head:?}");
+    // The summary, under the lines, inside the panel.
+    let names: Vec<String> = [0, 3, 1]
+        .iter()
+        .map(|k| order.cpus[*k].name.clone().unwrap())
+        .collect();
+    assert_eq!(
+        v.summary,
+        [
+            format!("Attacks sent: {} ×2, {}", names[0], names[1]),
+            format!("Attacks taken: {}", names[2]),
+            "Shocks stepped on: 3".to_string(),
+            "Drawn: final attack".to_string(),
+        ]
+    );
+    let panel = h.ui.bounds("Panel.Standings").unwrap();
+    let texts = h.texts();
+    assert!(
+        texts.iter().any(|t| t.starts_with("Attacks sent: ")),
+        "{texts:?}"
+    );
+    let mut k = 0;
+    while let Some(b) = h.ui.bounds(&format!("Stand.Battle{k}")) {
+        assert!(b[1] >= panel[1] && b[3] <= panel[3] + 0.5, "line {k}: {b:?} {panel:?}");
+        assert!(b[2] <= panel[2] + 0.5, "line {k}: {b:?} {panel:?}");
+        k += 1;
+    }
+    assert!((1..=4).contains(&k), "{k} summary lines");
+    let last = h.ui.bounds("Stand8").unwrap();
+    assert!(last[3] <= panel[3] + 0.5, "the ninth line in the panel");
+    // None sent, none taken: said so.
+    room.borrow_mut().set_stage_summary(
+        order.stage,
+        Some(AttackSummary::default()),
+    );
+    h.run(0.5);
+    assert_eq!(
+        view(&env).summary,
+        ["No attacks sent", "No attacks taken", "Shocks stepped on: 0"]
+    );
     // Without attacks nothing is said of them, whatever a report says.
-    crate::state::room::set_development(crate::state::room::Development {
-        attacks: Some(false),
-        ..Default::default()
-    });
     let room = practice(2, 1);
-    crate::state::room::set_development(Default::default());
     let order = play(&room, &[&[0], &[1]], &how);
+    assert!(!order.battle.attacks());
+    room.borrow_mut()
+        .set_stage_summary(order.stage, Some(AttackSummary::default()));
     let mut h = harness();
     h.push(results(&env, &room, &order));
     h.run(1.0);
-    assert_eq!(view(&env).rows[0].attacks, None);
+    let v = view(&env);
+    assert_eq!(v.rows[0].attacks, None);
+    assert!(v.summary.is_empty());
+    assert!(v.columns.contains(&"combo".to_string()) && !v.columns.contains(&"sent".to_string()));
     assert!(!h.texts().iter().any(|t| t.starts_with("Attacks")));
 }
 

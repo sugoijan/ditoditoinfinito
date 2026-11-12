@@ -223,10 +223,13 @@ pub struct RunDetail {
     /// best first, the misses last.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tiers: Vec<u32>,
-    /// Where the battle has attacks: those they launched and the shocks
-    /// they stepped on.
+    /// Where the battle has attacks: those they launched, those sent
+    /// against them (`received`, M8 round 3: additive as the rest) and
+    /// the shocks they stepped on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attacks: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub received: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shocks: Option<u32>,
 }

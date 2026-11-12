@@ -1181,11 +1181,11 @@ impl<H: PlayHost> PlayView<H> {
         self.host.lap(Lap::Hand);
         // A battle's moment no line said, in the miniatures' status line
         // (`ddi_session::announcer::battle`).
-        let cue = session.battle_cue(moment.now.0).and_then(|(event, age)| {
+        let cue = session.stage_cue(moment.now.0).and_then(|(cue, age)| {
             let policy = session.battle_policy()?;
             let number = session.battle().map_or(1, |b| b.setup().number);
             Some((
-                cue_words(event, number)?,
+                cue_words(cue, number)?,
                 policy.cue_alpha(age, render.reduced_motion),
             ))
         });
@@ -1453,10 +1453,22 @@ pub fn behind_field(
 }
 
 /// A battle's moment as the opponents' status line words it (`None`: one the
-/// play does not show), stage `number` being played.
-fn cue_words(event: ddi_library::announcer::Battle, number: u16) -> Option<String> {
+/// play does not show), stage `number` being played: one of the battle's
+/// events no line said, or an attack's (against the player, or theirs).
+fn cue_words(cue: ddi_session::announcer::battle::StageCue, number: u16) -> Option<String> {
     use ddi_l10n::msg::room as m;
     use ddi_library::announcer::Battle;
+    use ddi_session::announcer::battle::StageCue;
+    use ddi_session::battle::AttackMoment;
+    let event = match cue {
+        StageCue::Attack(AttackMoment::Incoming) => {
+            return Some(m::play_cue_attack_incoming().into());
+        }
+        StageCue::Attack(AttackMoment::Launched) => {
+            return Some(m::play_cue_attack_launched().into());
+        }
+        StageCue::Event(event) => event,
+    };
     Some(
         match event {
             Battle::MatchBegin => m::play_cue_match_begin(),

@@ -110,6 +110,9 @@ pub struct StageView {
     /// The columns shown, left to right.
     pub columns: Vec<String>,
     pub rows: Vec<StageRowView>,
+    /// The local player's battle summary's lines, where the stage had
+    /// attacks.
+    pub summary: Vec<String>,
     /// The match's winners and everyone's final place and total, on the
     /// last stage once the match is over.
     pub winners: Vec<String>,
@@ -136,7 +139,9 @@ pub struct StageRowView {
     pub life: String,
     pub combo: Option<u32>,
     pub tiers: Vec<u32>,
-    pub attacks: Option<(u32, u32)>,
+    /// Where the battle has attacks: those they launched, those sent
+    /// against them and the shocks they stepped on.
+    pub attacks: Option<(u32, u32, u32)>,
 }
 
 /// A column of the table.
@@ -150,6 +155,11 @@ enum Col {
     Life,
     Combo,
     Judgments,
+    /// With attacks: those launched, those received, the shocks stepped
+    /// on.
+    Sent,
+    Taken,
+    Shocks,
 }
 
 impl Col {
@@ -163,6 +173,9 @@ impl Col {
             Col::Life => "life",
             Col::Combo => "combo",
             Col::Judgments => "judgments",
+            Col::Sent => "sent",
+            Col::Taken => "taken",
+            Col::Shocks => "shocks",
         }
     }
 
@@ -176,6 +189,19 @@ impl Col {
             Col::Life => m::table_life(),
             Col::Combo => m::table_combo(),
             Col::Judgments => m::table_judgments(),
+            Col::Sent => m::table_sent(),
+            Col::Taken => m::table_taken(),
+            Col::Shocks => m::table_shocks(),
+        }
+    }
+
+    /// Its width; with the three attack columns beside them, life and
+    /// the judgments' strip a little narrower, for the names' room.
+    fn width_with(self, attacks: bool) -> f32 {
+        match self {
+            Col::Life if attacks => 70.0,
+            Col::Judgments if attacks => 72.0,
+            _ => self.width(),
         }
     }
 
@@ -189,6 +215,9 @@ impl Col {
             Col::Life => 80.0,
             Col::Combo => 52.0,
             Col::Judgments => 96.0,
+            Col::Sent => 34.0,
+            Col::Taken => 40.0,
+            Col::Shocks => 46.0,
         }
     }
 }
@@ -196,7 +225,11 @@ impl Col {
 /// The columns a table `w` wide shows after the place and the name: all
 /// of them where there is room, else without (in this order) the
 /// judgments, the combo, life, the place in the match and the grade.
-fn columns(w: f32) -> Vec<Col> {
+/// With `attacks`, three small ones more at the end (attacks launched,
+/// attacks received, shocks stepped on), which take the combo's place
+/// (the widest table has not the room for both beside the names) and go
+/// first where the table is narrow.
+fn columns(w: f32, attacks: bool) -> Vec<Col> {
     let all = [
         Col::Award,
         Col::Total,
@@ -206,8 +239,14 @@ fn columns(w: f32) -> Vec<Col> {
         Col::Life,
         Col::Combo,
         Col::Judgments,
+        Col::Sent,
+        Col::Taken,
+        Col::Shocks,
     ];
     let dropped = [
+        (Col::Sent, 700.0),
+        (Col::Taken, 700.0),
+        (Col::Shocks, 700.0),
         (Col::Judgments, 700.0),
         (Col::Combo, 640.0),
         (Col::Life, 560.0),
@@ -216,7 +255,72 @@ fn columns(w: f32) -> Vec<Col> {
     ];
     all.into_iter()
         .filter(|c| !dropped.iter().any(|(d, least)| d == c && w < *least))
+        .filter(|c| match c {
+            Col::Sent | Col::Taken | Col::Shocks => attacks,
+            Col::Combo => !(attacks && w >= 700.0),
+            _ => true,
+        })
         .collect()
+}
+
+/// The local player's battle summary of the stage, in lines (where it
+/// had attacks and was played here): whom their attacks went to and how
+/// many, who attacked them, the shocks they stepped on, and a final
+/// attack's draw.
+pub(super) fn summary_lines(r: &RoomClient, table: &StageTable) -> Vec<String> {
+    let Some(s) = table.summary.as_ref().filter(|_| table.attacks) else {
+        return Vec::new();
+    };
+    let list = |of: &[(ParticipantId, u32)]| -> String {
+        let names: Vec<String> = of
+            .iter()
+            .map(|(id, n)| {
+                let name = name_of(r, *id).0;
+                if *n > 1 {
+                    format!("{name} ×{n}")
+                } else {
+                    name
+                }
+            })
+            .collect();
+        UiText::data(names.join(", ")).into()
+    };
+    let mut lines: Vec<String> = vec![
+        if s.sent.is_empty() {
+            m::summary_sent_none().into()
+        } else {
+            m::summary_sent(list(&s.sent)).into()
+        },
+        if s.taken.is_empty() {
+            m::summary_taken_none().into()
+        } else {
+            m::summary_taken(list(&s.taken)).into()
+        },
+        m::summary_shocks(s.shocks).into(),
+    ];
+    if s.drawn_by_final_attack {
+        lines.push(m::results_drawn_final_attack().into());
+    }
+    lines
+}
+
+/// A summary line's height.
+const SUMMARY_LINE: f32 = 18.0;
+
+/// How [`summary_lines`] flow into a table `w` wide: one after another
+/// on a line while they fit, a dot between.
+fn summary_flow(lines: &[String], w: f32) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for l in lines {
+        match out.last_mut() {
+            Some(last) if look::mono_width(last, 12.0) + look::mono_width(l, 12.0) + 24.0 <= w => {
+                last.push_str("  ·  ");
+                last.push_str(l);
+            }
+            _ => out.push(l.clone()),
+        }
+    }
+    out
 }
 
 /// A participant's name as the lists show it (You, a bot labeled, a
@@ -333,9 +437,13 @@ fn row_view(r: &RoomClient, table: &StageTable, row: &StageRow, percent: bool) -
         },
         combo: d.map(|d| d.max_combo),
         tiers: d.map(|d| d.tiers.clone()).unwrap_or_default(),
-        attacks: d
-            .filter(|_| table.attacks)
-            .and_then(|d| Some((d.attacks?, d.shocks.unwrap_or(0)))),
+        attacks: d.filter(|_| table.attacks).and_then(|d| {
+            Some((
+                d.attacks?,
+                d.received.unwrap_or(0),
+                d.shocks.unwrap_or(0),
+            ))
+        }),
     }
 }
 
@@ -355,6 +463,7 @@ fn view_of(r: &RoomClient, table: &StageTable, tab: Tab, cols: &[Col]) -> StageV
             .iter()
             .map(|row| row_view(r, table, row, percent))
             .collect(),
+        summary: summary_lines(r, table),
         winners: result
             .iter()
             .filter(|(_, rank, _)| *rank == 1)
@@ -408,9 +517,7 @@ fn strip(env: &Env, name: &str, tiers: &[Tier], counts: &[u32], [x, y]: [f32; 2]
     frame(name, c)
 }
 
-/// A line's exact counts, each in its tier's color, ending at `x`; where
-/// the battle has attacks, those launched and the shocks stepped on
-/// before them.
+/// A line's exact counts, each in its tier's color, ending at `x`.
 fn counts(
     env: &Env,
     name: &str,
@@ -429,12 +536,6 @@ fn counts(
         }
         c.push(right(env.numbers("", &text, 12.0, tier.color), at, y));
         at -= w + 9.0;
-    }
-    if let Some((attacks, shocks)) = row.attacks {
-        let text = m::table_attacks(attacks, shocks);
-        if x - at + look::mono_width(&text, 12.0) + 8.0 <= room {
-            c.push(right(env.text("", &text, 12.0, 400, "Muted"), at - 8.0, y));
-        }
     }
     frame(name, c)
 }
@@ -463,7 +564,15 @@ pub(super) fn standings(
 ) -> Drawn {
     let percent = shows_percent(table);
     let tiers = tiers_of(table);
-    let cols = columns(w);
+    let cols = columns(w, table.attacks);
+    // The player's battle summary under the lines: its room first.
+    let summary = summary_flow(&summary_lines(r, table), w);
+    let summary_h = if summary.is_empty() {
+        0.0
+    } else {
+        summary.len() as f32 * SUMMARY_LINE + 6.0
+    };
+    let height = height.map(|h| (h - summary_h).max(ROW_MIN));
     let rows: Vec<StageRowView> = table
         .rows
         .iter()
@@ -527,7 +636,7 @@ pub(super) fn standings(
     let mut end = x + w;
     for col in cols.iter().rev() {
         ends.push((*col, end));
-        end -= col.width() + if *col == Col::Score { 12.0 } else { 0.0 };
+        end -= col.width_with(table.attacks) + if *col == Col::Score { 12.0 } else { 0.0 };
     }
     let end_of = |col: Col| ends.iter().find(|(c, _)| *c == col).map(|(_, e)| *e);
     let name_x = x + 28.0;
@@ -545,7 +654,7 @@ pub(super) fn standings(
             700,
             "Faint",
         );
-        look::ellipsized(&mut t, col.width() - 4.0);
+        look::ellipsized(&mut t, col.width_with(table.attacks) - 4.0);
         out.push(right(t, *end, hy));
     }
     ry += HEAD_H;
@@ -635,7 +744,7 @@ pub(super) fn standings(
             {
                 // Never past its column (a longer language's "+12").
                 let mut a = env.numbers(name, text, 14.0, color);
-                look::ellipsized(&mut a, col.width());
+                look::ellipsized(&mut a, col.width_with(table.attacks));
                 c.push(right(a, end, mid));
             }
         };
@@ -691,11 +800,16 @@ pub(super) fn standings(
                 && !row.life.is_empty()
             {
                 let mut l = env.text("Life", &row.life, 13.0, 400, "Muted");
-                look::ellipsized(&mut l, Col::Life.width() - 4.0);
+                look::ellipsized(&mut l, Col::Life.width_with(table.attacks) - 4.0);
                 c.push(right(l, end, mid));
             }
             if let Some(combo) = row.combo {
                 number(&mut c, "Combo", &combo.to_string(), Col::Combo, "Muted");
+            }
+            if let Some((sent, taken, shocks)) = row.attacks {
+                number(&mut c, "Sent", &sent.to_string(), Col::Sent, "Muted");
+                number(&mut c, "Taken", &taken.to_string(), Col::Taken, "Muted");
+                number(&mut c, "Shocks", &shocks.to_string(), Col::Shocks, "Muted");
             }
             if let Some(end) = end_of(Col::Judgments)
                 && !row.tiers.is_empty()
@@ -706,7 +820,7 @@ pub(super) fn standings(
                     &tiers,
                     &row.tiers,
                     [end, mid],
-                    Col::Judgments.width() - 12.0,
+                    Col::Judgments.width_with(table.attacks) - 12.0,
                 ));
                 if two {
                     c.push(counts(
@@ -762,6 +876,16 @@ pub(super) fn standings(
             out.push(frame("Stand.Detail", c));
         }
         ry += DETAIL_H;
+    }
+    // The player's own attacks, summed up.
+    if !summary.is_empty() {
+        ry += 6.0;
+        for (k, line) in summary.iter().enumerate() {
+            let mut t = env.text(&format!("Stand.Battle{k}"), line, 12.0, 400, "Muted");
+            look::ellipsized(&mut t, w - 28.0);
+            out.push(left(t, name_x, ry + SUMMARY_LINE / 2.0));
+            ry += SUMMARY_LINE;
+        }
     }
     Drawn {
         height: ry - y,
@@ -1008,7 +1132,7 @@ impl ResultsScreen {
                 w if w > 0.0 => w,
                 _ => self.places().1[2] - 28.0,
             };
-            Some(view_of(&r, &table, sm.tab, &columns(w)))
+            Some(view_of(&r, &table, sm.tab, &columns(w, table.attacks)))
         });
         self.env.state.borrow_mut().stage = view;
     }

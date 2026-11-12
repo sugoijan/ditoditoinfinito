@@ -309,6 +309,8 @@ pub(crate) fn report(
     PLAYING.with(|p| {
         p.borrow_mut().take_if(|p| p.order.stage == outcome.stage);
     });
+    room.borrow_mut()
+        .set_stage_summary(outcome.stage, outcome.summary);
     let reported = room.borrow_mut().report_played(
         outcome.stage,
         outcome.mine,

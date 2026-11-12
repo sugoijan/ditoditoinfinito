@@ -458,6 +458,7 @@ fn a_reports_detail_is_kept_alike_by_both_authorities_and_every_mirror() {
         max_combo: 120,
         tiers: (0..20).collect(),
         attacks: None,
+        received: None,
         shocks: None,
     };
     let mut steps = script();

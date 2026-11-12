@@ -19,6 +19,7 @@ use ddi_library::announcer::{Battle as Event, Kept, Line, Spoken};
 use ddi_library::path::RelPathBuf;
 
 use super::{Bags, speaks, take};
+use crate::battle::AttackMoment;
 
 /// How a stage's voice is played: which of the play's own lines it keeps,
 /// how the battle's moments rank and how long a moment shows on screen.
@@ -30,6 +31,10 @@ pub struct VoicePolicy {
     pub cue_seconds: f64,
     /// The cue's fade in and out, seconds (none under reduced motion).
     pub cue_fade: f64,
+    /// Seconds within which a second attack against the player is not
+    /// told again (a chained attack right behind the first: the warning
+    /// by the receptors says it).
+    pub incoming_again: f64,
 }
 
 /// The battle voice of the prototype (`battle-voice-v0`): one battle line
@@ -41,6 +46,7 @@ pub const BATTLE_VOICE_V0: VoicePolicy = VoicePolicy {
     id: "battle-voice-v0",
     cue_seconds: 2.5,
     cue_fade: 0.25,
+    incoming_again: 6.0,
 };
 
 impl VoicePolicy {
@@ -60,6 +66,17 @@ impl VoicePolicy {
             Event::LifeCritical => 20,
             Event::Survivors(_) => 10,
             Event::MatchBegin | Event::StageBegin | Event::FinalStage | Event::SongFinished => 5,
+        }
+    }
+
+    /// How much an attack's moment matters among the battle's
+    /// ([`VoicePolicy::priority`]'s scale): one against the player just
+    /// under the outcomes (the 30 the design kept for it), one of their
+    /// own just under the milestones.
+    pub fn attack_priority(&self, moment: AttackMoment) -> u8 {
+        match moment {
+            AttackMoment::Incoming => 30,
+            AttackMoment::Launched => 8,
         }
     }
 
@@ -149,6 +166,21 @@ impl Told {
     pub fn shown(&self, policy: &VoicePolicy) -> bool {
         !self.spoken() && policy.shows(self.event)
     }
+}
+
+/// An attack's moment as the play told it, and when (host seconds).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AttackTold {
+    pub moment: AttackMoment,
+    pub at: f64,
+}
+
+/// What a stage's status line shows: a battle's moment no line said, or
+/// an attack's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StageCue {
+    Event(Event),
+    Attack(AttackMoment),
 }
 
 /// A stage's voice: the policy, the battle line speaking and until when

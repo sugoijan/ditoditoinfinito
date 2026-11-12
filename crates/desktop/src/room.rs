@@ -430,6 +430,8 @@ pub fn room_screen_with(
 /// stage (an online room's is not known yet: `None`).
 pub fn report(outcome: ddi_session::battle::StageOutcome) -> Option<ddi_ui::state::room::MatchEnd> {
     let room = stage_room();
+    room.borrow_mut()
+        .set_stage_summary(outcome.stage, outcome.summary);
     let reported = room.borrow_mut().report_played(
         outcome.stage,
         outcome.mine,

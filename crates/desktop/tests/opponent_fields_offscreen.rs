@@ -198,6 +198,12 @@ fn play(s: &Scenario) -> Option<Played> {
         rules.seats = rules.seats.max(s.cpus + 1);
         rules.cpu.mode = CpuMode::Fixed { count: s.cpus };
         rules.cpu.opponent.level = s.level;
+        // Survival alone (the Attacks rule, On by default in practice,
+        // turned off): the sizes these scenarios are about are the
+        // miniatures' own, without the attack warning's place kept
+        // clear beside the field (with it, eight at 1280×720 have lanes
+        // of 25, not 28).
+        rules.set_attacks(false);
         r.save_rules(rules).unwrap();
         r.pick(&entry, &entry.charts[0]).unwrap();
     }

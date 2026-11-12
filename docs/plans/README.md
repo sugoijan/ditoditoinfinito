@@ -89,7 +89,11 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   next checkpoint and kept in the play's log; who attacks whom for the
   player's own attacks (a line through the side space with a pulse, the
   opponent's miniature outlined while the attack lasts, a chained one
-  quieter, the attacker and the target kept in view beyond the cap).
+  quieter, the attacker and the target kept in view beyond the cap);
+  the attack moments told in the status line (their two announcer lines
+  not in the lines' table yet), and the stage's standings with attacks
+  sent, taken and shocks stepped on a line and the player's own battle
+  summed up.
   Provisional choices and open questions listed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two

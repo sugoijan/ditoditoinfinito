@@ -1519,6 +1519,126 @@ fn the_player_s_attacks_are_links_while_they_last() {
     assert!(s.battle().unwrap().kept_seats(&s.player, 8.0).is_empty());
 }
 
+/// M8 round 3 (S7): the local player's attack moments. Over a stage
+/// against strong CPUs: an attack of the player's own is told as it is
+/// committed; one against them too, well before its first shock can be
+/// seen (the target's lead: its reading horizon and 1.5 s of warning),
+/// but not again within six seconds of the one before (a chained attack
+/// right behind it); the status line shows the moment for the cue's
+/// time, an attack against the player over one of their own, an outcome
+/// over both. (Their lines, `battle attack incoming` and `battle attack
+/// launched`, are not in the lines' table yet: nothing is said.)
+#[test]
+fn the_player_s_attack_moments_are_told_in_the_status_line() {
+    use crate::announcer::battle::{BATTLE_VOICE_V0, StageCue};
+    use crate::battle::AttackMoment;
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(&song, 3, 9);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let settings = Settings::default();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.opponents = Some(StageSetup::of(&order));
+    let mut s = PlaySession::start(
+        &song,
+        order.chart.index,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    let horizon = s.player.reading_horizon();
+    let policy = BATTLE_VOICE_V0;
+    assert_eq!(policy.attack_priority(AttackMoment::Incoming), 30);
+    assert!(
+        policy.attack_priority(AttackMoment::Incoming)
+            > policy.priority(ddi_library::announcer::Battle::LifeCritical)
+            && policy.attack_priority(AttackMoment::Incoming)
+                < policy.priority(ddi_library::announcer::Battle::Eliminated)
+    );
+    assert!(
+        policy.attack_priority(AttackMoment::Launched)
+            < policy.priority(ddi_library::announcer::Battle::Survivors(2))
+    );
+    let mut told = 0;
+    let mut cues = (0, 0);
+    loop {
+        *clock.borrow_mut() += 1.0 / 60.0;
+        let host = *clock.borrow();
+        let (_, event) = s.tick(HostTime(host));
+        let judged = s.player.judge().last_time().unwrap_or(f64::NEG_INFINITY);
+        let fresh = &s.attacks_told()[told..];
+        for t in fresh {
+            assert!((t.at - host).abs() < 1e-9);
+            let links = s.battle().unwrap().links(&s.player);
+            match t.moment {
+                AttackMoment::Incoming => {
+                    // The attack just committed against the player:
+                    // its first shock further off than it can be seen,
+                    // with the warning's time to spare.
+                    let l = links.iter().rfind(|l| !l.outgoing).expect("its link");
+                    assert!(l.first - judged >= horizon + 1.4, "{l:?} at {judged}");
+                    // Shown at once: nothing matters more right now.
+                    assert_eq!(
+                        s.stage_cue(host).map(|c| c.0),
+                        Some(StageCue::Attack(AttackMoment::Incoming))
+                    );
+                    cues.0 += 1;
+                }
+                AttackMoment::Launched => {
+                    assert!(links.iter().any(|l| l.outgoing), "{links:?}");
+                    // Shown, unless one against the player shows.
+                    let cue = s.stage_cue(host).map(|c| c.0);
+                    assert!(
+                        matches!(cue, Some(StageCue::Attack(_))),
+                        "{cue:?}"
+                    );
+                    cues.1 += 1;
+                }
+            }
+        }
+        told = s.attacks_told().len();
+        // A cue lasts its time and no longer.
+        if let Some((StageCue::Attack(_), age)) = s.stage_cue(host) {
+            assert!((0.0..policy.cue_seconds).contains(&age));
+        }
+        if event.is_some() {
+            break;
+        }
+        assert!(host < 300.0, "the stage never ended");
+    }
+    let me = order.me;
+    let ledger = s.battle().unwrap().attacks().unwrap().ledger();
+    let launched = ledger.attacks().iter().filter(|a| a.sender == me).count();
+    let against = ledger.attacks().iter().filter(|a| a.recipient == me).count();
+    let said = |m| s.attacks_told().iter().filter(|t| t.moment == m).count();
+    assert!(launched > 0 && against > 0, "{launched} {against}");
+    assert_eq!(said(AttackMoment::Launched), launched);
+    // Every attack against the player told, but those right behind one.
+    let incoming: Vec<f64> = s
+        .attacks_told()
+        .iter()
+        .filter(|t| t.moment == AttackMoment::Incoming)
+        .map(|t| t.at)
+        .collect();
+    assert!(!incoming.is_empty() && incoming.len() <= against);
+    assert!(
+        incoming.windows(2).all(|w| w[1] - w[0] >= policy.incoming_again),
+        "{incoming:?}"
+    );
+    assert_eq!((cues.0, cues.1), (incoming.len(), launched));
+    // Nothing was said: no pack has the lines, and no line is theirs yet.
+    assert!(s.announcer_report().spoken.is_empty());
+    // The survival battle tells none.
+    let mut plain = room(&song, 1, 2, 2);
+    let order = begin_at(&song, &mut plain, &mut now, LONG);
+    let s = play_at(&song, &order, 60.0);
+    assert!(s.attacks_told().is_empty());
+}
+
 /// D8: a control the player's bindings give to a lane is never the
 /// policy's: Tab bound to a lane plays the lane, and the policy stays.
 /// Without attacks nothing cycles either (no label, no policy).

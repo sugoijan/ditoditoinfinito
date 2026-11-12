@@ -601,7 +601,14 @@ Rust and the browser are implementation details, not advertised features.
   shown in the miniatures' status line, `ddi_shell::opponents`;
   the match's rules for a stage, everyone's and the CPUs', DDI with the
   match's difficulty and Boos and never Practice, `battle::stage_ruleset`
-  from `ddi_ui::state::room::StageRules`;
+  from `ddi_ui::state::room::StageRules`; the local player's attack
+  moments (`battle::AttackMoment`: an attack against them committed, one
+  of their own), told at most once in six seconds for those against them
+  and shown in the status line (`PlaySession::stage_cue`,
+  `VoicePolicy::attack_priority`: their two lines, `battle attack
+  incoming` and `battle attack launched`, are NOT in the lines' table
+  yet, so nothing is said), and their attacks summed up for the results
+  (`Battle::attack_summary`, `StageOutcome::summary`);
   an opt-in study of attack rates between CPUs over the bundled charts,
   `battle/study.rs` (`cargo test --release -p ddi-session --lib
   attack_rates -- --ignored --nocapture`);
@@ -680,7 +687,9 @@ Rust and the browser are implementation details, not advertised features.
   as each side's room clear of the HUD, the quit button's place and the
   attack warning's allows, up to half the play's lane,
   `MINI_LANE_SHARE`, so a few opponents are no larger than many: lanes
-  of 36, 36, 36, 33 and 28 px for 1, 2, 4, 6 and 8 at 1280×720; lanes of
+  of 36, 36, 36, 33 and 28 px for 1, 2, 4, 6 and 8 at 1280×720 (without
+  the attack warning's place; a stage with attacks, a practice room's
+  default, keeps it clear beside the field: 25 px for eight); lanes of
   8 px at the least, in the margins a phone held upright leaves), with lyrics
   over the play too, a status line under the right side (beside the
   watermark where the sides are too narrow for words) for
@@ -1016,7 +1025,11 @@ Rust and the browser are implementation details, not advertised features.
   shown first (every starter in the stage's order with the award, the
   match's total and place and how they performed: score or percent,
   grade, life or when out, combo, the judgments as one stacked bar in
-  the ruleset's tiers' colors, `screens::play::tiers`; lines filling in
+  the ruleset's tiers' colors, `screens::play::tiers`; with attacks,
+  three small columns in the combo's place, Sent, Taken and Shocks
+  (`RunDetail::attacks`, `received`, `shocks`), and under the lines the
+  player's own battle in short, `results_stage::summary_lines` from
+  `RoomClient::set_stage_summary`; lines filling in
   as an online stage's reports come; the match's result on top after
   the last stage), and Graphs; Left and Right or the shoulders change
   the tab, remembered for the session; what it reads is

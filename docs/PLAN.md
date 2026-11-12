@@ -136,8 +136,9 @@ Focused CPU-practice and invite-only-room prototyping is authorized as of
 2026-11-10; see the [prototype handoff](plans/multiplayer-prototype-handoff.md).
 What it has built is in the [progress note](plans/multiplayer-prototype-progress.md):
 the shared room model, and a CPU-practice room on both shells behind a hidden
-switch, its stages played against engine-judged CPUs to the match's results;
-the public start menu still says "Coming soon".
+switch, its stages played against engine-judged CPUs to the match's results,
+with battle attacks a match rule (On by default in practice since 2026-11-12)
+and each player's own targeting; the public start menu still says "Coming soon".
 
 Multiplayer research began 2026-10-26 ([exploration](research/multiplayer.md));
 a [provisional battle design](plans/multiplayer.md) began 2026-11-08 while the

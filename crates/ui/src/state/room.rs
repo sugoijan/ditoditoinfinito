@@ -507,9 +507,12 @@ pub struct StageTable {
     /// The match's rules: the ruleset's tiers and score (the engine's
     /// id), its difficulty and Boos.
     pub rules: StageRules,
-    /// The battle has attacks: the rows say those launched and the
-    /// shocks stepped on.
+    /// The battle has attacks: the rows say those launched, those
+    /// received and the shocks stepped on.
     pub attacks: bool,
+    /// The local player's attacks of the stage, where it was played here
+    /// with attacks ([`AttackSummary`]).
+    pub summary: Option<AttackSummary>,
     /// The points came from an experimental rule.
     pub experimental: bool,
     pub rows: Vec<StageRow>,
@@ -518,14 +521,29 @@ pub struct StageTable {
     pub result: Option<Vec<(ParticipantId, u16, Points)>>,
 }
 
+/// The local player's attacks of a stage, for its results' short battle
+/// summary (M8 round 3): how many attacks they sent each opponent and
+/// were sent by each (in the order first sent), the shocks they stepped
+/// on, and whether the stage was drawn by a final attack
+/// (`SETTLEMENT_V0`). Kept by a practice's client beside the standings'
+/// details ([`RoomClient::set_stage_summary`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AttackSummary {
+    pub sent: Vec<(ParticipantId, u32)>,
+    pub taken: Vec<(ParticipantId, u32)>,
+    pub shocks: u32,
+    pub drawn_by_final_attack: bool,
+}
+
 /// How a play went, for a stage's standings (`ddi_room::RunDetail`):
 /// `results` under `ruleset` (the match's), `life` its gauge's at the end,
-/// `launched` the attacks it launched where the battle has them.
+/// `attacks` those it launched and those sent against it where the
+/// battle has them.
 pub fn run_detail(
     results: &ddi_engine::player::Results,
     ruleset: &ddi_engine::Ruleset,
     life: f32,
-    launched: Option<u32>,
+    attacks: Option<(u32, u32)>,
 ) -> RunDetail {
     let score = &results.score;
     let out = results.gauge_failed_at;
@@ -550,8 +568,9 @@ pub fn run_detail(
         out_at_ms: out.map(|at| (f64::from(at.max(0.0)) * 1_000.0).round() as u64),
         max_combo: results.max_combo,
         tiers: crate::screens::play::tier_counts(ruleset, &results.tally),
-        attacks: launched,
-        shocks: launched.map(|_| results.battle_mines.map_or(0, |b| b.hit)),
+        attacks: attacks.map(|a| a.0),
+        received: attacks.map(|a| a.1),
+        shocks: attacks.map(|_| results.battle_mines.map_or(0, |b| b.hit)),
     }
     .bounded()
 }
@@ -649,6 +668,9 @@ pub struct RoomClient {
     /// (a practice's: the player and the CPUs, [`RoomClient::set_stage_details`]);
     /// an online stage's are the room's, with its reports.
     details: BTreeMap<StageId, BTreeMap<ParticipantId, RunDetail>>,
+    /// The local player's attacks of each stage played here with attacks
+    /// ([`RoomClient::set_stage_summary`]).
+    summaries: BTreeMap<StageId, AttackSummary>,
 }
 
 /// The room shared by the screens that show it (the room, its song
@@ -774,6 +796,7 @@ impl RoomClient {
             rules_seen: false,
             results_seen: (None, 0),
             details: BTreeMap::new(),
+            summaries: BTreeMap::new(),
         };
         room.pump();
         room
@@ -829,6 +852,7 @@ impl RoomClient {
             rules_seen: false,
             results_seen: (None, 0),
             details: BTreeMap::new(),
+            summaries: BTreeMap::new(),
         };
         room.tick(now_ms);
         room
@@ -1691,6 +1715,15 @@ impl RoomClient {
         self.version += 1;
     }
 
+    /// The local player's attacks of `stage`, played on this device with
+    /// attacks, for its results' summary (none: nothing kept).
+    pub fn set_stage_summary(&mut self, stage: StageId, summary: Option<AttackSummary>) {
+        if let Some(s) = summary {
+            self.summaries.insert(stage, s);
+            self.version += 1;
+        }
+    }
+
     /// The match `stage` is of (the running one, else a finished one the
     /// room keeps), the stage's place in it, and whether that match is
     /// over with every stage played.
@@ -1791,6 +1824,7 @@ impl RoomClient {
             confirmed,
             rules: StageRules::of(&m.rules),
             attacks: self.attacks_played(&m.rules),
+            summary: self.summaries.get(&stage).cloned(),
             experimental: play.result.as_ref().is_some_and(|r| r.rule.experimental()),
             rows,
             result,

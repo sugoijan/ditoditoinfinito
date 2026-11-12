@@ -162,6 +162,19 @@ fallbacks. A quit stage still says `evaluation quit`.
 | `battle match not won` | The same, the match not won | nothing |
 | `battle match drawn` | The same, first place shared | nothing |
 
+**Planned, not read yet** (2026-11-12, M8 round 3): two lines for a
+battle's attacks, `battle attack incoming` (an attack against you was
+committed: said at once, well before its shocks can be seen; it matters
+more than your life running low and less than an outcome; not said again
+for an attack right behind the one before) and `battle attack launched`
+(your own full power bar was spent on an attack; it matters least of the
+moments but the openings), neither falling back on anything, so a pack
+without them stays as it is. The game tells both moments already, in the
+status line beside the field ("Attack incoming", "Attack launched"); it
+does not read the folders yet, so a pack that has them keeps them unread
+for now (they join the lines' table with the announcer studio's list of
+lines, which names every line).
+
 `here we go` still ends half a second before the first note. One battle
 line speaks at a time: one due while another is still speaking speaks
 only if it matters more (an outcome over your life, your life over who

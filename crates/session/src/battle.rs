@@ -52,6 +52,7 @@ pub use ddi_room::attacks::{BlockReason, Targeting};
 use ddi_room::battle::decided;
 use ddi_room::{Absolute, BattlePreset, Entrant, Finisher, ParticipantId, Run, RunDetail, StageId};
 pub use ddi_ui::state::room::StageRules;
+pub use ddi_ui::state::room::AttackSummary;
 use ddi_ui::state::room::{CpuSeat, StageOrder, run_detail};
 
 /// What a session needs to play a stage: which, under what battle, who
@@ -280,6 +281,10 @@ pub struct StageOutcome {
     /// The local player's attack policy as the play left it (changed in
     /// play or not): what the room keeps as theirs for the next stage.
     pub targeting: Targeting,
+    /// The local player's attacks of the stage, where it had them: whom
+    /// they sent how many, who sent them how many, the shocks they
+    /// stepped on, a final attack's draw (the results' battle summary).
+    pub summary: Option<AttackSummary>,
 }
 
 /// An attack against the local player, as its warning shows it
@@ -320,6 +325,20 @@ pub struct Link {
     /// It waits behind another attack against the same recipient that
     /// has not cleared yet (a chain): shown quieter.
     pub chained: bool,
+}
+
+/// An attack's moment for the local player, as the play tells it (M8
+/// round 3, S7): one against them committed, or one of their own. Each
+/// is to have a battle line (`battle attack incoming`, `battle attack
+/// launched`); until those are in the lines' table
+/// (`crate::announcer::battle`, [`VoicePolicy::attack_priority`]) the
+/// status line's words alone tell them.
+///
+/// [`VoicePolicy::attack_priority`]: crate::announcer::battle::VoicePolicy::attack_priority
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttackMoment {
+    Incoming,
+    Launched,
 }
 
 /// A full bar of the local player's waiting, as the line under it says.
@@ -376,6 +395,9 @@ pub struct Battle {
     settling: Option<Settling>,
     /// The commitments since they were last taken, worded for a log.
     log: Vec<String>,
+    /// The local player's attack moments since they were last taken
+    /// ([`Battle::take_attack_moments`]).
+    attack_moments: Vec<AttackMoment>,
     /// When this play learned of each attack's commitment (its number,
     /// the judged song second): what the local player's links are timed
     /// from ([`Battle::links`]).
@@ -518,6 +540,7 @@ impl Battle {
             decided_at: None,
             settling: None,
             log: Vec::new(),
+            attack_moments: Vec::new(),
             seen: Vec::new(),
             refused: 0,
             events: Vec::new(),
@@ -687,6 +710,14 @@ impl Battle {
             };
             if !delivered {
                 self.refused += 1;
+            }
+            // The local player's own moments (while they play).
+            if human.is_some() {
+                if recipient == me && delivered {
+                    self.attack_moments.push(AttackMoment::Incoming);
+                } else if sender == me {
+                    self.attack_moments.push(AttackMoment::Launched);
+                }
             }
             let name = |p: ParticipantId| {
                 if p == me {
@@ -943,6 +974,12 @@ impl Battle {
         }
         self.danger = Some(danger);
         self.live = live;
+    }
+
+    /// The local player's attack moments since the last call (an attack
+    /// against them committed, one of their own launched), in order.
+    pub fn take_attack_moments(&mut self) -> Vec<AttackMoment> {
+        std::mem::take(&mut self.attack_moments)
     }
 
     /// The battle's events since the last call, in the order they came.
@@ -1240,6 +1277,7 @@ impl Battle {
                 drawn_by_final_attack: self.drawn,
                 details,
                 targeting: self.policy,
+                summary: self.attack_summary(human),
             };
         }
         let checkpoints = self
@@ -1256,12 +1294,48 @@ impl Battle {
             drawn_by_final_attack: drawn,
             details,
             targeting: self.policy,
+            summary: self.attack_summary(human).map(|mut s| {
+                s.drawn_by_final_attack = drawn;
+                s
+            }),
         }
     }
 
-    /// The attacks `participant` launched, where the battle has attacks.
-    fn launched(&self, participant: ParticipantId) -> Option<u32> {
-        self.attacks.as_ref().map(|a| a.stats(participant).launched)
+    /// The attacks `participant` launched and those sent against it,
+    /// where the battle has attacks.
+    fn launched(&self, participant: ParticipantId) -> Option<(u32, u32)> {
+        self.attacks.as_ref().map(|a| {
+            let s = a.stats(participant);
+            (s.launched, s.received)
+        })
+    }
+
+    /// The local player's attacks of the stage so far, where it has
+    /// them ([`AttackSummary`]): every attack committed by them, by
+    /// recipient, and against them, by sender (those that expired
+    /// included: they were launched), in the order first committed.
+    pub fn attack_summary(&self, human: &Player) -> Option<AttackSummary> {
+        let a = self.attacks.as_ref()?;
+        let me = self.setup.me;
+        let mut summary = AttackSummary {
+            shocks: human.results_brief().battle_mines.map_or(0, |b| b.hit),
+            drawn_by_final_attack: self.drawn,
+            ..AttackSummary::default()
+        };
+        let count = |list: &mut Vec<(ParticipantId, u32)>, p: ParticipantId| {
+            match list.iter_mut().find(|(q, _)| *q == p) {
+                Some((_, n)) => *n += 1,
+                None => list.push((p, 1)),
+            }
+        };
+        for x in a.ledger().attacks() {
+            if x.sender == me {
+                count(&mut summary.sent, x.recipient);
+            } else if x.recipient == me {
+                count(&mut summary.taken, x.sender);
+            }
+        }
+        Some(summary)
     }
 
     /// How each CPU performed, as judged by its own play.
@@ -1377,6 +1451,8 @@ pub fn forfeit(
         drawn_by_final_attack: drawn,
         details: b.cpu_details(),
         targeting: b.policy,
+        // Left at the prompt: nothing of their own to sum up.
+        summary: None,
     })
 }
 

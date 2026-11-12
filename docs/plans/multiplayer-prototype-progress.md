@@ -2901,6 +2901,14 @@ above and is D8's first sentence again.
   (survival, nothing said); `ddi-session`'s survival stages turn the
   rule off in their room (`room_seeded`), its attack stages leave it.
   Singleplayer is untouched (the smoke check).
+- **A consequence for the miniatures**: a practice stage now keeps the
+  attack warning's place clear beside the field by default, so eight
+  miniatures at 1280×720 have lanes of 25 px, not the 28 of a stage
+  without attacks (feedback round C's table). The desktop's miniature
+  scenarios (`opponent_fields_offscreen`) turn the rule off to keep
+  measuring the miniatures' own sizes; one of them
+  (`eight_cpus_get_miniature_fields_beside_the_play`) failed between
+  the commit that changed the default and this round's last commit.
 
 ### Personal targeting (S6)
 
@@ -3068,6 +3076,87 @@ CPU stays what it was (shocks in their fields, the lock's look).
   colors); `ddi-desktop` `room_stage_flow` (links drawn through the
   window: lines for their time, outlines after).
 
+### The attacks told, and on the results (S7)
+
+- **The moments** (`ddi_session::battle::AttackMoment`): an attack
+  against the local player committed (`Incoming`) and one of their own
+  (`Launched`), taken by the session each frame
+  (`Battle::take_attack_moments`) and told (`PlaySession::attacks_told`):
+  an incoming one at its commitment, which is at least the player's
+  reading horizon plus 1.5 s before its first shock, so before its
+  shocks can be seen; not again within six seconds of the one before
+  (`VoicePolicy::incoming_again`: a chained attack right behind it, which
+  the warning's second bolt says). Their place among the battle's
+  moments (`battle-voice-v0`): `attack_priority`, 30 for incoming (under
+  the outcomes' 40, over critical life's 20: the place M4 kept for it), 8
+  for launched (under the milestones' 10).
+- **Shown, not spoken yet**: the status line beside the field says
+  "Attack incoming" and "Attack launched" for the cue's 2.5 s
+  (`PlaySession::stage_cue`: of a battle's moment no line said and the
+  latest attack moment, the one that matters more). Nothing is by sound
+  alone: the warning, the line and the outline say an attack too.
+- **NOT DONE: the two announcer lines themselves** (`battle attack
+  incoming`, `battle attack launched` as folders a pack may have). The
+  lines' table (`ddi_library::announcer::Line`, `Battle`) is matched
+  line by line, with no catch-all, in the announcer studio's screen
+  (`crates/ui/src/screens/studio.rs`: each line's name and when it is
+  said, worded in `locales/*/studio.ftl`), files of the announcer
+  studio's session this round was told to leave alone. A new line does
+  not compile without two arms in each of that file's two matches and
+  four messages in each language's `studio.ftl`. What it takes, once
+  those files may be touched: `Battle::AttackIncoming` and
+  `AttackLaunched` in `Battle::ALL` (folders `battle attack incoming`,
+  `battle attack launched`, no fallback: `chain` alone), the studio's
+  four arms and eight messages, `VoicePolicy::priority` giving them 30
+  and 8, `Battle` pushing those events in the place of (or beside) its
+  `AttackMoment`s so that `Announcer::battle` says them and the cue
+  shows only where they were not said, their examples in
+  `crates/library/src/announcer/examples.toml`, and
+  `docs/announcer-lines.md`'s table (it says "planned" now). The
+  bundled packs' recipes (`tools/announcer-design/pack.toml`,
+  `pack-ja.toml`) have no battle lines at all today (M4's fourteen were
+  never recorded either), so they gained none; once the lines exist the
+  packs need regenerating with `kokoro.py pack --bundle` for any battle
+  line to be heard. No audio was generated or bundled in this round.
+- **The standings** (a stage's results, with attacks): three small
+  columns at the table's end, **Sent** (attacks launched), **Taken**
+  (attacks launched against them) and **Shocks** (shocks stepped on), a
+  number a line for every competitor, in the combo's place (the widest
+  table has not the room for both beside the names; life and the
+  judgments' strip are a little narrower beside them, so that the names
+  keep over 180 px at 1280×720, where nine lines fit, or six and "3
+  more" under the match's result); a phone's table, already
+  without the combo and the judgments, has none of the three. The old
+  "Attacks n · Shocks n" after the judgment counts went.
+  `RunDetail::received` carries the second number (additive, as
+  `attacks` and `shocks`: an online report may carry all three).
+- **The player's battle summary**, under the standings' lines on their
+  own results (small, muted; one line where it fits, a dot between,
+  else more): "Attacks sent: Mossy Accordion ×2, Tinsel Pike", "Attacks
+  taken: Basalt Wren" (or "No attacks sent", "No attacks taken"),
+  "Shocks stepped on: 3" and, where the last one in was knocked out by
+  an attack the stage waited for, "Drawn: final attack"
+  (`SETTLEMENT_V0`; the results' footer says it too, as before). From
+  the stage's runner (`Battle::attack_summary`, `StageOutcome::summary`)
+  kept by the practice's client (`RoomClient::set_stage_summary`,
+  `StageTable::summary`); an online stage has none.
+- **Tests**: `ddi-session`
+  `the_player_s_attack_moments_are_told_in_the_status_line` (told at
+  the commitment, the incoming one further off than it can be seen plus
+  the warning, none again within six seconds, the cue's choice and
+  time, nothing said); `ddi-ui`
+  `with_attacks_the_lines_count_them_and_the_player_s_battle_is_summed_up`
+  (the columns, nine lines, the summary's lines inside the panel, none
+  without attacks), the `qps-ploc` walk; `xtask l10n check`.
+
+### Not done in this round
+
+- The two announcer lines as lines (above): the moments are told on
+  screen, their folders are not read. Their recipes and examples wait
+  with them.
+- Online attacks, retuning, a duel's attack rates, phone polish (out of
+  scope, as the brief has it).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -3160,9 +3249,44 @@ CPU stays what it was (shocks in their fields, the lock's look).
 | `placement-v2`: six of an attack's eight shocks next to a note of their lane (0.25 s to 0.5 s after one, W3 to twice W3 before a step), a second between a lane's shocks | `ddi_engine::battle::PLACEMENT_V2`, `Near` | An attack is harder to ignore: about a third more life lost by the CPUs an attack, mostly through locks | The window's sizes, the aim (six of eight), whether W3 before a step is too close for early players |
 | A CPU's (and a bot's) score put on the chart's own scale: its points as the same share of the chart's most, its W0s as counted | `ddi_engine::rules::ddi::CPU_SCORE_V0`, `DdiScoreView::on_scale`, `ddi_session::battle::cpu_score` | A CPU's number beside the player's reads as if it had held the holds as well as it tapped; a CPU can tie a person | Whether imputing the holds is right, or CPUs should play (and be able to drop) holds |
 | A miniature's locked lane: the lane darkened (0.42) to its end and its receptor's place tinted violet (0.5) for the lock's second, from the feed's moment | `ddi_shell::opponents::LOCK_LANE`, `LOCK_TINT`, `FieldFeed::locks` | A CPU that stepped on a shock shows a dead lane for a second | The look; a shock's own art |
+| Personal targeting: a member's own policy (Spread until chosen), set outside a stage's play, clearing nobody's readiness; in play Tab, a tap on the label, or a short press of a pad's View (`policy-pad-v0`: held it quits, pressed twice it does not where the policy cycles) | `ddi_room::Member::targeting`, `Command::SetTargeting`, `ddi_session::play` (`POLICY_KEY`, `policy_pad`) | A controller player in a stage with attacks quits by holding View, not by pressing it twice | The controller's control for it (View is the quit); whether the policy should be remembered across rooms |
+| Eight of the roster's CPUs name a policy (five Retaliate, three Leader), the rest Spread | `crates/ui/src/state/cpu_roster.json` | Some CPUs strike back or go for the leader | Which CPUs, if any; whether a CPU's policy should follow its level |
+| `attack-links-v0`: a pulse of 0.6 s, the line gone after 1.5 s, the outline in over 0.2 s, a chained attack's parts at 0.45; straight legs kept 1.5 px from everything; an incoming line from the left ends at the field's left edge | `ddi_shell::attack_links::ATTACK_LINKS_V0`, `route` | How who attacks whom reads; the line is thin and brief | The look (a free curve, a shock motif for the pulse), its times, whether the warning should mirror to the attacker's side |
+| Beyond the cap, the attackers and the latest target are kept in view while their attacks last and one turn (8 s) after, in the first slots | `ddi_session::battle::Battle::kept_seats`, `opponents::priority_seats` | Development-only practice | The large-party policy |
+| An attack against the player is told at most once in six seconds; attack moments rank 30 (incoming) and 8 (launched) in `battle-voice-v0`; shown 2.5 s in the status line | `ddi_session::announcer::battle::BATTLE_VOICE_V0` (`incoming_again`, `attack_priority`) | "Attack launched" shows several times a minute for a strong player | Whether the launched moment should show at all once it has a line; the six seconds |
+| The standings' attack columns take the combo's place; the summary flows under the lines | `screens::results_stage` (`columns`, `summary_lines`) | With attacks the stage's standings have no max combo | Which column should give way (the combo, the place in the match, the judgments' strip) |
 
 ## Open questions
 
+- M8 round 3: the two announcer lines for attacks could not be added
+  without touching the announcer studio's files (its screen names every
+  line in a match with no catch-all). May the next round add the four
+  arms and eight messages there, or should the studio's matches get a
+  catch-all so a new line never needs them?
+- M8 round 3: on a controller, View/Select is the quit (held or pressed
+  twice). As built, in a stage with attacks a short press of it changes
+  the attack policy and only holding it quits. Is that right, or should
+  the policy have another control (a stick's click is free on a standard
+  pad; nothing else is under the default bindings)?
+- M8 round 3: changing the policy does not clear readiness (the plan
+  said it would). Agreed?
+- M8 round 3: the policy is the room's (Spread on entering every room).
+  Should it be remembered as a setting across rooms?
+- M8 round 3: who attacks whom is drawn as a thin line in straight legs
+  with a bright dot for the pulse, for 1.5 s. Is that noticeable enough
+  while playing, and should it be a free curve with the shock motif as
+  the study had it (it would cross miniatures at some sizes)?
+- M8 round 3: an incoming line from a miniature on the left ends at the
+  field's left edge (the warning is at the right). Should the warning
+  stand on the attacker's side instead?
+- M8 round 3: "Attack launched" shows in the status line every time
+  (several a minute for a strong player), with the line and the outline
+  beside it. Too much text?
+- M8 round 3: with attacks the standings give up the combo column for
+  Sent, Taken and Shocks. The right one to give up?
+- M8 round 3 (found, not changed): the singleplayer prompt's play
+  options rows step forward on a tap of their ◀ (the arrow's box is
+  drawn clear and takes no press). Fix it?
 - The DDI ruleset's round 3: in a stage the player's own HUD shows its
   Score display's number (under Score: the proportional part plus the
   absolute score, about twice an opponent's number early in a song and
