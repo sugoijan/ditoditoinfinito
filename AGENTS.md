@@ -280,10 +280,15 @@ Rust and the browser are implementation details, not advertised features.
   matched to lines by name, their notes, the text lines planned and
   the export's plan, `announcer/draft.rs`, tidied by `announcer/tidy.rs`,
   the one leveler, which our packs' sounds are made through too (`xtask
-  announcer tidy`): the ends cut and faded, the voiced RMS of what comes
-  out at −9 dBFS, about a song's music's loudness, under a limiter that
-  keeps true peaks under −1 dBFS, `tidy::LEVELING`, exact arithmetic in
-  a fixed order (`docs/plans/announcers.md`, "Louder packs"), more
+  announcer tidy`): the ends cut and faded, then `tidy::LEVELING`'s
+  chain, `announcer-level-v3` (a phase rotator, a compressor against
+  the sound's own level, one gain to a voiced RMS of −12 dBFS, about
+  −13.4 LUFS, and a limiter that rides the level up to 3 dB before it
+  shapes a peak, true peaks under −1 dBFS; a sound at the level already
+  gets the gain alone), exact arithmetic in a fixed order
+  (`docs/plans/announcers.md`, "Louder packs" and "Smoother leveling";
+  its study, `DDI_TIDY_STUDY=<dir> cargo test --release -p ddi-library
+  --lib tidy::tests::study -- --ignored --nocapture`), more
   examples of the lines,
   `announcer/examples.rs`, text only from `announcer/examples.toml`,
   which the library's `build.rs` makes a table, the game carrying no
@@ -1492,6 +1497,9 @@ Rust and the browser are implementation details, not advertised features.
   judged again here; plays exported for the web to import),
   `DDI_FFR_FIXTURES=<dir>` (`--test ffr_levels -- --ignored`: our own
   FFR levels written for the web's import),
+  `DDI_TIDY_OPUS=<dir>` and `DDI_TIDY_OPUS_OUT=<dir>` (`--test studio
+  tidied_sounds -- --ignored --nocapture`: tidied 48 kHz WAVs through
+  the studio's Opus export and back, for a true-peak meter),
   `DDI_MOVIE_SONGS`, `DDI_AUDIO_DEVICE_TESTS=1`, `DDI_OFFSCREEN_PPM=<dir>`
   (keeps the offscreen pictures). The VideoToolbox comparisons
   (`video_native*`) run on a Mac only: CI sets `DDI_SKIP_VT=1`, its
@@ -1566,7 +1574,8 @@ Rust and the browser are implementation details, not advertised features.
   time on the same machine, each sound tidied by the game's own code
   (`cargo run -q -p xtask -- announcer tidy`, so the tool takes cargo
   beside uv and ffmpeg; `kokoro.py loudness --dest DIR` makes a few
-  lines at several levels with each one's LUFS and true peak); `pack --bundle` puts them in `assets/announcers/`, which the game
+  lines at several levels with each one's LUFS, true peak and what the
+  compressor and the limiter took); `pack --bundle` puts them in `assets/announcers/`, which the game
   ships (run `gen-announcers` and `gen-credits` after).
 
 Prefer the latest released versions of dependencies; check crates.io before

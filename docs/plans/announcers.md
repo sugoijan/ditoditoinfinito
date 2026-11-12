@@ -541,6 +541,11 @@ Decision 1's original pack, explored from 2026-11-03 with ElevenLabs
 The maintainer: our announcers were too quiet, at their full volume
 still under the music at its default, reduced one.
 
+(The level and the limiter of this section, `announcer-level-v2`, were
+replaced the same day by `announcer-level-v3`: "Smoother leveling",
+below. What it says of the gain path, the one leveler and the same
+bytes stands; its numbers are v2's record.)
+
 - **Measured** (`ffmpeg -af ebur128`, integrated loudness and true
   peak): our 330 sounds sat at −19.6 LUFS (`Mr. Clank`, −20.7 to −18.8,
   true peaks to −2.1 dBFS) and −20.2 LUFS (`ガキンさん`, −23.9 to −18.5,
@@ -634,3 +639,191 @@ still under the music at its default, reduced one.
   limiter), applied as the voice's gain and shown nowhere. Not built.
 - **No boost.** The announcer's volume stays a share of the music's, 0
   to 1; at this level the packs want none.
+
+### Smoother leveling (2026-11-12)
+
+The maintainer, on v2's limiting (a median of 8.1 dB of `Mr. Clank`'s
+peaks and 14.9 dB of `ガキンさん`'s, which a limiter that fast turns
+into a reshaped wave): could a compression pass help limit it more
+smoothly, before or after the loudness correction or with it, so that
+the limiting is minimal?
+
+- **What the level asks, measured** on the 421 sounds as the model
+  makes them. A voice's loudest sample stands 13.7 dB (`Mr. Clank`) and
+  17.3 dB (`ガキンさん`) over its voiced RMS, and that is two things. The
+  wave's own crest inside its loudest 20 ms: 7.1 and 9.6 dB (`jm_kumo`'s
+  wave is narrow pulses, every harmonic at its peak at once). And the
+  loudest 20 ms over the voiced RMS, 6.4 and 7.5 dB: partly a line's
+  loud syllables, which a compressor evens, and partly what speech is,
+  sound and near silence by turns (the louder half of the voiced frames
+  is 2.4 dB over the voiced RMS and stays about there however a line is
+  compressed). A voiced RMS of −9 dBFS under a ceiling of −1.5 leaves
+  7.5 dB for all of it, less than speech leveled perfectly flat has
+  (about 7 + 2.4). **So at −9 several decibels come off the peaks
+  whatever is done first**; a chain chooses how, and how many.
+- **The chain, `announcer-level-v3`** (`tidy::LEVELING`, `tidy::CHAIN`),
+  each stage exact arithmetic in a fixed order as v2 was (sums,
+  products, quotients and square roots; the constants written out):
+  1. **A phase rotator**: eight first-order all-pass filters at 200 Hz.
+     It changes no frequency's level and spreads a pulse's harmonics in
+     time, so the peaks of a pulsed voice fall: `ガキンさん`'s crest
+     from 17.3 to 14.5 dB (2.8 dB; inside its loudest 20 ms from 9.6 to
+     6.9), `Mr. Clank`'s from 13.7 to 13.3. Four stages do 1.9 dB of
+     that and six 2.2; twelve and sixteen leave the limiter no less
+     than eight; 150 Hz does as 200, 100 and 300 to 600 Hz less.
+     **Kept**, since it clears the bar set for it (2 dB or more on the
+     peakier voice) and costs nothing measured: the spectrum in octave
+     bands moves 0.00 dB, the filters
+     look back only (nothing before a sound, so the cut finds the same
+     start), what they push past the cut is −158 dB of a sound, and
+     lengths are unchanged. What it does to a wave: low harmonics come
+     later than high ones, by 10 ms at 100 Hz, 6 ms at 200 Hz, 1.8 ms
+     at 500 Hz and 0.5 ms at 1 kHz.
+  2. **A compressor on the envelope**, feed-forward: the mean power of
+     the 10 ms to come (its look-ahead: the gain is down by the time a
+     syllable starts), followed over 3 ms up and 100 ms down, against a
+     threshold 6 dB under the sound's own voiced RMS (a quiet take and
+     a loud one are compressed alike: the same line 20 dB quieter gives
+     the same samples), four to one far over it with a knee about 12 dB
+     wide (`(1 + p)^(−3/8)` of the power over the threshold's: square
+     roots alone), then made up to the voiced RMS the sound had. It
+     takes a median of 6.7 and 6.3 dB over a sound's voiced frames (9.6
+     and 10.2 at its largest in the middle sound, 11.1 and 11.9 in the
+     worst). A line's loud frames over its middle one (95th percentile
+     over the median) go from 5.9 to 4.0 dB (`Mr. Clank`) and from 8.7
+     to 4.7 (`ガキンさん`); v2 at −9 left 3.9 and 3.5 by limiting alone.
+     (EBU R 128's loudness range wants longer material than a line: of
+     a pack's sounds one after another it is 1.7 and 3.5 LU as the
+     model makes them, 0.8 and 0.9 through v2 and 0.8 and 0.8 through
+     v3, the lines leveled alike either way.)
+     The settings by measurement: what is left for the limiter moves
+     by 0.6 dB at the most over thresholds from 0 to −12 dB, by 0.9
+     over ratios from 2 to 8 (gentler leaves more, and past these
+     harder leaves no less: a threshold at the voiced RMS takes 3 dB
+     and leaves the limiter 0.3 to 0.6 dB more), by 0.7 over windows
+     from 3 to 20 ms and by 0.9 over releases from 50 to 200 ms
+     (shorter leaves less).
+  3. **One gain**, found by halving as v2's, so that what comes out of
+     the limiter has the voiced RMS wanted.
+  4. **The limiter, gentler**, in two parts under the same ceiling
+     (−1.5 dBFS for the samples and the wave between them, the same
+     knee). Up to 3 dB it **rides the level**: the gain comes down over
+     the 2 ms before a peak, is held 8 ms after it (a voice's pitch
+     period: the next pulse finds it there) and comes back over 50 ms,
+     so the wave keeps its shape and a syllable is a little quieter.
+     Only what a peak needs **beyond** those 3 dB is taken of the peak
+     alone, shaping it, as v2 took everything (0.5 ms ahead, back over
+     1.5 ms). A limiter that only rides cannot reach a level whose
+     peaks are everywhere over the ceiling (it turns the loud half down
+     and the gain chases it: at −9 it ran to its 24 dB bound), so the
+     second part stays for what is asked beyond the first.
+- **What each stage buys**: the limiter's largest reduction in a sound,
+  the median over each pack, with in brackets how much of it is the
+  shaping of peaks.
+
+  | | `Mr. Clank` at −12 | `ガキンさん` at −12 | `Mr. Clank` at −9 | `ガキンさん` at −9 |
+  |---|---|---|---|---|
+  | v2 (its fast limiter alone) | 3.6 (3.6) | 8.9 (8.9) | 8.1 (8.1) | 14.9 (14.9) |
+  | v3's limiter alone | 4.7 (1.7) | 11.0 (8.0) | 10.4 (7.4) | 17.5 (14.5) |
+  | with the rotator | 4.1 (1.1) | 6.3 (3.3) | 9.8 (6.8) | 12.5 (9.5) |
+  | with the compressor | 2.8 (0) | 8.6 (5.6) | 8.6 (5.6) | 14.6 (11.6) |
+  | with both: v3 | 2.3 (0) | 3.8 (0.8) | 8.0 (5.0) | 9.9 (6.9) |
+
+  Riding costs level, which the gain makes up, so the riding limiter's
+  whole reduction is larger than a fast one's would be; its shaping is
+  what compares with v2's. At −11 v3 takes 3.9 (0.9) and 5.8 (2.8), at
+  −10 5.9 (2.9) and 7.7 (4.7).
+- **The level: −12 dBFS** (`VOICED_RMS_DB`), about −13.4 LUFS. The aim
+  was a limiter with a median of 3 dB or less at −9; no chain reaches
+  that (above), so the packs are bundled at the highest level, to the
+  decibel, where the limiter's median is under about 4 dB for both
+  voices with one chain: 2.3 dB for `Mr. Clank` and 3.8 dB for
+  `ガキンさん`, of which the shaping of peaks is nothing in the middle
+  sound of the first and 0.8 dB of the second. That is 3 dB under v2
+  and the music. PROVISIONAL, to be chosen by ear: the audition set
+  (`kokoro.py loudness`) has the same six lines of each as v2 at −9 and
+  v3 at −12, −11, −10, −9 and −7 beside 20 s of music. The level is
+  one constant, and the packs are made again from the recipes.
+- **Distortion, measured three ways.**
+  - *The last round's energy measure*, what of each result is not its
+    sound times one gain: it counts any gain that moves, the
+    compressor's too (here against the rotated sound, since rotating
+    changes no level). v2 at −9: −13.6 and −7.3 dB at the median; v2
+    at −12: −23.1 and −11.6; v3 at −12: −14.3 and −10.7. It cannot tell
+    a syllable turned down from a wave reshaped.
+  - *What is left once a slow gain is undone*: the ratio of the two's
+    power smoothed over 30 ms taken out, the rest over the result. v2
+    at −9: −17.5 dB (`Mr. Clank`) and −10.7 dB (`ガキンさん`) at the
+    median; v2 at −12: −27.2 and −15.2; v3 at −9: −22.0 and −17.4;
+    **v3 at −12: −32.2 and −29.9**. And the long-term spectrum, the slow
+    gain undone, in octave bands: v2 at −9 adds 3.2 and 1.6 dB under
+    88 Hz and moves the bands from 250 Hz to 1 kHz by up to 0.6 dB; v3
+    at −12 moves no band by more than 0.08 dB (at −9: +1.1 dB under
+    88 Hz, up to 0.5 elsewhere).
+  - *A tone's harmonics*: 220 Hz with a syllable's envelope (three
+    60 ms bursts over a floor 20 dB under them, a crest of 12.6 dB as
+    speech's), the harmonics over the fundamental in its bursts. v2:
+    9.5% at −12, 12.8% at −9, 13.5% at −7. v3: 0.06% at −12 (the
+    tone's own figure), 4.8% at −9, 7.9% at −7. At 997 Hz neither
+    distorts (a gain that takes a millisecond to come back does not
+    move inside a cycle that short): what v2 reshaped was the pitch's
+    range.
+- **After** (all 421 sounds, their MP3s, `ffmpeg -af ebur128`):
+
+  | | sounds | LUFS min / median / max | true peak at most | limiter, median / most | of which shaping |
+  |---|---|---|---|---|---|
+  | `Mr. Clank`, v2 at −9 | 211 | −11.7 / −10.4 / −9.3 | −1.5 dBFS | 8.1 / 11.4 dB | all |
+  | `Mr. Clank`, v3 at −12 | 211 | −14.3 / −13.2 / −12.0 | −1.4 dBFS | 2.3 / 6.8 dB | 0 / 3.8 dB |
+  | `ガキンさん`, v2 at −9 | 210 | −11.8 / −10.7 / −9.5 | −1.4 dBFS | 14.9 / 18.4 dB | all |
+  | `ガキンさん`, v3 at −12 | 210 | −14.8 / −13.6 / −12.2 | −1.5 dBFS | 3.8 / 7.3 dB | 0.8 / 4.3 dB |
+
+  The limiter shapes no peak in 151 of `Mr. Clank`'s sounds and 61 of
+  `ガキンさん`'s, and has nothing to do in 19 and 5. Every sound is as
+  long as it was (273.7 and 266.8 s in all): the cut is v2's, so
+  `here we go` does not move. Read back from their MP3s, all 421 are
+  tidy already (0.39 to 0.47 dB asked for, 10 ms to cut at the most,
+  none compressed again, the limiter catching 0.6 dB of one peak the
+  encoder raised). Made twice from nothing, the same bytes.
+- **The studio's takes** get the same chain, since it is the same code:
+  a recording is rotated, compressed against its own level, brought to
+  −12 dBFS and limited as above; one at the level already (within
+  0.75 dB, `Measure::already_tidy`: a tidied take read back) gets that
+  little gain and the limiter for a stray peak, and is not rotated or
+  compressed again. `Measure::gain` is now the gain after the
+  compressor, which keeps the voiced level: about how much louder the
+  take comes out, which is what the studio says of it. A draft kept
+  from before measured its takes for v2's level: they play and export
+  at about −9 dBFS through v3's chain (its limiter riding and shaping
+  more) until they are added again, since the shells measure a take
+  once.
+- **Opus, the studio's export.** A lossy encoder raises peaks. The
+  same 421 sounds at 48 kHz through the game's own encoder (CELT at
+  64 kb/s) and read back: v2 at −9 came back with true peaks to
+  +0.5 dBFS (−0.7 at the median), its samples cut at full scale; v3 at
+  −12 with −0.1 dBFS at the most (−1.2 at the median; the loudest
+  sample −0.3), none over full scale, so the ceiling stays one for
+  every export. Through `libopus`: v2 to +1.8 dBFS at 32 kb/s and +1.0
+  at 64, v3 to −0.4 and −0.2. The margin is what the lower level
+  gives: v3 driven to −9 comes back at +0.7 to +1.0. Should the level
+  go up again, the ceiling for lossy exports would have to come down
+  by about 2 dB (a ceiling given to `tidy::apply` by the export, which
+  is not built). Read back, every one of them is tidy already (0.10 dB
+  asked for at the most, 10 ms to cut). The check is
+  `cargo test -p ddi-desktop --test studio tidied_sounds -- --ignored
+  --nocapture` with `DDI_TIDY_OPUS` (a folder of tidied 48 kHz WAVs)
+  and `DDI_TIDY_OPUS_OUT` (where what is read back goes, for a
+  true-peak meter).
+- **The study** stays in the code: `cargo test --release -p ddi-library
+  --lib tidy::tests::study -- --ignored --nocapture` with
+  `DDI_TIDY_STUDY` (a folder of folders of WAVs: a pack's speech as it
+  was made), `DDI_TIDY_CHAINS` (settings to try, `name:key=value,…;…`)
+  and `DDI_TIDY_LEVELS` prints what the compressor and the limiter did
+  over each folder.
+- **Louder than this, cleanly, is the mixer's to give.** The voice
+  plays at the music's volume times the announcer's share, 0 to 1, and
+  the music's default volume is 0.33 (−9.7 dB): the bus has the room
+  the samples lack. Letting the share go to 1.5 (+3.5 dB, the
+  announcer's volume shown to 150%), the product kept at 1 or under,
+  would put v3's sounds at the music's loudness wherever the music's
+  volume is 0.67 or less, with none of the limiting −9 costs. Proposed,
+  not built: it changes a setting's range and Options.

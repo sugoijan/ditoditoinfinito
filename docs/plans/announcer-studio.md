@@ -126,10 +126,11 @@ playtest.
 5. **Recordings are tidied, by default.**
    - The silence at both ends is cut, since the game times `here we go`
      and the cheer from a sound's first sample. The volume is evened out
-     to our packs' level (since 2026-11-12 `announcer-level-v2`: a
-     voiced RMS of −9 dBFS under a limiter, about a song's music's
-     loudness; our packs are made through this same code,
-     `docs/plans/announcers.md`, "Louder packs").
+     to our packs' level (since 2026-11-12 `announcer-level-v3`: a
+     phase rotator and a compressor, then a voiced RMS of −12 dBFS
+     under a limiter that rides the level before it shapes a peak; our
+     packs are made through this same code, `docs/plans/announcers.md`,
+     "Louder packs" and "Smoother leveling").
    - Advanced → Tidy recordings turns it off for every take; Advanced →
      Details shows what it did to each (the silence cut, the volume
      change).
@@ -237,7 +238,7 @@ as JSON; `Format::sniff`; `match_line` and `by_name`; the notes and
 of kokoro.py's `trim` and `finish`: the floor rises over a recording's
 noise, never within 20 dB of the loudest frame, and the cut keeps 30 ms
 before and 100 ms after; since 2026-11-12 the one leveler, which
-kokoro.py calls in its turn, louder and with a limiter), `announcer::examples` (the English and
+kokoro.py calls in its turn, louder, by a compressor and a limiter), `announcer::examples` (the English and
 Japanese sets, more for the combos and full combos, from
 `examples.toml` since), `zip::write_stored`
 and `wav::write`. The timings the notes measure against moved into the
@@ -721,7 +722,12 @@ encoder first and our own behind it:
   louder level and its limiter: nothing to cut and 0.41 to 0.49 dB over
   our packs' 330 MP3s, up to 0.71 dB for the same sounds as Opus at
   32 kb/s; a take within 0.75 dB of the level is tidy already, and a
-  limited sound read back is not limited again.)
+  limited sound read back is not limited again. With
+  `announcer-level-v3`: 10 ms to cut at the most and 0.39 to 0.47 dB
+  over our packs' 421 MP3s, 0.10 dB at the most for the same sounds
+  through the export's own Opus, whose true peaks come back at
+  −0.1 dBFS at the most; a tidied sound read back is neither rotated
+  nor compressed again.)
 
 Checked: `ogg_opus`'s and `opus`'s tests, among them each page's CRC,
 the lacing at whole 255s, the second-long pages, the end's trimming,

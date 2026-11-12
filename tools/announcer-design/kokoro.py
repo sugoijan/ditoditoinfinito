@@ -46,13 +46,14 @@ its PROVENANCE.toml. Kokoro speaks English (its `a` and `b` voices) and
 Japanese (`j`) here; a voice speaks its own language unless `lang` gives
 another. `loudness` has a few lines of each pack made at several levels
 (`--levels`, voiced RMS in dBFS) under `--dest`, with what each measures
-(LUFS and true peak): how loud our packs are to be is heard there.
+(LUFS, true peak, what the compressor and the limiter took): how loud our
+packs are to be is heard there.
 
 Every sound is tidied by the game's own code, the announcer studio's
 (`ddi_library::announcer::tidy` through `cargo run -p xtask -- announcer
-tidy`): the silence at its ends cut, short fades, its level evened under
-a limiter. This script cuts a lead or a closer off and encodes the MP3;
-nothing here levels a sound.
+tidy`): the silence at its ends cut, short fades, its level evened by a
+compressor and a limiter. This script cuts a lead or a closer off and
+encodes the MP3; nothing here levels a sound.
 
 uv makes the environment from the header above; the model comes from
 Hugging Face at the pinned revision (its cache, when it holds it); the
@@ -91,8 +92,9 @@ PLACES = {"select": "song select", "gameplay": "play", "evaluation": "the result
           "battle": "a multiplayer battle"}
 # How the sound is made from the model's: raise it when that changes, and
 # everything is made again. 5: tidied by the game's own code (the
-# announcer studio's), which levels it louder under a limiter.
-PROCESS = 5
+# announcer studio's), which levels it louder under a limiter. 6: its
+# leveling a compressor, then a gentler limiter (announcer-level-v3).
+PROCESS = 6
 GROUPS = {"af": "US female", "am": "US male", "bf": "UK female", "bm": "UK male",
           "jf": "Japanese female", "jm": "Japanese male"}
 # Kokoro's languages this script speaks, by its codes: a voice's first letter.
@@ -274,7 +276,7 @@ def read_wav(path):
 class Tidy:
     """Sounds tidied by the game's own code, the announcer studio's
     (`ddi_library::announcer::tidy`): the ends cut and faded, the level
-    evened under its limiter. Sounds wait (`add`) and are tidied a batch
+    evened by its compressor and limiter. Sounds wait (`add`) and are tidied a batch
     in one run of `cargo run -p xtask -- announcer tidy` (`flush`), each
     then handed to what was given with it, with what the tidy says it
     did. `level`: a voiced RMS in dBFS in place of the game's (an
@@ -315,7 +317,11 @@ def tidied(report):
     return {"leveling": report["leveling"], "voiced_rms_db": report["voiced_rms_target_db"],
             "limit_db": report["limit_db"], "start_secs": round(report["start"], 3),
             "end_secs": round(report["end"], 3), "gain_db": round(report["gain_db"], 2),
+            # The compressor's median and largest reduction; the limiter's
+            # largest, and how much of that it took of a peak alone.
+            "compressed_db": [round(report["compressed_median_db"], 2), round(report["compressed_db"], 2)],
             "limited_db": round(report["limited_db"], 2),
+            "limited_peaks_db": round(report["limited_peaks_db"], 2),
             "crest_db": [round(report["crest_before_db"], 2), round(report["crest_after_db"], 2)],
             "shaped_db": round(report["shaped_db"], 1)}
 
@@ -696,14 +702,19 @@ def cmd_loudness(args):
                     write_mp3(to, audio)
                     lufs, peak = loudness(to)
                     rows.append((level, name, folder, said, lufs, peak, report["limited_db"],
-                                 report["crest_before_db"], report["crest_after_db"], len(audio) / RATE))
+                                 report["crest_before_db"], report["crest_after_db"], len(audio) / RATE,
+                                 report["compressed_median_db"], report["compressed_db"],
+                                 report["limited_peaks_db"]))
 
                 tidy.add(raw, done)
             tidy.flush()
-    table = [f"{'level':>6} {'pack':<12} {'LUFS':>6} {'dBTP':>6} {'limiter':>8} {'crest':>11} {'secs':>5}  line"]
-    for level, name, folder, said, lufs, peak, limited, before, after, secs in rows:
-        table.append(f"{level:>6g} {name:<12} {lufs:>6.1f} {peak:>6.1f} {limited:>6.1f}dB "
-                     f"{before:>5.1f}>{after:<5.1f} {secs:>5.2f}  {folder}: {said}")
+    # The compressor's median and largest reduction; the limiter's largest
+    # and, of it, what it took of a peak alone (the rest by riding the level).
+    table = [f"{'level':>6} {'pack':<12} {'LUFS':>6} {'dBTP':>6} {'compressor':>11} {'limiter':>9} {'(peaks)':>8} "
+             f"{'crest':>11} {'secs':>5}  line"]
+    for level, name, folder, said, lufs, peak, limited, before, after, secs, comp, comp_most, peaks in rows:
+        table.append(f"{level:>6g} {name:<12} {lufs:>6.1f} {peak:>6.1f} {comp:>4.1f}/{comp_most:<4.1f}dB {limited:>7.1f}dB "
+                     f"{peaks:>6.1f}dB {before:>5.1f}>{after:<5.1f} {secs:>5.2f}  {folder}: {said}")
     table.append("")
     for level in args.levels:
         for name in dict.fromkeys(r[1] for r in rows):
@@ -711,8 +722,11 @@ def cmd_loudness(args):
             if mine:
                 table.append(f"{level:>6g} {name:<12} median {statistics.median(r[4] for r in mine):.1f} LUFS, "
                              f"true peak at most {max(r[5] for r in mine):.1f} dBFS, "
-                             f"the limiter took {statistics.median(r[6] for r in mine):.1f} dB "
-                             f"(at most {max(r[6] for r in mine):.1f})")
+                             f"the compressor took {statistics.median(r[10] for r in mine):.1f} dB "
+                             f"(at most {max(r[11] for r in mine):.1f}), "
+                             f"the limiter {statistics.median(r[6] for r in mine):.1f} dB "
+                             f"(at most {max(r[6] for r in mine):.1f}), of peaks alone "
+                             f"{statistics.median(r[12] for r in mine):.1f} dB (at most {max(r[12] for r in mine):.1f})")
     text = "\n".join(table) + "\n"
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "table.txt").write_text(text)
@@ -772,7 +786,8 @@ def bundle(path, pack, state):
         sys.exit(f"{source}: its sounds were leveled {len(levelings)} ways; make the pack again")
     leveling, level, limit = levelings.pop()
     sound = (f"MP3, 44.1 kHz mono, 128 kb/s (ffmpeg's libmp3lame), tidied by the game's own code "
-             f"({leveling}: voiced RMS {level:g} dBFS under a limiter at {limit:g} dBFS, "
+             f"({leveling}: a phase rotator and a compressor, then a voiced RMS of {level:g} dBFS "
+             f"under a limiter at {limit:g} dBFS, "
              "true peaks under -1 dBFS)")
     model = f"https://huggingface.co/{first['repo']}"
     made_with = "Kokoro-82M (hexgrad, Apache-2.0), voice " + described(voice, first["speed"], lang)

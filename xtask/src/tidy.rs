@@ -1,12 +1,13 @@
 //! `announcer tidy`: sounds tidied by the game's own code
 //! (`ddi_library::announcer::tidy`, the announcer studio's: the ends cut
-//! and faded, the level evened under its limiter), a whole folder in one
-//! run. `tools/announcer-design/kokoro.py` makes our packs' sounds
+//! and faded, the level evened by its compressor and limiter), a whole
+//! folder in one run. `tools/announcer-design/kokoro.py` makes our packs' sounds
 //! through it, so that the studio and our packs have one leveler
 //! (`docs/plans/announcers.md`, "Louder packs"). WAVs in (16-bit PCM or
 //! 32-bit float), 32-bit float WAVs out under the same names, and a line
 //! of JSON for each on standard output: what was cut, the gain, what the
-//! limiter took and how the sound measures before and after.
+//! compressor and the limiter took and how the sound measures before and
+//! after.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -55,10 +56,19 @@ pub struct Report {
     pub start: f64,
     pub end: f64,
     pub seconds: f64,
-    /// The gain before the limiter and the limiter's largest reduction,
-    /// dB.
+    /// The gain after the compressor (which keeps the voiced level),
+    /// before the limiter, dB.
     pub gain_db: f64,
+    /// The compressor's largest reduction and its median over the voiced
+    /// frames, dB.
+    pub compressed_db: f64,
+    pub compressed_median_db: f64,
+    /// The limiter's largest reduction, how much of it was taken of a
+    /// peak alone (the rest by riding the level), and how much of the
+    /// voiced level it took, dB.
     pub limited_db: f64,
+    pub limited_peaks_db: f64,
+    pub limited_level_db: f64,
     /// The loudest sample over the voiced RMS, before (of the part kept)
     /// and after, dB.
     pub crest_before_db: f64,
@@ -66,8 +76,9 @@ pub struct Report {
     /// As it comes out: the voiced RMS and the loudest sample, dBFS.
     pub voiced_rms_db: f64,
     pub peak_db: f64,
-    /// What of the result is not the part kept times one gain (the
-    /// limiter's shaping), over the result, dB: lower is cleaner.
+    /// What of the result is not the part kept (rotated, which changes
+    /// no level) times one gain, over the result, dB: the compressor's
+    /// and the limiter's work, a gain that moves slowly included.
     pub shaped_db: f64,
 }
 
@@ -170,30 +181,12 @@ pub fn tidy_sound(
         Some(level) => tidy::measure_to(channels, rate, level),
         None => tidy::measure(channels, rate),
     };
-    let (out, limited_db) = tidy::tidied(channels, rate, &m);
+    let (out, did) = tidy::tidied(channels, rate, &m);
     let at = |s: f64| (s * f64::from(rate)).round() as usize;
     let part: Vec<&[f32]> = channels
         .iter()
         .map(|c| &c[at(m.start).min(c.len())..at(m.end).min(c.len())])
         .collect();
-    // What of the result is not the part times one gain.
-    let (mut xy, mut xx, mut yy) = (0.0f64, 0.0f64, 0.0f64);
-    for (x, y) in part.iter().zip(&out) {
-        for (a, b) in x.iter().zip(y) {
-            let (a, b) = (f64::from(*a), f64::from(*b));
-            xy += a * b;
-            xx += a * a;
-            yy += b * b;
-        }
-    }
-    let fit = xy / xx.max(1e-24);
-    let mut error = 0.0f64;
-    for (x, y) in part.iter().zip(&out) {
-        for (a, b) in x.iter().zip(y) {
-            let e = f64::from(*b) - fit * f64::from(*a);
-            error += e * e;
-        }
-    }
     let peak = out
         .iter()
         .flat_map(|c| c.iter())
@@ -210,12 +203,16 @@ pub fn tidy_sound(
         end: m.end,
         seconds: m.tidied_seconds(),
         gain_db: m.gain_db(),
-        limited_db,
+        compressed_db: did.compressed_db,
+        compressed_median_db: did.compressed_median_db,
+        limited_db: did.limited_db,
+        limited_peaks_db: did.peaks_db,
+        limited_level_db: did.limited_level_db,
         crest_before_db: tidy::crest_db(&part, rate),
         crest_after_db: tidy::crest_db(&out, rate),
         voiced_rms_db: tidy::voiced_rms_db(&out, rate),
         peak_db: db(f64::from(peak)),
-        shaped_db: 10.0 * (error / yy.max(1e-24)).max(1e-12).log10(),
+        shaped_db: did.changed_db,
     };
     (out, report)
 }
@@ -300,14 +297,31 @@ mod tests {
         assert!(report.peak_db <= tidy::LIMIT_DB + 1e-6, "{report:?}");
         assert!(report.limited_db > 0.5 && report.crest_after_db < report.crest_before_db);
         assert!(
+            report.compressed_db >= report.compressed_median_db
+                && report.compressed_median_db > 0.0
+                && report.limited_peaks_db <= report.limited_db
+                && report.limited_level_db > 0.0,
+            "{report:?}"
+        );
+        assert!(
             (report.start - 0.22).abs() < 0.011 && (report.end - 1.6).abs() < 0.02,
             "{report:?}"
         );
         assert!(report.shaped_db < 0.0);
         // Another level, an audition's.
-        let (quiet, report) = tidy_sound("a.wav", &planes, 24_000, Some(-30.0));
-        assert!((report.voiced_rms_db + 30.0).abs() < 0.1 && report.limited_db == 0.0);
+        let (quiet, report) = tidy_sound("a.wav", &planes, 24_000, Some(-24.0));
+        assert!((report.voiced_rms_db + 24.0).abs() < 0.1 && report.limited_db == 0.0);
         assert!(quiet[0].len() == out[0].len());
+        // The compressor's work alone, the same at any level.
+        assert!(report.compressed_db > 0.0 && report.limited_level_db == 0.0);
+        assert!(report.shaped_db < 0.0, "{report:?}");
+        // A sound at the level already: the gain alone.
+        let (again, report) = tidy_sound("a.wav", &out, 24_000, None);
+        assert_eq!(again[0].len(), out[0].len());
+        assert!(
+            report.gain_db.abs() < 0.3 && report.compressed_db == 0.0 && report.limited_db == 0.0,
+            "{report:?}"
+        );
         assert!(report.shaped_db < -100.0, "{report:?}");
     }
 

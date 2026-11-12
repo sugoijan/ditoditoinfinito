@@ -276,8 +276,12 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   own made with Kokoro, `Mr. Clank` and `ガキンさん` (every line, from
   `tools/announcer-design/pack.toml` and `pack-ja.toml`), bundled
   2026-11-06; the announcer is Off by default. Louder since 2026-11-12:
-  made through the announcer studio's tidy, the one leveler, at about
-  the music's loudness under a limiter (provisional until listened to).
+  made through the announcer studio's tidy, the one leveler, whose
+  chain (`announcer-level-v3`: a phase rotator, a compressor, a limiter
+  that has little left to do) brings them to about 3 LU under the
+  music's loudness, the loudest it reaches smoothly (provisional until
+  listened to; an audition set of levels is made by `kokoro.py
+  loudness`).
 - [Announcer studio](announcer-studio.md) (2026-11-06): done (the draft;
   the web's page at `#/announcer`; the scenes on song select and the
   results, 2026-11-07; the scenes in play, desktop and the encoder,

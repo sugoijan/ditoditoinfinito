@@ -181,6 +181,68 @@ impl Test {
     }
 }
 
+/// A local check of what the studio's export makes of tidied sounds:
+/// every WAV of the folder `DDI_TIDY_OPUS` (48 kHz, mono, 32-bit float,
+/// as `xtask announcer tidy` writes them) encoded as the export encodes
+/// a tidied take and read back as the game reads it, written under
+/// `DDI_TIDY_OPUS_OUT` as float WAVs (for a true-peak meter), with what
+/// tidying would then ask of each: the most over them all, and how many
+/// are not tidy already.
+#[test]
+#[ignore = "a local check: DDI_TIDY_OPUS and DDI_TIDY_OPUS_OUT"]
+fn tidied_sounds_through_the_export_s_opus() {
+    let (Some(dir), Some(out)) = (
+        std::env::var_os("DDI_TIDY_OPUS"),
+        std::env::var_os("DDI_TIDY_OPUS_OUT"),
+    ) else {
+        return;
+    };
+    let (dir, out) = (std::path::PathBuf::from(dir), std::path::PathBuf::from(out));
+    std::fs::create_dir_all(&out).unwrap();
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|e| e == "wav"))
+        .collect();
+    files.sort();
+    let (mut gain, mut start, mut end, mut untidy, mut peak) = (0.0f64, 0.0f64, 0.0f64, 0, 0.0f32);
+    for file in &files {
+        let wav = std::fs::read(file).unwrap();
+        assert_eq!(wav[20..24], [3, 0, 1, 0], "{}: float, mono", file.display());
+        assert_eq!(wav[24..28], 48_000u32.to_le_bytes(), "{}", file.display());
+        let samples: Vec<f32> = wav[44..]
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
+            .collect();
+        let opus = ddi_platform::opus::encode(&[&samples], 48_000).unwrap();
+        let back = ddi_platform::decode_all::decode(&opus, Some("opus")).unwrap();
+        let read = &back.channels[0];
+        let m = tidy::measure(&[read.as_slice()], 48_000);
+        gain = gain.max(m.gain_db().abs());
+        start = start.max(m.start);
+        end = end.max(m.seconds - m.end);
+        untidy += usize::from(!m.already_tidy());
+        peak = read.iter().fold(peak, |a, s| a.max(s.abs()));
+        let mut bytes = wav[..44].to_vec();
+        let len = (read.len() * 4) as u32;
+        bytes[4..8].copy_from_slice(&(36 + len).to_le_bytes());
+        bytes[40..44].copy_from_slice(&len.to_le_bytes());
+        for s in read {
+            bytes.extend_from_slice(&s.to_le_bytes());
+        }
+        std::fs::write(out.join(file.file_name().unwrap()), bytes).unwrap();
+    }
+    println!(
+        "{} sounds through the export's Opus: tidying again would ask at most {gain:.2} dB, \
+         cut at most {start:.3} s at the start and {end:.3} s at the end; {untidy} not tidy \
+         already; the loudest sample read back {:.2} dBFS",
+        files.len(),
+        20.0 * f64::from(peak.max(1e-9)).log10()
+    );
+}
+
 #[test]
 fn the_studio_on_desktop() {
     common::indexes();
@@ -384,8 +446,8 @@ fn the_studio_on_desktop() {
     );
     // The studio and our own packs have one leveler: a take as the studio
     // put it in the pack and the same recording through the command our
-    // packs' sounds are made with are the same samples, the limiter at
-    // work in both.
+    // packs' sounds are made with are the same samples, the compressor
+    // and the limiter at work in both.
     let take = draft
         .takes
         .iter()
@@ -404,6 +466,7 @@ fn the_studio_on_desktop() {
     assert_eq!(pcm16(&bytes), by_xtask, "{said}");
     let report: serde_json::Value = serde_json::from_str(said.trim()).unwrap();
     assert!(report["limited_db"].as_f64().unwrap() > 3.0, "{said}");
+    assert!(report["compressed_db"].as_f64().unwrap() > 3.0, "{said}");
     assert_eq!(report["leveling"], tidy::LEVELING);
     let m = take.measure().unwrap();
     assert!((report["gain_db"].as_f64().unwrap() - m.gain_db()).abs() < 1e-6);

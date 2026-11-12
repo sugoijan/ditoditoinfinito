@@ -98,9 +98,12 @@ $K loudness --dest target/scratch/announcer-loudness   # a few lines at several 
 - **The sound** is tidied by the game's own code, the announcer
   studio's (`crates/library/src/announcer/tidy.rs`, run a batch at a time
   through `cargo run -q -p xtask -- announcer tidy`): the silence at its
-  ends cut, short fades, and its level evened to a voiced RMS of −9 dBFS
-  under a limiter that keeps true peaks under −1 dBFS
-  (`announcer-level-v2`; about −10.5 LUFS, a song's music's loudness).
+  ends cut, short fades, and its level evened by a phase rotator and a
+  compressor, then to a voiced RMS of −12 dBFS under a limiter that
+  keeps true peaks under −1 dBFS (`announcer-level-v3`; about
+  −13.4 LUFS, 3 LU under a song's music, the loudest at which the
+  limiter has little to do: `docs/plans/announcers.md`, "Smoother
+  leveling").
   This script only cuts a lead or a closer off before that and encodes
   the result after, at 44.1 kHz in 128 kb/s MP3. So the tool takes
   cargo (the repository's Rust toolchain) beside uv and ffmpeg. The same
@@ -112,8 +115,10 @@ $K loudness --dest target/scratch/announcer-loudness   # a few lines at several 
 - **How loud** is heard with `kokoro.py loudness --dest DIR`: six lines
   of each pack at several levels (`--levels`, voiced RMS in dBFS; −12,
   −9 and −7 by default), as `DIR/<level>/<pack>/<line>/`, with a table
-  (`DIR/table.txt`) of each one's LUFS, true peak and what the limiter
-  took. Nothing of it is kept in the state or bundled.
+  (`DIR/table.txt`) of each one's LUFS, true peak and what the
+  compressor and the limiter took (the limiter's largest reduction, and
+  how much of it was the shaping of a peak). Nothing of it is kept in
+  the state or bundled.
 
 ### Lead and closer
 
