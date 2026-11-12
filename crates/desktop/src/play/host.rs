@@ -1842,6 +1842,19 @@ impl Host {
                 .collect();
             self.log.push(format!("battle: {}", moments.join(", ")));
         }
+        // The player's attack moments: said by their line, or shown.
+        let attacks = play.session.attacks_told();
+        if !attacks.is_empty() {
+            let moments: Vec<String> = attacks
+                .iter()
+                .map(|t| {
+                    let line = ddi_library::announcer::Line::Battle(t.moment.event()).folder();
+                    let how = if t.spoken() { "said" } else { "shown" };
+                    format!("{line} ({how})")
+                })
+                .collect();
+            self.log.push(format!("attacks: {}", moments.join(", ")));
+        }
         let a = play.session.announcer_report();
         if a == &Default::default() {
             return;

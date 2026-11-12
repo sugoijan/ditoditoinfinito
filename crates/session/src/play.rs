@@ -1334,8 +1334,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         }
         if self.battle.is_some() {
             self.last_host = host_now.0;
-            self.tell(moments, now, host_now.0);
-            self.tell_attacks(attack_moments, host_now.0);
+            self.tell(moments, attack_moments, now, host_now.0);
         }
 
         // An immediate fail: the engine has stopped judging and the field is
@@ -1513,10 +1512,24 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
 
     /// The battle's moments this frame (`crate::announcer::battle`), at
     /// audio time `now` and host time `host`: the stage's opening once
-    /// the announcer has said it or could not, then each moment, the one
-    /// that matters most first, said where the policy lets it; each told,
-    /// shown where its own line was not said.
-    fn tell(&mut self, mut moments: Vec<ddi_library::announcer::Battle>, now: f64, host: f64) {
+    /// the announcer has said it or could not, then each moment, the
+    /// local player's attack moments among them, the one that matters
+    /// most first, said where the policy lets it; each told, shown where
+    /// its own line was not said. An attack against the player (`attacks`:
+    /// each with its first shock's song second) is said before that shock
+    /// can be seen or not at all, and one within
+    /// [`VoicePolicy::incoming_again`] seconds of the one told before it
+    /// (a chained attack right behind it) is not told again: the warning
+    /// by the receptors says it.
+    fn tell(
+        &mut self,
+        moments: Vec<ddi_library::announcer::Battle>,
+        attacks: Vec<(crate::battle::AttackMoment, f64)>,
+        now: f64,
+        host: f64,
+    ) {
+        use crate::announcer::battle::AttackTold;
+        use crate::battle::AttackMoment;
         if !self.opening_told
             && let Some(said) = self.announcer.opened_with()
             && let Some(b) = self.battle.as_ref()
@@ -1529,38 +1542,42 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             });
         }
         let policy = BATTLE_VOICE_V0;
-        moments.sort_by_key(|e| std::cmp::Reverse(policy.priority(*e)));
-        for event in moments {
-            let said = self.announcer.battle(&mut *self.audio, event, now);
-            self.told.push(Told {
-                event,
-                said,
-                at: host,
-            });
-        }
-    }
-
-    /// The local player's attack `moments` of this frame, at host time
-    /// `host`: each told (shown in the status line: their lines are not
-    /// in the lines' table yet, so none is said), but an attack against
-    /// the player within [`VoicePolicy::incoming_again`] seconds of the
-    /// one before it (a chained attack right behind it), which the
-    /// warning by the receptors says.
-    fn tell_attacks(&mut self, moments: Vec<crate::battle::AttackMoment>, host: f64) {
-        use crate::battle::AttackMoment;
-        let policy = BATTLE_VOICE_V0;
-        for moment in moments {
-            let again = moment == AttackMoment::Incoming
+        let mut due: Vec<_> = moments.into_iter().map(|e| (e, None)).collect();
+        due.extend(attacks.into_iter().map(|(m, first)| (m.event(), Some((m, first)))));
+        due.sort_by_key(|(e, _)| std::cmp::Reverse(policy.priority(*e)));
+        for (event, attack) in due {
+            let Some((moment, first)) = attack else {
+                let said = self.announcer.battle(&mut *self.audio, event, now);
+                self.told.push(Told {
+                    event,
+                    said,
+                    at: host,
+                });
+                continue;
+            };
+            let incoming = moment == AttackMoment::Incoming;
+            let again = incoming
                 && self
                     .attack_told
                     .iter()
                     .rev()
                     .find(|t| t.moment == AttackMoment::Incoming)
                     .is_some_and(|t| host - t.at < policy.incoming_again);
-            if !again {
-                self.attack_told
-                    .push(crate::announcer::battle::AttackTold { moment, at: host });
+            if again {
+                continue;
             }
+            // An attack against the player: its line's deadline is its
+            // first shock coming into view.
+            let by = incoming
+                .then(|| self.timing.at(first - self.player.reading_horizon()));
+            let said = self
+                .announcer
+                .battle_by(&mut *self.audio, event, now, by);
+            self.attack_told.push(AttackTold {
+                moment,
+                said,
+                at: host,
+            });
         }
     }
 
@@ -1572,23 +1589,25 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
 
     /// What the status line shows at host time `host`, and how old it
     /// is: of the battle's moment no line said ([`PlaySession::battle_cue`])
-    /// and the latest attack moment, each while it lasts, the one that
-    /// matters more (the policy's priorities), the newer of equals.
+    /// and the attack moments no line said, each while it lasts, the one
+    /// that matters most (the policy's priorities), the newest of
+    /// equals.
     pub fn stage_cue(&self, host: f64) -> Option<(crate::announcer::battle::StageCue, f64)> {
         use crate::announcer::battle::StageCue;
         let policy = self.battle_policy()?;
         let event = self
             .battle_cue(host)
             .map(|(e, age)| (policy.priority(e), StageCue::Event(e), age));
-        let attack = self
+        let attacks = self
             .attack_told
-            .last()
+            .iter()
+            .filter(|t| !t.spoken())
             .map(|t| (t, host - t.at))
             .filter(|(_, age)| *age < policy.cue_seconds)
             .map(|(t, age)| (policy.attack_priority(t.moment), StageCue::Attack(t.moment), age));
-        [event, attack]
+        event
             .into_iter()
-            .flatten()
+            .chain(attacks)
             .max_by(|a, b| a.0.cmp(&b.0).then(b.2.total_cmp(&a.2)))
             .map(|(_, cue, age)| (cue, age))
     }

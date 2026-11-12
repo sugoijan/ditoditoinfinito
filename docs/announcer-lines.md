@@ -152,6 +152,8 @@ fallbacks. A quit stage still says `evaluation quit`.
 | `battle stage begin` | As a later stage starts, in place of `ready` | `gameplay ready` |
 | `battle final stage` | As the last stage of a match of two or more starts, in place of `ready` | `battle stage begin`, then `gameplay ready` |
 | `battle life critical` | Your life is about to run out while you are still in (the gauge entering danger), once a stage | `gameplay comment danger` |
+| `battle attack incoming` | An attack against you is on its way (a battle with attacks): as it is committed, before its shocks can be seen, or not at all; not again for an attack within six seconds of the one before | nothing |
+| `battle attack launched` | Your own attack was sent (your attack power was full) | nothing |
 | `battle survivors 4`, `battle survivors 2` | The players still in become four, or two, having been more; only the count reached (one passed over in the same moment is not said) | nothing |
 | `battle eliminated` | Your life runs out: you are out of the stage | `gameplay failed` |
 | `battle stage won` | You alone win the stage, as soon as it is decided (when you are the last one in, the song goes on for you), else on the results | nothing |
@@ -162,31 +164,21 @@ fallbacks. A quit stage still says `evaluation quit`.
 | `battle match not won` | The same, the match not won | nothing |
 | `battle match drawn` | The same, first place shared | nothing |
 
-**Planned, not read yet** (2026-11-12, M8 round 3): two lines for a
-battle's attacks, `battle attack incoming` (an attack against you was
-committed: said at once, well before its shocks can be seen; it matters
-more than your life running low and less than an outcome; not said again
-for an attack right behind the one before) and `battle attack launched`
-(your own full power bar was spent on an attack; it matters least of the
-moments but the openings), neither falling back on anything, so a pack
-without them stays as it is. The game tells both moments already, in the
-status line beside the field ("Attack incoming", "Attack launched"); it
-does not read the folders yet, so a pack that has them keeps them unread
-for now (they join the lines' table with the announcer studio's list of
-lines, which names every line).
-
 `here we go` still ends half a second before the first note. One battle
 line speaks at a time: one due while another is still speaking speaks
-only if it matters more (an outcome over your life, your life over who
-is left), else it is passed over, never delayed; a line about a moment
-that has passed is never said late. On a match's last stage the match's
+only if it matters more (an outcome over an attack against you, that
+over your life, your life over who is left, who is left over an attack
+of your own, and the openings last), else it is passed over, never
+delayed; a line about a moment that has passed is never said late (an
+attack against you is said before its first shock comes into view, or
+shown). On a match's last stage the match's
 line takes the place of the stage's (where the pack has it). The game
 never needs these lines: where a pack has no line for a moment in play
 (or the announcer is off), the moment shows quietly beside the field
 for a few seconds; the stage's and the match's outcomes are on the
 results and in the room. The moments the design names that the
-prototype cannot have yet (attacks, the readiness deadline, a watched
-stage, a connection lost) have no lines yet.
+prototype cannot have yet (the readiness deadline, a watched stage, a
+connection lost) have no lines yet.
 
 ### Read, not spoken
 

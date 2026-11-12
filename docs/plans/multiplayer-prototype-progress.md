@@ -3090,34 +3090,41 @@ CPU stays what it was (shocks in their fields, the lock's look).
   moments (`battle-voice-v0`): `attack_priority`, 30 for incoming (under
   the outcomes' 40, over critical life's 20: the place M4 kept for it), 8
   for launched (under the milestones' 10).
-- **Shown, not spoken yet**: the status line beside the field says
-  "Attack incoming" and "Attack launched" for the cue's 2.5 s
-  (`PlaySession::stage_cue`: of a battle's moment no line said and the
-  latest attack moment, the one that matters more). Nothing is by sound
-  alone: the warning, the line and the outline say an attack too.
-- **NOT DONE: the two announcer lines themselves** (`battle attack
-  incoming`, `battle attack launched` as folders a pack may have). The
-  lines' table (`ddi_library::announcer::Line`, `Battle`) is matched
-  line by line, with no catch-all, in the announcer studio's screen
-  (`crates/ui/src/screens/studio.rs`: each line's name and when it is
-  said, worded in `locales/*/studio.ftl`), files of the announcer
-  studio's session this round was told to leave alone. A new line does
-  not compile without two arms in each of that file's two matches and
-  four messages in each language's `studio.ftl`. What it takes, once
-  those files may be touched: `Battle::AttackIncoming` and
-  `AttackLaunched` in `Battle::ALL` (folders `battle attack incoming`,
-  `battle attack launched`, no fallback: `chain` alone), the studio's
-  four arms and eight messages, `VoicePolicy::priority` giving them 30
-  and 8, `Battle` pushing those events in the place of (or beside) its
-  `AttackMoment`s so that `Announcer::battle` says them and the cue
-  shows only where they were not said, their examples in
-  `crates/library/src/announcer/examples.toml`, and
-  `docs/announcer-lines.md`'s table (it says "planned" now). The
-  bundled packs' recipes (`tools/announcer-design/pack.toml`,
-  `pack-ja.toml`) have no battle lines at all today (M4's fourteen were
-  never recorded either), so they gained none; once the lines exist the
-  packs need regenerating with `kokoro.py pack --bundle` for any battle
-  line to be heard. No audio was generated or bundled in this round.
+- **Said, or shown** (the announcer's two attack lines, 2026-11-12): the
+  moments are battle lines now, `battle attack incoming` and `battle
+  attack launched` (`ddi_library::announcer::Battle::AttackIncoming`,
+  `AttackLaunched`, in `Battle::ALL`; `AttackMoment::event`), folders a
+  pack may have, falling back on nothing (a pack without them stays
+  silent for them). `VoicePolicy::priority` ranks them (30 and 8) with
+  the battle's other moments, and a frame's moments are said together,
+  the one that matters most first (`PlaySession::tell`): an attack
+  against the player at its commitment, with a deadline, its first shock
+  coming into view (`Announcer::battle_by`: said before it or passed
+  over, never late; the commitment is at least 1.5 s before it); one of
+  the player's own when nothing that matters as much is speaking, else
+  passed over. A stage decodes up to four sounds of each
+  (`ddi_session::announcer::variants`): they speak again and again. The
+  status line beside the field says "Attack incoming" and "Attack
+  launched" for the cue's 2.5 s exactly where the line was not said
+  (`AttackTold::said`; `PlaySession::stage_cue`: of a battle's moment no
+  line said and the attack moments no line said, the one that matters
+  most, the newest of equals), so a moment is never told by neither.
+  Nothing is by sound alone: the warning, the line and the outline say
+  an attack too. The announcer studio lists both with the battle's
+  lines (no scene, as the rest of them), with text examples in both
+  sets. Debug: `__DDI_DEBUG.battle.attacks.told`, each `[moment, host
+  second, line said or null]`; desktop's log, `attacks: … (said|shown)`.
+  Tests: `ddi-library` (the folders, any case, the studio's names for
+  takes, no fallback); `ddi-session`
+  `the_attack_lines_speak_by_their_priority_and_deadline` (the voice on
+  a fake clock) and
+  `the_attack_lines_are_said_in_a_stage_and_shown_only_where_they_were_not`
+  (a pack made in a scratch folder, found as an import finds it, in a
+  practice stage: said before the shocks can be seen, not repeated
+  within the window, the cue exactly where no line was said; a pack
+  without the folders silent); `ddi-ui` (the studio's list);
+  `ddi-desktop` `room_stage_voice` (a scratch pack chosen in the
+  settings, a practice stage through the window offscreen).
 - **The standings** (a stage's results, with attacks): three small
   columns at the table's end, **Sent** (attacks launched), **Taken**
   (attacks launched against them) and **Shocks** (shocks stepped on), a

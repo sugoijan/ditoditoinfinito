@@ -65,6 +65,14 @@
     "Careful, you're hanging by a thread!",
     "Hold on, don't drop out now!",
 ]
+"battle attack incoming" = [
+    "Incoming attack! Watch your step!",
+    "Heads up, shocks on the way!",
+]
+"battle attack launched" = [
+    "Attack away!",
+    "There it goes! Shock them!",
+]
 "battle survivors 4" = [
     "Four left standing!",
     "Down to four!",
@@ -155,6 +163,14 @@
 "battle life critical" = [
     "危ない、もう後がないぞ！",
     "踏ん張って！ここで落ちるな！",
+]
+"battle attack incoming" = [
+    "攻撃が来るぞ！足元に注意！",
+    "気をつけて、ショックが来る！",
+]
+"battle attack launched" = [
+    "攻撃発動！",
+    "行け！ショックを送り込め！",
 ]
 "battle survivors 4" = [
     "残りは4人！",

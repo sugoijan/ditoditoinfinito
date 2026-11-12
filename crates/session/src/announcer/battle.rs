@@ -4,7 +4,14 @@
 //! a stage's play decodes and speaks of the battle's lines
 //! (`ddi_library::announcer::Battle`, folders `battle …`), which moment
 //! wins when two meet, and which moments show on screen instead where the
-//! pack has no line for them.
+//! pack has no line for them. An attack's two moments
+//! (`crate::battle::AttackMoment`) are battle lines as the rest: one
+//! against the player said at its commitment, which is before its shocks
+//! can be seen, or not at all (its deadline, [`Announcer::battle_by`]),
+//! one of their own at the lowest priority in play; each shown in the
+//! status line where it was not said.
+//!
+//! [`Announcer::battle_by`]: super::Announcer::battle_by
 //!
 //! The policy is [`BATTLE_VOICE_V0`], PROVISIONAL: its numbers are
 //! nobody's tuning yet, and are kept here alone. A battle line never
@@ -32,14 +39,15 @@ pub struct VoicePolicy {
     /// The cue's fade in and out, seconds (none under reduced motion).
     pub cue_fade: f64,
     /// Seconds within which a second attack against the player is not
-    /// told again (a chained attack right behind the first: the warning
-    /// by the receptors says it).
+    /// told again, by line or by cue (a chained attack right behind the
+    /// first: the warning by the receptors says it).
     pub incoming_again: f64,
 }
 
 /// The battle voice of the prototype (`battle-voice-v0`): one battle line
-/// at a time, outcomes over the player's own life over who is left over
-/// the stage's opening and the winner's finished song; a play's routine
+/// at a time, outcomes over an attack against the player over the
+/// player's own life over who is left over an attack of the player's own
+/// over the stage's opening and the winner's finished song; a play's routine
 /// lines left out of a stage (a chart's clear is not a stage's win);
 /// moments shown 2.5 s.
 pub const BATTLE_VOICE_V0: VoicePolicy = VoicePolicy {
@@ -52,8 +60,9 @@ pub const BATTLE_VOICE_V0: VoicePolicy = VoicePolicy {
 impl VoicePolicy {
     /// How much `event` matters when two meet: the higher speaks, the
     /// other is passed over. The design's order: terminal local states
-    /// and confirmed outcomes, then incoming attacks (none yet: 30 is
-    /// theirs), then critical life, then milestones, then feedback.
+    /// and confirmed outcomes, then an attack against the player, then
+    /// critical life, then milestones, then feedback (an attack of the
+    /// player's own just under the milestones).
     pub fn priority(&self, event: Event) -> u8 {
         match event {
             Event::Eliminated
@@ -63,8 +72,10 @@ impl VoicePolicy {
             | Event::MatchWon
             | Event::MatchNotWon
             | Event::MatchDrawn => 40,
+            Event::AttackIncoming => 30,
             Event::LifeCritical => 20,
             Event::Survivors(_) => 10,
+            Event::AttackLaunched => 8,
             Event::MatchBegin | Event::StageBegin | Event::FinalStage | Event::SongFinished => 5,
         }
     }
@@ -74,16 +85,14 @@ impl VoicePolicy {
     /// under the outcomes (the 30 the design kept for it), one of their
     /// own just under the milestones.
     pub fn attack_priority(&self, moment: AttackMoment) -> u8 {
-        match moment {
-            AttackMoment::Incoming => 30,
-            AttackMoment::Launched => 8,
-        }
+        self.priority(moment.event())
     }
 
     /// Whether the play shows `event` beside the field where no battle
     /// line said it: the moments of the play itself. The stage won early
     /// shows already ("Stage won", for the rest of the song); the
-    /// results' moments show on the results and in the room.
+    /// results' moments show on the results and in the room. An attack's
+    /// moments are told apart ([`AttackTold`], [`StageCue::Attack`]).
     pub fn shows(&self, event: Event) -> bool {
         matches!(
             event,
@@ -168,15 +177,25 @@ impl Told {
     }
 }
 
-/// An attack's moment as the play told it, and when (host seconds).
+/// An attack's moment as the play told it: its line where it was said
+/// (`None`: it was not, and the status line shows it), and when (host
+/// seconds).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AttackTold {
     pub moment: AttackMoment,
+    pub said: Option<Line>,
     pub at: f64,
 }
 
+impl AttackTold {
+    /// Its line said it (so the status line does not).
+    pub fn spoken(&self) -> bool {
+        self.said.is_some()
+    }
+}
+
 /// What a stage's status line shows: a battle's moment no line said, or
-/// an attack's.
+/// an attack's no line said.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StageCue {
     Event(Event),
@@ -243,6 +262,17 @@ mod tests {
             p.priority(Event::StageWon),
             "both outcomes"
         );
+        // An attack against the player: under the outcomes, over their
+        // life; one of their own: under the milestones, over the openings.
+        assert_eq!(p.priority(Event::AttackIncoming), 30);
+        assert_eq!(p.priority(Event::AttackLaunched), 8);
+        assert!(p.priority(Event::Eliminated) > p.priority(Event::AttackIncoming));
+        assert!(p.priority(Event::AttackIncoming) > p.priority(Event::LifeCritical));
+        assert!(p.priority(Event::Survivors(2)) > p.priority(Event::AttackLaunched));
+        assert!(p.priority(Event::AttackLaunched) > p.priority(Event::StageBegin));
+        for m in [AttackMoment::Incoming, AttackMoment::Launched] {
+            assert_eq!(p.attack_priority(m), p.priority(m.event()));
+        }
     }
 
     #[test]
@@ -423,6 +453,89 @@ mod tests {
         }
         let said: Vec<&str> = a.report.spoken.iter().map(|(f, _)| f.as_str()).collect();
         assert_eq!(said, ["battle survivors 2"]);
+    }
+
+    /// An attack against the player speaks over their life running low
+    /// and under an outcome, and only before its deadline (its shocks
+    /// coming into view): past it nothing is said late. One of their own
+    /// speaks when nothing that matters as much does, else is passed
+    /// over, never queued. Neither falls back on another line.
+    #[test]
+    fn the_attack_lines_speak_by_their_priority_and_deadline() {
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(
+            &[
+                "battle attack incoming",
+                "battle attack launched",
+                "battle life critical",
+                "battle survivors 2",
+                "battle eliminated",
+            ],
+            1.2,
+        );
+        let incoming = Line::Battle(Event::AttackIncoming);
+        let launched = Line::Battle(Event::AttackLaunched);
+        // Their life low, then an attack against them: over it, at once.
+        a.battle(&mut audio, Event::LifeCritical, 120.0);
+        assert_eq!(
+            a.battle_by(&mut audio, Event::AttackIncoming, 120.5, Some(124.0)),
+            Some(incoming)
+        );
+        // Their own attack while that speaks: passed over.
+        assert_eq!(a.battle(&mut audio, Event::AttackLaunched, 121.0), None);
+        assert_eq!(a.report.dropped, 1);
+        // Once it is over, their own speaks; two left speaks over it.
+        assert_eq!(
+            a.battle(&mut audio, Event::AttackLaunched, 122.0),
+            Some(launched)
+        );
+        assert_eq!(
+            a.battle(&mut audio, Event::Survivors(2), 122.5),
+            Some(Line::Battle(Event::Survivors(2)))
+        );
+        // While two left speaks, their own again: passed over.
+        assert_eq!(a.battle(&mut audio, Event::AttackLaunched, 123.0), None);
+        // Out, then an attack against them: an outcome matters more.
+        a.battle(&mut audio, Event::Eliminated, 130.0);
+        assert_eq!(
+            a.battle_by(&mut audio, Event::AttackIncoming, 130.5, Some(134.0)),
+            None
+        );
+        assert_eq!(a.report.dropped, 3);
+        // Past its deadline (its shocks in view already): never late.
+        assert_eq!(
+            a.battle_by(&mut audio, Event::AttackIncoming, 140.0, Some(140.0)),
+            None
+        );
+        assert_eq!(a.report.dropped, 4);
+        assert_eq!(
+            a.battle_by(&mut audio, Event::AttackIncoming, 140.0, Some(140.5)),
+            Some(incoming)
+        );
+        let said: Vec<&str> = a.report.spoken.iter().map(|(f, _)| f.as_str()).collect();
+        assert_eq!(
+            said,
+            [
+                "battle life critical",
+                "battle attack incoming",
+                "battle attack launched",
+                "battle survivors 2",
+                "battle eliminated",
+                "battle attack incoming",
+            ]
+        );
+        // A pack without them stays silent for them: nothing in their
+        // place, though it has the play's lines.
+        let mut plain = stage(&["gameplay ready", "gameplay comment danger"], 1.0);
+        assert_eq!(
+            plain.battle_by(&mut audio, Event::AttackIncoming, 150.0, Some(155.0)),
+            None
+        );
+        assert_eq!(plain.battle(&mut audio, Event::AttackLaunched, 151.0), None);
+        assert_eq!(
+            plain.report.absent,
+            ["battle attack incoming", "battle attack launched"]
+        );
     }
 
     #[test]

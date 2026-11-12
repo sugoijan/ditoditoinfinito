@@ -329,16 +329,24 @@ pub struct Link {
 
 /// An attack's moment for the local player, as the play tells it (M8
 /// round 3, S7): one against them committed, or one of their own. Each
-/// is to have a battle line (`battle attack incoming`, `battle attack
-/// launched`); until those are in the lines' table
-/// (`crate::announcer::battle`, [`VoicePolicy::attack_priority`]) the
-/// status line's words alone tell them.
-///
-/// [`VoicePolicy::attack_priority`]: crate::announcer::battle::VoicePolicy::attack_priority
+/// has a battle line (`battle attack incoming`, `battle attack
+/// launched`: [`AttackMoment::event`]), said under the stage's voice
+/// (`crate::announcer::battle`); where it was not said, the status
+/// line's words tell it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AttackMoment {
     Incoming,
     Launched,
+}
+
+impl AttackMoment {
+    /// The battle's event its line names.
+    pub fn event(self) -> Event {
+        match self {
+            AttackMoment::Incoming => Event::AttackIncoming,
+            AttackMoment::Launched => Event::AttackLaunched,
+        }
+    }
 }
 
 /// A full bar of the local player's waiting, as the line under it says.
@@ -396,8 +404,9 @@ pub struct Battle {
     /// The commitments since they were last taken, worded for a log.
     log: Vec<String>,
     /// The local player's attack moments since they were last taken
-    /// ([`Battle::take_attack_moments`]).
-    attack_moments: Vec<AttackMoment>,
+    /// ([`Battle::take_attack_moments`]), each with its attack's first
+    /// shock (judged song seconds).
+    attack_moments: Vec<(AttackMoment, f64)>,
     /// When this play learned of each attack's commitment (its number,
     /// the judged song second): what the local player's links are timed
     /// from ([`Battle::links`]).
@@ -713,10 +722,11 @@ impl Battle {
             }
             // The local player's own moments (while they play).
             if human.is_some() {
+                let first = attack.cells.first().map_or(at, |c| c.at_us) as f64 / 1e6;
                 if recipient == me && delivered {
-                    self.attack_moments.push(AttackMoment::Incoming);
+                    self.attack_moments.push((AttackMoment::Incoming, first));
                 } else if sender == me {
-                    self.attack_moments.push(AttackMoment::Launched);
+                    self.attack_moments.push((AttackMoment::Launched, first));
                 }
             }
             let name = |p: ParticipantId| {
@@ -977,8 +987,9 @@ impl Battle {
     }
 
     /// The local player's attack moments since the last call (an attack
-    /// against them committed, one of their own launched), in order.
-    pub fn take_attack_moments(&mut self) -> Vec<AttackMoment> {
+    /// against them committed, one of their own launched), in order,
+    /// each with its attack's first shock (judged song seconds).
+    pub fn take_attack_moments(&mut self) -> Vec<(AttackMoment, f64)> {
         std::mem::take(&mut self.attack_moments)
     }
 

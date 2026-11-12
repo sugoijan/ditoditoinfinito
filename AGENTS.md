@@ -603,11 +603,13 @@ Rust and the browser are implementation details, not advertised features.
   match's difficulty and Boos and never Practice, `battle::stage_ruleset`
   from `ddi_ui::state::room::StageRules`; the local player's attack
   moments (`battle::AttackMoment`: an attack against them committed, one
-  of their own), told at most once in six seconds for those against them
-  and shown in the status line (`PlaySession::stage_cue`,
-  `VoicePolicy::attack_priority`: their two lines, `battle attack
-  incoming` and `battle attack launched`, are NOT in the lines' table
-  yet, so nothing is said), and their attacks summed up for the results
+  of their own), told at most once in six seconds for those against them:
+  said by their battle lines (`battle attack incoming`, before its first
+  shock comes into view or not at all, `Announcer::battle_by`; `battle
+  attack launched`; `VoicePolicy::priority`, no fallback) and shown in
+  the status line exactly where the line was not said
+  (`PlaySession::stage_cue`, `AttackTold::said`), and their attacks
+  summed up for the results
   (`Battle::attack_summary`, `StageOutcome::summary`);
   an opt-in study of attack rates between CPUs over the bundled charts,
   `battle/study.rs` (`cargo test --release -p ddi-session --lib

@@ -136,6 +136,12 @@ pub enum Battle {
     /// The local player's life enters danger while still in (once a
     /// stage).
     LifeCritical,
+    /// An attack against the local player was committed: said at once,
+    /// before its shocks can be seen.
+    AttackIncoming,
+    /// The local player's full attack power was spent on an attack of
+    /// their own.
+    AttackLaunched,
     /// The players still in become this many (four or two,
     /// [`SURVIVOR_MILESTONES`]), having been more.
     Survivors(u8),
@@ -160,11 +166,13 @@ pub enum Battle {
 pub const SURVIVOR_MILESTONES: [u8; 2] = [4, 2];
 
 impl Battle {
-    pub const ALL: [Battle; 14] = [
+    pub const ALL: [Battle; 16] = [
         Battle::MatchBegin,
         Battle::StageBegin,
         Battle::FinalStage,
         Battle::LifeCritical,
+        Battle::AttackIncoming,
+        Battle::AttackLaunched,
         Battle::Survivors(SURVIVOR_MILESTONES[0]),
         Battle::Survivors(SURVIVOR_MILESTONES[1]),
         Battle::Eliminated,
@@ -184,6 +192,8 @@ impl Battle {
             Battle::StageBegin => "stage begin",
             Battle::FinalStage => "final stage",
             Battle::LifeCritical => "life critical",
+            Battle::AttackIncoming => "attack incoming",
+            Battle::AttackLaunched => "attack launched",
             Battle::Survivors(n) => return format!("survivors {n}"),
             Battle::Eliminated => "eliminated",
             Battle::StageWon => "stage won",
@@ -402,7 +412,8 @@ impl Line {
     /// begin`, then on `gameplay ready` (whose role it takes); its life
     /// critical on the danger comment, its elimination on `gameplay
     /// failed` and the winner's finished song on `gameplay cleared`, each
-    /// of which says that moment in a play; the rest on nothing.
+    /// of which says that moment in a play; the rest on nothing (an
+    /// attack's two among them: no play has that moment).
     pub fn chain(self) -> Vec<Line> {
         let mut chain = vec![self];
         match self {

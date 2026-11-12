@@ -208,6 +208,12 @@ studio-line-battle-stage-begin = Stage begins
 studio-line-battle-final-stage = Final stage
 studio-line-battle-life-critical = Life critical
 
+# An attack against the player is on its way (a battle with attacks).
+studio-line-battle-attack-incoming = Attack incoming
+
+# The player's own attack was sent (their attack power was full).
+studio-line-battle-attack-launched = Attack launched
+
 # The players still in a stage become this many.
 # Variables:
 #   $count (Number) - how many are left (4 or 2)
@@ -290,6 +296,8 @@ studio-when-battle-match-begin = As the first stage of a match starts, in place 
 studio-when-battle-stage-begin = As a later stage starts, in place of Ready.
 studio-when-battle-final-stage = As the last stage of a match starts, in place of Ready.
 studio-when-battle-life-critical = When the player's life is about to run out, once a stage.
+studio-when-battle-attack-incoming = When an attack against the player is on its way, before its shocks can be seen.
+studio-when-battle-attack-launched = When the player's full attack power is spent on an attack of their own.
 
 # Variables:
 #   $count (Number) - how many are left (4 or 2)

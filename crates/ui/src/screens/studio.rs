@@ -129,6 +129,8 @@ pub fn name(line: Line) -> UiText {
             Battle::StageBegin => m::line_battle_stage_begin(),
             Battle::FinalStage => m::line_battle_final_stage(),
             Battle::LifeCritical => m::line_battle_life_critical(),
+            Battle::AttackIncoming => m::line_battle_attack_incoming(),
+            Battle::AttackLaunched => m::line_battle_attack_launched(),
             Battle::Survivors(n) => m::line_battle_survivors(n),
             Battle::Eliminated => m::line_battle_eliminated(),
             Battle::StageWon => m::line_battle_stage_won(),
@@ -191,6 +193,8 @@ pub fn when(line: Line) -> UiText {
             Battle::StageBegin => m::when_battle_stage_begin(),
             Battle::FinalStage => m::when_battle_final_stage(),
             Battle::LifeCritical => m::when_battle_life_critical(),
+            Battle::AttackIncoming => m::when_battle_attack_incoming(),
+            Battle::AttackLaunched => m::when_battle_attack_launched(),
             Battle::Survivors(n) => m::when_battle_survivors(n),
             Battle::Eliminated => m::when_battle_eliminated(),
             Battle::StageWon => m::when_battle_stage_won(),
@@ -1289,6 +1293,15 @@ mod tests {
             without(Line::Battle(Battle::StageNotWon), &d).to_string(),
             m::missing_shown().to_string()
         );
+        // An attack's two fall back on nothing, whatever the draft has.
+        for b in [Battle::AttackIncoming, Battle::AttackLaunched] {
+            assert_eq!(
+                without(Line::Battle(b), &d).to_string(),
+                m::missing_shown().to_string()
+            );
+            assert!(!name(Line::Battle(b)).to_string().is_empty());
+            assert!(!when(Line::Battle(b)).to_string().is_empty());
+        }
         let mut ready = Draft::default();
         ready.add("gameplay ready.wav", 1, MP3);
         assert_eq!(

@@ -533,6 +533,8 @@ fn the_battle_lines_have_their_own_folders_and_category() {
             "battle stage begin",
             "battle final stage",
             "battle life critical",
+            "battle attack incoming",
+            "battle attack launched",
             "battle survivors 4",
             "battle survivors 2",
             "battle eliminated",
@@ -608,6 +610,8 @@ fn a_missing_battle_line_falls_back_on_the_play_line_of_its_moment() {
     // Outcomes and milestones have nothing to fall back on: a chart's
     // clear is not a stage's win.
     for alone in [
+        Battle::AttackIncoming,
+        Battle::AttackLaunched,
         Battle::Survivors(4),
         Battle::Survivors(2),
         Battle::StageWon,
@@ -654,6 +658,19 @@ fn the_battle_lines_leave_the_studio_s_names_for_other_lines_alone() {
         ),
         ("eliminated.wav", Some(Line::Battle(Battle::Eliminated))),
         ("final stage.wav", Some(Line::Battle(Battle::FinalStage))),
+        // An attack's two: their folders, any case, and their own ends.
+        (
+            "Battle Attack Incoming.wav",
+            Some(Line::Battle(Battle::AttackIncoming)),
+        ),
+        (
+            "attack launched 3.wav",
+            Some(Line::Battle(Battle::AttackLaunched)),
+        ),
+        ("incoming.wav", Some(Line::Battle(Battle::AttackIncoming))),
+        ("launched.wav", Some(Line::Battle(Battle::AttackLaunched))),
+        // No line's end.
+        ("attack.wav", None),
         // Two lines' ends.
         ("begin.wav", None),
         ("drawn.wav", None),

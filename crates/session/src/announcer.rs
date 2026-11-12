@@ -36,15 +36,16 @@ pub fn speaks(line: Line) -> bool {
 }
 
 /// How many of a line's sounds a play decodes (decision 8: at most
-/// four): the comments and the combo past 1000 speak again and again, a
-/// broken combo now and then, the rest once a play.
+/// four): the comments, the combo past 1000 and a battle's attacks speak
+/// again and again, a broken combo now and then, the rest once a play.
 pub fn variants(line: Line) -> usize {
     match line {
         Line::CommentHot
         | Line::CommentGood
         | Line::CommentDanger
         | Line::CommentOni
-        | Line::ComboOverflow => 4,
+        | Line::ComboOverflow
+        | Line::Battle(Battle::AttackIncoming | Battle::AttackLaunched) => 4,
         Line::ComboStopped => 2,
         _ => 1,
     }
@@ -361,7 +362,7 @@ pub struct Report {
     pub spoken: Vec<(String, f64)>,
     /// Gated lines that came too soon after another (5.1 drops them), and
     /// a stage's battle lines passed over for one that mattered as much
-    /// or more ([`battle::VoicePolicy::priority`]).
+    /// or more ([`battle::VoicePolicy::priority`]) or for their deadline.
     pub dropped: u32,
     /// Lines due that were being decoded but were not yet.
     pub missing: Vec<String>,
@@ -867,12 +868,26 @@ impl<B> Announcer<B> {
         event: Battle,
         now: f64,
     ) -> Option<Line> {
+        self.battle_by(audio, event, now, None)
+    }
+
+    /// [`Announcer::battle`] for a moment with a deadline: its line
+    /// starts before `by` (audio clock; an attack against the player's:
+    /// its first shock coming into view) or is passed over, never said
+    /// late.
+    pub fn battle_by<A: AudioBackend<Buffer = B>>(
+        &mut self,
+        audio: &mut A,
+        event: Battle,
+        now: f64,
+        by: Option<f64>,
+    ) -> Option<Line> {
         if !self.speaking() {
             return None;
         }
         let at = now + LEAD;
         let stage = self.stage.as_ref()?;
-        if !stage.may_speak(event, at) {
+        if !stage.may_speak(event, at) || by.is_some_and(|by| at >= by) {
             self.report.dropped += 1;
             return None;
         }

@@ -1526,8 +1526,9 @@ fn the_player_s_attacks_are_links_while_they_last() {
 /// but not again within six seconds of the one before (a chained attack
 /// right behind it); the status line shows the moment for the cue's
 /// time, an attack against the player over one of their own, an outcome
-/// over both. (Their lines, `battle attack incoming` and `battle attack
-/// launched`, are not in the lines' table yet: nothing is said.)
+/// over both. (No voice here: nothing is said, so every moment shows;
+/// `the_attack_lines_are_said_in_a_stage_and_shown_only_where_they_were_not`
+/// has the lines.)
 #[test]
 fn the_player_s_attack_moments_are_told_in_the_status_line() {
     use crate::announcer::battle::{BATTLE_VOICE_V0, StageCue};
@@ -1630,13 +1631,271 @@ fn the_player_s_attack_moments_are_told_in_the_status_line() {
         "{incoming:?}"
     );
     assert_eq!((cues.0, cues.1), (incoming.len(), launched));
-    // Nothing was said: no pack has the lines, and no line is theirs yet.
+    // Nothing was said: the announcer is off.
     assert!(s.announcer_report().spoken.is_empty());
+    assert!(s.attacks_told().iter().all(|t| !t.spoken()));
     // The survival battle tells none.
     let mut plain = room(&song, 1, 2, 2);
     let order = begin_at(&song, &mut plain, &mut now, LONG);
     let s = play_at(&song, &order, 60.0);
     assert!(s.attacks_told().is_empty());
+}
+
+/// The stage of `order` autoplayed against its CPUs with the announcer's
+/// `voice`, to its end: the session, and for each frame an attack moment
+/// was told on, the status line's cue right then.
+fn attacks_voiced(
+    song: &Song,
+    order: &StageOrder,
+    voice: crate::announcer::SharedVoice<f64>,
+) -> (
+    PlaySession<FakeAudio, FakeInputs>,
+    Vec<Option<crate::announcer::battle::StageCue>>,
+) {
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let settings = Settings::default();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.opponents = Some(StageSetup::of(order));
+    let mut s = PlaySession::start(
+        song,
+        order.chart.index,
+        &settings,
+        config,
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    s.set_voice(voice);
+    let mut cues = Vec::new();
+    let mut told = 0;
+    loop {
+        *clock.borrow_mut() += 1.0 / 60.0;
+        let host = *clock.borrow();
+        let (_, event) = s.tick(HostTime(host));
+        for _ in told..s.attacks_told().len() {
+            cues.push(s.stage_cue(host).map(|c| c.0));
+        }
+        told = s.attacks_told().len();
+        if event.is_some() {
+            break;
+        }
+        assert!(host < 300.0, "the stage never ended");
+    }
+    (s, cues)
+}
+
+/// A pack made in a scratch folder, `folders` each with `takes` sounds of
+/// 0.8 s (16-bit mono WAVs), found among its files as an import finds an
+/// announcer and decoded as a stage decodes it: the voice, and the lines
+/// with how many sounds of each it holds.
+fn scratch_pack(
+    name: &str,
+    folders: &[&str],
+    takes: usize,
+) -> (
+    crate::announcer::SharedVoice<f64>,
+    Vec<(ddi_library::announcer::Line, usize)>,
+) {
+    let root = std::env::temp_dir()
+        .join("ddi-session-tests")
+        .join(format!("{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let tone = ddi_library::wav::write(&[vec![0.1; 38_400]], 48_000);
+    let mut files = Vec::new();
+    for folder in folders {
+        let dir = root.join("Announcers/Scratch").join(folder);
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..takes {
+            std::fs::write(dir.join(format!("{i}.wav")), &tone).unwrap();
+            files.push((
+                format!("Announcers/Scratch/{folder}/{i}.wav"),
+                tone.len() as u64,
+            ));
+        }
+    }
+    // Found by what is on disk.
+    for (path, bytes) in &files {
+        assert_eq!(std::fs::metadata(root.join(path)).unwrap().len(), *bytes);
+    }
+    let found = ddi_library::announcer::find_announcers(&files, "root");
+    assert_eq!(found.announcers.len(), 1, "{found:?}");
+    let kept = found.announcers[0].kept();
+    assert_eq!(kept.name, "Scratch");
+    let mut bags = crate::announcer::Bags::new(1);
+    let wanted = crate::announcer::battle::wanted(&kept, &mut bags);
+    let mut v = crate::announcer::Voice::default();
+    let mut lines = Vec::new();
+    for (line, sounds) in &wanted {
+        v.expect([*line]);
+        for sound in sounds {
+            // Its length from its bytes: 16-bit mono at 48 kHz.
+            let bytes = std::fs::metadata(root.join("Announcers/Scratch").join(sound.as_str()))
+                .unwrap()
+                .len();
+            v.add(*line, (bytes - 44) as f64 / 96_000.0);
+        }
+        lines.push((*line, sounds.len()));
+    }
+    let _ = std::fs::remove_dir_all(&root);
+    (Rc::new(RefCell::new(v)), lines)
+}
+
+/// The announcer's two attack lines in a practice stage. With a pack made
+/// in a scratch folder, found as an import finds it, that has
+/// `battle attack incoming` and `battle attack launched`: an
+/// attack against the player is said as it is committed, before its
+/// first shock can be seen, and not again for one within six seconds of
+/// the one before; the player's own is said unless a line that matters
+/// as much is speaking, then passed over (never late); the status line
+/// shows an attack's moment exactly where its line was not said, so no
+/// moment is told by neither. With a pack without the two folders
+/// nothing is said for them (no other line takes their place) and every
+/// moment shows.
+#[test]
+fn the_attack_lines_are_said_in_a_stage_and_shown_only_where_they_were_not() {
+    use crate::announcer::battle::{BATTLE_VOICE_V0, StageCue};
+    use crate::battle::AttackMoment;
+    use ddi_library::announcer::Line;
+    let song = bundled("beatucada");
+    let policy = BATTLE_VOICE_V0;
+    let incoming_line = Line::Battle(Battle::AttackIncoming);
+    let launched_line = Line::Battle(Battle::AttackLaunched);
+    let mut now = 0;
+    let mut practice = attacks_room(&song, 3, 9);
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let (voice, lines) = scratch_pack(
+        "attack-lines",
+        &["Battle Attack Incoming", "battle attack launched"],
+        3,
+    );
+    // Both found (any case) and decoded, every take: they speak again
+    // and again in a stage.
+    assert_eq!(lines, [(incoming_line, 3), (launched_line, 3)]);
+    let (s, cues) = attacks_voiced(&song, &order, voice);
+    let told = s.attacks_told();
+    assert_eq!(told.len(), cues.len());
+    let count = |m, said: bool| {
+        told.iter()
+            .filter(|t| t.moment == m && t.spoken() == said)
+            .count()
+    };
+    // Nothing else speaks in this stage (the pack has no other line), so
+    // every attack against the player told is said, and their own too
+    // but where one of the two was still speaking.
+    assert!(count(AttackMoment::Incoming, true) > 0);
+    assert_eq!(count(AttackMoment::Incoming, false), 0);
+    assert!(count(AttackMoment::Launched, true) > 0);
+    for (t, cue) in told.iter().zip(&cues) {
+        match t.moment {
+            AttackMoment::Incoming => assert_eq!(t.said, Some(incoming_line)),
+            AttackMoment::Launched => {
+                assert!(t.said.is_none() || t.said == Some(launched_line))
+            }
+        }
+        // The cue right then: this moment's exactly where it was not
+        // said (else an earlier unsaid one's, or none).
+        let own = Some(StageCue::Attack(t.moment));
+        if t.spoken() {
+            assert!(
+                *cue != own
+                    || told.iter().any(|u| u.moment == t.moment
+                        && !u.spoken()
+                        && (0.0..policy.cue_seconds).contains(&(t.at - u.at))),
+                "{t:?} said and shown"
+            );
+        } else {
+            assert!(
+                matches!(cue, Some(StageCue::Attack(_))),
+                "{t:?} neither said nor shown: {cue:?}"
+            );
+        }
+    }
+    // Said on the audio clock when told, each line by its own folder.
+    let spoken = &s.announcer_report().spoken;
+    let said: Vec<&str> = spoken.iter().map(|(f, _)| f.as_str()).collect();
+    assert_eq!(
+        said.iter().filter(|f| **f == "battle attack incoming").count(),
+        count(AttackMoment::Incoming, true)
+    );
+    assert_eq!(
+        said.iter().filter(|f| **f == "battle attack launched").count(),
+        count(AttackMoment::Launched, true)
+    );
+    assert!(
+        said.iter().all(|f| f.starts_with("battle attack ")),
+        "{said:?}"
+    );
+    // An attack against the player: said before its first shock can be
+    // seen, and never twice within the window (a chained one).
+    let horizon = s.player.reading_horizon();
+    let ledger = s.battle().unwrap().attacks().unwrap().ledger();
+    let me = order.me;
+    let firsts: Vec<f64> = ledger
+        .attacks()
+        .iter()
+        .filter(|a| a.recipient == me)
+        .filter_map(|a| a.cells.first().map(|c| c.at_us as f64 / 1e6))
+        .collect();
+    let incoming_at: Vec<f64> = spoken
+        .iter()
+        .filter(|(f, _)| f == "battle attack incoming")
+        .map(|(_, at)| *at)
+        .collect();
+    for at in &incoming_at {
+        // On the audio clock: the next first shock after the line comes
+        // into view at least a second after the line starts.
+        let seen = firsts
+            .iter()
+            .map(|f| s.timing.at(*f - horizon))
+            .filter(|seen| s.timing.at(horizon) - s.timing.at(0.0) + *seen > *at)
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            seen - at >= 1.0,
+            "said at {at}, its shocks seen from {seen} (horizon {horizon})"
+        );
+    }
+    assert!(
+        incoming_at
+            .windows(2)
+            .all(|w| w[1] - w[0] >= policy.incoming_again - 0.1),
+        "{incoming_at:?}"
+    );
+    assert!(incoming_at.len() <= firsts.len());
+    // A line passed over is counted, never queued: the lines started are
+    // exactly the moments said.
+    assert_eq!(
+        spoken.len(),
+        told.iter().filter(|t| t.spoken()).count()
+    );
+    assert_eq!(
+        s.announcer_report().dropped as usize,
+        count(AttackMoment::Launched, false)
+    );
+
+    // A pack without the two folders: silent for them, every moment
+    // shown, nothing said in their place.
+    let mut practice = attacks_room(&song, 3, 9);
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let (s, cues) = attacks_voiced(
+        &song,
+        &order,
+        voice_of(&["gameplay comment danger", "gameplay failed", "gameplay cleared"]),
+    );
+    assert!(!s.attacks_told().is_empty());
+    assert!(s.attacks_told().iter().all(|t| !t.spoken()));
+    assert!(cues.iter().all(|c| matches!(c, Some(StageCue::Attack(_)))));
+    assert!(
+        !s.announcer_report()
+            .spoken
+            .iter()
+            .any(|(f, _)| f.contains("attack")),
+    );
+    assert!(
+        s.announcer_report()
+            .absent
+            .contains(&"battle attack incoming".to_string())
+    );
 }
 
 /// D8: a control the player's bindings give to a lane is never the

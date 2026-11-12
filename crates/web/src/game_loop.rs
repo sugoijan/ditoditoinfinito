@@ -1300,11 +1300,12 @@ fn attacks_debug(
         "waiting_drawn": drawn.1,
         "waiting": b.waiting(&s.player).map(|w| format!("{:?} {:?}", w.targeting, w.reason)),
         // The player's attack moments as told (`incoming`, `launched`,
-        // each with its host second): shown in the status line (their
-        // lines are not in the lines' table yet).
+        // each with its host second and the line that said it, `null`
+        // where none did and the status line shows it).
         "told": s.attacks_told().iter().map(|t| json!([
             format!("{:?}", t.moment).to_lowercase(),
             t.at,
+            t.said.map(|l| l.folder()),
         ])).collect::<Vec<_>>(),
         // Who attacks whom as drawn for the player's own attacks: each
         // link's attack, `from` and `to` (`"me"` or an opponent's seat),
