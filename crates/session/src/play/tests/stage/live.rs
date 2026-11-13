@@ -249,8 +249,12 @@ fn pick_and_ready_with(
             break;
         }
     }
-    for room in &r.rooms {
-        assert!(room.borrow().plays_live(), "plays live");
+    for (i, room) in r.rooms.iter().enumerate() {
+        assert!(
+            room.borrow().plays_live(),
+            "plays live: {i} {:?}",
+            room.borrow().room_now()
+        );
         assert!(room.borrow().room_now().is_some(), "knows the room's clock");
     }
     let mut rules = r.rooms[0].borrow().rules().clone();
@@ -1818,4 +1822,295 @@ fn a_seat_closed_during_a_watched_stage_stops_its_view_and_says_why() {
         "back, as a watched stage ends"
     );
     assert!(pressed, "Enter ended it");
+}
+
+/// A member's scripted stream of chart `chart`'s taps, every one hit,
+/// to `end_ms` (song ms), or out at `out_ms` (a miss, its life gone):
+/// what it sends, and how it stands at its end (combo, out).
+struct Scripted {
+    moments: Vec<ddi_room::live::Moment>,
+    end: StreamEnd,
+    end_ms: i64,
+    sent: usize,
+    ended: bool,
+}
+
+impl Scripted {
+    fn new(song: &Song, chart: usize, end_ms: i64, out_ms: Option<i64>) -> Scripted {
+        use ddi_room::live::{Moment, MomentKind};
+        let c = &song.charts[chart];
+        let timing = c.timing(song);
+        let stop = out_ms.unwrap_or(end_ms);
+        let mut combo = 0;
+        let mut moments: Vec<Moment> = c
+            .notes
+            .iter()
+            .filter(|n| matches!(n.kind, ddi_chart::NoteKind::Tap))
+            .map(|n| (n, (timing.seconds_at(n.tick) * 1_000.0).round() as i64))
+            .take_while(|(_, at)| *at < stop)
+            .map(|(n, at)| {
+                combo += 1;
+                Moment {
+                    at_ms: at as i32,
+                    tick: n.tick.0,
+                    lane: n.lane,
+                    kind: MomentKind::Tap {
+                        tier: 1,
+                        offset_ms: 0,
+                        w0: true,
+                    },
+                    life_ppm: 1_000_000,
+                    combo,
+                    score: i64::from(combo) * 10_100,
+                }
+            })
+            .collect();
+        if let Some(out) = out_ms {
+            let last = moments.last().copied();
+            moments.push(Moment {
+                at_ms: out as i32,
+                tick: last.map_or(0, |m| m.tick + 1),
+                lane: 0,
+                kind: MomentKind::Tap {
+                    tier: 5,
+                    offset_ms: 0,
+                    w0: false,
+                },
+                life_ppm: 0,
+                combo: 0,
+                score: last.map_or(0, |m| m.score),
+            });
+        }
+        Scripted {
+            moments,
+            end: match out_ms {
+                Some(out) => StreamEnd::Out { at_us: out * 1_000 },
+                None => StreamEnd::Finished,
+            },
+            end_ms: stop,
+            sent: 0,
+            ended: false,
+        }
+    }
+
+    /// Streamed to song ms `now` on `room`'s stream of `stage`.
+    fn stream(&mut self, room: &SharedRoom, stage: ddi_room::StageId, now: i64) {
+        if self.ended {
+            return;
+        }
+        let mut r = room.borrow_mut();
+        let Some(out) = r.live_stream(stage) else {
+            return;
+        };
+        while let Some(m) = self.moments.get(self.sent).filter(|m| i64::from(m.at_ms) <= now) {
+            out.moment(*m);
+            self.sent += 1;
+        }
+        out.judged_to(now.clamp(0, self.end_ms) * 1_000);
+        if now >= self.end_ms {
+            out.end(self.end);
+            self.ended = true;
+        }
+    }
+
+    fn combo(&self) -> u32 {
+        self.moments.last().map_or(0, |m| m.combo)
+    }
+
+    fn out(&self) -> bool {
+        matches!(self.end, StreamEnd::Out { .. })
+    }
+}
+
+/// A stage of 73 competitors (the cap) watched with the room's audience
+/// through the session: every member's stream scripted (hits, some going
+/// out), the seat's fields at the end equal to what each member sent
+/// (combo and out) at the audience's coarser rate (four frames a second),
+/// the music and the fields within the audience's two-second ceiling
+/// throughout, the grid paged twelve at a time (seven pages, round) and a
+/// competitor followed, and the field's numbers as the ladder counts
+/// them: 73 in the stage, those not out still in.
+#[test]
+fn the_audience_watches_seventy_three_players_through_the_session() {
+    const N: usize = 73;
+    let song = bundled("beatucada");
+    // The first the room's owner (the fake's own).
+    let names: Vec<&'static str> = (0..N)
+        .map(|i| match i {
+            0 => "alice",
+            _ => &*Box::leak(format!("p{i:02}").into_boxed_str()),
+        })
+        .collect();
+    let people: Vec<(&'static str, Intent)> = names.iter().map(|n| (*n, Intent::Play)).collect();
+    let r = Room::under(
+        &people,
+        Some(Latency {
+            down_ms: 20,
+            down_jitter_ms: 60,
+            up_ms: 20,
+            up_jitter_ms: 60,
+            seed: 5,
+        }),
+        &[],
+        RoomPolicy::default().with_live().with_audience(),
+    );
+    let aud = audience_seat(
+        &r,
+        "dora",
+        Some(Latency {
+            down_ms: 60,
+            down_jitter_ms: 60,
+            up_ms: 60,
+            up_jitter_ms: 60,
+            seed: 13,
+        }),
+    );
+    let tick_aud = || aud.borrow_mut().tick(wall(*r.host.borrow()));
+    tick_aud();
+    let orders = pick_and_ready(&r, &song, false, 0);
+    assert_eq!(orders.iter().flatten().count(), N, "everyone plays");
+    for _ in 0..50 {
+        r.step(0.02, true);
+        tick_aud();
+    }
+    let e = entry_at(&song, 0);
+    let jobs = aud.borrow_mut().take_load_jobs();
+    for job in jobs {
+        let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+        let picked = Picked {
+            song: SongEntry {
+                id: job.song.clone(),
+                ..e.clone()
+            },
+            chart: e.charts[0].clone(),
+        };
+        aud.borrow_mut().finish_load(&job, Ok((picked, prepared.live)));
+    }
+    let stage = orders[0].as_ref().unwrap().stage;
+    for _ in 0..400 {
+        if r.rooms[0].borrow().stage_started(stage) {
+            break;
+        }
+        r.step(0.02, true);
+        tick_aud();
+    }
+    let zero = r.rooms[0].borrow().song_zero_at(stage).unwrap();
+    // Every member's stream: all hit to 30 s, every sixth out at 8 to
+    // 15 s.
+    let mut scripts: Vec<Scripted> = (0..N)
+        .map(|i| {
+            let out = (i % 6 == 5).then(|| 8_000 + i as i64 * 100);
+            Scripted::new(&song, 0, 30_000, out)
+        })
+        .collect();
+    let stream = |scripts: &mut [Scripted]| {
+        for (s, room) in scripts.iter_mut().zip(&r.rooms) {
+            let now = room
+                .borrow()
+                .room_now()
+                .map_or(0, |n| n.0 as i64 - zero.0 as i64);
+            s.stream(room, stage, now);
+        }
+    };
+    let mut order = None;
+    for _ in 0..200 {
+        r.step(0.02, true);
+        stream(&mut scripts);
+        tick_aud();
+        order = aud.borrow_mut().take_stage_order();
+        if order.is_some() {
+            break;
+        }
+    }
+    let order = order.expect("the audience's stage");
+    assert_eq!(order.live.as_ref().unwrap().people.len(), N);
+    let settings = Settings::default();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.opponents = Some(StageSetup::of(&order));
+    let host = r.host.clone();
+    config.live = Some(crate::battle::live::LiveHandle {
+        room: aud.clone(),
+        wall_ms: Rc::new(move || wall(*host.borrow())),
+    });
+    let mut play = PlaySession::start(
+        &song,
+        order.chart.index,
+        &settings,
+        config,
+        FakeAudio::new(&r.host, 0.02),
+        110.0,
+        FakeInputs::new(&r.host),
+    )
+    .unwrap();
+    let music = aud.borrow().music_delay_ms(stage) as f64;
+    let ceiling = ddi_room::audience::AUDIENCE_V0.presentation_delay_ms as f64;
+    let start = *r.host.borrow();
+    let mut pages = Vec::new();
+    let mut focus = Vec::new();
+    let mut worst: f64 = 0.0;
+    let frames_before = aud.borrow().frames();
+    let mut ended = None;
+    let mut still_in_seen = N;
+    while ended.is_none() && *r.host.borrow() - start < 90.0 {
+        r.step(1.0 / 60.0, true);
+        stream(&mut scripts);
+        let host = *r.host.borrow();
+        let t = host - start;
+        // Page Down six times (seven pages: round to the first), then Tab.
+        let k = (t * 60.0).round() as i64;
+        if (5 * 60..5 * 60 + 7 * 30).contains(&k) && k % 30 == 0 {
+            play.inputs.key(host + 0.001, "PageDown", true);
+            play.inputs.key(host + 0.002, "PageDown", false);
+        }
+        if k == 10 * 60 {
+            play.inputs.key(host + 0.001, "Tab", true);
+            play.inputs.key(host + 0.002, "Tab", false);
+        }
+        let (_, event) = play.tick(HostTime(host));
+        if let Some(w) = play.watch(host) {
+            if pages.last() != Some(&w.page) {
+                pages.push(w.page);
+            }
+            if focus.last() != Some(&w.focus) {
+                focus.push(w.focus);
+            }
+        }
+        if let Some(l) = play.battle().and_then(|b| b.live_state()) {
+            worst = worst.max(l.delay_ms);
+        }
+        let views = play.battle().unwrap().views();
+        assert_eq!(views.len(), N, "every competitor's field");
+        let still_in = views.iter().filter(|v| !v.out).count();
+        assert!(still_in <= still_in_seen, "nobody comes back in");
+        still_in_seen = still_in;
+        if event.is_some() {
+            ended = event;
+        }
+    }
+    assert!(ended.is_some(), "the watching ended once everyone had");
+    eprintln!(
+        "73 watched: music {music} ms behind, the fields at most {worst:.0} ms more; {} audience frames",
+        aud.borrow().frames() - frames_before
+    );
+    assert!(music + worst <= ceiling, "{music} + {worst} within {ceiling}");
+    // Four audience frames a second (the room's ten coalesced).
+    let frames = f64::from(aud.borrow().frames() - frames_before);
+    let seconds = *r.host.borrow() - start;
+    assert!(
+        (frames / seconds - 4.0).abs() < 0.5,
+        "{frames} frames in {seconds:.1} s"
+    );
+    // The grid's seven pages of twelve, round, then a competitor followed.
+    assert_eq!(pages, [0, 1, 2, 3, 4, 5, 6, 0], "{pages:?}");
+    assert_eq!(focus, [None, Some(0)], "{focus:?}");
+    // Every field as its member sent it.
+    let b = play.battle().unwrap();
+    let views = b.views();
+    for (v, s) in views.iter().zip(&scripts) {
+        assert_eq!((v.combo, v.out), (s.combo(), s.out()), "{}", v.name);
+    }
+    // The ladder's numbers: 73 in the stage, those not out still in.
+    let outs = scripts.iter().filter(|s| s.out()).count();
+    assert_eq!(outs, 12);
+    assert_eq!(views.iter().filter(|v| !v.out).count(), N - outs);
 }
