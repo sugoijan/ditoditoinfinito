@@ -29,7 +29,7 @@
 use super::*;
 use ddi_engine::battle::HazardState;
 use ddi_engine::judge::NoteState;
-use ddi_room::MatchDifficulty;
+use ddi_room::{AttacksAtOnce, MatchDifficulty};
 use ddi_ui::state::room::StageRules;
 use std::collections::BTreeMap;
 
@@ -124,11 +124,11 @@ fn stage(
     seed: u64,
     skills: Option<&str>,
 ) -> Vec<Seat> {
-    stage_with(song, chart, difficulty, levels, seed, skills, Targeting::Spread).0
+    stage_with(song, chart, difficulty, levels, seed, skills, Targeting::Spread, AttacksAtOnce::Three).0
 }
 
 /// What a stage's attacks came to as a whole (`attacks-v2`'s study).
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct Facts {
     attacks: u32,
     /// The longest run of consecutive safe sections filled against one
@@ -148,9 +148,31 @@ struct Facts {
     drawn: bool,
     /// Seconds from last standing to the decision, where it waited.
     last_standing: Option<f64>,
+    /// Each attack's landing: how stale it is (`attacks-v3`'s study).
+    landings: Vec<Landing>,
+    /// The sender with the most launches: how many different competitors
+    /// it hit.
+    top_sender_hit: u32,
+    /// Checkpoints a full bar waited for room within the window.
+    waited_window: u32,
 }
 
-/// [`stage`] with every CPU's policy `targeting`, and the stage's facts.
+/// An attack's landing: seconds from its launch (its checkpoint) to its
+/// first shock and to its last, and whether its reason for the choice
+/// still held at its first shock (Leader: the recipient still the leader
+/// among the others still in; Retaliate, where it answered its last
+/// attacker: nothing from anyone else landed on the sender since; Spread:
+/// none).
+#[derive(Clone, Copy)]
+struct Landing {
+    first_s: f64,
+    last_s: f64,
+    held: Option<bool>,
+}
+
+/// [`stage`] with every CPU's policy `targeting` and the match's Attacks
+/// at once, and the stage's facts.
+#[allow(clippy::too_many_arguments)]
 fn stage_with(
     song: &Song,
     chart: usize,
@@ -159,9 +181,11 @@ fn stage_with(
     seed: u64,
     skills: Option<&str>,
     targeting: Targeting,
+    at_once: AttacksAtOnce,
 ) -> (Vec<Seat>, Facts) {
     let rules = StageRules {
         difficulty,
+        at_once,
         ..StageRules::default()
     };
     let ruleset = stage_ruleset(&rules);
@@ -200,7 +224,7 @@ fn stage_with(
     }
     b.play_out_as(Some(Run::Forfeit));
     let ledger = b.attacks.as_ref().unwrap().ledger();
-    let facts = facts(&b, ledger);
+    let facts = facts(&b, ledger, targeting);
     let table = ruleset.judge.clone();
     let (lock, window, reach) = (
         table.lock.unwrap_or(0.0),
@@ -269,14 +293,14 @@ fn stage_with(
                 knocked_out,
                 out: u32::from(out_at.is_some()),
                 percent: accuracy(&s.opponent.score()),
-                waited: stats.waited_no_eligible + stats.waited_no_safe_section,
+                waited: stats.waited(),
             }
         })
         .collect();
     (seats, facts)
 }
 
-fn facts(b: &Battle, ledger: &ddi_room::attacks::StageBattle) -> Facts {
+fn facts(b: &Battle, ledger: &ddi_room::attacks::StageBattle, targeting: Targeting) -> Facts {
     let attacks = ledger.attacks();
     let slots = &ledger.schedule().slots;
     // The first safe slot starting at or after `us`.
@@ -325,12 +349,74 @@ fn facts(b: &Battle, ledger: &ddi_room::attacks::StageBattle) -> Facts {
         })
         .max()
         .unwrap_or(0);
-    let (mut waited, mut launched) = (0, 0);
+    let (mut waited, mut launched, mut waited_window) = (0, 0, 0);
+    let mut top_sender = (0u32, ParticipantId(0));
     for s in &b.seats {
         let st = ledger.stats(s.seat.participant);
-        waited += st.waited_no_eligible + st.waited_no_safe_section;
+        waited += st.waited();
+        waited_window += st.waited_no_room_in_window;
         launched += st.launched;
+        if st.launched > top_sender.0 {
+            top_sender = (st.launched, s.seat.participant);
+        }
     }
+    let top_sender_hit = attacks
+        .iter()
+        .filter(|a| a.sender == top_sender.1)
+        .map(|a| a.recipient)
+        .collect::<std::collections::BTreeSet<_>>()
+        .len() as u32;
+    // Each CPU's life and whether it is still in at a song second.
+    let seat_of = |p: ParticipantId| b.seats.iter().find(|s| s.seat.participant == p);
+    let life = |p: ParticipantId, t: f64| -> Option<f32> {
+        let s = seat_of(p)?;
+        if s.opponent.out_at().is_some_and(|o| o <= t) {
+            return None;
+        }
+        Some(s.opponent.player().life_at(t))
+    };
+    let landings = attacks
+        .iter()
+        .map(|a| {
+            let launch = checkpoints[a.checkpoint];
+            let first = a.cells.first().map_or(launch, |c| c.at_us);
+            let last = a.cells.last().map_or(launch, |c| c.at_us);
+            let t = first as f64 / 1e6;
+            let held = match targeting {
+                Targeting::Spread => None,
+                Targeting::Leader => Some(life(a.recipient, t).is_some_and(|mine| {
+                    b.seats
+                        .iter()
+                        .map(|s| s.seat.participant)
+                        .filter(|&p| p != a.recipient && p != a.sender)
+                        .all(|p| life(p, t).is_none_or(|l| l <= mine))
+                })),
+                Targeting::Retaliate => {
+                    // An answer: the last attack committed against the
+                    // sender before this launch came from its recipient.
+                    let answered = attacks
+                        .iter()
+                        .filter(|o| o.recipient == a.sender && o.checkpoint < a.checkpoint)
+                        .max_by_key(|o| (o.checkpoint, o.id))
+                        .is_some_and(|o| o.sender == a.recipient);
+                    answered.then(|| {
+                        !attacks.iter().any(|o| {
+                            o.recipient == a.sender
+                                && o.sender != a.recipient
+                                && o.cells
+                                    .first()
+                                    .is_some_and(|c| c.at_us > launch && c.at_us <= first)
+                        })
+                    })
+                }
+            };
+            Landing {
+                first_s: (first - launch) as f64 / 1e6,
+                last_s: (last - launch) as f64 / 1e6,
+                held,
+            }
+        })
+        .collect();
     let (stood, settled) = b.last_standing_span();
     Facts {
         attacks: attacks.len() as u32,
@@ -342,6 +428,9 @@ fn facts(b: &Battle, ledger: &ddi_room::attacks::StageBattle) -> Facts {
         launched,
         drawn: b.drawn_by_final_attack(),
         last_standing: stood.zip(settled).map(|(a, z)| z - a),
+        landings,
+        top_sender_hit,
+        waited_window,
     }
 }
 
@@ -542,7 +631,8 @@ fn chain_pileups() {
                     for seed in 1..=seeds {
                         let levels: Vec<u8> =
                             (0..n).map(|i| MIX[(i + seed as usize) % MIX.len()]).collect();
-                        let (seats, x) = stage_with(song, *chart, d, &levels, seed, None, t);
+                        let (seats, x) =
+                            stage_with(song, *chart, d, &levels, seed, None, t, AttacksAtOnce::Three);
                         for (s, &l) in seats.iter().zip(&levels) {
                             by_level[usize::from(l)].add(s);
                         }
@@ -603,5 +693,328 @@ fn chain_pileups() {
                 }
             }
         }
+    }
+}
+
+/// One set of rules the window study compares: its name, the rules, and
+/// the match's Attacks at once.
+fn window_configs() -> Vec<(String, ddi_room::attacks::AttackRules, AttacksAtOnce)> {
+    use ddi_room::attacks::{ATTACKS_V2, ATTACKS_V3};
+    let w = |s: i64, id: &'static str| ddi_room::attacks::AttackRules {
+        id,
+        window_us: s * 1_000_000,
+        ..ATTACKS_V3
+    };
+    let mut v = vec![("attacks-v2".to_string(), ATTACKS_V2, AttacksAtOnce::NoLimit)];
+    for a in AttacksAtOnce::ALL {
+        v.push((format!("v3 15 s, at once {a:?}"), ATTACKS_V3, a));
+    }
+    v.push(("v3 10 s, no limit".into(), w(10, "attacks-v3-w10"), AttacksAtOnce::NoLimit));
+    v.push(("v3 20 s, no limit".into(), w(20, "attacks-v3-w20"), AttacksAtOnce::NoLimit));
+    v
+}
+
+/// Median, 90th percentile and the most of `v` (sorted in place).
+fn spread_of(v: &mut [f64]) -> (f64, f64, f64) {
+    if v.is_empty() {
+        return (0.0, 0.0, 0.0);
+    }
+    v.sort_by(f64::total_cmp);
+    let at = |q: f64| v[((v.len() - 1) as f64 * q).round() as usize];
+    (at(0.5), at(0.9), v[v.len() - 1])
+}
+
+/// `attacks-v3`'s study (2026-11-13): `chain_pileups`' fields and charts
+/// under `attacks-v2` and under `attacks-v3` with Attacks at once at 1,
+/// 2, 3 and No limit (the 15 s window), and the window alone at 10 and
+/// 20 s: what each does to pile-ups, and how stale an attack is when it
+/// lands (its launch to its first and last shock; whether Leader's
+/// recipient is still the leader then, and whether Retaliate's answer
+/// still answers the last one to hit the sender).
+///
+/// `cargo test --release -p ddi-session --lib attack_window -- --ignored
+/// --nocapture`; `DDI_ATTACK_SEEDS` seeds a chart (2), `DDI_CHAIN_SIZES`
+/// the fields (`4,9,33`), `DDI_WINDOW_CONFIGS` which rules by their place
+/// in the list (all), `DDI_WINDOW_DIFFICULTIES` (`normal,hard`).
+#[test]
+#[ignore = "a study: prints what the window and Attacks at once do"]
+fn attack_window() {
+    use MatchDifficulty as D;
+    let seeds: u64 = std::env::var("DDI_ATTACK_SEEDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2);
+    let sizes: Vec<usize> = std::env::var("DDI_CHAIN_SIZES")
+        .ok()
+        .map(|v| v.split(',').filter_map(|n| n.parse().ok()).collect())
+        .unwrap_or_else(|| vec![4, 9, 33]);
+    let only: Option<Vec<usize>> = std::env::var("DDI_WINDOW_CONFIGS")
+        .ok()
+        .map(|v| v.split(',').filter_map(|n| n.parse().ok()).collect());
+    let difficulties: Vec<D> = match std::env::var("DDI_WINDOW_DIFFICULTIES").as_deref() {
+        Ok("normal") => vec![D::Normal],
+        Ok("hard") => vec![D::Hard],
+        _ => vec![D::Normal, D::Hard],
+    };
+    let songs: Vec<(Song, usize)> = CHARTS
+        .iter()
+        .map(|&(id, which)| {
+            let song = bundled(id);
+            let chart = chart_of(&song, which);
+            (song, chart)
+        })
+        .collect();
+    let costs = |d: D| match d {
+        D::Easy => (1.0, 2.0),
+        D::Normal => (5.0, 10.0),
+        D::Hard => (10.0, 20.0),
+    };
+    const MIX: [u8; 8] = [0, 1, 2, 3, 4, 5, 7, 9];
+    for (ci, (name, rules, at_once)) in window_configs().into_iter().enumerate() {
+        if only.as_ref().is_some_and(|o| !o.contains(&ci)) {
+            continue;
+        }
+        attacks::RULES_OVERRIDE.with(|c| c.set(Some(rules)));
+        println!("== [{ci}] {name}: {} charts, {seeds} seeds; mixed levels", songs.len());
+        for &n in &sizes {
+            for &d in &difficulties {
+                for t in Targeting::ALL {
+                    let mut by_level = [Seat::default(); 10];
+                    let (mut stages, mut attacks_n, mut waited, mut launched, mut waited_window) =
+                        (0u32, 0u32, 0u32, 0u32, 0u32);
+                    let (mut ahead, mut share, mut filled, mut hit) = (0u32, 0.0, 0.0, 0u32);
+                    let (mut drawn, mut stood, mut stood_s) = (0u32, 0u32, 0.0);
+                    let (mut firsts, mut lasts) = (Vec::new(), Vec::new());
+                    let (mut held, mut asked) = (0u32, 0u32);
+                    for (song, chart) in &songs {
+                        for seed in 1..=seeds {
+                            let levels: Vec<u8> =
+                                (0..n).map(|i| MIX[(i + seed as usize) % MIX.len()]).collect();
+                            let (seats, x) =
+                                stage_with(song, *chart, d, &levels, seed, None, t, at_once);
+                            for (s, &l) in seats.iter().zip(&levels) {
+                                by_level[usize::from(l)].add(s);
+                            }
+                            stages += 1;
+                            attacks_n += x.attacks;
+                            waited += x.waited;
+                            waited_window += x.waited_window;
+                            launched += x.launched;
+                            ahead = ahead.max(x.most_ahead);
+                            share += x.top_share;
+                            filled += x.top_filled;
+                            hit += x.top_sender_hit;
+                            drawn += u32::from(x.drawn);
+                            if let Some(sec) = x.last_standing {
+                                stood += 1;
+                                stood_s += sec;
+                            }
+                            for l in &x.landings {
+                                firsts.push(l.first_s);
+                                lasts.push(l.last_s);
+                                if let Some(h) = l.held {
+                                    asked += 1;
+                                    held += u32::from(h);
+                                }
+                            }
+                        }
+                    }
+                    let k = f64::from(stages.max(1));
+                    let (f50, f90, fmax) = spread_of(&mut firsts);
+                    let (l50, l90, lmax) = spread_of(&mut lasts);
+                    let held_words = match t {
+                        Targeting::Spread => String::new(),
+                        _ => format!(
+                            " | reason held {:4.1}% of {asked}",
+                            100.0 * f64::from(held) / f64::from(asked.max(1))
+                        ),
+                    };
+                    println!(
+                        "{n:>2} {d:?} {t:?}: attacks/stage {:5.1} | most at once {:2} | top recipient {:4.1}% \
+                         of attacks, {:4.1}% of its span | top sender hit {:4.1} | blocked {:4.1}% \
+                         (window {:4.1}%) | drawn {:4.1}% | last standing {:4.1}% mean {:4.1} s \
+                         | to first shock {:4.1}/{:4.1}/{:4.1} s, to last {:4.1}/{:4.1}/{:4.1} s{held_words}",
+                        f64::from(attacks_n) / k,
+                        ahead,
+                        100.0 * share / k,
+                        100.0 * filled / k,
+                        f64::from(hit) / k,
+                        100.0 * f64::from(waited) / f64::from((waited + launched).max(1)),
+                        100.0 * f64::from(waited_window) / f64::from((waited + launched).max(1)),
+                        100.0 * f64::from(drawn) / k,
+                        100.0 * f64::from(stood) / k,
+                        stood_s / f64::from(stood.max(1)),
+                        f50,
+                        f90,
+                        fmax,
+                        l50,
+                        l90,
+                        lmax,
+                    );
+                    let (mine, miss) = costs(d);
+                    let words: Vec<String> = MIX
+                        .iter()
+                        .map(|&l| {
+                            let s = &by_level[usize::from(l)];
+                            let seats = f64::from(s.seats.max(1));
+                            format!(
+                                "L{} recv {:.1} life {:.0} KO {:.0}%",
+                                l + 1,
+                                f64::from(s.received) / seats,
+                                (f64::from(s.stepped) * mine + f64::from(s.locked_missed) * miss)
+                                    / seats,
+                                100.0 * f64::from(s.knocked_out) / seats,
+                            )
+                        })
+                        .collect();
+                    println!("     by level (a seat): {}", words.join(" | "));
+                    for s in &by_level {
+                        assert!(s.stepped <= 8 * s.received, "double counting");
+                    }
+                }
+            }
+        }
+    }
+    attacks::RULES_OVERRIDE.with(|c| c.set(None));
+}
+
+/// How many attacks fit in the window on a chart: from each checkpoint,
+/// a recipient with nothing placed against them reading 2 s ahead (the
+/// practice lead: `practice_lead_us`), the attacks that could be placed
+/// back to back (each in the first safe section from where the one
+/// before it clears) starting within 10, 15 and 20 s. Over every bundled
+/// dance-single chart, and the charts under `DDI_WINDOW_CORPUS`
+/// (folders, `:` between; read in place, aggregates only, at most
+/// `DDI_WINDOW_MAX` charts, 600), by tempo.
+///
+/// `DDI_WINDOW_CORPUS=… cargo test --release -p ddi-session --lib
+/// window_fit -- --ignored --nocapture`
+#[test]
+#[ignore = "a study: prints how many attacks fit in the window"]
+fn window_fit() {
+    let bundled_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs");
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        let mut entries: Vec<_> = rd.flatten().map(|e| e.path()).collect();
+        entries.sort();
+        // A song folder: its .ssc, else its .sm.
+        let ssc = entries.iter().find(|p| p.extension().is_some_and(|e| e == "ssc"));
+        let sm = entries.iter().find(|p| p.extension().is_some_and(|e| e == "sm"));
+        if let Some(p) = ssc.or(sm) {
+            out.push(p.clone());
+            return;
+        }
+        for p in entries.iter().filter(|p| p.is_dir()) {
+            walk(p, out);
+        }
+    }
+    walk(&bundled_dir, &mut files);
+    let bundled_n = files.len();
+    if let Ok(dirs) = std::env::var("DDI_WINDOW_CORPUS") {
+        for d in dirs.split(':') {
+            walk(std::path::Path::new(d), &mut files);
+        }
+    }
+    let max: usize = std::env::var("DDI_WINDOW_MAX")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(600);
+    let rules = ddi_room::attacks::ATTACKS_V3;
+    let judge = stage_ruleset(&StageRules::default()).judge;
+    let lead = practice_lead_us(attacks::micros(FORFEIT_HORIZON));
+    let windows = [10i64, 15, 20];
+    // (bundled or local, tempo band) → for each window: the fits seen.
+    let mut fits: BTreeMap<(bool, usize), Vec<Vec<f64>>> = BTreeMap::new();
+    let mut charts = 0usize;
+    let bands = ["under 120 BPM", "120 to 160 BPM", "over 160 BPM"];
+    for (i, path) in files.iter().enumerate() {
+        if charts >= max {
+            break;
+        }
+        let local = i >= bundled_n;
+        let Ok(text) = std::fs::read(path) else { continue };
+        let text = String::from_utf8_lossy(&text);
+        let ext = path.extension().unwrap().to_string_lossy().into_owned();
+        let Ok(song) = ddi_library::scan::parse_simfile(&text, &ext) else {
+            continue;
+        };
+        for (c, chart) in song.charts.iter().enumerate() {
+            if chart.layout != "dance-single" || chart.derivation.is_some() || chart.notes.len() < 50 {
+                continue;
+            }
+            if charts >= max {
+                break;
+            }
+            charts += 1;
+            let timing = chart.timing(&song);
+            let (a, z) = (chart.notes[0].tick, chart.notes[chart.notes.len() - 1].tick);
+            let secs = timing.seconds_at(z) - timing.seconds_at(a);
+            let beats = (z.0 - a.0) as f64 / ddi_chart::TICKS_PER_BEAT as f64;
+            let bpm = if secs > 0.0 { beats / secs * 60.0 } else { 0.0 };
+            let band = if bpm < 120.0 { 0 } else if bpm <= 160.0 { 1 } else { 2 };
+            let cps = ddi_ui::state::battle_plan::checkpoints(&song, c, &rules);
+            let schedule = ddi_ui::state::battle_plan::schedule_with(
+                &song,
+                c,
+                &judge,
+                1,
+                &ddi_engine::battle::PLACEMENT,
+                &rules,
+            );
+            let slots = &schedule.slots;
+            let entry = fits
+                .entry((local, band))
+                .or_insert_with(|| vec![Vec::new(); windows.len()]);
+            for (k, &at) in cps.iter().enumerate() {
+                let next = cps.get(k + 1).copied().unwrap_or(at + 1);
+                for (wi, &w) in windows.iter().enumerate() {
+                    let latest = at + w * 1_000_000;
+                    let mut from = (at + lead).max(next);
+                    let mut n = 0;
+                    loop {
+                        let j = slots.partition_point(|s| s.start_us < from);
+                        let Some(j) = (j..slots.len())
+                            .take_while(|&j| slots[j].start_us <= latest)
+                            .find(|&j| slots[j].section.is_some())
+                        else {
+                            break;
+                        };
+                        n += 1;
+                        from = slots[j].section.as_ref().unwrap().clear_us;
+                    }
+                    entry[wi].push(f64::from(n));
+                }
+            }
+        }
+    }
+    println!(
+        "== attacks that fit back to back in the window from a checkpoint (lead {:.2} s), {charts} charts",
+        lead as f64 / 1e6
+    );
+    for ((local, band), per) in &mut fits {
+        let words: Vec<String> = windows
+            .iter()
+            .zip(per.iter_mut())
+            .map(|(w, v)| {
+                let none = v.iter().filter(|&&x| x == 0.0).count() as f64 / v.len().max(1) as f64;
+                let mean = v.iter().sum::<f64>() / v.len().max(1) as f64;
+                let (m, p90, most) = spread_of(v);
+                let mut sorted = v.clone();
+                sorted.sort_by(f64::total_cmp);
+                let p10 = sorted.get(sorted.len() / 10).copied().unwrap_or(0.0);
+                format!(
+                    "{w:>2} s: none {:4.1}%, mean {mean:3.1}, p10/median/p90/most {p10:.0}/{m:.0}/{p90:.0}/{most:.0}",
+                    100.0 * none
+                )
+            })
+            .collect();
+        println!(
+            "{} {:<15} ({} checkpoints): {}",
+            if *local { "local  " } else { "bundled" },
+            bands[*band],
+            per[0].len(),
+            words.join(" | ")
+        );
     }
 }
