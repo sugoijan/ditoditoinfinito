@@ -28,6 +28,14 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   competitors, the views' delay (`live-v2`'s 100 ms ticks and a delay each
   device measures, half a second or less at typical latencies), and the
   open questions.
+- [The audience](multiplayer-audience.md) (2026-11-13): watching a room
+  beyond its members, counted and not listed: who is audience (a link of
+  its own, offered at the member bound), the public view, relays against
+  the room's own sockets and cached segments with the platform's numbers
+  (relays recommended), four coalesced frames a second, the bounds and
+  costs at 1,000 to 20,000 seats; the contract built and tested in
+  `crates/room` (`ddi_room::audience`, `audience-v0`, the fake runs it);
+  the server's and the game's work lists.
 - [Multiplayer prototype progress](multiplayer-prototype-progress.md)
   (2026-11-10): what the prototype has actually built and tested, kept apart
   from the design studies below. M1: the shared room, match and stage model
