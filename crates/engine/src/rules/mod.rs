@@ -869,6 +869,42 @@ impl JudgeNames {
         }
     }
 
+    /// DDI's names as shown in a language (round 4): `word(tier, late)`
+    /// gives a word by its tier (0 W0, 1 to 5 W1 to W5 by side, 6 Miss,
+    /// 7 Boo; `ddi_l10n::judgments::ddi_word`), or `None` to keep the
+    /// ruleset's own. `None` for a ruleset without DDI's words (one name
+    /// a tier) or where every word is kept: the names as they are.
+    /// Only words: the colors, tiers and everything judged stay.
+    pub fn shown(&self, word: impl Fn(u8, bool) -> Option<String>) -> Option<JudgeNames> {
+        let early = self.early.as_ref()?;
+        if self.palette != colors::Palette::Ddi {
+            return None;
+        }
+        let mut out = self.clone();
+        let mut any = false;
+        let mut take = |slot: &mut String, tier: u8, late: bool| {
+            if let Some(w) = word(tier, late) {
+                *slot = w;
+                any = true;
+            }
+        };
+        let mut new_early = early.clone();
+        for i in 0..6 {
+            let tier = i as u8 + 1;
+            take(&mut out.tiers[i], tier, true);
+            take(&mut new_early[i], tier, false);
+        }
+        out.early = Some(new_early);
+        if let Some((inside, outside)) = out.w0.as_mut() {
+            take(inside, 0, false);
+            *outside = out.tiers[0].clone();
+        }
+        if let Some(boo) = out.boo.as_mut() {
+            take(boo, 7, false);
+        }
+        any.then_some(out)
+    }
+
     /// A tier's early and late names (the same where the ruleset has one
     /// name a tier).
     pub fn sides(&self, j: Judgement) -> (&str, &str) {
@@ -1339,5 +1375,35 @@ mod tests {
         };
         assert_eq!(g.grade(&view, &tally, false), "A");
         assert_eq!(g.grade(&view, &tally, true), "F");
+    }
+}
+
+#[cfg(test)]
+mod shown_tests {
+    use super::*;
+
+    /// DDI's words in a language (round 4): every word given is used, the
+    /// rest kept, and nothing but words changes; a ruleset with one name
+    /// a tier is never touched.
+    #[test]
+    fn shown_names_take_a_language_s_words_and_nothing_else() {
+        let ddi = ddi::names();
+        let word = |tier: u8, late: bool| Some(format!("{tier}{}", if late { "L" } else { "E" }));
+        let shown = ddi.shown(word).unwrap();
+        assert_eq!(shown.tiers[1], "2L");
+        assert_eq!(shown.early.as_ref().unwrap()[1], "2E");
+        assert_eq!(shown.tiers[5], "6L");
+        assert_eq!(shown.w0, Some(("0E".into(), "1L".into())));
+        assert_eq!(shown.boo.as_deref(), Some("7E"));
+        assert_eq!((shown.held.as_str(), shown.let_go.as_str()), ("Held", "Off"));
+        assert_eq!(shown.palette, ddi.palette);
+        assert_eq!(shown.word(Judgement::W3, -0.05, false), "3E");
+        assert_eq!(shown.word(Judgement::W1, 0.0, true), "0E");
+        // Kept where none is given.
+        assert_eq!(ddi.shown(|_, _| None), None);
+        // Other rulesets have no words to show otherwise.
+        for r in presets::all().into_iter().filter(|r| !r.is_ddi()) {
+            assert_eq!(r.names.shown(word), None, "{}", r.id);
+        }
     }
 }

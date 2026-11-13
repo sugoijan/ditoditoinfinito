@@ -160,6 +160,11 @@ pub struct Settings {
     /// What the play's HUD and the bests show of a DDI score.
     #[serde(deserialize_with = "ddi_engine::lenient")]
     pub ddi_score: ScoreDisplay,
+    /// DDI's judgment words in the player's language (the default) or in
+    /// English (`docs/plans/ddi-ruleset.md`, round 4): words only, never
+    /// judging, a match rule or a best's key.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub judgment_words: JudgmentWords,
     /// Which rules each chart is played by (decision 23): the preset above
     /// for every chart by default.
     #[serde(deserialize_with = "ddi_engine::lenient")]
@@ -452,6 +457,16 @@ pub enum ScoreDisplay {
     Percent,
 }
 
+/// DDI's judgment words: in the player's language (the default), or the
+/// ruleset's English whatever the language
+/// (`ddi_l10n::judgments::set_localized`).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JudgmentWords {
+    #[default]
+    Localized,
+    English,
+}
+
 /// The rules the settings choose, apart from the rest of them: what
 /// builds a chart's ruleset ([`RuleChoice::ruleset_for`]). Kept with a
 /// play that waits to be judged again under them
@@ -552,6 +567,7 @@ impl Default for Settings {
             rejudge_from: None,
             ddi: DdiOptions::default(),
             ddi_score: ScoreDisplay::Score,
+            judgment_words: JudgmentWords::Localized,
             ruleset_mode: RulesetMode::AllStepMania,
             danoni: DanoniOptions::default(),
             holds: HoldStyle::ByGame,
@@ -1093,6 +1109,13 @@ impl Settings {
     }
 
     /// The rules chosen, apart from the rest of the settings.
+    /// Speaks the settings' language (`ddi_l10n::choose`) and shows DDI's
+    /// judgment words as they choose ([`Settings::judgment_words`]).
+    pub fn choose_language(&self) -> &'static ddi_l10n::Language {
+        ddi_l10n::judgments::set_localized(self.judgment_words == JudgmentWords::Localized);
+        ddi_l10n::choose(self.language.as_deref())
+    }
+
     pub fn rules(&self) -> RuleChoice {
         RuleChoice {
             mode: self.ruleset_mode,

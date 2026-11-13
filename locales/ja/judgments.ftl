@@ -1,0 +1,14 @@
+judgments-w0 = アブソリュート
+judgments-w1-early = オーサム
+judgments-w1-late = アメージング
+judgments-w2-early = ファンタスティック
+judgments-w2-late = グロリアス
+judgments-w3-early = ナイス
+judgments-w3-late = グレート
+judgments-w4-early = オーケー
+judgments-w4-late = グッド
+judgments-w5-early = ハヤトチリ
+judgments-w5-late = マニアワズ
+judgments-miss = ミス
+judgments-boo = ブー
+judgments-boos = ブー

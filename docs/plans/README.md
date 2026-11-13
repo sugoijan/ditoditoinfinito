@@ -279,8 +279,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   rooms with a CPU's on the chart's scale, the label "Timing
   difficulty", `placement-v2`, `attacks-v1` without recovery and with
   chains, a battle's shocks drawn by a skin's `Tap Shock`) built
-  2026-11-12; left: the targeting choice, online attacks, localized
-  judgment words. Our own
+  2026-11-12, and 4 (2026-11-13: one set of tier colors, white to red,
+  for words and hit effects; the judgment words in the player's
+  language); left: the
+  targeting choice, online attacks. Our own
   ruleset, the only one in multiplayer and the default for normal play:
   W0–W5 on a 1/120 s grid (1/144 Hard, 1/90 Easy) with early and late
   words, FFR-style life and Boos (off by default), a 1,000,000 score or

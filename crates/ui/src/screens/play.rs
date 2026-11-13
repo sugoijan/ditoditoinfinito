@@ -9,7 +9,7 @@ use ddi_chart::{Glyph, Layout};
 use ddi_engine::judge::JudgeEventKind;
 use ddi_engine::rules::ddr::flare_name;
 use ddi_engine::rules::colors::Palette;
-use ddi_engine::rules::{EmptyPress, FailType};
+use ddi_engine::rules::{EmptyPress, FailType, JudgeNames};
 use ddi_engine::{
     Appearance, AtOnce, Judgement, Results, Ruleset, ScrollAction, TimingCut, TransformOptions,
     Turn,
@@ -69,6 +69,17 @@ pub fn ex_text(score: &ddi_engine::ScoreView) -> Option<String> {
     Some(UiText::data(ex).into())
 }
 
+/// `names` as the screens show them: DDI's words in the player's
+/// language where Options says so (`JudgeNames::shown`,
+/// `ddi_l10n::judgments`), else as the ruleset has them. A kept play
+/// keeps its tiers, never words, so it shows in the language of now.
+pub fn shown_names(names: &JudgeNames) -> std::borrow::Cow<'_, JudgeNames> {
+    match names.shown(ddi_l10n::judgments::ddi_word) {
+        Some(shown) => std::borrow::Cow::Owned(shown),
+        None => std::borrow::Cow::Borrowed(names),
+    }
+}
+
 /// The color names of the tiers in `palette` (the ruleset's,
 /// [`ddi_engine::rules::JudgeNames::palette`]), best first: the best
 /// tier's (inside a W0 window where the ruleset has one: FA+'s blue
@@ -119,7 +130,8 @@ pub struct Tier {
 /// report, [`tiers`] names and colors them for everyone under the
 /// match's ruleset).
 fn tier_rows(ruleset: &Ruleset, tally: &ddi_engine::Tally) -> Vec<(Tier, u32)> {
-    let names = &ruleset.names;
+    let shown = shown_names(&ruleset.names);
+    let names = &*shown;
     let tier = |name: String, color: &'static str| Tier { name, color };
     let mut rows = Vec::new();
     for j in Judgement::ALL {
@@ -268,7 +280,8 @@ pub fn suggested_offset(r: &Results, played: f64) -> Option<f64> {
 /// The results screen's data for a play.
 pub fn results_data(p: &PlayInfo) -> ResultsData {
     let r = p.results;
-    let names = &p.ruleset.names;
+    let shown = shown_names(&p.ruleset.names);
+    let names = &*shown;
     // Tiers the ruleset has: named ("—" names none) and judged (a
     // disabled window counts nothing).
     let judgements = Judgement::ALL
@@ -374,7 +387,9 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         stats.push((
             if ddi {
                 // DDI's own word for them, a judgment's.
-                UiText::data(ddi_engine::rules::ddi::BOOS_WORD).into()
+                ddi_l10n::judgments::word(ddi_l10n::judgments::Word::Boos)
+                    .unwrap_or_else(|| UiText::data(ddi_engine::rules::ddi::BOOS_WORD))
+                    .into()
             } else {
                 rm::stray_presses().into()
             },
@@ -943,6 +958,57 @@ mod tests {
                 rules.id
             );
         }
+    }
+
+    /// DDI's words in the player's language (round 4): a kept play keeps
+    /// its tiers, so its results show the words of now, in Japanese with
+    /// the option on and in English with it off; colors from DDI's set.
+    #[test]
+    fn a_ddi_play_s_words_follow_the_language_and_the_option() {
+        use ddi_engine::rules::ddi::{self, DdiOptions, DdiResult};
+        let layout = single();
+        let rules = ddi::ruleset(&DdiOptions::default());
+        let mut r = results([30, 4, 2, 1, 0, 1]);
+        r.tally.w0 = 20;
+        r.ddi = Some(DdiResult {
+            lamp: ddi::Lamp::Clear,
+            sides: [[4, 6], [1, 3], [1, 1], [0, 1], [0, 0], [0, 0]],
+        });
+        assert!(ddi_l10n::force("ja"));
+        let d = results_data(&info(&r, &rules, &layout));
+        let shown: Vec<(String, String)> = d
+            .judgements
+            .iter()
+            .map(|j| (j.name.clone(), j.color.clone()))
+            .collect();
+        ddi_l10n::judgments::set_localized(false);
+        let english = results_data(&info(&r, &rules, &layout));
+        let english = names(&english);
+        ddi_l10n::judgments::set_localized(true);
+        ddi_l10n::unforce();
+        ddi_l10n::choose(Some("en"));
+        assert_eq!(
+            shown,
+            [
+                ("アブソリュート", "Judgement.Ddi.W0"),
+                ("オーサム / アメージング", "Judgement.Ddi.W1"),
+                ("ファンタスティック / グロリアス", "Judgement.Ddi.W2"),
+                ("ナイス / グレート", "Judgement.Ddi.W3"),
+                ("オーケー / グッド", "Judgement.Ddi.W4"),
+                ("ハヤトチリ / マニアワズ", "Judgement.Ddi.W5"),
+                ("ミス", "Judgement.Ddi.Miss"),
+            ]
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+        );
+        assert_eq!(english[1], "Awesome / Amazing");
+        // Another ruleset's names never change.
+        assert!(ddi_l10n::force("ja"));
+        let itg = presets::itg();
+        let d = results_data(&info(&r, &itg, &layout));
+        ddi_l10n::unforce();
+        ddi_l10n::choose(Some("en"));
+        assert_eq!(d.judgements[0].name, "Fantastic");
+        assert_eq!(d.judgements[0].color, "Judgement.W1");
     }
 
     /// A DDI play's results: W0 by its word, each tier by both words with

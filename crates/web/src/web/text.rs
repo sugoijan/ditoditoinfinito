@@ -126,6 +126,18 @@ pub(crate) fn load_language_faces(tag: &str) {
             "normal",
             format!("fonts/{}", face.file),
         );
+        // The bold one's bytes too, for the play's HUD text (glyphon's,
+        // which takes faces as bytes: DDI's judgment words in the
+        // language's script, round 4); the browser's cache has the file.
+        if face.weight == 700 {
+            let file = face.file;
+            wasm_bindgen_futures::spawn_local(async move {
+                match crate::songs::fetch_bytes(&format!("fonts/{file}")).await {
+                    Ok(bytes) => ddi_l10n::add_face_bytes(file, bytes),
+                    Err(e) => web_sys::console::warn_1(&e.into()),
+                }
+            });
+        }
     }
 }
 

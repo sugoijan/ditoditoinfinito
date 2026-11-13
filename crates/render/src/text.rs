@@ -75,6 +75,10 @@ pub struct TextPipeline {
     /// Runs shaped since the start (each a cache miss: a new string or
     /// size).
     shaped: u64,
+    /// The languages' faces loaded so far (their files), and how many
+    /// were handed over at run time when last looked ([`language_faces`]).
+    faces: Vec<&'static str>,
+    faces_seen: usize,
 }
 
 impl TextPipeline {
@@ -122,6 +126,46 @@ impl TextPipeline {
             key: TextKey::default(),
             frame: 0,
             shaped: 0,
+            faces: Vec::new(),
+            faces_seen: usize::MAX,
+        }
+        .with_language_faces()
+    }
+
+    /// Loads the languages' bold faces there are bytes for and not yet
+    /// loaded (`ddi_l10n::FACES` at 700: Japanese's Noto Sans CJK JP), so
+    /// that a judgment word in a language's script is drawn (DDI's words
+    /// in the player's language, round 4): embedded on desktop, handed
+    /// over once fetched on the web (`ddi_l10n::add_face_bytes`). Latin
+    /// stays the HUD's face: the fallback is only for what it lacks.
+    fn with_language_faces(mut self) -> TextPipeline {
+        self.language_faces();
+        self
+    }
+
+    fn language_faces(&mut self) {
+        let seen = ddi_l10n::faces_added();
+        if seen == self.faces_seen {
+            return;
+        }
+        self.faces_seen = seen;
+        let mut added = false;
+        for face in ddi_l10n::FACES.iter().filter(|f| f.weight == 700) {
+            if self.faces.contains(&face.file) {
+                continue;
+            }
+            let Some(bytes) = face.bytes() else {
+                continue;
+            };
+            self.font_system
+                .db_mut()
+                .load_font_source(glyphon::fontdb::Source::Binary(std::sync::Arc::new(bytes)));
+            self.faces.push(face.file);
+            added = true;
+        }
+        if added {
+            // Runs shaped before may have lacked the glyphs.
+            self.cache.clear();
         }
     }
 
@@ -158,6 +202,7 @@ impl TextPipeline {
         items: &[TextItem],
     ) -> Result<(), glyphon::PrepareError> {
         self.viewport.update(queue, Resolution { width, height });
+        self.language_faces();
         self.frame += 1;
         let frame = self.frame;
         // One key refilled for each item: no text copied but a new entry's.

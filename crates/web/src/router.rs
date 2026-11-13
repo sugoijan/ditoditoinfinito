@@ -493,7 +493,7 @@ fn lang_switch(hash: &str) {
     for tag in query.split('&').filter_map(|kv| kv.strip_prefix("lang=")) {
         if tag.is_empty() {
             ddi_l10n::unforce();
-            ddi_l10n::choose(crate::settings::Settings::load().language.as_deref());
+            crate::settings::Settings::load().choose_language();
         } else if !ddi_l10n::force(tag) {
             web_sys::console::warn_1(&format!("lang={tag}: no such language").into());
         }

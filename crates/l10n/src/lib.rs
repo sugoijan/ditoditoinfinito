@@ -23,6 +23,7 @@ use std::sync::Arc;
 use fluent_bundle::types::FluentNumber;
 use fluent_bundle::{FluentArgs, FluentResource, FluentValue};
 
+pub mod judgments;
 mod number;
 mod pseudo;
 mod wide;
@@ -73,6 +74,55 @@ pub struct Face {
     /// with bundled faces; the web fetches them).
     #[cfg(feature = "embed-faces")]
     pub bytes: &'static [u8],
+}
+
+impl Face {
+    /// The file's bytes where the build embeds them (desktop's), else
+    /// where they were handed over at run time ([`add_face_bytes`]: the
+    /// web, once fetched).
+    pub fn bytes(&self) -> Option<Arc<[u8]>> {
+        #[cfg(feature = "embed-faces")]
+        {
+            Some(Arc::from(self.bytes))
+        }
+        #[cfg(not(feature = "embed-faces"))]
+        {
+            ADDED_FACES.with_borrow(|a| {
+                a.iter()
+                    .find(|(file, _)| *file == self.file)
+                    .map(|(_, b)| b.clone())
+            })
+        }
+    }
+}
+
+/// A face's file name and its bytes.
+type FaceBytes = (&'static str, Arc<[u8]>);
+
+thread_local! {
+    /// Faces' files handed over at run time, by file name.
+    static ADDED_FACES: RefCell<Vec<FaceBytes>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Hands over the bytes of face file `file` (a [`Face::file`]), fetched
+/// at run time (the web's; desktop embeds them): drawers that take their
+/// faces as bytes (the play's HUD text, `ddi_render::TextPipeline`) then
+/// have them ([`Face::bytes`], [`faces_added`]).
+pub fn add_face_bytes(file: &str, bytes: Vec<u8>) {
+    let Some(face) = FACES.iter().find(|f| f.file == file) else {
+        return;
+    };
+    ADDED_FACES.with_borrow_mut(|a| {
+        if !a.iter().any(|(f, _)| *f == face.file) {
+            a.push((face.file, Arc::from(bytes)));
+        }
+    });
+}
+
+/// How many faces' files were handed over at run time: a drawer loads
+/// them again when it changes.
+pub fn faces_added() -> usize {
+    ADDED_FACES.with_borrow(Vec::len)
 }
 
 /// `stack`, a CSS font stack whose first family is the theme's text face,

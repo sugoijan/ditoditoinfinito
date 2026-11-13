@@ -136,10 +136,9 @@ are made from it):
 
 ### Names in other languages (later phase)
 
-The ruleset will have an option to localize the judgment words, on by
-default, overridden by choosing a specific language for them. Not in
-the first rounds: in-play judgments draw with an embedded Latin-only
-face, so Japanese words need a CJK face in play first. Notes for then:
+Built in round 4 (below): Options → Rules → Judgment words, "In your
+language" (the default) or English. Choosing a specific language for
+them stays for later. The notes it was built from:
 
 - Japanese can keep the hint: katakana writes a G sound with a voicing
   mark (゛). アメージング, グロリアス, グレート and グッド have one;
@@ -406,7 +405,7 @@ DDI's own, beside the StepMania and Dancing☆Onigiri ones
 | Boos | Off, On | yes | yes |
 | Practice | Off, On | fail only | no (a failure either way) |
 | Score display | Score, Percent | no | no |
-| Judgment words | localized, or a language (later) | no | no |
+| Judgment words | in your language (default), English; a language later | no | no |
 
 In multiplayer, Timing difficulty and Boos are match rules (one value for
 everyone, in the Rules dialog); Practice is never offered; the displays
@@ -464,7 +463,7 @@ The attack decisions of 2026-11-11 stand, read for DDI:
 3. **Multiplayer:** the M8 changes above, then M8 round 3.
 4. **Later:** localized judgment words; the CPU's mine-avoidance skill;
    one set of tier colors for the words and the hit effects ("Hit
-   effects", the note of 2026-11-12).
+   effects", the note of 2026-11-12). Built: "Round 4 (built)".
 
 ## Decided after the first draft (2026-11-12)
 
@@ -882,3 +881,49 @@ account, the tables and the screens are in
   shield went. Between eight CPUs the rates barely move (25.8 attacks a
   stage under Normal either way): a full bar nearly always found someone
   free; the rules matter in small fields, which were not measured.
+
+## Round 4 (built, 2026-11-13)
+
+Outside multiplayer only what a DDI play shows changed;
+every other ruleset looks, judges and saves as before.
+
+- **One set of tier colors** ("Hit effects" above has the table and
+  what was checked). Awaiting the maintainer's eye: a before/after sheet
+  was made in headless Chrome and Firefox (the words in play, a hit of
+  each tier on Infinito and on the built-in arrows, the results, a
+  stage's Standings and miniatures).
+- **Judgment words in the player's language.** `Settings::judgment_words`
+  (`JudgmentWords::Localized`, the default, or `English`), the row
+  `ddi.words` among DDI's in Options → Rules; not a match rule, not in a
+  best's key, never judging. The words are messages
+  (`locales/<tag>/judgments.ftl`, `ddi_l10n::judgments`: W0, each tier's
+  early and late word, Miss, Boo and the results' Boos), set on the
+  ruleset's names where they are shown (`JudgeNames::shown`; the
+  renderer keeps the shown names while the names, the language and the
+  option stay, `Renderer::render`; the screens' `play::shown_names`), so
+  the play, Options' preview, the results' rows, a stage's Standings,
+  replays and the announcer studio's staged plays all follow it, and a
+  kept play (its record has tiers, never words) shows in the language of
+  now. English reads as before either way. Grades (Absolute Dito,
+  Absolute Bot, SSS … F) and lamps stay Latin; Held and Off stay as the
+  ruleset names them. The Japanese set is in `locales/ja/GLOSSARY.md`
+  (an unverified draft): every late word has a ゛, no early word does;
+  W5 is ハヤトチリ / マニアワズ rather than a transliteration. Tests: each
+  language's hint (`ddi_l10n` `every_late_word_has_its_hint_and_no_early_word_does`;
+  English's W5 has no G, as the plan has it), the results in Japanese
+  and with the option off (`ddi_ui`), and the play's word drawn in
+  Japanese (`ddi-desktop` `judgment_words_offscreen`).
+- **Drawing them in play.** The HUD's text (glyphon) now also loads the
+  languages' bold faces where it has their bytes (`TextPipeline`,
+  `ddi_l10n::Face::bytes`): embedded on desktop (`embed-faces`), handed
+  over on the web once the language's faces are fetched
+  (`web::text::load_language_faces`, `ddi_l10n::add_face_bytes`; the
+  browser's cache has the file), and used only as the fallback for what
+  the HUD's Latin face lacks, so the pop, the color, the early/late
+  placement and reduced motion are the word's as before. The katakana
+  were already in the cut (its base holds every katakana). Cost
+  measured offscreen on the maintainer's Mac (a new word every frame,
+  each shaped once and then cached as in play): 0.11 ms a frame for
+  English and 0.11 ms for Japanese, CPU and GPU together. The wasm is
+  unchanged in size (no face is embedded in it).
+

@@ -1847,7 +1847,10 @@ its sum is put on the chart's own scale first (`CPU_SCORE_V0`,
 as the same share of the chart's most, its W0s as counted); a stage
 ranks those still in by life, then that score.
 Judgment and grade words are English data (`UiText::data`), the labels
-around them messages; under DDI the results say Early and Late, never
+around them messages, except DDI's judgment words, shown in the player's
+language by default (`Settings::judgment_words`, `ddi_l10n::judgments`,
+`JudgeNames::shown`; the HUD's text loads the language's bold face for
+them; round 4); under DDI the results say Early and Late, never
 Fast and Slow. With Boos on, a stray press that counts shows "Boo"
 where the tap judgments show, a judgment of its own
 (`JudgementFlash::boo`, set where the event is scored so a replay and

@@ -2056,7 +2056,7 @@ fn theme_base(fold: FoldFn) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     let settings = ddi_ui::state::settings::Settings::load();
     // The UI's language: the settings' choice, else the system's.
     ddi_l10n::set_system_languages(sys_locale::get_locales());
-    ddi_l10n::choose(settings.language.as_deref());
+    settings.choose_language();
     env.follow_motion(settings.reduced_motion, false);
     env.follow_cursor(&settings);
     let mut ui = Ui::new(theme_screens::DESIGN, TextMode::Own, false);

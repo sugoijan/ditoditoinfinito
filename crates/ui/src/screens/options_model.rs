@@ -31,7 +31,7 @@ use crate::state::bind::Bound;
 use crate::state::settings::{
     BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, GeneratedBackground,
     Graphics, INFINITO, PadBindings, Palette, ParamValue, ReducedMotion, START_COUNTDOWNS,
-    ScoreDisplay, Settings, VideoMode, slider_to_volume, volume_to_slider,
+    JudgmentWords, ScoreDisplay, Settings, VideoMode, slider_to_volume, volume_to_slider,
 };
 use ddi_l10n::UiText;
 use ddi_l10n::msg::{common, options as m};
@@ -733,6 +733,13 @@ impl OptionsModel {
                     labels(&SCORE_DISPLAYS),
                     pos(&SCORE_DISPLAYS, s.ddi_score),
                     m::ddi_score_description(),
+                ),
+                choice(
+                    "ddi.words",
+                    m::ddi_words(),
+                    labels(&JUDGMENT_WORDS),
+                    pos(&JUDGMENT_WORDS, s.judgment_words),
+                    m::ddi_words_description(),
                 ),
             ]);
         } else {
@@ -1938,6 +1945,11 @@ impl OptionsModel {
             "ddi.boos" => s.ddi.boos = i == 1,
             "ddi.practice" => s.ddi.practice = i == 1,
             "ddi.score" => s.ddi_score = at(&SCORE_DISPLAYS, i),
+            "ddi.words" => {
+                s.judgment_words = at(&JUDGMENT_WORDS, i);
+                // Shown so from the next frame (the preview's, a play's).
+                ddi_l10n::judgments::set_localized(s.judgment_words == JudgmentWords::Localized);
+            }
             "danoni.gauge" => {
                 s.danoni.gauge = DANONI_GAUGES
                     .get(i)
@@ -2884,6 +2896,10 @@ const DDI_DIFFICULTIES: [Labeled<ddi_engine::rules::ddi::Difficulty>; 3] = [
 const SCORE_DISPLAYS: [Labeled<ScoreDisplay>; 2] = [
     (ScoreDisplay::Score, m::ddi_score_score),
     (ScoreDisplay::Percent, m::ddi_score_percent),
+];
+const JUDGMENT_WORDS: [Labeled<JudgmentWords>; 2] = [
+    (JudgmentWords::Localized, m::ddi_words_localized),
+    (JudgmentWords::English, m::ddi_words_english),
 ];
 const HOLD_STYLES: [Labeled<HoldStyle>; 3] = [
     (HoldStyle::ByGame, m::holds_by_game),

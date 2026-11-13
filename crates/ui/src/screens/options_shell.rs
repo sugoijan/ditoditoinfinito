@@ -182,7 +182,7 @@ fn call_with(
                 // The screens speak it from here: each built again, these
                 // rows with them (the data below is made in it).
                 ddi_l10n::unforce();
-                ddi_l10n::choose(model.borrow().settings.language.as_deref());
+                model.borrow().settings.choose_language();
                 cx.rebuild_screens();
             }
             platform.changed(&model.borrow());

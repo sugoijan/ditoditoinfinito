@@ -63,7 +63,7 @@ pub fn start() {
         })
         .unwrap_or_default();
     ddi_l10n::set_system_languages(languages);
-    ddi_l10n::choose(settings::Settings::load().language.as_deref());
+    settings::Settings::load().choose_language();
     // The app's canvas and device, made once for every route.
     web::screen::boot();
     // The theme's faces, which the first screen waits for (`app::start`).

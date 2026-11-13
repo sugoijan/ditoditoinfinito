@@ -20,7 +20,11 @@ alike. Changes to this list are the maintainer's.
 - The game's name: Dito Dito Infinito (`-game-name`).
 - Judgments and grades: they come from the chosen Judge (the ruleset), not
   from the language, and read the same in every language. So do the
-  game's readouts: score, percentage, combo, offsets in ms.
+  game's readouts: score, percentage, combo, offsets in ms. The one
+  exception is DDI's own judgment words, below, which the player may see
+  in their language (Options → Rules → Judgment words, on by default);
+  its grades (Absolute Dito, Absolute Bot, SSS … D, F) and lamps stay
+  Latin.
 - The results' marks beside the lamps: REPLAY, AUTOPLAY, ASSIST (with
   the grades, FAILED and QUIT).
 - Charts' difficulty names, as StepMania's simfiles name them: Beginner,
@@ -143,6 +147,35 @@ change any of them, here first.
 | button / axis / hat (a controller's) | ボタン / 軸 / ハット |
 | a pad's face buttons by place | 下ボタン / 右ボタン / 左ボタン / 上ボタン |
 | list separator | 、 |
+
+## DDI's judgment words (round 4, an unverified draft)
+
+`judgments.ftl`. Katakana, as the game's judgments read in Japanese
+games; Dancing☆Onigiri's words (イイ, シャキン, マターリ) are the
+reference for tone where a transliteration reads badly. The hidden
+hint carries over: in English every late word has a G; here **every
+late word has a voicing mark (゛) and no early word has one**. W0, Miss
+and Boo are neither early nor late (アブソリュート and ブー have a ゛ of
+their own; nothing hints by them).
+
+| Tier | English early | 日本語 early | English late | 日本語 late |
+| --- | --- | --- | --- | --- |
+| W0 | Absolute | アブソリュート | (the same) | (the same) |
+| W1 | Awesome | オーサム | Amazing | アメージング |
+| W2 | Fantastic | ファンタスティック | Glorious | グロリアス |
+| W3 | Nice | ナイス | Great | グレート |
+| W4 | OK | オーケー | Good | グッド |
+| W5 | Too early | ハヤトチリ | Too late | マニアワズ |
+| Miss | Miss | ミス | | |
+| Boo (and the results' count, Boos) | Boo | ブー | | |
+
+W5 is not transliterated: トゥーアーリー reads badly, and the plain
+ハヤスギ / オソスギ would put a ゛ in the early word. ハヤトチリ (早とちり,
+jumping the gun) and マニアワズ (間に合わず, did not make it) say it in
+the Dancing☆Onigiri spirit and keep the hint. Unsure: whether those two
+read naturally as judgments to a native player; オーサム (rare in
+Japanese) and アブソリュート (long) might want other words. The hold
+outcomes Held and Off stay as the ruleset names them.
 
 ## Review decisions (2026-11-08, approved by the maintainer)
 

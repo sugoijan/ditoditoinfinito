@@ -910,7 +910,7 @@ impl GameLoop {
                     // judgment word the HUD shows now (null: none).
                     "boos": r.tally.boo,
                     "judgement": p.judgement_flash(clock.heard_now(host_now)).map(|f| json!({
-                        "word": ddi_render::scene::judgement_word(&p.ruleset().names, &f).0,
+                        "word": ddi_render::scene::judgement_word(&ddi_ui::screens::play::shown_names(&p.ruleset().names), &f).0,
                         "boo": f.boo,
                         "age": f.age,
                     })),

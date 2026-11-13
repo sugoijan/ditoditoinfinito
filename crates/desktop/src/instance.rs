@@ -193,11 +193,7 @@ fn dialog(args: &[String]) {
     crate::clock::epoch();
     crate::store::install_reading();
     ddi_l10n::set_system_languages(sys_locale::get_locales());
-    ddi_l10n::choose(
-        ddi_ui::state::settings::Settings::load()
-            .language
-            .as_deref(),
-    );
+    ddi_ui::state::settings::Settings::load().choose_language();
     if let Some(tag) = args
         .iter()
         .position(|a| a == "--lang")

@@ -46,6 +46,9 @@ impl SkinBlending {
 }
 
 pub struct Renderer {
+    /// The ruleset's names as last shown in the player's language
+    /// ([`shown_names`]).
+    shown_names: Option<ShownNames>,
     /// The touch screens' quit button, drawn over a play
     /// ([`Renderer::set_quit_button`]).
     quit_button: Option<[f32; 3]>,
@@ -119,6 +122,7 @@ impl Renderer {
             SkinBlending::Scene => TexturedPipeline::new(device, format, None, false),
         };
         Renderer {
+            shown_names: None,
             quit_button: None,
             miniatures: Vec::new(),
             background: BackgroundPipeline::new(device, scene_format, srgb),
@@ -659,6 +663,10 @@ impl Renderer {
         opts: RenderOptions,
         mut layer: Option<&mut dyn NoteLayer>,
     ) {
+        // DDI's words in the player's language (round 4): worked out again
+        // only when the names, the language or the option change.
+        let shown = shown_names(&mut self.shown_names, names);
+        let names: &JudgeNames = &shown;
         let geo = match opts.preview {
             Some(p) => p.geometry,
             None => FieldGeometry::placed(
@@ -1059,6 +1067,43 @@ fn filter_path(amount: f32, lanes: bool, behind: bool, in_shaders: bool) -> Filt
     } else {
         FilterPath::Quad
     }
+}
+
+/// A ruleset's names and how they were last shown: in which language,
+/// with the option on or off.
+pub(crate) struct ShownNames {
+    source: JudgeNames,
+    language: &'static str,
+    localized: bool,
+    shown: std::sync::Arc<JudgeNames>,
+}
+
+/// `names` as the play shows them (`JudgeNames::shown` with the player's
+/// language's words, `ddi_l10n::judgments`), kept in `cache` while the
+/// names, the language and the option stay: a frame compares, never
+/// builds.
+pub(crate) fn shown_names(cache: &mut Option<ShownNames>, names: &JudgeNames) -> std::sync::Arc<JudgeNames> {
+    let language = ddi_l10n::current().tag;
+    let localized = ddi_l10n::judgments::localized();
+    if let Some(c) = cache
+        && c.language == language
+        && c.localized == localized
+        && c.source == *names
+    {
+        return c.shown.clone();
+    }
+    let shown = std::sync::Arc::new(
+        names
+            .shown(ddi_l10n::judgments::ddi_word)
+            .unwrap_or_else(|| names.clone()),
+    );
+    *cache = Some(ShownNames {
+        source: names.clone(),
+        language,
+        localized,
+        shown: shown.clone(),
+    });
+    shown
 }
 
 #[cfg(test)]

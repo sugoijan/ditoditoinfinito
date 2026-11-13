@@ -286,6 +286,15 @@ options-ddi-score-score = Score
 options-ddi-score-percent = Percent
 options-ddi-score-description = What a play and the song list show of the score: the points, which a longer chart gives more of, or the percent. The results show both.
 
+# A row under DDI's rules (its label, then its two values, then the note
+# under it): whether the judgment words a play shows ("Glorious", "Too
+# late") are written in the language chosen for the menus or in English.
+# The values are short buttons, about 16 letters.
+options-ddi-words = Judgment words
+options-ddi-words-localized = In your language
+options-ddi-words-english = English
+options-ddi-words-description = The words a play shows for each hit, in the language of the menus or in English. Only the words change: never how a hit is judged.
+
 # A row with one button: every kept play judged again under the rules
 # chosen above. Its note says how many plays are kept.
 options-rejudge = Kept plays
