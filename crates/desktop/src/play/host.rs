@@ -558,6 +558,18 @@ impl Host {
         r.view.as_ref()?.ladder_drawn().map(|(words, _)| words.clone())
     }
 
+    /// The attack warning the play's last frame drew, and its status
+    /// line's "Last standing" or "Stage won" (tests;
+    /// `ddi_shell::battle_cue`, `settlement-v1`).
+    pub fn standing_and_warning(&self) -> (Option<String>, Option<ddi_shell::battle_cue::Cue>) {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return (None, None);
+        };
+        r.view.as_ref().map_or((None, None), |v| {
+            (v.standing_drawn().map(str::to_string), v.attack_drawn().0)
+        })
+    }
+
     /// Who attacks whom as the play's last frame drew it, for the
     /// player's own attacks (tests; `ddi_shell::attack_links`).
     pub fn attack_links(&self) -> Vec<ddi_shell::attack_links::Shown> {

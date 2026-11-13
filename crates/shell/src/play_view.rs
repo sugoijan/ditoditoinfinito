@@ -374,6 +374,9 @@ pub struct PlayView<H: PlayHost> {
     /// and whether a battle's moment was shown in their status line.
     fields_drawn: Option<crate::opponents::Fields>,
     fields_cue: bool,
+    /// "Last standing" or "Stage won" as the last frame's status line
+    /// said it.
+    standing_drawn: Option<String>,
     /// How the last frame's miniatures said their scores.
     fields_score: crate::opponents::ScoreShown,
     /// The miniatures' places as last arranged, and what they were
@@ -449,6 +452,7 @@ impl<H: PlayHost> PlayView<H> {
             ladder_drawn: None,
             fields_drawn: None,
             fields_cue: false,
+            standing_drawn: None,
             fields_score: Default::default(),
             attack_drawn: None,
             policy_drawn: None,
@@ -813,6 +817,12 @@ impl<H: PlayHost> PlayView<H> {
     /// miniatures' status line).
     pub fn battle_cue_drawn(&self) -> bool {
         self.fields_drawn.is_some() && self.fields_cue
+    }
+
+    /// "Last standing" or "Stage won" as the last frame's status line said
+    /// it, if it did (`settlement-v1`).
+    pub fn standing_drawn(&self) -> Option<&str> {
+        self.fields_drawn.as_ref().and(self.standing_drawn.as_deref())
     }
 
     /// The attack warning the last frame drew beside the field, if any,
@@ -1790,8 +1800,10 @@ impl<H: PlayHost> PlayView<H> {
             }
             self.fields_drawn = None;
             self.ladder_drawn = None;
+            self.standing_drawn = None;
             if let Some((shown, fields, flashes, locks, ratio)) = shown {
                 self.fields_score = shown.score;
+                self.standing_drawn = shown.won.clone();
                 self.ladder_drawn = shown.ladder.clone().filter(|_| fields.ladder.is_some());
                 self.fields_cue = crate::opponents::draw_fields(
                     list,

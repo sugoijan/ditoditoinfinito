@@ -291,8 +291,9 @@ pub struct Incoming {
     pub committed: f64,
     pub first: f64,
     pub clear: f64,
-    /// One more attack is reserved behind it (`attacks-v1`'s chain).
-    pub more: bool,
+    /// How many more attacks are placed behind it (a chain; under
+    /// `attacks-v2` any number, under `attacks-v1` one at most).
+    pub behind: u16,
 }
 
 /// One of the local player's attack relationships, while its attack is
@@ -2012,8 +2013,8 @@ impl Battle {
 
     /// The attack against the local player on its way or passing, as its
     /// warning shows it (none once out or after a confirmed win): the
-    /// nearer where one more waits behind it (`attacks-v1`'s chain: said
-    /// by `more`), the next once the first's last shock has passed, none
+    /// nearer where more are placed behind it (a chain: said by
+    /// `behind`), the next once the first's last shock has passed, none
     /// once every one has (there is no recovery to wait for).
     pub fn incoming(&self, human: &Player) -> Option<Incoming> {
         if !self.me_battling(human) {
@@ -2059,7 +2060,7 @@ impl Battle {
             };
             let mut all = l.ledger.incoming(participant, now - attacks::micros(d));
             let attack = all.next()?;
-            let more = all.next().is_some();
+            let behind = all.count().min(usize::from(u16::MAX)) as u16;
             let plan_at = |k: usize| {
                 l.learned
                     .iter()
@@ -2071,7 +2072,7 @@ impl Battle {
                 committed: plan_at(0) + d,
                 first: attack.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6 + d,
                 clear: attack.clear_us as f64 / 1e6 + d,
-                more,
+                behind,
             });
         }
         let a = self.attacks.as_ref()?;
@@ -2080,7 +2081,7 @@ impl Battle {
             .incoming_all(participant)
             .filter(|x| x.clear_us >= now);
         let attack = all.next()?;
-        let more = all.next().is_some();
+        let behind = all.count().min(usize::from(u16::MAX)) as u16;
         let committed = a
             .ledger()
             .checkpoints_us()
@@ -2092,7 +2093,7 @@ impl Battle {
             committed: committed as f64 / 1e6,
             first: attack.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6,
             clear: attack.clear_us as f64 / 1e6,
-            more,
+            behind,
         })
     }
 

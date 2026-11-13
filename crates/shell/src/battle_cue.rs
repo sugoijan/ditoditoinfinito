@@ -9,9 +9,11 @@
 //!   Reverse), with one dot a shock under it; it scales in over 0.2 s
 //!   (at once under reduced motion), dims to 60% once the first shock is
 //!   in sight, and goes once the last has passed: there is no recovery
-//!   since `attacks-v1`, so no shield. Where one more attack waits behind
-//!   it (a chain), a second, smaller glyph stands beside it; once the
-//!   first has passed, the warning is the next one's.
+//!   since `attacks-v1`, so no shield. Where more attacks are placed
+//!   behind it (a chain: under `attacks-v2` any number), smaller glyphs
+//!   stand in a column at its right, one an attack up to [`BEHIND_GLYPHS`],
+//!   past that one glyph and the count ("×5"), never dimmed (they are still
+//!   to come); once the first has passed, the warning is the next one's.
 //! - The waiting line: a muted line under the life gauge's right end
 //!   while the player's full bar waits ("Waiting for target").
 //! - The policy label ([`draw_policy`], M8 round 3, D8): the player's
@@ -35,14 +37,17 @@ const MUTED: [f32; 4] = [0.80, 0.80, 0.86, 0.72];
 const SCALE_IN: f64 = 0.2;
 /// Its opacity once the first shock is in sight.
 const DIMMED: f32 = 0.6;
+/// The most attacks behind the nearest drawn one glyph each; past it, one
+/// glyph and the count.
+pub const BEHIND_GLYPHS: u16 = 3;
 
 /// The warning as drawn this frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Cue {
     /// One dot a shock.
     pub shocks: u8,
-    /// One more attack waits behind this one (a chain).
-    pub more: bool,
+    /// Attacks placed behind this one (a chain).
+    pub behind: u16,
     /// The first shock is in sight.
     pub dim: bool,
     /// `0..=1`, as it scales in.
@@ -60,7 +65,7 @@ pub fn cue(incoming: Option<Incoming>, t: f64, in_sight: bool, reduced: bool) ->
     };
     Some(Cue {
         shocks: i.shocks,
-        more: i.more,
+        behind: i.behind,
         dim: in_sight || t >= i.first,
         scale,
     })
@@ -122,10 +127,13 @@ pub fn draw(list: &mut DrawList, cue: &Cue, geo: &FieldGeometry, span: f32) {
     ] {
         list.push(Command::Quad(segment(p, q, thick, fade(BOLT))));
     }
-    // One more waiting behind it: a second bolt, half the size, at its
-    // upper right, never dimmed (it is still to come).
-    if cue.more {
-        let (ox, oy, s) = (0.62, -0.08, 0.5);
+    // Those placed behind it: small bolts in a column at its right, one
+    // an attack up to three, else one and the count; never dimmed (they
+    // are still to come). Inside the warning's place, above the dots.
+    let glyphs = if cue.behind > BEHIND_GLYPHS { 1 } else { cue.behind };
+    let s = 0.34;
+    let small_bolt = |list: &mut DrawList, oy: f32| {
+        let ox = 0.70;
         let thick = w * 0.13 * k * s;
         for (p, q) in [
             ((0.66, 0.0), (0.34, 0.33)),
@@ -135,6 +143,26 @@ pub fn draw(list: &mut DrawList, cue: &Cue, geo: &FieldGeometry, span: f32) {
             let small = |(x, y): (f32, f32)| at(ox + x * s, oy + y * s);
             list.push(Command::Quad(segment(small(p), small(q), thick, BOLT)));
         }
+    };
+    for i in 0..glyphs {
+        small_bolt(list, -0.04 + f32::from(i) * 0.24);
+    }
+    if cue.behind > BEHIND_GLYPHS {
+        let face = ddi_l10n::font_stack(FACE);
+        let mut style = TextStyle::new(face.as_str(), h * 0.24 * k);
+        style.weight = 700;
+        let [x, y] = at(0.76, 0.22);
+        list.push(Command::Text(TextRun {
+            curve: None,
+            text: format!("×{}", cue.behind).into(),
+            style,
+            transform: Affine::translate(x, y),
+            color: BOLT,
+            blend: Blend::Normal,
+            mask: Mask::None,
+            perspective: None,
+            blur: [0.0; 2],
+        }));
     }
     // One dot a shock, in rows of four under it.
     let n = usize::from(cue.shocks).min(16);
@@ -294,24 +322,24 @@ mod tests {
             committed: 10.0,
             first: 14.0,
             clear: 18.0,
-            more: false,
+            behind: 0,
         }
     }
 
     #[test]
-    fn it_scales_in_dims_in_sight_and_marks_one_more_waiting() {
+    fn it_scales_in_dims_in_sight_and_marks_those_placed_behind() {
         assert_eq!(cue(None, 10.0, false, false), None);
         let c = cue(Some(incoming()), 10.1, false, false).unwrap();
-        assert!((c.scale - 0.5).abs() < 1e-3 && !c.dim && !c.more);
+        assert!((c.scale - 0.5).abs() < 1e-3 && !c.dim && c.behind == 0);
         assert_eq!(cue(Some(incoming()), 10.0, false, true).unwrap().scale, 1.0);
         assert!(cue(Some(incoming()), 12.0, true, false).unwrap().dim);
         assert!(cue(Some(incoming()), 14.5, false, false).unwrap().dim);
-        // One more reserved behind it (a chain): said by the cue.
+        // Two more placed behind it (a chain): said by the cue.
         let chained = Incoming {
-            more: true,
+            behind: 2,
             ..incoming()
         };
-        assert!(cue(Some(chained), 12.0, false, false).unwrap().more);
+        assert_eq!(cue(Some(chained), 12.0, false, false).unwrap().behind, 2);
     }
 
     #[test]
@@ -328,9 +356,25 @@ mod tests {
         draw(&mut list, &c, &geo, 4.0);
         // A glow, three strokes and eight dots.
         assert_eq!(list.commands.len(), 1 + 3 + 8);
-        // One more waiting: a second, smaller bolt beside it.
+        // More placed behind it: a smaller bolt each, up to three, all
+        // inside the warning's place (the miniatures keep clear of it).
+        let [pl, pt, pr, pb] = place(&geo, 4.0);
+        for n in 1..=3u16 {
+            list.clear();
+            draw(&mut list, &Cue { behind: n, scale: 1.0, ..c }, &geo, 4.0);
+            assert_eq!(list.commands.len(), 1 + 3 + 3 * usize::from(n) + 8, "{n}");
+            for cmd in &list.commands[4..4 + 3 * usize::from(n)] {
+                let Command::Quad(q) = cmd else { panic!("a stroke") };
+                let [x, y] = q.transform.apply([0.0, 0.0]);
+                assert!(x > pl && x < pr && y > pt - 1.0 && y < pb, "{n}: {x} {y}");
+            }
+        }
+        // Past three: one bolt and the count.
         list.clear();
-        draw(&mut list, &Cue { more: true, ..c }, &geo, 4.0);
-        assert_eq!(list.commands.len(), 1 + 3 + 3 + 8);
+        draw(&mut list, &Cue { behind: 5, scale: 1.0, ..c }, &geo, 4.0);
+        assert_eq!(list.commands.len(), 1 + 3 + 3 + 1 + 8);
+        assert!(list.commands.iter().any(
+            |cmd| matches!(cmd, Command::Text(t) if t.text.as_ref() == "×5")
+        ));
     }
 }

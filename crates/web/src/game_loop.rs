@@ -1428,13 +1428,15 @@ fn attacks_debug(
             "committed": i.committed,
             "first": i.first,
             "clear": i.clear,
-            "more": i.more,
+            "more": i.behind > 0,
+            "behind": i.behind,
         })
     });
     let cue = drawn.0.map(|c| {
         json!({
             "shocks": c.shocks,
-            "more": c.more,
+            "more": c.behind > 0,
+            "behind": c.behind,
             "dim": c.dim,
             "scale": c.scale,
         })
