@@ -221,6 +221,12 @@ pub struct FieldFeed {
     /// How long a lane a shock was stepped on in stays locked, seconds,
     /// where the stage's rules lock it.
     lock: Option<f64>,
+    /// The earliest moment that put them out, kept as it comes so that
+    /// what every frame asks of a field not drawn (its summary: life,
+    /// combo, out, score, [`FieldFeed::shown`]) costs the same however
+    /// long the stream (a large field's, `docs/plans/multiplayer-prototype-progress.md`,
+    /// "Rooms of 1+72 players").
+    out_at: f64,
 }
 
 impl FieldFeed {
@@ -234,6 +240,7 @@ impl FieldFeed {
             delay: delay.max(0.0),
             life,
             lock: None,
+            out_at: f64::INFINITY,
         }
     }
 
@@ -328,6 +335,9 @@ impl FieldFeed {
                 }
             }
         }
+        if m.out {
+            self.out_at = self.out_at.min(m.at);
+        }
         let at = self.moments.partition_point(|x| x.at <= m.at);
         self.moments.insert(at, m);
     }
@@ -343,13 +353,14 @@ impl FieldFeed {
         self.shown_moments(t).last().map(|m| m.score)
     }
 
-    /// Life and out as shown at song second `t`.
+    /// Life and out as shown at song second `t`: the field's summary, a
+    /// search and a comparison whatever the stream's length.
     pub fn shown(&self, t: f64) -> Shown {
-        let shown = self.shown_moments(t);
+        let last = self.shown_moments(t).last();
         Shown {
-            life: shown.last().map_or(self.life, |m| m.life),
-            combo: shown.last().map_or(0, |m| m.combo),
-            out: shown.iter().any(|m| m.out),
+            life: last.map_or(self.life, |m| m.life),
+            combo: last.map_or(0, |m| m.combo),
+            out: self.out_at + self.delay <= t,
         }
     }
 
@@ -540,6 +551,43 @@ mod tests {
         let late = feed.frame_large(&track, scroll, at + f64::from(WORD_SECONDS) + 0.01, 8.5);
         assert!(late.judgement.is_none());
         assert_eq!(late.score.percent, Some(0.5), "the score stays");
+    }
+
+    /// A field not drawn is asked its summary alone (life, combo, out),
+    /// which says what the whole stream says, at every moment, delayed or
+    /// not, whatever order its moments came in.
+    #[test]
+    fn a_fields_summary_agrees_with_its_whole_stream() {
+        let song = song();
+        let track = TapTrack::new(&song, 1).unwrap();
+        for delay in [LOCAL_DELAY, 0.75] {
+            let mut feed = FieldFeed::new(&track, 1.0, delay);
+            let n = track.len().min(200);
+            // Out two thirds in; a few moments out of order.
+            assert!(n > 12, "{n}");
+            let mut order: Vec<usize> = (0..n).collect();
+            order.swap(3, 4);
+            order.swap(n - 4, n - 5);
+            for i in order {
+                let mut m = moment(&track, i, Judgement::W2, 0.01);
+                m.combo = i as u32;
+                m.life = 1.0 - i as f32 / n as f32;
+                m.out = i >= n * 2 / 3;
+                feed.push(&track, m);
+            }
+            for k in 0..400 {
+                let t = k as f64 * 0.25;
+                let shown = feed.shown(t);
+                let whole: Vec<&Moment> = feed
+                    .moments()
+                    .iter()
+                    .filter(|m| m.at + delay <= t)
+                    .collect();
+                assert_eq!(shown.out, whole.iter().any(|m| m.out), "{delay} {t}");
+                assert_eq!(shown.combo, whole.last().map_or(0, |m| m.combo));
+                assert_eq!(shown.life, whole.last().map_or(1.0, |m| m.life));
+            }
+        }
     }
 
     fn song() -> Song {

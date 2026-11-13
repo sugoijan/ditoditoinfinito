@@ -770,7 +770,55 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
             });
         }
     }
+    if rows.len() > ROOM_OF_NINE {
+        // A large room: the local player first, then the room's operators
+        // (and anyone with a role), then the people, then the CPUs, each
+        // in the room's order, so the one looking and those who run the
+        // room are found at once among 73.
+        rows.sort_by_key(|p| match (p.me, p.role.is_empty(), p.cpu) {
+            (true, ..) => 0,
+            (false, false, _) => 1,
+            (false, true, false) => 2,
+            (false, true, true) => 3,
+        });
+    }
     rows
+}
+
+/// The most rows a room of nine (the cap until 2026-11-13) lists: up to
+/// it, its lists keep the order they always had; past it (a large room),
+/// the local player first ([`player_rows`], [`panel_order`]).
+pub const ROOM_OF_NINE: usize = 9;
+
+/// The rows of a list `len` long that a window of `shown` from `first`
+/// draws, keeping `me` (the local player's row) in it: where it would be
+/// scrolled out, it takes the window's line on its side (the first
+/// above, the last below), so the player never loses their own place
+/// among many and every other line can still be scrolled to.
+pub fn window_keeping(len: usize, first: usize, shown: usize, me: Option<usize>) -> Vec<usize> {
+    let first = first.min(len.saturating_sub(shown));
+    let end = (first + shown).min(len);
+    match me.filter(|&m| m < len && shown >= 2) {
+        // Above the window: first, the window's top line making room.
+        Some(me) if me < first => std::iter::once(me).chain(first + 1..end).collect(),
+        // Below it: last, the window's bottom line making room.
+        Some(me) if me >= end => (first..end - 1).chain(std::iter::once(me)).collect(),
+        _ => (first..end).collect(),
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn the_window_keeps_the_players_line_and_reaches_every_other() {
+    // In the window: as it is.
+    assert_eq!(window_keeping(20, 0, 5, Some(2)), vec![0, 1, 2, 3, 4]);
+    // Below it: the last line.
+    assert_eq!(window_keeping(20, 0, 5, Some(12)), vec![0, 1, 2, 3, 12]);
+    // Above it: the first, and the end still reached.
+    assert_eq!(window_keeping(20, 15, 5, Some(0)), vec![0, 16, 17, 18, 19]);
+    // None, or everything fits.
+    assert_eq!(window_keeping(4, 0, 5, Some(3)), vec![0, 1, 2, 3]);
+    assert_eq!(window_keeping(20, 3, 5, None), vec![3, 4, 5, 6, 7]);
 }
 
 /// A person's role as their rows say it: Host (an online room's owner),
@@ -1503,9 +1551,15 @@ pub const PLAYERS_MORE: &str = "Players.More";
 pub const PLAYERS_STRIP: &str = "Players.Strip";
 
 /// The players in the panel's order: by their place in the match once it
-/// has places (those without one after), otherwise as the room lists them.
+/// has places (those without one after), otherwise as the room lists them;
+/// in a large room the local player's line first.
 pub fn panel_order(mut rows: Vec<PlayerRow>) -> Vec<PlayerRow> {
-    rows.sort_by_key(|p| p.place.unwrap_or(u16::MAX));
+    if rows.len() > ROOM_OF_NINE {
+        // A large room: the local player's line first, then by place.
+        rows.sort_by_key(|p| (!p.me, p.place.unwrap_or(u16::MAX)));
+    } else {
+        rows.sort_by_key(|p| p.place.unwrap_or(u16::MAX));
+    }
     rows
 }
 

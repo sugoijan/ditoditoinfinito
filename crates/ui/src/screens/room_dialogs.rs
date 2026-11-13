@@ -1867,7 +1867,8 @@ impl HostDialog {
 
     fn people(&self) -> Vec<Person> {
         let r = self.room.borrow();
-        r.other_people()
+        let mut people = r
+            .other_people()
             .into_iter()
             .map(|mb| {
                 let role: Option<String> = match (mb.role, mb.admin) {
@@ -1896,7 +1897,12 @@ impl HostDialog {
                     can_host: r.may_make_host(mb.id),
                 }
             })
-            .collect()
+            .collect::<Vec<_>>();
+        // A large room: its co-hosts and administrators first.
+        if people.len() > super::room::ROOM_OF_NINE {
+            people.sort_by_key(|p| p.sub.is_empty() || !(p.co_host || p.sub.starts_with(&String::from(m::role_admin()))));
+        }
+        people
     }
 
     fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx) {
@@ -2403,7 +2409,11 @@ impl Screen for StandingsDialog {
             }
         }
         ry += 30.0;
-        for (k, st) in standings.iter().enumerate().skip(self.first).take(shown) {
+        // The local player's line stays in view however far it is
+        // scrolled (a large room's).
+        let me_at = standings.iter().position(|st| st.participant == r.me());
+        let window = super::room::window_keeping(standings.len(), self.first, shown, me_at);
+        for (k, st) in window.into_iter().map(|k| (k, &standings[k])) {
             let cy = ry + row / 2.0;
             let me = st.participant == r.me();
             let color = if me { "Text" } else { "Secondary" };

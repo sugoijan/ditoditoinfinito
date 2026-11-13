@@ -298,6 +298,8 @@ pub struct WatchDrawn {
     /// The mark over the player's own field (Out, Left the stage) and
     /// the skip's words, while they watch a stage they are out of.
     pub mark: Option<String>,
+    /// A paged grid's page (from 1) and pages.
+    pub page: Option<(usize, usize)>,
     pub skip: Option<String>,
     /// The stage is decided: its results follow.
     pub over: bool,
@@ -378,6 +380,14 @@ pub struct PlayView<H: PlayHost> {
     /// arranged for (the slots never move: arranged again only when the
     /// field, the screen or what they keep clear of changes).
     fields_for: Option<(FieldsKey, Option<crate::opponents::Fields>)>,
+    /// A large field's slots: the opponents that matter to the player
+    /// now (`crate::rivals`), kept from frame to frame; and its ladder.
+    rivals: crate::rivals::Rivals,
+    ladder: Option<crate::rivals::Ladder>,
+    /// A paged grid's page and pages, from 0.
+    ladder_page: Option<(usize, usize)>,
+    /// The ladder as drawn, with its words ([`PlayView::ladder_drawn`]).
+    ladder_drawn: Option<(String, crate::rivals::Ladder)>,
     /// The last frame's attack warning and waiting line
     /// (`crate::battle_cue`), if it drew them.
     attack_drawn: Option<crate::battle_cue::Cue>,
@@ -433,6 +443,10 @@ impl<H: PlayHost> PlayView<H> {
             overlay: None,
             shown_words: None,
             fields_for: None,
+            rivals: crate::rivals::Rivals::default(),
+            ladder: None,
+            ladder_page: None,
+            ladder_drawn: None,
             fields_drawn: None,
             fields_cue: false,
             fields_score: Default::default(),
@@ -781,6 +795,12 @@ impl<H: PlayHost> PlayView<H> {
     /// if it did.
     pub fn opponent_fields(&self) -> Option<&crate::opponents::Fields> {
         self.fields_drawn.as_ref()
+    }
+
+    /// A large field's ladder as the last frame drew it: its words and
+    /// the field it stands for (`crate::rivals`), none in a room of nine.
+    pub fn ladder_drawn(&self) -> Option<&(String, crate::rivals::Ladder)> {
+        self.ladder_drawn.as_ref()
     }
 
     /// How the last frame's miniatures said their opponents' scores,
@@ -1165,25 +1185,75 @@ impl<H: PlayHost> PlayView<H> {
                 self.fields_for = Some((key, arranged));
             }
             let mut f = self.fields_for.as_ref()?.1.clone()?;
-            // Too few slots: the opponents take turns in them, those the
-            // stage keeps in view staying.
-            crate::opponents::rotate(
-                &mut f,
-                n,
-                &crate::opponents::priority_seats(
-                    b,
-                    &session.player,
-                    crate::opponents::ROTATION_V0,
-                ),
-                frame.song_time,
+            let pinned = crate::opponents::priority_seats(
+                b,
+                &session.player,
                 crate::opponents::ROTATION_V0,
-                render.reduced_motion,
             );
+            let paged = grid && n > ddi_session::play::GRID_PAGE;
+            if paged {
+                // A spectator's grid past a page: the page's fields by
+                // standing, the ladder for the whole field.
+                let (standings, _) = large_standings(b, &frame, None, frame.song_time);
+                let ranked = crate::rivals::order(&standings);
+                let page = spectator.map_or(0, |w| w.page);
+                let from = page * ddi_session::play::GRID_PAGE;
+                for (i, slot) in f.slots.iter_mut().enumerate() {
+                    slot.seat = ranked.get(from + i).copied().unwrap_or(usize::MAX);
+                    slot.dim = 0.0;
+                }
+                self.ladder = Some(crate::rivals::Ladder::of(&standings, None));
+                self.ladder_page = Some((page, n.div_ceil(ddi_session::play::GRID_PAGE)));
+            } else if n > crate::opponents::ROOM_OPPONENTS && !grid {
+                // A large field: those that matter to the player now in
+                // the slots (around the competitor followed, for a
+                // spectator), the ladder for the whole field.
+                let (standings, me) = large_standings(b, &frame, focus, frame.song_time);
+                // The pinned seats as the slots count them (past a
+                // followed competitor's).
+                let pinned: Vec<usize> = pinned
+                    .iter()
+                    .filter(|&&p| Some(p) != focus)
+                    .map(|&p| if focus.is_some_and(|f| p > f) { p - 1 } else { p })
+                    .collect();
+                self.rivals.update(
+                    f.slots.len(),
+                    &standings,
+                    me,
+                    &pinned,
+                    frame.song_time,
+                    crate::rivals::RIVALS_V0,
+                );
+                self.rivals.apply(
+                    &mut f,
+                    frame.song_time,
+                    crate::rivals::RIVALS_V0,
+                    render.reduced_motion,
+                );
+                self.ladder = f
+                    .ladder
+                    .is_some()
+                    .then(|| crate::rivals::Ladder::of(&standings, me));
+                self.ladder_page = None;
+            } else {
+                self.ladder = None;
+                self.ladder_page = None;
+                // Too few slots: the opponents take turns in them, those
+                // the stage keeps in view staying.
+                crate::opponents::rotate(
+                    &mut f,
+                    n,
+                    &pinned,
+                    frame.song_time,
+                    crate::opponents::ROTATION_V0,
+                    render.reduced_motion,
+                );
+            }
             // The slots beside a followed competitor's field show the
             // others, each in the place its order gives it.
             if let Some(focus) = focus {
                 for s in &mut f.slots {
-                    if s.seat >= focus {
+                    if s.seat >= focus && s.seat != usize::MAX {
                         s.seat += 1;
                     }
                 }
@@ -1330,7 +1400,12 @@ impl<H: PlayHost> PlayView<H> {
                     .get(seat)
                     .map(|n| ddi_l10n::msg::room::watch_following(n.as_str()).into()),
                 None if w.age < ddi_session::play::WATCH_HINT_SECONDS && !w.over => {
-                    Some(ddi_l10n::msg::room::watch_hint().into())
+                    let seats = session.battle().map_or(0, |b| b.feeds().count());
+                    Some(if seats > ddi_session::play::GRID_PAGE {
+                        ddi_l10n::msg::room::watch_hint_pages().into()
+                    } else {
+                        ddi_l10n::msg::room::watch_hint().into()
+                    })
                 }
                 None => None,
             })
@@ -1457,6 +1532,17 @@ impl<H: PlayHost> PlayView<H> {
                     label,
                     large: large_at,
                     stale: b.stale_seats(),
+                    ladder: self.ladder.clone().map(|l| {
+                        use ddi_l10n::msg::room as m;
+                        let words: String = match (l.place, self.ladder_page) {
+                            (_, Some((page, pages))) => {
+                                m::play_ladder_page(page + 1, pages, l.of, l.still_in).into()
+                            }
+                            (Some(place), None) => m::play_ladder(place, l.of, l.still_in).into(),
+                            (None, None) => m::play_ladder_field(l.of, l.still_in).into(),
+                        };
+                        (words, l)
+                    }),
                     cue,
                     // DDI's score (the sum) or percent, as the player's
                     // Score display has their own; another ruleset's
@@ -1522,6 +1608,16 @@ impl<H: PlayHost> PlayView<H> {
             }));
             // The large field: back to every field.
             watch_at.extend(large.iter().map(|s| (None, css(s.panel))));
+            // A paged grid's ladder: the next page.
+            if self.ladder_page.is_some()
+                && let Some(l) = f.ladder
+            {
+                let [x, y, w, h] = l;
+                watch_at.push((
+                    Some(ddi_session::play::TOUCH_PAGE_SEAT),
+                    css([x, y, x + w, y + h]),
+                ));
+            }
         }
         let skip_at = own_out
             .as_ref()
@@ -1550,6 +1646,7 @@ impl<H: PlayHost> PlayView<H> {
             mark: own_out.as_ref().map(|o| o.mark.clone()),
             skip: own_out.as_ref().and_then(|o| o.skip.clone()),
             over: w.over,
+            page: self.ladder_page.map(|(page, pages)| (page + 1, pages)),
         });
         self.attack_drawn = attack.as_ref().and_then(|a| a.cue);
         self.waiting_drawn = attack.as_ref().is_some_and(|a| a.waiting.is_some());
@@ -1615,8 +1712,10 @@ impl<H: PlayHost> PlayView<H> {
                 ddi_render::lyrics::draw(list, lines, place, &mut measure);
             }
             self.fields_drawn = None;
+            self.ladder_drawn = None;
             if let Some((shown, fields, flashes, locks, ratio)) = shown {
                 self.fields_score = shown.score;
+                self.ladder_drawn = shown.ladder.clone().filter(|_| fields.ladder.is_some());
                 self.fields_cue = crate::opponents::draw_fields(
                     list,
                     &shown,
@@ -1688,6 +1787,56 @@ impl<H: PlayHost> PlayView<H> {
         {
             self.lyrics_shown = shown.map(str::to_string).collect();
         }
+    }
+}
+
+/// A large field's standings for `crate::rivals`: every opponent but a
+/// followed competitor (`focus`), as their streams show them at song
+/// second `t`, and whom the slots gather around: the player (their own
+/// play's life and score in `frame`), the competitor followed, or nobody
+/// (a spectator's grid).
+fn large_standings(
+    b: &ddi_session::battle::Battle,
+    frame: &ddi_engine::frame::Frame,
+    focus: Option<usize>,
+    t: f64,
+) -> (Vec<crate::rivals::Standing>, Option<crate::rivals::Standing>) {
+    let views = b.views();
+    let all: Vec<crate::rivals::Standing> = views
+        .iter()
+        .zip(b.feeds())
+        .map(|(o, feed)| {
+            let shown = feed.shown(t);
+            crate::rivals::Standing {
+                life: shown.life,
+                out: shown.out,
+                score: o.sum.map_or(o.score, |s| s as f64),
+            }
+        })
+        .collect();
+    match focus {
+        Some(f) => {
+            let me = all.get(f).copied();
+            let others = all
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != f)
+                .map(|(_, s)| *s)
+                .collect();
+            (others, me)
+        }
+        None if b.competes() => {
+            let me = crate::rivals::Standing {
+                life: frame.life,
+                out: frame.failed,
+                score: frame
+                    .score
+                    .ddi
+                    .map_or(frame.score.percent.unwrap_or(0.0), |d| d.score as f64),
+            };
+            (all, Some(me))
+        }
+        None => (all, None),
     }
 }
 

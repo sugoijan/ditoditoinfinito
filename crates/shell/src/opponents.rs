@@ -74,6 +74,9 @@ pub struct Shown {
     /// The seats whose stream is behind (a live stage's: their numbers
     /// held, their field marked quietly, dimmed, until it catches up).
     pub stale: Vec<usize>,
+    /// A large field's ladder ([`crate::rivals::Ladder`]) and its words
+    /// ("17 of 73 · 41 still in"), drawn in [`Fields::ladder`]'s place.
+    pub ladder: Option<(String, crate::rivals::Ladder)>,
 }
 
 /// What a miniature says of its opponent's score, as the local player's
@@ -138,7 +141,9 @@ const LOCK_TINT: [f32; 4] = [0.62, 0.42, 1.0, 0.50];
 /// should"). No other cap: the play's own lane is bounded.
 pub const MINI_LANE_MIN: f32 = 8.0;
 pub const MINI_LANE_CROWD: f32 = 16.0;
-const ROOM_OPPONENTS: usize = 8;
+/// The opponents a room of nine has, each with a slot of its own; past
+/// them a field is large (`crate::rivals`).
+pub const ROOM_OPPONENTS: usize = 8;
 pub const MINI_LANE_SHARE: f32 = 0.5;
 /// A miniature's field, in its lanes' heights: the play's own field's
 /// proportion (the screen's height over the play's lane: ten on a screen
@@ -283,6 +288,10 @@ pub struct Fields {
     /// stars go.
     pub name: f32,
     pub stars: Stars,
+    /// A large field's ladder ([`crate::rivals::Ladder`]): `[x, y, width,
+    /// height]` in the target's pixels, under the left side's slots; none
+    /// where every opponent has a slot.
+    pub ladder: Option<[f32; 4]>,
 }
 
 /// A side's room for slots: `[left, top, right, bottom]`, logical pixels.
@@ -451,6 +460,12 @@ pub fn arrange(
     if n == 0 || ratio <= 0.0 {
         return None;
     }
+    // A large field (more opponents than a room of nine has): the slots
+    // of a room of nine, those that matter to the player in them
+    // (`crate::rivals`), and the ladder under the left side's.
+    let total = n;
+    let n = n.min(ROOM_OPPONENTS);
+    let large = total > n;
     let (w, h) = (geo.width / ratio, geo.height / ratio);
     // The field's band (its filter's, a little wider than the lanes).
     let [mid, band] = ddi_render::scene::filter_band(geo, span);
@@ -474,8 +489,18 @@ pub fn arrange(
         };
         let bottom = h - edge - if status { STATUS } else { 0.0 };
         let whole = [wing[0], edge, wing[1], bottom];
+        let mut regions = rooms(whole, &keep, h);
+        if large && side == 0 {
+            // The ladder's line under the slots, inside each room (clear
+            // of what the room is clear of).
+            let below = STATUS + part(SLOT_GAP, raw[side]);
+            regions.retain_mut(|r| {
+                r[3] -= below;
+                r[3] > r[1]
+            });
+        }
         Side {
-            regions: rooms(whole, &keep, h),
+            regions,
             gap: part(SLOT_GAP, raw[side]),
             left: side == 0,
         }
@@ -581,6 +606,7 @@ pub fn arrange(
     let middle = (shared[0] + shared[1]) / 2.0;
     let mut slots = Vec::with_capacity(shown);
     let mut status = None;
+    let mut ladder = None;
     let mut seat = 0;
     for (s, grid) in grids.iter().enumerate() {
         let Some(g) = *grid else {
@@ -594,6 +620,15 @@ pub fn arrange(
         let y0 = (middle - block / 2.0).min(bottom - block).max(top);
         // Against the field's side of its room.
         let x0 = if s == 0 { right - used } else { left };
+        if s == 0 && large {
+            // Under the left side's slots, from its far edge to them.
+            ladder = Some([
+                px(left),
+                px(y0 + block + gap / 2.0),
+                px(x0 + used - left),
+                px(STATUS),
+            ]);
+        }
         if s == under && reserved {
             // From the slots' left to the side's far edge.
             let to = if s == 0 { x0 + used } else { right };
@@ -655,12 +690,13 @@ pub fn arrange(
     Some(Fields {
         slots,
         status,
-        rotating: shown < n,
+        rotating: shown < total,
         lane,
         rows,
         range: rows - MINI_RECEPTOR,
         name: name_size(lane),
         stars: stars_at(lane),
+        ladder,
     })
 }
 
@@ -747,6 +783,11 @@ pub fn arrange_grid(
     if n == 0 || ratio <= 0.0 {
         return None;
     }
+    // More than a page: a page's fields (`ddi_session::play::GRID_PAGE`),
+    // the shell choosing whose, and the ladder in the status line's right
+    // half.
+    let total = n;
+    let n = n.min(ddi_session::play::GRID_PAGE);
     let (w, h) = (geo.width / ratio, geo.height / ratio);
     let keep: Vec<[f32; 4]> = keep_out.iter().map(|k| k.map(|v| v / ratio)).collect();
     let edge = part(EDGE, w);
@@ -841,15 +882,26 @@ pub fn arrange_grid(
     }
     let used = line_width(cols.min(shown)).max(320.0_f32.min(room[2] - room[0]));
     let sx = (w / 2.0 - used / 2.0).clamp(room[0], (room[2] - used).max(room[0]));
+    let sy = px(y0 + block + 4.0);
+    let (status, ladder) = if total > n {
+        let half = used / 2.0;
+        (
+            [px(sx), sy, px(half - 8.0), px(STATUS)],
+            Some([px(sx + half), sy, px(half), px(STATUS)]),
+        )
+    } else {
+        ([px(sx), sy, px(used), px(STATUS)], None)
+    };
     Some(Fields {
         slots,
-        status: [px(sx), px(y0 + block + 4.0), px(used), px(STATUS)],
+        status,
         rotating: shown < n,
         lane,
         rows,
         range: rows - MINI_RECEPTOR,
         name: name_size(lane),
         stars: stars_at(lane),
+        ladder,
     })
 }
 
@@ -970,6 +1022,69 @@ pub fn priority_seats(
     battle.kept_seats(player, f64::from(policy.every))
 }
 
+/// The ladder's colors: everyone's life as a mark, the player's own in
+/// the color "Stage won" has, those out a faint stub.
+const LADDER_MARK: [f32; 4] = [0.62, 0.86, 0.78, 0.85];
+const LADDER_OUT: [f32; 4] = [0.80, 0.80, 0.86, 0.30];
+const LADDER_ME: [f32; 4] = WON;
+/// Its strip's height and its marks' widths, logical pixels.
+const LADDER_STRIP: f32 = 7.0;
+const LADDER_MARK_MOST: f32 = 4.0;
+
+/// A large field's ladder in `place` (`[x, y, width, height]`, the
+/// target's pixels): its words ("17 of 73 · 41 still in") at the left,
+/// then a thin strip of everyone's life as marks, best first, the
+/// player's own highlighted, so the whole field is felt without a field
+/// for everyone.
+pub fn draw_ladder(
+    list: &mut DrawList,
+    words: &str,
+    ladder: &crate::rivals::Ladder,
+    place: [f32; 4],
+    ratio: f32,
+    measure: &mut dyn TextMeasure,
+) {
+    let [x, y, w, h] = place;
+    let face = ddi_l10n::font_stack(FACE);
+    let mut st = TextStyle::new(face.as_str(), 12.0 * ratio);
+    st.weight = 600;
+    let t = fitted(measure, words, &st, w * 0.6);
+    let advance = measure.measure(&t, &st).advance;
+    list.push(run(t, &st, [x, y + (h - 12.0 * 1.2 * ratio) / 2.0], MUTED));
+    let from = x + advance + 8.0 * ratio;
+    let room = (x + w - from).max(0.0);
+    let n = ladder.marks.len().max(1) as f32;
+    let step = (room / n).min(LADDER_MARK_MOST * ratio);
+    if step < 0.5 * ratio {
+        return;
+    }
+    let strip = LADDER_STRIP * ratio;
+    let bottom = y + (h + strip) / 2.0;
+    for (k, &(life, out, me)) in ladder.marks.iter().enumerate() {
+        let tall = if out {
+            1.5 * ratio
+        } else {
+            (life.clamp(0.0, 1.0) * strip).max(1.5 * ratio)
+        };
+        let color = if me {
+            LADDER_ME
+        } else if out {
+            LADDER_OUT
+        } else {
+            LADDER_MARK
+        };
+        let mx = from + k as f32 * step;
+        let mw = (step - 1.0 * ratio).max(0.75 * ratio);
+        // The player's own reaches over the strip, so it is found at once.
+        let (top, tall) = if me {
+            (bottom - strip - 2.0 * ratio, strip + 4.0 * ratio)
+        } else {
+            (bottom - tall, tall)
+        };
+        list.rect([mx, top, mx + mw, top + tall], color);
+    }
+}
+
 /// Cuts `s` to `room` pixels, an ellipsis at its end.
 fn fitted(measure: &mut dyn TextMeasure, s: &str, style: &TextStyle, room: f32) -> String {
     let mut s = s.to_string();
@@ -1056,6 +1171,9 @@ pub fn draw_fields(
         let mut c = TEXT;
         c[3] *= alpha.clamp(0.0, 1.0);
         list.push(run(t, &st, [x, sy], c));
+    }
+    if let (Some((words, ladder)), Some(place)) = (&shown.ladder, fields.ladder) {
+        draw_ladder(list, words, ladder, place, ratio, measure);
     }
     for (i, slot) in fields.slots.iter().enumerate() {
         let Some(o) = shown.opponents.get(slot.seat) else {
@@ -1345,6 +1463,7 @@ pub(crate) mod tests {
             label: None,
             large: None,
             stale: Vec::new(),
+            ladder: None,
         }
     }
 
@@ -2059,22 +2178,33 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_sides_use_their_own_height() {
-        // The score keeps the right side lower; the left, with only the
-        // watermark and the quit button below, starts at the top.
-        let g = geo(1920.0, 1080.0);
-        let f = arrange(128, &g, 4.0, false, 1.0, &keep(&g, 1.0, false)).unwrap();
-        let top = |left: bool| {
-            f.slots
-                .iter()
-                .filter(|s| s.left == left)
-                .map(|s| s.rect[1])
-                .fold(f32::MAX, f32::min)
-        };
-        assert!(top(true) < top(false), "{} {}", top(true), top(false));
-        // Above where the score ends.
-        let score = ddi_render::scene::hud_areas(&g, 4.0)[1];
-        assert!(top(true) < score[3], "{} {score:?}", top(true));
+    fn a_large_field_has_a_room_of_nines_slots_and_the_ladder_under_them() {
+        // Past eight opponents: the eight slots a room of nine has, no
+        // smaller than its (the left side a status line's height shorter
+        // for the ladder), and the ladder under the left side's.
+        for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0)] {
+            let g = geo(w, h);
+            let k = keep(&g, 1.0, false);
+            let nine = arrange(8, &g, 4.0, false, 1.0, &k).unwrap();
+            assert!(nine.ladder.is_none(), "a room of nine has none");
+            for n in [9, 32, 72, 128] {
+                let f = arrange(n, &g, 4.0, false, 1.0, &k).unwrap();
+                assert_eq!(f.slots.len(), 8, "{w}x{h} {n}");
+                assert!(f.rotating);
+                assert!(f.lane >= nine.lane - 4.0, "{} {}", f.lane, nine.lane);
+                let [lx, ly, lw, lh] = f.ladder.expect("the ladder");
+                let left: Vec<_> = f.slots.iter().filter(|s| s.left).collect();
+                let bottom = left.iter().map(|s| s.rect[1] + s.rect[3]).fold(0.0, f32::max);
+                assert!(ly >= bottom && ly + lh <= h, "{ly} {bottom}");
+                let right_edge = left.iter().map(|s| s.rect[0] + s.rect[2]).fold(0.0, f32::max);
+                assert!(lx >= 0.0 && lx + lw <= right_edge + 0.5 && lw > 100.0);
+                // Clear of the field and of what the slots keep clear of.
+                for k in &k {
+                    let apart = lx + lw <= k[0] || lx >= k[2] || ly + lh <= k[1] || ly >= k[3];
+                    assert!(apart, "{w}x{h}: the ladder {:?} over {k:?}", [lx, ly, lw, lh]);
+                }
+            }
+        }
     }
 
     #[test]

@@ -106,6 +106,10 @@ struct Played {
     cost: Cost,
     /// Lyrics were drawn in a frame that drew the miniatures.
     lyrics: bool,
+    /// A large field's ladder as last drawn (its words), and the seats
+    /// its slots showed.
+    ladder: Option<String>,
+    seats: Vec<usize>,
 }
 
 fn play(s: &Scenario) -> Option<Played> {
@@ -164,9 +168,9 @@ fn play(s: &Scenario) -> Option<Played> {
     });
     let plain = texture.create_view(&Default::default());
 
-    // A fresh practice room each play: beyond the cap, the
-    // development-only one.
-    ddi_desktop::room::develop(if s.cpus > 8 { s.cpus } else { 0 });
+    // A fresh practice room each play: beyond the cap (73 since
+    // 2026-11-13, 72 CPUs beside the player), the development-only one.
+    ddi_desktop::room::develop(if s.cpus > 72 { s.cpus } else { 0 });
     let room = ddi_desktop::room::current();
     room.borrow_mut().set_rules_seen(true);
     ui.push(ddi_desktop::room::room_screen_with(
@@ -213,6 +217,7 @@ fn play(s: &Scenario) -> Option<Played> {
     request.auto = true;
     *host.requested.borrow_mut() = Some(request);
     let mut waited = 0;
+    let preparing = Instant::now();
     loop {
         host.poll(&mut ui, &env, Some(dev()), 48_000);
         ui.update(0.05);
@@ -223,6 +228,12 @@ fn play(s: &Scenario) -> Option<Played> {
         waited += 1;
         assert!(waited < 1000, "the song was never read");
     }
+    eprintln!(
+        "{}: the stage prepared ({} CPUs' plans) in {:.2} s",
+        s.name,
+        s.cpus,
+        preparing.elapsed().as_secs_f64()
+    );
     ui.update(0.5);
     // Ready; the room counts down and starts the stage.
     key(&mut ui, "Enter", "Enter");
@@ -243,6 +254,8 @@ fn play(s: &Scenario) -> Option<Played> {
         out: 0,
         cost: Cost::default(),
         lyrics: false,
+        ladder: None,
+        seats: Vec::new(),
     };
     if s.lyrics {
         let mut with = song.clone();
@@ -301,6 +314,8 @@ fn play(s: &Scenario) -> Option<Played> {
             played.slots = played.slots.max(f.slots.len());
             played.lane = f.lane;
             played.rotating = f.rotating;
+            played.seats = f.slots.iter().map(|s| s.seat).collect();
+            played.ladder = host.ladder_drawn().or(played.ladder.take());
             played.lyrics |= !host.lyrics_shown().is_empty();
         }
         if let Some(p) = host.running() {
@@ -342,6 +357,37 @@ fn play(s: &Scenario) -> Option<Played> {
     }
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
     Some(played)
+}
+
+/// A room of 73 in practice (72 CPUs, the cap): the eight slots a room
+/// of nine has, those that matter to the player in them, and the ladder
+/// over the whole field (`ddi_shell::rivals`).
+#[test]
+fn seventy_two_cpus_get_a_room_of_nines_slots_and_the_ladder() {
+    let Some(played) = play(&Scenario {
+        name: "seventy-two",
+        size: [1280, 720],
+        cpus: 72,
+        level: 7,
+        skin: None,
+        lives: None,
+        hand: false,
+        chart: 0,
+        shots: &[8.0],
+        measure: None,
+        lyrics: false,
+    }) else {
+        return;
+    };
+    assert_eq!(played.slots, 8);
+    assert!(played.rotating);
+    let words = played.ladder.expect("the ladder");
+    assert!(words.ends_with("of 73 · 73 still in"), "{words}");
+    let mut seats = played.seats.clone();
+    seats.sort_unstable();
+    seats.dedup();
+    assert_eq!(seats.len(), 8, "eight different rivals: {:?}", played.seats);
+    assert!(seats.iter().all(|s| *s < 72));
 }
 
 #[test]
@@ -492,10 +538,12 @@ fn miniature_scenarios_pictures_and_costs() {
             measure: None,
             ..eight("", [1280, 720], None, false)
         },
-        many("development-16-cpus-1280x720", 16, [1280, 720]),
-        many("development-32-cpus-1280x720", 32, [1280, 720]),
-        many("development-32-cpus-1920x1080", 32, [1920, 1080]),
-        many("development-64-cpus-1920x1080", 64, [1920, 1080]),
+        many("practice-16-cpus-1280x720", 16, [1280, 720]),
+        many("practice-32-cpus-1280x720", 32, [1280, 720]),
+        many("practice-32-cpus-1920x1080", 32, [1920, 1080]),
+        many("practice-64-cpus-1920x1080", 64, [1920, 1080]),
+        many("practice-72-cpus-1280x720", 72, [1280, 720]),
+        many("practice-72-cpus-1920x1080", 72, [1920, 1080]),
         many("development-128-cpus-1920x1080", 128, [1920, 1080]),
         many("development-128-cpus-1280x720", 128, [1280, 720]),
     ];

@@ -1115,6 +1115,72 @@ fn standings_follow_each_stage_and_the_matchs_results_then_the_next_match() {
     assert_eq!((v.phase.as_str(), v.history), ("preparing", 1));
 }
 
+/// A room of 73 (the player and 72 CPUs): the player's line first in the
+/// panel, the rest counted; a stage settled by the top-biased table; the
+/// standings keep the player's line in view however far down they are.
+#[test]
+fn a_room_of_seventy_three_keeps_the_player_in_view_in_its_lists() {
+    use ddi_room::{Finish, Finisher};
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    {
+        let roster = crate::state::cpu_roster::at_level(&[], 4, 72, 3);
+        let mut rules = crate::state::cpu_roster::with_roster(room.borrow().rules().clone(), roster, 1);
+        rules.stages = 2;
+        room.borrow_mut().save_rules(rules).unwrap();
+    }
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    assert_eq!(said(&h, "Players.Count"), "73 / 73");
+    assert_eq!(said(&h, "Players0.Name"), "You", "the player's line first");
+    assert!(
+        h.texts().iter().any(|t| t.starts_with("▼ ") && t.ends_with(" more")),
+        "{:?}",
+        h.texts()
+    );
+    let [.., y1] = h.ui.bounds("RoomPlayers").unwrap();
+    assert!(y1 <= 680.0, "{y1}");
+    // The stage: the player 50th of 73.
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    let order = orders.borrow_mut().pop().expect("a prompt");
+    assert_eq!(order.cpus.len(), 72);
+    room.borrow_mut().set_ready(true).unwrap();
+    room.borrow_mut().tick(4_000);
+    let mut ids: Vec<_> = order.cpus.iter().map(|c| c.participant).collect();
+    ids.insert(49, order.me);
+    let ranking = ids
+        .into_iter()
+        .map(|participant| {
+            vec![Finisher {
+                participant,
+                finish: Finish::Survived,
+            }]
+        })
+        .collect();
+    room.borrow_mut()
+        .report_stage(order.stage, ranking, false)
+        .unwrap();
+    h.run(0.5);
+    assert_eq!(top(&h), "room-standings");
+    assert!(
+        h.texts().iter().any(|t| t.starts_with("Stage 1: place 50 of 73 · +2 pts")),
+        "{:?}",
+        h.texts()
+    );
+    // Not an experimental rule any more.
+    assert!(!h.texts().iter().any(|t| t.contains("experimental")), "{:?}", h.texts());
+    // Nine lines at a time, the player's among them though far down.
+    let lines: Vec<usize> = (0..73).filter(|k| there(&h, &format!("Name{k}"))).collect();
+    assert_eq!(lines.len(), 9, "{lines:?}");
+    let mine = *lines.last().unwrap();
+    assert!(mine > 9, "{mine}");
+    assert_eq!(said(&h, &format!("Name{mine}")), "You");
+}
+
 /// What the text actor named `name` says.
 fn said(h: &Harness, name: &str) -> String {
     match &h.actor(name).kind {

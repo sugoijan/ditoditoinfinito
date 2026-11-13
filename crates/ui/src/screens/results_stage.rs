@@ -630,9 +630,24 @@ pub(super) fn standings(
         ry += 42.0;
         let across = if w >= 600.0 { 3 } else { 2 };
         let cell = w / across as f32;
-        for (k, (id, rank, total)) in result.iter().enumerate() {
-            let cx = x + (k % across) as f32 * cell;
-            let cy = ry + (k / across) as f32 * 19.0 + 10.0;
+        // A large field's: the first few (a line of them) and the
+        // player's own place, rather than everyone (the lines below have
+        // them all).
+        let listed: Vec<usize> = if result.len() > crate::screens::room::ROOM_OF_NINE {
+            let mut v: Vec<usize> = (0..across.min(result.len())).collect();
+            if let Some(mine) = result.iter().position(|(id, ..)| *id == r.me())
+                && !v.contains(&mine)
+            {
+                v.push(mine);
+            }
+            v
+        } else {
+            (0..result.len()).collect()
+        };
+        for (k, (id, rank, total)) in listed.iter().map(|&k| (k, &result[k])) {
+            let at = listed.iter().position(|&l| l == k).unwrap_or(k);
+            let cx = x + (at % across) as f32 * cell;
+            let cy = ry + (at / across) as f32 * 19.0 + 10.0;
             let me = *id == r.me();
             let color = if me { "Text" } else { "Secondary" };
             out.push(left(
@@ -660,7 +675,7 @@ pub(super) fn standings(
                 cy,
             ));
         }
-        ry += result.len().div_ceil(across) as f32 * 19.0 + 10.0;
+        ry += listed.len().div_ceil(across) as f32 * 19.0 + 10.0;
     }
     // Where each column ends, right to left.
     let mut ends = Vec::new();
@@ -720,7 +735,11 @@ pub(super) fn standings(
     };
     let first = first.min(rows.len().saturating_sub(shown));
     let top = ry;
-    for (k, row) in rows.iter().enumerate().skip(first).take(shown) {
+    // The local player's line stays in view however far it is scrolled
+    // (a large field's: the window's last line).
+    let me_at = rows.iter().position(|row| row.me);
+    let window = crate::screens::room::window_keeping(rows.len(), first, shown, me_at);
+    for (k, row) in window.into_iter().map(|k| (k, &rows[k])) {
         let id = format!("Stand{k}");
         let mid = if two {
             ry + row_h / 2.0 - 8.0

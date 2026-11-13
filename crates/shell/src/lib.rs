@@ -36,6 +36,7 @@ pub mod generative;
 pub mod hand;
 pub mod opponents;
 pub mod play_view;
+pub mod rivals;
 pub mod scripted;
 pub mod stage;
 

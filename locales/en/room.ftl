@@ -415,6 +415,31 @@ room-play-out = Out
 # the song): in the line under the opponents' small fields at the right.
 room-play-won = Stage won
 
+# A large field's ladder, under the small fields at the left, beside a
+# strip of everyone's life: the player's place among everyone in the
+# stage, of how many, and how many are still in (narrow: about 24 letters).
+# Variables:
+#   $place (Number) - the player's place now, from 1
+#   $field (Number) - everyone in the stage, the player included
+#   $left (Number) - those whose life has not run out
+room-play-ladder = { $place } of { $field } · { $left } still in
+
+# The same where the one watching has no place of their own (watching
+# every field).
+# Variables:
+#   $field (Number) - everyone in the stage
+#   $left (Number) - those whose life has not run out
+room-play-ladder-field = { $left } of { $field } still in
+
+# The same on a spectator's grid that shows its fields a page at a time,
+# by standing: which page, of how many.
+# Variables:
+#   $page (Number) - the page shown, from 1
+#   $pages (Number) - the pages
+#   $field (Number) - everyone in the stage
+#   $left (Number) - those whose life has not run out
+room-play-ladder-page = Page { $page } of { $pages } · { $left } of { $field } still in
+
 ## A battle's moment no announcer line said, for a few seconds: in the
 ## line under the opponents' small fields at the right (narrow: about 22
 ## letters).
@@ -1199,6 +1224,11 @@ room-refused-watch-only = You came by a watch-only link: the host can let you pl
 # In the line under the fields while all of them show, for the first
 # seconds of a stage: how to follow one player.
 room-watch-hint = Tab or tap a field to follow one player
+
+# The same where the fields come in pages (a large stage): also how to see
+# the next page (Page Up and Page Down on a keyboard, up and down on a
+# controller's D-pad; a tap on the line beside it).
+room-watch-hint-pages = Tab or tap to follow · Page Up/Down or D-pad for more
 
 # At the start of the same status line under the opponents' fields, during
 # an online stage played live, once the room's server lost the stage's live

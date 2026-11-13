@@ -2210,8 +2210,8 @@ pub mod staging;
 pub mod watch;
 pub use staging::{How, Staging, Touch};
 pub use watch::{
-    TOUCH_SKIP_CONTROL, TOUCH_WATCH_ALL, TOUCH_WATCH_CONTROL, WATCH_END_HOLD, WATCH_HINT_SECONDS,
-    WatchView, Watching,
+    GRID_PAGE, TOUCH_PAGE_SEAT, TOUCH_SKIP_CONTROL, TOUCH_WATCH_ALL, TOUCH_WATCH_CONTROL,
+    WATCH_END_HOLD, WATCH_HINT_SECONDS, WatchView, Watching,
 };
 #[cfg(test)]
 mod tests;

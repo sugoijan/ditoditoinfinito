@@ -459,7 +459,10 @@ fn a_long_table_scrolls() {
         h.key("ArrowDown", "ArrowDown");
         h.run(0.05);
     }
-    assert!(there(&h, "Stand20") && !there(&h, "Stand0"));
+    // The player's own line (first here) stays in view, at the top.
+    assert!(there(&h, "Stand20") && !there(&h, "Stand1"));
+    assert!(there(&h, "Stand0"), "the player's line kept");
+    assert_eq!(said(&h, "Stand0", "Name"), "You");
 }
 
 /// An online stage: the lines fill in as the reports come. Before the

@@ -958,6 +958,18 @@ impl GameLoop {
                         }),
                         "combo": o.combo,
                     })).collect::<Vec<_>>(),
+                    // A large field (more than eight opponents): the
+                    // seats the slots show (`ddi_shell::rivals`), and the
+                    // ladder's words and numbers; null in a room of nine.
+                    "large_field": self.view.ladder_drawn().map(|(words, l)| json!({
+                        "words": words,
+                        "place": l.place,
+                        "of": l.of,
+                        "still_in": l.still_in,
+                        "shown": self.view.opponent_fields().map(|f| {
+                            f.slots.iter().map(|s| s.seat).collect::<Vec<_>>()
+                        }),
+                    })),
                     // The player's life (`0..=1`) and, under DDI, the
                     // score as the HUD's display has it (the sum, what a
                     // room shows and ranks by) with its parts.
@@ -1441,6 +1453,8 @@ fn watch_debug(watch: Option<&ddi_shell::play_view::WatchDrawn>) -> Value {
         "label": w.label,
         "cue": w.cue,
         "warned": w.warned,
+        // A paged grid's page (from 1) and pages (`GRID_PAGE` a page).
+        "page": w.page,
         "mark": w.mark,
         "skip": w.skip,
         "over": w.over,

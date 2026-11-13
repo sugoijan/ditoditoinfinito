@@ -267,6 +267,12 @@ room-results-none = —
 room-play-out = アウト
 
 room-play-won = 1位確定
+
+room-play-ladder = { $field }人中 { $place }位 · 残り{ $left }人
+
+room-play-ladder-field = { $field }人中 残り{ $left }人
+
+room-play-ladder-page = { $page }/{ $pages }ページ · { $field }人中 残り{ $left }人
 room-play-cue-match-begin = 対戦スタート
 room-play-cue-stage-begin = ステージ { $number } スタート
 room-play-cue-final-stage = ファイナルステージ
@@ -576,6 +582,8 @@ room-refused-players-full = プレイヤーの席が埋まっています。席�
 room-refused-watch-only = 観戦専用リンクで参加しています。ホストが許可するとプレイできます。
 
 room-watch-hint = Tabかタップでプレイヤーを選べます
+
+room-watch-hint-pages = Tabかタップで選択 · PageUp/Downか十字キーで他のプレイヤー
 room-live-lost = ルームがステージの中継を失いました。結果は最後に送られます
 
 room-watch-following = { $name }を観戦中

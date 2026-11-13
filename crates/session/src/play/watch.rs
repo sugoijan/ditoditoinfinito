@@ -21,6 +21,9 @@ use crate::battle::WatchMoment;
 /// follows that competitor, [`TOUCH_WATCH_ALL`] goes back to every field.
 pub const TOUCH_WATCH_CONTROL: &str = "watch:";
 pub const TOUCH_WATCH_ALL: &str = "watch:all";
+/// The seat [`TOUCH_WATCH_CONTROL`] names for a tap on a paged grid's
+/// ladder: the next page ([`GRID_PAGE`]).
+pub const TOUCH_PAGE_SEAT: usize = usize::MAX;
 /// The control a tap on "Skip to results" sends.
 pub const TOUCH_SKIP_CONTROL: &str = "skip";
 
@@ -32,6 +35,12 @@ pub const WATCH_END_HOLD: f64 = 2.5;
 pub const WATCH_END_FADE: f64 = super::FAIL_FADE;
 pub const WATCH_HINT_SECONDS: f64 = 6.0;
 pub const WATCH_CUE_SECONDS: f64 = 2.5;
+
+/// PROVISIONAL (`watch-pages-v0`, 2026-11-13): a spectator's grid shows at
+/// most this many fields a page, by standing; past it, Page Up and Page
+/// Down (a pad's D-pad Up and Down, which mean nothing else there: its
+/// shoulders follow a competitor) turn the pages.
+pub const GRID_PAGE: usize = 12;
 
 /// Why the stage is watched.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,6 +67,8 @@ pub struct WatchView {
     pub cue: Option<(WatchMoment, f64)>,
     /// The stage is decided: its results follow.
     pub over: bool,
+    /// The grid's page ([`GRID_PAGE`] fields a page, by standing), from 0.
+    pub page: usize,
 }
 
 /// What an edge asks of the watching.
@@ -67,6 +78,8 @@ pub(super) enum Ask {
     Cycle(i32),
     /// That competitor followed; none: the grid.
     Focus(Option<usize>),
+    /// The grid's next (or previous) page, round.
+    Page(i32),
     /// The results now.
     Skip,
 }
@@ -83,6 +96,7 @@ pub(super) struct Watch {
     pub skip: bool,
     shift: bool,
     pub cue: Option<(WatchMoment, f64)>,
+    pub page: usize,
 }
 
 impl Watch {
@@ -95,6 +109,7 @@ impl Watch {
             skip: false,
             shift: false,
             cue: None,
+            page: 0,
         }
     }
 
@@ -115,6 +130,8 @@ impl Watch {
                 }
                 match raw.control.as_str() {
                     "Tab" if spectator => Some(Ask::Cycle(if self.shift { -1 } else { 1 })),
+                    "PageDown" if spectator => Some(Ask::Page(1)),
+                    "PageUp" if spectator => Some(Ask::Page(-1)),
                     "Enter" | "NumpadEnter" if !spectator => Some(Ask::Skip),
                     _ => None,
                 }
@@ -130,11 +147,16 @@ impl Watch {
                     return Some(Ask::Focus(None));
                 }
                 let seat = raw.control.strip_prefix(TOUCH_WATCH_CONTROL)?;
-                seat.parse().ok().map(|s| Ask::Focus(Some(s)))
+                match seat.parse().ok()? {
+                    TOUCH_PAGE_SEAT => Some(Ask::Page(1)),
+                    s => Some(Ask::Focus(Some(s))),
+                }
             }
             DeviceId::Gamepad(_) if raw.pressed => match menu? {
                 MenuInput::Previous if spectator => Some(Ask::Cycle(-1)),
                 MenuInput::Next if spectator => Some(Ask::Cycle(1)),
+                MenuInput::Down if spectator => Some(Ask::Page(1)),
+                MenuInput::Up if spectator => Some(Ask::Page(-1)),
                 MenuInput::Confirm | MenuInput::Start if !spectator => Some(Ask::Skip),
                 _ => None,
             },
@@ -147,6 +169,13 @@ impl Watch {
         match ask {
             Ask::Skip => self.skip = true,
             Ask::Focus(seat) => self.focus = seat.filter(|s| *s < seats),
+            // Pages turn on the grid alone (following someone, the
+            // grid's page is kept for coming back to it).
+            Ask::Page(by) if self.focus.is_none() => {
+                let pages = seats.div_ceil(GRID_PAGE).max(1) as i32;
+                self.page = (self.page as i32 + by).rem_euclid(pages) as usize;
+            }
+            Ask::Page(_) => {}
             Ask::Cycle(by) => {
                 // The grid, then each seat, then the grid again.
                 let places = seats as i32 + 1;
@@ -187,6 +216,7 @@ impl Watch {
                     || matches!(m, WatchMoment::Won { .. } | WatchMoment::Drawn)
             }),
             over: self.over_at.is_some(),
+            page: self.page,
         }
     }
 }
@@ -244,6 +274,51 @@ mod tests {
         // A spectator has nothing to skip; Enter is not theirs.
         assert_eq!(w.read(&key("Enter", true), None), None);
         assert_eq!(w.read(&tap(TOUCH_SKIP_CONTROL), None), None);
+    }
+
+    #[test]
+    fn page_keys_and_the_d_pad_turn_the_grids_pages() {
+        let mut w = Watch::new(Watching::Spectator, 0.0);
+        // A room of nine: one page, nothing turns.
+        let ask = w.read(&key("PageDown", true), None).unwrap();
+        w.apply(ask, 8);
+        assert_eq!(w.page, 0);
+        // 72 competitors: six pages of twelve, round.
+        for want in [1, 2, 3, 4, 5, 0] {
+            let ask = w.read(&key("PageDown", true), None).unwrap();
+            w.apply(ask, 72);
+            assert_eq!(w.page, want);
+        }
+        let ask = w.read(&key("PageUp", true), None).unwrap();
+        w.apply(ask, 72);
+        assert_eq!(w.view(0.0).page, 5);
+        let pad = RawInput {
+            device: DeviceId::Gamepad("pad".into()),
+            control: "button:13".into(),
+            pressed: true,
+            host_time: HostTime(0.0),
+            slot: 0,
+        };
+        assert_eq!(w.read(&pad, Some(MenuInput::Down)), Some(Ask::Page(1)));
+        assert_eq!(w.read(&pad, Some(MenuInput::Up)), Some(Ask::Page(-1)));
+        // The shoulders still follow a competitor; while one is followed
+        // the page stays.
+        assert_eq!(w.read(&pad, Some(MenuInput::Next)), Some(Ask::Cycle(1)));
+        w.apply(Ask::Focus(Some(3)), 72);
+        w.apply(Ask::Page(1), 72);
+        assert_eq!(w.page, 5);
+        // A tap on the ladder turns the page.
+        let tap = RawInput {
+            device: DeviceId::Touch,
+            control: format!("{TOUCH_WATCH_CONTROL}{TOUCH_PAGE_SEAT}"),
+            pressed: true,
+            host_time: HostTime(0.0),
+            slot: 0,
+        };
+        assert_eq!(w.read(&tap, None), Some(Ask::Page(1)));
+        // A player out of the stage has no pages.
+        let mut out = Watch::new(Watching::Out, 0.0);
+        assert_eq!(out.read(&key("PageDown", true), None), None);
     }
 
     #[test]

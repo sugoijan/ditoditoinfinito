@@ -538,6 +538,15 @@ impl Host {
         r.view.as_ref()?.opponent_fields().cloned()
     }
 
+    /// A large field's ladder as the play's last frame drew it: its words
+    /// (tests; `ddi_shell::rivals`).
+    pub fn ladder_drawn(&self) -> Option<String> {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return None;
+        };
+        r.view.as_ref()?.ladder_drawn().map(|(words, _)| words.clone())
+    }
+
     /// Who attacks whom as the play's last frame drew it, for the
     /// player's own attacks (tests; `ddi_shell::attack_links`).
     pub fn attack_links(&self) -> Vec<ddi_shell::attack_links::Shown> {
