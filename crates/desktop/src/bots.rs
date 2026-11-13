@@ -50,8 +50,9 @@ use ddi_ui::state::room::{
     eligible,
 };
 
-/// Bots in one run at most (the server keeps a room to eight).
-pub const MAX_BOTS: usize = 8;
+/// Bots in one run at most: a room's whole field (the cap, 73; the
+/// server keeps a room to as many bots).
+pub const MAX_BOTS: usize = ddi_room::RoomPolicy::INITIAL_COMPETITOR_CAP as usize;
 /// A bot's song clock begins this long before the song's second 0, as a
 /// play's lead-in does.
 const LEAD_S: f64 = 2.0;
@@ -132,7 +133,7 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   their plays streamed, the room's attacks taken. Ctrl-C leaves.
   --host               a host bot: makes a room, prints its invite, picks songs
   --join LINK|INVITE   guest bots join this room (else the host bot's)
-  --guests N           guest bots (default 3 with --join, else 0; at most 8 bots)
+  --guests N           guest bots (default 3 with --join, else 0; at most 73 bots)
   --api URL            the server (else DDI_API_URL, else the production one)
   --site URL           the game's page for invite links
   --names A,B,…        the bots' names (else the CPU roster's)
@@ -368,7 +369,14 @@ pub fn profiles(o: &Options, count: usize, seed: u64) -> Vec<Profile> {
                 .names
                 .get(n)
                 .cloned()
-                .or_else(|| from_roster.map(|c| c.name.clone()))
+                .or_else(|| {
+                    // Past the roster's 24, its names again, numbered
+                    // plainly ("Lumen Kite 2"): each bot its own identity.
+                    from_roster.map(|c| match n / roster.len() {
+                        0 => c.name.clone(),
+                        round => format!("{} {}", c.name, round + 1),
+                    })
+                })
                 .unwrap_or_else(|| format!("Bot {}", n + 1));
             let level = levels
                 .as_ref()
@@ -1537,7 +1545,7 @@ mod tests {
             "--mp-bots",
             "--mp-bots --guests 2",
             "--mp-bots --join nonsense",
-            "--mp-bots --host --guests 8",
+            "--mp-bots --host --guests 73",
             "--mp-bots --host --level 11",
             "--mp-bots --host --level 0",
             "--mp-bots --host --level 7-3",
@@ -1586,6 +1594,15 @@ mod tests {
         assert_eq!(c, profiles(&o, 6, 7));
         levels.sort_unstable();
         assert_eq!(levels, vec![5, 6, 7, 8, 9, 10]);
+        // A whole field of bots: every name its own, the roster's again
+        // numbered past its 24.
+        let o = Options::parse(&args("--mp-bots --host --guests 72")).unwrap();
+        let all = profiles(&o, 73, 7);
+        let names: std::collections::BTreeSet<&str> =
+            all.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names.len(), 73);
+        assert!(all[24..].iter().all(|p| p.name.ends_with(" 2") || p.name.ends_with(" 3") || p.name.ends_with(" 4")));
+        assert!(Options::parse(&args("--mp-bots --host --guests 73")).is_err());
     }
 
     /// A range's levels: every one used where there are enough bots, none

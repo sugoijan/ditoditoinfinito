@@ -199,7 +199,7 @@ fn practice_opens_straight_on_song_select_with_the_rules_behind_their_button() {
     assert!(v.host);
     // The defaults: four stages, three CPUs, on the players panel.
     assert_eq!((v.stage_count, v.cpus), (4, 3));
-    assert_eq!(said(&h, "Players.Count"), "4 / 9");
+    assert_eq!(said(&h, "Players.Count"), "4 / 73");
     assert_eq!(v.status, "Pick a song to start the match.");
     assert!(
         has(&h, "Pick a song to start the match."),
@@ -415,12 +415,18 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     assert_eq!(view(&env).draft, vec![4, 6]);
     press(&mut h, "Close");
     assert_eq!(top(&h), "room-rules");
-    // Up to the cap: eight CPUs beside the player, then nothing more.
+    // Up to the cap: 72 CPUs beside the player, then nothing more.
+    for _ in 0..66 {
+        press(&mut h, "AddRandom");
+    }
+    assert_eq!(view(&env).draft, vec![4, 72]);
     press(&mut h, "AddRandom");
-    press(&mut h, "AddRandom");
+    assert_eq!(view(&env).draft, vec![4, 72], "the cap holds");
+    // Back to eight for the rest.
+    for k in (8..72).rev() {
+        press(&mut h, &format!("Remove.{k}"));
+    }
     assert_eq!(view(&env).draft, vec![4, 8]);
-    press(&mut h, "AddRandom");
-    assert_eq!(view(&env).draft, vec![4, 8], "the cap holds");
     press(&mut h, "Dec.stages");
     press(&mut h, "Dec.stages");
     // The match's rules (D0): DDI, with no row of its own; its
@@ -1153,7 +1159,7 @@ fn the_players_are_always_beside_the_song() {
         x0 >= 32.0 && x1 <= 600.0 && y0 >= info[3] && y1 <= 680.0,
         "{x0} {y0} {x1} {y1}"
     );
-    assert_eq!(said(&h, "Players.Count"), "9 / 9");
+    assert_eq!(said(&h, "Players.Count"), "9 / 73");
     assert!(!there(&h, "Players.More"), "nine fit without scrolling");
     assert_eq!(said(&h, "Players0.Name"), "You");
     assert!(there(&h, "Players0.Me"), "You is marked");
@@ -1293,7 +1299,7 @@ fn a_phone_shows_the_players_as_a_strip_that_opens_the_list() {
         let strip = h.ui.bounds("Players.Strip").unwrap();
         assert!(strip[3] <= wheel[1] + 0.5, "{strip:?} {wheel:?}");
         let texts = h.texts();
-        assert!(has(&h, "You") && has(&h, "4 / 9"), "{texts:?}");
+        assert!(has(&h, "You") && has(&h, "4 / 73"), "{texts:?}");
         let roster = room.borrow().rules().cpu.roster.clone();
         for spec in &roster {
             let name = spec.name.clone().unwrap();
@@ -1753,7 +1759,7 @@ fn the_panels_lines_say_what_each_player_is_doing() {
         (&ha, "You", "bob", "Loading"),
         (&hb, "alice", "You", "Ready"),
     ] {
-        assert_eq!(said(h, "Players.Count"), "4 / 9");
+        assert_eq!(said(h, "Players.Count"), "4 / 73");
         assert_eq!(said(h, "Players0.Name"), me);
         assert_eq!(said(h, "Players0.Role"), "Host · Picking");
         assert_eq!(said(h, "Players1.Name"), other);

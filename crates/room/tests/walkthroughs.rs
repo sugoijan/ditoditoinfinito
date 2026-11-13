@@ -57,6 +57,15 @@ impl Room {
         Self::new(rules, ContentSource::LocalLibrary)
     }
 
+    /// The cap as a value (73 by default since 2026-11-13): the policy's,
+    /// and the seats of the next match's rules with it.
+    fn cap(&mut self, cap: u16) {
+        for s in [&mut self.s, &mut self.mirror] {
+            s.policy.max_competitors = cap;
+            s.next.rules.seats = s.next.rules.seats.min(cap);
+        }
+    }
+
     fn follow(&mut self, events: &[Event]) {
         if !events.is_empty() {
             self.mirror.commit(events);
@@ -1202,6 +1211,8 @@ impl Room {
 #[test]
 fn a_join_to_a_full_room_watches_and_plays_once_a_place_frees_up() {
     let mut r = Room::hosted(1);
+    // A cap of nine (a value: 73 by default since 2026-11-13).
+    r.cap(9);
     r.s.policy.max_members = 11;
     r.mirror.policy.max_members = 11;
     let players: Vec<ParticipantId> = (0..8)
@@ -1233,7 +1244,7 @@ fn a_join_to_a_full_room_watches_and_plays_once_a_place_frees_up() {
         intent: Intent::Play,
     };
     assert_eq!(r.by(late, play.clone()), refused);
-    // The member limit (11 here; 32 by default) still refuses whole.
+    // The member limit (11 here; 384 by default) still refuses whole.
     assert_eq!(
         r.join_as("eleventh", Intent::Watch, false),
         Err(Rejection::RoomFull)
@@ -1262,6 +1273,8 @@ fn a_join_to_a_full_room_watches_and_plays_once_a_place_frees_up() {
 #[test]
 fn the_competitor_cap_is_enforced() {
     let mut r = Room::hosted(1);
+    // A cap of nine (a value: 73 by default since 2026-11-13).
+    r.cap(9);
     for i in 0..8 {
         r.join(&format!("p{i}"), Intent::Play);
     }
@@ -1298,6 +1311,7 @@ fn the_competitor_cap_is_enforced() {
         )))
     );
     let mut rules = MatchRules::hosted();
+    rules.seats = 9;
     rules.cpu.mode = CpuMode::Fixed { count: 1 };
     assert_eq!(
         r.by(r.host, Command::SaveNextRules { rules }),
@@ -2141,8 +2155,8 @@ fn a_roster_seats_its_own_named_cpus_and_bounds_their_text() {
     );
     // Over the cap: still one policy check.
     let mut many = rules;
-    many.seats = 10;
-    many.cpu.roster = vec![many.cpu.roster[0].clone(); 9];
+    many.seats = 74;
+    many.cpu.roster = vec![many.cpu.roster[0].clone(); 73];
     assert!(matches!(
         many.validate(&RoomPolicy::default(), 1),
         Err(RulesProblem::OverCap(_))
@@ -3173,6 +3187,8 @@ fn intent(intent: Intent) -> Command {
 #[test]
 fn a_watcher_is_no_competitor_and_a_watching_host_still_runs_the_room() {
     let mut r = Room::hosted(3);
+    // A cap of nine (a value: 73 by default since 2026-11-13).
+    r.cap(9);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     let bo = r.join("bo", Intent::Play);

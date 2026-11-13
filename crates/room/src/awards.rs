@@ -126,7 +126,7 @@ impl TopBiased {
     pub const MIN_FIELD: usize = 9;
     /// The largest field with a table: the competitor cap
     /// (`RoomPolicy::INITIAL_COMPETITOR_CAP`).
-    pub const MAX_FIELD: usize = 73;
+    pub const MAX_FIELD: usize = crate::RoomPolicy::INITIAL_COMPETITOR_CAP as usize;
 
     /// The awards for each place of a `field`-starter stage, best first.
     pub fn awards(bias: PointsBias, field: usize) -> Option<Vec<u64>> {

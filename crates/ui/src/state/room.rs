@@ -3174,7 +3174,7 @@ mod tests {
     #[test]
     fn practice_seats_a_named_roster_and_development_far_more() {
         let room = RoomClient::new(0, 7);
-        assert_eq!(room.max_cpus(), 8, "nine competitors, the player included");
+        assert_eq!(room.max_cpus(), 72, "73 competitors, the player included");
         let roster = &room.rules().cpu.roster;
         assert_eq!(roster.len(), STARTING_CPUS);
         assert!(
@@ -3289,14 +3289,19 @@ mod tests {
     #[test]
     fn rules_follow_the_cap_and_the_roster() {
         let mut room = RoomClient::new(0, 1);
-        assert_eq!((room.min_cpus(), room.max_cpus()), (1, 8));
+        assert_eq!((room.min_cpus(), room.max_cpus()), (1, 72));
+        // At the cap: 72 CPUs, the catalog's and then numbered ones.
+        let full = crate::state::cpu_roster::at_level(&[], 4, 72, 3);
+        assert_eq!(full.len(), 72);
+        let at_cap = crate::state::cpu_roster::with_roster(room.rules().clone(), full, 1);
+        assert!(room.check_rules(&at_cap).is_ok());
         let roster = crate::state::cpu_roster::at_level(&[], 4, 8, 3);
         let mut rules = crate::state::cpu_roster::with_roster(room.rules().clone(), roster, 1);
         rules.stages = 2;
         room.save_rules(rules.clone()).unwrap();
         assert_eq!(cpus(&room), 8);
         assert_eq!(room.stages().len(), 2);
-        let mut over = rules.clone();
+        let mut over = at_cap.clone();
         over.cpu.roster.push(over.cpu.roster[0].clone());
         let over = crate::state::cpu_roster::with_roster(over.clone(), over.cpu.roster, 1);
         assert!(room.check_rules(&over).is_err());

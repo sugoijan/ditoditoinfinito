@@ -446,10 +446,6 @@ fn room(setup: &Setup) -> Room {
     let mut rules = MatchRules::hosted();
     rules.seats = setup.competitors as u16;
     rules.set_attacks(setup.attacks);
-    if setup.competitors > 9 {
-        // DEVELOPMENT ONLY: no award rule is decided for fields over nine.
-        rules.awards = ddi_room::AwardScheme::DevelopmentV0;
-    }
     r.players[0].send(Command::SaveNextRules { rules });
     r.run(500);
     r.players[0].send(Command::ChooseContent {
@@ -1211,14 +1207,12 @@ fn a_room_that_does_not_play_live_is_never_sent_a_live_frame() {
 
 #[test]
 fn seventy_three_competitors_stream_through_the_fake_at_speed() {
+    // The room's own cap and member bound (2026-11-13): 73 play, and
+    // members beyond them watch.
     let mut setup = Setup::new(73);
     setup.attacks = true;
-    setup.policy = RoomPolicy {
-        max_competitors: 73,
-        max_members: 100,
-        ..RoomPolicy::default()
-    }
-    .with_live();
+    setup.watchers = 12;
+    setup.policy = RoomPolicy::default().with_live();
     let plan = plan(16, 7, |j| j % 3 != 2);
     let scripts: Vec<Script> = (1..=73u64)
         .map(|i| {
@@ -1256,6 +1250,24 @@ fn seventy_three_competitors_stream_through_the_fake_at_speed() {
             assert_eq!(reader.moments(q.id), &sc.moments[..]);
         }
     }
+    // Settled by the top-biased table at the default Strong bias: 73
+    // places, 12 for first alone, 1 for the last, everyone placed.
+    let result = s
+        .current
+        .as_ref()
+        .or(s.history.last().map(|h| &h.played))
+        .and_then(|m| m.stage(STAGE))
+        .and_then(|st| st.play.as_ref())
+        .and_then(|p| p.result.as_ref())
+        .expect("a confirmed result");
+    assert_eq!(result.rule, ddi_room::AwardRule::TopBiasedStrongV1);
+    assert_eq!(result.placements.len(), 73);
+    // Watchers saw every competitor's fields too.
+    let watcher = r.players.last().unwrap();
+    let reader = watcher.link.live().reader().unwrap();
+    for (q, sc) in r.players.iter().zip(&scripts) {
+        assert_eq!(reader.moments(q.id), &sc.moments[..]);
+    }
     let server = r.server.borrow();
     let stage = server.live().unwrap().stage_or_last();
     eprintln!(
@@ -1275,12 +1287,7 @@ fn what_a_tick_costs_with_seventy_three_competitors() {
     let mut setup = Setup::new(n);
     setup.attacks = true;
     setup.latency = None;
-    setup.policy = RoomPolicy {
-        max_competitors: 73,
-        max_members: 100,
-        ..RoomPolicy::default()
-    }
-    .with_live();
+    setup.policy = RoomPolicy::default().with_live();
     let plan = plan(40, 7, |j| j % 3 != 2);
     let mut r = room(&setup);
     r.players[0].link.live_mut().send(ClientLive::OfferPlan {

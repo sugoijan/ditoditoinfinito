@@ -54,6 +54,35 @@ pub fn catalog() -> &'static [RosterCpu] {
     })
 }
 
+/// How many times the catalog is gone round for a room's CPUs: the
+/// catalog's 24 once by their own names, then again as "Lumen Kite 2",
+/// "Lumen Kite 3" (generated plainly, data as the names are), so that
+/// practice seats up to 72 (the cap of 73 beside the player).
+const ROUNDS: usize = 3;
+
+/// The catalog, then its CPUs again under generated names
+/// ([`ROUNDS`]), each round after the one before.
+fn pool() -> &'static [Vec<RosterCpu>] {
+    static POOL: OnceLock<Vec<Vec<RosterCpu>>> = OnceLock::new();
+    POOL.get_or_init(|| {
+        (0..ROUNDS)
+            .map(|round| {
+                catalog()
+                    .iter()
+                    .map(|c| RosterCpu {
+                        name: if round == 0 {
+                            c.name.clone()
+                        } else {
+                            format!("{} {}", c.name, round + 1)
+                        },
+                        ..c.clone()
+                    })
+                    .collect()
+            })
+            .collect()
+    })
+}
+
 /// What Add random aims for. PROVISIONAL (M7b): any CPU not seated yet; the
 /// hook where a balanced pick (a level near the people's) goes later.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -77,9 +106,15 @@ fn seated(roster: &[OpponentSpec], cpu: &RosterCpu) -> bool {
         .any(|s| s.name.as_deref() == Some(cpu.name.as_str()))
 }
 
-/// The catalog's CPUs not in `roster`.
+/// The catalog's CPUs not in `roster`: of the first round with one left
+/// (the catalog's own names until all 24 are seated, then the generated
+/// ones, [`pool`]), so the choice is never longer than the catalog.
 pub fn unseated(roster: &[OpponentSpec]) -> Vec<&'static RosterCpu> {
-    catalog().iter().filter(|c| !seated(roster, c)).collect()
+    pool()
+        .iter()
+        .map(|round| round.iter().filter(|c| !seated(roster, c)).collect::<Vec<_>>())
+        .find(|free| !free.is_empty())
+        .unwrap_or_default()
 }
 
 /// One CPU not in `roster`, drawn from `seed` as `aim` says, or none when
@@ -231,13 +266,35 @@ mod tests {
         assert_eq!(named.name.as_deref(), Some(name.as_str()));
         roster.push(named);
         assert!(by_name(&roster, &name, 1).is_none(), "seated already");
-        // Everyone seated: nothing more to add.
+        // Everyone seated, the catalog three times over: nothing more.
         let all = at_level(&roster, 0, 100, 5);
         roster.extend(all);
-        assert_eq!(roster.len(), catalog().len());
+        assert_eq!(roster.len(), catalog().len() * ROUNDS);
         assert!(random_cpu(&roster, RosterAim::Any, 1).is_none());
         let names: std::collections::BTreeSet<_> = roster.iter().map(|s| &s.name).collect();
         assert_eq!(names.len(), roster.len());
+    }
+
+    #[test]
+    fn seventy_two_are_seated_with_plain_generated_names_after_the_catalog() {
+        let mut roster = Vec::new();
+        for n in 0..80u64 {
+            if let Some(spec) = random_cpu(&roster, RosterAim::Any, n) {
+                roster.push(spec);
+            }
+        }
+        assert_eq!(roster.len(), 72, "three rounds of the catalog");
+        let names: std::collections::BTreeSet<_> =
+            roster.iter().map(|s| s.name.clone().unwrap()).collect();
+        assert_eq!(names.len(), 72, "every name its own");
+        // The catalog's own names first, then "… 2", then "… 3".
+        assert!(roster[..24].iter().all(|s| catalog()
+            .iter()
+            .any(|c| Some(&c.name) == s.name.as_ref())));
+        assert!(roster[24..48]
+            .iter()
+            .all(|s| s.name.as_ref().unwrap().ends_with(" 2")));
+        assert!(roster.iter().all(OpponentSpec::fits));
     }
 
     #[test]

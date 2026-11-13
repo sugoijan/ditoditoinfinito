@@ -11,11 +11,14 @@ use serde::{Deserialize, Serialize};
 /// checked in one place each, not array sizes or UI timers.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoomPolicy {
-    /// The competitor cap, humans and CPUs together. Nine (the maintainer,
-    /// 2026-11-11: eight opponents beside the player; first eight,
+    /// The competitor cap, humans and CPUs together. 73 (the maintainer,
+    /// 2026-11-13: "from 1+8 to 1+72 players"; nine before,
     /// `INITIAL_COMPETITOR_CAP`); nothing else in the model assumes it.
     pub max_competitors: u16,
-    /// Room members who are not administrators, watchers included.
+    /// Room members who are not administrators, watchers included: every
+    /// one listed in the room's state, so a bound on what the state and
+    /// its writes carry (`DEFAULT_MAX_MEMBERS`, PROVISIONAL). An audience
+    /// beyond it (counted, not listed) is not built.
     pub max_members: u16,
     /// Extra room for administrators entering to help, so a full room never
     /// shuts them out. Bounded; the real limit is a server-capacity decision.
@@ -95,11 +98,21 @@ impl RoomPolicy {
 impl RoomPolicy {
     /// The operational cap (`docs/plans/multiplayer.md`, "Eight first and
     /// larger parties later"; raised to nine, eight opponents beside the
-    /// player, `docs/plans/multiplayer-prototype-progress.md`, M6b).
-    pub const INITIAL_COMPETITOR_CAP: u16 = 9;
+    /// player, M6b; to 73, 1+72, on 2026-11-13,
+    /// `docs/plans/multiplayer-prototype-progress.md`, "Rooms of 1+72
+    /// players"). The top-biased award tables go as far
+    /// (`crate::TopBiased::MAX_FIELD`).
+    pub const INITIAL_COMPETITOR_CAP: u16 = 73;
 
-    /// DEVELOPMENT ONLY: a practice room's cap for trying far more CPUs
-    /// than a match allows (`docs/plans/multiplayer-prototype-progress.md`,
+    /// The member bound, PROVISIONAL (`member-bound-v0`, 2026-11-13): a
+    /// full field and about three hundred members watching it, every one
+    /// listed in the state the server writes on each change and sends in
+    /// each snapshot (measured: `tests/scale.rs`, `what_a_large_room_costs`;
+    /// the server's own load test carried 73 and 300 watchers).
+    pub const DEFAULT_MAX_MEMBERS: u16 = 384;
+
+    /// DEVELOPMENT ONLY: a practice room's cap for trying more CPUs
+    /// than a match allows (kept for stress runs past 73) (`docs/plans/multiplayer-prototype-progress.md`,
     /// M6b). Never a hosted room's, never reachable from the game's menus.
     pub const DEVELOPMENT_COMPETITOR_CAP: u16 = 129;
 
@@ -130,7 +143,7 @@ impl Default for RoomPolicy {
     fn default() -> Self {
         Self {
             max_competitors: Self::INITIAL_COMPETITOR_CAP,
-            max_members: 32,
+            max_members: Self::DEFAULT_MAX_MEMBERS,
             admin_reserve: 4,
             max_stages: 16,
             history: 8,
@@ -412,7 +425,8 @@ impl MatchRules {
         }
     }
 
-    /// A hosted room's starting rules: four stages, eight seats, no CPUs.
+    /// A hosted room's starting rules: four stages, a seat for each of the
+    /// cap's competitors, no CPUs.
     pub fn hosted() -> Self {
         Self {
             stages: 4,
@@ -449,6 +463,8 @@ impl MatchRules {
     /// left them.
     pub fn hosted_for(policy: &RoomPolicy) -> Self {
         let mut rules = Self::hosted();
+        // An authority one build behind seats fewer (nine).
+        rules.seats = rules.seats.min(policy.max_competitors);
         if policy.live.is_some() {
             rules.set_attacks(true);
         }
@@ -687,21 +703,21 @@ mod tests {
     #[test]
     fn the_cap_is_one_policy_check() {
         let policy = RoomPolicy::default();
-        assert!(policy.check_competitors(9).is_ok());
+        assert!(policy.check_competitors(73).is_ok());
         assert_eq!(
-            policy.check_competitors(10),
+            policy.check_competitors(74),
             Err(CapExceeded {
-                requested: 10,
-                cap: 9
+                requested: 74,
+                cap: 73
             })
         );
         let mut rules = MatchRules::hosted();
-        rules.seats = 10;
+        rules.seats = 74;
         assert_eq!(
             rules.validate(&policy, 1),
             Err(RulesProblem::OverCap(CapExceeded {
-                requested: 10,
-                cap: 9
+                requested: 74,
+                cap: 73
             }))
         );
         // A larger policy is a value, not an architecture change.
