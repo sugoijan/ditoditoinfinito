@@ -77,6 +77,23 @@ struct Rig {
 /// charts adaptive, the player autoplayed where `auto`. `None` without a
 /// GPU adapter.
 fn rig(chart: usize, difficulty: Difficulty, cpus: u16, level: u8, seed: u64, auto: bool) -> Option<Rig> {
+    rig_with("beatucada", chart, difficulty, None, cpus, level, seed, auto)
+}
+
+/// [`rig`] with a roster of CPUs at `roster`'s levels (from 0) instead,
+/// where it names one.
+#[allow(clippy::too_many_arguments)]
+fn rig_with(
+    id: &str,
+    chart: usize,
+    difficulty: Difficulty,
+    roster: Option<&[u8]>,
+    cpus: u16,
+    level: u8,
+    seed: u64,
+    auto: bool,
+) -> Option<Rig> {
+    let cpus = roster.map_or(cpus, |r| r.len() as u16);
     common::indexes();
     let instance = gpu::instance();
     let Some(adapter) = gpu::adapter(&instance, None) else {
@@ -128,10 +145,10 @@ fn rig(chart: usize, difficulty: Difficulty, cpus: u16, level: u8, seed: u64, au
         Some(host.requested.clone()),
     ));
     ui.update(0.5);
-    let song = ddi_desktop::play::load::read_chart("beatucada").unwrap();
+    let song = ddi_desktop::play::load::read_chart(id).unwrap();
     let entry = SongEntry {
-        id: "beatucada".into(),
-        title: "Beatucada".into(),
+        id: id.into(),
+        title: song.title.clone(),
         charts: vec![ChartEntry {
             style: "dance-single".into(),
             difficulty,
@@ -152,6 +169,20 @@ fn rig(chart: usize, difficulty: Difficulty, cpus: u16, level: u8, seed: u64, au
         rules.set_attacks(true);
         rules.cpu.mode = ddi_room::CpuMode::Fixed { count: cpus };
         rules.cpu.roster.clear();
+        if let Some(levels) = roster {
+            rules.cpu.mode = ddi_room::CpuMode::Roster;
+            rules.cpu.roster = levels
+                .iter()
+                .enumerate()
+                .map(|(i, &level)| ddi_room::OpponentSpec {
+                    level,
+                    seed: seed + i as u64,
+                    personality: None,
+                    name: Some(format!("Level {}", level + 1)),
+                    targeting: None,
+                })
+                .collect();
+        }
         rules.cpu.opponent.level = level;
         // The same CPUs on every run (a practice room's seed is the time
         // it was made).
@@ -449,6 +480,89 @@ fn a_practice_stage_steps_up_the_player_and_a_cpu_climbs_two_rungs() {
     ui.update(0.5);
     ppm(
         "climb-standings",
+        &rig.ui_gpu.draw_offscreen(ui, SIZE, wgpu::TextureFormat::Rgba8Unorm),
+    );
+}
+
+/// `cpu-levels-v1` (absolute levels): under Adaptive charts from Some
+/// Things Must's Medium, CPUs of levels 2, 5 and 9 end on different charts
+/// (the weak one below the pick, the strong one above), where under
+/// `cpu-levels-v0` every level from about 4 climbed alike. The
+/// standings say where each finished.
+#[test]
+fn absolute_levels_end_a_stage_on_different_charts() {
+    const SONG: &str = "some-things-must";
+    let song = ddi_desktop::play::load::read_chart(SONG).unwrap();
+    let medium = song
+        .charts
+        .iter()
+        .position(|c| c.layout == "dance-single" && c.difficulty == ddi_chart::Difficulty::Medium)
+        .unwrap();
+    let Some(mut rig) = rig_with(SONG, medium, Difficulty::Medium, Some(&[1, 4, 8]), 0, 0, 7, true)
+    else {
+        return;
+    };
+    let mut frames = 0;
+    let mut finals: Vec<Option<usize>> = Vec::new();
+    let mut shot = false;
+    let mut apart: Option<f64> = None;
+    while rig.host.playing() {
+        rig.frame();
+        if let Some(b) = rig.host.running().and_then(|p| p.session.battle()) {
+            finals = (0..b.views().len())
+                .filter_map(|i| b.opponent_player(i))
+                .map(|cpu| cpu.steps().last().map(|s| s.chart))
+                .collect();
+            // A picture once the three play three different charts, a
+            // few seconds on.
+            let now: std::collections::BTreeSet<usize> =
+                finals.iter().map(|f| f.unwrap_or(medium)).collect();
+            let t = rig
+                .host
+                .running()
+                .and_then(|p| p.session.player.judge().last_time())
+                .unwrap_or(0.0);
+            if now.len() < 3 {
+                apart = None;
+            } else if apart.is_none() {
+                apart = Some(t);
+            }
+            if !shot && apart.is_some_and(|a| t > a + 4.0) {
+                shot = true;
+                ppm("levels-on-their-rungs", &rig.read());
+            }
+        }
+        if frames % 16 == 0 {
+            let _ = rig.device.poll(wgpu::PollType::wait_indefinitely());
+        }
+        frames += 1;
+        assert!(frames < 8 * 400, "the play never ended");
+    }
+    let _ = rig.device.poll(wgpu::PollType::wait_indefinitely());
+    // Where each ended: the chart of its last step, the picked one without.
+    let ended: Vec<usize> = finals.iter().map(|f| f.unwrap_or(medium)).collect();
+    assert_eq!(ended.len(), 3, "{finals:?}");
+    let level = |c: usize| song.charts[c].difficulty;
+    assert!(
+        level(ended[0]) < level(ended[2]),
+        "level 2 ended below level 9: {:?}",
+        ended.iter().map(|&c| level(c)).collect::<Vec<_>>()
+    );
+    let distinct: std::collections::BTreeSet<usize> = ended.iter().copied().collect();
+    assert_eq!(distinct.len(), 3, "{ended:?}");
+    let ui = &mut rig.ui;
+    ui.update(0.05);
+    assert_eq!(top(ui), "results");
+    ui.update(1.0);
+    let view = rig.env.state.borrow().stage.clone().expect("the standings");
+    eprintln!(
+        "ended on {:?}; standings {:?}",
+        ended.iter().map(|&c| level(c)).collect::<Vec<_>>(),
+        view.rows.iter().map(|r| (r.name.clone(), r.stepped.clone())).collect::<Vec<_>>()
+    );
+    ui.update(0.5);
+    ppm(
+        "levels-standings",
         &rig.ui_gpu.draw_offscreen(ui, SIZE, wgpu::TextureFormat::Rgba8Unorm),
     );
 }
