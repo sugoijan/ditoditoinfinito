@@ -175,7 +175,7 @@ fn stage(
                 .attacks
                 .as_ref()
                 .map_or(&[][..], |a| a.ledger().checkpoints_us());
-            SETTLEMENT_V0
+            SETTLEMENT
                 .rank(&b.entrants_as(None), checkpoints, b.settling)
                 .0
         }

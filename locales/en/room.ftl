@@ -587,6 +587,12 @@ room-play-out = Out
 # the song): in the line under the opponents' small fields at the right.
 room-play-won = Stage won
 
+# Before "Stage won": the player is the only one still in, but shocks
+# already sent against them are still to come, so the stage is not won
+# yet (they could still run out of life and share first). In the line
+# under the opponents' small fields at the right, until the stage is won.
+room-play-last-standing = Last standing
+
 # A large field's ladder, under the small fields at the left, beside a
 # strip of everyone's life: the player's place among everyone in the
 # stage, of how many, and how many are still in (narrow: about 24 letters).
@@ -1466,6 +1472,12 @@ room-watch-cue-out = { $name } is out
 # Variables:
 #   $name (String) - who
 room-watch-cue-won = { $name } wins the stage
+
+# Someone watching: this competitor is the only one still in, with shocks
+# against them still to come (the stage is not won until they pass).
+# Variables:
+#   $name (String) - the competitor's name
+room-watch-cue-last-standing = { $name } is last standing
 
 # One player attacks another (shocks are sent into the other's notes).
 # Variables:

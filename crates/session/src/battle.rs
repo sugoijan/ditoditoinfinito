@@ -49,7 +49,7 @@ use ddi_engine::player::Player;
 use ddi_engine::rules::{Ruleset, ScoreView};
 use ddi_l10n::msg::room as m;
 use ddi_library::announcer::{Battle as Event, SURVIVOR_MILESTONES};
-use ddi_room::attacks::{AttackEvent, RosterSeat, SETTLEMENT_V0, Settling, StageRoster};
+use ddi_room::attacks::{AttackEvent, RosterSeat, SETTLEMENT, Settling, StageRoster};
 pub use ddi_room::attacks::{BlockReason, Targeting};
 use ddi_room::battle::decided;
 use ddi_room::{Absolute, BattlePreset, Entrant, Finisher, ParticipantId, Run, RunDetail, StageId};
@@ -258,7 +258,7 @@ pub struct StageOutcome {
     /// (`RoomClient::report_run`); the ranking is this device's alone.
     pub mine: Run,
     /// First shared because the last one in was knocked out while the
-    /// stage waited on an attack against them (`SETTLEMENT_V0`; the
+    /// stage waited on an attack against them (`SETTLEMENT_V1`; the
     /// results say "Drawn: final attack").
     pub drawn_by_final_attack: bool,
     /// How each competitor judged on this device performed (the local
@@ -402,6 +402,10 @@ pub enum WatchMoment {
     Drawn,
     /// An attack committed.
     Attack { from: usize, to: usize },
+    /// This competitor is the only one still in, with attacks against
+    /// them still to come (`settlement-v1`): the stage is not won until
+    /// they have passed. Never told where the win comes at once.
+    LastStanding { seat: usize },
 }
 
 /// The reading horizon a CPU's lead is reckoned from (D5): the local
@@ -493,8 +497,12 @@ pub struct Battle {
     /// When it was decided (the local player's judged song second).
     decided_at: Option<f64>,
     /// At most one competitor left, waiting on an attack against them
-    /// (`SETTLEMENT_V0`).
+    /// (`SETTLEMENT_V1`).
     settling: Option<Settling>,
+    /// When someone became last standing (song seconds, `settlement-v1`),
+    /// and when the stage was decided, as this device ran it.
+    last_standing_at: Option<f64>,
+    settled_at: Option<f64>,
     /// The commitments since they were last taken, worded for a log.
     log: Vec<String>,
     /// The local player's attack moments since they were last taken
@@ -745,6 +753,8 @@ impl Battle {
             drawn: false,
             decided_at: None,
             settling: None,
+            last_standing_at: None,
+            settled_at: None,
             log: Vec::new(),
             attack_moments: Vec::new(),
             seen: Vec::new(),
@@ -986,6 +996,7 @@ impl Battle {
         let settling = l.settling;
         self.remote_live = Some(l);
         self.settling = settling.or(self.settling);
+        self.note_last_standing();
         self.settle_live(human.as_deref())
     }
 
@@ -1003,6 +1014,7 @@ impl Battle {
         };
         let _ = early;
         self.tell(human, true);
+        self.settled_at = Some(self.clock());
         let me = self.setup.me;
         let won = human.is_some()
             && ranking.first().is_some_and(|g| {
@@ -1572,7 +1584,7 @@ impl Battle {
         }
     }
 
-    /// Whether the stage is decided now (`SETTLEMENT_V0`): at most one
+    /// Whether the stage is decided now (`SETTLEMENT_V1`): at most one
     /// competitor in and no attack against anyone still in outstanding;
     /// the ranking then, and what it tells. `human`: the local player's
     /// play (none: a watcher's stage, the CPUs alone).
@@ -1607,7 +1619,7 @@ impl Battle {
                 .map(|(p, _)| p)
                 .collect()
         });
-        let decided_now = SETTLEMENT_V0.decided(&entrants, &outstanding);
+        let decided_now = SETTLEMENT.decided(&entrants, &outstanding);
         // At most one left, an attack against them still to come: the
         // stage waits for it.
         if !decided_now && decided(&entrants) && self.settling.is_none() {
@@ -1629,15 +1641,19 @@ impl Battle {
                 });
             }
         }
+        if !decided_now {
+            self.note_last_standing();
+        }
         self.tell(human, decided_now);
         if !decided_now {
             return None;
         }
+        self.settled_at = Some(self.clock());
         let checkpoints = self
             .attacks
             .as_ref()
             .map_or(&[][..], |a| a.ledger().checkpoints_us());
-        let (ranking, drawn) = SETTLEMENT_V0.rank(&entrants, checkpoints, self.settling);
+        let (ranking, drawn) = SETTLEMENT.rank(&entrants, checkpoints, self.settling);
         let won = human.is_some()
             && ranking.first().is_some_and(|g| {
                 g.len() == 1
@@ -1758,7 +1774,7 @@ impl Battle {
                 .map(|(p, _)| p)
                 .collect()
         });
-        if !SETTLEMENT_V0.decided(&entrants, &outstanding) {
+        if !SETTLEMENT.decided(&entrants, &outstanding) {
             if decided(&entrants) && self.settling.is_none() {
                 let survivor = entrants
                     .iter()
@@ -1778,6 +1794,7 @@ impl Battle {
                     });
                 }
             }
+            self.note_last_standing();
             return;
         }
         // Only once the attacks matter: without them a stage played out
@@ -1790,10 +1807,57 @@ impl Battle {
             .attacks
             .as_ref()
             .map_or(&[][..], |a| a.ledger().checkpoints_us());
-        let (ranking, drawn) = SETTLEMENT_V0.rank(&entrants, checkpoints, self.settling);
+        let (ranking, drawn) = SETTLEMENT.rank(&entrants, checkpoints, self.settling);
         self.drawn = drawn;
         self.winners_play_on(&ranking);
         self.decided = Some(ranking);
+        self.settled_at = Some(self.clock());
+    }
+
+    /// The song second this device's stage stands at: the play's, or past
+    /// it the last checkpoint run (a stage played out).
+    fn clock(&self) -> f64 {
+        let ran = self.attacks.as_ref().and_then(|a| {
+            let (run, _) = a.checkpoints();
+            a.ledger()
+                .checkpoints_us()
+                .get(run.checked_sub(1)?)
+                .map(|&c| c as f64 / 1e6)
+        });
+        ran.map_or(self.now, |r| r.max(self.now))
+    }
+
+    /// The one left in became last standing (`settlement-v1`): when, once;
+    /// told to someone watching ([`WatchMoment::LastStanding`]); the
+    /// player's own shows in the status line while it lasts
+    /// ([`Battle::last_standing_me`]).
+    fn note_last_standing(&mut self) {
+        if self.last_standing_at.is_some() || self.decided.is_some() {
+            return;
+        }
+        let Some(s) = self.settling else {
+            return;
+        };
+        self.last_standing_at = Some(self.clock());
+        if s.survivor == self.setup.me && self.competes() {
+            return;
+        }
+        let base = self.seats.len();
+        let seat = self
+            .seats
+            .iter()
+            .position(|x| x.seat.participant == s.survivor)
+            .or_else(|| {
+                self.remote_live.as_ref().and_then(|l| {
+                    l.seats
+                        .iter()
+                        .position(|x| x.participant == s.survivor)
+                        .map(|i| base + i)
+                })
+            });
+        if let Some(seat) = seat {
+            self.watch_moments.push(WatchMoment::LastStanding { seat });
+        }
     }
 
     /// The stage decided with `ranking`: its CPU winners (alone, or first
@@ -2362,7 +2426,7 @@ impl Battle {
         self.refused + self.remote_live.as_ref().map_or(0, |l| l.refused)
     }
 
-    /// Decided by a final attack's knockout (`SETTLEMENT_V0`).
+    /// Decided by a final attack's knockout (`SETTLEMENT_V1`).
     pub fn drawn_by_final_attack(&self) -> bool {
         self.drawn
     }
@@ -2372,8 +2436,28 @@ impl Battle {
         self.settling.filter(|_| self.decided.is_none())
     }
 
+    /// The one competitor still in while attacks against them are still
+    /// to come (`settlement-v1`): last standing, not yet the winner.
+    pub fn last_standing(&self) -> Option<ParticipantId> {
+        self.settling().map(|s| s.survivor)
+    }
+
+    /// The local player is last standing (`settlement-v1`): the status
+    /// line says so until the stage is won (or they go out).
+    pub fn last_standing_me(&self, human: &Player) -> bool {
+        self.competes()
+            && self.me_in(human)
+            && self.last_standing() == Some(self.setup.me)
+    }
+
+    /// When someone became last standing and when the stage was decided
+    /// (song seconds, as this device ran it; the attack-rate study).
+    pub fn last_standing_span(&self) -> (Option<f64>, Option<f64>) {
+        (self.last_standing_at, self.settled_at)
+    }
+
     /// The stage waited for an attack against the last one in before it
-    /// was decided (`SETTLEMENT_V0`).
+    /// was decided (`SETTLEMENT_V1`).
     pub fn waited_to_settle(&self) -> bool {
         self.settling.is_some()
     }
@@ -2492,7 +2576,7 @@ impl Battle {
     /// The stage's outcome now the play is over: the ranking decided
     /// during the song, else the opponents and the attacks between them
     /// played out ([`Battle::play_out`]: nothing they do depends on the
-    /// player any more) and everyone ranked (`SETTLEMENT_V0`); `quit`,
+    /// player any more) and everyone ranked (`SETTLEMENT_V1`); `quit`,
     /// the local player left while still in (a forfeit; never after the
     /// stage was decided).
     pub fn outcome(&mut self, human: &Player, quit: bool) -> StageOutcome {
@@ -2565,7 +2649,7 @@ impl Battle {
             .as_ref()
             .map_or(&[][..], |a| a.ledger().checkpoints_us());
         let me = (!watched).then_some(mine);
-        let (ranking, drawn) = SETTLEMENT_V0.rank(&self.entrants_as(me), checkpoints, self.settling);
+        let (ranking, drawn) = SETTLEMENT.rank(&self.entrants_as(me), checkpoints, self.settling);
         StageOutcome {
             stage: self.setup.stage,
             ranking,
@@ -2779,7 +2863,7 @@ pub fn forfeit(
         .map_or(&[][..], |a| a.ledger().checkpoints_us());
     let (ranking, drawn) = match &b.decided {
         Some(r) => (r.clone(), b.drawn),
-        None => SETTLEMENT_V0.rank(&entrants, checkpoints, b.settling),
+        None => SETTLEMENT.rank(&entrants, checkpoints, b.settling),
     };
     Ok(StageOutcome {
         stage: b.setup.stage,

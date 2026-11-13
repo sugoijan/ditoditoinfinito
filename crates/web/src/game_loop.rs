@@ -253,7 +253,7 @@ impl GameLoop {
     }
 
     /// The stage just played was drawn by a final attack's knockout
-    /// (`ddi_room::attacks::SETTLEMENT_V0`): its results say so.
+    /// (`ddi_room::attacks::SETTLEMENT_V1`): its results say so.
     pub(crate) fn drawn_by_final_attack(&self) -> bool {
         self.session
             .as_ref()

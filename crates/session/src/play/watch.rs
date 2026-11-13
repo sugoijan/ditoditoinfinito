@@ -208,7 +208,7 @@ impl Watch {
     pub fn tell(&mut self, moment: WatchMoment, host: f64) {
         let weight = |m: &WatchMoment| match m {
             WatchMoment::Won { .. } | WatchMoment::Drawn => 3,
-            WatchMoment::Out { .. } => 2,
+            WatchMoment::Out { .. } | WatchMoment::LastStanding { .. } => 2,
             WatchMoment::Attack { .. } => 1,
         };
         let kept = self
@@ -225,10 +225,16 @@ impl Watch {
             why: self.why,
             focus: self.focus,
             age: host - self.since,
-            // The decision stays to the end.
+            // The decision stays to the end, and who is last standing
+            // until it comes.
             cue: self.cue.map(|(m, at)| (m, host - at)).filter(|(m, age)| {
                 *age < WATCH_CUE_SECONDS
-                    || matches!(m, WatchMoment::Won { .. } | WatchMoment::Drawn)
+                    || matches!(
+                        m,
+                        WatchMoment::Won { .. }
+                            | WatchMoment::Drawn
+                            | WatchMoment::LastStanding { .. }
+                    )
             }),
             over: self.over_at.is_some(),
             page: self.page,

@@ -719,7 +719,7 @@ pub struct StageTable {
 /// summary (M8 round 3): how many attacks they sent each opponent and
 /// were sent by each (in the order first sent), the shocks they stepped
 /// on, and whether the stage was drawn by a final attack
-/// (`SETTLEMENT_V0`). Kept by a practice's client beside the standings'
+/// (`SETTLEMENT_V1`). Kept by a practice's client beside the standings'
 /// details ([`RoomClient::set_stage_summary`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AttackSummary {

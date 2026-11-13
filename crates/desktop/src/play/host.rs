@@ -2067,7 +2067,7 @@ impl Host {
         }
         if play.request.stage.is_some() {
             data.kind = ddi_ui::screens::data::ResultsKind::Stage;
-            // A final attack's knockout drew it (`SETTLEMENT_V0`).
+            // A final attack's knockout drew it (`SETTLEMENT_V1`).
             if play
                 .session
                 .battle()

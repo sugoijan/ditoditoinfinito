@@ -2024,8 +2024,8 @@ fn chained_attacks_are_delivered_back_to_back_into_plays_and_cpus() {
     }
 }
 
-/// SETTLEMENT_V0 (D6): no Stage won while an attack against the last one
-/// in is outstanding. CPUs on a battery of a few lives go out to their
+/// SETTLEMENT_V1 (D6): no Stage won while an attack against the last one
+/// in is outstanding; the player is last standing until then. CPUs on a battery of a few lives go out to their
 /// misses and to the attacks; the autoplayed player (who never steps on
 /// a shock) is the last one in. Whenever the stage is decided early,
 /// every attack committed against the player before then had cleared;
@@ -2069,6 +2069,16 @@ fn an_early_win_waits_for_the_last_attack_to_clear() {
         assert_eq!(ids(&outcome)[0], vec![(order.me.0, Finish::Survived)]);
         assert!(!outcome.drawn_by_final_attack);
         waited += usize::from(b.waited_to_settle());
+        // `settlement-v1`: where it waited, the player was last standing
+        // first, then won; where it did not, last standing and won came
+        // at once and only the win is told.
+        let (stood, settled) = b.last_standing_span();
+        assert_eq!(stood.is_some(), b.waited_to_settle(), "seed {seed}");
+        if let (Some(stood), Some(settled)) = (stood, settled) {
+            assert!(stood < settled, "seed {seed}: {stood} {settled}");
+        }
+        assert_eq!(b.last_standing(), None, "decided");
+        assert!(!b.last_standing_me(&s.player));
     }
     assert!(early > 0 && waited > 0, "{early} {waited}");
 }
@@ -2426,6 +2436,7 @@ fn a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely() {
     let mut done_at = None;
     let mut winner = None;
     let mut outs = 0;
+    let mut stood = false;
     let event = loop {
         *clock.borrow_mut() += 1.0 / 60.0;
         let host = *clock.borrow();
@@ -2434,6 +2445,14 @@ fn a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely() {
             && age == 0.0
         {
             outs += 1;
+        }
+        if let Some((WatchMoment::LastStanding { seat }, _)) = s.watch(host).and_then(|w| w.cue) {
+            assert!(!s.battle().unwrap().decided());
+            assert_eq!(
+                Some(s.battle().unwrap().views()[seat].participant),
+                s.battle().unwrap().last_standing()
+            );
+            stood = true;
         }
         if decided_at.is_none() && s.battle().unwrap().decided() {
             decided_at = Some(host);
@@ -2477,6 +2496,9 @@ fn a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely() {
     };
     let at = decided_at.expect("decided before the song's end");
     assert!(outs > 0, "each going out was told");
+    // `settlement-v1`: last standing told where the stage waited for
+    // attacks against the one left, never where the win came at once.
+    assert_eq!(stood, s.battle().unwrap().waited_to_settle());
     let host = *clock.borrow();
     match done_at {
         // The last one still playing ended (the winner done with the

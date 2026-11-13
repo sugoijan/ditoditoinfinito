@@ -1248,6 +1248,9 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             online.mods,
             m::play_out().into(),
             m::play_won().into(),
+            // Before it, attacks still to come (`settlement-v1`).
+            m::play_last_standing().into(),
+            m::watch_cue_last_standing("Ava").into(),
             // A change of the rules from a later stage (2026-11-13): the
             // status line, its refusals, the Standings' marks.
             m::status_rules_change(

@@ -369,7 +369,7 @@ pub struct PlayView<H: PlayHost> {
     overlay: Option<(Painter, DrawList)>,
     /// A stage's opponents' words (`crate::opponents`: "Out", "Stage
     /// won"), once worded.
-    shown_words: Option<[String; 2]>,
+    shown_words: Option<[String; 3]>,
     /// Where the last frame put the opponents' miniatures, if it did,
     /// and whether a battle's moment was shown in their status line.
     fields_drawn: Option<crate::opponents::Fields>,
@@ -1411,7 +1411,8 @@ impl<H: PlayHost> PlayView<H> {
                 // The decision stays to the end.
                 let alpha = match m {
                     ddi_session::battle::WatchMoment::Won { .. }
-                    | ddi_session::battle::WatchMoment::Drawn => 1.0,
+                    | ddi_session::battle::WatchMoment::Drawn
+                    | ddi_session::battle::WatchMoment::LastStanding { .. } => 1.0,
                     _ => policy.cue_alpha(age, render.reduced_motion),
                 };
                 Some((watch_words(m, &names)?, alpha))
@@ -1562,7 +1563,11 @@ impl<H: PlayHost> PlayView<H> {
         let shown = session.battle().zip(all_fields).map(|(b, fields)| {
             let words = self.shown_words.get_or_insert_with(|| {
                 use ddi_l10n::msg::room as m;
-                [m::play_out().into(), m::play_won().into()]
+                [
+                    m::play_out().into(),
+                    m::play_won().into(),
+                    m::play_last_standing().into(),
+                ]
             });
             let mut opponents = b.views();
             let mut all: Vec<_> = b.feeds().collect();
@@ -1580,7 +1585,13 @@ impl<H: PlayHost> PlayView<H> {
                 crate::opponents::Shown {
                     opponents,
                     out: words[0].clone(),
-                    won: b.won().then(|| words[1].clone()),
+                    // "Stage won", or before it "Last standing" while
+                    // attacks against the player are still to come.
+                    won: if b.won() {
+                        Some(words[1].clone())
+                    } else {
+                        b.last_standing_me(&session.player).then(|| words[2].clone())
+                    },
                     label,
                     large: large_at,
                     stale: b.stale_seats(),
@@ -1976,6 +1987,7 @@ fn watch_words(m: ddi_session::battle::WatchMoment, names: &[String]) -> Option<
             WatchMoment::Won { seat } => r::watch_cue_won(name(seat)?),
             WatchMoment::Drawn => r::play_cue_stage_drawn(),
             WatchMoment::Attack { from, to } => r::watch_cue_attack(name(from)?, name(to)?),
+            WatchMoment::LastStanding { seat } => r::watch_cue_last_standing(name(seat)?),
         }
         .into(),
     )

@@ -344,6 +344,8 @@ room-play-out = アウト
 
 room-play-won = 1位確定
 
+room-play-last-standing = 最後の一人
+
 room-play-ladder = { $field }人中 { $place }位 · 残り{ $left }人
 
 room-play-ladder-field = { $field }人中 残り{ $left }人
@@ -676,6 +678,8 @@ room-watch-following = { $name }を観戦中
 room-watch-cue-out = { $name } アウト
 
 room-watch-cue-won = { $name } 1位確定
+
+room-watch-cue-last-standing = { $name }が最後の一人
 
 room-watch-cue-attack = { $from }が{ $to }を攻撃
 
