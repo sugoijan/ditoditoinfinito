@@ -1113,6 +1113,12 @@ room-refused-all-watching = Everyone is watching. Someone has to play.
 # seconds of a stage: how to follow one player.
 room-watch-hint = Tab or tap a field to follow one player
 
+# At the start of the same status line under the opponents' fields, during
+# an online stage played live, once the room's server lost the stage's live
+# part (it restarted): the play goes on, the others' fields stop moving, and
+# the run is reported at its end as before.
+room-live-lost = The room lost the live stage; your run counts at the end
+
 # In the same line while one player's field is the large one in the
 # middle.
 # Variables:

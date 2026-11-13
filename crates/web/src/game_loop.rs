@@ -995,6 +995,14 @@ impl GameLoop {
                         })).collect::<Vec<_>>(),
                     })),
                     "stage_won": s.battle().is_some_and(|b| b.won()),
+                    // An online stage played live
+                    // (`docs/plans/multiplayer-online-play.md`): the
+                    // room's clock as estimated (offset and uncertainty,
+                    // ms), the play's stream (batches acknowledged and
+                    // not), the frames read, the seats marked stale, the
+                    // attacks this play refused and whether the room lost
+                    // the stage's live part. Null for any other play.
+                    "live": live_debug(s),
                     // A watched stage (`watch-v0`), as the last frame
                     // drew it: `view` is `grid` (every field over the
                     // whole screen), `focus` (the seat in `focus` large,
@@ -1262,6 +1270,41 @@ pub(crate) fn upload_noteskin(
 /// reason, incoming and outgoing), the checkpoints run, the warning and
 /// waiting line as drawn (`drawn`), a final attack's draw, the last
 /// events.
+/// A live stage's part of the debug state (`"live"`).
+fn live_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
+    s: &ddi_session::play::PlaySession<A, I>,
+) -> Value {
+    let Some(b) = s.battle().filter(|b| b.is_live()) else {
+        return Value::Null;
+    };
+    let stage = b.setup().stage;
+    let room = crate::room::last_room();
+    let Ok(r) = room.try_borrow() else {
+        return Value::Null;
+    };
+    let link = r.live_link();
+    let clock = link.and_then(|l| l.clock());
+    let outbox = link.and_then(|l| l.outbox(stage));
+    json!({
+        "on": link.is_some_and(|l| l.is_on()),
+        "clock": clock.map(|c| json!({
+            "offset_ms": c.offset_us as f64 / 1_000.0,
+            "uncertainty_ms": c.uncertainty_us as f64 / 1_000.0,
+            "samples": c.samples,
+        })),
+        "song_zero_in": r.song_zero_in(stage),
+        "stream": outbox.map(|o| json!({
+            "acked": o.acked(),
+            "unacked": o.unacked(),
+            "ended": o.ended(),
+        })),
+        "frames": link.and_then(|l| l.reader()).and_then(|x| x.last()),
+        "stale": b.stale_seats(),
+        "refused": b.refused(),
+        "lost": b.live_lost(),
+    })
+}
+
 fn attacks_debug(
     s: &PlaySession,
     drawn: (Option<ddi_shell::battle_cue::Cue>, bool),

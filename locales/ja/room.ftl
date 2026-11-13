@@ -536,6 +536,7 @@ room-intent-play = プレイする
 room-refused-all-watching = プレイする人がいません。
 
 room-watch-hint = Tabかタップでプレイヤーを選べます
+room-live-lost = ルームがステージの中継を失いました。結果は最後に送られます
 
 room-watch-following = { $name }を観戦中
 

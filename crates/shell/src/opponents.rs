@@ -71,6 +71,9 @@ pub struct Shown {
     /// stage's focus: the play's own field's place): no name line, no
     /// stars and no small score there (the HUD's places say them).
     pub large: Option<usize>,
+    /// The seats whose stream is behind (a live stage's: their numbers
+    /// held, their field marked quietly, dimmed, until it catches up).
+    pub stale: Vec<usize>,
 }
 
 /// What a miniature says of its opponent's score, as the local player's
@@ -93,6 +96,8 @@ impl ScoreShown {
     pub fn text(self, o: &OpponentView) -> String {
         match (self, o.sum) {
             (ScoreShown::Sum, Some(sum)) => sum.to_string(),
+            // A live stage's person: the stream tells the sum alone.
+            (ScoreShown::Percent, Some(sum)) if o.score.is_nan() => sum.to_string(),
             _ => {
                 let hundredths = ((o.score * 1_000_000.0).round() as i64).div_euclid(100);
                 let sign = if hundredths < 0 { "-" } else { "" };
@@ -1057,7 +1062,13 @@ pub fn draw_fields(
             continue;
         };
         let [x, y, w, h] = slot.rect;
-        let dim = if o.out { 0.55 } else { 1.0 };
+        let dim = if o.out {
+            0.55
+        } else if shown.stale.contains(&slot.seat) {
+            0.7
+        } else {
+            1.0
+        };
         let fade = |c: [f32; 4]| [c[0], c[1], c[2], c[3] * dim];
         // Its name, cut to its room, and its level's stars: at the name
         // line's end where the slot is wide, on a short line of their own
@@ -1333,6 +1344,7 @@ pub(crate) mod tests {
             score: ScoreShown::Sum,
             label: None,
             large: None,
+            stale: Vec::new(),
         }
     }
 

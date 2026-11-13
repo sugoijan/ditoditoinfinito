@@ -1324,15 +1324,24 @@ impl<H: PlayHost> PlayView<H> {
             .or(cue);
         // The status line's quiet word: who is followed, or, for a
         // stage's first seconds, how to follow someone.
-        let label: Option<String> = spectator.and_then(|w| match w.focus {
-            Some(seat) => names
-                .get(seat)
-                .map(|n| ddi_l10n::msg::room::watch_following(n.as_str()).into()),
-            None if w.age < ddi_session::play::WATCH_HINT_SECONDS && !w.over => {
-                Some(ddi_l10n::msg::room::watch_hint().into())
-            }
-            None => None,
-        });
+        let label: Option<String> = spectator
+            .and_then(|w| match w.focus {
+                Some(seat) => names
+                    .get(seat)
+                    .map(|n| ddi_l10n::msg::room::watch_following(n.as_str()).into()),
+                None if w.age < ddi_session::play::WATCH_HINT_SECONDS && !w.over => {
+                    Some(ddi_l10n::msg::room::watch_hint().into())
+                }
+                None => None,
+            })
+            // A live stage the room lost (it restarted): the play goes on,
+            // reported at its end.
+            .or_else(|| {
+                session
+                    .battle()
+                    .filter(|b| b.live_lost())
+                    .map(|_| ddi_l10n::msg::room::live_lost().into())
+            });
         // Who attacks whom: a line and the recipient's field outlined
         // (`crate::attack_links`). For the player's own attacks; for
         // someone watching, between the competitors' fields (a grid's,
@@ -1447,6 +1456,7 @@ impl<H: PlayHost> PlayView<H> {
                     won: b.won().then(|| words[1].clone()),
                     label,
                     large: large_at,
+                    stale: b.stale_seats(),
                     cue,
                     // DDI's score (the sum) or percent, as the player's
                     // Score display has their own; another ruleset's
