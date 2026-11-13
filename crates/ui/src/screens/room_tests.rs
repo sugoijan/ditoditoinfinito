@@ -3060,7 +3060,8 @@ fn practice_never_asks_and_forgets_a_match_left_running() {
     let mut h = harness();
     h.push(screen(&room));
     h.run(0.5);
-    // (The stopped match's results pop up first: closed.)
+    // (A match stopped before any stage was finished has no results to
+    // pop up; closed if they do.)
     for _ in 0..3 {
         if top(&h) == "select" {
             break;
@@ -3740,11 +3741,10 @@ fn the_rules_pop_up_during_a_match_says_so_and_restarts_it_on_request() {
     h.pad(MenuAction::Start, true);
     h.pad(MenuAction::Start, false);
     h.run(0.5);
-    // The stopped match's standings first, as after Stop match.
-    assert_eq!(top(&h), "room-standings", "{:?}", h.texts());
-    assert!(has(&h, "Match stopped · finished stages only"));
-    press(&mut h, "Continue");
+    // No stage of the stopped match was finished: no standings pop up
+    // (a table of zeros), the room's song select at once.
     assert_eq!(top(&h), "select", "{:?}", h.texts());
+    assert!(!has(&h, "Match stopped · finished stages only"));
     let v = view(&env);
     assert_eq!(v.phase, "interrupted");
     assert!(!v.rules_open);

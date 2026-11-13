@@ -2297,10 +2297,13 @@ fn a_watched_stage_runs_its_cpus_to_its_settlement_at_any_frame_rate() {
     assert_eq!(rankings[0], rankings[1], "the same at 60 and 144");
 }
 
-/// A watched stage ends a while after it is decided (the winner said),
-/// and a watcher's quit leaves it at once with nobody forfeiting.
+/// A watched stage goes on after it is decided while the winner plays
+/// the song out (the decision said, and kept, on the status line), and
+/// ends a while after the last one still playing ended (or at the song's
+/// end: `watch-v1`); a watcher's quit leaves it at once with nobody
+/// forfeiting.
 #[test]
-fn a_watched_stage_ends_after_its_decision_and_a_watcher_leaves_freely() {
+fn a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely() {
     use crate::battle::WatchMoment;
     let song = bundled("beatucada");
     // CPUs that go out (a battery of one life, TESTS ONLY): decided
@@ -2326,6 +2329,7 @@ fn a_watched_stage_ends_after_its_decision_and_a_watcher_leaves_freely() {
     )
     .unwrap();
     let mut decided_at = None;
+    let mut done_at = None;
     let mut outs = 0;
     let event = loop {
         *clock.borrow_mut() += 1.0 / 60.0;
@@ -2339,12 +2343,30 @@ fn a_watched_stage_ends_after_its_decision_and_a_watcher_leaves_freely() {
         if decided_at.is_none() && s.battle().unwrap().decided() {
             decided_at = Some(host);
             let w = s.watch(host).unwrap();
-            assert!(w.over);
+            // The winner plays on: not over yet, the decision said.
+            assert!(!w.over);
+            assert!(s.battle().unwrap().still_playing());
             assert!(
                 matches!(w.cue, Some((WatchMoment::Won { .. } | WatchMoment::Drawn, _))),
                 "{:?}",
                 w.cue
             );
+        }
+        if let Some(at) = decided_at
+            && event.is_none()
+        {
+            let w = s.watch(host).unwrap();
+            // The decision stays on the line to the end.
+            assert!(
+                matches!(w.cue, Some((WatchMoment::Won { .. } | WatchMoment::Drawn, _))),
+                "{} s after: {:?}",
+                host - at,
+                w.cue
+            );
+            if done_at.is_none() && !s.battle().unwrap().still_playing() {
+                done_at = Some(host);
+                assert!(s.watch(host).unwrap().over);
+            }
         }
         if let Some(e) = event {
             break e;
@@ -2354,11 +2376,22 @@ fn a_watched_stage_ends_after_its_decision_and_a_watcher_leaves_freely() {
     let at = decided_at.expect("decided before the song's end");
     assert!(outs > 0, "each going out was told");
     let host = *clock.borrow();
-    assert!(
-        (host - at - WATCH_END_HOLD).abs() < 0.05,
-        "the results {} s after the decision",
-        host - at
-    );
+    match done_at {
+        // The last one still playing ended (the winner done with the
+        // chart, or out on its battery after the decision: a CPU's fail
+        // stays): the results the hold after that, not after the
+        // decision (or sooner, at the song's end).
+        Some(done) => {
+            assert!(done >= at);
+            assert!(
+                host - done <= WATCH_END_HOLD + 0.05,
+                "the results {} s after the last one ended",
+                host - done
+            );
+        }
+        // Or played on to the song's end.
+        None => assert!(host - at > WATCH_END_HOLD, "{} s", host - at),
+    }
     assert!(matches!(event, SessionEvent::Finished { .. }));
     let outcome = s.take_stage_outcome().unwrap();
     assert!(outcome.confirmed_early && outcome.watched);

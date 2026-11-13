@@ -669,7 +669,8 @@ Rust and the browser are implementation details, not advertised features.
   raising it, stale ones dimmed; `__DDI_DEBUG.live.delay`), its commitments into the play (refused when too
   late), its records driving the bars, warnings and links, its decision
   shown; `LivePlay` the same for the bots;
-  a stage watched (`play/watch.rs`, `watch-v0`,
+  a stage watched (`play/watch.rs`, `watch-v1`: on after its decision
+  while anyone still plays it, `Battle::still_playing`,
   `docs/plans/multiplayer-prototype-progress.md`, "Watching a stage"):
   by a spectator, a member who chose Watch (`StageSetup::watching`: the
   session's own player never judged, its clock alone; the CPUs alone on

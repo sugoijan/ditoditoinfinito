@@ -1327,6 +1327,11 @@ impl<H: PlayHost> PlayView<H> {
         self.renderer.set_miniatures(minis);
         host.lap(Lap::Scene);
         host.before_render(device, encoder);
+        // Out of the stage or left it: the hand rests where the play
+        // ended rather than dancing on behind the dimmed field.
+        let hand_time = session
+            .hand_rests_at()
+            .map_or(frame.song_time, |at| frame.song_time.min(at));
         self.dance.before_field(
             device,
             queue,
@@ -1334,7 +1339,7 @@ impl<H: PlayHost> PlayView<H> {
             &mut self.renderer,
             target.format,
             target.size,
-            frame.song_time,
+            hand_time,
             &|| host.seconds(),
         );
         host.lap(Lap::Hand);
@@ -1360,7 +1365,7 @@ impl<H: PlayHost> PlayView<H> {
             target.plain.unwrap_or(target.view),
             target.format,
             target.size,
-            frame.song_time,
+            hand_time,
         );
         self.host.lap(Lap::Hand);
         // A battle's moment no line said, in the miniatures' status line

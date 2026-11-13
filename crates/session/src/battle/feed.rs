@@ -36,7 +36,9 @@
 
 use ddi_chart::{Quantization, Song, Tick, TimingMap};
 use ddi_engine::battle::{HAZARD_INDEX_BASE, Hazard};
-use ddi_engine::frame::{Frame, HoldJudgements, NoteSprite, ReceptorState, SpriteKind};
+use ddi_engine::frame::{
+    Frame, HoldJudgements, HoldKind, NoteSprite, ReceptorState, SpriteKind,
+};
 use ddi_engine::frame::JudgementFlash;
 use ddi_engine::rules::{Judgement, ScoreView};
 use ddi_engine::scroll::{ScrollOptions, ScrollState};
@@ -60,8 +62,16 @@ pub enum MomentKind {
     Tap(Judgement),
     /// A battle shock stepped on (M8b).
     ShockHit,
-    /// Nothing a note shows (a remote player's hold end, mine or stray
-    /// press, their going out): their numbers after it alone.
+    /// A hold's (or roll's) end, its head's note: held to it, or let go
+    /// (a person's stream, `crate::battle::live`).
+    HoldEnd(bool),
+    /// A mine of the chart stepped on (a person's stream).
+    MineHit,
+    /// A stray press that counted (DDI's Boo): the large field says
+    /// "Boo", nothing else shows it (as a play's own field).
+    Boo,
+    /// Nothing a note shows (their going out): their numbers after it
+    /// alone.
     Mark,
 }
 
@@ -92,6 +102,20 @@ pub struct Moment {
     pub score: ScoreView,
 }
 
+/// What a note of the track is drawn as.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Shape {
+    Tap,
+    Lift,
+    Mine,
+    /// A hold or a roll to its end (song seconds, displayed beat).
+    Hold {
+        roll: bool,
+        end_seconds: f64,
+        end_displayed: f64,
+    },
+}
+
 #[derive(Clone, Copy, Debug)]
 struct TrackNote {
     seconds: f64,
@@ -99,6 +123,7 @@ struct TrackNote {
     tick: Tick,
     lane: u8,
     quantization: Quantization,
+    shape: Shape,
 }
 
 /// The chart's tap-only copy, as the miniatures draw it: its notes in
@@ -115,42 +140,54 @@ impl TapTrack {
     /// where they cannot play it.
     pub fn new(song: &Song, chart: usize) -> Result<TapTrack, String> {
         let copy = ddi_engine::cpu::project(song, chart)?;
-        Ok(Self::of(&copy, chart, |_| true))
+        Ok(Self::of(&copy, chart, |_| Some(Shape::Tap)))
     }
 
     /// Chart `chart` of `song` itself, as a person plays it (an online
-    /// room's stage played live, `crate::battle::live`): every note a
-    /// press judges (taps, the heads of holds and rolls, lifts), drawn as
-    /// taps; mines and fakes left out.
+    /// room's stage played live, `crate::battle::live`): its taps, holds
+    /// and rolls to their ends, lifts and mines, as a play's own field
+    /// draws them; fakes left out.
     pub fn full(song: &Song, chart: usize) -> Result<TapTrack, String> {
-        if song.charts.get(chart).is_none() {
+        let Some(c) = song.charts.get(chart) else {
             return Err(format!("no chart {chart}"));
-        }
-        Ok(Self::of(song, chart, |k| {
-            matches!(
-                k,
-                ddi_chart::NoteKind::Tap
-                    | ddi_chart::NoteKind::HoldHead { .. }
-                    | ddi_chart::NoteKind::RollHead { .. }
-                    | ddi_chart::NoteKind::Lift
-            )
+        };
+        let timing = c.timing(song);
+        Ok(Self::of(song, chart, |k| match *k {
+            ddi_chart::NoteKind::Tap => Some(Shape::Tap),
+            ddi_chart::NoteKind::Lift => Some(Shape::Lift),
+            ddi_chart::NoteKind::Mine => Some(Shape::Mine),
+            ddi_chart::NoteKind::HoldHead { end } | ddi_chart::NoteKind::RollHead { end } => {
+                Some(Shape::Hold {
+                    roll: matches!(k, ddi_chart::NoteKind::RollHead { .. }),
+                    end_seconds: timing.seconds_at(end),
+                    end_displayed: timing.displayed_beat(end.beat()),
+                })
+            }
+            _ => None,
         }))
     }
 
-    fn of(song: &Song, chart: usize, keep: impl Fn(&ddi_chart::NoteKind) -> bool) -> TapTrack {
+    fn of(
+        song: &Song,
+        chart: usize,
+        shape: impl Fn(&ddi_chart::NoteKind) -> Option<Shape>,
+    ) -> TapTrack {
         let c = &song.charts[chart];
         let timing = c.timing(song).clone();
         let lanes = song.layout_of(c).map_or(4, |l| l.lane_count()) as u8;
         let mut notes: Vec<TrackNote> = c
             .notes
             .iter()
-            .filter(|n| keep(&n.kind) && timing.judgeable(n.tick))
-            .map(|n| TrackNote {
-                seconds: timing.seconds_at(n.tick),
-                displayed: timing.displayed_beat(n.tick.beat()),
-                tick: n.tick,
-                lane: n.lane,
-                quantization: n.tick.quantization(),
+            .filter(|n| timing.judgeable(n.tick))
+            .filter_map(|n| {
+                Some(TrackNote {
+                    seconds: timing.seconds_at(n.tick),
+                    displayed: timing.displayed_beat(n.tick.beat()),
+                    tick: n.tick,
+                    lane: n.lane,
+                    quantization: n.tick.quantization(),
+                    shape: shape(&n.kind)?,
+                })
             })
             .collect();
         notes.sort_by(|a, b| a.seconds.total_cmp(&b.seconds).then(a.lane.cmp(&b.lane)));
@@ -214,8 +251,12 @@ pub struct FeedShock {
 pub struct FieldFeed {
     moments: Vec<Moment>,
     /// For each note of the track: when it leaves the field (its hit's
-    /// moment, the field's own time), if it was hit.
+    /// moment, the field's own time), if it was hit; a hold's: when its
+    /// head was hit (it is held from then).
     gone: Vec<f64>,
+    /// For each hold of the track: when it ended and whether it was held
+    /// to its end (else let go: dropped).
+    hold_end: Vec<Option<(f64, bool)>>,
     /// The battle's shocks put into their play, in time order.
     shocks: Vec<FeedShock>,
     delay: f64,
@@ -239,6 +280,7 @@ impl FieldFeed {
         FieldFeed {
             moments: Vec::new(),
             gone: vec![f64::INFINITY; track.len()],
+            hold_end: vec![None; track.len()],
             shocks: Vec::new(),
             delay: delay.max(0.0),
             life,
@@ -340,7 +382,19 @@ impl FieldFeed {
                     self.gone[i] = self.gone[i].min(m.at);
                 }
             }
-            MomentKind::Tap(_) | MomentKind::Mark => {}
+            MomentKind::HoldEnd(ok) => {
+                if let Some(i) = track.find(m.tick, m.lane)
+                    && self.hold_end[i].is_none_or(|(at, _)| m.at < at)
+                {
+                    self.hold_end[i] = Some((m.at, ok));
+                }
+            }
+            MomentKind::MineHit => {
+                if let Some(i) = track.find(m.tick, m.lane) {
+                    self.gone[i] = self.gone[i].min(m.at);
+                }
+            }
+            MomentKind::Tap(_) | MomentKind::Boo | MomentKind::Mark => {}
             MomentKind::ShockHit => {
                 if let Some(s) = self
                     .shocks
@@ -413,7 +467,9 @@ impl FieldFeed {
             };
             match m.kind {
                 MomentKind::Tap(j) if r.flash.is_none() => r.flash = Some((j, age.max(0.0))),
-                MomentKind::ShockHit if r.mine.is_none() => r.mine = Some(age.max(0.0)),
+                MomentKind::ShockHit | MomentKind::MineHit if r.mine.is_none() => {
+                    r.mine = Some(age.max(0.0))
+                }
                 _ => {}
             }
         }
@@ -421,29 +477,88 @@ impl FieldFeed {
         if !out {
             // From a second back (a missed note still in sight) to the
             // first one past the far end.
+            // From a second back (a missed note still in sight; a hold
+            // still being held, however long) to the first one past the
+            // far end.
             let from = track.notes.partition_point(|n| n.seconds < v - 1.0);
-            for (i, n) in track.notes.iter().enumerate().skip(from) {
-                let y = state.y_displayed(n.displayed, n.seconds);
+            let holds = track.notes[..from].iter().enumerate().filter(|(i, n)| {
+                matches!(n.shape, Shape::Hold { end_seconds, .. } if end_seconds >= v - 1.0)
+                    && self.hold_end[*i].is_none_or(|(at, ok)| !ok || at > v)
+            });
+            let rest = track.notes.iter().enumerate().skip(from);
+            for (i, n) in holds.chain(rest) {
+                let mut y = state.y_displayed(n.displayed, n.seconds);
                 if y > range && n.seconds > v {
                     break;
                 }
-                if self.gone[i] <= v || y > range || y < -0.6 {
+                let hit = self.gone[i] <= v;
+                let (kind, bottom, life) = match n.shape {
+                    Shape::Tap | Shape::Lift | Shape::Mine if hit => continue,
+                    Shape::Tap => (SpriteKind::Tap, y, 1.0),
+                    Shape::Lift => (SpriteKind::Lift, y, 1.0),
+                    Shape::Mine => (SpriteKind::Mine, y, 1.0),
+                    Shape::Hold {
+                        roll,
+                        end_seconds,
+                        end_displayed,
+                    } => {
+                        let ended = self.hold_end[i].filter(|(at, _)| *at <= v);
+                        if ended.is_some_and(|(_, ok)| ok) {
+                            // Held to its end: gone.
+                            continue;
+                        }
+                        let dropped = ended.is_some();
+                        let active = hit && !dropped && v < end_seconds;
+                        if active {
+                            // Held: its head pinned to the receptor.
+                            y = 0.0;
+                        }
+                        let tail_y = state.y_displayed(end_displayed, end_seconds);
+                        let head = if roll {
+                            SpriteKind::RollHead {
+                                tail_y,
+                                active,
+                                dropped,
+                            }
+                        } else {
+                            SpriteKind::HoldHead {
+                                tail_y,
+                                active,
+                                dropped,
+                            }
+                        };
+                        (head, tail_y, if dropped { 0.0 } else { 1.0 })
+                    }
+                };
+                if y > range || bottom.max(y) < -0.6 {
                     continue;
                 }
-                let alpha = ((range - y) / 0.8).min((y + 0.6) / 0.6).clamp(0.0, 1.0);
+                let alpha = ((range - y) / 0.8)
+                    .min((bottom.max(y) + 0.6) / 0.6)
+                    .clamp(0.0, 1.0);
+                if let SpriteKind::HoldHead { active: true, .. } = kind
+                    && let Some(r) = receptors.get_mut(usize::from(n.lane))
+                {
+                    r.holding = Some(HoldKind::Hold);
+                }
+                if let SpriteKind::RollHead { active: true, .. } = kind
+                    && let Some(r) = receptors.get_mut(usize::from(n.lane))
+                {
+                    r.holding = Some(HoldKind::Roll);
+                }
                 let beat = n.tick.beat();
                 notes.push(NoteSprite {
                     note_index: i,
                     lane: n.lane,
                     y,
-                    kind: SpriteKind::Tap,
+                    kind,
                     quantization: n.quantization,
                     beat_frac: (beat - beat.floor()) as f32,
                     color: None,
                     alpha,
                     glow: 0.0,
                     beat: beat as f32,
-                    hold_life: 1.0,
+                    hold_life: life,
                 });
             }
             // The battle's shocks: from their commitment, until stepped
@@ -525,7 +640,18 @@ impl FieldFeed {
                     w0: m.w0,
                     boo: false,
                 }),
-                MomentKind::ShockHit | MomentKind::Mark => None,
+                MomentKind::Boo => Some(JudgementFlash {
+                    judgement: Judgement::Miss,
+                    delta_seconds: 0.0,
+                    age: (v - m.at).max(0.0) as f32,
+                    combo_at: m.combo,
+                    w0: None,
+                    boo: true,
+                }),
+                MomentKind::ShockHit
+                | MomentKind::HoldEnd(_)
+                | MomentKind::MineHit
+                | MomentKind::Mark => None,
             })
             .filter(|f| f.age < WORD_SECONDS);
         frame
@@ -806,6 +932,81 @@ mod tests {
             .iter()
             .find(|n| n.note_index == HAZARD_INDEX_BASE + 1);
         assert!(passed.is_some_and(|n| n.y < 0.0), "avoided: scrolls past");
+    }
+
+    /// A person's field (the chart itself): a hold's head hit pins it to
+    /// the receptor, held, until its end takes it off; one let go is drawn
+    /// dropped and scrolls on; a mine stepped on leaves the field and
+    /// flashes its receptor; a Boo is said on the large field alone.
+    #[test]
+    fn a_persons_holds_mines_and_boos_show_as_their_stream_says() {
+        let song = song();
+        let chart = (0..song.charts.len())
+            .find(|&c| {
+                TapTrack::full(&song, c)
+                    .is_ok_and(|t| t.notes.iter().filter(|n| matches!(n.shape, Shape::Hold { .. })).count() >= 2)
+            })
+            .expect("a chart with holds");
+        let track = TapTrack::full(&song, chart).unwrap();
+        let mut feed = FieldFeed::new(&track, 1.0, LOCAL_DELAY);
+        let scroll = ScrollOptions::default();
+        let holds: Vec<usize> = (0..track.len())
+            .filter(|&i| matches!(track.notes[i].shape, Shape::Hold { .. }))
+            .collect();
+        let (a, b) = (holds[0], holds[1]);
+        let end = |i: usize| match track.notes[i].shape {
+            Shape::Hold { end_seconds, .. } => end_seconds,
+            _ => unreachable!(),
+        };
+        let kind_of = |f: &Frame, i: usize| f.notes.iter().find(|n| n.note_index == i).map(|n| (n.kind, n.y));
+        for i in [a, b] {
+            feed.push(&track, moment(&track, i, Judgement::W1, 0.0));
+        }
+        let mid = track.notes[a].seconds + (end(a) - track.notes[a].seconds) / 2.0;
+        if mid > track.notes[a].seconds + 0.02 {
+            let f = feed.frame(&track, scroll, mid, 12.0);
+            let (k, y) = kind_of(&f, a).expect("held: drawn");
+            assert!(matches!(k, SpriteKind::HoldHead { active: true, dropped: false, .. } | SpriteKind::RollHead { active: true, dropped: false, .. }), "{k:?}");
+            assert_eq!(y, 0.0, "pinned to the receptor");
+            assert!(f.receptors[usize::from(track.notes[a].lane)].holding.is_some());
+        }
+        let mut held = moment(&track, a, Judgement::W1, 0.0);
+        held.kind = MomentKind::HoldEnd(true);
+        held.at = end(a);
+        feed.push(&track, held);
+        let mut let_go = moment(&track, b, Judgement::W1, 0.0);
+        let_go.kind = MomentKind::HoldEnd(false);
+        let_go.at = track.notes[b].seconds + 0.01;
+        feed.push(&track, let_go);
+        let after = feed.frame(&track, scroll, end(a) + 0.01, 12.0);
+        assert!(kind_of(&after, a).is_none(), "held to its end: gone");
+        let t = track.notes[b].seconds + 0.02;
+        if end(b) > t + 0.05 {
+            let f = feed.frame(&track, scroll, t, 12.0);
+            let (k, _) = kind_of(&f, b).expect("let go: still drawn");
+            assert!(matches!(k, SpriteKind::HoldHead { dropped: true, active: false, .. } | SpriteKind::RollHead { dropped: true, active: false, .. }), "{k:?}");
+        }
+        // A Boo: the large field's word, nothing on a miniature.
+        let mut boo = moment(&track, 0, Judgement::Miss, 0.0);
+        boo.kind = MomentKind::Boo;
+        boo.at = 0.5;
+        feed.push(&track, boo);
+        let large = feed.frame_large(&track, scroll, 0.6, 12.0);
+        assert!(large.judgement.is_some_and(|j| j.boo));
+        assert!(feed.frame(&track, scroll, 0.6, 12.0).judgement.is_none());
+        // A mine of the chart, where it has one: drawn, and gone once
+        // stepped on, its receptor flashing.
+        if let Some(m) = (0..track.len()).find(|&i| track.notes[i].shape == Shape::Mine) {
+            let at = track.notes[m].seconds;
+            let before = feed.frame(&track, scroll, at - 0.2, 12.0);
+            assert!(matches!(kind_of(&before, m), Some((SpriteKind::Mine, _))));
+            let mut hit = moment(&track, m, Judgement::Miss, 0.0);
+            hit.kind = MomentKind::MineHit;
+            feed.push(&track, hit);
+            let f = feed.frame(&track, scroll, at + 0.01, 12.0);
+            assert!(kind_of(&f, m).is_none());
+            assert!(f.receptors[usize::from(track.notes[m].lane)].mine.is_some());
+        }
     }
 
     #[test]

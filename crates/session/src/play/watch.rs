@@ -27,10 +27,14 @@ pub const TOUCH_PAGE_SEAT: usize = usize::MAX;
 /// The control a tap on "Skip to results" sends.
 pub const TOUCH_SKIP_CONTROL: &str = "skip";
 
-/// PROVISIONAL (`watch-v0`): how long a watched stage is shown on after
-/// it is decided before its results (the winner's name in the status
-/// line meanwhile), the music fading over as long as a fail's; how long
-/// the grid's hint shows; how long a moment stays in the status line.
+/// PROVISIONAL (`watch-v1`, 2026-11-13; `watch-v0` ended it this long
+/// after the decision): a watched stage goes on after it is decided while
+/// anyone still plays its song (the winner finishing it, anyone playing
+/// it out; the decision said on the status line as it comes, and kept),
+/// and is shown this long after the last of them ended before its
+/// results, the music fading over as long as a fail's (or at the song's
+/// end); how long the grid's hint shows; how long a moment stays in the
+/// status line.
 pub const WATCH_END_HOLD: f64 = 2.5;
 pub const WATCH_END_FADE: f64 = super::FAIL_FADE;
 pub const WATCH_HINT_SECONDS: f64 = 6.0;
@@ -65,7 +69,8 @@ pub struct WatchView {
     pub age: f64,
     /// The stage's latest moment for the status line, and how old it is.
     pub cue: Option<(WatchMoment, f64)>,
-    /// The stage is decided: its results follow.
+    /// Nobody plays the stage any more (decided, the winner done): its
+    /// results follow.
     pub over: bool,
     /// The grid's page ([`GRID_PAGE`] fields a page, by standing), from 0.
     pub page: usize,
@@ -91,7 +96,8 @@ pub(super) struct Watch {
     pub focus: Option<usize>,
     /// Host seconds it began at.
     pub since: f64,
-    /// Host seconds the stage was seen decided at.
+    /// Host seconds the stage was seen decided with nobody playing it any
+    /// more.
     pub over_at: Option<f64>,
     pub skip: bool,
     shift: bool,

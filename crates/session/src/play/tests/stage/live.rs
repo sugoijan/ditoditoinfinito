@@ -699,6 +699,48 @@ fn a_socket_lost_mid_stage_resends_and_resumes_the_stage_whole() {
     assert_eq!(stage.end(ids[1]), Some(StreamEnd::Finished));
 }
 
+/// The room's object restarts mid-stage (`FakeServer::restart_live`, as
+/// the server's may): its live part is lost, every batch is answered
+/// `unknown_stage`. Each play keeps going, stops streaming, says so on the
+/// status line (`Battle::live_lost`), and reports its run at its end; the
+/// room settles the stage on the reports.
+#[test]
+fn a_stage_the_room_lost_in_a_restart_plays_on_and_settles_on_the_reports() {
+    let song = bundled("beatucada");
+    let r = Room::new(&[("alice", Intent::Play), ("bob", Intent::Play)], None);
+    let orders = pick_and_ready(&r, &song, true, 0);
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 0.0]);
+    let server = r.server.clone();
+    let mut restarted = false;
+    let mut lost_seen = [false, false];
+    let mut ended = play_out(&r, &mut plays, 200.0, |t, plays| {
+        if t > 20.0 && !restarted {
+            restarted = true;
+            server.borrow_mut().restart_live();
+        }
+        for (i, p) in plays.iter().enumerate() {
+            lost_seen[i] |= p.battle().is_some_and(|b| b.live_lost());
+        }
+    });
+    assert!(restarted);
+    assert_eq!(lost_seen, [true, true], "both plays heard the stage was lost");
+    let stage = orders[0].as_ref().unwrap().stage;
+    for (i, e) in ended.iter_mut().enumerate() {
+        let (event, o) = e.take().expect("the play ended");
+        assert!(matches!(event, SessionEvent::Finished { .. }), "finished");
+        assert!(!o.confirmed_early, "nothing decided live after the restart");
+        r.rooms[i]
+            .borrow_mut()
+            .report_played(o.stage, o.mine, o.ranking, o.confirmed_early, o.details)
+            .unwrap();
+    }
+    r.run(3.0);
+    let s = r.server.borrow().state().clone();
+    let play = s.stage(stage).unwrap().play.clone().unwrap();
+    assert!(play.song_ended, "settled on the reports: {:?}", s.phase);
+    assert_eq!(play.reports.len(), 2);
+}
+
 /// A commitment that reaches its target too late to be shown fairly (its
 /// first shock's warning already due: here, every frame three seconds
 /// late on its way to Bob) is refused by Bob's play and said in his

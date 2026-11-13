@@ -158,6 +158,9 @@ pub struct FakeServer {
     /// Latencies and uplink faults for the next sockets people open.
     pending_latency: BTreeMap<ParticipantId, Latency>,
     pending_up_faults: BTreeMap<ParticipantId, Vec<Fault>>,
+    /// The stage in play whose live part a restart lost
+    /// ([`FakeServer::restart_live`]), while the room is still on it.
+    lost: Option<crate::StageId>,
 }
 
 pub type SharedFake = Rc<RefCell<FakeServer>>;
@@ -212,7 +215,40 @@ impl FakeServer {
             live,
             pending_latency: BTreeMap::new(),
             pending_up_faults: BTreeMap::new(),
+            lost: None,
         }
+    }
+
+    /// The room's object restarts, as the server's may mid-stage: what
+    /// its live side keeps for storage (`LiveServer::durable`) survives,
+    /// the stage in play is lost (its streams were in memory). As the
+    /// server's `LiveHost` does then, every batch and resume for that
+    /// stage is answered `unknown_stage` and the stage gets no frames
+    /// while the room is still on it; it settles on its reports.
+    pub fn restart_live(&mut self) {
+        let Some(live) = self.live.as_ref() else {
+            return;
+        };
+        let rules = live.rules();
+        let durable = live.durable();
+        self.live = Some(LiveServer::restore(rules, durable));
+        self.lost = crate::live::server::live_stage(self.authority.state())
+            .filter(|_| {
+                matches!(
+                    self.authority.state().phase,
+                    crate::Phase::Stage { .. } | crate::Phase::SongCompletion { .. }
+                )
+            })
+            .map(|(id, _)| id);
+    }
+
+    /// The stage this room's restart lost, while the room is still on it.
+    fn lost_now(&mut self) -> Option<crate::StageId> {
+        let current = crate::live::server::live_stage(self.authority.state()).map(|(id, _)| id);
+        if self.lost.is_some() && self.lost != current {
+            self.lost = None;
+        }
+        self.lost
     }
 
     /// The room's live side, where it plays live.
@@ -526,9 +562,20 @@ impl FakeServer {
             return;
         };
         let now = Millis(self.now());
-        let Some(live) = self.live.as_mut() else {
+        if self.live.is_none() {
             // An authority that predates live play reads no binary.
             self.close_conn(conn, close::BAD_MESSAGE);
+            return;
+        }
+        if let Some(stage) = self.lost_now() {
+            let mut out = LiveOut::default();
+            out.reply.push(LiveReply::Message(crate::live::ServerLive::Refused {
+                refusal: crate::live::LiveRefusal::UnknownStage { stage },
+            }));
+            self.live_out(Some(conn), out);
+            return;
+        }
+        let Some(live) = self.live.as_mut() else {
             return;
         };
         let out = live.receive_binary(self.authority.state(), participant, bytes, now);
@@ -593,6 +640,9 @@ impl FakeServer {
     /// The live side's time: its stage follows the room's, what is due
     /// runs (again after its own commands changed the room).
     fn live_tick(&mut self) {
+        if self.lost_now().is_some() {
+            return;
+        }
         for _ in 0..4 {
             let now = Millis(self.now());
             let Some(live) = self.live.as_mut() else {

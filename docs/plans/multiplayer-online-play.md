@@ -374,9 +374,9 @@ under `live-v2`, 36 stages): the least time to spare 1.81, 1.51 and
 1.11 s at 20, 80 and 200 ms each way (with as much again of jitter),
 against 1.51, 1.27 and 0.78 s under `live-v1`; no attack refused, 150
 taken at each latency. The deadline (0.75 s) and the network's lead
-(1.25 s) are unchanged: the room is there to take 0.25 s off the lead
+(1.25 s) are unchanged: there is room to take 0.25 s off the lead
 (attacks would land that much sooner online), which is the maintainer's
-to decide ("Open questions", 4).
+to decide ("Open questions", 11).
 
 Measured (2026-11-13): commitments are taken from frames as they arrive
 (not at the views' delay). In process, a person among three bots at 20,
@@ -666,6 +666,45 @@ eight a room and sixty an hour a token, for this many the limits raised
 for the run) or a temporary deployment of its own, and the competitor
 cap raised for that room only.
 
+### The load test under `live-v2` (local, 2026-11-13)
+
+The same driver and setup (a fresh `wrangler dev` of a release `dev-auth`
+build of its own on port 8797, a 40 s stage at 12 notes a second with
+attacks), the rooms now on `live-v2`'s 100 ms ticks, and every socket's
+view measured as the game draws it (`ddi-room`'s `ViewMeter` with
+`view-delay-v0`, from the song's eighth second; the driver and the
+runtime on one machine over loopback, so the delay is the periods'
+alone, about a quarter second):
+
+| Competitors | Watching | Frame spacing p50 / p99 / max (ms) | Room in (msg/s, KB/s) | Room out (msg/s, KB/s) | workerd CPU (ms/s) | Alarm wall p50 / p99 (ms) | View delay mean / p95 / max (ms) | Field-time stalled |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 9 | 0 | 100 / 104 / 105 | 85, 3.3 | 93, 23 | 81 | 2 / 4 | 248 / 250 / 250 | 0 |
+| 9 | 100 | 100 / 117 / 138 | 147, 6.7 | 1,229, 328 | 158 | 6 / 19 | 262 / 270 / 280 | 0 |
+| 9 | 300 | 100 / 110 / 122 | 278, 13.8 | 4,163, 1,237 | 280 | 9 / 17 | 256 / 260 / 270 | 0 |
+| 33 | 0 | 100 / 105 / 125 | 311, 11.5 | 399, 288 | 184 | 3 / 6 | 250 / 250 / 250 | 0 |
+| 33 | 100 | 100 / 126 / 145 | 374, 15.0 | 1,745, 1,220 | 246 | 5 / 23 | 259 / 270 / 280 | 0 |
+| 33 | 300 | 100 / 112 / 140 | 505, 22.1 | 5,089, 3,391 | 391 | 10 / 23 | 259 / 270 / 357 | 0 |
+| 73 | 0 | 100 / 106 / 135 | 687, 25.3 | 1,103, 1,385 | 263 | 4 / 6 | 251 / 260 / 260 | 0 |
+| 73 | 100 | 100 / 109 / 135 | 753, 28.9 | 2,795, 3,372 | 309 | 6 / 9 | 254 / 260 / 270 | 0 |
+| 73 | 300 (fresh runtime, twice) | 100 / 108–109 / 148–205 | 882, 35.9 | 6,833, 7,653 | 475–479 | 10 / 13 | 258–268 / 260–310 / 270–410 | 0–0.16% |
+
+Every frame built reached every socket, no refusal, close or unanswered
+command, every stage settled, except once: the first 73-and-300 run, on
+a runtime that had served the eight rooms before it (1.1 GB resident),
+fell behind; its frames stopped for up to 18 s and the clients, which
+then resent every unacknowledged batch each second, flooded it (17,000
+messages a second in); it never recovered and the runtime had to be
+restarted. The clients now back off their resends (`Outbox`: the wait
+doubles to 8 s while unanswered); twice more on a fresh runtime the
+same room ran clean. Against `live-v1`'s figures the room takes two to
+two and a half times the messages and twice the CPU: about half a core
+of the local runtime for 73 competitors and 300 watching (was a
+quarter). The deployed platform may be two to three times slower than
+this Mac: a full room with a large audience could pass one core there.
+For that size the tick could fall back to 250 ms where the room has
+many live sockets (a server rule, the views adapt by themselves): not
+built, the maintainer's to decide ("Open questions", 10).
+
 ## What the backend front builds (`../ddi-server`, `RoomDO`)
 
 1. New rooms' policy with `live: LivePolicy::v1()`; a stored room without
@@ -788,6 +827,12 @@ moving a refused attack.
 8. An award rule for fields over nine, needed before the cap can rise.
 9. A room's object restarting mid-stage loses that stage's live part (it
    settles on reports): acceptable for the prototype?
+10. A full room with a large audience costs about twice the CPU under
+    `live-v2` (half a core locally for 73 and 300 watching): keep 100 ms
+    ticks for every room, or tick at 250 ms past some number of live
+    sockets?
+11. Online attacks could land 0.25 s sooner under `live-v2` (the
+    network's lead has that room to spare): take it, or keep the margin?
 
 ## Tests
 

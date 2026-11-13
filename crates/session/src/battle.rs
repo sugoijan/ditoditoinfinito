@@ -639,6 +639,7 @@ impl Battle {
             return self;
         };
         let prep = live::prep_now(&handle, self.setup.stage, &order);
+        let most = self.most;
         self.remote_live = Some(live::Live::new(
             handle,
             self.setup.stage,
@@ -652,7 +653,8 @@ impl Battle {
             &self.track,
             lock,
         ));
-        if let Some(l) = &self.remote_live {
+        if let Some(l) = self.remote_live.as_mut() {
+            l.set_most(most);
             self.log.push(l.describe());
         }
         self
@@ -837,6 +839,11 @@ impl Battle {
         self.forfeit.is_some()
     }
 
+    /// When the local player left the stage's play (judged song second).
+    pub fn forfeited_at(&self) -> Option<f64> {
+        self.forfeit
+    }
+
     /// Whether anything is left to watch of a stage the local player is
     /// not in (or no longer in): it is not decided and a competitor is
     /// still playing it.
@@ -846,6 +853,28 @@ impl Battle {
         }
         self.decided.is_none()
             && !self.setup.remote()
+            && self
+                .seats
+                .iter()
+                .any(|s| s.opponent.out_at().is_none() && !s.opponent.finished())
+    }
+
+    /// Whether someone is still playing the stage's song as it is shown
+    /// here, decided or not (`watch-v1`, the maintainer, 2026-11-13: a
+    /// watched stage ends when the winner finishes): a CPU neither out nor
+    /// done with the chart; another device's competitor whose stream has
+    /// not ended, or whose end its field (drawn the view's delay behind)
+    /// has not reached yet. The local player's own play is not counted:
+    /// whoever asks is watching.
+    pub fn still_playing(&self) -> bool {
+        if let Some(l) = &self.remote_live {
+            return l.seats.iter().any(|s| match (s.end, s.through_us) {
+                (None, _) => true,
+                (Some(_), Some(end_us)) => s.feed.view_time(self.now) < end_us as f64 / 1e6,
+                (Some(_), None) => false,
+            });
+        }
+        !self.setup.remote()
             && self
                 .seats
                 .iter()
@@ -1855,20 +1884,25 @@ impl Battle {
             l.seats.iter().map(|s| {
                 // As the view shows them: a delay behind.
                 let shown = s.feed.shown(self.now);
+                let view = s.feed.shown_score(self.now);
                 OpponentView {
                     participant: s.participant,
                     name: s.name.clone(),
                     level: None,
                     life: shown.life,
                     out: shown.out,
-                    // The stream tells DDI's sum alone.
-                    score: 0.0,
-                    sum: Some(
-                        s.feed
-                            .shown_score(self.now)
-                            .and_then(|v| v.ddi)
-                            .map_or(0, |d| d.score),
-                    ),
+                    // The stream tells DDI's sum alone: the percent is
+                    // worked out from it, the W0s it told and the chart's
+                    // most (`live::ddi_of_sum`); none without a most.
+                    score: match (view.and_then(|v| v.ddi), self.most) {
+                        (Some(d), Some(_)) if d.most > 0 => accuracy(&ScoreView {
+                            ddi: Some(d),
+                            ..ScoreView::default()
+                        }),
+                        (None, Some(_)) => 0.0,
+                        _ => f64::NAN,
+                    },
+                    sum: Some(view.and_then(|v| v.ddi).map_or(0, |d| d.score)),
                     combo: shown.combo,
                     power: self
                         .live_attacks()

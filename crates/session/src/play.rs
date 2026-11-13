@@ -1522,10 +1522,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             self.cover.release();
         }
         // A watched stage's end: the player's skip or quit, the song's
-        // end, or a while after it was decided (the music fading).
+        // end, or a while after the last one still playing it ended (the
+        // winner finishing, `watch-v1`; the music fading).
         let mut watch_ended = None;
         if let (Some(w), Some(b)) = (self.watch.as_mut(), self.battle.as_ref()) {
-            if w.over_at.is_none() && !b.goes_on() {
+            if w.over_at.is_none() && !b.goes_on() && !b.still_playing() {
                 w.over_at = Some(host_now.0);
                 self.audio
                     .master_ramp(None, 0.0, None, watch::WATCH_END_FADE);
@@ -2150,6 +2151,21 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// while the player plays (and outside a stage).
     pub fn watch(&self, host: f64) -> Option<WatchView> {
         self.watch.as_ref().map(|w| w.view(host))
+    }
+
+    /// Where the dancing hand rests (judged song second): a player out of
+    /// the stage (their gauge emptied) or who left its play stops there
+    /// rather than dancing on behind their dimmed field; none while they
+    /// play (and for a spectator, who has no hand).
+    pub fn hand_rests_at(&self) -> Option<f64> {
+        let w = self.watch.as_ref()?;
+        if w.why == Watching::Spectator {
+            return None;
+        }
+        self.player
+            .gauge_failed_at()
+            .or_else(|| self.battle.as_ref().and_then(Battle::forfeited_at))
+            .or_else(|| self.player.judge().last_time())
     }
 
     /// The song goes on for what is drawn: the play's own, or a stage

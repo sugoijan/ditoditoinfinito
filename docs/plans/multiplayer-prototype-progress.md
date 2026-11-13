@@ -4878,6 +4878,99 @@ and ends".
 - **Debug**: `__DDI_DEBUG.live.delay` (`ms`, `target_ms`, `rules`,
   `live_rules`, `stalls`, `stalled_now`).
 
+### A watched stage runs until the winner finishes
+
+The maintainer: a watched stage should end "when the winner finishes"
+the song. `watch-v1` (PROVISIONAL): after the decision the watching goes
+on while anyone still plays the song (`Battle::still_playing`: in
+practice a CPU neither out nor done with the chart; online a competitor
+whose stream has not ended, or whose end its field, drawn the view's
+delay behind, has not reached yet); the decision is said on the status
+line as it comes and kept ("X wins the stage", "Stage drawn"); the
+results follow 2.5 s after the last one still playing ended (the music
+fading), or at the song's end; Enter, Start or the plate skip as before.
+The same for a player out of the stage or who left it. Online, the room
+keeps the stage in SongCompletion after its early decision and keeps
+taking and sending the streams until the last report (or the report
+deadline): the watcher follows the winner's stream to its end. The
+session test `a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely`
+(practice, CPUs on a battery of one life): not over at the decision,
+the decision on the line throughout, the results the hold after the
+last one still playing ended (or at the song's end), never the hold
+after the decision. A CPU winner keeps its fail after the decision (the
+engine's CPU offers no way to turn it off, and that code was left
+alone), so in practice a winner whose gauge empties afterwards ends the
+watching there; a person who wins has their fail turned off as before.
+
+### The gaps the first round left
+
+- **A remote person's percent** (where the player's Score display is
+  Percent): worked out, not sent. The stream carries DDI's sum alone
+  (nothing was added to the wire); a person's taps carry their W0s, and
+  the chart's most under the stage's rules is known here, so the points
+  are the one count whose `floor(1,000,000 × points ÷ most) + 100 ×
+  points` is the sum less the W0s (strictly increasing in the points),
+  and the percent follows exactly as their own play's
+  (`ddi_session::battle::live::ddi_of_sum`, tested for every count,
+  negative ones too, against `DdiScoreView::of`). Where the person's
+  copy of the chart differs (an option that leaves notes out) it is
+  their points against this device's most: approximate there. Their
+  miniature says it, and their Standings line says their own reported
+  percent once their run is reported (as before).
+- **The standings pop-up after a stop or a restart with no stage
+  finished** is skipped (`RoomClient::unseen_results`: none where the
+  match was stopped before any stage was finished, so no table of
+  zeros); tested in `ddi-ui` (the client's stop, the room screen's
+  Back after a stopped match).
+- **The dancing hand rests** where the player went out or left the
+  stage (`PlaySession::hand_rests_at`: the gauge's emptying, the
+  forfeit's time, else the last judged time); the play view draws it at
+  that time from then on, never at the song's (`ddi_shell::play_view`).
+- **A remote person's field drawn fully** (`ddi_session::battle::feed`,
+  `TapTrack::full`): their holds and rolls to their ends (the head
+  pinned to the receptor while held, the receptor holding; gone once
+  held to the end; drawn dropped and scrolling on once let go), their
+  lifts as lifts, the chart's mines (gone when stepped on, the receptor
+  flashing), shocks and the lane's lock as before, a Boo said on the
+  followed field ("Boo") and nowhere on a miniature (as a play's own
+  field shows it). Tested on the feed (`a_persons_holds_mines_and_boos_show_as_their_stream_says`);
+  not looked at in a browser this round (no live stage with a person
+  was run there).
+- **The `unknown_stage` path**: `FakeServer::restart_live` loses the
+  stage in play as the server's object does on a restart (its storage
+  kept, every batch and resume of that stage answered `unknown_stage`,
+  no frames while the room is on it). The session test
+  `a_stage_the_room_lost_in_a_restart_plays_on_and_settles_on_the_reports`:
+  both plays hear it, play on unstreamed (the status line's "The room
+  lost the live stage"), report at their ends, and the room settles the
+  stage on the reports.
+- **Clock drift, measured** (`crates/room/tests/live.rs`,
+  `clock_drift_study`: every device's clock 0, 50 or 500 millionths fast
+  or slow, alternately, a five-minute song, the views over its last
+  minute, nine competitors and a watcher at 80 ms each way). A play's
+  song clock is mapped from the room's once, at its start, and runs on
+  the device's own (its audio clock: the player's judging is never
+  re-timed), so two devices drifting apart move each other's streams
+  later or earlier by the drift. 50 ppm: nothing to see (the delay 468
+  ms on average against 469 without drift, no stall). 500 ppm (a fast
+  device watching a slow one: 300 ms apart after five minutes): no
+  stall either, the adaptive delay rises with it (608 ms on average,
+  780 at most, against 480); `live-v1`'s constant second was untouched
+  by it at both. Mapping a stream's times and the views onto the room's
+  clock as estimated through the stage instead (the study's
+  "resynced") holds 480 ms at 500 ppm. **Not built in the play**: the
+  session still maps once; doing it would put the moments' times and
+  the views on the room's clock (the play's song time plus a slowly
+  slewed correction from the clock's estimate, its judging left alone).
+  Worth it only for clocks as bad as 500 ppm over long songs.
+- **Resends backed off** (found by the load test, below): a stream
+  resent every unacknowledged batch each second while the room did not
+  answer; at ten batches a second a room that fell behind was sent a
+  growing backlog (17,000 messages a second into a room of 73 and 300
+  watching, which never recovered). `Outbox` now doubles its wait after
+  each unanswered resend, up to eight seconds, and starts over on an
+  acknowledgement or a new socket.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -4885,7 +4978,7 @@ and ends".
 | `join-watch-v0`: a join asking to play where every player's place is taken is in to watch; nobody is moved to Play when a place frees up; the arrival is said on the status line for 12 s | `ddi_room::RoomState::arrival_intent`, `players_full`; `ddi_ui`'s `LinkNotice::JoinedToWatch`, `JOINED_TO_WATCH_MS` | A tenth person joins a room of nine players to watch, and plays only once they choose Play after a place frees | Whether a freed place should go to the longest-waiting watcher (asked, or at once) |
 | The watch-only link: held to watching until the owner's Let play (the owner alone; co-hosts may copy the link but not let); replaced with the room's invite | `ddi_room::Member::watch_only`, `Command::SetWatchOnly`; `../ddi-server` `invite::watch_secret` | Someone who came to watch never takes a player's place unless the host lets them | Whether co-hosts should let people play; whether the watch link should be replaceable on its own |
 | `watch-v0`: a grid's field is at most a play's own field (`GRID_LANE_SHARE` 1.0); a layout with more rows wins within a tenth of the largest lane (`GRID_FILL` 0.9) | `ddi_shell::opponents::arrange_grid` | One to three watched fields are nearly the screen's height; eight are four by two at lanes of 29 px (1280×720) | The sizes; whether eight should give up the play's proportion (shorter fields, larger lanes) |
-| `watch-v0`: a watched stage's results follow 2.5 s after it is decided, the music fading (`WATCH_END_HOLD`) | `ddi_session::play::watch` | A watcher (and a player out of the stage) does not see the winner finish the song | Whether to stay to the song's end (the design study's "winner finishing") |
+| `watch-v1` (2026-11-13; `watch-v0` ended 2.5 s after the decision): a watched stage goes on after its decision while anyone still plays its song, its results 2.5 s after the last one ended (`WATCH_END_HOLD`) or at the song's end | `ddi_session::play::watch`, `Battle::still_playing` | A watcher (and a player out of the stage) sees the winner finish the song, "X wins the stage" on the status line from the decision on; Enter or Start still skips | Whether the hold after the winner finishes should be shorter |
 | `watch-v0`: where every person watches, a practice stage starts with the pick (the room's countdown), with no press of the watcher's | `ddi_room` `humans_needed`, `maybe_commit` | A watching host's pick is followed by the stage three seconds later | Whether a watching host should start it with a press |
 | `watch-v0`: the status line's moments for a watcher: out, attacks, the win; an attack never takes the line from someone going out | `ddi_session::play::watch::Watch::tell` | With eight CPUs attacking the line changes every few seconds | Which moments a watcher is told, and whether as a line of the announcer's |
 | A forfeit in play: the stage is watched on; the player's results are graded QUIT, their line last with no points | `Battle::forfeit_now`, `PlaySession::tick` | Escape twice in a stage shows "Left the stage" over the field and the stage goes on | Whether leaving should ask first, or be undoable for a moment |

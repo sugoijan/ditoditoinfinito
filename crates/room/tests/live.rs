@@ -10,7 +10,7 @@ use ddi_room::attacks::{
     ATTACKS, AttackEvent, CheckpointRecord, Judged, POWER_CLASSES_V0, Reporter, RosterSeat,
     StageBattle, StageRoster,
 };
-use ddi_room::fake::{FakeServer, FakeSocket, Fault, Latency, OffsetClock, SharedFake};
+use ddi_room::fake::{FakeServer, FakeSocket, Fault, Latency, SharedFake};
 use ddi_room::live::plan::BattlePlan;
 use ddi_room::live::server::{LiveDurable, LiveServer, Prepared};
 use ddi_room::live::stream::{LiveReport, Moment, MomentKind, StreamEnd};
@@ -184,6 +184,26 @@ impl Script {
     }
 }
 
+/// A device's own clock: the room's, `offset_ms` ahead (negative: behind),
+/// and running `ppm` millionths fast (negative: slow) from `origin` (the
+/// room's ms), as a device's clock (or its sound card's) drifts.
+#[derive(Clone, Debug)]
+struct DriftClock {
+    base: ManualClock,
+    offset_ms: i64,
+    ppm: i64,
+    origin: u64,
+}
+
+impl Clock for DriftClock {
+    fn now(&self) -> Millis {
+        let room = self.base.now().0;
+        let since = room.saturating_sub(self.origin) as i64;
+        let drift = since * self.ppm / 1_000_000;
+        Millis(room.saturating_add_signed(self.offset_ms + drift))
+    }
+}
+
 /// A person in the room: the online authority on a fake socket with a
 /// clock of its own, and the play it streams.
 struct Player {
@@ -191,7 +211,7 @@ struct Player {
     id: ParticipantId,
     client: ClientId,
     seq: u64,
-    link: OnlineAuthority<FakeSocket, OffsetClock>,
+    link: OnlineAuthority<FakeSocket, DriftClock>,
     server: SharedFake,
     play: Option<Script>,
     sent: usize,
@@ -202,9 +222,35 @@ struct Player {
     /// Stops pumping (its device gone) from this room ms.
     gone_at: Option<u64>,
     news: Vec<LiveNews>,
+    /// Its song clock mapped from the room's once, when it first knew the
+    /// song's zero (its own clock's ms then, the song µs then), and run on
+    /// its own clock from there, as a play's audio clock is (the game's
+    /// way); none: the room's clock as estimated now, every time.
+    mapped_once: bool,
+    song_map: Option<(u64, i64)>,
+    /// Its device's clock (the link's own copy runs the same).
+    clock: DriftClock,
 }
 
 impl Player {
+    /// Its song time now (µs), where the stage's zero is known.
+    fn song_us(&mut self) -> Option<i64> {
+        let zero = self
+            .link
+            .room()
+            .and_then(|r| r.stage(STAGE))
+            .and_then(|s| s.play.as_ref())
+            .and_then(|p| p.song_zero_at)?;
+        let now = self.link.room_now()?;
+        let estimated = song_us_at(zero, now);
+        if !self.mapped_once {
+            return Some(estimated);
+        }
+        let local = self.clock.now().0;
+        let (at, song) = *self.song_map.get_or_insert((local, estimated));
+        Some(song + (local as i64 - at as i64) * 1_000)
+    }
+
     fn send(&mut self, cmd: Command) {
         self.seq += 1;
         let base = self.link.room().map(|r| r.revision);
@@ -242,19 +288,9 @@ impl Player {
         if self.ended {
             return;
         }
-        let Some(zero) = self
-            .link
-            .room()
-            .and_then(|r| r.stage(STAGE))
-            .and_then(|s| s.play.as_ref())
-            .and_then(|p| p.song_zero_at)
-        else {
+        let Some(t_us) = self.song_us() else {
             return;
         };
-        let Some(now) = self.link.room_now() else {
-            return;
-        };
-        let t_us = song_us_at(zero, now);
         if t_us < -800_000 {
             return;
         }
@@ -357,6 +393,10 @@ struct Setup {
     attacks: bool,
     policy: RoomPolicy,
     latency: Option<Latency>,
+    /// Each device's clock drift (millionths; alternately fast and slow),
+    /// and whether its song clock is mapped once ([`Player::song_us`]).
+    drift_ppm: i64,
+    mapped_once: bool,
 }
 
 impl Setup {
@@ -364,6 +404,8 @@ impl Setup {
         Setup {
             competitors,
             watchers: 0,
+            drift_ppm: 0,
+            mapped_once: false,
             attacks: false,
             policy: RoomPolicy::default().with_live(),
             latency: Some(Latency {
@@ -411,10 +453,17 @@ fn room(setup: &Setup) -> Room {
             server.borrow_mut().set_latency(id, l);
         }
         let offset_ms = (i as i64 * 7_919 % 20_000) - 10_000;
-        let clock = OffsetClock {
+        let clock = DriftClock {
             base: clock.clone(),
             offset_ms,
+            ppm: if i % 2 == 0 {
+                setup.drift_ppm
+            } else {
+                -setup.drift_ppm
+            },
+            origin: clock.now().0,
         };
+        let device = clock.clone();
         let mut link =
             OnlineAuthority::new(RoomId::new(ROOM), FakeSocket::new(server.clone()), clock);
         link.live_mut().set_me(id);
@@ -433,6 +482,9 @@ fn room(setup: &Setup) -> Room {
             ended: false,
             gone_at: None,
             news: Vec::new(),
+            mapped_once: setup.mapped_once,
+            song_map: None,
+            clock: device,
         });
     }
     let mut r = Room {
@@ -1516,10 +1568,13 @@ fn someone_who_comes_in_mid_stage_gets_the_stage_as_it_stands_and_follows_it() {
         .borrow_mut()
         .join(who.clone(), "P9", Intent::Watch)
         .unwrap();
-    let clock = OffsetClock {
+    let clock = DriftClock {
         base: r.clock.clone(),
         offset_ms: 4_321,
+        ppm: 0,
+        origin: 0,
     };
+    let watcher_clock = clock.clone();
     let mut link =
         OnlineAuthority::new(RoomId::new(ROOM), FakeSocket::new(r.server.clone()), clock);
     link.live_mut().set_me(id);
@@ -1538,6 +1593,9 @@ fn someone_who_comes_in_mid_stage_gets_the_stage_as_it_stands_and_follows_it() {
         ended: false,
         gone_at: None,
         news: Vec::new(),
+        mapped_once: false,
+        song_map: None,
+        clock: watcher_clock,
     });
     r.run(20_000);
     let watcher = r.players.last().unwrap();
@@ -1576,20 +1634,11 @@ impl View {
 
     /// One step of `p`'s device (`fixed`: `live-v1`'s constant second);
     /// measured from song ms `from` on.
-    fn step(&mut self, p: &Player, fixed: bool, from: f64) {
-        let Some(zero) = p
-            .link
-            .room()
-            .and_then(|r| r.stage(STAGE))
-            .and_then(|s| s.play.as_ref())
-            .and_then(|s| s.song_zero_at)
-        else {
+    fn step(&mut self, p: &mut Player, fixed: bool, from: f64) {
+        let Some(now) = p.song_us() else {
             return;
         };
-        let Some(now) = p.link.room_now() else {
-            return;
-        };
-        let now = song_us_at(zero, now) as f64 / 1_000.0;
+        let now = now as f64 / 1_000.0;
         if now < -1_000.0 {
             return;
         }
@@ -1646,9 +1695,45 @@ fn measure_views(
     fixed: bool,
     seed: u64,
 ) -> Measured {
+    measure_drifting(competitors, latency, policy, fixed, seed, Drift::NONE)
+}
+
+/// How the devices' clocks run in a measured stage: their drift (each
+/// alternately fast and slow), whether a device's song clock is mapped
+/// from the room's once (as a play's audio clock is) or read from the
+/// room's clock as estimated every time, the song's length and where the
+/// measuring starts (song ms).
+#[derive(Clone, Copy, Debug)]
+struct Drift {
+    ppm: i64,
+    mapped_once: bool,
+    song_ms: i32,
+    from: f64,
+}
+
+impl Drift {
+    const NONE: Drift = Drift {
+        ppm: 0,
+        mapped_once: false,
+        song_ms: 40_000,
+        from: 8_000.0,
+    };
+}
+
+fn measure_drifting(
+    competitors: usize,
+    latency: (u64, u64),
+    policy: RoomPolicy,
+    fixed: bool,
+    seed: u64,
+    drift: Drift,
+) -> Measured {
     let mut setup = Setup::new(competitors);
     setup.watchers = 1;
     setup.policy = policy;
+    setup.drift_ppm = drift.ppm;
+    setup.mapped_once = drift.mapped_once;
+    let from = drift.from;
     setup.latency = Some(Latency {
         down_ms: latency.0,
         down_jitter_ms: latency.1,
@@ -1660,16 +1745,16 @@ fn measure_views(
     start(&mut r, None, competitors);
     started(&r);
     let scripts: Vec<Script> = (1..=competitors as u64)
-        .map(|i| script(seed * 31 + i, 90 + (i % 7) as i32 * 10, 40_000, None))
+        .map(|i| script(seed * 31 + i, 90 + (i % 7) as i32 * 10, drift.song_ms, None))
         .collect();
     give_plays(&mut r, &scripts, None);
     let mut views: Vec<View> = r.players.iter().map(|_| View::new()).collect();
-    let end = r.now() + 40_000;
+    let end = r.now() + drift.song_ms as u64;
     while r.now() < end {
         r.clock.advance(STEP_MS);
         r.pump();
-        for (v, p) in views.iter_mut().zip(&r.players) {
-            v.step(p, fixed, 8_000.0);
+        for (v, p) in views.iter_mut().zip(r.players.iter_mut()) {
+            v.step(p, fixed, from);
         }
     }
     let meters: Vec<&ViewMeter> = views.iter().filter_map(|v| v.meter.as_ref()).collect();
@@ -1691,7 +1776,7 @@ fn measure_views(
         max: all.last().copied().unwrap_or(0.0),
         stalled: stalled_ms / field_ms.max(1e-9),
         onsets_per_min: f64::from(onsets) / field_minutes.max(1e-9),
-        frames_per_s: f64::from(frames) / 41.0,
+        frames_per_s: f64::from(frames) / (f64::from(drift.song_ms) / 1_000.0 + 1.0),
     }
 }
 
@@ -1760,5 +1845,50 @@ fn view_delay_study() {
             100.0 * m.stalled,
             m.onsets_per_min
         );
+    }
+}
+
+/// Clock drift over a long song (`cargo test --release -p ddi-room --test
+/// live clock_drift_study -- --ignored --nocapture`): every device's clock
+/// 0, 50 or 500 millionths fast or slow (alternately), a five-minute song,
+/// the views measured over its last minute; each device's song clock
+/// mapped from the room's once at the start and run on its own clock (a
+/// play's audio clock, the game's way), or read from the room's clock as
+/// estimated every time (resynced by the pings). Live-v2, 80 ms each way
+/// with up to 40 ms of jitter, nine competitors and a watcher.
+#[test]
+#[ignore]
+fn clock_drift_study() {
+    let policy = RoomPolicy::default().with_live();
+    eprintln!("| drift (ppm) | song clock | delay mean / p95 / max (ms) | field-time stalled | stalls a field-minute |");
+    eprintln!("| --- | --- | --- | --- | --- |");
+    for ppm in [0, 50, 500] {
+        for mapped_once in [true, false] {
+            for fixed in [true, false] {
+                let m = measure_drifting(
+                    9,
+                    (80, 40),
+                    policy.clone(),
+                    fixed,
+                    1,
+                    Drift {
+                        ppm,
+                        mapped_once,
+                        song_ms: 300_000,
+                        from: 240_000.0,
+                    },
+                );
+                eprintln!(
+                    "| {ppm} | {}{} | {:.0} / {:.0} / {:.0} | {:.3}% | {:.2} |",
+                    if mapped_once { "mapped once" } else { "resynced" },
+                    if fixed { ", a constant second" } else { "" },
+                    m.mean,
+                    m.p95,
+                    m.max,
+                    100.0 * m.stalled,
+                    m.onsets_per_min
+                );
+            }
+        }
     }
 }

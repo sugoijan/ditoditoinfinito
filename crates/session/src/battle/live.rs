@@ -139,6 +139,10 @@ pub(crate) struct RemoteSeat {
     pub life: f32,
     pub combo: u32,
     pub score: i64,
+    /// The W0s its stream told so far (its taps' `w0`): with the sum and
+    /// the chart's most, what its percent is worked out from
+    /// ([`ddi_of_sum`]).
+    pub w0s: u32,
 }
 
 impl RemoteSeat {
@@ -330,6 +334,9 @@ pub(crate) struct Live {
     /// The seats whose fields are stalled now (their stream not judged to
     /// the view's time).
     stalled: BTreeSet<ParticipantId>,
+    /// The most the chart gives under the stage's rules (DDI): what a
+    /// remote competitor's percent is worked out against.
+    most: Option<i64>,
 }
 
 /// A judge event as a moment of the stream (none: nothing a field
@@ -368,14 +375,49 @@ fn score_of(p: &Player) -> i64 {
     p.ruleset().score.view().ddi.map_or(0, |d| d.score)
 }
 
-/// A remote moment as its field takes it.
-fn feed_moment(m: &Moment, out: bool) -> feed::Moment {
+/// DDI's score view of a competitor whose stream told its sum alone
+/// (`sum`: the proportional part plus the absolute score), its W0s so far
+/// (`w0s`, counted from its taps) and the chart's `most`: the points are
+/// the one count whose `floor(1,000,000 × points ÷ most) + 100 × points`
+/// is the sum less the W0s (strictly increasing in the points, so at most
+/// one), and the view (the percent among it) follows from them exactly
+/// (`DdiScoreView::of`). Where no count gives it (the W0s not all told,
+/// another copy of the chart), the nearest below. None without a most.
+/// What a remote person's percent is shown from: the stream carries the
+/// sum alone, and nothing is added to it.
+pub fn ddi_of_sum(sum: i64, w0s: u32, most: Option<i64>) -> Option<ddi_engine::rules::ddi::DdiScoreView> {
+    let most = most.filter(|m| *m > 0)?;
+    let target = i128::from(sum) - i128::from(w0s);
+    let f = |p: i128| (p * 1_000_000).div_euclid(i128::from(most)) + 100 * p;
+    // f grows by at least 100 a point: a guess, then a step or two.
+    let slope = 100.0 + 1_000_000.0 / most as f64;
+    let mut p = (target as f64 / slope).floor() as i128;
+    while f(p) > target {
+        p -= 1;
+    }
+    while f(p + 1) <= target {
+        p += 1;
+    }
+    let points = i64::try_from(p).ok()?;
+    Some(ddi_engine::rules::ddi::DdiScoreView::of(points, most, w0s))
+}
+
+/// A remote moment as its field takes it (`ddi`: its score's view as
+/// worked out from the sum, where it can be).
+fn feed_moment(
+    m: &Moment,
+    out: bool,
+    ddi: Option<ddi_engine::rules::ddi::DdiScoreView>,
+) -> feed::Moment {
     let kind = match m.kind {
         MomentKind::Tap { tier, .. } => {
             feed::MomentKind::Tap(Judgement::from_index(tier.into()).unwrap_or(Judgement::Miss))
         }
         MomentKind::Shock => feed::MomentKind::ShockHit,
-        _ => feed::MomentKind::Mark,
+        MomentKind::HoldEnd { ok } => feed::MomentKind::HoldEnd(ok),
+        MomentKind::Mine => feed::MomentKind::MineHit,
+        MomentKind::Boo => feed::MomentKind::Boo,
+        MomentKind::Refused { .. } => feed::MomentKind::Mark,
     };
     let (offset, w0) = match m.kind {
         MomentKind::Tap { offset_ms, w0, .. } => (f32::from(offset_ms) / 1_000.0, Some(w0)),
@@ -391,7 +433,13 @@ fn feed_moment(m: &Moment, out: bool) -> feed::Moment {
         out,
         offset,
         w0,
-        score: sum_view(m.score),
+        score: match ddi {
+            Some(d) => ScoreView {
+                ddi: Some(d),
+                ..ScoreView::default()
+            },
+            None => sum_view(m.score),
+        },
     }
 }
 
@@ -460,6 +508,7 @@ impl Live {
                     life: 1.0,
                     combo: 0,
                     score: 0,
+                    w0s: 0,
                 }
             })
             .collect();
@@ -488,7 +537,14 @@ impl Live {
             incoming: Vec::new(),
             delay: view_delay,
             stalled: BTreeSet::new(),
+            most: None,
         }
+    }
+
+    /// The most the chart gives under the stage's rules (DDI's): the
+    /// others' percents are worked out from their sums against it.
+    pub(crate) fn set_most(&mut self, most: Option<i64>) {
+        self.most = most;
     }
 
     /// The others' fields' delay behind the song now, seconds.
@@ -756,7 +812,11 @@ impl Live {
                 seat.life = m.life_ppm as f32 / 1e6;
                 seat.combo = m.combo;
                 seat.score = m.score;
-                seat.feed.push(track, feed_moment(m, false));
+                if let MomentKind::Tap { w0: true, .. } = m.kind {
+                    seat.w0s += 1;
+                }
+                let ddi = ddi_of_sum(m.score, seat.w0s, self.most);
+                seat.feed.push(track, feed_moment(m, false, ddi));
             }
             if let Some(end) = e.end
                 && seat.end.is_none()
@@ -781,7 +841,13 @@ impl Live {
                         out: true,
                         offset: 0.0,
                         w0: None,
-                        score: sum_view(seat.score),
+                        score: match ddi_of_sum(seat.score, seat.w0s, self.most) {
+                            Some(d) => ScoreView {
+                                ddi: Some(d),
+                                ..ScoreView::default()
+                            },
+                            None => sum_view(seat.score),
+                        },
                         },
                     );
                     got.outs.push(seat.participant);
@@ -1067,5 +1133,33 @@ impl LivePlay {
     /// play, taken or refused), since the last call.
     pub fn take_log(&mut self) -> Vec<String> {
         std::mem::take(&mut self.log)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ddi_engine::rules::ddi::DdiScoreView;
+
+    /// A remote person's percent from the stream's sum: exactly the
+    /// view their own play shows, for every count of points (negative
+    /// ones too), W0s and chart size; nothing without a most.
+    #[test]
+    fn the_percent_is_worked_out_from_the_sum_exactly() {
+        for most in [50, 350, 5_000, 50_000, 123_450] {
+            for points in [-500, -1, 0, 1, 7, most / 3, most - 1, most] {
+                for w0s in [0u32, 1, 99, 100, 101, 900] {
+                    let own = DdiScoreView::of(points, most, w0s);
+                    let seen = ddi_of_sum(own.score, w0s, Some(most)).unwrap();
+                    assert_eq!(seen, own, "{most} {points} {w0s}");
+                }
+            }
+        }
+        assert_eq!(ddi_of_sum(5_000, 0, None), None);
+        assert_eq!(ddi_of_sum(5_000, 0, Some(0)), None);
+        // W0s not all told: the nearest count below, never above.
+        let own = DdiScoreView::of(400, 5_000, 30);
+        let seen = ddi_of_sum(own.score, 0, Some(5_000)).unwrap();
+        assert_eq!(seen.points, 400);
     }
 }

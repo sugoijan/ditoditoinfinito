@@ -1658,7 +1658,9 @@ impl RoomClient {
     }
 
     /// Results the player has not been shown yet: a stage's (its number,
-    /// from 1) or the match's (`None`), once confirmed.
+    /// from 1) or the match's (`None`), once confirmed. A match stopped
+    /// (or restarted) before any of its stages was finished has none: its
+    /// table would be zeros.
     pub fn unseen_results(&self) -> Option<Option<u16>> {
         let s = self.state();
         let m = s.current.as_ref().filter(|_| s.phase != Phase::Lobby)?;
@@ -1668,6 +1670,9 @@ impl RoomClient {
             .filter(|st| st.play.as_ref().is_some_and(|p| p.song_ended))
             .count();
         let over = matches!(s.phase, Phase::MatchResults | Phase::Interrupted { .. });
+        if over && confirmed == 0 {
+            return None;
+        }
         let seen = match self.results_seen {
             (Some(id), n) if id == m.id => n,
             _ => 0,
@@ -3259,6 +3264,9 @@ mod tests {
         room.stop_match().unwrap();
         assert!(matches!(room.state().phase, Phase::Interrupted { .. }));
         assert_eq!(room.view(), RoomView::Select);
+        // Stopped before any stage was finished: no standings to pop up
+        // (they would be zeros).
+        assert_eq!(room.unseen_results(), None);
         // A pick after a stopped match opens the next match.
         room.pick(&s, &s.charts[0]).unwrap();
         assert_eq!(room.state().history.len(), 1);

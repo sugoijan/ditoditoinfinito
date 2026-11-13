@@ -155,6 +155,12 @@ pub struct Outbox {
     last_flush: Option<u64>,
     /// Sent and not acknowledged, with when each was last sent (ms).
     unacked: VecDeque<(Batch, u64)>,
+    /// Resends since the room last acknowledged anything: each doubles the
+    /// wait before the next (up to [`Outbox::MAX_BACKOFF`]), so that a
+    /// room that has fallen behind is not sent its own backlog again and
+    /// again (2026-11-13: under `live-v2`'s ten batches a second, resending
+    /// every unacknowledged batch each second grew without bound).
+    backoff: u32,
 }
 
 impl Outbox {
@@ -172,8 +178,12 @@ impl Outbox {
             end_sent: false,
             last_flush: None,
             unacked: VecDeque::new(),
+            backoff: 0,
         }
     }
+
+    /// The most a resend's wait doubles: 8 times `resend_after_ms`.
+    pub const MAX_BACKOFF: u32 = 3;
 
     pub fn stage(&self) -> StageId {
         self.stage
@@ -233,6 +243,7 @@ impl Outbox {
     pub fn ack(&mut self, seq: u32) {
         if seq > self.acked {
             self.acked = seq;
+            self.backoff = 0;
         }
         while self
             .unacked
@@ -248,15 +259,14 @@ impl Outbox {
     /// end), and the unacknowledged ones again once they are overdue.
     pub fn due(&mut self, now: u64) -> Vec<Batch> {
         let mut out = Vec::new();
-        let overdue = self
-            .unacked
-            .front()
-            .is_some_and(|(_, at)| now >= at + self.rules.resend_after_ms);
+        let wait = self.rules.resend_after_ms << self.backoff;
+        let overdue = self.unacked.front().is_some_and(|(_, at)| now >= at + wait);
         if overdue {
             for (b, at) in &mut self.unacked {
                 *at = now;
                 out.push(b.clone());
             }
+            self.backoff = (self.backoff + 1).min(Self::MAX_BACKOFF);
         }
         let interval = self
             .last_flush
@@ -274,8 +284,10 @@ impl Outbox {
         out
     }
 
-    /// Every batch not acknowledged, again (a new socket).
+    /// Every batch not acknowledged, again (a new socket: its wait starts
+    /// over).
     pub fn resend(&mut self, now: u64) -> Vec<Batch> {
+        self.backoff = 0;
         self.unacked
             .iter_mut()
             .map(|(b, at)| {
@@ -548,6 +560,16 @@ mod tests {
         out.judged_to(40_000);
         let b = out.due(1_300);
         assert_eq!(b.iter().map(|b| b.seq).collect::<Vec<_>>(), vec![2, 3]);
+        // Unanswered, the next resend waits twice as long, then four
+        // times, never more than eight: a room behind is not flooded.
+        let b = out.due(2_300);
+        assert!(b.iter().all(|b| b.seq > 3), "not again after a second");
+        let b = out.due(3_300);
+        assert_eq!(b.iter().filter(|b| b.seq <= 3).count(), 2, "after two");
+        assert!(out.due(6_300).iter().all(|b| b.seq > 3), "four now");
+        assert_eq!(out.due(7_300).iter().filter(|b| b.seq <= 3).count(), 2);
+        // An acknowledgement starts the wait over.
+        out.ack(2);
         // The end goes at once, then nothing more.
         out.end(StreamEnd::Out { at_us: 41_000 });
         out.moment(tap(99, 2));
