@@ -465,6 +465,75 @@ fn the_table_marks_the_chart_a_stepped_player_finished_on() {
     assert!(inside(&h, "Stand0", "Stepped").is_none());
 }
 
+/// Nine starters who all stepped up (Adaptive charts): each name keeps
+/// its room, whole, and the mark ("↑ Challenge") goes whole on the line
+/// under it (clear of the counts on a tall line); where the name and a
+/// CPU's stars do not fit side by side (a phone's), the stars follow the
+/// mark there.
+#[test]
+fn a_stepped_mark_never_cuts_the_name() {
+    crate::screens::results::forget_tab();
+    let env = env();
+    let room = practice(1, 8);
+    let how = |i: usize| Went {
+        detail: RunDetail {
+            chart: Some("Challenge".into()),
+            harder: true,
+            ..descending(i).detail
+        },
+        ..descending(i)
+    };
+    let groups: Vec<Vec<usize>> = (0..9).map(|i| vec![i]).collect();
+    let groups: Vec<&[usize]> = groups.iter().map(Vec::as_slice).collect();
+    let order = play(&room, &groups, &how);
+    let width = |a: &Actor| match &a.kind {
+        Kind::Text(t) => (t.max_width, t.ellipsis),
+        _ => (0.0, false),
+    };
+    for (design, size, whole) in [
+        (DESIGN, [1280.0, 720.0], true),
+        (super::COMPACT, [844.0, 390.0], true),
+    ] {
+        let mut h = Harness::new(design, size, 1.0, TextMode::Own);
+        h.push(results(&env, &room, &order));
+        h.run(1.0);
+        let v = view(&env);
+        assert_eq!(v.rows.len(), 9, "{size:?}");
+        let mut seen = 0;
+        for k in 0..9 {
+            let owner = format!("Stand{k}");
+            let Some(name) = inside(&h, &owner, "Name") else {
+                continue;
+            };
+            let text = said(&h, &owner, "Name");
+            let (room, cut) = width(name);
+            assert!(
+                !cut || room + 0.5 >= crate::look::mono_width(&text, 14.0),
+                "{size:?}: {text} cut to {room}"
+            );
+            let mark = inside(&h, &owner, "Stepped").expect("the mark");
+            assert_eq!(said(&h, &owner, "Stepped"), "↑ Challenge");
+            let (room, _) = width(mark);
+            if whole {
+                assert!(room + 0.5 >= crate::look::mono_width("↑ Challenge", 11.0), "{size:?}");
+                let (n, m) = (
+                    h.ui.bounds_of(&owner, "Name").unwrap(),
+                    h.ui.bounds_of(&owner, "Stepped").unwrap(),
+                );
+                // Its middle below the name's, at the name's left.
+                assert!(
+                    (m[1] + m[3]) / 2.0 > n[3] - 2.0 && (m[0] - n[0]).abs() < 0.5,
+                    "{size:?}: under the name {n:?} {m:?}"
+                );
+            } else {
+                assert!(room + 0.5 >= crate::look::mono_width("↑", 11.0), "{size:?}");
+            }
+            seen += 1;
+        }
+        assert!(seen >= 4, "{size:?}: {seen} lines shown");
+    }
+}
+
 /// Past what fits (a development practice's field) the lines scroll with
 /// Up and Down, the rest counted.
 #[test]

@@ -55,6 +55,9 @@ const TABS_GAP: f32 = 12.0;
 const ROW_MAX: f32 = 46.0;
 const ROW_MIN: f32 = 26.0;
 const ROW_TWO: f32 = 42.0;
+/// From this tall a line has room for the mark of a step under the name
+/// (every line the table draws).
+const ROW_MARK_UNDER: f32 = ROW_MIN;
 /// A phone's line.
 const ROW_COMPACT: f32 = 30.0;
 /// The column headings' height, and the pointed line's counts' under the
@@ -785,38 +788,66 @@ pub(super) fn standings(
         } else {
             0.0
         };
-        // Room kept after the name for the mark of a step down.
+        // The chart they finished on, where they stepped: on its own line
+        // under the name where the line has room for one (the counts'
+        // line of a tall line), else after the name (and the stars). The
+        // name keeps its room either way: the mark gives way, down to its
+        // arrow.
+        let under = row.stepped.is_some() && row_h >= ROW_MARK_UNDER;
+        let name_y = if under && !two { mid - 5.0 } else { mid };
+        let (mark_y, mark_size) = if two { (mid + 18.0, 11.0) } else { (mid + 8.0, 10.0) };
         let mark_w = row
             .stepped
             .as_deref()
-            .map_or(0.0, |t| look::mono_width(t, 11.0) + 8.0);
-        let name_w = look::mono_width(&row.name, 14.0).min((name_room - after - mark_w).max(40.0));
+            .map_or(0.0, |t| look::mono_width(t, mark_size) + 8.0);
+        let arrow_w = if row.stepped.is_some() && !under {
+            look::mono_width("↑", 11.0) + 10.0
+        } else {
+            0.0
+        };
+        // Where the name and the stars do not fit side by side, the stars
+        // go on the line under it, after the mark.
+        let full = look::mono_width(&row.name, 14.0);
+        let stars_below = under && row.level.is_some() && full + after > name_room;
+        let name_w = if stars_below {
+            full.min(name_room)
+        } else {
+            full.min((name_room - after - arrow_w).max(40.0))
+        };
         let mut name = env.text("Name", &row.name, 14.0, 600, color);
         look::ellipsized(&mut name, name_w);
-        c.push(left(name, name_x, mid));
-        if let Some(level) = row.level
-            && name_room >= name_w + after
-        {
-            c.push(crate::stars::stars_left(
-                env,
-                "Stars",
-                level,
-                stars_h,
-                name_x + name_w + 8.0,
-                mid + 1.0,
-            ));
-        }
-        // The chart they finished on, where they stepped down: a quiet
-        // mark after the name (and the stars), where it fits.
-        if let Some(stepped) = &row.stepped {
-            let at = name_x + name_w + after + 8.0;
-            let room = name_x + name_room - at;
-            if room >= 24.0 {
-                let mut t = env.text("Stepped", stepped, 11.0, 600, "Gold");
-                look::ellipsized(&mut t, room);
-                c.push(left(t, at, mid));
+        c.push(left(name, name_x, name_y));
+        if let Some(level) = row.level {
+            let at = if stars_below {
+                Some([name_x + mark_w, mark_y + 1.0])
+            } else {
+                (name_room >= name_w + after).then_some([name_x + name_w + 8.0, name_y + 1.0])
+            };
+            if let Some([sx, sy]) = at.filter(|[sx, _]| sx + stars_w <= name_x + name_room + 0.5) {
+                c.push(crate::stars::stars_left(env, "Stars", level, stars_h, sx, sy));
             }
         }
+        if let Some(stepped) = &row.stepped {
+            let (at, y) = if under {
+                (name_x, mark_y)
+            } else {
+                (name_x + name_w + after + 8.0, mid)
+            };
+            let room = (name_x + name_room - at).min(mark_w);
+            if room >= look::mono_width("↑", 11.0) {
+                let mut t = env.text("Stepped", stepped, mark_size, 600, "Gold");
+                look::ellipsized(&mut t, room);
+                c.push(left(t, at, y));
+            }
+        }
+        // The counts' line keeps clear of a mark under the name.
+        let counts_from = if stars_below {
+            name_x + mark_w + stars_w + 12.0
+        } else if under {
+            name_x + mark_w + 4.0
+        } else {
+            name_x
+        };
         let number = |c: &mut Vec<Actor>, name: &str, text: &str, col: Col, color: &str| {
             if let Some(end) = end_of(col)
                 && !text.is_empty()
@@ -908,7 +939,7 @@ pub(super) fn standings(
                         &tiers,
                         row,
                         [end, mid + 18.0],
-                        x + w - name_x,
+                        x + w - counts_from,
                     ));
                 }
             }
