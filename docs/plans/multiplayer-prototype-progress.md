@@ -6571,6 +6571,20 @@ placed against the player at once, in sections from 41.56 s, 45.37 s and
 49.43 s), `last-standing.png` (the three CPUs out at 77.6 s with an
 attack still to come: "Last standing"), `stage-won.png` (its last shock
 passed at 86.1 s: "Stage won").
+Headless Chrome (WebGPU) and Firefox (WebGL2, through the verify
+skill's helper), a practice stage of eight CPUs on Some Things Must's
+Challenge chart, the autoplayed player on Spread
+(`target/scratch/mp/av2/look.mjs`): the plain warning and the warning
+with one small bolt (`av2-chrome-…-warning-1-behind-t28.6.png`,
+`av2-firefox-…-warning-1-behind-t18.1.png`); under Spread the CPUs
+never placed more than two against the player at once, as the study
+says. No console problems.
+
+`step_down_offscreen` failed once in the desktop suite and passed four
+times alone, under `attacks-v2` and `attacks-v1` alike: the practice
+room's CPUs play differently run to run there (their powers differ from
+the first checkpoints, before any attack), so whether a weak CPU steps
+down is chance. Not this round's; noted.
 
 ### Measured: what unlimited chaining does
 
