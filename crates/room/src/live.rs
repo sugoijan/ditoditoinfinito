@@ -211,17 +211,15 @@ pub enum ClientLive {
     /// sent only where the room's policy has one). A room's live side
     /// passes it over; its audience side takes it from the owner alone.
     Audience { open: bool },
-    /// A CPU's run in `stage` as this device computed it (`cpus`,
-    /// `online-cpus-v0`): what it ranks by and how it performed, sent
-    /// once its stream ended. The room takes the first device's (the
+    /// CPUs' runs in `stage` as this device computed them (`cpus`,
+    /// `online-cpus-v0`): what each ranks by and how it performed, sent
+    /// once its stream ended (those that ended since the last, in one
+    /// message). The room takes the first device's of each (the
     /// authority's `Command::ReportFor`); sent only to a room whose
     /// policy seats CPUs online (`RoomPolicy::cpus`).
-    CpuRun {
+    CpuRuns {
         stage: StageId,
-        cpu: crate::ids::ParticipantId,
-        run: crate::battle::ReportedRun,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        detail: Option<crate::battle::RunDetail>,
+        runs: Vec<cpus::CpuRun>,
     },
 }
 

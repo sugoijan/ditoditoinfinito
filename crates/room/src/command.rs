@@ -253,7 +253,7 @@ pub enum Command {
     /// A CPU's run of a stage an online room plays live, as a device that
     /// computed it reported it (`crate::live::cpus`, `online-cpus-v0`): the
     /// authority's, for the first device's report (its live side takes it
-    /// from `crate::live::ClientLive::CpuRun`). Its event is the
+    /// from `crate::live::ClientLive::CpuRuns`). Its event is the
     /// `Event::OutcomeReported` a person's own report makes. Additive to
     /// protocol 2: only an authority that seats CPUs online issues it.
     ReportFor {

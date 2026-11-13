@@ -267,16 +267,15 @@ impl LiveServer {
                 Some(s) if s.id == stage => out.reply.extend(s.resume(after, now)),
                 _ => out.refuse(LiveRefusal::UnknownStage { stage }),
             },
-            ClientLive::CpuRun {
-                stage,
-                cpu,
-                run,
-                detail,
-            } => match self.stage.as_mut() {
-                Some(s) if s.id == stage => s.cpu_run(room, from, cpu, run, detail, &mut out),
+            ClientLive::CpuRuns { stage, runs } => match self.stage.as_mut() {
+                Some(s) if s.id == stage && runs.len() <= crate::live::cpus::ONLINE_CPUS_V0.max_entries => {
+                    for r in runs {
+                        s.cpu_run(room, from, r.cpu, r.run, r.detail, &mut out);
+                    }
+                }
                 _ => {
                     // The stage's streams are gone (the room moved on long
-                    // since): its run is passed over.
+                    // since): its runs are passed over.
                 }
             },
         }
@@ -375,7 +374,10 @@ impl LiveServer {
                     Ok(false) => {}
                     Err(r) => out.refuse(r),
                 },
-                _ => out.refuse(LiveRefusal::UnknownStage { stage: n.stage }),
+                // A device that computed on after the room moved on (its
+                // play's last step): passed over, never refused (a refusal
+                // of the stage would tell it the room lost it).
+                _ => {}
             },
             Ok(wire::Binary::Frame(_)) | Err(_) => out.refuse(LiveRefusal::BadBatch { stage }),
         }

@@ -446,15 +446,8 @@ impl Player {
                 runs.push((c.id, run));
             }
         }
-        if sends {
-            for (cpu, run) in runs {
-                self.link.live_mut().send(ClientLive::CpuRun {
-                    stage: STAGE,
-                    cpu,
-                    run,
-                    detail: None,
-                });
-            }
+        for (cpu, run) in runs {
+            self.link.live_mut().cpu_run(STAGE, cpu, run, None);
         }
     }
 }

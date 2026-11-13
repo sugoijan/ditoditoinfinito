@@ -9,7 +9,7 @@
 //! computation and tells the room what the ledger and the ranking need:
 //! each CPU's checkpoint reports and its stream's end ([`CpuNews`], one
 //! binary message for every CPU it has news of) and its run
-//! (`crate::live::ClientLive::CpuRun`). The room takes the first report
+//! (`crate::live::ClientLive::CpuRuns`). The room takes the first report
 //! of each CPU and checkpoint, passes over an equal later one and counts a
 //! different one as a mismatch ([`crate::live::LiveStage::cpu_mismatches`]),
 //! keeping the first: the room's trust stays "self-reported".
@@ -99,6 +99,16 @@ pub struct CpuEntry {
     pub reports: Vec<LiveReport>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end: Option<StreamEnd>,
+}
+
+/// A CPU's run as a device computed it, once its stream ended
+/// (`crate::live::ClientLive::CpuRuns`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CpuRun {
+    pub cpu: ParticipantId,
+    pub run: crate::battle::ReportedRun,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<crate::battle::RunDetail>,
 }
 
 /// A device's news of a stage's CPUs (binary, `crate::live::wire::CPUS_V1`).

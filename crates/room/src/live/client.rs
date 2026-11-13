@@ -85,9 +85,10 @@ struct CpuKept {
 }
 
 impl CpuOutbox {
-    /// The CPUs' runs not sent yet (`ClientLive::CpuRun`), marked sent.
+    /// The CPUs' runs not sent yet, in one message
+    /// (`ClientLive::CpuRuns`), marked sent.
     fn runs(&mut self, stage: StageId, all: bool) -> Vec<ClientLive> {
-        let mut out = Vec::new();
+        let mut runs = Vec::new();
         for (cpu, k) in &mut self.cpus {
             if all {
                 k.run_sent = false;
@@ -97,15 +98,20 @@ impl CpuOutbox {
             }
             if let Some((run, detail)) = &k.run {
                 k.run_sent = true;
-                out.push(ClientLive::CpuRun {
-                    stage,
+                runs.push(crate::live::cpus::CpuRun {
                     cpu: *cpu,
                     run: *run,
                     detail: detail.clone(),
                 });
             }
         }
-        out
+        let max = crate::live::cpus::ONLINE_CPUS_V0.max_entries;
+        runs.chunks(max)
+            .map(|c| ClientLive::CpuRuns {
+                stage,
+                runs: c.to_vec(),
+            })
+            .collect()
     }
 
     fn news(&mut self, stage: StageId, all: bool) -> Vec<CpuNews> {
@@ -225,7 +231,7 @@ impl LiveLink {
     }
 
     /// Stage `stage`'s CPU `cpu`'s run as this device computed it, once its
-    /// stream ended: sent (as `ClientLive::CpuRun`) while this device is
+    /// stream ended: sent (as `ClientLive::CpuRuns`) while this device is
     /// one that sends.
     pub fn cpu_run(
         &mut self,
