@@ -45,6 +45,18 @@ thread_local! {
     static PLAYING: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
     /// Where the online room's threads send their news ([`inbox`]).
     static NEWS: RefCell<Option<Sender<News>>> = const { RefCell::new(None) };
+    /// TESTS ONLY: the wall clock a live stage's play reads the room's
+    /// clock through ([`live_handle`]), where a test runs on a fake one.
+    static TEST_WALL: RefCell<Option<Rc<dyn Fn() -> u64>>> = const { RefCell::new(None) };
+}
+
+/// TESTS ONLY (an offscreen live stage on a fake clock): the wall clock
+/// (ms since the epoch) a live stage's play reads, and the room its stage
+/// is played in (as a pick's prompt hands it over), in place of the
+/// system's and the room screen's.
+pub fn set_live_for_tests(room: SharedRoom, wall_ms: Rc<dyn Fn() -> u64>) {
+    PLAYING.with_borrow_mut(|p| *p = Some(room));
+    TEST_WALL.with_borrow_mut(|w| *w = Some(wall_ms));
 }
 
 /// A thread's news for the online room (`Send`; turned into the room
@@ -239,9 +251,12 @@ pub fn live_handle(
     order: &ddi_ui::state::room::StageOrder,
 ) -> Option<ddi_session::battle::live::LiveHandle> {
     order.live.as_ref()?;
+    let wall_ms = TEST_WALL
+        .with_borrow(Clone::clone)
+        .unwrap_or_else(|| Rc::new(|| crate::clock::epoch_ms().max(0.0) as u64));
     Some(ddi_session::battle::live::LiveHandle {
         room: stage_room(),
-        wall_ms: Rc::new(|| crate::clock::epoch_ms().max(0.0) as u64),
+        wall_ms,
     })
 }
 
