@@ -1240,7 +1240,21 @@ Rust and the browser are implementation details, not advertised features.
   request and answer; desktop's attempt polled, the web's page left for
   the server's sign-in), `screens/online.rs` the multiplayer home and an
   invite's page as pages made from it (`OnlineScreen`, `OnlineCall` to
-  the shell). M7b: the room's main view is song select
+  the shell). The audience (`docs/plans/multiplayer-audience.md`):
+  `crates/ui/src/state/audience.rs`, `AudienceClient`, a seat over the
+  shell's socket (`ddi_room::audience::Audience`), its tickets from
+  `Online`'s audience join (`api::audience_join`, a new one per lost
+  socket), the public view, the count, its stages' songs read from the
+  room's share (`LoadJob`) and each stage handed over as a watched
+  `StageOrder` (`AUDIENCE_ME`), fed through `room::LiveRoom` (the trait
+  `ddi_session::battle::live` reads a member's `RoomClient` or a seat
+  by), its music and fields `MUSIC_DELAY_V0` behind the room's song
+  time; `screens/audience.rs` its page between stages
+  (`AudienceScreen`, `AudienceCall`; `ThemeState::audience`); the invite
+  page's Watch with the audience (`Online::watch_audience`,
+  `OnlineCall::Watch`), members' count on the status line, Host options'
+  Close/Open the audience and More's Copy audience link
+  (`RoomClient::audience`, `set_audience_open`). M7b: the room's main view is song select
   (`SelectScreen::with_room`, `screens/select_room.rs`, a child module of
   `select`): the picker's library, Enter "Pick for stage N"; the others
   following the picker's song with the room's panel (status, picks; a
@@ -1334,7 +1348,12 @@ Rust and the browser are implementation details, not advertised features.
   server's `POST /auth/bots` for an admin share token, identity
   `bot:<slug>` (`ddi_room::Identity::is_bot`), never an admin, labeled
   Bot wherever players are listed (`screens::room::person_name`, the
-  invite's `host_bot`).
+  invite's `host_bot`). `--audience N` with `--join LINK`: N seats in the
+  room's audience that only watch (two a signed-in bot), each reporting
+  what it received (`run_audience`). The audience's page on desktop
+  (`room::audience_screen`): `--join` takes an audience link, its stages
+  watched through the play host (`room::audience_stage`, no results of
+  their own); `tests/audience_offscreen.rs`.
   The web keeps it for the session (`crates/web/src/room.rs`, thread-local
   as `crate::share` is): `#/?mp=1` (`mp=0`) sets the switch, `#/mp` is the
   home, `#/room` the practice room's song select
@@ -1495,7 +1514,8 @@ Rust and the browser are implementation details, not advertised features.
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--mp-bots [--host] [--join LINK] [--guests N] [--api URL] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
-  [--pick ID[:N],…] [--names A,B] [--level N|A-B] [--personality P]`
+  [--pick ID[:N],…] [--names A,B] [--level N|A-B] [--personality P]
+  [--audience N]`
   (DEVELOPMENT TOOL: bots in a private online room, played by the CPU,
   no window or sound; the admin share token from `DDI_SHARE_TOKEN`;
   locally `DDI_SHARE_TOKEN=test-token … --api

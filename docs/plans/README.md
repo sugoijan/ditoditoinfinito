@@ -35,7 +35,11 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   (relays recommended), four coalesced frames a second, the bounds and
   costs at 1,000 to 20,000 seats; the contract built and tested in
   `crates/room` (`ddi_room::audience`, `audience-v0`, the fake runs it);
-  the server's and the game's work lists.
+  the server's and the game's work lists. The game's side built
+  (2026-11-13): arriving by the link on both shells, the seat's page,
+  desktop watching its stages behind the room, the members' count and
+  the owner's closing, bots as audience; the web's watched stage not yet
+  (the progress note's "The audience, the client front").
 - [Multiplayer prototype progress](multiplayer-prototype-progress.md)
   (2026-11-10): what the prototype has actually built and tested, kept apart
   from the design studies below. M1: the shared room, match and stage model

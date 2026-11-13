@@ -5163,10 +5163,154 @@ turned off as before). Tested: `ddi-session`
 decision, the results the hold after it finished the chart; it fails
 without the change, the winner put out a frame after the decision).
 
+## The audience, the client front (2026-11-13)
+
+The game's side of [The audience](multiplayer-audience.md) ("What the game
+builds"), on `ddi_room::audience` and tested over `FakeServer`'s audience
+alone (relays and seats with latency); no server was started for it. The
+server's side was built at the same time in `../ddi-server`; its shapes
+(the join's answer `{ticket, relay, expires_at_ms}`, the socket path, the
+previews' `kind: audience`, `audience`, `audience_count`, the member
+bound's `409 {error: room_full, audience: true}`, `audience_invite`, the
+refusals' codes, `503 relay_unready`) are what the game reads.
+
+- **Arriving** (both shells): an audience link (`#/mp/audience/<link>?mp=1`,
+  desktop's `--join`, the home's invite field) opens the invite page,
+  which says "You're invited to watch with the audience." (no member count),
+  with the count where the server gives it, and **Watch** (signing in as
+  for any join; the sign-in returns to `/mp/join/<link>`, the only invite
+  route the server's allow-list has, and goes on to the audience join,
+  `Dest::Audience`). At the member bound a room's own links say "The room
+  is full: you can watch with its audience." with **Watch with the
+  audience**, from the preview or from a join refused with the offer. The
+  join's refusals are worded (`audience_full`, `audience_closed`,
+  `too_many_seats`, `audience_link_unknown`, `no_audience`,
+  `room_closed`; `relay_unready` as the server unreachable, asked again
+  shortly). The seat is `ddi_ui::state::audience::AudienceClient`:
+  `ddi_room`'s `Audience` over the shell's socket (the web's `WebSocket`,
+  desktop's tungstenite, each with the audience's path), the invite
+  page's ticket for its first socket, a new ticket from the join after a
+  lost socket (`RECONNECT_BACKOFF_V0`); a relay's restart is survived
+  without one (its seats keep their sockets). The web's route for the
+  watching is `#/mp/watch/<link>`.
+- **The audience's page** (`screens::audience`): the room's name, its
+  host, the count, what the room is doing (the host choosing, stage n's
+  song and artist, the stage being played, the match over or stopped),
+  the rules in words, the last stage's winner, the standings (twelve and
+  "n more"; before any, the players), the seat's state and why it ended
+  or was refused, Stop watching (and Sign in again after a 4401). Made
+  from the public view alone.
+- **The stage watched**: each stage's song is read from the room's share
+  as the view names it (the shells' share readers, `LoadJob`), its chart
+  found by the digest; with attacks this device's battle plan is computed
+  (`seed_for`, the view's rules) and kept only where its digest is the
+  view's `battle` (else the fields are drawn without shocks and the page
+  says so quietly). Once the room starts the stage and a frame has said
+  the room's clock, the client hands the shell a watched `StageOrder`
+  (`me` nobody, `AUDIENCE_ME`; the lineup with the view's names); the
+  session plays it as any watched live stage, fed through a new trait,
+  `ddi_ui::state::room::LiveRoom` (what `battle::live` reads: the room's
+  clock, the stage's song zero, the frames, the decision, the stream:
+  a member's `RoomClient` or the seat; nothing changed for members). The
+  music and the fields are drawn `MUSIC_DELAY_V0` (`audience-view-v0`,
+  PROVISIONAL: 0.8 s) behind the room's song time as the seat estimates
+  it from the frames' times, plus a field delay of its own from nothing,
+  as the frames measure, within the audience's two-second ceiling.
+  **Desktop** plays it through the play host over the audience's page
+  (the prompt counting down, the grid, the focus and pages as any watched
+  stage), then back to the page, which shows the result (no results
+  screen: there is no member table to show). **The web does not watch
+  the stage yet**: the play route's stage path is the room's (its prompt,
+  its report, its results); its page says the stage is being played and
+  shows the result. That is the next piece of work.
+- **The count for members**: "· N watching" after the room's status line
+  (song select and the stage's prompt, never over a play), from
+  `ServerLive::Audience`, only where the room's policy has an audience;
+  Host options' row "Audience · N watching" with **Close the audience** /
+  **Open the audience** (the owner's, `Capability::ChangeAccess`;
+  "The audience is closed: nobody watches with it now." on the status
+  line); More's **Copy audience link** where the server gave
+  `audience_invite` ("Audience link copied: anyone with it can watch.").
+- **Endings**: the seat closed (4403 "The host closed the audience.",
+  4410 "This room has ended.") asks for nothing more and its page says
+  why with Stop watching. Mid-stage on desktop the watched view plays on
+  without frames (its fields stale) until the song's end or Escape, then
+  the page says why; a line over the play itself is not built.
+- **Bots** (DEVELOPMENT TOOL): `ddi --mp-bots --audience N --join <link>
+  --api <api>`: N seats (two a signed-in bot, at most 5,000 a run) that
+  only watch, a line every ten seconds (seats watching, frames received,
+  the count, the phase) and each seat's totals at the end.
+- **Debug**: `__DDI_DEBUG.ui.theme.audience` (`seat`, `why`, `count`,
+  `frames`, `sockets`, `delay_ms`, …), `ui.theme.room.audience`.
+
+### Tested
+
+- `ddi-ui` (`state/audience/tests.rs`, over the fake room's audience): the
+  audience link's page, Watch, the seat, the view and the count, the
+  count told to the members, two seats an identity and the third
+  refused; every refusal worded, a room without an audience offering
+  none; the owner's closing (a member's refused), the seat ended and
+  asking nothing more, the room's end; four relays restarted with no new
+  socket; a socket cut and a new ticket; the pages through the UI
+  harness (the invite page, the audience's page, closed). The `qps-ploc`
+  walk (the previews, the offer at the bound, the refusals, the
+  audience's page in its states, Host options' row and its two states).
+- `ddi-session` `the_audience_watches_a_live_stage_behind_the_room_with_the_members_fields`:
+  two people playing and a member watching in a live room with attacks,
+  a seat 80 ms away (40 of jitter): the song prepared from the share,
+  the stage handed over, the music 0.94 s behind the room's song time
+  throughout (the 0.8 s delay and the clock's 0.14 s error from the
+  frames' times, never ahead), the fields 50 ms more at most, every field
+  equal at the end to the member watcher's (combo, out, the shocks), the
+  relays restarted at 30 s with no new socket, the members told the
+  count.
+- `ddi-desktop` `tests/audience_offscreen.rs`: two members' scripted
+  streams, a seat 60 ms away, the stage watched through the window's
+  play host (the grid of two, both moving, 0.95 s behind, within the
+  ceiling); the picture looked at (`audience-grid`).
+- Headless Chrome and Firefox (`target/scratch/mp/aud/pages.mjs`, no
+  server): the audience link's page and the audience's page with its
+  refusal, English and Japanese; the singleplayer smoke check.
+
+### Not done in this round
+
+- **The web's watched stage** (above). **No real server, relays or
+  latency** were tried: the server's side landed at the same time.
+- **A 73-player stage watched through the session**: the session test has
+  two players; the 73-competitor audience is the room crate's own test
+  (2,000 seats, fields equal to the room's). Paging and the focus are the
+  watched stage's own (unchanged, tested there), not tested again for a
+  seat.
+- A seat's end said over the watched play itself; the count while one
+  plays (decided: between stages only).
+- `MUSIC_DELAY_V0` is fixed; raising it after a stage whose fields lagged
+  is not built.
+
+### Trying it (once the server's side runs)
+
+1. Run the server locally (`just dev` in `../ddi-server`) and the game's
+   `just dev`; sign in and make a private room on the web (`#/?mp=1`),
+   open More → **Copy audience link**.
+2. Open the link in another browser profile (signed in as someone else):
+   the invite page says "You're invited to watch with the audience.";
+   press **Watch**: the audience's page names the room and "One person
+   watching"; the host's song select ends its status line with
+   "· 1 watching".
+3. Desktop: `ddi --join "<audience link>"` (with `DDI_API_URL` at the
+   local API) opens the same page; pick a song in the room and Ready:
+   desktop watches the stage behind the room and comes back to the page
+   with the result.
+4. Many seats: `DDI_SHARE_TOKEN=test-token ddi --mp-bots --audience 50
+   --join "<audience link>" --api http://127.0.0.1:8787/ditoditoinfinito/api`
+   (a line every ten seconds); Host options → **Close the audience**: the
+   seats end (4403) and the bots say so.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `audience-view-v0` (2026-11-13): an audience device plays the music and draws the fields 0.8 s behind the room's song time (fixed for a stage), the fields a little more where frames come later, within the audience's 2 s ceiling | `ddi_ui::state::audience::MUSIC_DELAY_V0` | A seat sees the stage about a second behind the players | The delay; whether to raise it after a stage that lagged |
+| The count shown to members between stages only (the status line of song select and the prompt), never over a play | `screens::room::status` | "· 132 watching" after the room's line | The audience plan's open question 3 |
 | `join-watch-v0`: a join asking to play where every player's place is taken is in to watch; nobody is moved to Play when a place frees up; the arrival is said on the status line for 12 s | `ddi_room::RoomState::arrival_intent`, `players_full`; `ddi_ui`'s `LinkNotice::JoinedToWatch`, `JOINED_TO_WATCH_MS` | A tenth person joins a room of nine players to watch, and plays only once they choose Play after a place frees | Whether a freed place should go to the longest-waiting watcher (asked, or at once) |
 | The watch-only link: held to watching until the owner's Let play (the owner alone; co-hosts may copy the link but not let); replaced with the room's invite | `ddi_room::Member::watch_only`, `Command::SetWatchOnly`; `../ddi-server` `invite::watch_secret` | Someone who came to watch never takes a player's place unless the host lets them | Whether co-hosts should let people play; whether the watch link should be replaceable on its own |
 | `watch-v0`: a grid's field is at most a play's own field (`GRID_LANE_SHARE` 1.0); a layout with more rows wins within a tenth of the largest lane (`GRID_FILL` 0.9) | `ddi_shell::opponents::arrange_grid` | One to three watched fields are nearly the screen's height; eight are four by two at lanes of 29 px (1280×720) | The sizes; whether eight should give up the play's proportion (shorter fields, larger lanes) |
