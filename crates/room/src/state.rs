@@ -222,10 +222,31 @@ pub struct NextMatchDraft {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Match {
     pub id: MatchId,
+    /// The rules the match began under, locked. A stage is played under
+    /// [`Match::rules_for`]: these, or a change from it on.
     pub rules: MatchRules,
     #[serde(with = "crate::ids::pairs")]
     pub roster: BTreeMap<ParticipantId, Seat>,
     pub stages: Vec<Stage>,
+    /// The per-stage rules changed during the match
+    /// (`crate::Command::ChangeStageRules`, 2026-11-13), in the order of
+    /// the stages they land on, each from its stage to the next change or
+    /// the match's end. ADDITIVE to protocol 2: left out of the JSON while
+    /// empty (every match whose rules nobody changed mid-match), read as
+    /// empty where missing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changes: Vec<RulesChange>,
+}
+
+/// A change of a running match's per-stage rules ([`Match::changes`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RulesChange {
+    /// The first stage played under them.
+    pub from: StageId,
+    pub rules: crate::rules::PlayRules,
+    /// The revision that saved it: a change made against an older view of
+    /// the changes is stale.
+    pub saved_at: Revision,
 }
 
 /// A competitor's place in a match.
@@ -461,6 +482,52 @@ impl Match {
         self.stages.iter().position(|s| s.id == id)
     }
 
+    /// The rules stage `stage` is (or was, or will be) played under: the
+    /// match's, with the last change from it or an earlier stage on in
+    /// place of its per-stage rules ([`Match::changes`]).
+    pub fn rules_for(&self, stage: StageId) -> MatchRules {
+        match self.change_for(stage) {
+            Some(c) => self.rules.with_play(&c.rules),
+            None => self.rules.clone(),
+        }
+    }
+
+    /// The change stage `stage` is played under, if any.
+    pub fn change_for(&self, stage: StageId) -> Option<&RulesChange> {
+        let at = self.stage_index(stage)?;
+        self.changes
+            .iter()
+            .rev()
+            .find(|c| self.stage_index(c.from).is_some_and(|i| i <= at))
+    }
+
+    /// Whether stage `stage` is played under other per-stage rules than
+    /// the match began with.
+    pub fn stage_rules_changed(&self, stage: StageId) -> bool {
+        self.change_for(stage)
+            .is_some_and(|c| c.rules != self.rules.play_rules())
+    }
+
+    /// When the changes were last saved (none: never).
+    pub fn changes_saved_at(&self) -> Revision {
+        self.changes.last().map_or(Revision(0), |c| c.saved_at)
+    }
+
+    /// Whether stage `index` has begun for anyone: its start committed,
+    /// its readiness window open (`window`; a pick opens it with the
+    /// song), or someone readied or loading for it. A change of rules never lands on such a stage: its
+    /// prompt told them its rules.
+    fn begun(&self, index: usize, window: bool) -> bool {
+        let Some(s) = self.stages.get(index) else {
+            return true;
+        };
+        window
+            || s.play.is_some()
+            || s.prep
+                .values()
+                .any(|p| p.ready || p.loading != Loading::NotStarted)
+    }
+
     /// Stage awards summed per competitor (equal stage weights; a missed or
     /// unconfirmed stage is zero, never an estimate).
     pub fn standings(&self) -> Vec<Standing> {
@@ -570,6 +637,34 @@ pub enum Participation {
 }
 
 impl RoomState {
+    /// The stage a change of the running match's per-stage rules saved now
+    /// would land on (`crate::Command::ChangeStageRules`): the next stage
+    /// where nothing has begun, else the one after it; never a stage whose
+    /// readiness window, countdown or play has begun, or that anyone
+    /// readied or loaded for (its prompt told them its rules). `None`
+    /// outside a running match or when no such stage is left.
+    pub fn rules_land_on(&self) -> Option<StageId> {
+        let m = self.current.as_ref()?;
+        let (stage, window) = match self.phase {
+            Phase::Preparing { stage, window } => (stage, window.is_some()),
+            Phase::Intermission { next } => (next, false),
+            Phase::Countdown { stage, .. }
+            | Phase::Stage { stage }
+            | Phase::SongCompletion { stage } => (stage, true),
+            _ => return None,
+        };
+        let mut i = m.stage_index(stage)?;
+        let mut window = window;
+        while m.begun(i, window) {
+            i += 1;
+            window = false;
+            if i >= m.stages.len() {
+                return None;
+            }
+        }
+        m.stages.get(i).map(|s| s.id)
+    }
+
     /// A new room in its lobby, its owner the first member.
     pub fn new(
         room: RoomId,

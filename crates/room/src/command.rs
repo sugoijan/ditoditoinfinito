@@ -10,7 +10,7 @@ use crate::ids::{ContentId, Identity, MatchId, Millis, ParticipantId, Revision, 
 use crate::live::PlanDigest;
 use crate::member::{Capability, Connection, Intent, Member, Role};
 use crate::phase::{Interruption, Phase, PhaseKind};
-use crate::rules::{Access, Admission, CapExceeded, MatchRules, RulesProblem};
+use crate::rules::{Access, Admission, CapExceeded, MatchRules, PlayRules, RulesProblem};
 use crate::state::{
     Closure, ContentCard, ContentStatus, HostLeaves, Loading, MatchEnding, SitOutReason, Spotlight,
     StageContent,
@@ -148,6 +148,23 @@ pub enum Command {
     /// reads it (`RoomPolicy::restart`), so never to one that could not.
     RestartMatch {
         rules: MatchRules,
+    },
+    /// Change the running match's per-stage rules ([`PlayRules`]: Timing
+    /// difficulty, Boos, Attacks, At zero life) from stage `from` on
+    /// (2026-11-13, the Rules pop-up's "From stage N"). `from` is the
+    /// stage the sender was told the change lands on
+    /// (`RoomState::rules_land_on`); where the room has moved on since (a
+    /// pick or a start came first) it is refused with
+    /// [`Rejection::RulesLandLater`] naming where it would land now,
+    /// never moved silently. Needs `EditNextRules` (the operator who may
+    /// edit rules), a running match, and the envelope's base against the
+    /// match's last change (`Match::changes_saved_at`). The stage count,
+    /// seats, CPUs, ruleset and award curve never change mid-match.
+    /// Additive to protocol 2: sent only to a room whose policy says its
+    /// authority reads it (`RoomPolicy::stage_rules`).
+    ChangeStageRules {
+        from: StageId,
+        rules: PlayRules,
     },
     /// Close the finished or interrupted match and open the next match's
     /// admission in the lobby.
@@ -360,6 +377,13 @@ pub enum Event {
         rules: MatchRules,
         added: Vec<StageId>,
     },
+    /// The running match's per-stage rules from stage `from` on
+    /// (`Command::ChangeStageRules`): kept on the match
+    /// (`Match::changes`), replacing any change from `from` or later.
+    StageRulesChanged {
+        from: StageId,
+        rules: PlayRules,
+    },
     /// The boundary's revalidation of the saved rules.
     NextRulesReviewed {
         review: Option<RulesProblem>,
@@ -510,6 +534,13 @@ pub enum Rejection {
     },
     /// The room ended (`RoomState::closed`).
     RoomClosed,
+    /// A change of a running match's per-stage rules made for stage
+    /// `asked`, which has begun since (or never existed): it would land on
+    /// `from` now (none: no stage left). Additive.
+    RulesLandLater {
+        asked: StageId,
+        from: Option<StageId>,
+    },
     /// Came by the watch-only link: Play waits for the owner's Let play
     /// (`Member::watch_only`). Additive: only such a member is refused it.
     WatchOnly,

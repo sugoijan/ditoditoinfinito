@@ -499,6 +499,32 @@ impl RoomState {
                 self.interrupt(crate::phase::Interruption::Stopped, out);
                 Ok(())
             }
+            Command::ChangeStageRules { from, rules } => {
+                self.require(actor, Capability::EditNextRules)?;
+                if !self.phase.kind().match_running() {
+                    return Err(self.wrong_phase());
+                }
+                let m = self.current.as_ref().ok_or_else(|| self.wrong_phase())?;
+                Self::check_base(base, m.changes_saved_at())?;
+                let lands = self.rules_land_on();
+                if lands != Some(*from) {
+                    return Err(Rejection::RulesLandLater {
+                        asked: *from,
+                        from: lands,
+                    });
+                }
+                rules.check(&self.policy).map_err(Rejection::InvalidRules)?;
+                if m.rules_for(*from).play_rules() != *rules {
+                    self.emit(
+                        out,
+                        Event::StageRulesChanged {
+                            from: *from,
+                            rules: rules.clone(),
+                        },
+                    );
+                }
+                Ok(())
+            }
             Command::StartMatch => {
                 self.require(actor, Capability::Advance)?;
                 if self.phase != Phase::Lobby {
@@ -1472,7 +1498,7 @@ impl RoomState {
                         .map_or(Run::Forfeit, |r: &ReportedRun| r.run()),
                 })
                 .collect();
-            Some((entrants, BattlePreset::parse(&m.rules.battle)))
+            Some((entrants, BattlePreset::parse(&m.rules_for(stage).battle)))
         }) else {
             return;
         };
@@ -1784,6 +1810,24 @@ impl RoomState {
                 }
             }
             Event::NextRulesReviewed { review } => self.next.review = *review,
+            Event::StageRulesChanged { from, rules } => {
+                if let Some(m) = &mut self.current
+                    && let Some(at) = m.stage_index(*from)
+                {
+                    let stages = &m.stages;
+                    m.changes.retain(|c| {
+                        stages
+                            .iter()
+                            .position(|s| s.id == c.from)
+                            .is_some_and(|i| i < at)
+                    });
+                    m.changes.push(crate::state::RulesChange {
+                        from: *from,
+                        rules: rules.clone(),
+                        saved_at: pending,
+                    });
+                }
+            }
             Event::MatchStarted {
                 id,
                 rules,
@@ -1820,6 +1864,7 @@ impl RoomState {
                     rules: rules.clone(),
                     roster,
                     stages,
+                    changes: Vec::new(),
                 });
             }
             Event::LateEntrantsAdmitted {

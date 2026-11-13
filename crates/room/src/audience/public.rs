@@ -80,6 +80,9 @@ pub struct PublicRules {
     pub attacks: bool,
     #[serde(default, skip_serializing_if = "PointsBias::is_strong")]
     pub points: PointsBias,
+    /// What zero life does (additive, left out while Out).
+    #[serde(default, skip_serializing_if = "crate::rules::AtZero::is_out")]
+    pub at_zero: crate::rules::AtZero,
 }
 
 impl PublicRules {
@@ -92,6 +95,7 @@ impl PublicRules {
             boos: r.boos,
             attacks: r.attacks(),
             points: r.points,
+            at_zero: r.at_zero,
         }
     }
 }
@@ -160,6 +164,11 @@ pub struct PublicStage {
     pub battle: Option<PlanDigest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub play: Option<PublicPlay>,
+    /// The rules it is played under where they are not those the match
+    /// began with (changed during the match from it or an earlier stage
+    /// on, `Match::changes`). Additive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<PublicRules>,
 }
 
 /// A committed stage as the audience sees it.
@@ -180,7 +189,7 @@ pub struct PublicPlay {
     pub details: Vec<(ParticipantId, RunDetail)>,
 }
 
-fn public_stage(s: &Stage) -> PublicStage {
+fn public_stage(m: Option<&crate::state::Match>, s: &Stage) -> PublicStage {
     let content = s.content.as_ref();
     let status = match content.map(|c| &c.status) {
         None => PublicContent::None,
@@ -197,6 +206,9 @@ fn public_stage(s: &Stage) -> PublicStage {
             .filter(|c| c.status == ContentStatus::Available)
             .and_then(|c| c.share.clone()),
         battle: content.and_then(|c| c.battle.clone()),
+        rules: m
+            .filter(|m| m.stage_rules_changed(s.id))
+            .map(|m| PublicRules::of(&m.rules_for(s.id))),
         play: s.play.as_ref().map(|p| PublicPlay {
             lineup: p.lineup.iter().copied().collect(),
             start_at: p.start_at,
@@ -214,6 +226,8 @@ impl PublicView {
     /// gives the same view, byte for byte as JSON).
     pub fn of(room: &RoomState, name: &str) -> PublicView {
         let current = room.current.as_ref();
+        // The match's own rules; a stage played under others says them
+        // on its own (`PublicStage::rules`).
         let rules = current.map_or(&room.next.rules, |m| &m.rules);
         let mut ids: Vec<ParticipantId> = current
             .map(|m| m.roster.keys().copied().collect())
@@ -261,7 +275,7 @@ impl PublicView {
         let stages = current
             .map_or(room.playlist.as_slice(), |m| m.stages.as_slice())
             .iter()
-            .map(public_stage)
+            .map(|s| public_stage(current, s))
             .collect();
         PublicView {
             room: room.room.clone(),

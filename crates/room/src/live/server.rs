@@ -522,7 +522,7 @@ impl LiveStage {
         prepared: Option<&BTreeMap<ParticipantId, Prepared>>,
     ) -> LiveStage {
         let m = room.current.as_ref();
-        let attacks = m.is_some_and(|m| m.rules.attacks());
+        let attacks = m.is_some_and(|m| m.rules_for(id).attacks());
         let room_plan = room
             .stage(id)
             .and_then(|s| s.content.as_ref())

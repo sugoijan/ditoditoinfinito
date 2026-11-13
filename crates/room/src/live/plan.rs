@@ -68,6 +68,15 @@ pub struct BattlePlan {
     /// plan without it is what it was, digest and all.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ladder: Vec<String>,
+    /// Where the stage is played under per-stage rules changed during the
+    /// match (`state::Match::changes`, 2026-11-13): those rules in a few
+    /// plain words (the client's `StageRules::changed_tag`), so that a
+    /// device that would play it under the match's own rules (one that
+    /// predates the change) disagrees on the digest and sits the stage
+    /// out. ADDITIVE: `None` (left out, and out of the digest) for a
+    /// stage under the match's rules, whose plan is what it was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage_rules: Option<String>,
     pub digest: PlanDigest,
 }
 
@@ -99,6 +108,7 @@ impl BattlePlan {
             checkpoints_us,
             schedule,
             ladder: Vec::new(),
+            stage_rules: None,
             digest: PlanDigest(String::new()),
         };
         plan.digest = plan.compute_digest();
@@ -109,6 +119,14 @@ impl BattlePlan {
     /// digest computed again.
     pub fn with_ladder(mut self, ladder: Vec<String>) -> BattlePlan {
         self.ladder = ladder;
+        self.digest = self.compute_digest();
+        self
+    }
+
+    /// The plan with the stage's changed rules named
+    /// ([`BattlePlan::stage_rules`]), its digest computed again.
+    pub fn with_stage_rules(mut self, rules: Option<String>) -> BattlePlan {
+        self.stage_rules = rules;
         self.digest = self.compute_digest();
         self
     }
@@ -160,6 +178,12 @@ impl BattlePlan {
                 h.bytes(d.as_bytes());
             }
         }
+        // The stage's changed rules only where there are some, as the
+        // ladder.
+        if let Some(r) = &self.stage_rules {
+            h.u64(0x5255_4c45);
+            h.bytes(r.as_bytes());
+        }
         let mut text = String::from("fnv1a64:");
         let _ = write!(text, "{:016x}", h.0);
         PlanDigest(text)
@@ -181,6 +205,7 @@ impl BattlePlan {
             ]
             .iter()
             .any(|s| s.len() > 64)
+            || self.stage_rules.as_ref().is_some_and(|r| r.len() > 64)
         {
             return Err(PlanProblem::TooLarge);
         }
@@ -334,6 +359,35 @@ pub(crate) mod tests {
         assert_eq!(json["ladder"], serde_json::json!(["a", "b"]));
         let back: BattlePlan = serde_json::from_value(json).unwrap();
         assert_eq!(back.compute_digest(), laddered.digest);
+    }
+
+    #[test]
+    fn a_stages_changed_rules_are_in_the_digest_only_where_named() {
+        let p = plan(40, 7, |j| j % 3 != 0);
+        let before = p.digest.clone();
+        assert_eq!(p.clone().with_stage_rules(None).digest, before);
+        let named = p.clone().with_stage_rules(Some("hard/boos/out".into()));
+        assert_ne!(
+            named.digest, before,
+            "a device under the match's rules disagrees"
+        );
+        assert_ne!(
+            p.clone()
+                .with_stage_rules(Some("hard/no-boos/out".into()))
+                .digest,
+            named.digest
+        );
+        assert!(named.check().is_ok());
+        let json = serde_json::to_value(&named).unwrap();
+        assert_eq!(json["stage_rules"], "hard/boos/out");
+        assert!(
+            serde_json::to_value(&p)
+                .unwrap()
+                .get("stage_rules")
+                .is_none()
+        );
+        let back: BattlePlan = serde_json::from_value(json).unwrap();
+        assert_eq!(back.compute_digest(), named.digest);
     }
 
     #[test]

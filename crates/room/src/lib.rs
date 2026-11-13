@@ -74,11 +74,12 @@ pub use protocol::{
     Resync, ServerEnvelope, ServerMessage, Want,
 };
 pub use rules::{
-    Access, Admission, AtZero, CapExceeded, ContentSource, CpuMode, CpuRules, LivePolicy, MatchDifficulty,
-    MatchRules, OutcomePolicy, ReadinessPolicy, RoomPolicy, RulesProblem,
+    Access, Admission, AtZero, CapExceeded, ContentSource, CpuMode, CpuRules, LivePolicy,
+    MatchDifficulty, MatchRules, OutcomePolicy, PlayRules, ReadinessPolicy, RoomPolicy,
+    RulesProblem,
 };
 pub use state::{
     Closure, ContentCard, ContentStatus, HostDeparture, HostLeaves, Hosting, Loading, Match,
-    MatchEnding, MatchRecord, NextMatchDraft, Participation, Picking, Prep, RoomState, Seat,
-    SitOutReason, Spotlight, Stage, StageContent, StagePlay, StageStanding, Standing,
+    MatchEnding, MatchRecord, NextMatchDraft, Participation, Picking, Prep, RoomState, RulesChange,
+    Seat, SitOutReason, Spotlight, Stage, StageContent, StagePlay, StageStanding, Standing,
 };

@@ -1591,3 +1591,54 @@ fn a_restart_is_decided_alike_by_both_authorities_and_every_mirror() {
     assert_eq!(local.next.rules, rules);
     assert!(local.policy.restart, "the room says it reads the command");
 }
+
+/// A running match's per-stage rules changed from a later stage on
+/// (2026-11-13): both authorities decide `ChangeStageRules` alike, every
+/// mirror keeps the change, and one made for a stage that has begun is
+/// refused alike, naming where it would land.
+#[test]
+fn a_per_stage_change_is_decided_alike_by_both_authorities_and_every_mirror() {
+    let mut steps = script();
+    let hard = ddi_room::PlayRules {
+        difficulty: ddi_room::MatchDifficulty::Hard,
+        boos: true,
+        ..MatchRules::hosted().play_rules()
+    };
+    steps.push(Step::Cmd(
+        "dev:bob",
+        Command::ChangeStageRules {
+            from: StageId(2),
+            rules: hard.clone(),
+        },
+    ));
+    steps.push(Step::Cmd(
+        "dev:alice",
+        Command::ChangeStageRules {
+            from: StageId(1),
+            rules: hard.clone(),
+        },
+    ));
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    let n = local_answers.len();
+    assert_eq!(local_answers[n - 2], None, "changed from stage 2");
+    assert_eq!(
+        local_answers[n - 1],
+        Some(Rejection::RulesLandLater {
+            asked: StageId(1),
+            from: Some(StageId(2))
+        })
+    );
+    let m = local.current.as_ref().unwrap();
+    assert_eq!(m.rules_for(StageId(2)).play_rules(), hard);
+    assert!(!m.stage_rules_changed(StageId(1)));
+    assert!(
+        local.policy.stage_rules,
+        "the room says it reads the command"
+    );
+}

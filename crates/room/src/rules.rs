@@ -74,6 +74,15 @@ pub struct RoomPolicy {
     /// where this says so. ADDITIVE to protocol 2.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub step_down: bool,
+    /// The authority reads `crate::Command::ChangeStageRules` (2026-11-13:
+    /// a running match's per-stage rules, [`PlayRules`], changed from a
+    /// later stage on) and keeps the changes on the match
+    /// (`state::Match::changes`). True for every room this build makes;
+    /// false (left out of the JSON) for a room whose authority predates
+    /// it, where the Rules pop-up keeps its form of before and the command
+    /// is never sent. ADDITIVE to protocol 2.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stage_rules: bool,
 }
 
 /// What a room that plays live tells its clients of how
@@ -207,6 +216,7 @@ impl Default for RoomPolicy {
             points_bias: true,
             audience: None,
             step_down: true,
+            stage_rules: true,
         }
     }
 }
@@ -386,6 +396,47 @@ pub struct MatchRules {
     pub at_zero: AtZero,
 }
 
+/// The rules each stage is played under on its own (2026-11-13): those of
+/// a match's rules that may change from a later stage of a running match
+/// (`crate::Command::ChangeStageRules`, `state::Match::changes`): Timing
+/// difficulty, Boos, Attacks (the battle preset) and At zero life. The
+/// stage count, the seats and the CPUs, the ruleset and the award curve
+/// (`MatchRules::points`) stay the match's: they say who is seated and
+/// what every stage is worth against the others. Its fields are
+/// [`MatchRules`]'s, read and written as there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayRules {
+    #[serde(default, skip_serializing_if = "MatchDifficulty::is_normal")]
+    pub difficulty: MatchDifficulty,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub boos: bool,
+    /// The battle preset's id ([`MatchRules::battle`]).
+    pub battle: String,
+    #[serde(default, skip_serializing_if = "AtZero::is_out")]
+    pub at_zero: AtZero,
+}
+
+impl PlayRules {
+    /// The Attacks rule ([`MatchRules::attacks`]).
+    pub fn attacks(&self) -> bool {
+        crate::battle::BattlePreset::parse(&self.battle)
+            .is_some_and(crate::battle::BattlePreset::attacks)
+    }
+
+    /// Whether a room under `policy` can play them: a battle's id of a
+    /// sane length (the room keeps it opaque, as the match's), and Step
+    /// down only where its authority honors it.
+    pub fn check(&self, policy: &RoomPolicy) -> Result<(), RulesProblem> {
+        if self.battle.is_empty() || self.battle.len() > 64 {
+            return Err(RulesProblem::BattleId);
+        }
+        if self.at_zero == AtZero::StepDown && !policy.step_down {
+            return Err(RulesProblem::StepDownNotHonored);
+        }
+        Ok(())
+    }
+}
+
 /// What zero life does in a stage ([`MatchRules::at_zero`]).
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
@@ -491,6 +542,27 @@ impl MatchRules {
     pub fn attacks(&self) -> bool {
         crate::battle::BattlePreset::parse(&self.battle)
             .is_some_and(crate::battle::BattlePreset::attacks)
+    }
+
+    /// The rules a stage is played under on its own ([`PlayRules`]).
+    pub fn play_rules(&self) -> PlayRules {
+        PlayRules {
+            difficulty: self.difficulty,
+            boos: self.boos,
+            battle: self.battle.clone(),
+            at_zero: self.at_zero,
+        }
+    }
+
+    /// These rules with a stage's own `play` rules in place of theirs.
+    pub fn with_play(&self, play: &PlayRules) -> MatchRules {
+        MatchRules {
+            difficulty: play.difficulty,
+            boos: play.boos,
+            battle: play.battle.clone(),
+            at_zero: play.at_zero,
+            ..self.clone()
+        }
     }
 
     /// Sets the Attacks rule: the battle with attacks, or survival alone.
@@ -696,6 +768,11 @@ pub enum RulesProblem {
     /// Neither one of [`MatchRules::RULESETS`] nor an id read as one
     /// ([`MatchRules::LEGACY_RULESETS`]).
     UnknownRuleset,
+    /// A stage's rules ([`PlayRules`]) name no battle, or one too long.
+    BattleId,
+    /// Step down where the room's authority does not honor it
+    /// ([`RoomPolicy::step_down`]).
+    StepDownNotHonored,
 }
 
 #[cfg(test)]

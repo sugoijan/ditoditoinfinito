@@ -3583,3 +3583,351 @@ fn a_policy_from_before_the_restart_says_so() {
     let back = serde_json::to_value(&old).unwrap();
     assert!(back.get("restart").is_none());
 }
+
+/// A change of the running match's per-stage rules (2026-11-13): Hard
+/// timing and Boos from stage 2, Attacks off from stage 3 made in the
+/// intermission after stage 2, each stage played under its own; what
+/// came before keeps its rules; the mirror equal throughout.
+#[test]
+fn per_stage_rules_change_between_stages_and_each_stage_keeps_its_own() {
+    let mut r = Room::hosted(4);
+    let host = r.host;
+    let ana = r.join("ana", Intent::Play);
+    // In the lobby there is no running match to change.
+    let hard = PlayRules {
+        difficulty: MatchDifficulty::Hard,
+        boos: true,
+        ..MatchRules::hosted().play_rules()
+    };
+    assert!(matches!(
+        r.by(
+            host,
+            Command::ChangeStageRules {
+                from: StageId(1),
+                rules: hard.clone(),
+            }
+        ),
+        Err(Rejection::WrongPhase { .. })
+    ));
+    assert_eq!(r.s.rules_land_on(), None);
+    r.pick(1).unwrap();
+    let s1 = r.upcoming();
+    let stages: Vec<StageId> =
+        r.s.current
+            .as_ref()
+            .unwrap()
+            .stages
+            .iter()
+            .map(|s| s.id)
+            .collect();
+    // Stage 1's window is open (its prompt tells its rules): a change
+    // lands on stage 2.
+    assert_eq!(r.s.rules_land_on(), Some(stages[1]));
+    // A member may not change them.
+    assert_eq!(
+        r.by(
+            ana,
+            Command::ChangeStageRules {
+                from: stages[1],
+                rules: hard.clone(),
+            }
+        ),
+        Err(Rejection::Unauthorized {
+            capability: Capability::EditNextRules
+        })
+    );
+    // Without a base: refused, as every rules edit.
+    assert_eq!(
+        r.based(
+            host,
+            None,
+            Command::ChangeStageRules {
+                from: stages[1],
+                rules: hard.clone(),
+            }
+        ),
+        Err(Rejection::MissingBase)
+    );
+    let events = r
+        .by(
+            host,
+            Command::ChangeStageRules {
+                from: stages[1],
+                rules: hard.clone(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::StageRulesChanged {
+            from: stages[1],
+            rules: hard.clone()
+        }]
+    );
+    let m = r.s.current.as_ref().unwrap();
+    let mut began = MatchRules::hosted();
+    began.stages = 4;
+    assert_eq!(m.rules, began, "the match's own rules stay");
+    assert_eq!(m.rules_for(s1).difficulty, MatchDifficulty::Normal);
+    for &st in &stages[1..] {
+        assert_eq!(m.rules_for(st).play_rules(), hard);
+        assert!(m.stage_rules_changed(st));
+    }
+    assert!(!m.stage_rules_changed(s1));
+    // The same again changes nothing.
+    assert_eq!(
+        r.by(
+            host,
+            Command::ChangeStageRules {
+                from: stages[1],
+                rules: hard.clone(),
+            }
+        ),
+        Ok(vec![])
+    );
+    r.ready(host);
+    r.ready(ana);
+    let s1 = r.play();
+    r.end(s1, &[&[ana], &[host]]);
+    // Stage 2 picked and played under Hard timing and Boos.
+    r.pick(2).unwrap();
+    assert_eq!(r.upcoming(), stages[1]);
+    assert_eq!(r.s.rules_land_on(), Some(stages[2]));
+    r.ready(host);
+    r.ready(ana);
+    let s2 = r.play();
+    // During stage 2's play: Attacks off from stage 3.
+    let no_attacks = PlayRules {
+        battle: BattlePreset::GaugeSurvivalV0.id().into(),
+        ..hard.clone()
+    };
+    let mut on = hard.clone();
+    on.battle = BattlePreset::GaugeAttacksV0.id().into();
+    r.by(
+        host,
+        Command::ChangeStageRules {
+            from: stages[2],
+            rules: on.clone(),
+        },
+    )
+    .unwrap();
+    r.end(s2, &[&[host], &[ana]]);
+    // In the intermission the stage after still lands on stage 3: a
+    // second change from it replaces the first.
+    assert_eq!(r.s.rules_land_on(), Some(stages[2]));
+    r.by(
+        host,
+        Command::ChangeStageRules {
+            from: stages[2],
+            rules: no_attacks.clone(),
+        },
+    )
+    .unwrap();
+    let m = r.s.current.as_ref().unwrap();
+    assert_eq!(m.changes.len(), 2, "{:?}", m.changes);
+    assert_eq!(
+        m.rules_for(stages[1]).play_rules(),
+        hard,
+        "stage 2 played as it was"
+    );
+    assert!(!m.rules_for(stages[2]).attacks());
+    assert!(!m.rules_for(stages[3]).attacks());
+    // Back to the match's own from stage 4: not marked.
+    r.pick(3).unwrap();
+    r.by(
+        host,
+        Command::ChangeStageRules {
+            from: stages[3],
+            rules: MatchRules::hosted().play_rules(),
+        },
+    )
+    .unwrap();
+    let m = r.s.current.as_ref().unwrap();
+    assert!(!m.stage_rules_changed(stages[3]));
+    assert!(m.stage_rules_changed(stages[2]));
+    // On the last stage's countdown no stage is left.
+    r.ready(host);
+    r.ready(ana);
+    let s3 = r.play();
+    r.end(s3, &[&[host], &[ana]]);
+    r.pick(4).unwrap();
+    assert_eq!(r.s.rules_land_on(), None);
+    assert_eq!(
+        r.by(
+            host,
+            Command::ChangeStageRules {
+                from: stages[3],
+                rules: hard.clone(),
+            }
+        ),
+        Err(Rejection::RulesLandLater {
+            asked: stages[3],
+            from: None
+        })
+    );
+    // The record keeps each stage's rules.
+    r.ready(host);
+    r.ready(ana);
+    let s4 = r.play();
+    r.end(s4, &[&[host], &[ana]]);
+    r.pick(5).unwrap();
+    let played = &r.s.history.last().unwrap().played;
+    assert_eq!(played.changes.len(), 3);
+    assert_eq!(
+        played.rules_for(stages[1]).difficulty,
+        MatchDifficulty::Hard
+    );
+    // A new match begins with no changes.
+    assert!(r.s.current.as_ref().unwrap().changes.is_empty());
+}
+
+/// A change racing a pick (or a start) is ordered by the room's
+/// revision: whichever came first holds, and the change made for a stage
+/// that has begun since is refused, naming where it would land now,
+/// never moved silently; one made against changes saved since is stale.
+#[test]
+fn a_per_stage_change_racing_a_pick_or_a_countdown_lands_a_stage_later_or_is_refused() {
+    let mut r = Room::hosted(3);
+    let host = r.host;
+    let ana = r.join("ana", Intent::Play);
+    let co = r.join("co", Intent::Play);
+    r.by(
+        host,
+        Command::SetCoHost {
+            participant: co,
+            on: true,
+        },
+    )
+    .unwrap();
+    r.pick(1).unwrap();
+    let stages: Vec<StageId> =
+        r.s.current
+            .as_ref()
+            .unwrap()
+            .stages
+            .iter()
+            .map(|s| s.id)
+            .collect();
+    for p in [host, ana, co] {
+        r.ready(p);
+    }
+    // During stage 1's countdown a change lands on stage 2.
+    assert!(matches!(r.s.phase, Phase::Countdown { .. }));
+    assert_eq!(r.s.rules_land_on(), Some(stages[1]));
+    let s1 = r.play();
+    r.end(s1, &[&[ana], &[host], &[co]]);
+    // In the intermission nobody readied for stage 2: it lands there.
+    assert_eq!(r.s.rules_land_on(), Some(stages[1]));
+    let seen = r.s.revision;
+    // The pick comes first.
+    r.pick(2).unwrap();
+    let hard = PlayRules {
+        difficulty: MatchDifficulty::Hard,
+        ..MatchRules::hosted().play_rules()
+    };
+    assert_eq!(
+        r.based(
+            co,
+            Some(seen),
+            Command::ChangeStageRules {
+                from: stages[1],
+                rules: hard.clone(),
+            }
+        ),
+        Err(Rejection::RulesLandLater {
+            asked: stages[1],
+            from: Some(stages[2])
+        })
+    );
+    assert!(r.s.current.as_ref().unwrap().changes.is_empty());
+    // Said again for stage 3, it holds.
+    r.by(
+        co,
+        Command::ChangeStageRules {
+            from: stages[2],
+            rules: hard.clone(),
+        },
+    )
+    .unwrap();
+    // The host's own made against the view before it: stale.
+    let easy = PlayRules {
+        difficulty: MatchDifficulty::Easy,
+        ..hard.clone()
+    };
+    assert!(matches!(
+        r.based(
+            host,
+            Some(seen),
+            Command::ChangeStageRules {
+                from: stages[2],
+                rules: easy.clone(),
+            }
+        ),
+        Err(Rejection::Stale { .. })
+    ));
+    // Someone loading for a stage ahead of its pick holds it too.
+    let m = r.s.current.as_ref().unwrap();
+    assert_eq!(m.rules_for(stages[1]).difficulty, MatchDifficulty::Normal);
+    assert_eq!(m.rules_for(stages[2]).difficulty, MatchDifficulty::Hard);
+    // Step down only where the authority honors it.
+    let mut old = r.s.clone();
+    old.policy.step_down = false;
+    let stepping = PlayRules {
+        at_zero: AtZero::StepDown,
+        ..hard
+    };
+    let revision = old.revision;
+    assert_eq!(
+        old.apply(
+            Actor::Member(host),
+            Some(revision),
+            &Command::ChangeStageRules {
+                from: stages[2],
+                rules: stepping,
+            },
+            Millis(r.now)
+        ),
+        Err(Rejection::InvalidRules(RulesProblem::StepDownNotHonored))
+    );
+}
+
+/// The changes' JSON is additive: a match and a policy stored before them
+/// read back as having none, a match without changes writes none, and a
+/// change's event and command round-trip.
+#[test]
+fn per_stage_changes_are_additive_to_the_rooms_json() {
+    let mut r = Room::hosted(2);
+    r.join("ana", Intent::Play);
+    r.pick(1).unwrap();
+    let json = serde_json::to_value(&r.s).unwrap();
+    assert!(
+        json["current"].get("changes").is_none(),
+        "{}",
+        json["current"]
+    );
+    let mut policy = serde_json::to_value(&r.s.policy).unwrap();
+    assert_eq!(policy["stage_rules"], true);
+    policy.as_object_mut().unwrap().remove("stage_rules");
+    let old: RoomPolicy = serde_json::from_value(policy).unwrap();
+    assert!(!old.stage_rules, "an older authority's policy offers none");
+    let from = r.s.rules_land_on().unwrap();
+    let rules = PlayRules {
+        boos: true,
+        ..MatchRules::hosted().play_rules()
+    };
+    let cmd = Command::ChangeStageRules {
+        from,
+        rules: rules.clone(),
+    };
+    let back: Command = serde_json::from_str(&serde_json::to_string(&cmd).unwrap()).unwrap();
+    assert_eq!(back, cmd);
+    r.by(r.host, cmd).unwrap();
+    let text = serde_json::to_string(&r.s).unwrap();
+    let back: RoomState = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, r.s);
+    // The match as an older reader stored it: no changes.
+    let mut v = serde_json::to_value(&r.s).unwrap();
+    v["current"].as_object_mut().unwrap().remove("changes");
+    let older: RoomState = serde_json::from_value(v).unwrap();
+    assert!(older.current.unwrap().changes.is_empty());
+}
