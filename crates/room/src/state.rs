@@ -858,6 +858,31 @@ impl RoomState {
             .count()
     }
 
+    /// Every player's place is taken: one more person who wants to play
+    /// would pass the competitor cap (`RoomPolicy::check_competitors`).
+    /// A newcomer then joins to watch ([`RoomState::arrival_intent`]), and
+    /// a watcher's Play is refused (`Rejection::Cap`) until a place frees.
+    pub fn players_full(&self) -> bool {
+        self.policy
+            .check_competitors(self.reserved_humans() + 1)
+            .is_err()
+    }
+
+    /// What a newcomer who asks for `wanted` joins as: the one decision
+    /// of a join's intent, which the reducer's `Command::Join` makes and
+    /// an authority's preview says ahead (`players_full`). Wanting to play
+    /// where every player's place is taken joins to watch, never refused
+    /// for it (`join-watch-v0`, PROVISIONAL: nobody is moved to Play when
+    /// a place frees up later; the watcher chooses Play themselves). A
+    /// room's member limit (`RoomPolicy::max_members`) still refuses.
+    pub fn arrival_intent(&self, wanted: Intent) -> Intent {
+        if wanted == Intent::Play && self.players_full() {
+            Intent::Watch
+        } else {
+            wanted
+        }
+    }
+
     /// Why `id` would not start `stage` now, or `None` if eligible (a CPU,
     /// or a connected person who is ready, loaded and wants to play).
     pub fn sit_out_reason(&self, stage: &Stage, id: ParticipantId) -> Option<SitOutReason> {

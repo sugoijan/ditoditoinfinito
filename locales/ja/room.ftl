@@ -316,6 +316,7 @@ room-invite-open = いま参加できます。準備完了は自分で押しま�
 room-invite-next-match = 試合中です。観戦して、次の試合から参加します。
 room-invite-closed = ホストが新しい参加を締め切りました。
 room-invite-full = このルームは満員です。
+room-invite-full-watch = プレイヤーの席が埋まっています。観戦で参加します。
 
 room-invite-expired = この招待は期限切れです。ホストに新しいリンクをもらってください。
 room-invite-rotated = この招待は差し替えられました。ホストに新しいリンクをもらってください。
@@ -377,6 +378,7 @@ room-sign-in-again = もう一度サインイン
 room-invite-copied = 招待リンクをコピーしました。
 room-invite-replaced = 招待を差し替えました。古いリンクは使えません。
 room-invite-not-replaced = 招待を差し替えられませんでした。
+room-joined-to-watch = プレイヤーの席が埋まっているため、観戦しています。席が空いたら「プレイする」を選べます。
 
 room-status-host-chooses = ステージ{ $number }の曲はホストが選びます。
 
@@ -534,6 +536,7 @@ room-intent-watch = 観戦のみ
 room-intent-play = プレイする
 
 room-refused-all-watching = プレイする人がいません。
+room-refused-players-full = プレイヤーの席が埋まっています。席が空いてから「プレイする」を選んでください。
 
 room-watch-hint = Tabかタップでプレイヤーを選べます
 room-live-lost = ルームがステージの中継を失いました。結果は最後に送られます

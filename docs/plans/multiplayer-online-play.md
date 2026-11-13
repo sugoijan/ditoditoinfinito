@@ -2,8 +2,10 @@
 
 Status (2026-11-13): the contract is built and tested in `crates/room`
 (`ddi_room::live`, the fake room, the reducer's additions); the server's
-side (`../ddi-server`) and the game's side are the next two fronts, built
-in parallel on it. Nothing in the game's screens or shells changed.
+side (`../ddi-server`) plays live; the game's side (the client front) is
+built and tested against the fake room
+([the progress note](multiplayer-prototype-progress.md), "Online play,
+the client front"). Not yet tried against a real server.
 
 Read with [the prototype's progress](multiplayer-prototype-progress.md)
 (what exists: M5 online rooms, M8 attacks, the rounds of 2026-11-12),

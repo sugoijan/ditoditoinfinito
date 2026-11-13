@@ -1200,19 +1200,80 @@ impl Room {
 }
 
 #[test]
+fn a_join_to_a_full_room_watches_and_plays_once_a_place_frees_up() {
+    let mut r = Room::hosted(1);
+    r.s.policy.max_members = 11;
+    r.mirror.policy.max_members = 11;
+    let players: Vec<ParticipantId> = (0..8)
+        .map(|i| r.join(&format!("p{i}"), Intent::Play))
+        .collect();
+    // Full of players: in to watch, the event saying so to every mirror.
+    let identity = Identity::new("twitch:late");
+    let events = r
+        .sys(Command::Join {
+            identity: identity.clone(),
+            name: "late".into(),
+            admin: false,
+            intent: Intent::Play,
+        })
+        .unwrap();
+    let late = r.s.member_by_identity(&identity).unwrap().id;
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::MemberJoined { member } if member.id == late && member.intent == Intent::Watch
+    )));
+    // Asking to watch is unaffected, and so is a member's coming back.
+    let fan = r.join("fan", Intent::Watch);
+    assert_eq!(r.s.members[&fan].intent, Intent::Watch);
+    let refused = Err(Rejection::Cap(CapExceeded {
+        requested: 10,
+        cap: 9,
+    }));
+    let play = Command::SetIntent {
+        intent: Intent::Play,
+    };
+    assert_eq!(r.by(late, play.clone()), refused);
+    // The member limit (11 here; 32 by default) still refuses whole.
+    assert_eq!(
+        r.join_as("eleventh", Intent::Watch, false),
+        Err(Rejection::RoomFull)
+    );
+    assert_eq!(
+        r.join_as("twelfth", Intent::Play, false),
+        Err(Rejection::RoomFull)
+    );
+    // A place frees up: nobody is moved to Play by it…
+    r.by(players[3], Command::Leave).unwrap();
+    assert!(!r.s.players_full());
+    assert_eq!(r.s.members[&late].intent, Intent::Watch);
+    assert_eq!(r.s.members[&fan].intent, Intent::Watch);
+    // …the watcher chooses it, and the room is full of players again.
+    r.by(late, play.clone()).unwrap();
+    assert_eq!(r.s.members[&late].intent, Intent::Play);
+    assert!(r.s.players_full());
+    assert_eq!(r.by(fan, play), refused);
+    // A newcomer asking to play now joins to watch again.
+    r.s.policy.max_members = 12;
+    r.mirror.policy.max_members = 12;
+    let next = r.join_as("next", Intent::Play, false).unwrap();
+    assert_eq!(r.s.members[&next].intent, Intent::Watch);
+}
+
+#[test]
 fn the_competitor_cap_is_enforced() {
     let mut r = Room::hosted(1);
     for i in 0..8 {
         r.join(&format!("p{i}"), Intent::Play);
     }
-    assert_eq!(
-        r.join_as("tenth", Intent::Play, false),
-        Err(Rejection::Cap(CapExceeded {
-            requested: 10,
-            cap: 9
-        }))
-    );
-    let watcher = r.join("tenth", Intent::Watch);
+    // Every player's place taken: one who asks to play joins to watch
+    // (`join-watch-v0`), never refused for it.
+    assert!(r.s.players_full());
+    assert_eq!(r.s.arrival_intent(Intent::Play), Intent::Watch);
+    assert_eq!(r.s.arrival_intent(Intent::Watch), Intent::Watch);
+    let watcher = r.join_as("tenth", Intent::Play, false).unwrap();
+    assert_eq!(r.s.members[&watcher].intent, Intent::Watch);
+    assert_eq!(r.part(watcher), Participation::Watching);
+    assert_eq!(r.s.reserved_humans(), 9);
     assert_eq!(
         r.by(
             watcher,

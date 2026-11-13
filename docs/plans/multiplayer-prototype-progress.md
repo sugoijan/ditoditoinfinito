@@ -4079,6 +4079,131 @@ server changed, so nothing of it is reachable yet.
   that predate live play left out of attacks and early decisions,
   Disconnected past the grace as a forfeit.
 
+## Online play, the client front: the game plays a private room's stage live (2026-11-13)
+
+The game's side of `docs/plans/multiplayer-online-play.md` (its "What the
+client front builds"), on the contract in `crates/room` and tested over
+the in-process `FakeServer` alone: no real server was started for it.
+
+### What is built
+
+- **The contract's bug, fixed first.** A stage the room decided in the
+  same tick in which it saw every stream end (everyone a no-show, say)
+  sent `EndSong` with a ranking after its own `ConfirmStage`; the reducer
+  refused it and the song waited for the report deadline.
+  `LiveStage::song_end` now sends no ranking once it decided
+  (`tests/live.rs`, `a_stage_everyone_misses_…`). The server's workaround
+  can go.
+- **Binary sockets.** The web's `WebSocket` reads `ArrayBuffer`s and
+  sends bytes, desktop's tungstenite thread carries `Message::Binary`
+  both ways (its read waits 10 ms now, so that a ping waits no longer on
+  its way out); both say `Transport::binary()`. A room whose policy does
+  not play live is never sent a live message (tested from the client);
+  close 1012 reconnects and plays live (tested).
+- **The room client** (`ddi_ui::state::room`): `plays_live`, `room_now`,
+  `set_me` from the mirror, the live news kept only while a stage is
+  played live. A stage's preparation in a live room works out what live
+  play needs (`LoadJob::live`, `prepare_stage`, `LivePrep`): the reading
+  horizon under the player's options (raised as practice raises it) and,
+  with attacks, the battle plan, made by `ddi_ui::state::battle_plan`
+  (the checkpoints and sections practice's `AttackRunner` uses, moved
+  there so both paths make them the same way; the seed `seed_for`). The
+  picker's device offers its plan; every device compares the room's
+  digest, says `prepared` (its horizon, the digest) and only then reports
+  Loaded; a different plan reports `battle_plan_mismatch`, sits the stage
+  out and says so ("This device sees the stage's attacks differently from
+  the room, so you sit this stage out.", "Attacks differ" in the players
+  panel). The stage's order carries it (`StageOrder::live`: the prep and
+  the other people).
+- **The synchronized start** (`ddi_session::battle::live::live_start`,
+  `PlaySession::start`): song time zero heard at `song_zero_at` on the
+  room's clock as estimated, through the output's latency; the prompt's
+  Ready still makes the web's audio context in the press, and the play
+  begins when the room starts the stage (a second before song zero, the
+  lead-in fitting in it). A device later than that joins from where the
+  room's clock has the song (its notes before judged as misses, a staged
+  start); later than `late_join_ms` it forfeits at once and watches.
+- **Sending** (`battle::live::Live::send`): the play's judge events as
+  moments (taps with tier, offset and W0, hold ends, mines, shocks, Boos,
+  with life, combo and DDI's sum after each frame's events), an
+  `attacks::Reporter` fed as practice counts (chart taps, going out,
+  policy changes), the stream's end (finished, out, forfeit) before the
+  `ReportOutcome`. The room client is ticked by the play itself (no
+  screen ticks it during a play). Batches are cut every interval also
+  while the socket is down (`LiveLink::due`), so a catch-up after a long
+  reconnect is many small batches, never one over the room's bounds
+  (64 KiB asserted with room to spare).
+- **The remote ledger** (`Battle` with `with_live`): no local
+  `AttackRunner`; commitments from frames go into the play (refused,
+  with a `refused` moment, when its first shock's warning is already
+  due) and onto the recipient's field; power bars, the waiting line, the
+  warning, who attacks whom (links, the watcher's links), the attack
+  moments and lines come from the room's checkpoint records and
+  commitments. One code path for the views. Practice is untouched (its
+  suites pass unchanged).
+- **Receiving**: frames feed the other people's miniatures and the
+  spectator view a second behind (`presentation_delay_ms`); people's
+  fields are drawn from the chart itself (`TapTrack::full`: taps, the
+  heads of holds and rolls and lifts drawn as taps; their bodies are
+  not drawn yet); a refused attack's shocks are taken off; a field whose
+  stream is more than `stale_ms` behind is dimmed; locks from shock
+  moments; ends shown (out). A member who watches gets the live stage
+  (`RoomClient::watches` is true in a live room), the grid and the
+  focus as in practice. A reopened socket resends what was not
+  acknowledged and resumes the frames (tested with frames lost too).
+  `unknown_stage` for the stage in play (a server restart) stops the
+  stream, keeps the play and says "The room lost the live stage; your
+  run counts at the end" on the status line.
+- **Settlement shown**: the room's confirmed early decision is the
+  stage's decision here (`StageWon`/`StageDrawn`, the winner playing the
+  song out with the fail off, "Drawn: final attack" where the room was
+  settling), then the results with the Standings as before.
+- **Online rules**: `attacks_offered` is true in a live room, so the
+  Attacks rule is offered there; in a room that does not play live it
+  stays as it was. Rooms made before the deploy are given live play by
+  the server when their object loads (its sockets closed with 1012 then
+  reconnect and read the policy), so they offer the rule after the
+  deploy.
+- **Bots** (`ddi --mp-bots`): in a live room a bot's CPU play is
+  streamed, its song clock on the room's instant, the room's attacks put
+  into its CPU's play (`battle::live::LivePlay`). DEVELOPMENT TOOL.
+- **Debug state**: the web's `__DDI_DEBUG.live` during a live stage:
+  `on`, `clock` (`offset_ms`, `uncertainty_ms`, `samples`),
+  `song_zero_in`, `stream` (`acked`, `unacked`, `ended`), `frames` (the
+  last read), `stale`, `refused`, `lost`.
+
+### Tested
+
+`crates/room`: the contract fix (fails without it); batches through a
+60 s disconnect. `crates/ui` (`state/online/live_tests.rs`): live off
+for an old room and on for a live one with the clock within 5 ms; the
+plan offered by the picker, compared by two devices and mismatched by a
+third that sits out; close 1012. `crates/session`
+(`play/tests/stage/live.rs`, real plays judged by the engine on a shared
+fake clock through the fake room with latency and jitter): a two-player
+stage started within a frame of the room's instant, streamed, one out,
+decided early by the room, the winner finishing, the runs reported and
+the song ended; attacks both ways, each into its recipient's play and
+onto the other's view, the same counts as the room's ledger; a watcher
+following both fields and the attacks; a late join inside the bound and
+one past it forfeiting and watching; a socket dropped mid-stage (and
+frames lost) ending with every tap seen by everyone; every attack
+refused by a device whose frames come three seconds late, and taken off
+the others' views; a bot's CPU play beside a person.
+
+### Not done in this round
+
+- No full live stage in the UI harness (the session tests drive the room
+  clients and plays directly) and no desktop offscreen live stage.
+- No real server, real latency or two real browsers: the backend front's
+  server and a deployed or local one are the next check.
+- A remote person's percent is not on the stream (it carries DDI's sum):
+  their miniature shows the sum where the player chose the percent.
+- Holds' bodies on remote fields; a remote Boo, mine or hold end shows
+  only in the numbers.
+- The clock is mapped to the audio clock once, at the play's start (no
+  drift correction over a song).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

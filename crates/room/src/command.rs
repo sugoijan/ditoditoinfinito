@@ -169,7 +169,10 @@ pub enum Command {
 
     // The authority alone.
     /// A person entered (or returned to) the room, as the authority
-    /// established their identity.
+    /// established their identity. A newcomer asking to play where every
+    /// player's place is taken joins to watch
+    /// ([`RoomState::arrival_intent`](crate::RoomState::arrival_intent));
+    /// only the room's member limit refuses one (`Rejection::RoomFull`).
     Join {
         identity: Identity,
         name: String,

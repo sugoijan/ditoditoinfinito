@@ -362,7 +362,11 @@ Rust and the browser are implementation details, not advertised features.
   through `stars::stars`/`stars_left`/`stars_right`, sized by a height,
   its colors `Star.Gold`/`Star.Silver`/`Star.Empty`; the play's
   miniatures draw the same geometry, `ddi_shell::opponents::draw_stars`);
-  free-text entry alone may require keyboard/IME. Editor South places notes,
+  free-text entry alone may require keyboard/IME. `state/battle_plan.rs`:
+  a stage's checkpoints, sections and reading horizon from its chart,
+  practice's ledger and an online room's battle plan alike (the picker's
+  device offers it, every device compares its digest before Loaded,
+  `prepare_stage`, `RoomClient::finish_load_live`). Editor South places notes,
   Start listens, holds/rolls use head/tail confirmation; More exposes the same
   operations for minimal custom controllers. The UI core owns controller
   input (`docs/plans/controller-input-core.md`): the shells hand `Ui` the
@@ -654,6 +658,16 @@ Rust and the browser are implementation details, not advertised features.
   a lane a shock locked for the lock's time (`FieldFeed::locks`),
   the tap-only copy it plays, `TapTrack`, and a presentation delay, 0
   for local CPUs, so a network stream can feed the same view later;
+  an online room's stage played live, `battle/live.rs`
+  (`docs/plans/multiplayer-online-play.md`): `Battle::with_live` over a
+  `LiveHandle` (the room client and the shell's wall clock,
+  `SessionConfig::live`), the play started at the room's instant
+  (`live_start`, a late join up to `late_join_ms`, past it a forfeit
+  watched), its moments and checkpoint reports streamed, the room's
+  frames feeding people's fields (`TapTrack::full`, a second behind,
+  stale ones dimmed), its commitments into the play (refused when too
+  late), its records driving the bars, warnings and links, its decision
+  shown; `LivePlay` the same for the bots;
   a stage watched (`play/watch.rs`, `watch-v0`,
   `docs/plans/multiplayer-prototype-progress.md`, "Watching a stage"):
   by a spectator, a member who chose Watch (`StageSetup::watching`: the

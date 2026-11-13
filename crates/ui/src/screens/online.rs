@@ -23,7 +23,7 @@ use super::page::{
     Action, Block, PAGE_CHANGED, PageCall, PageDoc, PageFeed, PageScreen, PageTitle,
 };
 use crate::screen::{Cx, Handled, Input, Screen};
-use crate::state::online::api::{self, Admission, Problem};
+use crate::state::online::api::{self, Admission, Preview, Problem};
 use crate::state::online::{Account, Dest, Online, Redirect, SharedOnline, SignIn};
 
 /// Which page.
@@ -166,6 +166,15 @@ pub fn admission_text(a: Admission) -> UiText {
     }
 }
 
+/// What joining now means, from the preview: the room full of players
+/// (`Preview::players_full`) joined to watch.
+pub fn preview_text(p: &Preview) -> UiText {
+    match p.admission {
+        Admission::Open | Admission::NextMatch if p.players_full => m::invite_full_watch(),
+        a => admission_text(a),
+    }
+}
+
 /// An invite's page.
 fn invite_doc(online: &Online) -> PageDoc {
     let mut blocks = Vec::new();
@@ -179,7 +188,7 @@ fn invite_doc(online: &Online) -> PageDoc {
                 m::invite_host(super::room::shown_name(&p.host_display_name, p.host_bot)).into(),
             ));
             blocks.push(Block::Muted(m::invite_members(p.members).into()));
-            blocks.push(Block::Text(admission_text(p.admission).into()));
+            blocks.push(Block::Text(preview_text(p).into()));
             joinable = matches!(p.admission, Admission::Open | Admission::NextMatch);
         }
         Some(Err(p)) => blocks.push(Block::Note(invite_problem(p).into())),

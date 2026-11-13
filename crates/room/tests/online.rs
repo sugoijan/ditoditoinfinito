@@ -1388,3 +1388,87 @@ fn a_room_that_ends_closes_every_socket() {
     assert_eq!(alice.link.link(), LinkState::Left);
     assert_eq!(server.borrow().state().closed, Some(Closure::HostLeft));
 }
+
+/// Every player's place taken (a cap of two here): a join asking to play
+/// is in to watch, the same in the fake server's room, a local
+/// authority's and the members' mirrors; the watcher's Play is refused
+/// until a place frees up, and then taken when they choose it.
+#[test]
+fn a_join_to_a_room_full_of_players_watches_alike_everywhere() {
+    let cap2 = RoomPolicy {
+        max_competitors: 2,
+        ..RoomPolicy::default()
+    };
+    let clock = ManualClock::new(1_000);
+    let server = FakeServer::hosted(
+        ROOM,
+        Identity::new("dev:alice"),
+        "Alice",
+        cap2.clone(),
+        clock.clone(),
+    )
+    .shared();
+    let mut alice = Client::new(&server, &clock, "dev:alice");
+    let mut bob = Client::new(&server, &clock, "dev:bob");
+    let bob_id = server
+        .borrow_mut()
+        .join(Identity::new("dev:bob"), "Bob", Intent::Play)
+        .unwrap();
+    assert!(server.borrow().state().players_full());
+    let carol = server
+        .borrow_mut()
+        .join(Identity::new("dev:carol"), "Carol", Intent::Play)
+        .expect("in to watch, not refused");
+    pump_all(&mut [&mut alice, &mut bob]);
+    for room in [server.borrow().state(), alice.room(), bob.room()] {
+        assert_eq!(room.member(bob_id).unwrap().intent, Intent::Play);
+        assert_eq!(room.member(carol).unwrap().intent, Intent::Watch);
+    }
+    // The same room through a local authority.
+    let mut local = LocalAuthority::new(
+        RoomState::new(
+            RoomId::new(ROOM),
+            Identity::new("dev:alice"),
+            "Alice".into(),
+            cap2,
+            MatchRules::hosted(),
+            ContentSource::Shared,
+        ),
+        clock.clone(),
+    );
+    for (who, name) in [("dev:bob", "Bob"), ("dev:carol", "Carol")] {
+        local
+            .authority(Command::Join {
+                identity: Identity::new(who),
+                name: name.into(),
+                admin: false,
+                intent: Intent::Play,
+            })
+            .unwrap();
+    }
+    assert_eq!(local.state().member(carol).unwrap().intent, Intent::Watch);
+    // Bob watches: Carol's Play is taken; before that it was refused.
+    let carol_play = Command::SetIntent {
+        intent: Intent::Play,
+    };
+    assert!(matches!(
+        local.state().clone().apply(
+            ddi_room::Actor::Member(carol),
+            None,
+            &carol_play,
+            ddi_room::Millis(2_000)
+        ),
+        Err(Rejection::Cap(_))
+    ));
+    let seq = bob.send(Command::SetIntent {
+        intent: Intent::Watch,
+    });
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(bob.answer(seq), Some(&None));
+    assert!(!alice.room().players_full());
+    assert_eq!(
+        alice.room().member(carol).unwrap().intent,
+        Intent::Watch,
+        "nobody is moved to Play by a place freeing up"
+    );
+}

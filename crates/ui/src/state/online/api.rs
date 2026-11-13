@@ -179,6 +179,11 @@ pub struct Preview {
     pub host_bot: bool,
     pub phase: PhaseKind,
     pub admission: Admission,
+    /// Every player's place is taken: joining (`open` or `next_match`)
+    /// is to watch (`ddi_room::RoomState::players_full`). Absent from a
+    /// server that predates it, which refused such a join as `full`.
+    #[serde(default)]
+    pub players_full: bool,
     #[serde(default)]
     pub members: usize,
     #[serde(default)]

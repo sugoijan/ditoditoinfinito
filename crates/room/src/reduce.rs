@@ -764,11 +764,8 @@ impl RoomState {
                 if present >= limit {
                     return Err(Rejection::RoomFull);
                 }
-                if *intent == Intent::Play {
-                    self.policy
-                        .check_competitors(self.reserved_humans() + 1)
-                        .map_err(Rejection::Cap)?;
-                }
+                // Every player's place taken: in to watch, not refused.
+                let intent = &self.arrival_intent(*intent);
                 let id = ParticipantId(self.counters.participant);
                 self.emit(
                     out,

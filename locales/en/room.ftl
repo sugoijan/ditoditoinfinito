@@ -662,6 +662,9 @@ room-invite-open = You can join now. You'll choose Ready yourself.
 room-invite-next-match = A match is running: you'll watch and play from the next match.
 room-invite-closed = The host has closed this room to new players.
 room-invite-full = This room is full.
+# In the place of room-invite-open or room-invite-next-match where every
+# player's place is taken: joining is still possible, to watch.
+room-invite-full-watch = The room is full: you'll join to watch.
 
 # Why an invite does not admit (one of these).
 room-invite-expired = This invite has expired. Ask the host for a new link.
@@ -770,6 +773,11 @@ room-sign-in-again = Sign in again
 room-invite-copied = Invite link copied.
 room-invite-replaced = Invite replaced: the old link no longer works.
 room-invite-not-replaced = Couldn't replace the invite.
+
+# The status line for a while after joining a room whose player places
+# were all taken: the player joined to watch. "Play" is the Play/Watch
+# control's name (room-intent-play).
+room-joined-to-watch = The room is full: you're watching. Choose Play when a place frees up.
 
 # The status line when the host chooses the stage's song (shown to the
 # others).
@@ -1105,6 +1113,10 @@ room-intent-play = Play
 # On the status line: a song was picked but every person in the room
 # has chosen to watch, so there is nobody to play the stage.
 room-refused-all-watching = Everyone is watching. Someone has to play.
+
+# On the status line when a watcher chose Play and every player's place
+# is taken. "Play" is the control's name (room-intent-play).
+room-refused-players-full = Every player's place is taken. Choose Play again when one frees up.
 
 ## A stage watched: everyone's fields over the whole screen, or one
 ## player's field large in the middle with the others beside it.
