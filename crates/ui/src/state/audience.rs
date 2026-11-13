@@ -35,8 +35,8 @@ use ddi_room::{
 use super::online::SharedOnline;
 use super::online::api::{self, AudienceTicketDoc, Problem};
 use super::room::{
-    LiveAsk, LiveOrder, LivePrep, LiveRoom, LoadJob, LoadProblem, Picked, StageOrder, StageRules,
-    ranking_of,
+    LiveAsk, LiveOrder, LivePrep, LiveRoom, LoadJob, LoadProblem, Picked, SeatEnd, StageOrder,
+    StageRules, ranking_of,
 };
 
 /// How far behind the room's song time an audience device plays a
@@ -666,6 +666,27 @@ impl LiveRoom for AudienceClient {
         }
         Some(prep)
     }
+
+    fn seat_end(&self) -> Option<SeatEnd> {
+        seat_end_of(&self.state())
+    }
+}
+
+/// Why a seat in `state` ended for a stage watched, if it did: ended by
+/// its relay, or a new ticket refused (or the session gone) after its
+/// socket was lost. Joining and reconnecting are not ends.
+pub fn seat_end_of(state: &SeatState) -> Option<SeatEnd> {
+    Some(match state {
+        SeatState::Joining | SeatState::Watching | SeatState::Reconnecting => return None,
+        SeatState::Ended(AudienceEnd::Closed)
+        | SeatState::Refused(Refused::Audience(AudienceRefusal::Closed)) => SeatEnd::AudienceClosed,
+        SeatState::Ended(AudienceEnd::RoomClosed)
+        | SeatState::Refused(Refused::Audience(AudienceRefusal::RoomClosed)) => SeatEnd::RoomClosed,
+        SeatState::Refused(Refused::Audience(AudienceRefusal::BadLink)) => SeatEnd::LinkReplaced,
+        SeatState::Refused(Refused::Audience(r)) => SeatEnd::Refused(r.code().into()),
+        SeatState::Refused(Refused::Other(code)) => SeatEnd::Refused(code.clone()),
+        SeatState::SignInAgain => SeatEnd::SignInAgain,
+    })
 }
 
 /// The view's chart key as a digest's text (for tests and logs).

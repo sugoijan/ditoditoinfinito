@@ -1361,6 +1361,15 @@ room-audience-too-many-seats = You are already watching this room on two devices
 room-audience-link-unknown = This audience link isn't this room's, or it was replaced.
 room-audience-none = This room has no audience to watch with.
 
+# Under that sentence, said over a watched stage whose seat ended (the
+# audience closed, the room ended, the link replaced): the key that goes
+# back to the audience's page (about 30 letters).
+# Variables:
+#   $key (String) - the key's or button's name ("Enter")
+room-audience-ended-back = { $key }: back to the audience's page
+# The same on a touch screen, a button to tap (about 16 letters).
+room-audience-ended-back-tap = Back
+
 # The audience's page: its title (window) and heading (header, small caps).
 room-audience-title = Watching
 room-audience-heading = Audience

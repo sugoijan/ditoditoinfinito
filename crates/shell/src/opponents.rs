@@ -1341,7 +1341,17 @@ pub struct OwnOut {
     /// they follow a competitor large there (the skip's plate alone, at
     /// the band's foot: their own field is then a miniature).
     pub dimmed: bool,
+    /// How dark the panel is drawn under the mark where `dimmed` (a
+    /// player's own field out: [`OUT_VEIL`]; a watched stage whose seat
+    /// ended, over everything: [`ENDED_VEIL`]).
+    pub veil: f32,
 }
+
+/// The darkness over a player's own field out of the stage (a
+/// miniature's).
+pub const OUT_VEIL: f32 = 0.45;
+/// Over a watched stage whose seat ended: its fields stale behind it.
+pub const ENDED_VEIL: f32 = 0.82;
 
 impl OwnOut {
     /// Where a tap or a click skips to the results (target pixels): a
@@ -1372,7 +1382,7 @@ pub fn draw_own_out(list: &mut DrawList, own: &OwnOut, ratio: f32, measure: &mut
     let [l, t, r, b] = own.panel;
     let cx = (l + r) / 2.0;
     if own.dimmed {
-        list.rect([l, t, r, b], [0.0, 0.0, 0.0, 0.45]);
+        list.rect([l, t, r, b], [0.0, 0.0, 0.0, own.veil]);
         let cy = (t + b) / 2.0;
         let st = style(24.0, 700);
         let mark = fitted(measure, &own.mark, &st, r - l - 8.0 * ratio);
@@ -1808,6 +1818,7 @@ pub(crate) mod tests {
                 mark: "Left the stage".into(),
                 skip: Some("Enter: skip to results".into()),
                 dimmed: true,
+                veil: OUT_VEIL,
             };
             // Following a competitor large: the plate alone, at the
             // band's foot, below its middle.

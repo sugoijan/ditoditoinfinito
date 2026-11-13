@@ -714,6 +714,13 @@ impl Battle {
         self.remote_live.as_ref().is_some_and(live::Live::lost)
     }
 
+    /// Why the seat this stage is watched through (with a room's
+    /// audience) ended during it, once it did: its view stops and says
+    /// why, with the way back.
+    pub fn seat_end(&self) -> Option<&ddi_ui::state::room::SeatEnd> {
+        self.remote_live.as_ref().and_then(live::Live::seat_end)
+    }
+
     /// The live stage's seats whose stream is behind (marked stale on
     /// their fields), by their places in [`Battle::views`].
     pub fn stale_seats(&self) -> Vec<usize> {

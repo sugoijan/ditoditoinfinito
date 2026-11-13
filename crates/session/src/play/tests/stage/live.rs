@@ -1702,3 +1702,120 @@ fn the_audience_watches_a_live_stage_behind_the_room_with_the_members_fields() {
     r.run(3.0);
     assert_eq!(r.rooms[0].borrow().audience(), Some((1, true)));
 }
+
+/// The seat a stage is watched through ends during it (the host closes
+/// the audience: 4403): the view stops (the music fading, no more frames)
+/// and says why, nothing ends it by itself before the song's end, and
+/// Enter goes back (the play finished, as a watched stage's end).
+#[test]
+fn a_seat_closed_during_a_watched_stage_stops_its_view_and_says_why() {
+    let song = bundled("beatucada");
+    let r = Room::under(
+        &[("alice", Intent::Play), ("bob", Intent::Play)],
+        None,
+        &[],
+        RoomPolicy::default().with_live().with_audience(),
+    );
+    let aud = audience_seat(&r, "dora", None);
+    let tick_aud = || aud.borrow_mut().tick(wall(*r.host.borrow()));
+    tick_aud();
+    let orders = pick_and_ready(&r, &song, false, 0);
+    for _ in 0..50 {
+        r.step(0.02, true);
+        tick_aud();
+    }
+    let e = entry_at(&song, 0);
+    let jobs = aud.borrow_mut().take_load_jobs();
+    for job in jobs {
+        let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+        let picked = Picked {
+            song: SongEntry {
+                id: job.song.clone(),
+                ..e.clone()
+            },
+            chart: e.charts[0].clone(),
+        };
+        aud.borrow_mut().finish_load(&job, Ok((picked, prepared.live)));
+    }
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 0.0]);
+    let mut order = None;
+    for _ in 0..200 {
+        r.step(0.02, false);
+        for p in plays.iter_mut() {
+            let _ = p.tick(HostTime(*r.host.borrow()));
+        }
+        tick_aud();
+        order = aud.borrow_mut().take_stage_order();
+        if order.is_some() {
+            break;
+        }
+    }
+    let order = order.expect("the audience's stage");
+    let settings = Settings::default();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.opponents = Some(StageSetup::of(&order));
+    let host = r.host.clone();
+    config.live = Some(crate::battle::live::LiveHandle {
+        room: aud.clone(),
+        wall_ms: Rc::new(move || wall(*host.borrow())),
+    });
+    plays.push(
+        PlaySession::start(
+            &song,
+            order.chart.index,
+            &settings,
+            config,
+            FakeAudio::new(&r.host, 0.02),
+            110.0,
+            FakeInputs::new(&r.host),
+        )
+        .unwrap(),
+    );
+    let mut closed_at = None;
+    let mut ended_at = None;
+    let mut combos_at_end = Vec::new();
+    let mut frames_at_end = 0;
+    let mut pressed = false;
+    let ended = play_out(&r, &mut plays, 200.0, |t, plays| {
+        let host = *r.host.borrow();
+        if closed_at.is_none() && t > 15.0 {
+            closed_at = Some(t);
+            r.rooms[0].borrow_mut().set_audience_open(false);
+        }
+        let a = &plays[2];
+        let w = a.watch(host).expect("watched");
+        assert_eq!(w.why, Watching::Spectator);
+        let end = a.battle().unwrap().seat_end().cloned();
+        if let Some(e) = end {
+            assert_eq!(e, ddi_ui::state::room::SeatEnd::AudienceClosed);
+            if ended_at.is_none() {
+                ended_at = Some(t);
+                combos_at_end = a.battle().unwrap().views().iter().map(|v| v.combo).collect();
+                frames_at_end = aud.borrow().frames();
+            }
+            assert!(w.ended, "the view says so");
+            assert!(!w.over, "nothing ends it by itself");
+            // A while later, Enter goes back.
+            if !pressed && t > ended_at.unwrap() + 5.0 {
+                pressed = true;
+                plays[2].inputs.key(host + 0.01, "Enter", true);
+                plays[2].inputs.key(host + 0.05, "Enter", false);
+            }
+        } else {
+            assert!(!w.ended);
+        }
+    });
+    let closed_at = closed_at.expect("closed");
+    let ended_at = ended_at.expect("the seat ended during the stage");
+    eprintln!("seat: closed at {closed_at:.2} s, its view ended at {ended_at:.2} s");
+    assert!(ended_at - closed_at < 2.0, "said at once: {closed_at} → {ended_at}");
+    assert_eq!(aud.borrow().frames(), frames_at_end, "no frame after it");
+    assert_eq!(combos_at_end.len(), 2);
+    let (event, outcome) = ended[2].as_ref().expect("the audience's play ended");
+    assert!(outcome.watched);
+    assert!(
+        matches!(event, SessionEvent::Finished { .. }),
+        "back, as a watched stage ends"
+    );
+    assert!(pressed, "Enter ended it");
+}

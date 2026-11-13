@@ -1523,7 +1523,27 @@ impl<H: PlayHost> PlayView<H> {
                     mark,
                     skip,
                     dimmed: !following,
+                    veil: crate::opponents::OUT_VEIL,
                 }
+            })
+            // Watched through a seat that ended (an audience's): the view
+            // stopped, why said over all of it, and the way back.
+            .or_else(|| {
+                let w = watch.filter(|w| w.ended)?;
+                let why = session.battle()?.seat_end()?;
+                use ddi_l10n::msg::room as m;
+                let skip: String = if screen.touch {
+                    m::audience_ended_back_tap().into()
+                } else {
+                    m::audience_ended_back("Enter").into()
+                };
+                Some(crate::opponents::OwnOut {
+                    panel: [0.0, 0.0, geo.width, geo.height],
+                    mark: ddi_ui::screens::audience::seat_end_text(why).into(),
+                    skip: (!w.over).then_some(skip),
+                    dimmed: true,
+                    veil: crate::opponents::ENDED_VEIL,
+                })
             });
         // The slots as drawn: the miniatures', then the large field's.
         let all_fields = fields.clone().map(|mut f| {

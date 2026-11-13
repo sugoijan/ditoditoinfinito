@@ -377,6 +377,9 @@ pub(crate) struct Live {
     room_us: i64,
     /// The disagreement with the room's clock was said in the log.
     said_off: bool,
+    /// Why this device's link to the stage ended for good, once it did
+    /// (an audience's seat: `LiveRoom::seat_end`): the view is stale.
+    seat_end: Option<ddi_ui::state::room::SeatEnd>,
 }
 
 /// A judge event as a moment of the stream (none: nothing a field
@@ -568,6 +571,7 @@ impl Live {
             slew: SongSlew::new(SLEW_V0),
             room_us: i64::MIN,
             said_off: false,
+            seat_end: None,
         }
     }
 
@@ -723,6 +727,11 @@ impl Live {
         self.lost
     }
 
+    /// Why this device's link to the stage ended, once it did.
+    pub(crate) fn seat_end(&self) -> Option<&ddi_ui::state::room::SeatEnd> {
+        self.seat_end.as_ref()
+    }
+
     /// Time passes for the room's client (its socket, its clock, what is
     /// due to send).
     pub(crate) fn tick_room(&self) {
@@ -871,6 +880,12 @@ impl Live {
                     }
                 }
                 _ => {}
+            }
+        }
+        if self.seat_end.is_none() {
+            self.seat_end = self.handle.room.borrow().seat_end();
+            if let Some(e) = &self.seat_end {
+                got.log.push(format!("live: the seat watching the stage ended ({e:?}); its view stops"));
             }
         }
         self.view(t);

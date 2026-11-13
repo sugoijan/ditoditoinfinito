@@ -123,6 +123,22 @@ pub fn seat_problem(s: &SeatState) -> Option<UiText> {
     })
 }
 
+/// Why a seat ended during a watched stage, a sentence (said over the
+/// play's place: `ddi_shell::play_view`).
+pub fn seat_end_text(e: &crate::state::room::SeatEnd) -> UiText {
+    use crate::state::room::SeatEnd;
+    match e {
+        SeatEnd::AudienceClosed => m::audience_closed(),
+        SeatEnd::RoomClosed => m::invite_room_closed(),
+        SeatEnd::LinkReplaced => m::audience_link_unknown(),
+        SeatEnd::SignInAgain => m::link_sign_in_again(),
+        SeatEnd::Refused(code) => super::online::invite_problem(&crate::state::online::api::Problem {
+            status: 0,
+            code: code.clone(),
+        }),
+    }
+}
+
 fn player_name(v: &PublicView, id: ddi_room::ParticipantId) -> String {
     v.players
         .iter()

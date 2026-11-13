@@ -74,6 +74,10 @@ pub struct WatchView {
     pub over: bool,
     /// The grid's page ([`GRID_PAGE`] fields a page, by standing), from 0.
     pub page: usize,
+    /// The seat it is watched through ended (an audience's: the audience
+    /// closed, the room ended, its link replaced): the view stopped, why
+    /// is said over it, and Enter, Start or a tap goes back.
+    pub ended: bool,
 }
 
 /// What an edge asks of the watching.
@@ -103,6 +107,8 @@ pub(super) struct Watch {
     shift: bool,
     pub cue: Option<(WatchMoment, f64)>,
     pub page: usize,
+    /// The seat ended ([`WatchView::ended`]).
+    pub ended: bool,
 }
 
 impl Watch {
@@ -116,6 +122,7 @@ impl Watch {
             shift: false,
             cue: None,
             page: 0,
+            ended: false,
         }
     }
 
@@ -127,6 +134,8 @@ impl Watch {
     /// edge as a menu reads a pad's.
     pub fn read(&mut self, raw: &RawInput, menu: Option<MenuInput>) -> Option<Ask> {
         let spectator = self.why == Watching::Spectator;
+        // Who may skip (to the results, or back where the seat ended).
+        let skips = !spectator || self.ended;
         match &raw.device {
             DeviceId::Keyboard => {
                 if matches!(raw.control.as_str(), "ShiftLeft" | "ShiftRight") {
@@ -140,13 +149,13 @@ impl Watch {
                     "Tab" => Some(Ask::Cycle(if self.shift { -1 } else { 1 })),
                     "PageDown" if spectator => Some(Ask::Page(1)),
                     "PageUp" if spectator => Some(Ask::Page(-1)),
-                    "Enter" | "NumpadEnter" if !spectator => Some(Ask::Skip),
+                    "Enter" | "NumpadEnter" if skips => Some(Ask::Skip),
                     _ => None,
                 }
             }
             DeviceId::Touch if raw.pressed => {
                 if raw.control == TOUCH_SKIP_CONTROL {
-                    return (!spectator).then_some(Ask::Skip);
+                    return skips.then_some(Ask::Skip);
                 }
                 if raw.control == TOUCH_WATCH_ALL {
                     return Some(Ask::Focus(None));
@@ -163,7 +172,7 @@ impl Watch {
                 MenuInput::Next => Some(Ask::Cycle(1)),
                 MenuInput::Down if spectator => Some(Ask::Page(1)),
                 MenuInput::Up if spectator => Some(Ask::Page(-1)),
-                MenuInput::Confirm | MenuInput::Start if !spectator => Some(Ask::Skip),
+                MenuInput::Confirm | MenuInput::Start if skips => Some(Ask::Skip),
                 _ => None,
             },
             _ => None,
@@ -223,6 +232,7 @@ impl Watch {
             }),
             over: self.over_at.is_some(),
             page: self.page,
+            ended: self.ended,
         }
     }
 }
@@ -280,6 +290,11 @@ mod tests {
         // A spectator has nothing to skip; Enter is not theirs.
         assert_eq!(w.read(&key("Enter", true), None), None);
         assert_eq!(w.read(&tap(TOUCH_SKIP_CONTROL), None), None);
+        // Until the seat they watch through ends: then it goes back.
+        w.ended = true;
+        assert_eq!(w.read(&key("Enter", true), None), Some(Ask::Skip));
+        assert_eq!(w.read(&tap(TOUCH_SKIP_CONTROL), None), Some(Ask::Skip));
+        assert!(w.view(0.0).ended);
     }
 
     #[test]

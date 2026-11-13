@@ -1526,7 +1526,15 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         // winner finishing, `watch-v1`; the music fading).
         let mut watch_ended = None;
         if let (Some(w), Some(b)) = (self.watch.as_mut(), self.battle.as_ref()) {
-            if w.over_at.is_none() && !b.goes_on() && !b.still_playing() {
+            // The seat it is watched through ended (an audience's): the
+            // view stops (the music fading), says why and waits for the
+            // way back (or the song's end).
+            if !w.ended && b.seat_end().is_some() {
+                w.ended = true;
+                self.audio
+                    .master_ramp(None, 0.0, None, watch::WATCH_END_FADE);
+            }
+            if w.over_at.is_none() && !w.ended && !b.goes_on() && !b.still_playing() {
                 w.over_at = Some(host_now.0);
                 self.audio
                     .master_ramp(None, 0.0, None, watch::WATCH_END_FADE);

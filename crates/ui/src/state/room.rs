@@ -864,6 +864,32 @@ pub trait LiveRoom {
     fn decision(&self, stage: StageId) -> Option<(Vec<Vec<Finisher>>, bool)>;
     /// What this device worked out for `stage`'s live play.
     fn live_prep(&self, stage: StageId) -> Option<LivePrep>;
+    /// Why this device's link to the stage ended for good, where it did
+    /// (an audience's seat: the audience closed, the room ended, its link
+    /// replaced): what it shows of the stage is stale from then on. A
+    /// member's never does (its link reconnects; the room's end is said by
+    /// its phase).
+    fn seat_end(&self) -> Option<SeatEnd> {
+        None
+    }
+}
+
+/// Why a seat watching with a room's audience ended during a watched
+/// stage ([`LiveRoom::seat_end`]): said over the play's place, with the
+/// way back.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SeatEnd {
+    /// The host closed the audience (4403).
+    AudienceClosed,
+    /// The room ended (4410).
+    RoomClosed,
+    /// Its link is no longer the room's (the invite replaced): a new
+    /// ticket was refused.
+    LinkReplaced,
+    /// The session ended: sign in again.
+    SignInAgain,
+    /// Another refusal of a new ticket (its code: data).
+    Refused(String),
 }
 
 /// A stage's confirmed ranking from its placements (best first, groups

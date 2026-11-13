@@ -419,3 +419,48 @@ fn the_audience_link_s_page_and_the_audience_s_page_say_what_they_should() {
     let texts = ha.texts().join("\n");
     assert!(texts.contains("The host closed the audience."), "{texts}");
 }
+
+/// A seat's state as a watched stage's end: ended by its relay, or a new
+/// ticket refused (the link replaced, the audience closed, the room
+/// ended) or the session gone; joining and reconnecting are no ends.
+#[test]
+fn a_seat_s_end_during_a_watched_stage_is_its_relay_s_or_a_refused_ticket() {
+    use crate::state::audience::{Refused, SeatState, seat_end_of};
+    use crate::state::room::SeatEnd;
+    use ddi_room::audience::{AudienceEnd, AudienceRefusal};
+    for s in [SeatState::Joining, SeatState::Watching, SeatState::Reconnecting] {
+        assert_eq!(seat_end_of(&s), None);
+    }
+    let cases = [
+        (SeatState::Ended(AudienceEnd::Closed), SeatEnd::AudienceClosed),
+        (SeatState::Ended(AudienceEnd::RoomClosed), SeatEnd::RoomClosed),
+        (
+            SeatState::Refused(Refused::Audience(AudienceRefusal::BadLink)),
+            SeatEnd::LinkReplaced,
+        ),
+        (
+            SeatState::Refused(Refused::Audience(AudienceRefusal::Closed)),
+            SeatEnd::AudienceClosed,
+        ),
+        (
+            SeatState::Refused(Refused::Audience(AudienceRefusal::RoomClosed)),
+            SeatEnd::RoomClosed,
+        ),
+        (
+            SeatState::Refused(Refused::Audience(AudienceRefusal::Full)),
+            SeatEnd::Refused("audience_full".into()),
+        ),
+        (SeatState::SignInAgain, SeatEnd::SignInAgain),
+    ];
+    for (state, end) in cases {
+        let e = seat_end_of(&state).unwrap();
+        assert_eq!(e, end);
+        // Each said in words of its own.
+        let text = crate::screens::audience::seat_end_text(&e).to_string();
+        assert!(!text.is_empty());
+    }
+    assert_eq!(
+        crate::screens::audience::seat_end_text(&SeatEnd::LinkReplaced).to_string(),
+        "This audience link isn't this room's, or it was replaced."
+    );
+}
