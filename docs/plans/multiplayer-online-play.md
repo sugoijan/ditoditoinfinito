@@ -422,6 +422,124 @@ undefended:
 - it cannot speak for another member (the room takes the participant from
   the socket), and its clock only schedules its own play.
 
+## Platform facts (checked 2026-11-13)
+
+What the plan assumed of Cloudflare's Workers and Durable Objects,
+checked against their documentation (and workers-rs 0.8.7's source),
+with what the server's room does about each.
+
+- **Message size.** A WebSocket message *received* by a Worker or a
+  Durable Object may be up to 32 MiB; a larger one closes the socket with
+  1009. No limit is documented for sent messages. (The plan's "1 MiB"
+  above was the older figure; nothing here needs more.) The room refuses
+  any binary message over 64 KiB itself, before decoding it (`bad_batch`,
+  the socket kept). Sources:
+  [Workers WebSockets](https://developers.cloudflare.com/workers/runtime-apis/websockets/),
+  [Durable Objects limits](https://developers.cloudflare.com/durable-objects/platform/limits/).
+- **Binary messages, hibernation, workers-rs.** The hibernatable
+  `webSocketMessage` handler gets binary data as an `ArrayBuffer`; the
+  `websocket_standard_binary_type` change (Blob by default, compatibility
+  dates from 2026-03-17) does not affect it, and the server's
+  compatibility date is 2026-03-01 anyway. workers-rs's `#[durable_object]`
+  turns it into `WebSocketIncomingMessage::Binary(Vec<u8>)`;
+  `WebSocket::send_with_bytes` copies into a fresh `Uint8Array` on every
+  send, so the room sends a frame as ONE `ArrayBuffer` to every live
+  socket (`web_sys`'s `send_with_array_buffer`). Sources:
+  [changelog 2026-04-21](https://developers.cloudflare.com/changelog/post/2026-04-21-websocket-standard-binary-type/),
+  workers-rs `worker-macros/src/durable_object.rs`, `worker/src/websocket.rs`.
+- **Attachments.** A socket's attachment holds at most 16,384 bytes
+  serialized (the room's: participant, session expiry, connection id and
+  the hello flag, well under). Source:
+  [WebSockets best practices](https://developers.cloudflare.com/durable-objects/best-practices/websockets/).
+- **The clock in a handler.** "APIs that return timers, including
+  `performance.now()` and `Date.now()`, only advance or increment after
+  I/O occurs" (against Spectre): read at a handler's start, `Date.now()`
+  is the moment the message was delivered, which the pong carries.
+  Source: [Workers performance](https://developers.cloudflare.com/workers/runtime-apis/performance/).
+  (So no handler can time its own computation: the local runtime's traces
+  give wall time only, below.)
+- **Alarms and hibernation.** One alarm an object, `setAlarm` replacing
+  it; at-least-once, retried with backoff from 2 s when the handler
+  throws; one `alarm()` at a time. An object is eligible to hibernate
+  after 10 s without an event; alarms are events, so a stage's alarm every
+  250 ms keeps the room in memory for the stage (its live part is never
+  lost to hibernation) and the room sleeps again once `next_wake` is
+  none (10 s after the stage's streams end at most). Hibernated sockets
+  stay connected, also when the object takes new code; a forced update of
+  a running object disconnects them. Sources:
+  [Alarms](https://developers.cloudflare.com/durable-objects/api/alarms/),
+  [lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/),
+  [WebSockets best practices](https://developers.cloudflare.com/durable-objects/best-practices/websockets/).
+  The room therefore closes with 1012 the sockets still open when it is
+  given live play on loading (they reconnect and read the live policy).
+- **Billing.** Incoming WebSocket messages are billed as requests at
+  20:1; outgoing messages and protocol pings are free; alarm invocations
+  are requests; each `setAlarm` is a row written (SQLite objects); duration
+  is wall time at 128 MB while the object is active and not eligible to
+  hibernate. A stage keeps its room active, so for an hour of play:
+  duration 0.125 GB × 3,600 s = 450 GB-s; 73 competitors' 330 messages a
+  second in = about 59,000 requests; 14,400 alarms and as many rows written.
+  At the published paid rates ($12.50 a million GB-s, $0.15 a million
+  requests, $1.00 a million rows written, after the included amounts)
+  that is about 3 cents an hour of a full room; watchers add only their
+  pings (one every 2 s each, 1/20 of a request). The room writes its
+  state only when the reducer changes it: batches, pings and most ticks
+  write nothing. Source:
+  [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/).
+- **CPU and memory.** 30 s of CPU by default per request, alarm or
+  message for a SQLite object (configurable to 5 minutes), each message
+  resetting it; 128 MB of memory an isolate (JavaScript heap and Wasm
+  together), which objects of the same class may share. Sources:
+  [Durable Objects limits](https://developers.cloudflare.com/durable-objects/platform/limits/),
+  [Workers limits](https://developers.cloudflare.com/workers/platform/limits/).
+- **Sockets and sends.** At most 32,768 hibernatable WebSockets an object,
+  "but the CPU and memory usage of a given workload may further limit the
+  practical number"; a soft limit of 1,000 requests a second an object
+  (whether incoming WebSocket messages count toward it is not said: the
+  room assumes they do; 73 competitors and 300 watchers send about 500 a
+  second). No limit on sends a second is documented: an object is one
+  thread, so its CPU is the ceiling. Sources:
+  [Durable Object state](https://developers.cloudflare.com/durable-objects/api/state/),
+  [Durable Objects limits](https://developers.cloudflare.com/durable-objects/platform/limits/).
+
+### The server's load test (local, 2026-11-13)
+
+`../ddi-server`'s `ddi-load` (a development tool) against a `wrangler dev`
+(workerd 1.20261023.1) of a release `dev-auth` build on the maintainer's
+Mac, driver and runtime on one machine over loopback: a 40 s synthetic
+stage at 12 notes a second with attacks, every person the game's own
+client on a socket of its own. Frames built and delivered: 165 of 165 to
+every socket in every run, no refusal, close or unanswered command, the
+stage settled each time.
+
+| Competitors | Watching | Frame spacing p50 / p99 / max (ms) | Room in (msg/s, KB/s) | Room out (msg/s, KB/s) | workerd CPU (ms/s) | Alarm wall p50 / p99 (ms) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 9 | 0 | 250 / 276 / 282 | 38, 2.5 | 45, 16 | 43 | 3 / 11 |
+| 9 | 100 | 250 / 273 / 292 | 101, 5.9 | 659, 245 | 75 | 5 / 18 |
+| 9 | 300 | 250 / 287 / 307 | 232, 13 | 2,537, 997 | 145 | 8 / 37 |
+| 33 | 0 | 250 / 277 / 330 | 140, 8.6 | 225, 200 | 86 | 4 / 19 |
+| 33 | 100 | 250 / 273 / 279 | 204, 12 | 1,046, 871 | 123 | 6 / 18 |
+| 33 | 300 | 250 / 289 / 378 | 333, 19 | 3,329, 2,510 | 189 | 10 / 38 |
+| 73 | 0 | 250 / 282 / 305 | 309, 19 | 718, 970 | 126 | 3 / 29 |
+| 73 | 100 | 250 / 260 / 265 | 375, 23 | 1,886, 2,386 | 139 | 5 / 12 |
+| 73 | 300 | 250 / 266 / 286 | 504, 30 | 4,861, 5,509 | 237 | 8 / 26 |
+
+What it shows: the room's tick holds 250 ms (p99 within 40 ms, the
+driver's own loop included) and nothing is lost up to 73 competitors and
+300 watchers; the bytes match the plan's estimates (73 and 300: 5.5 MB/s
+out); the local runtime spends at most a quarter of a core on the whole
+room (both workerd processes, sockets' I/O included: an upper bound for
+the object). What it does not show: the deployed platform (another CPU,
+the network, the isolate's memory: the processes' resident size,
+250–1,200 MB here, counts every room the runtime kept and the runtime
+itself, not one object's), CPU per tick (no in-object timer exists, the
+alarm's wall time includes its storage writes), and clients far away.
+A run against the deployed service is the maintainer's: a `dev-auth`
+build never deploys, so it needs the bots' sign-in (`POST /auth/bots`,
+eight a room and sixty an hour a token, for this many the limits raised
+for the run) or a temporary deployment of its own, and the competitor
+cap raised for that room only.
+
 ## What the backend front builds (`../ddi-server`, `RoomDO`)
 
 1. New rooms' policy with `live: LivePolicy::v1()`; a stored room without
