@@ -7459,6 +7459,10 @@ in 198 ms (179); a frame of 72 online CPUs 0.013 ms mean.
   needs a winner who plays on).
 - Room: the revision's test (5). UI: the Rules' note; the solo prompt's
   line; the web route `level=`; desktop's `--cpu-level`.
+- Desktop: `chained_attacks_offscreen.rs`'s CPUs chosen again by a sweep
+  (its engine level index 3 seed 8 now goes out before any attack; index
+  4 seed 21 chains two behind the nearest, then "Last standing" before
+  the win, as the test asks).
 - Desktop offscreen (`step_down_offscreen.rs`,
   `absolute_levels_end_a_stage_on_different_charts`): a practice stage on
   Some Things Must's Medium under Adaptive charts, the player autoplayed,

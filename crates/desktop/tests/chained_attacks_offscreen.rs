@@ -10,8 +10,9 @@
 //! is no GPU adapter (CI).
 //!
 //! `DDI_AV2_SHOTS=<dir>` keeps the moments' pictures (PPM). Three CPUs
-//! of the roster's level 3 (Hard timing, Beatucada's chart 5, roster
-//! seed 8): they fill their bars, chain against the player and go out.
+//! of the roster's level 4 (Hard timing, Beatucada's chart 5, roster
+//! seed 21, chosen again by a sweep under `cpu-levels-v1`): they fill
+//! their bars, chain against the player and go out.
 
 mod common;
 use std::rc::Rc;
@@ -127,8 +128,8 @@ fn chained_attacks_then_last_standing_then_the_win() {
         }],
         ..SongEntry::default()
     };
-    let level: u8 = env_or("DDI_AV2_LEVEL", 3);
-    let seed: u64 = env_or("DDI_AV2_SEED", 8);
+    let level: u8 = env_or("DDI_AV2_LEVEL", 4);
+    let seed: u64 = env_or("DDI_AV2_SEED", 21);
     {
         let mut r = room.borrow_mut();
         let mut rules = ddi_room::MatchRules {
