@@ -2,8 +2,9 @@
 //! M7b): our own catalog (`cpu_roster.json`), each CPU an invented name (data,
 //! the same in every language), a personality (`ddi_engine::cpu::Skills`: a
 //! preset's name or seven multipliers) and a level (one of the engine's
-//! ten, `ddi_engine::cpu::CPU_LEVELS_V0`: strength relative to the chart,
-//! never a skill rating; shown as five stars, `crate::stars`). A match's CPUs are a roster
+//! ten, `ddi_engine::cpu::CPU_LEVELS`: since `cpu-levels-v1` abilities the
+//! same on every chart, what it keeps up with, never a skill rating; shown
+//! as five stars, `crate::stars`). A match's CPUs are a roster
 //! of them (`ddi_room::CpuMode::Roster`), edited in the Rules pop-up: Add
 //! random, or Add custom by level (several at once) or by name.
 

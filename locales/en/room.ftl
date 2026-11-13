@@ -265,7 +265,7 @@ room-rules-points-medium-about = Between the two: the top places still lead, and
 room-rules-points-mild-about = Points reach furthest down a large field; the top places lead by less.
 
 # Lines under the rows, muted.
-room-rules-level-note = A CPU's stars show its level: its strength relative to the chart, not a skill rating.
+room-rules-level-note = A CPU's stars show its level: the charts it keeps up with, not a skill rating.
 # A note where the room offers the Points row's choice: the choice
 # matters only with nine players or more.
 room-rules-points-bias-note = The Points choice changes nothing with eight players or fewer.

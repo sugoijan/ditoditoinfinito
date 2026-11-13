@@ -61,9 +61,10 @@ use crate::state::online::link::{LinkNotice, OnlineLink};
 
 use crate::screens::data::{ChartEntry, SongEntry};
 
-/// The engine's CPU levels (`ddi_engine::cpu::CPU_LEVELS_V0`, ten),
-/// shown as five stars (`crate::stars`): strength relative to the chart,
-/// never a skill claim (`docs/plans/cpu-player.md`).
+/// The engine's CPU levels (`ddi_engine::cpu::CPU_LEVELS`, ten, since
+/// `cpu-levels-v1` abilities the same on every chart), shown as five
+/// stars (`crate::stars`): what a level keeps up with, never a skill
+/// claim (`docs/plans/cpu-player.md`).
 pub fn cpu_levels() -> u8 {
     ddi_engine::cpu::LEVELS as u8
 }
@@ -435,11 +436,11 @@ pub fn check_chart(
         log(&e);
         LoadProblem::CpuCannotPlay
     })?;
-    let level = ddi_engine::cpu::CPU_LEVELS_V0
-        .level(DEFAULT_CPU_LEVEL.into())
+    let level = ddi_engine::cpu::CPU_LEVELS
+        .strength(DEFAULT_CPU_LEVEL.into())
         .ok_or(LoadProblem::CpuCannotPlay)?;
     plan.check_song(song, chart)
-        .and_then(|_| plan.script_at(level, 0, ddi_engine::cpu::Skills::default()))
+        .and_then(|_| plan.script_strength(level, 0, ddi_engine::cpu::Skills::default()))
         .map(|_| ())
         .map_err(|e| {
             log(&e);
@@ -448,7 +449,7 @@ pub fn check_chart(
 }
 
 /// A CPU seat in a stage: who, which CPU (from 1), its level (an index
-/// into `ddi_engine::cpu::CPU_LEVELS_V0`'s ten) and seed.
+/// into `ddi_engine::cpu::CPU_LEVELS`' ten) and seed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CpuSeat {
     pub participant: ParticipantId,

@@ -175,7 +175,7 @@ impl LevelScale {
 
 /// The levels a CPU opponent plays at (every multiplayer CPU: practice,
 /// online rooms, the bots', the audience's, the studies).
-pub const CPU_LEVELS: LevelScale = LevelScale::RelativeV0;
+pub const CPU_LEVELS: LevelScale = LevelScale::AbsoluteV1;
 
 /// The ten abilities, named and versioned.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -258,6 +258,7 @@ mod tests {
             Some(Strength::Relative(t.levels[5]))
         );
         assert!(LevelScale::AbsoluteV1.strength(10).is_none());
+        assert_eq!(CPU_LEVELS, LevelScale::AbsoluteV1);
         assert!(
             Level {
                 strength: f64::NAN,

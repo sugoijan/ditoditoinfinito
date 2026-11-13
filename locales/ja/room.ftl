@@ -141,7 +141,7 @@ room-rules-points-strong-about = 上位ほど多く得点し、大人数では�
 room-rules-points-medium-about = 中間です。上位が優位なまま、下の順位も少し多く得点します。
 room-rules-points-mild-about = 大人数でも下の順位まで得点が行き渡り、上位の差は小さくなります。
 
-room-rules-level-note = CPUの星はレベルを表します。譜面に対する強さで、腕前の評価ではありません。
+room-rules-level-note = CPUの星はレベルを表します。ついていける譜面の目安で、腕前の評価ではありません。
 room-rules-points-bias-note = 得点の設定は8人以下では何も変えません。
 room-rules-ruleset-note = 試合では各自のオプションではなく、全員がDDIのこのルールでプレイします。
 room-rules-battle-note = バトルは暫定です。ライフが尽きるとそのステージはアウト。攻撃オンでは、タイミングが良いとパワーゲージがたまり、満タンでほかのプレイヤーのフィールドにショックを8つ送ります。

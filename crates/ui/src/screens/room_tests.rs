@@ -4792,7 +4792,7 @@ fn the_rules_pop_up_scrolls_its_rows_with_its_title_and_buttons_on_view() {
         h.run(0.5);
         press(&mut h, "Room.Rules");
         assert_eq!(top(&h), "room-rules");
-        assert!(has(&h, "A CPU's stars show its level: its strength relative to the chart, not a skill rating."));
+        assert!(has(&h, "A CPU's stars show its level: the charts it keeps up with, not a skill rating."));
         assert!(!has(&h, "Applying clears readiness."), "nobody is ready");
         // Twelve CPUs: more rows than the screen holds.
         while view(&env).draft[1] < 12 {

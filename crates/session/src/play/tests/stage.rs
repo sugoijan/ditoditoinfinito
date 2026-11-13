@@ -2554,7 +2554,7 @@ fn a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely() {
     let mut settings = Settings::default();
     settings.stepmania.life_type = ddi_engine::rules::LifeType::Battery;
     settings.stepmania.lives = 1;
-    let mut practice = attacks_room(&song, 3, 1);
+    let mut practice = attacks_room(&song, 3, 2);
     let mut now = 0;
     let order = begin_watching(&song, &mut practice, &mut now, LONG);
     let clock: Clock = Rc::new(RefCell::new(0.0));
