@@ -2529,6 +2529,9 @@ pub fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView, steps: usize) -
 #[cfg(test)]
 mod study;
 
+#[cfg(test)]
+mod step_study;
+
 
 #[cfg(test)]
 mod tests {
