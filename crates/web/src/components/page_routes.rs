@@ -234,6 +234,12 @@ fn online_screen(env: &ddi_ui::screens::Env, which: OnlinePage) -> OnlineScreen 
                 crate::online::seat_audience(&link, Some(ticket));
                 cx.request(UiRequest::Navigate(Route::MpWatch { link }.to_hash()))
             }
+            // In the press: the context the watched stages' music plays on.
+            OnlineCall::WatchPressed => {
+                if cx.in_gesture() {
+                    crate::online::audience_gesture();
+                }
+            }
             OnlineCall::Redirect(r) => redirect(r),
             OnlineCall::Leave => cx.request(UiRequest::Back),
         }),

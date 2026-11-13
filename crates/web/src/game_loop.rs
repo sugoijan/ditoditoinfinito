@@ -1299,6 +1299,28 @@ fn live_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
         return Value::Null;
     };
     let stage = b.setup().stage;
+    // Watched with the audience: the seat's view of it (its music's delay
+    // behind the room's song time, the fields' on top), not a room's.
+    if crate::online::watching_stage() == Some(stage)
+        && let Some(a) = crate::online::kept_audience()
+        && let Ok(a) = a.try_borrow()
+    {
+        return json!({
+            "audience": true,
+            "on": a.state() == ddi_ui::state::audience::SeatState::Watching,
+            "frames": a.frames(),
+            "music_delay_ms": a.music_delay_ms(stage),
+            "lost": b.live_lost(),
+            "stale": b.stale_seats(),
+            "delay": b.live_state().map(|m| json!({
+                "ms": m.delay_ms,
+                "target_ms": m.delay_target_ms,
+                "rules": m.delay_rules,
+                "stalls": m.stalls,
+                "stalled_now": m.stalled_now,
+            })),
+        });
+    }
     let room = crate::room::last_room();
     let Ok(r) = room.try_borrow() else {
         return Value::Null;

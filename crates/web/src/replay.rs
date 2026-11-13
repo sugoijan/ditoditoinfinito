@@ -123,6 +123,7 @@ impl Component for ReplayLoader {
                 edit: false,
                 scene: None,
                 room_stage: None,
+                watch: None,
             },
         ));
         false

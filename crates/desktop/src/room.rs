@@ -432,6 +432,8 @@ fn online_page(
                 let play = songs.as_ref().map(|s| s.play.clone());
                 cx.push(audience_screen(&e, &link, Some(ticket), play));
             }
+            // Desktop's sound needs no gesture.
+            OnlineCall::WatchPressed => {}
             OnlineCall::Redirect(r) => redirect(&r),
             OnlineCall::Leave => cx.close(true),
         }),

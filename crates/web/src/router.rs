@@ -117,6 +117,14 @@ pub(crate) enum Route {
     MpWatch {
         link: String,
     },
+    /// A stage of that room watched (`#/mp/watch/<link>/stage`): the
+    /// play's spectator view fed by the audience's seat
+    /// (`crate::online::watch_stage`), back to the audience's page after
+    /// it; opened with no stage handed over (a reload), the audience's
+    /// page, which hands the stage over again as it stands.
+    MpWatchStage {
+        link: String,
+    },
     /// The video decoder check; `src=a,b` checks those site files,
     /// `decoder=webcodecs` the browser's decoder and `decoder=both` both,
     /// comparing their frames.
@@ -177,6 +185,14 @@ impl Route {
         }
         if let Some(link) = path.strip_prefix("mp/audience/") {
             return Route::MpAudience {
+                link: link.to_string(),
+            };
+        }
+        if let Some(link) = path
+            .strip_prefix("mp/watch/")
+            .and_then(|l| l.strip_suffix("/stage"))
+        {
+            return Route::MpWatchStage {
                 link: link.to_string(),
             };
         }
@@ -382,6 +398,9 @@ impl Route {
             Route::MpRoom { id } => format!("#/mp/room/{}", percent_encode(id)),
             Route::MpAudience { link } => format!("#/mp/audience/{}", percent_encode(link)),
             Route::MpWatch { link } => format!("#/mp/watch/{}", percent_encode(link)),
+            Route::MpWatchStage { link } => {
+                format!("#/mp/watch/{}/stage", percent_encode(link))
+            }
             Route::VideoCheck { sources, decoder } => {
                 let mut query = Vec::new();
                 if !sources.is_empty() {
@@ -864,6 +883,8 @@ fn fallback_parent(current: Route) -> String {
         | Route::MpRoom { .. }
         | Route::MpAudience { .. }
         | Route::MpWatch { .. } => Some(Route::Multiplayer),
+        // A watched stage's: its audience's page.
+        Route::MpWatchStage { link } => Some(Route::MpWatch { link: link.clone() }),
         _ => None,
     };
     // A shared song's play opened directly: its share is its list.

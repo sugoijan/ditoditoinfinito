@@ -137,7 +137,7 @@ impl App {
         self.route = Route::current();
         let losses = crate::web::screen::losses();
         let key = match &self.route {
-            Route::Play(_) | Route::CalibrateRun { .. } => {
+            Route::Play(_) | Route::CalibrateRun { .. } | Route::MpWatchStage { .. } => {
                 format!("{}#{}", self.route.to_hash(), self.play_mounts)
             }
             Route::Home | Route::Songs | Route::UiTest { .. } | Route::UiDev { .. } => {
@@ -267,6 +267,7 @@ impl App {
                     edit: *edit,
                     scene: scene.clone(),
                     room_stage: stage.and_then(crate::room::playing),
+                    watch: None,
                 },
             )),
             // The chart editor on a song (`docs/plans/editor.md`).
@@ -300,6 +301,7 @@ impl App {
                     edit: false,
                     scene: None,
                     room_stage: None,
+                    watch: None,
                 },
             )),
             // Credits and calibration's menu, our theme's pages on the
@@ -312,6 +314,7 @@ impl App {
             | Route::MpRoom { .. }
             | Route::MpAudience { .. }
             | Route::MpWatch { .. }
+            | Route::MpWatchStage { .. }
                 if !crate::settings::Settings::load().multiplayer =>
             {
                 Box::new(mount::<PagePage>(
@@ -353,6 +356,54 @@ impl App {
                     which: Which::Invite(link.clone()),
                 },
             )),
+            // A stage watched with the audience: the play's spectator view
+            // on the stage's song (read from the room's share), the seat in
+            // the room's place.
+            Route::MpWatchStage { link } if crate::online::watching(link).is_some() => {
+                let order = crate::online::watching(link).expect("checked");
+                let gl = crate::router::testing()
+                    .split('&')
+                    .any(|kv| kv == "gfx=gl");
+                Box::new(mount::<GameCanvas>(
+                    root,
+                    "div",
+                    game_canvas::Props {
+                        restart,
+                        source: SongSource::Song {
+                            id: order.song.id.clone(),
+                            chart: order.chart.index,
+                        },
+                        auto: false,
+                        cpu: None,
+                        auto_pad: false,
+                        auto_bias: 0.0,
+                        slow: false,
+                        backend: if gl {
+                            BackendPreference::WebGl2
+                        } else {
+                            BackendPreference::Auto
+                        },
+                        replay: None,
+                        edit: false,
+                        scene: None,
+                        room_stage: Some(order),
+                        watch: Some(link.clone()),
+                    },
+                ))
+            }
+            // Its address with no stage handed over (a reload): the
+            // audience's page in its place, which hands the stage over again
+            // as it stands.
+            Route::MpWatchStage { link } => {
+                Route::MpWatch { link: link.clone() }.return_to();
+                Box::new(mount::<PagePage>(
+                    root,
+                    "main",
+                    page_routes::Props {
+                        which: Which::Audience(link.clone()),
+                    },
+                ))
+            }
             Route::MpWatch { link } => Box::new(mount::<PagePage>(
                 root,
                 "main",

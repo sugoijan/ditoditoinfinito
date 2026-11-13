@@ -24,7 +24,9 @@ use ddi_room::{ClientId, RoomId, Transport, TransportEvent};
 use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
 use ddi_ui::state::online::{Dest, Http, Online, OnlineConfig, Platform, SharedOnline, SignIn};
 use ddi_ui::state::audience::{AudienceClient, SharedAudience};
-use ddi_ui::state::room::{RoomClient, SharedRoom};
+use ddi_ui::state::room::{RoomClient, SharedRoom, StageOrder};
+
+use crate::web::audio::WebAudio;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 
@@ -40,6 +42,17 @@ thread_local! {
     /// The first ticket a seat was given on the invite's page, for the
     /// audience's page to open its socket with (by link).
     static TICKET: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
+    /// The stage handed over to watch with the audience ([`watch_stage`]).
+    static WATCHING: RefCell<Option<Watching>> = const { RefCell::new(None) };
+    /// The audience's audio context between its stages ([`audience_gesture`]).
+    static AUDIO: RefCell<Option<WebAudio>> = const { RefCell::new(None) };
+}
+
+/// A stage handed over to watch with the room's audience.
+struct Watching {
+    link: String,
+    order: Rc<StageOrder>,
+    audience: SharedAudience,
 }
 
 /// A seat in a room's audience was given by `link` (its first socket's
@@ -80,25 +93,116 @@ pub(crate) fn kept_audience() -> Option<SharedAudience> {
 
 /// Stop watching: the seat forgotten (its socket closed).
 pub(crate) fn discard_audience() {
+    WATCHING.with_borrow_mut(|w| *w = None);
     if let Some((_, a)) = AUDIENCE.with_borrow_mut(Option::take) {
         a.borrow_mut().leave();
     }
 }
 
 /// A stage of the room watched with its audience, handed over by its
-/// page. NOT BUILT on the web yet: the play route's stage path is the
-/// room's (its prompt, its report, its results); the audience's page
-/// stays, saying the stage is being played, and shows its result when the
-/// room settles it (`docs/plans/multiplayer-prototype-progress.md`, "The
-/// audience, the client front").
-pub(crate) fn watch_stage(order: ddi_ui::state::room::StageOrder, _cx: &mut ddi_ui::Cx) {
-    web_sys::console::info_1(
-        &format!(
-            "audience: stage {} handed over (watching it on the web is not built yet)",
-            order.number
-        )
-        .into(),
-    );
+/// page: kept for its own route (`#/mp/watch/<link>/stage`, the play's
+/// spectator view: `components::game_canvas` with the seat in the room's
+/// place, [`audience_stage`]), with a running audio context where the
+/// browser gives one without a press ([`stage_audio`]), and opened. A
+/// member's stage route is left as it is.
+pub(crate) fn watch_stage(order: StageOrder, cx: &mut ddi_ui::Cx) {
+    let Some((link, audience)) = AUDIENCE.with_borrow(|a| a.clone()) else {
+        return;
+    };
+    if let Some(audio) = stage_audio(cx.in_gesture()) {
+        crate::web::audio::keep_for_play(&order.song.id, order.chart.index, audio);
+    }
+    WATCHING.with_borrow_mut(|w| {
+        *w = Some(Watching {
+            link: link.clone(),
+            order: Rc::new(order),
+            audience,
+        })
+    });
+    let route = crate::router::Route::MpWatchStage { link };
+    cx.request(ddi_ui::UiRequest::Navigate(route.to_hash()));
+}
+
+/// The watched stage's order kept for `link`'s stage route, if one was
+/// handed over (none after a reload: the route shows the audience's page,
+/// which hands the stage over again as it stands).
+pub(crate) fn watching(link: &str) -> Option<Rc<StageOrder>> {
+    WATCHING.with_borrow(|w| {
+        w.as_ref()
+            .filter(|w| w.link == link)
+            .map(|w| w.order.clone())
+    })
+}
+
+/// The stage handed over to watch with the audience, while it is.
+pub(crate) fn watching_stage() -> Option<ddi_room::StageId> {
+    WATCHING.with_borrow(|w| w.as_ref().map(|w| w.order.stage))
+}
+
+/// The watched stage's play is over (its end, or a skip): its route shows
+/// the audience's page from now on.
+pub(crate) fn stage_over() {
+    WATCHING.with_borrow_mut(|w| *w = None);
+}
+
+/// The seat whose stage `order` is, where it was handed over to watch with
+/// the room's audience (its play is fed by it, reports nothing, and goes
+/// back to the audience's page).
+pub(crate) fn audience_stage(order: &StageOrder) -> Option<SharedAudience> {
+    if order.me != ddi_ui::state::audience::AUDIENCE_ME || !order.watching {
+        return None;
+    }
+    WATCHING.with_borrow(|w| {
+        w.as_ref()
+            .filter(|w| w.order.stage == order.stage)
+            .map(|w| w.audience.clone())
+    })
+}
+
+/// The audience's Watch press (inside it: `OnlineCall::WatchPressed`):
+/// the context its stages' music plays on, made and started there, as
+/// every browser allows (Safari only there).
+pub(crate) fn audience_gesture() {
+    AUDIO.with_borrow_mut(|a| match a {
+        Some(audio) => audio.resume_now(),
+        None => {
+            if let Ok(audio) = WebAudio::new() {
+                audio.resume_now();
+                *a = Some(audio);
+            }
+        }
+    });
+}
+
+/// A watched stage's play is over: its context kept for the next stage
+/// (made in a press: Safari starts no other), its sounds stopped.
+pub(crate) fn keep_stage_audio(mut audio: WebAudio) {
+    audio.stop_all();
+    audio.set_master_volume(1.0);
+    AUDIO.with_borrow_mut(|a| *a = Some(audio));
+}
+
+/// The context a watched stage plays its music on, running: the one kept
+/// from the Watch press or the last stage, or one made now where the
+/// browser lets it start (in a press, or once the page has had one:
+/// Chrome's and Firefox's rule, `web::autoplay::may_start`). `None`:
+/// the play's prompt asks for one tap, then the stage plays from where it
+/// stands.
+fn stage_audio(in_gesture: bool) -> Option<WebAudio> {
+    let kept = AUDIO.with_borrow_mut(Option::take);
+    let audio = match kept {
+        Some(a) if in_gesture || a.running() || crate::web::autoplay::may_start() => a,
+        Some(a) => {
+            // Kept for a press that may still come (the prompt's).
+            AUDIO.with_borrow_mut(|k| *k = Some(a));
+            return None;
+        }
+        None if in_gesture || crate::web::autoplay::may_start() => WebAudio::new().ok()?,
+        None => return None,
+    };
+    audio.resume_now();
+    audio.set_master_volume(1.0);
+    Some(audio)
 }
 
 fn now_ms() -> u64 {

@@ -275,6 +275,13 @@ pub(crate) struct Props {
     /// kept; its outcome reported to the room (by the game loop, as the
     /// play ends), its results going back to the room.
     pub(crate) room_stage: Option<Rc<ddi_ui::state::room::StageOrder>>,
+    /// A stage watched with a room's audience (`#/mp/watch/<link>/stage`,
+    /// `crate::online::watch_stage`): its link. The play is the spectator
+    /// view fed by the audience's seat, `room_stage` its order: no prompt
+    /// to press where the browser starts the sound without one, nothing
+    /// reported, no results (back to the audience's page, which shows the
+    /// stage's).
+    pub(crate) watch: Option<String>,
 }
 
 /// The page's few DOM elements around the canvas.
@@ -810,7 +817,14 @@ impl Component for GameCanvas {
         // it. Not where Start must make the context (a direct address, a
         // replay, a playtest, calibration): an automatic Start is no
         // gesture (`docs/plans/start-prompt.md`).
-        if early_audio.is_some() && !ctx.props().edit {
+        if ctx.props().watch.is_some() {
+            // A stage watched with the audience starts at once, no card:
+            // on the context handed over, else on one made now where the
+            // browser lets it start, else (no press yet: a reload) the
+            // prompt asks for one tap and the stage plays from where it
+            // stands (`crate::online::stage_audio`).
+            prompt_state.borrow_mut().set_no_card(true);
+        } else if early_audio.is_some() && !ctx.props().edit {
             // A scene's play starts a moment after its prompt shows; at
             // once, no card, where it is of a line said long after one.
             let line = scene.as_ref().map(|sc: &SceneState| sc.line);
@@ -1325,6 +1339,7 @@ impl GameCanvas {
                 // withdrawn (M7b); once on, a forfeit (the CPUs played to
                 // their end), unless already reported.
                 if let Some(order) = ctx.props().room_stage.as_deref()
+                    && ctx.props().watch.is_none()
                     && crate::room::playing(order.stage.0).is_some()
                     && !crate::room::withdraw(order)
                 {
@@ -2165,19 +2180,29 @@ impl GameCanvas {
             config.session.options.transform = Default::default();
             config.session.options.clock.rate = 1.;
         }
+        let watched = ctx.props().watch.is_some();
         config.session.opponents = ctx.props().room_stage.as_deref().map(|order| {
             let mut setup = ddi_session::battle::StageSetup::of(order);
             // The policy the player has as the play starts (it may have
-            // changed on the stage's prompt since the order was made).
-            setup.targeting = crate::room::my_targeting();
+            // changed on the stage's prompt since the order was made); an
+            // audience's has none.
+            if !watched {
+                setup.targeting = crate::room::my_targeting();
+            }
             setup
         });
-        // An online room's stage played live: its room's client.
-        config.session.live = ctx
-            .props()
-            .room_stage
-            .as_deref()
-            .and_then(crate::room::live_handle);
+        // An online room's stage played live: its room's client; watched
+        // with the audience, its seat's.
+        config.session.live = ctx.props().room_stage.as_deref().and_then(|order| {
+            if watched {
+                let seat = crate::online::audience_stage(order)?;
+                return Some(ddi_session::battle::live::LiveHandle {
+                    room: seat,
+                    wall_ms: Rc::new(|| js_sys::Date::now().max(0.0) as u64),
+                });
+            }
+            crate::room::live_handle(order)
+        });
         config.session.auto_bias = ctx.props().auto_bias;
         config.session.auto_pad = ctx.props().auto_pad;
         // The editor's playtest from its cursor.
@@ -2533,7 +2558,9 @@ impl GameCanvas {
     /// The guard's trail is one longer, so the results' own way back
     /// counts it.
     fn guard_stage(&mut self, ctx: &Context<Self>) {
-        if ctx.props().room_stage.is_none() || self.stage_guard.is_some() {
+        // (Watched with the audience, the browser's Back simply leaves
+        // for its page: a seat loses nothing.)
+        if ctx.props().room_stage.is_none() || ctx.props().watch.is_some() || self.stage_guard.is_some() {
             return;
         }
         let Some(window) = web_sys::window() else {
@@ -2653,7 +2680,7 @@ impl GameCanvas {
             (st.version != before || waited, waited)
         };
         if self.prompt.is_none() {
-            self.open_prompt(ctx.props().room_stage.clone());
+            self.open_prompt(ctx.props().room_stage.clone(), ctx.props().watch.is_some());
         } else if changed && let Some(p) = &self.prompt {
             if waited {
                 // A still prompt (reduced motion) draws no frame for what
@@ -2884,7 +2911,11 @@ impl GameCanvas {
     /// Puts the prompt on the canvas: the play's frames give way to the
     /// screen's (the play's loop keeps measuring the display and readying
     /// the backgrounds, drawing nothing).
-    fn open_prompt(&mut self, ctx_stage: Option<Rc<ddi_ui::state::room::StageOrder>>) {
+    fn open_prompt(
+        &mut self,
+        ctx_stage: Option<Rc<ddi_ui::state::room::StageOrder>>,
+        watched: bool,
+    ) {
         use ddi_ui::screens::prompt::PromptScreen;
         let Some(container) = self.slot.cast::<HtmlElement>() else {
             return;
@@ -2899,7 +2930,7 @@ impl GameCanvas {
         }
         let mut prompt = PromptScreen::new(env, self.prompt_state.clone(), act);
         // A room's stage (M7b): its prompt is the readiness check.
-        if let Some(order) = ctx_stage.as_deref() {
+        if let Some(order) = ctx_stage.as_deref().filter(|_| !watched) {
             let (room, shell) = crate::room::prompt_room();
             prompt = prompt.with_room(room, order.stage, shell);
         }
@@ -3053,6 +3084,23 @@ impl GameCanvas {
         device_changed: bool,
     ) -> bool {
         crate::history::set_playing(false);
+        // A stage watched with the audience: back to its page, which shows
+        // the stage's result (no results of its own: nothing was played
+        // here); its context kept for the next stage.
+        if ctx.props().watch.is_some() {
+            let session = self.game.borrow_mut().as_mut().and_then(|g| g.take_session());
+            if let Some(session) = session {
+                let (audio, _) = session.into_restart();
+                crate::online::keep_stage_audio(audio);
+            }
+            if let Some(game) = self.game.borrow_mut().as_mut() {
+                game.clear_session();
+            }
+            crate::online::stage_over();
+            self.stage = Stage::Aborted;
+            back_route(ctx.props()).return_to();
+            return true;
+        }
         // A song's play is kept (a failed one already was, when it
         // failed); a calibration's is not, nor a replay.
         if let SongSource::Song { id, chart } = &ctx.props().source
@@ -3588,6 +3636,9 @@ fn js_debug(
 fn back_route(props: &Props) -> Route {
     if props.scene.is_some() {
         return Route::Studio;
+    }
+    if let Some(link) = &props.watch {
+        return Route::MpWatch { link: link.clone() };
     }
     if props.room_stage.is_some() {
         return crate::room::back_route();

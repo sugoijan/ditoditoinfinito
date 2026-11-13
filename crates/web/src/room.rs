@@ -449,6 +449,16 @@ fn playing_room() -> SharedRoom {
 pub(crate) fn report(
     outcome: ddi_session::battle::StageOutcome,
 ) -> Option<ddi_ui::state::room::MatchEnd> {
+    // A stage watched with a room's audience reports nothing (the seat is
+    // no member).
+    let ours = PLAYING.with(|p| {
+        p.borrow()
+            .as_ref()
+            .is_some_and(|p| p.order.stage == outcome.stage)
+    });
+    if !ours && crate::online::watching_stage() == Some(outcome.stage) {
+        return None;
+    }
     let room = playing_room();
     let has_attacks = PLAYING.with(|p| {
         p.borrow()

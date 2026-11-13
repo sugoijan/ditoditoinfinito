@@ -53,6 +53,11 @@ pub enum OnlineCall {
     /// (`docs/plans/multiplayer-audience.md`), by `link`, its first
     /// socket's `ticket`.
     Watch { link: String, ticket: String },
+    /// The audience's Watch was pressed (inside the press: the web makes
+    /// the context its watched stages play their music on there, as
+    /// browsers allow audio only from a gesture; the seat itself follows
+    /// as [`OnlineCall::Watch`]).
+    WatchPressed,
     /// Back.
     Leave,
 }
@@ -367,7 +372,12 @@ impl OnlinePageScreen {
                             o.sign_in(dest);
                         }
                         "join" => o.join_invite(),
-                        AUDIENCE => o.watch_audience(),
+                        AUDIENCE => {
+                            o.watch_audience();
+                            drop(o);
+                            shell(OnlineCall::WatchPressed, cx);
+                            return Some(doc(&which, &online.borrow(), &draft.borrow()));
+                        }
                         "invite-open" => {
                             let found = api::invite_in(&draft.borrow().invite);
                             match found {
