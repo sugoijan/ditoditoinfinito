@@ -7,14 +7,19 @@ use ddi_chart::{ChartDigest, NoteKind, Song, Tick};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod absolute;
 mod automatic;
 mod basis;
 mod levels;
 mod mines;
 mod opponent;
 mod personality;
+pub use absolute::{ABSOLUTE_V1, Ability, AbsoluteModel, RowDemand};
 pub use automatic::{Automatic, Plan};
-pub use levels::{CPU_LEVELS_V0, LEVELS, Level, LevelTable};
+pub use levels::{
+    AbilityTable, CPU_LEVELS, CPU_LEVELS_V0, CPU_LEVELS_V1, LEVELS, Level, LevelScale, LevelTable,
+    Strength,
+};
 pub use mines::{
     MINE_RESPONSE_V0, MINE_RESPONSE_V1, MineModel, MineResponse, MineResponseTable, ShockContext,
 };

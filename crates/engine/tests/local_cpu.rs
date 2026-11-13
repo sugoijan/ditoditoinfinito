@@ -12,8 +12,14 @@
 //! notes a second: never a song's name. Third-party songs used this way
 //! stay local.
 //!
-//! - `DDI_CPU_LEVELS=<strength>:<lapse>[,…]`: candidates instead of the
-//!   ten levels (`ddi_engine::cpu::CPU_LEVELS_V0`).
+//! - The ten levels opponents play at (`ddi_engine::cpu::CPU_LEVELS`,
+//!   `cpu-levels-v1`: abilities the same on every chart);
+//!   `DDI_CPU_SCALE=v0` the earlier ones (`CPU_LEVELS_V0`, strength
+//!   relative to the chart).
+//! - `DDI_CPU_LEVELS=<strength>:<lapse>[,…]`: v0 candidates instead;
+//!   `DDI_CPU_ABILITIES=<spread ms>:<notes a second>:<floor>[,…]`: v1
+//!   candidates instead.
+//! - `DDI_CPU_SAMPLE=<n>`: every n-th simfile alone (a quicker look).
 //! - `DDI_CPU_SEEDS=<n>` (3), `DDI_CPU_RULES=<id>[,…]` (`itg-fa+,ddi`;
 //!   `ddi-easy`, `ddi-normal` and `ddi-hard` are DDI at a difficulty, the
 //!   rooms' match rule).
@@ -32,7 +38,10 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use ddi_chart::{Difficulty, Song};
-use ddi_engine::cpu::{CPU_LEVELS_V0, Level, MINE_RESPONSE_V0, Opponent, Plan, Skills};
+use ddi_engine::cpu::{
+    Ability, CPU_LEVELS_V0, CPU_LEVELS_V1, Level, LevelScale, MINE_RESPONSE_V0, Opponent, Plan,
+    Skills, Strength,
+};
 use ddi_engine::rules::presets::{self, HoldStyle};
 use ddi_engine::rules::{FailPolicy, Judgement};
 use ddi_library::scan::parse_simfile;
@@ -90,7 +99,7 @@ fn ruleset_of(rules: &str, song: &Song, chart: usize) -> ddi_engine::rules::Rule
     })
 }
 
-fn play(plan: &Plan, song: &Song, chart: usize, rules: &str, level: Level, seed: u64) -> Sum {
+fn play(plan: &Plan, song: &Song, chart: usize, rules: &str, level: Strength, seed: u64) -> Sum {
     let mut ruleset = ruleset_of(rules, song, chart);
     ruleset.fail = FailPolicy::Off;
     let Ok(mut o) = Opponent::planned(
@@ -165,19 +174,7 @@ fn local_cpu_levels() {
     let Some(dirs) = std::env::var_os("DDI_CPU_CORPUS") else {
         return;
     };
-    let levels: Vec<Level> = match std::env::var("DDI_CPU_LEVELS") {
-        Ok(v) => v
-            .split(',')
-            .map(|p| {
-                let (s, l) = p.split_once(':').expect("strength:lapse");
-                Level {
-                    strength: s.trim().parse().expect("strength"),
-                    lapse: l.trim().parse().expect("lapse"),
-                }
-            })
-            .collect(),
-        Err(_) => CPU_LEVELS_V0.levels.to_vec(),
-    };
+    let levels = strengths();
     let seeds: u64 = std::env::var("DDI_CPU_SEEDS")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -192,6 +189,7 @@ fn local_cpu_levels() {
         collect(&dir, &mut files);
     }
     files.sort();
+    sample(&mut files);
     let workers = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
     let chunk = files.len().div_ceil(workers).max(1);
     let (levels, rules) = (&levels, &rules);
@@ -295,10 +293,13 @@ fn local_cpu_levels() {
         files.len()
     );
     println!(
-        "levels (strength:lapse): {}",
+        "levels: {}",
         levels
             .iter()
-            .map(|l| format!("{}:{}", l.strength, l.lapse))
+            .map(|l| match l {
+                Strength::Relative(l) => format!("{}:{}", l.strength, l.lapse),
+                Strength::Absolute(a) => format!("{}:{}:{}", a.spread_ms, a.speed, a.floor),
+            })
             .collect::<Vec<_>>()
             .join(" ")
     );
@@ -315,6 +316,53 @@ fn local_cpu_levels() {
         println!("  out %    {}", row(&|s| 100.0 * f64::from(s.out) / n(s)));
         println!("  life %   {}", row(&|s| 100.0 * s.life / n(s)));
         println!("  missed % {}", row(&|s| 100.0 * s.missed / n(s)));
+    }
+}
+
+/// The levels measured: the opponents' ten, the earlier ones
+/// (`DDI_CPU_SCALE=v0`), or candidates (`DDI_CPU_LEVELS`,
+/// `DDI_CPU_ABILITIES`).
+fn strengths() -> Vec<Strength> {
+    if let Ok(v) = std::env::var("DDI_CPU_ABILITIES") {
+        return v
+            .split(',')
+            .map(|p| {
+                let f: Vec<f64> = p.split(':').map(|x| x.trim().parse().expect("number")).collect();
+                Strength::Absolute(Ability {
+                    spread_ms: f[0],
+                    speed: f[1],
+                    floor: f.get(2).copied().unwrap_or(0.0),
+                })
+            })
+            .collect();
+    }
+    if let Ok(v) = std::env::var("DDI_CPU_LEVELS") {
+        return v
+            .split(',')
+            .map(|p| {
+                let (s, l) = p.split_once(':').expect("strength:lapse");
+                Strength::Relative(Level {
+                    strength: s.trim().parse().expect("strength"),
+                    lapse: l.trim().parse().expect("lapse"),
+                })
+            })
+            .collect();
+    }
+    if std::env::var("DDI_CPU_SCALE").is_ok_and(|v| v == "v0") {
+        CPU_LEVELS_V0.levels.map(Strength::Relative).to_vec()
+    } else {
+        CPU_LEVELS_V1.levels.map(Strength::Absolute).to_vec()
+    }
+}
+
+/// Every n-th file alone (`DDI_CPU_SAMPLE`).
+fn sample(files: &mut Vec<PathBuf>) {
+    if let Some(n) = std::env::var("DDI_CPU_SAMPLE")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 1)
+    {
+        *files = files.iter().step_by(n).cloned().collect();
     }
 }
 
@@ -342,6 +390,15 @@ impl Shocked {
 
 const EVASIONS: [f64; 3] = [0.5, 1.0, 2.0];
 
+/// The scale the shocks' study runs (`DDI_CPU_SCALE=v0`: the earlier one).
+fn scale() -> LevelScale {
+    if std::env::var("DDI_CPU_SCALE").is_ok_and(|v| v == "v0") {
+        LevelScale::RelativeV0
+    } else {
+        ddi_engine::cpu::CPU_LEVELS
+    }
+}
+
 fn shocked(
     plan: &Plan,
     song: &Song,
@@ -363,7 +420,7 @@ fn shocked(
         chart,
         ruleset,
         (
-            CPU_LEVELS_V0.levels[level],
+            scale().strength(level).expect("level"),
             MINE_RESPONSE_V0.avoidance(level),
         ),
         seed,
@@ -442,6 +499,7 @@ fn local_cpu_shocks() {
         collect(&dir, &mut files);
     }
     files.sort();
+    sample(&mut files);
     let columns = CPU_LEVELS_V0.levels.len() * EVASIONS.len();
     let workers = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
     let chunk = files.len().div_ceil(workers).max(1);
@@ -527,8 +585,9 @@ fn local_cpu_shocks() {
         }
     }
     println!(
-        "{} files, {seeds} seeds, DDI Normal, mine-response-v1",
-        files.len()
+        "{} files, {seeds} seeds, DDI Normal, mine-response-v1, {}",
+        files.len(),
+        scale().id()
     );
     for (group, (charts, sums)) in &table {
         println!("{group} | {charts} charts | by level, Evasion 0.5 / 1 / 2");

@@ -374,9 +374,16 @@ fn levels_six_to_ten_press_exactly_as_the_five_strengths_did() {
             let level = CPU_LEVELS_V0.level(5 + strength).unwrap();
             let at = plan.script_at(level, 7, *skills).unwrap();
             assert_eq!(at, solo, "level {}", 6 + strength);
-            let opponent =
-                Opponent::with_skills(&song, 0, presets::itg_fa_plus(), 5 + strength, 7, *skills)
-                    .unwrap();
+            let opponent = Opponent::on_scale(
+                &song,
+                0,
+                presets::itg_fa_plus(),
+                LevelScale::RelativeV0,
+                5 + strength,
+                7,
+                *skills,
+            )
+            .unwrap();
             assert_eq!(
                 press_hash(opponent.presses()),
                 *hash,
@@ -423,4 +430,165 @@ fn levels_one_to_five_lapse_more_the_weaker_they_are() {
             .script_at(plain, 7, Skills::default())
             .is_err()
     );
+}
+
+/// Every bundled song's simfile, parsed as the library parses it.
+fn bundled_songs() -> Vec<Song> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs");
+    let mut dirs: Vec<_> = std::fs::read_dir(root)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    dirs.iter()
+        .filter_map(|d| {
+            let path = std::fs::read_dir(d)
+                .ok()?
+                .flatten()
+                .map(|e| e.path())
+                .find(|p| p.extension().is_some_and(|e| e == "ssc" || e == "sm"))?;
+            let ext = path.extension()?.to_string_lossy().to_string();
+            ddi_library::scan::parse_simfile(&std::fs::read_to_string(&path).ok()?, &ext).ok()
+        })
+        .collect()
+}
+
+/// The mean percent under DDI Normal of an opponent at `level` of the
+/// opponents' ten (`cpu-levels-v1`) over `seeds`, the fail off.
+fn absolute_percent(song: &Song, chart: usize, level: usize, seeds: u64) -> f64 {
+    let plan = Plan::automatic(song, chart).unwrap();
+    let mut rules = crate::rules::ddi::ruleset(&crate::rules::ddi::DdiOptions::default());
+    rules.fail = crate::rules::FailPolicy::Off;
+    let strength = LevelScale::AbsoluteV1.strength(level).unwrap();
+    (1..=seeds)
+        .map(|seed| {
+            let mut o = Opponent::planned(
+                &plan,
+                song,
+                chart,
+                rules.fresh(),
+                (strength, 0.0),
+                seed,
+                Skills::default(),
+            )
+            .unwrap();
+            o.start(0.0);
+            o.finish();
+            o.score().percent.unwrap_or(0.0) * 100.0
+        })
+        .sum::<f64>()
+        / seeds as f64
+}
+
+/// `cpu-levels-v1`: on every bundled single chart a stronger level scores
+/// no worse (within half a point: four seeds), and a level scores no
+/// better on a harder chart of the same song (within two points: the
+/// slots of a song can be close, as Beatucada's Hard and Challenge are).
+/// An easy chart is played nearly perfectly by a middling level and the
+/// weakest are lost on the hardest.
+#[test]
+fn absolute_levels_are_monotone_in_level_and_in_the_chart() {
+    let mut charts = 0;
+    for song in bundled_songs() {
+        let mut singles: Vec<usize> = (0..song.charts.len())
+            .filter(|&i| {
+                let c = &song.charts[i];
+                c.layout == "dance-single"
+                    && c.derivation.is_none()
+                    && c.difficulty != ddi_chart::Difficulty::Edit
+                    && Plan::automatic(&song, i).is_ok()
+            })
+            .collect();
+        singles.sort_by_key(|&i| song.charts[i].difficulty);
+        let table: Vec<Vec<f64>> = singles
+            .iter()
+            .map(|&c| (0..LEVELS).map(|l| absolute_percent(&song, c, l, 4)).collect())
+            .collect();
+        for (row, &c) in table.iter().zip(&singles) {
+            charts += 1;
+            for l in 1..LEVELS {
+                assert!(
+                    row[l] >= row[l - 1] - 0.5,
+                    "chart {c}: level {} {} below level {} {}",
+                    l + 1,
+                    row[l],
+                    l,
+                    row[l - 1]
+                );
+            }
+        }
+        for (k, pair) in table.windows(2).enumerate() {
+            // Charts of one meter may be close either way.
+            let (a, b) = (&song.charts[singles[k]], &song.charts[singles[k + 1]]);
+            let tolerance = if a.meter == b.meter { 6.0 } else { 2.0 };
+            for l in 0..LEVELS {
+                assert!(
+                    pair[1][l] <= pair[0][l] + tolerance,
+                    "level {}: a harder chart {} above {}",
+                    l + 1,
+                    pair[1][l],
+                    pair[0][l]
+                );
+            }
+        }
+        // The song's easiest and hardest: level 5 at home on the easiest,
+        // level 1 far below level 10 on the hardest.
+        let (easy, hard) = (&table[0], &table[table.len() - 1]);
+        assert!(easy[4] > 95.0, "{easy:?}");
+        assert!(hard[9] - hard[0] > 40.0, "{hard:?}");
+    }
+    assert!(charts >= 12, "{charts}");
+}
+
+/// The same level differs from chart to chart as the model says: the
+/// demand is the chart's own, in real units. A row far over a level's
+/// limit is mostly left out, a row well within it is pressed.
+#[test]
+fn an_absolute_level_is_lost_on_a_chart_above_its_head() {
+    let rows = |gap: f64| -> Vec<Row> {
+        (0..400)
+            .map(|i| Row {
+                seconds: 1.0 + i as f64 * gap,
+                mask: 1 << (i % 4),
+            })
+            .collect()
+    };
+    let weakest = CPU_LEVELS_V1.levels[0];
+    for (gap, pressed) in [(1.0, 0.99), (0.0625, 0.5)] {
+        let r = rows(gap);
+        let d = absolute::row_demands(&r, &ABSOLUTE_V1);
+        let presses = absolute::script(&r, &d, weakest, 7, Skills::default()).unwrap();
+        let share = presses.len() as f64 / r.len() as f64;
+        if pressed > 0.9 {
+            assert!(share >= pressed, "{gap}: {share}");
+        } else {
+            assert!(share < pressed, "{gap}: {share}");
+        }
+        validate_script(&presses).unwrap();
+    }
+}
+
+/// Bounds: rows at one time after a warp, a wall of quads every
+/// millisecond, the plan's most rows: no panic, a valid script, every
+/// level.
+#[test]
+fn absolute_levels_stay_within_bounds_on_extreme_rows() {
+    let mut rows: Vec<Row> = (0..4096)
+        .map(|i| Row {
+            seconds: 2.0 + f64::from(i) * 0.001,
+            mask: 15,
+        })
+        .collect();
+    rows.extend((0..64).map(|_| Row {
+        seconds: 10.0,
+        mask: 3,
+    }));
+    let d = absolute::row_demands(&rows, &ABSOLUTE_V1);
+    assert!(d.iter().all(|d| d.speed.is_finite() && d.lane.is_finite()));
+    for a in CPU_LEVELS_V1.levels {
+        let presses = absolute::script(&rows, &d, a, 3, Skills::default()).unwrap();
+        validate_script(&presses).unwrap();
+    }
 }

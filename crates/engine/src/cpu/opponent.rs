@@ -6,9 +6,11 @@
 //! three give the same presses and the same judgments at any frame rate.
 //!
 //! What it is not: a skill-tuned opponent. It plays at one of ten levels
-//! (`super::levels`, [`CPU_LEVELS_V0`]): a strength relative to the chart
-//! and, for the weaker five, a chance of leaving notes out where the
-//! chart is demanding (`docs/plans/cpu-player.md`); it plays a
+//! (`super::levels`, [`CPU_LEVELS`]): abilities in real units, the same on
+//! every chart (`cpu-levels-v1`, `super::absolute`), or the earlier
+//! strength relative to the chart with, for the weaker five, a chance of
+//! leaving notes out where the chart is demanding (`cpu-levels-v0`;
+//! `docs/plans/cpu-player.md`); it plays a
 //! tap-only copy (holds and rolls as taps, mines, lifts and fakes left
 //! out). A battle's shocks put into its play (M8b,
 //! [`Opponent::receive_hazards`]) are judged by its own player as anyone's
@@ -120,9 +122,9 @@ pub struct Opponent {
     /// in time order, which say where a shock is hard to get around.
     evasion: f64,
     notes: Vec<(f64, u8)>,
-    /// Its level and skills, which its plans for easier charts are made
-    /// at ([`Opponent::add_rungs`]).
-    level: Level,
+    /// Its strength and skills, which its plans for the other charts are
+    /// made at ([`Opponent::add_rungs`]).
+    level: Strength,
     skills: Skills,
     /// The presses its plan made for each rung of its ladder (numbered as
     /// `Ladder::rungs`: the easier ones, then the harder ones), and each
@@ -137,8 +139,8 @@ pub struct Opponent {
 
 impl Opponent {
     /// Chart `chart` of `song` (as played: shifted by a song offset like
-    /// the human's) planned at `level` (an index into [`CPU_LEVELS_V0`]'s
-    /// ten, 0 the weakest) with `seed`, readied under `ruleset` on its tap-only projection. Refused,
+    /// the human's) planned at `level` (an index into [`CPU_LEVELS`]' ten,
+    /// 0 the weakest) with `seed`, readied under `ruleset` on its tap-only projection. Refused,
     /// with the engine's reason, where the CPU cannot plan the chart (not
     /// one-player four lanes, no playable rows, over the limits).
     pub fn new(
@@ -151,8 +153,10 @@ impl Opponent {
         Self::with_skills(song, chart, ruleset, level, seed, Skills::default())
     }
 
-    /// [`Opponent::new`] with a personality: `skills` bend its strength
-    /// per pattern (`super::personality`).
+    /// [`Opponent::new`] with a personality: `skills` bend its abilities
+    /// per pattern (`super::personality`, `super::absolute`). At one of
+    /// the ten levels opponents play at ([`CPU_LEVELS`], `cpu-levels-v1`:
+    /// abilities the same on every chart).
     pub fn with_skills(
         song: &Song,
         chart: usize,
@@ -161,7 +165,22 @@ impl Opponent {
         seed: u64,
         skills: Skills,
     ) -> Result<Opponent, String> {
-        let at = CPU_LEVELS_V0.level(level).ok_or("CPU level must be 0..9")?;
+        Self::on_scale(song, chart, ruleset, CPU_LEVELS, level, seed, skills)
+    }
+
+    /// [`Opponent::with_skills`] on the levels of `scale` (the earlier
+    /// `cpu-levels-v0`, strength relative to the chart, for comparison
+    /// and its fixtures).
+    pub fn on_scale(
+        song: &Song,
+        chart: usize,
+        ruleset: Ruleset,
+        scale: LevelScale,
+        level: usize,
+        seed: u64,
+        skills: Skills,
+    ) -> Result<Opponent, String> {
+        let at = scale.strength(level).ok_or("CPU level must be 0..9")?;
         Self::at(
             song,
             chart,
@@ -172,14 +191,14 @@ impl Opponent {
         )
     }
 
-    /// [`Opponent::with_skills`] at a level of its own and an avoidance
-    /// (`0..=1`): the ten levels' ([`CPU_LEVELS_V0`],
+    /// [`Opponent::with_skills`] at a strength of its own and an avoidance
+    /// (`0..=1`): the ten levels' ([`CPU_LEVELS_V1`], [`CPU_LEVELS_V0`],
     /// [`MINE_RESPONSE_V0`]), or a study's candidates.
     pub fn at(
         song: &Song,
         chart: usize,
         ruleset: Ruleset,
-        (level, avoidance): (Level, f64),
+        (level, avoidance): (impl Into<Strength>, f64),
         seed: u64,
         skills: Skills,
     ) -> Result<Opponent, String> {
@@ -201,12 +220,13 @@ impl Opponent {
         song: &Song,
         chart: usize,
         ruleset: Ruleset,
-        (level, avoidance): (Level, f64),
+        (level, avoidance): (impl Into<Strength>, f64),
         seed: u64,
         skills: Skills,
     ) -> Result<Opponent, String> {
+        let level: Strength = level.into();
         let projected = plan.check_song(song, chart)?;
-        let presses = plan.script_at(level, seed, skills)?;
+        let presses = plan.script_strength(level, seed, skills)?;
         let judge_offset = ruleset.judge.judge_offset;
         let mut player = Player::new(
             &projected,
@@ -254,7 +274,7 @@ impl Opponent {
             self.home = Some((self.presses.clone(), self.notes.clone()));
         }
         for r in rungs {
-            let presses = r.plan.script_at(self.level, self.seed, self.skills)?;
+            let presses = r.plan.script_strength(self.level, self.seed, self.skills)?;
             if r.up {
                 self.player.add_rung_up(&r.projected, r.chart)?;
             } else {
@@ -1070,7 +1090,16 @@ mod tests {
         let mut out = Vec::new();
         for level in 0..super::LEVELS {
             for seed in 1..=4u64 {
-                let mut o = Opponent::with_skills(song, 1, rules(), level, seed, skills).unwrap();
+                let mut o = Opponent::on_scale(
+                    song,
+                    1,
+                    rules(),
+                    LevelScale::RelativeV0,
+                    level,
+                    seed,
+                    skills,
+                )
+                .unwrap();
                 o.start(0.0);
                 for s in sections(song).iter().take(4) {
                     o.receive_hazards(&s.cells).unwrap();

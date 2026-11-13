@@ -1,6 +1,7 @@
 //! Portable analytical CPU v1. This is a new runtime policy, not an export of
 //! the learned MSD-conditioned checkpoints. The frequency recipe, timing grid,
 //! 9–80 ms width bounds and input motor come from the research baseline.
+use super::absolute::{self, RowDemand};
 use super::*;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -66,6 +67,35 @@ impl Plan {
         }
     }
 
+    /// The presses of a play at `strength`: a relative level as
+    /// [`Plan::script_at`] plans it, an absolute one by its abilities
+    /// (`super::absolute`; never a prepared profile).
+    pub fn script_strength(
+        &self,
+        strength: Strength,
+        seed: u64,
+        skills: Skills,
+    ) -> Result<Vec<Press>, String> {
+        match strength {
+            Strength::Relative(level) => self.script_at(level, seed, skills),
+            Strength::Absolute(ability) => match self {
+                Self::Prepared(_) => Err("CPU levels need an automatic plan".into()),
+                Self::Automatic(p) => {
+                    absolute::script(&p.rows, &p.absolute, ability, seed, skills)
+                }
+            },
+        }
+    }
+
+    /// Each row's demand in real units (an automatic plan's; none for a
+    /// prepared profile), for studies.
+    pub fn demands(&self) -> &[RowDemand] {
+        match self {
+            Self::Prepared(_) => &[],
+            Self::Automatic(p) => &p.absolute,
+        }
+    }
+
     pub fn model(&self) -> &str {
         match self {
             Self::Prepared(p) => &p.model,
@@ -85,6 +115,8 @@ pub struct Automatic {
     bad: [[f64; 91]; 5],
     width: f64,
     demand: Vec<[f64; 7]>,
+    /// Each row's demand in real units (`cpu-levels-v1`).
+    absolute: Vec<RowDemand>,
 }
 
 fn chart_rows(song: &Song, index: usize) -> Result<Vec<Row>, String> {
@@ -159,6 +191,7 @@ impl Automatic {
         let width = (lo + hi) * 0.5;
         let bad = STRENGTHS.map(|s| gaussian((width / s).clamp(9., 80.)));
         let demand = personality::demands(&rows);
+        let absolute = absolute::row_demands(&rows, &absolute::ABSOLUTE_V1);
         Ok(Self {
             digest: song.chart_digest(index),
             rows,
@@ -167,6 +200,7 @@ impl Automatic {
             bad,
             width,
             demand,
+            absolute,
         })
     }
 
@@ -291,7 +325,7 @@ fn tail(x: f64) -> f64 {
     (-0.5 * x * x).exp() * 0.3989422804014327 * polynomial
 }
 
-fn gaussian(width_ms: f64) -> [f64; 91] {
+pub(super) fn gaussian(width_ms: f64) -> [f64; 91] {
     let sigma = width_ms / 1000.;
     let tails = basis::EDGES.map(|x| if x == 0. { 0.5 } else { tail(x.abs() / sigma) });
     let mut q = [0.; 91];
