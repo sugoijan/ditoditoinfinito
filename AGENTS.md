@@ -1379,7 +1379,16 @@ Rust and the browser are implementation details, not advertised features.
   (`crate::room::upload`, `share::upload_room`: an imported or a bundled
   song), read from the room's share (`crate::room::prepare_for`), its
   stage played at `#/play?…&stage=<id>` back to `#/mp/room/<id>`
-  (`crate::room::play_in`, `back_route`). `Trunk.toml` passes `/api/` (redirects untouched) and
+  (`crate::room::play_in`, `back_route`). A room watched with its
+  audience: `#/mp/audience/<link>` its link's page, `#/mp/watch/<link>`
+  the audience's page, `#/mp/watch/<link>/stage` a stage watched (the
+  play route's spectator view with the seat in the room's place,
+  `crate::online::watch_stage`, `game_canvas::Props::watch`: no prompt to
+  press where the browser starts the sound, the Watch press's context
+  kept for it; nothing reported, back to the audience's page; reloaded,
+  the audience's page hands the stage over again as it stands); TESTING
+  ONLY, `#/?mp=1&mpfakeseat=1` (`mpfakeend=S`) makes the next seat one
+  in a fake room in the page (`crate::fake_seat`). `Trunk.toml` passes `/api/` (redirects untouched) and
   `/api/sockets/` (WebSockets) to `just dev` of `../ddi-server`.
 - `tools/danoni-importer/` the native helper, a root workspace member requiring
   Rust 1.99 (as does the SDK). Both share the root lock; the `importer` profile

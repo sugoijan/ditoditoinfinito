@@ -634,6 +634,21 @@ fn multiplayer_switch(hash: &str) {
             crate::room::discard();
         }
     }
+    // TESTING ONLY: `mpfakeseat=1` beside `mp=1`, the next audience seat
+    // is one in a fake room's audience in the page (`crate::fake_seat`:
+    // the headless browsers' look at a watched stage without a server),
+    // `mpfakeend=S` closing that audience S seconds into its stage.
+    if on
+        && query
+            .split('&')
+            .any(|kv| kv == "mpfakeseat=1")
+    {
+        let end = query.split('&').find_map(|kv| match kv.split_once('=') {
+            Some(("mpfakeend", s)) => s.parse::<f64>().ok(),
+            _ => None,
+        });
+        crate::fake_seat::want(end);
+    }
     // `mprules=1` beside `mp=1`: a room's Rules open by themselves on
     // entering, as M7b had it (`Settings::multiplayer_rules_first`, a
     // hidden option, off by default); `mprules=0` turns it off again.

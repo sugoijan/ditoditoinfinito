@@ -17,6 +17,7 @@ mod crash;
 mod editor;
 mod editor_audio;
 mod editor_field;
+mod fake_seat;
 mod field_preview;
 mod game_loop;
 mod generated;

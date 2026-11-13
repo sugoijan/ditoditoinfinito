@@ -503,6 +503,24 @@ impl PromptInfo {
         self.timing = None;
     }
 
+    /// A stage this device watches (a member who chose Watch, or someone
+    /// watching with the room's audience): its place in the match, how
+    /// many play it, its rules; nothing said of playing against them.
+    pub fn set_watched_stage(
+        &mut self,
+        number: u16,
+        stages: u16,
+        players: usize,
+        rules: &crate::state::room::StageRules,
+        attacks: Option<bool>,
+    ) {
+        let note: String = msg::room::prompt_stage_watched(number, stages, players).into();
+        let rules: String =
+            msg::room::prompt_ruleset(super::room::rules_words(rules, attacks)).into();
+        self.mods = format!("{note} · {rules}");
+        self.timing = None;
+    }
+
     /// A stage with attacks plays faster than the player's speed (an
     /// extreme slow setting raised so that attacks can warn in time).
     pub fn set_speed_raised(&mut self) {

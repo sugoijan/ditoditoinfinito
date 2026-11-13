@@ -330,6 +330,10 @@ async fn read_shared(job: &LoadJob) -> Result<(Picked, Option<LivePrep>), LoadPr
 /// A stage's song of the room watched with its audience
 /// (`crate::online::audience`), read from the room's share.
 pub(crate) fn prepare_audience(job: LoadJob) {
+    if crate::fake_seat::on() {
+        crate::fake_seat::prepare(job);
+        return;
+    }
     wasm_bindgen_futures::spawn_local(async move {
         let result = read_shared(&job).await;
         if let Some(a) = crate::online::kept_audience() {

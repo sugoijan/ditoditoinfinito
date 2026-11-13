@@ -1755,6 +1755,17 @@ fn a_seat_closed_during_a_watched_stage_stops_its_view_and_says_why() {
         }
     }
     let order = order.expect("the audience's stage");
+    // Its page gone and the play not started yet: nothing ticks the seat
+    // for 0.4 s (the play route's loading). The play still starts on the
+    // room's time as of its start.
+    for _ in 0..20 {
+        r.step(0.02, false);
+        for p in plays.iter_mut() {
+            let _ = p.tick(HostTime(*r.host.borrow()));
+        }
+    }
+    let delay = aud.borrow().music_delay_ms(order.stage) as f64 / 1_000.0;
+    let zero = r.rooms[0].borrow().song_zero_at(order.stage).unwrap();
     let settings = Settings::default();
     let mut config = SessionConfig::from_settings(&settings, true, None);
     config.opponents = Some(StageSetup::of(&order));
@@ -1780,8 +1791,13 @@ fn a_seat_closed_during_a_watched_stage_stops_its_view_and_says_why() {
     let mut combos_at_end = Vec::new();
     let mut frames_at_end = 0;
     let mut pressed = false;
+    let mut behind = Vec::new();
     let ended = play_out(&r, &mut plays, 200.0, |t, plays| {
         let host = *r.host.borrow();
+        let song_t = (wall(host) as f64 - zero.0 as f64) / 1_000.0;
+        if song_t > 2.0 && closed_at.is_none() {
+            behind.push(song_t - plays[2].player.judge_time(HostTime(host)));
+        }
         if closed_at.is_none() && t > 15.0 {
             closed_at = Some(t);
             r.rooms[0].borrow_mut().set_audience_open(false);
@@ -1812,6 +1828,13 @@ fn a_seat_closed_during_a_watched_stage_stops_its_view_and_says_why() {
     let closed_at = closed_at.expect("closed");
     let ended_at = ended_at.expect("the seat ended during the stage");
     eprintln!("seat: closed at {closed_at:.2} s, its view ended at {ended_at:.2} s");
+    let (lo, hi) = behind
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(l, h), x| (l.min(*x), h.max(*x)));
+    assert!(
+        lo >= delay - 0.01 && hi <= delay + 0.3,
+        "the music {lo:.3}..{hi:.3} s behind for {delay} s, started on a seat not ticked for 0.4 s"
+    );
     assert!(ended_at - closed_at < 2.0, "said at once: {closed_at} → {ended_at}");
     assert_eq!(aud.borrow().frames(), frames_at_end, "no frame after it");
     assert_eq!(combos_at_end.len(), 2);

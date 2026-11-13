@@ -545,6 +545,17 @@ room-prompt-stage-online = Stage { $number } of { $stages } · { $others ->
    *[other] against { $others } other players
 }, each on their own device · out when your life runs out
 
+# The same for a stage this device watches (a member who chose Watch, or
+# someone watching with the room's audience): nothing is played here.
+# Variables:
+#   $number (Number) - the stage, from 1
+#   $stages (Number) - the match's stages
+#   $players (Number) - the players starting it
+room-prompt-stage-watched = Stage { $number } of { $stages } · watching { $players ->
+    [one] one player
+   *[other] { $players } players
+}
+
 # A stage's results: the button that goes back to the room (where Song
 # list is after a single play; about 16 letters).
 room-results-back = Back to room
@@ -1363,10 +1374,10 @@ room-audience-none = This room has no audience to watch with.
 
 # Under that sentence, said over a watched stage whose seat ended (the
 # audience closed, the room ended, the link replaced): the key that goes
-# back to the audience's page (about 30 letters).
+# back to the audience's page (about 20 letters: it is on a small plate).
 # Variables:
 #   $key (String) - the key's or button's name ("Enter")
-room-audience-ended-back = { $key }: back to the audience's page
+room-audience-ended-back = { $key }: back
 # The same on a touch screen, a button to tap (about 16 letters).
 room-audience-ended-back-tap = Back
 

@@ -817,17 +817,20 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         // where this device could not make it, not at all past the late
         // join (a forfeit, watched).
         let live_start = match (&config.live, &config.opponents) {
-            (Some(h), Some(stage)) if stage.live.is_some() => h
-                .room
-                .borrow()
-                .song_zero_in(stage.stage)
-                .map(|zero_in| {
+            (Some(h), Some(stage)) if stage.live.is_some() => {
+                // On the room's client's clock as of now (nothing may have
+                // ticked it since its screen went: an audience's seat
+                // between its page and this play).
+                h.room.borrow_mut().tick((h.wall_ms)());
+                let zero_in = h.room.borrow().song_zero_in(stage.stage);
+                zero_in.map(|zero_in| {
                     crate::battle::live::live_start(
                         zero_in,
                         sample.output_latency,
                         &ddi_room::live::LIVE_V1,
                     )
-                }),
+                })
+            }
             _ => None,
         };
         let start_ctx = match live_start {

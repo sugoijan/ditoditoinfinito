@@ -449,7 +449,18 @@ fn full_info(request: &Request, loaded: &Loaded, settings: &Settings) -> PromptI
     if let Some(cpu) = &request.cpu {
         info.set_cpu_with_skills(cpu.level, cpu.seed, cpu.skills);
     }
-    if let Some(order) = &request.stage {
+    if let Some(order) = &request.stage
+        && order.watching
+    {
+        // Watched (a member's Watch, or with the room's audience).
+        info.set_watched_stage(
+            order.number,
+            order.of,
+            order.cpus.len() + usize::from(order.others),
+            &order.rules,
+            order.attacks_rule(),
+        );
+    } else if let Some(order) = &request.stage {
         info.set_stage(
             order.number,
             order.of,

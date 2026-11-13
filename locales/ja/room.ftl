@@ -218,6 +218,8 @@ room-prompt-stage = ステージ { $number } / { $stages } · CPU { $cpus }人�
 
 room-prompt-stage-online = ステージ { $number } / { $stages } · ほかのプレイヤー{ $others }人とそれぞれの端末で対戦 · ゲージが尽きるとアウト
 
+room-prompt-stage-watched = ステージ { $number } / { $stages } · { $players }人のプレイを観戦
+
 room-results-back = ルームに戻る
 
 room-prompt-ruleset = ルール：{ $rules }
@@ -632,7 +634,7 @@ room-audience-full = このルームの観客席は満員です。
 room-audience-closed = ホストが観客席を閉じました。
 room-audience-too-many-seats = すでに2台の端末でこのルームを観戦しています。
 room-audience-link-unknown = この観客用リンクはこのルームのものではないか、差し替えられました。
-room-audience-ended-back = { $key }: 観戦ページへ戻る
+room-audience-ended-back = { $key }: 戻る
 room-audience-ended-back-tap = 戻る
 room-audience-none = このルームには観客席がありません。
 

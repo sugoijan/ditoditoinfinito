@@ -2834,7 +2834,16 @@ impl GameCanvas {
         if let Some(cpu) = &props.cpu {
             info.set_cpu_with_skills(cpu.level, cpu.seed, cpu.skills);
         }
-        if let Some(order) = &props.room_stage {
+        if let Some(order) = props.room_stage.as_ref().filter(|o| o.watching) {
+            // Watched (a member's Watch, or with the room's audience).
+            info.set_watched_stage(
+                order.number,
+                order.of,
+                order.cpus.len() + usize::from(order.others),
+                &order.rules,
+                order.attacks_rule(),
+            );
+        } else if let Some(order) = &props.room_stage {
             info.set_stage(
                 order.number,
                 order.of,

@@ -72,16 +72,23 @@ pub(crate) fn audience(link: &str) -> SharedAudience {
     }
     discard_audience();
     let ticket = TICKET.with_borrow_mut(|t| t.take_if(|(l, _)| l == link).map(|(_, t)| t));
-    let a = Rc::new(RefCell::new(AudienceClient::new(
-        current(),
-        link,
-        Box::new(WebSocketTransport {
-            audience: true,
-            ..Default::default()
-        }),
-        ticket,
-        now_ms(),
-    )));
+    // TESTING ONLY (`mpfakeseat=1`): a seat in a fake room's audience in
+    // the page (`crate::fake_seat`).
+    let client = if crate::fake_seat::on() {
+        crate::fake_seat::seat(link)
+    } else {
+        AudienceClient::new(
+            current(),
+            link,
+            Box::new(WebSocketTransport {
+                audience: true,
+                ..Default::default()
+            }),
+            ticket,
+            now_ms(),
+        )
+    };
+    let a = Rc::new(RefCell::new(client));
     AUDIENCE.with_borrow_mut(|x| *x = Some((link.into(), a.clone())));
     a
 }
