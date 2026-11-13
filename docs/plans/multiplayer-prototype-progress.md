@@ -7027,6 +7027,297 @@ What it says:
 - The server (`../ddi-server`): its tests pass against the changed crate;
   `a_stage_finishes_under_the_attack_rules_its_stored_plan_names` added.
 
+## Attacks, version 3: a placement window and Attacks at once; Shift changes the policy (2026-11-13)
+
+The maintainer, on the pile-up study: "So attacks are queued
+indefinitely, I think we should put a cap on how far in the future they
+can be placed to limit the chaining. That is, if an attack cannot be fit
+into the next, say, 15 seconds, then the player is not a valid target. In
+addition to that cap we can have a match rule for how many attacks can be
+added within that window." On the window: "I think this window is more
+intrinsic to what is a balance of what is practical to use and what
+actually counts as an attack, since if it takes too long it kind of
+defeats the purpose of targeting a leader or retaliating (both of which
+could have changed a lot)." And on the policy: "we should have an easy
+way to switch the targeting mode during a match and make that way
+visible on the ready screen, I'm leaning towards making 'shift' the
+shortcut."
+
+### The rules as built (`attacks-v3`, PROVISIONAL)
+
+- **`attacks-v3`** (`ddi_room::attacks::ATTACKS_V3`, what stages play:
+  `ATTACKS`; `attacks-v2`, `attacks-v1` and `attacks-v0` kept by name
+  with their traces, `ALL_ATTACKS`, `attack_rules(id)`). `attacks-v2`'s
+  bar, cost, checkpoints and chaining: each attack against one recipient
+  in the first safe section at or after the moment the last one placed
+  against them clears, never the same region, no gap, no cooldown.
+- **The window** (`AttackRules::window_us`, `ATTACK_WINDOW_V0_US`,
+  `attack-window-v0`: **15 s of song time**, one balance value, not a
+  match rule). A launch may be placed against a recipient only in a safe
+  section that **starts within 15 s of the launch's checkpoint**. The
+  recipient's lead is inside it: from a checkpoint, the earliest start is
+  the lead (`practice_lead_us`: the reading horizon, 1.5 s of warning,
+  0.1 s of delay and the network's 1.25 s; 4.85 s for a 2 s horizon) or
+  the next checkpoint, whichever is later, so about 10 s of the window is
+  left at a 2 s horizon, 7 s at a 5 s horizon, and 5 s at the lead's cap
+  (10 s, a slow speed raised on a stage to fit it). A safe section can
+  start every four beats and lasts about as long with its clear, so how
+  many fit back to back in what is left depends on the tempo: measured on
+  the charts (below), a median of two under 120 BPM, three from 120 to
+  160 BPM and four over 160 BPM.
+- **Attacks at once** (the match rule, `MatchRules::at_once`,
+  `PlayRules::at_once`, `ddi_room::AttacksAtOnce`: 1, 2, **3 by default**,
+  No limit; `AttackRules::with_at_once`, `chain` = the limit less one):
+  how many attacks may stand placed and not passed against one player at
+  a time. Per stage like Attacks (changeable from a later stage), additive
+  in the JSON (left out at three), read only where Attacks is On.
+- **Who is a valid target**: anyone else still in, under the limit, with
+  a safe section starting within the window. **A sender's policy now
+  orders every valid recipient and the launch goes to the first with
+  room** (before `attacks-v3` only the first choice was tried):
+  - **Spread**: by the fewest attacks still to come against them, then
+    the fewest sent this stage, then the seeded tie; the next in that
+    order where the first has no room.
+  - **Retaliate**: whoever attacked the sender last, where they are valid
+    and have room; else Spread's order.
+  - **Leader**: by life, then the timing points earned, then the seeded
+    tie; a buried leader (at the limit, or with no room in the window)
+    spills over to the second, the third, and so on.
+  - Nobody valid: the launch waits, the power kept, as before. The
+    reasons: no one to attack (everyone else out or at the limit,
+    `NoEligible`), no safe section to the song's end (`NoSafeSection`),
+    and, new, **no room within the window** where some recipient has a
+    section only later (`BlockReason::NoRoomInWindow`, on the live wire
+    as its third value; `SeatStats::waited_no_room_in_window`, the web's
+    `waited` its third entry).
+- **The warning** by the receptors needs no change: it counts the attacks
+  placed behind the nearest, which is now at most the limit less one (two
+  by default, never past three bolts: the "×N" form only shows under No
+  limit).
+- **The room model's revision is 4** (`ROOM_MODEL_REVISION`): every
+  device and the room must run the same ledger. A client of revision 3 is
+  refused at a join and a ticket between stages ("Reload to update"). The
+  rule is honored by an authority that says so (`RoomPolicy::at_once`,
+  additive, true for every room this build makes); a room on an older
+  authority offers no row, and a stage's rules naming another limit are
+  refused there (`RulesProblem::AtOnceNotHonored`).
+- **The battle plan names the limit** (`BattlePlan::at_once`, additive,
+  in the digest only where set; `BattlePlan::rules()`, the rules the plan
+  names with it): every device and the room run the stage under the
+  plan's limit; a device of another limit disagrees on the digest and
+  sits out of the attacks, as for any mismatch.
+- **A stage in play across a server deploy** finishes under the rules its
+  plan names: one begun under `attacks-v2` stays `attacks-v2` (no window,
+  no limit; `a_stage_runs_under_the_attack_rules_its_plan_names`,
+  `crates/room/tests/live.rs`, and the server's
+  `a_stage_begun_under_attacks_v2_finishes_under_it_and_v3_keeps_its_limit`,
+  through the Durable Object's hibernation). A restart mid-stage settles
+  that stage on its reports, as before.
+
+### Shift changes the policy (Part 2)
+
+- **Shift**, either one by physical code, cycles the player's attack
+  policy in a stage with attacks (`ddi_ui::controller_hints::POLICY_KEYS`,
+  `ShiftLeft`, `ShiftRight`, `Tab`; `ddi_session::play::POLICY_KEYS`). Each
+  key does unless the player's bindings give it to a lane: it then plays
+  the lane and the others still cycle (a Dancing☆Onigiri layout with a
+  Shift lane). **Tab still does.** A pad's Back pressed briefly and a tap
+  on the label, as before. Each press is kept in the play's log at its
+  judged second, so replays and the ledger are as before; a Shift press
+  is never judged (never a stray press, never a Boo), and a lane pressed
+  with Shift held is judged as without it (the browser and the OS give
+  the lane's own physical code).
+- **The stage's prompt** says how under the Targeting row: the Shift
+  cap and "during play" (`room-targeting-during-play`, en and ja) as the
+  screens' other key hints are drawn (`KeyHint`); for an active
+  controller its Back's art from the controller atlas; nothing on a
+  touch screen (the label is tapped); Tab where both Shifts are a lane's
+  (`prompt_room::targeting_keys`).
+- **In play**, beside the policy's word under the life gauge, a small
+  quiet cap naming the key ("shift", or the pad's Back by its cap's name
+  once a pad was pressed last; none after a tap or on a touch screen),
+  outlined and dimmer than the word, where it fits before the bars'
+  middle (`battle_cue::draw_policy`, `PlaySession::policy_key`).
+  **Chosen: always shown.** Looked at in the offscreen picture and in
+  Chrome and Firefox, it is calm (a 9 px legend in a hairline outline at
+  70% of the word's muted color, nothing moving), so it stays for the
+  whole stage rather than fading after the first seconds; nothing in it
+  moves, so reduced motion changes nothing.
+- **Known hazard**: Windows offers Sticky Keys after five quick presses
+  of Shift (a system dialog). The game does not try to suppress it; a
+  player who cycles the policy quickly on Windows may see it (Tab does
+  not raise it).
+
+
+### Measured
+
+`attack_window` (`crates/session/src/battle/study.rs`, opt-in:
+`cargo test --release -p ddi-session --lib attack_window -- --ignored
+--nocapture`; `DDI_WINDOW_CONFIGS`, `DDI_CHAIN_SIZES`,
+`DDI_WINDOW_DIFFICULTIES`): `chain_pileups`' six bundled charts, two
+seeds each, fields of 4, 9, 33 and 73 CPUs of mixed levels, every CPU on
+one policy, the player gone at the start, DDI Normal and Hard, under
+`attacks-v2` and under `attacks-v3` with Attacks at once at 1, 2, 3 and
+No limit (15 s), and the window alone at 10 and 20 s with No limit (the
+study sets the rules itself: `attacks::RULES_OVERRIDE`). MEASUREMENTS OF
+CPUS AGAINST CPUS (`MINE_RESPONSE_V1`). "Staleness": from a launch (its
+checkpoint) to its first shock and to its last, median / 90th percentile
+/ longest. "Held": Leader's recipient still the leader (most life among
+the others still in) at the first shock; Retaliate's answer (where the
+sender answered its last attacker) not overtaken by another sender's
+attack landing on the sender before it.
+
+**Leader, DDI Normal** (the policy that piles up; attacks a stage, most
+placed against one at once, the most attacked one's share of attacks /
+of its span filled, the top sender's different recipients, staleness to
+the first shock, held):
+
+| Field, rules | Attacks | At once | Top share / filled | Top sender hit | To first shock | Held |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 9, `attacks-v2` | 30.8 | 6 | 74% / 85% | 1.2 | 6.9 / 12.1 / 19.8 s | 92% |
+| 9, v3 at once 1 | 27.8 | 1 | 30% / 32% | 2.6 | 6.1 / 6.4 / 6.6 s | 82% |
+| 9, v3 at once 2 | 30.8 | 2 | 47% / 56% | 1.9 | 6.2 / 7.7 / 10.1 s | 90% |
+| 9, v3 at once 3 | 31.6 | 3 | 62% / 73% | 1.5 | 6.3 / 8.1 / 12.1 s | 89% |
+| 9, v3 no limit | 31.5 | 6 | 72% / 85% | 1.2 | 6.6 / 11.8 / 14.4 s | 92% |
+| 33, `attacks-v2` | 84.8 | 32 | 33% / 97% | 3.0 | 21.9 / 51.0 / 91.7 s | 84% |
+| 33, v3 at once 1 | 113.5 | 1 | 9% / 36% | 5.3 | 6.1 / 6.3 / 6.6 s | 87% |
+| 33, v3 at once 2 | 117.7 | 2 | 16% / 67% | 4.2 | 6.2 / 9.1 / 10.2 s | 86% |
+| 33, v3 at once 3 | 119.8 | 3 | 21% / 90% | 4.0 | 6.6 / 10.3 / 14.1 s | 83% |
+| 33, v3 no limit | 121.0 | 6 | 23% / 98% | 3.7 | 12.1 / 15.1 / 15.3 s | 84% |
+| 73, `attacks-v2` | 120.7 | 39 | 26% / 100% | 3.8 | 31.8 / 70.9 / 114.2 s | 85% |
+| 73, v3 at once 3 | 267.2 | 3 | 10% / 96% | 4.5 | 6.9 / 10.8 / 14.1 s | 83% |
+| 73, v3 no limit | 268.8 | 6 | 11% / 100% | 5.2 | 13.5 / 15.2 / 15.3 s | 82% |
+
+Blocked launches (checkpoints a full bar waited, of those with one):
+`attacks-v2` 85% (33) and 95% (73) under Leader, the leader's chart full
+to the song's end and the bars not spent elsewhere; `attacks-v3` 18% to
+22% at every limit, the song's tail (the same as Spread's); **"no room
+within the window" never blocked a launch in these fields** (someone
+always had room), so the window costs no attacks: in 33 and 73 Leader
+launches more under `attacks-v3` (120 and 267 a stage against 85 and
+121), spilled over to the next in standing.
+
+**Spread and Retaliate** are the same under every rule to the noise
+(Spread at most 2 at once, Retaliate at most 3, staleness 6.1 / 6.4 /
+6.6 s to the first shock and 8.8 / 9.6 / 9.7 s to the last under the
+limits; up to 11 s under `attacks-v2`), Retaliate's answer held 96% to
+99% of the time. The limit of one cuts Retaliate's 90th percentile from
+10 s to 6.4 s.
+
+**DDI Hard** has the same shape, smaller (33, Leader: `attacks-v2` 23 at
+once, 95% filled, 76% held, first shock 17.5 / 42.3 / 68.9 s; at once 3:
+3, 76%, 81%, 6.9 / 10.6 / 14.1 s). **Life lost and knockouts by level**
+(a seat) under the default, 33, Normal, Leader: level 10 received 20.9
+attacks a seat under `attacks-v2` (61 life lost) and 21.6 under
+`attacks-v3` at three (58 life): the spill-over adds attacks rather than
+taking them from the strongest, and passes the rest to level 8 (0.3 → 7.9
+a seat, 2 → 82 life) and a little to level 6 (0 → 0.5, knocked out by one
+in 4% of its seats); levels 5 and below next to nothing, as before.
+Under Spread and Retaliate the by-level lines move by noise. Draws by a final attack: none in any run. "Last
+standing" came in 8% to 17% of the Hard stages of 4 and 9 (5 to 7.5 s
+before the win), the same under every rule.
+
+**Does Leader still bury anyone at the defaults?** Less, not never: with
+every CPU of a large field on Leader and three at once, the leader has
+three attacks placed against them almost continuously while they lead
+(90% of the room over their attacked span in 33, 96% in 73), but never
+more than three at a time and never more than about 14 s ahead; the
+rest go to the second, the third, so the most attacked one's share falls
+from a third to a fifth (33) and a tenth (73). At one at once the leader
+gets at most one, 36% of their span filled. A whole field on Leader is
+the extreme: CPUs are Spread unless a roster entry names a policy.
+
+**The window, alone** (No limit): at 10 s the most at once against the
+leader is 4 and staleness at most 10.2 s; at 15 s 6 and 15.3 s; at 20 s 8
+and 20.0 s (33 and 73, Leader). It caps staleness at its own length, as
+it should; it never blocked a launch here.
+
+**How many attacks fit in the window** (`window_fit`, opt-in:
+`DDI_WINDOW_CORPUS=<dirs> cargo test --release -p ddi-session --lib
+window_fit -- --ignored --nocapture`): from every checkpoint of a chart, a
+recipient with nothing placed against them reading 2 s ahead (lead
+4.85 s), the attacks that would fit back to back starting within the
+window; over the bundled dance-single charts and 4 000 charts of the
+local arcade mixes, read in place (aggregates only):
+
+| Charts, tempo | Checkpoints | None fit | 10 s: mean, p10 / median / p90 | 15 s | 20 s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| bundled, 120 to 160 BPM | 1 481 | 7.8% | 1.8, 1 / 2 / 2 | 3.0, 1 / 3 / 4 | 4.3, 1 / 5 / 5 |
+| local, under 120 BPM | 12 326 | 13.5% | 1.0, 0 / 1 / 1 | 2.0, 0 / 2 / 3 | 2.8, 0 / 3 / 4 |
+| local, 120 to 160 BPM | 118 054 | 10.8% | 1.7, 0 / 2 / 2 | 2.8, 0 / 3 / 4 | 4.0, 0 / 5 / 5 |
+| local, over 160 BPM | 142 233 | 8.9% | 2.0, 1 / 2 / 3 | 3.8, 1 / 4 / 5 | 5.4, 1 / 6 / 7 |
+
+"None fit" is the same at every window: those checkpoints have no safe
+section left at all (the songs' tails and their densest stretches), so
+no window of 10 s or more blocks a fresh recipient on these charts.
+
+**The window recommended: keep 15 s.** The shortest that does not block
+most launches would be 10 s (it blocks none), but at 10 s a song under
+120 BPM fits one attack at the median and none a tenth of the time, so
+Attacks at once of two or three would mean one on slow songs, and the
+match rule would say something the window takes back. At 15 s the
+default of three fits at the median from 120 BPM up (two under 120),
+and the stalest attack lands 14 s after its launch at three at once
+(15.3 s at No limit), against 92 s under `attacks-v2`; Leader's reason
+still held 83% of the time at the first shock (84% under `attacks-v2`,
+whose average attack waited far longer but whose leader also rarely
+changed, being buried), Retaliate's 97%. At 20 s the window adds a fifth
+attack's room and five seconds of staleness for nothing the rule needs.
+
+### Shown
+
+`target/scratch/mp/awin/shots/`: the Rules pop-up with its new row
+focused and set to 2 (`at-once-1280x720-en.png`, `-ja`, and at
+844×390; `room_rules_offscreen`'s `the_attacks_at_once_row_is_drawn`),
+the row under Attacks with its sentence; the stage's prompt with "shift
+during play" under the Targeting row and the play with "Retaliate" and
+its small Shift cap under the life gauge after Shift was pressed
+(`prompt.png`, `play.png`; `policy_key_offscreen`). Headless Chrome
+(WebGPU) and Firefox (WebGL2, through the verify skill's helper), a
+practice stage of three CPUs (`target/scratch/mp/awin/shift.mjs`): the
+prompt's hint, then Shift (left), Shift (right) and Tab cycling Spread →
+Retaliate → Leader → Spread, three changes in the play's log, nothing
+judged (`shift-chrome-…`, `shift-firefox-…`). No console problems.
+
+### Tested
+
+- `ddi-room` `attacks/tests.rs`:
+  `the_rules_are_named_and_v3_has_a_window_and_a_limit`,
+  `v3_a_recipient_at_the_limit_is_skipped_and_leader_goes_to_the_next`
+  (three against the leader, the fourth to the next in standing; one and
+  No limit), `v3_the_window_holds_six_sections_and_the_seventh_goes_elsewhere`,
+  `v3_no_room_within_the_window_waits_and_keeps_the_power`,
+  `v3_retaliate_goes_by_spread_where_its_attacker_has_no_room` (and
+  `attacks-v2` answering its last attacker regardless); every older
+  rules' trace kept. `rules.rs`:
+  `attacks_at_once_is_an_additive_match_rule_three_by_default`.
+  `tests/live.rs`: the room's ledger through `FakeServer` under
+  `attacks-v3` with the plan's three (never more than three standing,
+  every section within the window), a stage under `attacks-v2` finishing
+  under it, the limit in the plan's digest. `tests/authority.rs`: the
+  revision is 4.
+- `ddi-session`: `chained_attacks_are_delivered_back_to_back_into_plays_and_cpus`
+  under `attacks-v3` (at most three at once, within the window);
+  `shift_cycles_the_policy_tab_still_does_and_a_lane_s_shift_plays_the_lane`
+  (both Shifts and Tab, the log replayed to the same record, a lane
+  pressed with Shift held judged as without it, the same tally, a lane's
+  Shift playing the lane, the label's key: Shift, the right Shift, the
+  pad's Back, none after a tap). The online CPUs' proof
+  `the_cpus_play_alike` passes natively and built for wasm32-wasip1; its
+  fixture is unchanged (no stage of it placed more than three at once or
+  past the window).
+- `ddi-ui`: `the_attacks_at_once_row_shows_under_attacks_and_three_is_the_default`,
+  `the_prompt_s_policy_row_says_how_to_change_it_during_play` (keyboard,
+  controller, touch); the `qps-ploc` walk.
+- `ddi-shell`: `the_policy_label_is_under_the_gauge_inside_the_field`
+  (the cap after the word, inside the tap area, left of the bars'
+  middle, at every size the miniatures' table uses, or left out).
+- `ddi-desktop`: `the_attacks_at_once_row_is_drawn`,
+  `shift_is_shown_on_the_prompt_and_beside_the_policy_and_cycles_it`.
+- The server (`../ddi-server`): its tests pass against the changed crate;
+  `a_stage_begun_under_attacks_v2_finishes_under_it_and_v3_keeps_its_limit`
+  added, and its live tests' plans name three at once as a client's do.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -7150,7 +7441,11 @@ What it says:
 | Development trigger: the first safe section from a beat in each practice stage, its seed the stage's id | `--mp-dev-mines`, `mpdevmines=`, `ddi_session::battle::dev_shocks` | Only through the switch | Replaced by the attack loop (S4) |
 | A miniature's score: small (0.8 of its name line, 8 to 11 px; down to 6 px where the sum is wider than its field) under its life gauge's right end; the score (the sum) or the percent, by the player's Score display | `ddi_shell::opponents::ScoreShown`, `SCORE_SIZE`, `SCORE_FLOOR`, `SCORE_TOP` | At lanes under about 17 px the number's top touches the receptors' row | Its place and size |
 | `attacks-v1`: no recovery period; one more attack may be reserved behind the one on its way or passing, in the next section after it clears | `ddi_room::attacks::ATTACKS_V1`, `AttackRules::chain` | Two attacks can arrive back to back; nobody is safe for a while after one | Answered (2026-11-13): an attack is over once placed and attacks chain without limit, `attacks-v2` below; kept by name for stages recorded under it |
-| `attacks-v2`: an attack over for the ledger once placed; attacks against one recipient chain without limit, each in the first safe section at or after the last one's clear, searched to the song's end; Spread prefers the fewest still to come; no gap, no cooldown (`chain_gap`, `cooldown_checkpoints`, both 0) | `ddi_room::attacks::ATTACKS_V2`, `ATTACKS`, `CHAIN_UNLIMITED` | Anyone still in can be attacked at any time; several attacks can arrive one section after another; the warning counts those behind the nearest | Whether Leader's pile-up in large fields needs the proposed limit (at most three at once and a free section after each, `chain: 2, chain_gap: 1`) |
+| `attacks-v2`: an attack over for the ledger once placed; attacks against one recipient chain without limit, each in the first safe section at or after the last one's clear, searched to the song's end; Spread prefers the fewest still to come; no gap, no cooldown (`chain_gap`, `cooldown_checkpoints`, both 0) | `ddi_room::attacks::ATTACKS_V2`, `ATTACKS`, `CHAIN_UNLIMITED` | Anyone still in can be attacked at any time; several attacks can arrive one section after another; the warning counts those behind the nearest | Answered (2026-11-13): `attacks-v3`'s window and the match rule Attacks at once (three by default); kept by name for stages recorded under it |
+| `attacks-v3`: `attacks-v2` with a window and a limit; a sender's policy orders every valid recipient and the launch goes to the first with room (Leader to the next in standing, Retaliate to Spread's order) | `ddi_room::attacks::ATTACKS_V3`, `ATTACKS`, `StageBattle::launch` | A buried leader's attacks go to the second; a full bar waits only where nobody has room | Whether Leader should rather wait for its leader than spill over |
+| `attack-window-v0`: an attack's section starts at most 15 s of song time after its launch's checkpoint (the recipient's lead inside it); not a match rule | `ddi_room::attacks::ATTACK_WINDOW_V0_US`, `AttackRules::window_us` | No attack lands more than about 15 s after it was launched; about 10 s left after a 2 s horizon's lead | The length (measured: 10 s fits one attack on slow songs, 20 s adds staleness for nothing) |
+| Attacks at once: 1, 2, 3 (default), No limit, per stage, shown only with Attacks On | `ddi_room::AttacksAtOnce`, `MatchRules::at_once`, `AttackRules::with_at_once`, `BattlePlan::at_once` | At most that many attacks stand placed against one player | The default of three |
+| Shift (either, by physical code) and Tab cycle the policy in play, each unless a lane has it; a small quiet cap after the policy's word, always shown; Windows' Sticky Keys dialog after five quick Shifts not suppressed | `ddi_ui::controller_hints::POLICY_KEYS`, `ddi_session::play::PolicyKey`, `ddi_shell::battle_cue::draw_policy` | The key is on the ready screen and beside the label | Whether the cap should fade after the first seconds |
 | `settlement-v1`: `settlement-v0`'s decision, the one left while attacks against them are still to come told as last standing | `ddi_room::attacks::SETTLEMENT_V1`, `Settlement::last_standing` | "Last standing", then "Stage won" in the status line; "X is last standing" to those watching | As decided (2026-11-13) |
 | `placement-v2`: six of an attack's eight shocks next to a note of their lane (0.25 s to 0.5 s after one, W3 to twice W3 before a step), a second between a lane's shocks | `ddi_engine::battle::PLACEMENT_V2`, `Near` | An attack is harder to ignore: about a third more life lost by the CPUs an attack, mostly through locks | The window's sizes, the aim (six of eight), whether W3 before a step is too close for early players |
 | A CPU's (and a bot's) score put on the chart's own scale: its points as the same share of the chart's most, its W0s as counted | `ddi_engine::rules::ddi::CPU_SCORE_V0`, `DdiScoreView::on_scale`, `ddi_session::battle::cpu_score` | A CPU's number beside the player's reads as if it had held the holds as well as it tapped; a CPU can tie a person | Whether imputing the holds is right, or CPUs should play (and be able to drop) holds |
@@ -7510,6 +7805,20 @@ What it says:
   and a free safe section after each, `chain: 2, chain_gap: 1`), leave
   it to Spread being the default, or change what Leader means (say, the
   leader among those with fewer than N still to come)?
+  (Answered by `attacks-v3`, 2026-11-13: a window of 15 s from the
+  launch, and Attacks at once as a match rule, three by default; a
+  sender's policy goes on to its next choice where the first has no
+  room.)
+- Attacks, version 3 (2026-11-13): the window is kept at 15 s (measured:
+  "Attacks, version 3"); is three the right default for Attacks at once,
+  given that with every CPU of a large field on Leader the leader still
+  has three placed against them almost continuously (90% of the room
+  over their attacked span)? Should Leader wait for its leader instead of
+  spilling over to the second?
+- Shift changes the policy (2026-11-13): the cap beside the policy's word
+  is always shown (it is calm); should it fade after the stage's first
+  seconds? Windows' Sticky Keys dialog after five quick Shifts is left to
+  the system.
 - M8b: the incoming warning sits at the field's right edge, and the
   right side's miniatures keep clear of it (beside it, or under it on a
   phone held upright). Left or right, and should it move to the side

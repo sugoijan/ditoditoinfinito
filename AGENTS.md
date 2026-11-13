@@ -645,8 +645,11 @@ Rust and the browser are implementation details, not advertised features.
   `battle/study.rs` (`cargo test --release -p ddi-session --lib
   attack_rates -- --ignored --nocapture`);
   the local player's attack policy changed in play (D8,
-  `Battle::policy`, `retarget`): Tab unless the player's bindings give
-  it to a lane (`play::POLICY_KEY`), a tap or click on its label
+  `Battle::policy`, `retarget`): either Shift and Tab, each unless the
+  player's bindings give it to a lane (`play::POLICY_KEYS`, the shared
+  `ddi_ui::controller_hints::POLICY_KEYS`; the stage's prompt shows the
+  key under its policy row, the play a small cap after the label,
+  `PlaySession::policy_key`), a tap or click on its label
   (`TOUCH_POLICY_CONTROL`) and a pad's Back pressed briefly (held it
   quits as ever; pressed twice it is two steps, never a quit, where the
   policy cycles: `play.rs`'s `policy_pad`), each kept in the play's log
@@ -1053,7 +1056,7 @@ Rust and the browser are implementation details, not advertised features.
   note); attack power's
   ledger and its attacks (`attacks.rs`: `StageBattle` credited at
   checkpoints every four beats from reports of judged tiers and life,
-  `ATTACKS`, which is `attacks-v2` (2026-11-13): cap and cost 100,
+  `ATTACKS`, which is `attacks-v3` (2026-11-13): cap and cost 100,
   `POWER_CLASSES_V0` by the match's ruleset; a full bar launched in a
   turning order at the target its `Targeting` picks (Spread, the
   fewest attacks still to come first; Retaliate; Leader), eight shocks
@@ -1061,9 +1064,18 @@ Rust and the browser are implementation details, not advertised features.
   (`LEAD_V0`) and at or after the moment the last attack placed against
   them clears, looked for to the song's end (none left: `Blocked`,
   `NoSafeSection`, the power kept); an attack over for the ledger once
-  placed, so attacks against one recipient chain without limit
-  (`AttackRules::chain`, `CHAIN_UNLIMITED`), never in the same region;
+  placed, so attacks against one recipient chain, never in the same
+  region, but only in a section starting within 15 s of the launch's
+  checkpoint (`AttackRules::window_us`, `ATTACK_WINDOW_V0_US`) and with
+  at most the match's Attacks at once standing against them
+  (`MatchRules::at_once`, `AttacksAtOnce`: 1, 2, 3 by default, No
+  limit; `AttackRules::with_at_once`, `chain`; in the battle plan,
+  `BattlePlan::at_once`, `BattlePlan::rules`); a recipient outside
+  either is no valid target and the sender's policy goes on to its next
+  choice (Leader the next in standing, Retaliate Spread's order), none
+  valid `Blocked` (`NoRoomInWindow` where someone has room only later);
   named places for a limit, off (`chain_gap`, `cooldown_checkpoints`);
+  `attacks-v2` (chains without limit, `CHAIN_UNLIMITED`),
   `attacks-v1` (one more reserved behind the one passing) and
   `attacks-v0` (one at a time until the recipient recovered) kept by
   name, a stage run under the rules its plan names (`attack_rules`);
@@ -1130,7 +1142,8 @@ Rust and the browser are implementation details, not advertised features.
   predates it) is never sent the two commands
   (`RoomState::has_succession`);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, round B1; 2 since `attacks-v2`), said in the join's, ticket's and
+  (`ROOM_MODEL_REVISION`, round B1; 2 since `attacks-v2`, 3 adaptive
+  charts, 4 `attacks-v3`), said in the join's, ticket's and
   audience join's `model`, an authority refusing an older client with
   `update_required` (`check_model`; a ticket not during a stage,
   `RoomState::admits_model`) and the shells saying so (the web with a
