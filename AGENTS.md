@@ -1106,8 +1106,11 @@ Rust and the browser are implementation details, not advertised features.
   (`wants_ticket`, `ticket`). `fake.rs`: `FakeServer`, that room in
   process behind JSON text both ways with faults (delay, duplicate, drop,
   reorder, stale, close codes), the server's reconnect grace where a
-  test sets one (`set_grace`), its 4410 for a room that ended, and
-  `rewrite`, the room put as another authority would have it. Tests:
+  test sets one (`set_grace`), its 4410 for a room that ended,
+  `rewrite`, the room put as another authority would have it, and
+  its three links answered as the server's bodies (`fake/invites.rs`:
+  `invite_preview`, `kind: play|watch|audience`, `audience_count`, the
+  audience offered at the member bound; `audience_join_answer`). Tests:
   `crates/room/tests/walkthroughs.rs`, the handoff's walkthroughs;
   `tests/authority.rs`, the envelope and the authority; `tests/online.rs`,
   the adapter contract (one script through `LocalAuthority` and through

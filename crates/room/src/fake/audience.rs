@@ -182,6 +182,11 @@ impl FakeServer {
         Err(last)
     }
 
+    /// The relay a ticket given and not taken yet is for.
+    pub fn audience_ticket_relay(&self, ticket: &str) -> Option<u32> {
+        self.audience.as_ref()?.tickets.get(ticket).map(|t| t.0)
+    }
+
     /// Relay `k` running, its socket up open and its hello answered.
     fn start_relay(&mut self, k: u32) {
         let now = self.now();

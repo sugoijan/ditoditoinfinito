@@ -28,34 +28,32 @@ fn me_of(name: &str) -> String {
     )
 }
 
-/// `who`'s online state, its HTTP the fake room's audience: an invite's
-/// preview (an audience link's kind), the audience join (the link's key
-/// the fake's where it is the room's audience link).
+/// `who`'s online state, its HTTP the fake room's as the server answers
+/// it: an invite's preview (`FakeServer::invite_preview`: the link's
+/// kind, the audience offered) and the audience join
+/// (`FakeServer::audience_join_answer`).
 pub(crate) fn watcher(server: &SharedFake, who: &'static str) -> SharedOnline {
     let s = server.clone();
     let handler: Handler = Box::new(move |req| match (req.method, req.path.as_str()) {
         (Method::Get, "/me") => ok(&me_of(who)),
-        // A room without an audience has no audience link: unknown.
-        (Method::Get, p) if p.starts_with("/invites/") => match s.borrow().audience_key() {
-            Some(_) => ok(
-                r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"alice","phase":"lobby","admission":"open","kind":"audience","members":2,"audience":true}"#,
-            ),
-            None => err(404, "invite_unknown"),
-        },
-        (Method::Post, "/rooms/Room000001/audience") => {
-            let body = req.body.clone().unwrap_or_default();
-            let key = if body.contains(AUDIENCE_LINK) {
-                s.borrow().audience_key().unwrap_or_default()
-            } else {
-                "wrong".into()
-            };
-            match s
-                .borrow_mut()
-                .audience_join(&format!("dev:{who}"), &key, None)
-            {
-                Ok(t) => ok(&format!(r#"{{"ticket":"{t}","relay":0,"expires_at_ms":9}}"#)),
-                Err(r) => err(r.status(), r.code()),
+        (Method::Get, p) if p.starts_with("/invites/") => {
+            match s.borrow().invite_preview(&p["/invites/".len()..]) {
+                Ok(body) => ok(&body),
+                Err((status, code)) => err(status, code),
             }
+        }
+        (Method::Post, "/rooms/Room000001/audience") => {
+            let body: serde_json::Value =
+                serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap();
+            let link = body["invite"].as_str().unwrap_or_default();
+            let (status, body) = s
+                .borrow_mut()
+                .audience_join_answer(&format!("dev:{who}"), link, None);
+            Some(crate::state::online::api::ApiResponse {
+                status,
+                body,
+                session: None,
+            })
         }
         _ => panic!("unexpected {req:?}"),
     });
@@ -106,12 +104,25 @@ pub(crate) fn arrive(
     link: &str,
     now: u64,
 ) -> Result<AudienceClient, Problem> {
+    arrive_then(server, who, link, now, || {})
+}
+
+/// [`arrive`], `between` done after the page's preview and before Watch
+/// (the room's links replaced, say).
+pub(crate) fn arrive_then(
+    server: &SharedFake,
+    who: &'static str,
+    link: &str,
+    now: u64,
+    between: impl FnOnce(),
+) -> Result<AudienceClient, Problem> {
     let online = watcher(server, who);
     {
         let mut o = online.borrow_mut();
         o.open_invite(link);
         o.poll(now);
         assert!(o.invite().unwrap().audience(), "the page offers the audience");
+        between();
         o.watch_audience();
         o.poll(now);
     }
@@ -193,15 +204,27 @@ fn the_audience_link_is_watched_with_the_room_s_view_and_count_told_to_the_membe
 #[test]
 fn every_refusal_is_said_and_the_room_without_an_audience_offers_none() {
     let clock = ManualClock::new(5_000);
-    // A link not the room's.
+    // A link not the room's (any more: replaced after its page showed).
     let server = room(&clock, live_audience());
-    let bad = arrive(&server, "dan", "Room000001.notTheAudienceLinkAtA1", 5_000).unwrap_err();
+    // (The fake's links are the ones these tests name.)
+    assert_eq!(server.borrow().links().audience, AUDIENCE_LINK);
+    let bad = arrive_then(&server, "dan", AUDIENCE_LINK, 5_000, || {
+        server.borrow_mut().set_links(ddi_room::fake::FakeLinks {
+            audience: "Room000001.replacedAUDIENCElink01".into(),
+            invite: "Room000001.replacedINVITElinkAB01".into(),
+            watch: "Room000001.replacedWATCHlinkABC01".into(),
+        });
+    })
+    .unwrap_err();
     assert_eq!(bad.code, "audience_link_unknown");
     assert_eq!(
         String::from(crate::screens::online::invite_problem(&bad)),
         "This audience link isn't this room's, or it was replaced."
     );
-    // Full, at a small bound.
+    // Full, at a small bound (the links as they were).
+    server
+        .borrow_mut()
+        .set_links(ddi_room::fake::FakeLinks::of("Room000001"));
     server.borrow_mut().set_audience_rules(AudienceRules {
         max_audience: 1,
         relay_seats: 1,
@@ -227,7 +250,18 @@ fn every_refusal_is_said_and_the_room_without_an_audience_offers_none() {
     let online = watcher(&plain, "gus");
     online.borrow_mut().open_invite(AUDIENCE_LINK);
     online.borrow_mut().poll(0);
-    assert!(!online.borrow().invite().unwrap().audience());
+    assert!(online.borrow().invite().is_none_or(|v| !v.audience()));
+    // Its own invite's preview says the server's kind and no audience.
+    let own = plain.borrow().links().invite.clone();
+    online.borrow_mut().open_invite(&own);
+    online.borrow_mut().poll(0);
+    let o = online.borrow();
+    let v = o.invite().unwrap();
+    assert!(!v.audience());
+    assert_eq!(
+        v.preview.as_ref().unwrap().as_ref().unwrap().kind,
+        crate::state::online::api::InviteKind::Play
+    );
 }
 
 #[test]

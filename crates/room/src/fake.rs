@@ -15,7 +15,9 @@
 //! Reconnecting, and with a grace set ([`FakeServer::set_grace`]: the
 //! server's reconnect grace; none by default) Disconnected once it has
 //! passed; a room that ended ([`RoomState::closed`]) closes every socket
-//! with 4410 and opens none. Not the server: no HTTP, no invites.
+//! with 4410 and opens none. Not the server: no HTTP; its links'
+//! previews and the audience join are answered as the server's bodies
+//! (`invites.rs`).
 //!
 //! Live play (`crate::live`) where the room's policy has it: the room's
 //! live side ([`LiveServer`], the same the server runs) beside the
@@ -42,7 +44,9 @@ use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 
 mod audience;
+mod invites;
 pub use audience::{AudienceStats, FakeAudienceSocket};
+pub use invites::{FakeLinks, LinkKind};
 
 /// Something done to the frames the room sends one person.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,6 +174,8 @@ pub struct FakeServer {
     /// The room's name as the server keeps it beside the state (the
     /// audience's view says it).
     room_name: String,
+    /// Its three links (`invites.rs`).
+    links: FakeLinks,
 }
 
 pub type SharedFake = Rc<RefCell<FakeServer>>;
@@ -232,6 +238,7 @@ impl FakeServer {
             pending_latency: BTreeMap::new(),
             pending_up_faults: BTreeMap::new(),
             lost: None,
+            links: FakeLinks::of(&room_name),
             audience,
             room_name,
         }

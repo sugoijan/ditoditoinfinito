@@ -157,8 +157,8 @@ impl Http for AudienceHttp {
                 r#"{"player_id":"dev:dora","login":"dora","display_name":"dora","admin":false,"expires_at_ms":1}"#
                     .into(),
             ),
+            // As the server answers it (`FakeServer::audience_join_answer`).
             (Method::Post, "/rooms/Room000001/audience") => {
-                let key = self.server.borrow().audience_key().unwrap();
                 let latency = Latency {
                     down_ms: 60,
                     down_jitter_ms: 40,
@@ -166,12 +166,15 @@ impl Http for AudienceHttp {
                     up_jitter_ms: 40,
                     seed: 7,
                 };
-                let t = self
-                    .server
-                    .borrow_mut()
-                    .audience_join("dev:dora", &key, Some(latency))
-                    .unwrap();
-                ok(format!(r#"{{"ticket":"{t}","relay":0,"expires_at_ms":9}}"#))
+                let body: serde_json::Value =
+                    serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap();
+                let (status, body) = self.server.borrow_mut().audience_join_answer(
+                    "dev:dora",
+                    body["invite"].as_str().unwrap_or_default(),
+                    Some(latency),
+                );
+                assert_eq!(status, 200, "{body}");
+                ok(body)
             }
             _ => panic!("unexpected {req:?}"),
         };

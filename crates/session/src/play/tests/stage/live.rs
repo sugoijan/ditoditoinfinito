@@ -1487,19 +1487,19 @@ impl Http for AudienceHttp {
                 r#"{{"player_id":"dev:{0}","login":"{0}","display_name":"{0}","admin":false,"expires_at_ms":1}}"#,
                 self.who
             )),
+            // As the server answers it (`FakeServer::audience_join_answer`).
             (Method::Post, "/rooms/Room000001/audience") => {
-                let key = self.server.borrow().audience_key().unwrap();
-                match self.server.borrow_mut().audience_join(
+                let body: serde_json::Value =
+                    serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap();
+                let (status, body) = self.server.borrow_mut().audience_join_answer(
                     &format!("dev:{}", self.who),
-                    &key,
+                    body["invite"].as_str().unwrap_or_default(),
                     self.latency,
-                ) {
-                    Ok(t) => ok(format!(r#"{{"ticket":"{t}","relay":0,"expires_at_ms":9}}"#)),
-                    Err(r) => ApiResponse {
-                        status: r.status(),
-                        body: format!(r#"{{"error":"{}"}}"#, r.code()),
-                        session: None,
-                    },
+                );
+                ApiResponse {
+                    status,
+                    body,
+                    session: None,
                 }
             }
             _ => panic!("unexpected {req:?}"),
