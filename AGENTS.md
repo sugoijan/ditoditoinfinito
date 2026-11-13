@@ -769,7 +769,12 @@ Rust and the browser are implementation details, not advertised features.
   `priority_seats` never rotating away (`opponents::rotate`): whoever
   attacks the player and whom the player attacked last, while those
   attacks last and a turn after; there is no list of opponents any
-  more).
+  more; past eight opponents, a large field of up to 72, the eight slots
+  a room of nine has, those that matter to the player now in them,
+  attackers first, then the nearest rivals by standing, changing hands
+  rarely, and under the left side's the ladder: the player's place and a
+  strip of everyone's life, `crate::rivals`; a spectator's grid past
+  twelve in pages, `ddi_session::play::GRID_PAGE`).
   Platform-free (native and wasm), natively tested.
 - `crates/app/` the game (`ddi`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell
@@ -973,11 +978,16 @@ Rust and the browser are implementation details, not advertised features.
   (`can`: capabilities from role, admin flag and phase, never from
   participation), stable ids, the match's locked rules beside the next
   match's draft, the competitor cap as one policy check
-  (`RoomPolicy::check_competitors`: nine; `RoomPolicy::development`, a
-  development-only practice's 129), and stage awards as named rules (the
-  eight-player table; provisional `ExperimentalLinearV0` under eight and
-  `ExperimentalNineV0` for nine; development-only `DevelopmentLinearV0`;
-  exact fractions, `Points`, shown as decimals); the battle a stage is
+  (`RoomPolicy::check_competitors`: 73; `RoomPolicy::development`, a
+  development-only practice's 129; the member bound 384,
+  `DEFAULT_MAX_MEMBERS`, measured in `tests/scale.rs`), and stage awards
+  as named rules (the eight-player table; for nine to 73 the same table
+  stretched toward the top, `TopBiased`'s fixed tables, its bias the
+  match rule `MatchRules::points`, Strong, Medium or Mild, offered where
+  `RoomPolicy::points_bias` says the authority reads it; provisional
+  `ExperimentalLinearV0` under eight; `ExperimentalNineV0` retired, still
+  read; development-only `DevelopmentLinearV0`; exact fractions,
+  `Points`, shown as decimals); the battle a stage is
   played under, by name and version, and its ranking of judged runs
   (`battle.rs`: `BattlePreset::GaugeSurvivalV0`, provisional: each
   competitor's gauge as life, empty is out of the stage; `rank`,

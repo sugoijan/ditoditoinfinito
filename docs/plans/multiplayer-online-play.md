@@ -364,6 +364,20 @@ numbered, so either needs only a way in: an audience ticket that admits a
 socket without a member, and a count the room shows. The room's member
 limit then stays a limit on players and people with a seat.
 
+What the round of 1+72 learned for it (2026-11-13): every member is
+listed in the room's state, which the server writes as one row on every
+change and sends whole in every snapshot: 12 KB at 73 players, 58 KB with
+300 members watching, 166 KB with 1,000; a join or a connection change
+costs 0.06 ms at 73 and 0.36 ms with 300 watching (native; the reducer and
+the row's JSON), and sends an event to every member's socket, so a wave of
+`n` joining costs `n²` sends. Members therefore stop at a bound
+(`RoomPolicy::DEFAULT_MAX_MEMBERS`, 384: a full field and about 300
+watching, what the load test carried); an audience must not be members:
+no row in the state, no event per arrival, a ticket of its own, the count
+kept apart (a number in the state changed at most once a second), and its
+frames from a relay or segments, as above. The frames themselves already
+cost the room nothing more per viewer than a send.
+
 ## Encoding and numbers
 
 Batches and frames are binary WebSocket messages (`wire`: varints, deltas
@@ -413,9 +427,11 @@ server's to measure (backend front).
 Nothing in the contract assumes nine: ids are 64-bit, frames carry only
 competitors with news, deadlines do not depend on the count, the ledger's
 work is bounded per checkpoint (tested at 128 seats), and the fake runs 73
-competitors. The room's cap stays nine (`RoomPolicy`); the 73-player tests
-use the development award scheme, as no award rule exists for fields over
-nine.
+competitors. The room's cap is 73 since 2026-11-13 (`RoomPolicy`;
+[the progress note](multiplayer-prototype-progress.md), "Rooms of 1+72
+players"), its member bound 384, and fields of nine to 73 are awarded by
+the top-biased tables (`ddi_room::TopBiased`): the 73-player tests run
+under the room's own policy and awards.
 
 ## Trust
 

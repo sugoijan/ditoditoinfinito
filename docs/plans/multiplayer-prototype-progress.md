@@ -4595,6 +4595,223 @@ effect from its next stage. For the maintainer to decide.
   restart (built) covers the common case of a host who set the wrong
   rules before the first stage was played.
 
+## Rooms of 1+72 players: the award curve, the caps, the screens for a large field (2026-11-13)
+
+The maintainer (2026-11-12/13): "I want to increase the room limit from
+1+8 to 1+72 players, and for 'watch only' I'd like to have no limit (at
+least within reason of what the Cloudflare deploy can work with)."
+
+### The award curve (decided by the maintainer)
+
+Fields of nine and more read the eight-player table (12, 9, 7, 5, 4, 3,
+2, 1) stretched down the field and biased toward the top
+(`ddi_room::TopBiased`, rules `AwardRule::TopBiased{Strong,Medium,Mild}V1`,
+ids `top-biased-strong-v1` …). Place `p` of `N` is `u = (p − 1) ÷ (N − 1)`
+down the field; the table is read at `7 × u^k`, linearly between its
+entries, rounded to a whole number (halves up), with
+`k = b + (1 − b) × 7 ÷ (N − 1)`: 1 at eight players (the table itself),
+falling toward the bias `b` as the field grows. First place stands alone
+in every bias (any other place that would round to 12 gets 11: the
+maintainer, "first place alone at 12 seems good for all curves"). Equal
+counts for neighboring places are fine (the maintainer).
+
+The awards are fixed tables in the source (for each bias and each field
+from 9 to 73, how many places earn 12, 11, … 1), never a platform `powf`
+in a room's decision: the room runs natively and as wasm. A test
+recomputes them from the formula in double precision and checks that no
+value lies within 10⁻⁴ of a rounding boundary (the closest is 2.4·10⁻⁴:
+Medium, 13 players, place 6), so any correctly rounded `powf` gives the
+same integers.
+
+| Field | Strong (b = 0.4, default) | Medium (b = 0.5) | Mild (b = 0.6) |
+| --- | --- | --- | --- |
+| 9 | 12 9 7 5 4 3 3 2 1 | 12 9 7 5 4 3×2 2 1 | 12 9 7 5 4×2 3 2 1 |
+| 12 | 12 9 7 6 5 4 4 3 3 2 2 1 | 12 9 8 6 5 4×2 3×2 2×2 1 | 12 9 8 6 5 4×2 3×2 2×2 1 |
+| 16 | 12 9 7 6 5×2 4×2 3×3 2×3 1×2 | 12 9 8 7 6 5 4×3 3×2 2×3 1×2 | 12 10 8 7 6 5×2 4×2 3×3 2×2 1×2 |
+| 33 | 12 9 8 7 6×2 5×3 4×5 3×7 2×7 1×5 | 12 9 8×2 7 6×2 5×4 4×5 3×6 2×7 1×4 | 12 10 9 8×2 7×2 6×2 5×3 4×5 3×6 2×6 1×4 |
+| 73 | 12 9 8×2 7×3 6×3 5×6 4×12 3×15 2×19 1×11 | 12 10 9×2 8×2 7×4 6×4 5×7 4×12 3×14 2×16 1×10 | 12 11 10 9×2 8×4 7×4 6×4 5×8 4×12 3×13 2×15 1×8 |
+
+The bias is a match rule, `MatchRules::points` (`PointsBias`: Strong, the
+default, Medium, Mild), locked with the match like the others; additive
+(left out of the JSON at Strong, read as Strong where missing). The
+Rules pop-up's Points row is its choice (‹ Strong ›, a sentence under it
+saying what the choice favors, brighter while the row is focused, and a
+quiet note that it changes nothing with eight players or fewer); the
+running match's changed rows mark it; the rules' summaries name it only
+when it is not Strong ("DDI · Medium points"); Reset gives Strong.
+`RoomPolicy::points_bias` (additive, true for every room this build
+makes) says the authority reads it: a room on an older server shows the
+fixed row as before ("By place · experimental") and never offers a
+choice it cannot honor.
+
+`ExperimentalNineV0` is retired: never awarded; still read (an authority
+one build behind awards nine so, and a new client in its room reads its
+results). Nothing stored names it on the deployed server's side that
+this build cannot read. `AwardRule::Unrecognized` (`#[serde(other)]`)
+reads a newer authority's rule without breaking the result (its
+placements and points are explicit). Fields under eight keep
+`ExperimentalLinearV0` (not decided: an open question below). The
+screens' "points experimental" marks follow `AwardRule::experimental`:
+under eight (and development's) only.
+
+### The caps
+
+| Cap | Value | Where |
+| --- | --- | --- |
+| Competitors (people and CPUs), online and practice alike | 73 | `RoomPolicy::INITIAL_COMPETITOR_CAP` (one policy check, `check_competitors`); `TopBiased::MAX_FIELD` follows it |
+| A hosted room's seats | the cap, at most its authority's | `MatchRules::hosted` (73), `hosted_for` (`min` with the policy's, so Reset on an older server asks for nine) |
+| Members (not administrators), watchers included | 384, PROVISIONAL (`member-bound-v0`) | `RoomPolicy::DEFAULT_MAX_MEMBERS`; the server's `ROOM_MAX_MEMBERS` var overrides it, raised to at least the competitor cap (`RoomConfig::from_vars`) |
+| Administrators beyond the members | 4 (unchanged) | `RoomPolicy::admin_reserve` |
+| Practice's CPUs | 72 (the cap beside the player) | `RoomClient::max_cpus`; the roster's 24 named CPUs, then the same again as "Lumen Kite 2", "… 3" (`cpu_roster::pool`; Add custom's list never longer than 24) |
+| Bots in one run (desktop's `--mp-bots`) | 73 | `bots::MAX_BOTS`; names past the roster's 24 numbered the same way |
+| Bots in one room (server) | 73 | `../ddi-server` `bots::MAX_BOTS_PER_ROOM` |
+| Bot sessions an hour per admin token (server) | 200 (was 60) | `../ddi-server` `bots::ISSUES_PER_HOUR` |
+| Development practice beyond the cap | 129, kept for stress runs past 73 (`mpcpus=`, `--mp-dev-cpus`); its awards `DevelopmentLinearV0` | `RoomPolicy::DEVELOPMENT_COMPETITOR_CAP` |
+
+Measured for the member bound (`crates/room/tests/scale.rs`,
+`what_a_large_room_costs`, release, native, this Mac): the room's state
+as JSON (what the server writes as one row on every change and sends in
+each snapshot), and a join or a member's connection change (the reducer
+and the state serialized, as the server's row write does):
+
+| Players | Watching | State JSON | Join | Connection change |
+| --- | --- | --- | --- | --- |
+| 73 | 0 | 12.1 KB | 65 µs | 58 µs |
+| 73 | 100 | 27.4 KB | 163 µs | 132 µs |
+| 73 | 200 | 42.8 KB | 266 µs | 226 µs |
+| 73 | 300 | 58.2 KB | 357 µs | 290 µs |
+| 73 | 500 | 89.1 KB | 562 µs | 453 µs |
+| 73 | 1,000 | 166.5 KB | 1.06 ms | 0.83 ms |
+
+Every membership change also sends one small event to every member's
+socket, so a wave of `n` joining costs `n²` sends; and a snapshot of 58
+KB to each newcomer. 384 (73 players and about 300 watching) keeps a
+change under half a millisecond natively (the Worker's wasm perhaps two
+to three times that), the state well under Durable Objects' 2 MB row,
+and is what the server's own load test carried (73 and 300 watching
+sockets: frames on time, a quarter of a core). Beyond it is the
+audience (counted, not listed): not this round
+(`multiplayer-online-play.md`, "Watching and an audience").
+
+Older peers: a new client in a room on an older server reads that
+server's policy (cap nine, no `points_bias`): the players' count says
+"/ 9", the Rules' Points row is fixed, Reset asks for nine seats. An
+older client in a room of this build lists everyone it is given (its
+lists scroll as before, "n more"), but it cannot read a stage result
+awarded by the new tables (an unknown rule name in a `StageConfirmed`
+event and in snapshots): from the first confirmed stage of nine or
+more starters it falls out of step and asks for snapshots it cannot read.
+Nothing before that differs. An older client must be reloaded (the web)
+or rebuilt (desktop) for rooms of nine or more; this build reads unknown
+rules from now on.
+
+What a deploy changes: the server's competitor cap becomes 73 for every
+new room (a stored room keeps its policy: nine), new rooms' member bound
+the deployed `ROOM_MAX_MEMBERS` (`worker/wrangler.toml` says "32", which
+the server now raises to 73; set it to "384", or remove it, for watchers
+beyond a full field: the maintainer's), 73 bots a room and 200 bot
+sessions an hour per admin token.
+
+### The screens for a large field
+
+Small rooms (eight opponents or fewer, nine rows or fewer) take exactly
+the paths they took (the arrangement, the rotation, the lists' orders);
+only the cap they show reads "/ 73" where it read "/ 9".
+
+- **In play** (`ddi_shell::rivals`, `opponents::arrange`): past eight
+  opponents the side space has the eight slots a room of nine has (the
+  left side a status line's height shorter), and those that matter to
+  the player now in them: whoever attacks them or whom they attacked
+  (the stage's kept seats, as before), then the nearest rivals by
+  standing (still in, life, then score), as many above as below
+  (`Rivals`, `RIVALS_V0`, PROVISIONAL: a slot's opponent stays at least
+  8 s; one within two places and a twelfth of the field of the nearest
+  keeps its slot, so two
+  rivals trading places every tick never change a slot; an attacker
+  comes in at once in the farthest rival's slot; a new opponent fades in
+  over 0.3 s, at once under reduced motion). The old take-turns
+  rotation stays for a room of nine in a window too small for eight.
+  Under the left side's slots, the ladder (`rivals::Ladder`,
+  `opponents::draw_ladder`): "20 of 73 · 73 still in" and a thin strip
+  of everyone's life, best first, the player's own mark gold and taller;
+  clear of the HUD, the watermark, the quit button and the attack
+  warning (the slots' rooms keep its line). `__DDI_DEBUG.large_field`
+  (`words`, `place`, `of`, `still_in`, `shown`).
+- **Feeds**: every competitor's stream is still taken whole (the large
+  field's miniature needs its moments when it comes into a slot); what a
+  frame asks of a field not drawn is its summary (`FieldFeed::shown`:
+  life, combo, out), now a search and a comparison whatever the stream's
+  length (it scanned every moment for "out" before). Only the eight
+  slots build a field's frame.
+- **The spectator view**: a grid of more than twelve competitors
+  (`ddi_session::play::GRID_PAGE`, `watch-pages-v0`, PROVISIONAL) shows
+  a page of twelve by standing; Page Up and Page Down turn the pages
+  (round), as do the D-pad's Up and Down on a controller (its shoulders
+  keep following a competitor) and a tap on the ladder; the hint says so
+  for the first seconds ("Tab or tap to follow · Page Up/Down or D-pad
+  for more"); the ladder takes the status line's right half ("Page 2 of
+  6 · 41 of 73 still in"); following someone keeps the page for coming
+  back. The focus view's side fields are chosen as a player's are,
+  around the competitor followed. `__DDI_DEBUG.watch.page`.
+- **Lists**: past nine rows (a large room) the players panel and the
+  Players pop-up list the local player first, then the operators (and
+  anyone with a role), then people, then CPUs; the panel orders by place
+  after the player's line; Host options lists co-hosts and administrators
+  first. A stage's Standings (the results' tab and the room's pop-up)
+  keep the local player's line in view however far it is scrolled (the
+  window's first line above it, its last below: `room::window_keeping`),
+  and the match's result on top names the first few (one line) and the
+  player's own place rather than everyone. The stage prompt's list had
+  the player first and scrolled already.
+- **Readiness with many**: the window (`hosted-deadline-v1`) waits only
+  for those who could still join and ends early once every connected
+  player who could join is ready and loaded; at its deadline the ready
+  start and the others sit out. One person not ready therefore delays 72
+  others by the window at most (30 s), never vetoes the start; nothing
+  changed. The status line's words do not count people; nothing breaks
+  at this size.
+- **Attacks at this size**: the targeting policies are the ledger's
+  (tested to 128 seats). What a player is shown of attacks is theirs
+  (`Battle::links` and the warning: attacks against them and their own),
+  with the kept seats bringing those opponents into slots; others'
+  attacks show only where both fields are drawn; the announcer's battle
+  lines are one at a time (`BATTLE_VOICE_V0`). Nothing floods at 72.
+
+### Measured
+
+- Practice with 72 CPUs, desktop offscreen (optimized `desktop` profile
+  without LTO, this Mac, `opponent_fields_offscreen`
+  `miniature_scenarios_pictures_and_costs`, `DDI_FIELDS_ONLY=practice`):
+  planning the stage (the chart read and 72 CPU plans) 0.56–0.59 s
+  (16 CPUs: 1.43 s, the first load); a frame recorded 0.41–0.42 ms mean,
+  0.72–0.76 ms p95, 1.75 ms with the GPU's work (16 CPUs: 0.29 ms; 32:
+  0.33 ms; 64: 0.36 ms). Practice's bound is the cap: 72 stays smooth.
+- In the browser (`target/scratch/mp/scale/scale.mjs`, a release build,
+  practice through the development switch `mpcpus=N`, so its awards are
+  development's): frame times over 5 s of play, rAF intervals: Chrome
+  (WebGPU) with 16, 33 and 72 CPUs at 1280×720 and 72 at 1920×1080,
+  16.6–16.7 ms mean, p95 16.7, max 16.8 (the display's 60 Hz held);
+  headless Firefox (WebGL2) with 72, 13.4 ms mean, p95 33 (as a player)
+  and 9.0 ms mean, p95 11.6 (watching the grid). A room of nine draws no
+  ladder (`large_field` null).
+- Bots on the maintainer's local server (`ddi --mp-bots --host --guests
+  72 --wait-for 73 --stages 1`, the documented local token): 73 bots
+  signed in and joined through the real join path (no development
+  override; the local `ROOM_MAX_MEMBERS = "32"` raised to 73 by the
+  server), a live stage of 73 streamed with attacks (159 attacks taken,
+  13 out), settled by the top-biased table (a bot 29th of 73 earned 3
+  points, as Strong's row says), and a second match begun; all left on
+  Ctrl-C. `--wait-for` takes 2 to 73 now (it took 2 to 9).
+- The server's own load driver was not run again: it needs its own
+  `wrangler dev` with a `dev-auth` build and a configuration of its own
+  on another port, which the earlier backend front set up; the bots'
+  run above went through the real join path at 73 on the maintainer's
+  server instead. Its 73 and 300 run (frames on time) stands.
+
+Screenshots: `target/scratch/mp/scale/shots/` (`play-player-{16,33,72}-*`,
+`grid-*`, `grid-page2-*`, `focus-*`, `results-*`, `select-*`, the
+desktop's `practice-72-cpus-1280x720-at-21s.png`).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -4620,7 +4837,7 @@ effect from its next stage. For the maintainer to decide.
 | A report's detail (`RunDetail`) is self-reported and shown as sent, bounded only in size | `crates/room/src/battle.rs`, `reduce.rs` | An online player's grade, combo and judgments on the standings are what their device said | Whether the room should check a detail against the run, or wait for server-judged plays |
 | The stage's standings seen on its results count as seen: no pop-up back on song select | `results_stage.rs` `stage_update` | One screen fewer after each stage for those who saw the standings | Keep, or always pop the standings up |
 | The results' tab is remembered for the session, the last stage always opening on the standings | `results_stage.rs` `CHOSEN` | A player who prefers the graphs sees them after middle stages | Whether it should be a saved setting, or always the standings |
-| Bots: 12 h sessions, never re-signed; 60 sessions an hour per admin token; 8 bots in a room | `../ddi-server` `bots.rs` | A long bot run stops after 12 h (signed out); a ninth bot is refused | The limits for bots on the deployed server |
+| Bots: 12 h sessions, never re-signed; 200 sessions an hour per admin token; 73 bots in a room (60 and 8 before 2026-11-13) | `../ddi-server` `bots.rs` | A long bot run stops after 12 h (signed out); a 74th bot is refused | The limits for bots on the deployed server |
 | Bot tool pacing: Ready after 0.7–2.5 s, host rests 8 s on a song, 15 s after each stage's results, waits for 2 players | `crates/desktop/src/bots.rs` | How quickly a room of bots moves | None (a test tool), unless it should mimic people more closely |
 | Under-eight awards: `ExperimentalLinearV0`, place `p` of `n` earns `n + 1 - p` (practice's 4-player field: 4, 3, 2, 1) | `awards::AwardRule` | Practice and small rooms show points on this scale, marked experimental | The award rule for fields under eight |
 | Award field = the stage's committed starters; sit-outs are not counted | `awards::AwardScheme::rule_for` | A stage with seven starters out of eight seats uses the small-field rule | The population basis for points with sit-outs |
@@ -4628,7 +4845,12 @@ effect from its next stage. For the maintainer to decide.
 | Readiness policy `hosted-deadline-v0`: 15 s window, 3 s countdown, at least one ready human and two competitors | `rules::ReadinessPolicy` | Start opens a 15 s window when someone is unready | Window and countdown values; minimum population |
 | The window waits only for those who could still become eligible (not ready, loading, load failed, disconnected); departed and watching competitors sit out without a wait | `SitOutReason::may_still_join` | Start is immediate when only leavers are missing | Whether a load failure or a disconnect should hold a window |
 | A committed starter leaving or disconnecting before the start cancels the countdown | `reduce.rs` | Everyone returns to preparation; the host starts again | Roster-invalidating failures; repeated cancellations |
-| More than eight starters have no award rule | `AwardScheme::rule_for` | Cannot happen under the cap of eight | A rule before raising the cap |
+| More than 73 starters have no award rule (the top-biased tables stop at the cap) | `AwardScheme::rule_for`, `TopBiased::MAX_FIELD` | Cannot happen under the cap of 73 | A table before raising the cap again |
+| `member-bound-v0`: 384 members besides administrators (a full field and about 300 watching) | `RoomPolicy::DEFAULT_MAX_MEMBERS`; the server's `ROOM_MAX_MEMBERS` (raised to the competitor cap where set below it) | The 385th person is refused as the room being full | The bound, and the audience beyond it (counted, not listed) |
+| `rivals-v0`: past eight opponents, eight slots; a slot's opponent stays 8 s at least, keeps it within two places and a twelfth of the field of the nearest rivals; attackers in at once; a 0.3 s fade-in | `ddi_shell::rivals::RIVALS_V0` | With 72 CPUs the eight beside the field are the player's attackers and nearest rivals, changing every eight seconds or more | The hold and slack; whether the leader should always have a slot |
+| `watch-pages-v0`: a spectator's grid shows twelve fields a page by standing; Page Up/Down, the D-pad's Up/Down and a tap on the ladder turn the pages | `ddi_session::play::GRID_PAGE`, `watch.rs` | A watcher of 73 sees the top twelve first, then pages | The page's size; whether pages should turn by themselves |
+| A large room's lists (past nine rows) put the local player first, then those with a role, then people, then CPUs; Host options its co-hosts and administrators first | `screens::room::player_rows`, `panel_order`, `HostDialog::people` | Among 73 the player and the operators are found at once | A search field for the Players pop-up |
+| A stage's Standings keep the player's line in view (the window's first or last line); the match's result names one line of leaders and the player's own place | `screens::room::window_keeping`, `results_stage.rs` | The player's place among 73 always shows | None |
 | CPU seeds per seat derived from the match's profile seed | `member::OpponentSpec::for_seat` | Each CPU of a match plays its own fixed seed | Per-CPU profiles, personalities |
 | Present people who want to play hold a seat at the match start whatever their connection | `reduce.rs`, `start_match` | A disconnected person sits out stages rather than losing the seat | Roster lock for absent people |
 | Persistent elimination ranks by points like the default | `state::Match::standings` | Under that option the standings are not yet survival order | Its ranking (the design says survival placement) |
@@ -4683,7 +4905,7 @@ effect from its next stage. For the maintainer to decide.
 | An actor-drawn receptor is drawn as it rested a second into the play | `NoteskinPlay::rest_receptors` | StepMania skins' miniature receptors do not press | None expected (no Lua per miniature) |
 | Life, combo and moments drawn after a presentation delay, 0 for local CPUs | `feed::LOCAL_DELAY`, `FieldFeed::new` | None locally | The online delay and how it is corrected |
 | A miniature's combo never below 0.3 of the play's scale | `hud::MINI_COMBO_MIN_SCALE` | Below 22 px lanes the combo is larger than its field's scale | Legibility against faithfulness at small sizes |
-| Nine players: `ExperimentalNineV0`, the eight-player table and 0 for ninth | `ddi_room::awards` | A nine-player stage's ninth earns nothing, the first eight as in an eight-player field; marked experimental | The award rule for nine (and whether ninth should earn something) |
+| Nine players: `ExperimentalNineV0`, the eight-player table and 0 for ninth: RETIRED 2026-11-13 (the top-biased tables, decided by the maintainer) | `ddi_room::awards` | None now; still read from an authority one build behind | None |
 | Development only: practice beyond the cap (129), linear points for any field; past what fits, the opponents take turns in the slots, `ROTATION_V0` (8 s a turn, 0.4 s darkening, none under reduced motion), each always in its own slot, priority seats never rotating (none yet) | `RoomPolicy::development`, `AwardScheme::DevelopmentV0`, `opponents::rotate`, `opponents::priority_seats` | Only through `mpcpus=` / `--mp-dev-cpus` | The large-party density policy |
 | Lyrics are drawn over a stage's miniatures where a long line reaches past the field | `PlayView::draw` | A song with lyrics keeps its miniatures; a wide line may cross a miniature for its moment | Whether lyrics should narrow to the field in a stage |
 | Spotlight rest `spotlight-rest-v0`: 3 s before the host's resting song is told to the room (and, online, uploaded) | `state::room::SPOTLIGHT_REST_MS` | Guests see a song three seconds after the host stops on it; scrolling sends nothing | The rest's length; whether to upload on rest or only show the card |
@@ -4713,6 +4935,20 @@ effect from its next stage. For the maintainer to decide.
 | The standings' attack columns take the combo's place; the summary flows under the lines | `screens::results_stage` (`columns`, `summary_lines`) | With attacks the stage's standings have no max combo | Which column should give way (the combo, the place in the match, the judgments' strip) |
 
 ## Open questions
+
+- Rooms of 1+72: fields under eight still use the experimental linear
+  rule (4, 3, 2, 1 for four). Should they read the eight-player table
+  too (stretched the other way), or keep their own rule?
+- Rooms of 1+72: an older client cannot read a stage result awarded by
+  the top-biased tables (from the first stage of nine or more): it must
+  be reloaded. Acceptable for the gated prototype?
+- Rooms of 1+72: the member bound is 384 (a full field and about 300
+  watching). Enough until the audience exists? The deployed
+  `ROOM_MAX_MEMBERS = "32"` is raised to 73 by the server; set it to 384
+  (or remove it) to have watchers beyond a full field.
+- Rooms of 1+72: the eight slots beside the field show the attackers and
+  the nearest rivals. Should the leader always have one (the one to
+  catch), and should a phone show fewer?
 
 - The host's succession: a host away is given 30 s (the room's
   reconnect grace) before the room passes on or, under Close, ends.
