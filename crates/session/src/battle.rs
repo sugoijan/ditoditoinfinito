@@ -505,6 +505,36 @@ pub struct Battle {
     /// put in.
     own: feed::FieldFeed,
     own_out: bool,
+    /// The stage's ladder where zero life steps down (a match's "At zero
+    /// life: Step down", [`stage_ladder`]): each rung's chart, its copy as
+    /// the fields draw it and its name; empty where zero life is out.
+    rungs: Vec<Rung>,
+}
+
+/// A rung of the stage's ladder as the battle shows it.
+#[derive(Clone, Debug)]
+pub struct Rung {
+    pub chart: usize,
+    pub track: feed::TapTrack,
+    /// Its name as the song list names it (data).
+    pub name: String,
+}
+
+/// The ladder a stage on chart `chart` of `song` steps down where its
+/// rules say so (`StageRules::steps_down`; `ddi_engine::ladder`): the
+/// song's easier charts in its style, the next first, cut at the first
+/// one the CPUs cannot plan (so everyone has the same ladder), each
+/// planned for them once. Empty where zero life is out, and in a stage
+/// played on several devices (an online room's: its contract does not
+/// carry a ladder yet).
+pub fn stage_ladder(song: &Song, chart: usize, setup: &StageSetup) -> Vec<ddi_engine::cpu::PlannedRung> {
+    if !setup.rules.steps_down() || setup.remote() {
+        return Vec::new();
+    }
+    ddi_engine::ladder::ladder(song, chart)
+        .into_iter()
+        .map_while(|r| ddi_engine::cpu::PlannedRung::new(song, r).ok())
+        .collect()
 }
 
 /// The most points chart `chart` of `song`, whole, gives under `ruleset`
@@ -561,8 +591,23 @@ impl Battle {
         ruleset: &Ruleset,
         song_offset: f64,
         horizon: f64,
+        ladder: &[ddi_engine::cpu::PlannedRung],
     ) -> Result<Battle, String> {
         let levels = ddi_engine::cpu::LEVELS;
+        let rungs = ladder
+            .iter()
+            .map(|r| {
+                Ok(Rung {
+                    chart: r.chart,
+                    track: if setup.remote() {
+                        feed::TapTrack::full(song, r.chart)?
+                    } else {
+                        feed::TapTrack::new(song, r.chart)?
+                    },
+                    name: ddi_engine::ladder::rung_name(&song.charts[r.chart]),
+                })
+            })
+            .collect::<Result<Vec<Rung>, String>>()?;
         // People play the chart itself; the CPUs a tap-only copy of it.
         let track = if setup.remote() {
             feed::TapTrack::full(song, chart)?
@@ -585,6 +630,7 @@ impl Battle {
                     .unwrap_or_default();
                 let mut opponent =
                     Opponent::with_skills(song, chart, rules, level, seat.seed, skills)?;
+                opponent.add_rungs(ladder)?;
                 opponent.start(song_offset);
                 let mut feed = feed::FieldFeed::new(&track, opponent.life(), feed::LOCAL_DELAY);
                 // A shock stepped on locks its lane where the rules do
@@ -624,7 +670,17 @@ impl Battle {
                 .collect(),
                 seed: battle_seed(&setup),
             };
-            attacks::AttackRunner::new(song, chart, &setup.rules.ruleset, &ruleset.judge, roster)
+            // Its sections placed over every rung at once: safe whatever
+            // chart its recipient is on.
+            let charts: Vec<usize> = ladder.iter().map(|r| r.chart).collect();
+            let placed;
+            let over = if charts.is_empty() {
+                song
+            } else {
+                placed = ddi_engine::ladder::merged(song, chart, &charts);
+                &placed
+            };
+            attacks::AttackRunner::new(over, chart, &setup.rules.ruleset, &ruleset.judge, roster)
         });
         let own = feed::FieldFeed::new(&track, 1.0, feed::LOCAL_DELAY);
         Ok(Battle {
@@ -654,7 +710,52 @@ impl Battle {
             watch_moments: Vec::new(),
             outs_told: Vec::new(),
             remote_live: None,
+            rungs,
         })
+    }
+
+    /// The stage's ladder ([`stage_ladder`]): empty where zero life is
+    /// out.
+    pub fn rungs(&self) -> &[Rung] {
+        &self.rungs
+    }
+
+    /// The name of the chart a competitor who made `steps` steps down
+    /// plays (none on the stage's chart).
+    pub fn rung_name(&self, steps: usize) -> Option<&str> {
+        steps
+            .checked_sub(1)
+            .and_then(|i| self.rungs.get(i))
+            .map(|r| r.name.as_str())
+    }
+
+    /// A field's steps down not put in yet, from `player`'s (its
+    /// `field`'s): each its rung's chart from the boundary and a moment
+    /// with the life given back.
+    fn feed_steps(rungs: &[Rung], field: &mut feed::FieldFeed, player: &Player) {
+        let known = field.steps().count();
+        for st in player.steps().iter().skip(known) {
+            let Some(rung) = rungs.get(usize::from(st.rung) - 1) else {
+                continue;
+            };
+            field.step_down(rung.track.clone(), st.at, st.boundary, st.rung);
+            let life = player.life_at(st.at + 1e-6).clamp(0.0, 1.0);
+            field.push(
+                &rung.track,
+                feed::Moment {
+                    at: st.at,
+                    tick: st.tick,
+                    lane: 0,
+                    kind: feed::MomentKind::StepDown(st.rung),
+                    life,
+                    combo: player.combo(),
+                    out: false,
+                    offset: 0.0,
+                    w0: None,
+                    score: player.ruleset().score.view(),
+                },
+            );
+        }
     }
 
     /// The stage played live (its setup's [`StageSetup::live`]) through
@@ -980,6 +1081,7 @@ impl Battle {
     /// window, holds' ends, mines and shocks stepped on, Boos; their
     /// going out (their gauge, or the forfeit) once.
     fn feed_own(&mut self, human: &Player, judged: &[JudgeEvent]) {
+        Self::feed_steps(&self.rungs, &mut self.own, human);
         let judge = &human.ruleset().judge;
         let (life, combo) = (human.ruleset().gauge.life().clamp(0.0, 1.0), human.combo());
         let score = human.ruleset().score.view();
@@ -1087,6 +1189,8 @@ impl Battle {
     fn step_cpus(&mut self, t: f64) {
         for s in &mut self.seats {
             s.opponent.advance(t);
+            // Its steps down: its field draws the rung's chart.
+            Self::feed_steps(&self.rungs, &mut s.feed, s.opponent.player());
             // Its judgments as moments of its stream: what its field shows.
             let (life, combo, out_at) =
                 (s.opponent.life(), s.opponent.combo(), s.out_at());
@@ -2135,15 +2239,16 @@ impl Battle {
         }
         let mut details = Vec::new();
         if !watched {
-            details.push((
-                self.setup.me,
-                run_detail(
-                    &human.results_brief(),
-                    human.ruleset(),
-                    human.ruleset().gauge.life(),
-                    self.launched(self.setup.me),
-                ),
-            ));
+            let mut results = human.results_brief();
+            results.score = self.on_stage_scale(human);
+            let mut detail = run_detail(
+                &results,
+                human.ruleset(),
+                human.ruleset().gauge.life(),
+                self.launched(self.setup.me),
+            );
+            detail.chart = self.rung_name(human.steps().len()).map(str::to_string);
+            details.push((self.setup.me, detail.bounded()));
         }
         details.extend(self.cpu_details());
         let summary = if watched {
@@ -2259,15 +2364,14 @@ impl Battle {
                 // Its score on the chart's scale (`CPU_SCORE_V0`).
                 let mut results = player.results_brief();
                 results.score = cpu_score(&results.score, self.most);
-                (
-                    s.seat.participant,
-                    run_detail(
-                        &results,
-                        player.ruleset(),
-                        s.opponent.life(),
-                        self.launched(s.seat.participant),
-                    ),
-                )
+                let mut detail = run_detail(
+                    &results,
+                    player.ruleset(),
+                    s.opponent.life(),
+                    self.launched(s.seat.participant),
+                );
+                detail.chart = self.rung_name(player.steps().len()).map(str::to_string);
+                (s.seat.participant, detail.bounded())
             })
             .collect()
     }
@@ -2314,8 +2418,21 @@ impl Battle {
             run_of(
                 human.gauge_failed_at(),
                 human.ruleset().gauge.life(),
-                &human.ruleset().score.view(),
+                &self.on_stage_scale(human),
+                human.steps().len(),
             )
+        }
+    }
+
+    /// `player`'s score as the room compares it: on the stage chart's
+    /// scale where it stepped down (each stretch counted against what it
+    /// was shown; `CPU_SCORE_V0`'s way, as a CPU's).
+    fn on_stage_scale(&self, player: &Player) -> ScoreView {
+        let view = player.ruleset().score.view();
+        if player.steps().is_empty() {
+            view
+        } else {
+            cpu_score(&view, self.most)
         }
     }
 
@@ -2335,6 +2452,7 @@ impl Battle {
                 s.out_at(),
                 s.opponent.life(),
                 &cpu_score(&s.opponent.score(), self.most),
+                s.opponent.player().steps().len(),
             ),
         }));
         out
@@ -2350,7 +2468,8 @@ pub fn forfeit(
     chart: usize,
     ruleset: &Ruleset,
 ) -> Result<StageOutcome, String> {
-    let mut b = Battle::new(setup, song, chart, ruleset, 0.0, FORFEIT_HORIZON)?;
+    let ladder = stage_ladder(song, chart, &setup);
+    let mut b = Battle::new(setup, song, chart, ruleset, 0.0, FORFEIT_HORIZON, &ladder)?;
     // A watcher left it: the CPUs alone, nobody forfeits.
     let me = b.competes().then_some(Run::Forfeit);
     if me.is_some()
@@ -2387,7 +2506,8 @@ pub fn forfeit(
 /// [`cpu_score`]): its proportional part and, under DDI, the score shown
 /// (the sum, what the room ranks by after life) with its absolute score
 /// and the most its scale gives.
-pub fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView) -> Run {
+/// `steps`, the steps down it made (a match's "At zero life: Step down").
+pub fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView, steps: usize) -> Run {
     match out_at {
         Some(at) => Run::Out { at },
         None => Run::Live {
@@ -2399,7 +2519,7 @@ pub fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView) -> Run {
                 most: d.most,
             }),
             score: score.ddi.as_ref().map(|d| d.score),
-            steps: 0,
+            steps: u8::try_from(steps).unwrap_or(u8::MAX),
         },
     }
 }

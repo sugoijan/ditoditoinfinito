@@ -496,6 +496,9 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     watch: Option<watch::Watch>,
     /// The session's event was given: the song goes on for nothing more.
     over: bool,
+    /// The player's steps down so far as told: each one's rung and the
+    /// host second it was noticed at (the status line's cue).
+    steps_told: Vec<(u8, f64)>,
 }
 
 /// Which cue a simulated player follows. In calibration it plays as a
@@ -518,6 +521,9 @@ enum Cue {
 struct AutoPlay {
     /// Sorted by press time.
     events: Vec<Press>,
+    /// The bias its script was made with (a step down's new chart is
+    /// scripted with it too).
+    bias: f64,
     next: usize,
     pending_release: Vec<(f64, u8)>,
     cue: Cue,
@@ -759,6 +765,17 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         inputs.begin(capture, &layout, config.reverse, config.place);
 
         let mut player = Player::new(song, chart_index, ruleset, options);
+        // A stage whose zero life steps down: its ladder, the player's
+        // rungs (a watcher has none of its own to play).
+        let ladder = config
+            .opponents
+            .as_ref()
+            .map_or_else(Vec::new, |s| crate::battle::stage_ladder(song, chart_index, s));
+        if !spectating {
+            for r in &ladder {
+                player.add_rung(song, r.chart)?;
+            }
+        }
         player.set_autoplay(auto_play);
         // A replay of an autoplayed record is graded as the play was.
         if config.replay.as_ref().is_some_and(|r| r.autoplayed) {
@@ -777,6 +794,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             presses = staging::touched(presses, &s.touches);
         }
         let auto = auto_play.then(|| AutoPlay {
+            bias: config.auto_bias,
             events: presses.clone(),
             next: 0,
             pending_release: Vec::new(),
@@ -922,6 +940,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                     player.ruleset(),
                     song_offset,
                     horizon,
+                    &ladder,
                 )?;
                 Some(match config.live.take() {
                     Some(handle) => b.with_live(handle, player.ruleset().judge.lock),
@@ -1083,6 +1102,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 late_watch.then(|| watch::Watch::new(Watching::Left, f64::NAN))
             },
             over: false,
+            steps_told: Vec::new(),
         })
     }
 
@@ -1393,6 +1413,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         if !spectating {
             self.feed_replay(HostTime(judge_now), &mut events);
             events.extend(self.player.update(HostTime(judge_now)));
+            self.follow_steps(host_now.0);
         }
         if let Some(w) = self.watch.as_mut()
             && w.since.is_nan()
@@ -1787,6 +1808,38 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         &self.attack_told
     }
 
+    /// The player stepped down to an easier chart (a match's "At zero
+    /// life: Step down"): told once (the status line's cue), and the
+    /// autoplayer's presses from the boundary on made for the new chart.
+    fn follow_steps(&mut self, host: f64) {
+        let steps = self.player.steps();
+        if steps.len() <= self.steps_told.len() {
+            return;
+        }
+        for st in &steps[self.steps_told.len()..] {
+            self.steps_told.push((st.rung, host));
+        }
+        let Some(step) = steps.last().copied() else {
+            return;
+        };
+        if let Some(a) = self.auto.as_mut() {
+            let early = self.player.ruleset().judge.max_early();
+            let fed_until = a.events[..a.next].last().map_or(f64::NEG_INFINITY, |p| p.release);
+            let fresh: Vec<Press> = ddi_engine::autoplay::script(self.player.judge().notes(), a.bias)
+                .into_iter()
+                .filter(|p| p.press >= step.boundary - early && p.press > fed_until)
+                .collect();
+            a.events.truncate(a.next);
+            a.events.extend(fresh);
+        }
+    }
+
+    /// The player's steps down as told: each one's rung and the host
+    /// second it was noticed at.
+    pub fn steps_told(&self) -> &[(u8, f64)] {
+        &self.steps_told
+    }
+
     /// What the status line shows at host time `host`, and how old it
     /// is: of the battle's moment no line said ([`PlaySession::battle_cue`])
     /// and the attack moments no line said, each while it lasts, the one
@@ -1805,9 +1858,23 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .map(|t| (t, host - t.at))
             .filter(|(_, age)| *age < policy.cue_seconds)
             .map(|(t, age)| (policy.attack_priority(t.moment), StageCue::Attack(t.moment), age));
+        // A step down of the player's own, as their going out would be.
+        let stepped = self
+            .steps_told
+            .last()
+            .map(|&(rung, at)| (rung, host - at))
+            .filter(|(_, age)| *age < policy.cue_seconds)
+            .map(|(rung, age)| {
+                (
+                    policy.priority(ddi_library::announcer::Battle::Eliminated),
+                    StageCue::StepDown(rung),
+                    age,
+                )
+            });
         event
             .into_iter()
             .chain(attacks)
+            .chain(stepped)
             .max_by(|a, b| a.0.cmp(&b.0).then(b.2.total_cmp(&a.2)))
             .map(|(_, cue, age)| (cue, age))
     }

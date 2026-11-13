@@ -12,6 +12,7 @@ use ddi_ui::state::room::{RoomClient, StageOrder, check_chart};
 const CHART: usize = 1;
 
 mod live;
+mod step_down;
 
 /// A practice room of `stages` stages on beatucada's chart, `cpus` CPUs
 /// at `level`, every stage's song chosen and prepared (its chart read
@@ -704,6 +705,7 @@ fn an_online_stage_is_never_decided_here_and_reports_the_players_own_run() {
         &rules_of(&settings, &order, &song),
         0.0,
         0.0,
+        &[],
     )
     .unwrap();
     assert_eq!(battle.end_event(&outcome, false), None);
@@ -983,6 +985,10 @@ fn replayed(
         rules.fresh(),
         *s.player.options(),
     );
+    let ladder = crate::battle::stage_ladder(song, order.chart.index, &StageSetup::of(order));
+    for r in &ladder {
+        human.add_rung(song, r.chart).unwrap();
+    }
     human.start(0.0, log.start);
     let mut battle = crate::battle::Battle::new(
         StageSetup::of(order),
@@ -991,6 +997,7 @@ fn replayed(
         &rules,
         log.start,
         human.reading_horizon(),
+        &ladder,
     )
     .unwrap();
     let mut inputs = log.inputs.iter().peekable();

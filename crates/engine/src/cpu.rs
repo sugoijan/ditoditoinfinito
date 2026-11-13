@@ -18,7 +18,7 @@ pub use levels::{CPU_LEVELS_V0, LEVELS, Level, LevelTable};
 pub use mines::{
     MINE_RESPONSE_V0, MINE_RESPONSE_V1, MineModel, MineResponse, MineResponseTable, ShockContext,
 };
-pub use opponent::Opponent;
+pub use opponent::{Opponent, PlannedRung};
 pub use personality::{PATTERN_AXES, PRESET_NAMES, SKILL_NAMES, Skills};
 
 pub const MAX_ROWS: usize = 4096;

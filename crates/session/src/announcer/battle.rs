@@ -200,6 +200,10 @@ impl AttackTold {
 pub enum StageCue {
     Event(Event),
     Attack(AttackMoment),
+    /// The player's life ran out and they step down to this rung of the
+    /// stage's ladder (a match's "At zero life: Step down"): no line says
+    /// it, the status line does ("Stepping down: Medium").
+    StepDown(u8),
 }
 
 /// A stage's voice: the policy, the battle line speaking and until when

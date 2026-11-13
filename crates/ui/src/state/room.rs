@@ -718,6 +718,7 @@ pub fn run_detail(
         attacks: attacks.map(|a| a.0),
         received: attacks.map(|a| a.1),
         shocks: attacks.map(|_| results.battle_mines.map_or(0, |b| b.hit)),
+        chart: None,
     }
     .bounded()
 }

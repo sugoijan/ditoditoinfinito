@@ -548,6 +548,7 @@ impl StagePlay {
                 None,
                 self.opponent.life(),
                 &ddi_session::battle::cpu_score(&self.opponent.score(), self.most),
+                self.opponent.player().steps().len(),
             )
         })
     }

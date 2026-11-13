@@ -38,6 +38,10 @@ pub struct Preview {
     visible: bool,
     /// A stage's place behind the field ([`Preview::set_behind_field`]).
     behind: Option<[f32; 4]>,
+    /// The layout it plays and the play's steps down it follows
+    /// ([`Preview::follow_steps`]).
+    layout: String,
+    steps: usize,
 }
 
 impl Preview {
@@ -114,6 +118,8 @@ impl Preview {
         self.runtime_error = None;
         self.failed_at = None;
         self.ever_available = false;
+        self.layout = layout.to_string();
+        self.steps = player.steps().len();
         if !enabled {
             return;
         }
@@ -257,6 +263,20 @@ impl Preview {
     }
 
     /// The milliseconds the last frame spent preparing motion.
+    /// The play stepped down to an easier chart since the hand last
+    /// looked (a match's "At zero life: Step down"): it plays the new
+    /// chart from the boundary ([`RuntimePreview::step_down`]).
+    pub fn follow_steps(&mut self, player: &ddi_engine::player::Player) {
+        let steps = player.steps().len();
+        if steps == self.steps {
+            return;
+        }
+        self.steps = steps;
+        if let Some(r) = self.runtime.as_mut() {
+            r.step_down(player, &self.layout);
+        }
+    }
+
     pub fn prepare_ms(&self) -> f64 {
         self.runtime.as_ref().map_or(0., |r| r.work_ms)
     }

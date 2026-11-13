@@ -198,6 +198,39 @@ impl RuntimePreview {
     pub fn origin(&self) -> f64 {
         self.origin
     }
+
+    /// The play stepped down to an easier chart (a match's "At zero
+    /// life: Step down"): the hand's notes not given to its planner yet
+    /// are the play's from now on (the new chart's, from the boundary;
+    /// prepared as the first were, on `layout`). Notes the planner was
+    /// given already stay (an autoplay's, never judged); new ones it has
+    /// planned past are left out, so its rows stay in order.
+    pub fn step_down(&mut self, player: &ddi_engine::player::Player, layout: &str) {
+        let Some(lanes) = ddi_chart::Layout::builtin(layout) else {
+            return;
+        };
+        let after = self
+            .source
+            .get(..self.cursor)
+            .and_then(|s| s.last())
+            .map_or(f64::NEG_INFINITY, |n| self.timing.seconds_at(n.tick))
+            .max(self.known);
+        let incoming: Vec<ddi_chart::Note> = player
+            .judge()
+            .notes()
+            .iter()
+            .filter(|n| n.judgeable && n.state == ddi_engine::NoteState::Pending)
+            .map(|n| n.note.clone())
+            .collect();
+        let incoming = ddi_hand_plan::prepare_notes(&incoming, &lanes);
+        self.source.truncate(self.cursor);
+        let timing = &self.timing;
+        self.source.extend(
+            incoming
+                .into_iter()
+                .filter(|n| timing.seconds_at(n.tick) > after + 1e-6),
+        );
+    }
     pub fn duration(&self) -> f64 {
         self.duration
     }

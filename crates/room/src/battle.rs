@@ -249,18 +249,30 @@ pub struct RunDetail {
     pub received: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shocks: Option<u32>,
+    /// The chart they finished on where they stepped down to an easier
+    /// one (a match's "At zero life: Step down"): its name as the song
+    /// list names it (data); none on the stage's chart. Additive as the
+    /// rest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chart: Option<String>,
 }
 
 impl RunDetail {
     /// The longest grade (characters) and the most tiers a room keeps of
-    /// a report: what it is sent is cut to them.
+    /// a report: what it is sent is cut to them; the longest chart name.
     pub const MAX_GRADE: usize = 24;
     pub const MAX_TIERS: usize = 12;
+    pub const MAX_CHART: usize = 32;
 
     /// The detail within the room's bounds.
     pub fn bounded(mut self) -> RunDetail {
         if self.grade.chars().count() > Self::MAX_GRADE {
             self.grade = self.grade.chars().take(Self::MAX_GRADE).collect();
+        }
+        if let Some(c) = self.chart.as_mut()
+            && c.chars().count() > Self::MAX_CHART
+        {
+            *c = c.chars().take(Self::MAX_CHART).collect();
         }
         self.tiers.truncate(Self::MAX_TIERS);
         self.life_ppm = self.life_ppm.min(ReportedRun::SCALE as u32);

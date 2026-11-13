@@ -148,7 +148,8 @@ fn stage(
         watching: false,
         live: None,
     };
-    let mut b = Battle::new(setup, song, chart, &ruleset, 0.0, FORFEIT_HORIZON).unwrap();
+    let ladder = super::stage_ladder(song, chart, &setup);
+    let mut b = Battle::new(setup, song, chart, &ruleset, 0.0, FORFEIT_HORIZON, &ladder).unwrap();
     if let Some(a) = b.attacks.as_mut() {
         a.out_at(b.setup.me, f64::NEG_INFINITY);
     }

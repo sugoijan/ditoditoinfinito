@@ -176,9 +176,59 @@ pub fn boundary(rule: &StepDownRule, timing: &TimingMap, at: f64, horizon: f64) 
     (tick, timing.seconds_at(tick))
 }
 
+/// The song with chart `chart`'s notes merged with its rungs' (each
+/// lane's notes of every chart together; the same note of two charts
+/// once, the longer kept): what a stage's battle plan is placed over, so
+/// that a section safe there is safe on every rung at once and one plan
+/// holds whatever chart a competitor is on.
+pub fn merged(song: &Song, chart: usize, rungs: &[usize]) -> Song {
+    let mut out = song.clone();
+    let Some(stage) = out.charts.get_mut(chart) else {
+        return out;
+    };
+    for &r in rungs {
+        if let Some(c) = song.charts.get(r) {
+            stage.notes.extend(c.notes.iter().cloned());
+        }
+    }
+    stage
+        .notes
+        .sort_by_key(|n| (n.tick, n.lane, std::cmp::Reverse(n.end_tick())));
+    stage.notes.dedup_by(|b, a| a.tick == b.tick && a.lane == b.lane);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_merged_chart_holds_every_rungs_notes_once() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs/beatucada");
+        let path = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|e| e == "ssc"))
+            .unwrap();
+        let song =
+            ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc").unwrap();
+        let stage = song
+            .charts
+            .iter()
+            .position(|c| c.layout == "dance-single" && c.difficulty == Difficulty::Hard)
+            .unwrap();
+        let rungs = ladder(&song, stage);
+        let m = merged(&song, stage, &rungs);
+        let notes = &m.charts[stage].notes;
+        for c in std::iter::once(stage).chain(rungs.iter().copied()) {
+            for n in &song.charts[c].notes {
+                assert!(notes.iter().any(|m| m.tick == n.tick && m.lane == n.lane));
+            }
+        }
+        assert!(notes.windows(2).all(|w| (w[0].tick, w[0].lane) < (w[1].tick, w[1].lane)));
+        assert_eq!(m.charts[rungs[0]], song.charts[rungs[0]], "the rungs as they are");
+    }
 
     #[test]
     fn the_boundary_is_a_bar_line_past_the_horizon_and_a_second() {

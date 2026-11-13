@@ -29,6 +29,46 @@ const HIT_SPREAD: f64 = 0.6;
 /// A rung's presses and its notes `(seconds, lane)` in time order.
 type RungPlan = (Vec<Press>, Vec<(f64, u8)>);
 
+/// A rung of a stage's ladder as the CPUs play it (`crate::ladder`): its
+/// plan, its tap-only copy and its notes, made once for every CPU of the
+/// stage ([`Opponent::add_rungs`]).
+pub struct PlannedRung {
+    pub chart: usize,
+    pub plan: Plan,
+    pub projected: Song,
+    /// Its copy's notes, `(seconds, lane)` in time order.
+    pub notes: Vec<(f64, u8)>,
+}
+
+impl PlannedRung {
+    /// Chart `chart` of `song` planned; refused where the CPU cannot
+    /// plan it.
+    pub fn new(song: &Song, chart: usize) -> Result<PlannedRung, String> {
+        let plan = Plan::automatic(song, chart)?;
+        let projected = plan.check_song(song, chart)?;
+        let rung = Player::new(
+            &projected,
+            chart,
+            crate::rules::presets::ddi(),
+            crate::player::PlayOptions::default(),
+        );
+        let mut notes: Vec<(f64, u8)> = rung
+            .judge()
+            .notes()
+            .iter()
+            .filter(|n| n.judgeable && n.seconds.is_finite())
+            .map(|n| (n.seconds, n.note.lane))
+            .collect();
+        notes.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        Ok(PlannedRung {
+            chart,
+            plan,
+            projected,
+            notes,
+        })
+    }
+}
+
 /// A CPU's play: the plan's presses on its own player.
 pub struct Opponent {
     player: Player,
@@ -169,32 +209,16 @@ impl Opponent {
     }
 
     /// Its ladder (`crate::ladder`, a match's "At zero life: Step
-    /// down"): chart by chart of `song`, the next easier first, each
-    /// planned at its own level relative to that chart (a plan of the
-    /// chart's own, [`Plan::automatic`]) with its seed, its tap-only copy
-    /// a rung of its player's. Before the start. Refused, with the
-    /// engine's reason, where the CPU cannot plan one.
-    pub fn add_rungs(&mut self, song: &Song, charts: &[usize]) -> Result<(), String> {
-        for &chart in charts {
-            let plan = Plan::automatic(song, chart)?;
-            let projected = plan.check_song(song, chart)?;
-            let presses = plan.script_at(self.level, self.seed, self.skills)?;
-            self.player.add_rung(&projected, chart)?;
-            let rung = Player::new(
-                &projected,
-                chart,
-                self.player.ruleset().fresh(),
-                crate::player::PlayOptions::default(),
-            );
-            let mut notes: Vec<(f64, u8)> = rung
-                .judge()
-                .notes()
-                .iter()
-                .filter(|n| n.judgeable && n.seconds.is_finite())
-                .map(|n| (n.seconds, n.note.lane))
-                .collect();
-            notes.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-            self.rungs.push((presses, notes));
+    /// down"): the rungs, the next easier first, each planned at its own
+    /// level relative to that chart (the rung's plan, [`PlannedRung`])
+    /// with its seed, its tap-only copy a rung of its player's. Before the
+    /// start. Refused, with the engine's reason, where a rung's plan
+    /// cannot be scripted.
+    pub fn add_rungs(&mut self, rungs: &[PlannedRung]) -> Result<(), String> {
+        for r in rungs {
+            let presses = r.plan.script_at(self.level, self.seed, self.skills)?;
+            self.player.add_rung(&r.projected, r.chart)?;
+            self.rungs.push((presses, r.notes.clone()));
         }
         Ok(())
     }
@@ -835,7 +859,9 @@ mod tests {
         let play = |seed: u64, step: f64, ladder: bool| {
             let mut o = Opponent::new(&song, HARD, rules(), 0, seed).unwrap();
             if ladder {
-                o.add_rungs(&song, &rungs).unwrap();
+                let planned: Vec<PlannedRung> =
+                    rungs.iter().map(|&r| PlannedRung::new(&song, r).unwrap()).collect();
+                o.add_rungs(&planned).unwrap();
             }
             o.start(0.0);
             for s in sections(&song).iter().take(4) {

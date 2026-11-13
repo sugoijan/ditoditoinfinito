@@ -158,6 +158,10 @@ pub struct StageRowView {
     /// Where the battle has attacks: those they launched, those sent
     /// against them and the shocks they stepped on.
     pub attacks: Option<(u32, u32, u32)>,
+    /// Where they stepped down to an easier chart (a match's "At zero
+    /// life: Step down"): the chart they finished on, as the table marks
+    /// it ("↓ Medium").
+    pub stepped: Option<String>,
 }
 
 /// A column of the table.
@@ -460,6 +464,9 @@ fn row_view(r: &RoomClient, table: &StageTable, row: &StageRow, percent: bool) -
                 d.shocks.unwrap_or(0),
             ))
         }),
+        stepped: d
+            .and_then(|d| d.chart.as_deref())
+            .map(|c| m::table_stepped(UiText::data(c)).into()),
     }
 }
 
@@ -792,6 +799,17 @@ pub(super) fn standings(
                 name_x + name_w + 8.0,
                 mid + 1.0,
             ));
+        }
+        // The chart they finished on, where they stepped down: a quiet
+        // mark after the name (and the stars), where it fits.
+        if let Some(stepped) = &row.stepped {
+            let at = name_x + name_w + after + 8.0;
+            let room = name_x + name_room - at;
+            if room >= 40.0 {
+                let mut t = env.text("Stepped", stepped, 11.0, 600, "Gold");
+                look::ellipsized(&mut t, room);
+                c.push(left(t, at, mid));
+            }
         }
         let number = |c: &mut Vec<Actor>, name: &str, text: &str, col: Col, color: &str| {
             if let Some(end) = end_of(col)
