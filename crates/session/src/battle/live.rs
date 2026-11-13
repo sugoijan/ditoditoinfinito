@@ -19,7 +19,7 @@
 //! measure, a second at most), stale past two seconds, a late join of
 //! five seconds at most.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::rc::Rc;
 
 use ddi_chart::Tick;
@@ -34,7 +34,8 @@ use ddi_room::attacks::{
 use ddi_room::live::plan::BattlePlan;
 use ddi_room::live::stream::{CheckpointNews, Commitment, Frame, LiveReport, Moment, MomentKind};
 use ddi_room::live::{
-    LIVE_V1, LiveNews, LiveRefusal, LiveRules, StreamEnd, VIEW_DELAY_V0, ViewDelay,
+    LIVE_V1, LiveNews, LiveRefusal, LiveRules, SLEW_V0, SongSlew, StreamEnd, VIEW_DELAY_V0,
+    ViewDelay, song_us_at,
 };
 use ddi_room::{Finisher, ParticipantId, Phase, StageId};
 use ddi_ui::state::room::SharedRoom;
@@ -127,6 +128,14 @@ pub struct LiveState<'a> {
     pub stalled_now: usize,
     /// The room's live rules' id (`live-v1`, `live-v2`).
     pub rules: &'static str,
+    /// The stream's and the views' song clock against this play's own
+    /// (`ddi_room::live::slew`): the correction (ms, room − own), how far
+    /// the room's clock as estimated said it is off now (ms), whether
+    /// that is past the estimate's uncertainty, and the rules' id.
+    pub slew_ms: f64,
+    pub slew_off_ms: f64,
+    pub slew_disagrees: bool,
+    pub slew_rules: &'static str,
 }
 
 /// Another competitor of the stage, as its stream draws it.
@@ -143,6 +152,13 @@ pub(crate) struct RemoteSeat {
     /// the chart's most, what its percent is worked out from
     /// ([`ddi_of_sum`]).
     pub w0s: u32,
+    /// Its song clock against the room's (µs, room − its own: its
+    /// device's correction, `ddi_room::live::slew`), as its taps say it
+    /// (each tap's time on the room's clock less its offset less its
+    /// note's time): the median of the last few. Its moments are put back
+    /// on its own song clock with it, so that its hits meet its notes.
+    pub shift_us: i64,
+    shifts: VecDeque<i64>,
 }
 
 impl RemoteSeat {
@@ -154,7 +170,22 @@ impl RemoteSeat {
     pub fn out(&self) -> bool {
         matches!(self.end, Some(StreamEnd::Out { .. }))
     }
+
+    /// A tap's moment's say on its song clock's shift: the median of the
+    /// last [`SHIFT_SAMPLES`].
+    fn shift_sample(&mut self, us: i64) {
+        if self.shifts.len() == SHIFT_SAMPLES {
+            self.shifts.pop_front();
+        }
+        self.shifts.push_back(us);
+        let mut v: Vec<i64> = self.shifts.iter().copied().collect();
+        v.sort_unstable();
+        self.shift_us = v[v.len() / 2];
+    }
 }
+
+/// The taps a remote competitor's clock's shift is the median of.
+const SHIFT_SAMPLES: usize = 9;
 
 /// What the room's ledger said, as the views read it: every competitor's
 /// power after the last checkpoint run, the waiting bars, the attacks
@@ -337,6 +368,13 @@ pub(crate) struct Live {
     /// The most the chart gives under the stage's rules (DDI): what a
     /// remote competitor's percent is worked out against.
     most: Option<i64>,
+    /// This play's song clock kept in step with the room's for its stream
+    /// and its views (never its judging): [`Live::sync`].
+    slew: SongSlew,
+    /// The room's song time now as this device streams and draws it (µs).
+    room_us: i64,
+    /// The disagreement with the room's clock was said in the log.
+    said_off: bool,
 }
 
 /// A judge event as a moment of the stream (none: nothing a field
@@ -509,6 +547,8 @@ impl Live {
                     combo: 0,
                     score: 0,
                     w0s: 0,
+                    shift_us: 0,
+                    shifts: VecDeque::new(),
                 }
             })
             .collect();
@@ -538,7 +578,80 @@ impl Live {
             delay: view_delay,
             stalled: BTreeSet::new(),
             most: None,
+            slew: SongSlew::new(SLEW_V0),
+            room_us: i64::MIN,
+            said_off: false,
         }
+    }
+
+    /// This frame's song time `t` (this play's judged song second, on its
+    /// audio clock) on the room's song clock, as the stream and the views
+    /// take it: the play's own time plus a correction that follows the
+    /// room's clock as its estimate is refreshed (`ddi_room::live::slew`:
+    /// smoothed, at most 2 ms a second, never backwards). The play's
+    /// judging stays on its own clock: its presses, its notes' times and
+    /// its music are untouched. A disagreement past the estimate's
+    /// uncertainty is said in the log (the room is told nothing more: the
+    /// stream's times are its clock's already).
+    pub(crate) fn sync(&mut self, t: f64) -> Vec<String> {
+        let mut log = Vec::new();
+        let (room_us, uncertainty) = {
+            let room = self.handle.room.borrow();
+            let zero = room.song_zero_at(self.stage);
+            let link = room.live_link();
+            let now = link.and_then(|l| l.room_ms((self.handle.wall_ms)()));
+            let unc = link.and_then(|l| l.clock()).map_or(0, |c| c.uncertainty_us);
+            (zero.zip(now).map(|(z, n)| song_us_at(z, n)), unc)
+        };
+        self.room_us = self.slew.step(micros(t), room_us, uncertainty);
+        let off = self.slew.disagrees();
+        if off != self.said_off {
+            self.said_off = off;
+            log.push(if off {
+                format!(
+                    "live: this device's song clock and the room's disagree by {:.1} ms (estimate within {:.1} ms); its stream and views follow the room's at {} µs a second, its judging stays on its own",
+                    self.slew.off_us() as f64 / 1e3,
+                    uncertainty as f64 / 1e3,
+                    SLEW_V0.max_rate_ppm,
+                )
+            } else {
+                format!(
+                    "live: the song clock is in step with the room's again (correction {:.1} ms)",
+                    self.slew.correction_us() as f64 / 1e3
+                )
+            });
+        }
+        log
+    }
+
+    /// The room's song time now as streamed and drawn (µs; this play's own
+    /// before the first [`Live::sync`]).
+    fn room_now_us(&self, t: f64) -> i64 {
+        if self.room_us == i64::MIN {
+            micros(t)
+        } else {
+            self.room_us
+        }
+    }
+
+    /// How far behind this play's song time (seconds) a remote
+    /// competitor's field is drawn: the view's delay, less this device's
+    /// correction, plus that competitor's (its notes and moments are on
+    /// its own song clock).
+    pub(crate) fn field_delay_s(&self, p: ParticipantId) -> f64 {
+        let shift = self
+            .seats
+            .iter()
+            .find(|s| s.participant == p)
+            .map_or(0, |s| s.shift_us);
+        self.delay.delay_ms() / 1_000.0 - self.slew.correction_us() as f64 / 1e6
+            + shift as f64 / 1e6
+    }
+
+    /// A remote seat's field has shown its stream to its end (`end_us`,
+    /// the room's song clock) at this play's song second `t`.
+    pub(crate) fn shown_to(&self, end_us: i64, t: f64) -> bool {
+        self.room_now_us(t) - (self.delay.delay_ms() * 1_000.0).round() as i64 >= end_us
     }
 
     /// The most the chart gives under the stage's rules (DDI's): the
@@ -547,24 +660,22 @@ impl Live {
         self.most = most;
     }
 
-    /// The others' fields' delay behind the song now, seconds.
-    pub(crate) fn delay_s(&self) -> f64 {
-        self.delay.delay_ms() / 1_000.0
-    }
-
     /// The view at song second `t` (after this frame's news): the delay
     /// follows what the frames measured, every field is drawn that far
     /// behind, and a field whose stream was not judged to the view's time
     /// is a stall (counted, and the delay rises for it at once).
     pub(crate) fn view(&mut self, t: f64) {
-        let now_ms = t * 1_000.0;
+        let room_us = self.room_now_us(t);
+        let now_ms = room_us as f64 / 1_000.0;
         let d = self.delay.advance(now_ms);
-        let view_us = micros(t) - (d * 1_000.0).round() as i64;
+        let view_us = room_us - (d * 1_000.0).round() as i64;
+        let correction = self.slew.correction_us() as f64 / 1e6;
         for seat in &mut self.seats {
-            seat.feed.set_delay(d / 1_000.0);
+            seat.feed
+                .set_delay(d / 1_000.0 - correction + seat.shift_us as f64 / 1e6);
             let behind = match (seat.end, seat.through_us) {
                 (None, Some(through)) if view_us > 0 && through < view_us => {
-                    Some(micros_s(micros(t) - through) * 1_000.0)
+                    Some(micros_s(room_us - through) * 1_000.0)
                 }
                 _ => None,
             };
@@ -594,6 +705,10 @@ impl Live {
             stalls: self.delay.stalls(),
             stalled_now: self.stalled.len(),
             rules: self.rules.id,
+            slew_ms: self.slew.correction_us() as f64 / 1e3,
+            slew_off_ms: self.slew.off_us() as f64 / 1e3,
+            slew_disagrees: self.slew.disagrees(),
+            slew_rules: self.slew.rules().id,
         }
     }
 
@@ -645,12 +760,14 @@ impl Live {
         let judge = &human.ruleset().judge;
         let life = (f64::from(human.ruleset().gauge.life().clamp(0.0, 1.0)) * 1e6).round() as u32;
         let (combo, score) = (human.combo(), score_of(human));
+        let slew = &self.slew;
         let moments: Vec<Moment> = judged
             .iter()
             .filter_map(|e| {
                 let (tick, lane, kind) = moment_of(e, judge)?;
                 Some(Moment {
-                    at_ms: (e.song_time * 1_000.0).round() as i32,
+                    // On the room's song clock (its judging on its own).
+                    at_ms: (slew.to_room(micros(e.song_time)) as f64 / 1_000.0).round() as i32,
                     tick: tick.0,
                     lane,
                     kind,
@@ -689,12 +806,15 @@ impl Live {
         for m in moments {
             out.moment(m);
         }
-        out.judged_to(t_us);
+        let room_us = self.room_us.max(self.slew.to_room(t_us));
+        out.judged_to(room_us);
         for (k, rep) in reports {
             out.report(LiveReport::from_report(k, rep));
         }
         if let Some(at) = human.gauge_failed_at() {
-            out.end(StreamEnd::Out { at_us: micros(at) });
+            out.end(StreamEnd::Out {
+                at_us: self.slew.to_room(micros(at)),
+            });
             drop(room);
             self.ended = true;
         }
@@ -708,9 +828,10 @@ impl Live {
             return;
         }
         self.ended = true;
+        let room_us = self.room_us.max(self.slew.to_room(micros(t)));
         let mut room = self.handle.room.borrow_mut();
         if let Some(out) = room.live_stream(self.stage) {
-            out.judged_to(micros(t));
+            out.judged_to(room_us);
             out.end(end);
         }
         drop(room);
@@ -778,6 +899,7 @@ impl Live {
         mut human: Option<&mut Deliver<'_>>,
         got: &mut Received,
     ) {
+        let room_now = self.room_now_us(t);
         for e in &f.entries {
             if e.participant == self.me {
                 continue;
@@ -790,7 +912,7 @@ impl Live {
             if let Some(before) = seat.through_us
                 && seat.end.is_none()
             {
-                self.delay.sample(t * 1_000.0, micros_s(micros(t) - before) * 1_000.0);
+                self.delay.sample(room_now as f64 / 1_000.0, micros_s(room_now - before) * 1_000.0);
             }
             seat.through_us = Some(seat.through_us.map_or(e.through_us, |x| x.max(e.through_us)));
             for m in &e.moments {
@@ -815,8 +937,19 @@ impl Live {
                 if let MomentKind::Tap { w0: true, .. } = m.kind {
                     seat.w0s += 1;
                 }
+                if let MomentKind::Tap { tier, offset_ms, .. } = m.kind
+                    && !Judgement::from_index(tier.into()).is_none_or(Judgement::is_miss)
+                {
+                    let note_us = micros(track.seconds_at(Tick(m.tick)));
+                    seat.shift_sample(
+                        i64::from(m.at_ms) * 1_000 - i64::from(offset_ms) * 1_000 - note_us,
+                    );
+                }
                 let ddi = ddi_of_sum(m.score, seat.w0s, self.most);
-                seat.feed.push(track, feed_moment(m, false, ddi));
+                let mut fm = feed_moment(m, false, ddi);
+                // Back on its own song clock, where its notes are.
+                fm.at -= seat.shift_us as f64 / 1e6;
+                seat.feed.push(track, fm);
             }
             if let Some(end) = e.end
                 && seat.end.is_none()
@@ -832,7 +965,7 @@ impl Live {
                     seat.feed.push(
                         track,
                         feed::Moment {
-                        at: at_us as f64 / 1e6,
+                        at: (at_us - seat.shift_us) as f64 / 1e6,
                         tick: Tick(0),
                         lane: 0,
                         kind: feed::MomentKind::Mark,
@@ -951,7 +1084,7 @@ impl Live {
                     let mut room = self.handle.room.borrow_mut();
                     if let Some(out) = room.live_stream(self.stage) {
                         out.moment(Moment {
-                            at_ms: (t * 1_000.0).round() as i32,
+                            at_ms: (self.room_now_us(t) as f64 / 1_000.0).round() as i32,
                             tick: 0,
                             lane: 0,
                             kind: MomentKind::Refused { attack: c.attack },
@@ -1020,7 +1153,7 @@ impl Live {
         if seat.end.is_some() {
             return false;
         }
-        let view_us = micros(t) - (self.delay.delay_ms() * 1_000.0).round() as i64;
+        let view_us = self.room_now_us(t) - (self.delay.delay_ms() * 1_000.0).round() as i64;
         let behind = view_us - seat.through_us.unwrap_or(0);
         view_us > 0 && behind > self.rules.stale_ms as i64 * 1_000
     }
@@ -1089,6 +1222,8 @@ impl LivePlay {
     /// The play judged to song second `t` (`judged`: its events since the
     /// last call) streamed.
     pub fn send(&mut self, t: f64, player: &Player, judged: &[JudgeEvent]) {
+        let log = self.live.sync(t);
+        self.log.extend(log);
         self.live.send(t, player, judged);
         self.live.tick_room();
     }

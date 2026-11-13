@@ -660,6 +660,15 @@ impl Battle {
         self
     }
 
+    /// Each remote competitor's song clock against the room's as its taps
+    /// say it (µs; `live::RemoteSeat::shift_us`), in seat order.
+    #[cfg(test)]
+    pub(crate) fn remote_shift_us(&self) -> Vec<i64> {
+        self.remote_live
+            .as_ref()
+            .map_or_else(Vec::new, |l| l.seats.iter().map(|s| s.shift_us).collect())
+    }
+
     /// The live stage's own part as this play has it (the debug state's):
     /// whether it streams, whether it has the battle plan, its horizon and
     /// what became of each attack against it.
@@ -702,6 +711,7 @@ impl Battle {
         let mut human = human;
         let in_now = human.as_deref().is_some_and(|h| self.me_in(h));
         let mut l = self.remote_live.take()?;
+        self.log.extend(l.sync(t));
         if let Some(h) = human.as_deref() {
             l.send(t, h, judged);
         }
@@ -870,7 +880,7 @@ impl Battle {
         if let Some(l) = &self.remote_live {
             return l.seats.iter().any(|s| match (s.end, s.through_us) {
                 (None, _) => true,
-                (Some(_), Some(end_us)) => s.feed.view_time(self.now) < end_us as f64 / 1e6,
+                (Some(_), Some(end_us)) => !l.shown_to(end_us, self.now),
                 (Some(_), None) => false,
             });
         }
@@ -1504,7 +1514,7 @@ impl Battle {
             let d = if participant == self.setup.me {
                 0.0
             } else {
-                l.delay_s()
+                l.field_delay_s(participant)
             };
             let mut all = l.ledger.incoming(participant, now - attacks::micros(d));
             let attack = all.next()?;
@@ -1721,8 +1731,13 @@ impl Battle {
         let now = attacks::micros(self.now);
         let base = self.seats.len();
         let me = self.setup.me;
-        let view_delay = attacks::micros(l.delay_s());
-        let delay = |p: ParticipantId| if p == me { 0 } else { view_delay };
+        let delay = |p: ParticipantId| {
+            if p == me {
+                0
+            } else {
+                attacks::micros(l.field_delay_s(p))
+            }
+        };
         let seat = |p: ParticipantId| {
             if p == self.setup.me {
                 Some(usize::MAX)

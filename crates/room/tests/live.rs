@@ -15,8 +15,8 @@ use ddi_room::live::plan::BattlePlan;
 use ddi_room::live::server::{LiveDurable, LiveServer, Prepared};
 use ddi_room::live::stream::{LiveReport, Moment, MomentKind, StreamEnd};
 use ddi_room::live::{
-    ClientLive, LIVE_V1, LiveNews, LiveRefusal, PlanDigest, VIEW_DELAY_V0, ViewDelay, ViewMeter,
-    song_us_at, wire,
+    ClientLive, LIVE_V1, LiveNews, LiveRefusal, PlanDigest, SLEW_V0, SongSlew, VIEW_DELAY_V0,
+    ViewDelay, ViewMeter, song_us_at, wire,
 };
 use ddi_room::{
     ChartKey, ClientEnvelope, ClientId, Clock, Command, ContentId, ContentStatus, Finish, Identity,
@@ -228,6 +228,10 @@ struct Player {
     /// way); none: the room's clock as estimated now, every time.
     mapped_once: bool,
     song_map: Option<(u64, i64)>,
+    /// Mapped once and kept in step with the room's clock as estimated
+    /// (`ddi_room::live::slew`, the game's way since 2026-11-13): its
+    /// stream's and its views' times the room's, its judging its own.
+    slew: Option<SongSlew>,
     /// Its device's clock (the link's own copy runs the same).
     clock: DriftClock,
 }
@@ -248,7 +252,12 @@ impl Player {
         }
         let local = self.clock.now().0;
         let (at, song) = *self.song_map.get_or_insert((local, estimated));
-        Some(song + (local as i64 - at as i64) * 1_000)
+        let mapped = song + (local as i64 - at as i64) * 1_000;
+        let uncertainty = self.link.live().clock().map_or(0, |c| c.uncertainty_us);
+        Some(match self.slew.as_mut() {
+            Some(slew) => slew.step(mapped, Some(estimated), uncertainty),
+            None => mapped,
+        })
     }
 
     fn send(&mut self, cmd: Command) {
@@ -397,6 +406,7 @@ struct Setup {
     /// and whether its song clock is mapped once ([`Player::song_us`]).
     drift_ppm: i64,
     mapped_once: bool,
+    slewed: bool,
 }
 
 impl Setup {
@@ -406,6 +416,7 @@ impl Setup {
             watchers: 0,
             drift_ppm: 0,
             mapped_once: false,
+            slewed: false,
             attacks: false,
             policy: RoomPolicy::default().with_live(),
             latency: Some(Latency {
@@ -484,6 +495,7 @@ fn room(setup: &Setup) -> Room {
             news: Vec::new(),
             mapped_once: setup.mapped_once,
             song_map: None,
+            slew: setup.slewed.then(|| SongSlew::new(SLEW_V0)),
             clock: device,
         });
     }
@@ -1595,6 +1607,7 @@ fn someone_who_comes_in_mid_stage_gets_the_stage_as_it_stands_and_follows_it() {
         news: Vec::new(),
         mapped_once: false,
         song_map: None,
+        slew: None,
         clock: watcher_clock,
     });
     r.run(20_000);
@@ -1707,6 +1720,8 @@ fn measure_views(
 struct Drift {
     ppm: i64,
     mapped_once: bool,
+    /// Mapped once and kept in step ([`Player::slew`]).
+    slewed: bool,
     song_ms: i32,
     from: f64,
 }
@@ -1715,6 +1730,7 @@ impl Drift {
     const NONE: Drift = Drift {
         ppm: 0,
         mapped_once: false,
+        slewed: false,
         song_ms: 40_000,
         from: 8_000.0,
     };
@@ -1732,7 +1748,8 @@ fn measure_drifting(
     setup.watchers = 1;
     setup.policy = policy;
     setup.drift_ppm = drift.ppm;
-    setup.mapped_once = drift.mapped_once;
+    setup.mapped_once = drift.mapped_once || drift.slewed;
+    setup.slewed = drift.slewed;
     let from = drift.from;
     setup.latency = Some(Latency {
         down_ms: latency.0,
@@ -1863,7 +1880,7 @@ fn clock_drift_study() {
     eprintln!("| drift (ppm) | song clock | delay mean / p95 / max (ms) | field-time stalled | stalls a field-minute |");
     eprintln!("| --- | --- | --- | --- | --- |");
     for ppm in [0, 50, 500] {
-        for mapped_once in [true, false] {
+        for (mapped_once, slewed) in [(true, false), (true, true), (false, false)] {
             for fixed in [true, false] {
                 let m = measure_drifting(
                     9,
@@ -1874,13 +1891,18 @@ fn clock_drift_study() {
                     Drift {
                         ppm,
                         mapped_once,
+                        slewed,
                         song_ms: 300_000,
                         from: 240_000.0,
                     },
                 );
                 eprintln!(
                     "| {ppm} | {}{} | {:.0} / {:.0} / {:.0} | {:.3}% | {:.2} |",
-                    if mapped_once { "mapped once" } else { "resynced" },
+                    match (mapped_once, slewed) {
+                        (_, true) => "mapped once, kept in step",
+                        (true, false) => "mapped once",
+                        _ => "resynced",
+                    },
                     if fixed { ", a constant second" } else { "" },
                     m.mean,
                     m.p95,
@@ -1889,6 +1911,44 @@ fn clock_drift_study() {
                     m.onsets_per_min
                 );
             }
+        }
+    }
+}
+
+/// The clocks' drift kept out of the views (`ddi_room::live::slew`, the
+/// regression test of `clock_drift_study`'s rows): every device's clock 50
+/// or 500 millionths fast or slow over a five-minute song, its song clock
+/// mapped once (its judging's) and its stream's and views' times kept in
+/// step with the room's: the delay over the song's last minute as without
+/// drift (480 ms on average at 80 ms each way; mapped once alone, 608 at
+/// 500), and no stall.
+#[test]
+fn the_views_keep_their_delay_when_the_clocks_drift() {
+    let policy = RoomPolicy::default().with_live();
+    for (ppm, competitors) in [(50, 3), (500, 3)] {
+        let at = |slewed: bool, mapped_once: bool| {
+            measure_drifting(
+                competitors,
+                (80, 40),
+                policy.clone(),
+                false,
+                1,
+                Drift {
+                    ppm,
+                    mapped_once,
+                    slewed,
+                    song_ms: 300_000,
+                    from: 240_000.0,
+                },
+            )
+        };
+        let kept = at(true, true);
+        let once = at(false, true);
+        eprintln!("{ppm} ppm: kept in step {kept:?}; mapped once {once:?}");
+        assert!(kept.mean <= 500.0, "{ppm}: {kept:?}");
+        assert!(kept.stalled < 0.005, "{ppm}: {kept:?}");
+        if ppm == 500 {
+            assert!(once.mean > kept.mean + 60.0, "the drift shows without it: {once:?}");
         }
     }
 }

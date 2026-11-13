@@ -1325,6 +1325,16 @@ fn live_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
             "stalls": m.stalls,
             "stalled_now": m.stalled_now,
         })),
+        // The stream's and the views' song clock against this play's own
+        // (`ddi_room::live::slew`): the correction (room − own), how far
+        // the room's clock as estimated says it is off now, and whether
+        // that is past the estimate's uncertainty.
+        "slew": b.live_state().map(|m| json!({
+            "ms": m.slew_ms,
+            "off_ms": m.slew_off_ms,
+            "disagrees": m.slew_disagrees,
+            "rules": m.slew_rules,
+        })),
         // This play's own part: streamed to the room, with the battle
         // plan (attacks can go into it), and what became of each attack
         // the room committed against it (`fate`: taken, late, out,

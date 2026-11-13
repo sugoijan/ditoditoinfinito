@@ -101,10 +101,22 @@ struct Room {
     server_clock: ManualClock,
     server: SharedFake,
     rooms: Vec<SharedRoom>,
+    /// Each device's audio clock (host seconds) and how many millionths
+    /// fast it runs against the host's (and the room's) clock: its sound
+    /// card's crystal.
+    devices: Vec<(Clock, f64)>,
+    /// The device each play of [`sessions`] runs on.
+    play_devices: RefCell<Vec<usize>>,
 }
 
 impl Room {
     fn new(people: &[(&'static str, Intent)], latency: Option<Latency>) -> Room {
+        Room::drifting(people, latency, &[])
+    }
+
+    /// [`Room::new`] with each device's audio clock `ppm[i]` millionths
+    /// fast (negative: slow).
+    fn drifting(people: &[(&'static str, Intent)], latency: Option<Latency>, ppm: &[f64]) -> Room {
         let host: Clock = Rc::new(RefCell::new(0.0));
         let server_clock = ManualClock::new(wall(0.0));
         let server = FakeServer::hosted(
@@ -137,19 +149,50 @@ impl Room {
                 wall(0.0),
             ))));
         }
+        let devices = (0..people.len())
+            .map(|i| {
+                let ppm = ppm.get(i).copied().unwrap_or(0.0);
+                let clock = if ppm == 0.0 {
+                    host.clone()
+                } else {
+                    Rc::new(RefCell::new(0.0))
+                };
+                (clock, ppm)
+            })
+            .collect();
         Room {
             host,
             server_clock,
             server,
             rooms,
+            devices,
+            play_devices: RefCell::new(Vec::new()),
         }
+    }
+
+    /// Device `i`'s audio clock now (host seconds).
+    fn device_now(&self, i: usize) -> f64 {
+        self.devices
+            .get(i)
+            .map_or(*self.host.borrow(), |(c, _)| *c.borrow())
+    }
+
+    /// The device play `k` of [`sessions`] runs on.
+    fn device_of_play(&self, k: usize) -> usize {
+        self.play_devices.borrow().get(k).copied().unwrap_or(k)
     }
 
     /// Time passes by `dt` seconds, the room's clients ticked (as their
     /// screens tick them outside a play).
     fn step(&self, dt: f64, clients: bool) {
         *self.host.borrow_mut() += dt;
-        let now = wall(*self.host.borrow());
+        let host = *self.host.borrow();
+        for (c, ppm) in &self.devices {
+            if *ppm != 0.0 {
+                *c.borrow_mut() = host * (1.0 + ppm / 1e6);
+            }
+        }
+        let now = wall(host);
         self.server_clock.set(now);
         if clients {
             for r in &self.rooms {
@@ -304,6 +347,11 @@ fn sessions(
         r.step(0.02, true);
     }
     assert!(r.rooms[0].borrow().stage_started(stage), "the room started it");
+    *r.play_devices.borrow_mut() = orders
+        .iter()
+        .enumerate()
+        .filter_map(|(i, o)| o.as_ref().map(|_| i))
+        .collect();
     orders
         .iter()
         .enumerate()
@@ -331,9 +379,9 @@ fn session_for(
         order.chart.index,
         &settings,
         config,
-        FakeAudio::new(&r.host, 0.02),
+        FakeAudio::new(&r.devices[i].0, 0.02),
         110.0,
-        FakeInputs::new(&r.host),
+        FakeInputs::new(&r.devices[i].0),
     )
     .unwrap()
 }
@@ -358,7 +406,7 @@ fn play_out(
             if ended[i].is_some() {
                 continue;
             }
-            let (_, event) = s.tick(HostTime(now));
+            let (_, event) = s.tick(HostTime(r.device_now(r.device_of_play(i))));
             if let Some(e) = event {
                 let o = s.take_stage_outcome().expect("its outcome");
                 ended[i] = Some((e, o));
@@ -1079,5 +1127,74 @@ fn a_person_is_attacked_as_the_bots_are_at_a_slow_links_latency() {
                 assert_eq!(g.taken, g.against);
             }
         }
+    }
+}
+
+/// The clocks' drift during a live stage (`ddi_room::live::slew`): two
+/// players whose sound cards run 500 millionths fast and slow against the
+/// room's clock, both autoplayed. Each play's own judging stays on its
+/// audio clock (its judgments exactly those of the same plays without
+/// drift), while its stream's and its views' times follow the room's
+/// clock: each device's correction is its drift, the other's field shows
+/// its taps where its notes are (its clock's shift as its taps say it),
+/// and the view's delay is what it is without drift, never a stall.
+#[test]
+fn a_live_stage_keeps_the_room_s_clock_while_the_devices_drift_and_judges_as_without() {
+    let song = bundled("beatucada");
+    let lat = Some(Latency {
+        down_ms: 40,
+        down_jitter_ms: 30,
+        up_ms: 40,
+        up_jitter_ms: 30,
+        seed: 9,
+    });
+    let people = [("alice", Intent::Play), ("bob", Intent::Play)];
+    let run = |ppm: &[f64]| {
+        let r = Room::drifting(&people, lat, ppm);
+        let orders = pick_and_ready(&r, &song, false, CHART);
+        let mut plays = sessions(&r, &song, &orders, &[0.0, 0.0]);
+        let start = *r.host.borrow();
+        let mut seen = Vec::new();
+        let ended = play_out(&r, &mut plays, 400.0, |t, plays| {
+            if (t * 60.0).round() as i64 % 60 == 0 {
+                let states: Vec<(f64, f64, i64, u32)> = plays
+                    .iter()
+                    .map(|p| {
+                        let b = p.battle().unwrap();
+                        let l = b.live_state().unwrap();
+                        let shift = b.remote_shift_us().first().copied().unwrap_or(0);
+                        (l.slew_ms, l.delay_ms, shift, l.stalls)
+                    })
+                    .collect();
+                seen.push((t, states));
+            }
+        });
+        assert!(ended.iter().all(Option::is_some));
+        let judged: Vec<String> = plays
+            .iter()
+            .map(|p| format!("{:?}", p.player.judge().notes()))
+            .collect();
+        (judged, seen, *r.host.borrow() - start)
+    };
+    let (still, steady, _) = run(&[]);
+    let (drifting, seen, _) = run(&[500.0, -500.0]);
+    assert_eq!(still, drifting, "the plays judged exactly as without drift");
+    let (t, last) = seen.iter().rev().find(|(t, _)| *t > 60.0).unwrap().clone();
+    // Alice's clock runs fast: her song time ahead of the room's, her
+    // correction the drift's (room − own), about 0.5 ms a second.
+    let want = 0.5 * t;
+    assert!((last[0].0 + want).abs() < 8.0, "{t}: {:?}", last[0]);
+    assert!((last[1].0 - want).abs() < 8.0, "{t}: {:?}", last[1]);
+    // Each sees the other's taps on the other's clock: its shift is the
+    // other's correction (µs) as it was over its last few taps (the
+    // median of nine, some seconds back: a few ms behind it now).
+    assert!((last[0].2 as f64 / 1e3 - last[1].0).abs() < 12.0, "{last:?}");
+    assert!((last[1].2 as f64 / 1e3 - last[0].0).abs() < 12.0, "{last:?}");
+    assert!(last[0].2 > 30_000 && last[1].2 < -30_000, "{last:?}");
+    // The view's delay as without drift, and no stall.
+    let steady_last = &steady.iter().rev().find(|(s, _)| *s <= t).unwrap().1;
+    for (a, b) in last.iter().zip(steady_last) {
+        assert!(a.1 <= b.1 + 40.0, "{a:?} against {b:?}");
+        assert_eq!(a.3, 0, "{a:?}");
     }
 }

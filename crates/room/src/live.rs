@@ -33,6 +33,7 @@ pub mod clock;
 pub mod delay;
 pub mod plan;
 pub mod server;
+pub mod slew;
 pub mod stream;
 pub mod wire;
 
@@ -45,6 +46,7 @@ pub use clock::{ClockEstimate, ClockEstimator, Ping, Pong};
 pub use delay::{VIEW_DELAY_V0, ViewDelay, ViewDelayRules, ViewMeter};
 pub use plan::{BattlePlan, PlanDigest, PlanProblem};
 pub use server::{LiveOut, LiveReply, LiveServer, LiveStage};
+pub use slew::{SLEW_V0, SlewRules, SongSlew};
 pub use stream::{
     Batch, Commitment, Frame, FrameEntry, FrameReader, LiveReport, Moment, MomentKind, Outbox,
     StreamEnd,

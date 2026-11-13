@@ -211,6 +211,11 @@ impl TapTrack {
         self.notes.is_empty()
     }
 
+    /// The song second of `tick` on the chart's timing.
+    pub fn seconds_at(&self, tick: Tick) -> f64 {
+        self.timing.seconds_at(tick)
+    }
+
     /// The note a moment judged.
     fn find(&self, tick: Tick, lane: u8) -> Option<usize> {
         let seconds = self.timing.seconds_at(tick);

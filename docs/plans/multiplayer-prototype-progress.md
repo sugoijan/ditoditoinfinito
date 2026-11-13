@@ -4958,11 +4958,8 @@ watching there; a person who wins has their fail turned off as before.
   780 at most, against 480); `live-v1`'s constant second was untouched
   by it at both. Mapping a stream's times and the views onto the room's
   clock as estimated through the stage instead (the study's
-  "resynced") holds 480 ms at 500 ppm. **Not built in the play**: the
-  session still maps once; doing it would put the moments' times and
-  the views on the room's clock (the play's song time plus a slowly
-  slewed correction from the clock's estimate, its judging left alone).
-  Worth it only for clocks as bad as 500 ppm over long songs.
+  "resynced") holds 480 ms at 500 ppm. Built since (below, "What the
+  second round left").
 - **Resends backed off** (found by the load test, below): a stream
   resent every unacknowledged batch each second while the room did not
   answer; at ten batches a second a room that fell behind was sent a
@@ -4971,6 +4968,39 @@ watching there; a person who wins has their fail turned off as before.
   each unanswered resend, up to eight seconds, and starts over on an
   acknowledgement or a new socket.
 
+## What the second round left (2026-11-13)
+
+### The clocks' drift kept out of the views
+
+Built as the study proposed (`ddi_room::live::slew`, `SongSlew`,
+`SLEW_V0` `slew-v0`, PROVISIONAL; [Online play](multiplayer-online-play.md),
+"The clocks' drift"): each frame of a live play
+(`ddi_session::battle::live::Live::sync`) its song time plus a correction
+that follows the room's clock as estimated, averaged over 4 s and moved at
+most 2 ms a second, never backwards; its moments and its stream's
+judged-to time are sent on it, and its views' delay is measured and drawn
+on it. **The player's own judging is untouched**: the presses, the notes'
+times, the music, the attacks' fairness (a commitment is still checked
+against the play's own judged time) and the checkpoint reports (chart
+times) stay on the audio clock. A viewer puts each remote competitor's
+moments back on that competitor's own song clock by the shift its taps
+say (no wire change), so a hit still meets its note; the attack warnings
+and links of a remote field are said on that field's time
+(`Live::field_delay_s`). Where the clocks disagree past the estimate's
+uncertainty (and 20 ms), the log says so and the debug state shows it
+(`__DDI_DEBUG.live.slew`); the room is told nothing more.
+
+Tested: `ddi-room` `the_views_keep_their_delay_when_the_clocks_drift`
+(the study's rows as a regression test: 50 and 500 millionths over a
+five-minute song, three competitors and a watcher: 459 and 482 ms against
+608 mapped once at 500, no stall) and the slew's own two tests;
+`ddi-session` `a_live_stage_keeps_the_room_s_clock_while_the_devices_drift_and_judges_as_without`
+(two plays 500 millionths fast and slow on the fake room: every note's
+judgment byte-identical to the same plays without drift, each correction
+the drift's, each shift the other's correction, the delay as without
+drift and no stall). The study prints a third row, "mapped once, kept in
+step".
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -4978,6 +5008,7 @@ watching there; a person who wins has their fail turned off as before.
 | `join-watch-v0`: a join asking to play where every player's place is taken is in to watch; nobody is moved to Play when a place frees up; the arrival is said on the status line for 12 s | `ddi_room::RoomState::arrival_intent`, `players_full`; `ddi_ui`'s `LinkNotice::JoinedToWatch`, `JOINED_TO_WATCH_MS` | A tenth person joins a room of nine players to watch, and plays only once they choose Play after a place frees | Whether a freed place should go to the longest-waiting watcher (asked, or at once) |
 | The watch-only link: held to watching until the owner's Let play (the owner alone; co-hosts may copy the link but not let); replaced with the room's invite | `ddi_room::Member::watch_only`, `Command::SetWatchOnly`; `../ddi-server` `invite::watch_secret` | Someone who came to watch never takes a player's place unless the host lets them | Whether co-hosts should let people play; whether the watch link should be replaceable on its own |
 | `watch-v0`: a grid's field is at most a play's own field (`GRID_LANE_SHARE` 1.0); a layout with more rows wins within a tenth of the largest lane (`GRID_FILL` 0.9) | `ddi_shell::opponents::arrange_grid` | One to three watched fields are nearly the screen's height; eight are four by two at lanes of 29 px (1280×720) | The sizes; whether eight should give up the play's proportion (shorter fields, larger lanes) |
+| `slew-v0` (2026-11-13): a live play's stream and views on the room's song clock, its correction averaged over 4 s and moved at most 2 ms a second; its judging on its own | `ddi_room::live::slew::SLEW_V0`, `ddi_session::battle::live::Live::sync` | None visible: remote fields keep their delay however the devices' clocks drift | The rate; whether a large disagreement should be told to the room |
 | `watch-v1` (2026-11-13; `watch-v0` ended 2.5 s after the decision): a watched stage goes on after its decision while anyone still plays its song, its results 2.5 s after the last one ended (`WATCH_END_HOLD`) or at the song's end | `ddi_session::play::watch`, `Battle::still_playing` | A watcher (and a player out of the stage) sees the winner finish the song, "X wins the stage" on the status line from the decision on; Enter or Start still skips | Whether the hold after the winner finishes should be shorter |
 | `watch-v0`: where every person watches, a practice stage starts with the pick (the room's countdown), with no press of the watcher's | `ddi_room` `humans_needed`, `maybe_commit` | A watching host's pick is followed by the stage three seconds later | Whether a watching host should start it with a press |
 | `watch-v0`: the status line's moments for a watcher: out, attacks, the win; an attack never takes the line from someone going out | `ddi_session::play::watch::Watch::tell` | With eight CPUs attacking the line changes every few seconds | Which moments a watcher is told, and whether as a line of the announcer's |
