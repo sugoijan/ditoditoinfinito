@@ -20,8 +20,10 @@
 //!   attack policy, one small muted word under the life gauge's left end,
 //!   as steady as the waiting line (nothing flashes, nothing moves). A
 //!   tap or a click on it or on the bars above it ([`policy_area`])
-//!   cycles the policy, as Tab and a pad's View do
-//!   (`ddi_session::play`).
+//!   cycles the policy, as Shift, Tab and a pad's View do
+//!   (`ddi_session::play`); after it a small quiet cap names the key (or
+//!   the pad's control) that does it, where it fits (none on a touch
+//!   screen, where the label is tapped).
 
 use ddi_actor::text::{TextMeasure, TextStyle};
 use ddi_render::FieldGeometry;
@@ -239,23 +241,93 @@ const POLICY_SIZE: f32 = 12.0;
 
 /// Draws `text`, the player's attack policy, under the life gauge's left
 /// end over the field `geo` (`span` lanes wide), left-aligned to it;
-/// `ratio` a logical pixel.
-pub fn draw_policy(list: &mut DrawList, text: &str, geo: &FieldGeometry, span: f32, ratio: f32) {
-    let (_, life) = ddi_render::scene::power_and_life(geo, span);
+/// `ratio` a logical pixel. With `key` (what changes it: a key's name,
+/// "shift", or a pad control's), a small quiet cap after it, where it
+/// fits before the bars' middle (the waiting line's half is the right).
+#[allow(clippy::too_many_arguments)]
+pub fn draw_policy(
+    list: &mut DrawList,
+    text: &str,
+    key: Option<&str>,
+    geo: &FieldGeometry,
+    span: f32,
+    ratio: f32,
+    measure: &mut dyn TextMeasure,
+) {
+    let (power, life) = ddi_render::scene::power_and_life(geo, span);
     let face = ddi_l10n::font_stack(FACE);
     let mut style = TextStyle::new(face.as_str(), POLICY_SIZE * ratio);
     style.weight = 500;
+    let y = life[1] + life[3] + 3.0 * ratio;
+    let width = key.map(|_| measure.measure(text, &style).advance);
     list.push(Command::Text(TextRun {
         curve: None,
         text: text.into(),
         style,
-        transform: Affine::translate(life[0], life[1] + life[3] + 3.0 * ratio),
+        transform: Affine::translate(life[0], y),
         color: MUTED,
         blend: Blend::Normal,
         mask: Mask::None,
         perspective: None,
         blur: [0.0; 2],
     }));
+    let (Some(key), Some(width)) = (key, width) else {
+        return;
+    };
+    for c in policy_cap(key, life[0] + width, y, ratio, power[0] + power[2] * 0.45, measure) {
+        list.push(c);
+    }
+}
+
+/// The cap's legend size, logical pixels.
+const CAP_SIZE: f32 = 9.0;
+
+/// The policy key's cap after the label ending at `x` (its top at `y`):
+/// an outline with the key's name in it, quieter than the label; nothing
+/// where it would reach past `limit`.
+fn policy_cap(
+    key: &str,
+    x: f32,
+    y: f32,
+    ratio: f32,
+    limit: f32,
+    measure: &mut dyn TextMeasure,
+) -> Vec<Command> {
+    let face = ddi_l10n::font_stack(FACE);
+    let mut style = TextStyle::new(face.as_str(), CAP_SIZE * ratio);
+    style.weight = 500;
+    let legend = measure.measure(key, &style).advance;
+    let (pad, h) = (4.0 * ratio, (POLICY_SIZE + 2.0) * ratio);
+    let left = x + 6.0 * ratio;
+    let w = legend + 2.0 * pad;
+    if left + w > limit {
+        return Vec::new();
+    }
+    let top = y + 0.5 * ratio;
+    let color = [MUTED[0], MUTED[1], MUTED[2], MUTED[3] * 0.7];
+    let outline = 1.0 * ratio;
+    vec![
+        Command::Quad({
+            let mut q = Quad::plain([left, top, left + w, top + h], color);
+            q.shape = Shape {
+                radius: [3.0 * ratio; 2],
+                outline: [outline; 2],
+                ..Shape::NONE
+            };
+            q
+        }),
+        Command::Text(TextRun {
+            curve: None,
+            text: key.into(),
+            style,
+            transform: Affine::translate(left + pad, top + (h - CAP_SIZE * ratio * 1.25) / 2.0),
+            color,
+            blend: Blend::Normal,
+            mask: Mask::None,
+            perspective: None,
+            blur: [0.0; 2],
+        }),
+    ]
 }
 
 /// An attack policy's word, as the label and the rooms say it.
@@ -305,12 +377,39 @@ mod tests {
                 let clear = qx + qr <= l || qx - qr >= r || qy + qr <= t || qy - qr >= b;
                 assert!(clear, "{w}x{h} reverse {reverse}: quit {qx} {qy} {qr}, label {l} {t} {r} {b}");
                 let mut list = DrawList::new();
-                draw_policy(&mut list, "Spread", &geo, 4.0, ratio);
+                let mut m = ddi_actor::text::FixedMeasure;
+                draw_policy(&mut list, "Spread", None, &geo, 4.0, ratio, &mut m);
                 let Command::Text(run) = &list.commands[0] else {
                     panic!("a text");
                 };
                 assert_eq!(run.text.as_ref(), "Spread");
                 assert_eq!(run.color, MUTED);
+                assert_eq!(list.commands.len(), 1, "no key: the word alone");
+                // With the key: its cap after the word, inside the tap
+                // area and left of the bars' middle, where it fits.
+                let mut list = DrawList::new();
+                draw_policy(&mut list, "Spread", Some("shift"), &geo, 4.0, ratio, &mut m);
+                if list.commands.len() > 1 {
+                    let Command::Quad(q) = &list.commands[1] else {
+                        panic!("a cap");
+                    };
+                    let word = m
+                        .measure("Spread", &{
+                            let mut st = TextStyle::new("x", POLICY_SIZE * ratio);
+                            st.weight = 500;
+                            st
+                        })
+                        .advance;
+                    assert!(q.rect[0] > life[0] + word, "{w}x{h}: after the word");
+                    assert!(q.rect[2] <= power[0] + power[2] * 0.45 + 0.01, "{w}x{h}");
+                    assert!(q.rect[2] <= r + 0.01, "{w}x{h}: inside the tap area");
+                    let Command::Text(t) = &list.commands[2] else {
+                        panic!("its legend");
+                    };
+                    assert_eq!(t.text.as_ref(), "shift");
+                } else {
+                    assert!(w < 1000.0, "{w}x{h}: the cap fits on a wide screen");
+                }
             }
         }
         assert_eq!(policy_word(ddi_session::battle::Targeting::Leader), "Leader");

@@ -1662,10 +1662,20 @@ impl<H: PlayHost> PlayView<H> {
             let waiting = b
                 .waiting(&session.player)
                 .map(|_| String::from(ddi_l10n::msg::room::play_attack_waiting()));
+            // How the policy is changed, beside it: the key or the pad's
+            // control (on a touch screen the label itself is tapped).
+            let policy_key = session.policy_key().and_then(|k| match k {
+                ddi_session::play::PolicyKey::Key(_) if screen.touch => None,
+                ddi_session::play::PolicyKey::Key(code) => {
+                    Some(ddi_ui::controller_hints::policy_keycap(code).label())
+                }
+                ddi_session::play::PolicyKey::Pad(name) => Some(name.to_string()),
+            });
             Attack {
                 cue,
                 waiting,
                 policy: b.policy(&session.player),
+                policy_key,
                 links: std::mem::take(&mut links),
                 warnings: std::mem::take(&mut warnings),
                 own_out: own_out.clone(),
@@ -1838,9 +1848,11 @@ impl<H: PlayHost> PlayView<H> {
                     crate::battle_cue::draw_policy(
                         list,
                         &crate::battle_cue::policy_word(policy),
+                        a.policy_key.as_deref(),
                         &a.geo,
                         a.span,
                         a.ratio,
+                        &mut measure,
                     );
                 }
                 if let Some(text) = &a.waiting {
@@ -1949,6 +1961,8 @@ struct Attack {
     waiting: Option<String>,
     /// The player's attack policy, while its label shows.
     policy: Option<ddi_session::battle::Targeting>,
+    /// What changes it, beside it (a key's or a pad control's name).
+    policy_key: Option<String>,
     /// Who attacks whom, for the player's own attacks.
     links: Vec<crate::attack_links::Shown>,
     /// A watched grid's warnings: the recipient's seat, its field, the

@@ -220,3 +220,75 @@ fn the_rules_pop_up_fits_with_few_and_many_cpus() {
     ddi_l10n::unforce();
     assert!(ddi_l10n::set_language("en"));
 }
+
+/// Attacks at once (`attacks-v3`, 2026-11-13): the Rules pop-up's row
+/// under Attacks with its sentence, focused (scrolled into view), at
+/// 1280×720 and 844×390, in English and Japanese: the row and its value
+/// whole on view, its sentence under it. `DDI_ROOM_SHOTS=<dir>` keeps
+/// `at-once-<w>x<h>-<lang>.ppm`.
+#[test]
+fn the_attacks_at_once_row_is_drawn() {
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let (device, queue) = gpu::device(&adapter).expect("device");
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut gpu = Gpu::new(device, queue, format);
+    for size in [[1280u32, 720u32], [844, 390]] {
+        for lang in ["en", "ja"] {
+            assert!(ddi_l10n::force(lang));
+            let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
+            let (mut ui, env, _) = ddi_desktop::shell::theme_ui("room", fold);
+            env.reduced_motion.set(true);
+            ui.handle(UiEvent::Resize {
+                size: [size[0] as f32, size[1] as f32],
+                ratio: 1.0,
+            });
+            frames(&mut ui, 30);
+            let room = ddi_desktop::room::current();
+            room.borrow_mut().set_rules_seen(true);
+            ui.push_over(RulesDialog::new(env.clone(), room.clone()));
+            frames(&mut ui, 30);
+            for _ in 0..30 {
+                if ui.focused().is_some_and(|f| f.ends_with(".at_once")) {
+                    break;
+                }
+                ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::down("ArrowDown", "ArrowDown")));
+                ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::up("ArrowDown", "ArrowDown")));
+                frames(&mut ui, 4);
+            }
+            assert!(ui.focused().is_some_and(|f| f.ends_with(".at_once")), "{size:?} {lang}");
+            // Two: the value changed, the row marked nothing (no match runs).
+            // Down lands on its −: Enter on it.
+            assert_eq!(ui.focused(), Some("Dec.at_once"), "{size:?} {lang}");
+            ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::down("Enter", "Enter")));
+            ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::up("Enter", "Enter")));
+            frames(&mut ui, 4);
+            assert_eq!(ui.focused(), Some("Dec.at_once"), "{size:?} {lang}");
+            frames(&mut ui, 30);
+            assert_eq!(
+                env.state.borrow().room.clone().unwrap().draft_at_once.as_deref(),
+                Some("two"),
+                "{size:?} {lang}"
+            );
+            for name in ["Rule.at_once", "Rule.at_once.Value", "Rule.at_once.About0"] {
+                assert!(ui.actor(name).is_some(), "{name} at {size:?} {lang}");
+            }
+            for name in ["Dec.at_once", "Inc.at_once"] {
+                let (b, v) = (ui.bounds(name), ui.visible_bounds(name));
+                assert!(b.is_some() && b == v, "{name} whole at {size:?} {lang}: {b:?} {v:?}");
+            }
+            let picture = gpu.draw_offscreen(&mut ui, size, format);
+            if let Some(dir) = std::env::var_os("DDI_ROOM_SHOTS") {
+                let mut out = format!("P6\n{} {}\n255\n", size[0], size[1]).into_bytes();
+                out.extend(picture.as_chunks::<4>().0.iter().flat_map(|p| [p[0], p[1], p[2]]));
+                let name = format!("at-once-{}x{}-{lang}.ppm", size[0], size[1]);
+                std::fs::write(std::path::Path::new(&dir).join(name), out).unwrap();
+            }
+        }
+    }
+    ddi_l10n::unforce();
+    assert!(ddi_l10n::set_language("en"));
+}

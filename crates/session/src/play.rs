@@ -45,9 +45,19 @@ pub const TOUCH_CANCEL_CONTROL: &str = "cancel";
 /// The control a tap or a click on a stage's attack policy label sends
 /// (`ddi_shell`'s label by the power bar): it cycles the policy.
 pub const TOUCH_POLICY_CONTROL: &str = "policy";
-/// The key that cycles a stage's attack policy (D8), unless a lane is
-/// bound to it.
-pub const POLICY_KEY: &str = "Tab";
+/// The keys that cycle a stage's attack policy (D8; Shift since the
+/// maintainer's decision of 2026-11-13, Tab kept), each unless a lane is
+/// bound to it: either Shift by physical code, and Tab.
+pub use ddi_ui::controller_hints::POLICY_KEYS;
+
+/// How the attack policy is changed during play, as the label beside it
+/// says (`ddi_shell::battle_cue::draw_policy`): a key (its code, one of
+/// [`POLICY_KEYS`]), or a pad's control (its Back) by its name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PolicyKey {
+    Key(&'static str),
+    Pad(&'static str),
+}
 /// How long a pad's Back is held in a stage with attacks before its
 /// quit's hint and bar show: a shorter press is the policy's (D8), which
 /// shows nothing of the quit.
@@ -409,6 +419,8 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     input: LaneInput,
     /// Pad controls that act like Escape: `(Gamepad.id, control)`.
     pad_cancel: Vec<(String, String)>,
+    /// The device of the last press (what the policy's label names).
+    last_device: Option<DeviceId>,
     /// Pads' Start controls, which hide and move the lane covers.
     pad_start: Vec<(String, String)>,
     /// What the edges do to the lane covers.
@@ -748,8 +760,8 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .iter()
             .map(|s| s.to_string()),
         );
-        // A stage with attacks: Tab cycles the policy, never the page's
-        // focus.
+        // A stage with attacks: Shift and Tab cycle the policy, never
+        // the page's focus.
         if config
             .opponents
             .as_ref()
@@ -757,7 +769,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 (s.battle.attacks() || s.watching) && (!s.remote() || s.live.is_some())
             })
         {
-            capture.push(POLICY_KEY.into());
+            capture.extend(POLICY_KEYS.iter().map(|k| k.to_string()));
         }
         // A watched stage: nothing of the session's own player is played
         // or judged (its clock alone runs).
@@ -1059,6 +1071,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             inputs: Running(inputs),
             input: LaneInput::new(bindings),
             pad_cancel,
+            last_device: None,
             pad_start,
             cover: CoverControl::new(config.reverse),
             keep_cover: config.replay.is_none() && config.calibration.is_none(),
@@ -1179,6 +1192,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .fold(host_now.0, |t, r| t.max(r.host_time.0));
         let mut raw_inputs = std::mem::take(&mut self.raw);
         for raw in raw_inputs.drain(..) {
+            if raw.pressed {
+                self.last_device = Some(raw.device.clone());
+            }
             // Only a press reveals a pad: releases of a pad that went away
             // (`release_all`) must not re-resolve the sides mid-song.
             if let DeviceId::Gamepad(id) = &raw.device
@@ -2097,9 +2113,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 .is_some_and(|b| b.policy(&self.player).is_some())
     }
 
-    /// The attack policy's own controls (D8): Tab, unless the layout or
-    /// the player's bindings give it to a lane (it then plays the lane),
-    /// and a tap or a click on its label. (A pad's Back is told apart in
+    /// The attack policy's own controls (D8): either Shift and Tab
+    /// ([`POLICY_KEYS`]), each unless the layout or the player's bindings
+    /// give it to a lane (it then plays the lane), and a tap or a click on
+    /// its label. (A pad's Back is told apart in
     /// the quit's place: pressed briefly it cycles, held it quits.)
     fn is_policy_control(&self, raw: &RawInput) -> bool {
         if !self.policy_cycles() {
@@ -2107,7 +2124,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         }
         match &raw.device {
             DeviceId::Keyboard => {
-                raw.control == POLICY_KEY
+                POLICY_KEYS.contains(&raw.control.as_str())
                     && self
                         .input
                         .bindings
@@ -2116,6 +2133,36 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
             DeviceId::Touch => raw.control == TOUCH_POLICY_CONTROL,
             _ => false,
+        }
+    }
+
+    /// How the attack policy is changed now, for the label beside it:
+    /// the pad's Back where a pad was pressed last (named as its cap
+    /// is), nothing after a tap (the label is tapped), else the first
+    /// policy key no lane has; none where the policy does not cycle.
+    pub fn policy_key(&self) -> Option<PolicyKey> {
+        if !self.policy_cycles() {
+            return None;
+        }
+        match &self.last_device {
+            Some(DeviceId::Touch) => None,
+            Some(DeviceId::Gamepad(id)) => {
+                let control = self.pad_cancel.iter().find(|(p, _)| p == id)?;
+                ddi_ui::controller_hints::pad_control_name(
+                    &self.known_pads,
+                    &self.styles,
+                    id,
+                    &control.1,
+                )
+                .map(PolicyKey::Pad)
+            }
+            _ => ddi_ui::controller_hints::policy_key(|k| {
+                self.input
+                    .bindings
+                    .lane_of_slot(&DeviceId::Keyboard, 0, k)
+                    .is_some()
+            })
+            .map(PolicyKey::Key),
         }
     }
 

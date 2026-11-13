@@ -625,6 +625,45 @@ pub fn quit_hold_hint(
     })
 }
 
+/// The keys that cycle a stage's attack policy during play
+/// (`ddi_session::play`, D8 and the maintainer's decision of 2026-11-13):
+/// either Shift, by physical code, and Tab, each unless the player's
+/// bindings give it to a lane (it then plays the lane). In the order a
+/// hint names them.
+pub const POLICY_KEYS: [&str; 3] = ["ShiftLeft", "ShiftRight", "Tab"];
+
+/// The key a hint names for cycling the attack policy: the first of
+/// [`POLICY_KEYS`] that `bound` (whether a lane has the code) leaves free;
+/// none where all three are a lane's.
+pub fn policy_key(bound: impl Fn(&str) -> bool) -> Option<&'static str> {
+    POLICY_KEYS.into_iter().find(|k| !bound(k))
+}
+
+/// A policy key's cap ([`POLICY_KEYS`]): Shift for either Shift, else Tab.
+pub fn policy_keycap(code: &str) -> crate::keycaps::KeyboardKey {
+    if code.starts_with("Shift") {
+        crate::keycaps::KeyboardKey::Shift
+    } else {
+        crate::keycaps::KeyboardKey::Tab
+    }
+}
+
+/// The name of pad `id`'s `control` (in `slot`, among `pads` drawn in
+/// `styles`) as its cap shows it, where it is a standard pad's: the
+/// attack policy's pad control (its Back) named beside the label in play.
+pub fn pad_control_name(
+    pads: &[ConnectedPad],
+    styles: &BTreeMap<String, Style>,
+    id: &str,
+    control: &str,
+) -> Option<&'static str> {
+    pads.iter()
+        .find(|p| p.id == id)
+        .map(|p| Cap::control(p, family(styles, p), control))
+        .filter(Cap::standard)
+        .map(|cap| kept(cap.name()))
+}
+
 /// The hint after the touch screen's quit button was pressed.
 pub fn quit_button_hint() -> &'static str {
     kept(ddi_l10n::msg::prompt::play_quit_button())

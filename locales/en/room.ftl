@@ -712,6 +712,11 @@ room-play-attack-waiting = Waiting for target
 # ◀ Spread ▶ (about 12 letters).
 room-targeting = Targeting
 
+# After a key cap (Shift) or a controller's button under the Targeting
+# row on a stage's start prompt: that key changes the policy while the
+# song plays (two or three words).
+room-targeting-during-play = during play
+
 # One line beside or under that row: what the chosen policy does (up to
 # about 55 letters). Spread.
 room-attack-policy-spread-about = Your attacks go to whoever has been attacked least.

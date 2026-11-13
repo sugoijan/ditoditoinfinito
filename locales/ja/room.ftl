@@ -384,6 +384,7 @@ room-attack-policy-retaliate = 仕返し
 room-attack-policy-leader = トップ
 room-play-attack-waiting = 攻撃先を待機中
 room-targeting = ターゲット
+room-targeting-during-play = プレイ中に切り替え
 room-attack-policy-spread-about = 攻撃された回数が最も少ない相手を攻撃します。
 room-attack-policy-retaliate-about = 最後に自分を攻撃した相手を攻撃します。
 room-attack-policy-leader-about = ライフが最も多い相手を攻撃します。

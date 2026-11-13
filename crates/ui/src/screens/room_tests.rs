@@ -1054,6 +1054,53 @@ fn attacks_prompt(env: &Env, room: &SharedRoom, h: &mut Harness) -> StageOrder {
     order
 }
 
+/// The policy row says how to change it during play (the maintainer,
+/// 2026-11-13): Shift's cap and "during play" from the keyboard; the
+/// controller's Back once a controller is the hints' source; nothing on a
+/// touch screen, where the label is tapped.
+#[test]
+fn the_prompt_s_policy_row_says_how_to_change_it_during_play() {
+    let row = "Opt.room.targeting";
+    let key = format!("{row}.Key");
+    let room = RoomClient::shared(0, 1);
+    let mut h = harness();
+    let e = env();
+    attacks_prompt(&e, &room, &mut h);
+    assert!(there(&h, &key), "{:?}", h.texts());
+    assert!(h.texts().iter().any(|t| t.contains("during play")), "{:?}", h.texts());
+    assert!(h.texts().iter().any(|t| t.contains("shift")), "{:?}", h.texts());
+    // A controller's edge: its Back's cap.
+    let controls = ddi_engine::ControlBindings::default();
+    h.controller(&controls, "Pad", true, "button:12", true);
+    h.controller(&controls, "Pad", true, "button:12", false);
+    h.run(0.2);
+    assert!(h.ui.hints().active());
+    assert!(there(&h, &key));
+    assert!(!h.texts().iter().any(|t| t.contains("shift")), "{:?}", h.texts());
+    assert!(h.texts().iter().any(|t| t.contains("during play")));
+    // A touch screen: none (the row is there, its hint not).
+    let room = RoomClient::shared(0, 1);
+    let mut rules = room.borrow().rules().clone();
+    rules.set_attacks(true);
+    room.borrow_mut().save_rules(rules).unwrap();
+    let s = &library("dance-single").songs[0];
+    room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+    let order = room.borrow_mut().take_stage_order().unwrap();
+    let state = Rc::new(RefCell::new(PromptState::default()));
+    state.borrow_mut().touch = true;
+    let mut h = harness();
+    h.push(
+        PromptScreen::new(env(), state, Rc::new(|_, _| {})).with_room(
+            room.clone(),
+            order.stage,
+            shell(&room, &Orders::default()),
+        ),
+    );
+    h.run(0.5);
+    assert!(there(&h, row));
+    assert!(!there(&h, &key));
+}
+
 /// M8 round 3 (D8): where the match has attacks, the stage's prompt has
 /// the player's attack policy as one quiet row with what it does: Left
 /// and Right, a tap on its arrows or on the row, and Enter change it

@@ -30,6 +30,34 @@ const LIST_ROW: f32 = 22.0;
 /// A CPU's level's stars at the end of its row.
 const LIST_STARS: f32 = 11.0;
 
+/// What changes the attack policy during play, as the prompt's hint shows
+/// it: the active controller's Back (a short press of it, D8), else the
+/// first policy key the chart's keyboard bindings leave free (Shift; Tab
+/// where both Shifts are a lane's, `controller_hints::policy_key`); none
+/// on a touch screen, or where every policy key is a lane's.
+pub(super) fn targeting_keys(state: &PromptState, cx: &Cx) -> Option<Vec<crate::keycaps::Keycap>> {
+    if state.touch {
+        return None;
+    }
+    let hints = cx.hints();
+    if hints.active() {
+        let caps = hints.actions(&[ddi_engine::MenuInput::Back]);
+        return (!caps.is_empty()).then_some(caps);
+    }
+    let table = state
+        .bindings
+        .as_ref()
+        .map(|c| c.settings.controls.keyboard(&c.layout));
+    let code = crate::controller_hints::policy_key(|k| {
+        table
+            .as_ref()
+            .is_some_and(|t| t.iter().any(|lane| lane.iter().any(|c| c == k)))
+    })?;
+    Some(vec![crate::keycaps::Keycap::Key(
+        crate::controller_hints::policy_keycap(code),
+    )])
+}
+
 /// The attack policy's row: its name as a control (one of the play
 /// options' rows, so the focus and the lighting are theirs) and its id.
 pub(super) const TARGETING: &str = "Opt.room.targeting";
@@ -345,9 +373,19 @@ impl PromptScreen {
     /// The player's attack policy, where the stage's match has attacks
     /// and the room still has this prompt for them (M8 round 3, D8): a
     /// row `inner` wide from `y` (a label, ◀ the policy ▶) with a line
-    /// under it saying what the policy does; its control's name and its
+    /// under it saying what the policy does, and under that how to change
+    /// it during play (the maintainer, 2026-11-13: Shift, shown on the
+    /// ready screen): the key's cap, or the controller's Back where a
+    /// controller is the hints' source, and "during play"; nothing on a
+    /// touch screen (the label is tapped). Its control's name and its
     /// height.
-    pub(super) fn room_targeting_row(&self, inner: f32, y: f32) -> Option<(Actor, String, f32)> {
+    pub(super) fn room_targeting_row(
+        &self,
+        inner: f32,
+        y: f32,
+        state: &PromptState,
+        cx: &mut Cx,
+    ) -> Option<(Actor, String, f32)> {
         let rm = self.room.as_ref()?;
         if rm.gone.get().is_some() {
             return None;
@@ -426,6 +464,18 @@ impl PromptScreen {
                 parts.push(left(text, x0, height + 8.0));
                 height += 16.0;
             }
+        }
+        if let Some(keys) = targeting_keys(state, cx) {
+            let (mut hint, w) = crate::screens::key_hint(
+                env,
+                &format!("{name}.Key"),
+                &keys,
+                &msg::room::targeting_during_play(),
+                cx,
+            );
+            call(&mut hint, "xy", &[x0 + w / 2.0, height + 15.0]);
+            parts.push(hint);
+            height += 28.0;
         }
         let mut row = frame(name, parts);
         call(&mut row, "y", &[y]);

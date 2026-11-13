@@ -1221,7 +1221,8 @@ impl PromptScreen {
         // A room's stage with attacks: the player's attack policy, one
         // quiet row (Left and Right or a tap change it) and what it does.
         if state.step == PromptStep::Ready
-            && let Some((row, name, height)) = self.room_targeting_row(inner, y + 10.0)
+            && let Some((row, name, height)) =
+                self.room_targeting_row(inner, y + 10.0, state, cx)
         {
             c.push(row);
             controls.push(name);

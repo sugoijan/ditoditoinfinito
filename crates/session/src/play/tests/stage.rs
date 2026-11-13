@@ -1409,6 +1409,136 @@ fn a_policy_changed_in_play_applies_from_the_next_checkpoint_at_any_frame_rate_a
     assert_eq!(q.take_stage_outcome().unwrap().mine, ddi_room::Run::Forfeit);
 }
 
+/// Shift (the maintainer, 2026-11-13): either Shift cycles the policy in
+/// a stage with attacks, Tab still does; a Shift a lane has plays the
+/// lane and the other one cycles; a lane pressed with Shift held is
+/// judged as without it, and no Shift press is ever judged (the log's
+/// inputs are the same); each change is in the log at its judged second
+/// and the stage replayed from it comes to the same record. The label's
+/// key follows: Shift, the other Shift where a lane has one, the pad's
+/// Back after a pad's press.
+#[test]
+fn shift_cycles_the_policy_tab_still_does_and_a_lane_s_shift_plays_the_lane() {
+    use crate::play::PolicyKey;
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(&song, 3, 2);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let settings = Settings::default();
+    let key = || DeviceId::Keyboard;
+    let layout = song.layout_of(&song.charts[LONG]).unwrap();
+    let lane0 = settings.controls.keyboard(&layout)[0][0].clone();
+    let edges = [
+        (12.0, key(), "ShiftLeft", true),
+        (12.08, key(), "ShiftLeft", false),
+        (25.0, key(), "ShiftRight", true),
+        (25.08, key(), "ShiftRight", false),
+        (40.0, key(), "Tab", true),
+        (40.08, key(), "Tab", false),
+    ];
+    let a = play_with(&song, &order, 60.0, &settings, &edges);
+    assert_eq!(
+        a.player.log().policies.iter().map(|c| c.policy).collect::<Vec<_>>(),
+        vec![1, 2, 0],
+        "Retaliate, Leader, Spread"
+    );
+    assert!(a.inputs().begun.as_ref().unwrap().0.contains(&"ShiftLeft".to_string()));
+    assert!(a.inputs().begun.as_ref().unwrap().0.contains(&"ShiftRight".to_string()));
+    let ra = a.battle().unwrap().attacks().unwrap();
+    let again = replayed(&song, &order, &a);
+    let n = ra.record().len().min(again.len());
+    assert_eq!(&again[..n], &ra.record()[..n], "from the log");
+
+    // A lane pressed while Shift is held: judged as without Shift, and
+    // Shift itself never judged.
+    let lane = |extra: bool| {
+        let mut e = vec![
+            (30.2, key(), lane0.as_str(), true),
+            (30.3, key(), lane0.as_str(), false),
+            (31.2, key(), lane0.as_str(), true),
+            (31.25, key(), lane0.as_str(), false),
+        ];
+        if extra {
+            e.push((30.0, key(), "ShiftLeft", true));
+            e.push((31.5, key(), "ShiftLeft", false));
+        }
+        e.sort_by(|a, b| f64::total_cmp(&a.0, &b.0));
+        play_with(&song, &order, 60.0, &settings, &e)
+    };
+    let (with, without) = (lane(true), lane(false));
+    assert_eq!(with.player.log().inputs, without.player.log().inputs);
+    assert!(!with.player.log().inputs.is_empty(), "the lane's presses are kept");
+    assert_eq!(with.player.log().policies.len(), 1, "Shift's press alone cycles");
+    assert_eq!(
+        with.player.results().tally,
+        without.player.results().tally,
+        "never a stray press: the same tally"
+    );
+
+    // A lane bound to the left Shift: it plays the lane, the right one
+    // cycles, and the label names the right one.
+    let mut bound = Settings::default();
+    let mut table = bound.controls.keyboard(&layout);
+    table[0].push("ShiftLeft".into());
+    bound.controls.set_keyboard(&layout, table);
+    let s = play_with(&song, &order, 60.0, &bound, &edges);
+    assert_eq!(
+        s.player.log().policies.iter().map(|c| c.policy).collect::<Vec<_>>(),
+        vec![1, 2],
+        "the right Shift and Tab"
+    );
+    assert!(s.player.log().inputs.iter().any(|i| i.lane == 0), "the lane played");
+
+    // The label's key: Shift; the right one where the left is a lane's;
+    // a pad's Back once a pad was pressed (its Back named as its cap).
+    let quiet: [(f64, DeviceId, &str, bool); 0] = [];
+    let at_end = |settings: &Settings, edges: &[(f64, DeviceId, &str, bool)]| {
+        let clock: Clock = Rc::new(RefCell::new(0.0));
+        let mut config = SessionConfig::from_settings(settings, true, None);
+        config.opponents = Some(StageSetup::of(&order));
+        let mut inputs = FakeInputs::new(&clock);
+        inputs.pads.push(ConnectedPad {
+            vendor_product: None,
+            id: PAD.into(),
+            index: 0,
+            standard: true,
+        });
+        for (at, device, control, pressed) in edges {
+            inputs.queued.push(RawInput {
+                device: device.clone(),
+                control: (*control).into(),
+                pressed: *pressed,
+                host_time: HostTime(*at),
+                slot: 0,
+            });
+        }
+        let mut s = PlaySession::start(
+            &song,
+            order.chart.index,
+            settings,
+            config,
+            FakeAudio::new(&clock, 0.0),
+            110.0,
+            inputs,
+        )
+        .unwrap();
+        run_until(&mut s, &clock, 60.0, 20.0);
+        s.policy_key()
+    };
+    assert_eq!(at_end(&settings, &quiet), Some(PolicyKey::Key("ShiftLeft")));
+    assert_eq!(at_end(&bound, &quiet), Some(PolicyKey::Key("ShiftRight")));
+    let pad = [
+        (5.0, DeviceId::Gamepad(PAD.into()), "button:0", true),
+        (5.1, DeviceId::Gamepad(PAD.into()), "button:0", false),
+    ];
+    assert!(matches!(at_end(&settings, &pad), Some(PolicyKey::Pad(_))));
+    let tap = [
+        (5.0, DeviceId::Touch, "lane:0", true),
+        (5.1, DeviceId::Touch, "lane:0", false),
+    ];
+    assert_eq!(at_end(&settings, &tap), None, "the label is tapped");
+}
+
 /// M8 round 3 (S5): the local player's attack relationships, as the play
 /// draws them. Over a stage against strong CPUs: every attack the player
 /// sent or was sent is a link from the frame its checkpoint ran (never

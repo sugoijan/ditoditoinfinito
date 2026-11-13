@@ -1475,10 +1475,13 @@ fn attacks_debug(
         "kept_seats": b.kept_seats(&s.player, f64::from(ddi_shell::opponents::ROTATION_V0.every)),
         // The player's attack policy as its label says it (none once
         // out or after a win), where a press on it lands (CSS pixels),
+        // the key its label names,
         // the policy the ledger launches by, and the changes the play's
         // log keeps.
         "policy": b.policy(&s.player).map(|p| format!("{p:?}").to_lowercase()),
         "policy_at": crate::web::touch::policy_at(),
+        // What the label names as changing it (Shift, a pad's Back).
+        "policy_key": s.policy_key().map(|k| format!("{k:?}")),
         "policy_ledger": format!("{:?}", ledger.targeting(me)).to_lowercase(),
         "policy_changes": s.player.log().policies.iter().map(|c| json!([c.time, c.policy])).collect::<Vec<_>>(),
         "settling": b.settling().map(|x| x.survivor.0),
