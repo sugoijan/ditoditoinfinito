@@ -1822,6 +1822,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let Some(step) = steps.last().copied() else {
             return;
         };
+        self.sounds.step_down(self.player.judge().notes(), step.at);
         if let Some(a) = self.auto.as_mut() {
             let early = self.player.ruleset().judge.max_early();
             let fed_until = a.events[..a.next].last().map_or(f64::NEG_INFINITY, |p| p.release);

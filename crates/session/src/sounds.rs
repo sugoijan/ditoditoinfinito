@@ -238,6 +238,22 @@ impl<B> EventSounds<B> {
         }
     }
 
+    /// The player stepped down at song second `at` (a match's "At zero
+    /// life: Step down"): the claps still to schedule are those of
+    /// `notes`, the judge's after the step (the old chart's notes not
+    /// judged by `at` taken away, the new chart's from its boundary on).
+    /// Claps already asked for stay: at most [`CLAP_LOOKAHEAD`] of the
+    /// old chart's past the step, which the backend cannot take back.
+    /// The mine sound needs nothing: it follows what is judged.
+    pub fn step_down(&mut self, notes: &[JudgedNote], at: f64) {
+        if self.clap.is_none() {
+            return;
+        }
+        let done = self.next.checked_sub(1).map_or(at, |i| self.rows[i].max(at));
+        self.rows = clap_rows(notes.iter().map(|n| (n.note.kind, n.judgeable, n.seconds)));
+        self.next = self.rows.partition_point(|&t| t <= done);
+    }
+
     /// The mine sound, now, when `events` step on a mine or a shock (once
     /// however many).
     pub fn judged<A: AudioBackend<Buffer = B>>(

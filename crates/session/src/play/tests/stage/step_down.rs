@@ -183,3 +183,67 @@ fn fewer_steps_rank_first_and_a_song_without_a_ladder_plays_as_out() {
         }
     }
 }
+
+#[test]
+fn the_claps_follow_the_new_chart_after_a_step() {
+    let song = bundled("beatucada");
+    let mut practice = step_room(&song, 1, 1, ddi_room::AtZero::StepDown);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, HARD);
+    let settings = Settings {
+        assist_clap: true,
+        mine_sound: true,
+        ..Settings::default()
+    };
+    let (mut s, clock) = stage_session_with(&song, &order, false, &[], &settings);
+    run_until(&mut s, &clock, 60.0, 400.0);
+    let steps = s.player.steps().to_vec();
+    assert!(steps.len() >= 2, "{steps:?}");
+    let out = s.player.gauge_failed_at().expect("out on the lowest rung");
+    // What should be heard: the rows of what is judged now (the old
+    // chart's notes taken away at each step are not judgeable any more).
+    let rows = crate::sounds::clap_rows(
+        s.player
+            .judge()
+            .notes()
+            .iter()
+            .map(|n| (n.note.kind, n.judgeable, n.seconds)),
+    );
+    let clap_len = 0.12;
+    let music = s.audio().played[0].0;
+    let claps: Vec<f64> = s
+        .audio()
+        .played
+        .iter()
+        .zip(&s.audio().sounds)
+        .filter(|(_, b)| (b.0 - clap_len).abs() < 1e-9)
+        .map(|(p, _)| p.0 - music)
+        .collect();
+    assert!(!claps.is_empty());
+    for &c in &claps {
+        let ours = rows.iter().any(|&r| (r - c).abs() < 1e-9);
+        // Asked for before the step, at most the lookahead past it.
+        let asked = steps
+            .iter()
+            .any(|st| c > st.at && c <= st.at + crate::sounds::CLAP_LOOKAHEAD + 1e-6);
+        assert!(ours || asked, "a clap at {c} of a chart taken away ({steps:?})");
+    }
+    // Nothing in a breather but those asked for already; every row of
+    // each new chart heard until the player went out.
+    for st in &steps {
+        assert!(
+            !claps
+                .iter()
+                .any(|&c| c > st.at + crate::sounds::CLAP_LOOKAHEAD + 1e-6 && c < st.boundary - 1e-9),
+            "a clap in the breather {st:?}"
+        );
+    }
+    let heard = rows
+        .iter()
+        .filter(|&&r| r >= steps[0].boundary && r < out - 0.5)
+        .filter(|&&r| !claps.iter().any(|&c| (c - r).abs() < 1e-9))
+        .count();
+    assert_eq!(heard, 0, "rows of the new charts not clapped");
+    // The mine sound follows what is judged: nothing stepped on here.
+    assert_eq!(s.event_sounds().1, 0);
+}

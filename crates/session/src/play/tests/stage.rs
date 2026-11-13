@@ -2142,8 +2142,19 @@ fn stage_session(
     auto: bool,
     keys: &[(f64, &str, bool)],
 ) -> (PlaySession<FakeAudio, FakeInputs>, Clock) {
+    stage_session_with(song, order, auto, keys, &Settings::default())
+}
+
+/// [`stage_session`] with the player's `settings`.
+fn stage_session_with(
+    song: &Song,
+    order: &StageOrder,
+    auto: bool,
+    keys: &[(f64, &str, bool)],
+    settings: &Settings,
+) -> (PlaySession<FakeAudio, FakeInputs>, Clock) {
     let clock: Clock = Rc::new(RefCell::new(0.0));
-    let settings = Settings::default();
+    let settings = settings.clone();
     let mut inputs = FakeInputs::new(&clock);
     for &(at, code, pressed) in keys {
         inputs.key(at, code, pressed);
