@@ -1324,6 +1324,10 @@ Rust and the browser are implementation details, not advertised features.
   room's screens share (`RoomCall`, the per-frame `Pump`, the status and
   rows, the panel, More, `ThemeState::room`, a `RoomView`, for tests);
   `screens/room_dialogs.rs` Rules (from their button, Cancel and Apply;
+  the roster's rows in practice and in an online room whose server seats
+  CPUs online, `RoomClient::cpus_offered`, its seats kept for the people
+  still to come; such a room's picks are charts its CPUs can play,
+  `RoomClient::has_cpus`;
   during a running match whose room takes changes from a later stage
   (`RoomClient::may_change_stage_rules`) a row "Changes apply": From
   stage N, first, where only the per-stage rows change
@@ -1394,7 +1398,10 @@ Rust and the browser are implementation details, not advertised features.
   server's `POST /auth/bots` for an admin share token, identity
   `bot:<slug>` (`ddi_room::Identity::is_bot`), never an admin, labeled
   Bot wherever players are listed (`screens::room::person_name`, the
-  invite's `host_bot`). `--audience N` with `--join LINK`: N seats in the
+  invite's `host_bot`). A live stage's CPUs (`online-cpus-v0`) are
+  computed by every bot as by a person's device and reported for
+  (`battle::live::LivePlay`); `--cpus N[:LEVEL]` gives the host bot's
+  Rules N CPUs of the roster (CPUs, never bots). `--audience N` with `--join LINK`: N seats in the
   room's audience that only watch (two a signed-in bot), each reporting
   what it received (`run_audience`). The audience's page on desktop
   (`room::audience_screen`): `--join` takes an audience link, its stages
@@ -1570,7 +1577,7 @@ Rust and the browser are implementation details, not advertised features.
   `--mp-bots [--host] [--join LINK] [--guests N] [--api URL] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
   [--pick ID[:N],…] [--names A,B] [--level N|A-B] [--personality P]
-  [--audience N]`
+  [--cpus N[:LEVEL]] [--audience N]`
   (DEVELOPMENT TOOL: bots in a private online room, played by the CPU,
   no window or sound; the admin share token from `DDI_SHARE_TOKEN`;
   locally `DDI_SHARE_TOKEN=test-token … --api

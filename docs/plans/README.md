@@ -26,8 +26,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   settlement by the room; the fake room runs all of it. The server's and
   the game's fronts, the timing budget, the sizes and costs at 9, 33 and 73
   competitors, the views' delay (`live-v2`'s 100 ms ticks and a delay each
-  device measures, half a second or less at typical latencies), and the
-  open questions.
+  device measures, half a second or less at typical latencies), a match's
+  CPUs in online rooms (`online-cpus-v0`: computed alike on every device,
+  reported for by the devices, the first report taken), and the open
+  questions.
 - [The audience](multiplayer-audience.md) (2026-11-13): watching a room
   beyond its members, counted and not listed: who is audience (a link of
   its own, offered at the member bound), the public view, relays against

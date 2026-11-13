@@ -5830,10 +5830,99 @@ nothing is planned lazily.
   (as a quick restart warms a fresh buffer) is left for a later round;
   the offscreen test now asserts the hand never stops.
 
+## CPUs in private online rooms (2026-11-13)
+
+The maintainer wants private rooms at parity with CPU practice: the host
+adds named CPUs to an online room's match as practice does, and everyone
+plays against them. The contract is in
+[Online play: the shared base](multiplayer-online-play.md), "CPUs"
+(`online-cpus-v0`, PROVISIONAL).
+
+### What is built
+
+- **The room** (`ddi_room`): `RoomPolicy::cpus` (additive: true for every
+  room this build makes; an authority that predates it never offers or
+  takes a roster, `RulesProblem::CpusNotHonored` where one is sent);
+  `RoomPolicy::seats_cpus`. The reducer seats the roster's CPUs as in
+  practice; a live stage with CPUs takes its people's own reports and its
+  CPUs' through the authority's `Command::ReportFor` (`StagePlay::reported`).
+  `live::cpus`: the rules (`ONLINE_CPUS_V0`), the binary CPU news
+  (`CpuNews`, `wire::CPUS_V1`), `ClientLive::CpuRuns`, who sends
+  (`sends_for_cpus`, `cpu-reporters-v0`), report digests; `LiveStage`
+  seats each CPU in the ledger (a 2 s horizon's lead), takes the first
+  report of each CPU and checkpoint, counts and logs a different one
+  (`cpu_mismatches`, `LiveOut::notes`), never makes a CPU a no-show, and
+  ends the CPUs' streams as forfeits once nobody is left who could compute
+  them (`anyone_computes`). The client's `LiveLink` keeps every CPU report
+  it made and sends them while the device is one that sends (all again on
+  a new socket or when it becomes one).
+- **The game**: `ddi_session::battle::cpus::Drive`, a CPU's online play
+  (50 ms steps, the room's shocks put in at their song time, its play
+  held until their news came, `ImmediateContinue`), with its proof
+  (`cpus/tests.rs`, `fixture.txt`; the same fixture checked built for
+  wasm32 under Node). `Battle` in a live stage computes the CPUs beside
+  the remote people (their fields on the tap-only copy, drawn the view's
+  delay behind; `Battle::track_of`), routes the room's commitments against
+  them, sends their reports, ends and runs (`LiveRoom::cpu_news`,
+  `cpu_run`); every link, warning, watcher's moment and view counts them
+  as seats. Bots compute and report them too (`LivePlay`). An audience's
+  seat computes them from the public view (its CPU kind now carries the
+  seed, personality and policy, additive) and sends nothing.
+- **The screens**: the Rules pop-up offers the roster online where the
+  room seats CPUs (`RoomClient::cpus_offered`), the seats kept at the
+  room's for people still to come; such a room's picks are charts its
+  CPUs can play (`has_cpus`); the players panel, the Players pop-up, the
+  miniatures and the standings show CPUs as practice does (stars, never
+  Bot). No new message.
+- **The server** (`../ddi-server`): builds against the changed crate, its
+  room seats CPUs (new rooms), logs the live side's notes; its load
+  driver gains `--cpus N`; a native test through the object
+  (`the_object_seats_cpus_and_takes_their_reports_from_the_devices`).
+- **The bots**: `--cpus N[:LEVEL]` for the host bot's Rules.
+
+### Tested
+
+`crates/room` (`tests/live.rs`): the ledger with CPUs reported by two
+devices equal to one device judging everyone; a device computing a CPU
+differently counted (30 and more mismatches, the first kept, logged); a
+device leaving mid-stage changing nothing, the watcher taking over when
+both players left, and the CPUs ended as forfeits when everyone left; an
+authority that predates it refusing a roster; 13 people and 60 CPUs
+settling (and what they cost in messages); the CPU news' wire (read back
+equal, every truncation and 2,000 corruptions refused without a panic).
+`crates/session`: the determinism proof; a live stage of two players, a
+watcher and three CPUs (Hard timing) over the fake with jitter: every
+device's CPUs equal, attacks to and from them, a CPU knocked out, no
+mismatch, their runs and details kept. `crates/ui`: the roster offered
+online where the room seats CPUs, not where it does not (two policies),
+the seats kept. Desktop offscreen (`room_cpus_offscreen`,
+`live_offscreen`'s `a_live_stage_with_cpus_…`): the Rules pop-up with the
+roster and the players with CPUs, wide and on a phone, English and
+Japanese; a live stage with two CPUs and a person, the miniatures drawn
+from this device's computation. The server's native test; against a local
+`wrangler dev`, the load driver and three bots with three CPUs.
+Screenshots: `target/scratch/mp/ocpu/shots/`.
+
+### Not done in this round
+
+- No browser walk of an online room with CPUs: the web reaches it only
+  through a server (no hook into the fake room for members); the UI's
+  harness and the desktop's offscreen pictures cover the screens, and
+  the web build runs the same code (its smoke check passed).
+- A winning CPU whose gauge empties after the decision: two devices may
+  report its detail differently where the decision reached them on
+  either side of that moment (the first report stands, the other counted).
+- A device whose play ended leaves its CPUs where the room's news allowed
+  it to judge them; the other devices finish them. A room whose last
+  device leaves the play before its CPUs' ends waits for the report
+  deadline for their runs (60 s after the song's end).
+
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `online-cpus-v0` (2026-11-13): an online room's CPUs computed alike on every device (50 ms steps from −2 s, a shock put in 1.25 s after its checkpoint, a 2 s horizon's lead); every connected player's device reports for them, the room taking the first and counting a different one; nobody left to compute ends them as forfeits | `ddi_room::live::cpus`, `ddi_session::battle::cpus` | The host adds CPUs online as in practice; a wrong report that reached the room first stands | First or majority; the bytes (every device sends every CPU); the horizon |
 | Rules from the next stage (2026-11-13): a change lands on the next stage nobody has readied, loaded or started (once picked, the one after); Points fixed for the match; Apply and restart takes the per-stage rows as shown | `RoomState::rules_land_on`, `room_dialogs::RulesDialog` | A host's change of timing, Boos, attacks or zero life applies from the stage the pop-up names, said on everyone's status line | Whether Points may change mid-match; whether a change should land on a picked stage nobody has readied yet |
 | `step-down-v0` (2026-11-13): life back to half at the zero; the boundary the first bar line (four beats) at least the reading horizon plus 1 s ahead; a breather until it with nothing of a chart judged, stray presses free and life kept at one point or more | `ddi_engine::ladder::STEP_DOWN_V0` | A player out of life plays on an easier chart after a few seconds' rest, with half a bar | The life given back; the breather's length; whether a player may ever step back up |
 | The ladder: the style's original charts of lower slots on the same timing, nearest slot first, by meter; never an Edit below a slotted chart; cut at the first rung the CPUs cannot plan | `ddi_engine::ladder::ladder`, `cpu::planned_ladder` | Hard steps to Medium, then Easy, then Beginner | How Edits and split-timing charts should take part |
@@ -6345,3 +6434,12 @@ nothing is planned lazily.
 - Rules from the next stage: Apply and restart from "From stage N"
   takes the per-stage rows as shown into the next match's rules. Right,
   or should it take the next match's draft alone?
+- CPUs online (2026-11-13): the room keeps the first report of a CPU's
+  checkpoint (a dishonest device that is first stands, every other
+  counted as a mismatch and logged). Keep that, or wait for a majority
+  (later checkpoints for everyone)? Every connected player's device sends
+  every CPU's reports (simple, no takeover: 43 KB/s into the room for 13
+  people and 60 CPUs, 5% more messages): fine, or two devices a CPU?
+- CPUs online: a CPU's reading horizon is 2 s for every CPU (practice
+  reckons it from the local player's own). Keep it fixed, or take the
+  stage's slowest player's?

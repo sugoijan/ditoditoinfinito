@@ -7,7 +7,8 @@ delay each device measures, "The views' delay, lateness and ends")
 side (`../ddi-server`) plays live; the game's side (the client front) is
 built and tested against the fake room
 ([the progress note](multiplayer-prototype-progress.md), "Online play,
-the client front"). Not yet tried against a real server.
+the client front"). Not yet tried against a real server. Since
+2026-11-13 a match's CPUs play online rooms too ("CPUs", `online-cpus-v0`).
 
 Read with [the prototype's progress](multiplayer-prototype-progress.md)
 (what exists: M5 online rooms, M8 attacks, the rounds of 2026-11-12),
@@ -56,6 +57,7 @@ decided, and when the stage is decided.
 | Client side | `live::client` (`LiveLink`), inside `OnlineAuthority` | Hello, pings, queued messages, batches until acknowledged, frames in order |
 | Reports | `attacks::Reporter` | A competitor's checkpoint reports from its judgments, as practice counts them |
 | Fake | `fake::FakeServer` (`Latency`, `OffsetClock`, `fault_uplink`) | The room's live side in process, latency and faults both ways |
+| CPUs | `live::cpus` (`ONLINE_CPUS_V0`, `CpuNews`, `sends_for_cpus`), `ClientLive::CpuRuns`, `Command::ReportFor`, `RoomPolicy::cpus`; the game's `ddi_session::battle::cpus` (`Drive`) | A match's CPUs computed alike on every device, reported for by the devices, the first report of each taken |
 
 ### Compatibility, both ways
 
@@ -68,6 +70,9 @@ decided, and when the stage is decided.
 | A client that predates `live-v2` | A room made after it (`timing: live-v2`) | It reads the contract's id alone (`live-v1`) and plays live by `live-v1`'s numbers: a batch every 250 ms, its views a second behind. The room ticks every 100 ms; nothing it decides depends on a device's batching. Its field reaches the others a little later than a new client's (their delays rise toward it, or it stalls now and then). |
 | A new client | A room made before `live-v2` (no `timing`), or a server that predates it | `live-v1`'s numbers: batches every 250 ms, the room's frames every 250 ms; its views still adapt (about 0.6 to 0.85 s at 20 to 80 ms each way, never more than a second). |
 | A room in play across a deploy | The new server | A stored room keeps its policy as stored: one made before `live-v2` ticks at 250 ms until it closes. Only rooms made after the deploy (or stored before live play, given it on load) tick at 100 ms. |
+| New client | A server that predates CPUs online (no `cpus` in the policy) | The Rules pop-up offers no roster and the client sends none; nothing else changes. |
+| Old client | A room with CPUs (`online-cpus-v0`) | It sees the CPUs in the room's state (as practice's) and plays its own run; it computes nothing for them and draws no field of them. The new devices report for them; a room of old clients alone has nobody reporting: each CPU's checkpoints run at their deadlines with nothing judged, and its run is a forfeit at the report deadline. |
+| A room stored before CPUs online | The new server | Its policy stays without `cpus` (as `step_down` and `stage_rules`): its clients offer no roster until a new room is made. |
 
 ## One clock
 
@@ -485,6 +490,151 @@ checkpoints) and resumes the frames. Past the grace (`Disconnected`): the
 room ends its stream as `dropped`, a forfeit for the decision and out for
 the ledger from its last judged time.
 
+## CPUs (`online-cpus-v0`, 2026-11-13)
+
+The maintainer wants private rooms at parity with CPU practice: the host
+adds CPUs to an online room's match as practice does (the roster in the
+Rules pop-up: Add CPU, Add random, each CPU's stars, its removal), and
+everyone plays against them. `live::cpus` and the game's
+`ddi_session::battle::cpus`; PROVISIONAL, every number in
+`ONLINE_CPUS_V0`.
+
+**A CPU is not a connection.** Its play is a function of the stage's
+chart, the match's rules, its level, seed and personality, and the shocks
+the room committed against it. Every device that follows the stage (a
+player, a player out of it, a watcher, an audience's seat) computes each
+CPU the same way (`Drive`):
+
+- its play is judged in fixed steps of song time (50 ms) and its
+  checkpoint reports are made after each step (a reporter's reports
+  depend on when it is asked; the steps fix it whatever the frame rate);
+- a shock committed against it at checkpoint k goes into its play at
+  `k`'s song time plus 1.25 s, rounded up to a step
+  (`apply_at_us`), on every device, whenever the frame came; its play
+  waits there until this device has heard checkpoint k's news (its record
+  comes in the same frame as its commitments), so a late frame holds a
+  CPU and never changes it (one that came after its song time anyway is
+  put in at once and counted `late`: never seen in the tests);
+- it starts at song time −2 s everywhere, plays on past an emptied gauge
+  (`ImmediateContinue`) and goes out when its gauge first empties, so a
+  decided winner's play never depends on when the decision reached a
+  device (where its gauge empties after the decision, its end is not an
+  out; the one edge where two devices can differ: that winner's detail,
+  if the decision reached them on either side of it);
+- its lead is the room's value: a reading horizon of 2 s for every CPU
+  (`horizon_us`; practice reckons it from the local player's own), the
+  network's lead on top as for people;
+- its miniature is drawn from this device's computation, the view's
+  delay behind the song like the people's fields (one time for every
+  field: the lines between fields need it), on the tap-only copy CPUs
+  play; it costs the room nothing a frame.
+
+**Who sends** (`sends_for_cpus`, `cpu-reporters-v0`): every device of a
+person in the stage's lineup who is connected; where none is, the three
+connected watchers with the lowest ids. Nothing is coordinated and
+nothing changes when a device leaves; one binary message a checkpoint a
+device carries every CPU's reports (`CpuNews`, tag `0xC1`: each CPU's
+judged-to time, its reports, its end), a text message at the end their
+runs (`CpuRuns`). Measured below: a few messages a second for a full
+room; the bytes are each device's copy of every CPU's reports. A device
+that becomes one that sends (the others left) sends everything it kept;
+a new socket sends everything again; the room drops what it has.
+
+**What the room takes** (`LiveStage::accept_cpus`): the first report of
+each CPU and checkpoint (counted at its checkpoint, or at the next where
+it came after the deadline, as a person's late report); an equal later
+one is passed over; a different one is a mismatch: counted
+(`cpu_mismatches`), logged ("differs from the first taken") and dropped,
+the first kept. The first end and the first run of each CPU likewise:
+the run goes through the reducer as the authority's `ReportFor`, whose
+event is the `OutcomeReported` a person's own report makes, so the
+standings show a CPU's detail as a person's. The ledger seats each CPU
+(its targeting its roster's), the settlement and the ranking treat it as
+a competitor (`CPU_SCORE_V0` for its score), a CPU never being a no-show
+(its first report may come at a checkpoint later than a person's first
+batch).
+
+**Nobody left to compute.** Where no person of the room is connected or
+within the reconnect grace (`anyone_computes`), the room ends every CPU's
+stream as `dropped`, a forfeit, as a lost connection's; the stage then
+settles as the room's rules say. A room whose connected people are all
+on older builds has nobody reporting: the CPUs' checkpoints run at their
+deadlines with nothing judged, and their runs are forfeits at the report
+deadline.
+
+**Why every device sends rather than one.** The alternative was one
+device (the host's or the picker's) reporting with a takeover when it
+leaves: fewer bytes, but a takeover protocol and a gap whenever that
+device stalls. With every device sending, any device's lateness is
+covered by the others, a device leaving changes nothing, and the room's
+first-report rule needs no election. The cost is the bytes (each device
+sends every CPU's reports): 43 KB/s into the room for 13 people and 60
+CPUs, against 4.7 without (measured below), and no more messages than a
+checkpoint's each. If the bytes matter later, `cpu-reporters-v1` can
+send each CPU from two devices chosen by a hash of the CPU and the
+connected devices, the rest after a lateness.
+
+**Trust.** Still self-reported. A device can report a CPU wrongly: where
+its report reaches the room first, it stands (a CPU's power, its life,
+when it goes out, its place); every honest device's later report is then
+counted as a mismatch and logged, which makes it visible, not undone.
+Keeping the majority instead would need the room to wait for several
+devices (later checkpoints for everyone) and is as open to a room of
+like-minded devices; no arbiter is built.
+
+**The proof** that devices compute alike
+(`ddi_session::battle::cpus::tests`, `the_cpus_play_alike`): a closed
+loop of seven CPUs over two stages (Hard timing out at zero life, and
+Hard with a step down; levels 1 to 10, presets and a vector of skills),
+their reports, the room's ledger and its commitments back, run at 240
+frames a second with 30 ms each way, at irregular frames of 7 to 90 ms
+with 310 and 470 ms, and at 4 frames a second with 0.9 and 1.1 s: the
+same reports, ends, shocks put in, scores and tallies every time
+(15 attacks, a CPU out, a CPU's two steps down), and the same as the recorded
+`fixture.txt`, which the same test checks built for wasm32
+(`wasm32-wasip1` under Node's WASI, the browser's engine: the song and
+the fixture compiled in). Through the session too
+(`a_live_stage_with_cpus_plays_them_alike_on_every_device`): two players
+and a watcher over the fake room with jitter, three CPUs: every device's
+CPUs equal to the last tap, the room counting no mismatch.
+
+**Measured.** The room (`ddi-load --cpus`, a local `wrangler dev` of a
+release `dev-auth` build, 40 s stage at 12 notes a second, attacks; the
+scripted CPUs at the same density):
+
+| People | CPUs | Room in (msg/s, KB/s) | Room out (msg/s, KB/s) | workerd CPU (ms/s) | Alarm wall p50 / p99 (ms) |
+| --- | --- | --- | --- | --- | --- |
+| 13 | 0 | 122.6, 4.7 | 137.9, 46 | 11.8 | 3 / 9 |
+| 13 | 60 | 128.4, 42.7 | 154.7, 58 | 14.2 | 3 / 9 |
+| 40 | 0 | 376.8, 14.0 | 504.4, 421 | 27.7 | 3 / 8 |
+| 40 | 33 | 395.2, 78.3 | 533.7, 442 | 27.7 | 3 / 7 |
+
+Every frame reached every socket, no refusal, no close, every stage
+settled. The CPUs add about half a message a second a device (the
+platform bills incoming messages: 5% more for 13 and 60), their reports'
+bytes, and nothing measurable to the tick. In process (`tests/live.rs`,
+13 people and 60 CPUs): 118 binary messages a second, 127 with the CPUs
+(9 of them CPU news). A device computing CPUs (`what_computing_the_cpus_costs_a_frame`,
+optimized, 100 s at 60 frames a second, the judging and the reports, not
+the drawing, which practice measured):
+
+| CPUs | Native, a frame mean / p99 / max (ms) | wasm32 under Node, mean / p99 / max (ms) |
+| --- | --- | --- |
+| 8 | 0.002 / 0.015 / 0.27 | 0.002 / 0.013 / 1.0 |
+| 24 | 0.005 / 0.032 / 0.44 | 0.003 / 0.024 / 0.21 |
+| 72 | 0.013 / 0.085 / 1.0 | 0.009 / 0.066 / 0.55 |
+
+Against a local server (the bots, `--mp-bots --host --guests 2 --cpus
+3:5`): three bots and three CPUs, every bot computing the CPUs and
+reporting for them; thirteen attacks, seven of them against the CPUs,
+those against the bots all taken; the stage settled within a second of
+the last play's end with the CPUs placed among the bots. (A first try
+against the maintainer's own local server lost the stage's live part 21
+s in, every socket reset at once: its object restarted, most likely
+rebuilt for the server's changed source; the stage settled on the
+reports and the CPUs, with nobody's reports, were forfeits. The run
+above was on this round's own `wrangler dev`.)
+
 ## Watching and an audience
 
 A member who watches is sent the frames like everyone else and is asked
@@ -830,7 +980,7 @@ built, the maintainer's to decide ("Open questions", 10).
 ## Left out on purpose
 
 Server-side judging (results stay self-reported); the audience beyond the
-members; CPUs in online rooms; raising the cap; award rules over nine; a
+members; raising the cap; award rules over nine; a
 live stage surviving the room's object restarting; compression; a JSON form
 of batches and frames on the wire (their JSON exists for tests and tools);
 moving a refused attack.
@@ -852,6 +1002,9 @@ moving a refused attack.
 | Disconnected past the grace (30 s) is a forfeit | `LiveStage::room_ends` | A dropped player is out of the stage | The grace for a stage |
 | The stage's seed from room, stage and chart; plans digested with FNV-1a 64 | `live::plan` | None visible | None |
 | A stage's streams kept 10 s after the room moved on | `LiveServer::LINGER_MS` | None visible | None |
+| `online-cpus-v0`: CPUs judged in 50 ms steps from −2 s, a shock put in 1.25 s after its checkpoint, a CPU's lead from a 2 s horizon | `live::cpus::ONLINE_CPUS_V0` | Online CPUs avoid and step on shocks as practice's do; their shocks come a little later than for a player who reads further | The horizon (fixed, or the room's slowest player's) |
+| `cpu-reporters-v0`: every connected player's device sends every CPU's reports (watchers where no player is connected), the room taking the first and counting a different one | `live::cpus::sends_for_cpus`, `LiveStage::accept_cpus` | None visible; a wrong report that came first stands | First or majority; whether to cut the bytes by sending each CPU from two devices |
+| Nobody left to compute: the CPUs' streams end as forfeits | `live::cpus::anyone_computes` | A room everyone left ends its CPUs' stage at once | None |
 
 ## Open questions for the maintainer
 
@@ -879,6 +1032,14 @@ moving a refused attack.
     sockets?
 11. Online attacks could land 0.25 s sooner under `live-v2` (the
     network's lead has that room to spare): take it, or keep the margin?
+12. Online CPUs (`online-cpus-v0`): keep the first report of a CPU's
+    checkpoint (as built: a dishonest device that is first stands, the
+    rest counted as mismatches), or wait for a majority? Every device
+    sends every CPU (simple, no takeover; 43 KB/s in for 13 people and 60
+    CPUs): fine, or send each CPU from two devices only?
+13. A CPU's reading horizon online is 2 s for every CPU: keep a fixed
+    value, or the stage's slowest player's (practice uses the local
+    player's)?
 
 ## Tests
 
@@ -900,7 +1061,11 @@ mismatching device sitting the stage out); a survival stage decided by the
 room as it goes, the winner finishing and the reports kept; a connection
 lost past the grace as a forfeit that does not hold the song's end; a
 final attack holding the decision and its knockout a shared first; a
-member coming in to watch mid-stage given the stage as it stood (a
+match's CPUs reported by the devices (the ledger as one device's, the
+first report kept against a device that computes differently, a device
+leaving mid-stage, the watchers taking over, everyone gone ending the
+CPUs, an authority that predates it refusing a roster, 13 people and 60
+CPUs settling); a member coming in to watch mid-stage given the stage as it stood (a
 snapshot and the last frames) and following it to its end; a room that
 does not play live never sent a live frame; 73 competitors through the
 fake; the cost of a tick with 73.
