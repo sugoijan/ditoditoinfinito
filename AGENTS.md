@@ -659,7 +659,10 @@ Rust and the browser are implementation details, not advertised features.
   from the engine's placement, each competitor's lead from the player's
   reading horizon plus an online room's network lead
   (`battle::practice_lead_us`); commitments delivered by `Battle` (into the play,
-  a CPU's and its field), the stage settled by `SETTLEMENT_V0`, the CPUs
+  a CPU's and its field), the stage settled by `SETTLEMENT_V1` (the
+  one left while attacks against them are still to come last standing,
+  `Battle::last_standing`, `last_standing_me`, `WatchMoment::LastStanding`,
+  before the win), the CPUs
   and their attacks played out once the player is gone,
   `Battle::play_out`; an extreme slow speed raised on such a stage,
   `battle::raised_speed`;
@@ -724,8 +727,9 @@ Rust and the browser are implementation details, not advertised features.
   decks, its log, its text; the web's `GameLoop` and desktop's `View`
   keep their surfaces; a practice stage's CPU opponents beside the field,
   the incoming attack's warning by the receptors (the nearer attack's,
-  with a second, smaller glyph where one more waits behind it; gone once
-  its last shock has passed: no recovery since `attacks-v1`) the
+  with a smaller glyph each for those placed behind it, up to three,
+  then one and the count, `Incoming::behind`, `battle_cue::BEHIND_GLYPHS`;
+  gone once its last shock has passed: no recovery since `attacks-v1`) the
   waiting line under the life gauge's right end and the player's
   attack policy, one small muted word under its left end, where a tap
   or a click cycles it (`battle_cue::draw_policy`, `policy_area`,
@@ -755,7 +759,7 @@ Rust and the browser are implementation details, not advertised features.
   8 px at the least, in the margins a phone held upright leaves), with lyrics
   over the play too, a status line under the right side (beside the
   watermark where the sides are too narrow for words) for
-  the battle's moment and "Stage won" (the dancing hand goes behind the
+  the battle's moment and "Last standing", then "Stage won" (the dancing hand goes behind the
   field during a stage, whole as a solo play shows it, its arm's end
   included, with no fade and no cut, in the band past the receptors'
   row and behind the judgment and the notes, `play_view::behind_field`,
@@ -1044,19 +1048,25 @@ Rust and the browser are implementation details, not advertised features.
   note); attack power's
   ledger and its attacks (`attacks.rs`: `StageBattle` credited at
   checkpoints every four beats from reports of judged tiers and life,
-  `ATTACKS`, which is `attacks-v1`: cap and cost 100, `POWER_CLASSES_V0`
-  by the match's ruleset; a full bar launched in a turning order at the
-  target its `Targeting` picks (Spread, Retaliate, Leader), eight shocks
+  `ATTACKS`, which is `attacks-v2` (2026-11-13): cap and cost 100,
+  `POWER_CLASSES_V0` by the match's ruleset; a full bar launched in a
+  turning order at the target its `Targeting` picks (Spread, the
+  fewest attacks still to come first; Retaliate; Leader), eight shocks
   in the first safe `Schedule` section past the target's lead
-  (`LEAD_V0`); no recovery period, an attack over once its last shock's
-  window has passed, and one more may be reserved against a recipient
-  while one is on its way or passing (`AttackRules::chain`), in the
-  first safe section after that one has cleared, never more than one
-  waiting; `attacks-v0`, one attack at a time until the recipient
-  recovered, kept by name; expiry when they go out, the waiting one too;
-  `Blocked` waits; `SETTLEMENT_V0`, decided only with no attack against
-  the last one in outstanding, a waiting one counted, a knockout by it a
-  shared first; trace tests in `attacks/tests.rs`).
+  (`LEAD_V0`) and at or after the moment the last attack placed against
+  them clears, looked for to the song's end (none left: `Blocked`,
+  `NoSafeSection`, the power kept); an attack over for the ledger once
+  placed, so attacks against one recipient chain without limit
+  (`AttackRules::chain`, `CHAIN_UNLIMITED`), never in the same region;
+  named places for a limit, off (`chain_gap`, `cooldown_checkpoints`);
+  `attacks-v1` (one more reserved behind the one passing) and
+  `attacks-v0` (one at a time until the recipient recovered) kept by
+  name, a stage run under the rules its plan names (`attack_rules`);
+  expiry when the recipient goes out, every one placed; `SETTLEMENT_V1`,
+  decided only with no attack against the last one in outstanding, the
+  one left before that last standing (`Settlement::last_standing`), a
+  knockout by one of them a shared first; trace tests in
+  `attacks/tests.rs`).
   A running match's per-stage rules (`rules::PlayRules`: Timing
   difficulty, Boos, Attacks, At zero life, and Points, `PlayRules::points`,
   `None` for the match's own, `Match::play_rules_of`, each stage awarded
@@ -1115,7 +1125,7 @@ Rust and the browser are implementation details, not advertised features.
   predates it) is never sent the two commands
   (`RoomState::has_succession`);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, round B1), said in the join's, ticket's and
+  (`ROOM_MODEL_REVISION`, round B1; 2 since `attacks-v2`), said in the join's, ticket's and
   audience join's `model`, an authority refusing an older client with
   `update_required` (`check_model`; a ticket not during a stage,
   `RoomState::admits_model`) and the shells saying so (the web with a

@@ -34,8 +34,8 @@ decided, and when the stage is decided.
 - Results stay self-reported (see "Trust").
 - CPU practice keeps its local path (`LocalAuthority`, the session's
   `AttackRunner`). The room runs the same ledger
-  (`attacks::StageBattle`: `attacks-v1`, `placement-v2` sections,
-  `power-classes-v0`, `lead-v0`, `settlement-v0`, the targeting policies
+  (`attacks::StageBattle`: `attacks-v2` since 2026-11-13, `placement-v2` sections,
+  `power-classes-v0`, `lead-v0`, `settlement-v1`, the targeting policies
   with changes in play) on the same reports, so one trace gives one
   outcome on both (tested), except where a report comes after its
   deadline (below).
@@ -169,8 +169,11 @@ pick: once its `Pick` (or `ChooseContent`) is accepted and the match has
 attacks, the picker's device computes the plan and sends it with
 `{"kind":"offer_plan","stage":…,"plan":{…}}`:
 
-- the ids it was made under (`attacks-v1`, `placement-v2`,
-  `power-classes-v0`, the ruleset `ddi`),
+- the ids it was made under (`attacks-v2`, `placement-v2`,
+  `power-classes-v0`, the ruleset `ddi`); the room runs the stage's
+  ledger under the attack rules the plan names (`attacks::attack_rules`:
+  `attacks-v0`, `-v1` or `-v2`), so a stage whose plan was offered by an
+  older build finishes under the rules it began with,
 - the stage's seed, `live::plan::seed_for(room, stage, chart)` (from the
   room's id, the stage's and the chart's digest: everyone computes it,
   nobody chooses it),
@@ -451,15 +454,18 @@ network (see "Trust").
 
 ## Settlement and the stage's end
 
-The room decides a stage as practice does (`SETTLEMENT_V0`), from the
+The room decides a stage as practice does (`SETTLEMENT_V1`), from the
 streams' ends and the ledger, as soon as it can, and only where every
 competitor plays live:
 
 - at most one competitor still in (by the streams: `out` is out,
   `forfeit`, `dropped` and `no_show` are forfeits), and no committed attack
   against someone still in whose play has not been judged past its clear;
-- while the one left waits on such an attack, the frames say who and when
-  the one before went out (`settling`); if they go out to it, they share
+- while the one left waits on such an attack (under `attacks-v2` as many
+  as were placed against them, one section after another), the frames
+  say who and when the one before went out (`settling`): each device
+  shows that one as last standing (`settlement-v1`), not yet the
+  winner; if they go out to it, they share
   first with those out in the same checkpoint interval as that one
   ("Drawn: final attack");
 - then it confirms the ranking (`Command::ConfirmStage`, the authority's)

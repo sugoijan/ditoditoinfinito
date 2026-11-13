@@ -6468,6 +6468,229 @@ sends, is not late.
   suite unchanged (no test of its own added there: the other session
   edits that crate's tests); `xtask l10n check`; the `qps-ploc` walk.
 
+## Attacks, version 2: over once placed, chained without limit; "Last standing" before "Stage won" (2026-11-13)
+
+The maintainer, asked when an attack counts as over: "when the last
+shock is added into the chart the attack counts as over"; on chaining:
+"by default I think it should be possible to 'chain' multiple attacks,
+although successive attacks would be placed after one another and not
+overlap in the same chart region"; and on the stage's decision: "we can
+differentiate between 'last standing' and 'stage won' … to rule that the
+stage has been won has to wait for it to be played until the end, since
+that player could still fail and cause a tie."
+
+### The rules as built (`attacks-v2`, `settlement-v1`, PROVISIONAL)
+
+- **`attacks-v2`** (`ddi_room::attacks::ATTACKS_V2`, what stages play:
+  `ATTACKS`; `attacks-v1` and `attacks-v0` kept by name, every version
+  found by `attacks::attack_rules(id)`). The bar, the cost, the
+  checkpoints and the power classes are `attacks-v1`'s (cap and cost
+  100, a checkpoint every four beats), no recovery.
+- **An attack is over for the ledger the moment it is committed.**
+  Nothing waits any more: anyone still in can be attacked at any time
+  (`AttackRules::chain` is `CHAIN_UNLIMITED`), and the sender's and the
+  recipient's bookkeeping no longer depends on an attack passing (its
+  states still go Active, Cleared and Recovered at the checkpoints, for
+  what is drawn and for the settlement; they hold no launch back).
+- **Placement**: a launch commits at once into the first safe section
+  that starts no sooner than the recipient's lead (as before) **and at
+  or after the moment the last attack already placed against them
+  clears** (its last shock and its window: `Section::clear_us`), so
+  successive attacks against one recipient follow one another and never
+  share a region. No gap is kept between them (`AttackRules::chain_gap`,
+  0). The search reaches to the song's end (`search_beats` unbounded);
+  where no such section is left the launch is `Blocked`
+  (`NoSafeSection`) and the power kept, as before.
+- **Targeting** is unchanged in kind. "Eligible" is now everyone else
+  still in. **Spread** picks whoever has the fewest attacks still to come
+  against them (committed, not cleared), then the fewest sent this stage,
+  then the seeded tie (`AttackRules::version` 2); Retaliate and Leader
+  as before.
+- **No cooldown** (`AttackRules::cooldown_checkpoints`, 0): a named place
+  for one, a sender's wait in checkpoints after a launch; no Rules row
+  offers it.
+- **`settlement-v1`** (`SETTLEMENT_V1`, what stages use: `SETTLEMENT`):
+  `settlement-v0`'s decision and ranking. **Last standing**
+  (`Settlement::last_standing`) is the one competitor still in while
+  attacks against them are still to come; the stage is **won** once
+  every shock already placed against them has passed with them still in;
+  if they go out before that, first is shared as before ("Drawn: final
+  attack"). Nobody out launches, so nothing new is placed once they are
+  last standing; an attack committed at the checkpoint before the last
+  other competitor went out (they were still in at it) is placed and
+  waited for (traced in `settlement_v1_tells_last_standing_before_the_win`).
+  Where nothing is pending the two coincide and only the win is told.
+- **The room model's revision** is 2 (`ROOM_MODEL_REVISION`): the
+  ledger's rules are something every device and the room must agree on.
+  A client of revision 1 is refused at a join and a ticket between
+  stages ("Reload to update").
+- **A stage in play when a server is deployed**: a restart loses the
+  stage's live part, and the stage is settled on its reports as before
+  (`a_restart_mid_stage_settles_that_stage_on_its_reports_and_the_next_plays_live`,
+  the server's). A stage whose Durable Object only hibernates keeps its
+  stored plan, and the room runs its ledger under the rules the plan
+  names: a stage begun under `attacks-v1` finishes under it
+  (`a_stage_finishes_under_the_attack_rules_its_stored_plan_names`, the
+  server's; `a_stage_runs_under_the_attack_rules_its_plan_names`,
+  `crates/room/tests/live.rs`). The plan's digest covers the rules' id,
+  so a device of the other build sits out of the attacks as for any
+  mismatch.
+
+### What a player sees
+
+- **The warning** by the receptors (`ddi_shell::battle_cue`) is the
+  nearest attack's, with a smaller bolt for each attack placed behind it
+  in a column at its right, up to three (`BEHIND_GLYPHS`); past three, one
+  bolt and the count ("×5"). They are never dimmed (still to come); it
+  all stays inside the warning's place, which the miniatures keep clear
+  of. `Incoming::behind`, `Cue::behind` (the web's debug state keeps
+  `more` as `behind > 0`). Reduced motion as before.
+- **Who attacks whom**: the lines and outlines last from the commitment
+  until that attack's last shock has passed, as before; a chained one is
+  still drawn quieter.
+- **The status line** says "Last standing" (`room-play-last-standing`)
+  in the place "Stage won" takes, while the player is last standing
+  (`Battle::last_standing_me`), then "Stage won". Someone watching is
+  told "X is last standing" (`room-watch-cue-last-standing`,
+  `WatchMoment::LastStanding`, kept on the line until the decision as
+  the decision is). No announcer line (a cue only). The Rules' sentence
+  about attacks does not describe a limit, so it is unchanged.
+- **CPUs**: their response to shocks (`MINE_RESPONSE_V1`) is per attack
+  and unchanged; under several chained attacks each attack's shocks
+  reach the CPU once (the study checks that no CPU steps on more shocks
+  than eight an attack received, and the session's chained test that
+  every field holds eight shocks an attack).
+
+### Shown
+
+`target/scratch/mp/av2/shots/` (desktop, offscreen, 1280×720,
+`chained_attacks_offscreen`: three CPUs on the Leader policy against the
+autoplayed player, Beatucada's chart 5, Hard timing):
+`warning-2-behind.png` (the warning with two small bolts: three attacks
+placed against the player at once, in sections from 41.56 s, 45.37 s and
+49.43 s), `last-standing.png` (the three CPUs out at 77.6 s with an
+attack still to come: "Last standing"), `stage-won.png` (its last shock
+passed at 86.1 s: "Stage won").
+
+### Measured: what unlimited chaining does
+
+`chain_pileups` (`crates/session/src/battle/study.rs`, opt-in:
+`DDI_ATTACK_RULES=<v1|v2-gap1|v2-cap2|v2-gap1-cap2|v2-cool2> cargo test
+--release -p ddi-session --lib chain_pileups -- --ignored --nocapture`,
+none for `attacks-v2`): the attack-rate study's six charts, two seeds
+each, fields of 4, 9 and 33 CPUs of mixed levels (1, 2, 3, 4, 5, 6, 8,
+10 in turn), the player gone at the start, every CPU on one policy,
+under DDI Normal and Hard. MEASUREMENTS OF CPUS AGAINST CPUS
+(`MINE_RESPONSE_V1`). "Run": attacks against one recipient each in the
+very first safe section after the one before it cleared; "at once": the
+most placed against one recipient at a time; "filled": of the attacks
+that would fit back to back over the most attacked one's attacked span,
+how many it got; "blocked": checkpoints a full bar waited, of those with
+one (mostly the song's tail, where no section is left).
+
+`attacks-v1` → `attacks-v2`, DDI Normal (attacks a stage; longest run,
+mean and max; most at once; the most attacked one's share of attacks and
+its span filled; blocked):
+
+| Field, policy | Attacks | Run mean / max | At once | Top share / filled | Blocked |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 4, Spread | 10.2 → 10.4 | 1.3/2 → 1.2/2 | 2 → 2 | 35% / 26% → 33% / 25% | 24% → 23% |
+| 4, Retaliate | 9.5 → 9.6 | 1.2/2 → 1.3/2 | 2 → 2 | 37% / 20% → 38% / 19% | 28% → 27% |
+| 4, Leader | 10.3 → 10.7 | 1.7/2 → 2.1/3 | 2 → 3 | 44% / 28% → 46% / 28% | 25% → 24% |
+| 9, Spread | 26.8 → 26.8 | 2.0/2 → 1.1/2 | 2 → 2 | 17% / 28% → 17% / 23% | 21% → 23% |
+| 9, Retaliate | 28.8 → 28.8 | 1.7/2 → 1.7/2 | 2 → 2 | 22% / 25% → 21% / 25% | 21% → 19% |
+| 9, Leader | 30.7 → 30.8 | 2.0/2 → 11.6/18 | 2 → 6 | 48% / 56% → 74% / 85% | 23% → 31% |
+| 33, Spread | 103.8 → 106.0 | 2.0/2 → 1.0/1 | 2 → 2 | 5% / 22% → 4% / 21% | 17% → 16% |
+| 33, Retaliate | 106.1 → 106.8 | 2.0/2 → 2.2/3 | 2 → 3 | 7% / 31% → 6% / 26% | 17% → 17% |
+| 33, Leader | 116.5 → 84.8 | 2.0/2 → 26.3/39 | 2 → 32 | 16% / 67% → 33% / 97% | 25% → 85% |
+
+Under Hard the same shape, smaller (33, Leader: 78.2 → 69.0 attacks,
+run 2.0/2 → 24.1/33, at once 2 → 23, 95% of the span filled, blocked
+24% → 72%; Spread and Retaliate at most 2 at once and runs of 2).
+Neither rule drew a stage by a final attack in these runs (0%); "Last
+standing" came in 8% to 25% of the Hard stages of 4 and 9 (5 to 6 s
+before the win), the same under both, and never in Normal or in 33.
+
+Life lost to shocks and knockouts, by level (a seat; life points as the
+study counts them, a mine's and a Miss's cost by the difficulty): the
+pile-up falls on the strongest, who dodge best. 33 under Normal, Leader:
+level 10 received 14.2 attacks a seat under `attacks-v1` and 20.9 under
+`attacks-v2`, losing 36 and 61 life, knocked out in none; level 8 9.6 →
+0.3; levels 6 and below next to nothing. Under Spread and Retaliate the
+by-level lines move by noise. No CPU stepped on more shocks than eight an
+attack received (asserted).
+
+What it says:
+
+- **Spread and Retaliate do not pile up.** With Spread preferring the
+  fewest still to come, chains stay at two at most in every field; a
+  launch is never blocked for want of someone to attack (only for want
+  of a section, at the song's end).
+- **Leader buries one competitor in a large field.** Nine or 33 CPUs all
+  on Leader send every attack at the one with the most life: in 33, a
+  run of 26 sections on average (39 at most) filled one after another,
+  up to 32 attacks placed at once, 97% of what could be placed over its
+  span; 85% of full bars then wait because the leader's chart is full to
+  the song's end (and those bars are not spent elsewhere). The CPUs at
+  level 10 survive it (they dodge), so it is not unplayable for them; for
+  a person it would be shocks in every safe section for the rest of the
+  song. Every CPU on Leader is the extreme: CPUs are Spread unless a
+  roster entry names a policy, and a person chooses Leader for
+  themselves.
+- **The limits measured** (none built: the default is Spread, which
+  never piles up), 33 under Normal, Leader:
+
+  | Rules | Run mean / max | At once | Filled | Blocked |
+  | --- | ---: | ---: | ---: | ---: |
+  | `attacks-v2` | 26.3/39 | 32 | 97% | 85% |
+  | a gap of one safe section (`chain_gap` 1, `v2-gap1`) | 1.0/1 | 23 | 69% | 93% |
+  | at most three at once (`chain` 2, `v2-cap2`) | 12.0/18 | 3 | 90% | 30% |
+  | both (`v2-gap1-cap2`) | 1.0/1 | 3 | 68% | 43% |
+  | a sender's cooldown of two checkpoints (`v2-cool2`) | 26.3/39 | 32 | 97% | 85% |
+
+  A cooldown changes nothing: a bar takes longer than two checkpoints to
+  fill again. A gap alone keeps a free section between attacks but still
+  stacks them far ahead. A cap alone keeps the leader's queue short, but
+  the leader is chosen again the moment one clears, so runs stay long.
+  **Proposed** as the smallest fair limit, should Leader's pile-up
+  matter: both together (`attacks-v2` with `chain: 2, chain_gap: 1`): at
+  most three attacks placed against one competitor at a time, and one
+  free safe section after each, so nobody is ever hit in two sections in
+  a row; full bars beyond it go to the next leader (Spread and Retaliate
+  unchanged by it: their chains are shorter than the cap).
+
+### Tested
+
+- `ddi-room` `attacks/tests.rs`: `the_rules_are_named_and_v2_chains_without_limit`,
+  `v2_places_a_chain_of_any_length_one_section_after_another` (four at
+  once against the leader in four consecutive sections, a fifth behind
+  them), `v2_spread_prefers_the_fewest_still_to_come`,
+  `v2_blocks_when_no_section_is_left_and_searches_to_the_end`,
+  `v2_gap_and_cooldown_are_named_rules_off_by_default`,
+  `settlement_v1_tells_last_standing_before_the_win`; `attacks-v1`'s and
+  `attacks-v0`'s traces kept. `tests/live.rs`:
+  `a_stage_runs_under_the_attack_rules_its_plan_names`, and the room's
+  ledger through `FakeServer` checked to never place two attacks against
+  one recipient in one region. `tests/authority.rs`: the revision is 2.
+- `ddi-session`: `chained_attacks_are_delivered_back_to_back_into_plays_and_cpus`
+  regenerated for `attacks-v2` (three level-10 CPUs on Leader against
+  the player: 6 of 12 attacks chained, up to 2 behind the nearest, each
+  at or after the ones before it cleared, every one in its recipient's
+  play and field, the record the same at 60 and 144 frames a second);
+  `an_early_win_waits_for_the_last_attack_to_clear` (last standing before
+  the win wherever the stage waited, never where it did not);
+  `a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely`
+  (the watcher's "X is last standing" exactly where the stage waited).
+  The online CPUs' proof `the_cpus_play_alike` passes natively and built
+  for wasm32-wasip1; its fixture, regenerated, is unchanged (its stages
+  place no chain longer than `attacks-v1` would).
+- `ddi-shell`: `it_scales_in_dims_in_sight_and_marks_those_placed_behind`,
+  `it_sits_beside_the_receptors_and_follows_reverse` (one to three small
+  bolts inside the warning's place, then one and the count).
+- `ddi-desktop`: `chained_attacks_offscreen` (above).
+- The server (`../ddi-server`): its tests pass against the changed crate;
+  `a_stage_finishes_under_the_attack_rules_its_stored_plan_names` added.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -6590,7 +6813,9 @@ sends, is not late.
 | `placement-v1`: eight shocks over eight beats from a checkpoint, the eighths then the sixteenths, at most two a beat, one a row; margins about each step of the lane: none within 0.25 s after it nor within W3 before it, none from a hold's or roll's head to 0.25 s past its end, none from 1 s before a lift (`placement-v0`'s clearances by windows kept for comparison) | `ddi_engine::battle::PLACEMENT`, `Clearance::Margins` | Where the shocks fall: a shock may sit a sixteenth before a note of its lane from 150 BPM on, where a press more than half of W3 early steps on it | The 0.25 s; whether "before" should be W3 plus the mine window; whether sixteenths are acceptable |
 | Development trigger: the first safe section from a beat in each practice stage, its seed the stage's id | `--mp-dev-mines`, `mpdevmines=`, `ddi_session::battle::dev_shocks` | Only through the switch | Replaced by the attack loop (S4) |
 | A miniature's score: small (0.8 of its name line, 8 to 11 px; down to 6 px where the sum is wider than its field) under its life gauge's right end; the score (the sum) or the percent, by the player's Score display | `ddi_shell::opponents::ScoreShown`, `SCORE_SIZE`, `SCORE_FLOOR`, `SCORE_TOP` | At lanes under about 17 px the number's top touches the receptors' row | Its place and size |
-| `attacks-v1`: no recovery period; one more attack may be reserved behind the one on its way or passing, in the next section after it clears | `ddi_room::attacks::ATTACKS_V1`, `AttackRules::chain` | Two attacks can arrive back to back; nobody is safe for a while after one | Whether a chain of one is right, and whether a lane still locked by the last shock should hold the next attack off |
+| `attacks-v1`: no recovery period; one more attack may be reserved behind the one on its way or passing, in the next section after it clears | `ddi_room::attacks::ATTACKS_V1`, `AttackRules::chain` | Two attacks can arrive back to back; nobody is safe for a while after one | Answered (2026-11-13): an attack is over once placed and attacks chain without limit, `attacks-v2` below; kept by name for stages recorded under it |
+| `attacks-v2`: an attack over for the ledger once placed; attacks against one recipient chain without limit, each in the first safe section at or after the last one's clear, searched to the song's end; Spread prefers the fewest still to come; no gap, no cooldown (`chain_gap`, `cooldown_checkpoints`, both 0) | `ddi_room::attacks::ATTACKS_V2`, `ATTACKS`, `CHAIN_UNLIMITED` | Anyone still in can be attacked at any time; several attacks can arrive one section after another; the warning counts those behind the nearest | Whether Leader's pile-up in large fields needs the proposed limit (at most three at once and a free section after each, `chain: 2, chain_gap: 1`) |
+| `settlement-v1`: `settlement-v0`'s decision, the one left while attacks against them are still to come told as last standing | `ddi_room::attacks::SETTLEMENT_V1`, `Settlement::last_standing` | "Last standing", then "Stage won" in the status line; "X is last standing" to those watching | As decided (2026-11-13) |
 | `placement-v2`: six of an attack's eight shocks next to a note of their lane (0.25 s to 0.5 s after one, W3 to twice W3 before a step), a second between a lane's shocks | `ddi_engine::battle::PLACEMENT_V2`, `Near` | An attack is harder to ignore: about a third more life lost by the CPUs an attack, mostly through locks | The window's sizes, the aim (six of eight), whether W3 before a step is too close for early players |
 | A CPU's (and a bot's) score put on the chart's own scale: its points as the same share of the chart's most, its W0s as counted | `ddi_engine::rules::ddi::CPU_SCORE_V0`, `DdiScoreView::on_scale`, `ddi_session::battle::cpu_score` | A CPU's number beside the player's reads as if it had held the holds as well as it tapped; a CPU can tie a person | Whether imputing the holds is right, or CPUs should play (and be able to drop) holds |
 | A miniature's locked lane: the lane darkened (0.42) to its end and its receptor's place tinted violet (0.5) for the lock's second, from the feed's moment | `ddi_shell::opponents::LOCK_LANE`, `LOCK_TINT`, `FieldFeed::locks` | A CPU that stepped on a shock shows a dead lane for a second | The look; a shock's own art |
@@ -6940,6 +7165,15 @@ sends, is not late.
   until the next checkpoint after its clear; the warning turns into the
   shield at the clear itself. Should the shield show the recovery's
   progress (eight judgments and four beats)?
+  (Answered by `attacks-v1` and `attacks-v2`, 2026-11-13: there is no
+  recovery and no shield; an attack is over for the ledger once placed.)
+- Attacks, version 2 (2026-11-13): every CPU on Leader in a field of 9
+  or 33 buries the competitor with the most life (up to 32 attacks
+  placed at once against them, 97% of their chart's room filled to the
+  song's end). Build the proposed limit (at most three placed at once
+  and a free safe section after each, `chain: 2, chain_gap: 1`), leave
+  it to Spread being the default, or change what Leader means (say, the
+  leader among those with fewer than N still to come)?
 - M8b: the incoming warning sits at the field's right edge, and the
   right side's miniatures keep clear of it (beside it, or under it on a
   phone held upright). Left or right, and should it move to the side
