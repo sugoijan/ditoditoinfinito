@@ -435,6 +435,36 @@ fn the_table_says_ties_those_out_and_those_who_left() {
     assert!(line.starts_with("Winners: You, "), "{line}");
 }
 
+/// A match whose zero life steps down: whoever stepped down to an easier
+/// chart is marked with the chart they finished on ("↓ Easy"); those on
+/// the stage's chart are not.
+#[test]
+fn the_table_marks_the_chart_a_stepped_player_finished_on() {
+    crate::screens::results::forget_tab();
+    let env = env();
+    let room = practice(1, 2);
+    let how = |i: usize| match i {
+        1 => Went {
+            detail: RunDetail {
+                chart: Some("Easy".into()),
+                ..went(9_000, "A", 0.5, 80, [60, 20, 5, 0, 0, 0, 30]).detail
+            },
+            ..went(0, "", 0.0, 0, [0; 7])
+        },
+        2 => out(went(4_100, "F", 0.0, 30, [20, 20, 20, 5, 5, 0, 30]), 62_400),
+        _ => went(9_512, "AA", 0.64, 120, [100, 40, 9, 0, 0, 0, 1]),
+    };
+    let order = play(&room, &[&[0], &[1], &[2]], &how);
+    let mut h = harness();
+    h.push(results(&env, &room, &order));
+    h.run(1.0);
+    let v = view(&env);
+    assert_eq!(v.rows[1].stepped.as_deref(), Some("↓ Easy"));
+    assert_eq!(said(&h, "Stand1", "Stepped"), "↓ Easy");
+    assert!(v.rows[0].stepped.is_none() && v.rows[2].stepped.is_none());
+    assert!(inside(&h, "Stand0", "Stepped").is_none());
+}
+
 /// Past what fits (a development practice's field) the lines scroll with
 /// Up and Down, the rest counted.
 #[test]

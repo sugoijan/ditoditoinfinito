@@ -784,7 +784,12 @@ pub(super) fn standings(
         } else {
             0.0
         };
-        let name_w = look::mono_width(&row.name, 14.0).min((name_room - after).max(40.0));
+        // Room kept after the name for the mark of a step down.
+        let mark_w = row
+            .stepped
+            .as_deref()
+            .map_or(0.0, |t| look::mono_width(t, 11.0) + 8.0);
+        let name_w = look::mono_width(&row.name, 14.0).min((name_room - after - mark_w).max(40.0));
         let mut name = env.text("Name", &row.name, 14.0, 600, color);
         look::ellipsized(&mut name, name_w);
         c.push(left(name, name_x, mid));
@@ -805,7 +810,7 @@ pub(super) fn standings(
         if let Some(stepped) = &row.stepped {
             let at = name_x + name_w + after + 8.0;
             let room = name_x + name_room - at;
-            if room >= 40.0 {
+            if room >= 24.0 {
                 let mut t = env.text("Stepped", stepped, 11.0, 600, "Gold");
                 look::ellipsized(&mut t, room);
                 c.push(left(t, at, mid));
