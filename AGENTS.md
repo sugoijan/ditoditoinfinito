@@ -67,10 +67,18 @@ Rust and the browser are implementation details, not advertised features.
   judged to first, `Player::judge_to_bars`; the plan over every rung,
   `ladder::merged`; a CPU's rungs, `cpu::planned_ladder`,
   `Opponent::add_rungs`); a CPU opponent's ten levels (`cpu/levels.rs`,
-  `CPU_LEVELS_V0`, `docs/plans/cpu-player.md`: levels 6 to 10 the solo
-  CPU's five frozen strengths, pressing exactly as before, 1 to 5 weaker
-  by a lower strength and a lapse, the chance a note is left out where
-  the chart is demanding; `Plan::script_at`, `Opponent::at`; measured
+  `CPU_LEVELS`, `docs/plans/cpu-player.md`: since `cpu-levels-v1`,
+  `CPU_LEVELS_V1`, absolute, `cpu/absolute.rs`: each level a timing
+  spread in milliseconds, the notes a second it keeps up with and a
+  floor, the same on every chart; a row's demand read from the chart in
+  real units, `RowDemand`, never normalized by the chart; past its
+  limits its spread widens and it leaves notes out, `ABSOLUTE_V1`, the
+  shape checked against one player's local play history, not included;
+  `Plan::script_strength`, `Strength`, `Opponent::with_skills` and
+  `on_scale`; the earlier `cpu-levels-v0`, `CPU_LEVELS_V0`, kept for the
+  solo CPU and comparison: levels 6 to 10 its five frozen strengths,
+  pressing exactly as before, 1 to 5 weaker by a lower strength and a
+  lapse; `Plan::script_at`, `Opponent::at`; measured
   over local packs, `crates/engine/tests/local_cpu.rs`,
   `DDI_CPU_CORPUS`, under the rulesets `DDI_CPU_RULES` names: a preset's
   id, or `ddi-easy`, `ddi-normal`, `ddi-hard`, the rooms' match rule) and its response to shocks put into its play
@@ -1678,7 +1686,10 @@ Rust and the browser are implementation details, not advertised features.
   the original seeded inputs. See `docs/plans/cpu-player.md`.
   Prepares an analytical plan locally for imported/bundled keyboard 4K charts.
   Tap-only, 1×, no fail; normal judge, no personal history or bests. Strength
-  is chart-relative. Optional external prepared profiles use `--cpu FILE` or
+  is chart-relative (`cpu-levels-v0`); `--cpu-level N` / `level=N` (1 to
+  10, instead of a strength) plays it at a level of the multiplayer CPUs'
+  absolute scale (`cpu-levels-v1`, `ddi_engine::cpu::solo_script`).
+  Optional external prepared profiles use `--cpu FILE` or
   a site-relative `cpu=cpu/custom.json`; none are bundled. See
   `docs/plans/cpu-player.md` for limits, architecture and verification.
 - `just dev` dev server (auto-reloads on every rebuild; unsuitable for long

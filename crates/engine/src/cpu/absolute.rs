@@ -115,14 +115,13 @@ pub struct AbsoluteModel {
     pub tail_width: f64,
 }
 
-/// `cpu-model-v1`'s shape (PROVISIONAL). The onset, the widening and the
-/// lapse's rise were checked against one player's local play history
-/// (not included): a spread flat up to about 0.85 of the limit, about
-/// half again as wide at the limit, two and a half times at 1.3 times
-/// it; notes left out from about one in a hundred at the limit to one in
-/// twenty at 1.3 times it, rising on. The shares (a lane repeating at
-/// 0.65 of the speed, sustained at 0.75) and the tail are from the same
-/// check.
+/// `cpu-model-v1`'s shape (PROVISIONAL): the spread flat up to 0.85 of a
+/// limit, then 1.45 times as wide at the limit and 2.35 times at 1.3
+/// times it; a note left out with a chance of about 0.012 at the limit,
+/// 0.05 at 1.3 times it, rising on; a lane's limit 0.65 of the speed,
+/// the sustained one 0.75; a tail of 12% of presses 2.5 times as wide.
+/// That shape was checked against one player's local play history, which
+/// is not included.
 pub const ABSOLUTE_V1: AbsoluteModel = AbsoluteModel {
     window: 1.0,
     gap_share: 0.3,

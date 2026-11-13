@@ -7318,6 +7318,174 @@ judged (`shift-chrome-…`, `shift-firefox-…`). No console problems.
   `a_stage_begun_under_attacks_v2_finishes_under_it_and_v3_keeps_its_limit`
   added, and its live tests' plans name three at once as a client's do.
 
+## CPUs with absolute levels (`cpu-levels-v1`, 2026-11-13)
+
+The maintainer, after the adaptive-charts round measured that a CPU's
+strength is relative to whatever chart it plays (a level-4 CPU plays a
+Challenge chart about as well as a Beginner one, so nearly every CPU from
+level 4 climbed to the hardest chart): "rework the CPU model so that its
+performance is 'absolute' and not relative to the chart being played,
+that should give us much more realistic simulations."
+
+### What is built
+
+- **The model** (`ddi_engine::cpu::absolute`, `docs/plans/cpu-player.md`,
+  "The model"): a CPU's abilities in real units, the same on every chart
+  (a timing spread in milliseconds on a comfortable note, the notes a
+  second it keeps up with, a floor of notes left out where nothing is
+  hard; a repeated lane's and a sustained stretch's limits in fixed shares
+  of the speed; the seven pattern axes multiplying the limit their pattern
+  meets, Evasion as before); a row's demand read from the chart in real
+  units (the notes in the second before it and the gap since the last
+  row, the notes in the eight seconds before it, how soon a lane repeats,
+  how irregular the rhythm is), never normalized by the chart and nothing
+  fitted per chart; past its limits its spread widens and it leaves notes
+  out with a chance that rises with how far the demand is above them. The
+  shape of that fall-off was checked against one player's local play
+  history, which is not included anywhere in the repository.
+- **Ten levels** (`CPU_LEVELS_V1`, PROVISIONAL), rungs on that scale,
+  shown as the same five stars, anchored by measurement over the local
+  arcade mixes: level 1 at home on Beginner and lost on Medium, 3 on
+  Easy, 5 on Medium, 7 on Hard, 9 on Challenge, 10 playing Challenge
+  nearly perfectly (the tables in `docs/plans/cpu-player.md`).
+- **Where it applies**: every multiplayer CPU (`Opponent::with_skills`
+  and `new` play `CPU_LEVELS`, which is `cpu-levels-v1`): practice, the
+  online rooms' CPUs computed on every device (`cpus::Drive`), the bots'
+  CPUs, the audience's local computation, the studies. `cpu-levels-v0` is
+  kept by name (`LevelScale::RelativeV0`, `Opponent::on_scale`) for
+  comparison and its fixtures.
+- **The solo CPU** keeps its five chart-relative strengths and its
+  fixture exactly; `--cpu-level N` (desktop) and `level=N` (web), 1 to 10,
+  play it at a level of the absolute scale instead, to watch one
+  (`ddi_engine::cpu::solo_script`; the prompt and results say "Level 3 of
+  10").
+- **What follows it**: `MINE_RESPONSE_V1` unchanged (its input is the
+  level, as before; measured again, sane on every chart); `CPU_SCORE_V0`
+  unchanged; the roster unchanged (levels and personalities; each axis
+  bends the limit its pattern meets, tested); the Rules' note about the
+  stars says "the charts it keeps up with, not a skill rating" (en, ja).
+- **`ROOM_MODEL_REVISION` is 5**: every device of a room must compute the
+  same CPUs, so a client of revision 4 is told to reload. The server needs
+  no code change (it reads the constant from the crate); a server built
+  against this revision refuses older clients between stages, and a stage
+  in play across the deploy finishes on the CPUs its devices loaded.
+
+### Measured
+
+The levels by difficulty slot, meter and notes a second, under DDI
+Easy, Normal and Hard, v0 beside v1, the stream packs and the bundled
+songs, the spread across seeds, a level watched and the cost: in
+`docs/plans/cpu-player.md`, "Measured (`cpu-levels-v1`)". In short
+(arcade mixes, DDI Normal, percent and out %):
+
+| Level | Beginner | Easy | Medium | Hard | Challenge |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 86.9, 1.5 | 72.6, 21 | 40.6, 78 | 11.1, 98 | -3.4, 99 |
+| 3 | 93.7, 0.1 | 90.3, 3.2 | 73.3, 30 | 43.8, 78 | 19.2, 94 |
+| 5 | 96.3, 0 | 95.7, 0.4 | 89.4, 7.0 | 70.0, 40 | 45.3, 73 |
+| 7 | 97.5, 0 | 97.6, 0 | 96.6, 0.4 | 89.4, 14 | 74.5, 45 |
+| 9 | 98.5, 0 | 98.6, 0 | 98.5, 0 | 96.6, 1.8 | 90.4, 18 |
+| 10 | 99.1, 0 | 99.1, 0 | 99.1, 0 | 98.7, 0.2 | 96.4, 2.2 |
+
+(`cpu-levels-v0`: level 1 66.9% on Beginner and 51.7% on Challenge, level
+5 85.6 and 74.3, never out.)
+
+**Under Adaptive charts** (`adaptive_study`, the same mixes, 2,080 Medium
+and 2,078 Hard picks, ten CPUs one a level, attacks on, two seeds; where
+each finished, from the pick; MEASUREMENTS OF CPUS AGAINST CPUS):
+
+| Picked Medium, DDI Normal | −2 / −1 / 0 / +1 / +2 % | ups | downs | bounce % | out % adaptive (as picked) |
+| --- | --- | ---: | ---: | ---: | --- |
+| Level 1 | 31.5 / 52.6 / 14.3 / 1.5 / 0.1 | 0.16 | 1.30 | 3.9 | 6.7 (89.3) |
+| Level 3 | 3.2 / 27.6 / 46.6 / 21.8 / 0.8 | 0.75 | 0.86 | 7.5 | 2.3 (39.7) |
+| Level 5 | 0.3 / 4.8 / 33.9 / 55.1 / 5.9 | 1.22 | 0.61 | 6.6 | 2.2 (11.4) |
+| Level 7 | 0 / 0.2 / 8.7 / 74.2 / 17.0 | 1.35 | 0.27 | 3.7 | 1.5 (1.0) |
+| Level 10 | 0 / 0 / 0.1 / 71.6 / 28.3 | 1.29 | 0 | 0 | 0 (0) |
+
+(+1 is Hard, the top rung of 70% of the songs; +2 Challenge.) Under
+`cpu-levels-v0` levels 4 to 10 all finished at +1 or +2 74% to 99.9% of
+the time and level 5 at Medium 3.5%; now level 5 stays at Medium a third
+of the time, level 4 45%, level 3 47% and level 1 drops to Easy or
+Beginner 84%. From a Hard pick (Normal): level 1 finishes on Easy or
+Beginner 85% of the time, level 3 on Medium 49% and Hard 20%, level 5 on
+Hard 55%, levels 8 to 10 on Hard 72 to 76% and Challenge the rest. Under
+Hard timing the spread is wider (from Medium: level 1 77.5% two rungs
+down, level 5 41.5% at Medium). The stage's order by level holds better
+than ever: a stronger level placed above a weaker one in 98.7% of pairs
+under Adaptive (97.5% Hard timing; 99.1% and 97.8% from a Hard pick),
+94.4% as picked. Bouncing (a rung left and come back to) rose with the
+rungs a level now meets above its head: 4% to 11% for levels 1 to 6
+under Normal timing (v0: under 0.5%), up to 21% under Hard timing, the
+eight bars back still bounding it.
+Playing down on purpose is unchanged (it reads charts, not CPUs).
+
+**Attacks**, the studies again (`attack_rates`, `chain_pileups`,
+`attack_window`; the same six bundled charts, mixed fields): weak levels
+now earn less power on the harder of those charts and go out of more
+stages, so a mixed field of eight launches fewer attacks (DDI Normal
+24.0 a stage against 25.7 under v0, Easy 31.0 against 36.0, Hard 16.0
+against 15.2). Eight CPUs of one level: level 1 launched 0.54 a seat
+(0.87) and went out of 71% of its stages (65%), level 5 2.95 (3.59) and
+37% (12.5%), level 10 7.16 (6.30) and never out; an attack received cost
+34.2 / 25.3 / 22.1 / 18.8 / 2.6 life at levels 1 / 3 / 5 / 7 / 10 (34.0
+/ 32.0 / 28.9 / 22.4 / 3.3). Under `attacks-v3` at three at once, Leader,
+DDI Normal: fields of 9 launch 24.9 attacks a stage (31.6), the top
+recipient taking 58% of them (62%), the first shock 6.3 / 8.9 / 13.8 s
+after its launch (6.3 / 8.1 / 12.1), the reason held 90% (89%); of 33,
+104 (120), 22% / 81% of its span (21% / 90%), 7.2 / 10.8 / 14.1 s, held
+85% (83%). The window still never blocked a launch. Evasion's tables in
+`docs/plans/cpu-player.md`, "Evasion", measured again: the shocks stepped
+on as before, more weak levels knocked out by them on busy charts.
+
+**Cost**: a CPU's presses at an absolute level cost about what a frozen
+strength's did (57 µs a bundled chart natively against 50, 79 against 65
+in wasm) and less than a weak v0 level's (90 against 233); 72 CPUs a
+stage loaded in 115 ms with a full ladder (114 under v0) and played out
+in 198 ms (179); a frame of 72 online CPUs 0.013 ms mean.
+
+### Tested
+
+- Engine: the demand in real units, the failure past the limits and not
+  before, bounds on extreme rows, the law a probability; monotone in
+  level on every bundled single chart and in the chart's slot for a
+  level (stated tolerances); each pattern axis bending its limit; the
+  solo CPU's `level=`; the five strengths' press hashes and Evasion 1's
+  fixture unchanged (`cpu-levels-v0`); the opponents' tests (frame rates,
+  shocks, steps down and up) on `cpu-levels-v1`.
+- Session: `the_cpus_play_alike` passes natively and for wasm32-wasip1
+  with its fixture recorded again; one test's CPUs moved from level 2 to
+  3 (`a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely`:
+  at level 2 its three CPUs went out together, a draw, where the test
+  needs a winner who plays on).
+- Room: the revision's test (5). UI: the Rules' note; the solo prompt's
+  line; the web route `level=`; desktop's `--cpu-level`.
+- Desktop offscreen (`step_down_offscreen.rs`,
+  `absolute_levels_end_a_stage_on_different_charts`): a practice stage on
+  Some Things Must's Medium under Adaptive charts, the player autoplayed,
+  CPUs of levels 2, 5 and 9: they end on Beginner, Easy and Challenge
+  (the Standings say "↓ Beginner", "↓ Easy", "↑ Challenge"); pictures
+  `levels-on-their-rungs` (the three fields on three charts) and
+  `levels-standings` in `target/scratch/mp/cpuabs/shots/`.
+
+### The Standings: names keep their room
+
+In a stage's Standings the mark of the chart a competitor finished on
+("↑ Challenge") goes on the line under the name, and where a CPU's name
+and its stars do not fit side by side (a phone's) the stars follow the
+mark there, so names are never cut for them (`results_stage.rs`;
+`a_stepped_mark_never_cuts_the_name`; drawn offscreen at 1280×720 and
+844×390 with nine starters, `crates/desktop/tests/standings_offscreen.rs`,
+pictures in `target/scratch/mp/cpuabs/shots/`).
+
+### Not done in this round
+
+- CPUs still play a tap-only copy (no holds, mines or lifts of the
+  chart's own); no new personalities; the stars unchanged.
+- The levels' anchoring is provisional: level 3 scores 93.7% on Beginner
+  where "a slot below" asks 95%, and a level at home goes out on the
+  hardest charts of its slot more as the slots get denser (7% of Medium
+  charts at level 5, 18% of Challenge at level 9).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -7337,6 +7505,7 @@ judged (`shift-chrome-…`, `shift-firefox-…`). No console problems.
 | `watch-v0`: a grid's field is at most a play's own field (`GRID_LANE_SHARE` 1.0); a layout with more rows wins within a tenth of the largest lane (`GRID_FILL` 0.9) | `ddi_shell::opponents::arrange_grid` | One to three watched fields are nearly the screen's height; eight are four by two at lanes of 29 px (1280×720) | The sizes; whether eight should give up the play's proportion (shorter fields, larger lanes) |
 | `slew-v0` (2026-11-13): a live play's stream and views on the room's song clock, its correction averaged over 4 s and moved at most 2 ms a second; its judging on its own | `ddi_room::live::slew::SLEW_V0`, `ddi_session::battle::live::Live::sync` | None visible: remote fields keep their delay however the devices' clocks drift | The rate; whether a large disagreement should be told to the room |
 | `watch-v1` (2026-11-13; `watch-v0` ended 2.5 s after the decision): a watched stage goes on after its decision while anyone still plays its song, its results 2.5 s after the last one ended (`WATCH_END_HOLD`) or at the song's end | `ddi_session::play::watch`, `Battle::still_playing` | A watcher (and a player out of the stage) sees the winner finish the song, "X wins the stage" on the status line from the decision on; Enter or Start still skips | Whether the hold after the winner finishes should be shorter |
+| `cpu-levels-v1` (2026-11-13): a CPU's level is abilities in real units, the same on every chart (spread 17 to 5.5 ms, speed 2.2 to 9 notes a second, a floor of 0.4% to 0.02%); `cpu-model-v1`'s shape (`ABSOLUTE_V1`: onset at 0.85 of a limit, the spread three times wider per unit past it, the lapse 0.067x + 0.1x², a lane's limit 0.65 of the speed, sustained 0.75, a 12% tail 2.5 times as wide) | `ddi_engine::cpu::{CPU_LEVELS_V1, ABSOLUTE_V1}` | Level 1 at home on Beginner, 3 on Easy, 5 on Medium, 7 on Hard, 9 on Challenge; under Adaptive the levels settle on different rungs | What each level should be at home on; whether "at home" may cost a CPU the stage on the slot's hardest charts (7% to 18%) |
 | `watch-v0`: where every person watches, a practice stage starts with the pick (the room's countdown), with no press of the watcher's | `ddi_room` `humans_needed`, `maybe_commit` | A watching host's pick is followed by the stage three seconds later | Whether a watching host should start it with a press |
 | `watch-v0`: the status line's moments for a watcher: out, attacks, the win; an attack never takes the line from someone going out | `ddi_session::play::watch::Watch::tell` | With eight CPUs attacking the line changes every few seconds | Which moments a watcher is told, and whether as a line of the announcer's |
 | A forfeit in play: the stage is watched on; the player's results are graded QUIT, their line last with no points | `Battle::forfeit_now`, `PlaySession::tick` | Escape twice in a stage shows "Left the stage" over the field and the stage goes on | Whether leaving should ask first, or be undoable for a moment |
@@ -7882,6 +8051,11 @@ judged (`shift-chrome-…`, `shift-firefox-…`). No console problems.
   (later checkpoints for everyone)? Every connected player's device sends
   every CPU's reports (simple, no takeover: 43 KB/s into the room for 13
   people and 60 CPUs, 5% more messages): fine, or two devices a CPU?
+- CPU levels (2026-11-13, `cpu-levels-v1`): what should each level be at
+  home on (today 1 Beginner, 3 Easy, 5 Medium, 7 Hard, 9 Challenge, 10
+  Challenge nearly perfectly, the coordinator's starting points)? Should
+  the solo CPU move to the ten levels too (today its five chart-relative
+  strengths, with `--cpu-level`/`level=` beside them)?
 - CPUs online: a CPU's reading horizon is 2 s for every CPU (practice
   reckons it from the local player's own). Keep it fixed, or take the
   stage's slowest player's?

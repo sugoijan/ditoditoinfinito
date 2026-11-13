@@ -15,6 +15,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   shared input motor/judge, native and browser integration checks. An
   opponent's ten levels (2026-11-12): the five strengths and five weaker
   ones with lapses, measured over local arcade packs, provisional.
+  Absolute levels (`cpu-levels-v1`, 2026-11-13): abilities in real units,
+  a row's demand from the chart, the ten levels rungs anchored by
+  measurement; every multiplayer CPU plays them, the solo CPU at one with
+  `--cpu-level`/`level=`; provisional.
 
 ## Multiplayer design
 
