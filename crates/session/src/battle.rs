@@ -577,7 +577,9 @@ pub fn stage_ladder(song: &Song, chart: usize, setup: &StageSetup) -> Vec<ddi_en
     {
         return Vec::new();
     }
-    ddi_engine::cpu::planned_ladder(song, chart)
+    let mut rungs = ddi_engine::cpu::planned_ladder(song, chart);
+    rungs.retain(|r| !r.up);
+    rungs
 }
 
 /// The most points chart `chart` of `song`, whole, gives under `ruleset`

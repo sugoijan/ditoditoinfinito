@@ -60,7 +60,7 @@ fn the_player_and_the_cpus_step_down_alike_at_any_frame_rate() {
     let (b, ob, _) = idle(&song, &order, 144.0);
     // The player stepped down every rung, then went out on the last.
     let ladder: Vec<usize> = a.battle().unwrap().rungs().iter().map(|r| r.chart).collect();
-    assert_eq!(ladder, ddi_engine::ladder::ladder(&song, HARD));
+    assert_eq!(ladder, ddi_engine::ladder::below(&song, HARD));
     let steps = a.player.steps().to_vec();
     assert_eq!(steps.len(), ladder.len(), "{steps:?}");
     assert_eq!(steps, b.player.steps(), "60 and 144 frames a second");
@@ -140,7 +140,7 @@ fn fewer_steps_rank_first_and_a_song_without_a_ladder_plays_as_out() {
     let song = bundled("beatucada");
     // The easiest single chart has no ladder: Step down is Out there,
     // exactly.
-    assert!(ddi_engine::ladder::ladder(&song, CHART).is_empty());
+    assert!(ddi_engine::ladder::below(&song, CHART).is_empty());
     let mut now = 0;
     let mut out = step_room(&song, 3, 1, ddi_room::AtZero::Out);
     let o_out = begin_at(&song, &mut out, &mut now, CHART);

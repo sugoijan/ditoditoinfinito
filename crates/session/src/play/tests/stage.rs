@@ -988,7 +988,11 @@ fn replayed(
     );
     let ladder = crate::battle::stage_ladder(song, order.chart.index, &StageSetup::of(order));
     for r in &ladder {
-        human.add_rung(song, r.chart).unwrap();
+        if r.up {
+            human.add_rung_up(song, r.chart).unwrap();
+        } else {
+            human.add_rung(song, r.chart).unwrap();
+        }
     }
     human.start(0.0, log.start);
     let mut battle = crate::battle::Battle::new(

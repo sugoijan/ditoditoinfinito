@@ -17,7 +17,7 @@ use crate::frame::{
 use crate::history::{LoggedHazard, LoggedInput, PlayLog};
 use crate::input::InputEvent;
 use crate::judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};
-use crate::ladder::{STEP_DOWN_V0, StepDown, StepDownRule};
+use crate::ladder::{ADAPTIVE_V0, AdaptiveRule, Step};
 use crate::rules::ddi::{self, DdiResult, Lamp};
 use crate::rules::ddr::{DdrClear, flare_points};
 use crate::rules::ffr::FfrResult;
@@ -178,10 +178,10 @@ pub struct Results {
     /// Under DDI's rules, its lamp (`rules::ddi`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ddi: Option<DdiResult>,
-    /// The play's steps down to easier charts (`crate::ladder`), in
-    /// order; none in every play without a ladder.
+    /// The play's steps down to easier charts and up to harder ones
+    /// (`crate::ladder`), in order; none in every play without a ladder.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub steps: Vec<StepDown>,
+    pub steps: Vec<Step>,
 }
 
 /// A play's battle shocks ([`Results::battle_mines`]).
@@ -328,15 +328,37 @@ pub struct Player {
     /// first, and the rule ([`Player::add_rung`]); empty in every play
     /// without a ladder.
     ladder: Vec<Rung>,
-    rule: StepDownRule,
+    /// The harder charts it may step up to, the next first
+    /// ([`Player::add_rung_up`]).
+    above: Vec<Rung>,
+    /// The stage's chart as it plays it (taken with the first rung), to
+    /// step back up to.
+    home: Option<Rung>,
+    /// The song's chart it plays (the stage's).
+    chart_index: usize,
+    rule: AdaptiveRule,
     /// The reading horizon the boundaries are reckoned from (taken with
     /// the first rung).
     horizon: f64,
-    /// The steps down so far; the rung it is on is their count.
-    steps: Vec<StepDown>,
+    /// The steps so far.
+    steps: Vec<Step>,
     /// A step whose life ran out at this judged second, to be made once
     /// its event is applied.
     stepping: Option<f64>,
+    /// The rung it plays from the last step's boundary (its place from
+    /// the stage's chart: negative easier).
+    level: i8,
+    /// A step up whose boundary is still ahead: the place it stepped up
+    /// from and the boundary (a step down before it is made from there).
+    pending_up: Option<(i8, f64)>,
+    /// The places whose life ran out (stepping back up to them takes
+    /// [`AdaptiveRule::return_bars`]).
+    ran_out: Vec<i8>,
+    /// Since when (judged seconds) its life has been full with no miss
+    /// and no shock stepped on; `None` while it is not.
+    clean_from: Option<f64>,
+    /// The next bar line a step up is decided at, once a ladder is set.
+    next_bar: Option<ddi_chart::Tick>,
 }
 
 /// An easier chart a play may step down to, as it would play it.
@@ -512,10 +534,18 @@ impl Player {
             shown_cover: options.cover,
             hazards: None,
             ladder: Vec::new(),
-            rule: STEP_DOWN_V0,
+            above: Vec::new(),
+            home: None,
+            chart_index,
+            rule: ADAPTIVE_V0,
             horizon: 0.0,
             steps: Vec::new(),
             stepping: None,
+            level: 0,
+            pending_up: None,
+            ran_out: Vec::new(),
+            clean_from: None,
+            next_bar: None,
             judge,
             ruleset,
         };
@@ -860,13 +890,30 @@ impl Player {
     }
 
     /// Adds an easier chart to the play's ladder (`crate::ladder`, a
-    /// match's "At zero life: Step down"): chart `chart` of `song` (the
-    /// stage's song, or a CPU's tap-only copy of it), played with the
-    /// play's own options, the rung below those added before. Before the
-    /// start only, under DDI's rules (its gauge is given back and its
-    /// most taken again), on the play's own timing (the boundary and the
-    /// breather are measured on one).
+    /// match's "Charts: Adaptive"): chart `chart` of `song` (the stage's
+    /// song, or a CPU's tap-only copy of it), played with the play's own
+    /// options, the rung below those added before. Before the start only,
+    /// under DDI's rules (its gauge is given back and its most taken
+    /// again), on the play's own timing (the boundary and the breather
+    /// are measured on one).
     pub fn add_rung(&mut self, song: &Song, chart: usize) -> Result<(), &'static str> {
+        let rung = self.rung_of(song, chart)?;
+        self.ladder.push(rung);
+        Ok(())
+    }
+
+    /// Adds a harder chart to the play's ladder, the rung above those
+    /// added before, as [`Player::add_rung`] adds an easier one.
+    pub fn add_rung_up(&mut self, song: &Song, chart: usize) -> Result<(), &'static str> {
+        let rung = self.rung_of(song, chart)?;
+        self.above.push(rung);
+        Ok(())
+    }
+
+    /// Chart `chart` of `song` as this play would play it, refused as
+    /// [`Player::add_rung`] says; the first one takes the stage's chart
+    /// and the reading horizon with it.
+    fn rung_of(&mut self, song: &Song, chart: usize) -> Result<Rung, &'static str> {
         if self.started {
             return Err("a ladder is set before the start");
         }
@@ -896,43 +943,50 @@ impl Player {
         if self.ruleset.judge.taps_only {
             taps_only(&mut t.notes);
         }
-        if self.ladder.is_empty() {
+        if self.home.is_none() {
             self.horizon = self.reading_horizon();
+            self.home = Some(Rung {
+                chart: self.chart_index,
+                notes: self.judge.notes().iter().map(|n| n.note.clone()).collect(),
+                meter: self.meter,
+            });
         }
-        self.ladder.push(Rung {
+        Ok(Rung {
             chart,
             notes: t.notes,
             meter: c.meter,
-        });
-        Ok(())
+        })
     }
 
-    /// The step-down rule the play follows (`STEP_DOWN_V0`; tests may
-    /// give another).
-    pub fn set_step_down_rule(&mut self, rule: StepDownRule) {
+    /// The ladder rule the play follows ([`ADAPTIVE_V0`]; tests may give
+    /// another).
+    pub fn set_ladder_rule(&mut self, rule: AdaptiveRule) {
         self.rule = rule;
     }
 
-    /// The charts it may step down to, the next first (their places in
-    /// the song).
+    /// Its rungs as [`crate::ladder::Ladder::rungs`] numbers them: the
+    /// charts it may step down to, the next first, then those it may step
+    /// up to (their places in the song).
     pub fn ladder(&self) -> Vec<usize> {
-        self.ladder.iter().map(|r| r.chart).collect()
+        self.ladder.iter().chain(&self.above).map(|r| r.chart).collect()
     }
 
-    /// Its steps down so far ([`Results::steps`]).
-    pub fn steps(&self) -> &[StepDown] {
+    /// Its steps so far ([`Results::steps`]).
+    pub fn steps(&self) -> &[Step] {
         &self.steps
     }
 
-    /// The rung it plays: 0 the stage's chart, 1 the first easier one.
+    /// The rung it plays from the last step's boundary on, numbered as
+    /// [`Step::rung`]: 0 the stage's chart.
     pub fn rung(&self) -> u8 {
-        self.steps.len() as u8
+        crate::ladder::rung_of(self.ladder.len(), self.level)
     }
 
-    /// From when to when it is in a step's breather (judged seconds):
-    /// the old chart taken away, the new one's notes from the second.
+    /// From when to when it is in a step down's breather (judged
+    /// seconds): the old chart taken away, the new one's notes from the
+    /// second.
     pub fn breather(&self) -> Option<(f64, f64)> {
-        self.steps.last().map(|s| (s.at, s.boundary))
+        self.steps.last().filter(|s| !s.up).map(|s| (s.at, s.boundary))
     }
 
     /// Whether judged song second `t` is in a breather.
@@ -940,9 +994,27 @@ impl Player {
         self.breather().is_some_and(|(at, until)| t >= at && t < until)
     }
 
-    /// Whether a rung is left below the one it plays.
-    fn can_step(&self) -> bool {
-        self.steps.len() < self.ladder.len()
+    /// The place it plays at judged second `at`: a step up whose
+    /// boundary is still ahead not yet.
+    fn level_at(&self, at: f64) -> i8 {
+        match self.pending_up {
+            Some((from, boundary)) if at < boundary => from,
+            _ => self.level,
+        }
+    }
+
+    /// Whether a rung is left below the one it plays at `at`.
+    fn can_step(&self, at: f64) -> bool {
+        !self.ladder.is_empty() && i32::from(self.level_at(at)) > -(self.ladder.len() as i32)
+    }
+
+    /// The rung at place `level` (0 the stage's chart).
+    fn rung_at(&self, level: i8) -> Option<&Rung> {
+        match level {
+            0 => self.home.as_ref(),
+            l if l < 0 => self.ladder.get(usize::from(l.unsigned_abs()) - 1),
+            l => self.above.get(usize::from(l.unsigned_abs()) - 1),
+        }
     }
 
     /// The step down whose life ran out at judged second `at`: the old
@@ -950,20 +1022,96 @@ impl Player {
     /// judged past `at` in the same update), the next rung's from the
     /// boundary put in, the play's totals and tables made again.
     fn step_down(&mut self, at: f64, taken: &[usize]) {
-        let Some(next) = self.ladder.get(self.steps.len()).cloned() else {
+        let from = self.level_at(at);
+        let to = from - 1;
+        let Some(next) = self.rung_at(to).cloned() else {
             return;
         };
         let (tick, boundary) = crate::ladder::boundary(&self.rule, &self.timing, at, self.horizon);
         let incoming: Vec<Note> = next.notes.iter().filter(|n| n.tick >= tick).cloned().collect();
-        // Each row's progress by its tick (a row all taken away goes).
-        let rows: std::collections::BTreeMap<ddi_chart::Tick, (RowAcc, u32)> = self
-            .judge
+        let rows = self.row_progress();
+        self.judge.step_down(at, taken, &incoming, &self.timing);
+        self.after_step(rows);
+        self.meter = next.meter;
+        self.ran_out.push(from);
+        self.pending_up = None;
+        self.level = to;
+        self.clean_from = None;
+        let below = self.ladder.len();
+        self.steps.push(Step {
+            at,
+            boundary,
+            tick,
+            rung: crate::ladder::rung_of(below, to),
+            chart: next.chart,
+            up: false,
+            from: crate::ladder::rung_of(below, from),
+        });
+    }
+
+    /// The step up decided at the bar line `at` (judged seconds): the old
+    /// chart's notes from the boundary on taken away (none judged yet),
+    /// those before it played on (a hold crossing it to its end), the
+    /// next harder rung's from the boundary put in, except in a lane such
+    /// a hold still runs in; life as it is.
+    fn step_up(&mut self, at: f64) {
+        let from = self.level;
+        let to = from + 1;
+        let Some(next) = self.rung_at(to).cloned() else {
+            return;
+        };
+        let (tick, boundary) = crate::ladder::boundary(&self.rule, &self.timing, at, self.horizon);
+        // The old chart's holds that cross the boundary: their lanes are
+        // theirs to their ends.
+        let mut busy = vec![ddi_chart::Tick(i64::MIN); usize::from(self.lanes)];
+        for n in self.judge.notes() {
+            if n.state != NoteState::Removed && n.note.tick < tick && n.note.end_tick() >= tick {
+                let l = usize::from(n.note.lane);
+                if l < busy.len() {
+                    busy[l] = busy[l].max(n.note.end_tick());
+                }
+            }
+        }
+        let incoming: Vec<Note> = next
+            .notes
+            .iter()
+            .filter(|n| {
+                n.tick >= tick && busy.get(usize::from(n.lane)).is_none_or(|&end| n.tick > end)
+            })
+            .cloned()
+            .collect();
+        let rows = self.row_progress();
+        self.judge.step_up(tick, &incoming, &self.timing);
+        self.after_step(rows);
+        self.meter = next.meter;
+        self.pending_up = Some((from, boundary));
+        self.level = to;
+        self.clean_from = None;
+        let below = self.ladder.len();
+        self.steps.push(Step {
+            at,
+            boundary,
+            tick,
+            rung: crate::ladder::rung_of(below, to),
+            chart: next.chart,
+            up: true,
+            from: crate::ladder::rung_of(below, from),
+        });
+    }
+
+    /// Each row's progress by its tick, before the judge's notes change.
+    fn row_progress(&self) -> std::collections::BTreeMap<ddi_chart::Tick, (RowAcc, u32)> {
+        self.judge
             .rows()
             .iter()
             .zip(self.rows.iter().cloned().zip(self.row_judged.iter().copied()))
             .map(|(r, acc)| (r.tick, acc))
-            .collect();
-        self.judge.step_down(at, taken, &incoming, &self.timing);
+            .collect()
+    }
+
+    /// The play's tables made again after the judge's notes changed (a
+    /// row all taken away goes), and its totals: what it was shown.
+    fn after_step(&mut self, rows: std::collections::BTreeMap<ddi_chart::Tick, (RowAcc, u32)>) {
         let (accs, judged): (Vec<RowAcc>, Vec<u32>) = self
             .judge
             .rows()
@@ -989,14 +1137,6 @@ impl Player {
             })
             .collect();
         self.reach = note_reach(self.judge.notes(), &self.displayed);
-        self.meter = next.meter;
-        self.steps.push(StepDown {
-            at,
-            boundary,
-            tick,
-            rung: self.steps.len() as u8 + 1,
-            chart: next.chart,
-        });
         // What it was shown: the notes judged before and the new chart's.
         let (combo, units, w0) = (self.ctx.combo, self.ctx.units, self.ctx.w0);
         self.ctx = ScoreCtx {
@@ -1006,6 +1146,94 @@ impl Player {
             ..self.totals()
         };
         self.ruleset.score.restep(&self.ctx);
+    }
+
+    /// Whether it may step up at all: a ladder with a rung above some
+    /// place and a rule that steps up.
+    fn climbs(&self) -> bool {
+        self.home.is_some() && self.rule.up_bars > 0
+    }
+
+    /// The bar lines up to judged second `t` (a step up is decided at
+    /// each): judged to each before it is decided, so that what is
+    /// decided reads only what was judged by then whatever the frames;
+    /// the events judged on the way, applied.
+    fn judge_to_bars(&mut self, t: f64) -> Vec<JudgeEvent> {
+        let mut out = Vec::new();
+        if !self.climbs() {
+            return out;
+        }
+        let bar = i64::from(self.rule.bar_beats.max(1)) * ddi_chart::TICKS_PER_BEAT;
+        loop {
+            if self.finished {
+                return out;
+            }
+            let tick = *self
+                .next_bar
+                .get_or_insert(ddi_chart::Tick(bar));
+            let b = self.timing.seconds_at(tick);
+            if !b.is_finite() || b > t {
+                return out;
+            }
+            if self.judge.last_time().is_none_or(|j| j < b) {
+                let mut events = self.advance_judges(b);
+                self.apply(&mut events);
+                out.extend(events);
+            }
+            if !self.finished {
+                self.decide_up(tick, b);
+            }
+            self.next_bar = Some(ddi_chart::Tick(tick.0 + bar));
+        }
+    }
+
+    /// At the bar line `tick` (judged second `b`): a step up where life
+    /// has been full, with no miss and no shock stepped on, for the
+    /// rule's bars since the last step's boundary.
+    fn decide_up(&mut self, tick: ddi_chart::Tick, b: f64) {
+        if self.failed || self.quit || self.stepping.is_some() {
+            return;
+        }
+        let to = self.level + 1;
+        if self.rung_at(to).is_none() {
+            return;
+        }
+        if self.steps.last().is_some_and(|s| s.boundary > b) {
+            return;
+        }
+        let bars = if self.ran_out.contains(&to) {
+            self.rule.return_bars
+        } else {
+            self.rule.up_bars
+        };
+        let span = i64::from(bars) * i64::from(self.rule.bar_beats.max(1)) * ddi_chart::TICKS_PER_BEAT;
+        let start = self.timing.seconds_at(ddi_chart::Tick(tick.0 - span));
+        if self.steps.last().is_some_and(|s| start < s.boundary) {
+            return;
+        }
+        if self.clean_from.is_some_and(|c| c <= start) {
+            self.step_up(b);
+        }
+    }
+
+    /// After event `ev`: whether life is full with nothing missed since
+    /// ([`Player::clean_from`]).
+    fn track_clean(&mut self, ev: &JudgeEvent) {
+        if !self.climbs() {
+            return;
+        }
+        let broke = match ev.kind {
+            JudgeEventKind::Tap(j, _) => j.is_miss(),
+            JudgeEventKind::HitMine | JudgeEventKind::HitShock | JudgeEventKind::LetGo => true,
+            JudgeEventKind::Checkpoint { missed, .. } => missed > 0,
+            _ => false,
+        };
+        let full = self.ruleset.gauge.life() >= 1.0 - 1e-6;
+        if broke || !full {
+            self.clean_from = None;
+        } else if self.clean_from.is_none() {
+            self.clean_from = Some(ev.song_time);
+        }
     }
 
     /// How far ahead this play reads (`crate::battle::reading_horizon`):
@@ -1134,6 +1362,11 @@ impl Player {
             self.late_edges += 1;
         }
         let t = at.max(judged);
+        // The bar lines before the edge decided first (a step up).
+        let before = self.judge_to_bars(t);
+        if self.finished {
+            return before;
+        }
         if self.judged_lane.is_none() {
             self.log.inputs.push(LoggedInput {
                 time: t,
@@ -1218,7 +1451,13 @@ impl Player {
         self.pressing = self.judged_lane.map(|_| lane);
         self.apply(&mut events);
         self.pressing = None;
-        events
+        if before.is_empty() {
+            events
+        } else {
+            let mut all = before;
+            all.extend(events);
+            all
+        }
     }
 
     /// Whether a locked lane's receptor keeps its mine's hit effect for
@@ -1315,8 +1554,13 @@ impl Player {
         }
         let t = to_microsecond(song_time);
         let at = to_microsecond(t - JUDGE_LAG);
-        let mut events = self.advance_judges(at);
-        self.apply(&mut events);
+        let mut events = self.judge_to_bars(at);
+        if self.finished {
+            return events;
+        }
+        let mut more = self.advance_judges(at);
+        self.apply(&mut more);
+        events.extend(more);
         self.repeat_lock_effects(t);
         if !self.finished && t >= self.end_time() && self.judge.all_resolved() {
             self.finish();
@@ -1781,7 +2025,7 @@ impl Player {
         if self.stepping.is_none()
             && !self.failed
             && !self.quit
-            && self.can_step()
+            && self.can_step(ev.song_time)
             && self.ruleset.gauge.failed()
             && self.ruleset.gauge.set_life(self.rule.life)
         {
@@ -1794,6 +2038,7 @@ impl Player {
             let at = (ev.song_time as f32).max(self.life.last().map_or(f32::MIN, |l| l[0]));
             self.life.push([at, life]);
         }
+        self.track_clean(ev);
         if self.gauge_failed_at.is_none() && self.ruleset.gauge.failed() {
             self.gauge_failed_at = Some(ev.song_time);
         }

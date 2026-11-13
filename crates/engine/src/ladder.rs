@@ -1,15 +1,21 @@
-//! Step down: an easier chart instead of going out (a multiplayer match's
-//! rule "At zero life: Step down", `docs/plans/multiplayer-prototype-progress.md`,
-//! "Step down"). PROVISIONAL, named [`STEP_DOWN_V0`].
+//! Adaptive charts: stepping down and up a song's ladder (a multiplayer
+//! match's rule "Charts: Adaptive", `docs/plans/multiplayer-prototype-progress.md`,
+//! "Adaptive charts"). PROVISIONAL, named [`ADAPTIVE_V0`].
 //!
-//! A stage's **ladder** is the charts of its song in the stage chart's
-//! style that are easier than the stage's chart ([`ladder`]). A competitor
-//! whose life reaches zero with a rung below is not out: from a boundary
-//! far enough ahead to be read ([`boundary`]) their notes are the next
-//! rung's; what was left of the old chart is taken away unjudged at once
-//! (a breather until the boundary, nothing lost or gained in it); their
-//! life is given back to a share and cannot drop below one point until
-//! the boundary. On the lowest rung zero life is out as ever.
+//! A stage's **ladder** is the other charts of its song in the stage
+//! chart's style, easier ([`below`]) and harder ([`above`]); everyone
+//! starts on the stage's chart. A competitor whose life reaches zero
+//! with a rung below is not out: from a boundary far enough ahead to be
+//! read ([`boundary`]) their notes are the next easier rung's; what was
+//! left of the old chart is taken away unjudged at once (a breather
+//! until the boundary, nothing lost or gained in it); their life is
+//! given back to a share and cannot drop below one point until the
+//! boundary. On the lowest rung zero life is out as ever. A competitor
+//! who held full life for [`AdaptiveRule::up_bars`] bars with no miss and
+//! no shock stepped on moves to the next harder rung from the next
+//! boundary, the old chart played up to it, life unchanged
+//! ([`AdaptiveRule::return_bars`] to go back up to a rung whose life ran
+//! out).
 //!
 //! The play itself changes chart ([`crate::Player::add_rung`]): one
 //! player, one judge, its notes rebuilt at the step (the notes judged
@@ -23,45 +29,139 @@ use serde::{Deserialize, Serialize};
 
 /// The rule's values, by name.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct StepDownRule {
+pub struct AdaptiveRule {
     pub name: &'static str,
-    /// The life given back at the step, `0..=1` (DDI's 50 of 100).
+    /// The life given back at a step down, `0..=1` (DDI's 50 of 100).
     pub life: f32,
-    /// The seconds past the reading horizon the boundary is at least.
+    /// The seconds past the reading horizon a boundary is at least.
     pub lead: f64,
     /// The beats a bar line is every (StepMania's measure; time
     /// signatures are not read).
     pub bar_beats: u32,
-    /// The least life the breather leaves, `0..=1` (one point of DDI's
+    /// The least life a breather leaves, `0..=1` (one point of DDI's
     /// 100).
     pub floor: f32,
+    /// The bars of full life, with no miss and no shock stepped on, that
+    /// earn a step up (counted from the last step's boundary); 0 never
+    /// steps up.
+    pub up_bars: u32,
+    /// The bars it takes instead to step back up to a rung whose life
+    /// ran out (the hysteresis that keeps anyone from bouncing).
+    pub return_bars: u32,
+    /// What a stretch played on a rung counts for in a stage's score,
+    /// by its place against the stage's chart (negative easier): 1 on
+    /// every rung (no balancing; the place for it, [`rung_score_factor`]).
+    pub score_factor: f64,
 }
 
 /// The values chosen for the prototype (PROVISIONAL): half the life back
-/// (the start's), the next bar line at least the reading horizon plus a
-/// second ahead, life kept at one point or more until then.
-pub const STEP_DOWN_V0: StepDownRule = StepDownRule {
-    name: "step-down-v0",
+/// (the start's) at a step down, the boundary the next bar line at least
+/// the reading horizon plus a second ahead, life kept at one point or
+/// more until then; a step up after four bars (16 beats) of full life
+/// without a miss or a shock stepped on, eight back up to a rung whose
+/// life ran out; every rung's score as earned.
+pub const ADAPTIVE_V0: AdaptiveRule = AdaptiveRule {
+    name: "adaptive-v0",
     life: 0.5,
     lead: 1.0,
     bar_beats: 4,
     floor: 0.01,
+    up_bars: 4,
+    return_bars: 8,
+    score_factor: 1.0,
 };
 
-/// One step down of a play ([`crate::Results::steps`]).
+/// What a stretch on the rung `level` places from the stage's chart
+/// (negative easier, 0 the stage's) counts for in a stage's score under
+/// `rule`: [`AdaptiveRule::score_factor`] on every rung but the stage's.
+/// 1 under [`ADAPTIVE_V0`]: nothing is balanced until the maintainer has
+/// felt the rule.
+pub fn rung_score_factor(rule: &AdaptiveRule, level: i8) -> f64 {
+    if level == 0 { 1.0 } else { rule.score_factor }
+}
+
+/// One step of a play from a rung to the next ([`crate::Results::steps`]).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct StepDown {
-    /// When life reached zero (judged song seconds): the old chart's
-    /// notes not judged by then were taken away.
+pub struct Step {
+    /// When it was decided (judged song seconds): for a step down, when
+    /// life reached zero (the old chart's notes not judged by then were
+    /// taken away); for a step up, the bar line that ended its full bars.
     pub at: f64,
     /// The boundary: the new chart's notes from here on.
     pub boundary: f64,
     /// Its tick on the stage's timing.
     pub tick: Tick,
-    /// The rung stepped to, from 1 (0 is the stage's chart).
+    /// The rung stepped to: 0 the stage's chart, then the ladder's rungs
+    /// as [`Ladder::rungs`] numbers them from 1 (the easier ones, then
+    /// the harder ones).
     pub rung: u8,
     /// The song's chart that rung is.
     pub chart: usize,
+    /// A step up, to a harder chart (the old one played to the
+    /// boundary); a step down otherwise.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub up: bool,
+    /// The rung stepped from (as `rung`).
+    #[serde(default)]
+    pub from: u8,
+}
+
+/// A stage's ladder: the stage's chart and its rungs either way, each
+/// the next first.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Ladder {
+    pub stage: usize,
+    /// The easier charts, the next easier first ([`below`]).
+    pub below: Vec<usize>,
+    /// The harder charts, the next harder first ([`above`]).
+    pub above: Vec<usize>,
+}
+
+impl Ladder {
+    /// Chart `chart` of `song`'s ladder ([`below`], [`above`]).
+    pub fn of(song: &Song, chart: usize) -> Ladder {
+        Ladder {
+            stage: chart,
+            below: below(song, chart),
+            above: above(song, chart),
+        }
+    }
+
+    /// Every rung, numbered from 1 in this order (as [`Step::rung`]): the
+    /// easier ones, then the harder ones.
+    pub fn rungs(&self) -> Vec<usize> {
+        self.below.iter().chain(&self.above).copied().collect()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.below.is_empty() && self.above.is_empty()
+    }
+
+    /// The chart a rung number names (0 the stage's).
+    pub fn chart(&self, rung: u8) -> Option<usize> {
+        match usize::from(rung) {
+            0 => Some(self.stage),
+            r if r <= self.below.len() => self.below.get(r - 1).copied(),
+            r => self.above.get(r - 1 - self.below.len()).copied(),
+        }
+    }
+
+    /// A rung number's place from the stage's chart: negative easier.
+    pub fn level(&self, rung: u8) -> i8 {
+        level_of(self.below.len(), rung)
+    }
+}
+
+/// A rung number's place from the stage's chart with `below` rungs
+/// below it: negative easier, 0 the stage's, positive harder.
+pub fn level_of(below: usize, rung: u8) -> i8 {
+    let r = usize::from(rung);
+    if r <= below { -(r as i8) } else { (r - below) as i8 }
+}
+
+/// The rung number of the place `level` with `below` rungs below.
+pub fn rung_of(below: usize, level: i8) -> u8 {
+    if level <= 0 { (-level) as u8 } else { (below as i8 + level) as u8 }
 }
 
 /// A difficulty slot's place, easiest first; an Edit has none.
@@ -89,8 +189,8 @@ pub fn same_timing(a: &TimingMap, b: &TimingMap) -> bool {
         && a.fakes == b.fakes
 }
 
-/// The ladder of a stage on chart `chart` of `song`: the song's other
-/// charts that can be its rungs, the next easier first. A rung is an
+/// The rungs below a stage on chart `chart` of `song`: the song's other
+/// charts that can be its easier rungs, the next easier first. A rung is an
 /// original chart (no `derivation`), in the stage chart's style (its
 /// layout), with notes, on the same timing (the boundary and the
 /// breather are measured on one), and easier:
@@ -102,25 +202,12 @@ pub fn same_timing(a: &TimingMap, b: &TimingMap) -> bool {
 /// - below an Edit, the slotted charts of a lower meter, by slot from
 ///   the highest, then by meter from the highest, then by place.
 ///
-/// Empty where the song has no easier chart: the rule then changes
-/// nothing.
-pub fn ladder(song: &Song, chart: usize) -> Vec<usize> {
+/// Empty where the song has no easier chart.
+pub fn below(song: &Song, chart: usize) -> Vec<usize> {
     let Some(stage) = song.charts.get(chart) else {
         return Vec::new();
     };
-    let timing = stage.timing(song);
-    let fits = |i: usize, c: &Chart| {
-        i != chart
-            && c.derivation.is_none()
-            && c.layout == stage.layout
-            && !c.notes.is_empty()
-            && same_timing(c.timing(song), timing)
-    };
-    let mut rungs: Vec<(u8, u32, usize)> = song
-        .charts
-        .iter()
-        .enumerate()
-        .filter(|(i, c)| fits(*i, c))
+    let mut rungs: Vec<(u8, u32, usize)> = fitting(song, chart)
         .filter_map(|(i, c)| {
             let s = slot(c.difficulty)?;
             is_easier((stage.difficulty, stage.meter), (c.difficulty, c.meter))
@@ -131,8 +218,49 @@ pub fn ladder(song: &Song, chart: usize) -> Vec<usize> {
     rungs.into_iter().map(|r| r.2).collect()
 }
 
+/// The rungs above a stage on chart `chart` of `song`: the song's other
+/// charts that can be its harder rungs, the next harder first, as
+/// [`below`] has the easier ones turned over:
+///
+/// - above a slotted chart, the charts of higher slots, by slot from the
+///   nearest, a slot's charts by meter from the lowest, then by their
+///   place in the song; Edits are never rungs of a slotted chart;
+/// - above an Edit, the slotted charts of a higher meter, by slot from
+///   the lowest, then by meter from the lowest, then by place.
+///
+/// Empty where the song has no harder chart.
+pub fn above(song: &Song, chart: usize) -> Vec<usize> {
+    let Some(stage) = song.charts.get(chart) else {
+        return Vec::new();
+    };
+    let mut rungs: Vec<(u8, u32, usize)> = fitting(song, chart)
+        .filter_map(|(i, c)| {
+            let s = slot(c.difficulty)?;
+            is_harder((stage.difficulty, stage.meter), (c.difficulty, c.meter))
+                .then_some((s, c.meter, i))
+        })
+        .collect();
+    rungs.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+    rungs.into_iter().map(|r| r.2).collect()
+}
+
+/// The song's charts that may be rungs of a stage on chart `chart`
+/// either way: originals (no `derivation`), in its style, with notes, on
+/// the same timing (the boundary and the breather are measured on one).
+fn fitting(song: &Song, chart: usize) -> impl Iterator<Item = (usize, &Chart)> {
+    let stage = &song.charts[chart];
+    let timing = stage.timing(song);
+    song.charts.iter().enumerate().filter(move |(i, c)| {
+        *i != chart
+            && c.derivation.is_none()
+            && c.layout == stage.layout
+            && !c.notes.is_empty()
+            && same_timing(c.timing(song), timing)
+    })
+}
+
 /// Whether a chart of difficulty and meter `other` is easier than the
-/// stage's (`stage`) as [`ladder`] has it: a lower slot below a slotted
+/// stage's (`stage`) as [`below`] has it: a lower slot below a slotted
 /// chart; a slotted chart of a lower meter below an Edit; never an Edit.
 pub fn is_easier(stage: (Difficulty, u32), other: (Difficulty, u32)) -> bool {
     let Some(s) = slot(other.0) else {
@@ -141,6 +269,19 @@ pub fn is_easier(stage: (Difficulty, u32), other: (Difficulty, u32)) -> bool {
     match slot(stage.0) {
         Some(top) => s < top,
         None => other.1 < stage.1,
+    }
+}
+
+/// Whether a chart of difficulty and meter `other` is harder than the
+/// stage's as [`above`] has it: a higher slot above a slotted chart; a
+/// slotted chart of a higher meter above an Edit; never an Edit.
+pub fn is_harder(stage: (Difficulty, u32), other: (Difficulty, u32)) -> bool {
+    let Some(s) = slot(other.0) else {
+        return false;
+    };
+    match slot(stage.0) {
+        Some(top) => s > top,
+        None => other.1 > stage.1,
     }
 }
 
@@ -157,7 +298,7 @@ pub fn rung_name(chart: &Chart) -> String {
 /// The boundary of a step at judged song second `at` for a player who
 /// reads `horizon` seconds ahead: the first bar line at least `horizon`
 /// plus the rule's lead past `at`, on `timing`: its tick and its second.
-pub fn boundary(rule: &StepDownRule, timing: &TimingMap, at: f64, horizon: f64) -> (Tick, f64) {
+pub fn boundary(rule: &AdaptiveRule, timing: &TimingMap, at: f64, horizon: f64) -> (Tick, f64) {
     let target = at + horizon.max(0.0) + rule.lead;
     let bar = i64::from(rule.bar_beats.max(1)) * TICKS_PER_BEAT;
     let beat = timing.beat_at(target);
@@ -218,7 +359,7 @@ mod tests {
             .iter()
             .position(|c| c.layout == "dance-single" && c.difficulty == Difficulty::Hard)
             .unwrap();
-        let rungs = ladder(&song, stage);
+        let rungs = below(&song, stage);
         let m = merged(&song, stage, &rungs);
         let notes = &m.charts[stage].notes;
         for c in std::iter::once(stage).chain(rungs.iter().copied()) {
@@ -234,12 +375,12 @@ mod tests {
     fn the_boundary_is_a_bar_line_past_the_horizon_and_a_second() {
         // 120 BPM: a beat is half a second, a bar two seconds.
         let timing = TimingMap::constant(120.0, 0.0);
-        let (tick, at) = boundary(&STEP_DOWN_V0, &timing, 10.0, 2.5);
+        let (tick, at) = boundary(&ADAPTIVE_V0, &timing, 10.0, 2.5);
         // 13.5 s is beat 27: the next bar line is beat 28, 14 s.
         assert_eq!(tick, Tick(28 * TICKS_PER_BEAT));
         assert!((at - 14.0).abs() < 1e-9);
         // Exactly on a bar line: that one.
-        let (_, at) = boundary(&STEP_DOWN_V0, &timing, 11.0, 0.0);
+        let (_, at) = boundary(&ADAPTIVE_V0, &timing, 11.0, 0.0);
         assert!((at - 12.0).abs() < 1e-9);
     }
 }

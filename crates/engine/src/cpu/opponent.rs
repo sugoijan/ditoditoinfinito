@@ -38,16 +38,36 @@ pub struct PlannedRung {
     pub projected: Song,
     /// Its copy's notes, `(seconds, lane)` in time order.
     pub notes: Vec<(f64, u8)>,
+    /// A rung above the stage's chart (harder); below it otherwise.
+    pub up: bool,
 }
 
 /// A stage's ladder on chart `chart` of `song` as everyone plays it
-/// (`crate::ladder::ladder`), cut at the first rung the CPUs cannot plan,
-/// each rung planned: the same on every device.
+/// (`crate::ladder::Ladder`), each way cut at the first rung the CPUs
+/// cannot plan, each rung planned: the easier rungs, the next first,
+/// then the harder ones (numbered so from 1, as `Ladder::rungs`); the
+/// same on every device.
 pub fn planned_ladder(song: &Song, chart: usize) -> Vec<PlannedRung> {
-    crate::ladder::ladder(song, chart)
+    let below = crate::ladder::below(song, chart)
+        .into_iter()
+        .map_while(|r| PlannedRung::new(song, r).ok());
+    let above = crate::ladder::above(song, chart)
         .into_iter()
         .map_while(|r| PlannedRung::new(song, r).ok())
-        .collect()
+        .map(|mut r| {
+            r.up = true;
+            r
+        });
+    below.chain(above).collect()
+}
+
+/// The ladder `planned_ladder` keeps, as charts.
+pub fn planned_charts(stage: usize, rungs: &[PlannedRung]) -> crate::ladder::Ladder {
+    crate::ladder::Ladder {
+        stage,
+        below: rungs.iter().filter(|r| !r.up).map(|r| r.chart).collect(),
+        above: rungs.iter().filter(|r| r.up).map(|r| r.chart).collect(),
+    }
 }
 
 impl PlannedRung {
@@ -75,6 +95,7 @@ impl PlannedRung {
             plan,
             projected,
             notes,
+            up: false,
         })
     }
 }
@@ -103,9 +124,12 @@ pub struct Opponent {
     /// at ([`Opponent::add_rungs`]).
     level: Level,
     skills: Skills,
-    /// The presses its plan made for each rung of its ladder (the next
-    /// easier chart first), and each one's notes as `notes` has them.
+    /// The presses its plan made for each rung of its ladder (numbered as
+    /// `Ladder::rungs`: the easier ones, then the harder ones), and each
+    /// one's notes as `notes` has them; and the stage's chart's, to step
+    /// back up to.
     rungs: Vec<RungPlan>,
+    home: Option<RungPlan>,
     /// The battle's shocks received so far (its response to them is made
     /// again on a new rung's presses).
     received: Vec<Hazard>,
@@ -214,6 +238,7 @@ impl Opponent {
             level,
             skills,
             rungs: Vec::new(),
+            home: None,
             received: Vec::new(),
         })
     }
@@ -225,12 +250,28 @@ impl Opponent {
     /// start. Refused, with the engine's reason, where a rung's plan
     /// cannot be scripted.
     pub fn add_rungs(&mut self, rungs: &[PlannedRung]) -> Result<(), String> {
+        if self.home.is_none() && !rungs.is_empty() {
+            self.home = Some((self.presses.clone(), self.notes.clone()));
+        }
         for r in rungs {
             let presses = r.plan.script_at(self.level, self.seed, self.skills)?;
-            self.player.add_rung(&r.projected, r.chart)?;
+            if r.up {
+                self.player.add_rung_up(&r.projected, r.chart)?;
+            } else {
+                self.player.add_rung(&r.projected, r.chart)?;
+            }
             self.rungs.push((presses, r.notes.clone()));
         }
         Ok(())
+    }
+
+    /// The presses and notes its plan made for rung `rung` (0 the
+    /// stage's chart).
+    fn rung_plan(&self, rung: u8) -> Option<&RungPlan> {
+        match rung {
+            0 => self.home.as_ref(),
+            r => self.rungs.get(usize::from(r) - 1),
+        }
     }
 
     /// Whether it has a ladder ([`Opponent::add_rungs`]).
@@ -238,10 +279,11 @@ impl Opponent {
         !self.rungs.is_empty()
     }
 
-    /// Its player stepped down to a rung it was not playing yet: the
-    /// presses still to come are the rung's plan's from just before its
-    /// boundary, its response to the shocks still to come made again on
-    /// them.
+    /// Its player stepped to a rung it was not playing yet: the presses
+    /// still to come are the rung's plan's from just before its boundary
+    /// (after a step up, those of the old chart's still to come before it
+    /// kept as they were), its response to the shocks made again on the
+    /// new rung's presses.
     fn follow_step(&mut self, played: usize) {
         let steps = self.player.steps();
         if steps.len() <= played {
@@ -250,22 +292,29 @@ impl Opponent {
         let Some(step) = steps.last().copied() else {
             return;
         };
-        let Some((presses, notes)) = self.rungs.get(usize::from(step.rung) - 1).cloned() else {
+        let Some((presses, notes)) = self.rung_plan(step.rung).cloned() else {
             return;
         };
         let early = self.player.ruleset().judge.max_early();
         let from = step.boundary - early - self.judge_offset.max(0.0) - 0.001;
-        let mut script = self.presses[..self.next].to_vec();
+        let keep = if step.up {
+            // The old chart is played to the boundary.
+            self.next + self.presses[self.next..].partition_point(|p| p.press < from)
+        } else {
+            self.next
+        };
+        let mut script = self.presses[..keep].to_vec();
         let last = script.last().map_or(f64::NEG_INFINITY, |p| p.release);
         script.extend(presses.into_iter().filter(|p| p.press >= from && p.press > last));
         if validate_script(&script).is_ok() {
             self.presses = script;
         } else {
-            self.presses.truncate(self.next);
+            self.presses.truncate(keep);
         }
         self.notes = notes;
         let cells = std::mem::take(&mut self.received);
-        self.respond(&cells);
+        let hits_from = if step.up { from } else { f64::NEG_INFINITY };
+        self.respond_in(&cells, keep, hits_from);
         self.received = cells;
     }
 
@@ -307,6 +356,13 @@ impl Opponent {
     /// Its response to `cells` on the presses still to come
     /// ([`Opponent::receive_hazards`]).
     fn respond(&mut self, cells: &[Hazard]) {
+        self.respond_in(cells, self.next, f64::NEG_INFINITY);
+    }
+
+    /// [`Opponent::respond`] on the presses from `keep` on alone (those
+    /// before it as they are), its steps on the shocks no earlier than
+    /// `hits_from` (after a step up: the new rung's part alone).
+    fn respond_in(&mut self, cells: &[Hazard], keep: usize, hits_from: f64) {
         if self.response.is_off() || cells.is_empty() {
             return;
         }
@@ -340,8 +396,9 @@ impl Opponent {
             + self.judge_offset.max(0.0);
         let jitter = mines.iter().map(|m| m.2.jitter).fold(r.jitter, f64::max);
         let floor = now + jitter + 0.001;
-        let mut changed: Vec<Press> = Vec::with_capacity(self.presses.len() - self.next + 8);
-        for p in &self.presses[self.next..] {
+        let keep = keep.clamp(self.next, self.presses.len());
+        let mut changed: Vec<Press> = Vec::with_capacity(self.presses.len() - keep + 8);
+        for p in &self.presses[keep..] {
             let near = mines
                 .iter()
                 .filter(|(_, at, _)| (p.press - at).abs() <= r.near)
@@ -355,7 +412,7 @@ impl Opponent {
                 continue;
             }
             let u = draw(self.seed, cell.tick.0, cell.lane, Purpose::Jitter, key);
-            let press = (p.press + (2.0 * u - 1.0) * r.jitter).max(floor);
+            let press = (p.press + (2.0 * u - 1.0) * r.jitter).max(floor).max(hits_from);
             changed.push(Press {
                 press,
                 release: press + 0.012,
@@ -368,7 +425,7 @@ impl Opponent {
             }
             let u = draw(self.seed, cell.tick.0, cell.lane, Purpose::HitPlace, 0);
             let press = at + (2.0 * u - 1.0) * HIT_SPREAD * window;
-            if press > floor {
+            if press > floor && press >= hits_from {
                 changed.push(Press {
                     press,
                     release: press + 0.012,
@@ -380,7 +437,7 @@ impl Opponent {
         // Each lane's presses apart again (one moved onto another is left
         // out), after those already fed.
         let mut released = [f64::NEG_INFINITY; 4];
-        for p in &self.presses[..self.next] {
+        for p in &self.presses[..keep] {
             if let Some(r) = released.get_mut(usize::from(p.lane)) {
                 *r = p.release;
             }
@@ -395,7 +452,7 @@ impl Opponent {
             *r = p.release;
             true
         });
-        let mut script = self.presses[..self.next].to_vec();
+        let mut script = self.presses[..keep].to_vec();
         script.extend(changed);
         if validate_script(&script).is_ok() {
             self.presses = script;
@@ -864,7 +921,7 @@ mod tests {
             r.fail = FailPolicy::Immediate;
             r
         };
-        let rungs = crate::ladder::ladder(&song, HARD);
+        let rungs = crate::ladder::below(&song, HARD);
         assert!(!rungs.is_empty());
         let play = |seed: u64, step: f64, ladder: bool| {
             let mut o = Opponent::new(&song, HARD, rules(), 0, seed).unwrap();
@@ -904,6 +961,56 @@ mod tests {
             }
         }
         assert!(stepped > 0, "the weakest level steps down on Hard");
+    }
+
+    /// A strong CPU with a full ladder (a match's "Charts: Adaptive")
+    /// climbs above the stage's chart, the same at any frame rate, with
+    /// shocks put in on the way.
+    #[test]
+    fn a_strong_cpu_climbs_its_ladder_the_same_at_any_frame_rate() {
+        use crate::rules::ddi::{self, DdiOptions};
+        let song = song();
+        let medium = song
+            .charts
+            .iter()
+            .position(|c| c.layout == "dance-single" && c.difficulty == ddi_chart::Difficulty::Medium)
+            .unwrap();
+        let planned = planned_ladder(&song, medium);
+        assert!(planned.iter().any(|r| r.up));
+        let ladder = planned_charts(medium, &planned);
+        let play = |seed: u64, step: f64| {
+            let mut r = ddi::ruleset(&DdiOptions::default());
+            r.fail = FailPolicy::Immediate;
+            let mut o = Opponent::new(&song, medium, r, 9, seed).unwrap();
+            o.add_rungs(&planned).unwrap();
+            o.start(0.0);
+            for s in sections(&song).iter().take(4) {
+                let _ = o.receive_hazards(&s.cells);
+            }
+            let mut t = -2.0;
+            while !o.finished() && t < 400.0 {
+                t += step;
+                o.advance(t);
+            }
+            o
+        };
+        let mut up = 0;
+        for seed in 1..=4u64 {
+            let a = play(seed, 1.0 / 60.0);
+            let b = play(seed, 1.0 / 144.0);
+            let (ra, rb) = (a.player().results(), b.player().results());
+            assert_eq!(ra.steps, rb.steps, "{seed}");
+            assert_eq!(ra.tally, rb.tally, "{seed}");
+            assert_eq!(ra.life, rb.life, "{seed}");
+            assert_eq!(a.presses(), b.presses(), "{seed}");
+            validate_script(a.presses()).unwrap();
+            for s in ra.steps.iter().filter(|s| s.up) {
+                assert_eq!(ladder.chart(s.rung), Some(s.chart));
+                assert!(ladder.level(s.rung) > ladder.level(s.from));
+                up += 1;
+            }
+        }
+        assert!(up > 0, "the strongest level climbs from Medium");
     }
 
     fn run_ddi(song: &Song, chart: usize, seed: u64) -> Opponent {

@@ -111,7 +111,7 @@ fn a_practice_stage_steps_down_the_player_and_a_cpu() {
     // Beatucada's Hard chart: its ladder is Medium, Easy, Beginner.
     let chart = 5;
     let song = ddi_desktop::play::load::read_chart("beatucada").unwrap();
-    assert_eq!(ddi_engine::ladder::ladder(&song, chart), vec![4, 3, 1]);
+    assert_eq!(ddi_engine::ladder::below(&song, chart), vec![4, 3, 1]);
     let entry = SongEntry {
         id: "beatucada".into(),
         title: "Beatucada".into(),

@@ -218,7 +218,7 @@ fn study_song(song: &Song, bundled: bool, every: usize, seeds: u64, counter: &mu
             continue;
         }
         let slot = SLOTS.iter().position(|d| *d == chart.difficulty).unwrap_or(5);
-        let ladder = ddi_engine::ladder::ladder(song, index);
+        let ladder = ddi_engine::ladder::below(song, index);
         t.ladders[slot][ladder.len().min(4)] += 1;
         if ladder.is_empty() {
             continue;

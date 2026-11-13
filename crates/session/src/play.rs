@@ -773,7 +773,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .map_or_else(Vec::new, |s| crate::battle::stage_ladder(song, chart_index, s));
         if !spectating {
             for r in &ladder {
-                player.add_rung(song, r.chart)?;
+                if r.up {
+                    player.add_rung_up(song, r.chart)?;
+                } else {
+                    player.add_rung(song, r.chart)?;
+                }
             }
         }
         player.set_autoplay(auto_play);

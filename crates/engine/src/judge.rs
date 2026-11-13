@@ -648,7 +648,31 @@ impl Judge {
                 self.locks[l] = None;
             }
         }
-        let kept = self.notes.len();
+        debug_assert!(self.notes.iter().all(|n| n.state != NoteState::Pending || !n.judgeable));
+        self.rebuild_with(incoming, timing);
+    }
+
+    /// A step up from tick `from` on (`crate::ladder`): the notes from
+    /// there on not judged yet are taken away unjudged (none of them can
+    /// have been: the boundary is past the reading horizon), the notes
+    /// before it stay (a hold crossing it is played to its end), and
+    /// `incoming` (another chart's notes from `from` on, sorted, on the
+    /// same `timing`, none in a lane a kept hold still runs in) come after
+    /// the notes kept, as [`Judge::step_down`] puts them.
+    pub fn step_up(&mut self, from: Tick, incoming: &[Note], timing: &TimingMap) {
+        for n in self.notes.iter_mut() {
+            if n.note.tick >= from && n.judgeable && !n.state.is_terminal() {
+                n.state = NoteState::Removed;
+                n.judgeable = false;
+                n.row = None;
+            }
+        }
+        self.rebuild_with(incoming, timing);
+    }
+
+    /// The notes kept and `incoming` after them, judged on from where
+    /// judging is ([`Judge::step_down`], [`Judge::step_up`]).
+    fn rebuild_with(&mut self, incoming: &[Note], timing: &TimingMap) {
         let mut notes = std::mem::take(&mut self.notes);
         notes.extend(Self::judged(incoming, timing));
         let lanes = self.down.len();
@@ -669,7 +693,6 @@ impl Judge {
             next.next_checkpoint = next.checkpoints.partition_point(|r| r.seconds < t);
             next.next_head = next.heads.partition_point(|&i| next.notes[i].seconds <= t);
         }
-        debug_assert!(next.notes[..kept].iter().all(|n| n.state != NoteState::Pending || !n.judgeable));
         *self = next;
     }
 

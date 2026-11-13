@@ -2201,7 +2201,7 @@ fn a_live_stage_steps_down_and_the_others_fields_follow() {
     assert!(o.rules.steps_down());
     // The plan names the ladder; both devices made the same.
     let plan = r.rooms[0].borrow().live_prep(o.stage).unwrap().plan.clone().unwrap();
-    let ladder = ddi_engine::ladder::ladder(&song, HARD);
+    let ladder = ddi_engine::ladder::Ladder::of(&song, HARD).rungs();
     assert_eq!(
         plan.ladder,
         ladder
@@ -2241,7 +2241,9 @@ fn a_live_stage_steps_down_and_the_others_fields_follow() {
     drop(server);
     match bob.mine {
         ddi_room::Run::Live { steps, .. } => assert!(steps >= 2),
-        ddi_room::Run::Out { .. } => assert_eq!(plays[1].player.steps().len(), ladder.len()),
+        ddi_room::Run::Out { .. } => {
+            assert_eq!(plays[1].player.steps().len(), ddi_engine::ladder::below(&song, HARD).len())
+        }
         ref other => panic!("{other:?}"),
     }
 }

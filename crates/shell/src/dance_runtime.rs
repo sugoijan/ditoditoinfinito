@@ -872,7 +872,7 @@ mod tests {
             rules.fail = ddi_engine::FailPolicy::Immediate;
             let mut player =
                 ddi_engine::player::Player::new(&song, hard, rules, Default::default());
-            for c in ddi_engine::ladder::ladder(&song, hard) {
+            for c in ddi_engine::ladder::below(&song, hard) {
                 player.add_rung(&song, c).unwrap();
             }
             let mut r = RuntimePreview::for_player(&player, "dance-single").unwrap();
