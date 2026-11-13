@@ -2829,6 +2829,26 @@ impl RoomClient {
         std::mem::take(&mut self.live_news)
     }
 
+    /// The local play's stream of `stage`, where this room plays live
+    /// (`ddi_room::live::Outbox`: sent as the room client is ticked).
+    pub fn live_stream(&mut self, stage: StageId) -> Option<&mut ddi_room::live::Outbox> {
+        if !self.plays_live() {
+            return None;
+        }
+        match &mut self.link {
+            Link::Online(l) => Some(l.authority.live_mut().stream(stage)),
+            Link::Local(_) => None,
+        }
+    }
+
+    /// The room no longer knows `stage` live (it restarted): its stream
+    /// and frames dropped (`ddi_room::live::LiveLink::forget`).
+    pub fn forget_live(&mut self, stage: StageId) {
+        if let Link::Online(l) = &mut self.link {
+            l.authority.live_mut().forget(stage);
+        }
+    }
+
     /// The stage played live here is over: its news is no longer kept.
     pub fn stop_live_news(&mut self) {
         self.live_reader = false;

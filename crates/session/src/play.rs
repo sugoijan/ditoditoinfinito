@@ -164,6 +164,11 @@ pub struct SessionConfig {
     /// (`crate::battle::stage_ruleset`): a gauge of one life, say, so that
     /// CPUs go out. Never set by a shell.
     pub stage_rules: Option<Ruleset>,
+    /// A stage an online room plays live ([`Self::opponents`]' `live`;
+    /// `crate::battle::live`): its room's client, through which the play
+    /// starts at the room's instant, its moments are streamed and the
+    /// others' come.
+    pub live: Option<crate::battle::live::LiveHandle>,
 }
 
 impl SessionConfig {
@@ -195,6 +200,7 @@ impl SessionConfig {
             staging: None,
             opponents: None,
             stage_rules: None,
+            live: None,
         }
     }
 
@@ -241,7 +247,7 @@ impl SessionConfig {
         // attacks' warning comes in time (D5; its prompt says so).
         if let Some(stage) = &self.opponents
             && stage.battle.attacks()
-            && !stage.remote()
+            && (!stage.remote() || stage.live.is_some())
             && self.replay.is_none()
             && let Some(speed) = crate::battle::raised_speed(song, chart_index, &options)
         {
@@ -741,7 +747,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         if config
             .opponents
             .as_ref()
-            .is_some_and(|s| (s.battle.attacks() || s.watching) && !s.remote())
+            .is_some_and(|s| {
+                (s.battle.attacks() || s.watching) && (!s.remote() || s.live.is_some())
+            })
         {
             capture.push(POLICY_KEY.into());
         }
@@ -804,7 +812,29 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         } else {
             0.
         };
-        let start_ctx = sample.context_time + START_LOOKAHEAD + cpu_lead;
+        // A stage an online room plays live: song time zero heard at the
+        // room's instant (`crate::battle::live::live_start`), joined late
+        // where this device could not make it, not at all past the late
+        // join (a forfeit, watched).
+        let live_start = match (&config.live, &config.opponents) {
+            (Some(h), Some(stage)) if stage.live.is_some() => h
+                .room
+                .borrow()
+                .song_zero_in(stage.stage)
+                .map(|zero_in| {
+                    crate::battle::live::live_start(
+                        zero_in,
+                        sample.output_latency,
+                        &ddi_room::live::LIVE_V1,
+                    )
+                }),
+            _ => None,
+        };
+        let start_ctx = match live_start {
+            // The context time its first second is heard at.
+            Some(l) => sample.context_time + l.start + l.from,
+            None => sample.context_time + START_LOOKAHEAD + cpu_lead,
+        };
         // A work may start part-way into its music (`startFrame`) and end
         // or fade out before the music does.
         let danoni = chart
@@ -812,6 +842,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .as_ref()
             .filter(|_| config.calibration.is_none());
         let song_offset = match (&config.replay, &staging) {
+            _ if live_start.is_some() => live_start.map_or(0.0, |l| l.from),
             // Where the play started.
             (Some(r), _) => r.log.start,
             (None, Some(s)) => Some(s.from)
@@ -864,6 +895,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                     .map(|p| (p.release, p.lane))
                     .collect();
             }
+            // A late join: the notes it missed judged as misses.
+            _ if live_start.is_some_and(|l| l.from > 0.0) => {
+                player.start_staged(start_ctx, song_offset, &[], 0)
+            }
             _ => player.start(start_ctx, song_offset),
         }
         // A stage's CPU opponents, on the same song and rules, from the
@@ -877,20 +912,33 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 } else {
                     0.0
                 };
-                Some(Battle::new(
+                let b = Battle::new(
                     setup,
                     song,
                     chart_index,
                     player.ruleset(),
                     song_offset,
                     horizon,
-                )?)
+                )?;
+                Some(match config.live.take() {
+                    Some(handle) => b.with_live(handle, player.ruleset().judge.lock),
+                    None => b,
+                })
             }
             None => None,
         };
         // DEVELOPMENT ONLY: a section of battle shocks in the stage's
         // play and each CPU's (`--mp-dev-mines`, `mpdevmines=`).
         let mut battle = battle;
+        // Later than a live stage's late join: forfeited at once, the
+        // stage watched from where the room has it.
+        let late_watch = live_start.is_some_and(|l| l.late)
+            && battle
+                .as_mut()
+                .is_some_and(|b| b.forfeit_now(song_offset, &player));
+        if late_watch {
+            player.quit_at(song_offset);
+        }
         if let Some(b) = battle.as_mut()
             && let Some(beat) = b.setup().dev_mines_at_beat
         {
@@ -1026,7 +1074,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             attack_told: Vec::new(),
             policy_pad: None,
             // The watching begins with the first frame's host time.
-            watch: spectating.then(|| watch::Watch::new(Watching::Spectator, f64::NAN)),
+            watch: if spectating {
+                Some(watch::Watch::new(Watching::Spectator, f64::NAN))
+            } else {
+                late_watch.then(|| watch::Watch::new(Watching::Left, f64::NAN))
+            },
             over: false,
         })
     }

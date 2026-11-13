@@ -57,6 +57,9 @@ pub enum MomentKind {
     Tap(Judgement),
     /// A battle shock stepped on (M8b).
     ShockHit,
+    /// Nothing a note shows (a remote player's hold end, mine or stray
+    /// press, their going out): their numbers after it alone.
+    Mark,
 }
 
 /// One judged moment of a player's run.
@@ -109,13 +112,36 @@ impl TapTrack {
     /// where they cannot play it.
     pub fn new(song: &Song, chart: usize) -> Result<TapTrack, String> {
         let copy = ddi_engine::cpu::project(song, chart)?;
-        let c = &copy.charts[chart];
-        let timing = c.timing(&copy).clone();
-        let lanes = copy.layout_of(c).map_or(4, |l| l.lane_count()) as u8;
+        Ok(Self::of(&copy, chart, |_| true))
+    }
+
+    /// Chart `chart` of `song` itself, as a person plays it (an online
+    /// room's stage played live, `crate::battle::live`): every note a
+    /// press judges (taps, the heads of holds and rolls, lifts), drawn as
+    /// taps; mines and fakes left out.
+    pub fn full(song: &Song, chart: usize) -> Result<TapTrack, String> {
+        if song.charts.get(chart).is_none() {
+            return Err(format!("no chart {chart}"));
+        }
+        Ok(Self::of(song, chart, |k| {
+            matches!(
+                k,
+                ddi_chart::NoteKind::Tap
+                    | ddi_chart::NoteKind::HoldHead { .. }
+                    | ddi_chart::NoteKind::RollHead { .. }
+                    | ddi_chart::NoteKind::Lift
+            )
+        }))
+    }
+
+    fn of(song: &Song, chart: usize, keep: impl Fn(&ddi_chart::NoteKind) -> bool) -> TapTrack {
+        let c = &song.charts[chart];
+        let timing = c.timing(song).clone();
+        let lanes = song.layout_of(c).map_or(4, |l| l.lane_count()) as u8;
         let mut notes: Vec<TrackNote> = c
             .notes
             .iter()
-            .filter(|n| timing.judgeable(n.tick))
+            .filter(|n| keep(&n.kind) && timing.judgeable(n.tick))
             .map(|n| TrackNote {
                 seconds: timing.seconds_at(n.tick),
                 displayed: timing.displayed_beat(n.tick.beat()),
@@ -125,11 +151,11 @@ impl TapTrack {
             })
             .collect();
         notes.sort_by(|a, b| a.seconds.total_cmp(&b.seconds).then(a.lane.cmp(&b.lane)));
-        Ok(TapTrack {
+        TapTrack {
             timing,
             notes,
             lanes,
-        })
+        }
     }
 
     pub fn lanes(&self) -> u8 {
@@ -275,6 +301,13 @@ impl FieldFeed {
         }
     }
 
+    /// Shocks taken back off the field (an attack its recipient refused:
+    /// it reached their play too late, `crate::battle::live`).
+    pub fn remove_hazards(&mut self, cells: &[Hazard]) {
+        self.shocks
+            .retain(|s| !cells.iter().any(|c| c.tick == s.tick && c.lane == s.lane));
+    }
+
     /// Takes in a moment of the stream (they come in the order they
     /// happened; one out of order is put in its place).
     pub fn push(&mut self, track: &TapTrack, m: Moment) {
@@ -284,7 +317,7 @@ impl FieldFeed {
                     self.gone[i] = self.gone[i].min(m.at + self.delay);
                 }
             }
-            MomentKind::Tap(_) => {}
+            MomentKind::Tap(_) | MomentKind::Mark => {}
             MomentKind::ShockHit => {
                 if let Some(s) = self
                     .shocks
@@ -303,6 +336,11 @@ impl FieldFeed {
     fn shown_moments(&self, t: f64) -> &[Moment] {
         let n = self.moments.partition_point(|m| m.at + self.delay <= t);
         &self.moments[..n]
+    }
+
+    /// The score after the last moment shown at song second `t`.
+    pub fn shown_score(&self, t: f64) -> Option<ScoreView> {
+        self.shown_moments(t).last().map(|m| m.score)
     }
 
     /// Life and out as shown at song second `t`.
@@ -456,7 +494,7 @@ impl FieldFeed {
                     w0: m.w0,
                     boo: false,
                 }),
-                MomentKind::ShockHit => None,
+                MomentKind::ShockHit | MomentKind::Mark => None,
             })
             .filter(|f| f.age < WORD_SECONDS);
         frame

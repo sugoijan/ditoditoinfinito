@@ -113,6 +113,16 @@ impl LiveLink {
             .or_insert_with(|| Outbox::new(stage, rules))
     }
 
+    /// Stage `stage`'s live part is gone (the room answered its batches
+    /// `unknown_stage`: it restarted and lost the stage in play): its
+    /// stream and its frames are dropped, nothing more is sent for it.
+    pub fn forget(&mut self, stage: StageId) {
+        self.outboxes.remove(&stage);
+        if self.reader.as_ref().and_then(FrameReader::stage) == Some(stage) {
+            self.reader = None;
+        }
+    }
+
     pub fn outbox(&self, stage: StageId) -> Option<&Outbox> {
         self.outboxes.get(&stage)
     }

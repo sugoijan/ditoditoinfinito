@@ -232,6 +232,19 @@ pub fn stage_targeting(order: &ddi_ui::state::room::StageOrder) -> ddi_room::att
     }
 }
 
+/// Stage `order`'s room client for its play, where the room plays it live
+/// (`ddi_session::battle::live`): the play starts at the room's instant
+/// and streams through it.
+pub fn live_handle(
+    order: &ddi_ui::state::room::StageOrder,
+) -> Option<ddi_session::battle::live::LiveHandle> {
+    order.live.as_ref()?;
+    Some(ddi_session::battle::live::LiveHandle {
+        room: stage_room(),
+        wall_ms: Rc::new(|| crate::clock::epoch_ms().max(0.0) as u64),
+    })
+}
+
 /// A stage's prompt left (M7b): before the room started it, the player
 /// withdraws (not ready; the host's pick reopened), `true`; once it is
 /// being played with them, a forfeit: an online room's reported here as

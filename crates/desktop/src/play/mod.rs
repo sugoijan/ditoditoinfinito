@@ -217,6 +217,8 @@ impl Request {
             // changed on the stage's prompt since the order was made).
             setup.targeting = crate::room::stage_targeting(order);
             config.opponents = Some(setup);
+            // An online room's stage played live: its room's client.
+            config.live = crate::room::live_handle(order);
         }
         // A replay: its log on the lanes, its options and rules, the
         // offsets this device needs.

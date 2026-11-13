@@ -367,6 +367,17 @@ pub(crate) fn playing(id: u64) -> Option<Rc<StageOrder>> {
     })
 }
 
+/// Stage `order`'s room client for its play, where the room plays it live
+/// (`ddi_session::battle::live`): the play starts at the room's instant
+/// and streams through it.
+pub(crate) fn live_handle(order: &StageOrder) -> Option<ddi_session::battle::live::LiveHandle> {
+    order.live.as_ref()?;
+    Some(ddi_session::battle::live::LiveHandle {
+        room: playing_room(),
+        wall_ms: Rc::new(now_ms),
+    })
+}
+
 /// The local player's attack policy in the room of the stage being
 /// played, as its play starts.
 pub(crate) fn my_targeting() -> ddi_room::attacks::Targeting {

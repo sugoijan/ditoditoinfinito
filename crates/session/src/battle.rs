@@ -38,6 +38,7 @@
 
 pub mod attacks;
 pub mod feed;
+pub mod live;
 
 use ddi_chart::Song;
 use ddi_engine::JudgeEventKind;
@@ -53,7 +54,7 @@ use ddi_room::battle::decided;
 use ddi_room::{Absolute, BattlePreset, Entrant, Finisher, ParticipantId, Run, RunDetail, StageId};
 pub use ddi_ui::state::room::StageRules;
 pub use ddi_ui::state::room::AttackSummary;
-use ddi_ui::state::room::{CpuSeat, StageOrder, run_detail};
+use ddi_ui::state::room::{CpuSeat, LiveOrder, StageOrder, run_detail};
 
 /// What a session needs to play a stage: which, under what battle, who
 /// the local player is and the CPUs committed to it.
@@ -84,6 +85,11 @@ pub struct StageSetup {
     /// alone are its competitors, judged on the song clock as ever, and
     /// nothing of the session's own player is judged.
     pub watching: bool,
+    /// An online room plays the stage live
+    /// (`docs/plans/multiplayer-online-play.md`, [`live`]): the other
+    /// competitors' plays are streamed to this one and its attacks are
+    /// the room's (a play given its room's client, `Battle::with_live`).
+    pub live: Option<LiveOrder>,
 }
 
 impl StageSetup {
@@ -113,6 +119,7 @@ impl StageSetup {
             cpus: order.cpus.clone(),
             others: order.others,
             watching: order.watching,
+            live: order.live.clone(),
         }
     }
 
@@ -472,6 +479,9 @@ pub struct Battle {
     /// out was told.
     watch_moments: Vec<WatchMoment>,
     outs_told: Vec<bool>,
+    /// A stage the room plays live: its stream, the others' fields and the
+    /// room's ledger as told ([`live::Live`]).
+    remote_live: Option<live::Live>,
 }
 
 /// The most points chart `chart` of `song`, whole, gives under `ruleset`
@@ -530,7 +540,12 @@ impl Battle {
         horizon: f64,
     ) -> Result<Battle, String> {
         let levels = ddi_engine::cpu::LEVELS;
-        let track = feed::TapTrack::new(song, chart)?;
+        // People play the chart itself; the CPUs a tap-only copy of it.
+        let track = if setup.remote() {
+            feed::TapTrack::full(song, chart)?
+        } else {
+            feed::TapTrack::new(song, chart)?
+        };
         let seats = setup
             .cpus
             .iter()
@@ -611,7 +626,164 @@ impl Battle {
             forfeit: None,
             watch_moments: Vec::new(),
             outs_told: Vec::new(),
+            remote_live: None,
         })
+    }
+
+    /// The stage played live (its setup's [`StageSetup::live`]) through
+    /// `handle`, the room's client: the play's stream sent, the others'
+    /// fields and the room's attacks read from its frames (`lock`: the
+    /// seconds a shock stepped on locks a lane under the stage's rules).
+    pub fn with_live(mut self, handle: live::LiveHandle, lock: Option<f64>) -> Battle {
+        let Some(order) = self.setup.live.clone() else {
+            return self;
+        };
+        let prep = order.prep.clone();
+        self.remote_live = Some(live::Live::new(
+            handle,
+            self.setup.stage,
+            self.setup.me,
+            self.competes() && prep.is_some(),
+            prep.as_ref()
+                .and_then(|p| p.plan.clone())
+                .filter(|_| self.setup.battle.attacks()),
+            prep.map_or(0, |p| p.horizon_us),
+            &order.people,
+            &self.track,
+            lock,
+        ));
+        self
+    }
+
+    /// The stage is played live here (`with_live`).
+    pub fn is_live(&self) -> bool {
+        self.remote_live.is_some()
+    }
+
+    /// The room lost the stage's live part (it restarted): the play goes
+    /// on unstreamed and its run is reported at its end.
+    pub fn live_lost(&self) -> bool {
+        self.remote_live.as_ref().is_some_and(live::Live::lost)
+    }
+
+    /// The live stage's seats whose stream is behind (marked stale on
+    /// their fields), by their places in [`Battle::views`].
+    pub fn stale_seats(&self) -> Vec<usize> {
+        let Some(l) = &self.remote_live else {
+            return Vec::new();
+        };
+        let base = self.seats.len();
+        l.seats
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| l.stale(s, self.now))
+            .map(|(i, _)| base + i)
+            .collect()
+    }
+
+    /// Its live part this frame: the room's client ticked, the local
+    /// play's moments streamed (`human`, while it plays), the room's news
+    /// read and what it committed delivered, the stage's decision as the
+    /// room confirmed it.
+    fn advance_live(&mut self, t: f64, human: Option<&mut Player>, judged: &[JudgeEvent]) -> Option<bool> {
+        let me = self.setup.me;
+        let mut human = human;
+        let in_now = human.as_deref().is_some_and(|h| self.me_in(h));
+        let mut l = self.remote_live.take()?;
+        if let Some(h) = human.as_deref() {
+            l.send(t, h, judged);
+        }
+        l.tick_room();
+        let got = match human.as_deref_mut().filter(|_| in_now) {
+            Some(h) => {
+                let mut deliver = |cells: &[ddi_engine::battle::Hazard]| h.add_hazards(cells).is_ok();
+                l.receive(&self.track, t, Some(&mut deliver))
+            }
+            None => l.receive(&self.track, t, None),
+        };
+        self.log.extend(got.log);
+        let base = self.seats.len();
+        for (attack, sender, recipient, first_us, delivered) in got.committed {
+            let first = first_us as f64 / 1e6;
+            if self.competes() && in_now {
+                if recipient == me && delivered {
+                    self.attack_moments.push((AttackMoment::Incoming, first));
+                } else if sender == me {
+                    self.attack_moments.push((AttackMoment::Launched, first));
+                }
+            } else if delivered {
+                let seat = |p: ParticipantId| l.seats.iter().position(|s| s.participant == p);
+                if let (Some(from), Some(to)) = (seat(sender), seat(recipient)) {
+                    self.watch_moments.push(WatchMoment::Attack {
+                        from: base + from,
+                        to: base + to,
+                    });
+                }
+            }
+            self.seen.push((attack, t));
+        }
+        if !self.competes() || !in_now {
+            for p in got.outs {
+                if let Some(seat) = l.seats.iter().position(|s| s.participant == p && s.out()) {
+                    self.watch_moments.push(WatchMoment::Out { seat: base + seat });
+                }
+            }
+        }
+        let settling = l.settling;
+        self.remote_live = Some(l);
+        self.settling = settling.or(self.settling);
+        self.settle_live(human.as_deref())
+    }
+
+    /// The room's decision, once it confirmed the stage: what the local
+    /// player is told, as practice's own decision tells it.
+    fn settle_live(&mut self, human: Option<&Player>) -> Option<bool> {
+        if self.decided.is_some() {
+            return None;
+        }
+        let human = human.filter(|_| self.competes());
+        let decision = self.remote_live.as_ref().and_then(live::Live::decision);
+        let Some((ranking, early)) = decision.filter(|(_, early)| *early) else {
+            self.tell(human, false);
+            return None;
+        };
+        let _ = early;
+        self.tell(human, true);
+        let me = self.setup.me;
+        let won = human.is_some()
+            && ranking.first().is_some_and(|g| {
+                g.len() == 1 && g[0].participant == me && g[0].finish == ddi_room::Finish::Survived
+            });
+        let shared = human.is_some()
+            && ranking
+                .first()
+                .is_some_and(|g| g.len() > 1 && g.iter().any(|f| f.participant == me));
+        let drawn = self.settling.is_some() && ranking.first().is_some_and(|g| g.len() > 1);
+        if won {
+            self.events.push(Event::StageWon);
+        } else if shared {
+            self.events.retain(|e| *e != Event::Eliminated);
+            self.events.push(Event::StageDrawn);
+        }
+        let base = self.seats.len();
+        if let Some(l) = &self.remote_live {
+            match ranking.first().map(Vec::as_slice) {
+                Some([one]) => {
+                    if let Some(seat) = l.seats.iter().position(|s| s.participant == one.participant) {
+                        self.watch_moments.push(WatchMoment::Won { seat: base + seat });
+                    }
+                }
+                Some([_, _, ..]) => self.watch_moments.push(WatchMoment::Drawn),
+                _ => {}
+            }
+        }
+        self.drawn = drawn;
+        self.decided = Some(ranking);
+        self.decided_at = match human {
+            Some(h) => h.judge().last_time(),
+            None => Some(self.now),
+        };
+        Some(won)
     }
 
     /// The local player competes in the stage (they do not watch it).
@@ -644,6 +816,9 @@ impl Battle {
         if let Some(a) = self.attacks.as_mut() {
             a.out_at(self.setup.me, at);
         }
+        if let Some(l) = self.remote_live.as_mut() {
+            l.end(ddi_room::live::StreamEnd::Forfeit, at);
+        }
         true
     }
 
@@ -656,6 +831,9 @@ impl Battle {
     /// not in (or no longer in): it is not decided and a competitor is
     /// still playing it.
     pub fn goes_on(&self) -> bool {
+        if let Some(l) = &self.remote_live {
+            return self.decided.is_none() && l.seats.iter().any(|s| s.end.is_none());
+        }
         self.decided.is_none()
             && !self.setup.remote()
             && self
@@ -692,6 +870,9 @@ impl Battle {
             return self.advance_watched(t);
         }
         self.now = t;
+        if self.remote_live.is_some() {
+            return self.advance_live(t, Some(human), judged);
+        }
         if let Some(a) = self.attacks.as_mut() {
             a.judged(self.setup.me, judged);
             if let Some(at) = human.gauge_failed_at() {
@@ -715,6 +896,9 @@ impl Battle {
     /// `Some(false)` the moment it is decided.
     pub fn advance_watched(&mut self, t: f64) -> Option<bool> {
         self.now = t;
+        if self.remote_live.is_some() {
+            return self.advance_live(t, None, &[]);
+        }
         self.step_cpus(t);
         self.run_attacks(None);
         self.settle(None)
@@ -1135,7 +1319,10 @@ impl Battle {
             in_stage && rules.gauge.danger() && !matches!(rules.fail, ddi_engine::FailPolicy::Off)
         });
         let live = usize::from(in_stage)
-            + usize::from(self.setup.others)
+            + self
+                .remote_live
+                .as_ref()
+                .map_or(usize::from(self.setup.others), live::Live::others_in)
             + self
                 .seats
                 .iter()
@@ -1227,8 +1414,16 @@ impl Battle {
     /// out (`docs/plans/multiplayer-ui.md`: a confirmed winner's power
     /// stops).
     pub fn my_power(&self, human: &Player) -> Option<(f32, bool)> {
+        if let Some(l) = self.live_attacks() {
+            return self.me_battling(human).then(|| l.ledger.bar(self.setup.me));
+        }
         let a = self.attacks.as_ref()?;
         self.me_battling(human).then(|| a.bar(self.setup.me))
+    }
+
+    /// The live stage's part, where it has attacks (the room's ledger).
+    fn live_attacks(&self) -> Option<&live::Live> {
+        self.remote_live.as_ref().filter(|_| self.setup.battle.attacks())
     }
 
     /// The attack against the local player on its way or passing, as its
@@ -1247,6 +1442,13 @@ impl Battle {
     /// as a watcher following them is shown it ([`Battle::incoming`] for
     /// that competitor): none once they are out or the stage is decided.
     pub fn incoming_for(&self, seat: usize) -> Option<Incoming> {
+        if let Some(l) = self.live_attacks() {
+            let r = l.seats.get(seat.checked_sub(self.seats.len())?)?;
+            if self.decided.is_some() || r.gone() {
+                return None;
+            }
+            return self.incoming_of(r.participant);
+        }
         let s = self.seats.get(seat)?;
         if self.decided.is_some() || s.opponent.out_at().is_some() {
             return None;
@@ -1255,8 +1457,26 @@ impl Battle {
     }
 
     fn incoming_of(&self, participant: ParticipantId) -> Option<Incoming> {
-        let a = self.attacks.as_ref()?;
         let now = attacks::micros(self.now);
+        if let Some(l) = self.live_attacks() {
+            let mut all = l.ledger.incoming(participant, now);
+            let attack = all.next()?;
+            let more = all.next().is_some();
+            let plan_at = |k: usize| {
+                l.learned
+                    .iter()
+                    .find(|(id, _)| *id == attack.id)
+                    .map_or(k as f64, |(_, t)| *t)
+            };
+            return Some(Incoming {
+                shocks: attack.cells.len().min(usize::from(u8::MAX)) as u8,
+                committed: plan_at(0),
+                first: attack.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6,
+                clear: attack.clear_us as f64 / 1e6,
+                more,
+            });
+        }
+        let a = self.attacks.as_ref()?;
         let mut all = a
             .ledger()
             .incoming_all(participant)
@@ -1283,12 +1503,19 @@ impl Battle {
     /// committed; none once out or after a confirmed win (as the bar and
     /// the warning).
     pub fn links(&self, human: &Player) -> Vec<Link> {
-        let Some(a) = self.attacks.as_ref() else {
-            return Vec::new();
-        };
         if !self.me_battling(human) {
             return Vec::new();
         }
+        if self.live_attacks().is_some() {
+            return self
+                .live_links()
+                .iter()
+                .filter_map(|x| x.of(usize::MAX))
+                .collect();
+        }
+        let Some(a) = self.attacks.as_ref() else {
+            return Vec::new();
+        };
         let me = self.setup.me;
         let now = attacks::micros(self.now);
         let live: Vec<&ddi_room::attacks::Attack> = a
@@ -1376,6 +1603,16 @@ impl Battle {
     /// cleared yet, in the order committed; none once the stage is
     /// decided, none against a recipient who went out.
     pub fn seen_links(&self) -> Vec<SeenLink> {
+        if self.live_attacks().is_some() {
+            if self.decided.is_some() {
+                return Vec::new();
+            }
+            return self
+                .live_links()
+                .into_iter()
+                .filter(|x| x.from != usize::MAX && x.to != usize::MAX)
+                .collect();
+        }
         let Some(a) = self.attacks.as_ref() else {
             return Vec::new();
         };
@@ -1427,9 +1664,71 @@ impl Battle {
             .collect()
     }
 
+    /// A live stage's attacks between its competitors not cleared yet,
+    /// as [`SeenLink`]s: the local player's seat is `usize::MAX` (what
+    /// [`SeenLink::of`] of it makes their own [`Link`]s).
+    fn live_links(&self) -> Vec<SeenLink> {
+        let Some(l) = self.live_attacks() else {
+            return Vec::new();
+        };
+        let now = attacks::micros(self.now);
+        let base = self.seats.len();
+        let seat = |p: ParticipantId| {
+            if p == self.setup.me {
+                Some(usize::MAX)
+            } else {
+                l.seats.iter().position(|s| s.participant == p).map(|i| base + i)
+            }
+        };
+        let live: Vec<&ddi_room::attacks::Attack> = l
+            .ledger
+            .attacks
+            .iter()
+            .filter(|x| {
+                matches!(
+                    x.state,
+                    ddi_room::attacks::AttackState::Active | ddi_room::attacks::AttackState::Cleared
+                ) && x.clear_us >= now
+            })
+            .collect();
+        live.iter()
+            .filter_map(|x| {
+                let (from, to) = (seat(x.sender)?, seat(x.recipient)?);
+                if to != usize::MAX && l.seats[to - base].gone() {
+                    return None;
+                }
+                Some(SeenLink {
+                    attack: x.id,
+                    from,
+                    to,
+                    shown_from: l
+                        .learned
+                        .iter()
+                        .find(|(id, _)| *id == x.id)
+                        .map_or(0.0, |(_, t)| *t),
+                    first: x.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6,
+                    clear: x.clear_us as f64 / 1e6,
+                    chained: live
+                        .iter()
+                        .any(|y| y.recipient == x.recipient && y.id < x.id),
+                })
+            })
+            .collect()
+    }
+
     /// The local player's full bar waiting, and why (none once out or
     /// after a confirmed win).
     pub fn waiting(&self, human: &Player) -> Option<Waiting> {
+        if let Some(l) = self.live_attacks() {
+            if !self.me_battling(human) {
+                return None;
+            }
+            let me = self.setup.me;
+            return l.ledger.waiting(me).map(|reason| Waiting {
+                targeting: self.policy,
+                reason,
+            });
+        }
         let a = self.attacks.as_ref()?;
         if !self.me_battling(human) {
             return None;
@@ -1442,7 +1741,9 @@ impl Battle {
     /// battle has attacks: what the label by the power bar says (none
     /// once out or after a confirmed win, as the bar).
     pub fn policy(&self, human: &Player) -> Option<Targeting> {
-        self.attacks.as_ref()?;
+        if self.attacks.is_none() && self.live_attacks().is_none() {
+            return None;
+        }
         self.me_battling(human).then_some(self.policy)
     }
 
@@ -1465,6 +1766,9 @@ impl Battle {
         if let Some(a) = self.attacks.as_mut() {
             a.retarget(self.setup.me, at, targeting);
         }
+        if let Some(l) = self.remote_live.as_mut() {
+            l.retarget(at, targeting);
+        }
     }
 
     /// The commitments since the last call, worded for a log (English).
@@ -1474,7 +1778,7 @@ impl Battle {
 
     /// Shocks a play refused so far (a frame stalled past the lead).
     pub fn refused(&self) -> u32 {
-        self.refused
+        self.refused + self.remote_live.as_ref().map_or(0, |l| l.refused)
     }
 
     /// Decided by a final attack's knockout (`SETTLEMENT_V0`).
@@ -1506,13 +1810,44 @@ impl Battle {
 
     /// Each opponent's field's stream, in their stable slots' order.
     pub fn feeds(&self) -> impl Iterator<Item = &feed::FieldFeed> {
-        self.seats.iter().map(|s| &s.feed)
+        self.seats.iter().map(|s| &s.feed).chain(
+            self.remote_live
+                .iter()
+                .flat_map(|l| l.seats.iter().map(|s| &s.feed)),
+        )
     }
 
     /// The opponents in their stable slots (the order the room seated
     /// them in).
     pub fn views(&self) -> Vec<OpponentView> {
-        self.seats
+        let remote = self.remote_live.iter().flat_map(|l| {
+            l.seats.iter().map(|s| {
+                // As the view shows them: a delay behind.
+                let shown = s.feed.shown(self.now);
+                OpponentView {
+                    participant: s.participant,
+                    name: s.name.clone(),
+                    level: None,
+                    life: shown.life,
+                    out: shown.out,
+                    // The stream tells DDI's sum alone.
+                    score: 0.0,
+                    sum: Some(
+                        s.feed
+                            .shown_score(self.now)
+                            .and_then(|v| v.ddi)
+                            .map_or(0, |d| d.score),
+                    ),
+                    combo: shown.combo,
+                    power: self
+                        .live_attacks()
+                        .filter(|_| !s.gone())
+                        .map(|l| l.ledger.bar(s.participant)),
+                }
+            })
+        });
+        let mut views: Vec<OpponentView> = self
+            .seats
             .iter()
             .map(|s| OpponentView {
                 participant: s.seat.participant,
@@ -1531,7 +1866,9 @@ impl Battle {
                     .filter(|_| s.opponent.out_at().is_none())
                     .map(|a| a.bar(s.seat.participant)),
             })
-            .collect()
+            .collect();
+        views.extend(remote);
+        views
     }
 
     /// The stage's outcome now the play is over: the ranking decided
@@ -1543,6 +1880,20 @@ impl Battle {
     pub fn outcome(&mut self, human: &Player, quit: bool) -> StageOutcome {
         let watched = !self.competes();
         let quit = quit || self.forfeit.is_some();
+        // A live stage's stream ends before the run reported with it.
+        if let Some(l) = self.remote_live.as_mut()
+            && !watched
+        {
+            let at = human.judge().last_time().unwrap_or(0.0);
+            let end = match human.gauge_failed_at() {
+                Some(out) => ddi_room::live::StreamEnd::Out {
+                    at_us: attacks::micros(out),
+                },
+                None if quit => ddi_room::live::StreamEnd::Forfeit,
+                None => ddi_room::live::StreamEnd::Finished,
+            };
+            l.end(end, at);
+        }
         let mine = if watched {
             Run::Forfeit
         } else {
@@ -1607,6 +1958,12 @@ impl Battle {
     /// The attacks `participant` launched and those sent against it,
     /// where the battle has attacks.
     fn launched(&self, participant: ParticipantId) -> Option<(u32, u32)> {
+        if let Some(l) = self.live_attacks() {
+            let all = &l.ledger.attacks;
+            let sent = all.iter().filter(|a| a.sender == participant).count();
+            let got = all.iter().filter(|a| a.recipient == participant).count();
+            return Some((sent as u32, got as u32));
+        }
         self.attacks.as_ref().map(|a| {
             let s = a.stats(participant);
             (s.launched, s.received)
@@ -1618,8 +1975,29 @@ impl Battle {
     /// recipient, and against them, by sender (those that expired
     /// included: they were launched), in the order first committed.
     pub fn attack_summary(&self, human: &Player) -> Option<AttackSummary> {
-        let a = self.attacks.as_ref()?;
         let me = self.setup.me;
+        if let Some(l) = self.live_attacks() {
+            let mut summary = AttackSummary {
+                shocks: human.results_brief().battle_mines.map_or(0, |b| b.hit),
+                drawn_by_final_attack: self.drawn,
+                ..AttackSummary::default()
+            };
+            for x in &l.ledger.attacks {
+                let (list, other) = if x.sender == me {
+                    (&mut summary.sent, x.recipient)
+                } else if x.recipient == me {
+                    (&mut summary.taken, x.sender)
+                } else {
+                    continue;
+                };
+                match list.iter_mut().find(|(q, _)| *q == other) {
+                    Some((_, n)) => *n += 1,
+                    None => list.push((other, 1)),
+                }
+            }
+            return Some(summary);
+        }
+        let a = self.attacks.as_ref()?;
         let mut summary = AttackSummary {
             shocks: human.results_brief().battle_mines.map_or(0, |b| b.hit),
             drawn_by_final_attack: self.drawn,
@@ -1669,9 +2047,11 @@ impl Battle {
     /// won while still in; nothing for one who went out (that was told)
     /// or forfeited.
     pub fn end_event(&self, o: &StageOutcome, quit: bool) -> Option<Event> {
-        // An online stage's outcome is the room's, not known here yet;
-        // a watcher has no end of their own.
-        if self.setup.remote() || !self.competes() {
+        // An online stage's outcome is the room's, not known here yet
+        // (unless the room decided it live before the song's end); a
+        // watcher has no end of their own.
+        let live_decided = self.remote_live.is_some() && o.confirmed_early;
+        if (self.setup.remote() && !live_decided) || !self.competes() {
             return None;
         }
         let me = self.setup.me;

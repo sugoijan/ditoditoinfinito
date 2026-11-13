@@ -2137,6 +2137,12 @@ impl GameCanvas {
             setup.targeting = crate::room::my_targeting();
             setup
         });
+        // An online room's stage played live: its room's client.
+        config.session.live = ctx
+            .props()
+            .room_stage
+            .as_deref()
+            .and_then(crate::room::live_handle);
         config.session.auto_bias = ctx.props().auto_bias;
         config.session.auto_pad = ctx.props().auto_pad;
         // The editor's playtest from its cursor.
