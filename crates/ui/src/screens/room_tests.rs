@@ -517,7 +517,7 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     h.run(0.5);
     assert_eq!(view(&env).phase, "preparing");
     press(&mut h, "Room.Rules");
-    assert!(has(&h, "This match · locked"), "{:?}", h.texts());
+    assert!(has(&h, "This match is on stage 1 of 4 and keeps these rules:"), "{:?}", h.texts());
     assert!(
         h.texts()
             .iter()
@@ -3473,4 +3473,231 @@ fn a_live_online_rooms_attacks_are_on_by_default_and_reset_brings_them_back() {
     step(200);
     ha.run(0.3);
     assert!(alice.borrow().attacks_on());
+}
+
+/// Walks the focus with the arrow keys (or a pad) until `name` has it.
+fn focus_on(h: &mut Harness, name: &str, steps: &[(crate::nav::MenuAction, &str)], pad: bool) {
+    for _ in 0..40 {
+        if h.ui.focused() == Some(name) {
+            return;
+        }
+        for (action, code) in steps {
+            if h.ui.focused() == Some(name) {
+                return;
+            }
+            if pad {
+                h.pad(*action, true);
+                h.pad(*action, false);
+            } else {
+                h.key(code, code);
+            }
+            h.run(0.05);
+        }
+    }
+    panic!("never reached {name}: {:?}", h.ui.focused());
+}
+
+/// The Rules pop-up during a match (2026-11-13): before a match it is as
+/// it was; once the match runs it says so at its top (the stage, the
+/// rules it keeps, that the rows are the next match's), its title is
+/// the next match's, a row changed from the running match's is marked,
+/// and Apply and restart asks once (Cancel first) and then saves the
+/// rules and stops the match: the status line says the next match is
+/// under the new rules, the pop-up is back to its between-matches form,
+/// and the next pick plays them. By keyboard and controller.
+#[test]
+fn the_rules_pop_up_during_a_match_says_so_and_restarts_it_on_request() {
+    use crate::nav::MenuAction;
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    // Between matches: as it was.
+    press(&mut h, "Room.Rules");
+    let v = view(&env);
+    assert!(v.rules_open && !v.rules_running && !v.restart_offered);
+    assert!(v.rules_changed.is_empty());
+    assert!(has(&h, "Rules") && has(&h, "Next match"), "{:?}", h.texts());
+    assert!(!has(&h, "Rules for the next match") && !there(&h, "Restart"));
+    assert!(!there(&h, "Running.0"));
+    press(&mut h, "Cancel");
+    // A match: the host's pick starts it.
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    orders.borrow_mut().clear();
+    assert_eq!(view(&env).phase, "preparing");
+    press(&mut h, "Room.Rules");
+    assert_eq!(top(&h), "room-rules");
+    let v = view(&env);
+    assert!(v.rules_running && v.restart_offered, "{v:?}");
+    assert!(v.rules_changed.is_empty());
+    assert!(has(&h, "Rules for the next match"), "{:?}", h.texts());
+    assert!(has(&h, "This match is on stage 1 of 4 and keeps these rules:"), "{:?}", h.texts());
+    assert!(
+        has(&h, "4 stages · 3 CPUs · DDI"),
+        "{:?}",
+        h.texts()
+    );
+    assert!(has(&h, "The rows below are for the next match."));
+    // The old locked section and its note are the statement now.
+    assert!(!there(&h, "Locked.Line") && !there(&h, "Next.Heading"));
+    assert!(!has(&h, "Changes apply to the next match; this one keeps its rules."));
+    assert!(has(&h, "Apply and restart") && has(&h, "Cancel") && has(&h, "Apply"));
+    // A change is marked, and the sentence says what the mark means.
+    press(&mut h, "Inc.difficulty");
+    assert_eq!(view(&env).rules_changed, vec!["difficulty".to_string()]);
+    assert!(there(&h, "Changed.difficulty") && !there(&h, "Changed.boos"));
+    assert!(has(
+        &h,
+        "The rows below are for the next match. ● marks what differs from this one."
+    ));
+    press(&mut h, "AddRandom");
+    assert_eq!(
+        view(&env).rules_changed,
+        vec!["difficulty".to_string(), "cpus".to_string()]
+    );
+    press(&mut h, "Remove.3");
+    // By keyboard: Left from Apply reaches it; asked once, Cancel first.
+    for _ in 0..30 {
+        if matches!(h.ui.focused(), Some("Restart" | "Cancel" | "Apply")) {
+            break;
+        }
+        h.key("ArrowDown", "ArrowDown");
+        h.run(0.05);
+    }
+    focus_on(&mut h, "Restart", &[(MenuAction::Left, "ArrowLeft")], false);
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(top(&h), "room-restart");
+    assert_eq!(h.ui.focused(), Some("Cancel"));
+    assert!(has(&h, "Restart the match?") && has(&h, "Restart match"));
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(top(&h), "room-rules", "Cancel changes nothing");
+    assert_eq!(view(&env).phase, "preparing");
+    assert_eq!(
+        view(&env).rules_changed,
+        vec!["difficulty".to_string()],
+        "the draft kept"
+    );
+    // By a controller: Restart, then Right to Restart match, Start.
+    focus_on(&mut h, "Restart", &[(MenuAction::Left, "ArrowLeft")], true);
+    h.pad(MenuAction::Start, true);
+    h.pad(MenuAction::Start, false);
+    h.run(0.3);
+    assert_eq!(top(&h), "room-restart");
+    focus_on(&mut h, "Confirm", &[(MenuAction::Right, "ArrowRight")], true);
+    h.pad(MenuAction::Start, true);
+    h.pad(MenuAction::Start, false);
+    h.run(0.5);
+    // The stopped match's standings first, as after Stop match.
+    assert_eq!(top(&h), "room-standings", "{:?}", h.texts());
+    assert!(has(&h, "Match stopped · finished stages only"));
+    press(&mut h, "Continue");
+    assert_eq!(top(&h), "select", "{:?}", h.texts());
+    let v = view(&env);
+    assert_eq!(v.phase, "interrupted");
+    assert!(!v.rules_open);
+    assert_eq!(
+        v.status,
+        "Match stopped. Pick a song to start the next match under the new rules."
+    );
+    assert_eq!(
+        room.borrow().state().next.rules.difficulty,
+        ddi_room::MatchDifficulty::Hard
+    );
+    // The stopped match is no running one: the pop-up as between matches.
+    press(&mut h, "Room.Rules");
+    let v = view(&env);
+    assert!(!v.rules_running && !v.restart_offered && v.rules_changed.is_empty());
+    assert!(has(&h, "Next match") && !there(&h, "Restart"));
+    press(&mut h, "Cancel");
+    // The next pick starts a new match under the new rules.
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    let r = room.borrow();
+    assert_eq!(r.state().phase.kind(), ddi_room::PhaseKind::Preparing);
+    assert_eq!(
+        r.locked_rules().unwrap().difficulty,
+        ddi_room::MatchDifficulty::Hard
+    );
+    assert_eq!(r.state().history.len(), 1, "the stopped match recorded");
+}
+
+/// An online room during a match: a member sees the same statement with
+/// the rows read only and no restart; a co-host restarts it for
+/// everyone; a room whose authority predates the restart (no
+/// `RoomPolicy::restart`) never offers it, and its Apply still saves.
+#[test]
+fn an_online_rooms_restart_is_for_its_operators_and_never_sent_to_an_older_room() {
+    use ddi_room::{Actor, Command, Millis, ParticipantId};
+    let start = |s: &mut ddi_room::RoomState| {
+        let rev = s.revision;
+        s.apply(
+            Actor::Member(ParticipantId(1)),
+            Some(rev),
+            &Command::StartMatch,
+            Millis(1_000),
+        )
+        .unwrap();
+    };
+    let t = Three::new(true);
+    let (ea, eb, ec) = (env(), env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    t.server.borrow_mut().rewrite(start);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert_eq!(view(&ec).phase, "preparing");
+    // The member: the statement, the rows read only, Close alone.
+    press(&mut hc, "Room.Rules");
+    let v = view(&ec);
+    assert!(v.rules_running && !v.restart_offered, "{v:?}");
+    assert!(has(&hc, "Rules for the next match"));
+    assert!(has(&hc, "This match is on stage 1 of 4 and keeps these rules:"), "{:?}", hc.texts());
+    assert!(!there(&hc, "Restart") && !there(&hc, "Inc.boos") && !there(&hc, "Apply"));
+    press(&mut hc, "Cancel");
+    // The co-host: Boos on, Apply and restart, Restart match.
+    press(&mut hb, "Room.Rules");
+    assert!(view(&eb).restart_offered);
+    press(&mut hb, "Inc.boos");
+    assert_eq!(view(&eb).rules_changed, vec!["boos".to_string()]);
+    press(&mut hb, "Restart");
+    assert_eq!(top(&hb), "room-restart");
+    press(&mut hb, "Confirm");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    assert!(t.server.borrow().state().next.rules.boos);
+    for e in [&ea, &eb, &ec] {
+        assert_eq!(view(e).phase, "interrupted");
+    }
+    assert_eq!(
+        view(&ea).status,
+        "Match stopped. Pick a song to start the next match under the new rules."
+    );
+    // A room whose authority predates the restart.
+    let t = Three::over(|s| s.policy.restart = false, true);
+    let (ea, eb) = (env(), env());
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    t.server.borrow_mut().rewrite(start);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    press(&mut hb, "Room.Rules");
+    let v = view(&eb);
+    assert!(v.rules_running && !v.restart_offered, "{v:?}");
+    assert!(!there(&hb, "Restart"));
+    let rules = t.bob.borrow().rules().clone();
+    assert!(t.bob.borrow_mut().restart_match(rules).is_err(), "never sent");
+    t.bob.borrow_mut().clear_refusal();
+    press(&mut hb, "Inc.boos");
+    press(&mut hb, "Apply");
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    let s = t.server.borrow().state().clone();
+    assert!(s.next.rules.boos, "saved for the next match");
+    assert_eq!(s.phase.kind(), ddi_room::PhaseKind::Preparing, "the match goes on");
 }

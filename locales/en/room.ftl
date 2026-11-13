@@ -243,6 +243,39 @@ room-rules-next = ›
 # The button that saves the changes.
 room-rules-apply = Apply
 
+# The Rules pop-up's title while a match is running: its rows are the
+# next match's (the running match keeps its rules).
+room-rules-title-next = Rules for the next match
+
+# The first line at the top of the Rules pop-up while a match is running;
+# the running match's rules follow on the next line (as
+# room-rules-locked-line writes them), which cannot change.
+# Variables:
+#   $number (Number) - the stage the match is on, from 1
+#   $stages (Number) - the match's stages
+room-rules-running = This match is on stage { $number } of { $stages } and keeps these rules:
+
+# The line under those: the pop-up's rows are for the next match. Where a
+# row's value differs from the running match's, a small dot (●) marks it,
+# which the sentence explains (keep the dot).
+# Variables:
+#   $marked (String) - "yes" when some row is marked, else "no"
+room-rules-running-next = { $marked ->
+    [yes] The rows below are for the next match. ● marks what differs from this one.
+   *[no] The rows below are for the next match.
+}
+
+# A button beside Apply while a match is running (about 20 letters):
+# saves the rules and stops the running match, so that the next song
+# picked starts a new match under them.
+room-rules-apply-restart = Apply and restart
+
+# The question it asks first: its title, its sentence, and the button
+# that does it (about 16 letters; Cancel is the other).
+room-rules-restart-title = Restart the match?
+room-rules-restart-body = This match stops now, and its points so far won't carry over. The next song picked starts a new match under these rules.
+room-rules-restart-confirm = Restart match
+
 ## The More pop-up.
 
 # Leaves the room for the multiplayer home, forgetting the practice.
@@ -827,6 +860,10 @@ room-status-sitting-out = You're sitting out stage { $number }; the others are p
 room-status-pick-new-match = Match over. Pick a song to start the next match.
 
 room-status-stopped-pick = Match stopped. Pick a song to start the next match.
+
+# The same where the next match has other rules than the stopped one (as
+# after the Rules pop-up's Apply and restart).
+room-status-stopped-new-rules = Match stopped. Pick a song to start the next match under the new rules.
 
 room-status-host-picks-new-match = Match over. The host picks the next match's first song.
 

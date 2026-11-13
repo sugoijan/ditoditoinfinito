@@ -137,6 +137,18 @@ pub enum Command {
         stage: StageId,
     },
     StopMatch,
+    /// Save the next match's rules and stop the running match, as one
+    /// change (the Rules pop-up's "Apply and restart", 2026-11-13): the
+    /// same events as `SaveNextRules` followed by `StopMatch`, so nobody's
+    /// command can come between them; the next pick starts a new match
+    /// under `rules`. Needs both capabilities (`EditNextRules`,
+    /// `StopMatch`: an operator, while a match runs) and the envelope's
+    /// base, as `SaveNextRules` does; refused whole otherwise. Additive to
+    /// protocol 2: sent only to a room whose policy says its authority
+    /// reads it (`RoomPolicy::restart`), so never to one that could not.
+    RestartMatch {
+        rules: MatchRules,
+    },
     /// Close the finished or interrupted match and open the next match's
     /// admission in the lobby.
     OpenNextMatch,

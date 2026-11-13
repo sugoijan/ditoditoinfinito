@@ -489,27 +489,14 @@ impl RoomState {
             }
             Command::SaveNextRules { rules } => {
                 self.require(actor, Capability::EditNextRules)?;
-                Self::check_base(base, self.next.saved_at)?;
-                rules
-                    .validate(&self.policy, self.reserved_humans())
-                    .map_err(Rejection::InvalidRules)?;
-                let have = self.playlist.len();
-                let added = (have..usize::from(rules.stages))
-                    .map(|_| self.fresh_stage())
-                    .collect();
-                if self.current.is_none() {
-                    self.emit(out, Event::PlaylistReadinessCleared);
-                }
-                self.emit(
-                    out,
-                    Event::NextRulesSaved {
-                        rules: rules.clone(),
-                        added,
-                    },
-                );
-                if self.next.review.is_some() {
-                    self.emit(out, Event::NextRulesReviewed { review: None });
-                }
+                self.save_next_rules(base, rules, out)
+            }
+            Command::RestartMatch { rules } => {
+                // Both checked before anything is decided: refused whole.
+                self.require(actor, Capability::EditNextRules)?;
+                self.require(actor, Capability::StopMatch)?;
+                self.save_next_rules(base, rules, out)?;
+                self.interrupt(crate::phase::Interruption::Stopped, out);
                 Ok(())
             }
             Command::StartMatch => {
@@ -1535,6 +1522,39 @@ impl RoomState {
             None => Phase::MatchResults,
         };
         self.emit(out, Event::PhaseChanged { phase });
+    }
+
+    /// `SaveNextRules` (and the first half of `RestartMatch`), its
+    /// capability checked: the base, the rules validated, then the draft
+    /// saved with the playlist's new stages.
+    fn save_next_rules(
+        &mut self,
+        base: Option<Revision>,
+        rules: &crate::rules::MatchRules,
+        out: &mut Vec<Event>,
+    ) -> Decided {
+        Self::check_base(base, self.next.saved_at)?;
+        rules
+            .validate(&self.policy, self.reserved_humans())
+            .map_err(Rejection::InvalidRules)?;
+        let have = self.playlist.len();
+        let added = (have..usize::from(rules.stages))
+            .map(|_| self.fresh_stage())
+            .collect();
+        if self.current.is_none() {
+            self.emit(out, Event::PlaylistReadinessCleared);
+        }
+        self.emit(
+            out,
+            Event::NextRulesSaved {
+                rules: rules.clone(),
+                added,
+            },
+        );
+        if self.next.review.is_some() {
+            self.emit(out, Event::NextRulesReviewed { review: None });
+        }
+        Ok(())
     }
 
     fn interrupt(&mut self, reason: crate::phase::Interruption, out: &mut Vec<Event>) {

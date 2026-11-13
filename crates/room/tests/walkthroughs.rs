@@ -3415,3 +3415,151 @@ fn a_member_held_to_watching_plays_only_once_the_owner_lets_them() {
     .unwrap();
     r.by(host, play).unwrap();
 }
+
+/// The Rules pop-up's "Apply and restart" (2026-11-13): the next match's
+/// rules saved and the running match stopped as one change, by an operator
+/// while a match runs (in any of its phases, a stage's play included, as
+/// Stop match), refused whole otherwise; the next match starts under the
+/// new rules.
+#[test]
+fn restarting_a_match_saves_the_rules_and_stops_it_as_one_change() {
+    let mut r = Room::hosted(3);
+    let host = r.host;
+    let ana = r.join("ana", Intent::Play);
+    let co = r.join("co", Intent::Play);
+    r.by(
+        host,
+        Command::SetCoHost {
+            participant: co,
+            on: true,
+        },
+    )
+    .unwrap();
+    let mut draft = MatchRules::hosted();
+    draft.stages = 2;
+    draft.difficulty = MatchDifficulty::Hard;
+    draft.boos = true;
+    let restart = |rules: &MatchRules| Command::RestartMatch {
+        rules: rules.clone(),
+    };
+    // No match running: nothing to stop, nothing saved.
+    assert_eq!(
+        r.by(host, restart(&draft)),
+        Err(Rejection::Unauthorized {
+            capability: Capability::StopMatch
+        })
+    );
+    assert_ne!(r.s.next.rules, draft);
+    r.start_match();
+    let locked = r.s.current.as_ref().unwrap().rules.clone();
+    let s = r.upcoming();
+    r.choose(s, 1);
+    for p in [host, ana, co] {
+        r.ready(p);
+    }
+    r.start_stage().unwrap();
+    let s1 = r.play();
+    r.end(s1, &[&[ana], &[host], &[co]]);
+    assert!(matches!(r.s.phase, Phase::Intermission { .. }));
+    // A member may not.
+    assert_eq!(
+        r.by(ana, restart(&draft)),
+        Err(Rejection::Unauthorized {
+            capability: Capability::EditNextRules
+        })
+    );
+    // Rules the room cannot use: refused whole, the match still running.
+    let mut bad = draft.clone();
+    bad.stages = 0;
+    assert!(matches!(
+        r.by(host, restart(&bad)),
+        Err(Rejection::InvalidRules(_))
+    ));
+    // Made against a draft someone saved since: stale, nothing stopped.
+    let before = r.s.revision;
+    let mut other = MatchRules::hosted();
+    other.stages = 4;
+    r.by(host, Command::SaveNextRules { rules: other }).unwrap();
+    assert_eq!(
+        r.based(co, Some(before), restart(&draft)),
+        Err(Rejection::Stale {
+            base: before,
+            changed_at: r.s.next.saved_at
+        })
+    );
+    assert!(r.s.phase.kind().match_running());
+    // A co-host's, during the intermission: one revision.
+    let rev = r.s.revision;
+    let events = r.by(co, restart(&draft)).unwrap();
+    assert_eq!(r.s.revision, Revision(rev.0 + 1), "one change");
+    let saved = events
+        .iter()
+        .position(|e| matches!(e, Event::NextRulesSaved { .. }))
+        .unwrap();
+    let stopped = events
+        .iter()
+        .position(|e| {
+            *e == Event::MatchInterrupted {
+                reason: Interruption::Stopped,
+            }
+        })
+        .unwrap();
+    assert!(saved < stopped, "saved, then stopped");
+    assert_eq!(
+        r.s.phase,
+        Phase::Interrupted {
+            reason: Interruption::Stopped
+        }
+    );
+    assert_eq!(r.s.current.as_ref().unwrap().rules, locked, "kept as played");
+    assert_eq!(r.s.next.rules, draft);
+    // Nothing more to stop.
+    assert_eq!(
+        r.by(host, restart(&draft)),
+        Err(Rejection::Unauthorized {
+            capability: Capability::StopMatch
+        })
+    );
+    // The next match is played under the new rules.
+    r.by(host, Command::OpenNextMatch).unwrap();
+    assert_eq!(
+        r.s.history.last().unwrap().ending,
+        MatchEnding::Interrupted {
+            reason: Interruption::Stopped
+        }
+    );
+    r.start_match();
+    let m = r.s.current.as_ref().unwrap();
+    assert_eq!(m.rules, draft);
+    assert_eq!(m.stages.len(), 2);
+    // During a stage's play, as Stop match.
+    let s = r.upcoming();
+    r.choose(s, 2);
+    for p in [host, ana, co] {
+        r.ready(p);
+    }
+    r.start_stage().unwrap();
+    r.play();
+    let mut again = draft.clone();
+    again.boos = false;
+    r.by(host, restart(&again)).unwrap();
+    assert_eq!(r.s.phase.kind(), PhaseKind::Interrupted);
+    assert_eq!(r.s.next.rules, again);
+}
+
+/// A room's policy says whether its authority reads `RestartMatch`: every
+/// room this build makes does; a policy stored or sent by an authority
+/// that predates it (no field) does not, so a client never sends it
+/// there.
+#[test]
+fn a_policy_from_before_the_restart_says_so() {
+    assert!(RoomPolicy::default().restart);
+    let mut json = serde_json::to_value(RoomPolicy::default()).unwrap();
+    assert_eq!(json["restart"], serde_json::Value::Bool(true));
+    json.as_object_mut().unwrap().remove("restart");
+    let old: RoomPolicy = serde_json::from_value(json).unwrap();
+    assert!(!old.restart);
+    // Left out of the JSON where false, as it was.
+    let back = serde_json::to_value(&old).unwrap();
+    assert!(back.get("restart").is_none());
+}

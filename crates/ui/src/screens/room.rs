@@ -127,6 +127,13 @@ pub struct RoomView {
     /// Attacks.
     pub draft_rules: Option<(String, bool, bool)>,
     pub rules_problem: Option<String>,
+    /// While a match runs, the pop-up says so at its top (`rules_running`),
+    /// marks the rows whose draft differs from the running match's
+    /// (`stages`, `difficulty`, `boos`, `cpus`, `attacks`), and offers
+    /// Apply and restart to who may use it (`restart_offered`).
+    pub rules_running: bool,
+    pub rules_changed: Vec<String>,
+    pub restart_offered: bool,
     /// The roster pop-ups: Add custom, Players, the stage's standings.
     pub add_open: bool,
     pub players_open: bool,
@@ -304,7 +311,7 @@ pub fn heading(r: &RoomClient) -> UiText {
 }
 
 /// A stage's number in the shown stages, from 1.
-fn number_of(r: &RoomClient, id: StageId) -> usize {
+pub(crate) fn number_of(r: &RoomClient, id: StageId) -> usize {
     r.stages()
         .iter()
         .position(|st| st.id == id)
@@ -410,6 +417,13 @@ pub fn status(r: &RoomClient) -> UiText {
             }
         }
         Phase::MatchResults if host => m::status_pick_new_match(),
+        // Stopped with other rules saved for the next match (the Rules
+        // pop-up's Apply and restart, or Apply then Stop match).
+        Phase::Interrupted { .. }
+            if host && s.current.as_ref().is_some_and(|m| m.rules != s.next.rules) =>
+        {
+            m::status_stopped_new_rules()
+        }
         Phase::Interrupted { .. } if host => m::status_stopped_pick(),
         Phase::MatchResults | Phase::Interrupted { .. } => match picker {
             Follows::Named(name) => m::status_picker_new_match(name),
@@ -1901,6 +1915,9 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         draft: kept.draft,
         draft_rules: kept.draft_rules,
         rules_problem: kept.rules_problem,
+        rules_running: kept.rules_running,
+        rules_changed: kept.rules_changed,
+        restart_offered: kept.restart_offered,
         add_open: kept.add_open,
         players_open: kept.players_open,
         standings_open: kept.standings_open,

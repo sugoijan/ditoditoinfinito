@@ -36,6 +36,10 @@ use crate::state::room::{SharedRoom, cpu_levels};
 pub const RULES_SAVED: &str = "Room.RulesSaved";
 /// Broadcast when Add custom changed the Rules pop-up's roster.
 const ROSTER_CHANGED: &str = "Room.RosterChanged";
+/// Broadcast when the restart's question was answered Restart match.
+const RESTART_CONFIRMED: &str = "Room.RestartConfirmed";
+/// The restart's question among the layers.
+pub const RESTART_QUESTION: &str = "room-restart";
 
 /// The CPU rows the Rules pop-up shows at once (more scroll).
 const CPU_ROWS: usize = 4;
@@ -216,8 +220,80 @@ impl RulesDialog {
         usize::from(self.room.borrow().max_cpus()).saturating_sub(self.roster().len())
     }
 
-    /// The buttons at its foot, the one Enter means last.
+    /// A match is running (its first stage's readiness to its last
+    /// stage's end): the pop-up says so at its top and its rows are the
+    /// next match's.
+    fn running(&self) -> bool {
+        let r = self.room.borrow();
+        r.state().phase.kind().match_running() && r.locked_rules().is_some()
+    }
+
+    /// The running match's stage, from 1, and its stages: the one being
+    /// readied, counted down or played, or the next after an intermission.
+    fn stage_of(&self) -> (usize, u16) {
+        let r = self.room.borrow();
+        let stages = r.locked_rules().map_or(1, |l| l.stages);
+        let n = match r.state().phase {
+            Phase::Preparing { stage, .. }
+            | Phase::Countdown { stage, .. }
+            | Phase::Stage { stage }
+            | Phase::SongCompletion { stage }
+            | Phase::Intermission { next: stage } => super::room::number_of(&r, stage),
+            _ => 1,
+        };
+        (n, stages)
+    }
+
+    /// The rows whose draft differs from the running match's rules (none
+    /// between matches).
+    fn changed(&self) -> Vec<&'static str> {
+        if !self.running() {
+            return Vec::new();
+        }
+        let r = self.room.borrow();
+        let Some(locked) = r.locked_rules() else {
+            return Vec::new();
+        };
+        let d = self.draft.borrow();
+        let humans = r.humans();
+        let mut v = Vec::new();
+        if d.stages != locked.stages {
+            v.push("stages");
+        }
+        if d.difficulty != locked.difficulty {
+            v.push("difficulty");
+        }
+        if d.boos != locked.boos {
+            v.push("boos");
+        }
+        if !r.is_online()
+            && cpu_roster::roster_of(&d, humans) != cpu_roster::roster_of(locked, humans)
+        {
+            v.push("cpus");
+        }
+        if super::room::attacks_offered(&r) && d.attacks() != locked.attacks() {
+            v.push("attacks");
+        }
+        v
+    }
+
+    /// Apply and restart is offered: from its button, while a match runs,
+    /// to who may both save the rules and stop the match, in a room whose
+    /// authority takes the two as one change (`RoomClient::may_restart`).
+    fn restart_offered(&self) -> bool {
+        !self.first && self.running() && self.room.borrow().may_restart()
+    }
+
+    /// The buttons at its foot, the one Enter means last (Apply and
+    /// restart, where offered, first: it sits apart at the foot's left).
     fn buttons(&self) -> Vec<(&'static str, String)> {
+        if self.restart_offered() {
+            return vec![
+                ("Restart", m::rules_apply_restart().into()),
+                ("Cancel", common::cancel().into()),
+                ("Apply", m::rules_apply().into()),
+            ];
+        }
         match (self.first, self.editable()) {
             (true, true) => vec![
                 ("Reset", common::reset().into()),
@@ -244,13 +320,72 @@ impl RulesDialog {
             draft.attacks(),
         );
         drop(draft);
+        let running = self.running();
+        let changed: Vec<String> = self.changed().into_iter().map(String::from).collect();
+        let restart = self.restart_offered();
         publish_dialog(&self.env, |v| {
             v.rules_open = true;
             v.rules_first = first;
             v.draft = vec![stages, cpus];
             v.draft_rules = Some(rules);
             v.rules_problem = problem;
+            v.rules_running = running;
+            v.rules_changed = changed;
+            v.restart_offered = restart;
         });
+    }
+
+    /// Apply and restart: the draft checked, then asked once ("Restart
+    /// the match?", Cancel first).
+    fn ask_restart(&mut self, root: &mut Actor, cx: &mut Cx) {
+        let draft = self.draft.borrow().clone();
+        let checked = self.room.borrow().check_rules(&draft);
+        if let Err(p) = checked {
+            self.problem = Some(super::room::rules_problem(&p).into());
+            *root = self.build(cx);
+            super::restore_focus(root, Some("Restart"));
+            return;
+        }
+        let on_yes: super::dialog::ConfirmFn =
+            Rc::new(|cx| cx.broadcast(crate::Message::new(RESTART_CONFIRMED)));
+        cx.overlay(
+            super::dialog::ConfirmDialog::new(
+                self.env.clone(),
+                &m::rules_restart_title(),
+                &m::rules_restart_body(),
+                &m::rules_restart_confirm(),
+                on_yes,
+            )
+            .named(RESTART_QUESTION),
+            true,
+        );
+    }
+
+    /// The question answered: the draft saved and the match stopped as one
+    /// change; closes, or says why not. A match that ended meanwhile has
+    /// nothing to stop: the draft is saved for the next one, as Apply.
+    fn restart(&mut self, root: &mut Actor, cx: &mut Cx) {
+        let draft = self.draft.borrow().clone();
+        let may = self.room.borrow().may_restart();
+        let done = if may {
+            self.room.borrow_mut().restart_match(draft)
+        } else if self.editable() {
+            self.room.borrow_mut().save_rules(draft)
+        } else {
+            Ok(())
+        };
+        match done {
+            Ok(()) => {
+                cx.broadcast(crate::Message::new(RULES_SAVED));
+                self.close(cx, false);
+            }
+            Err(why) => {
+                self.room.borrow_mut().clear_refusal();
+                self.problem = Some(super::room::refusal_text(&why).into());
+                *root = self.build(cx);
+                super::restore_focus(root, Some("Apply"));
+            }
+        }
     }
 
     fn close(&mut self, cx: &mut Cx, cancel: bool) {
@@ -309,8 +444,11 @@ impl Screen for RulesDialog {
         notes.push((m::rules_points_note().into(), "Muted"));
         notes.push((m::rules_ruleset_note().into(), "Muted"));
         notes.push((m::rules_battle_note().into(), "Muted"));
-        // What applying does: nothing to say where the player cannot.
-        if editable {
+        let running = self.running();
+        let changed = self.changed();
+        // What applying does: nothing to say where the player cannot, nor
+        // during a match, whose statement at the top says it.
+        if editable && !running {
             notes.push((
                 if locked.is_some() {
                     m::rules_locked_note()
@@ -337,7 +475,42 @@ impl Screen for RulesDialog {
             .sum();
         let shown = roster.len().min(CPU_ROWS);
         self.cpu_first = scrolled(self.cpu_first, 0, roster.len(), shown);
-        let locked_h = if locked.is_some() { 52.0 } else { 0.0 };
+        // During a match, a statement at the top: the match, the rules it
+        // keeps, and that the rows are the next match's.
+        let statement = running.then(|| {
+            let (n, stages) = self.stage_of();
+            let rules = locked.as_ref().map_or_else(String::new, |l| {
+                m::rules_locked_line(
+                    l.stages,
+                    cpu_roster::roster_of(l, humans).len(),
+                    super::room::rules_words(
+                        &crate::state::room::StageRules::of(l),
+                        self.attacks_offered().then(|| l.attacks()),
+                    ),
+                )
+                .into()
+            });
+            let marked = if changed.is_empty() { "no" } else { "yes" };
+            (
+                super::dialog::wrap_lines(&m::rules_running(n, stages), inner, 14.0),
+                super::dialog::wrap_lines(&rules, inner, 14.0),
+                super::dialog::wrap_lines(&m::rules_running_next(marked), inner, 13.0),
+            )
+        });
+        let locked_h = match &statement {
+            Some((a, b, c)) => {
+                16.0 + a.len() as f32 * 20.0 + b.len() as f32 * 20.0 + c.len() as f32 * 18.0
+            }
+            None if locked.is_some() => 52.0,
+            None => 0.0,
+        };
+        let next_h = if running { 0.0 } else { 28.0 };
+        // Apply and restart sits at the foot's left, or on a row of its
+        // own above the others where the pop-up is too narrow for it.
+        let restart_w = look::mono_width(&m::rules_apply_restart(), 15.0) + 28.0;
+        let restart_row =
+            self.restart_offered() && 24.0 + restart_w + 10.0 > w - 24.0 - 70.0 - 150.0 - 70.0;
+        let restart_h = if restart_row { 48.0 } else { 0.0 };
         let cpu_h = if cpus {
             28.0 + shown.max(1) as f32 * ROW
                 + if roster.len() > shown {
@@ -351,18 +524,41 @@ impl Screen for RulesDialog {
         };
         let h = 64.0
             + locked_h
-            + 28.0
+            + next_h
             + 3.0 * ROW
             + cpu_h
             + 2.0 * ROW
             + 12.0
             + lines as f32 * 17.0
+            + restart_h
             + 72.0;
-        let (mut c, [x, y]) = shell(&env, screen, [w, h], &m::rules_title());
+        let title = if running {
+            m::rules_title_next()
+        } else {
+            m::rules_title()
+        };
+        let (mut c, [x, y]) = shell(&env, screen, [w, h], &title);
         let x0 = x + 24.0;
         let mut ry = y + 64.0;
-        // The running match's, locked.
-        if let Some(rules) = &locked {
+        // The running match's: said at the top, where it cannot be missed.
+        if let Some((heading, rules, next)) = &statement {
+            let mut k = 0;
+            for (lines, size, weight, color, step) in [
+                (heading, 14.0, 700, "Secondary", 20.0),
+                (rules, 14.0, 600, "Text", 20.0),
+                (next, 13.0, 600, "Gold", 18.0),
+            ] {
+                for line in lines {
+                    let mut t =
+                        env.text(&format!("Running.{k}"), line, size, weight, color);
+                    look::ellipsized(&mut t, inner);
+                    c.push(left(t, x0, ry + step / 2.0));
+                    ry += step;
+                    k += 1;
+                }
+            }
+            ry += 16.0;
+        } else if let Some(rules) = &locked {
             c.push(left(
                 env.text("Locked.Heading", &m::rules_this_match(), 13.0, 700, "Muted"),
                 x0,
@@ -381,13 +577,26 @@ impl Screen for RulesDialog {
             c.push(left(t, x0, ry + 32.0));
             ry += locked_h;
         }
-        // The next match's.
-        c.push(left(
-            env.text("Next.Heading", &m::rules_next_match(), 13.0, 700, "Muted"),
-            x0,
-            ry + 8.0,
-        ));
-        ry += 28.0;
+        // The next match's (during a match, the title says so).
+        if !running {
+            c.push(left(
+                env.text("Next.Heading", &m::rules_next_match(), 13.0, 700, "Muted"),
+                x0,
+                ry + 8.0,
+            ));
+            ry += 28.0;
+        }
+        // A row whose draft differs from the running match's: a quiet mark
+        // in the margin before its label.
+        let mark = |c: &mut Vec<Actor>, id: &str, ry: f32| {
+            if changed.contains(&id) {
+                c.push(left(
+                    env.text(&format!("Changed.{id}"), "●", 9.0, 400, "Gold"),
+                    x0 - 14.0,
+                    ry,
+                ));
+            }
+        };
         // A row: its label, then its value between the two buttons that
         // change it (a number's − and +, a choice's ‹ and ›; `lo` and `hi`,
         // whether there is a value that way); the value alone at the
@@ -436,6 +645,7 @@ impl Screen for RulesDialog {
             if on { common::on() } else { common::off() }.into()
         };
         let max_stages = self.room.borrow().state().policy.max_stages;
+        mark(&mut c, "stages", ry + ROW / 2.0);
         stepper(
             &mut c,
             "stages",
@@ -450,6 +660,7 @@ impl Screen for RulesDialog {
         // difficulty and Boos. (The ruleset has no row: it is DDI, which
         // the note under the rows says.)
         let at = draft.difficulty.index();
+        mark(&mut c, "difficulty", ry + ROW / 2.0);
         stepper(
             &mut c,
             "difficulty",
@@ -460,6 +671,7 @@ impl Screen for RulesDialog {
             ry + ROW / 2.0,
         );
         ry += ROW;
+        mark(&mut c, "boos", ry + ROW / 2.0);
         stepper(
             &mut c,
             "boos",
@@ -472,6 +684,7 @@ impl Screen for RulesDialog {
         ry += ROW;
         // Practice's CPUs: the roster, each removable, then the adds.
         if cpus {
+            mark(&mut c, "cpus", ry + 14.0);
             c.push(left(
                 env.text("Cpus.Heading", &m::rules_cpus(), 14.0, 400, "Secondary"),
                 x0,
@@ -586,6 +799,7 @@ impl Screen for RulesDialog {
         // Attacks, where they work (practice); said unavailable where
         // they do not yet (an online room).
         if self.attacks_offered() {
+            mark(&mut c, "attacks", ry + ROW / 2.0);
             stepper(
                 &mut c,
                 "attacks",
@@ -641,6 +855,15 @@ impl Screen for RulesDialog {
         let buttons = self.buttons();
         let mut bx = x + w - 24.0 - 70.0;
         for (name, label) in buttons.iter().rev() {
+            if *name == "Restart" {
+                let (at, by) = if restart_row {
+                    (x + w / 2.0, y + h - 36.0 - 48.0)
+                } else {
+                    (x0 + restart_w / 2.0, y + h - 36.0)
+                };
+                c.push(button(&env, name, label, [at, by], restart_w, "Button"));
+                continue;
+            }
             c.push(button(
                 &env,
                 name,
@@ -694,6 +917,10 @@ impl Screen for RulesDialog {
     }
 
     fn message(&mut self, msg: &crate::Message, root: &mut Actor, cx: &mut Cx) {
+        if msg.name == RESTART_CONFIRMED {
+            self.restart(root, cx);
+            return;
+        }
         if msg.name == ROSTER_CHANGED {
             self.problem = None;
             let focused = cx.focused().map(str::to_string);
@@ -789,6 +1016,7 @@ impl Screen for RulesDialog {
                         rebuild(self, root, cx, name);
                     }
                     "Cancel" => self.close(cx, true),
+                    "Restart" if self.restart_offered() => self.ask_restart(root, cx),
                     "Apply" | "Ok" => {
                         let name = name.clone();
                         self.apply(root, cx, &name);
@@ -843,6 +1071,9 @@ impl Drop for RulesDialog {
         publish_dialog(&self.env, |v| {
             v.rules_open = false;
             v.rules_first = false;
+            v.rules_running = false;
+            v.rules_changed.clear();
+            v.restart_offered = false;
         });
     }
 }

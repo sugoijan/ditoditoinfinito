@@ -879,6 +879,39 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
     show(&mut h, found);
     room.borrow_mut().stop_match().unwrap();
     show(&mut h, found);
+    // Another practice: during its match, Rules (its statement, a row
+    // marked, Apply and restart's question), then the restart (the
+    // stopped match's standings, the status line for the new rules).
+    {
+        let room = RoomClient::shared(0, 1);
+        room.borrow_mut().set_rules_seen(true);
+        let mut h = harness();
+        h.push(sample::room_screen(env, room.clone()));
+        h.run(0.5);
+        room.borrow_mut().pick(&song, &chart).unwrap();
+        h.run(0.5);
+        // Where the header has its Rules (a phone has them in More).
+        let wide = h.ui.bounds("Room.Rules").is_some();
+        for (tap, wait) in [
+            ("Room.Rules", 0.3),
+            ("Inc.difficulty", 0.3),
+            ("Restart", 0.3),
+            ("Confirm", 0.5),
+        ]
+        .into_iter()
+        .filter(|_| wide)
+        {
+            h.tap(PointerKind::Mouse, tap);
+            h.run(wait);
+            shown(&mut h, found);
+        }
+        assert_eq!(
+            room.borrow().state().phase.kind().match_running(),
+            !wide,
+            "restarted"
+        );
+        show(&mut h, found);
+    }
     let mut h = harness();
     h.push(super::room_dialogs::NoticeDialog::refusal(
         env.clone(),

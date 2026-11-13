@@ -37,6 +37,15 @@ pub struct RoomPolicy {
     /// the socket on a frame it cannot read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live: Option<LivePolicy>,
+    /// The authority reads `crate::Command::RestartMatch` (2026-11-13: the
+    /// next match's rules saved and the running match stopped as one
+    /// change). True for every room this build makes; false (left out of
+    /// the JSON) for a room whose authority predates it, or a room stored
+    /// before it. ADDITIVE to protocol 2: a client sends the command only
+    /// to a room whose policy says so, so never to an authority that would
+    /// close the socket on a command it cannot read.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub restart: bool,
 }
 
 /// What a room that plays live tells its clients of how
@@ -120,6 +129,7 @@ impl Default for RoomPolicy {
             readiness: ReadinessPolicy::default(),
             outcomes: OutcomePolicy::default(),
             live: None,
+            restart: true,
         }
     }
 }

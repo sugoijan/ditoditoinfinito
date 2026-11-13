@@ -132,6 +132,21 @@ room-rules-next = ›
 
 room-rules-apply = 適用
 
+room-rules-title-next = 次の対戦のルール
+
+room-rules-running = この対戦はステージ { $number } / { $stages } です。ルールは次のまま変わりません：
+
+room-rules-running-next = { $marked ->
+    [yes] 以下は次の対戦のルールです。●はこの対戦と異なる項目です。
+   *[no] 以下は次の対戦のルールです。
+}
+
+room-rules-apply-restart = 適用してやり直す
+
+room-rules-restart-title = 対戦をやり直しますか？
+room-rules-restart-body = この対戦は今すぐ中止され、これまでのポイントは引き継がれません。次に選ばれた曲から、このルールで新しい対戦が始まります。
+room-rules-restart-confirm = やり直す
+
 ## More.
 
 room-leave = ルームを出る
@@ -403,6 +418,8 @@ room-status-sitting-out = ステージ{ $number }は見学です。ほかのプ�
 room-status-pick-new-match = 対戦終了。曲を選んで次の対戦を始めましょう。
 
 room-status-stopped-pick = 対戦を中止しました。曲を選んで次の対戦を始めましょう。
+
+room-status-stopped-new-rules = 対戦を中止しました。曲を選んで、新しいルールで次の対戦を始めましょう。
 
 room-status-host-picks-new-match = 対戦終了。次の対戦の最初の曲はホストが選びます。
 

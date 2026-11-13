@@ -2700,6 +2700,30 @@ impl RoomClient {
         self.send(Command::StopMatch)
     }
 
+    /// Whether the local player may save `rules` for the next match and
+    /// stop the running match as one change (the Rules pop-up's "Apply
+    /// and restart"): an operator, while a match runs (Stop match's
+    /// phases: a stage's readiness, countdown and play, its song's end,
+    /// the intermission), in a room whose authority reads
+    /// `Command::RestartMatch` (`RoomPolicy::restart`; never one that
+    /// predates it).
+    pub fn may_restart(&self) -> bool {
+        self.state().policy.restart
+            && self.may(Capability::EditNextRules)
+            && self.may(Capability::StopMatch)
+    }
+
+    /// Save `rules` for the next match and stop the running match, as one
+    /// change: the next pick starts a new match under them.
+    pub fn restart_match(&mut self, rules: MatchRules) -> Result<(), Refusal> {
+        if !self.state().policy.restart {
+            return self.refuse(Refusal::Room(Rejection::Unauthorized {
+                capability: Capability::StopMatch,
+            }));
+        }
+        self.send(Command::RestartMatch { rules })
+    }
+
     /// From a finished or stopped match back to the lobby, the next match's
     /// rules applied.
     pub fn open_next_match(&mut self) -> Result<(), Refusal> {

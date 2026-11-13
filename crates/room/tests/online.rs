@@ -1546,3 +1546,45 @@ fn a_hosted_rooms_attacks_are_on_by_default_only_where_it_plays_live() {
         assert_eq!(server.state().next.rules.attacks(), attacks);
     }
 }
+
+/// "Apply and restart" (2026-11-13): the local authority and the online
+/// one (the fake server, its members' mirrors) decide `RestartMatch` the
+/// same: saved and stopped as one change by a co-host during the stage,
+/// then refused with no match left to stop.
+#[test]
+fn a_restart_is_decided_alike_by_both_authorities_and_every_mirror() {
+    let mut rules = MatchRules::hosted();
+    rules.stages = 2;
+    rules.boos = true;
+    let mut steps = script();
+    steps.push(Step::Cmd(
+        "dev:bob",
+        Command::RestartMatch {
+            rules: rules.clone(),
+        },
+    ));
+    steps.push(Step::Cmd(
+        "dev:alice",
+        Command::RestartMatch {
+            rules: rules.clone(),
+        },
+    ));
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    let n = local_answers.len();
+    assert_eq!(local_answers[n - 2], None, "restarted");
+    assert_eq!(
+        local_answers[n - 1],
+        Some(Rejection::Unauthorized {
+            capability: ddi_room::Capability::StopMatch
+        })
+    );
+    assert_eq!(local.phase.kind(), PhaseKind::Interrupted);
+    assert_eq!(local.next.rules, rules);
+    assert!(local.policy.restart, "the room says it reads the command");
+}
