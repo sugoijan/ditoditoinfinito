@@ -401,3 +401,63 @@ fn step_down_study() {
     println!("({} song files, {unread} unread)", files.len());
     report("the local corpus", &total);
 }
+
+/// What a stage of 72 CPUs pays for a ladder when it loads: the ladder
+/// planned once (`planned_ladder`), each CPU's script for every rung, the
+/// plan placed over every rung; against the same stage under Out. Then a
+/// stage played out (judging every rung a CPU reaches). Prints times.
+#[test]
+#[ignore = "a study: prints what a ladder costs a stage of 72 CPUs"]
+fn step_down_cost_of_72_cpus() {
+    let song = super::study::bundled_song("beatucada");
+    let chart = 5;
+    for at_zero in [AtZero::Out, AtZero::StepDown] {
+        let rules = StageRules {
+            at_zero,
+            ..StageRules::default()
+        };
+        let ruleset = stage_ruleset(&rules);
+        let setup = StageSetup {
+            stage: StageId(3),
+            number: 1,
+            of: 1,
+            battle: BattlePreset::GaugeAttacksV0,
+            rules,
+            me: ParticipantId(1),
+            targeting: Targeting::Spread,
+            cpus: (0..72u64)
+                .map(|i| CpuSeat {
+                    participant: ParticipantId(i + 2),
+                    ordinal: i as u16 + 1,
+                    level: (i % 10) as u8,
+                    seed: i * 7919 + 1,
+                    name: None,
+                    skills: None,
+                    targeting: Targeting::Spread,
+                })
+                .collect(),
+            dev_mines_at_beat: None,
+            others: 0,
+            watching: false,
+            live: None,
+        };
+        let t = std::time::Instant::now();
+        let ladder = stage_ladder(&song, chart, &setup);
+        let planned = t.elapsed().as_secs_f64();
+        let mut b = Battle::new(setup, &song, chart, &ruleset, 0.0, FORFEIT_HORIZON, &ladder).unwrap();
+        let loaded = t.elapsed().as_secs_f64();
+        if let Some(a) = b.attacks.as_mut() {
+            a.out_at(b.setup.me, f64::NEG_INFINITY);
+        }
+        b.play_out_as(Some(Run::Forfeit));
+        let played = t.elapsed().as_secs_f64();
+        let stepped = b.seats.iter().filter(|s| !s.opponent.player().steps().is_empty()).count();
+        println!(
+            "{at_zero:?}: {} rungs; ladder planned {:.0} ms, stage loaded {:.0} ms, played out {:.0} ms; {stepped} of 72 stepped down",
+            ladder.len(),
+            planned * 1e3,
+            loaded * 1e3,
+            played * 1e3,
+        );
+    }
+}

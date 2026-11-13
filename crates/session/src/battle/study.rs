@@ -42,6 +42,11 @@ const CHARTS: [(&str, usize); 6] = [
     ("some-things-must", usize::MAX - 2),
 ];
 
+/// A bundled song by its folder (for the other studies).
+pub(super) fn bundled_song(id: &str) -> Song {
+    bundled(id)
+}
+
 fn bundled(id: &str) -> Song {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../assets/songs")
