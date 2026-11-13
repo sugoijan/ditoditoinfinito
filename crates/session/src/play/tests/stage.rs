@@ -1959,7 +1959,9 @@ fn a_lane_s_key_is_never_the_policy_s() {
 }
 
 /// `attacks-v2` (2026-11-13): an attack is over for the ledger once it is
-/// placed, and attacks against one recipient chain without limit. Over a
+/// placed, and attacks against one recipient chain; `attacks-v3` (the
+/// same day) keeps the chain within the window of each launch and to the
+/// match's Attacks at once (three by default). Over a
 /// long chart with strong CPUs, chains happen: an attack committed
 /// against someone while earlier ones against them had not cleared, its
 /// first shock at or after the last of theirs has cleared (never a
@@ -1968,7 +1970,7 @@ fn a_lane_s_key_is_never_the_policy_s() {
 /// record is the same at 60 and 144 frames a second.
 #[test]
 fn chained_attacks_are_delivered_back_to_back_into_plays_and_cpus() {
-    assert_eq!(crate::battle::attacks::rules().id, "attacks-v2");
+    assert_eq!(crate::battle::attacks::rules().id, "attacks-v3");
     let song = bundled("beatucada");
     // Strong CPUs aiming at the leader: they pile up on one.
     let mut practice = attacks_room(&song, 3, 9);
@@ -1997,6 +1999,9 @@ fn chained_attacks_are_delivered_back_to_back_into_plays_and_cpus() {
             .filter(|o| o.id < x.id && o.recipient == x.recipient && o.clear_us >= at)
             .collect();
         longest = longest.max(before.len());
+        assert!(before.len() < 3, "at most three placed at once against one");
+        let start = ra.ledger().schedule().slots[x.slot].start_us;
+        assert!(start <= at + ddi_room::attacks::ATTACK_WINDOW_V0_US, "within the window");
         if let Some(last) = before.iter().map(|o| o.clear_us).max() {
             chained += 1;
             assert!(

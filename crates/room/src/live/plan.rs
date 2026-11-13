@@ -77,6 +77,13 @@ pub struct BattlePlan {
     /// stage under the match's rules, whose plan is what it was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage_rules: Option<String>,
+    /// The match's Attacks at once for the stage (`attacks-v3`,
+    /// [`crate::AttacksAtOnce::limit`]): the most attacks that may stand
+    /// placed against one competitor. `None`: no limit, and for rules
+    /// before `attacks-v3`, which never read it. ADDITIVE: left out (and
+    /// out of the digest) while `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_once: Option<u32>,
     pub digest: PlanDigest,
 }
 
@@ -109,6 +116,7 @@ impl BattlePlan {
             schedule,
             ladder: Vec::new(),
             stage_rules: None,
+            at_once: None,
             digest: PlanDigest(String::new()),
         };
         plan.digest = plan.compute_digest();
@@ -129,6 +137,21 @@ impl BattlePlan {
         self.stage_rules = rules;
         self.digest = self.compute_digest();
         self
+    }
+
+    /// The plan with the stage's Attacks at once ([`BattlePlan::at_once`]),
+    /// its digest computed again.
+    pub fn with_at_once(mut self, at_once: Option<u32>) -> BattlePlan {
+        self.at_once = at_once;
+        self.digest = self.compute_digest();
+        self
+    }
+
+    /// The attack rules the ledger runs the stage under: those it names,
+    /// with its Attacks at once (`None` for rules this build does not
+    /// know).
+    pub fn rules(&self) -> Option<crate::attacks::AttackRules> {
+        crate::attacks::attack_rules(&self.attack_rules).map(|r| r.with_at_once(self.at_once))
     }
 
     /// The digest of its contents (everything but the digest).
@@ -183,6 +206,11 @@ impl BattlePlan {
         if let Some(r) = &self.stage_rules {
             h.u64(0x5255_4c45);
             h.bytes(r.as_bytes());
+        }
+        // Attacks at once only where there is a limit, as the ladder.
+        if let Some(n) = self.at_once {
+            h.u64(0x4f4e_4345);
+            h.u64(u64::from(n));
         }
         let mut text = String::from("fnv1a64:");
         let _ = write!(text, "{:016x}", h.0);

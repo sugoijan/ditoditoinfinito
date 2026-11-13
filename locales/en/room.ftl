@@ -215,6 +215,16 @@ room-rules-difficulty = Timing difficulty
 room-rules-boos = Boos
 room-rules-attacks = Attacks
 
+# The row under Attacks (shown while attacks are on) saying how many
+# attacks may be on their way to one player at the same time (about 20
+# letters), its value (a number, or "No limit") and a line under it.
+room-rules-at-once = Attacks at once
+# Variables:
+#   $count (Number) - how many attacks: 1, 2 or 3
+room-rules-at-once-count = { $count }
+room-rules-at-once-no-limit = No limit
+room-rules-at-once-about = How many attacks can be on their way to one player at the same time. They never overlap.
+
 # The Attacks row's value in an online room, where the rule cannot be
 # turned on yet (about 32 letters).
 room-rules-attacks-online = Off · not in online rooms yet
@@ -423,6 +433,14 @@ room-rules-change-boos = { $boos ->
 room-rules-change-attacks = { $attacks ->
     [on] Attacks
    *[off] No attacks
+}
+# Variables:
+#   $at_once (String) - "one", "two", "three" or "no_limit": how many attacks may be on their way to one player at once
+room-rules-change-at-once = { $at_once ->
+    [one] One attack at once
+    [two] Two attacks at once
+    [no_limit] No limit on attacks at once
+   *[three] Three attacks at once
 }
 # Variables:
 #   $charts (String) - "adaptive" or "as_picked"
@@ -764,7 +782,9 @@ room-prompt-ruleset = Rules: { $rules }
 # ("Hard timing", "Easy timing": never a chart's difficulty), Boos
 # when they are on, and that there are no attacks when the match has
 # them turned off (they are on by default), the Points choice when it
-# is not the default Strong, and adaptive charts when they are chosen.
+# is not the default Strong, adaptive charts when they are chosen, and
+# how many attacks may be on their way to one player at once when it is
+# not the default three.
 # Variables:
 #   $ruleset (String) - the ruleset's name ("DDI")
 #   $difficulty (String) - "easy", "normal" or "hard"
@@ -772,6 +792,7 @@ room-prompt-ruleset = Rules: { $rules }
 #   $attacks (String) - "off" when the match's attacks are turned off, else "on"
 #   $points (String) - "strong", "medium" or "mild"
 #   $charts (String) - "adaptive" when the charts adapt to each player (down at zero life, up after full life), else "as_picked"
+#   $at_once (String) - "one", "two" or "no_limit" when attacks are on and that is how many may be on their way to one player at once, else "three"
 room-rules-words = { $ruleset }{ $difficulty ->
     [easy] {" "}· Easy timing
     [hard] {" "}· Hard timing
@@ -789,6 +810,11 @@ room-rules-words = { $ruleset }{ $difficulty ->
 }{ $charts ->
     [adaptive] {" "}· Adaptive charts
    *[as_picked] {""}
+}{ $at_once ->
+    [one] {" "}· One attack at once
+    [two] {" "}· Two attacks at once
+    [no_limit] {" "}· No limit on attacks at once
+   *[three] {""}
 }
 
 # A note on a stage's results and under the song in the room: how the

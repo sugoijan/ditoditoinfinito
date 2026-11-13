@@ -952,7 +952,6 @@ fn round(k: usize, all: &[ParticipantId], full: &[ParticipantId], leader: Partic
 
 #[test]
 fn the_rules_are_named_and_v2_chains_without_limit() {
-    assert_eq!(ATTACKS, ATTACKS_V2, "what stages play");
     assert_eq!(ATTACKS_V2.id, "attacks-v2");
     assert_eq!(ATTACKS_V2.chain, CHAIN_UNLIMITED);
     assert_eq!(
@@ -1172,4 +1171,167 @@ fn settlement_v1_tells_last_standing_before_the_win() {
     let mut first: Vec<_> = r[0].iter().map(|f| f.participant).collect();
     first.sort();
     assert_eq!(first, vec![A, B, C, D]);
+}
+
+// `attacks-v3` (2026-11-13): a launch goes only to a recipient with a
+// safe section starting within the window of its checkpoint and under the
+// match's Attacks at once; the sender's policy goes on to its next choice.
+
+const F: ParticipantId = ParticipantId(6);
+const G: ParticipantId = ParticipantId(7);
+const H: ParticipantId = ParticipantId(8);
+
+#[test]
+fn the_rules_are_named_and_v3_has_a_window_and_a_limit() {
+    assert_eq!(ATTACKS, ATTACKS_V3, "what stages play");
+    assert_eq!(ATTACKS_V3.id, "attacks-v3");
+    assert_eq!(ATTACKS_V3.window_us, 15 * S);
+    assert_eq!(ATTACK_WINDOW_V0_US, 15 * S);
+    assert_eq!(ATTACKS_V3.at_once(), Some(AT_ONCE_DEFAULT));
+    assert_eq!(AT_ONCE_DEFAULT, 3);
+    assert_eq!(ATTACKS_V3.with_at_once(Some(1)).chain, 0);
+    assert_eq!(ATTACKS_V3.with_at_once(Some(2)).at_once(), Some(2));
+    assert_eq!(ATTACKS_V3.with_at_once(None).chain, CHAIN_UNLIMITED);
+    assert_eq!(ATTACKS_V3.with_at_once(None).id, "attacks-v3", "one name");
+    // Older rules never read it, and have no window.
+    for r in [ATTACKS_V0, ATTACKS_V1, ATTACKS_V2] {
+        assert_eq!(r.with_at_once(Some(1)), r);
+        assert_eq!(r.window_us, WINDOW_NONE);
+    }
+    assert_eq!(
+        (ATTACKS_V3.cap, ATTACKS_V3.cost, ATTACKS_V3.checkpoint_beats, ATTACKS_V3.chain_gap),
+        (ATTACKS_V2.cap, ATTACKS_V2.cost, ATTACKS_V2.checkpoint_beats, 0)
+    );
+    assert_eq!(attack_rules("attacks-v3"), Some(ATTACKS_V3));
+}
+
+/// Four attackers on Leader fill their bars at once: three are placed
+/// against the leader, one section after another (the limit), and the
+/// fourth goes to the next in standing, in its first section. With a
+/// limit of one, one; without a limit, all four (as `attacks-v2`).
+#[test]
+fn v3_a_recipient_at_the_limit_is_skipped_and_leader_goes_to_the_next() {
+    let all = [A, B, C, D, E];
+    let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Leader)).collect();
+    let mut b = v2_battle(ATTACKS_V3, &seats, 40);
+    let e = b.checkpoint(0, &round(0, &all, &[A, B, C, E], D));
+    let got = committed(&e);
+    assert_eq!(got.len(), 4);
+    assert_eq!(got.iter().filter(|(_, r)| *r == D).count(), 3, "{got:?}");
+    let spilled = got.iter().find(|(_, r)| *r != D).unwrap();
+    assert_eq!(spilled.0, E, "the last in this checkpoint's order");
+    assert!([A, B, C].contains(&spilled.1), "the next in standing (life, then score)");
+    let slots: Vec<usize> = b.attacks().iter().map(|a| a.slot).collect();
+    assert_eq!(slots, vec![3, 4, 5, 3]);
+    assert_eq!(b.incoming_all(D).count(), 3);
+
+    let mut one = v2_battle(ATTACKS_V3.with_at_once(Some(1)), &seats, 40);
+    let got = committed(&one.checkpoint(0, &round(0, &all, &[A, B, C, E], D)));
+    assert_eq!(got.iter().filter(|(_, r)| *r == D).count(), 1, "{got:?}");
+    assert_eq!(got.len(), 4, "the others spill over");
+    for p in all {
+        assert!(one.incoming_all(p).count() <= 1);
+    }
+
+    let mut none = v2_battle(ATTACKS_V3.with_at_once(None), &seats, 40);
+    let got = committed(&none.checkpoint(0, &round(0, &all, &[A, B, C, E], D)));
+    assert!(got.iter().all(|(_, r)| *r == D), "{got:?}");
+    assert_eq!(none.attacks().iter().map(|a| a.slot).collect::<Vec<_>>(), vec![3, 4, 5, 6]);
+}
+
+/// The window alone (no limit): from the checkpoint at 2 s a section may
+/// start until 17 s, and the leader's first is at 6 s (its lead), so six
+/// fit against it (6 s to 16 s); the seventh goes to the next in standing.
+#[test]
+fn v3_the_window_holds_six_sections_and_the_seventh_goes_elsewhere() {
+    let all = [A, B, C, D, E, F, G, H];
+    let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Leader)).collect();
+    let mut b = v2_battle(ATTACKS_V3.with_at_once(None), &seats, 40);
+    let full = [A, B, C, E, F, G, H];
+    let got = committed(&b.checkpoint(0, &round(0, &all, &full, D)));
+    assert_eq!(got.len(), 7);
+    let at_d: Vec<usize> = b.attacks().iter().filter(|a| a.recipient == D).map(|a| a.slot).collect();
+    assert_eq!(at_d, vec![3, 4, 5, 6, 7, 8], "the last starts at 16 s");
+    for a in b.attacks() {
+        assert!(b.schedule().slots[a.slot].start_us <= 2 * S + ATTACK_WINDOW_V0_US);
+    }
+    // Under `attacks-v2` the seventh would be the seventh against D.
+    let mut v2 = v2_battle(ATTACKS_V2, &seats, 40);
+    let got = committed(&v2.checkpoint(0, &round(0, &all, &full, D)));
+    assert!(got.iter().all(|(_, r)| *r == D));
+}
+
+/// Nobody has a section starting within the window: the bars wait, the
+/// power kept, the reason told ("no room within the window"); once the
+/// section comes within the window, they launch.
+#[test]
+fn v3_no_room_within_the_window_waits_and_keeps_the_power() {
+    let all = [A, B, C, D];
+    let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Leader)).collect();
+    let mut s = schedule_v1(30);
+    for (j, slot) in s.slots.iter_mut().enumerate() {
+        if j != 12 {
+            slot.section = None;
+        }
+    }
+    let mut b = StageBattle::new(
+        ATTACKS_V3,
+        POWER_CLASSES_V0,
+        "ddi",
+        checkpoints(30),
+        roster(&seats, 3 * S, 7),
+        s,
+    );
+    // The only section is at 24 s: past 2 s + 15 s.
+    let e = b.checkpoint(0, &round(0, &all, &[A], D));
+    assert!(committed(&e).is_empty());
+    assert!(e.contains(&AttackEvent::Blocked {
+        sender: A,
+        reason: BlockReason::NoRoomInWindow
+    }));
+    assert_eq!(b.waiting(A), Some(BlockReason::NoRoomInWindow));
+    assert_eq!(b.power(A), 100, "kept");
+    for k in 1..4 {
+        assert!(committed(&b.checkpoint(k, &round(k, &all, &[], D))).is_empty(), "{k}");
+    }
+    assert_eq!(b.stats(A).waited_no_room_in_window, 4);
+    assert_eq!(b.stats(A).waited(), 4);
+    // At 10 s the window reaches 25 s.
+    let e = b.checkpoint(4, &round(4, &all, &[], D));
+    assert_eq!(committed(&e), vec![(A, D)]);
+    assert_eq!(b.attacks()[0].slot, 12);
+    // Full again: D's only section is taken, so the next in standing.
+    let e = b.checkpoint(5, &round(5, &all, &[A], D));
+    let got = committed(&e);
+    assert_eq!(got.len(), 1);
+    assert_ne!(got[0].1, D);
+}
+
+/// Retaliate's last attacker at the limit: the launch goes by Spread's
+/// order instead (under `attacks-v2` it goes to its last attacker,
+/// whatever that one already has).
+#[test]
+fn v3_retaliate_goes_by_spread_where_its_attacker_has_no_room() {
+    let all = [A, B, C, D];
+    let seats = [
+        (A, Targeting::Retaliate),
+        (B, Targeting::Leader),
+        (C, Targeting::Leader),
+        (D, Targeting::Spread),
+    ];
+    // A leads; B and C fill their bars: B attacks A, and C (A at the
+    // limit) the next in standing, B. A fills its bar next: its last
+    // attacker B has one placed already, so Spread's order: not B.
+    let mut b = v2_battle(ATTACKS_V3.with_at_once(Some(1)), &seats, 40);
+    let e = b.checkpoint(0, &round(0, &all, &[B, C], A));
+    assert_eq!(committed(&e), vec![(B, A), (C, B)]);
+    let got = committed(&b.checkpoint(1, &round(1, &all, &[A], A)));
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert!(got[0].1 != B, "{got:?}");
+    // `attacks-v2`: both at A, and A answers its last attacker, C.
+    let mut b = v2_battle(ATTACKS_V2, &seats, 40);
+    let e = b.checkpoint(0, &round(0, &all, &[B, C], A));
+    assert_eq!(committed(&e), vec![(B, A), (C, A)]);
+    let got = committed(&b.checkpoint(1, &round(1, &all, &[A], A)));
+    assert_eq!(got, vec![(A, C)]);
 }

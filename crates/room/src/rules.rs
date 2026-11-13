@@ -113,6 +113,14 @@ pub struct RoomPolicy {
     /// protocol 2.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cpus: bool,
+    /// The authority honors the match's "Attacks at once"
+    /// ([`MatchRules::at_once`], `attacks-v3`): its ledger runs a stage
+    /// under the limit the stage's battle plan names. True for every room
+    /// this build makes; false (left out of the JSON) for an authority
+    /// that predates it, which would place attacks without the limit, so
+    /// the row is offered only where this says so. ADDITIVE to protocol 2.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub at_once: bool,
 }
 
 /// What a room that plays live tells its clients of how
@@ -261,6 +269,7 @@ impl Default for RoomPolicy {
             stage_rules: true,
             stage_points: true,
             cpus: true,
+            at_once: true,
         }
     }
 }
@@ -445,6 +454,15 @@ pub struct MatchRules {
         skip_serializing_if = "Charts::is_as_picked"
     )]
     pub charts: Charts,
+    /// How many attacks may stand placed (not yet passed) against one
+    /// player at once (Three by default; `attacks-v3`, the maintainer's
+    /// decision of 2026-11-13): a player at the limit is not a valid
+    /// target, the sender's policy going on to its next choice. Read only
+    /// where the Attacks rule is On. ADDITIVE, as `difficulty`: left out
+    /// while Three, read as Three where missing. Offered where
+    /// [`RoomPolicy::at_once`] says so.
+    #[serde(default, skip_serializing_if = "AttacksAtOnce::is_default")]
+    pub at_once: AttacksAtOnce,
 }
 
 /// The rules each stage is played under on its own (2026-11-13): those of
@@ -470,6 +488,9 @@ pub struct PlayRules {
         skip_serializing_if = "Charts::is_as_picked"
     )]
     pub charts: Charts,
+    /// [`MatchRules::at_once`].
+    #[serde(default, skip_serializing_if = "AttacksAtOnce::is_default")]
+    pub at_once: AttacksAtOnce,
     /// The award curve's bias for these stages ([`MatchRules::points`]),
     /// `None` for the match's own: a change that names none keeps the
     /// match's. Kept `None` wherever it equals the match's
@@ -501,7 +522,57 @@ impl PlayRules {
         if self.points.is_some() && !(policy.stage_points && policy.points_bias) {
             return Err(RulesProblem::PointsNotHonored);
         }
+        if !self.at_once.is_default() && !policy.at_once {
+            return Err(RulesProblem::AtOnceNotHonored);
+        }
         Ok(())
+    }
+}
+
+/// The match rule Attacks at once ([`MatchRules::at_once`]): how many
+/// attacks may stand placed against one player at a time.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum AttacksAtOnce {
+    One,
+    Two,
+    #[default]
+    Three,
+    NoLimit,
+}
+
+impl AttacksAtOnce {
+    pub const ALL: [AttacksAtOnce; 4] = [Self::One, Self::Two, Self::Three, Self::NoLimit];
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Its place in [`AttacksAtOnce::ALL`].
+    pub fn index(self) -> usize {
+        self as usize
+    }
+
+    /// The limit, `None` for No limit (`crate::attacks::AttackRules::with_at_once`).
+    pub fn limit(self) -> Option<u32> {
+        match self {
+            Self::One => Some(1),
+            Self::Two => Some(2),
+            Self::Three => Some(3),
+            Self::NoLimit => None,
+        }
+    }
+
+    /// The setting of a limit (`None`: No limit; past three, No limit).
+    pub fn of_limit(limit: Option<u32>) -> AttacksAtOnce {
+        match limit {
+            Some(0 | 1) => Self::One,
+            Some(2) => Self::Two,
+            Some(3) => Self::Three,
+            _ => Self::NoLimit,
+        }
     }
 }
 
@@ -646,6 +717,7 @@ impl MatchRules {
             boos: self.boos,
             battle: self.battle.clone(),
             charts: self.charts,
+            at_once: self.at_once,
             points: None,
         }
     }
@@ -658,6 +730,7 @@ impl MatchRules {
             boos: play.boos,
             battle: play.battle.clone(),
             charts: play.charts,
+            at_once: play.at_once,
             points: play.points.unwrap_or(self.points),
             ..self.clone()
         }
@@ -717,6 +790,7 @@ impl MatchRules {
             boos: false,
             points: PointsBias::Strong,
             charts: Charts::AsPicked,
+            at_once: AttacksAtOnce::Three,
         }
     }
 
@@ -875,6 +949,9 @@ pub enum RulesProblem {
     /// A stage's rules name a points bias where the room's authority does
     /// not honor one from a later stage ([`RoomPolicy::stage_points`]).
     PointsNotHonored,
+    /// Attacks at once other than three where the room's authority does
+    /// not honor the rule ([`RoomPolicy::at_once`]).
+    AtOnceNotHonored,
     /// CPUs in a room whose authority cannot seat them: an online room
     /// that does not play live, or whose authority predates CPUs online
     /// ([`RoomPolicy::cpus`]).
@@ -926,6 +1003,42 @@ mod tests {
         // A refusal from an authority before the rename reads.
         let r: RulesProblem = serde_json::from_value("step_down_not_honored".into()).unwrap();
         assert_eq!(r, RulesProblem::AdaptiveNotHonored);
+    }
+
+    #[test]
+    fn attacks_at_once_is_an_additive_match_rule_three_by_default() {
+        let rules = MatchRules::practice(spec());
+        assert_eq!(rules.at_once, AttacksAtOnce::Three);
+        assert_eq!(rules.at_once.limit(), Some(3));
+        let json = serde_json::to_value(&rules).unwrap();
+        assert!(json.get("at_once").is_none(), "left out at its default");
+        let mut one = rules.clone();
+        one.at_once = AttacksAtOnce::One;
+        let json = serde_json::to_value(&one).unwrap();
+        assert_eq!(json["at_once"], "one");
+        assert_eq!(serde_json::from_value::<MatchRules>(json).unwrap(), one);
+        let mut none = rules.clone();
+        none.at_once = AttacksAtOnce::NoLimit;
+        assert_eq!(serde_json::to_value(&none).unwrap()["at_once"], "no_limit");
+        assert_eq!(none.at_once.limit(), None);
+        // Per stage: a later stage's rules carry it, and give it back.
+        let play = one.play_rules();
+        assert_eq!(play.at_once, AttacksAtOnce::One);
+        assert_eq!(rules.with_play(&play).at_once, AttacksAtOnce::One);
+        for a in AttacksAtOnce::ALL {
+            assert_eq!(AttacksAtOnce::of_limit(a.limit()), a);
+            assert_eq!(AttacksAtOnce::ALL[a.index()], a);
+        }
+        // This build's authority honors it; one that predates it does
+        // not, and a limit other than three is refused there.
+        let policy = serde_json::to_value(RoomPolicy::default()).unwrap();
+        assert_eq!(policy["at_once"], true);
+        let mut old = policy.clone();
+        old.as_object_mut().unwrap().remove("at_once");
+        let old: RoomPolicy = serde_json::from_value(old).unwrap();
+        assert_eq!(play.check(&old), Err(RulesProblem::AtOnceNotHonored));
+        assert_eq!(rules.play_rules().check(&old), Ok(()));
+        assert_eq!(play.check(&RoomPolicy::default()), Ok(()));
     }
 
     #[test]

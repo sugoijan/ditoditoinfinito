@@ -65,30 +65,38 @@ fn placement() -> ddi_engine::battle::Placement {
 }
 
 /// The rules a stage's attacks are played under: the room's
-/// ([`ATTACKS`], `attacks-v2`). The attack-rate study (tests only) may
-/// ask for the older ones to compare with (`DDI_ATTACK_RULES=v0` or
-/// `v1`), or for `attacks-v2` with a limit (`v2-gap1`: a safe section
-/// left empty between chained attacks; `v2-cap2`: at most three placed
-/// against one recipient at once, the one passing and two behind it;
-/// `v2-gap1-cap2`: both;
-/// `v2-cool2`: a sender's cooldown of two checkpoints).
+/// ([`ATTACKS`], `attacks-v3`; a match's Attacks at once applied by
+/// [`AttackRunner::new`]). The attack-rate studies (tests only) may ask
+/// for others to compare with: `DDI_ATTACK_RULES=v0`, `v1` or `v2`, or
+/// `attacks-v2` with a limit (`v2-gap1`: a safe section left empty
+/// between chained attacks; `v2-cap2`: at most three placed against one
+/// recipient at once, the one passing and two behind it; `v2-gap1-cap2`:
+/// both; `v2-cool2`: a sender's cooldown of two checkpoints); or a study
+/// sets them itself ([`RULES_OVERRIDE`]).
 pub fn rules() -> ddi_room::attacks::AttackRules {
+    #[cfg(test)]
+    use ddi_room::attacks::ATTACKS_V2;
+    #[cfg(test)]
+    if let Some(r) = RULES_OVERRIDE.with(std::cell::Cell::get) {
+        return r;
+    }
     #[cfg(test)]
     match std::env::var("DDI_ATTACK_RULES").as_deref() {
         Ok("v0") => return ddi_room::attacks::ATTACKS_V0,
         Ok("v1") => return ddi_room::attacks::ATTACKS_V1,
+        Ok("v2") => return ATTACKS_V2,
         Ok("v2-gap1") => {
             return ddi_room::attacks::AttackRules {
                 id: "attacks-v2-gap1",
                 chain_gap: 1,
-                ..ATTACKS
+                ..ATTACKS_V2
             };
         }
         Ok("v2-cap2") => {
             return ddi_room::attacks::AttackRules {
                 id: "attacks-v2-cap2",
                 chain: 2,
-                ..ATTACKS
+                ..ATTACKS_V2
             };
         }
         Ok("v2-gap1-cap2") => {
@@ -96,19 +104,27 @@ pub fn rules() -> ddi_room::attacks::AttackRules {
                 id: "attacks-v2-gap1-cap2",
                 chain: 2,
                 chain_gap: 1,
-                ..ATTACKS
+                ..ATTACKS_V2
             };
         }
         Ok("v2-cool2") => {
             return ddi_room::attacks::AttackRules {
                 id: "attacks-v2-cool2",
                 cooldown_checkpoints: 2,
-                ..ATTACKS
+                ..ATTACKS_V2
             };
         }
         _ => {}
     }
     ATTACKS
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The rules a study runs this thread's stages under, in place of
+    /// [`rules`]'s (tests only).
+    pub(crate) static RULES_OVERRIDE: std::cell::Cell<Option<ddi_room::attacks::AttackRules>> =
+        const { std::cell::Cell::new(None) };
 }
 
 /// The sections chart `chart` of `song` has room for shocks in under
@@ -138,20 +154,23 @@ impl AttackRunner {
     /// The ledger of chart `chart` of `song` (as played) under the match's
     /// `ruleset` (its judge `judge`), for `roster`: its checkpoints every
     /// [`ATTACKS`]'s beats from the fourth on, to four beats past the
-    /// chart's last note; its sections drawn from the roster's seed.
+    /// chart's last note; its sections drawn from the roster's seed; at
+    /// most `at_once` attacks placed against one competitor at a time
+    /// (the match's Attacks at once, `None` without a limit).
     pub fn new(
         song: &Song,
         chart: usize,
         ruleset: &str,
         judge: &JudgeTable,
         roster: StageRoster,
+        at_once: Option<u32>,
     ) -> AttackRunner {
         let checkpoints = ddi_ui::state::battle_plan::checkpoints(song, chart, &rules());
         let participants: Vec<ParticipantId> = roster.seats.iter().map(|s| s.participant).collect();
         let schedule = schedule(song, chart, judge, roster.seed);
         AttackRunner {
             ledger: StageBattle::new(
-                rules(),
+                rules().with_at_once(at_once),
                 POWER_CLASSES_V0,
                 ruleset,
                 checkpoints,

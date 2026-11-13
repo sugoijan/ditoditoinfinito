@@ -1417,7 +1417,7 @@ fn attacks_debug(
             "power": a.power(p),
             "launched": st.launched,
             "received": st.received,
-            "waited": [st.waited_no_eligible, st.waited_no_safe_section],
+            "waited": [st.waited_no_eligible, st.waited_no_safe_section, st.waited_no_room_in_window],
             "incoming": ledger.incoming(p).map(|x| x.sender.0),
             "outgoing": ledger.outgoing(p).map(|x| x.recipient.0).collect::<Vec<_>>(),
         })

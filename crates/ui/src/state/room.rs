@@ -556,6 +556,9 @@ pub struct StageRules {
     /// The charts it is played on: the picked one, or Adaptive, down and
     /// up the song's ladder (`ddi_engine::ladder`, `adaptive-v0`).
     pub charts: ddi_room::Charts,
+    /// Attacks at once: the most attacks that may stand placed against one
+    /// competitor (`attacks-v3`; read only where the stage has attacks).
+    pub at_once: ddi_room::AttacksAtOnce,
     /// The stage is played under per-stage rules changed during the match
     /// (`ddi_room::Match::changes`): other than those the match began
     /// with (Points included: the Standings mark it).
@@ -575,6 +578,7 @@ impl StageRules {
             boos: rules.boos,
             points: rules.points,
             charts: rules.charts,
+            at_once: rules.at_once,
             changed: false,
             play_changed: false,
         }
@@ -611,6 +615,12 @@ impl StageRules {
             )
             .to_lowercase()
         })
+    }
+
+    /// The attack rules a stage under these rules is played with: the
+    /// room's (`ddi_room::attacks::ATTACKS`) with its Attacks at once.
+    pub fn attack_rules(&self) -> ddi_room::attacks::AttackRules {
+        ddi_room::attacks::ATTACKS.with_at_once(self.at_once.limit())
     }
 
     /// Adaptive charts: down and up the song's ladder
@@ -3356,6 +3366,14 @@ impl RoomClient {
     pub fn adaptive_offered(&self) -> bool {
         self.state().policy.adaptive
             && (!self.is_online() || (ONLINE_ADAPTIVE && self.plays_live()))
+    }
+
+    /// The match's Attacks at once can be set here: where attacks are
+    /// offered (`screens::room::attacks_offered`) and the room's authority
+    /// honors the limit (`RoomPolicy::at_once`; one that predates it
+    /// would place attacks without it).
+    pub fn at_once_offered(&self) -> bool {
+        self.state().policy.at_once && self.attacks_offered()
     }
 
     /// Whether the song the picker rests on (or picked last) has another

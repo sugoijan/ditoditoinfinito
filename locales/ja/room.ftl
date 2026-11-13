@@ -113,6 +113,11 @@ room-rules-difficulty = タイミング難易度
 room-rules-boos = Boo
 room-rules-attacks = 攻撃
 
+room-rules-at-once = 同時攻撃数
+room-rules-at-once-count = { $count }
+room-rules-at-once-no-limit = 制限なし
+room-rules-at-once-about = 一人のプレイヤーに同時に向かっていける攻撃の数です。攻撃どうしが重なることはありません。
+
 room-rules-attacks-online = オフ · オンラインルームではまだ使えません
 
 room-rules-charts = 譜面
@@ -209,6 +214,12 @@ room-rules-change-boos = { $boos ->
 room-rules-change-attacks = { $attacks ->
     [on] 攻撃あり
    *[off] 攻撃なし
+}
+room-rules-change-at-once = { $at_once ->
+    [one] 同時攻撃 1
+    [two] 同時攻撃 2
+    [no_limit] 同時攻撃 制限なし
+   *[three] 同時攻撃 3
 }
 room-rules-change-charts = { $charts ->
     [adaptive] 譜面 適応
@@ -314,6 +325,11 @@ room-rules-words = { $ruleset }{ $difficulty ->
 }{ $charts ->
     [adaptive] {" "}· 譜面 適応
    *[as_picked] {""}
+}{ $at_once ->
+    [one] {" "}· 同時攻撃 1
+    [two] {" "}· 同時攻撃 2
+    [no_limit] {" "}· 同時攻撃 制限なし
+   *[three] {""}
 }
 
 room-mark-survived = ステージ { $number }: { $field }人中 { $place }位 · +{ $points }点

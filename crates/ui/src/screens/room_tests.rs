@@ -759,6 +759,86 @@ fn the_charts_row_chooses_adaptive_where_the_room_offers_it() {
     assert_eq!(view(&env).draft_charts, None);
 }
 
+/// Attacks at once (`attacks-v3`): under Attacks while they are On,
+/// three by default with its sentence; 1, 2, 3, No limit; applied, the
+/// summary names it where it is not three; Reset gives three; gone with
+/// Attacks Off or where the authority does not honor it.
+#[test]
+fn the_attacks_at_once_row_shows_under_attacks_and_three_is_the_default() {
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    press(&mut h, "Room.Rules");
+    assert_eq!(said(&h, "Rule.at_once"), "Attacks at once");
+    assert_eq!(said(&h, "Rule.at_once.Value"), "3");
+    assert_eq!(view(&env).draft_at_once.as_deref(), Some("three"));
+    assert!(
+        h.texts().iter().any(|t| t.starts_with("How many attacks can be on their way")),
+        "{:?}",
+        h.texts()
+    );
+    press(&mut h, "Inc.at_once");
+    assert_eq!(said(&h, "Rule.at_once.Value"), "No limit");
+    press(&mut h, "Dec.at_once");
+    press(&mut h, "Dec.at_once");
+    press(&mut h, "Dec.at_once");
+    assert_eq!(said(&h, "Rule.at_once.Value"), "1");
+    assert_eq!(view(&env).draft_at_once.as_deref(), Some("one"));
+    // Attacks Off: the row goes.
+    press(&mut h, "Dec.attacks");
+    assert!(!there(&h, "Inc.at_once"));
+    assert_eq!(view(&env).draft_at_once, None);
+    press(&mut h, "Inc.attacks");
+    assert_eq!(said(&h, "Rule.at_once.Value"), "1");
+    press(&mut h, "Apply");
+    assert_eq!(room.borrow().rules().at_once, ddi_room::AttacksAtOnce::One);
+    let words = |r: &ddi_room::MatchRules, attacks| {
+        String::from(super::room::rules_words(
+            &crate::state::room::StageRules::of(r),
+            attacks,
+        ))
+    };
+    assert_eq!(words(room.borrow().rules(), Some(true)), "DDI · One attack at once");
+    assert_eq!(words(room.borrow().rules(), Some(false)), "DDI · No attacks");
+    assert_eq!(words(&ddi_room::MatchRules::hosted(), Some(true)), "DDI");
+    // Its stage rules' plan names the limit.
+    assert_eq!(
+        crate::state::room::StageRules::of(room.borrow().rules()).attack_rules().at_once(),
+        Some(1)
+    );
+    // Reset's default is three.
+    let mut settings = crate::state::settings::Settings::load();
+    settings.multiplayer_rules_first = true;
+    settings.save();
+    room.borrow_mut().set_rules_seen(false);
+    h.run(0.5);
+    press(&mut h, "Reset");
+    assert_eq!(view(&env).draft_at_once.as_deref(), Some("three"));
+    press(&mut h, "Ok");
+    assert_eq!(room.borrow().rules().at_once, ddi_room::AttacksAtOnce::Three);
+    settings.multiplayer_rules_first = false;
+    settings.save();
+    // An authority that predates it: no row.
+    let older = ddi_room::RoomPolicy {
+        at_once: false,
+        ..ddi_room::RoomPolicy::default()
+    };
+    let room = std::rc::Rc::new(std::cell::RefCell::new(RoomClient::practice_with_policy(
+        0, 1, older,
+    )));
+    room.borrow_mut().set_rules_seen(true);
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    press(&mut h, "Room.Rules");
+    assert!(!there(&h, "Inc.at_once"));
+    assert!(!there(&h, "Rule.at_once"));
+}
+
 /// An authority that predates the Points choice: the row is fixed, as it
 /// was, and nothing is offered it cannot honor.
 #[test]

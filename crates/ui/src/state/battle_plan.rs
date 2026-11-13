@@ -111,7 +111,8 @@ pub fn schedule_with(
 /// Stage battle plan of chart `chart` of `song` under the match's `rules`
 /// (DDI, its difficulty and Boos), from the stage's seed (`seed_for`):
 /// what the picker's device offers and every other compares
-/// (`attacks-v1`, the engine's placement, `power-classes-v0`).
+/// (`attacks-v3` with the stage's Attacks at once, the engine's
+/// placement, `power-classes-v0`).
 ///
 /// Where the match's zero life steps down (`StageRules::steps_down`) the
 /// sections are placed over the stage's chart and its ladder at once
@@ -152,6 +153,7 @@ pub fn plan(song: &Song, chart: usize, rules: &StageRules, seed: u64) -> BattleP
             .collect(),
     )
     .with_stage_rules(rules.changed_tag())
+    .with_at_once(rules.at_once.limit())
 }
 
 /// The first and last note of chart `chart` of `song`, song seconds.

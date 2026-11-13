@@ -74,7 +74,7 @@ pub use protocol::{
     Want, check_model, check_model_against,
 };
 pub use rules::{
-    Access, Admission, Charts, CapExceeded, ContentSource, CpuMode, CpuRules, LivePolicy,
+    Access, Admission, AttacksAtOnce, Charts, CapExceeded, ContentSource, CpuMode, CpuRules, LivePolicy,
     MatchDifficulty, MatchRules, OutcomePolicy, PlayRules, RankBy, ReadinessPolicy, RoomPolicy,
     RulesProblem,
 };

@@ -18,7 +18,12 @@
 //! the maintainer's decision of 2026-11-13) an attack is over for the
 //! ledger once it is committed: attacks against one recipient chain
 //! without limit, each in the first safe section from where the last one
-//! placed against them clears; one against someone who went
+//! placed against them clears; under `attacks-v3` (what stages play, the
+//! maintainer's decision on the pile-up study) a launch may go only to a
+//! recipient with a safe section starting within a window of song time
+//! ([`ATTACK_WINDOW_V0_US`]) and under the match's Attacks at once
+//! ([`AttackRules::with_at_once`]), the sender's policy going on to its
+//! next choice where its first has no room; one against someone who went
 //! out expires. Each checkpoint runs in a fixed order
 //! ([`StageBattle::checkpoint`]), so every authority given the same
 //! reports comes to the same record ([`StageBattle::record`]). The stage
@@ -27,7 +32,8 @@
 //! "last standing" ([`Settlement::last_standing`]).
 //!
 //! PROVISIONAL: every number here is a working value
-//! ([`ATTACKS_V0`], [`ATTACKS_V1`], [`ATTACKS_V2`], [`POWER_CLASSES_V0`],
+//! ([`ATTACKS_V0`], [`ATTACKS_V1`], [`ATTACKS_V2`], [`ATTACKS_V3`],
+//! [`ATTACK_WINDOW_V0_US`], [`POWER_CLASSES_V0`],
 //! [`LEAD_V0`], [`SETTLEMENT_V0`], [`SETTLEMENT_V1`]), named and
 //! versioned.
 
@@ -75,11 +81,57 @@ pub struct AttackRules {
     /// rule"); no Rules row offers it yet. A full bar waiting on it is no
     /// [`BlockReason`]: it is simply not launched yet.
     pub cooldown_checkpoints: u32,
+    /// How far from a launch's checkpoint (song µs) its section may
+    /// start: a recipient with no safe section starting within it is not
+    /// a valid target for that launch (`attacks-v3`, [`ATTACK_WINDOW_V0_US`]).
+    /// [`WINDOW_NONE`] before it.
+    pub window_us: i64,
     /// The rules' generation, for what changed in kind rather than in
     /// number: from 2, Spread picks whoever has the fewest attacks still
     /// to come (then the fewest sent this stage), and a chained attack's
-    /// section may start the very microsecond the one before it clears.
+    /// section may start the very microsecond the one before it clears;
+    /// from 3, a sender's policy orders every valid recipient and the
+    /// launch goes to the first with room in the window
+    /// ([`AttackRules::window_us`]) and under the match's Attacks at once
+    /// ([`AttackRules::with_at_once`]).
     pub version: u8,
+}
+
+/// [`AttackRules::window_us`] without a window (before `attacks-v3`).
+pub const WINDOW_NONE: i64 = i64::MAX;
+
+/// `attack-window-v0` (PROVISIONAL; the maintainer, 2026-11-13: "if an
+/// attack cannot be fit into the next, say, 15 seconds, then the player is
+/// not a valid target"): an attack's section starts at most 15 s of song
+/// time after the checkpoint it is launched at. Not a match rule: one
+/// balance value, chosen by measurement (`docs/plans/multiplayer-prototype-progress.md`,
+/// "Attacks, version 3").
+pub const ATTACK_WINDOW_V0_US: i64 = 15_000_000;
+
+/// The match rule Attacks at once's default (`crate::AttacksAtOnce`):
+/// three attacks may stand placed against one player.
+pub const AT_ONCE_DEFAULT: u32 = 3;
+
+impl AttackRules {
+    /// These rules with the match's Attacks at once: at most `at_once`
+    /// attacks placed and not passed against one recipient (`None`: no
+    /// limit). Only `attacks-v3` and later read it; older rules are as
+    /// they were.
+    pub fn with_at_once(self, at_once: Option<u32>) -> AttackRules {
+        if self.version < 3 {
+            return self;
+        }
+        AttackRules {
+            chain: at_once.map_or(CHAIN_UNLIMITED, |n| n.max(1) - 1),
+            ..self
+        }
+    }
+
+    /// The most attacks that may stand placed against one recipient,
+    /// `None` without a limit.
+    pub fn at_once(&self) -> Option<u32> {
+        (self.chain != CHAIN_UNLIMITED).then(|| self.chain + 1)
+    }
 }
 
 /// [`AttackRules::chain`] without a limit.
@@ -101,6 +153,7 @@ pub const ATTACKS_V0: AttackRules = AttackRules {
     chain: 0,
     chain_gap: 0,
     cooldown_checkpoints: 0,
+    window_us: WINDOW_NONE,
     version: 0,
 };
 
@@ -122,6 +175,7 @@ pub const ATTACKS_V1: AttackRules = AttackRules {
     chain: 1,
     chain_gap: 0,
     cooldown_checkpoints: 0,
+    window_us: WINDOW_NONE,
     version: 1,
 };
 
@@ -149,21 +203,52 @@ pub const ATTACKS_V2: AttackRules = AttackRules {
     chain: CHAIN_UNLIMITED,
     chain_gap: 0,
     cooldown_checkpoints: 0,
+    window_us: WINDOW_NONE,
     version: 2,
+};
+
+/// `attacks-v3` (PROVISIONAL; the maintainer, 2026-11-13, on the pile-up
+/// study: "put a cap on how far in the future they can be placed to limit
+/// the chaining … if an attack cannot be fit into the next, say, 15
+/// seconds, then the player is not a valid target. In addition to that cap
+/// we can have a match rule for how many attacks can be added within that
+/// window"): `attacks-v2`'s bar, cost, checkpoints and chaining (each
+/// attack against one recipient in the first safe section from where the
+/// last one placed against them clears, never the same region), with
+/// two limits on whom a launch may go to: its section must start within
+/// [`ATTACK_WINDOW_V0_US`] of the launch's checkpoint, and at most the
+/// match's Attacks at once may stand placed against one recipient (three
+/// by default: `chain` 2; [`AttackRules::with_at_once`]). A recipient
+/// outside either is not a valid target: the sender's policy goes on to
+/// its next choice; with none valid the launch waits, the power kept.
+pub const ATTACKS_V3: AttackRules = AttackRules {
+    id: "attacks-v3",
+    cap: 100,
+    cost: 100,
+    checkpoint_beats: 4,
+    search_beats: u32::MAX,
+    recover_judgments: 0,
+    recover_beats: 0,
+    chain: AT_ONCE_DEFAULT - 1,
+    chain_gap: 0,
+    cooldown_checkpoints: 0,
+    window_us: ATTACK_WINDOW_V0_US,
+    version: 3,
 };
 
 /// Every version of the rules, by name: a stage is run under the one its
 /// plan names (an online stage begun under an older one finishes under
 /// it).
-pub const ALL_ATTACKS: [AttackRules; 3] = [ATTACKS_V0, ATTACKS_V1, ATTACKS_V2];
+pub const ALL_ATTACKS: [AttackRules; 4] = [ATTACKS_V0, ATTACKS_V1, ATTACKS_V2, ATTACKS_V3];
 
 /// The rules named `id`.
 pub fn attack_rules(id: &str) -> Option<AttackRules> {
     ALL_ATTACKS.into_iter().find(|r| r.id == id)
 }
 
-/// The rules attacks are played under.
-pub const ATTACKS: AttackRules = ATTACKS_V2;
+/// The rules attacks are played under (a match's Attacks at once applied
+/// with [`AttackRules::with_at_once`]).
+pub const ATTACKS: AttackRules = ATTACKS_V3;
 
 /// How soon after its checkpoint an attack's section may start for a
 /// target (D5): the target's reading horizon (how long its notes are
@@ -254,12 +339,17 @@ impl PowerClasses {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Targeting {
-    /// Whoever has been sent the fewest attacks this stage (seeded ties).
+    /// Whoever has been sent the fewest attacks this stage (from
+    /// `attacks-v2` the fewest still to come first; seeded ties). From
+    /// `attacks-v3` the next in that order where the first has no room.
     #[default]
     Spread,
-    /// Whoever attacked them last, while they can be; else Spread.
+    /// Whoever attacked them last, while they can be; else Spread (from
+    /// `attacks-v3`: Spread's order where the last attacker has no room).
     Retaliate,
-    /// Whoever has the most life (ties by score, then seeded).
+    /// Whoever has the most life (ties by score, then seeded); from
+    /// `attacks-v3` the next in that standing (the second, the third…)
+    /// where the leader has no room.
     Leader,
 }
 
@@ -353,10 +443,15 @@ pub enum BlockReason {
     /// No one can be attacked: everyone else out, or each already under
     /// as many attacks as the rules allow (reserved, active or
     /// recovering; under `attacks-v1` one passing and one waiting; under
-    /// `attacks-v2` only everyone else out).
+    /// `attacks-v2` only everyone else out; under `attacks-v3` as many
+    /// placed as the match's Attacks at once allows).
     NoEligible,
     /// Its target's chart has no safe section in reach.
     NoSafeSection,
+    /// No one it could attack has a safe section starting within the
+    /// window (`attacks-v3`, [`AttackRules::window_us`]), though some have
+    /// one later.
+    NoRoomInWindow,
 }
 
 /// An attack's number in its stage, from 1.
@@ -448,7 +543,7 @@ struct Seat {
     last_sender: Option<ParticipantId>,
     blocked: Option<BlockReason>,
     /// Checkpoints its full bar waited, by reason.
-    waits: [u32; 2],
+    waits: [u32; 3],
     launched: u32,
     /// The checkpoint of its last launch ([`AttackRules::cooldown_checkpoints`]).
     last_launch: Option<usize>,
@@ -467,7 +562,7 @@ impl Seat {
             admitted: 0,
             last_sender: None,
             blocked: None,
-            waits: [0; 2],
+            waits: [0; 3],
             launched: 0,
             last_launch: None,
         }
@@ -484,6 +579,16 @@ pub struct SeatStats {
     /// safe section.
     pub waited_no_eligible: u32,
     pub waited_no_safe_section: u32,
+    /// … and for room within the window (`attacks-v3`).
+    #[serde(default)]
+    pub waited_no_room_in_window: u32,
+}
+
+impl SeatStats {
+    /// Checkpoints its full bar waited, for any reason.
+    pub fn waited(&self) -> u32 {
+        self.waited_no_eligible + self.waited_no_safe_section + self.waited_no_room_in_window
+    }
 }
 
 /// The ledger after a checkpoint: what [`StageBattle::record`] keeps, so
@@ -590,7 +695,9 @@ impl StageBattle {
     /// among those who can be attacked (judged on the state before any of
     /// this checkpoint's launches; Retaliate's memory changes after
     /// them), in (6) the first safe section from the target's lead within
-    /// [`AttackRules::search_beats`]; else it waits. What it changed. A
+    /// [`AttackRules::search_beats`] (from `attacks-v3` starting within
+    /// [`AttackRules::window_us`], the policy's next choice taken where
+    /// its first has none); else it waits. What it changed. A
     /// report of anyone not in the stage, or of a checkpoint not the
     /// next, changes nothing.
     pub fn checkpoint(&mut self, k: usize, reports: &[Report]) -> Vec<AttackEvent> {
@@ -717,6 +824,7 @@ impl StageBattle {
             }
         }
         let v2 = self.rules.version >= 2;
+        let v3 = self.rules.version >= 3;
         // The state the policies judge by: before this batch.
         let before = self.seats.clone();
         let tie = |sender: ParticipantId, p: ParticipantId| {
@@ -738,7 +846,9 @@ impl StageBattle {
             {
                 continue;
             }
-            let eligible: Vec<ParticipantId> = order
+            // Every valid recipient (still in, under the limit), in the
+            // order the policy prefers them.
+            let mut choices: Vec<ParticipantId> = order
                 .iter()
                 .copied()
                 .filter(|p| {
@@ -747,43 +857,56 @@ impl StageBattle {
                         && taken.get(p).is_none_or(|t| t.0 < room)
                 })
                 .collect();
-            let spread = |cands: &[ParticipantId]| {
-                cands.iter().copied().min_by_key(|p| {
-                    (
-                        if v2 { ahead.get(p).copied().unwrap_or(0) } else { 0 },
-                        before[p].admitted,
-                        tie(sender, *p),
-                    )
-                })
+            let spread_key = |p: &ParticipantId| {
+                (
+                    if v2 { ahead.get(p).copied().unwrap_or(0) } else { 0 },
+                    before[p].admitted,
+                    tie(sender, *p),
+                )
             };
-            let target = match seat.targeting {
-                Targeting::Spread => spread(&eligible),
-                Targeting::Retaliate => seat
-                    .last_sender
-                    .filter(|p| eligible.contains(p))
-                    .or_else(|| spread(&eligible)),
-                Targeting::Leader => eligible.iter().copied().min_by_key(|p| {
+            match seat.targeting {
+                Targeting::Spread => choices.sort_by_key(spread_key),
+                Targeting::Retaliate => {
+                    choices.sort_by_key(spread_key);
+                    if let Some(i) = seat
+                        .last_sender
+                        .and_then(|l| choices.iter().position(|p| *p == l))
+                    {
+                        let l = choices.remove(i);
+                        choices.insert(0, l);
+                    }
+                }
+                Targeting::Leader => choices.sort_by_key(|p| {
                     (
                         std::cmp::Reverse(before[p].life_ppm),
                         std::cmp::Reverse(before[p].earned),
                         tie(sender, *p),
                     )
                 }),
-            };
-            let outcome = match target {
-                None => Err(BlockReason::NoEligible),
-                // A chained attack's section starts after the one
-                // before it has cleared.
-                Some(t) => self
-                    .section_for(
-                        at,
-                        earliest_next,
-                        before[&t].lead_us,
-                        taken.get(&t).map(|t| t.1),
-                    )
-                    .map(|slot| (t, slot))
-                    .ok_or(BlockReason::NoSafeSection),
-            };
+            }
+            // Before `attacks-v3` the first choice alone; from it, the
+            // first with room.
+            if !v3 {
+                choices.truncate(1);
+            }
+            let mut outcome = Err(if choices.is_empty() {
+                BlockReason::NoEligible
+            } else {
+                BlockReason::NoSafeSection
+            });
+            for t in choices {
+                // A chained attack's section starts after the one before
+                // it against the same recipient has cleared.
+                let after = taken.get(&t).map(|t| t.1);
+                let lead = before[&t].lead_us;
+                if let Some(slot) = self.section_for(at, earliest_next, lead, after, true) {
+                    outcome = Ok((t, slot));
+                    break;
+                }
+                if v3 && self.section_for(at, earliest_next, lead, after, false).is_some() {
+                    outcome = Err(BlockReason::NoRoomInWindow);
+                }
+            }
             let seat = self.seats.get_mut(&sender).expect("seated");
             match outcome {
                 Err(reason) => {
@@ -846,13 +969,15 @@ impl StageBattle {
     /// `attacks-v1` strictly after it, from `attacks-v2` at or after it,
     /// with [`AttackRules::chain_gap`] safe sections skipped), within
     /// [`AttackRules::search_beats`] past that start (`attacks-v2`: to the
-    /// song's end).
+    /// song's end), and (`windowed`) starting within
+    /// [`AttackRules::window_us`] of `at`.
     fn section_for(
         &self,
         at: i64,
         next: Option<i64>,
         lead_us: i64,
         after: Option<i64>,
+        windowed: bool,
     ) -> Option<usize> {
         let slots = &self.schedule.slots;
         let past = if self.rules.version >= 2 { 0 } else { 1 };
@@ -872,7 +997,11 @@ impl StageBattle {
             from = from.max(g + 1);
         }
         let reach = (self.rules.search_beats / self.rules.checkpoint_beats.max(1)) as usize;
-        let end = from.saturating_add(reach).saturating_add(1).min(slots.len());
+        let mut end = from.saturating_add(reach).saturating_add(1).min(slots.len());
+        if windowed && self.rules.window_us != WINDOW_NONE {
+            let latest = at.saturating_add(self.rules.window_us);
+            end = end.min(slots.partition_point(|s| s.start_us <= latest));
+        }
         (from..end).find(|&j| slots[j].section.is_some())
     }
 
@@ -972,6 +1101,7 @@ impl StageBattle {
             received: s.admitted,
             waited_no_eligible: s.waits[BlockReason::NoEligible as usize],
             waited_no_safe_section: s.waits[BlockReason::NoSafeSection as usize],
+            waited_no_room_in_window: s.waits[BlockReason::NoRoomInWindow as usize],
         }
     }
 

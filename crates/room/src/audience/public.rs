@@ -88,6 +88,9 @@ pub struct PublicRules {
         skip_serializing_if = "crate::rules::Charts::is_as_picked"
     )]
     pub charts: crate::rules::Charts,
+    /// Attacks at once (additive, left out at three).
+    #[serde(default, skip_serializing_if = "crate::rules::AttacksAtOnce::is_default")]
+    pub at_once: crate::rules::AttacksAtOnce,
 }
 
 impl PublicRules {
@@ -101,6 +104,7 @@ impl PublicRules {
             attacks: r.attacks(),
             points: r.points,
             charts: r.charts,
+            at_once: r.at_once,
         }
     }
 }

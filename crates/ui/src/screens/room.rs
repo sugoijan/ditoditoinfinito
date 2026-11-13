@@ -135,6 +135,10 @@ pub struct RoomView {
     /// The draft's Charts choice (`as_picked`, `adaptive`) where the
     /// room offers it.
     pub draft_charts: Option<String>,
+    /// The draft's Attacks at once (`one`, `two`, `three`, `no_limit`),
+    /// where its row shows (attacks offered and On, the authority honoring
+    /// it).
+    pub draft_at_once: Option<String>,
     pub rules_problem: Option<String>,
     /// While a match runs, the pop-up says so at its top (`rules_running`),
     /// marks the rows whose draft differs from the running match's
@@ -2121,6 +2125,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         draft_rules: kept.draft_rules,
         draft_points: kept.draft_points,
         draft_charts: kept.draft_charts,
+        draft_at_once: kept.draft_at_once,
         rules_problem: kept.rules_problem,
         rules_running: kept.rules_running,
         rules_changed: kept.rules_changed,
@@ -2338,7 +2343,27 @@ pub fn rules_words(rules: &crate::state::room::StageRules, attacks: Option<bool>
         on(attacks.unwrap_or(true)),
         rules.points.id(),
         rules.charts.id(),
+        // Only where the stage has attacks.
+        if attacks.unwrap_or(true) { at_once_id(rules.at_once) } else { "three" },
     )
+}
+
+/// Attacks at once by its id in the messages.
+pub fn at_once_id(a: ddi_room::AttacksAtOnce) -> &'static str {
+    match a {
+        ddi_room::AttacksAtOnce::One => "one",
+        ddi_room::AttacksAtOnce::Two => "two",
+        ddi_room::AttacksAtOnce::Three => "three",
+        ddi_room::AttacksAtOnce::NoLimit => "no_limit",
+    }
+}
+
+/// Attacks at once's value as its row shows it: the number, or No limit.
+pub fn at_once_name(a: ddi_room::AttacksAtOnce) -> UiText {
+    match a.limit() {
+        Some(n) => m::rules_at_once_count(n as usize),
+        None => m::rules_at_once_no_limit(),
+    }
 }
 
 /// What a change of the running match's per-stage rules changes, from
@@ -2363,6 +2388,9 @@ pub fn change_words(
     }
     if before.charts != after.charts {
         parts.push(m::rules_change_charts(after.charts.id()));
+    }
+    if attacks_offered && after.attacks() && before.at_once != after.at_once {
+        parts.push(m::rules_change_at_once(at_once_id(after.at_once)));
     }
     if before.points != after.points {
         parts.push(m::rules_change_points(after.points.id()));

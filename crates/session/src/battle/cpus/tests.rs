@@ -18,7 +18,7 @@
 use super::*;
 use ddi_engine::cpu::PlannedRung;
 use ddi_room::attacks::{
-    AttackEvent, POWER_CLASSES_V0, Report, RosterSeat, StageBattle, StageRoster, Targeting, ATTACKS,
+    AttackEvent, POWER_CLASSES_V0, Report, RosterSeat, StageBattle, StageRoster, Targeting,
 };
 use ddi_room::live::cpus::{ONLINE_CPUS_V0, report_digest};
 use ddi_room::live::LIVE_V2;
@@ -48,6 +48,7 @@ fn scenarios() -> Vec<(StageRules, Vec<CpuSeat>)> {
         boos: false,
         points: PointsBias::Strong,
         charts,
+        at_once: Default::default(),
         changed: false,
         play_changed: false,
     };
@@ -105,7 +106,7 @@ fn play(song: &ddi_chart::Song, chart: usize, rules: &StageRules, cpus: &[CpuSea
         .map(|(c, opp)| Drive::new(o, c.participant, Some(plan.checkpoints_us.clone()), opp))
         .collect();
     let mut ledger = StageBattle::new(
-        ATTACKS,
+        plan.rules().expect("known rules"),
         POWER_CLASSES_V0,
         "ddi",
         plan.checkpoints_us.clone(),

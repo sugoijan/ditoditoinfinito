@@ -7,7 +7,7 @@
 //! competitors at speed, with what a tick costs.
 
 use ddi_room::attacks::{
-    ATTACKS, AttackEvent, CheckpointRecord, Judged, POWER_CLASSES_V0, Reporter, RosterSeat,
+    ATTACK_WINDOW_V0_US, ATTACKS, AttackEvent, CheckpointRecord, Judged, POWER_CLASSES_V0, Reporter, RosterSeat,
     StageBattle, StageRoster,
 };
 use ddi_room::fake::{FakeServer, FakeSocket, Fault, Latency, SharedFake};
@@ -39,7 +39,8 @@ fn content() -> ContentId {
 /// A plan of `n` slots of 2 s, each with eight shocks a quarter second
 /// apart where `room(j)`; checkpoints every 2 s from 2 s.
 fn plan(n: usize, seed: u64, room: impl Fn(usize) -> bool) -> BattlePlan {
-    plan_under(ATTACKS.id, n, seed, room)
+    // The match's Attacks at once at its default, three.
+    plan_under(ATTACKS.id, n, seed, room).with_at_once(Some(3))
 }
 
 /// [`plan`] under the attack rules named `rules`.
@@ -777,7 +778,7 @@ fn local_record(
         seed: plan.seed,
     };
     let mut ledger = StageBattle::new(
-        ddi_room::attacks::attack_rules(&plan.attack_rules).expect("known rules"),
+        plan.rules().expect("known rules"),
         POWER_CLASSES_V0,
         "ddi",
         plan.checkpoints_us.clone(),
@@ -874,15 +875,25 @@ fn one_attack_trace_gives_the_same_ledger_locally_and_through_the_room() {
     let room = ledger.record().to_vec();
     assert_eq!(room.len(), local.len(), "every checkpoint ran");
     assert_eq!(room, local, "the same reports, the same ledger");
-    // `attacks-v2`: against one recipient, one section after another,
-    // never the same region, however many are placed.
-    assert_eq!(ledger.rules().id, "attacks-v2");
+    // `attacks-v3`: against one recipient, one section after another,
+    // never the same region; at most three placed at once (the plan's
+    // Attacks at once), each starting within the window of its launch.
+    assert_eq!(ledger.rules().id, "attacks-v3");
+    assert_eq!(ledger.rules().at_once(), Some(3));
+    let cps = ledger.checkpoints_us();
     for a in ledger.attacks() {
+        let at = cps[a.checkpoint];
+        assert!(plan.schedule.slots[a.slot].start_us <= at + ATTACK_WINDOW_V0_US);
+        let mut standing = 0;
         for b in ledger.attacks() {
             if a.id < b.id && a.recipient == b.recipient {
                 assert!(b.cells[0].at_us >= a.clear_us, "{a:?} {b:?}");
             }
+            if b.id <= a.id && b.recipient == a.recipient && b.clear_us >= at {
+                standing += 1;
+            }
         }
+        assert!(standing <= 3, "{a:?}");
     }
     drop(server);
     // Every device read the same checkpoints and the commitments.
@@ -928,6 +939,23 @@ fn a_stage_runs_under_the_attack_rules_its_plan_names() {
     assert_eq!(ledger.record(), &local[..]);
     let v2 = plan_under("attacks-v2", 30, 99, |j| j % 4 != 1);
     assert_ne!(v1.digest, v2.digest, "the rules are in the plan's digest");
+    drop(server);
+    // The same across the deploy of `attacks-v3`: a stage begun under
+    // `attacks-v2` finishes under it, its plan naming no Attacks at once.
+    let local = local_record(&scripts, &v2, &ids);
+    let mut r = attack_room(&scripts, &v2, Setup::new(4).latency);
+    r.run(66_000);
+    let server = r.server.borrow();
+    let stage = server.live().unwrap().stage_or_last().expect("the stage played");
+    let ledger = stage.ledger().expect("a ledger");
+    assert_eq!(ledger.rules(), ddi_room::attacks::ATTACKS_V2);
+    assert_eq!(ledger.record(), &local[..]);
+    let v3 = plan(30, 99, |j| j % 4 != 1);
+    assert_ne!(v2.digest, v3.digest);
+    // Attacks at once is in the digest: a device of another limit
+    // disagrees.
+    assert_ne!(v3.digest, v3.clone().with_at_once(Some(1)).digest);
+    assert_ne!(v3.digest, v3.clone().with_at_once(None).digest);
 }
 
 #[test]
@@ -1284,7 +1312,7 @@ fn a_final_attack_holds_the_decision_and_its_knockout_is_a_shared_first() {
     // Its section, as the room's ledger will have it (the same trace up to
     // its commitment).
     let mut local_battle = StageBattle::new(
-        ATTACKS,
+        plan.rules().unwrap(),
         POWER_CLASSES_V0,
         "ddi",
         plan.checkpoints_us.clone(),

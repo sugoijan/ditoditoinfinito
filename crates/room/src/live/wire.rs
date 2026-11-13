@@ -401,6 +401,7 @@ impl Writer {
                 self.byte(match reason {
                     BlockReason::NoEligible => 0,
                     BlockReason::NoSafeSection => 1,
+                    BlockReason::NoRoomInWindow => 2,
                 });
             }
             AttackEvent::Cleared { attack } => {
@@ -600,6 +601,7 @@ impl Reader<'_> {
                 reason: match self.byte()? {
                     0 => BlockReason::NoEligible,
                     1 => BlockReason::NoSafeSection,
+                    2 => BlockReason::NoRoomInWindow,
                     _ => return Err(WireError::Invalid),
                 },
             },

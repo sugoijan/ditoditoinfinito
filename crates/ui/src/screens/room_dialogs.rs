@@ -192,6 +192,8 @@ pub struct RulesDialog {
     points_focused: bool,
     /// The Charts row is focused (its sentence brightens).
     zero_focused: bool,
+    /// The Attacks at once row is focused (its sentence brightens).
+    at_once_focused: bool,
     /// During a match whose room takes changes from a later stage on
     /// (`RoomClient::may_change_stage_rules`): where the edits go, from
     /// the stage named (the default) or to the next match.
@@ -207,7 +209,7 @@ pub struct RulesDialog {
 
 /// The rows a running match may change from a later stage on
 /// (`ddi_room::PlayRules`).
-const PER_STAGE: [&str; 4] = ["difficulty", "boos", "charts", "attacks"];
+const PER_STAGE: [&str; 5] = ["difficulty", "boos", "charts", "attacks", "at_once"];
 
 impl RulesDialog {
     /// From its button: Cancel and Apply.
@@ -242,6 +244,7 @@ impl RulesDialog {
             draws,
             points_focused: false,
             zero_focused: false,
+            at_once_focused: false,
             to_stage: true,
             stage_draft: Rc::new(RefCell::new(stage_draft)),
             from,
@@ -378,6 +381,12 @@ impl RulesDialog {
         super::room::attacks_offered(&self.room.borrow())
     }
 
+    /// The Attacks at once row shows: offered (`RoomClient::at_once_offered`)
+    /// and the edited rules' Attacks On.
+    fn at_once_shown(&self) -> bool {
+        self.room.borrow().at_once_offered() && self.edited().borrow().attacks()
+    }
+
     fn roster(&self) -> Vec<OpponentSpec> {
         cpu_roster::roster_of(&self.draft.borrow(), self.room.borrow().humans())
     }
@@ -440,6 +449,9 @@ impl RulesDialog {
             if super::room::attacks_offered(&r) && d.attacks() != ahead.attacks() {
                 v.push("attacks");
             }
+            if r.at_once_offered() && d.attacks() && d.at_once != ahead.at_once {
+                v.push("at_once");
+            }
             if r.stage_points_offered() && d.points != ahead.points {
                 v.push("points");
             }
@@ -471,6 +483,9 @@ impl RulesDialog {
         }
         if super::room::attacks_offered(&r) && d.attacks() != locked.attacks() {
             v.push("attacks");
+        }
+        if r.at_once_offered() && d.attacks() && d.at_once != locked.at_once {
+            v.push("at_once");
         }
         if r.points_offered() && d.points != locked.points {
             v.push("points");
@@ -543,6 +558,9 @@ impl RulesDialog {
         let charts = self
             .adaptive_offered()
             .then(|| draft.charts.id().to_string());
+        let at_once = self
+            .at_once_shown()
+            .then(|| super::room::at_once_id(self.edited().borrow().at_once).to_string());
         drop(draft);
         let running = self.running();
         let changed: Vec<String> = self.changed().into_iter().map(String::from).collect();
@@ -554,6 +572,7 @@ impl RulesDialog {
             v.draft_rules = Some(rules);
             v.draft_points = points;
             v.draft_charts = charts;
+            v.draft_at_once = at_once;
             v.rules_problem = problem;
             v.rules_running = running;
             v.rules_changed = changed;
@@ -875,6 +894,19 @@ impl Screen for RulesDialog {
             Vec::new()
         };
         let zero_h = ROW + zero_about.len() as f32 * 17.0;
+        // Attacks at once, under Attacks while they are On: its row and
+        // its sentence.
+        let at_once_shown = self.at_once_shown();
+        let at_once_about = if at_once_shown {
+            super::dialog::wrap_lines(&String::from(m::rules_at_once_about()), inner, 12.0)
+        } else {
+            Vec::new()
+        };
+        let at_once_h = if at_once_shown {
+            ROW + at_once_about.len() as f32 * 17.0
+        } else {
+            0.0
+        };
         // The rows' height, all of them; the pop-up as tall as the screen
         // allows, the rows scrolling inside it between its title and its
         // buttons (two rows at the least, the whole zoomed below that).
@@ -884,6 +916,7 @@ impl Screen for RulesDialog {
             + 3.0 * ROW
             + zero_h
             + cpu_h
+            + at_once_h
             + 2.0 * ROW
             + about_h
             + 12.0
@@ -1244,6 +1277,30 @@ impl Screen for RulesDialog {
             c.push(right(v, x0 + inner, row_y));
         }
         ry += ROW;
+        // How many attacks may stand placed against one player, while
+        // attacks are On.
+        if at_once_shown {
+            let at = play.at_once.index();
+            mark(&mut c, "at_once", ry + ROW / 2.0);
+            stepper(
+                &mut c,
+                "at_once",
+                &m::rules_at_once(),
+                super::room::at_once_name(play.at_once).into(),
+                (at > 0, at + 1 < ddi_room::AttacksAtOnce::ALL.len()),
+                false,
+                ry + ROW / 2.0,
+            );
+            ry += ROW;
+            let color = if self.at_once_focused { "Secondary" } else { "Muted" };
+            for (k, line) in at_once_about.iter().enumerate() {
+                let mut t = env.text(&format!("Rule.at_once.About{k}"), line, 12.0, 400, color);
+                look::ellipsized(&mut t, inner);
+                c.push(left(t, x0, ry + 4.0));
+                ry += 17.0;
+            }
+            said_to("at_once", ry);
+        }
         // Points: how strongly a large field favors its top places, where
         // the room's authority awards so; else what it is, fixed.
         if points {
@@ -1378,6 +1435,9 @@ impl Screen for RulesDialog {
             if self.attacks_offered() {
                 rows.push(pair("attacks"));
             }
+            if self.at_once_shown() {
+                rows.push(pair("at_once"));
+            }
             if self.points_offered() && self.row_editable("points") {
                 rows.push(pair("points"));
             }
@@ -1457,6 +1517,18 @@ impl Screen for RulesDialog {
                 .is_some_and(|f| f == "Dec.charts" || f == "Inc.charts");
             if on != self.zero_focused {
                 self.zero_focused = on;
+                *root = self.build(cx);
+                super::restore_focus(root, focused.as_deref());
+            }
+        }
+        // The Attacks at once row's sentence brightens while it is focused.
+        if self.at_once_shown() {
+            let focused = cx.focused().map(str::to_string);
+            let on = focused
+                .as_deref()
+                .is_some_and(|f| f == "Dec.at_once" || f == "Inc.at_once");
+            if on != self.at_once_focused {
+                self.at_once_focused = on;
                 *root = self.build(cx);
                 super::restore_focus(root, focused.as_deref());
             }
@@ -1589,6 +1661,20 @@ impl Screen for RulesDialog {
                         if self.editable() && self.attacks_offered() =>
                     {
                         self.edited().borrow_mut().set_attacks(name == "Inc.attacks");
+                        rebuild(self, root, cx, name);
+                    }
+                    "Dec.at_once" | "Inc.at_once" if self.editable() && self.at_once_shown() => {
+                        let edited = self.edited();
+                        let mut d = edited.borrow_mut();
+                        let at = d.at_once.index();
+                        let at = if name == "Inc.at_once" {
+                            (at + 1).min(ddi_room::AttacksAtOnce::ALL.len() - 1)
+                        } else {
+                            at.saturating_sub(1)
+                        };
+                        d.at_once = ddi_room::AttacksAtOnce::ALL[at];
+                        drop(d);
+                        self.at_once_focused = true;
                         rebuild(self, root, cx, name);
                     }
                     "AddRandom" if self.free_seats() > 0 && self.row_editable("cpus") => {

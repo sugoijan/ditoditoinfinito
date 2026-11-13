@@ -811,7 +811,14 @@ impl Battle {
                 placed = ddi_engine::ladder::merged(song, chart, &charts);
                 &placed
             };
-            attacks::AttackRunner::new(over, chart, &setup.rules.ruleset, &ruleset.judge, roster)
+            attacks::AttackRunner::new(
+                over,
+                chart,
+                &setup.rules.ruleset,
+                &ruleset.judge,
+                roster,
+                setup.rules.at_once.limit(),
+            )
         });
         let own = feed::FieldFeed::new(&track, 1.0, feed::LOCAL_DELAY);
         // A device watching an online stage with CPUs and attacks makes

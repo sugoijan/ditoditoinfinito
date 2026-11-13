@@ -13,7 +13,7 @@
 //! for a reconnect's resume.
 
 use crate::attacks::{
-    LEAD_V0, attack_rules, POWER_CLASSES_V0, PowerClasses, Report,
+    LEAD_V0, POWER_CLASSES_V0, PowerClasses, Report,
     RosterSeat, SETTLEMENT, Settling, StageBattle, StageRoster,
 };
 use crate::battle::{Entrant, Run};
@@ -314,7 +314,7 @@ impl LiveServer {
             out.refuse(LiveRefusal::BadPlan { stage, problem });
             return;
         }
-        if attack_rules(&plan.attack_rules).is_none() || power_classes(&plan.classes).is_none() {
+        if plan.rules().is_none() || power_classes(&plan.classes).is_none() {
             out.refuse(LiveRefusal::BadPlan {
                 stage,
                 problem: crate::live::PlanProblem::UnknownVersion,
@@ -620,7 +620,7 @@ impl LiveStage {
                 })
                 .collect();
             Some(StageBattle::new(
-                attack_rules(&plan.attack_rules)?,
+                plan.rules()?,
                 power_classes(&plan.classes)?,
                 m.map_or(crate::rules::MatchRules::DEFAULT_RULESET, |m| {
                     m.rules.ruleset_id()
