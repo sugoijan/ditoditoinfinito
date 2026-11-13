@@ -65,12 +65,31 @@ fn placement() -> ddi_engine::battle::Placement {
 }
 
 /// The rules a stage's attacks are played under: the room's
-/// ([`ATTACKS`], `attacks-v1`). The attack-rate study (tests only) may
-/// ask for the older ones to compare with (`DDI_ATTACK_RULES=v0`).
+/// ([`ATTACKS`], `attacks-v2`). The attack-rate study (tests only) may
+/// ask for the older ones to compare with (`DDI_ATTACK_RULES=v0` or
+/// `v1`), or for `attacks-v2` with a limit (`v2-gap1`: a safe section
+/// left empty between chained attacks; `v2-cool2`: a sender's cooldown of
+/// two checkpoints).
 pub fn rules() -> ddi_room::attacks::AttackRules {
     #[cfg(test)]
-    if std::env::var("DDI_ATTACK_RULES").as_deref() == Ok("v0") {
-        return ddi_room::attacks::ATTACKS_V0;
+    match std::env::var("DDI_ATTACK_RULES").as_deref() {
+        Ok("v0") => return ddi_room::attacks::ATTACKS_V0,
+        Ok("v1") => return ddi_room::attacks::ATTACKS_V1,
+        Ok("v2-gap1") => {
+            return ddi_room::attacks::AttackRules {
+                id: "attacks-v2-gap1",
+                chain_gap: 1,
+                ..ATTACKS
+            };
+        }
+        Ok("v2-cool2") => {
+            return ddi_room::attacks::AttackRules {
+                id: "attacks-v2-cool2",
+                cooldown_checkpoints: 2,
+                ..ATTACKS
+            };
+        }
+        _ => {}
     }
     ATTACKS
 }

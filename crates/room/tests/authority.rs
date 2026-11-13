@@ -639,7 +639,7 @@ fn every_message_kind_survives_the_wire() {
 fn an_older_room_model_is_refused_except_during_a_stage() {
     use ddi_room::{ROOM_MODEL_REVISION, UPDATE_REQUIRED, UpdateRequired, check_model_against};
     let rev = ROOM_MODEL_REVISION;
-    assert_eq!(rev, 1);
+    assert_eq!(rev, 2, "2: attacks-v2");
     assert_eq!(UPDATE_REQUIRED, "update_required");
     assert!(ddi_room::check_model(Some(rev)).is_ok());
     assert!(ddi_room::check_model(Some(rev + 1)).is_ok(), "a newer client");

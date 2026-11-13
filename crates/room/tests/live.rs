@@ -39,6 +39,11 @@ fn content() -> ContentId {
 /// A plan of `n` slots of 2 s, each with eight shocks a quarter second
 /// apart where `room(j)`; checkpoints every 2 s from 2 s.
 fn plan(n: usize, seed: u64, room: impl Fn(usize) -> bool) -> BattlePlan {
+    plan_under(ATTACKS.id, n, seed, room)
+}
+
+/// [`plan`] under the attack rules named `rules`.
+fn plan_under(rules: &str, n: usize, seed: u64, room: impl Fn(usize) -> bool) -> BattlePlan {
     use ddi_room::attacks::{Cell, Schedule, Section, Slot};
     const S: i64 = 1_000_000;
     let slots = (0..n)
@@ -65,7 +70,7 @@ fn plan(n: usize, seed: u64, room: impl Fn(usize) -> bool) -> BattlePlan {
         })
         .collect();
     BattlePlan::new(
-        ATTACKS.id,
+        rules,
         "placement-v2",
         POWER_CLASSES_V0.id,
         "ddi",
@@ -772,7 +777,7 @@ fn local_record(
         seed: plan.seed,
     };
     let mut ledger = StageBattle::new(
-        ATTACKS,
+        ddi_room::attacks::attack_rules(&plan.attack_rules).expect("known rules"),
         POWER_CLASSES_V0,
         "ddi",
         plan.checkpoints_us.clone(),
@@ -888,6 +893,30 @@ fn one_attack_trace_gives_the_same_ledger_locally_and_through_the_room() {
             assert_eq!(cells.len(), 8, "every device places the same eight shocks");
         }
     }
+}
+
+/// A stage begun under `attacks-v1` (its plan offered by a device of the
+/// build before `attacks-v2`, still playing when the server is deployed)
+/// finishes under the rules its plan names: the room's ledger is that of
+/// `attacks-v1`, the same as a device of that build computes, and it
+/// differs from `attacks-v2`'s on the same plays.
+#[test]
+fn a_stage_runs_under_the_attack_rules_its_plan_names() {
+    let scripts: Vec<Script> = (1..=4)
+        .map(|i| script(10 + i, 95 + i as i32 * 7, 56_000, None))
+        .collect();
+    let ids: Vec<ParticipantId> = (1..=4).map(ParticipantId).collect();
+    let v1 = plan_under("attacks-v1", 30, 99, |j| j % 4 != 1);
+    let local = local_record(&scripts, &v1, &ids);
+    let mut r = attack_room(&scripts, &v1, Setup::new(4).latency);
+    r.run(66_000);
+    let server = r.server.borrow();
+    let stage = server.live().unwrap().stage_or_last().expect("the stage played");
+    let ledger = stage.ledger().expect("a ledger");
+    assert_eq!(ledger.rules().id, "attacks-v1");
+    assert_eq!(ledger.record(), &local[..]);
+    let v2 = plan_under("attacks-v2", 30, 99, |j| j % 4 != 1);
+    assert_ne!(v1.digest, v2.digest, "the rules are in the plan's digest");
 }
 
 #[test]

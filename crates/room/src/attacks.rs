@@ -14,16 +14,22 @@
 //! `attacks-v0` one attack at a time against anyone, until they have
 //! recovered from it; under `attacks-v1` ([`ATTACKS`], round 3b) no
 //! recovery, and one more may be reserved behind the one on its way or
-//! passing, in a later section (a chain); one against someone who went
+//! passing, in a later section (a chain); under `attacks-v2` ([`ATTACKS`],
+//! the maintainer's decision of 2026-11-13) an attack is over for the
+//! ledger once it is committed: attacks against one recipient chain
+//! without limit, each in the first safe section from where the last one
+//! placed against them clears; one against someone who went
 //! out expires. Each checkpoint runs in a fixed order
 //! ([`StageBattle::checkpoint`]), so every authority given the same
 //! reports comes to the same record ([`StageBattle::record`]). The stage
-//! is settled ([`SETTLEMENT_V0`]) only once no committed attack against
-//! anyone still in is outstanding.
+//! is settled ([`SETTLEMENT_V1`]) only once no committed attack against
+//! anyone still in is outstanding; the one left alone before that is
+//! "last standing" ([`Settlement::last_standing`]).
 //!
 //! PROVISIONAL: every number here is a working value
-//! ([`ATTACKS_V0`], [`ATTACKS_V1`], [`POWER_CLASSES_V0`], [`LEAD_V0`],
-//! [`SETTLEMENT_V0`]), named and versioned.
+//! ([`ATTACKS_V0`], [`ATTACKS_V1`], [`ATTACKS_V2`], [`POWER_CLASSES_V0`],
+//! [`LEAD_V0`], [`SETTLEMENT_V0`], [`SETTLEMENT_V1`]), named and
+//! versioned.
 
 use crate::awards::{Finish, Finisher};
 use crate::battle::{Entrant, Run};
@@ -56,9 +62,28 @@ pub struct AttackRules {
     /// How many more attacks may be reserved against a recipient while
     /// one is on its way or passing (a chain): each lands in the first
     /// safe section that starts after the one before it has cleared, so
-    /// two attacks' shocks never share a section.
+    /// two attacks' shocks never share a section. [`CHAIN_UNLIMITED`]:
+    /// no limit (an attack is over for the ledger once placed).
     pub chain: u32,
+    /// Safe sections left empty between two chained attacks against one
+    /// recipient (`attacks-v2`: none). A named place for a limit the
+    /// attack-rate study may ask for.
+    pub chain_gap: u32,
+    /// Checkpoints a sender waits after a launch before its next one
+    /// (0: none, `attacks-v2`'s default). A named place for a cooldown
+    /// (the maintainer, 2026-11-13: "a simple attack cooldown could be a
+    /// rule"); no Rules row offers it yet. A full bar waiting on it is no
+    /// [`BlockReason`]: it is simply not launched yet.
+    pub cooldown_checkpoints: u32,
+    /// The rules' generation, for what changed in kind rather than in
+    /// number: from 2, Spread picks whoever has the fewest attacks still
+    /// to come (then the fewest sent this stage), and a chained attack's
+    /// section may start the very microsecond the one before it clears.
+    pub version: u8,
 }
+
+/// [`AttackRules::chain`] without a limit.
+pub const CHAIN_UNLIMITED: u32 = u32::MAX;
 
 /// `attacks-v0` (PROVISIONAL): a bar of 100, an attack 100, checkpoints
 /// every four beats. With [`POWER_CLASSES_V0`] a bar fills from 50 notes
@@ -74,6 +99,9 @@ pub const ATTACKS_V0: AttackRules = AttackRules {
     recover_judgments: 8,
     recover_beats: 4,
     chain: 0,
+    chain_gap: 0,
+    cooldown_checkpoints: 0,
+    version: 0,
 };
 
 /// `attacks-v1` (PROVISIONAL; the maintainer, 2026-11-12: "we can let the
@@ -92,10 +120,50 @@ pub const ATTACKS_V1: AttackRules = AttackRules {
     recover_judgments: 0,
     recover_beats: 0,
     chain: 1,
+    chain_gap: 0,
+    cooldown_checkpoints: 0,
+    version: 1,
 };
 
+/// `attacks-v2` (PROVISIONAL; the maintainer, 2026-11-13: "when the last
+/// shock is added into the chart the attack counts as over", and "by
+/// default I think it should be possible to 'chain' multiple attacks,
+/// although successive attacks would be placed after one another and not
+/// overlap in the same chart region"): the bar, the cost and the
+/// checkpoints of `attacks-v1`, no recovery; an attack is over for the
+/// ledger the moment it is committed, so anyone still in can be attacked
+/// at any time and attacks against one recipient chain without limit,
+/// each in the first safe section that starts at or after the moment the
+/// last one placed against them clears (no gap kept, [`AttackRules::chain_gap`]),
+/// looked for up to the song's end (none left: blocked, the power kept);
+/// no cooldown. Spread prefers whoever has the fewest attacks still to
+/// come.
+pub const ATTACKS_V2: AttackRules = AttackRules {
+    id: "attacks-v2",
+    cap: 100,
+    cost: 100,
+    checkpoint_beats: 4,
+    search_beats: u32::MAX,
+    recover_judgments: 0,
+    recover_beats: 0,
+    chain: CHAIN_UNLIMITED,
+    chain_gap: 0,
+    cooldown_checkpoints: 0,
+    version: 2,
+};
+
+/// Every version of the rules, by name: a stage is run under the one its
+/// plan names (an online stage begun under an older one finishes under
+/// it).
+pub const ALL_ATTACKS: [AttackRules; 3] = [ATTACKS_V0, ATTACKS_V1, ATTACKS_V2];
+
+/// The rules named `id`.
+pub fn attack_rules(id: &str) -> Option<AttackRules> {
+    ALL_ATTACKS.into_iter().find(|r| r.id == id)
+}
+
 /// The rules attacks are played under.
-pub const ATTACKS: AttackRules = ATTACKS_V1;
+pub const ATTACKS: AttackRules = ATTACKS_V2;
 
 /// How soon after its checkpoint an attack's section may start for a
 /// target (D5): the target's reading horizon (how long its notes are
@@ -284,7 +352,8 @@ pub struct Report {
 pub enum BlockReason {
     /// No one can be attacked: everyone else out, or each already under
     /// as many attacks as the rules allow (reserved, active or
-    /// recovering; under `attacks-v1` one passing and one waiting).
+    /// recovering; under `attacks-v1` one passing and one waiting; under
+    /// `attacks-v2` only everyone else out).
     NoEligible,
     /// Its target's chart has no safe section in reach.
     NoSafeSection,
@@ -381,6 +450,8 @@ struct Seat {
     /// Checkpoints its full bar waited, by reason.
     waits: [u32; 2],
     launched: u32,
+    /// The checkpoint of its last launch ([`AttackRules::cooldown_checkpoints`]).
+    last_launch: Option<usize>,
 }
 
 impl Seat {
@@ -398,6 +469,7 @@ impl Seat {
             blocked: None,
             waits: [0; 2],
             launched: 0,
+            last_launch: None,
         }
     }
 }
@@ -631,7 +703,15 @@ impl StageBattle {
                 t.1 = t.1.max(a.clear_us);
             }
         }
-        let room = 1 + self.rules.chain;
+        let room = self.rules.chain.saturating_add(1);
+        // Attacks still to come against each (`attacks-v2`'s Spread).
+        let mut ahead: BTreeMap<ParticipantId, u32> = BTreeMap::new();
+        for a in &self.attacks {
+            if a.state == AttackState::Active {
+                *ahead.entry(a.recipient).or_default() += 1;
+            }
+        }
+        let v2 = self.rules.version >= 2;
         // The state the policies judge by: before this batch.
         let before = self.seats.clone();
         let tie = |sender: ParticipantId, p: ParticipantId| {
@@ -645,6 +725,14 @@ impl StageBattle {
             if seat.out_at_us.is_some() || seat.power < self.rules.cost {
                 continue;
             }
+            // A cooldown (none by default): not launched yet.
+            if self.rules.cooldown_checkpoints > 0
+                && seat
+                    .last_launch
+                    .is_some_and(|l| k < l + self.rules.cooldown_checkpoints as usize)
+            {
+                continue;
+            }
             let eligible: Vec<ParticipantId> = order
                 .iter()
                 .copied()
@@ -655,10 +743,13 @@ impl StageBattle {
                 })
                 .collect();
             let spread = |cands: &[ParticipantId]| {
-                cands
-                    .iter()
-                    .copied()
-                    .min_by_key(|p| (before[p].admitted, tie(sender, *p)))
+                cands.iter().copied().min_by_key(|p| {
+                    (
+                        if v2 { ahead.get(p).copied().unwrap_or(0) } else { 0 },
+                        before[p].admitted,
+                        tie(sender, *p),
+                    )
+                })
             };
             let target = match seat.targeting {
                 Targeting::Spread => spread(&eligible),
@@ -701,6 +792,7 @@ impl StageBattle {
                     seat.blocked = None;
                     seat.power -= self.rules.cost;
                     seat.launched += 1;
+                    seat.last_launch = Some(k);
                     if let Some(r) = self.seats.get_mut(&recipient) {
                         r.admitted += 1;
                     }
@@ -711,6 +803,7 @@ impl StageBattle {
                     let t = taken.entry(recipient).or_insert((0, i64::MIN));
                     t.0 += 1;
                     t.1 = t.1.max(section.clear_us);
+                    *ahead.entry(recipient).or_default() += 1;
                     let id = self.attacks.len() as AttackId + 1;
                     self.attacks.push(Attack {
                         id,
@@ -744,8 +837,11 @@ impl StageBattle {
     /// The first slot with a section that starts no sooner than `lead_us`
     /// after `at` and the next checkpoint (`next`: at least four beats),
     /// nor before `after` (when the attack before it against the same
-    /// recipient clears: a chain's sections never overlap), within
-    /// [`AttackRules::search_beats`] past that start.
+    /// recipient clears: a chain's sections never overlap; under
+    /// `attacks-v1` strictly after it, from `attacks-v2` at or after it,
+    /// with [`AttackRules::chain_gap`] safe sections skipped), within
+    /// [`AttackRules::search_beats`] past that start (`attacks-v2`: to the
+    /// song's end).
     fn section_for(
         &self,
         at: i64,
@@ -753,16 +849,26 @@ impl StageBattle {
         lead_us: i64,
         after: Option<i64>,
     ) -> Option<usize> {
+        let slots = &self.schedule.slots;
+        let past = if self.rules.version >= 2 { 0 } else { 1 };
         let earliest = (at + lead_us)
             .max(next.unwrap_or(at + 1))
-            .max(after.map_or(i64::MIN, |a| a.saturating_add(1)));
-        let from = self
-            .schedule
-            .slots
-            .partition_point(|s| s.start_us < earliest);
-        let reach = (self.rules.search_beats / self.rules.checkpoint_beats.max(1)) as usize + 1;
-        (from..(from + reach).min(self.schedule.slots.len()))
-            .find(|&j| self.schedule.slots[j].section.is_some())
+            .max(after.map_or(i64::MIN, |a| a.saturating_add(past)));
+        let mut from = slots.partition_point(|s| s.start_us < earliest);
+        // A gap kept behind the attack before it: its first sections
+        // after it left empty.
+        if let Some(a) = after
+            && self.rules.chain_gap > 0
+        {
+            let behind = slots.partition_point(|s| s.start_us < a.saturating_add(past));
+            let g = (behind..slots.len())
+                .filter(|&j| slots[j].section.is_some())
+                .nth(self.rules.chain_gap as usize - 1)?;
+            from = from.max(g + 1);
+        }
+        let reach = (self.rules.search_beats / self.rules.checkpoint_beats.max(1)) as usize;
+        let end = from.saturating_add(reach).saturating_add(1).min(slots.len());
+        (from..end).find(|&j| slots[j].section.is_some())
     }
 
     /// `participant`'s power (0 for anyone not in the stage).
@@ -818,15 +924,15 @@ impl StageBattle {
     }
 
     /// The attack against `participant` it has not recovered from
-    /// (active or cleared), if any: the first of them where one more
-    /// waits behind it ([`AttackRules::chain`]).
+    /// (active or cleared), if any: the first of them where more are
+    /// placed behind it ([`AttackRules::chain`]).
     pub fn incoming(&self, participant: ParticipantId) -> Option<&Attack> {
         self.incoming_all(participant).next()
     }
 
     /// Every attack against `participant` it has not recovered from, in
-    /// the order they land: the one on its way or passing, then the one
-    /// waiting behind it.
+    /// the order they land: the one on its way or passing, then those
+    /// placed behind it (under `attacks-v2` as many as were launched).
     pub fn incoming_all(&self, participant: ParticipantId) -> impl Iterator<Item = &Attack> {
         self.attacks.iter().filter(move |a| {
             a.recipient == participant
@@ -843,7 +949,7 @@ impl StageBattle {
 
     /// The recipients of committed attacks not cleared yet, with when
     /// each clears: what keeps a stage from being settled
-    /// ([`SETTLEMENT_V0`]).
+    /// ([`SETTLEMENT_V1`]).
     pub fn outstanding(&self) -> impl Iterator<Item = (ParticipantId, i64)> + '_ {
         self.attacks
             .iter()
@@ -974,6 +1080,25 @@ pub const SETTLEMENT_V0: Settlement = Settlement {
     id: "settlement-v0",
 };
 
+/// `settlement-v1` (PROVISIONAL; the maintainer, 2026-11-13: "we can
+/// differentiate between 'last standing' and 'stage won' … to rule that
+/// the stage has been won has to wait for it to be played until the end,
+/// since that player could still fail and cause a tie"): `settlement-v0`'s
+/// decision and ranking, with chains of any length (every shock already
+/// placed against the one left must have passed), and the moment before
+/// it told apart: the one competitor still in while attacks against them
+/// are still to come is **last standing** ([`Settlement::last_standing`]);
+/// the stage is **won** once they have all passed with them still in.
+/// Nobody out launches, so nothing new is placed against them once they
+/// are last standing (an attack committed at the checkpoint before the
+/// last other one went out is placed, and waited for).
+pub const SETTLEMENT_V1: Settlement = Settlement {
+    id: "settlement-v1",
+};
+
+/// How stages are settled.
+pub const SETTLEMENT: Settlement = SETTLEMENT_V1;
+
 /// What a stage waits on while settling: who was left alone, and when
 /// the one before them went out (song microseconds).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -983,6 +1108,23 @@ pub struct Settling {
 }
 
 impl Settlement {
+    /// The one competitor of `entrants` still in while the stage is not
+    /// decided yet (an attack against them in `outstanding`): last
+    /// standing. None while two or more are in, with nobody in, or once
+    /// decided (nothing outstanding: last standing and won at once, and
+    /// only the win is told).
+    pub fn last_standing(
+        &self,
+        entrants: &[Entrant],
+        outstanding: &[ParticipantId],
+    ) -> Option<ParticipantId> {
+        let mut live = entrants
+            .iter()
+            .filter(|e| matches!(e.run, Run::Live { .. }));
+        let one = live.next()?;
+        (live.next().is_none() && !self.decided(entrants, outstanding)).then_some(one.participant)
+    }
+
     /// Decided: at most one of `entrants` still in, and none of them
     /// still in is a recipient in `outstanding`.
     pub fn decided(&self, entrants: &[Entrant], outstanding: &[ParticipantId]) -> bool {

@@ -13,8 +13,8 @@
 //! for a reconnect's resume.
 
 use crate::attacks::{
-    ATTACKS_V0, ATTACKS_V1, AttackRules, LEAD_V0, POWER_CLASSES_V0, PowerClasses, Report,
-    RosterSeat, SETTLEMENT_V0, Settling, StageBattle, StageRoster,
+    LEAD_V0, attack_rules, POWER_CLASSES_V0, PowerClasses, Report,
+    RosterSeat, SETTLEMENT, Settling, StageBattle, StageRoster,
 };
 use crate::battle::{Entrant, Run};
 use crate::command::Command;
@@ -113,10 +113,6 @@ pub struct LiveSnapshot {
     pub plan: Option<PlanDigest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settling: Option<Settling>,
-}
-
-fn attack_rules(id: &str) -> Option<AttackRules> {
-    [ATTACKS_V0, ATTACKS_V1].into_iter().find(|r| r.id == id)
 }
 
 fn power_classes(id: &str) -> Option<PowerClasses> {
@@ -1064,7 +1060,7 @@ impl LiveStage {
             .collect()
     }
 
-    /// The stage decided as practice decides it (`SETTLEMENT_V0`): at most
+    /// The stage decided as practice decides it (`SETTLEMENT_V1`): at most
     /// one still in, no attack against them still to clear; confirmed.
     fn decide(&mut self, room: &RoomState, out: &mut LiveOut) {
         if self.decided || !self.early {
@@ -1092,7 +1088,7 @@ impl LiveStage {
                 .map(|(p, _)| p)
                 .collect()
         });
-        if !SETTLEMENT_V0.decided(&entrants, &outstanding) {
+        if !SETTLEMENT.decided(&entrants, &outstanding) {
             if self.settling.is_none() {
                 let survivor = entrants
                     .iter()
@@ -1115,7 +1111,7 @@ impl LiveStage {
             return;
         }
         let checkpoints = self.ledger.as_ref().map_or(&[][..], |l| l.checkpoints_us());
-        let (ranking, _drawn) = SETTLEMENT_V0.rank(&entrants, checkpoints, self.settling);
+        let (ranking, _drawn) = SETTLEMENT.rank(&entrants, checkpoints, self.settling);
         out.commands.push(Command::ConfirmStage {
             stage: self.id,
             ranking,

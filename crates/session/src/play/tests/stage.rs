@@ -1954,21 +1954,25 @@ fn a_lane_s_key_is_never_the_policy_s() {
     assert!(!s.inputs().begun.as_ref().unwrap().0.contains(&"Tab".to_string()));
 }
 
-/// `attacks-v1` (round 3b): no recovery, and one more attack may be
-/// reserved behind the one on its way or passing. Over a long chart with
-/// strong CPUs, chains happen: an attack committed against someone while
-/// an earlier one against them had not cleared, its first shock after
-/// the earlier one's last (never a shared section), never a third at
-/// once; both are delivered into the recipient's play (the player's own,
-/// a CPU's and its field) as they are committed; and the record is the
-/// same at 60 and 144 frames a second.
+/// `attacks-v2` (2026-11-13): an attack is over for the ledger once it is
+/// placed, and attacks against one recipient chain without limit. Over a
+/// long chart with strong CPUs, chains happen: an attack committed
+/// against someone while earlier ones against them had not cleared, its
+/// first shock at or after the last of theirs has cleared (never a
+/// shared section); every one is delivered into the recipient's play
+/// (the player's own, a CPU's and its field) as it is committed; and the
+/// record is the same at 60 and 144 frames a second.
 #[test]
 fn chained_attacks_are_delivered_back_to_back_into_plays_and_cpus() {
-    assert_eq!(crate::battle::attacks::rules().id, "attacks-v1");
+    assert_eq!(crate::battle::attacks::rules().id, "attacks-v2");
     let song = bundled("beatucada");
+    // Strong CPUs aiming at the leader: they pile up on one.
     let mut practice = attacks_room(&song, 3, 9);
     let mut now = 0;
-    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let mut order = begin_at(&song, &mut practice, &mut now, LONG);
+    for c in &mut order.cpus {
+        c.targeting = ddi_room::attacks::Targeting::Leader;
+    }
     let a = play_at(&song, &order, 60.0);
     let b = play_at(&song, &order, 144.0);
     let ra = a.battle().unwrap().attacks().unwrap();
@@ -1979,7 +1983,7 @@ fn chained_attacks_are_delivered_back_to_back_into_plays_and_cpus() {
     );
     let attacks = ra.ledger().attacks();
     let checkpoints = ra.ledger().checkpoints_us();
-    let (mut chained, mut to_me, mut to_cpu) = (0, 0, 0);
+    let (mut chained, mut to_me, mut to_cpu, mut longest) = (0, 0, 0, 0);
     for x in attacks {
         let at = checkpoints[x.checkpoint];
         // Those against the same recipient still on their way or passing
@@ -1988,12 +1992,12 @@ fn chained_attacks_are_delivered_back_to_back_into_plays_and_cpus() {
             .iter()
             .filter(|o| o.id < x.id && o.recipient == x.recipient && o.clear_us >= at)
             .collect();
-        assert!(before.len() <= 1, "never more than one waiting: {x:?}");
-        if let Some(o) = before.first() {
+        longest = longest.max(before.len());
+        if let Some(last) = before.iter().map(|o| o.clear_us).max() {
             chained += 1;
             assert!(
-                x.cells.first().unwrap().at_us > o.clear_us,
-                "after the one before it has cleared"
+                x.cells.first().unwrap().at_us >= last,
+                "after the ones before it have cleared"
             );
             if x.recipient == order.me {
                 to_me += 1;
@@ -2004,7 +2008,8 @@ fn chained_attacks_are_delivered_back_to_back_into_plays_and_cpus() {
     }
     assert!(chained > 0, "strong CPUs chain: {} attacks", attacks.len());
     eprintln!(
-        "chains: {chained} of {} attacks ({to_me} against the player, {to_cpu} against CPUs)",
+        "chains: {chained} of {} attacks ({to_me} against the player, {to_cpu} against CPUs), \
+         at most {longest} ahead",
         attacks.len()
     );
     // Every commitment is in its recipient's play, chained or not.
