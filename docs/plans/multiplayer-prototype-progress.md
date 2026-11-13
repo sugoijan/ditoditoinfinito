@@ -6264,6 +6264,13 @@ told to update.
   `a_ticket_for_an_older_room_model_is_refused_between_stages`.
 ## The maintainer's answers of 2026-11-13, client side (round B2)
 
+Each part below is a question the maintainer answered on 2026-11-13,
+built as answered: practice's lead, the practice roster (the provisional
+table's "CPU practice … forgotten" row), the audience's count (its row
+too), attack lines for everyone who watches, a watching member's music,
+the hold words and the Boos row, three small fixes. Development builds
+here skipped FFmpeg (`DDI_NO_VIDEO_HELPER=1`, `DDI_NO_VIDEO=1`).
+
 ### Practice's attacks land when online's do
 
 The maintainer: "Practice should behave similar to how online works, so
