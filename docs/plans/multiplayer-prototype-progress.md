@@ -5104,6 +5104,47 @@ the platform's numbers and costs: about $0.03, $0.07 and $0.26 an hour at
   (`multiplayer-audience.md`, "Provisional choices"; its open questions 1
   to 6).
 
+### The live-stage tests the live rounds did not write
+
+- **Three devices through their screens** (`ddi-session`
+  `a_live_stage_through_the_screens_of_three_devices`, the UI harness:
+  each device's stage prompt and results on its own `Ui`, its clock the
+  room's, over `FakeServer` at 40 ms each way with 40 of jitter): Alice
+  (host) and Bob play, Carol watches; Ready pressed on the prompts, Start
+  on all three when the room starts; Bob's device joins two seconds late
+  (part-way, in the stage); Alice's socket dropped at 20 s and
+  reconnected; attacks taken both ways; Bob leaves once both were
+  attacked (a forfeit), which decides the stage early; Carol is not over
+  at the decision and her view runs to Alice's finish; every results
+  screen shows the Standings confirmed, Alice first and Bob second (the
+  watcher's marked watched).
+- **A desktop offscreen live stage** (`ddi-desktop` `tests/live_offscreen.rs`):
+  the window's play host plays a live stage (its prompt, the room's
+  start, autoplayed) through the fake room at 40 ms each way against
+  another device's scripted stream (hits, a hold held to its end, one let
+  go, a mine stepped on, a shock stepped on); compared structurally: the
+  held hold pinned to the receptor with the receptor holding, the dropped
+  one scrolling on, the mine drawn then gone with its receptor flashing,
+  the shock's lane locked, one miniature slot, the view's delay adapting
+  (about 470 to 550 ms, never a second). The desktop gained a test hook,
+  `ddi_desktop::room::set_live_for_tests` (the wall clock a live stage's
+  play reads and its room), so that it runs on the fake clock.
+
+### Remote fields looked at
+
+Pictures from the offscreen live stage (`DDI_ROOM_SHOTS`), looked at. Two
+things were wrong and are fixed: **a miniature drew no hold or roll at
+all** (the skin's `NoteLayer::miniature` drew the notes alone, never the
+holds' pass: a person's holds showed as nothing, their heads included),
+now `holds` then `notes` as a field; and **a remote hold's body ran past
+its field** (above it once let go, below it to the screen's edge), now
+drawn within it (`FieldFeed::frame`: the tail no further than the far
+end, a let-go head held at the near edge while its body is in sight).
+Mines, the locked lane (darkened, its receptor tinted) and the dropped
+hold's gray look right. The followed field's Boo word was not pictured
+(tested on the feed). Not looked at in a browser: the web draws the same
+`PlayView` and skin.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

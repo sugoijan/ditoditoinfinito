@@ -2419,6 +2419,9 @@ impl NoteLayer for NoteskinPlay {
         self.column_actors(layout, geo, out, |l| &mut l.receptor);
         swap(&mut self.lanes, &mut rest);
         self.rest_receptors = rest;
+        // Its holds and rolls first, as a field's (a person's stream draws
+        // them: `TapTrack::full`), then its notes.
+        self.holds(frame, layout, geo, out);
         self.notes(frame, layout, geo, out);
         if self.miniature_hits() {
             // A small field's hit effect at full strength reads as a blot

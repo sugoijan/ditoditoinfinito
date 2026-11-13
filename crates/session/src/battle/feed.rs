@@ -519,15 +519,18 @@ impl FieldFeed {
                             y = 0.0;
                         }
                         let tail_y = state.y_displayed(end_displayed, end_seconds);
+                        // Its body drawn within the field (a miniature's
+                        // panel ends there): no further than its far end.
+                        let drawn_tail = tail_y.min(range - 0.3);
                         let head = if roll {
                             SpriteKind::RollHead {
-                                tail_y,
+                                tail_y: drawn_tail,
                                 active,
                                 dropped,
                             }
                         } else {
                             SpriteKind::HoldHead {
-                                tail_y,
+                                tail_y: drawn_tail,
                                 active,
                                 dropped,
                             }
@@ -541,6 +544,12 @@ impl FieldFeed {
                 let alpha = ((range - y) / 0.8)
                     .min((bottom.max(y) + 0.6) / 0.6)
                     .clamp(0.0, 1.0);
+                // A hold whose head has scrolled past the field's near end
+                // (let go) while its body is still in sight: drawn from
+                // there, never past the field's edge.
+                if matches!(kind, SpriteKind::HoldHead { .. } | SpriteKind::RollHead { .. }) {
+                    y = y.max(-0.6);
+                }
                 if let SpriteKind::HoldHead { active: true, .. } = kind
                     && let Some(r) = receptors.get_mut(usize::from(n.lane))
                 {
@@ -990,6 +999,16 @@ mod tests {
             let f = feed.frame(&track, scroll, t, 12.0);
             let (k, _) = kind_of(&f, b).expect("let go: still drawn");
             assert!(matches!(k, SpriteKind::HoldHead { dropped: true, active: false, .. } | SpriteKind::RollHead { dropped: true, active: false, .. }), "{k:?}");
+        }
+        // Every hold drawn within its field: no head past the near edge, no
+        // tail past the far end (a miniature's panel ends there).
+        for t in [track.notes[b].seconds + 1.5, track.notes[a].seconds - 3.0] {
+            let f = feed.frame(&track, scroll, t, 4.0);
+            for n in &f.notes {
+                if let SpriteKind::HoldHead { tail_y, .. } | SpriteKind::RollHead { tail_y, .. } = n.kind {
+                    assert!(n.y >= -0.6 && tail_y <= 4.0, "{t}: {n:?}");
+                }
+            }
         }
         // A Boo: the large field's word, nothing on a miniature.
         let mut boo = moment(&track, 0, Judgement::Miss, 0.0);
