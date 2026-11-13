@@ -75,6 +75,9 @@ pub struct RoomView {
     /// What shows it: `select` (song select, the host's or following) or
     /// `prompt` (a stage's start prompt).
     pub view: String,
+    /// How many watch with the room's audience and whether it is open
+    /// (none where it has none or before it said).
+    pub audience: Option<(u32, bool)>,
     /// The phase (`lobby`, `preparing`, `countdown`, `stage`, …).
     pub phase: String,
     /// The revision of the room the screen shows.
@@ -1953,6 +1956,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         locked: r.locked_rules().is_some(),
         ready: r.ready(),
         countdown: seconds_left(&r),
+        audience: r.audience(),
         status: status(&r).into(),
         refusal: r.refusal().map(|f| format!("{f:?}")),
         history: s.history.len(),

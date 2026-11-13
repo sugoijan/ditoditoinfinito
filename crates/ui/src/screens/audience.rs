@@ -179,7 +179,11 @@ pub fn doc(a: &AudienceClient) -> PageDoc {
     let mut blocks = Vec::new();
     let state = a.state();
     match a.view() {
-        None => blocks.push(Block::Text(m::audience_joining().into())),
+        // Still joining: said so (a refusal says why below instead).
+        None if matches!(state, SeatState::Joining | SeatState::Reconnecting) => {
+            blocks.push(Block::Text(m::audience_joining().into()))
+        }
+        None => {}
         Some(v) => {
             blocks.push(Block::Subheading(UiText::data(&v.name).into()));
             if let Some(host) = &v.host {

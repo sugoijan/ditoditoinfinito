@@ -2852,6 +2852,18 @@ fn publish(h: &Host) {
                 .and_then(|j| js_sys::JSON::parse(&j).ok())
                 .unwrap_or(JsValue::NULL),
         );
+        // A room watched with its audience
+        // (`ddi_ui::screens::audience::AudienceView`: the seat, the count,
+        // frames, sockets, the music's delay).
+        set(
+            &o,
+            "audience",
+            st.audience
+                .as_ref()
+                .and_then(|r| serde_json::to_string(r).ok())
+                .and_then(|j| js_sys::JSON::parse(&j).ok())
+                .unwrap_or(JsValue::NULL),
+        );
         // A multiplayer stage's standings on its results
         // (`ddi_ui::screens::results::StageView`).
         set(
