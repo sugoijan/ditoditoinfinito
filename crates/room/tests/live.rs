@@ -870,9 +870,20 @@ fn one_attack_trace_gives_the_same_ledger_locally_and_through_the_room() {
         .unwrap()
         .stage_or_last()
         .expect("the stage played");
-    let room = stage.ledger().expect("a ledger").record().to_vec();
+    let ledger = stage.ledger().expect("a ledger");
+    let room = ledger.record().to_vec();
     assert_eq!(room.len(), local.len(), "every checkpoint ran");
     assert_eq!(room, local, "the same reports, the same ledger");
+    // `attacks-v2`: against one recipient, one section after another,
+    // never the same region, however many are placed.
+    assert_eq!(ledger.rules().id, "attacks-v2");
+    for a in ledger.attacks() {
+        for b in ledger.attacks() {
+            if a.id < b.id && a.recipient == b.recipient {
+                assert!(b.cells[0].at_us >= a.clear_us, "{a:?} {b:?}");
+            }
+        }
+    }
     drop(server);
     // Every device read the same checkpoints and the commitments.
     for p in &r.players {
