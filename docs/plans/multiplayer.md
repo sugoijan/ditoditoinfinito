@@ -56,6 +56,15 @@ knockdown format is a separate alternative. These are research proposals, not
 changes to the standard preset or compensation for late entry; no adaptive
 formula or implementation has been selected.
 
+2026-11-13: a simple, non-adaptive rule is built instead, as a match rule:
+**At zero life: Out / Step down** (`step-down-v0`,
+`docs/plans/multiplayer-prototype-progress.md`, "Step down"). It reacts only
+to life reaching zero: the competitor plays the song's next easier chart
+from a bar line past their reading horizon, with half their life back, and
+places below everyone who stayed on the stage's chart; on the easiest chart
+zero life is out. Nothing guesses skill and nobody steps back up. The
+adaptive ladder above stays research.
+
 The working preset is **mines with accuracy-based weakening**. Keep **mines with
 play-through** as a named comparison preset with otherwise identical rules.
 Neither is a validated public default. There is no manual attack button or manual

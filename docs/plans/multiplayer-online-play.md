@@ -200,6 +200,16 @@ live.
 A typical 2-minute chart's plan is about 25 KB as JSON; the bounds keep any
 plan under the WebSocket's 1 MiB message limit.
 
+Since 2026-11-13 (the match rule "At zero life: Step down",
+`docs/plans/multiplayer-prototype-progress.md`, "Step down"), a stage whose
+zero life steps down has a plan that names its ladder (`ladder`: each
+rung's chart digest, the next easier first; in the digest only where it is
+not empty, so a plan without it keeps its digest) and whose sections are
+placed over the stage's chart and every rung at once. A run reports its
+steps (`ReportedRun::Live::steps`, additive), the room ranks fewer steps
+first among those still in, and `RoomPolicy::step_down` says the room
+honors the rule (no client offers it where the policy does not).
+
 ## The play stream
 
 ### A moment
@@ -211,7 +221,7 @@ What a field needs to draw a competitor's play without judging it again
 | --- | --- |
 | `at_ms` | when it was judged, song ms |
 | `tick`, `lane` | which note of the chart (or which battle shock); 0 where there is none |
-| `kind` | `tap` (its tier, the engine's `Judgement::index`, the best first and a miss last; its offset in ms, negative early, for the early/late word; `w0` under DDI), `hold_end` (ok or dropped: a hold's state), `mine` (a chart's mine), `shock` (a battle shock stepped on: the view locks the lane for the rules' lock time from it), `boo` (a counted stray press), `refused` (an attack's shocks the device refused, with the attack's id) |
+| `kind` | `tap` (its tier, the engine's `Judgement::index`, the best first and a miss last; its offset in ms, negative early, for the early/late word; `w0` under DDI), `hold_end` (ok or dropped: a hold's state), `mine` (a chart's mine), `shock` (a battle shock stepped on: the view locks the lane for the rules' lock time from it), `boo` (a counted stray press), `refused` (an attack's shocks the device refused, with the attack's id), `step_down` (2026-11-13: the competitor's life ran out and they stepped down to rung `rung` of the stage's ladder; `at_ms` the zero, `tick` the boundary, life what was given back; on the wire a refusal's kind with its flag, the rung counted down from `u32::MAX` in the attack's place, so an older reader takes nothing off) |
 | `life_ppm`, `combo`, `score` | the HUD's numbers after it (score: DDI's sum, as the room shows it) |
 
 Humans play the full chart, so a remote competitor's field is drawn from

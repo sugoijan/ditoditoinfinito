@@ -5473,10 +5473,285 @@ real server's latency.
 5. Reload profile B mid-stage: the audience's page, then the stage again
    from where it stands after one press on the prompt's Start.
 
+## Step down: an easier chart instead of going out (2026-11-13)
+
+The maintainer (2026-11-12) remembered a planned "dynamic difficulty mode
+where instead of knocking out players they'd be 'downgraded' to an easier
+chart of the same song". The adaptive ladder in `docs/plans/multiplayer.md`
+stays research; this round builds the simple version proposed to them: a
+match rule, **At zero life: Out** (as before, the default) **or Step
+down**. It reacts only to life reaching zero, so nothing guesses anyone's
+skill, and a step down costs standing.
+
+### The rule as built (`step-down-v0`, PROVISIONAL)
+
+- **The ladder** (`ddi_engine::ladder::ladder`): the song's charts that are
+  originals (no `derivation`), in the stage chart's style, with notes, on
+  the same timing as the stage chart (the boundary and the breather are
+  measured on one timing; a chart with split timing of its own is no
+  rung), and easier. Below a slotted chart (Beginner to Challenge): the
+  charts of lower slots, the nearest slot first, a slot's charts by meter
+  from the highest, then by their place in the song; Edits are never
+  rungs of a slotted chart. Below an Edit: the slotted charts of a lower
+  meter, by slot from the highest, then meter. The ladder is cut at the
+  first rung the CPUs cannot plan (`ddi_engine::cpu::planned_ladder`), so
+  everyone has the same. A song with no easier chart has no ladder: the
+  rule changes nothing there, and the Rules pop-up says so under its row
+  when the song the picker rests on has none (as the song list has it).
+- **At zero life with a rung below** (`Player::add_rung`, `STEP_DOWN_V0`):
+  life is given back to **half** (DDI's 50 of 100); the old chart's notes
+  not judged by then are taken away unjudged at once (an active hold too:
+  neither kept nor let go; `NoteState::Removed`, never drawn); the
+  **boundary** is the first bar line (every four beats; time signatures
+  are not read) at least the player's **reading horizon plus one second**
+  past the zero; until it, a **breather**: nothing of a chart is judged,
+  a stray press counts for nothing, and life cannot drop below **one
+  point** (a battle's shocks are still judged in it). From the boundary
+  the next rung's notes are theirs. On Beatucada's Hard at the default
+  speed the breather is about five to eight seconds.
+- **On the lowest rung** zero life is out, as before.
+- **Standing** (`ddi_room::battle::rank`, additive `Run::Live::steps`):
+  those still in before those out; among those in, **fewer steps first**,
+  then life, then the score; those out by when they went out. The early
+  decision (one left in) and the attacks' settlement read "in" as before:
+  a stepped-down competitor is in.
+- **The score**: each stretch counts against what it was shown (the old
+  chart's notes judged before the zero, the new chart's from the
+  boundary: `ScoreRules::restep`); for comparing and the standings it is
+  put on the stage chart's scale as a CPU's is (`CPU_SCORE_V0`'s way).
+  The standings mark the chart a competitor finished on ("↓ Medium", the
+  chart's name as the song list names it; `RunDetail::chart`, additive).
+- **Attacks**: the battle plan's sections are placed over the stage's
+  chart and its ladder at once (`ddi_engine::ladder::merged`: every
+  lane's notes of every rung together), so one plan holds for everyone
+  and a commitment needs nothing new. What it costs is measured below.
+- **CPUs** step down by the same rule: each rung planned once for the
+  stage, each CPU scripted on it at its own level relative to that rung
+  (`Opponent::add_rungs`), its response to shocks made again on the new
+  script; a CPU with a ladder judges each edge's time before feeding it,
+  so a step is found where its life ran out whatever the frames.
+- **The cue**: "Stepping down: Medium" in the status line
+  (`StageCue::StepDown`; no announcer line exists). The field's old notes
+  vanish, the new chart's scroll in from the boundary; reduced motion
+  changes nothing here (nothing moves but the notes).
+- **The hand** plays the new chart from the boundary
+  (`RuntimePreview::step_down`): the notes its planner was not given yet
+  are the new chart's; those it was given already stay (it is an
+  autoplay, never judged).
+- **Not in solo play.** Stage plays are not kept in the history; nothing
+  stored changes. The rule is locked for a match like the others.
+
+### How a play changes chart, and why that way
+
+One player, one judge: at the step the `Judge` is rebuilt
+(`Judge::step_down`) with every note it had (those taken away marked
+`Removed`, not judgeable) and the new chart's notes from the boundary
+appended after them, the buttons, the judging clock and the locks kept.
+Notes keep their indices (nothing that reads a play by note index sees
+them move), and every reader of a play (frames, events, results, a
+battle's feed, the hand, a replay) reads one `Player` as before. A
+second player started at the boundary would have needed every reader to
+join two. Exactness: the step is made while the event that emptied life
+is applied; events of the old chart judged past it in the same update
+are dropped and their notes taken away too, and a lane lock one of them
+set is put back (`Judge::locks`), so what is judged does not depend on
+how time is cut into frames. Tested at 60 and 144 frames a second and
+from the log alone, the player's and the CPUs'
+(`crates/engine/tests/step_down.rs`, the opponent's tests, the session's
+`play/tests/stage/step_down.rs`). One residual: a battle shock judged in
+the same update right after the step, in a lane a chart mine of the old
+chart locked in that same update, sees the lock (shocks are placed clear
+of the lane's notes, so this needs a mine and a shock within a frame of
+each other).
+
+A play without a ladder is the play it was: no rung, no step; the
+engine's and the session's fixtures are unchanged, and a stage under
+Step down on a song with no easier chart gives the Out rule's results
+exactly (tested).
+
+### Practice
+
+The room's Rules pop-up has the row **At zero life: Out / Step down**
+with its sentence under it (brightening while focused), marked during a
+running match as the other rows; Reset gives Out; the rules' summary
+names it only when it is Step down ("DDI · Step down"). The match rule
+is `MatchRules::at_zero` (additive, left out of the JSON at Out, read as
+Out where missing); `RoomPolicy::step_down` says the authority honors it
+(true for every room this build makes, false where missing, so an older
+server is never offered it). The player's and the CPUs' plays step down
+the ladder; their miniatures and the spectator's grid draw the chart each
+is on (`FieldFeed::step_down`, a `MomentKind::StepDown` moment with the
+life given back); the ranking and the standings follow the rule above.
+
+### Online (the live contract, additive)
+
+- The battle plan names the ladder: `BattlePlan::ladder`, each rung's
+  chart digest, in the plan's digest only where it is not empty (a plan
+  without it keeps its digest). Every device computes its own plan, so a
+  device whose charts differ disagrees on the digest and sits the stage
+  out, as for the stage's chart.
+- A stream says each step: `live::MomentKind::StepDown { rung }`, its
+  time the zero, its tick the boundary, its life what was given back. On
+  the wire it is a refusal's kind with its flag (unused before), the rung
+  counted down from `u32::MAX` in the attack's place (`wire::STEP_DOWN_ATTACK`):
+  a reader that predates it reads the refusal of an attack no stage has
+  and takes nothing off. The others' fields follow it.
+- The run reports its steps (`ReportedRun::Live::steps`); the room's live
+  stage counts the steps each stream said (`LiveStage::steps`) and its
+  own ranking reads them.
+- Offered online only where the room plays live and its authority says
+  `step_down` (`RoomClient::step_down_offered`); elsewhere the row reads
+  "Out · not in online rooms yet".
+- What a deploy changes: the server built against this crate makes rooms
+  whose policy says `step_down`, ranks by reported and streamed steps,
+  and takes plans with a ladder. Before a deploy the deployed server's
+  policy says nothing, so no client offers the rule there. An older
+  client in a newer room: it cannot choose the rule; if another member
+  sets it, the older client plays its stages without a ladder (its play
+  goes out at zero), reads others' step moments as nothing, and its plan
+  digest differs where the stage has a ladder, so it sits such stages
+  out. The server repository needed only the new field in three places
+  (`ReportedRun::Live { steps }`).
+- Tested over `FakeServer` with two people (`play/tests/stage/live.rs`,
+  `a_live_stage_steps_down_and_the_others_fields_follow`): the same plan
+  on both devices with the ladder named, Bob stepping down, Alice's view
+  of his field following each step at its boundary, the room counting his
+  steps and ranking Alice first.
+
+### Measured
+
+`cargo test --release -p ddi-session --lib step_down_study -- --ignored
+--nocapture` (`crates/session/src/battle/step_study.rs`); the local
+corpus is the thirteen arcade mixes of the maintainer's library read in
+place (`DDI_STEP_CORPUS`, one simfile a song folder), aggregates only.
+Stages: ten CPUs, one at each level, attacks on, on every Hard and
+Challenge chart with a ladder, two seeds, each under Out and Step down.
+MEASUREMENTS OF CPUS AGAINST CPUS.
+
+Ladders (996 songs, 970 with a ladder; single charts by the stage
+chart's slot):
+
+| Stage chart | Charts | Ladder 0 / 1 / 2 / 3 / 4+ | Mean | Plan's sections kept when merged |
+| --- | --- | --- | --- | --- |
+| Beginner | 913 | 913 / 0 / 0 / 0 / 0 | 0.00 | — |
+| Easy | 970 | 58 / 912 / 0 / 0 / 0 | 0.94 | 100.0% |
+| Medium | 970 | 23 / 58 / 889 / 0 / 0 | 1.89 | 99.9% |
+| Hard | 970 | 1 / 23 / 58 / 888 / 0 | 2.89 | 98.2% |
+| Challenge | 324 | 28 / 0 / 12 / 3 / 281 | 3.57 | 82.5% |
+
+The bundled songs: 4 of 4 with a ladder; merging keeps every section
+(a few more slots where an easier chart ends later). Placing the plan
+over every rung at once costs little below Challenge and about a sixth of
+the sections on Challenge, so sections per rung were not built.
+
+By level (2,530 stages a rule), DDI Normal:
+
+| Level | Out: out % | place | Step down: out % | stepped % | mean steps | place |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 96.9 | 9.51 | 4.1 | 96.0 | 1.90 | 9.73 |
+| 2 | 81.0 | 8.97 | 2.2 | 76.2 | 1.23 | 8.80 |
+| 3 | 62.4 | 7.75 | 1.0 | 54.9 | 0.74 | 7.87 |
+| 4 | 43.4 | 7.03 | 0.5 | 35.5 | 0.42 | 6.97 |
+| 5 | 20.6 | 6.14 | 0.0 | 11.5 | 0.12 | 6.13 |
+| 6 | 4.3 | 4.95 | 0.0 | 1.7 | 0.02 | 4.96 |
+| 7 | 3.3 | 4.25 | 0.0 | 1.5 | 0.02 | 4.23 |
+| 8 | 0.1 | 3.06 | 0.0 | 0.1 | 0.00 | 3.05 |
+| 9 | 0.0 | 2.24 | 0.0 | 0.0 | 0.00 | 2.18 |
+| 10 | 0.0 | 1.09 | 0.0 | 0.0 | 0.00 | 1.07 |
+
+DDI Hard:
+
+| Level | Out: out % | place | Step down: out % | stepped % | mean steps | place |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 100.0 | 9.68 | 79.5 | 100.0 | 3.09 | 9.82 |
+| 2 | 99.8 | 8.60 | 38.3 | 99.8 | 2.81 | 8.54 |
+| 3 | 99.8 | 8.40 | 30.3 | 99.8 | 2.72 | 8.18 |
+| 4 | 97.0 | 6.81 | 8.4 | 95.4 | 2.12 | 6.97 |
+| 5 | 86.4 | 5.68 | 2.6 | 77.4 | 1.36 | 6.16 |
+| 6 | 57.2 | 4.75 | 0.5 | 39.3 | 0.45 | 4.68 |
+| 7 | 55.3 | 4.49 | 0.5 | 35.9 | 0.41 | 4.28 |
+| 8 | 13.5 | 3.01 | 0.0 | 6.9 | 0.07 | 3.05 |
+| 9 | 10.9 | 2.34 | 0.0 | 5.1 | 0.05 | 2.25 |
+| 10 | 0.9 | 1.15 | 0.0 | 0.4 | 0.00 | 1.07 |
+
+What it says: under Normal, Step down keeps nearly everyone in to the
+song's end (the weakest out 4% instead of 97%), mostly one or two rungs
+down; under Hard the weakest still go out on the lowest rung four times
+in five. The stage's order barely moves (mean places within half a place
+of Out's): those who step down rank below everyone who stayed, as the
+rule intends, so it changes who plays to the end, not who wins.
+
+What 72 CPUs cost (`step_down_cost_of_72_cpus`, the release profile, one
+stage of 72 CPUs on Beatucada's Hard with its three rungs): the ladder
+planned once in under a millisecond; the stage loaded in 103 ms against
+57 ms under Out (each CPU scripted on every rung when the stage loads);
+the whole stage then played out in 53 ms against 39 ms, 14 of the 72
+stepping down. Planning every rung at the load is cheap enough that
+nothing is planned lazily.
+
+### Tested
+
+- Engine: `crates/engine/tests/step_down.rs` (the ladder's order; two
+  steps the same at 60 and 144 fps and from the log; nothing judged in a
+  breather; half the life back; the floor; without a ladder exactly as
+  before, its results' JSON without `steps`), `ladder.rs`'s unit tests
+  (the boundary, the merged chart), the opponent's (a CPU's steps the
+  same at any frame rate, without a ladder as before).
+- Room: the rule's JSON and the policy's, the ranking by steps and the
+  wire of a reported run, the plan's ladder in its digest, the step
+  moment on the wire and as an older reader reads it.
+- Session: `play/tests/stage/step_down.rs` (the player and the CPUs step
+  down alike at 60 and 144 fps, the cue once a step, the fields'
+  steps, the details' chart; a field draws the chart its player is on;
+  fewer steps first; a song without a ladder plays as Out exactly) and
+  the live test above.
+- UI: the Rules row (Out first, its sentences, Apply, the summary, Reset
+  to Out, fixed where the authority cannot honor it), the standings'
+  mark; the `qps-ploc` walk; `xtask l10n check` (the Japanese faces cut
+  again for 脱).
+- Desktop offscreen: `crates/desktop/tests/step_down_offscreen.rs`
+  (practice on Beatucada's Hard, the player pressing nothing and three
+  one-star CPUs: the player steps down, the cue shows, only the new
+  chart's notes in the breather, a CPU's field steps, the standings mark
+  the player and at least one CPU). Pictures in
+  `target/scratch/mp/step/shots/` (`step-breather-cue`, `step-new-chart`,
+  `step-standings`).
+- Headless Chrome and Firefox (`target/scratch/mp/step/browsers.sh`,
+  `step.mjs`), 1280×720: the Rules row set to Step down, a stage picked
+  and played with nothing pressed: the ladder Medium, Easy, Beginner, the
+  player stepping down at 8.9, 15.9 and 23.3 s (boundaries 13.8, 19.7,
+  27.5 s) the same in both browsers, the cue drawn, the old notes gone
+  and the easier chart's coming in, out on Beginner at 0:36, the
+  standings marking "↓ Beginner"; no console errors. Screenshots in
+  `target/scratch/mp/step/shots/` (`rules-*`, `breather-*`, `new-chart-*`,
+  `out-*`, `standings-*`).
+
+### Not done in this round
+
+- An older client in a room that steps down plays without the ladder
+  and sits laddered stages out (above); nothing tells it why.
+- The assist clap and the mine sound are scheduled from the stage
+  chart's notes at the play's start: after a step they follow the old
+  chart's notes (the clap is off by default; the rooms' DDI has no clap).
+- The audience's seats draw a stepped field only where their device
+  computed the same ladder (it does when it loads the stage like a
+  member); not tested through a relay.
+- Time signatures are not read for the boundary's bar lines.
+- The dancing hand follows the new chart from the boundary, but in the
+  desktop offscreen test it stopped soon after the first step down
+  (`floor_penetration` in its preparation): it then hides, never
+  blocking play. Why the new notes' first contacts fail its checks is
+  not worked out.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `step-down-v0` (2026-11-13): life back to half at the zero; the boundary the first bar line (four beats) at least the reading horizon plus 1 s ahead; a breather until it with nothing of a chart judged, stray presses free and life kept at one point or more | `ddi_engine::ladder::STEP_DOWN_V0` | A player out of life plays on an easier chart after a few seconds' rest, with half a bar | The life given back; the breather's length; whether a player may ever step back up |
+| The ladder: the style's original charts of lower slots on the same timing, nearest slot first, by meter; never an Edit below a slotted chart; cut at the first rung the CPUs cannot plan | `ddi_engine::ladder::ladder`, `cpu::planned_ladder` | Hard steps to Medium, then Easy, then Beginner | How Edits and split-timing charts should take part |
+| Standing under Step down: fewer steps first, then life, then the score; a stepped run's score put on the stage chart's scale | `ddi_room::battle::rank`, `ddi_session::battle::Battle::on_stage_scale` | One step down places below everyone who stayed on the stage's chart | How a step down should rank (by steps first, or a points penalty) |
+| The battle plan placed over every rung at once | `ddi_engine::ladder::merged`, `ddi_ui::state::battle_plan::plan` | About 2% fewer attack sections on Hard, 17% fewer on Challenge | Whether to place sections per rung instead (the room then needs each competitor's rung) |
+| A step down on the live wire as a flagged refusal (`STEP_DOWN_ATTACK`) | `ddi_room::live::wire` | Older readers ignore it | Whether to version the wire instead when it next changes |
 | `audience-view-v0` (2026-11-13): an audience device plays the music and draws the fields 0.8 s behind the room's song time (fixed for a stage), the fields a little more where frames come later, within the audience's 2 s ceiling | `ddi_ui::state::audience::MUSIC_DELAY_V0` | A seat sees the stage about a second behind the players | The delay; whether to raise it after a stage that lagged |
 | `audience-view-v1` (2026-11-13, follows v0): the music's delay moved only at a stage's start, up by what the last stage's fields needed beyond it (their 90th percentile past 100 ms, rounded up to 50 ms, at most 1.6 s), down 0.2 s a stage to 0.8 s after good ones | `ddi_ui::state::audience::AUDIENCE_VIEW_V1` | After a laggy stage the next one is watched further behind, its fields in step with the sound; nothing heard changes within a stage | The numbers; whether a stage's own lag should be fixed within it |
 | The count shown to members between stages only (the status line of song select and the prompt), never over a play | `screens::room::status` | "· 132 watching" after the room's line | The audience plan's open question 3 |
@@ -5960,4 +6235,9 @@ real server's latency.
 - M8b: an attack stepped on whole costs about 80% of an ITG FA+ gauge
   (eight shocks, each the ruleset's miss, D1). Is that the intended
   weight, now that every attack is all eight (D4)?
-
+- Step down (2026-11-13): the life given back (half), the breather's
+  length (a bar past the reading horizon and a second: five to eight
+  seconds on Beatucada), whether a player may ever step back up, and how
+  a step down should rank (fewer steps first now) are the maintainer's
+  to decide. Measured: under Normal it keeps the weakest CPUs in to the
+  song's end without moving the stage's order much.
