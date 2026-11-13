@@ -200,36 +200,21 @@ impl RuntimePreview {
     }
 
     /// The play stepped down to an easier chart (a match's "At zero
-    /// life: Step down"): the hand's notes not given to its planner yet
-    /// are the play's from now on (the new chart's, from the boundary;
-    /// prepared as the first were, on `layout`). Notes the planner was
-    /// given already stay (an autoplay's, never judged); new ones it has
-    /// planned past are left out, so its rows stay in order.
-    pub fn step_down(&mut self, player: &ddi_engine::player::Player, layout: &str) {
-        let Some(lanes) = ddi_chart::Layout::builtin(layout) else {
-            return;
-        };
-        let after = self
-            .source
-            .get(..self.cursor)
-            .and_then(|s| s.last())
-            .map_or(f64::NEG_INFINITY, |n| self.timing.seconds_at(n.tick))
-            .max(self.known);
-        let incoming: Vec<ddi_chart::Note> = player
-            .judge()
-            .notes()
-            .iter()
-            .filter(|n| n.judgeable && n.state == ddi_engine::NoteState::Pending)
-            .map(|n| n.note.clone())
-            .collect();
-        let incoming = ddi_hand_plan::prepare_notes(&incoming, &lanes);
+    /// life: Step down"): the hand plays out the notes its planner was
+    /// given already (an autoplay's, never judged) and then rests to the
+    /// end of the stage, its planner told nothing more comes. It does not
+    /// play the new chart: given the new chart's notes from the boundary
+    /// (the step-down round's first way), its motion preparation failed
+    /// on the way to the first new contact now and then (`floor_penetration`
+    /// in the desktop's offscreen stage at eight frames a second, about
+    /// three runs in four; never at 60 or 120, nor at 8 in the shell's
+    /// test), and a failed hand hides for the rest of the play. Playing
+    /// the new chart as a fresh preparation from a rest is left for a
+    /// later round (`docs/plans/multiplayer-prototype-progress.md`, "Step
+    /// down", "Not done"). The planning cursor and every published
+    /// contact stay as they are.
+    pub fn step_down(&mut self) {
         self.source.truncate(self.cursor);
-        let timing = &self.timing;
-        self.source.extend(
-            incoming
-                .into_iter()
-                .filter(|n| timing.seconds_at(n.tick) > after + 1e-6),
-        );
     }
     pub fn duration(&self) -> f64 {
         self.duration
@@ -852,5 +837,94 @@ mod tests {
         );
         assert_eq!(r.starved_frames, 0);
         assert_eq!(r.resets, 0);
+    }
+
+    /// A stage's play stepping down its ladder (a match's "At zero life:
+    /// Step down"), nothing pressed, the hand beside it at 120 and at 8
+    /// frames a second (8 also on the real clock, as the desktop's
+    /// offscreen stage runs): it plays out what it was given, rests, and
+    /// is shown to the play's end, never failing.
+    #[test]
+    fn the_hand_plays_on_through_a_step_down() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs/beatucada");
+        let path = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|e| e == "ssc"))
+            .unwrap();
+        let song = ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc")
+            .unwrap();
+        let hard = song
+            .charts
+            .iter()
+            .position(|c| {
+                c.layout == "dance-single"
+                    && c.difficulty == ddi_chart::Difficulty::Hard
+                    && c.derivation.is_none()
+            })
+            .unwrap();
+        let real = std::time::Instant::now();
+        for (fps, read) in [(120., 0.0000005), (8., 0.0000005), (8., -1.)] {
+            let mut rules =
+                ddi_engine::rules::ddi::ruleset(&ddi_engine::rules::ddi::DdiOptions::default());
+            rules.fail = ddi_engine::FailPolicy::Immediate;
+            let mut player =
+                ddi_engine::player::Player::new(&song, hard, rules, Default::default());
+            for c in ddi_engine::ladder::ladder(&song, hard) {
+                player.add_rung(&song, c).unwrap();
+            }
+            let mut r = RuntimePreview::for_player(&player, "dance-single").unwrap();
+            player.start(0., 0.);
+            let ticks = Cell::new(0.);
+            let clock = || {
+                if read < 0. {
+                    return real.elapsed().as_secs_f64();
+                }
+                let t = ticks.get();
+                ticks.set(t + read);
+                t
+            };
+            // Readied before the play starts, as the prompt does.
+            for _ in 0..200_000 {
+                r.prepare(-1., &clock);
+                if r.available || r.failure().is_some() {
+                    break;
+                }
+            }
+            assert!(r.available, "{}", r.debug());
+            r.start_preloaded();
+            let mut steps = 0;
+            let mut given = None;
+            let end = player.song_end_time();
+            for frame in -(2. * fps) as i32..=(end * fps).ceil() as i32 {
+                let t = f64::from(frame) / fps;
+                if t >= 0. {
+                    player.update_at(t);
+                }
+                if player.steps().len() != steps {
+                    steps = player.steps().len();
+                    r.step_down();
+                    given.get_or_insert(r.source.len());
+                }
+                r.prepare(t - r.origin, &clock);
+                assert!(
+                    r.failure().is_none(),
+                    "{fps} {read} at {t} after {steps} steps ({:?}): {}",
+                    player.steps(),
+                    r.debug()
+                );
+                if t >= 0. {
+                    assert!(r.available, "at {t}: {}", r.debug());
+                }
+            }
+            assert!(steps >= 1, "it stepped down");
+            assert_eq!(r.starved_frames, 0);
+            // Given nothing past the first step: it rests to the end of the
+            // song, the player out on the lowest rung meanwhile.
+            assert_eq!(Some(r.source.len()), given);
+            assert!(player.gauge_failed_at().is_some());
+        }
     }
 }

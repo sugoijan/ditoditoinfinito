@@ -173,6 +173,7 @@ fn a_practice_stage_steps_down_the_player_and_a_cpu() {
     let (mut shot_breather, mut shot_new, mut shot_cpu) = (false, false, false);
     let mut cpu_stepped = false;
     let mut player_steps = 0;
+    let mut hand_seen = false;
     let read = |device: &wgpu::Device, queue: &wgpu::Queue| {
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
         gpu::read_rgba(device, queue, &texture)
@@ -232,6 +233,16 @@ fn a_practice_stage_steps_down_the_player_and_a_cpu() {
                 }
             }
         }
+        // The dancing hand plays out what it was given at the step and
+        // rests: it never stops (a stopped hand hides for the play).
+        if let Some(d) = host.hand_debug() {
+            hand_seen |= d["status"] == "active";
+            assert!(
+                d["runtime_error"].is_null(),
+                "the hand stopped at frame {frames}: {}",
+                d["runtime"]
+            );
+        }
         if frames % 16 == 0 {
             let _ = device.poll(wgpu::PollType::wait_indefinitely());
         }
@@ -245,6 +256,7 @@ fn a_practice_stage_steps_down_the_player_and_a_cpu() {
     assert!(seen_cue, "the status line said it");
     assert!(shot_breather && shot_new, "{shot_breather} {shot_new}");
     assert!(cpu_stepped, "a CPU stepped down");
+    assert!(hand_seen, "the dancing hand played beside the stage");
     // The standings mark who finished on which chart.
     ui.update(1.0);
     let view = env.state.borrow().stage.clone().expect("the standings");
