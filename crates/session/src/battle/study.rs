@@ -93,6 +93,8 @@ struct Seat {
     knocked_out: u32,
     out: u32,
     percent: f64,
+    /// Checkpoints its full bar waited (no one to attack, no safe section).
+    waited: u32,
 }
 
 impl Seat {
@@ -107,6 +109,7 @@ impl Seat {
         self.knocked_out += o.knocked_out;
         self.out += o.out;
         self.percent += o.percent;
+        self.waited += o.waited;
     }
 }
 
@@ -228,6 +231,7 @@ fn stage(
                 knocked_out,
                 out: u32::from(out_at.is_some()),
                 percent: accuracy(&s.opponent.score()),
+                waited: stats.waited_no_eligible + stats.waited_no_safe_section,
             }
         })
         .collect()
@@ -262,7 +266,8 @@ fn attack_rates() {
         println!(
             "{name:<22} bars/min {:5.2} | launched/seat {:5.2} /min {:5.2} | received/seat {:5.2} | \
              a received attack: stepped {:4.2} of 8, missed in locks {:4.2}, life {:5.1} | \
-             knocked out by one {:5.1}% of attacks | out {:5.1}% | percent {:5.1} | {stages} stages",
+             knocked out by one {:5.1}% of attacks | out {:5.1}% | percent {:5.1} | \
+             waited/seat {:5.2} | {stages} stages",
             s.earned / 100.0 / s.minutes.max(1e-9),
             f64::from(s.launched) / n,
             f64::from(s.launched) / s.minutes.max(1e-9),
@@ -273,6 +278,7 @@ fn attack_rates() {
             100.0 * f64::from(s.knocked_out) / received,
             100.0 * f64::from(s.out) / n,
             100.0 * s.percent / n,
+            f64::from(s.waited) / n,
         );
     };
     let only_evasion = std::env::var("DDI_ATTACK_ONLY").is_ok_and(|v| v == "evasion");
@@ -316,8 +322,9 @@ fn attack_rates() {
         }
         line("mixed, everyone", d, &total, stages);
         println!(
-            "  a mixed stage: {:.1} attacks launched",
-            f64::from(total.launched) / f64::from(stages.max(1))
+            "  a mixed stage: {:.1} attacks launched, {:.1} checkpoints waited",
+            f64::from(total.launched) / f64::from(stages.max(1)),
+            f64::from(total.waited) / f64::from(stages.max(1))
         );
     }
     // By Evasion: eight CPUs of one level, all at one Evasion.
@@ -360,12 +367,14 @@ fn attack_rates() {
             }
         }
         println!(
-            "{:?} {} ({} notes): {:.1} attacks a stage, {:.2} launched a minute a seat in",
+            "{:?} {} ({} notes): {:.1} attacks a stage, {:.2} launched a minute a seat in, \
+             {:.1} checkpoints waited a stage",
             c.difficulty,
             c.meter,
             c.notes.len(),
             f64::from(total.launched) / seeds as f64,
             f64::from(total.launched) / total.minutes.max(1e-9),
+            f64::from(total.waited) / seeds as f64,
         );
     }
 }

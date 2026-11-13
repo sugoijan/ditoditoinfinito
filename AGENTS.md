@@ -657,7 +657,8 @@ Rust and the browser are implementation details, not advertised features.
   a checkpoint once every competitor still in is judged past it, so the
   same at any frame rate and from a play's log; the chart's sections
   from the engine's placement, each competitor's lead from the player's
-  reading horizon; commitments delivered by `Battle` (into the play,
+  reading horizon plus an online room's network lead
+  (`battle::practice_lead_us`); commitments delivered by `Battle` (into the play,
   a CPU's and its field), the stage settled by `SETTLEMENT_V0`, the CPUs
   and their attacks played out once the player is gone,
   `Battle::play_out`; an extreme slow speed raised on such a stage,

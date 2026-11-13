@@ -10,7 +10,8 @@
 //!
 //! The chart's sections with room for shocks come from the engine's
 //! placement (`ddi_engine::battle::schedule`, one for everyone), each
-//! competitor's lead from its reading horizon ([`LEAD_V0`]). What the
+//! competitor's lead from its reading horizon ([`LEAD_V0`] and the
+//! network's lead an online room adds, `crate::battle::practice_lead_us`). What the
 //! checkpoints commit, the stage delivers (`crate::battle::Battle`).
 //!
 //! Behind a development switch ([`BattlePreset::GaugeAttacksV0`]).

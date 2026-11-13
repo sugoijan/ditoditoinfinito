@@ -49,7 +49,7 @@ use ddi_engine::player::Player;
 use ddi_engine::rules::{Ruleset, ScoreView};
 use ddi_l10n::msg::room as m;
 use ddi_library::announcer::{Battle as Event, SURVIVOR_MILESTONES};
-use ddi_room::attacks::{AttackEvent, LEAD_V0, RosterSeat, SETTLEMENT_V0, Settling, StageRoster};
+use ddi_room::attacks::{AttackEvent, RosterSeat, SETTLEMENT_V0, Settling, StageRoster};
 pub use ddi_room::attacks::{BlockReason, Targeting};
 use ddi_room::battle::decided;
 use ddi_room::{Absolute, BattlePreset, Entrant, Finisher, ParticipantId, Run, RunDetail, StageId};
@@ -163,7 +163,7 @@ pub fn stage_ruleset(rules: &StageRules) -> Ruleset {
 }
 
 /// A stage's scroll speed raised so that its player's lead fits under
-/// [`LEAD_V0`]'s cap (D5: an extreme slow setting would read further ahead
+/// [`ddi_room::attacks::LEAD_V0`]'s cap (D5: an extreme slow setting would read further ahead
 /// than an attack may wait): the speed `options` play chart `chart` of
 /// `song` at, multiplied until the longest a note is shown before it is
 /// judged leaves room for the warning and the delay; `None` where it fits
@@ -414,6 +414,22 @@ pub const CPU_HORIZON: &str = "local-player-horizon-v0";
 /// The horizon a stage left at its prompt reckons CPUs' leads from (no
 /// play to read it from), seconds.
 pub const FORFEIT_HORIZON: f64 = 2.0;
+
+/// The live rules whose lead a practice stage's attacks keep: those a room
+/// plays live by today (`ddi_room::live::LIVE_V2`, its network's lead
+/// `live-v1`'s 1.25 s).
+pub const PRACTICE_LEAD: ddi_room::live::LiveRules = ddi_room::live::LIVE_V2;
+
+/// How soon after its checkpoint an attack may land on a practice
+/// stage's target reading `horizon_us` ahead (µs): an online room's lead
+/// ([`ddi_room::live::LiveRules::lead_us`]: `LEAD_V0` from the horizon
+/// and the network's lead), so that practice's attacks land when online's
+/// do (the maintainer, 2026-11-13: "Practice should behave similar to how
+/// online works, so that practice is more meaningful"). The player's and
+/// the CPUs' alike.
+pub fn practice_lead_us(horizon_us: i64) -> i64 {
+    PRACTICE_LEAD.lead_us(horizon_us)
+}
 
 struct Seat {
     seat: CpuSeat,
@@ -672,7 +688,7 @@ impl Battle {
             .collect::<Result<Vec<_>, String>>()?;
         let live = seats.len() + usize::from(!setup.watching) + usize::from(setup.others);
         let attacks = (setup.battle.attacks() && !setup.remote()).then(|| {
-            let lead = LEAD_V0.of(attacks::micros(horizon));
+            let lead = practice_lead_us(attacks::micros(horizon));
             let roster = StageRoster {
                 // A watcher has no seat: neither a sender nor a target.
                 seats: (!setup.watching)
@@ -2802,6 +2818,6 @@ mod tests {
         r.scroll.speed = raised;
         let timing = song.charts[4].timing(&song);
         let h = ddi_engine::battle::reading_horizon(&r, timing, 0.0, 60.0);
-        assert!(h <= LEAD_V0.horizon_cap_us() as f64 / 1e6, "{h}");
+        assert!(h <= ddi_room::attacks::LEAD_V0.horizon_cap_us() as f64 / 1e6, "{h}");
     }
 }

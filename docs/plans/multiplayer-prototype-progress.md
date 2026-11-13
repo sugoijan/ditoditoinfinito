@@ -6262,6 +6262,40 @@ told to update.
   (the model), `an_authority_ahead_refuses_an_older_client_between_stages`
   (the client, its invite page and its link), and the server's
   `a_ticket_for_an_older_room_model_is_refused_between_stages`.
+## The maintainer's answers of 2026-11-13, client side (round B2)
+
+### Practice's attacks land when online's do
+
+The maintainer: "Practice should behave similar to how online works, so
+that practice is more meaningful." Online, an attack's section may start
+no sooner than `LEAD_V0.of(horizon)` plus the network's lead (1.25 s,
+`LiveRules::network_lead_us`) after its checkpoint; practice used
+`LEAD_V0` alone, so its shocks came about 1.25 s sooner. Practice now
+reads the same lead (`ddi_session::battle::practice_lead_us`, from
+`PRACTICE_LEAD`, the live rules a room is made with, `LIVE_V2`, whose
+network lead is `live-v1`'s 1.25 s, unchanged), for the player and the
+CPUs alike. The attack-rate study (`attack_rates`, its six charts, four
+seeds; it now also counts the checkpoints a full bar waited, for no one
+to attack or no safe section), before and after:
+
+| DDI Normal, eight CPUs at one level | launched a seat a stage | life a received attack | out | checkpoints waited a seat |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.88 → 0.87 | 32.8 → 34.0 | 62.0% → 64.6% | 0.00 → 0.06 |
+| 3 | 2.07 → 2.06 | 31.7 → 32.0 | 37.0% → 37.0% | 0.30 → 0.46 |
+| 5 | 3.57 → 3.59 | 29.0 → 28.9 | 15.6% → 12.5% | 0.34 → 0.37 |
+| 7 | 5.01 → 4.96 | 21.3 → 22.4 | 3.6% → 4.2% | 0.90 → 1.20 |
+| 10 | 6.33 → 6.30 | 3.3 → 3.3 | 0% → 0% | 1.36 → 1.54 |
+
+A mixed field (levels 1, 2, 3, 4, 5, 6, 8 and 10): 26.2 → 25.7 attacks
+a stage under Normal, 36.5 → 36.0 under Easy, 15.0 → 15.2 under Hard;
+the checkpoints a full bar waited, a stage, 4.5 → 6.6 (Normal), 10.2 →
+13.1 (Easy), 2.0 → 4.2 (Hard). By chart (Normal, mixed): Beatucada
+Medium 15.8 → 15.8, its Hard 19.2 → 19.2, Sweeteners Hard 24.5 → 25.8,
+Into My Dream 24.2 → 24.2, Some Things Must Hard 36.5 → 33.8, its
+Challenge 40.0 → 37.5. So about as many attacks, a little more waiting
+(a section 1.25 s further on is more often taken or past the chart's
+room), the same damage: the lead moves when a stage's shocks land, not
+how many there are.
 
 ## Provisional choices
 
