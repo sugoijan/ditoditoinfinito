@@ -150,7 +150,7 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   player out of a stage watches it on from their own dimmed field and
   can skip to the results, and leaving a stage's play forfeits it and
   comes to the same view.
-  Provisional choices and open questions listed. Step down (2026-11-13): the match rule At zero life: Out / Step down, an easier chart of the song from a bar ahead instead of going out, in practice and live rooms, measured. Attacks, version 2 (2026-11-13): an attack over once placed, attacks chained without limit one safe section after another (`attacks-v2`), "Last standing" before "Stage won" (`settlement-v1`), the warning counting those placed behind, the pile-ups measured and a limit proposed.
+  Provisional choices and open questions listed. Step down (2026-11-13): the match rule At zero life: Out / Step down, an easier chart of the song from a bar ahead instead of going out, in practice and live rooms, measured. Adaptive charts (2026-11-13, replacing it): the match rule Charts: As picked / Adaptive, steps down at zero life and up after four clean bars (above the picked chart too), a stage ranked by the score as earned, in practice and live rooms, measured. Attacks, version 2 (2026-11-13): an attack over once placed, attacks chained without limit one safe section after another (`attacks-v2`), "Last standing" before "Stage won" (`settlement-v1`), the warning counting those placed behind, the pile-ups measured and a limit proposed.
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two
   flows while the original design lane continues. Separates selected constraints,

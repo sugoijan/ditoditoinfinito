@@ -54,14 +54,19 @@ Rust and the browser are implementation details, not advertised features.
   `PlayLog::policies`, `Player::set_policy_at`: a number of the
   battle's own, nothing judged by it;
   `reading_horizon`, how long a play's notes are shown before they are
-  judged); a match's "At zero life: Step down" (`ladder.rs`,
-  `STEP_DOWN_V0`: a song's ladder of easier charts, `ladder::ladder`; a
-  play changes chart at zero life, `Player::add_rung`, `Player::steps`:
-  the old chart's notes not judged taken away, `NoteState::Removed`,
-  `Judge::step_down`, the next rung's from a bar line past the reading
-  horizon and a second, half the life back, a breather with a floor;
-  the plan over every rung, `ladder::merged`; a CPU's rungs,
-  `cpu::planned_ladder`, `Opponent::add_rungs`); a CPU opponent's ten levels (`cpu/levels.rs`,
+  judged); a match's "Charts: Adaptive" (`ladder.rs`, `ADAPTIVE_V0`:
+  a song's ladder of easier and harder charts, `ladder::Ladder`,
+  `below`, `above`, its rungs numbered from 1, the easier then the
+  harder, 0 the stage's; a play changes chart, `Player::add_rung`,
+  `add_rung_up`, `Player::steps`: down at zero life, the old chart's
+  notes not judged taken away, `NoteState::Removed`, `Judge::step_down`,
+  the next rung's from a bar line past the reading horizon and a second,
+  half the life back, a breather with a floor; up after four bars of full
+  life with no miss, eight back to a rung whose life ran out, the old
+  chart played to the boundary, `Judge::step_up`, decided at bar lines
+  judged to first, `Player::judge_to_bars`; the plan over every rung,
+  `ladder::merged`; a CPU's rungs, `cpu::planned_ladder`,
+  `Opponent::add_rungs`); a CPU opponent's ten levels (`cpu/levels.rs`,
   `CPU_LEVELS_V0`, `docs/plans/cpu-player.md`: levels 6 to 10 the solo
   CPU's five frozen strengths, pressing exactly as before, 1 to 5 weaker
   by a lower strength and a lapse, the chance a note is left out where
@@ -1068,7 +1073,7 @@ Rust and the browser are implementation details, not advertised features.
   knockout by one of them a shared first; trace tests in
   `attacks/tests.rs`).
   A running match's per-stage rules (`rules::PlayRules`: Timing
-  difficulty, Boos, Attacks, At zero life, and Points, `PlayRules::points`,
+  difficulty, Boos, Attacks, Charts, and Points, `PlayRules::points`,
   `None` for the match's own, `Match::play_rules_of`, each stage awarded
   by its own rules' bias where `RoomPolicy::stage_points` says the
   authority honors it; never the stages, seats, CPUs or ruleset) changed
@@ -1138,9 +1143,13 @@ Rust and the browser are implementation details, not advertised features.
   mirror holds the same state; `advance(now)` runs the readiness deadline
   and the countdown. The phase machine is multiplayer-ui.md's State model;
   participation is derived (`RoomState::participation`), never stored.
-  The match's "At zero life" rule (`MatchRules::at_zero`, `AtZero`;
-  `RoomPolicy::step_down`; runs ranked by their steps, `Run::Live::steps`;
-  a stream's `live::MomentKind::StepDown`, a plan's `ladder`).
+  The match's Charts rule (`MatchRules::charts`, `Charts`: As picked or
+  Adaptive, read from the "At zero life" rule before it, `at_zero`;
+  `RoomPolicy::adaptive`; a stage under Adaptive ranks those still in by
+  the score as earned, life the tie-break, `RankBy::Score`,
+  `Charts::rank_by`, `battle::rank`'s argument, never by steps,
+  `Run::Live::steps` kept for the record; a stream's
+  `live::MomentKind::Step`, a plan's `ladder` naming every rung).
   Conflicting edits carry the base revision they were made against.
   The wire (`protocol.rs`): a versioned envelope (`v`, client id, `seq`,
   `base`; the authority answers ack/reject/events/snapshot with the room's

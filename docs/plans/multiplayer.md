@@ -65,6 +65,21 @@ places below everyone who stayed on the stage's chart; on the easiest chart
 zero life is out. Nothing guesses skill and nobody steps back up. The
 adaptive ladder above stays research.
 
+2026-11-13, later: that rule became **Charts: As picked / Adaptive**
+(`adaptive-v0`, provisional, `docs/plans/multiplayer-prototype-progress.md`,
+"Adaptive charts"), at the maintainer's word: stepping down as above, and
+stepping up, above the picked chart too, after four bars of full life with
+no miss and no shock stepped on (eight back to a rung whose life ran out);
+a stage ranks those still in by the score as earned (the absolute score
+grows with the notes played, so denser charts earn more), life only
+breaking a tie, never by steps. The three problems above, answered simply
+for v0: transitions at bar lines past the reading horizon; attack
+disruption not told apart from difficulty (a shock stepped on blocks a step
+up, zero life by shocks steps down); deliberate underperformance made
+pointless by the ranking rather than prevented (measured there). Still no
+score balancing (a per-rung factor at 1 is its named place) and no manual
+stepping.
+
 The working preset is **mines with accuracy-based weakening**. Keep **mines with
 play-through** as a named comparison preset with otherwise identical rules.
 Neither is a validated public default. There is no manual attack button or manual

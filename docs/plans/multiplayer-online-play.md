@@ -218,6 +218,18 @@ steps (`ReportedRun::Live::steps`, additive), the room ranks fewer steps
 first among those still in, and `RoomPolicy::step_down` says the room
 honors the rule (no client offers it where the policy does not).
 
+Since the same day's adaptive charts (`adaptive-v0`, the match rule
+"Charts: As picked / Adaptive", `docs/plans/multiplayer-prototype-progress.md`,
+"Adaptive charts"), `ladder` names every rung, the easier ones (the next
+first) then the harder ones (the next first), numbered from 1 in that
+order, and the sections are placed over all of them. Nothing on the wire is
+new for a rung above: a step moment names its rung, which the plan's
+ladder says is above or below the stage's chart, and rung 0 (the stage's
+chart again) encodes as any rung. Under Adaptive the room ranks those still
+in by the streamed and reported score (DDI's sum, as earned), life the
+tie-break, never the steps; `RoomPolicy::adaptive` says the room honors it.
+Peers must agree on all of it: `ddi_room::ROOM_MODEL_REVISION` is 3.
+
 ## The play stream
 
 ### A moment
@@ -229,7 +241,7 @@ What a field needs to draw a competitor's play without judging it again
 | --- | --- |
 | `at_ms` | when it was judged, song ms |
 | `tick`, `lane` | which note of the chart (or which battle shock); 0 where there is none |
-| `kind` | `tap` (its tier, the engine's `Judgement::index`, the best first and a miss last; its offset in ms, negative early, for the early/late word; `w0` under DDI), `hold_end` (ok or dropped: a hold's state), `mine` (a chart's mine), `shock` (a battle shock stepped on: the view locks the lane for the rules' lock time from it), `boo` (a counted stray press), `refused` (an attack's shocks the device refused, with the attack's id), `step_down` (2026-11-13: the competitor's life ran out and they stepped down to rung `rung` of the stage's ladder; `at_ms` the zero, `tick` the boundary, life what was given back; on the wire a refusal's kind with its flag, the rung counted down from `u32::MAX` in the attack's place, so an older reader takes nothing off) |
+| `kind` | `tap` (its tier, the engine's `Judgement::index`, the best first and a miss last; its offset in ms, negative early, for the early/late word; `w0` under DDI), `hold_end` (ok or dropped: a hold's state), `mine` (a chart's mine), `shock` (a battle shock stepped on: the view locks the lane for the rules' lock time from it), `boo` (a counted stray press), `refused` (an attack's shocks the device refused, with the attack's id), `step` (2026-11-13, `step_down` before adaptive charts: the competitor stepped to rung `rung` of the stage's ladder, down at zero life or up after full bars, 0 the stage's chart again; `at_ms` when it was decided, `tick` the boundary, life what it is then; on the wire a refusal's kind with its flag, the rung counted down from `u32::MAX` in the attack's place, so an older reader takes nothing off) |
 | `life_ppm`, `combo`, `score` | the HUD's numbers after it (score: DDI's sum, as the room shows it) |
 
 Humans play the full chart, so a remote competitor's field is drawn from

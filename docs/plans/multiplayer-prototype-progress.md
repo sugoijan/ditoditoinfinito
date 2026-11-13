@@ -5551,6 +5551,11 @@ real server's latency.
 
 ## Step down: an easier chart instead of going out (2026-11-13)
 
+(Superseded the same day by "Adaptive charts", below: the rule is now
+Charts: As picked / Adaptive, steps go up as well as down and a stage
+ranks by the score. What follows is kept as built then; where it differs,
+the next section says so.)
+
 The maintainer (2026-11-12) remembered a planned "dynamic difficulty mode
 where instead of knocking out players they'd be 'downgraded' to an easier
 chart of the same song". The adaptive ladder in `docs/plans/multiplayer.md`
@@ -5829,6 +5834,323 @@ nothing is planned lazily.
   notes alone. Playing the new chart as a fresh preparation from a rest
   (as a quick restart warms a fresh buffer) is left for a later round;
   the offscreen test now asserts the hand never stops.
+
+## Adaptive charts: down and up the song's ladder, ranked by the score (2026-11-13)
+
+The maintainer, on step down ranking below everyone who stayed: "The
+point of having the adaptive difficulty is to allow players of different
+skill levels compete meaningfully and not punish lower skills too much
+[…] harder charts naturally have a higher score potential, because of
+the absolute component" — and "We should support stepping back up. And
+not only 'back' up, but higher than the original chart." The match rule
+"At zero life: Out / Step down" became **Charts: As picked / Adaptive**,
+built as proposed (provisional, every value named).
+
+### The rule as built (`adaptive-v0`, PROVISIONAL)
+
+- **The match rule** (`ddi_room::Charts`, `MatchRules::charts`,
+  `PlayRules::charts`: per stage as the others, changeable from a later
+  stage): As picked (the default) or Adaptive. On the wire and in
+  storage the field is `charts` (`"adaptive"`), and the rule it replaces
+  is read as it: `at_zero` with `"step_down"` reads as Adaptive, `"out"`
+  as As picked (serde aliases, tested). The authority says it honors it
+  with `RoomPolicy::adaptive` (additive; `step_down`, still set, is read
+  by nobody); a client offers the row only where it says so. The
+  refusal is `RulesProblem::AdaptiveNotHonored` (read from
+  `step_down_not_honored`).
+- **The ladder** (`ddi_engine::ladder::Ladder`, `below`, `above`): every
+  original chart of the song in the stage chart's style on the same
+  timing, easier and harder. Below: as before (lower slots, nearest
+  first, a slot's charts by meter from the highest). Above, turned over:
+  higher slots, nearest first, a slot's charts by meter from the lowest,
+  then by place. Edits as before: never a rung of a slotted chart; an
+  Edit's rungs are the slotted charts of a lower meter below and of a
+  higher meter above. Generated versions are never rungs. Each way cut at
+  the first rung the CPUs cannot plan (`cpu::planned_ladder`). Rungs are
+  numbered from 1, the easier ones then the harder ones
+  (`Ladder::rungs`), 0 the stage's chart: the number a step, a stream's
+  moment and the battle plan's `ladder` (every rung's digest in that
+  order) share.
+- **Step down** as built (`step-down-v0`'s values in
+  `ADAPTIVE_V0`): at zero life with a rung below, half the life back,
+  the old chart's remaining notes taken away, the easier chart from the
+  first bar line at least the reading horizon plus a second ahead, a
+  breather until it; on the lowest rung zero life is out.
+- **Step up** (`Player::add_rung_up`, `Judge::step_up`): at a bar line
+  (every four beats; time signatures are not read), a competitor whose
+  life has been **full** for **four bars (16 beats)**, with **no miss, no
+  hold let go and no shock or mine stepped on** in them, counted from the
+  last step's boundary (`AdaptiveRule::up_bars`), moves to the next harder
+  rung. The boundary is the first bar line at least the reading horizon
+  plus a second past that bar line. Nothing is taken away before it: the
+  old chart is played up to the boundary, its notes from the boundary on
+  taken away (none can have been judged: they are past the reading
+  horizon). **A hold of the old chart crossing the boundary is played to
+  its end as the old chart's; the new chart's notes in its lane up to
+  that end are left out** (the simplest sound thing: no note is judged
+  twice and no lane carries two). Life is unchanged. On the top rung
+  nothing happens.
+- **Hysteresis**: stepping back up to a rung whose life ran out takes
+  **eight bars** (`AdaptiveRule::return_bars`), every time in the stage.
+- **A step down before a step up's boundary** (life emptied in the few
+  seconds between them) is made from the rung the player still plays:
+  the step up's notes are taken away with the rest, as anything not
+  judged is at a step down. The step up stays in the play's steps (its
+  moment was told), the step down after it says where they are.
+- **Deterministic**: the decision reads only the competitor's own life
+  and judgments, at bar lines: a play with a ladder is judged to each bar
+  line before it is decided (`Player::judge_to_bars`, in `update_at` and
+  before every edge in `input_at`), so the same inputs decide the same
+  steps at any frame rate and from the log. A play without a ladder never
+  runs this (As picked and a song with no other chart are today's play
+  exactly: the engine's and the session's fixtures are unchanged).
+- **The three research problems** (`docs/plans/multiplayer.md`, the
+  mixed-skill study), answered simply for v0: transitions are at bar
+  lines past the reading horizon; disruption by attacks is **not** told
+  apart from difficulty (a shock stepped on in the four bars blocks a
+  step up, and zero life by shocks steps down: accepted for v0);
+  deliberate underperformance is made pointless by the ranking, not
+  prevented (measured below).
+- **Standing (Adaptive only; As picked keeps life, then the score)**:
+  those still in before those out; among those still in **by the score
+  as earned** (DDI's sum: each stretch's notes against what it showed for
+  the proportional part, plus the absolute score, which grows with the
+  notes played, so a denser chart earns more), **life only breaking a
+  tie**, the steps never counted (`ddi_room::RankBy::Score`,
+  `Charts::rank_by`, `battle::rank`'s new argument; the room's reducer,
+  the live server and practice pass the stage's own). Those out by when
+  they went out. A person's score is their play's own sum, never put on
+  another scale (the step-down round's rescaling to the stage chart is
+  gone, live and in practice). A CPU's is put on the charts it played,
+  stretch by stretch (`ddi_session::battle::Scales`: each chart's whole
+  most in the share of its tap-only copy's notes it was shown; a CPU that
+  never stepped is on the stage chart's most as before). The per-rung
+  score factor (`AdaptiveRule::score_factor`, `rung_score_factor`) is 1
+  and applied nowhere: the named place for balancing once the rule is
+  felt; there is no UI for it.
+- **The Standings** mark the chart each competitor finished on when it is
+  not the picked one: "↓ Easy" or "↑ Challenge" (`RunDetail::harder`,
+  additive; `room-table-stepped-up`). **The cue**: "Stepping up: Hard" as
+  "Stepping down: Medium" (`StageCue::Step { rung, up }`,
+  `room-play-cue-step-up`). Miniatures, the player's own field shown
+  large and watched fields draw the chart each competitor is on both ways
+  (`FieldFeed::step`: a step down's chart from its moment, a step up's
+  from its boundary, the old one to it; a moment of a note at or past a
+  step up's boundary tick is the new chart's, one before it the old
+  chart's judged late).
+- **CPUs** step by the same rule at their level relative to the rung they
+  are on (`Opponent::add_rungs` takes rungs either way; its script after a
+  step up keeps the old chart's presses before the boundary and its
+  response to shocks is made again on the new rung's presses alone). A
+  CPU's strength is relative to the chart it plays, so **CPUs of every
+  level climb when they play four bars cleanly**, the weakest falling
+  back down more often (measured below).
+- **The hand** plays out what it was given and rests after a step up as
+  after a step down (it may rest a few seconds before the old chart
+  ends: the hand is never the play). The fresh preparation from a rest
+  was not tried this round.
+- **The clap** follows the chart being played after a step up as after a
+  step down (`EventSounds::step`).
+- **Not in solo play; no manual stepping; no score balancing.**
+
+### Online
+
+- **The plan** names every rung (`BattlePlan::ladder`: the easier rungs,
+  then the harder ones, each its chart's digest) and its sections are
+  placed over all of them; a device whose charts differ disagrees on the
+  digest and sits the stage out, as before.
+- **The stream**: a step is `live::MomentKind::Step { rung }` (renamed
+  from `StepDown`; the wire is unchanged: a refusal's kind with its flag,
+  the rung counted down from `u32::MAX`, rung 0 included). Whether it
+  went up is the ladder's to say, so nothing on the wire is new for a
+  rung above. The others' fields follow both ways (`RemoteSeat`, the
+  stage's chart again for rung 0). A person's streamed score is their
+  play's own sum (no rescaling); the room's live stage keeps the rung
+  each stream last said (`LiveStage::steps`).
+- **The ranking**: the reducer, the live server's early decision and its
+  song end, and practice all rank a stage by its own Charts rule
+  (`RoomState::rank_by_for`, `Battle`'s `setup.rules.rank_by()`).
+- **`ROOM_MODEL_REVISION` is 3**: peers must agree on the ladder, the
+  steps up and the ranking. A client of revision 2 is told to reload; a
+  newer client meeting an older authority (one whose policy lacks
+  `adaptive`) never offers the rule.
+- **What a deploy changes**: the server built against this crate makes
+  rooms whose policy says `adaptive`, ranks Adaptive stages by the score
+  and reads rules stored as "At zero life: Step down" as Adaptive. A
+  stage in play across the deploy finishes: its stored rules read as
+  Adaptive and rank by the score (where before they ranked by steps
+  first), and its clients, which reconnect mid-stage without the model
+  check, play it out on the ladder they loaded. The server repository
+  needed no code change (one assertion added to a test).
+- **CPUs online** follow (`cpus::Drive` takes the full ladder; the
+  determinism proof `the_cpus_play_alike` passes natively and for
+  wasm32-wasip1; its fixture was regenerated with the full ladder).
+- **Known limit**: the percent shown for a remote person who stepped is
+  worked out from their sum against the stage chart's most
+  (`ddi_of_sum`), so it is off for them; the score shown is right. The
+  bots' own plays (`--mp-bots`) have no ladder (their CPUs do).
+
+### Measured
+
+`cargo test --release -p ddi-session --lib adaptive_study -- --ignored
+--nocapture` (`crates/session/src/battle/adaptive_study.rs`, which
+replaces the step-down study; `DDI_STEP_CORPUS`, the thirteen arcade
+mixes of the maintainer's library read in place, aggregates only; 336 s).
+Stages: ten CPUs, one at each level, attacks on, from every Medium and
+Hard pick with a ladder, two seeds, As picked and Adaptive. MEASUREMENTS
+OF CPUS AGAINST CPUS.
+
+Ladders (996 songs, 970 with one; single charts by the stage chart's
+slot) and what placing the plan over them costs:
+
+| Stage chart | Charts | Below 0/1/2/3/4+ | Above 0/1/2/3/4+ | Sections kept: rungs below | every rung | Charts losing over a third |
+| --- | --- | --- | --- | --- | --- | --- |
+| Beginner | 913 | 913/0/0/0/0 | 1/23/1/607/281 | 100.0% | 93.9% | 44 of 912 |
+| Easy | 970 | 58/912/0/0/0 | 23/1/662/284/0 | 100.0% | 93.9% | 45 of 970 |
+| Medium | 970 | 23/58/889/0/0 | 1/673/296/0/0 | 99.9% | 93.4% | 48 of 970 |
+| Hard | 970 | 1/23/58/888/0 | 674/296/0/0/0 | 98.2% | 93.3% | 48 of 969 |
+| Challenge | 324 | 28/0/12/3/281 | 324/0/0/0/0 | 82.5% | 82.5% | 46 of 296 |
+
+The full ladder costs a typical stage about 7% of its sections (17% on
+Challenge, as before), far from a third: **the merged plan is kept**,
+sections per rung were not built. About one chart in twenty loses more
+than a third. The bundled songs: every section kept or more.
+
+Where the CPUs finish, from a Medium pick under DDI Normal (1,940 stages a
+rule; "rung" from the pick, −2 to +2):
+
+| Level | As picked: out % | place | score | Adaptive: out % | place | score | ups | downs | bounce % | −2 / −1 / 0 / +1 / +2 % |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 72.6 | 9.60 | 775,597 | 6.9 | 9.97 | 1,214,715 | 0.02 | 0.93 | 0.1 | 21.3 / 49.1 / 28.5 / 1.0 / 0 |
+| 2 | 36.5 | 8.59 | 1,314,680 | 2.0 | 8.87 | 1,546,702 | 0.31 | 0.43 | 0.4 | 3.7 / 24.5 / 53.4 / 17.8 / 0.7 |
+| 3 | 16.2 | 7.72 | 1,587,671 | 1.4 | 8.07 | 1,711,898 | 0.53 | 0.24 | 0.1 | 0.4 / 10.1 / 50.7 / 37.7 / 1.2 |
+| 4 | 5.6 | 6.97 | 1,825,383 | 1.2 | 6.97 | 1,963,894 | 0.93 | 0.13 | 0.0 | 0.1 / 2.2 / 23.4 / 66.4 / 7.9 |
+| 5 | 1.8 | 6.30 | 2,000,700 | 0.6 | 6.08 | 2,278,441 | 1.27 | 0.06 | 0.0 | 0 / 0.1 / 3.5 / 71.6 / 24.8 |
+| 6 | 0.3 | 5.14 | 2,130,131 | 0.0 | 5.01 | 2,543,122 | 1.30 | 0.01 | 0.1 | 0 / 0 / 0.3 / 69.8 / 29.9 |
+| 8 | 0.0 | 3.07 | 2,376,768 | 0.0 | 2.98 | 2,857,372 | 1.30 | 0.00 | 0.0 | 0 / 0 / 0.1 / 69.4 / 30.5 |
+| 10 | 0.0 | 1.10 | 2,488,190 | 0.0 | 1.01 | 3,029,927 | 1.30 | 0.00 | 0.0 | 0 / 0 / 0.1 / 69.4 / 30.5 |
+
+(+1 is Hard; +2 is Challenge, which 30% of the songs have.) The other
+three settings, in short (levels 1 / 5 / 10):
+
+| Pick, timing | Out % as picked | Out % adaptive | Ups a stage | Downs a stage | Bounce % (worst level) | Stronger above weaker: as picked | adaptive |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Medium, Normal | 72.6 / 1.8 / 0 | 6.9 / 0.6 / 0 | 0.02 / 1.27 / 1.30 | 0.93 / 0.06 / 0 | 0.4 | 93.3% | 98.9% |
+| Medium, Hard | 100 / 59.1 / 0.2 | 96.2 / 3.5 / 0.1 | 0 / 1.18 / 1.31 | 1.89 / 1.18 / 0.01 | 2.0 | 93.3% | 97.0% |
+| Hard, Normal | 94.8 / 11.9 / 0 | 4.9 / 0 / 0 | 0 / 0.31 / 0.31 | 1.71 / 0.10 / 0 | 0.5 | 94.6% | 99.1% |
+| Hard, Hard | 100 / 82.8 / 0.7 | 83.7 / 2.7 / 0 | 0 / 0.34 / 0.31 | 2.87 / 1.37 / 0.01 | 3.1 | 93.2% | 97.4% |
+
+What it says:
+
+- **A stronger level still wins**: the share of level pairs where the
+  stronger CPU places above the weaker rises from 93–95% as picked to
+  97–99% under Adaptive (the strong ones climb to denser charts and earn
+  more; ranking by the score sorts the field more cleanly than life).
+  The score gap between level 10 and level 1 grows in points (1.71 M to
+  1.82 M from a Medium pick under Normal) and shrinks as a ratio (3.2× to
+  2.5×): the weakest keep playing and earn something.
+- **Nearly everyone plays to the end under Normal** (the weakest out 5–7%
+  instead of 73–95%); under Hard timing the weakest still go out on the
+  lowest rung most of the time.
+- **Bouncing is rare**: at most 3.1% of stages for any level (Hard
+  timing, mid levels), under 0.5% under Normal; the eight bars back up
+  do their job.
+- **Every level from about 4 climbs**: a CPU's strength is relative to
+  the chart it is on, so one that plays Medium cleanly plays Hard as
+  cleanly, and the CPUs climb to the top rung whenever four clean bars
+  come (69% finish on Hard, 30% on Challenge where the song has one,
+  from level 5 up). This is a property of the CPU model, not of the
+  rule: people will settle where they stop playing cleanly (open
+  question below).
+
+**Playing down on purpose** (each chart with an easier rung: a perfect
+play of the next easier chart against 85% and 95% plays of it, DDI's sum
+as earned, the W0s aside): over the local mixes (3,124 charts) the
+perfect easier play beats an 85% play of the chart in 25.9% of charts and
+a 95% play in 3.2%; on average it is worth 0.94 and 0.84 of them. The
+bundled songs (12 charts): Beatucada beats 85% in 2 of 4 charts and 95%
+in 1 (its Hard and Challenge have the same meter and close counts),
+Sweeteners 1 and 0 of 2, Some Things Must 1 and 0 of 4, Into My Dream 0
+of 2. To get there a player must also empty their life on the harder
+chart (a breather of five to eight seconds with nothing scored) and then
+play the easier one perfectly, and four clean bars put them back up. So
+it never pays against a good play of the harder chart and only
+sometimes against a poor one; where charts of neighbouring slots have
+close note counts it can.
+
+What 72 CPUs cost with a full ladder (`adaptive_cost_of_72_cpus`, release,
+Beatucada's Medium: two rungs below, two above): the ladder planned in a
+millisecond; the stage loaded in 114 ms against 48 ms as picked; played
+out in 179 ms against 81 ms, 56 of the 72 stepping up and 4 down.
+
+### Tested
+
+- Engine (`crates/engine/tests/adaptive.rs`, replacing `step_down.rs`):
+  the ladder above (its order, `Ladder::chart`, `level`); a perfect play
+  stepping up once after four bars, on a bar line, the boundary past the
+  horizon and a second, life untouched; up then down (from the harder
+  rung, back to the picked chart) and back up taking eight bars; down
+  then up past the picked chart (eight bars back to it, four on to Hard);
+  each the same at 60 and 144 fps and from its log, no note judged twice
+  at a boundary; a rule without steps up; the step-down tests as before.
+  The opponent: a strong CPU with the full ladder climbs, the same at 60
+  and 144 fps, its script valid. The fixtures unchanged.
+- Room: the rule's JSON both ways (`charts: "adaptive"`, `at_zero:
+  "step_down"` and `"out"` read as Adaptive and As picked, in the match's
+  rules and a stage's), the policy, the refusal read from its old name;
+  the ranking by the score with life the tie-break and steps never
+  (`under_adaptive_charts_those_still_in_rank_by_the_score_and_never_by_steps`);
+  the per-stage change refused where the authority does not honor it.
+- Session: the player and strong CPUs stepping up alike at 60 and 144
+  fps, the cue saying up, the player's own field drawing the old chart to
+  the boundary, the details' chart marked harder and the score the play's
+  own; one-star CPUs on Hard climbing to Challenge and back down, their
+  fields agreeing with their plays both ways at any frame rate; those
+  still in ranked by the score; a song with no other chart as picked
+  exactly; the claps after a step; live over the fake server
+  (`a_live_stage_steps_up_and_the_others_fields_follow`: the plan naming
+  every rung on both devices, Alice climbing two rungs, Bob's view of her
+  field following, the room's stream saying her rung, her score as
+  earned).
+- UI: the Rules row "Charts: As picked / Adaptive" and its sentences,
+  Apply, the summary ("DDI · Adaptive charts"), Reset, fixed where the
+  authority cannot honor it; the Standings' ↑; the `qps-ploc` walk;
+  `xtask l10n check` (the Japanese faces cut again for 稼).
+- Desktop offscreen (`crates/desktop/tests/step_down_offscreen.rs`): the
+  step-down stage as before, and a stage where the autoplayed player steps
+  up from Medium (the cue, the old chart to the boundary, the harder one
+  from it), a CPU climbs two rungs and the Standings mark ↑. Pictures in
+  `target/scratch/mp/adapt/shots/` (`climb-cue`, `climb-new-chart`,
+  `climb-cpu-two-rungs`, `climb-standings`, `step-*`).
+- Headless Chrome and Firefox (`target/scratch/mp/adapt/browsers.sh`,
+  `adapt.mjs`), 1280×720, practice with `auto=1`: the Rules row set to
+  Adaptive, a stage picked on Beatucada's Hard (ladder Medium, Easy,
+  Beginner below, Challenge above), the player stepping up at 23.6 s
+  (boundary 27.5 s) in both browsers, the cue drawn, every field
+  stepping, the Standings marking "↑ Challenge" for all four; no console
+  errors. Screenshots in `target/scratch/mp/adapt/shots/`.
+
+### The flaky step-down test (cause found)
+
+`a_practice_stage_steps_down_the_player_and_a_cpu` drew a different set
+of CPUs on every run: a desktop practice room's seed is the time it was
+made (`ddi_desktop::room::current`, `RoomClient::shared(now, now)`), and
+the test used the Fixed CPU mode, whose CPUs' seeds come from it. That is
+by design (a new practice room, new CPUs), so the fix is the test's: it
+sets the CPUs' seed (`rules.cpu.opponent.seed = 7`) and discards any
+earlier room. Nothing in the stage, the CPUs' judging or the ledger reads
+wall time or frame boundaries: three runs gave the same CPUs' power and
+life, frame for frame.
+
+### Not done in this round
+
+- The dancing hand rests after a step up as after a step down; the fresh
+  preparation from a rest was not tried.
+- No score balancing (the factor is 1 and applied nowhere) and no way for
+  a player to hold their rung.
+- The percent shown for a remote stepped person (above); the bots' own
+  plays have no ladder.
+- Time signatures are still not read for bar lines.
 
 ## CPUs in private online rooms (2026-11-13)
 
@@ -6711,10 +7033,10 @@ What it says:
 | --- | --- | --- | --- |
 | `online-cpus-v0` (2026-11-13): an online room's CPUs computed alike on every device (50 ms steps from −2 s, a shock put in 1.25 s after its checkpoint, a 2 s horizon's lead); every connected player's device reports for them, the room taking the first and counting a different one; nobody left to compute ends them as forfeits | `ddi_room::live::cpus`, `ddi_session::battle::cpus` | The host adds CPUs online as in practice; a wrong report that reached the room first stands | First or majority; the bytes (every device sends every CPU); the horizon |
 | Rules from the next stage (2026-11-13): a change lands on the next stage nobody has readied, loaded or started (once picked, the one after); Points changeable from a stage on too (the maintainer, answered); Apply and restart takes the per-stage rows as shown | `RoomState::rules_land_on`, `room_dialogs::RulesDialog` | A host's change of timing, Boos, attacks, zero life or (since the follow-up) Points applies from the stage the pop-up names, said on everyone's status line | Whether a change should land on a picked stage nobody has readied yet |
-| `step-down-v0` (2026-11-13): life back to half at the zero; the boundary the first bar line (four beats) at least the reading horizon plus 1 s ahead; a breather until it with nothing of a chart judged, stray presses free and life kept at one point or more | `ddi_engine::ladder::STEP_DOWN_V0` | A player out of life plays on an easier chart after a few seconds' rest, with half a bar | The life given back; the breather's length; whether a player may ever step back up |
-| The ladder: the style's original charts of lower slots on the same timing, nearest slot first, by meter; never an Edit below a slotted chart; cut at the first rung the CPUs cannot plan | `ddi_engine::ladder::ladder`, `cpu::planned_ladder` | Hard steps to Medium, then Easy, then Beginner | How Edits and split-timing charts should take part |
-| Standing under Step down: fewer steps first, then life, then the score; a stepped run's score put on the stage chart's scale | `ddi_room::battle::rank`, `ddi_session::battle::Battle::on_stage_scale` | One step down places below everyone who stayed on the stage's chart | How a step down should rank (by steps first, or a points penalty) |
-| The battle plan placed over every rung at once | `ddi_engine::ladder::merged`, `ddi_ui::state::battle_plan::plan` | About 2% fewer attack sections on Hard, 17% fewer on Challenge | Whether to place sections per rung instead (the room then needs each competitor's rung) |
+| `adaptive-v0` (2026-11-13, replaces `step-down-v0`): down at zero life with a rung below, life back to half, the old chart taken away, the boundary the first bar line (four beats) at least the reading horizon plus 1 s ahead, a breather until it (nothing of a chart judged, stray presses free, life kept at one point or more); up after four bars (16 beats) of full life with no miss, no hold let go and no shock stepped on, counted from the last step's boundary, at the next such boundary, the old chart played to it, life unchanged; eight bars to go back up to a rung whose life ran out; every rung's score factor 1 | `ddi_engine::ladder::ADAPTIVE_V0` | A player out of life plays on an easier chart after a few seconds' rest; one who plays cleanly moves up, above the picked chart too | The four bars; the eight; the life given back; whether a player may hold their rung; a per-rung score factor once the rule is felt |
+| The ladder: the style's original charts on the same timing, lower slots below (nearest first, by meter from the highest), higher slots above (nearest first, by meter from the lowest); never an Edit above or below a slotted chart (an Edit's rungs are the slotted charts of a lower or higher meter); each way cut at the first rung the CPUs cannot plan | `ddi_engine::ladder::{below, above, Ladder}`, `cpu::planned_ladder` | From Hard: Medium, Easy, Beginner below; Challenge above | How Edits and split-timing charts should take part |
+| Standing under Adaptive: those still in by the score as earned (each stretch against what it showed, the absolute score growing with the notes played), life only breaking a tie, steps never counted; a CPU's score put on the charts it played stretch by stretch (`CPU_SCORE_V0`'s way: each chart's whole most in the share of its tap-only copy's notes it was shown), never on the stage chart's scale | `ddi_room::RankBy::Score`, `battle::rank`, `ddi_session::battle::Scales` | A player who climbs to denser charts earns more; one who stepped down is not ranked below for it | Life as the tie-break; whether a balancing factor is wanted after playing it |
+| The battle plan placed over every rung at once, below and above | `ddi_engine::ladder::merged`, `ddi_ui::state::battle_plan::plan` | See "Adaptive charts", measured | Whether to place sections per rung instead (the room then needs each competitor's rung) |
 | A step down on the live wire as a flagged refusal (`STEP_DOWN_ATTACK`) | `ddi_room::live::wire` | Older readers ignore it | Whether to version the wire instead when it next changes |
 | `audience-view-v0` (2026-11-13): an audience device plays the music and draws the fields 0.8 s behind the room's song time (fixed for a stage), the fields a little more where frames come later, within the audience's 2 s ceiling | `ddi_ui::state::audience::MUSIC_DELAY_V0` | A seat sees the stage about a second behind the players | The delay; whether to raise it after a stage that lagged |
 | `audience-view-v1` (2026-11-13, follows v0): the music's delay moved only at a stage's start, up by what the last stage's fields needed beyond it (their 90th percentile past 100 ms, rounded up to 50 ms, at most 1.6 s), down 0.2 s a stage to 0.8 s after good ones | `ddi_ui::state::audience::AUDIENCE_VIEW_V1` | After a laggy stage the next one is watched further behind, its fields in step with the sound; nothing heard changes within a stage | The numbers; whether a stage's own lag should be fixed within it |
@@ -7220,7 +7542,16 @@ What it says:
   seconds on Beatucada), whether a player may ever step back up, and how
   a step down should rank (fewer steps first now) are the maintainer's
   to decide. Measured: under Normal it keeps the weakest CPUs in to the
-  song's end without moving the stage's order much.
+  song's end without moving the stage's order much. (Superseded the
+  same day by adaptive charts: steps up, ranked by the score, below.)
+- Adaptive charts (`adaptive-v0`, 2026-11-13): the step-up trigger (four
+  bars of full life without a miss, a hold let go or a shock stepped on),
+  the hysteresis (eight bars back up to a rung whose life ran out),
+  ranking by the score with life only as the tie-break, and whether a
+  player should be able to hold their rung (an "I stay here" choice) are
+  the maintainer's to try. A CPU's strength is relative to the chart it
+  is on, so CPUs of every level climb when they play cleanly: whether
+  CPUs should take a chart's absolute difficulty into account is open.
 - Rules from the next stage (2026-11-13): whether Points may change
   from a stage on. ANSWERED by the maintainer the same day: yes, with the
   host aware of it ("Points from a later stage", below).
