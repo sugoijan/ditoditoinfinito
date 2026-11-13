@@ -711,7 +711,11 @@ impl AudienceClient {
                     participant: *id,
                     ordinal: *ordinal,
                     level: *level,
-                    seed: *seed,
+                    // As every member's device seeds it for this stage.
+                    seed: ddi_room::OpponentSpec::stage_seed(
+                        *seed,
+                        u16::try_from(index + 1).unwrap_or(u16::MAX),
+                    ),
                     name: p.name.clone(),
                     skills: personality.clone(),
                     targeting: targeting.unwrap_or_default(),

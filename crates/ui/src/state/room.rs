@@ -2956,7 +2956,11 @@ impl RoomClient {
                     participant: *id,
                     ordinal: *ordinal,
                     level: opponent.level,
-                    seed: opponent.seed,
+                    // Its own seed for each stage (`cpu-stage-seed-v1`).
+                    seed: ddi_room::OpponentSpec::stage_seed(
+                        opponent.seed,
+                        u16::try_from(index + 1).unwrap_or(u16::MAX),
+                    ),
                     name: opponent.name.clone(),
                     skills: opponent.personality.clone(),
                     targeting: opponent.targeting.unwrap_or_default(),
@@ -4000,6 +4004,19 @@ mod tests {
         assert_eq!(room.match_end(), None, "the match goes on");
         let second = play(&mut room, false, false);
         assert_ne!(first.stage, second.stage);
+        // The same chart in both stages, each CPU seeded per stage
+        // (`cpu-stage-seed-v1`): stage 1 with its own seed, stage 2
+        // another, so the two are played two ways.
+        for (a, b) in first.cpus.iter().zip(&second.cpus) {
+            assert_eq!(a.participant, b.participant);
+            let MemberKind::Cpu { opponent, .. } = &room.state().member(a.participant).unwrap().kind
+            else {
+                panic!("a CPU");
+            };
+            assert_eq!(a.seed, opponent.seed);
+            assert_eq!(b.seed, ddi_room::OpponentSpec::stage_seed(opponent.seed, 2));
+            assert_ne!(a.seed, b.seed);
+        }
         assert_eq!(room.state().phase, Phase::MatchResults);
         assert_eq!(room.unseen_results(), Some(None), "the match's results");
         room.results_shown();

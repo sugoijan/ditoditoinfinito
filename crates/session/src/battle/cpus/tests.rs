@@ -354,6 +354,25 @@ fn a_report_s_digest_is_its_contents() {
     assert!(digests.windows(2).all(|w| w[0] != w[1]));
 }
 
+/// The same chart picked for two stages is played two ways
+/// (`cpu-stage-seed-v1`): the CPU's seed for stage 2 is not stage 1's,
+/// and its presses differ; each stage's the same wherever it is computed.
+#[test]
+fn the_same_chart_in_two_stages_is_played_two_ways() {
+    let song = song();
+    let (rules, cpus) = scenarios().remove(0);
+    let ruleset = crate::battle::stage_ruleset(&rules);
+    let presses = |number: u16| {
+        let mut seat = cpus[0].clone();
+        seat.seed = ddi_room::OpponentSpec::stage_seed(cpus[0].seed, number);
+        opponent(&song, 4, &ruleset, &seat, &[]).unwrap().presses().to_vec()
+    };
+    let (one, two) = (presses(1), presses(2));
+    assert!(!one.is_empty());
+    assert_ne!(one, two);
+    assert_eq!(two, presses(2));
+}
+
 /// What computing an online room's CPUs costs a device a frame: 8, 24 and
 /// 72 CPUs of the bundled chart judged on at 60 frames a second, the
 /// room's shocks put in (every checkpoint known at once). Printed

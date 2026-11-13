@@ -6195,6 +6195,25 @@ same order and stays.
   `mpwatchlink=1`/`0` beside `mp=1`, desktop's `--mp-watch-link on|off`).
   More shows Copy invite link and Copy audience link otherwise.
 
+### A CPU's seed per stage (`cpu-stage-seed-v1`)
+
+A CPU kept one seed for the match, so the same chart picked twice was
+played the same twice. Each stage's seed is now
+`ddi_room::OpponentSpec::stage_seed(seed, number)`: the CPU's own seed
+for the stage numbered 1 (plays and fixtures recorded before hold), else
+that seed and the stage's number through SplitMix64's finalizer (plain
+integer arithmetic, the same natively and in wasm). Every place that
+builds a CPU's seat for a stage takes it: practice and an online room's
+CPUs (`RoomClient`'s stage order, which the `Drive` of every device
+computes from) and the audience's local computation
+(`AudienceClient::take_stage_order`). The bots play people's seats with
+seeds of their own per stage already. Tests: the stage order's seeds
+(`reported_stages_run_a_match_to_its_results_and_the_next_one`), the
+same chart in two stages played two ways
+(`the_same_chart_in_two_stages_is_played_two_ways`), and the proof
+`the_cpus_play_alike` with its fixture unchanged, natively and for
+wasm32-wasip1.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -6245,7 +6264,7 @@ same order and stays.
 | `watch-pages-v0`: a spectator's grid shows twelve fields a page by standing; Page Up/Down, the D-pad's Up/Down and a tap on the ladder turn the pages | `ddi_session::play::GRID_PAGE`, `watch.rs` | A watcher of 73 sees the top twelve first, then pages | The page's size; whether pages should turn by themselves |
 | A large room's lists (past nine rows) put the local player first, then those with a role, then people, then CPUs; Host options its co-hosts and administrators first | `screens::room::player_rows`, `panel_order`, `HostDialog::people` | Among 73 the player and the operators are found at once | A search field for the Players pop-up |
 | A stage's Standings keep the player's line in view (the window's first or last line); the match's result names one line of leaders and the player's own place | `screens::room::window_keeping`, `results_stage.rs` | The player's place among 73 always shows | None |
-| CPU seeds per seat derived from the match's profile seed | `member::OpponentSpec::for_seat` | Each CPU of a match plays its own fixed seed | Per-CPU profiles, personalities |
+| CPU seeds per seat derived from the match's profile seed, and per stage from the stage's number (`cpu-stage-seed-v1`, round B1, ANSWERED) | `member::OpponentSpec::for_seat`, `stage_seed` | Each CPU of a match plays its own seed, another each stage | Per-CPU profiles, personalities |
 | Present people who want to play hold a seat at the match start whatever their connection | `reduce.rs`, `start_match` | A disconnected person sits out stages rather than losing the seat | Roster lock for absent people |
 | Persistent elimination ranks by points like the default | `state::Match::standings` | Under that option the standings are not yet survival order | Its ranking (the design says survival placement) |
 | Admins may exceed the member limit by `admin_reserve` (4) | `rules::RoomPolicy` | Admins can always enter to help | Operator-observer capacity |
@@ -6563,8 +6582,8 @@ same order and stays.
   or interrupt the match?
 - M3: is a stage play a personal play (history, bests, calibration
   hints)? Today it is not.
-- M3: a CPU keeps its seed for the whole match, so the same chart chosen
-  for two stages is played the same both times. Derive a seed per stage?
+- M3: a CPU's seed per stage. ANSWERED and built (round B1,
+  `cpu-stage-seed-v1`).
 - M4: should a stage keep some of a play's routine lines (the combo
   milestones), or stay as the design's working preset has it (outcomes
   own the voice)?

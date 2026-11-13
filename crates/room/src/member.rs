@@ -127,7 +127,29 @@ impl OpponentSpec {
     }
 }
 
+/// A CPU's seed for each stage (`cpu-stage-seed-v1`, round B1): the
+/// match's seed for the stage numbered 1 (so plays recorded before stay
+/// as they were), else that seed and the stage's number through
+/// SplitMix64's finalizer. Plain integer arithmetic, the same on every
+/// device and in the room: practice, an online room's CPUs, the
+/// audience's local computation.
+pub const CPU_STAGE_SEED_V1: &str = "cpu-stage-seed-v1";
+
 impl OpponentSpec {
+    /// The seed a CPU of seed `seed` plays the stage numbered `number`
+    /// (from 1) with ([`CPU_STAGE_SEED_V1`]): the same chart picked for
+    /// two stages is played two ways.
+    pub fn stage_seed(seed: u64, number: u16) -> u64 {
+        if number <= 1 {
+            return seed;
+        }
+        let mut z = (seed ^ u64::from(number).wrapping_mul(0xD1B5_4A32_D192_ED03))
+            .wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
     /// The `ordinal`th CPU of a match: the same profile, its own fixed seed.
     pub fn for_seat(&self, ordinal: u16) -> Self {
         Self {
@@ -324,6 +346,14 @@ mod tests {
         };
         let (a, b) = (spec.for_seat(1), spec.for_seat(2));
         assert_ne!(a.seed, b.seed);
+        // Per stage: stage 1 keeps the seed; every later one its own.
+        assert_eq!(OpponentSpec::stage_seed(a.seed, 1), a.seed);
+        let stages: std::collections::BTreeSet<u64> =
+            (1..=64).map(|n| OpponentSpec::stage_seed(a.seed, n)).collect();
+        assert_eq!(stages.len(), 64);
+        assert_eq!(OpponentSpec::stage_seed(7, 2), OpponentSpec::stage_seed(7, 2));
+        // Fixed values, so every device and build agrees.
+        assert_eq!(OpponentSpec::stage_seed(7, 2), 0x3e1b_d724_0451_c38a);
         assert_eq!(a, spec.for_seat(1));
         assert_eq!((a.level, b.level), (1, 1));
     }
