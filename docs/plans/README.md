@@ -38,8 +38,12 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   the server's and the game's work lists. The game's side built
   (2026-11-13): arriving by the link on both shells, the seat's page,
   desktop watching its stages behind the room, the members' count and
-  the owner's closing, bots as audience; the web's watched stage not yet
-  (the progress note's "The audience, the client front").
+  the owner's closing, bots as audience (the progress note's "The
+  audience, the client front"); then the web's watched stage, a seat's
+  end said over the play, the music's delay moved stage by stage
+  (`audience-view-v1`), a 73-player stage through the session and the
+  fake's links answered as the server's (its "The audience, what the
+  client front left").
 - [Multiplayer prototype progress](multiplayer-prototype-progress.md)
   (2026-11-10): what the prototype has actually built and tested, kept apart
   from the design studies below. M1: the shared room, match and stage model

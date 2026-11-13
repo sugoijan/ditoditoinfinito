@@ -5305,11 +5305,180 @@ refusals' codes, `503 relay_unready`) are what the game reads.
    (a line every ten seconds); Host options → **Close the audience**: the
    seats end (4403) and the bots say so.
 
+## The audience, what the client front left (2026-11-13)
+
+All real and tested over `FakeServer`'s audience; no server was started.
+
+### The web watches an audience's stage
+
+- **The route**: `#/mp/watch/<link>/stage`, its own (a member's
+  `#/play?…&stage=<id>` is untouched). The audience's page hands the
+  watched `StageOrder` over (`crate::online::watch_stage`: the order, the
+  link and the seat kept beside the page) and navigates there; the play
+  route mounts the play with `game_canvas::Props::watch` (the link) and
+  `room_stage` the order. The play is the session's watched live stage
+  fed by the seat (`LiveHandle { room: seat }`, as desktop has it): the
+  grid, its pages, the ladder, Tab and the shoulders, a tap on a field,
+  the music and the fields behind the room's song time. No room prompt,
+  no report (`crate::room::report` passes a watched stage over), no
+  history, no results: at its end (or Escape, or a skip after the seat
+  ended) the play goes back to the audience's page (`return_to`, one
+  history step), which shows the stage's result; the context is kept for
+  the next stage (`crate::online::keep_stage_audio`).
+- **The sound's gesture**: the Watch press on the invite page is the
+  gesture: it makes and starts the context there
+  (`OnlineCall::WatchPressed`, new, called inside the press;
+  `crate::online::audience_gesture`). A stage handed over gets that
+  context, or one made then where the browser lets a context start
+  without a press (`web::autoplay::may_start`: Firefox's
+  `getAutoplayPolicy`, else `userActivation.hasBeenActive`, Chrome's
+  rule once the page had a press), and its prompt starts it at once
+  with no card. **Chrome and Firefox**: after the Watch press (or any
+  press on the page) every stage starts by itself. **Safari**: only the
+  context made in the Watch press runs; it is kept from stage to stage,
+  so the stages start by themselves too, unless the page was reloaded.
+  **After a reload** (no press on the page yet, any browser that blocks
+  autoplay): the prompt's card shows with Start (the existing "needs a
+  tap" path): one press, and the stage plays from where it stands (live
+  start part-way). The picture waits for that press: a "Tap to hear"
+  over a running picture is not built (the play's clock is the audio
+  clock; a picture on another clock until a press would be a second
+  timing path).
+- **Back and reload**: the browser's Back leaves the stage for the
+  audience's page with nothing asked (no guard entry; the seat goes on);
+  Forward comes back to the stage as it stands (the order is kept until
+  the stage's play ends). A reload of `/stage` shows the audience's page
+  in its place (the address replaced), which makes the seat again (a new
+  ticket), takes its snapshot and hands the stage over again: the play
+  starts part-way. The prompt says "Stage 1 of 1 · watching 3 players"
+  (`PromptInfo::set_watched_stage`, new, both shells, for a member's
+  Watch too, which said "against N other players").
+- **Found and fixed**: a watched play started on its room client's clock
+  as last ticked; nothing ticks an audience's seat between its page and
+  the play, so the music started 0.4 s late on the web (seen as "the
+  song clock and the room's disagree by 433 ms"). The session now ticks
+  the room's client just before reading where song zero is
+  (`PlaySession::start`); tested (the seat left unticked 0.4 s before the
+  play: the music 0.8 s behind, as without; 1.22 s without the fix).
+
+### A seat that ends during a watched stage
+
+`LiveRoom::seat_end` (new, a member's never ends): the audience's seat
+ended by its relay (4403, 4410) or a new ticket refused (the link
+replaced: `audience_link_unknown`; the audience closed or the room ended
+meanwhile; signed out) is `SeatEnd`. The session marks the watching
+ended (`WatchView::ended`): the music fades, nothing ends it by itself
+before the song's end, and why is said over the whole play
+(`OwnOut` over the screen at a darker veil, `ENDED_VEIL`, with
+"Enter: back", or "Back" to tap); Enter, Start, South or the tap go back
+to the audience's page (a spectator could not skip before). Both shells
+(desktop's play host goes back to the page on any end of a watched
+stage). Tested: `ddi-session` `a_seat_closed_during_a_watched_stage_stops_its_view_and_says_why`
+(the host closes the audience at 15 s: ended 30 ms later, no frame
+after it, not over, Enter finishes it), `ddi-ui`
+`a_seat_s_end_during_a_watched_stage_is_its_relay_s_or_a_refused_ticket`,
+`watch.rs`'s keys.
+
+### The music's delay follows the fields'
+
+`audience-view-v1` (`AUDIENCE_VIEW_V1`, PROVISIONAL): the music's delay
+is moved **at each stage's start only**, by what the last stage watched
+needed: where the fields had to fall further behind the music than
+100 ms for a tenth of its frames or more (their own delay's 90th
+percentile, noted a frame through `LiveRoom::note_view_delay`), the next
+stage's music is put that much further behind (rounded up to 50 ms, at
+most 1.6 s, which leaves the fields 0.4 s of the 2 s ceiling); after a
+stage that needed less it falls 0.2 s a stage back to 0.8 s. Why at a
+stage's start: the music is one take, never moved, sped up or slowed
+down, so nothing is ever heard; within a stage the fields keep adapting
+on top as before. A resync at a silence was not chosen (songs have few,
+and a jump is heard however short), nor a slow drift (a rate change of
+the music is a pitch change, and the play's clock is the music's).
+`__DDI_DEBUG.ui.theme.audience.next_delay_ms`, `view_rules`. Tested
+(`ddi-ui`: the rule, a spike that moves nothing, the cap, the fall; the
+seat noting the fields' delay).
+
+### A 73-player stage through the session as audience
+
+`ddi-session` `the_audience_watches_seventy_three_players_through_the_session`:
+73 members' scripted streams (every sixth out), a seat 60 ms away (60 of
+jitter): every field at the end as its member sent it (combo, out), four
+audience frames a second, the music 0.8 s behind and the fields at most
+50 ms more (within the 2 s ceiling), the grid's seven pages of twelve
+(Page Down round), Tab following the first, 73 fields with the 12 out
+counted out.
+
+### The fake's links answered as the server's
+
+`ddi_room::fake` `invites.rs` (new): `FakeServer::invite_preview` (the
+room's own link `play`, the watch-only link `watch`, the audience link
+`audience` with `audience_count`, `audience: true` on it and at the
+member bound while the audience is open, `404 invite_unknown`, `410
+room_closed`) and `audience_join_answer` (`{ticket, relay,
+expires_at_ms}` or the refusal's status and `{error}`; any of the three
+links joins the audience), from the server's `RoomCore::preview` and
+join. The fake's links are `FakeLinks` (settable: a link replaced). The
+audience's tests (`ddi-ui`, `ddi-session`, `ddi-desktop`
+`audience_offscreen`) read these rather than answers of their own; the
+online tests' member previews still answer their own (member joins are
+not the audience's).
+
+### Looked at in headless Chrome and Firefox
+
+`crate::fake_seat` (TESTING ONLY, `#/?mp=1&mpfakeseat=1`, `mpfakeend=S`):
+the next audience seat is one in a fake room in the page (three members
+streaming Beatucada's single chart as scripted hits, each missing every
+few notes, pumped twenty times a second on the wall clock); the seat,
+its page, the handover, the route and the view are the real ones. Walked
+(`target/scratch/mp/audweb/watch.mjs`, 1280×720): the page, the stage
+handed over and started by itself, the grid at 8 s (music 0.8 s behind,
+the fields 50 ms more), Tab following alice, the browser's Back to the
+audience's page (the seat still watching); with `mpfakeend=14` the
+notice over the play at 14.8 s ("The host closed the audience.",
+"Enter: back"), Enter back to the page, which says why; in Firefox with
+autoplay blocked the prompt's card with Start, Enter, and the stage
+played from where it stood. Pictures looked at. Not walked: a reload
+mid-stage (the fake room lives in the page and would start over) and a
+real server's latency.
+
+### Not done
+
+- "Tap to hear" over a running picture (above): after a reload the
+  picture waits for one press.
+- The audience's page after Back says the stage is being played but has
+  no "Watch" to go back to it (Forward does).
+- A reload mid-stage was not tried against a server.
+
+### Trying it in Firefox against the local server
+
+1. `just dev` in `../ddi-server` and the game's `just dev`; in Firefox
+   (profile A) open `http://localhost:8080/#/?mp=1`, sign in, make a
+   private room, More → **Copy audience link**.
+2. In a second Firefox profile (or a private window) signed in as
+   someone else, open the audience link: the invite page says "You're
+   invited to watch with the audience."; press **Watch** (the press
+   readies the sound).
+3. In profile A pick a song and Ready (a second member, or bots:
+   `DDI_SHARE_TOKEN=test-token cargo run -- --mp-bots --join "<invite>"
+   --api http://127.0.0.1:8787/ditoditoinfinito/api --site
+   http://localhost:8080/`). When the room starts the stage, profile B
+   goes from the audience's page to `#/mp/watch/<link>/stage` by itself
+   and plays it about a second behind, with sound; Tab, Page Down/Up
+   and a tap on a field as a member who watches; the browser's Back
+   returns to the audience's page; at the stage's end it returns there
+   with the result.
+4. Mid-stage, Host options → **Close the audience** in profile A:
+   profile B's view stops with "The host closed the audience." and
+   "Enter: back".
+5. Reload profile B mid-stage: the audience's page, then the stage again
+   from where it stands after one press on the prompt's Start.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
 | `audience-view-v0` (2026-11-13): an audience device plays the music and draws the fields 0.8 s behind the room's song time (fixed for a stage), the fields a little more where frames come later, within the audience's 2 s ceiling | `ddi_ui::state::audience::MUSIC_DELAY_V0` | A seat sees the stage about a second behind the players | The delay; whether to raise it after a stage that lagged |
+| `audience-view-v1` (2026-11-13, follows v0): the music's delay moved only at a stage's start, up by what the last stage's fields needed beyond it (their 90th percentile past 100 ms, rounded up to 50 ms, at most 1.6 s), down 0.2 s a stage to 0.8 s after good ones | `ddi_ui::state::audience::AUDIENCE_VIEW_V1` | After a laggy stage the next one is watched further behind, its fields in step with the sound; nothing heard changes within a stage | The numbers; whether a stage's own lag should be fixed within it |
 | The count shown to members between stages only (the status line of song select and the prompt), never over a play | `screens::room::status` | "· 132 watching" after the room's line | The audience plan's open question 3 |
 | `join-watch-v0`: a join asking to play where every player's place is taken is in to watch; nobody is moved to Play when a place frees up; the arrival is said on the status line for 12 s | `ddi_room::RoomState::arrival_intent`, `players_full`; `ddi_ui`'s `LinkNotice::JoinedToWatch`, `JOINED_TO_WATCH_MS` | A tenth person joins a room of nine players to watch, and plays only once they choose Play after a place frees | Whether a freed place should go to the longest-waiting watcher (asked, or at once) |
 | The watch-only link: held to watching until the owner's Let play (the owner alone; co-hosts may copy the link but not let); replaced with the room's invite | `ddi_room::Member::watch_only`, `Command::SetWatchOnly`; `../ddi-server` `invite::watch_secret` | Someone who came to watch never takes a player's place unless the host lets them | Whether co-hosts should let people play; whether the watch link should be replaceable on its own |

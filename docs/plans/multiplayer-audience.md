@@ -557,6 +557,7 @@ measurement on the platform.
 | 20,000 seats a room, relays of 500, four homes | `AUDIENCE_V0` | Beyond it "The room's audience is full." | The bound, after the server's load test |
 | Four audience frames a second, everything in each | `frame_ms`, `audience-v0` | 16 KB/s a seat at 73 players | Paging for large fields later |
 | The audience at most two seconds behind, adaptive | `presentation_delay_ms` | Measured about 0.4–0.7 s in the fake | The ceiling |
+| The music's delay moved at a stage's start only, by what the last stage's fields needed (`audience-view-v1`: 0.8 s, up to 1.6 s) | `ddi_ui::state::audience::AUDIENCE_VIEW_V1` | Nothing heard moves within a stage | The numbers |
 | The count once a second to the room, every frame or five seconds to seats | `count_ms`, `idle_count_ms` | The number moves a little after people come | None |
 | The owner may close the audience; kept beside the live part, not in the state | `AudienceHub::set_open`, `AudienceDurable` | Closing sends everyone away | Co-hosts too? |
 | No pings from the audience: the room's clock from the frames' times | `ArrivalClock` | The music tens of ms off true, never seen behind the delay | None |
