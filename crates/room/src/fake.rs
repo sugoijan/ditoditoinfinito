@@ -176,11 +176,28 @@ pub struct FakeServer {
     room_name: String,
     /// Its three links (`invites.rs`).
     links: FakeLinks,
+    /// What the live side asked to be logged (a CPU's reports two devices
+    /// computed differently), in order.
+    notes: Vec<String>,
+    /// Messages the room has read: binary, text, and of the binary the
+    /// CPUs' news (`crate::live::cpus`): what the platform bills.
+    incoming: (u64, u64, u64),
 }
 
 pub type SharedFake = Rc<RefCell<FakeServer>>;
 
 impl FakeServer {
+    /// What the live side asked to be logged so far.
+    pub fn notes(&self) -> &[String] {
+        &self.notes
+    }
+
+    /// The messages the room has read so far: binary, text, and of the
+    /// binary the CPUs' news.
+    pub fn incoming(&self) -> (u64, u64, u64) {
+        self.incoming
+    }
+
     /// A hosted room (as the server makes one: `MatchRules::hosted_for`
     /// its policy, content shared) owned by `owner`, not connected yet.
     pub fn hosted(
@@ -239,6 +256,8 @@ impl FakeServer {
             pending_up_faults: BTreeMap::new(),
             lost: None,
             links: FakeLinks::of(&room_name),
+            notes: Vec::new(),
+            incoming: (0, 0, 0),
             audience,
             room_name,
         }
@@ -584,6 +603,10 @@ impl FakeServer {
     }
 
     fn receive_binary(&mut self, conn: u64, bytes: &[u8]) {
+        self.incoming.0 += 1;
+        if bytes.first() == Some(&crate::live::wire::CPUS_V1) {
+            self.incoming.2 += 1;
+        }
         let Some(participant) = self
             .conns
             .get(&conn)
@@ -639,7 +662,9 @@ impl FakeServer {
             reply,
             broadcast,
             commands,
+            notes,
         } = out;
+        self.notes.extend(notes);
         if let Some(conn) = sender {
             for r in reply {
                 match r {
@@ -693,6 +718,7 @@ impl FakeServer {
     }
 
     fn receive(&mut self, conn: u64, text: &str) {
+        self.incoming.1 += 1;
         let Some(participant) = self
             .conns
             .get(&conn)

@@ -83,6 +83,18 @@ pub struct RoomPolicy {
     /// is never sent. ADDITIVE to protocol 2.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stage_rules: bool,
+    /// The authority seats a match's CPUs in a room that plays live and
+    /// takes their reports from the devices that compute them
+    /// (`crate::live::cpus`, `online-cpus-v0`, 2026-11-13): its live side
+    /// keeps each CPU in the ledger and the ranking, the first report of
+    /// each checkpoint taken. True for every room this build makes (it
+    /// matters only with [`RoomPolicy::live`]: practice judges its CPUs
+    /// on its one device); false (left out of the JSON) for an authority
+    /// that predates it, which would never hear from a CPU, so a client
+    /// offers the roster online only where this says so. ADDITIVE to
+    /// protocol 2.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cpus: bool,
 }
 
 /// What a room that plays live tells its clients of how
@@ -158,6 +170,17 @@ impl RoomPolicy {
 }
 
 impl RoomPolicy {
+    /// Whether a room under this policy whose content is `source` can
+    /// seat CPUs: practice always (its one device judges them), an online
+    /// room where it plays live and its authority seats them
+    /// ([`RoomPolicy::cpus`]).
+    pub fn seats_cpus(&self, source: ContentSource) -> bool {
+        match source {
+            ContentSource::LocalLibrary => true,
+            ContentSource::Shared => self.cpus && self.live.is_some(),
+        }
+    }
+
     /// The operational cap (`docs/plans/multiplayer.md`, "Eight first and
     /// larger parties later"; raised to nine, eight opponents beside the
     /// player, M6b; to 73, 1+72, on 2026-11-13,
@@ -217,6 +240,7 @@ impl Default for RoomPolicy {
             audience: None,
             step_down: true,
             stage_rules: true,
+            cpus: true,
         }
     }
 }
@@ -773,6 +797,10 @@ pub enum RulesProblem {
     /// Step down where the room's authority does not honor it
     /// ([`RoomPolicy::step_down`]).
     StepDownNotHonored,
+    /// CPUs in a room whose authority cannot seat them: an online room
+    /// that does not play live, or whose authority predates CPUs online
+    /// ([`RoomPolicy::cpus`]).
+    CpusNotHonored,
 }
 
 #[cfg(test)]

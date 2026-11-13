@@ -667,6 +667,10 @@ Rust and the browser are implementation details, not advertised features.
   a lane a shock locked for the lock's time (`FieldFeed::locks`),
   the tap-only copy it plays, `TapTrack`, and a presentation delay, 0
   for local CPUs, so a network stream can feed the same view later;
+  an online room's CPUs played alike on every device, `battle/cpus.rs`
+  (`Drive`: in fixed steps, the room's shocks put in at a song time
+  everyone knows; its proof, `cpus/tests.rs` with `fixture.txt`,
+  checked natively and built for wasm32);
   an online room's stage played live, `battle/live.rs`
   (`docs/plans/multiplayer-online-play.md`): `Battle::with_live` over a
   `LiveHandle` (the room client and the shell's wall clock,
@@ -1158,7 +1162,15 @@ Rust and the browser are implementation details, not advertised features.
   how far behind the song a device draws the others' fields, measured
   from its frames and a second at most (`live/delay.rs`: `ViewDelay`,
   `VIEW_DELAY_V0`; `ViewMeter` for the tests and the server's load
-  driver; `view_delay_study`).
+  driver; `view_delay_study`). CPUs in an online room
+  (`live/cpus.rs`, `online-cpus-v0`, PROVISIONAL; where
+  `RoomPolicy::cpus` says so, additive): no connection plays them,
+  every device computes them alike and sends their checkpoint reports
+  and ends (`CpuNews`, binary `CPUS_V1`; `ClientLive::CpuRun`, the
+  authority's `Command::ReportFor`), who sends `sends_for_cpus`
+  (`cpu-reporters-v0`), the room taking the first report of each CPU
+  and checkpoint and counting a different one
+  (`LiveStage::cpu_mismatches`).
   The audience (`audience.rs`, `docs/plans/multiplayer-audience.md`,
   `audience-v0`, PROVISIONAL): people who watch beyond the members,
   counted and not listed, served by relays; where `RoomPolicy::audience`

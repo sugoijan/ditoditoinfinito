@@ -11,7 +11,8 @@
 use crate::ids::{Millis, ParticipantId, StageId};
 use crate::live::clock::{ClockEstimate, ClockEstimator, Ping};
 use crate::live::server::LiveSnapshot;
-use crate::live::stream::{Frame, FrameReader, Outbox};
+use crate::live::cpus::{CpuEntry, CpuNews};
+use crate::live::stream::{Frame, FrameReader, LiveReport, Outbox, StreamEnd};
 use crate::live::{
     ClientLive, ClientLiveEnvelope, LIVE_VERSION, LiveRefusal, LiveRules, ServerLive, wire,
 };
@@ -51,6 +52,103 @@ pub struct LiveLink {
     news: Vec<LiveNews>,
     fresh: bool,
     audience: Option<(u32, bool)>,
+    /// The CPUs' news this device computed, by stage (`crate::live::cpus`).
+    cpus: BTreeMap<StageId, CpuOutbox>,
+}
+
+/// What a device computed of a stage's CPUs, kept to send
+/// (`crate::live::cpus`, `online-cpus-v0`): every report made (sent again
+/// whole on a new socket or when the device becomes one that sends: the
+/// room drops what it has), each CPU's judged-to time and end.
+#[derive(Clone, Debug, Default)]
+pub struct CpuOutbox {
+    /// Whether this device sends ([`crate::live::cpus::sends_for_cpus`]).
+    sends: bool,
+    cpus: BTreeMap<ParticipantId, CpuKept>,
+    last_sent_ms: Option<u64>,
+    /// Messages sent so far, for the debug state and the tests.
+    pub sent: u32,
+}
+
+#[derive(Clone, Debug, Default)]
+struct CpuKept {
+    reports: Vec<LiveReport>,
+    sent: usize,
+    through_us: i64,
+    through_sent: i64,
+    end: Option<StreamEnd>,
+    end_sent: bool,
+}
+
+impl CpuOutbox {
+    fn news(&mut self, stage: StageId, all: bool) -> Vec<CpuNews> {
+        let rules = crate::live::cpus::ONLINE_CPUS_V0;
+        let mut out = Vec::new();
+        let mut cur = CpuNews {
+            stage,
+            entries: Vec::new(),
+        };
+        let mut reports = 0usize;
+        let mut judged = 0usize;
+        for (cpu, k) in &mut self.cpus {
+            if all {
+                k.sent = 0;
+                k.end_sent = false;
+            }
+            let fresh = k.sent < k.reports.len() || (k.end.is_some() && !k.end_sent);
+            if !fresh {
+                continue;
+            }
+            let mut entry = CpuEntry {
+                cpu: *cpu,
+                through_us: k.through_us,
+                reports: Vec::new(),
+                end: None,
+            };
+            for r in &k.reports[k.sent..] {
+                // A message's bounds (and well under the room's 64 KiB).
+                if reports + 1 > rules.max_reports
+                    || judged + r.judged.len() > 8_192
+                    || cur.entries.len() + 1 >= rules.max_entries
+                {
+                    if !entry.reports.is_empty() {
+                        cur.entries.push(std::mem::replace(
+                            &mut entry,
+                            CpuEntry {
+                                cpu: *cpu,
+                                through_us: k.through_us,
+                                reports: Vec::new(),
+                                end: None,
+                            },
+                        ));
+                    }
+                    out.push(std::mem::replace(
+                        &mut cur,
+                        CpuNews {
+                            stage,
+                            entries: Vec::new(),
+                        },
+                    ));
+                    reports = 0;
+                    judged = 0;
+                }
+                reports += 1;
+                judged += r.judged.len();
+                entry.reports.push(r.clone());
+            }
+            k.sent = k.reports.len();
+            if k.end.is_some() {
+                entry.end = k.end;
+                k.end_sent = true;
+            }
+            k.through_sent = k.through_us;
+            cur.entries.push(entry);
+        }
+        if !cur.entries.is_empty() {
+            out.push(cur);
+        }
+        out
+    }
 }
 
 impl LiveLink {
@@ -70,7 +168,52 @@ impl LiveLink {
             news: Vec::new(),
             fresh: false,
             audience: None,
+            cpus: BTreeMap::new(),
         }
+    }
+
+    /// Stage `stage`'s CPU `cpu` judged to song µs `through_us`, with the
+    /// reports it made since (`crate::live::cpus`): kept, and sent while
+    /// this device is one that sends.
+    pub fn cpu_news(
+        &mut self,
+        stage: StageId,
+        cpu: ParticipantId,
+        through_us: i64,
+        reports: Vec<LiveReport>,
+        end: Option<StreamEnd>,
+    ) {
+        let k = self
+            .cpus
+            .entry(stage)
+            .or_default()
+            .cpus
+            .entry(cpu)
+            .or_default();
+        k.through_us = k.through_us.max(through_us);
+        k.reports.extend(reports);
+        if k.end.is_none() {
+            k.end = end;
+        }
+    }
+
+    /// Whether this device sends stage `stage`'s CPUs' news
+    /// (`crate::live::cpus::sends_for_cpus`, read from the mirror each
+    /// time it changes). Becoming one sends everything kept.
+    pub fn set_cpu_sends(&mut self, stage: StageId, sends: bool) {
+        let o = self.cpus.entry(stage).or_default();
+        if sends && !o.sends {
+            for k in o.cpus.values_mut() {
+                k.sent = 0;
+                k.end_sent = false;
+            }
+        }
+        o.sends = sends;
+    }
+
+    /// The CPUs' news kept for stage `stage`.
+    pub fn cpu_outbox(&self, stage: StageId) -> Option<&CpuOutbox> {
+        self.cpus.get(&stage)
     }
 
     pub fn rules(&self) -> LiveRules {
@@ -301,6 +444,22 @@ impl LiveLink {
                     .map(|b| LiveSend::Binary(wire::encode_batch(b))),
             );
         }
+        let send_ms = crate::live::cpus::ONLINE_CPUS_V0.send_ms;
+        for (stage, o) in &mut self.cpus {
+            if !o.sends {
+                continue;
+            }
+            if !fresh && o.last_sent_ms.is_some_and(|t| now < t + send_ms) {
+                continue;
+            }
+            let news = o.news(*stage, fresh);
+            if news.is_empty() {
+                continue;
+            }
+            o.last_sent_ms = Some(now);
+            o.sent += news.len() as u32;
+            out.extend(news.iter().map(|n| LiveSend::Binary(wire::encode_cpus(n))));
+        }
         if let Some(r) = self.reader.as_mut()
             && let Some(after) = r.wants_resume(now)
             && let Some(stage) = r.stage()
@@ -311,6 +470,8 @@ impl LiveLink {
         let following = self.reader.as_ref().and_then(FrameReader::stage);
         self.outboxes
             .retain(|s, o| Some(*s) == following || !o.done());
+        self.cpus
+            .retain(|s, _| following.is_none_or(|f| *s >= f));
         out
     }
 }
@@ -319,7 +480,7 @@ impl LiveLink {
 mod tests {
     use super::*;
     use crate::live::LIVE_V1;
-    use crate::live::stream::{LiveReport, Moment, MomentKind};
+    use crate::live::stream::{Moment, MomentKind};
 
     fn moment(at_ms: i32) -> Moment {
         Moment {

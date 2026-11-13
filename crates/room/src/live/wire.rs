@@ -12,6 +12,7 @@
 
 use crate::attacks::{AttackEvent, BlockReason, CheckpointRecord, Judged, Settling, Targeting};
 use crate::ids::{Millis, ParticipantId, StageId};
+use crate::live::cpus::{CpuEntry, CpuNews};
 use crate::live::stream::{
     Batch, CheckpointNews, Commitment, Frame, FrameEntry, LiveReport, Moment, MomentKind, StreamEnd,
 };
@@ -20,6 +21,10 @@ use crate::live::stream::{
 pub const BATCH_V1: u8 = 0xB1;
 /// A frame, version 1.
 pub const FRAME_V1: u8 = 0xF1;
+/// A device's news of a stage's CPUs (`crate::live::cpus`,
+/// `online-cpus-v0`), version 1. Sent only to a room whose policy seats
+/// CPUs online: a room that predates it would refuse it (`bad_batch`).
+pub const CPUS_V1: u8 = 0xC1;
 
 /// A step down's moment travels as a refusal's kind with its flag (unused
 /// before), the rung counted down from this in the attack's place: a
@@ -44,6 +49,7 @@ pub enum WireError {
 pub enum Binary {
     Batch(Batch),
     Frame(Frame),
+    Cpus(CpuNews),
 }
 
 /// Read a binary message.
@@ -51,6 +57,7 @@ pub fn decode(bytes: &[u8]) -> Result<Binary, WireError> {
     match bytes.first() {
         Some(&BATCH_V1) => decode_batch(bytes).map(Binary::Batch),
         Some(&FRAME_V1) => decode_frame(bytes).map(Binary::Frame),
+        Some(&CPUS_V1) => decode_cpus(bytes).map(Binary::Cpus),
         Some(&b) => Err(WireError::Unknown(b)),
         None => Err(WireError::Truncated),
     }
@@ -95,6 +102,51 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Batch, WireError> {
         reports,
         end,
     })
+}
+
+pub fn encode_cpus(n: &CpuNews) -> Vec<u8> {
+    let mut w = Writer(Vec::with_capacity(16 + n.entries.len() * 64));
+    w.byte(CPUS_V1);
+    w.u(n.stage.0);
+    w.u(n.entries.len() as u64);
+    for e in &n.entries {
+        w.u(e.cpu.0);
+        w.i(e.through_us);
+        w.u(e.reports.len() as u64);
+        for r in &e.reports {
+            w.report(r);
+        }
+        w.end(e.end);
+    }
+    w.0
+}
+
+pub fn decode_cpus(bytes: &[u8]) -> Result<CpuNews, WireError> {
+    let mut r = Reader { b: bytes, at: 0 };
+    if r.byte()? != CPUS_V1 {
+        return Err(WireError::Invalid);
+    }
+    let stage = StageId(r.u()?);
+    let n = r.count(3)?;
+    let mut entries = Vec::with_capacity(n);
+    for _ in 0..n {
+        let cpu = ParticipantId(r.u()?);
+        let through_us = r.i()?;
+        let k = r.count(5)?;
+        let mut reports = Vec::with_capacity(k);
+        for _ in 0..k {
+            reports.push(r.report()?);
+        }
+        let end = r.end()?;
+        entries.push(CpuEntry {
+            cpu,
+            through_us,
+            reports,
+            end,
+        });
+    }
+    r.done()?;
+    Ok(CpuNews { stage, entries })
 }
 
 pub fn encode_frame(f: &Frame) -> Vec<u8> {
@@ -702,6 +754,64 @@ pub(crate) mod tests {
                 attack: STEP_DOWN_ATTACK - 2
             }
         );
+    }
+
+    #[test]
+    fn a_cpus_news_reads_back_equal_and_never_panics() {
+        let n = CpuNews {
+            stage: StageId(7),
+            entries: vec![
+                CpuEntry {
+                    cpu: ParticipantId(40),
+                    through_us: 4_100_000,
+                    reports: vec![judged(2, 12), judged(3, 4)],
+                    end: Some(StreamEnd::Out { at_us: 4_000_123 }),
+                },
+                CpuEntry {
+                    cpu: ParticipantId(41),
+                    through_us: 90_000_000,
+                    reports: Vec::new(),
+                    end: Some(StreamEnd::Finished),
+                },
+                CpuEntry {
+                    cpu: ParticipantId(42),
+                    through_us: -3,
+                    reports: vec![judged(0, 30)],
+                    end: None,
+                },
+            ],
+        };
+        let bytes = encode_cpus(&n);
+        assert_eq!(decode(&bytes), Ok(Binary::Cpus(n.clone())));
+        for k in 0..bytes.len() {
+            assert!(decode_cpus(&bytes[..k]).is_err());
+        }
+        let mut longer = bytes.clone();
+        longer.push(0);
+        assert_eq!(decode_cpus(&longer), Err(WireError::Trailing));
+        let mut x = 0x9E37_79B9u64;
+        for _ in 0..2_000 {
+            let mut b = bytes.clone();
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            let at = 1 + (x as usize) % (b.len() - 1);
+            b[at] ^= (x >> 32) as u8 | 1;
+            let _ = decode(&b);
+        }
+        // Sixty CPUs' reports of a checkpoint: well under the bound.
+        let many = CpuNews {
+            stage: StageId(7),
+            entries: (0..60)
+                .map(|i| CpuEntry {
+                    cpu: ParticipantId(100 + i),
+                    through_us: 9_000_000,
+                    reports: vec![judged(5, 24)],
+                    end: None,
+                })
+                .collect(),
+        };
+        assert!(encode_cpus(&many).len() < 16 * 1024, "{}", encode_cpus(&many).len());
     }
 
     #[test]

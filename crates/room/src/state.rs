@@ -388,6 +388,18 @@ impl StagePlay {
             .iter()
             .any(|id| members.get(id).is_some_and(Member::is_cpu))
     }
+
+    /// Its result comes from reports: self-reported, or a stage an online
+    /// room plays live whose authority seats CPUs (`RoomPolicy::cpus`):
+    /// its people report their own runs, the authority its CPUs' for the
+    /// devices that computed them (`crate::live::cpus`).
+    pub fn reported(
+        &self,
+        members: &BTreeMap<ParticipantId, Member>,
+        policy: &crate::rules::RoomPolicy,
+    ) -> bool {
+        self.self_reported(members) || (policy.cpus && self.song_zero_at.is_some())
+    }
 }
 
 /// Why a match competitor did not start a stage.
@@ -927,7 +939,7 @@ impl RoomState {
             || (play.song_zero_at.is_some()
                 && !play.song_ended
                 && matches!(self.phase, Phase::SongCompletion { stage: s } if s == stage));
-        if !play.self_reported(&self.members) || !waits {
+        if !play.reported(&self.members, &self.policy) || !waits {
             return None;
         }
         let p = &self.policy.outcomes;

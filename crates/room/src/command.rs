@@ -250,6 +250,19 @@ pub enum Command {
         stage: StageId,
         digest: PlanDigest,
     },
+    /// A CPU's run of a stage an online room plays live, as a device that
+    /// computed it reported it (`crate::live::cpus`, `online-cpus-v0`): the
+    /// authority's, for the first device's report (its live side takes it
+    /// from `crate::live::ClientLive::CpuRun`). Its event is the
+    /// `Event::OutcomeReported` a person's own report makes. Additive to
+    /// protocol 2: only an authority that seats CPUs online issues it.
+    ReportFor {
+        stage: StageId,
+        participant: ParticipantId,
+        run: ReportedRun,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<RunDetail>,
+    },
     /// The stage's result is confirmed before the song ends; the winner may
     /// finish the song.
     ConfirmStage {

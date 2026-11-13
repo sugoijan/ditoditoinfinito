@@ -234,6 +234,84 @@ impl RoomState {
         }
     }
 
+    /// A run reported for `stage`: `id`'s own (`ReportOutcome`), or a
+    /// CPU's by the authority for the device that computed it
+    /// (`ReportFor`, `for_cpu`).
+    #[allow(clippy::too_many_arguments)]
+    fn take_report(
+        &mut self,
+        stage: StageId,
+        id: ParticipantId,
+        for_cpu: bool,
+        run: &ReportedRun,
+        detail: &Option<RunDetail>,
+        now: Millis,
+        out: &mut Vec<Event>,
+    ) -> Decided {
+        // After a result confirmed before the song's end (a live room's,
+        // decided as the stage went), a report is taken for the standings'
+        // detail alone, and the song ends once everyone reported.
+        let confirmed = match self.phase {
+            Phase::Stage { stage: s } if s == stage => false,
+            Phase::SongCompletion { stage: s } if s == stage => true,
+            _ => return Err(self.wrong_phase()),
+        };
+        let play = self
+            .stage(stage)
+            .and_then(|s| s.play.as_ref())
+            .ok_or(Rejection::UnknownStage)?;
+        if !play.lineup.contains(&id) {
+            return Err(Rejection::NotInLineup);
+        }
+        let is_cpu = self.members.get(&id).is_some_and(Member::is_cpu);
+        if for_cpu != is_cpu {
+            return Err(Rejection::NotInLineup);
+        }
+        let reported = play.reported(&self.members, &self.policy);
+        if confirmed && (!reported || play.song_zero_at.is_none()) {
+            return Err(Rejection::ResultAlreadyConfirmed);
+        }
+        // A stage with CPUs is ranked by the authority that judges them
+        // (practice), never from reports; online, where its authority
+        // seats CPUs, by the reports (the CPUs' through it).
+        if !reported {
+            return Err(Rejection::AuthorityOnly);
+        }
+        match play.reports.get(&id) {
+            Some(r) if r == run => return Ok(()),
+            Some(_) => return Err(Rejection::AlreadyReported),
+            None => {}
+        }
+        self.emit(
+            out,
+            Event::OutcomeReported {
+                stage,
+                participant: id,
+                run: *run,
+                at: now,
+                detail: detail.clone().map(RunDetail::bounded),
+            },
+        );
+        let all = self
+            .stage(stage)
+            .and_then(|s| s.play.as_ref())
+            .is_some_and(|p| p.lineup.iter().all(|id| p.reports.contains_key(id)));
+        if all && confirmed {
+            self.end_song(stage, out);
+        } else if all {
+            self.settle(stage, out);
+        }
+        Ok(())
+    }
+
+    /// CPUs in `rules` where this room's authority cannot seat them.
+    fn check_cpus_here(&self, rules: &crate::rules::MatchRules) -> Result<(), crate::rules::RulesProblem> {
+        if rules.cpu_seats(self.reserved_humans()) > 0 && !self.policy.seats_cpus(self.source) {
+            return Err(crate::rules::RulesProblem::CpusNotHonored);
+        }
+        Ok(())
+    }
+
     fn check_base(base: Option<Revision>, changed_at: Revision) -> Decided {
         let base = base.ok_or(Rejection::MissingBase)?;
         if changed_at > base {
@@ -379,56 +457,16 @@ impl RoomState {
             }
             Command::ReportOutcome { stage, run, detail } => {
                 let id = self.own(actor)?;
-                // After a result confirmed before the song's end (a live
-                // room's, decided as the stage went), a report is taken
-                // for the standings' detail alone, and the song ends once
-                // everyone reported.
-                let confirmed = match self.phase {
-                    Phase::Stage { stage: s } if s == *stage => false,
-                    Phase::SongCompletion { stage: s } if s == *stage => true,
-                    _ => return Err(self.wrong_phase()),
-                };
-                let play = self
-                    .stage(*stage)
-                    .and_then(|s| s.play.as_ref())
-                    .ok_or(Rejection::UnknownStage)?;
-                if !play.lineup.contains(&id) {
-                    return Err(Rejection::NotInLineup);
-                }
-                if confirmed && (!play.self_reported(&self.members) || play.song_zero_at.is_none())
-                {
-                    return Err(Rejection::ResultAlreadyConfirmed);
-                }
-                // A stage with CPUs is ranked by the authority that judges
-                // them (practice), never from reports.
-                if !play.self_reported(&self.members) {
-                    return Err(Rejection::AuthorityOnly);
-                }
-                match play.reports.get(&id) {
-                    Some(r) if r == run => return Ok(()),
-                    Some(_) => return Err(Rejection::AlreadyReported),
-                    None => {}
-                }
-                self.emit(
-                    out,
-                    Event::OutcomeReported {
-                        stage: *stage,
-                        participant: id,
-                        run: *run,
-                        at: now,
-                        detail: detail.clone().map(RunDetail::bounded),
-                    },
-                );
-                let all = self
-                    .stage(*stage)
-                    .and_then(|s| s.play.as_ref())
-                    .is_some_and(|p| p.lineup.iter().all(|id| p.reports.contains_key(id)));
-                if all && confirmed {
-                    self.end_song(*stage, out);
-                } else if all {
-                    self.settle(*stage, out);
-                }
-                Ok(())
+                self.take_report(*stage, id, false, run, detail, now, out)
+            }
+            Command::ReportFor {
+                stage,
+                participant,
+                run,
+                detail,
+            } => {
+                Self::authority_only(actor)?;
+                self.take_report(*stage, *participant, true, run, detail, now, out)
             }
             Command::ChooseContent { stage, content } => {
                 self.require_picker(actor)?;
@@ -1179,6 +1217,8 @@ impl RoomState {
         rules
             .validate(&self.policy, self.reserved_humans())
             .map_err(Rejection::RulesNeedReview)?;
+        self.check_cpus_here(&rules)
+            .map_err(Rejection::RulesNeedReview)?;
         let humans: Vec<ParticipantId> = self
             .members
             .values()
@@ -1564,6 +1604,7 @@ impl RoomState {
         rules
             .validate(&self.policy, self.reserved_humans())
             .map_err(Rejection::InvalidRules)?;
+        self.check_cpus_here(rules).map_err(Rejection::InvalidRules)?;
         let have = self.playlist.len();
         let added = (have..usize::from(rules.stages))
             .map(|_| self.fresh_stage())

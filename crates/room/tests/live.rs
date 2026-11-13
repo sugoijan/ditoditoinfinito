@@ -234,6 +234,22 @@ struct Player {
     slew: Option<SongSlew>,
     /// Its device's clock (the link's own copy runs the same).
     clock: DriftClock,
+    /// The stage's CPUs as this device computes them
+    /// (`ddi_room::live::cpus`): scripted here.
+    cpus: Vec<CpuCopy>,
+}
+
+/// A CPU as a device computes it: its scripted play, its reports, and
+/// whether this device gets it wrong (a different copy: every report's
+/// life one less, its run's life one less).
+struct CpuCopy {
+    id: ParticipantId,
+    play: Script,
+    reporter: Reporter,
+    judged: Vec<Judged>,
+    judged_sent: usize,
+    ended: bool,
+    differs: bool,
 }
 
 impl Player {
@@ -285,6 +301,7 @@ impl Player {
             self.link.ticket(t.map_err(|_| TicketProblem::NotAMember));
         }
         self.feed();
+        self.feed_cpus();
         let _ = self.link.poll();
         self.news.extend(self.link.live_mut().take_news());
     }
@@ -361,6 +378,87 @@ impl Player {
     }
 }
 
+impl Player {
+    /// The stage's CPUs judged to its song time, their news kept by its
+    /// link and sent where this device is one that sends.
+    fn feed_cpus(&mut self) {
+        if self.cpus.is_empty() {
+            return;
+        }
+        let Some(t_us) = self.song_us() else {
+            return;
+        };
+        let sends = self
+            .link
+            .room()
+            .is_some_and(|r| ddi_room::live::cpus::sends_for_cpus(r, STAGE, self.id));
+        self.link.live_mut().set_cpu_sends(STAGE, sends);
+        let mut runs = Vec::new();
+        for c in &mut self.cpus {
+            if c.ended || t_us < -800_000 {
+                continue;
+            }
+            let play = c.play.clone();
+            while let Some(j) = c.judged.get(c.judged_sent) {
+                if j.at_us > t_us {
+                    break;
+                }
+                c.reporter.judged(*j);
+                c.judged_sent += 1;
+            }
+            let out = play.out_ms.filter(|o| i64::from(*o) * 1_000 <= t_us);
+            if let Some(o) = out {
+                c.reporter.out_at(i64::from(o) * 1_000);
+            }
+            let judged_to = t_us.min(i64::from(play.out_ms.unwrap_or(play.end_ms)) * 1_000);
+            let differs = c.differs;
+            let reports: Vec<LiveReport> = c
+                .reporter
+                .due(judged_to, &|at| play.life(at) ^ u32::from(differs))
+                .into_iter()
+                .map(|(k, r)| LiveReport::from_report(k, r))
+                .collect();
+            let end = if let Some(o) = out {
+                Some(StreamEnd::Out {
+                    at_us: i64::from(o) * 1_000,
+                })
+            } else {
+                (t_us >= i64::from(play.end_ms) * 1_000).then_some(StreamEnd::Finished)
+            };
+            self.link
+                .live_mut()
+                .cpu_news(STAGE, c.id, judged_to, reports, end);
+            if let Some(end) = end {
+                c.ended = true;
+                let last = play.moments.last();
+                let run = match end {
+                    StreamEnd::Out { at_us } => ReportedRun::Out {
+                        at_ms: (at_us / 1_000) as u64,
+                    },
+                    _ => ReportedRun::Live {
+                        life_ppm: last.map_or(1_000_000, |m| m.life_ppm) ^ u32::from(differs),
+                        accuracy_ppm: 800_000,
+                        absolute: None,
+                        score: last.map(|m| m.score),
+                        steps: 0,
+                    },
+                };
+                runs.push((c.id, run));
+            }
+        }
+        if sends {
+            for (cpu, run) in runs {
+                self.link.live_mut().send(ClientLive::CpuRun {
+                    stage: STAGE,
+                    cpu,
+                    run,
+                    detail: None,
+                });
+            }
+        }
+    }
+}
+
 struct Room {
     clock: ManualClock,
     server: SharedFake,
@@ -399,6 +497,8 @@ impl Room {
 
 struct Setup {
     competitors: usize,
+    /// CPUs of the match's roster beside the people (`online-cpus-v0`).
+    cpus: usize,
     watchers: usize,
     attacks: bool,
     policy: RoomPolicy,
@@ -414,6 +514,7 @@ impl Setup {
     fn new(competitors: usize) -> Setup {
         Setup {
             competitors,
+            cpus: 0,
             watchers: 0,
             drift_ppm: 0,
             mapped_once: false,
@@ -498,6 +599,7 @@ fn room(setup: &Setup) -> Room {
             song_map: None,
             slew: setup.slewed.then(|| SongSlew::new(SLEW_V0)),
             clock: device,
+            cpus: Vec::new(),
         });
     }
     let mut r = Room {
@@ -519,8 +621,20 @@ fn room(setup: &Setup) -> Room {
     }
     // The owner's rules: a seat each, attacks as asked.
     let mut rules = MatchRules::hosted();
-    rules.seats = setup.competitors as u16;
+    rules.seats = (setup.competitors + setup.cpus) as u16;
     rules.set_attacks(setup.attacks);
+    if setup.cpus > 0 {
+        rules.cpu.mode = ddi_room::CpuMode::Roster;
+        rules.cpu.roster = (0..setup.cpus)
+            .map(|i| ddi_room::OpponentSpec {
+                level: (i % 10) as u8,
+                seed: 1_000 + i as u64,
+                personality: None,
+                name: Some(format!("Cpu{i}")),
+                targeting: None,
+            })
+            .collect();
+    }
     r.players[0].send(Command::SaveNextRules { rules });
     r.run(500);
     r.players[0].send(Command::ChooseContent {
@@ -1032,8 +1146,8 @@ fn a_connection_lost_past_the_grace_is_a_forfeit_and_does_not_hold_the_stage_up(
     r.run(6_000);
     // P3's device goes away for good (its socket's end seen by the room,
     // no new one).
-    r.server.borrow_mut().drop_socket(ParticipantId(3));
-    r.run(100);
+    r.player(ParticipantId(3)).send(Command::Leave);
+    r.run(300);
     let now = r.now();
     r.player(ParticipantId(3)).gone_at = Some(now);
     r.run(10_000);
@@ -1610,6 +1724,7 @@ fn someone_who_comes_in_mid_stage_gets_the_stage_as_it_stands_and_follows_it() {
         song_map: None,
         slew: None,
         clock: watcher_clock,
+        cpus: Vec::new(),
     });
     r.run(20_000);
     let watcher = r.players.last().unwrap();
@@ -1952,4 +2067,348 @@ fn the_views_keep_their_delay_when_the_clocks_drift() {
             assert!(once.mean > kept.mean + 60.0, "the drift shows without it: {once:?}");
         }
     }
+}
+
+// CPUs in an online room (`ddi_room::live::cpus`, `online-cpus-v0`): no
+// connection plays them; every device computes them alike (scripted
+// here) and the room takes the first report of each.
+
+/// The match's CPUs as the room seated them, in their seats' order.
+fn cpu_ids(r: &Room) -> Vec<ParticipantId> {
+    let s = r.state();
+    let mut cpus: Vec<(u16, ParticipantId)> = s
+        .members
+        .values()
+        .filter_map(|m| match &m.kind {
+            ddi_room::MemberKind::Cpu { ordinal, .. } => Some((*ordinal, m.id)),
+            _ => None,
+        })
+        .collect();
+    cpus.sort();
+    cpus.into_iter().map(|(_, id)| id).collect()
+}
+
+/// Every device (`devices`: their places in the room's players) given
+/// the CPUs' scripted plays; those of `differ` compute them differently.
+fn give_cpus(r: &mut Room, scripts: &[Script], plan: &BattlePlan, devices: &[usize], differ: &[usize]) {
+    let ids = cpu_ids(r);
+    assert_eq!(ids.len(), scripts.len(), "the room seated the roster");
+    for &d in devices {
+        let p = &mut r.players[d];
+        p.cpus = ids
+            .iter()
+            .zip(scripts)
+            .map(|(id, s)| CpuCopy {
+                id: *id,
+                play: s.clone(),
+                reporter: Reporter::new(*id, plan.checkpoints_us.clone()),
+                judged: s.judged(),
+                judged_sent: 0,
+                ended: false,
+                differs: differ.contains(&d),
+            })
+            .collect();
+    }
+}
+
+/// A room of `people` (and `watchers`) with `cpus` CPUs, attacks on, the
+/// plan offered and the stage started; people's and CPUs' scripts given.
+fn cpu_room(
+    people: &[Script],
+    cpus: &[Script],
+    watchers: usize,
+    plan: &BattlePlan,
+    latency: Option<Latency>,
+) -> Room {
+    let mut setup = Setup::new(people.len());
+    setup.cpus = cpus.len();
+    setup.watchers = watchers;
+    setup.attacks = true;
+    setup.latency = latency;
+    let mut r = room(&setup);
+    r.players[0].link.live_mut().send(ClientLive::OfferPlan {
+        stage: STAGE,
+        plan: Box::new(plan.clone()),
+    });
+    r.run(500);
+    start(&mut r, Some(plan.digest.clone()), people.len());
+    started(&r);
+    let lineup = r.state().stage(STAGE).unwrap().play.as_ref().unwrap().lineup.clone();
+    assert_eq!(lineup.len(), people.len() + cpus.len(), "the CPUs start");
+    give_plays(&mut r, people, Some(&plan.checkpoints_us));
+    r
+}
+
+fn cpu_scripts(n: u64, outs: bool) -> Vec<Script> {
+    (1..=n)
+        .map(|i| {
+            let out = (outs && i % 3 == 0).then_some(20_000 + i as i32 * 900);
+            script(500 + i, 90 + (i % 4) as i32 * 13, 56_000, out)
+        })
+        .collect()
+}
+
+#[test]
+fn cpus_reported_by_the_devices_give_the_ledger_as_one_device_would() {
+    let plan = plan(30, 77, |j| j % 4 != 1);
+    let people: Vec<Script> = (1..=2)
+        .map(|i| script(10 + i, 95 + i as i32 * 7, 56_000, None))
+        .collect();
+    let cpus = cpu_scripts(3, false);
+    let mut r = cpu_room(&people, &cpus, 0, &plan, Setup::new(2).latency);
+    let all = [0, 1];
+    give_cpus(&mut r, &cpus, &plan, &all, &[]);
+    let mut ids: Vec<ParticipantId> = r.players.iter().map(|p| p.id).collect();
+    ids.extend(cpu_ids(&r));
+    let scripts: Vec<Script> = people.iter().chain(&cpus).cloned().collect();
+    let local = local_record(&scripts, &plan, &ids);
+    r.run(66_000);
+    let server = r.server.borrow();
+    let stage = server.live().unwrap().stage_or_last().unwrap();
+    let room = stage.ledger().unwrap().record().to_vec();
+    assert_eq!(room, local, "the same ledger as one device judging everyone");
+    let against_cpus = room
+        .iter()
+        .flat_map(|c| &c.events)
+        .filter(|e| matches!(e, AttackEvent::Committed { recipient, .. } if ids[2..].contains(recipient)))
+        .count();
+    let from_cpus = room
+        .iter()
+        .flat_map(|c| &c.events)
+        .filter(|e| matches!(e, AttackEvent::Committed { sender, .. } if ids[2..].contains(sender)))
+        .count();
+    assert!(against_cpus > 0 && from_cpus > 0, "attacks both ways: {against_cpus} {from_cpus}");
+    assert_eq!(stage.cpu_mismatches(), 0);
+    let (messages, reports) = stage.cpu_traffic();
+    assert!(messages > 0 && reports >= 3 * 2, "{messages} {reports}");
+    drop(server);
+    // Settled with the CPUs as competitors, their runs reported for them.
+    let s = r.state();
+    let m = s.current.as_ref().or(s.history.last().map(|h| &h.played)).unwrap();
+    let play = m.stage(STAGE).unwrap().play.as_ref().unwrap();
+    assert!(play.song_ended);
+    for cpu in &ids[2..] {
+        assert!(play.reports.contains_key(cpu), "{cpu:?}'s run");
+        assert!(play.result.as_ref().unwrap().placement(*cpu).is_some());
+    }
+}
+
+#[test]
+fn a_device_that_computes_a_cpu_differently_is_counted_and_the_first_report_kept() {
+    let plan = plan(30, 77, |j| j % 4 != 1);
+    let people: Vec<Script> = (1..=2)
+        .map(|i| script(10 + i, 95 + i as i32 * 7, 56_000, None))
+        .collect();
+    let cpus = cpu_scripts(3, false);
+    let mut setup = Setup::new(2);
+    setup.cpus = 3;
+    setup.attacks = true;
+    setup.latency = None;
+    let mut r = room(&setup);
+    // The second device's reports reach the room late: the first taken
+    // is the honest one's.
+    r.server.borrow_mut().set_latency(
+        ParticipantId(2),
+        Latency {
+            down_ms: 0,
+            down_jitter_ms: 0,
+            up_ms: 400,
+            up_jitter_ms: 0,
+            seed: 3,
+        },
+    );
+    r.players[0].link.live_mut().send(ClientLive::OfferPlan {
+        stage: STAGE,
+        plan: Box::new(plan.clone()),
+    });
+    r.run(500);
+    start(&mut r, Some(plan.digest.clone()), 2);
+    give_plays(&mut r, &people, Some(&plan.checkpoints_us));
+    give_cpus(&mut r, &cpus, &plan, &[0, 1], &[1]);
+    let mut ids: Vec<ParticipantId> = r.players.iter().map(|p| p.id).collect();
+    ids.extend(cpu_ids(&r));
+    let scripts: Vec<Script> = people.iter().chain(&cpus).cloned().collect();
+    let local = local_record(&scripts, &plan, &ids);
+    r.run(66_000);
+    let server = r.server.borrow();
+    let stage = server.live().unwrap().stage_or_last().unwrap();
+    assert_eq!(stage.ledger().unwrap().record(), &local[..], "the first reports kept");
+    assert!(stage.cpu_mismatches() >= 3 * 10, "{}", stage.cpu_mismatches());
+    assert!(
+        server.notes().iter().any(|n| n.contains("differs from the first taken")),
+        "said in the log"
+    );
+}
+
+#[test]
+fn a_device_leaving_mid_stage_changes_nothing_and_the_last_one_leaving_ends_the_cpus() {
+    let plan = plan(30, 77, |j| j % 4 != 1);
+    let people: Vec<Script> = (1..=2)
+        .map(|i| script(10 + i, 95 + i as i32 * 7, 56_000, None))
+        .collect();
+    let cpus = cpu_scripts(3, true);
+    let mut r = cpu_room(&people, &cpus, 1, &plan, Setup::new(2).latency);
+    r.server.borrow_mut().set_grace(Some(3_000));
+    give_cpus(&mut r, &cpus, &plan, &[0, 1, 2], &[]);
+    let mut ids: Vec<ParticipantId> = r.players.iter().take(2).map(|p| p.id).collect();
+    ids.extend(cpu_ids(&r));
+    // The watcher sends nothing while a person of the lineup is there.
+    r.run(10_000);
+    let watcher_sent = |r: &Room| {
+        r.players[2]
+            .link
+            .live()
+            .cpu_outbox(STAGE)
+            .map_or(0, |o| o.sent)
+    };
+    assert_eq!(watcher_sent(&r), 0);
+    // The first device goes away for good: the second goes on alone.
+    r.player(ParticipantId(1)).send(Command::Leave);
+    r.run(300);
+    let now = r.now();
+    r.player(ParticipantId(1)).gone_at = Some(now);
+    r.run(15_000);
+    {
+        let server = r.server.borrow();
+        let stage = server.live().unwrap().stage().unwrap();
+        for cpu in &ids[2..] {
+            assert_ne!(stage.end(*cpu), Some(StreamEnd::Dropped), "{cpu:?}");
+        }
+    }
+    // Then the second: the watcher sends for the CPUs.
+    r.player(ParticipantId(2)).send(Command::Leave);
+    r.run(300);
+    let now = r.now();
+    r.player(ParticipantId(2)).gone_at = Some(now);
+    r.run(5_000);
+    assert!(watcher_sent(&r) > 0, "the watcher took over");
+    let checkpoints = |r: &Room| {
+        r.server
+            .borrow()
+            .live()
+            .unwrap()
+            .stage_or_last()
+            .unwrap()
+            .ledger()
+            .unwrap()
+            .record()
+            .len()
+    };
+    let before = checkpoints(&r);
+    r.run(6_000);
+    assert!(checkpoints(&r) > before, "the ledger goes on");
+    // And the watcher too: nobody is left who computes them, their
+    // streams end as forfeits and the stage ends.
+    r.player(ParticipantId(3)).send(Command::Leave);
+    r.run(300);
+    let now = r.now();
+    r.player(ParticipantId(3)).gone_at = Some(now);
+    r.run(10_000);
+    // (Everyone left: the room closed with them.)
+    assert!(r.state().closed.is_some(), "{:?}", r.state().phase);
+    let server = r.server.borrow();
+    let stage = server.live().unwrap().stage_or_last().unwrap();
+    for (cpu, sc) in ids[2..].iter().zip(&cpus) {
+        if sc.out_ms.is_none_or(|o| o > 40_000) {
+            assert_eq!(stage.end(*cpu), Some(StreamEnd::Dropped), "{cpu:?}");
+        }
+    }
+}
+
+#[test]
+fn an_authority_that_cannot_seat_cpus_online_refuses_a_roster() {
+    let mut setup = Setup::new(1);
+    setup.policy.cpus = false;
+    let mut r = room(&setup);
+    let mut rules = MatchRules::hosted();
+    rules.seats = 3;
+    rules.cpu.mode = ddi_room::CpuMode::Roster;
+    rules.cpu.roster = vec![ddi_room::OpponentSpec {
+        level: 3,
+        seed: 1,
+        personality: None,
+        name: None,
+        targeting: None,
+    }];
+    let before = r.state().next.rules.clone();
+    r.players[0].send(Command::SaveNextRules { rules });
+    r.run(500);
+    assert_eq!(r.state().next.rules, before, "refused");
+    // And the policy says so to every client: an authority that predates
+    // CPUs online leaves the field out.
+    let json = serde_json::to_value(&r.state().policy).unwrap();
+    assert!(json.get("cpus").is_none());
+    assert_eq!(
+        serde_json::to_value(RoomPolicy::default()).unwrap()["cpus"],
+        true
+    );
+}
+
+/// The room of 1+72 with 60 CPUs (13 people), settling; and what the CPUs
+/// cost in messages the room reads, against the same 13 people alone.
+#[test]
+fn a_room_of_seventy_three_with_sixty_cpus_settles() {
+    let plan = plan(16, 7, |j| j % 3 != 2);
+    let people: Vec<Script> = (1..=13u64)
+        .map(|i| script(100 + i, 110 + (i % 5) as i32 * 10, 30_000, None))
+        .collect();
+    let cpus: Vec<Script> = (1..=60u64)
+        .map(|i| {
+            let out = (i % 7 == 0).then_some(8_000 + i as i32 * 200);
+            script(300 + i, 110 + (i % 5) as i32 * 10, 30_000, out)
+        })
+        .collect();
+    let latency = Some(Latency {
+        down_ms: 20,
+        down_jitter_ms: 40,
+        up_ms: 20,
+        up_jitter_ms: 40,
+        seed: 5,
+    });
+    let measure = |with_cpus: bool| {
+        let cpus_here: &[Script] = if with_cpus { &cpus } else { &[] };
+        let mut r = cpu_room(&people, cpus_here, 0, &plan, latency);
+        if with_cpus {
+            let all: Vec<usize> = (0..13).collect();
+            give_cpus(&mut r, cpus_here, &plan, &all, &[]);
+        }
+        let (b0, t0, c0) = r.server.borrow().incoming();
+        let begun = Instant::now();
+        r.run(30_000);
+        let took = begun.elapsed();
+        let (b1, t1, c1) = r.server.borrow().incoming();
+        r.run(10_000);
+        let s = r.state();
+        assert!(
+            matches!(s.phase, Phase::MatchResults | Phase::Intermission { .. }),
+            "{:?}",
+            s.phase
+        );
+        let m = s.current.as_ref().or(s.history.last().map(|h| &h.played)).unwrap();
+        let result = m.stage(STAGE).unwrap().play.as_ref().unwrap().result.clone().unwrap();
+        assert_eq!(result.placements.len(), 13 + cpus_here.len());
+        let mismatches = r
+            .server
+            .borrow()
+            .live()
+            .unwrap()
+            .stage_or_last()
+            .unwrap()
+            .cpu_mismatches();
+        assert_eq!(mismatches, 0);
+        (
+            (b1 - b0) as f64 / 30.0,
+            (t1 - t0) as f64 / 30.0,
+            (c1 - c0) as f64 / 30.0,
+            took.as_secs_f64(),
+        )
+    };
+    let alone = measure(false);
+    let with = measure(true);
+    eprintln!(
+        "13 people: {:.1} binary + {:.1} text messages a second; with 60 CPUs: {:.1} binary ({:.1} of them the CPUs' news) + {:.1} text; test time {:.1} s and {:.1} s",
+        alone.0, alone.1, with.0, with.2, with.1, alone.3, with.3
+    );
+    // The CPUs' news: about one message a device a checkpoint.
+    assert!(with.2 <= 13.0 * 4.0, "{}", with.2);
 }

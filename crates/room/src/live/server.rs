@@ -51,6 +51,9 @@ pub struct LiveOut {
     pub broadcast: Vec<Vec<u8>>,
     /// The authority's commands for the reducer, in order.
     pub commands: Vec<Command>,
+    /// What the host should log (English): a CPU's reports that two
+    /// devices computed differently (`crate::live::cpus`).
+    pub notes: Vec<String>,
 }
 
 impl LiveOut {
@@ -264,6 +267,18 @@ impl LiveServer {
                 Some(s) if s.id == stage => out.reply.extend(s.resume(after, now)),
                 _ => out.refuse(LiveRefusal::UnknownStage { stage }),
             },
+            ClientLive::CpuRun {
+                stage,
+                cpu,
+                run,
+                detail,
+            } => match self.stage.as_mut() {
+                Some(s) if s.id == stage => s.cpu_run(room, from, cpu, run, detail, &mut out),
+                _ => {
+                    // The stage's streams are gone (the room moved on long
+                    // since): its run is passed over.
+                }
+            },
         }
         out
     }
@@ -354,6 +369,14 @@ impl LiveServer {
                 }
                 _ => out.refuse(LiveRefusal::UnknownStage { stage: b.stage }),
             },
+            Ok(wire::Binary::Cpus(n)) => match self.stage.as_mut() {
+                Some(s) if s.id == n.stage => match s.accept_cpus(room, from, n, &mut out) {
+                    Ok(true) => s.decide(room, &mut out),
+                    Ok(false) => {}
+                    Err(r) => out.refuse(r),
+                },
+                _ => out.refuse(LiveRefusal::UnknownStage { stage: n.stage }),
+            },
             Ok(wire::Binary::Frame(_)) | Err(_) => out.refuse(LiveRefusal::BadBatch { stage }),
         }
         out
@@ -414,6 +437,9 @@ impl LiveServer {
 
 #[derive(Clone, Debug)]
 struct Comp {
+    /// A CPU of the match (`crate::live::cpus`): its reports come from
+    /// the devices that compute it.
+    cpu: bool,
     live: bool,
     seq: u32,
     through_us: i64,
@@ -510,6 +536,18 @@ pub struct LiveStage {
     next_tick: Millis,
     /// When the room moved on from it.
     left_at: Option<Millis>,
+    /// The CPUs' reports taken, by CPU and checkpoint: the first's digest
+    /// (`crate::live::cpus::report_digest`), what a later one is told
+    /// equal or not by; their ends and runs as first taken.
+    cpu_reports: BTreeMap<(ParticipantId, u32), u64>,
+    cpu_ends: BTreeMap<ParticipantId, StreamEnd>,
+    cpu_runs: BTreeMap<ParticipantId, crate::battle::ReportedRun>,
+    /// Reports, ends and runs of a CPU a device sent that differ from
+    /// the first taken (counted; the first kept).
+    cpu_mismatches: u32,
+    /// CPU messages taken, and the reports in them (duplicates included).
+    cpu_messages: u32,
+    cpu_reports_seen: u32,
 }
 
 impl LiveStage {
@@ -534,6 +572,10 @@ impl LiveStage {
                 None => true,
             })
         };
+        // A CPU plays live where the room seats CPUs online: the devices
+        // that compute it report for it (`crate::live::cpus`).
+        let is_cpu = |p: &ParticipantId| room.member(*p).is_some_and(|m| m.is_cpu());
+        let cpus_live = room.policy.cpus;
         let comps: BTreeMap<ParticipantId, Comp> = play
             .lineup
             .iter()
@@ -541,7 +583,12 @@ impl LiveStage {
                 (
                     *p,
                     Comp {
-                        live: prepared_ok(p).is_some(),
+                        cpu: is_cpu(p),
+                        live: if is_cpu(p) {
+                            cpus_live
+                        } else {
+                            prepared_ok(p).is_some()
+                        },
                         seq: 0,
                         through_us: i64::MIN,
                         streamed: false,
@@ -560,11 +607,17 @@ impl LiveStage {
                 .lineup
                 .iter()
                 .filter_map(|p| {
-                    let x = prepared_ok(p)?;
+                    // A CPU's lead from the room's horizon for CPUs, the
+                    // same on every device.
+                    let horizon_us = if is_cpu(p) {
+                        cpus_live.then_some(crate::live::cpus::ONLINE_CPUS_V0.horizon_us)?
+                    } else {
+                        prepared_ok(p)?.horizon_us
+                    };
                     Some(RosterSeat {
                         participant: *p,
                         targeting: room.member(*p).map(|m| m.targeting()).unwrap_or_default(),
-                        lead_us: rules.lead_us(x.horizon_us),
+                        lead_us: rules.lead_us(horizon_us),
                     })
                 })
                 .collect();
@@ -602,6 +655,157 @@ impl LiveStage {
             kept: VecDeque::new(),
             next_tick: Millis(0),
             left_at: None,
+            cpu_reports: BTreeMap::new(),
+            cpu_ends: BTreeMap::new(),
+            cpu_runs: BTreeMap::new(),
+            cpu_mismatches: 0,
+            cpu_messages: 0,
+            cpu_reports_seen: 0,
+        }
+    }
+
+    /// Reports, ends and runs of a CPU that a device sent differently
+    /// from the first taken (`crate::live::cpus`: the first is kept).
+    pub fn cpu_mismatches(&self) -> u32 {
+        self.cpu_mismatches
+    }
+
+    /// CPU messages taken so far, and the reports they carried (equal
+    /// ones from several devices each counted).
+    pub fn cpu_traffic(&self) -> (u32, u32) {
+        (self.cpu_messages, self.cpu_reports_seen)
+    }
+
+    /// A device's news of the stage's CPUs (`crate::live::cpus`): each
+    /// CPU's reports, the first of each checkpoint taken (counted at its
+    /// checkpoint, or at the next one where it came after its deadline,
+    /// as a person's late report), a later one compared; its end, the
+    /// first taken. From any person of the room (a player or a watcher),
+    /// never for anyone but a CPU of the stage. Whether a CPU's stream
+    /// ended with it (the stage may be decided).
+    pub fn accept_cpus(
+        &mut self,
+        room: &RoomState,
+        from: ParticipantId,
+        n: crate::live::cpus::CpuNews,
+        out: &mut LiveOut,
+    ) -> Result<bool, LiveRefusal> {
+        let stage = self.id;
+        let rules = crate::live::cpus::ONLINE_CPUS_V0;
+        if !room
+            .member(from)
+            .is_some_and(|m| !m.left && !m.is_cpu())
+        {
+            return Err(LiveRefusal::NotInLineup { stage });
+        }
+        if n.entries.len() > rules.max_entries
+            || n.entries.iter().map(|e| e.reports.len()).sum::<usize>() > rules.max_reports
+            || n.entries.iter().any(|e| {
+                e.reports
+                    .iter()
+                    .any(|r| r.judged.len() > self.rules.max_report_judged)
+            })
+        {
+            return Err(LiveRefusal::BadBatch { stage });
+        }
+        self.cpu_messages += 1;
+        let checkpoints = self.ledger.as_ref().map_or(0, |l| l.checkpoints_us().len());
+        let mut ended = false;
+        for e in n.entries {
+            let Some(c) = self.comps.get_mut(&e.cpu).filter(|c| c.cpu && c.live) else {
+                continue;
+            };
+            c.streamed = true;
+            c.through_us = c.through_us.max(e.through_us);
+            for r in e.reports {
+                self.cpu_reports_seen += 1;
+                let digest = crate::live::cpus::report_digest(&r);
+                match self.cpu_reports.get(&(e.cpu, r.k)) {
+                    Some(d) if *d == digest => {}
+                    Some(_) => {
+                        self.cpu_mismatches += 1;
+                        out.notes.push(format!(
+                            "live: stage {}: CPU {} checkpoint {}: participant {}'s report differs from the first taken (kept)",
+                            stage.0, e.cpu.0, r.k, from.0
+                        ));
+                    }
+                    None => {
+                        self.cpu_reports.insert((e.cpu, r.k), digest);
+                        if (r.k as usize) < checkpoints {
+                            c.reported = Some(c.reported.map_or(r.k, |k| k.max(r.k)));
+                            c.reports.insert(r.k, r);
+                        }
+                    }
+                }
+            }
+            if let Some(end) = e.end {
+                match self.cpu_ends.get(&e.cpu) {
+                    Some(first) if *first == end => {}
+                    Some(_) => {
+                        self.cpu_mismatches += 1;
+                        out.notes.push(format!(
+                            "live: stage {}: CPU {}: participant {}'s end {end:?} differs from the first taken (kept)",
+                            stage.0, e.cpu.0, from.0
+                        ));
+                    }
+                    None if c.end.is_none() => {
+                        self.cpu_ends.insert(e.cpu, end);
+                        c.end = Some(end);
+                        ended = true;
+                        let entry = self.pending.entry(e.cpu).or_insert_with(|| FrameEntry {
+                            participant: e.cpu,
+                            seq: 0,
+                            through_us: 0,
+                            moments: Vec::new(),
+                            end: None,
+                        });
+                        entry.through_us = c.through_us.max(0);
+                        entry.end = Some(end);
+                    }
+                    // Ended by the room already (nobody left to compute
+                    // it, then someone came back): the room's end stands.
+                    None => {}
+                }
+            }
+        }
+        Ok(ended)
+    }
+
+    /// A CPU's run as device `from` computed it: the first taken (the
+    /// authority's `Command::ReportFor`), a later one compared.
+    fn cpu_run(
+        &mut self,
+        room: &RoomState,
+        from: ParticipantId,
+        cpu: ParticipantId,
+        run: crate::battle::ReportedRun,
+        detail: Option<crate::battle::RunDetail>,
+        out: &mut LiveOut,
+    ) {
+        if !room.member(from).is_some_and(|m| !m.left && !m.is_cpu())
+            || !self.comps.get(&cpu).is_some_and(|c| c.cpu && c.live)
+        {
+            out.refuse(LiveRefusal::NotInLineup { stage: self.id });
+            return;
+        }
+        match self.cpu_runs.get(&cpu) {
+            Some(first) if *first == run => {}
+            Some(_) => {
+                self.cpu_mismatches += 1;
+                out.notes.push(format!(
+                    "live: stage {}: CPU {}: participant {}'s run differs from the first taken (kept)",
+                    self.id.0, cpu.0, from.0
+                ));
+            }
+            None => {
+                self.cpu_runs.insert(cpu, run);
+                out.commands.push(Command::ReportFor {
+                    stage: self.id,
+                    participant: cpu,
+                    run,
+                    detail,
+                });
+            }
         }
     }
 
@@ -758,10 +962,21 @@ impl LiveStage {
     fn room_ends(&mut self, room: &RoomState, now: Millis) {
         let no_show = room_instant(self.song_zero_at, self.rules.late_join_ms as i64 * 1_000)
             .after(self.rules.report_deadline_ms);
+        let computes = crate::live::cpus::anyone_computes(room);
         let ids: Vec<ParticipantId> = self.comps.keys().copied().collect();
         for p in ids {
             let c = &self.comps[&p];
             if c.end.is_some() {
+                continue;
+            }
+            // A CPU's stream is the devices' that compute it: it ends when
+            // nobody is left who could (a forfeit, as a dropped
+            // connection's); it is never a no-show (its first report may
+            // come at a checkpoint later than a person's first batch).
+            if c.cpu {
+                if !computes {
+                    self.end_by_room(p, StreamEnd::Dropped);
+                }
                 continue;
             }
             let gone = room

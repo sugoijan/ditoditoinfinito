@@ -37,6 +37,7 @@
 //! tap-only copy they play, shown on this play's song clock.
 
 pub mod attacks;
+pub mod cpus;
 pub mod feed;
 pub mod live;
 
@@ -619,19 +620,8 @@ impl Battle {
             .cpus
             .iter()
             .map(|seat| {
-                let mut rules = ruleset.fresh();
-                rules.fail = ddi_engine::FailPolicy::Immediate;
                 let level = usize::from(seat.level).min(levels - 1);
-                // A roster CPU's personality (M7b); an unreadable one plays
-                // balanced.
-                let skills = seat
-                    .skills
-                    .as_deref()
-                    .and_then(|v| ddi_engine::cpu::Skills::parse(v).ok())
-                    .unwrap_or_default();
-                let mut opponent =
-                    Opponent::with_skills(song, chart, rules, level, seat.seed, skills)?;
-                opponent.add_rungs(ladder)?;
+                let mut opponent = cpus::opponent(song, chart, ruleset, seat, ladder)?;
                 opponent.start(song_offset);
                 let mut feed = feed::FieldFeed::new(&track, opponent.life(), feed::LOCAL_DELAY);
                 // A shock stepped on locks its lane where the rules do
