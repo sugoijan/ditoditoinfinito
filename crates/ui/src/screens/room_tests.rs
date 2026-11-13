@@ -140,8 +140,32 @@ fn view(env: &Env) -> super::room::RoomView {
 
 /// Taps `name`, as a mouse would.
 fn press(h: &mut Harness, name: &str) {
+    if top(h) == "room-rules" {
+        reveal(h, name);
+    }
     h.tap(PointerKind::Mouse, name);
     h.run(0.5);
+}
+
+/// Scrolls the Rules pop-up's rows by the wheel until `name` is shown
+/// whole (a row of the pop-up scrolled away).
+fn reveal(h: &mut Harness, name: &str) {
+    let whole = |h: &Harness| match (h.ui.bounds(name), h.ui.visible_bounds(name)) {
+        (Some(b), Some(v)) => b.iter().zip(v).all(|(a, b)| (a - b).abs() < 0.5),
+        (None, _) => true,
+        _ => false,
+    };
+    for down in [true, false] {
+        for _ in 0..200 {
+            if whole(h) {
+                return;
+            }
+            let at = h.centre("Title");
+            let at = [at[0], at[1] + 80.0];
+            h.wheel(at, [0.0, if down { 40.0 } else { -40.0 }], crate::event::WheelSource::Pixels);
+            h.run(0.05);
+        }
+    }
 }
 
 fn has(h: &Harness, text: &str) -> bool {
@@ -4447,5 +4471,72 @@ fn an_online_rooms_points_change_from_a_later_stage_only_where_its_authority_hon
         assert_eq!(room.borrow().state(), &server, "the mirror is the room");
         let status = view(e).status;
         assert!(status.starts_with("From stage 1: Mild points. "), "{status}");
+    }
+}
+
+/// Whether `name` is on view whole (not cut by the Rules pop-up's rows'
+/// clip).
+fn whole(h: &Harness, name: &str) -> bool {
+    match (h.ui.bounds(name), h.ui.visible_bounds(name)) {
+        (Some(b), Some(v)) => b.iter().zip(v).all(|(a, b)| (a - b).abs() < 0.5),
+        _ => false,
+    }
+}
+
+/// The Rules pop-up fits every screen (2026-11-13): its rows scroll
+/// inside it between its title and its buttons, which stay on view;
+/// focus moved by keys or a controller scrolls its row into view, and the
+/// wheel scrolls them. Its notes show only where they apply: the stars'
+/// with CPUs in the roster, never "Applying clears readiness" with nobody
+/// ready.
+#[test]
+fn the_rules_pop_up_scrolls_its_rows_with_its_title_and_buttons_on_view() {
+    use crate::nav::MenuAction;
+    for (size, pad) in [([1280.0, 720.0], false), ([844.0, 390.0], true)] {
+        let env = env();
+        let room = RoomClient::shared(0, 1);
+        room.borrow_mut().set_rules_seen(true);
+        let orders = Orders::default();
+        let mut h = Harness::new(DESIGN, size, 1.0, TextMode::Own);
+        h.push(room_select(&env, room.clone(), "dance-single", &orders));
+        h.run(0.5);
+        press(&mut h, "Room.Rules");
+        assert_eq!(top(&h), "room-rules");
+        assert!(has(&h, "A CPU's stars show its level: its strength relative to the chart, not a skill rating."));
+        assert!(!has(&h, "Applying clears readiness."), "nobody is ready");
+        // Twelve CPUs: more rows than the screen holds.
+        while view(&env).draft[1] < 12 {
+            press(&mut h, "AddRandom");
+        }
+        for name in ["Title", "Cancel", "Apply"] {
+            assert!(whole(&h, name), "{name} on view at {size:?}");
+        }
+        let panel_bottom = h.ui.bounds("Cancel").unwrap()[3];
+        let screen_h = h.ui.viewport().screen.height;
+        assert!(panel_bottom <= screen_h, "{panel_bottom} of {screen_h} at {size:?}");
+        // Some row is scrolled away, and focus brings each into view.
+        assert!(
+            !whole(&h, "Inc.stages") || !whole(&h, "Inc.points"),
+            "the rows scroll at {size:?}"
+        );
+        let (down, up) = ((MenuAction::Down, "ArrowDown"), (MenuAction::Up, "ArrowUp"));
+        focus_on(&mut h, "Dec.points", &[down], pad);
+        h.run(0.1);
+        assert!(whole(&h, "Dec.points"), "scrolled to Points at {size:?}");
+        assert!(!whole(&h, "Dec.stages"));
+        focus_on(&mut h, "Dec.stages", &[up], pad);
+        h.run(0.1);
+        assert!(whole(&h, "Dec.stages"), "scrolled back at {size:?}");
+        // The wheel scrolls them too.
+        let at = h.centre("Title");
+        h.wheel([at[0], at[1] + 80.0], [0.0, 4000.0], crate::event::WheelSource::Pixels);
+        h.run(0.1);
+        assert!(!whole(&h, "Dec.stages") && whole(&h, "Dec.points"));
+        // No CPUs: no stars' note.
+        for k in (0..12).rev() {
+            press(&mut h, &format!("Remove.{k}"));
+        }
+        assert_eq!(view(&env).draft[1], 0);
+        assert!(!has(&h, "A CPU's stars show its level: its strength relative to the chart, not a skill rating."));
     }
 }

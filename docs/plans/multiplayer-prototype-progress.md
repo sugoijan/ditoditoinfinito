@@ -5982,6 +5982,40 @@ be a problem or it's easy to apply and reset the match if it is."
   (`../ddi-server`) builds and passes its checks against the changed
   crate without a change; once deployed its rooms say `stage_points`.
 
+### The Rules pop-up fits
+
+At 1280×720 the pop-up had come to fill the whole height (it was zoomed
+smaller where it did not fit, so a long roster or one more row made it
+small). Now:
+
+- **The rows scroll inside it**, its title and its buttons always on
+  view (`room_dialogs::RulesDialog`: the rows in a clipped frame,
+  `Rules.Rows`, as tall as the screen leaves; a thin bar at the right
+  edge says where they are; zoomed as before only below two rows). Focus
+  moved by keys or a controller scrolls its row into view; Up and Down
+  go along the rows in their order, not by where they are drawn
+  (explicit links, so a row scrolled away is still the next one, and
+  Down from the last row reaches the buttons, the notes shown); the
+  wheel and a drag on the rows scroll them, as the Players pop-up does;
+  a member's read-only pop-up scrolls with Up and Down. The roster's own
+  window of four rows and its "more" marks went: one scroll for the
+  whole pop-up (a CPU added or removed keeps the focus on the row that
+  takes its place, in view).
+- **Its notes show only where they apply**: the stars' note only with
+  CPUs in the roster; the Points note under the Points row (where the
+  field, the people and the CPUs, is eight or fewer: the choice changes
+  nothing there; the fixed row's note where the field is not eight);
+  "Applying clears readiness" only in the lobby with someone readied or
+  loading; the ruleset's and the battle's notes as before.
+- **Tested**: `ddi-ui` (`room_tests`: at 1280×720 by keys and at 844×390
+  by a controller, twelve CPUs, the title and buttons whole, each row
+  scrolled into view by focus, the wheel, the notes; the roster's test
+  through the scroll), desktop offscreen
+  (`room_rules_offscreen::the_rules_pop_up_fits_with_few_and_many_cpus`:
+  1280×720 and 844×390, English and Japanese, 3 and 12 CPUs; pictures
+  `target/scratch/mp/fua/shots/rules-*cpus-*.png`), headless Chrome and
+  Firefox (`target/scratch/mp/fua/shots/`).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

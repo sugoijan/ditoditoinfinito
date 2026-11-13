@@ -163,3 +163,58 @@ fn the_rules_pop_up_mid_match_and_the_marked_standings_are_drawn() {
     );
     ppm("standings-marked", &gpu.draw_offscreen(&mut ui, SIZE, format));
 }
+
+/// The Rules pop-up fits (2026-11-13): drawn at 1280×720 and 844×390,
+/// in English and Japanese, with 3 and with 12 CPUs in the roster: its
+/// title and buttons on view, the rows scrolling between them.
+/// `DDI_ROOM_SHOTS=<dir>` keeps `rules-<cpus>cpus-<w>x<h>-<lang>.ppm`.
+#[test]
+fn the_rules_pop_up_fits_with_few_and_many_cpus() {
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let (device, queue) = gpu::device(&adapter).expect("device");
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut gpu = Gpu::new(device, queue, format);
+    for size in [[1280u32, 720u32], [844, 390]] {
+        for lang in ["en", "ja"] {
+            for cpus in [3usize, 12] {
+                assert!(ddi_l10n::force(lang));
+                let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
+                let (mut ui, env, _) = ddi_desktop::shell::theme_ui("room", fold);
+                env.reduced_motion.set(true);
+                ui.handle(UiEvent::Resize {
+                    size: [size[0] as f32, size[1] as f32],
+                    ratio: 1.0,
+                });
+                frames(&mut ui, 30);
+                let room = ddi_desktop::room::current();
+                room.borrow_mut().set_rules_seen(true);
+                {
+                    let mut r = room.borrow_mut();
+                    let roster = ddi_ui::state::cpu_roster::starting(cpus, 7);
+                    let rules = ddi_ui::state::cpu_roster::with_roster(r.rules().clone(), roster, 1);
+                    r.save_rules(rules).unwrap();
+                }
+                ui.push_over(RulesDialog::new(env.clone(), room.clone()));
+                frames(&mut ui, 30);
+                assert_eq!(env.state.borrow().room.clone().unwrap().draft[1] as usize, cpus);
+                for name in ["Title", "Apply", "Cancel"] {
+                    let (b, v) = (ui.bounds(name), ui.visible_bounds(name));
+                    assert!(b.is_some() && b == v, "{name} whole at {size:?} {lang} {cpus}");
+                }
+                let picture = gpu.draw_offscreen(&mut ui, size, format);
+                if let Some(dir) = std::env::var_os("DDI_ROOM_SHOTS") {
+                    let mut out = format!("P6\n{} {}\n255\n", size[0], size[1]).into_bytes();
+                    out.extend(picture.as_chunks::<4>().0.iter().flat_map(|p| [p[0], p[1], p[2]]));
+                    let name = format!("rules-{cpus}cpus-{}x{}-{lang}.ppm", size[0], size[1]);
+                    std::fs::write(std::path::Path::new(&dir).join(name), out).unwrap();
+                }
+            }
+        }
+    }
+    ddi_l10n::unforce();
+    assert!(ddi_l10n::set_language("en"));
+}

@@ -25,7 +25,7 @@ use super::room::{
     PanelRow, cpu_level, cpu_name, cpu_sub, level_line_right, mark_text, panel, person_name,
     players_first_rows, publish_dialog,
 };
-use super::{Env, left, right};
+use super::{Env, call, frame, left, right};
 use crate::look;
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
@@ -41,8 +41,6 @@ const RESTART_CONFIRMED: &str = "Room.RestartConfirmed";
 /// The restart's question among the layers.
 pub const RESTART_QUESTION: &str = "room-restart";
 
-/// The CPU rows the Rules pop-up shows at once (more scroll).
-const CPU_ROWS: usize = 4;
 const ROW: f32 = 40.0;
 /// The row a scrolled roster's "more" mark takes, above and below it.
 const MARK: f32 = 24.0;
@@ -170,8 +168,18 @@ pub struct RulesDialog {
     draft: Rc<RefCell<MatchRules>>,
     /// Opened by itself on entering (M7b): Reset and OK.
     first: bool,
-    /// The first CPU row shown.
-    cpu_first: usize,
+    /// How far its rows are scrolled (virtual pixels): they scroll inside
+    /// the pop-up, its title and buttons always shown.
+    scroll: f32,
+    /// The rows' furthest scroll, as last built.
+    max_scroll: f32,
+    /// Each focusable row's middle (from the rows' top, unscrolled), and
+    /// the rows' height, as last built: focus scrolls a row into view.
+    places: Vec<(String, f32)>,
+    rows_h: f32,
+    /// The focus last followed (`None` before the first frame: the focus
+    /// it opens on scrolls nothing).
+    focus_seen: Option<Option<String>>,
     /// What the room said of the last Apply.
     problem: Option<String>,
     /// Draws for Add random, one more each.
@@ -220,7 +228,11 @@ impl RulesDialog {
             room,
             draft: Rc::new(RefCell::new(draft)),
             first,
-            cpu_first: 0,
+            scroll: 0.0,
+            max_scroll: 0.0,
+            places: Vec::new(),
+            rows_h: 0.0,
+            focus_seen: None,
             problem: None,
             draws,
             points_focused: false,
@@ -266,6 +278,47 @@ impl RulesDialog {
     /// (`RoomClient::stage_points_offered`, the maintainer, 2026-11-13).
     fn per_stage(&self, id: &str) -> bool {
         PER_STAGE.contains(&id) || (id == "points" && self.stage_points())
+    }
+
+    /// Applying now would clear readiness: in the lobby, with someone
+    /// readied or loading for the first stage (`Event::PlaylistReadinessCleared`).
+    fn readiness_cleared(&self) -> bool {
+        let r = self.room.borrow();
+        let s = r.state();
+        s.phase == Phase::Lobby
+            && s.playlist.iter().any(|st| {
+                st.prep
+                    .values()
+                    .any(|p| p.ready || p.loading != ddi_room::Loading::NotStarted)
+            })
+    }
+
+    /// Scrolls the rows to `to` (clamped), rebuilt with the focus kept.
+    fn scroll_to(&mut self, to: f32, root: &mut Actor, cx: &mut Cx) {
+        let to = to.clamp(0.0, self.max_scroll);
+        if to != self.scroll {
+            self.scroll = to;
+            let focused = cx.focused().map(str::to_string);
+            *root = self.build(cx);
+            super::restore_focus(root, focused.as_deref());
+        }
+    }
+
+    /// The scroll that shows `name`'s row whole (with a row's margin),
+    /// where it is one of the rows; else the scroll as it is.
+    fn scroll_for(&self, name: &str) -> f32 {
+        let Some(&(_, mid)) = self.places.iter().find(|(n, _)| n == name) else {
+            return self.scroll;
+        };
+        let (top, bottom) = (mid - ROW, mid + ROW);
+        let mut to = self.scroll;
+        if bottom > to + self.rows_h {
+            to = bottom - self.rows_h;
+        }
+        if top < to {
+            to = top;
+        }
+        to.clamp(0.0, self.max_scroll)
     }
 
     /// Points may change from a later stage here.
@@ -655,19 +708,18 @@ impl Screen for RulesDialog {
                 "Muted",
             ));
         }
-        if cpus {
+        // Each note only where it applies: the stars' with CPUs to show
+        // them, Points' beside its row, what applying does where it would.
+        if cpus && !roster.is_empty() {
             notes.push((m::rules_level_note().into(), "Muted"));
         }
         let points = self.points_offered();
-        notes.push((
-            if points {
-                m::rules_points_bias_note()
-            } else {
-                m::rules_points_note()
-            }
-            .into(),
-            "Muted",
-        ));
+        let field = humans + roster.len();
+        let points_note: Option<UiText> = if points {
+            (field <= 8).then(m::rules_points_bias_note)
+        } else {
+            (field != 8).then(m::rules_points_note)
+        };
         notes.push((m::rules_ruleset_note().into(), "Muted"));
         notes.push((m::rules_battle_note().into(), "Muted"));
         let running = self.running();
@@ -675,15 +727,11 @@ impl Screen for RulesDialog {
         // What applying does: nothing to say where the player cannot, nor
         // during a match, whose statement at the top says it.
         if editable && !running {
-            notes.push((
-                if locked.is_some() {
-                    m::rules_locked_note()
-                } else {
-                    m::rules_clears_note()
-                }
-                .into(),
-                "Muted",
-            ));
+            if locked.is_some() {
+                notes.push((m::rules_locked_note().into(), "Muted"));
+            } else if self.readiness_cleared() {
+                notes.push((m::rules_clears_note().into(), "Muted"));
+            }
         }
         let problem = self.problem.clone().or_else(|| {
             self.room
@@ -699,8 +747,6 @@ impl Screen for RulesDialog {
             .iter()
             .map(|(t, _)| super::dialog::wrap_lines(t, inner, 12.0).len())
             .sum();
-        let shown = roster.len().min(CPU_ROWS);
-        self.cpu_first = scrolled(self.cpu_first, 0, roster.len(), shown);
         // During a match, a statement at the top: the match, the rules it
         // keeps, and that the rows are the next match's.
         let from_n = self.from.map_or(0, |(_, n)| n);
@@ -761,12 +807,7 @@ impl Screen for RulesDialog {
             self.restart_offered() && 24.0 + restart_w + 10.0 > w - 24.0 - 70.0 - 150.0 - 70.0;
         let restart_h = if restart_row { 48.0 } else { 0.0 };
         let cpu_h = if cpus {
-            28.0 + shown.max(1) as f32 * ROW
-                + if roster.len() > shown {
-                    2.0 * MARK
-                } else {
-                    0.0
-                }
+            28.0 + roster.len().max(1) as f32 * ROW
                 + if editable && !to_stage {
                     ROW + 8.0
                 } else {
@@ -778,18 +819,31 @@ impl Screen for RulesDialog {
         // The Points choice's sentence, under its row; from a later stage,
         // where it differs from the stage before, that totals will shift.
         let about = if points {
-            let mut text: String = super::room::points_about(play.points).into();
+            // Each sentence wrapped on its own (never two messages run
+            // together on a line).
+            let mut texts: Vec<String> = vec![super::room::points_about(play.points).into()];
             if let Some(before) = self.points_shift() {
-                text.push(' ');
-                text.push_str(&String::from(m::rules_points_shift(
-                    from_n,
-                    before.id(),
-                    if self.restart_offered() { "yes" } else { "no" },
-                )));
+                texts.push(
+                    m::rules_points_shift(
+                        from_n,
+                        before.id(),
+                        if self.restart_offered() { "yes" } else { "no" },
+                    )
+                    .into(),
+                );
             }
-            super::dialog::wrap_lines(&text, inner, 12.0)
+            if let Some(n) = &points_note {
+                texts.push(n.clone().into());
+            }
+            texts
+                .iter()
+                .flat_map(|t| super::dialog::wrap_lines(t, inner, 12.0))
+                .collect()
         } else {
-            Vec::new()
+            points_note
+                .as_ref()
+                .map(|n| super::dialog::wrap_lines(&String::from(n.clone()), inner, 12.0))
+                .unwrap_or_default()
         };
         let about_h = about.len() as f32 * 17.0;
         // The At zero life choice's sentence, under its row (and, where
@@ -807,8 +861,10 @@ impl Screen for RulesDialog {
             Vec::new()
         };
         let zero_h = ROW + zero_about.len() as f32 * 17.0;
-        let h = 64.0
-            + locked_h
+        // The rows' height, all of them; the pop-up as tall as the screen
+        // allows, the rows scrolling inside it between its title and its
+        // buttons (two rows at the least, the whole zoomed below that).
+        let rows_h = locked_h
             + next_h
             + dest_h
             + 3.0 * ROW
@@ -818,8 +874,15 @@ impl Screen for RulesDialog {
             + about_h
             + 12.0
             + lines as f32 * 17.0
-            + restart_h
-            + 72.0;
+            + 8.0;
+        let foot = restart_h + 72.0;
+        let fits = (screen[1] - 16.0 - 64.0 - foot).max(2.0 * ROW);
+        let view_h = rows_h.min(fits);
+        let h = 64.0 + view_h + foot;
+        self.rows_h = view_h;
+        self.max_scroll = (rows_h - view_h).max(0.0);
+        self.scroll = self.scroll.clamp(0.0, self.max_scroll);
+        let places: RefCell<Vec<(String, f32)>> = RefCell::new(Vec::new());
         let title = if to_stage {
             m::rules_title_from(from_n)
         } else if running {
@@ -827,9 +890,13 @@ impl Screen for RulesDialog {
         } else {
             m::rules_title()
         };
-        let (mut c, [x, y]) = shell(&env, screen, [w, h], &title);
+        let (frame_parts, [x, y]) = shell(&env, screen, [w, h], &title);
+        // The rows, into a frame of their own that scrolls.
+        let mut c: Vec<Actor> = Vec::new();
         let x0 = x + 24.0;
-        let mut ry = y + 64.0;
+        let rows_top = y + 64.0;
+        let mut ry = rows_top;
+        let place = |name: String, mid: f32| places.borrow_mut().push((name, mid - rows_top));
         // The running match's: said at the top, where it cannot be missed.
         if let Some((heading, rules, next)) = &statement {
             let mut k = 0;
@@ -901,6 +968,10 @@ impl Screen for RulesDialog {
                        number: bool,
                        ry: f32| {
             let edit = row_edit(id) || id == "dest";
+            if edit {
+                place(format!("Dec.{id}"), ry);
+                place(format!("Inc.{id}"), ry);
+            }
             let mut l = env.text(&format!("Rule.{id}"), label, 14.0, 400, "Secondary");
             look::ellipsized(&mut l, inner - 190.0);
             c.push(left(l, x0, ry));
@@ -1054,20 +1125,6 @@ impl Screen for RulesDialog {
                 ry + 14.0,
             ));
             ry += 28.0;
-            if roster.len() > shown && self.cpu_first > 0 {
-                c.push(env.component(
-                    "Link",
-                    "Button",
-                    &look::Spec::new([inner, 22.0], &*m::panel_more_above(self.cpu_first)),
-                    "Cpu.Up",
-                    [x0 + inner / 2.0, ry + MARK / 2.0],
-                ));
-            }
-            // A row of its own for each mark, clear of the roster's rows
-            // and of the buttons under them.
-            if roster.len() > shown {
-                ry += MARK;
-            }
             if roster.is_empty() {
                 c.push(left(
                     env.text("Cpus.None", &m::rules_no_cpus(), 13.0, 400, "Faint"),
@@ -1075,7 +1132,7 @@ impl Screen for RulesDialog {
                     ry + ROW / 2.0,
                 ));
             }
-            for (k, spec) in roster.iter().enumerate().skip(self.cpu_first).take(shown) {
+            for (k, spec) in roster.iter().enumerate() {
                 let row_y = ry + ROW / 2.0;
                 let ordinal = u16::try_from(k + 1).unwrap_or(u16::MAX);
                 let mut n = env.text(
@@ -1099,6 +1156,7 @@ impl Screen for RulesDialog {
                     inner * 0.55 - if cpu_edit { 48.0 } else { 0.0 },
                 );
                 if cpu_edit {
+                    place(format!("Remove.{k}"), row_y);
                     c.push(button(
                         &env,
                         &format!("Remove.{k}"),
@@ -1113,20 +1171,9 @@ impl Screen for RulesDialog {
             if roster.is_empty() {
                 ry += ROW;
             }
-            if roster.len() > shown {
-                let below = roster.len() - self.cpu_first - shown;
-                if below > 0 {
-                    c.push(env.component(
-                        "Link",
-                        "Button",
-                        &look::Spec::new([inner, 22.0], &*m::panel_more_below(below)),
-                        "Cpu.Down",
-                        [x0 + inner / 2.0, ry + MARK / 2.0],
-                    ));
-                }
-                ry += MARK;
-            }
             if row_edit("cpus") {
+                place("AddRandom".into(), ry + 4.0 + ROW / 2.0);
+                place("AddCustom".into(), ry + 4.0 + ROW / 2.0);
                 let free = self.free_seats() > 0;
                 let kind = if free { "Button" } else { "Button.Disabled" };
                 let bw = (inner - 10.0) / 2.0;
@@ -1213,6 +1260,12 @@ impl Screen for RulesDialog {
             look::ellipsized(&mut v, inner - 110.0);
             c.push(right(v, x0 + inner, row_y));
             ry += ROW;
+            for (k, line) in about.iter().enumerate() {
+                let mut t = env.text(&format!("Rule.points.About{k}"), line, 12.0, 400, "Muted");
+                look::ellipsized(&mut t, inner);
+                c.push(left(t, x0, ry + 4.0));
+                ry += 17.0;
+            }
         }
         // The notes, and the room's answer, wrapped.
         let mut ny = ry + 12.0;
@@ -1225,6 +1278,31 @@ impl Screen for RulesDialog {
                 ny += 17.0;
                 k += 1;
             }
+        }
+        // The foot's buttons: where focus going to them scrolls (the rows'
+        // end, the notes shown).
+        let end = rows_top + view_h + self.max_scroll;
+        for (name, _) in self.buttons() {
+            place(name.into(), end);
+        }
+        self.places = places.into_inner();
+        // The rows in their frame, scrolled and cut to the pop-up's middle
+        // (wide enough for a marked row's dot and the focus outline).
+        let mut content = frame("Rules.Content", c);
+        call(&mut content, "y", &[-self.scroll]);
+        let mut rows = frame("Rules.Rows", vec![content]);
+        rows.clip = Some([x + 2.0, rows_top - 6.0, x + w - 2.0, rows_top + view_h]);
+        let mut c = frame_parts;
+        c.push(rows);
+        if self.max_scroll > 0.0 {
+            // Where the rows go on: a thin bar at the pop-up's right edge.
+            let track = view_h - 8.0;
+            let thumb = (track * view_h / (view_h + self.max_scroll)).max(24.0);
+            let at = (track - thumb) * self.scroll / self.max_scroll;
+            let mut bar = look::quad("Rules.Bar", [3.0, thumb], env.color("Faint"));
+            call(&mut bar, "cornerradius", &[1.5]);
+            call(&mut bar, "xy", &[x + w - 8.0, rows_top + 4.0 + at + thumb / 2.0]);
+            c.push(bar);
         }
         let buttons = self.buttons();
         let mut bx = x + w - 24.0 - 70.0;
@@ -1253,55 +1331,84 @@ impl Screen for RulesDialog {
     }
 
     fn focusables(&self) -> Vec<Focusable> {
-        // A row's two buttons: Right and Left move between them (the rows
-        // touch and the wide Add buttons reach over the Attacks row's, so
-        // where the buttons are alone would not always say so).
-        fn pair(v: &mut Vec<Focusable>, id: &str) {
-            let (dec, inc) = (format!("Dec.{id}"), format!("Inc.{id}"));
-            v.push(Focusable {
-                right: Some(inc.clone()),
-                ..Focusable::new(dec.clone())
-            });
-            v.push(Focusable {
-                left: Some(dec),
-                ..Focusable::new(inc)
-            });
-        }
-        let mut v = Vec::new();
+        // The rows in their order, each its items from the left (a row's
+        // two buttons, Left and Right between them), then the foot's
+        // buttons. Up and Down go along the rows by name, not by where
+        // they are drawn: a row scrolled away is still the next one (and
+        // focus on it scrolls it into view).
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        let pair = |id: &str| vec![format!("Dec.{id}"), format!("Inc.{id}")];
         if self.editable() {
             if self.stage_offered() {
-                pair(&mut v, "dest");
+                rows.push(pair("dest"));
             }
             for id in ["stages", "difficulty", "boos"] {
                 if self.row_editable(id) {
-                    pair(&mut v, id);
+                    rows.push(pair(id));
                 }
             }
             if self.step_down_offered() {
-                pair(&mut v, "at_zero");
+                rows.push(pair("at_zero"));
             }
             if self.cpus_shown() && self.row_editable("cpus") {
-                let roster = self.roster();
-                for k in (self.cpu_first..roster.len()).take(CPU_ROWS) {
-                    v.push(Focusable::new(format!("Remove.{k}")));
+                for k in 0..self.roster().len() {
+                    rows.push(vec![format!("Remove.{k}")]);
                 }
-                v.push(Focusable::new("AddRandom"));
-                v.push(Focusable::new("AddCustom"));
+                rows.push(vec!["AddRandom".into(), "AddCustom".into()]);
             }
             if self.attacks_offered() {
-                pair(&mut v, "attacks");
+                rows.push(pair("attacks"));
             }
             if self.points_offered() && self.row_editable("points") {
-                pair(&mut v, "points");
+                rows.push(pair("points"));
             }
         }
-        for (name, _) in self.buttons() {
-            v.push(Focusable::new(name));
+        let foot: Vec<String> = self.buttons().into_iter().map(|(n, _)| n.to_string()).collect();
+        let last_row = rows.len();
+        rows.push(foot);
+        let at = |r: usize, i: usize| -> String {
+            let row = &rows[r];
+            row[i.min(row.len() - 1)].clone()
+        };
+        let mut v = Vec::new();
+        for (r, row) in rows.iter().enumerate() {
+            for (i, name) in row.iter().enumerate() {
+                let (up, down) = if r == last_row {
+                    // The foot: Up to the last row; its own buttons side
+                    // by side.
+                    (r.checked_sub(1).map(|p| at(p, 0)), None)
+                } else {
+                    (r.checked_sub(1).map(|p| at(p, i)), Some(at(r + 1, i)))
+                };
+                v.push(Focusable {
+                    up,
+                    down,
+                    left: i.checked_sub(1).map(|k| row[k].clone()),
+                    right: row.get(i + 1).cloned(),
+                    ..Focusable::new(name.clone())
+                });
+            }
         }
+        // The foot's buttons first among themselves as before: the last
+        // (Apply, OK, Close) is what the pop-up opens on where it has no
+        // rows to edit.
         v
     }
 
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+        // Focus moved (keys, a controller): its row scrolled into view.
+        let focused = cx.focused().map(str::to_string);
+        match &self.focus_seen {
+            None => self.focus_seen = Some(focused),
+            Some(seen) if *seen != focused => {
+                if let Some(f) = &focused {
+                    let to = self.scroll_for(f);
+                    self.scroll_to(to, root, cx);
+                }
+                self.focus_seen = Some(focused);
+            }
+            _ => {}
+        }
         // The stage a change would land on moved (a pick, a start), or no
         // stage is left for one: said before Apply.
         if self.stage_offered() || self.from.is_some() {
@@ -1367,15 +1474,34 @@ impl Screen for RulesDialog {
             this.problem = None;
             *root = this.build(cx);
             super::restore_focus(root, Some(name));
+            // The row pressed moved (a CPU added above it): still in view.
+            let to = this.scroll_for(name);
+            this.scroll_to(to, root, cx);
         };
         match input {
-            Input::Wheel { delta, .. } if self.cpus_shown() => {
-                let by = if delta[1] > 0.0 { 1 } else { -1 };
-                let len = self.roster().len();
-                self.cpu_first = scrolled(self.cpu_first, by, len, len.min(CPU_ROWS));
-                let focused = cx.focused().map(str::to_string);
-                *root = self.build(cx);
-                super::restore_focus(root, focused.as_deref());
+            // The rows scroll: the wheel, a drag on them, and Up and Down
+            // for someone with no row to move to (a member's read-only
+            // rows); focus moving to a row scrolls it into view (`update`).
+            Input::Wheel { delta, .. } => {
+                let to = self.scroll + delta[1];
+                self.scroll_to(to, root, cx);
+                Handled::Yes
+            }
+            Input::Pointer {
+                target: Some(t),
+                gesture: crate::Gesture::Drag { delta },
+                ..
+            } if t.within("Rules.Rows") => {
+                let to = self.scroll - delta[1];
+                self.scroll_to(to, root, cx);
+                Handled::Yes
+            }
+            Input::Menu {
+                action: action @ (MenuAction::Up | MenuAction::Down),
+                ..
+            } if !self.editable() => {
+                let by = if *action == MenuAction::Down { ROW } else { -ROW };
+                self.scroll_to(self.scroll + by, root, cx);
                 Handled::Yes
             }
             Input::Activate { name } => {
@@ -1446,12 +1572,6 @@ impl Screen for RulesDialog {
                         self.edited().borrow_mut().set_attacks(name == "Inc.attacks");
                         rebuild(self, root, cx, name);
                     }
-                    "Cpu.Up" | "Cpu.Down" => {
-                        let len = self.roster().len();
-                        let by = if name == "Cpu.Down" { 1 } else { -1 };
-                        self.cpu_first = scrolled(self.cpu_first, by, len, len.min(CPU_ROWS));
-                        rebuild(self, root, cx, name);
-                    }
                     "AddRandom" if self.free_seats() > 0 && self.row_editable("cpus") => {
                         let mut roster = self.roster();
                         self.draws = self.draws.wrapping_add(1);
@@ -1459,7 +1579,6 @@ impl Screen for RulesDialog {
                             cpu_roster::random_cpu(&roster, RosterAim::Any, self.draws)
                         {
                             roster.push(spec);
-                            self.cpu_first = roster.len().saturating_sub(CPU_ROWS);
                             self.set_roster(roster);
                         }
                         rebuild(self, root, cx, name);
@@ -1477,7 +1596,6 @@ impl Screen for RulesDialog {
                     }
                     "Reset" if self.editable() => {
                         *self.draft.borrow_mut() = defaults(&self.room);
-                        self.cpu_first = 0;
                         rebuild(self, root, cx, name);
                     }
                     "Cancel" => self.close(cx, true),
@@ -1497,11 +1615,14 @@ impl Screen for RulesDialog {
                                 roster.remove(k);
                                 self.set_roster(roster);
                             }
-                            let next = self
-                                .focusables()
+                            // The row that took its place, else the one
+                            // before it, else Add random.
+                            let names: Vec<String> =
+                                self.focusables().into_iter().map(|f| f.name).collect();
+                            let to = [format!("Remove.{k}"), format!("Remove.{}", k.saturating_sub(1))]
                                 .into_iter()
-                                .find(|f| f.name.starts_with("Remove."));
-                            let to = next.map_or_else(|| "AddRandom".to_string(), |f| f.name);
+                                .find(|n| names.contains(n))
+                                .unwrap_or_else(|| "AddRandom".to_string());
                             self.problem = None;
                             *root = self.build(cx);
                             cx.focus(to.clone());

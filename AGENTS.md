@@ -1327,6 +1327,8 @@ Rust and the browser are implementation details, not advertised features.
   room's screens share (`RoomCall`, the per-frame `Pump`, the status and
   rows, the panel, More, `ThemeState::room`, a `RoomView`, for tests);
   `screens/room_dialogs.rs` Rules (from their button, Cancel and Apply;
+  its rows scrolling between its title and buttons, focus scrolling a
+  row into view, each note only where it applies;
   the roster's rows in practice and in an online room whose server seats
   CPUs online, `RoomClient::cpus_offered`, its seats kept for the people
   still to come; such a room's picks are charts its CPUs can play,
