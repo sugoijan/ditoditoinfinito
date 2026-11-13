@@ -79,6 +79,41 @@ pub fn live_start(zero_in: f64, latency: f64, rules: &LiveRules) -> LiveStart {
     }
 }
 
+/// What this device worked out for stage `stage`'s live play (its reading
+/// horizon, its battle plan), as its room client has it now: read when the
+/// play starts, never from the stage's order alone. The order is taken
+/// when the stage's prompt opens, which for the picker is as soon as the
+/// readiness window opens, before its own load has finished and it said
+/// it plays live (and for anyone, before the room's plan was known): a
+/// play started from that copy streamed nothing and took no attack, while
+/// the room had it in its ledger (then a no-show, out from the start).
+/// By the stage's start the device has reported Loaded, which in a live
+/// room comes only after it said it plays live.
+pub fn prep_now(
+    handle: &LiveHandle,
+    stage: StageId,
+    order: &ddi_ui::state::room::LiveOrder,
+) -> Option<ddi_ui::state::room::LivePrep> {
+    handle
+        .room
+        .borrow()
+        .live_prep(stage)
+        .cloned()
+        .or_else(|| order.prep.clone())
+}
+
+/// A live play's own part, as the debug state shows it.
+pub struct LiveState<'a> {
+    /// Its play is streamed to the room (it competes and said it plays
+    /// live).
+    pub streams: bool,
+    /// It has the stage's battle plan (attacks can go into it).
+    pub plan: bool,
+    pub horizon_us: i64,
+    /// Every attack committed against it, as it came.
+    pub incoming: &'a [Incoming],
+}
+
 /// Another competitor of the stage, as its stream draws it.
 pub(crate) struct RemoteSeat {
     pub participant: ParticipantId,
@@ -184,6 +219,56 @@ impl RemoteLedger {
 /// a bot's CPU's `Opponent::receive_hazards`): whether they went in.
 pub type Deliver<'a> = dyn FnMut(&[Hazard]) -> bool + 'a;
 
+/// What became of an attack the room committed against this play.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fate {
+    /// Its shocks went into the play.
+    Taken,
+    /// It came after its first shock's warning was due: refused.
+    Late,
+    /// The play was out of the stage (or not playing) when it came.
+    Out,
+    /// The play would not take its shocks (the engine refused them).
+    Rejected,
+}
+
+impl Fate {
+    pub fn word(self) -> &'static str {
+        match self {
+            Fate::Taken => "taken",
+            Fate::Late => "late",
+            Fate::Out => "out",
+            Fate::Rejected => "rejected",
+        }
+    }
+}
+
+/// An attack the room committed against this play, as it reached it: the
+/// diagnostics of a live stage's attacks (`__DDI_DEBUG.live.me.incoming`,
+/// desktop's log). Song µs throughout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Incoming {
+    pub attack: u32,
+    pub sender: ParticipantId,
+    /// Its checkpoint's time.
+    pub checkpoint_us: i64,
+    /// Its first shock's time.
+    pub first_us: i64,
+    /// The latest it could come and still be shown fairly: its first
+    /// shock a reading horizon and the warning away.
+    pub due_us: i64,
+    /// This play's judged time when it came.
+    pub arrived_us: i64,
+    pub fate: Fate,
+}
+
+impl Incoming {
+    /// How much sooner than it had to it came (negative: how late).
+    pub fn spare_us(&self) -> i64 {
+        self.due_us - self.arrived_us
+    }
+}
+
 /// What reading the room's news this frame brought, for the battle's
 /// moments.
 #[derive(Default)]
@@ -222,6 +307,8 @@ pub(crate) struct Live {
     /// seconds).
     pub learned: Vec<(u32, f64)>,
     pub refused: u32,
+    /// Every attack committed against this play, as it came.
+    pub incoming: Vec<Incoming>,
 }
 
 /// A judge event as a moment of the stream (none: nothing a field
@@ -249,6 +336,10 @@ fn moment_of(e: &JudgeEvent, judge: &ddi_engine::rules::JudgeTable) -> Option<(T
         _ => return None,
     };
     Some((e.tick, e.lane, kind))
+}
+
+fn micros_s(us: i64) -> f64 {
+    us as f64 / 1e6
 }
 
 /// DDI's score as shown (the sum) of a play now.
@@ -353,7 +444,37 @@ impl Live {
             settling: None,
             learned: Vec::new(),
             refused: 0,
+            incoming: Vec::new(),
         }
+    }
+
+    /// What this play's live part is, for the debug state.
+    pub(crate) fn state(&self) -> LiveState<'_> {
+        LiveState {
+            streams: self.streams,
+            plan: self.plan.is_some(),
+            horizon_us: self.horizon_us,
+            incoming: &self.incoming,
+        }
+    }
+
+    /// A log's line for this play's live part as it starts (English).
+    pub(crate) fn describe(&self) -> String {
+        format!(
+            "live: stage {}: {}, {}, reading {:.2} s ahead",
+            self.stage.0,
+            if self.streams {
+                "streamed"
+            } else {
+                "not streamed (watching, or this device never said it plays live)"
+            },
+            if self.plan.is_some() {
+                "with the battle plan"
+            } else {
+                "no battle plan (no attacks into this play)"
+            },
+            self.horizon_us as f64 / 1e6,
+        )
     }
 
     /// The room's live part of the stage was lost (a restart): said on the
@@ -646,12 +767,27 @@ impl Live {
             // the warning away.
             let due = first_us - self.horizon_us - LEAD_V0.warning_us;
             let fair = micros(t) <= due;
-            if let Some(deliver) = human
-                && fair
-                && deliver(&hazards)
-            {
-                delivered = true;
-            }
+            let fate = match human {
+                None => Fate::Out,
+                Some(_) if !fair => Fate::Late,
+                Some(deliver) => {
+                    if deliver(&hazards) {
+                        Fate::Taken
+                    } else {
+                        Fate::Rejected
+                    }
+                }
+            };
+            delivered = fate == Fate::Taken;
+            self.incoming.push(Incoming {
+                attack: c.attack,
+                sender: c.sender,
+                checkpoint_us: committed_us,
+                first_us,
+                due_us: due,
+                arrived_us: micros(t),
+                fate,
+            });
             if !delivered {
                 self.refused += 1;
                 if self.streams && !self.ended && !self.lost {
@@ -669,8 +805,19 @@ impl Live {
                     }
                 }
                 got.log.push(format!(
-                    "attack {}: refused (it reached this play too late)",
-                    c.attack
+                    "attack {}: refused ({}: came at {:.3} s, due by {:.3} s, first shock {:.3} s)",
+                    c.attack,
+                    fate.word(),
+                    micros_s(micros(t)),
+                    micros_s(due),
+                    micros_s(first_us),
+                ));
+            } else {
+                got.log.push(format!(
+                    "attack {}: taken ({:.3} s to spare, first shock {:.3} s)",
+                    c.attack,
+                    micros_s(due - micros(t)),
+                    micros_s(first_us),
                 ));
             }
         } else if let Some(seat) = self.seats.iter_mut().find(|s| s.participant == c.recipient) {
@@ -742,6 +889,7 @@ impl Drop for Live {
 pub struct LivePlay {
     live: Live,
     track: feed::TapTrack,
+    log: Vec<String>,
 }
 
 impl LivePlay {
@@ -757,24 +905,27 @@ impl LivePlay {
         let Some(live) = &order.live else {
             return Ok(None);
         };
-        let Some(prep) = &live.prep else {
+        let Some(prep) = prep_now(&handle, order.stage, live) else {
             return Ok(None);
         };
         let track = feed::TapTrack::full(song, chart)?;
         let plan = prep.plan.clone().filter(|_| order.battle.attacks());
+        let play = Live::new(
+            handle,
+            order.stage,
+            order.me,
+            true,
+            plan,
+            prep.horizon_us,
+            &live.people,
+            &track,
+            None,
+        );
+        let log = vec![play.describe()];
         Ok(Some(LivePlay {
-            live: Live::new(
-                handle,
-                order.stage,
-                order.me,
-                true,
-                plan,
-                prep.horizon_us,
-                &live.people,
-                &track,
-                None,
-            ),
+            live: play,
             track,
+            log,
         }))
     }
 
@@ -793,9 +944,9 @@ impl LivePlay {
         t: f64,
         deliver: &mut Deliver<'_>,
     ) -> Vec<(ParticipantId, ParticipantId, bool)> {
-        self.live
-            .receive(&self.track, t, Some(deliver))
-            .committed
+        let got = self.live.receive(&self.track, t, Some(deliver));
+        self.log.extend(got.log);
+        got.committed
             .into_iter()
             .map(|(_, from, to, _, delivered)| (from, to, delivered))
             .collect()
@@ -814,5 +965,16 @@ impl LivePlay {
     /// Attacks against this play it refused (too late).
     pub fn refused(&self) -> u32 {
         self.live.refused
+    }
+
+    /// Every attack committed against this play, as it came.
+    pub fn incoming(&self) -> &[Incoming] {
+        &self.live.incoming
+    }
+
+    /// What reading the room's news logged (the attacks against this
+    /// play, taken or refused), since the last call.
+    pub fn take_log(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.log)
     }
 }

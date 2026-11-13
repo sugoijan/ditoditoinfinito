@@ -4204,6 +4204,106 @@ the others' views; a bot's CPU play beside a person.
 - The clock is mapped to the audio clock once, at the play's start (no
   drift correction over a song).
 
+## A person in a live room went unattacked (found and fixed, 2026-11-13)
+
+The maintainer's first live room against their local server, their browser
+among bots with Attacks on: "I haven't received any attack, but other
+players seem to have received."
+
+### The cause
+
+A stage's order (`StageOrder`, with what live play needs: `LiveOrder::prep`,
+the reading horizon and the battle plan) is taken once, when the stage's
+prompt opens (`screens::room::Pump::open_prompt`, the bots' `stage`). For
+the room's picker the prompt opens as soon as the readiness window does,
+before its own load has finished and it said it plays live (`prepared`);
+for anyone it can open before the room's plan is known (a guest whose
+song came in before the picker's offer). The play then started from that
+copy: no preparation, so it did not stream, had no battle plan and no
+reporter. The room had the device in its ledger all the same (its
+`prepared` came later, before its Loaded): it ended that stream as a
+no-show at 5.75 s, which the ledger takes as out from the start, so
+nobody could target it again and it earned nothing; every attack between
+the others went on. A host bot had the same fault (its `LivePlay` was
+none), and guest bots whose song came in before the plan.
+
+The in-process tests never saw it: their harness took every order after
+the loads and the plan were done.
+
+Reproduced in process (`play/tests/stage/live.rs`, `person_among_bots`):
+a person's real `PlaySession` among three bots streaming as `--mp-bots`
+does, orders taken as the screens take them. Before the fix, the person
+as picker: 0 attacks committed against them in each of the six runs
+tried, the bots 2 to 4 each.
+
+### The fix
+
+A play reads what live play needs from its room client when it starts
+(`battle::live::prep_now`, in `Battle::with_live` and `LivePlay::new`),
+the order's copy only as a fallback. By the stage's start the device has
+reported Loaded, which in a live room it does only after saying it plays
+live, so the preparation is there. Nothing in the contract or on the
+wire changed; the server needs nothing.
+
+### The timing budget, measured
+
+The refusal lead was checked at the same time, since a person's device
+refuses a commitment that comes after its first shock's warning is due.
+Commitments are taken from frames as they arrive (not at the views'
+one-second delay). Over 36 stages in process (a person among three bots,
+as picker and as guest, x2.5 and x0.5, three seeds; 20, 80 and 200 ms
+each way with as much again of jitter), no attack was refused and the
+person was attacked as often as the bots (2 to 4 each). The least time
+to spare when a commitment came: 1.51 s at 20 ms, 1.27 s at 80 ms,
+0.78 s at 200 ms (up to 0.4 s one way, 0.8 s a round trip); a slow speed
+adds to it. The plan's worst case (0.15 s) assumed a checkpoint run at
+its deadline; with every report in, it runs a tick after the last.
+
+### Diagnostics
+
+- The web's `__DDI_DEBUG.live.me` during a live stage: `streams` (this
+  play is streamed), `plan` (it has the battle plan: attacks can go into
+  it), `horizon_ms`, `against`, `taken`, `late`, and `incoming`, each
+  attack against this play with its sender, checkpoint, first shock,
+  when it came, `spare_ms` (negative: that late) and its `fate` (taken,
+  late, out, rejected).
+- The battle log (the web's console, desktop's terminal, each bot's
+  lines): the live part as the play starts ("live: stage N: streamed,
+  with the battle plan, reading 2.10 s ahead", or why not), then each
+  attack against this play taken with its spare time or refused with
+  why and how late.
+- Nothing on the screen: a refused attack is one its target never saw
+  (the others' views take its shocks off), refusals were none at these
+  latencies, and a line about an attack that did nothing would be noise.
+
+### What to read after the next live stage
+
+`__DDI_DEBUG.live.me` in the browser's console: `streams` and `plan`
+true, `against` as many as the room's ledger committed (the stage's
+standings), `late` 0; where `late` is not 0, `incoming`'s `spare_ms`
+says by how much, and `clock.uncertainty_ms` how sure the device was of
+the room's time.
+
+### Against the local server
+
+Four bots (`--mp-bots --host --guests 3 --level 5-8`) in a live room
+against a local `wrangler dev` of the server, one stage of Beatucada's
+Challenge chart: every bot streamed with the battle plan, the host bot
+included (before the fix it would not have), the room committed ten
+attacks (two to three against each), every one taken, with 1.49 to
+2.18 s to spare.
+
+### Tested
+
+`a_person_is_attacked_as_the_bots_are_at_a_slow_links_latency`: at
+200 ms each way with 200 ms of jitter, the person as picker and as
+guest, two seeds: attacked at least once and no fewer times than the
+least-attacked bot less one, every attack taken, none refused for
+anyone (it fails before the fix). The study behind it,
+`person_among_bots_study` (ignored; `cargo test -p ddi-session --lib
+person_among_bots_study -- --ignored --nocapture`). The live tests'
+harness takes each device's order as its screens do.
+
 ## Joining a room full of players: in to watch (2026-11-13)
 
 The maintainer, on the Play/Watch choice: "by default join as 'Play'

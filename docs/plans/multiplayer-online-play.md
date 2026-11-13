@@ -285,6 +285,16 @@ target must show its first shock a horizon and the warning before that,
 at `c + 1.35 s`. The commitment reaches it by `c + 1.2 s` at worst: 0.15 s
 to spare at worst, 0.6–0.9 s typically, more for later sections.
 
+Measured (2026-11-13): commitments are taken from frames as they arrive
+(not at the views' delay). In process, a person among three bots at 20,
+80 and 200 ms each way with as much again of jitter, no attack was
+refused in 36 stages; the least time to spare when one came was 1.51,
+1.27 and 0.78 s (a slow speed adds to it). With every report in, a
+checkpoint runs a tick after the last one, not at its deadline. Against
+a local server, four bots: 1.49 to 2.18 s. The progress note's "A person
+in a live room went unattacked" has the numbers and the debug state
+(`__DDI_DEBUG.live.me`) that shows each attack's fate.
+
 A commitment that reaches its target later than its first shock's warning
 is due (a stalled network, a reconnect) cannot be shown fairly. The
 target's device refuses it, as practice refuses a delivery a stalled frame

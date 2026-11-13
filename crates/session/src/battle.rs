@@ -638,7 +638,7 @@ impl Battle {
         let Some(order) = self.setup.live.clone() else {
             return self;
         };
-        let prep = order.prep.clone();
+        let prep = live::prep_now(&handle, self.setup.stage, &order);
         self.remote_live = Some(live::Live::new(
             handle,
             self.setup.stage,
@@ -652,7 +652,17 @@ impl Battle {
             &self.track,
             lock,
         ));
+        if let Some(l) = &self.remote_live {
+            self.log.push(l.describe());
+        }
         self
+    }
+
+    /// The live stage's own part as this play has it (the debug state's):
+    /// whether it streams, whether it has the battle plan, its horizon and
+    /// what became of each attack against it.
+    pub fn live_state(&self) -> Option<live::LiveState<'_>> {
+        self.remote_live.as_ref().map(live::Live::state)
     }
 
     /// The stage is played live here (`with_live`).
@@ -1774,6 +1784,12 @@ impl Battle {
     /// The commitments since the last call, worded for a log (English).
     pub fn take_log(&mut self) -> Vec<String> {
         std::mem::take(&mut self.log)
+    }
+
+    /// A live stage's attacks committed against the local player, as each
+    /// came (taken, or refused and why).
+    pub fn live_incoming(&self) -> &[live::Incoming] {
+        self.remote_live.as_ref().map_or(&[], |l| &l.incoming)
     }
 
     /// Shocks a play refused so far (a frame stalled past the lead).

@@ -865,7 +865,17 @@ impl Bot {
             return;
         };
         if let Some(play) = &mut self.play {
-            let Some(run) = play.advance(now) else {
+            let run = play.advance(now);
+            // What became of the attacks against it (taken, or refused and
+            // why), and its live part as it started.
+            let lines = play.live.as_mut().map(|l| l.take_log()).unwrap_or_default();
+            for line in lines {
+                self.say(line);
+            }
+            let Some(play) = &mut self.play else {
+                return;
+            };
+            let Some(run) = run else {
                 return;
             };
             let number = play.number;

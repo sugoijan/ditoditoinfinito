@@ -179,7 +179,24 @@ impl Room {
 /// countdown runs. Each device's stage order (none for one that sits it
 /// out).
 fn pick_and_ready(r: &Room, song: &Song, attacks: bool, chart: usize) -> Vec<Option<StageOrder>> {
-    r.run(1.0);
+    pick_and_ready_with(r, song, attacks, chart, |_, _| {})
+}
+
+/// [`pick_and_ready`], each device's load job changed by `job` first (its
+/// player's options, as their settings would have them).
+fn pick_and_ready_with(
+    r: &Room,
+    song: &Song,
+    attacks: bool,
+    chart: usize,
+    mut tweak: impl FnMut(usize, &mut ddi_ui::state::room::LoadJob),
+) -> Vec<Option<StageOrder>> {
+    for _ in 0..10 {
+        r.run(0.5);
+        if r.rooms.iter().all(|x| x.borrow().room_now().is_some()) {
+            break;
+        }
+    }
     for room in &r.rooms {
         assert!(room.borrow().plays_live(), "plays live");
         assert!(room.borrow().room_now().is_some(), "knows the room's clock");
@@ -188,10 +205,11 @@ fn pick_and_ready(r: &Room, song: &Song, attacks: bool, chart: usize) -> Vec<Opt
     rules.set_attacks(attacks);
     rules.stages = 1;
     r.rooms[0].borrow_mut().save_rules(rules).unwrap();
-    r.run(0.5);
+    // (Long enough for the slowest latency tried: 400 ms each way.)
+    r.run(2.0);
     let e = entry_at(song, chart);
     r.rooms[0].borrow_mut().pick(&e, &e.charts[0]).unwrap();
-    r.run(0.5);
+    r.run(2.0);
     let uploads = r.rooms[0].borrow_mut().take_upload_jobs();
     for j in uploads {
         r.server
@@ -207,9 +225,22 @@ fn pick_and_ready(r: &Room, song: &Song, attacks: bool, chart: usize) -> Vec<Opt
             .upload_finished(j.stage, Ok("abc12345".into()));
     }
     r.run(0.5);
-    for room in &r.rooms {
+    // Each device's stage order taken as its screens take it: the moment
+    // its view is the stage's prompt (`screens::room::Pump::open_prompt`),
+    // which for the picker is as soon as the readiness window opens,
+    // before its own load has finished.
+    let mut orders: Vec<Option<StageOrder>> = r
+        .rooms
+        .iter()
+        .map(|room| {
+            let prompt = matches!(room.borrow().view(), ddi_ui::state::room::RoomView::Prompt(_));
+            prompt.then(|| room.borrow_mut().take_stage_order()).flatten()
+        })
+        .collect();
+    for (i, room) in r.rooms.iter().enumerate() {
         let jobs = room.borrow_mut().take_load_jobs();
-        for job in jobs {
+        for mut job in jobs {
+            tweak(i, &mut job);
             let prepared = prepare_stage(&job, song, &mut |e| panic!("{e}")).unwrap();
             if job.share.is_some() {
                 let picked = Picked {
@@ -225,13 +256,29 @@ fn pick_and_ready(r: &Room, song: &Song, attacks: bool, chart: usize) -> Vec<Opt
                 room.borrow_mut().finish_load_live(&job, Ok(prepared.live));
             }
         }
+        // A guest's prompt opens once its song is in, the room's plan not
+        // known yet here (the picker's offer is still on its way).
+        if orders[i].is_none() && matches!(room.borrow().view(), ddi_ui::state::room::RoomView::Prompt(_)) {
+            orders[i] = room.borrow_mut().take_stage_order();
+        }
     }
-    r.run(1.0);
-    let orders: Vec<Option<StageOrder>> = r
-        .rooms
-        .iter()
-        .map(|room| room.borrow_mut().take_stage_order())
-        .collect();
+    for _ in 0..10 {
+        r.run(0.5);
+        for (o, room) in orders.iter_mut().zip(&r.rooms) {
+            if o.is_none() {
+                *o = room.borrow_mut().take_stage_order();
+            }
+        }
+        if orders.iter().all(Option::is_some) {
+            break;
+        }
+    }
+    assert!(
+        orders.iter().all(Option::is_some),
+        "{:?} {:?}",
+        orders.iter().map(Option::is_some).collect::<Vec<_>>(),
+        r.server.borrow().state().phase
+    );
     for room in &r.rooms {
         if room.borrow().in_stage(orders[0].as_ref().unwrap().stage) {
             room.borrow_mut().set_ready(true).unwrap();
@@ -345,7 +392,10 @@ fn a_live_stage_is_started_streamed_attacked_and_decided_by_the_room() {
     let orders = pick_and_ready(&r, &song, true, CHART);
     assert!(orders.iter().all(Option::is_some), "both play it");
     let o = orders[0].as_ref().unwrap();
-    assert!(o.live.as_ref().unwrap().prep.as_ref().unwrap().plan.is_some());
+    // The picker's order was taken as its prompt opened, before its load
+    // finished: what live play needs is read from its room client.
+    assert!(o.live.as_ref().unwrap().prep.is_none());
+    assert!(r.rooms[0].borrow().live_prep(o.stage).unwrap().plan.is_some());
     // Bob far late on every note: he misses all and goes out.
     let mut plays = sessions(&r, &song, &orders, &[0.0, 5.0]);
     let zero = r.rooms[0].borrow().song_zero_at(o.stage).unwrap();
@@ -760,4 +810,232 @@ fn a_bots_cpu_play_streams_live_beside_a_person() {
     assert_eq!(live.end(ids[1]), Some(StreamEnd::Finished));
     let seen = taps_read(&r, 0, ids[1]).len();
     assert!(seen > 100, "Alice saw the bot's taps: {seen}");
+}
+
+/// What became of the attacks against one competitor of a stage.
+#[derive(Debug, Default)]
+struct Received {
+    /// Committed against them by the room's ledger.
+    against: usize,
+    taken: usize,
+    late: usize,
+    other: usize,
+    /// Each one's spare time when it came (ms; negative: late).
+    spare_ms: Vec<i64>,
+}
+
+impl Received {
+    fn of(against: usize, incoming: &[crate::battle::live::Incoming]) -> Received {
+        use crate::battle::live::Fate;
+        Received {
+            against,
+            taken: incoming.iter().filter(|i| i.fate == Fate::Taken).count(),
+            late: incoming.iter().filter(|i| i.fate == Fate::Late).count(),
+            other: incoming
+                .iter()
+                .filter(|i| !matches!(i.fate, Fate::Taken | Fate::Late))
+                .count(),
+            spare_ms: incoming.iter().map(|i| i.spare_us() / 1_000).collect(),
+        }
+    }
+}
+
+/// A live stage of a person (`person`: their place in the room, the
+/// others bots: CPUs at levels 6 to 8 streaming as `--mp-bots` does) at
+/// `speed` (XMod), every message `latency` away, with attacks on
+/// beatucada's Challenge chart: what became of the attacks against each.
+fn person_among_bots(latency: Option<Latency>, person: usize, speed: f64, seed: u64) -> Vec<Received> {
+    use crate::battle::live::LivePlay;
+    let song = bundled("beatucada");
+    let names = ["alice", "bob", "carol", "dave"];
+    let people: Vec<(&'static str, Intent)> = names.iter().map(|n| (*n, Intent::Play)).collect();
+    let r = Room::new(&people, latency);
+    let settings = Settings {
+        speed,
+        ..Settings::default()
+    };
+    let orders = pick_and_ready_with(&r, &song, true, 0, |i, job| {
+        if i == person
+            && let Some(ask) = job.live.as_mut()
+        {
+            ask.options.scroll.speed = ddi_engine::scroll::SpeedMod::XMod(speed);
+        }
+    });
+    let stage = orders[0].as_ref().unwrap().stage;
+    for _ in 0..400 {
+        if r.rooms[0].borrow().stage_started(stage) {
+            break;
+        }
+        r.step(0.02, true);
+    }
+    assert!(r.rooms[0].borrow().stage_started(stage));
+    let order = orders[person].clone().unwrap();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.opponents = Some(StageSetup::of(&order));
+    config.live = Some(r.handle(person));
+    let mut plays = vec![
+        PlaySession::start(
+            &song,
+            order.chart.index,
+            &settings,
+            config,
+            FakeAudio::new(&r.host, 0.02),
+            110.0,
+            FakeInputs::new(&r.host),
+        )
+        .unwrap(),
+    ];
+    let zero = r.rooms[0].borrow().song_zero_at(stage).unwrap();
+    struct Bot {
+        cpu: ddi_engine::cpu::Opponent,
+        live: LivePlay,
+        done: bool,
+    }
+    let mut bots: Vec<(usize, Bot)> = (0..names.len())
+        .filter(|i| *i != person)
+        .map(|i| {
+            let o = orders[i].clone().unwrap();
+            let mut cpu = ddi_engine::cpu::Opponent::with_skills(
+                &song,
+                0,
+                crate::battle::stage_ruleset(&o.rules),
+                5 + i,
+                seed + i as u64,
+                Default::default(),
+            )
+            .unwrap();
+            cpu.start(0.0);
+            let live = LivePlay::new(r.handle(i), &o, &song, 0)
+                .unwrap()
+                .expect("the bot plays live");
+            (i, Bot { cpu, live, done: false })
+        })
+        .collect();
+    let _ = play_out(&r, &mut plays, 200.0, |_, _| {
+        let t = (wall(*r.host.borrow()) as f64 - zero.0 as f64) / 1_000.0;
+        for (_, b) in &mut bots {
+            if b.done {
+                continue;
+            }
+            b.cpu.advance(t);
+            let judged = b.cpu.take_judged();
+            b.live.send(t, b.cpu.player(), &judged);
+            let c = &mut b.cpu;
+            let mut deliver = |cells: &[ddi_engine::battle::Hazard]| c.receive_hazards(cells).is_ok();
+            let _ = b.live.receive(t, &mut deliver);
+            let over = c.out_at().is_some()
+                || (c.finished() && t > c.player().end_time() + 1.0);
+            if over {
+                let end = match c.out_at() {
+                    Some(at) => StreamEnd::Out {
+                        at_us: (at * 1e6).round() as i64,
+                    },
+                    None => StreamEnd::Finished,
+                };
+                b.live.end(end, t);
+                b.done = true;
+            }
+        }
+    });
+    r.run(3.0);
+    let ids: Vec<_> = r.rooms.iter().map(|x| x.borrow().me()).collect();
+    let server = r.server.borrow();
+    let live = server.live().unwrap().stage_or_last().unwrap();
+    let attacks = live.ledger().unwrap().attacks().to_vec();
+    let against = |i: usize| attacks.iter().filter(|a| a.recipient == ids[i]).count();
+    (0..names.len())
+        .map(|i| {
+            if i == person {
+                Received::of(against(i), plays[0].battle().unwrap().live_incoming())
+            } else {
+                let b = &bots.iter().find(|(j, _)| *j == i).unwrap().1;
+                Received::of(against(i), b.live.incoming())
+            }
+        })
+        .collect()
+}
+
+/// The study behind the regression test below: a person among three bots
+/// at 20, 80 and 200 ms each way (jitter as large again), as host and as
+/// guest, at a fast and a slow speed, over seeds; what became of the
+/// attacks against each printed.
+/// `cargo test -p ddi-session --lib person_among_bots_study -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn person_among_bots_study() {
+    for ms in [20u64, 80, 200] {
+        for person in [0usize, 2] {
+            for speed in [2.5, 0.5] {
+                for seed in 1..=3u64 {
+                    let latency = Latency {
+                        down_ms: ms,
+                        down_jitter_ms: ms,
+                        up_ms: ms,
+                        up_jitter_ms: ms,
+                        seed,
+                    };
+                    let got = person_among_bots(Some(latency), person, speed, seed);
+                    let line: Vec<String> = got
+                        .iter()
+                        .enumerate()
+                        .map(|(i, g)| {
+                            let min = g.spare_ms.iter().min().copied().unwrap_or(0);
+                            format!(
+                                "{}{}: {}/{} late {} other {} min spare {min} ms",
+                                if i == person { "P" } else { "b" },
+                                i,
+                                g.taken,
+                                g.against,
+                                g.late,
+                                g.other
+                            )
+                        })
+                        .collect();
+                    println!("{ms} ms, person {person}, x{speed}, seed {seed}: {}", line.join(" | "));
+                }
+            }
+        }
+    }
+}
+
+/// A person among bots at a slow home link's latency (200 ms each way and
+/// as much again of jitter: up to 0.4 s one way, 0.8 s a round trip), as
+/// the room's picker (whose prompt opens before their song is loaded) and
+/// as a guest (whose prompt opens before the room's plan is known): the
+/// room attacks them about as often as the bots (no fewer than the
+/// least-attacked bot less one, and at least once), every attack goes
+/// into their play, none is refused (the study above found 0.78 s to
+/// spare at the least over these settings and seeds), and their stream
+/// is the room's to the song's end. Before plays read what live play
+/// needs at their start, the picker's play streamed nothing and was
+/// never attacked (a no-show to the room).
+#[test]
+fn a_person_is_attacked_as_the_bots_are_at_a_slow_links_latency() {
+    for person in [0usize, 2] {
+        for seed in [1u64, 2] {
+            let latency = Latency {
+                down_ms: 200,
+                down_jitter_ms: 200,
+                up_ms: 200,
+                up_jitter_ms: 200,
+                seed,
+            };
+            let got = person_among_bots(Some(latency), person, 2.5, seed);
+            let me = &got[person];
+            let least_bot = got
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != person)
+                .map(|(_, g)| g.against)
+                .min()
+                .unwrap();
+            let all: Vec<_> = got.iter().map(|g| (g.taken, g.against, g.late)).collect();
+            assert!(me.against >= 1 && me.against + 1 >= least_bot, "person {person}, seed {seed}: {all:?}");
+            assert_eq!(me.taken, me.against, "person {person}, seed {seed}: {all:?}");
+            for g in &got {
+                assert_eq!((g.late, g.other), (0, 0), "person {person}, seed {seed}: {all:?}");
+                assert_eq!(g.taken, g.against);
+            }
+        }
+    }
 }

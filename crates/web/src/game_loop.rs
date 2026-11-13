@@ -1302,6 +1302,32 @@ fn live_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
         "stale": b.stale_seats(),
         "refused": b.refused(),
         "lost": b.live_lost(),
+        // This play's own part: streamed to the room, with the battle
+        // plan (attacks can go into it), and what became of each attack
+        // the room committed against it (`fate`: taken, late, out,
+        // rejected; `spare_ms` negative: that late).
+        "me": b.live_state().map(|m| {
+            let count = |f: ddi_session::battle::live::Fate| {
+                m.incoming.iter().filter(|i| i.fate == f).count()
+            };
+            json!({
+                "streams": m.streams,
+                "plan": m.plan,
+                "horizon_ms": m.horizon_us as f64 / 1_000.0,
+                "against": m.incoming.len(),
+                "taken": count(ddi_session::battle::live::Fate::Taken),
+                "late": count(ddi_session::battle::live::Fate::Late),
+                "incoming": m.incoming.iter().map(|i| json!({
+                    "attack": i.attack,
+                    "from": i.sender.0,
+                    "checkpoint_s": i.checkpoint_us as f64 / 1e6,
+                    "first_s": i.first_us as f64 / 1e6,
+                    "arrived_s": i.arrived_us as f64 / 1e6,
+                    "spare_ms": i.spare_us() as f64 / 1_000.0,
+                    "fate": i.fate.word(),
+                })).collect::<Vec<_>>(),
+            })
+        }),
     })
 }
 
