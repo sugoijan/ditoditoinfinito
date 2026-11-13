@@ -1295,6 +1295,14 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             m::rules_destination_stage(2).into(),
             m::rules_destination_next().into(),
             m::rules_stage_only_note().into(),
+            // Points from a later stage (2026-11-13).
+            m::rules_stage_only_note_points().into(),
+            m::rules_running_from_points(2, "yes").into(),
+            m::rules_running_from_points(2, "no").into(),
+            m::rules_points_shift(3, "medium", "yes").into(),
+            m::rules_points_shift(3, "strong", "no").into(),
+            m::rules_change_points("mild").into(),
+            m::rules_change_points("strong").into(),
             // A battle's moments shown beside the play.
             m::play_cue_match_begin().into(),
             m::play_cue_stage_begin(2).into(),

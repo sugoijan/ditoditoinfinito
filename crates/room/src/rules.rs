@@ -83,6 +83,18 @@ pub struct RoomPolicy {
     /// is never sent. ADDITIVE to protocol 2.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stage_rules: bool,
+    /// The authority reads a change's points bias ([`PlayRules::points`],
+    /// 2026-11-13: Points changeable from a later stage, the maintainer's
+    /// decision) and awards each stage by the bias of the rules it was
+    /// played under (`state::Match::rules_for`). True for every room this
+    /// build makes; false (left out of the JSON) for an authority that
+    /// predates it, which would drop the bias and award the stage by the
+    /// match's (an authority with `stage_rules` alone, built the same day,
+    /// does exactly that, so `stage_rules` cannot say it), so the Points
+    /// row is editable from a later stage only where this says so.
+    /// ADDITIVE to protocol 2.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stage_points: bool,
     /// The authority seats a match's CPUs in a room that plays live and
     /// takes their reports from the devices that compute them
     /// (`crate::live::cpus`, `online-cpus-v0`, 2026-11-13): its live side
@@ -240,6 +252,7 @@ impl Default for RoomPolicy {
             audience: None,
             step_down: true,
             stage_rules: true,
+            stage_points: true,
             cpus: true,
         }
     }
@@ -423,10 +436,11 @@ pub struct MatchRules {
 /// The rules each stage is played under on its own (2026-11-13): those of
 /// a match's rules that may change from a later stage of a running match
 /// (`crate::Command::ChangeStageRules`, `state::Match::changes`): Timing
-/// difficulty, Boos, Attacks (the battle preset) and At zero life. The
-/// stage count, the seats and the CPUs, the ruleset and the award curve
-/// (`MatchRules::points`) stay the match's: they say who is seated and
-/// what every stage is worth against the others. Its fields are
+/// difficulty, Boos, Attacks (the battle preset), At zero life and the
+/// award curve's bias (`points`, the maintainer's decision of the same
+/// day: totals then sum stages awarded on different curves, which the
+/// host is told). The stage count, the seats and the CPUs and the
+/// ruleset stay the match's: they say who is seated. Its fields are
 /// [`MatchRules`]'s, read and written as there.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayRules {
@@ -438,6 +452,15 @@ pub struct PlayRules {
     pub battle: String,
     #[serde(default, skip_serializing_if = "AtZero::is_out")]
     pub at_zero: AtZero,
+    /// The award curve's bias for these stages ([`MatchRules::points`]),
+    /// `None` for the match's own: a change that names none keeps the
+    /// match's. Kept `None` wherever it equals the match's
+    /// (`state::Match::play_rules_of`), so a match whose Points nobody
+    /// changed sends and stores what it did before. ADDITIVE: left out of
+    /// the JSON while `None`; an authority that predates it drops it,
+    /// so it is sent only where [`RoomPolicy::stage_points`] says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub points: Option<PointsBias>,
 }
 
 impl PlayRules {
@@ -456,6 +479,9 @@ impl PlayRules {
         }
         if self.at_zero == AtZero::StepDown && !policy.step_down {
             return Err(RulesProblem::StepDownNotHonored);
+        }
+        if self.points.is_some() && !(policy.stage_points && policy.points_bias) {
+            return Err(RulesProblem::PointsNotHonored);
         }
         Ok(())
     }
@@ -568,23 +594,28 @@ impl MatchRules {
             .is_some_and(crate::battle::BattlePreset::attacks)
     }
 
-    /// The rules a stage is played under on its own ([`PlayRules`]).
+    /// The rules a stage is played under on its own ([`PlayRules`]), the
+    /// points' bias as these rules' own (`None`): against a running
+    /// match's, `state::Match::play_rules_of`.
     pub fn play_rules(&self) -> PlayRules {
         PlayRules {
             difficulty: self.difficulty,
             boos: self.boos,
             battle: self.battle.clone(),
             at_zero: self.at_zero,
+            points: None,
         }
     }
 
-    /// These rules with a stage's own `play` rules in place of theirs.
+    /// These rules with a stage's own `play` rules in place of theirs (the
+    /// bias these rules' where `play` names none).
     pub fn with_play(&self, play: &PlayRules) -> MatchRules {
         MatchRules {
             difficulty: play.difficulty,
             boos: play.boos,
             battle: play.battle.clone(),
             at_zero: play.at_zero,
+            points: play.points.unwrap_or(self.points),
             ..self.clone()
         }
     }
@@ -797,6 +828,9 @@ pub enum RulesProblem {
     /// Step down where the room's authority does not honor it
     /// ([`RoomPolicy::step_down`]).
     StepDownNotHonored,
+    /// A stage's rules name a points bias where the room's authority does
+    /// not honor one from a later stage ([`RoomPolicy::stage_points`]).
+    PointsNotHonored,
     /// CPUs in a room whose authority cannot seat them: an online room
     /// that does not play live, or whose authority predates CPUs online
     /// ([`RoomPolicy::cpus`]).

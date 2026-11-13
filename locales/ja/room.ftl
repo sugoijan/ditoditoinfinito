@@ -175,12 +175,25 @@ room-rules-running-from = { $marked ->
     [yes] 以下のタイミング・Boo・ライフ0のとき・攻撃はステージ{ $number }から適用されます。●は変更した項目です。
    *[no] 以下のタイミング・Boo・ライフ0のとき・攻撃はステージ{ $number }から適用されます。
 }
+room-rules-running-from-points = { $marked ->
+    [yes] 以下のタイミング・Boo・ライフ0のとき・攻撃・得点はステージ{ $number }から適用されます。●は変更した項目です。
+   *[no] 以下のタイミング・Boo・ライフ0のとき・攻撃・得点はステージ{ $number }から適用されます。
+}
 
 room-rules-destination = 変更の適用先
 room-rules-destination-stage = ステージ{ $number }から
 room-rules-destination-next = 次の対戦
 
 room-rules-stage-only-note = ステージ数・CPU・得点は対戦中には変更できません。変更するには「次の対戦」を選ぶか、「適用してやり直す」を使ってください。
+room-rules-stage-only-note-points = ステージ数・CPUは対戦中には変更できません。変更するには「次の対戦」を選ぶか、「適用してやり直す」を使ってください。
+room-rules-points-shift = ステージ{ $number }より前のステージは得点{ $before ->
+    [medium] 中くらい
+    [mild] 弱め
+   *[strong] 強め
+}のままなので、対戦の合計は異なる配点のステージを足したものになります。{ $restart ->
+    [yes] 接戦なら「適用してやり直す」を使ってください。
+   *[no] {""}
+}
 
 room-status-rules-change = ステージ{ $number }から：{ $rules }。{ $then }
 
@@ -200,6 +213,11 @@ room-rules-change-attacks = { $attacks ->
 room-rules-change-at-zero = { $zero ->
     [step_down] 譜面ダウン
    *[out] ライフ0で脱落
+}
+room-rules-change-points = { $points ->
+    [medium] 得点 中くらい
+    [mild] 得点 弱め
+   *[strong] 得点 強め
 }
 room-rules-change-join = { $first } · { $second }
 

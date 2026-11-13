@@ -258,7 +258,30 @@ impl RulesDialog {
     /// Row `id` may be changed here: by who may edit rules, and from a
     /// later stage only the per-stage ones.
     fn row_editable(&self, id: &str) -> bool {
-        self.editable() && (!self.to_stage() || PER_STAGE.contains(&id))
+        self.editable() && (!self.to_stage() || self.per_stage(id))
+    }
+
+    /// Row `id` is one of a stage's own rules: [`PER_STAGE`]'s, and Points
+    /// where the room awards each stage by its own bias
+    /// (`RoomClient::stage_points_offered`, the maintainer, 2026-11-13).
+    fn per_stage(&self, id: &str) -> bool {
+        PER_STAGE.contains(&id) || (id == "points" && self.stage_points())
+    }
+
+    /// Points may change from a later stage here.
+    fn stage_points(&self) -> bool {
+        self.room.borrow().stage_points_offered()
+    }
+
+    /// Where Points from a later stage differs from the stage before it,
+    /// that stage's bias: the stages before and after are awarded on
+    /// different curves, which the host is told under the row.
+    fn points_shift(&self) -> Option<PointsBias> {
+        if !(self.to_stage() && self.stage_points()) {
+            return None;
+        }
+        let before = self.room.borrow().rules_before_landing()?.points;
+        (before != self.stage_draft.borrow().points).then_some(before)
     }
 
     /// The player may change the rules (an operator).
@@ -349,6 +372,9 @@ impl RulesDialog {
             if super::room::attacks_offered(&r) && d.attacks() != ahead.attacks() {
                 v.push("attacks");
             }
+            if r.stage_points_offered() && d.points != ahead.points {
+                v.push("points");
+            }
             return v;
         }
         let r = self.room.borrow();
@@ -432,6 +458,9 @@ impl RulesDialog {
                 d.at_zero.id().to_string(),
             )
         });
+        let stage_points = (self.to_stage() && self.stage_points())
+            .then(|| self.stage_draft.borrow().points.id().to_string());
+        let points_shift = self.points_shift().map(|b| b.id().to_string());
         let draft = self.draft.borrow();
         let cpus = u16::try_from(self.roster().len()).unwrap_or(u16::MAX);
         let (stages, problem, first) = (draft.stages, self.problem.clone(), self.first);
@@ -464,6 +493,8 @@ impl RulesDialog {
             v.rules_destination = destination;
             v.rules_from = from;
             v.stage_draft_rules = stage_rules;
+            v.stage_draft_points = stage_points;
+            v.points_shift = points_shift;
         });
     }
 
@@ -473,7 +504,12 @@ impl RulesDialog {
     fn restart_rules(&self) -> MatchRules {
         let draft = self.draft.borrow().clone();
         if self.to_stage() {
-            draft.with_play(&self.stage_draft.borrow().play_rules())
+            let stage = self.stage_draft.borrow();
+            let mut rules = draft.with_play(&stage.play_rules());
+            if self.stage_points() {
+                rules.points = stage.points;
+            }
+            rules
         } else {
             draft
         }
@@ -550,7 +586,10 @@ impl RulesDialog {
         if saved.is_ok() && self.stage_offered() {
             let stage = self.stage_draft.borrow().clone();
             let ahead = self.room.borrow().rules_ahead();
-            let differs = ahead.is_some_and(|a| a.play_rules() != stage.play_rules());
+            let differs = ahead.is_some_and(|a| {
+                a.play_rules() != stage.play_rules()
+                    || (self.stage_points() && a.points != stage.points)
+            });
             if differs && let Some((from, _)) = self.from {
                 saved = self.room.borrow_mut().change_stage_rules(from, &stage);
                 if saved.is_err() {
@@ -604,8 +643,17 @@ impl Screen for RulesDialog {
         let roster = self.roster();
         let cpus = self.cpus_shown();
         let mut notes: Vec<(String, &str)> = Vec::new();
+        let stage_points = self.stage_points();
         if to_stage {
-            notes.push((m::rules_stage_only_note().into(), "Muted"));
+            notes.push((
+                if stage_points {
+                    m::rules_stage_only_note_points()
+                } else {
+                    m::rules_stage_only_note()
+                }
+                .into(),
+                "Muted",
+            ));
         }
         if cpus {
             notes.push((m::rules_level_note().into(), "Muted"));
@@ -683,7 +731,9 @@ impl Screen for RulesDialog {
             } else {
                 m::rules_running(n, stages)
             };
-            let next = if to_stage {
+            let next = if to_stage && stage_points {
+                m::rules_running_from_points(from_n, marked)
+            } else if to_stage {
                 m::rules_running_from(from_n, marked)
             } else {
                 m::rules_running_next(marked)
@@ -725,9 +775,19 @@ impl Screen for RulesDialog {
         } else {
             0.0
         };
-        // The Points choice's sentence, under its row.
+        // The Points choice's sentence, under its row; from a later stage,
+        // where it differs from the stage before, that totals will shift.
         let about = if points {
-            super::dialog::wrap_lines(&super::room::points_about(draft.points), inner, 12.0)
+            let mut text: String = super::room::points_about(play.points).into();
+            if let Some(before) = self.points_shift() {
+                text.push(' ');
+                text.push_str(&String::from(m::rules_points_shift(
+                    from_n,
+                    before.id(),
+                    if self.restart_offered() { "yes" } else { "no" },
+                )));
+            }
+            super::dialog::wrap_lines(&text, inner, 12.0)
         } else {
             Vec::new()
         };
@@ -831,7 +891,8 @@ impl Screen for RulesDialog {
         // change it (a number's − and +, a choice's ‹ and ›; `lo` and `hi`,
         // whether there is a value that way); the value alone at the
         // row's end for someone who may not change it.
-        let row_edit = |id: &str| editable && (!to_stage || PER_STAGE.contains(&id));
+        let row_edit =
+            |id: &str| editable && (!to_stage || PER_STAGE.contains(&id) || (id == "points" && stage_points));
         let stepper = |c: &mut Vec<Actor>,
                        id: &str,
                        label: &str,
@@ -1122,13 +1183,13 @@ impl Screen for RulesDialog {
         // Points: how strongly a large field favors its top places, where
         // the room's authority awards so; else what it is, fixed.
         if points {
-            let at = draft.points.index();
+            let at = play.points.index();
             mark(&mut c, "points", ry + ROW / 2.0);
             stepper(
                 &mut c,
                 "points",
                 &m::rules_points(),
-                super::room::points_name(draft.points).into(),
+                super::room::points_name(play.points).into(),
                 (at > 0, at + 1 < PointsBias::ALL.len()),
                 false,
                 ry + ROW / 2.0,
@@ -1252,7 +1313,7 @@ impl Screen for RulesDialog {
                 .flatten();
             if now != self.from {
                 if let Some(ahead) = self.room.borrow().rules_ahead()
-                    && !self.changed().iter().any(|c| PER_STAGE.contains(c))
+                    && !self.changed().iter().any(|c| self.per_stage(c))
                 {
                     *self.stage_draft.borrow_mut() = ahead;
                 }
@@ -1366,7 +1427,8 @@ impl Screen for RulesDialog {
                     "Dec.points" | "Inc.points"
                         if self.row_editable("points") && self.points_offered() =>
                     {
-                        let mut d = self.draft.borrow_mut();
+                        let edited = self.edited();
+                        let mut d = edited.borrow_mut();
                         let at = d.points.index();
                         let at = if name == "Inc.points" {
                             (at + 1).min(PointsBias::ALL.len() - 1)
@@ -1480,6 +1542,8 @@ impl Drop for RulesDialog {
             v.rules_destination = None;
             v.rules_from = None;
             v.stage_draft_rules = None;
+            v.stage_draft_points = None;
+            v.points_shift = None;
         });
     }
 }

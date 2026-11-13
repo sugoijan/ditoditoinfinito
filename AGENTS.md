@@ -1054,8 +1054,11 @@ Rust and the browser are implementation details, not advertised features.
   the last one in outstanding, a waiting one counted, a knockout by it a
   shared first; trace tests in `attacks/tests.rs`).
   A running match's per-stage rules (`rules::PlayRules`: Timing
-  difficulty, Boos, Attacks, At zero life; never the stages, seats,
-  CPUs, ruleset or Points) changed from a later stage on
+  difficulty, Boos, Attacks, At zero life, and Points, `PlayRules::points`,
+  `None` for the match's own, `Match::play_rules_of`, each stage awarded
+  by its own rules' bias where `RoomPolicy::stage_points` says the
+  authority honors it; never the stages, seats, CPUs or ruleset) changed
+  from a later stage on
   (`Command::ChangeStageRules { from, rules }`, the operator's who may
   edit rules, against `Match::changes_saved_at`; `Event::StageRulesChanged`;
   `Match::changes`, `rules_for(stage)`, `stage_rules_changed`): a change
@@ -1330,7 +1333,9 @@ Rust and the browser are implementation details, not advertised features.
   `RoomClient::has_cpus`;
   during a running match whose room takes changes from a later stage
   (`RoomClient::may_change_stage_rules`) a row "Changes apply": From
-  stage N, first, where only the per-stage rows change
+  stage N, first, where only the per-stage rows change (Points too where
+  `RoomClient::stage_points_offered`, a sentence under it where it
+  differs from the stage before: totals shift)
   (`RoomClient::change_stage_rules`), or Next match; Apply and restart
   takes what the pop-up shows; the status line says a change until its
   stage begins, `room::pending_change`; the Standings mark such stages,

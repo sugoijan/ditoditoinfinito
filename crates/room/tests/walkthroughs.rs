@@ -3931,3 +3931,160 @@ fn per_stage_changes_are_additive_to_the_rooms_json() {
     let older: RoomState = serde_json::from_value(v).unwrap();
     assert!(older.current.unwrap().changes.is_empty());
 }
+
+/// Points changeable from a later stage (the maintainer, 2026-11-13): in a
+/// field of nine, Mild from stage 3 of four. Stages 1 and 2 are awarded on
+/// Strong's table, 3 and 4 on Mild's; the totals sum the two (place 6
+/// earns 3 on Strong and 4 on Mild at nine). A bias equal to the match's
+/// is kept as none, and a change that names none keeps the match's.
+#[test]
+fn points_changed_from_stage_3_award_stages_3_and_4_on_their_own_curve() {
+    let mut r = Room::hosted(4);
+    let host = r.host;
+    let mut field = vec![host];
+    for i in 0..8 {
+        field.push(r.join(&format!("p{i}"), Intent::Play));
+    }
+    let order: Vec<&[ParticipantId]> = field.iter().map(std::slice::from_ref).collect();
+    let stage = |r: &mut Room, n: u32| -> StageId {
+        r.pick(n).unwrap();
+        for &who in &field {
+            r.ready(who);
+        }
+        let s = r.play();
+        r.end(s, &order);
+        s
+    };
+    let s1 = stage(&mut r, 1);
+    let s2 = stage(&mut r, 2);
+    // In the intermission after stage 2: the change lands on stage 3,
+    // which nobody has begun.
+    let from = r.s.rules_land_on().expect("stage 3 still ahead");
+    let m = r.s.current.as_ref().unwrap();
+    assert_eq!(m.stage_index(from), Some(2));
+    let mild = PlayRules {
+        points: Some(PointsBias::Mild),
+        ..MatchRules::hosted().play_rules()
+    };
+    let events = r
+        .by(
+            host,
+            Command::ChangeStageRules {
+                from,
+                rules: mild.clone(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::StageRulesChanged {
+            from,
+            rules: mild.clone()
+        }]
+    );
+    let m = r.s.current.as_ref().unwrap();
+    assert_eq!(m.rules.points, PointsBias::Strong, "the match's own stays");
+    assert_eq!(m.rules_for(s2).points, PointsBias::Strong);
+    assert_eq!(m.rules_for(from).points, PointsBias::Mild);
+    assert!(m.stage_rules_changed(from));
+    // Naming the bias the stage already has changes nothing.
+    assert_eq!(
+        r.by(
+            host,
+            Command::ChangeStageRules {
+                from,
+                rules: mild.clone(),
+            }
+        ),
+        Ok(vec![])
+    );
+    let s3 = stage(&mut r, 3);
+    let s4 = stage(&mut r, 4);
+    assert_eq!(s3, from);
+    let m = r.s.current.as_ref().unwrap();
+    let rule = |st: StageId| {
+        m.stage(st)
+            .unwrap()
+            .play
+            .as_ref()
+            .unwrap()
+            .result
+            .as_ref()
+            .unwrap()
+            .rule
+    };
+    assert_eq!(rule(s1), AwardRule::TopBiasedStrongV1);
+    assert_eq!(rule(s2), AwardRule::TopBiasedStrongV1);
+    assert_eq!(rule(s3), AwardRule::TopBiasedMildV1);
+    assert_eq!(rule(s4), AwardRule::TopBiasedMildV1);
+    let strong = TopBiased::awards(PointsBias::Strong, 9).unwrap();
+    let mild_table = TopBiased::awards(PointsBias::Mild, 9).unwrap();
+    for (place, &who) in field.iter().enumerate() {
+        let expected = 2 * strong[place] + 2 * mild_table[place];
+        assert_eq!(r.total(who), Points::whole(expected), "place {}", place + 1);
+    }
+    // Place 6 is where the two curves differ at nine.
+    assert_eq!((strong[5], mild_table[5]), (3, 4));
+    assert_eq!(r.total(field[5]), Points::whole(14));
+}
+
+/// A change's points bias is additive both ways: none is left out of the
+/// JSON (a change without it reads as the match's), the bias equal to the
+/// match's is kept as none, and an authority's policy from before it
+/// (`stage_points` missing) refuses a bias and is never sent one.
+#[test]
+fn a_changes_points_bias_is_additive_and_honored_only_where_the_policy_says() {
+    let plain = MatchRules::hosted().play_rules();
+    let json = serde_json::to_value(&plain).unwrap();
+    assert!(json.get("points").is_none(), "{json}");
+    let mut mild = plain.clone();
+    mild.points = Some(PointsBias::Mild);
+    let json = serde_json::to_value(&mild).unwrap();
+    assert_eq!(json["points"], "mild");
+    assert_eq!(serde_json::from_value::<PlayRules>(json).unwrap(), mild);
+    let mut older = serde_json::to_value(&mild).unwrap();
+    older.as_object_mut().unwrap().remove("points");
+    assert_eq!(serde_json::from_value::<PlayRules>(older).unwrap(), plain);
+
+    let mut r = Room::hosted(3);
+    let host = r.host;
+    r.join("ana", Intent::Play);
+    r.pick(1).unwrap();
+    let from = r.s.rules_land_on().unwrap();
+    // The match's own bias named: the same as none, so nothing changes.
+    let mut same = plain.clone();
+    same.points = Some(PointsBias::Strong);
+    assert_eq!(
+        r.by(host, Command::ChangeStageRules { from, rules: same }),
+        Ok(vec![])
+    );
+    // With Boos too: kept without the bias.
+    let mut boos = plain.clone();
+    boos.boos = true;
+    boos.points = Some(PointsBias::Strong);
+    let events = r
+        .by(host, Command::ChangeStageRules { from, rules: boos })
+        .unwrap();
+    let Event::StageRulesChanged { rules, .. } = &events[0] else {
+        panic!("{events:?}")
+    };
+    assert_eq!(rules.points, None);
+    // A policy from before it reads false and refuses a bias.
+    let mut policy = serde_json::to_value(&r.s.policy).unwrap();
+    assert_eq!(policy["stage_points"], true);
+    policy.as_object_mut().unwrap().remove("stage_points");
+    let old_policy: RoomPolicy = serde_json::from_value(policy).unwrap();
+    assert!(!old_policy.stage_points);
+    let mut old = r.s.clone();
+    old.policy = old_policy;
+    let revision = old.revision;
+    assert_eq!(
+        old.apply(
+            Actor::Member(host),
+            Some(revision),
+            &Command::ChangeStageRules { from, rules: mild },
+            Millis(r.now)
+        ),
+        Err(Rejection::InvalidRules(RulesProblem::PointsNotHonored))
+    );
+}

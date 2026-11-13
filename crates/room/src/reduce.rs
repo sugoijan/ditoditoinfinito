@@ -551,15 +551,12 @@ impl RoomState {
                         from: lands,
                     });
                 }
+                // The one form a change is kept in: the bias named only
+                // where it is not the match's own.
+                let rules = m.play_rules_of(&m.rules.with_play(rules));
                 rules.check(&self.policy).map_err(Rejection::InvalidRules)?;
-                if m.rules_for(*from).play_rules() != *rules {
-                    self.emit(
-                        out,
-                        Event::StageRulesChanged {
-                            from: *from,
-                            rules: rules.clone(),
-                        },
-                    );
+                if m.play_rules_for(*from) != rules {
+                    self.emit(out, Event::StageRulesChanged { from: *from, rules });
                 }
                 Ok(())
             }
@@ -1485,7 +1482,10 @@ impl RoomState {
             let m = self.current.as_ref().ok_or(Rejection::UnknownStage)?;
             let s = m.stage(stage).ok_or(Rejection::UnknownStage)?;
             let play = s.play.as_ref().ok_or(Rejection::UnknownStage)?;
-            (play.lineup.clone(), (m.rules.awards, m.rules.points))
+            // Each stage awarded by the bias of the rules it is played
+            // under: the match's, or a change from it on.
+            let rules = m.rules_for(stage);
+            (play.lineup.clone(), (rules.awards, rules.points))
         };
         let mut seen = BTreeSet::new();
         for group in ranking {

@@ -49,6 +49,7 @@ fn scenarios() -> Vec<(StageRules, Vec<CpuSeat>)> {
         points: PointsBias::Strong,
         at_zero,
         changed: false,
+        play_changed: false,
     };
     vec![
         (

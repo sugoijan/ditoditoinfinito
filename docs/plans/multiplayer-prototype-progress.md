@@ -5918,12 +5918,76 @@ Screenshots: `target/scratch/mp/ocpu/shots/`.
   deadline for their runs (60 s after the song's end).
 
 
+## Follow-ups: Points from a later stage, and four gaps (2026-11-13)
+
+### Points from a later stage (decided by the maintainer)
+
+The maintainer: "I don't think it's bad to allow that, as long as the
+host is aware and either the match is not competitive enough for this to
+be a problem or it's easy to apply and reset the match if it is."
+
+- **The model** (additive to protocol 2): `PlayRules::points`, an
+  `Option<PointsBias>`, `None` for the match's own and left out of the
+  JSON then; kept `None` wherever it equals the match's
+  (`Match::play_rules_of`, the one form a change is sent, compared and
+  kept in; the reducer normalizes what it receives), so a match whose
+  Points nobody changes sends, stores and mirrors exactly what it did. A
+  change that names none keeps the match's. `Match::rules_for(stage)`
+  carries the bias (`MatchRules::with_play`), and the room awards each
+  stage by the bias of the rules it was played under
+  (`RoomState::confirm`): a field of nine, Mild from stage 3 of four,
+  awards stages 1 and 2 on Strong's table and 3 and 4 on Mild's, the
+  totals their sum. Every other reader takes the stage's rules already:
+  the Standings and the match's result read each stage's explicit
+  `StageResult` (its rule and points), the audience's public view names a
+  changed stage's rules (`PublicStage::rules`), the bots never read the
+  bias.
+- **Old and new peers**: a new flag, `RoomPolicy::stage_points` (true for
+  every room this build makes, left out when false). `stage_rules` could
+  not say it honestly: an authority built with `stage_rules` alone (the
+  same day) would drop the bias and award by the match's. A client sends a
+  bias only where `stage_points` (and `points_bias`) say so
+  (`RoomClient::change_stage_rules`); the reducer refuses one elsewhere
+  (`RulesProblem::PointsNotHonored`). An older authority's room shows
+  today's From-stage form (Points fixed, its note). An older client in a
+  newer room reads a change without its bias: it shows the stage under
+  the match's Points, which only its words would get wrong (the room
+  awards). Points alone never changes the battle plan's digest
+  (`StageRules::play_changed`, the tag names only what a play is judged
+  by), so an older device plays such a stage as everyone else.
+- **The Rules pop-up**, From stage N: the Points row is editable (‹ › as
+  the others), the line under the statement says "Timing, Boos, zero
+  life, attacks and Points below apply from stage N on.", the note "Stages
+  and CPUs can't change during a match: …". Where the row differs from
+  the stage before the one it lands on, a quiet sentence follows the
+  row's own: "Stages before stage 3 keep Strong points, so the match's
+  totals will add stages awarded on different curves. For a close
+  contest, use Apply and restart." (the last sentence where that button
+  is offered). Apply and restart takes the Points shown, as the other
+  per-stage rows. Next match: as before.
+- **The marks**: the status line names it in the change's words ("From
+  stage 2: Medium points. Pick stage 2's song."; `room::change_words`),
+  and the Standings' "● Changed rules: DDI · Medium points" and the
+  match's standings' "● From stage 2: DDI · Medium points" through the
+  rules' existing summary words (which name Points where it is not
+  Strong).
+- **Tested**: `ddi-room` (`walkthroughs`: the field of nine with Mild
+  from stage 3, each stage's rule and every total; the JSON both ways,
+  the match's own bias kept as none, an older policy refusing a bias;
+  `online`: both authorities and every mirror alike), `ddi-ui`
+  (`room_tests`: the row, the sentence, Apply, the status line, the
+  order, the Standings' marks, an older online authority never offered
+  or sent a bias, a co-host's Mild reaching every mirror and status line
+  over the fake; the `qps-ploc` walk; `xtask l10n check`). The server
+  (`../ddi-server`) builds and passes its checks against the changed
+  crate without a change; once deployed its rooms say `stage_points`.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
 | `online-cpus-v0` (2026-11-13): an online room's CPUs computed alike on every device (50 ms steps from −2 s, a shock put in 1.25 s after its checkpoint, a 2 s horizon's lead); every connected player's device reports for them, the room taking the first and counting a different one; nobody left to compute ends them as forfeits | `ddi_room::live::cpus`, `ddi_session::battle::cpus` | The host adds CPUs online as in practice; a wrong report that reached the room first stands | First or majority; the bytes (every device sends every CPU); the horizon |
-| Rules from the next stage (2026-11-13): a change lands on the next stage nobody has readied, loaded or started (once picked, the one after); Points fixed for the match; Apply and restart takes the per-stage rows as shown | `RoomState::rules_land_on`, `room_dialogs::RulesDialog` | A host's change of timing, Boos, attacks or zero life applies from the stage the pop-up names, said on everyone's status line | Whether Points may change mid-match; whether a change should land on a picked stage nobody has readied yet |
+| Rules from the next stage (2026-11-13): a change lands on the next stage nobody has readied, loaded or started (once picked, the one after); Points changeable from a stage on too (the maintainer, answered); Apply and restart takes the per-stage rows as shown | `RoomState::rules_land_on`, `room_dialogs::RulesDialog` | A host's change of timing, Boos, attacks, zero life or (since the follow-up) Points applies from the stage the pop-up names, said on everyone's status line | Whether a change should land on a picked stage nobody has readied yet |
 | `step-down-v0` (2026-11-13): life back to half at the zero; the boundary the first bar line (four beats) at least the reading horizon plus 1 s ahead; a breather until it with nothing of a chart judged, stray presses free and life kept at one point or more | `ddi_engine::ladder::STEP_DOWN_V0` | A player out of life plays on an easier chart after a few seconds' rest, with half a bar | The life given back; the breather's length; whether a player may ever step back up |
 | The ladder: the style's original charts of lower slots on the same timing, nearest slot first, by meter; never an Edit below a slotted chart; cut at the first rung the CPUs cannot plan | `ddi_engine::ladder::ladder`, `cpu::planned_ladder` | Hard steps to Medium, then Easy, then Beginner | How Edits and split-timing charts should take part |
 | Standing under Step down: fewer steps first, then life, then the score; a stepped run's score put on the stage chart's scale | `ddi_room::battle::rank`, `ddi_session::battle::Battle::on_stage_scale` | One step down places below everyone who stayed on the stage's chart | How a step down should rank (by steps first, or a points penalty) |
@@ -6418,10 +6482,9 @@ Screenshots: `target/scratch/mp/ocpu/shots/`.
   a step down should rank (fewer steps first now) are the maintainer's
   to decide. Measured: under Normal it keeps the weakest CPUs in to the
   song's end without moving the stage's order much.
-- Rules from the next stage (2026-11-13): Points stays the match's for
-  its whole length (a stage's award, but what each stage is worth against
-  the others); should it change from a stage on like the others, the
-  match's total then a sum of two scales?
+- Rules from the next stage (2026-11-13): whether Points may change
+  from a stage on. ANSWERED by the maintainer the same day: yes, with the
+  host aware of it ("Points from a later stage", below).
 - Rules from the next stage: a change never lands on a stage once picked
   (its window open), even if nobody has readied or loaded yet. Should a
   picked stage whose readiness has not begun take it (sooner, but its

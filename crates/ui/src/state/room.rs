@@ -558,8 +558,13 @@ pub struct StageRules {
     pub at_zero: ddi_room::AtZero,
     /// The stage is played under per-stage rules changed during the match
     /// (`ddi_room::Match::changes`): other than those the match began
-    /// with. Its battle plan says so ([`StageRules::changed_tag`]).
+    /// with (Points included: the Standings mark it).
     pub changed: bool,
+    /// Of those, the rules a play is judged by (all but Points): its
+    /// battle plan says so ([`StageRules::changed_tag`]). A change of
+    /// Points alone leaves the plan as it was, so a device that predates
+    /// it plays the stage alike.
+    pub play_changed: bool,
 }
 
 impl StageRules {
@@ -571,6 +576,7 @@ impl StageRules {
             points: rules.points,
             at_zero: rules.at_zero,
             changed: false,
+            play_changed: false,
         }
     }
 
@@ -579,6 +585,12 @@ impl StageRules {
     pub fn of_stage(m: &ddi_room::Match, stage: StageId) -> StageRules {
         StageRules {
             changed: m.stage_rules_changed(stage),
+            play_changed: m.change_for(stage).is_some_and(|c| {
+                ddi_room::PlayRules {
+                    points: None,
+                    ..c.rules.clone()
+                } != m.rules.play_rules()
+            }),
             ..StageRules::of(&m.rules_for(stage))
         }
     }
@@ -590,7 +602,7 @@ impl StageRules {
     /// out. `None` for a stage under the match's own rules, whose plan is
     /// what it was.
     pub fn changed_tag(&self) -> Option<String> {
-        self.changed.then(|| {
+        self.play_changed.then(|| {
             format!(
                 "{:?}/{}/{}",
                 self.difficulty,
@@ -3186,6 +3198,29 @@ impl RoomClient {
             && self.rules_land_on().is_some()
     }
 
+    /// Points may change from a later stage too (the maintainer,
+    /// 2026-11-13): where per-stage changes are taken here and the room's
+    /// authority awards each stage by the bias of its own rules
+    /// (`RoomPolicy::stage_points`; never one that would drop the bias).
+    pub fn stage_points_offered(&self) -> bool {
+        let p = &self.state().policy;
+        p.stage_points && p.points_bias && self.may_change_stage_rules()
+    }
+
+    /// The rules of the stage before the one a change saved now would
+    /// land on (the match's own where it lands on the first): what a
+    /// change of Points is told against.
+    pub fn rules_before_landing(&self) -> Option<MatchRules> {
+        let (stage, _) = self.rules_land_on()?;
+        let s = self.state();
+        let m = s.current.as_ref()?;
+        let at = m.stage_index(stage)?;
+        Some(match at.checked_sub(1) {
+            Some(i) => m.rules_for(m.stages[i].id),
+            None => m.rules.clone(),
+        })
+    }
+
     /// Where a change of the running match's per-stage rules saved now
     /// would land: the stage and its number, from 1
     /// (`RoomState::rules_land_on`).
@@ -3221,10 +3256,14 @@ impl RoomClient {
                 capability: Capability::EditNextRules,
             }));
         }
-        self.send(Command::ChangeStageRules {
-            from,
-            rules: rules.play_rules(),
-        })
+        // The bias named only where it is not the match's own, and only to
+        // an authority that honors it: a match whose Points nobody changes
+        // sends what it did before.
+        let play = match self.state().current.as_ref() {
+            Some(m) if self.state().policy.stage_points => m.play_rules_of(rules),
+            _ => rules.play_rules(),
+        };
+        self.send(Command::ChangeStageRules { from, rules: play })
     }
 
     /// Save `rules` for the next match and stop the running match, as one

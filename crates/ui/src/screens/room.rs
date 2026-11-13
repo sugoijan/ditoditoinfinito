@@ -150,6 +150,12 @@ pub struct RoomView {
     pub rules_destination: Option<String>,
     pub rules_from: Option<u16>,
     pub stage_draft_rules: Option<(String, bool, bool, String)>,
+    /// The stage's Points as edited where Points may change from a later
+    /// stage (`strong`, `medium`, `mild`), and, where it differs from the
+    /// stage before, that stage's (the sentence under the row says the
+    /// totals shift).
+    pub stage_draft_points: Option<String>,
+    pub points_shift: Option<String>,
     /// The roster pop-ups: Add custom, Players, the stage's standings.
     pub add_open: bool,
     pub players_open: bool,
@@ -2052,6 +2058,8 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         rules_destination: kept.rules_destination,
         rules_from: kept.rules_from,
         stage_draft_rules: kept.stage_draft_rules,
+        stage_draft_points: kept.stage_draft_points,
+        points_shift: kept.points_shift,
         add_open: kept.add_open,
         players_open: kept.players_open,
         standings_open: kept.standings_open,
@@ -2271,7 +2279,7 @@ pub fn rules_words(rules: &crate::state::room::StageRules, attacks: Option<bool>
 /// What a change of the running match's per-stage rules changes, from
 /// the rules `before` it (the stage before the change's) to `after`, in
 /// the parts' words joined ("Hard timing · Boos · No attacks"); `None`
-/// where nothing a player plays by differs.
+/// where nothing a player plays by (or Points) differs.
 pub fn change_words(
     before: &ddi_room::MatchRules,
     after: &ddi_room::MatchRules,
@@ -2290,6 +2298,9 @@ pub fn change_words(
     }
     if before.at_zero != after.at_zero {
         parts.push(m::rules_change_at_zero(after.at_zero.id()));
+    }
+    if before.points != after.points {
+        parts.push(m::rules_change_points(after.points.id()));
     }
     parts.into_iter().reduce(m::rules_change_join)
 }

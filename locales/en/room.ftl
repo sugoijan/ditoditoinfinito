@@ -340,6 +340,15 @@ room-rules-running-from = { $marked ->
    *[no] Timing, Boos, zero life and attacks below apply from stage { $number } on.
 }
 
+# The same line where Points may change from a later stage too.
+# Variables:
+#   $number (Number) - the stage the changes apply from, from 1
+#   $marked (String) - "yes" when some row is marked, else "no"
+room-rules-running-from-points = { $marked ->
+    [yes] Timing, Boos, zero life, attacks and Points below apply from stage { $number } on. ● marks what you changed.
+   *[no] Timing, Boos, zero life, attacks and Points below apply from stage { $number } on.
+}
+
 # A row at the top of the Rules pop-up while a match is running: where its
 # changes go. Its label (about 16 letters), then one of its two values
 # (about 16 letters each).
@@ -353,6 +362,27 @@ room-rules-destination-next = Next match
 # the rows that never change during a match ("Apply and restart" is the
 # button of room-rules-apply-restart).
 room-rules-stage-only-note = Stages, CPUs and Points can't change during a match: choose Next match for them, or Apply and restart.
+
+# The same note where Points may change from a later stage too.
+room-rules-stage-only-note-points = Stages and CPUs can't change during a match: choose Next match for them, or Apply and restart.
+
+# A quiet sentence after the Points row's own (room-rules-points-*-about)
+# where Points from a later stage differs from the stage before: the
+# match's stages will have been awarded on different curves, so its
+# totals shift ("Apply and restart" is the button of
+# room-rules-apply-restart, offered when $restart is "yes").
+# Variables:
+#   $number (Number) - the stage the changes apply from, from 1
+#   $before (String) - the Points of the stage before: "strong", "medium" or "mild"
+#   $restart (String) - "yes" where Apply and restart is offered, else "no"
+room-rules-points-shift = Stages before stage { $number } keep { $before ->
+    [medium] Medium
+    [mild] Mild
+   *[strong] Strong
+} points, so the match's totals will add stages awarded on different curves.{ $restart ->
+    [yes] {" "}For a close contest, use Apply and restart.
+   *[no] {""}
+}
 
 # The room's status line once the rules were changed from a later stage
 # on, until that stage begins: what changes, then the line it would say
@@ -390,6 +420,13 @@ room-rules-change-attacks = { $attacks ->
 room-rules-change-at-zero = { $zero ->
     [step_down] Step down
    *[out] Out at zero life
+}
+# Variables:
+#   $points (String) - "strong", "medium" or "mild"
+room-rules-change-points = { $points ->
+    [medium] Medium points
+    [mild] Mild points
+   *[strong] Strong points
 }
 # Two of those parts (or a part and the parts joined before) in a list.
 # Variables:

@@ -481,6 +481,10 @@ impl AudienceClient {
             points: r.points,
             at_zero: r.at_zero,
             changed: changed.is_some(),
+            play_changed: changed.is_some_and(|c| {
+                (c.difficulty, c.boos, c.attacks, c.at_zero)
+                    != (v.rules.difficulty, v.rules.boos, v.rules.attacks, v.rules.at_zero)
+            }),
         }
     }
 

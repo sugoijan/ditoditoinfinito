@@ -1642,3 +1642,35 @@ fn a_per_stage_change_is_decided_alike_by_both_authorities_and_every_mirror() {
         "the room says it reads the command"
     );
 }
+
+/// Points changed from a later stage (2026-11-13): both authorities keep
+/// the bias alike and every mirror reads it, the room's policy saying it
+/// honors one (`stage_points`).
+#[test]
+fn a_change_of_points_is_decided_alike_by_both_authorities_and_every_mirror() {
+    let mut steps = script();
+    let mild = ddi_room::PlayRules {
+        points: Some(ddi_room::PointsBias::Mild),
+        ..MatchRules::hosted().play_rules()
+    };
+    steps.push(Step::Cmd(
+        "dev:bob",
+        Command::ChangeStageRules {
+            from: StageId(2),
+            rules: mild.clone(),
+        },
+    ));
+    let (local, local_answers) = run_local(&steps);
+    let (server, online_answers, mirrors) = run_online(&steps, &[]);
+    assert_eq!(local_answers, online_answers);
+    assert_eq!(local, server, "the server's room is the local one");
+    for m in &mirrors {
+        assert_eq!(m, &server, "a client's mirror is the room");
+    }
+    assert_eq!(local_answers.last(), Some(&None), "changed from stage 2");
+    let m = local.current.as_ref().unwrap();
+    assert_eq!(m.play_rules_for(StageId(2)), mild);
+    assert_eq!(m.rules_for(StageId(2)).points, ddi_room::PointsBias::Mild);
+    assert_eq!(m.rules_for(StageId(1)).points, ddi_room::PointsBias::Strong);
+    assert!(local.policy.stage_points, "the room says it honors a bias");
+}

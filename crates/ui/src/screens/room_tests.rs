@@ -4037,20 +4037,21 @@ fn the_rules_pop_up_changes_rules_from_the_next_stage_next_match_or_by_restart()
     assert_eq!(v.rules_destination.as_deref(), Some("stage"));
     assert_eq!(v.rules_from, Some(2));
     assert!(has(&h, "Rules from stage 2") && has(&h, "Changes apply") && has(&h, "From stage 2"));
-    assert!(h.texts().concat().contains("Timing, Boos, zero life and attacks below apply from stage 2 on.") || h.texts().join(" ").contains("Timing, Boos, zero life and attacks below apply from stage 2 on."), "{:?}", h.texts());
+    assert!(h.texts().concat().contains("Timing, Boos, zero life, attacks and Points below apply from stage 2 on.") || h.texts().join(" ").contains("Timing, Boos, zero life, attacks and Points below apply from stage 2 on."), "{:?}", h.texts());
     assert!(
         h.texts()
             .iter()
-            .any(|t| t.starts_with("Stages, CPUs and Points can't change during a match")),
+            .any(|t| t.starts_with("Stages and CPUs can't change during a match")),
         "{:?}",
         h.texts()
     );
-    // The rows that never change mid-match are shown, not offered.
-    assert!(!there(&h, "Inc.stages") && !there(&h, "AddRandom") && !there(&h, "Inc.points"));
+    // The rows that never change mid-match are shown, not offered (Points
+    // may, since 2026-11-13).
+    assert!(!there(&h, "Inc.stages") && !there(&h, "AddRandom") && there(&h, "Inc.points"));
     assert!(there(&h, "Inc.difficulty") && there(&h, "Inc.attacks"));
     press(&mut h, "Inc.difficulty");
     assert_eq!(view(&env).rules_changed, vec!["difficulty".to_string()]);
-    assert!(h.texts().concat().contains("Timing, Boos, zero life and attacks below apply from stage 2 on. ● marks what you changed.") || h.texts().join(" ").contains("Timing, Boos, zero life and attacks below apply from stage 2 on. ● marks what you changed."), "{:?}", h.texts());
+    assert!(h.texts().concat().contains("Timing, Boos, zero life, attacks and Points below apply from stage 2 on. ● marks what you changed.") || h.texts().join(" ").contains("Timing, Boos, zero life, attacks and Points below apply from stage 2 on. ● marks what you changed."), "{:?}", h.texts());
     press(&mut h, "Apply");
     assert_eq!(top(&h), "select");
     {
@@ -4266,5 +4267,185 @@ fn an_online_rooms_rules_offer_the_roster_where_its_authority_seats_cpus() {
             assert!(room.borrow().has_cpus());
             assert!(!h.texts().iter().any(|x| x.contains("Bot")), "{:?}", h.texts());
         }
+    }
+}
+
+/// Points from a later stage (the maintainer, 2026-11-13): in the Rules
+/// pop-up's From-stage mode the Points row is editable; where it differs
+/// from the stage before, a quiet sentence under it says the totals will
+/// add stages awarded on different curves (and Apply and restart is
+/// there). Applied, the status line names it in the rules' words and the
+/// stage's order, its Standings and the match's standings mark it.
+#[test]
+fn points_change_from_the_next_stage_with_the_host_told_the_totals_shift() {
+    use ddi_room::{Finish, Finisher, PointsBias};
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    let order1 = orders.borrow_mut().pop().expect("a prompt");
+    press(&mut h, "Room.Rules");
+    assert_eq!(view(&env).stage_draft_points.as_deref(), Some("strong"));
+    assert_eq!(view(&env).points_shift, None);
+    assert!(!h.texts().iter().any(|t| t.contains("different curves")));
+    press(&mut h, "Inc.points");
+    let v = view(&env);
+    assert_eq!(v.stage_draft_points.as_deref(), Some("medium"));
+    assert_eq!(v.points_shift.as_deref(), Some("strong"));
+    assert_eq!(v.rules_changed, vec!["points".to_string()]);
+    let words = h.texts().join(" ");
+    assert!(
+        words.contains("Stages before stage 2 keep Strong points")
+            && words.contains("different curves")
+            && words.contains("Apply and restart"),
+        "{words}"
+    );
+    // The next match's draft is left alone.
+    assert_eq!(view(&env).draft_points.as_deref(), Some("strong"));
+    press(&mut h, "Apply");
+    {
+        let r = room.borrow();
+        let s = r.state();
+        let m = s.current.as_ref().unwrap();
+        assert_eq!(m.rules_for(m.stages[1].id).points, PointsBias::Medium);
+        assert_eq!(m.rules_for(order1.stage).points, PointsBias::Strong);
+        assert_eq!(m.rules.points, PointsBias::Strong);
+        assert_eq!(s.next.rules.points, PointsBias::Strong);
+        // Kept in the one form: the bias named, the rest the match's.
+        assert_eq!(m.changes[0].rules.points, Some(PointsBias::Medium));
+    }
+    let status = view(&env).status;
+    assert!(status.starts_with("From stage 2: Medium points. "), "{status}");
+    // Opened again: Medium is stage 2's now, nothing marked, and the
+    // sentence still says the stages before keep Strong.
+    press(&mut h, "Room.Rules");
+    assert!(view(&env).rules_changed.is_empty());
+    assert_eq!(view(&env).points_shift.as_deref(), Some("strong"));
+    press(&mut h, "Cancel");
+    let finish = |order: &StageOrder| {
+        let _ = room.borrow_mut().set_ready(true);
+        room.borrow_mut().clear_refusal();
+        let later = room.borrow().now_ms() + 4_000;
+        room.borrow_mut().tick(later);
+        let mut ids: Vec<_> = order.cpus.iter().map(|c| c.participant).collect();
+        ids.insert(0, order.me);
+        let ranking = ids
+            .into_iter()
+            .map(|participant| {
+                vec![Finisher {
+                    participant,
+                    finish: Finish::Survived,
+                }]
+            })
+            .collect();
+        room.borrow_mut()
+            .report_stage(order.stage, ranking, false)
+            .unwrap();
+    };
+    finish(&order1);
+    h.run(0.5);
+    press(&mut h, "Continue");
+    h.run(0.3);
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    let order2 = orders.borrow_mut().pop().expect("stage 2's prompt");
+    assert_eq!(order2.rules.points, PointsBias::Medium);
+    assert!(order2.rules.changed);
+    // Points alone leave the battle plan as it was.
+    assert_eq!(order2.rules.changed_tag(), None);
+    finish(&order2);
+    h.run(0.5);
+    let table = room.borrow().stage_table(order2.stage).unwrap();
+    assert!(table.rules.changed && table.rules.points == PointsBias::Medium);
+    assert!(
+        h.texts()
+            .iter()
+            .any(|t| t == "● From stage 2: DDI · Medium points"),
+        "{:?}",
+        h.texts()
+    );
+    assert!(there(&h, "S1.Changed") && !there(&h, "S0.Changed"));
+}
+
+/// An online room whose authority predates Points from a later stage
+/// (`RoomPolicy::stage_points` missing): the From-stage mode keeps Points
+/// fixed with today's note, and a change sent there names no bias; where
+/// the authority honors it, a co-host's Points reach every mirror and
+/// every status line.
+#[test]
+fn an_online_rooms_points_change_from_a_later_stage_only_where_its_authority_honors_it() {
+    use ddi_room::{Actor, Command, Millis, ParticipantId, PointsBias};
+    let start = |s: &mut ddi_room::RoomState| {
+        let rev = s.revision;
+        s.apply(
+            Actor::Member(ParticipantId(1)),
+            Some(rev),
+            &Command::StartMatch,
+            Millis(1_000),
+        )
+        .unwrap();
+    };
+    let orders = Orders::default();
+    // Older: no Points row to edit, the note as before.
+    let t = Three::over(|s| s.policy.stage_points = false, true);
+    let (ea, eb) = (env(), env());
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    t.server.borrow_mut().rewrite(start);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    press(&mut hb, "Room.Rules");
+    assert_eq!(view(&eb).rules_destination.as_deref(), Some("stage"));
+    assert!(!there(&hb, "Inc.points") && there(&hb, "Inc.boos"));
+    assert!(
+        hb.texts()
+            .iter()
+            .any(|t| t.starts_with("Stages, CPUs and Points can't change during a match")),
+        "{:?}",
+        hb.texts()
+    );
+    press(&mut hb, "Cancel");
+    // Even a client asked to send another bias sends none there.
+    let mut mild = t.bob.borrow().rules_ahead().unwrap();
+    mild.points = PointsBias::Mild;
+    mild.boos = true;
+    let (from, _) = t.bob.borrow().rules_land_on().unwrap();
+    t.bob.borrow_mut().change_stage_rules(from, &mild).unwrap();
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    let server = t.server.borrow().state().clone();
+    let m = server.current.as_ref().unwrap();
+    assert_eq!(m.changes.len(), 1);
+    assert_eq!(m.changes[0].rules.points, None);
+    assert!(m.changes[0].rules.boos);
+
+    // Honored: the co-host's Mild from stage 1 reaches everyone.
+    let t = Three::new(true);
+    let (ea, eb, ec) = (env(), env(), env());
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    t.server.borrow_mut().rewrite(start);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    press(&mut hb, "Room.Rules");
+    assert_eq!(view(&eb).rules_from, Some(1));
+    press(&mut hb, "Inc.points");
+    press(&mut hb, "Inc.points");
+    assert_eq!(view(&eb).stage_draft_points.as_deref(), Some("mild"));
+    press(&mut hb, "Apply");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    let server = t.server.borrow().state().clone();
+    let m = server.current.as_ref().unwrap();
+    assert_eq!(m.rules_for(m.stages[0].id).points, PointsBias::Mild);
+    assert_eq!(m.rules.points, PointsBias::Strong);
+    for (room, e) in [(&t.alice, &ea), (&t.bob, &eb), (&t.carol, &ec)] {
+        assert_eq!(room.borrow().state(), &server, "the mirror is the room");
+        let status = view(e).status;
+        assert!(status.starts_with("From stage 1: Mild points. "), "{status}");
     }
 }

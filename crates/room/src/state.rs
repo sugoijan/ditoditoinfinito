@@ -11,7 +11,7 @@ use crate::ids::{
 use crate::member::{Capability, Connection, Intent, Member, MemberKind, OpponentSpec, Role, can};
 use crate::phase::{Interruption, Phase};
 use crate::points::Points;
-use crate::rules::{Access, ContentSource, MatchRules, RoomPolicy, RulesProblem};
+use crate::rules::{Access, ContentSource, MatchRules, PlayRules, RoomPolicy, RulesProblem};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -502,6 +502,22 @@ impl Match {
             Some(c) => self.rules.with_play(&c.rules),
             None => self.rules.clone(),
         }
+    }
+
+    /// `rules` as a stage of this match plays them ([`PlayRules`]), the
+    /// points' bias named only where it is not the match's own: the one
+    /// form a change is sent, compared and kept in.
+    pub fn play_rules_of(&self, rules: &MatchRules) -> PlayRules {
+        PlayRules {
+            points: (rules.points != self.rules.points).then_some(rules.points),
+            ..rules.play_rules()
+        }
+    }
+
+    /// The per-stage rules stage `stage` is played under, in
+    /// [`Match::play_rules_of`]'s form.
+    pub fn play_rules_for(&self, stage: StageId) -> PlayRules {
+        self.play_rules_of(&self.rules_for(stage))
     }
 
     /// The change stage `stage` is played under, if any.
