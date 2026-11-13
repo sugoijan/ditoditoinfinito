@@ -915,8 +915,9 @@ Rust and the browser are implementation details, not advertised features.
   helper is found at `DDI_VIDEO_HELPER`, else as `video/ddi-video-helper`
   beside the executable, in a macOS app's `Contents/Helpers/` or beside a
   folder above it (`crates/desktop/build.rs`
-  stages it in the build's `target/<profile>/video/`, which a test in
-  `target/<profile>/deps/` finds too); `cargo test -p ddi-desktop --test
+  stages it in the build's `target/<profile>/video/`, which a test finds
+  too, in `target/<profile>/build/<package>/<hash>/out/` since Cargo 1.100,
+  `target/<profile>/deps/` before); `cargo test -p ddi-desktop --test
   video` checks it on generated clips; `--decoder both` compares the
   platform's strict OS subset against it, `DDI_VIDEO_DECODER=software`
   forces it for play (`module`, its old name, still works); Windows

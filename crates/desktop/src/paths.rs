@@ -103,9 +103,44 @@ pub fn package_dirs(exe: &Path) -> Vec<PathBuf> {
     dirs
 }
 
+/// The Cargo profile folder (`target/<profile>/`) a test or an example
+/// built there runs from: examples in `<profile>/examples/`, tests in
+/// `<profile>/deps/` before Cargo 1.100 and in
+/// `<profile>/build/<package>/<hash>/out/` from it on.
+pub fn cargo_profile_dir(exe: &Path) -> Option<&Path> {
+    let parent = exe.parent()?;
+    let name = parent.file_name()?;
+    if name == "deps" || name == "examples" {
+        return parent.parent();
+    }
+    let build = exe.ancestors().nth(4)?;
+    (name == "out" && build.file_name()? == "build")
+        .then(|| build.parent())
+        .flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tests_and_examples_find_their_profile_folder() {
+        let profile = Path::new("/ws/target/debug");
+        for exe in [
+            "/ws/target/debug/deps/play-0123",
+            "/ws/target/debug/examples/screenshot",
+            "/ws/target/debug/build/ddi-desktop/0123/out/play-0123",
+        ] {
+            assert_eq!(cargo_profile_dir(Path::new(exe)), Some(profile), "{exe}");
+        }
+        for exe in [
+            "/ws/target/debug/ddi",
+            "/ws/target/debug/build/ddi-desktop/0123/run/ddi",
+            "/games/ddi/ddi",
+        ] {
+            assert_eq!(cargo_profile_dir(Path::new(exe)), None, "{exe}");
+        }
+    }
 
     #[test]
     fn an_app_bundle_adds_its_helpers_and_resources() {

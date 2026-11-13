@@ -164,13 +164,8 @@ fn find_assets() -> PathBuf {
     {
         return packaged;
     }
-    // Cargo puts integration tests and examples one directory below a profile.
-    if let Some(parent) = exe.parent()
-        && parent
-            .file_name()
-            .is_some_and(|name| name == "deps" || name == "examples")
-        && let Some(profile) = parent.parent()
-    {
+    // A test's or an example's profile folder, where the build staged them.
+    if let Some(profile) = crate::paths::cargo_profile_dir(&exe) {
         let staged = profile.join("assets");
         if staged.is_dir() {
             return staged;

@@ -2,7 +2,11 @@
 //! executable, the video decoder helper (`video/helper`, feature `video`)
 //! built and staged in `video/` beside it, and the optional DanOni
 //! importer. Neither FFmpeg nor the SDK is linked into the desktop binary.
-use std::{env, path::PathBuf, process::Command};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 fn main() {
     println!("cargo:rerun-if-env-changed=DDI_ICON_VARIANT");
@@ -79,7 +83,7 @@ fn main() {
         .unwrap()
         .to_owned();
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    let profile = out.ancestors().nth(3).expect("Cargo profile directory");
+    let profile = profile_dir(&out);
     // Native artifacts use the exact checkout's assets even with an arbitrary
     // CARGO_TARGET_DIR. Nothing in the shipped executable remembers that path.
     println!("cargo:rerun-if-changed={}", root.join("assets").display());
@@ -322,4 +326,16 @@ fn copy_assets(source: &std::path::Path, destination: &std::path::Path) {
             copy_file(&path, &destination.join(entry.file_name()));
         }
     }
+}
+
+/// Cargo's profile folder (`target/<profile>/`, where the executable is)
+/// from `OUT_DIR`: `<profile>/build/<package>-<hash>/out` before Cargo
+/// 1.100, `<profile>/build/<package>/<hash>/out` from it on.
+fn profile_dir(out: &Path) -> &Path {
+    [2, 3]
+        .into_iter()
+        .filter_map(|n| out.ancestors().nth(n))
+        .find(|a| a.file_name().is_some_and(|name| name == "build"))
+        .and_then(Path::parent)
+        .expect("Cargo profile directory above OUT_DIR")
 }

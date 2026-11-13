@@ -1182,7 +1182,8 @@ it builds on, and checks it on every start.
   importer's; the `helper` profile: `opt-level = 3`, no LTO, abort on
   panic, stripped) and stages it as `video/ddi-video-helper` beside the
   game with `ffmpeg.json` and the notice, where `helper_path` finds it
-  (a test in `target/<profile>/deps/` too). `DDI_NO_VIDEO_HELPER=1`
+  (a test too: in `target/<profile>/build/<package>/<hash>/out/` since
+  Cargo 1.100, `target/<profile>/deps/` before). `DDI_NO_VIDEO_HELPER=1`
   skips it, cross builds skip it, Windows skips it unless
   `DDI_VIDEO_NATIVE=1`. The nested build is a few seconds once FFmpeg
   is built.

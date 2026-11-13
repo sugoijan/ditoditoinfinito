@@ -133,6 +133,7 @@ fn the_helper_is_found_beside_the_executable() {
     for exe in [
         "ws/target/debug/ddi",
         "ws/target/debug/deps/video-0123",
+        "ws/target/debug/build/ddi-desktop/0123/out/video-0123",
         "ws/target/debug/examples/screenshot",
     ] {
         assert_eq!(helper_near(&root.join(exe)), Some(staged.clone()), "{exe}");

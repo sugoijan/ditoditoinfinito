@@ -193,7 +193,8 @@ pub const HELPER_NAME: &str = "ddi-video-helper";
 /// executable, a macOS app's `Contents/Helpers/`;
 /// [`crate::paths::package_dirs`]) or beside any folder above it (a
 /// build's `target/<profile>/video/`, where `crates/desktop/build.rs`
-/// stages it, found from a test's `target/<profile>/deps/` too). No path
+/// stages it, found from a test's `target/<profile>/deps/` too, or from
+/// Cargo 1.100's `target/<profile>/build/<package>/<hash>/out/`). No path
 /// from the build is kept in the binary.
 pub fn helper_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("DDI_VIDEO_HELPER") {
