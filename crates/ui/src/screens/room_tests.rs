@@ -4169,8 +4169,10 @@ fn the_rules_pop_up_changes_rules_from_the_next_stage_next_match_or_by_restart()
         assert_eq!(s.next.rules.difficulty, MatchDifficulty::Normal, "the next match's alone");
     }
     assert_eq!(order1.rules.difficulty, MatchDifficulty::Normal);
+    // About stage 1 (its readiness gathering): that first, the change for
+    // stage 2 after it.
     let status = view(&env).status;
-    assert!(status.starts_with("From stage 2: Hard timing. "), "{status}");
+    assert!(status.ends_with(" · From stage 2 on: Hard timing"), "{status}");
     // Opened again: the stage's rules as they now are, nothing marked.
     press(&mut h, "Room.Rules");
     assert!(view(&env).rules_changed.is_empty());
@@ -4425,8 +4427,11 @@ fn points_change_from_the_next_stage_with_the_host_told_the_totals_shift() {
         // Kept in the one form: the bias named, the rest the match's.
         assert_eq!(m.changes[0].rules.points, Some(PointsBias::Medium));
     }
+    // The line is about stage 1 (its readiness gathering): it comes first,
+    // the change for stage 2 after it (2026-11-13).
     let status = view(&env).status;
-    assert!(status.starts_with("From stage 2: Medium points. "), "{status}");
+    assert!(status.ends_with(" · From stage 2 on: Medium points"), "{status}");
+    assert!(!status.starts_with("From stage 2"), "{status}");
     // Opened again: Medium is stage 2's now, nothing marked, and the
     // sentence still says the stages before keep Strong.
     press(&mut h, "Room.Rules");
@@ -4455,6 +4460,12 @@ fn points_change_from_the_next_stage_with_the_host_told_the_totals_shift() {
     };
     finish(&order1);
     h.run(0.5);
+    // Between stages, the line about stage 2: the change first.
+    let status = view(&env).status;
+    assert!(
+        status.starts_with("From stage 2: Medium points. ") && status.contains("stage 2"),
+        "{status}"
+    );
     press(&mut h, "Continue");
     h.run(0.3);
     h.key("Enter", "Enter");
@@ -4476,6 +4487,70 @@ fn points_change_from_the_next_stage_with_the_host_told_the_totals_shift() {
         h.texts()
     );
     assert!(there(&h, "S1.Changed") && !there(&h, "S0.Changed"));
+    // A later change of the timing alone keeps Medium (it never puts
+    // Points back to the match's).
+    press(&mut h, "Continue");
+    h.run(0.3);
+    press(&mut h, "Room.Rules");
+    assert_eq!(view(&env).stage_draft_points.as_deref(), Some("medium"));
+    press(&mut h, "Inc.difficulty");
+    press(&mut h, "Apply");
+    let r = room.borrow();
+    let (from, _) = r.rules_land_on().unwrap();
+    let m = r.state().current.clone().unwrap();
+    assert_eq!(m.rules_for(from).points, PointsBias::Medium);
+    assert_eq!(m.rules_for(from).difficulty, ddi_room::MatchDifficulty::Hard);
+}
+
+/// A row that grows stays in view (2026-11-13): Points changed with the
+/// mouse at the foot of the Rules pop-up's scrolled rows brings the
+/// sentence that appears under it into view too.
+#[test]
+fn a_rows_new_sentence_is_scrolled_into_view() {
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    // Enough CPUs that the rows scroll.
+    {
+        let mut r = room.borrow_mut();
+        let roster = crate::state::cpu_roster::at_level(&[], 4, 12, 3);
+        let rules = crate::state::cpu_roster::with_roster(r.rules().clone(), roster, 1);
+        r.save_rules(rules).unwrap();
+    }
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    press(&mut h, "Room.Rules");
+    assert!(!h.texts().iter().any(|t| t.contains("different curves")));
+    // The Points row brought just into view at the rows' foot, by the
+    // wheel (as a mouse would), then pressed.
+    let shown = |h: &Harness, name: &str| {
+        let (Some(b), Some(v)) = (h.ui.bounds(name), h.ui.visible_bounds(name)) else {
+            return false;
+        };
+        b.iter().zip(v).all(|(a, b)| (a - b).abs() < 0.5)
+    };
+    for _ in 0..200 {
+        if shown(&h, "Inc.points") {
+            break;
+        }
+        let at = h.centre("Title");
+        h.wheel([at[0], at[1] + 80.0], [0.0, 10.0], crate::event::WheelSource::Pixels);
+        h.run(0.05);
+    }
+    assert!(shown(&h, "Inc.points"));
+    h.tap(PointerKind::Mouse, "Inc.points");
+    h.run(0.5);
+    assert!(h.texts().iter().any(|t| t.contains("different curves")), "{:?}", h.texts());
+    for k in 0..3 {
+        let name = format!("Rule.points.About{k}");
+        if h.ui.bounds(&name).is_some() {
+            assert!(shown(&h, &name), "{name} under the visible rows");
+        }
+    }
 }
 
 /// An online room whose authority predates Points from a later stage

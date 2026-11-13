@@ -102,8 +102,10 @@ fn the_rules_pop_up_mid_match_and_the_marked_standings_are_drawn() {
     ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::up("Escape", "Escape")));
     frames(&mut ui, 30);
     assert_eq!(ui.layers().last().unwrap().name, "select");
+    // About stage 1 (its readiness gathering): that first, the change
+    // for stage 2 after it.
     let status = env.state.borrow().room.clone().unwrap().status;
-    assert!(status.starts_with("From stage 2: Hard timing. "), "{status}");
+    assert!(status.ends_with(" · From stage 2 on: Hard timing"), "{status}");
     ppm("rules-status", &gpu.draw_offscreen(&mut ui, SIZE, format));
     // The stages played: each finished as a play reports it.
     let finish = |stage: ddi_room::StageId| {

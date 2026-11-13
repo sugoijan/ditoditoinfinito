@@ -3457,7 +3457,18 @@ impl RoomClient {
         // an authority that honors it: a match whose Points nobody changes
         // sends what it did before.
         let play = match self.state().current.as_ref() {
-            Some(m) if self.state().policy.stage_points => m.play_rules_of(rules),
+            Some(m) if self.state().policy.stage_points => {
+                // Named wherever it differs from the match's or from the
+                // stage's as it stands, so that a change back to the
+                // match's own is said (an authority reads a change naming
+                // none as keeping the stage's).
+                let ahead = m.rules_for(from).points;
+                ddi_room::PlayRules {
+                    points: (rules.points != m.rules.points || ahead != m.rules.points)
+                        .then_some(rules.points),
+                    ..rules.play_rules()
+                }
+            }
             _ => rules.play_rules(),
         };
         self.send(Command::ChangeStageRules { from, rules: play })
@@ -4206,5 +4217,43 @@ mod tests {
         assert_eq!(room.next_pick_number(), 1, "the next match's first");
         play(&mut room, true, true);
         assert_eq!(room.state().history.len(), 1);
+    }
+
+    /// A change of a later stage's rules that names no Points (as an older
+    /// peer's, which cannot) keeps the Points the stage has as it stands,
+    /// an earlier change's, never the match's by default; this client
+    /// names them wherever they differ from the match's or the stage's,
+    /// so a change back to the match's own is said (2026-11-13).
+    #[test]
+    fn a_change_naming_no_points_keeps_the_stage_s() {
+        use ddi_room::PointsBias;
+        let mut room = RoomClient::new(0, 1);
+        let mut rules = room.rules().clone();
+        rules.stages = 4;
+        room.save_rules(rules).unwrap();
+        let e = song("one");
+        room.pick(&e, &e.charts[0]).unwrap();
+        let (from, _) = room.rules_land_on().expect("a later stage");
+        let mut medium = room.rules_ahead().unwrap();
+        medium.points = PointsBias::Medium;
+        room.change_stage_rules(from, &medium).unwrap();
+        let points = |room: &RoomClient| room.rules_ahead().unwrap().points;
+        assert_eq!(points(&room), PointsBias::Medium);
+        // A change of the timing alone, naming no Points.
+        let mut hard = room.rules_ahead().unwrap().play_rules();
+        hard.difficulty = ddi_room::MatchDifficulty::Hard;
+        assert_eq!(hard.points, None);
+        room.send(Command::ChangeStageRules { from, rules: hard })
+            .unwrap();
+        let ahead = room.rules_ahead().unwrap();
+        assert_eq!(ahead.difficulty, ddi_room::MatchDifficulty::Hard);
+        assert_eq!(ahead.points, PointsBias::Medium, "the stage's kept");
+        // Back to the match's own, through the client: said, and taken.
+        let mut strong = room.rules_ahead().unwrap();
+        strong.points = PointsBias::Strong;
+        room.change_stage_rules(from, &strong).unwrap();
+        assert_eq!(points(&room), PointsBias::Strong);
+        let m = room.state().current.clone().unwrap();
+        assert_eq!(m.changes.last().unwrap().rules.points, None, "kept in the one form");
     }
 }

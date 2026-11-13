@@ -390,6 +390,15 @@ room-rules-points-shift = Stages before stage { $number } keep { $before ->
 #   $rules (String) - what changes, the parts below joined ("Hard timing · Boos · No attacks")
 #   $then (String) - the status line it would say otherwise (a sentence)
 room-status-rules-change = From stage { $number }: { $rules }. { $then }
+# The same where the status line is about an earlier stage than the one
+# the change applies from (the stage being picked comes first): the line
+# it would say otherwise, then the change after a dot, as the room's other
+# additions to its line are (the audience's count).
+# Variables:
+#   $then (String) - the status line it would say otherwise (a sentence)
+#   $number (Number) - the stage the change applies from, from 1
+#   $rules (String) - what changes, the parts joined ("Hard timing · Boos · No attacks")
+room-status-then-rules-change = { $then } · From stage { $number } on: { $rules }
 
 # The parts of such a change, each a rule as it becomes: the timing
 # difficulty ("Hard timing": never a chart's difficulty), Boos on or off,

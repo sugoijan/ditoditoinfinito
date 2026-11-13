@@ -397,16 +397,33 @@ pub fn status_line(r: &RoomClient) -> UiText {
 fn room_status(r: &RoomClient) -> UiText {
     let line = phase_status(r);
     // A change of the rules from a later stage, said until that stage
-    // begins (for everyone: the operator who made it and the others).
+    // begins (for everyone: the operator who made it and the others):
+    // before the line where it is the stage the line is about, else after
+    // it ("Pick stage 1's song. · From stage 2 on: Medium points").
     match pending_change(r) {
         Some((n, words))
             if r.refusal().is_none()
                 && r.link_notice().is_none()
                 && (!r.is_online() || r.link_state() == LinkState::Connected) =>
         {
-            m::status_rules_change(n, words, line)
+            if line_stage(r).is_none_or(|at| at == usize::from(n)) {
+                m::status_rules_change(n, words, line)
+            } else {
+                m::status_then_rules_change(line, n, words)
+            }
         }
         _ => line,
+    }
+}
+
+/// The number of the stage the room's status line is about (being
+/// chosen, gathered or counted down), from 1.
+fn line_stage(r: &RoomClient) -> Option<usize> {
+    match r.state().phase {
+        Phase::Preparing { stage, .. }
+        | Phase::Intermission { next: stage }
+        | Phase::Countdown { stage, .. } => Some(number_of(r, stage)),
+        _ => None,
     }
 }
 

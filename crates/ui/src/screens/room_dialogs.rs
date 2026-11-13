@@ -176,6 +176,10 @@ pub struct RulesDialog {
     /// Each focusable row's middle (from the rows' top, unscrolled), and
     /// the rows' height, as last built: focus scrolls a row into view.
     places: Vec<(String, f32)>,
+    /// Where each row's sentences under it end (by the row's id, from the
+    /// rows' top, unscrolled), as last built: a row is in view only with
+    /// them.
+    below: Vec<(String, f32)>,
     rows_h: f32,
     /// The focus last followed (`None` before the first frame: the focus
     /// it opens on scrolls nothing).
@@ -231,6 +235,7 @@ impl RulesDialog {
             scroll: 0.0,
             max_scroll: 0.0,
             places: Vec::new(),
+            below: Vec::new(),
             rows_h: 0.0,
             focus_seen: None,
             problem: None,
@@ -304,13 +309,23 @@ impl RulesDialog {
         }
     }
 
-    /// The scroll that shows `name`'s row whole (with a row's margin),
-    /// where it is one of the rows; else the scroll as it is.
+    /// The scroll that shows `name`'s row whole (with a row's margin)
+    /// and the sentences under it, where it is one of the rows; else the
+    /// scroll as it is. The row's top wins where both do not fit.
     fn scroll_for(&self, name: &str) -> f32 {
         let Some(&(_, mid)) = self.places.iter().find(|(n, _)| n == name) else {
             return self.scroll;
         };
-        let (top, bottom) = (mid - ROW, mid + ROW);
+        let id = name
+            .strip_prefix("Dec.")
+            .or_else(|| name.strip_prefix("Inc."))
+            .unwrap_or(name);
+        let said = self
+            .below
+            .iter()
+            .find(|(n, _)| n == id)
+            .map_or(f32::MIN, |&(_, end)| end + 8.0);
+        let (top, bottom) = (mid - ROW, (mid + ROW).max(said));
         let mut to = self.scroll;
         if bottom > to + self.rows_h {
             to = bottom - self.rows_h;
@@ -896,6 +911,8 @@ impl Screen for RulesDialog {
         let rows_top = y + 64.0;
         let mut ry = rows_top;
         let place = |name: String, mid: f32| places.borrow_mut().push((name, mid - rows_top));
+        let below: RefCell<Vec<(String, f32)>> = RefCell::new(Vec::new());
+        let said_to = |id: &str, end: f32| below.borrow_mut().push((id.to_string(), end - rows_top));
         // The running match's: said at the top, where it cannot be missed.
         if let Some((heading, rules, next)) = &statement {
             let mut k = 0;
@@ -1086,6 +1103,7 @@ impl Screen for RulesDialog {
                 c.push(left(t, x0, ry + 4.0));
                 ry += 17.0;
             }
+            said_to("at_zero", ry);
         } else {
             let row_y = ry + ROW / 2.0;
             c.push(left(
@@ -1248,6 +1266,7 @@ impl Screen for RulesDialog {
                 c.push(left(t, x0, ry + 4.0));
                 ry += 17.0;
             }
+            said_to("points", ry);
         } else {
             let row_y = ry + ROW / 2.0;
             c.push(left(
@@ -1285,6 +1304,7 @@ impl Screen for RulesDialog {
             place(name.into(), end);
         }
         self.places = places.into_inner();
+        self.below = below.into_inner();
         // The rows in their frame, scrolled and cut to the pop-up's middle
         // (wide enough for a marked row's dot and the focus outline).
         let mut content = frame("Rules.Content", c);

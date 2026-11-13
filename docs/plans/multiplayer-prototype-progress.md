@@ -6436,8 +6436,9 @@ sends, is not late.
 - **The status line reads in order.** Where a change is for a later
   stage than the one the line is about (being picked, gathered or
   counted down), the line comes first and the change after it, one
-  message (`room-status-then-rules-change`): "Pick stage 1's song. From
-  stage 2 on: Medium points." (ja: "…ステージ2からは：…。"); where it is
+  message (`room-status-then-rules-change`), joined by a dot as the
+  audience's count is: "Stage 1 starts once everyone is ready · 30 s ·
+  From stage 2 on: Medium points" (ja: "… · ステージ2からは：…"); where it is
   the same stage, as before ("From stage 2: Medium points. Pick stage
   2's song.").
 - **A change that names no Points keeps the stage's.** The reducer read
@@ -6450,11 +6451,15 @@ sends, is not late.
   the match's or from that stage's, so a change back to the match's own
   is still said (to an authority of either build). A match whose Points
   nobody changes sends and keeps what it did.
-- Tested: `ddi-ui` (the Points sentence in view after a press at the
-  rows' foot; the status line's order both ways, en and ja; a later
-  change of timing keeping Medium; a change back to the match's own),
-  `ddi-room` (a change naming no Points after one that moved them keeps
-  them); `xtask l10n check`; the `qps-ploc` walk.
+- Tested: `ddi-ui` (`a_rows_new_sentence_is_scrolled_into_view`: the
+  Points sentence in view after a mouse press at the rows' foot, failing
+  without the fix; the status line's order both ways, in English; a later
+  change of the timing through the pop-up keeping Medium;
+  `a_change_naming_no_points_keeps_the_stage_s`: a change sent naming no
+  Points after one that moved them keeps them through the reducer, and a
+  change back to the match's own is said and taken); `ddi-room`'s own
+  suite unchanged (no test of its own added there: the other session
+  edits that crate's tests); `xtask l10n check`; the `qps-ploc` walk.
 
 ## Provisional choices
 

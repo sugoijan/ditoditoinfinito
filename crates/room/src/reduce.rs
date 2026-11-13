@@ -565,8 +565,10 @@ impl RoomState {
                     });
                 }
                 // The one form a change is kept in: the bias named only
-                // where it is not the match's own.
-                let rules = m.play_rules_of(&m.rules.with_play(rules));
+                // where it is not the match's own. A change that names
+                // none keeps the stage's as it stands (an earlier change's),
+                // never the match's by default.
+                let rules = m.play_rules_of(&m.rules_for(*from).with_play(rules));
                 rules.check(&self.policy).map_err(Rejection::InvalidRules)?;
                 if m.play_rules_for(*from) != rules {
                     self.emit(out, Event::StageRulesChanged { from: *from, rules });

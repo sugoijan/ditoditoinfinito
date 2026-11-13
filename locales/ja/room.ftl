@@ -195,6 +195,7 @@ room-rules-points-shift = ステージ{ $number }より前のステージは得�
 }
 
 room-status-rules-change = ステージ{ $number }から：{ $rules }。{ $then }
+room-status-then-rules-change = { $then } · ステージ{ $number }からは：{ $rules }
 
 room-rules-change-timing = { $difficulty ->
     [easy] イージータイミング
