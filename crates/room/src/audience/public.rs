@@ -80,9 +80,14 @@ pub struct PublicRules {
     pub attacks: bool,
     #[serde(default, skip_serializing_if = "PointsBias::is_strong")]
     pub points: PointsBias,
-    /// What zero life does (additive, left out while Out).
-    #[serde(default, skip_serializing_if = "crate::rules::AtZero::is_out")]
-    pub at_zero: crate::rules::AtZero,
+    /// The charts it is played on (additive, left out while As picked;
+    /// "At zero life", `at_zero`, before it read as it).
+    #[serde(
+        default,
+        alias = "at_zero",
+        skip_serializing_if = "crate::rules::Charts::is_as_picked"
+    )]
+    pub charts: crate::rules::Charts,
 }
 
 impl PublicRules {
@@ -95,7 +100,7 @@ impl PublicRules {
             boos: r.boos,
             attacks: r.attacks(),
             points: r.points,
-            at_zero: r.at_zero,
+            charts: r.charts,
         }
     }
 }

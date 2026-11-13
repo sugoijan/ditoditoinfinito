@@ -87,11 +87,11 @@ pub const SPOTLIGHT_REST_MS: u64 = 3_000;
 /// numbered from 1): the server's grant for "no stage" (M7b).
 pub const SPOTLIGHT: StageId = StageId(0);
 
-/// Whether an online room may play the match's "At zero life: Step down"
+/// Whether an online room may play the match's "Charts: Adaptive"
 /// (`ddi_engine::ladder`): only once its live contract carries a stage's
 /// ladder and a competitor's steps (`docs/plans/multiplayer-prototype-progress.md`,
-/// "Step down").
-pub const ONLINE_STEP_DOWN: bool = true;
+/// "Adaptive charts").
+pub const ONLINE_ADAPTIVE: bool = true;
 
 /// What the room's screens show now (M7b's flow): song select (the host
 /// picking, the others following), or a stage's start prompt.
@@ -553,9 +553,9 @@ pub struct StageRules {
     /// The points' bias for fields of nine and more (summaries name it
     /// where it is not Strong; the play never reads it).
     pub points: ddi_room::PointsBias,
-    /// What zero life does: out, or a step down the song's ladder
-    /// (`ddi_engine::ladder`, `step-down-v0`).
-    pub at_zero: ddi_room::AtZero,
+    /// The charts it is played on: the picked one, or Adaptive, down and
+    /// up the song's ladder (`ddi_engine::ladder`, `adaptive-v0`).
+    pub charts: ddi_room::Charts,
     /// The stage is played under per-stage rules changed during the match
     /// (`ddi_room::Match::changes`): other than those the match began
     /// with (Points included: the Standings mark it).
@@ -574,7 +574,7 @@ impl StageRules {
             difficulty: rules.difficulty,
             boos: rules.boos,
             points: rules.points,
-            at_zero: rules.at_zero,
+            charts: rules.charts,
             changed: false,
             play_changed: false,
         }
@@ -607,15 +607,21 @@ impl StageRules {
                 "{:?}/{}/{}",
                 self.difficulty,
                 if self.boos { "boos" } else { "no-boos" },
-                self.at_zero.id()
+                self.charts.id()
             )
             .to_lowercase()
         })
     }
 
-    /// Zero life steps down the song's ladder (`ddi_engine::ladder`).
-    pub fn steps_down(&self) -> bool {
-        self.at_zero == ddi_room::AtZero::StepDown
+    /// Adaptive charts: down and up the song's ladder
+    /// (`ddi_engine::ladder`).
+    pub fn adaptive(&self) -> bool {
+        self.charts == ddi_room::Charts::Adaptive
+    }
+
+    /// How the stage ranks those still in (`ddi_room::Charts::rank_by`).
+    pub fn rank_by(&self) -> ddi_room::RankBy {
+        self.charts.rank_by()
     }
 
     /// DDI's options for a stage under these rules: the match's
@@ -766,6 +772,7 @@ pub fn run_detail(
         received: attacks.map(|a| a.1),
         shocks: attacks.map(|_| results.battle_mines.map_or(0, |b| b.hit)),
         chart: None,
+        harder: false,
     }
     .bounded()
 }
@@ -3341,20 +3348,21 @@ impl RoomClient {
         self.state().policy.points_bias
     }
 
-    /// The match's "At zero life" rule can be set here: CPU practice,
-    /// where every play is judged on this device, and an online room that
-    /// plays live (its contract carries the ladder and the steps); never
-    /// one whose authority would drop the rule (`RoomPolicy::step_down`).
-    pub fn step_down_offered(&self) -> bool {
-        self.state().policy.step_down
-            && (!self.is_online() || (ONLINE_STEP_DOWN && self.plays_live()))
+    /// The match's Charts rule can be set here: CPU practice, where every
+    /// play is judged on this device, and an online room that plays live
+    /// (its contract carries the ladder and the steps); never one whose
+    /// authority would drop the rule or rank by steps
+    /// (`RoomPolicy::adaptive`).
+    pub fn adaptive_offered(&self) -> bool {
+        self.state().policy.adaptive
+            && (!self.is_online() || (ONLINE_ADAPTIVE && self.plays_live()))
     }
 
-    /// Whether the song the picker rests on (or picked last) has an
-    /// easier chart in its chart's style, as the song list has it (a
-    /// chart of a timing of its own is no rung either, which only the
-    /// stage's load knows: `ddi_engine::ladder::ladder`); `None` where no
-    /// song is known.
+    /// Whether the song the picker rests on (or picked last) has another
+    /// chart in its chart's style to step to, easier or harder, as the
+    /// song list has it (a chart of a timing of its own is no rung
+    /// either, which only the stage's load knows: `ddi_engine::ladder`);
+    /// `None` where no song is known.
     pub fn picked_ladder(&self) -> Option<bool> {
         let picked = self
             .resting
@@ -3366,17 +3374,20 @@ impl RoomClient {
             c.index != stage.index
                 && c.style == stage.style
                 && c.version.is_none()
-                && ddi_engine::ladder::is_easier(
+                && (ddi_engine::ladder::is_easier(
                     (stage.difficulty, stage.meter),
                     (c.difficulty, c.meter),
-                )
+                ) || ddi_engine::ladder::is_harder(
+                    (stage.difficulty, stage.meter),
+                    (c.difficulty, c.meter),
+                ))
         }))
     }
 
-    /// Whether a match under `rules` really steps down here: its rule,
-    /// where it is offered.
-    pub fn steps_down(&self, rules: &MatchRules) -> bool {
-        self.step_down_offered() && rules.at_zero == ddi_room::AtZero::StepDown
+    /// Whether a match under `rules` really plays adaptive charts here:
+    /// its rule, where it is offered.
+    pub fn adaptive_charts(&self, rules: &MatchRules) -> bool {
+        self.adaptive_offered() && rules.charts == ddi_room::Charts::Adaptive
     }
 
     pub fn may_restart(&self) -> bool {
@@ -3443,7 +3454,7 @@ impl RoomClient {
     }
 
     /// Change the running match's per-stage rules (`rules`' Timing
-    /// difficulty, Boos, Attacks and At zero life; the rest is the
+    /// difficulty, Boos, Attacks and Charts; the rest is the
     /// match's) from stage `from` on, the stage the player was told
     /// ([`RoomClient::rules_land_on`]). Refused with
     /// `Rejection::RulesLandLater` where the room has moved on since.

@@ -115,16 +115,16 @@ room-rules-attacks = 攻撃
 
 room-rules-attacks-online = オフ · オンラインルームではまだ使えません
 
-room-rules-at-zero = ライフ0のとき
-room-rules-at-zero-out = 脱落
-room-rules-at-zero-step-down = 譜面ダウン
+room-rules-charts = 譜面
+room-rules-charts-as-picked = 選んだまま
+room-rules-charts-adaptive = 適応
 
-room-rules-at-zero-out-about = ライフが尽きたプレイヤーは次のステージまで脱落します。
-room-rules-at-zero-step-down-about = ライフが尽きたプレイヤーはライフが半分戻り、少し先の小節から同じ曲の一つ易しい譜面をプレイします。順位はステージの譜面で最後まで残った全員より下になります。いちばん易しい譜面では脱落します。
+room-rules-charts-as-picked-about = 全員が選ばれた譜面をプレイし、ライフが尽きたプレイヤーは次のステージまで脱落します。
+room-rules-charts-adaptive-about = ライフが尽きたプレイヤーはライフが半分戻り、少し先の小節から同じ曲の一つ易しい譜面をプレイします。ミスなしでライフ満タンを4小節保つと、一つ難しい譜面に上がります（選ばれた譜面より上にも）。残っているプレイヤーはスコア順で、難しい譜面ほど稼げます。いちばん易しい譜面ではライフ0で脱落します。
 
-room-rules-at-zero-no-ladder = 選ばれた曲には易しい譜面がないため、脱落と同じになります。
+room-rules-charts-no-ladder = 選ばれた曲にはこのスタイルの譜面がほかにないため、選んだままと同じになります。
 
-room-rules-at-zero-online = 脱落 · オンラインルームではまだ使えません
+room-rules-charts-online = 選んだまま · オンラインルームではまだ使えません
 
 room-rules-points-value = 順位制
 
@@ -210,9 +210,9 @@ room-rules-change-attacks = { $attacks ->
     [on] 攻撃あり
    *[off] 攻撃なし
 }
-room-rules-change-at-zero = { $zero ->
-    [step_down] 譜面ダウン
-   *[out] ライフ0で脱落
+room-rules-change-charts = { $charts ->
+    [adaptive] 譜面 適応
+   *[as_picked] 譜面 選んだまま
 }
 room-rules-change-points = { $points ->
     [medium] 得点 中くらい
@@ -311,9 +311,9 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [medium] {" "}· 得点 中くらい
     [mild] {" "}· 得点 弱め
    *[strong] {""}
-}{ $zero ->
-    [step_down] {" "}· 譜面ダウン
-   *[out] {""}
+}{ $charts ->
+    [adaptive] {" "}· 譜面 適応
+   *[as_picked] {""}
 }
 
 room-mark-survived = ステージ { $number }: { $field }人中 { $place }位 · +{ $points }点
@@ -358,6 +358,7 @@ room-play-cue-life-critical = ライフ危険
 room-play-cue-survivors = 残り{ $count }人
 room-play-cue-eliminated = アウト
 room-play-cue-step-down = 譜面ダウン: { $chart }
+room-play-cue-step-up = 譜面アップ: { $chart }
 room-play-cue-stage-drawn = 1位タイ
 room-play-cue-attack-incoming = 攻撃接近
 room-play-cue-attack-launched = 攻撃発動
@@ -639,6 +640,7 @@ room-table-out = アウト { $time }
 
 room-table-left = 退出
 room-table-stepped = ↓ { $chart }
+room-table-stepped-up = ↑ { $chart }
 
 room-table-sent = 発動
 

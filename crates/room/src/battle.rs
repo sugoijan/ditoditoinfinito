@@ -89,9 +89,10 @@ pub enum Run {
         absolute: Option<Absolute>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         score: Option<i64>,
-        /// The steps down they made to easier charts (a match's "At zero
-        /// life: Step down", [`crate::AtZero::StepDown`]): 0 where none,
-        /// left out then. ADDITIVE: read as 0 where missing.
+        /// The steps they made down and up the song's ladder (a match's
+        /// "Charts: Adaptive", [`crate::Charts::Adaptive`]): 0 where none,
+        /// left out then; never ranked by. ADDITIVE: read as 0 where
+        /// missing.
         #[serde(default, skip_serializing_if = "is_zero")]
         steps: u8,
     },
@@ -249,12 +250,16 @@ pub struct RunDetail {
     pub received: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shocks: Option<u32>,
-    /// The chart they finished on where they stepped down to an easier
-    /// one (a match's "At zero life: Step down"): its name as the song
-    /// list names it (data); none on the stage's chart. Additive as the
-    /// rest.
+    /// The chart they finished on where it is not the stage's (a match's
+    /// "Charts: Adaptive"): its name as the song list names it (data);
+    /// none on the stage's chart. Additive as the rest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chart: Option<String>,
+    /// That chart is harder than the stage's (they stepped up the
+    /// ladder); easier otherwise. Additive: left out while false, read
+    /// as false where missing (a step down, all there was before).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub harder: bool,
 }
 
 impl RunDetail {
@@ -301,10 +306,11 @@ pub fn decided(entrants: &[Entrant]) -> bool {
 /// [`BattlePreset::GaugeSurvivalV0`]'s ranking (and
 /// [`BattlePreset::GaugeAttacksV0`]'s), best first, each group tied
 /// (`docs/plans/multiplayer.md`, "Elimination and a truthful result"):
-/// those still in by the steps down they made (fewer first: a match's
-/// "At zero life: Step down", `step-down-v0`; none where the rule is
-/// Out), then by life, then by the score ([`Run::Live`]'s `score`:
-/// under DDI the sum, everyone's on the chart's own scale), equal ones
+/// those still in by life, then by the score ([`Run::Live`]'s `score`:
+/// under DDI the sum, everyone's on the chart's own scale), or under
+/// [`RankBy::Score`] (a match's "Charts: Adaptive", `adaptive-v0`) by
+/// the score as earned, whatever charts it was earned on, life only
+/// breaking a tie (the steps a run made are never ranked by); equal ones
 /// tied. Then those out, later first (the same second: tied); then
 /// forfeits, tied. Participants are ordered by id within a group.
 ///
@@ -314,7 +320,7 @@ pub fn decided(entrants: &[Entrant]) -> bool {
 /// played the same notes ([`Absolute::most`] equal), the absolute score,
 /// each set of the same notes ordered by its own and the sets' bests
 /// sharing a place.
-pub fn rank(entrants: &[Entrant]) -> Vec<Vec<Finisher>> {
+pub fn rank(entrants: &[Entrant], by: crate::rules::RankBy) -> Vec<Vec<Finisher>> {
     let scored = entrants.iter().all(|e| match e.run {
         Run::Live { score, .. } => score.is_some(),
         _ => true,
@@ -328,16 +334,14 @@ pub fn rank(entrants: &[Entrant]) -> Vec<Vec<Finisher>> {
             Run::Live {
                 life,
                 score: Some(score),
-                steps,
                 ..
-            } if scored => by_score.push((steps, life, score, e.participant)),
+            } if scored => by_score.push((0, life, score, e.participant)),
             Run::Live {
                 life,
                 accuracy,
                 absolute,
-                steps,
                 ..
-            } => live.push((steps, life, accuracy, absolute, e.participant)),
+            } => live.push((0, life, accuracy, absolute, e.participant)),
             Run::Out { at } => out.push((at, e.participant)),
             Run::Forfeit => forfeit.push(e.participant),
         }
@@ -355,12 +359,15 @@ pub fn rank(entrants: &[Entrant]) -> Vec<Vec<Finisher>> {
         participant,
         finish,
     };
-    // The steps, then life, then the score: equal ones share a place.
+    // Life, then the score (or the score, then life): equal ones share
+    // a place.
     by_score.sort_by(|a, b| {
-        a.0.cmp(&b.0)
-            .then(b.1.total_cmp(&a.1))
-            .then(b.2.cmp(&a.2))
-            .then(a.3.cmp(&b.3))
+        let (life, score) = (b.1.total_cmp(&a.1), b.2.cmp(&a.2));
+        match by {
+            crate::rules::RankBy::Life => life.then(score),
+            crate::rules::RankBy::Score => score.then(life),
+        }
+        .then(a.3.cmp(&b.3))
     });
     let mut last: Option<(u8, f64, i64)> = None;
     for (steps, life, score, id) in by_score {
@@ -433,6 +440,7 @@ pub fn rank(entrants: &[Entrant]) -> Vec<Vec<Finisher>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules::RankBy;
 
     fn e(id: u64, run: Run) -> Entrant {
         Entrant {
@@ -537,11 +545,12 @@ mod tests {
         }
     }
 
-    /// Step down (`step-down-v0`): among those still in, fewer steps
-    /// first, then life, then the score; those out after, as ever. A
-    /// report without steps reads as none, and one with none says none.
+    /// Adaptive (`adaptive-v0`): among those still in, the score as
+    /// earned first, life only breaking a tie, the steps never; those
+    /// out after, as ever. As picked keeps life first. A report without
+    /// steps reads as none, and one with none says none.
     #[test]
-    fn fewer_steps_down_rank_first_among_those_still_in() {
+    fn under_adaptive_charts_those_still_in_rank_by_the_score_and_never_by_steps() {
         let stepped = |life: f64, score: i64, steps: u8| Run::Live {
             life,
             accuracy: 0.5,
@@ -549,20 +558,27 @@ mod tests {
             score: Some(score),
             steps,
         };
-        let r = rank(&[
+        let field = [
             e(1, stepped(1.0, 9_000_000, 1)),
             e(2, stepped(0.2, 1_000, 0)),
             e(3, stepped(0.9, 9_500_000, 2)),
             e(4, Run::Out { at: 80.0 }),
             e(5, stepped(0.5, 5_000_000, 1)),
-        ]);
-        assert_eq!(ids(&r), vec![vec![2], vec![1], vec![5], vec![3], vec![4]]);
+            e(6, stepped(0.4, 5_000_000, 0)),
+        ];
+        let r = rank(&field, RankBy::Score);
+        assert_eq!(ids(&r), vec![vec![3], vec![1], vec![5], vec![6], vec![2], vec![4]]);
+        let r = rank(&field, RankBy::Life);
+        assert_eq!(ids(&r), vec![vec![1], vec![3], vec![5], vec![6], vec![2], vec![4]]);
+        // The same score and life: tied, whatever the steps.
+        let r = rank(&[e(1, stepped(0.7, 10, 3)), e(2, stepped(0.7, 10, 0))], RankBy::Score);
+        assert_eq!(ids(&r), vec![vec![1, 2]]);
         // As before rounds 3b too (someone without a score).
         let r = rank(&[
             e(1, Run::Live { life: 1.0, accuracy: 0.9, absolute: None, score: None, steps: 1 }),
             e(2, live(0.1, 0.1, None)),
-        ]);
-        assert_eq!(ids(&r), vec![vec![2], vec![1]]);
+        ], RankBy::Score);
+        assert_eq!(ids(&r), vec![vec![1], vec![2]]);
         // The wire: steps left out at none, read as none where missing.
         let none = serde_json::to_value(ReportedRun::of(stepped(1.0, 5, 0))).unwrap();
         assert!(none["live"].get("steps").is_none(), "{none}");
@@ -585,17 +601,17 @@ mod tests {
             e(4, Run::Out { at: 40.0 }),
             e(5, summed(0.9, 5_900_000)),
             e(6, Run::Forfeit),
-        ]);
+        ], RankBy::Life);
         assert_eq!(ids(&r), vec![vec![2], vec![3], vec![1, 5], vec![4], vec![6]]);
         // A negative score still ranks.
-        let r = rank(&[e(1, summed(0.2, -300)), e(2, summed(0.2, -299))]);
+        let r = rank(&[e(1, summed(0.2, -300)), e(2, summed(0.2, -299))], RankBy::Life);
         assert_eq!(ids(&r), vec![vec![2], vec![1]]);
         // One still in without a score (an older build): everyone as
         // before round 3b, by life then the proportional part.
         let r = rank(&[
             e(1, summed(1.0, 9_000_000)),
             e(2, live(1.0, 0.9, None)),
-        ]);
+        ], RankBy::Life);
         assert_eq!(ids(&r), vec![vec![2], vec![1]]);
         // The score travels in a report, and is left out where there is
         // none.
@@ -615,7 +631,7 @@ mod tests {
             e(1, live(0.9, 0.99, Some((10, 500)))),
             e(2, live(1.0, 0.5, Some((1, 500)))),
             e(3, live(0.9, 0.995, Some((5, 400)))),
-        ]);
+        ], RankBy::Life);
         assert_eq!(ids(&r), vec![vec![2], vec![3], vec![1]]);
         // Equal life and score, the same notes: the absolute score (its
         // W0s) decides; the same one again shares the place.
@@ -624,7 +640,7 @@ mod tests {
             e(2, live(1.0, 1.0, Some((500_010, 5_000)))),
             e(3, live(1.0, 1.0, Some((500_003, 5_000)))),
             e(4, live(1.0, 0.9, Some((999_999, 5_000)))),
-        ]);
+        ], RankBy::Life);
         assert_eq!(ids(&r), vec![vec![2], vec![1, 3], vec![4]]);
         // Other notes (a CPU's tap-only copy against the full chart) do
         // not compare: the person shares with the best of the CPUs, the
@@ -633,7 +649,7 @@ mod tests {
             e(1, live(1.0, 1.0, Some((600_000, 6_000)))),
             e(2, live(1.0, 1.0, Some((400_007, 4_000)))),
             e(3, live(1.0, 1.0, Some((400_002, 4_000)))),
-        ]);
+        ], RankBy::Life);
         assert_eq!(ids(&r), vec![vec![1, 2], vec![3]]);
         // No absolute score known (a ruleset without one, an older
         // build's report): tied, as before.
@@ -641,7 +657,7 @@ mod tests {
             e(1, live(1.0, 1.0, None)),
             e(2, live(1.0, 1.0, Some((7, 4_000)))),
             e(3, live(1.0, 1.0, None)),
-        ]);
+        ], RankBy::Life);
         assert_eq!(ids(&r), vec![vec![1, 2, 3]]);
     }
 
@@ -693,7 +709,7 @@ mod tests {
                     steps: 0,
                 },
             ),
-        ]);
+        ], RankBy::Life);
         assert_eq!(
             ids(&ranking),
             vec![vec![4], vec![6], vec![2], vec![5], vec![1], vec![3]]
@@ -718,7 +734,7 @@ mod tests {
             e(4, Run::Out { at: 10.0 }),
             e(5, Run::Forfeit),
             e(6, Run::Forfeit),
-        ]);
+        ], RankBy::Life);
         assert_eq!(ids(&ranking), vec![vec![1, 2], vec![3, 4], vec![5, 6]]);
     }
 
@@ -742,7 +758,7 @@ mod tests {
             e(2, Run::Out { at: 2.0 })
         ]));
         // The last two out together share first: a draw, no sole winner.
-        let r = rank(&[e(1, Run::Out { at: 2.0 }), e(2, Run::Out { at: 2.0 })]);
+        let r = rank(&[e(1, Run::Out { at: 2.0 }), e(2, Run::Out { at: 2.0 })], RankBy::Life);
         assert_eq!(ids(&r), vec![vec![1, 2]]);
     }
 }

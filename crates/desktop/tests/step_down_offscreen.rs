@@ -129,7 +129,7 @@ fn a_practice_stage_steps_down_the_player_and_a_cpu() {
         let mut rules = ddi_room::MatchRules {
             stages: 1,
             seats: 4,
-            at_zero: ddi_room::AtZero::StepDown,
+            charts: ddi_room::Charts::Adaptive,
             ..r.rules().clone()
         };
         rules.set_attacks(true);
@@ -146,7 +146,7 @@ fn a_practice_stage_steps_down_the_player_and_a_cpu() {
         request
             .stage
             .as_ref()
-            .is_some_and(|s| s.rules.steps_down()),
+            .is_some_and(|s| s.rules.adaptive()),
         "the stage steps down"
     );
     let mut waited = 0;

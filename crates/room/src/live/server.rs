@@ -1111,7 +1111,8 @@ impl LiveStage {
             return;
         }
         let checkpoints = self.ledger.as_ref().map_or(&[][..], |l| l.checkpoints_us());
-        let (ranking, _drawn) = SETTLEMENT.rank(&entrants, checkpoints, self.settling);
+        let (ranking, _drawn) =
+            SETTLEMENT.rank(&entrants, checkpoints, self.settling, room.rank_by_for(self.id));
         out.commands.push(Command::ConfirmStage {
             stage: self.id,
             ranking,
@@ -1163,7 +1164,7 @@ impl LiveStage {
                         run: play.reports.get(p).map_or(Run::Forfeit, |r| r.run()),
                     })
                     .collect();
-                Some(crate::battle::rank(&entrants))
+                Some(crate::battle::rank(&entrants, room.rank_by_for(self.id)))
             }
             _ => return,
         };

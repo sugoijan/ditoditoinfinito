@@ -219,24 +219,26 @@ room-rules-attacks = Attacks
 # turned on yet (about 32 letters).
 room-rules-attacks-online = Off · not in online rooms yet
 
-# The row saying what happens when a player's life runs out in a stage
-# (about 20 letters), and its two choices (one or two words each): out of
-# the stage, or a step down to an easier chart of the same song.
-room-rules-at-zero = At zero life
-room-rules-at-zero-out = Out
-room-rules-at-zero-step-down = Step down
+# The row saying which charts of the song a stage is played on (about 20
+# letters), and its two choices (one or two words each): the chart picked
+# for everyone, or charts that adapt to each player, down to an easier
+# chart of the same song when their life runs out and up to a harder one
+# when they keep full life.
+room-rules-charts = Charts
+room-rules-charts-as-picked = As picked
+room-rules-charts-adaptive = Adaptive
 
-# A line under the At zero life row saying what the chosen value does.
-room-rules-at-zero-out-about = A player whose life runs out is out until the next stage.
-room-rules-at-zero-step-down-about = A player whose life runs out gets half of it back and plays the song's next easier chart from a bar ahead, placing below everyone who stayed on the stage's chart. On the easiest chart they are out.
+# A line under the Charts row saying what the chosen value does.
+room-rules-charts-as-picked-about = Everyone plays the chart picked; a player whose life runs out is out until the next stage.
+room-rules-charts-adaptive-about = A player whose life runs out gets half of it back and plays the song's next easier chart from a bar ahead; one who keeps full life for four bars without a miss moves up to the next harder chart, above the one picked too. Those still in place by their score: harder charts earn more. On the easiest chart zero life is out.
 
-# Added after that line where the song picked for the stage has no easier
-# chart in its style.
-room-rules-at-zero-no-ladder = The song picked has no easier chart: it plays as Out.
+# Added after that line where the song picked for the stage has no other
+# chart in its style to move to.
+room-rules-charts-no-ladder = The song picked has no other chart in its style: it plays as picked.
 
-# The At zero life row's value in a room that cannot step down yet (an
-# online room; about 32 letters).
-room-rules-at-zero-online = Out · not in online rooms yet
+# The Charts row's value in a room that cannot adapt charts yet (an online
+# room; about 32 letters).
+room-rules-charts-online = As picked · not in online rooms yet
 
 # How stage points are given: by place (about 24 letters).
 room-rules-points-value = By place
@@ -423,10 +425,10 @@ room-rules-change-attacks = { $attacks ->
    *[off] No attacks
 }
 # Variables:
-#   $zero (String) - "step_down" or "out"
-room-rules-change-at-zero = { $zero ->
-    [step_down] Step down
-   *[out] Out at zero life
+#   $charts (String) - "adaptive" or "as_picked"
+room-rules-change-charts = { $charts ->
+    [adaptive] Adaptive charts
+   *[as_picked] Charts as picked
 }
 # Variables:
 #   $points (String) - "strong", "medium" or "mild"
@@ -649,6 +651,12 @@ room-play-cue-eliminated = You're out
 #   $chart (String) - the chart's name ("Medium")
 room-play-cue-step-down = Stepping down: { $chart }
 
+# The player kept full life long enough and steps up to a harder chart of
+# the song (a match's rule), named as the song list names it.
+# Variables:
+#   $chart (String) - the chart's name ("Challenge")
+room-play-cue-step-up = Stepping up: { $chart }
+
 # The player and others went out last together: first place shared.
 room-play-cue-stage-drawn = Stage drawn
 
@@ -755,15 +763,15 @@ room-prompt-ruleset = Rules: { $rules }
 # what differs from the usual: the timing difficulty when it is not Normal
 # ("Hard timing", "Easy timing": never a chart's difficulty), Boos
 # when they are on, and that there are no attacks when the match has
-# them turned off (they are on by default), and the Points choice when it
-# is not the default Strong.
+# them turned off (they are on by default), the Points choice when it
+# is not the default Strong, and adaptive charts when they are chosen.
 # Variables:
 #   $ruleset (String) - the ruleset's name ("DDI")
 #   $difficulty (String) - "easy", "normal" or "hard"
 #   $boos (String) - "on" or "off"
 #   $attacks (String) - "off" when the match's attacks are turned off, else "on"
 #   $points (String) - "strong", "medium" or "mild"
-#   $zero (String) - "step_down" when a player whose life runs out steps down to an easier chart, else "out"
+#   $charts (String) - "adaptive" when the charts adapt to each player (down at zero life, up after full life), else "as_picked"
 room-rules-words = { $ruleset }{ $difficulty ->
     [easy] {" "}· Easy timing
     [hard] {" "}· Hard timing
@@ -778,9 +786,9 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [medium] {" "}· Medium points
     [mild] {" "}· Mild points
    *[strong] {""}
-}{ $zero ->
-    [step_down] {" "}· Step down
-   *[out] {""}
+}{ $charts ->
+    [adaptive] {" "}· Adaptive charts
+   *[as_picked] {""}
 }
 
 # A note on a stage's results and under the song in the room: how the
@@ -1372,6 +1380,12 @@ room-table-left = Left
 # Variables:
 #   $chart (String) - the chart's name ("Easy")
 room-table-stepped = ↓ { $chart }
+
+# The same where they finished on a harder chart than the stage's (they
+# stepped up), after an up arrow.
+# Variables:
+#   $chart (String) - the chart's name ("Challenge")
+room-table-stepped-up = ↑ { $chart }
 
 # Three small columns at the table's end where the match has attacks,
 # a number under each (their headings as the others': capitals small,

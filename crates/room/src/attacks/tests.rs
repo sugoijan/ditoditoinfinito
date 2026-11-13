@@ -655,7 +655,7 @@ fn settlement_waits_for_the_last_attack_and_a_knockout_by_it_is_drawn() {
         last_out_us: 10_500_000,
     };
     // B still in when it settles: won alone.
-    let (r, drawn) = st.rank(&field, &cps, Some(settling));
+    let (r, drawn) = st.rank(&field, &cps, Some(settling), crate::rules::RankBy::Life);
     assert!(!drawn);
     assert_eq!(r[0].len(), 1);
     assert_eq!(r[0][0].participant, B);
@@ -668,7 +668,7 @@ fn settlement_waits_for_the_last_attack_and_a_knockout_by_it_is_drawn() {
         entrant(C, Run::Out { at: 10.5 }),
         entrant(ParticipantId(4), Run::Forfeit),
     ];
-    let (r, drawn) = st.rank(&fell, &cps, Some(settling));
+    let (r, drawn) = st.rank(&fell, &cps, Some(settling), crate::rules::RankBy::Life);
     assert!(drawn);
     let ids: Vec<Vec<u64>> = r
         .iter()
@@ -680,12 +680,12 @@ fn settlement_waits_for_the_last_attack_and_a_knockout_by_it_is_drawn() {
         entrant(B, Run::Out { at: 14.0 }),
         entrant(C, Run::Out { at: 10.5 }),
     ];
-    let (r, _) = st.rank(&fell2, &cps, Some(settling));
+    let (r, _) = st.rank(&fell2, &cps, Some(settling), crate::rules::RankBy::Life);
     assert_eq!(r.len(), 1, "everyone out in that interval shares first");
     // Without settling: the plain ranking.
-    let (plain, drawn) = st.rank(&fell, &cps, None);
+    let (plain, drawn) = st.rank(&fell, &cps, None, crate::rules::RankBy::Life);
     assert!(!drawn);
-    assert_eq!(plain, crate::battle::rank(&fell));
+    assert_eq!(plain, crate::battle::rank(&fell, crate::rules::RankBy::Life));
 }
 
 // `attacks-v1` (round 3b): no recovery period, and one more attack may be
@@ -1167,7 +1167,7 @@ fn settlement_v1_tells_last_standing_before_the_win() {
         survivor: D,
         last_out_us: 3_500_000,
     };
-    let (r, drawn) = st.rank(&fell, b.checkpoints_us(), Some(settling));
+    let (r, drawn) = st.rank(&fell, b.checkpoints_us(), Some(settling), crate::rules::RankBy::Life);
     assert!(drawn);
     let mut first: Vec<_> = r[0].iter().map(|f| f.participant).collect();
     first.sort();

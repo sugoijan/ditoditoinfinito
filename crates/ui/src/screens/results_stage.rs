@@ -158,9 +158,9 @@ pub struct StageRowView {
     /// Where the battle has attacks: those they launched, those sent
     /// against them and the shocks they stepped on.
     pub attacks: Option<(u32, u32, u32)>,
-    /// Where they stepped down to an easier chart (a match's "At zero
-    /// life: Step down"): the chart they finished on, as the table marks
-    /// it ("↓ Medium").
+    /// Where they finished on another chart than the stage's (a match's
+    /// "Charts: Adaptive"): that chart, as the table marks it ("↓ Medium",
+    /// "↑ Challenge").
     pub stepped: Option<String>,
 }
 
@@ -464,9 +464,10 @@ fn row_view(r: &RoomClient, table: &StageTable, row: &StageRow, percent: bool) -
                 d.shocks.unwrap_or(0),
             ))
         }),
-        stepped: d
-            .and_then(|d| d.chart.as_deref())
-            .map(|c| m::table_stepped(UiText::data(c)).into()),
+        stepped: d.and_then(|d| {
+            let c = UiText::data(d.chart.as_deref()?);
+            Some(if d.harder { m::table_stepped_up(c) } else { m::table_stepped(c) }.into())
+        }),
     }
 }
 

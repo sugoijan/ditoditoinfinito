@@ -22,7 +22,7 @@
 //! MEASUREMENTS OF CPUS AGAINST CPUS, not of people.
 
 use super::*;
-use ddi_room::{AtZero, MatchDifficulty};
+use ddi_room::{Charts, MatchDifficulty};
 use ddi_ui::state::room::StageRules;
 use std::path::{Path, PathBuf};
 
@@ -117,18 +117,18 @@ impl Tally {
 }
 
 /// A stage of ten CPUs, one at each level (seated in turn by the seed),
-/// on chart `chart` of `song` under `difficulty` and `at_zero`, attacks
+/// on chart `chart` of `song` under `difficulty` and `charts`, attacks
 /// on: each level's (steps, out, place from 1).
 fn stage(
     song: &Song,
     chart: usize,
     difficulty: MatchDifficulty,
-    at_zero: AtZero,
+    charts: Charts,
     seed: u64,
 ) -> Option<Vec<(usize, usize, bool, usize)>> {
     let rules = StageRules {
         difficulty,
-        at_zero,
+        charts,
         ..StageRules::default()
     };
     let ruleset = stage_ruleset(&rules);
@@ -176,7 +176,7 @@ fn stage(
                 .as_ref()
                 .map_or(&[][..], |a| a.ledger().checkpoints_us());
             SETTLEMENT
-                .rank(&b.entrants_as(None), checkpoints, b.settling)
+                .rank(&b.entrants_as(None), checkpoints, b.settling, b.setup.rules.rank_by())
                 .0
         }
     };
@@ -250,8 +250,8 @@ fn study_song(song: &Song, bundled: bool, every: usize, seeds: u64, counter: &mu
             .enumerate()
         {
             for seed in 1..=seeds {
-                for (r, at_zero) in [AtZero::Out, AtZero::StepDown].into_iter().enumerate() {
-                    let Some(seats) = stage(song, index, difficulty, at_zero, seed) else {
+                for (r, charts) in [Charts::AsPicked, Charts::Adaptive].into_iter().enumerate() {
+                    let Some(seats) = stage(song, index, difficulty, charts, seed) else {
                         continue;
                     };
                     if r == 0 {
@@ -411,9 +411,9 @@ fn step_down_study() {
 fn step_down_cost_of_72_cpus() {
     let song = super::study::bundled_song("beatucada");
     let chart = 5;
-    for at_zero in [AtZero::Out, AtZero::StepDown] {
+    for charts in [Charts::AsPicked, Charts::Adaptive] {
         let rules = StageRules {
-            at_zero,
+            charts,
             ..StageRules::default()
         };
         let ruleset = stage_ruleset(&rules);
@@ -453,7 +453,7 @@ fn step_down_cost_of_72_cpus() {
         let played = t.elapsed().as_secs_f64();
         let stepped = b.seats.iter().filter(|s| !s.opponent.player().steps().is_empty()).count();
         println!(
-            "{at_zero:?}: {} rungs; ladder planned {:.0} ms, stage loaded {:.0} ms, played out {:.0} ms; {stepped} of 72 stepped down",
+            "{charts:?}: {} rungs; ladder planned {:.0} ms, stage loaded {:.0} ms, played out {:.0} ms; {stepped} of 72 stepped down",
             ladder.len(),
             planned * 1e3,
             loaded * 1e3,

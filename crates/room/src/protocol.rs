@@ -49,7 +49,10 @@ pub fn supported(version: u32) -> bool {
 /// round changes what peers must agree on (awards, roles, capabilities,
 /// seeds, the live contract). 1 holds round B1's changes; 2 the attack
 /// rules' second version (`attacks-v2`, `settlement-v1`: the ledger every
-/// device and the room run must be the same). A client says
+/// device and the room run must be the same); 3 adaptive charts
+/// (`adaptive-v0`: the Charts rule, a ladder with rungs above the
+/// stage's chart in every device's battle plan, a stage ranked by the
+/// score under it). A client says
 /// its revision where the authority first hears from it (`model` in the
 /// join's, the ticket's and the audience join's request bodies); an
 /// authority refuses a client whose revision is lower than its own
@@ -58,7 +61,7 @@ pub fn supported(version: u32) -> bool {
 /// now"). A client newer than its authority is never refused: it hides
 /// what the authority does not honor, as the policy flags have it. An
 /// authority that predates the revision ignores the field.
-pub const ROOM_MODEL_REVISION: u32 = 2;
+pub const ROOM_MODEL_REVISION: u32 = 3;
 
 /// The problem code an authority answers a client too old for it with
 /// (the HTTP body's `error`): a client that predates it shows it as a

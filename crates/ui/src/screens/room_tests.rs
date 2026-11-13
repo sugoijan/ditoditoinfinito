@@ -688,12 +688,13 @@ fn the_points_row_chooses_the_bias_where_the_room_offers_it() {
     settings.save();
 }
 
-/// The At zero life row ("Step down", `step-down-v0`): Out first, each
+/// The Charts row ("Adaptive", `adaptive-v0`): As picked first, each
 /// choice with its sentence; applied, it is the match's and the summary
-/// names it (Out is never named); Reset gives Out; a room whose authority
-/// cannot honor it, or an online room, shows it fixed at Out.
+/// names it (As picked is never named); Reset gives As picked; a room
+/// whose authority cannot honor it, or an online room, shows it fixed at
+/// As picked.
 #[test]
-fn the_at_zero_row_chooses_step_down_where_the_room_offers_it() {
+fn the_charts_row_chooses_adaptive_where_the_room_offers_it() {
     let env = env();
     let room = RoomClient::shared(0, 1);
     room.borrow_mut().set_rules_seen(true);
@@ -702,42 +703,47 @@ fn the_at_zero_row_chooses_step_down_where_the_room_offers_it() {
     h.push(room_select(&env, room.clone(), "dance-single", &orders));
     h.run(0.5);
     press(&mut h, "Room.Rules");
-    assert_eq!(said(&h, "Rule.at_zero.Value"), "Out");
-    assert_eq!(view(&env).draft_at_zero.as_deref(), Some("out"));
-    assert!(has(&h, "A player whose life runs out is out until the next stage."));
-    press(&mut h, "Inc.at_zero");
-    assert_eq!(said(&h, "Rule.at_zero.Value"), "Step down");
-    assert_eq!(view(&env).draft_at_zero.as_deref(), Some("step_down"));
+    assert_eq!(said(&h, "Rule.charts.Value"), "As picked");
+    assert_eq!(view(&env).draft_charts.as_deref(), Some("as_picked"));
+    assert!(
+        h.texts().iter().any(|t| t.starts_with("Everyone plays the chart picked")),
+        "{:?}",
+        h.texts()
+    );
+    press(&mut h, "Inc.charts");
+    assert_eq!(said(&h, "Rule.charts.Value"), "Adaptive");
+    assert_eq!(view(&env).draft_charts.as_deref(), Some("adaptive"));
     assert!(
         h.texts().iter().any(|t| t.starts_with("A player whose life runs out gets half")),
         "{:?}",
         h.texts()
     );
     press(&mut h, "Apply");
-    assert_eq!(room.borrow().rules().at_zero, ddi_room::AtZero::StepDown);
+    assert_eq!(room.borrow().rules().charts, ddi_room::Charts::Adaptive);
     let words = |r: &ddi_room::MatchRules| {
         String::from(super::room::rules_words(
             &crate::state::room::StageRules::of(r),
             None,
         ))
     };
-    assert_eq!(words(room.borrow().rules()), "DDI · Step down");
+    assert_eq!(words(room.borrow().rules()), "DDI · Adaptive charts");
     assert_eq!(words(&ddi_room::MatchRules::hosted()), "DDI");
-    // Reset's default is Out.
+    // Reset's default is As picked.
     let mut settings = crate::state::settings::Settings::load();
     settings.multiplayer_rules_first = true;
     settings.save();
     room.borrow_mut().set_rules_seen(false);
     h.run(0.5);
     press(&mut h, "Reset");
-    assert_eq!(view(&env).draft_at_zero.as_deref(), Some("out"));
+    assert_eq!(view(&env).draft_charts.as_deref(), Some("as_picked"));
     press(&mut h, "Ok");
-    assert_eq!(room.borrow().rules().at_zero, ddi_room::AtZero::Out);
+    assert_eq!(room.borrow().rules().charts, ddi_room::Charts::AsPicked);
     settings.multiplayer_rules_first = false;
     settings.save();
-    // An authority that cannot honor it: fixed at Out, nothing offered.
+    // An authority that cannot honor it: fixed at As picked, nothing
+    // offered.
     let older = ddi_room::RoomPolicy {
-        step_down: false,
+        adaptive: false,
         ..ddi_room::RoomPolicy::default()
     };
     let room = std::rc::Rc::new(std::cell::RefCell::new(RoomClient::practice_with_policy(
@@ -748,9 +754,9 @@ fn the_at_zero_row_chooses_step_down_where_the_room_offers_it() {
     h.push(room_select(&env, room.clone(), "dance-single", &orders));
     h.run(0.5);
     press(&mut h, "Room.Rules");
-    assert!(!there(&h, "Inc.at_zero"));
-    assert_eq!(said(&h, "Rule.at_zero.Value"), "Out · not in online rooms yet");
-    assert_eq!(view(&env).draft_at_zero, None);
+    assert!(!there(&h, "Inc.charts"));
+    assert_eq!(said(&h, "Rule.charts.Value"), "As picked · not in online rooms yet");
+    assert_eq!(view(&env).draft_charts, None);
 }
 
 /// An authority that predates the Points choice: the row is fixed, as it

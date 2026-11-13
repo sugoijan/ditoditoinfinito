@@ -65,15 +65,21 @@ pub struct RoomPolicy {
     /// is said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audience: Option<crate::audience::AudiencePolicy>,
-    /// The authority honors the match's "At zero life: Step down"
-    /// ([`MatchRules::at_zero`]): it keeps the rule and ranks a stage by
-    /// the steps its runs report ([`crate::battle::rank`]). True for every
-    /// room this build makes; false (left out of the JSON) for an
-    /// authority that predates it, which would drop the rule and rank a
-    /// stepped-down run as any run still in, so the row is offered only
-    /// where this says so. ADDITIVE to protocol 2.
+    /// The authority honored the match's "At zero life: Step down"
+    /// (`step-down-v0`, superseded by [`RoomPolicy::adaptive`]): still
+    /// set by every room this build makes, read by nobody. ADDITIVE to
+    /// protocol 2.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub step_down: bool,
+    /// The authority honors the match's "Charts: Adaptive"
+    /// ([`MatchRules::charts`]): it keeps the rule, reads plans whose
+    /// ladder has rungs above the stage's chart and ranks a stage under
+    /// it by the score ([`RankBy::Score`]). True for every room this
+    /// build makes; false (left out of the JSON) for an authority that
+    /// predates it, which would rank by steps (or drop the rule), so the
+    /// row is offered only where this says so. ADDITIVE to protocol 2.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub adaptive: bool,
     /// The authority reads `crate::Command::ChangeStageRules` (2026-11-13:
     /// a running match's per-stage rules, [`PlayRules`], changed from a
     /// later stage on) and keeps the changes on the match
@@ -251,6 +257,7 @@ impl Default for RoomPolicy {
             points_bias: true,
             audience: None,
             step_down: true,
+            adaptive: true,
             stage_rules: true,
             stage_points: true,
             cpus: true,
@@ -423,14 +430,21 @@ pub struct MatchRules {
     /// by its own rule (`RoomPolicy::points_bias` says which).
     #[serde(default, skip_serializing_if = "PointsBias::is_strong")]
     pub points: PointsBias,
-    /// What zero life does in a stage (Out by default): out of the stage,
-    /// or a step down to the song's next easier chart while it has one
-    /// (`ddi_engine::ladder`, PROVISIONAL `step-down-v0`). ADDITIVE, as
-    /// `difficulty`: left out while Out, read as Out where missing; an
-    /// authority that predates it drops it (`RoomPolicy::step_down` says
-    /// whether it is honored).
-    #[serde(default, skip_serializing_if = "AtZero::is_out")]
-    pub at_zero: AtZero,
+    /// The charts a stage is played on (As picked by default): the
+    /// picked chart alone, zero life out of the stage; or Adaptive, each
+    /// competitor stepping down the song's ladder at zero life and up it
+    /// after full bars (`ddi_engine::ladder`, PROVISIONAL `adaptive-v0`),
+    /// a stage then ranked by the score as earned ([`RankBy::Score`]).
+    /// ADDITIVE, as `difficulty`: left out while As picked, read as As
+    /// picked where missing; the "At zero life" rule it replaces
+    /// (`at_zero`, "out" and "step_down") is read as it (Step down as
+    /// Adaptive). Offered where [`RoomPolicy::adaptive`] says so.
+    #[serde(
+        default,
+        alias = "at_zero",
+        skip_serializing_if = "Charts::is_as_picked"
+    )]
+    pub charts: Charts,
 }
 
 /// The rules each stage is played under on its own (2026-11-13): those of
@@ -450,8 +464,12 @@ pub struct PlayRules {
     pub boos: bool,
     /// The battle preset's id ([`MatchRules::battle`]).
     pub battle: String,
-    #[serde(default, skip_serializing_if = "AtZero::is_out")]
-    pub at_zero: AtZero,
+    #[serde(
+        default,
+        alias = "at_zero",
+        skip_serializing_if = "Charts::is_as_picked"
+    )]
+    pub charts: Charts,
     /// The award curve's bias for these stages ([`MatchRules::points`]),
     /// `None` for the match's own: a change that names none keeps the
     /// match's. Kept `None` wherever it equals the match's
@@ -477,8 +495,8 @@ impl PlayRules {
         if self.battle.is_empty() || self.battle.len() > 64 {
             return Err(RulesProblem::BattleId);
         }
-        if self.at_zero == AtZero::StepDown && !policy.step_down {
-            return Err(RulesProblem::StepDownNotHonored);
+        if self.charts == Charts::Adaptive && !policy.adaptive {
+            return Err(RulesProblem::AdaptiveNotHonored);
         }
         if self.points.is_some() && !(policy.stage_points && policy.points_bias) {
             return Err(RulesProblem::PointsNotHonored);
@@ -487,37 +505,62 @@ impl PlayRules {
     }
 }
 
-/// What zero life does in a stage ([`MatchRules::at_zero`]).
+/// The charts a stage is played on ([`MatchRules::charts`]).
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
 #[serde(rename_all = "snake_case")]
-pub enum AtZero {
-    /// Out of the stage (as ever).
+pub enum Charts {
+    /// The picked chart alone; zero life is out of the stage (as ever).
     #[default]
-    Out,
-    /// A step down to the song's next easier chart, out on the lowest.
-    StepDown,
+    #[serde(alias = "out")]
+    AsPicked,
+    /// Each competitor steps down the song's ladder at zero life and up
+    /// it after full bars, out at zero on the lowest rung; the stage
+    /// ranked by the score as earned (`adaptive-v0`; "Step down" before
+    /// it, `step_down`, read as this).
+    #[serde(alias = "step_down")]
+    Adaptive,
 }
 
-impl AtZero {
-    pub const ALL: [AtZero; 2] = [Self::Out, Self::StepDown];
+impl Charts {
+    pub const ALL: [Charts; 2] = [Self::AsPicked, Self::Adaptive];
 
-    pub fn is_out(&self) -> bool {
-        *self == Self::Out
+    pub fn is_as_picked(&self) -> bool {
+        *self == Self::AsPicked
     }
 
-    /// Its place in [`AtZero::ALL`].
+    /// Its place in [`Charts::ALL`].
     pub fn index(self) -> usize {
         self as usize
     }
 
     pub fn id(self) -> &'static str {
         match self {
-            Self::Out => "out",
-            Self::StepDown => "step_down",
+            Self::AsPicked => "as_picked",
+            Self::Adaptive => "adaptive",
         }
     }
+
+    /// How a stage under it ranks those still in
+    /// ([`crate::battle::rank`]).
+    pub fn rank_by(self) -> RankBy {
+        match self {
+            Self::AsPicked => RankBy::Life,
+            Self::Adaptive => RankBy::Score,
+        }
+    }
+}
+
+/// How a stage ranks those still in ([`crate::battle::rank`]): by life,
+/// then the score (As picked, as ever); or by the score as earned, life
+/// only breaking a tie (Adaptive: those on harder charts earn more, which
+/// is their edge, and a step costs nothing else).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum RankBy {
+    #[default]
+    Life,
+    Score,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -602,7 +645,7 @@ impl MatchRules {
             difficulty: self.difficulty,
             boos: self.boos,
             battle: self.battle.clone(),
-            at_zero: self.at_zero,
+            charts: self.charts,
             points: None,
         }
     }
@@ -614,7 +657,7 @@ impl MatchRules {
             difficulty: play.difficulty,
             boos: play.boos,
             battle: play.battle.clone(),
-            at_zero: play.at_zero,
+            charts: play.charts,
             points: play.points.unwrap_or(self.points),
             ..self.clone()
         }
@@ -673,7 +716,7 @@ impl MatchRules {
             difficulty: MatchDifficulty::Normal,
             boos: false,
             points: PointsBias::Strong,
-            at_zero: AtZero::Out,
+            charts: Charts::AsPicked,
         }
     }
 
@@ -825,9 +868,10 @@ pub enum RulesProblem {
     UnknownRuleset,
     /// A stage's rules ([`PlayRules`]) name no battle, or one too long.
     BattleId,
-    /// Step down where the room's authority does not honor it
-    /// ([`RoomPolicy::step_down`]).
-    StepDownNotHonored,
+    /// Adaptive charts where the room's authority does not honor them
+    /// ([`RoomPolicy::adaptive`]; the "Step down" it replaces, read so).
+    #[serde(alias = "step_down_not_honored")]
+    AdaptiveNotHonored,
     /// A stage's rules name a points bias where the room's authority does
     /// not honor one from a later stage ([`RoomPolicy::stage_points`]).
     PointsNotHonored,
@@ -842,25 +886,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn at_zero_is_an_additive_match_rule_and_the_policy_says_it_is_honored() {
-        // Out by default, left out of the JSON then, read as Out where
-        // missing (rules from an authority that predates it).
+    fn charts_is_an_additive_match_rule_read_from_the_step_down_before_it() {
+        // As picked by default, left out of the JSON then, read as As
+        // picked where missing (rules from an authority that predates it).
         let rules = MatchRules::hosted();
-        assert_eq!(rules.at_zero, AtZero::Out);
+        assert_eq!(rules.charts, Charts::AsPicked);
         let json = serde_json::to_value(&rules).unwrap();
-        assert!(json.get("at_zero").is_none());
+        assert!(json.get("charts").is_none());
         let mut on = rules.clone();
-        on.at_zero = AtZero::StepDown;
+        on.charts = Charts::Adaptive;
         let json = serde_json::to_value(&on).unwrap();
-        assert_eq!(json["at_zero"], "step_down");
-        assert_eq!(serde_json::from_value::<MatchRules>(json).unwrap(), on);
+        assert_eq!(json["charts"], "adaptive");
+        assert_eq!(serde_json::from_value::<MatchRules>(json.clone()).unwrap(), on);
+        // The rule it replaces: "At zero life: Step down" reads as
+        // Adaptive, Out as As picked, in the match's rules and a stage's.
+        let mut old = json.clone();
+        let o = old.as_object_mut().unwrap();
+        o.remove("charts");
+        o.insert("at_zero".into(), "step_down".into());
+        assert_eq!(serde_json::from_value::<MatchRules>(old.clone()).unwrap(), on);
+        old["at_zero"] = "out".into();
+        assert_eq!(serde_json::from_value::<MatchRules>(old).unwrap(), rules);
+        let play: PlayRules =
+            serde_json::from_value(serde_json::json!({"battle": "gauge-survival-v0", "at_zero": "step_down"}))
+                .unwrap();
+        assert_eq!(play.charts, Charts::Adaptive);
+        assert_eq!(Charts::Adaptive.rank_by(), RankBy::Score);
+        assert_eq!(Charts::AsPicked.rank_by(), RankBy::Life);
         // This build's authority honors it; one that predates it says
-        // nothing, read as not.
+        // nothing, read as not, and refuses nothing it can play.
         let policy = serde_json::to_value(RoomPolicy::default()).unwrap();
-        assert_eq!(policy["step_down"], true);
+        assert_eq!(policy["adaptive"], true);
         let mut old = policy.clone();
-        old.as_object_mut().unwrap().remove("step_down");
-        assert!(!serde_json::from_value::<RoomPolicy>(old).unwrap().step_down);
+        old.as_object_mut().unwrap().remove("adaptive");
+        let old: RoomPolicy = serde_json::from_value(old).unwrap();
+        assert!(!old.adaptive);
+        assert_eq!(play.check(&old), Err(RulesProblem::AdaptiveNotHonored));
+        assert_eq!(play.check(&RoomPolicy::default()), Ok(()));
+        // A refusal from an authority before the rename reads.
+        let r: RulesProblem = serde_json::from_value("step_down_not_honored".into()).unwrap();
+        assert_eq!(r, RulesProblem::AdaptiveNotHonored);
     }
 
     #[test]

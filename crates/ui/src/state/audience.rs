@@ -528,11 +528,11 @@ impl AudienceClient {
             difficulty: r.difficulty,
             boos: r.boos,
             points: r.points,
-            at_zero: r.at_zero,
+            charts: r.charts,
             changed: changed.is_some(),
             play_changed: changed.is_some_and(|c| {
-                (c.difficulty, c.boos, c.attacks, c.at_zero)
-                    != (v.rules.difficulty, v.rules.boos, v.rules.attacks, v.rules.at_zero)
+                (c.difficulty, c.boos, c.attacks, c.charts)
+                    != (v.rules.difficulty, v.rules.boos, v.rules.attacks, v.rules.charts)
             }),
         }
     }

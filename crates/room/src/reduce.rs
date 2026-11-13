@@ -1547,7 +1547,7 @@ impl RoomState {
     /// who never reported are forfeits), ranked by the match's battle as
     /// practice ranks it (`battle::rank`), then the song's end.
     fn settle(&mut self, stage: StageId, out: &mut Vec<Event>) {
-        let Some((entrants, preset)) = self.current.as_ref().and_then(|m| {
+        let Some((entrants, preset, standing)) = self.current.as_ref().and_then(|m| {
             let play = m.stage(stage)?.play.as_ref()?;
             let entrants: Vec<Entrant> = play
                 .lineup
@@ -1560,7 +1560,8 @@ impl RoomState {
                         .map_or(Run::Forfeit, |r: &ReportedRun| r.run()),
                 })
                 .collect();
-            Some((entrants, BattlePreset::parse(&m.rules_for(stage).battle)))
+            let rules = m.rules_for(stage);
+            Some((entrants, BattlePreset::parse(&rules.battle), rules.charts.rank_by()))
         }) else {
             return;
         };
@@ -1568,7 +1569,7 @@ impl RoomState {
         // (`BattlePreset::GaugeSurvivalV0`).
         let ranking = match preset.unwrap_or(BattlePreset::GaugeSurvivalV0) {
             BattlePreset::GaugeSurvivalV0 | BattlePreset::GaugeAttacksV0 => {
-                crate::battle::rank(&entrants)
+                crate::battle::rank(&entrants, standing)
             }
         };
         if self.confirm(stage, &ranking, out).is_ok() {

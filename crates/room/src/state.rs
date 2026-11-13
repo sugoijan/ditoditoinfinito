@@ -681,6 +681,16 @@ pub enum Participation {
 }
 
 impl RoomState {
+    /// How stage `stage` of the running match ranks those still in (its
+    /// Charts rule, [`crate::rules::Charts::standing`]; as ever where no
+    /// match runs).
+    pub fn rank_by_for(&self, stage: StageId) -> crate::rules::RankBy {
+        self.current
+            .as_ref()
+            .map(|m| m.rules_for(stage).charts.rank_by())
+            .unwrap_or_default()
+    }
+
     /// The stage a change of the running match's per-stage rules saved now
     /// would land on (`crate::Command::ChangeStageRules`): the next stage
     /// where nothing has begun, else the one after it; never a stage whose

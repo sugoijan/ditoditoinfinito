@@ -572,8 +572,8 @@ pub struct Rung {
 /// battle plan's rung digests, a stream's step moments).
 pub fn stage_ladder(song: &Song, chart: usize, setup: &StageSetup) -> Vec<ddi_engine::cpu::PlannedRung> {
     let online = setup.remote() || setup.live.is_some();
-    if !setup.rules.steps_down()
-        || (online && (setup.live.is_none() || !ddi_ui::state::room::ONLINE_STEP_DOWN))
+    if !setup.rules.adaptive()
+        || (online && (setup.live.is_none() || !ddi_ui::state::room::ONLINE_ADAPTIVE))
     {
         return Vec::new();
     }
@@ -1656,7 +1656,7 @@ impl Battle {
             .attacks
             .as_ref()
             .map_or(&[][..], |a| a.ledger().checkpoints_us());
-        let (ranking, drawn) = SETTLEMENT.rank(&entrants, checkpoints, self.settling);
+        let (ranking, drawn) = SETTLEMENT.rank(&entrants, checkpoints, self.settling, self.setup.rules.rank_by());
         let won = human.is_some()
             && ranking.first().is_some_and(|g| {
                 g.len() == 1
@@ -1810,7 +1810,7 @@ impl Battle {
             .attacks
             .as_ref()
             .map_or(&[][..], |a| a.ledger().checkpoints_us());
-        let (ranking, drawn) = SETTLEMENT.rank(&entrants, checkpoints, self.settling);
+        let (ranking, drawn) = SETTLEMENT.rank(&entrants, checkpoints, self.settling, self.setup.rules.rank_by());
         self.drawn = drawn;
         self.winners_play_on(&ranking);
         self.decided = Some(ranking);
@@ -2652,7 +2652,12 @@ impl Battle {
             .as_ref()
             .map_or(&[][..], |a| a.ledger().checkpoints_us());
         let me = (!watched).then_some(mine);
-        let (ranking, drawn) = SETTLEMENT.rank(&self.entrants_as(me), checkpoints, self.settling);
+        let (ranking, drawn) = SETTLEMENT.rank(
+            &self.entrants_as(me),
+            checkpoints,
+            self.settling,
+            self.setup.rules.rank_by(),
+        );
         StageOutcome {
             stage: self.setup.stage,
             ranking,
@@ -2866,7 +2871,7 @@ pub fn forfeit(
         .map_or(&[][..], |a| a.ledger().checkpoints_us());
     let (ranking, drawn) = match &b.decided {
         Some(r) => (r.clone(), b.drawn),
-        None => SETTLEMENT.rank(&entrants, checkpoints, b.settling),
+        None => SETTLEMENT.rank(&entrants, checkpoints, b.settling, b.setup.rules.rank_by()),
     };
     Ok(StageOutcome {
         stage: b.setup.stage,

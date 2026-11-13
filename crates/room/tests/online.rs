@@ -464,6 +464,7 @@ fn a_reports_detail_is_kept_alike_by_both_authorities_and_every_mirror() {
         received: None,
         shocks: None,
         chart: None,
+        harder: false,
     };
     let mut steps = script();
     steps.push(Step::Cmd(

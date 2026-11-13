@@ -1261,7 +1261,7 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
                         let mut r = ddi_room::MatchRules::hosted();
                         r.difficulty = ddi_room::MatchDifficulty::Hard;
                         r.boos = true;
-                        r.at_zero = ddi_room::AtZero::StepDown;
+                        r.charts = ddi_room::Charts::Adaptive;
                         r.set_attacks(true);
                         r
                     },
@@ -1276,7 +1276,7 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
                     let mut r = ddi_room::MatchRules::hosted();
                     r.difficulty = ddi_room::MatchDifficulty::Hard;
                     r.boos = true;
-                    r.at_zero = ddi_room::AtZero::StepDown;
+                    r.charts = ddi_room::Charts::Adaptive;
                     r.set_attacks(true);
                     r
                 },

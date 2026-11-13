@@ -4060,11 +4060,11 @@ fn a_per_stage_change_racing_a_pick_or_a_countdown_lands_a_stage_later_or_is_ref
     let m = r.s.current.as_ref().unwrap();
     assert_eq!(m.rules_for(stages[1]).difficulty, MatchDifficulty::Normal);
     assert_eq!(m.rules_for(stages[2]).difficulty, MatchDifficulty::Hard);
-    // Step down only where the authority honors it.
+    // Adaptive only where the authority honors it.
     let mut old = r.s.clone();
-    old.policy.step_down = false;
+    old.policy.adaptive = false;
     let stepping = PlayRules {
-        at_zero: AtZero::StepDown,
+        charts: Charts::Adaptive,
         ..hard
     };
     let revision = old.revision;
@@ -4078,7 +4078,7 @@ fn a_per_stage_change_racing_a_pick_or_a_countdown_lands_a_stage_later_or_is_ref
             },
             Millis(r.now)
         ),
-        Err(Rejection::InvalidRules(RulesProblem::StepDownNotHonored))
+        Err(Rejection::InvalidRules(RulesProblem::AdaptiveNotHonored))
     );
 }
 

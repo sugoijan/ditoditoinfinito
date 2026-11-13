@@ -1148,8 +1148,9 @@ impl Settlement {
         entrants: &[Entrant],
         checkpoints_us: &[i64],
         settling: Option<Settling>,
+        by: crate::rules::RankBy,
     ) -> (Vec<Vec<Finisher>>, bool) {
-        let ranking = crate::battle::rank(entrants);
+        let ranking = crate::battle::rank(entrants, by);
         let Some(s) = settling else {
             return (ranking, false);
         };

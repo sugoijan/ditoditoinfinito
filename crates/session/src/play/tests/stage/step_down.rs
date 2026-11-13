@@ -1,9 +1,8 @@
-//! A practice stage whose rules step down at zero life (a match's "At
-//! zero life: Step down", `ddi_engine::ladder`): the player and the CPUs
-//! step down the song's ladder, the same at any frame rate; their fields
-//! draw the chart they are on; the ranking puts fewer steps first; the
-//! status line says the player's own step; a song without a ladder plays
-//! as Out.
+//! A practice stage under adaptive charts (a match's "Charts: Adaptive",
+//! `ddi_engine::ladder`): the player and the CPUs step down the song's
+//! ladder, the same at any frame rate; their fields draw the chart they
+//! are on; those still in rank by the score; the status line says the
+//! player's own step; a song without a ladder plays as picked.
 
 use super::*;
 
@@ -12,10 +11,10 @@ const HARD: usize = 5;
 
 /// A practice room of one stage, `cpus` CPUs at `level`, attacks on,
 /// zero life stepping down.
-fn step_room(song: &Song, cpus: u16, level: u8, at_zero: ddi_room::AtZero) -> RoomClient {
+fn step_room(song: &Song, cpus: u16, level: u8, charts: ddi_room::Charts) -> RoomClient {
     let mut room = attacks_room(song, cpus, level);
     let rules = MatchRules {
-        at_zero,
+        charts,
         ..room.rules().clone()
     };
     room.save_rules(rules).unwrap();
@@ -52,10 +51,10 @@ fn idle(
 fn the_player_and_the_cpus_step_down_alike_at_any_frame_rate() {
     let song = bundled("beatucada");
     assert_eq!(song.charts[HARD].difficulty, ddi_chart::Difficulty::Hard);
-    let mut practice = step_room(&song, 3, 1, ddi_room::AtZero::StepDown);
+    let mut practice = step_room(&song, 3, 1, ddi_room::Charts::Adaptive);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, HARD);
-    assert!(order.rules.steps_down());
+    assert!(order.rules.adaptive());
     let (a, oa, cues) = idle(&song, &order, 60.0);
     let (b, ob, _) = idle(&song, &order, 144.0);
     // The player stepped down every rung, then went out on the last.
@@ -107,7 +106,7 @@ fn the_player_and_the_cpus_step_down_alike_at_any_frame_rate() {
 #[test]
 fn a_field_draws_the_chart_its_player_is_on() {
     let song = bundled("beatucada");
-    let mut practice = step_room(&song, 1, 1, ddi_room::AtZero::StepDown);
+    let mut practice = step_room(&song, 1, 1, ddi_room::Charts::Adaptive);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, HARD);
     let (a, _, _) = idle(&song, &order, 60.0);
@@ -136,50 +135,49 @@ fn a_field_draws_the_chart_its_player_is_on() {
 }
 
 #[test]
-fn fewer_steps_rank_first_and_a_song_without_a_ladder_plays_as_out() {
+fn those_still_in_rank_by_the_score_and_a_song_without_a_ladder_plays_as_picked() {
     let song = bundled("beatucada");
-    // The easiest single chart has no ladder: Step down is Out there,
-    // exactly.
-    assert!(ddi_engine::ladder::below(&song, CHART).is_empty());
-    let mut now = 0;
-    let mut out = step_room(&song, 3, 1, ddi_room::AtZero::Out);
-    let o_out = begin_at(&song, &mut out, &mut now, CHART);
-    let mut step = step_room(&song, 3, 1, ddi_room::AtZero::StepDown);
-    let o_step = begin_at(&song, &mut step, &mut now, CHART);
-    let (a, oa, _) = idle(&song, &o_out, 60.0);
-    let (b, ob, cues) = idle(&song, &o_step, 60.0);
-    assert!(cues.is_empty() && b.player.steps().is_empty());
-    assert_eq!(a.player.results(), b.player.results());
-    assert_eq!(ids(&oa), ids(&ob));
-    assert_eq!(oa.details, ob.details);
-    // On Hard: whoever stepped places below everyone still in on the
-    // stage's chart, and above everyone out.
-    let mut practice = step_room(&song, 7, 4, ddi_room::AtZero::StepDown);
-    let order = begin_at(&song, &mut practice, &mut now, HARD);
-    let (s, o, _) = idle(&song, &order, 60.0);
-    let steps_of = |p: ddi_room::ParticipantId| -> Option<usize> {
-        if p == order.me {
-            return Some(s.player.steps().len());
+    // The song with no other single chart to step to: Adaptive is As
+    // picked there, exactly.
+    let mut alone = song.clone();
+    for (i, c) in alone.charts.iter_mut().enumerate() {
+        if i != CHART && c.layout == "dance-single" {
+            c.notes.clear();
         }
-        let b = s.battle().unwrap();
-        let seat = b.views().iter().position(|v| v.participant == p)?;
-        Some(b.feeds().nth(seat)?.steps().count())
+    }
+    assert!(ddi_engine::ladder::Ladder::of(&alone, CHART).is_empty());
+    let mut now = 0;
+    let mut out = step_room(&alone, 3, 1, ddi_room::Charts::AsPicked);
+    let o_out = begin_at(&alone, &mut out, &mut now, CHART);
+    let mut step = step_room(&alone, 3, 1, ddi_room::Charts::Adaptive);
+    let o_step = begin_at(&alone, &mut step, &mut now, CHART);
+    let (a, oa, _) = idle(&alone, &o_out, 60.0);
+    let (b, ob, cues) = idle(&alone, &o_step, 60.0);
+    assert!(cues.is_empty() && b.player.steps().is_empty());
+    // The same plays (the order of those still in is the rule's own:
+    // life first as picked, the score first under Adaptive).
+    assert_eq!(a.player.results(), b.player.results());
+    assert_eq!(oa.details, ob.details);
+    // On Hard: those still in by the score as earned, whatever their
+    // steps; those out after.
+    let mut practice = step_room(&song, 7, 4, ddi_room::Charts::Adaptive);
+    let order = begin_at(&song, &mut practice, &mut now, HARD);
+    let (_, o, _) = idle(&song, &order, 60.0);
+    let score = |p: ddi_room::ParticipantId| {
+        o.details.iter().find(|(q, _)| *q == p).and_then(|(_, d)| d.score)
     };
-    let mut last: Option<(bool, usize)> = None;
+    let mut last: Option<(bool, Option<i64>)> = None;
     for group in &o.ranking {
         for f in group {
             let survived = f.finish == Finish::Survived;
-            let n = steps_of(f.participant).unwrap();
-            if let Some((was_in, was_n)) = last
-                && was_in
-                && survived
-            {
-                assert!(was_n <= n, "fewer steps first: {:?}", o.ranking);
-            }
-            if let Some((was_in, _)) = last {
+            let s = score(f.participant);
+            if let Some((was_in, was)) = last {
                 assert!(was_in || !survived, "those in first");
+                if was_in && survived {
+                    assert!(was >= s, "the score first: {:?}", o.details);
+                }
             }
-            last = Some((survived, n));
+            last = Some((survived, s));
         }
     }
 }
@@ -187,7 +185,7 @@ fn fewer_steps_rank_first_and_a_song_without_a_ladder_plays_as_out() {
 #[test]
 fn the_claps_follow_the_new_chart_after_a_step() {
     let song = bundled("beatucada");
-    let mut practice = step_room(&song, 1, 1, ddi_room::AtZero::StepDown);
+    let mut practice = step_room(&song, 1, 1, ddi_room::Charts::Adaptive);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, HARD);
     let settings = Settings {

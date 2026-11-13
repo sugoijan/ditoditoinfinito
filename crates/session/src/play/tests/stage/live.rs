@@ -2191,14 +2191,14 @@ fn a_live_stage_steps_down_and_the_others_fields_follow() {
     const HARD: usize = 5;
     let r = Room::new(&[("alice", Intent::Play), ("bob", Intent::Play)], None);
     r.run(1.0);
-    assert!(r.rooms[0].borrow().step_down_offered(), "offered live");
+    assert!(r.rooms[0].borrow().adaptive_offered(), "offered live");
     let mut rules = r.rooms[0].borrow().rules().clone();
-    rules.at_zero = ddi_room::AtZero::StepDown;
+    rules.charts = ddi_room::Charts::Adaptive;
     r.rooms[0].borrow_mut().save_rules(rules).unwrap();
     r.run(1.0);
     let orders = pick_and_ready(&r, &song, true, HARD);
     let o = orders[0].as_ref().unwrap();
-    assert!(o.rules.steps_down());
+    assert!(o.rules.adaptive());
     // The plan names the ladder; both devices made the same.
     let plan = r.rooms[0].borrow().live_prep(o.stage).unwrap().plan.clone().unwrap();
     let ladder = ddi_engine::ladder::Ladder::of(&song, HARD).rungs();

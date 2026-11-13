@@ -121,7 +121,7 @@ pub fn schedule_with(
 pub fn plan(song: &Song, chart: usize, rules: &StageRules, seed: u64) -> BattlePlan {
     let judge = rules.build().judge;
     let placement = ddi_engine::battle::PLACEMENT;
-    let ladder: Vec<usize> = if rules.steps_down() {
+    let ladder: Vec<usize> = if rules.adaptive() {
         ddi_engine::cpu::planned_ladder(song, chart)
             .into_iter()
             .map(|r| r.chart)

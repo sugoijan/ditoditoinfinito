@@ -22,7 +22,7 @@ use ddi_room::attacks::{
 };
 use ddi_room::live::cpus::{ONLINE_CPUS_V0, report_digest};
 use ddi_room::live::LIVE_V2;
-use ddi_room::{AtZero, MatchDifficulty, PointsBias};
+use ddi_room::{Charts, MatchDifficulty, PointsBias};
 use ddi_ui::state::room::{CpuSeat, StageRules};
 use std::fmt::Write as _;
 
@@ -42,18 +42,18 @@ fn scenarios() -> Vec<(StageRules, Vec<CpuSeat>)> {
         skills: skills.map(str::to_string),
         targeting,
     };
-    let rules = |difficulty, at_zero| StageRules {
+    let rules = |difficulty, charts| StageRules {
         ruleset: "ddi".into(),
         difficulty,
         boos: false,
         points: PointsBias::Strong,
-        at_zero,
+        charts,
         changed: false,
         play_changed: false,
     };
     vec![
         (
-            rules(MatchDifficulty::Hard, AtZero::Out),
+            rules(MatchDifficulty::Hard, Charts::AsPicked),
             vec![
                 seat(1, 0, Some("reckless"), Targeting::Spread),
                 seat(2, 4, Some("stamina"), Targeting::Leader),
@@ -62,7 +62,7 @@ fn scenarios() -> Vec<(StageRules, Vec<CpuSeat>)> {
             ],
         ),
         (
-            rules(MatchDifficulty::Hard, AtZero::StepDown),
+            rules(MatchDifficulty::Hard, Charts::Adaptive),
             vec![
                 seat(5, 2, Some("reckless"), Targeting::Spread),
                 seat(6, 6, None, Targeting::Leader),
@@ -89,7 +89,7 @@ fn play(song: &ddi_chart::Song, chart: usize, rules: &StageRules, cpus: &[CpuSea
     let seed = 0xD1CE_u64 + cpus.len() as u64;
     let plan = ddi_ui::state::battle_plan::plan(song, chart, rules, seed);
     let ruleset = crate::battle::stage_ruleset(rules);
-    let ladder: Vec<PlannedRung> = if rules.steps_down() {
+    let ladder: Vec<PlannedRung> = if rules.adaptive() {
         ddi_engine::cpu::planned_ladder(song, chart)
     } else {
         Vec::new()

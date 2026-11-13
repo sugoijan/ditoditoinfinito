@@ -190,14 +190,14 @@ pub struct RulesDialog {
     draws: u64,
     /// The Points row is focused (its sentence brightens).
     points_focused: bool,
-    /// The At zero life row is focused (its sentence brightens).
+    /// The Charts row is focused (its sentence brightens).
     zero_focused: bool,
     /// During a match whose room takes changes from a later stage on
     /// (`RoomClient::may_change_stage_rules`): where the edits go, from
     /// the stage named (the default) or to the next match.
     to_stage: bool,
     /// The per-stage rules as edited for the stage a change lands on
-    /// (Timing difficulty, Boos, At zero life, Attacks; the rest is the
+    /// (Timing difficulty, Boos, Charts, Attacks; the rest is the
     /// running match's), not yet applied.
     stage_draft: Rc<RefCell<MatchRules>>,
     /// The stage the change was said to land on when last built, and its
@@ -207,7 +207,7 @@ pub struct RulesDialog {
 
 /// The rows a running match may change from a later stage on
 /// (`ddi_room::PlayRules`).
-const PER_STAGE: [&str; 4] = ["difficulty", "boos", "at_zero", "attacks"];
+const PER_STAGE: [&str; 4] = ["difficulty", "boos", "charts", "attacks"];
 
 impl RulesDialog {
     /// From its button: Cancel and Apply.
@@ -368,9 +368,9 @@ impl RulesDialog {
         self.room.borrow().points_offered()
     }
 
-    /// The At zero life rule can be set here (`RoomClient::step_down_offered`).
-    fn step_down_offered(&self) -> bool {
-        self.room.borrow().step_down_offered()
+    /// The Charts rule can be set here (`RoomClient::adaptive_offered`).
+    fn adaptive_offered(&self) -> bool {
+        self.room.borrow().adaptive_offered()
     }
 
     /// The Attacks rule can be set here (`room::attacks_offered`).
@@ -434,8 +434,8 @@ impl RulesDialog {
             if d.boos != ahead.boos {
                 v.push("boos");
             }
-            if r.step_down_offered() && d.at_zero != ahead.at_zero {
-                v.push("at_zero");
+            if r.adaptive_offered() && d.charts != ahead.charts {
+                v.push("charts");
             }
             if super::room::attacks_offered(&r) && d.attacks() != ahead.attacks() {
                 v.push("attacks");
@@ -461,8 +461,8 @@ impl RulesDialog {
         if d.boos != locked.boos {
             v.push("boos");
         }
-        if r.step_down_offered() && d.at_zero != locked.at_zero {
-            v.push("at_zero");
+        if r.adaptive_offered() && d.charts != locked.charts {
+            v.push("charts");
         }
         if r.cpus_offered()
             && cpu_roster::roster_of(&d, humans) != cpu_roster::roster_of(locked, humans)
@@ -523,7 +523,7 @@ impl RulesDialog {
                 super::room::difficulty_id(d.difficulty).to_string(),
                 d.boos,
                 d.attacks(),
-                d.at_zero.id().to_string(),
+                d.charts.id().to_string(),
             )
         });
         let stage_points = (self.to_stage() && self.stage_points())
@@ -540,9 +540,9 @@ impl RulesDialog {
         let points = self
             .points_offered()
             .then(|| draft.points.id().to_string());
-        let at_zero = self
-            .step_down_offered()
-            .then(|| draft.at_zero.id().to_string());
+        let charts = self
+            .adaptive_offered()
+            .then(|| draft.charts.id().to_string());
         drop(draft);
         let running = self.running();
         let changed: Vec<String> = self.changed().into_iter().map(String::from).collect();
@@ -553,7 +553,7 @@ impl RulesDialog {
             v.draft = vec![stages, cpus];
             v.draft_rules = Some(rules);
             v.draft_points = points;
-            v.draft_at_zero = at_zero;
+            v.draft_charts = charts;
             v.rules_problem = problem;
             v.rules_running = running;
             v.rules_changed = changed;
@@ -860,15 +860,15 @@ impl Screen for RulesDialog {
                 .unwrap_or_default()
         };
         let about_h = about.len() as f32 * 17.0;
-        // The At zero life choice's sentence, under its row (and, where
+        // The Charts choice's sentence, under its row (and, where
         // the song picked has no easier chart, that it plays as Out).
-        let zero_about = if self.step_down_offered() {
-            let mut text: String = super::room::at_zero_about(play.at_zero).into();
-            if play.at_zero == ddi_room::AtZero::StepDown
+        let zero_about = if self.adaptive_offered() {
+            let mut text: String = super::room::charts_about(play.charts).into();
+            if play.charts == ddi_room::Charts::Adaptive
                 && self.room.borrow().picked_ladder() == Some(false)
             {
                 text.push(' ');
-                text.push_str(&String::from(m::rules_at_zero_no_ladder()));
+                text.push_str(&String::from(m::rules_charts_no_ladder()));
             }
             super::dialog::wrap_lines(&text, inner, 12.0)
         } else {
@@ -1083,37 +1083,37 @@ impl Screen for RulesDialog {
         ry += ROW;
         // At zero life: out, or a step down the song's ladder, where the
         // room plays it; said Out where it cannot yet.
-        if self.step_down_offered() {
-            let at = play.at_zero.index();
-            mark(&mut c, "at_zero", ry + ROW / 2.0);
+        if self.adaptive_offered() {
+            let at = play.charts.index();
+            mark(&mut c, "charts", ry + ROW / 2.0);
             stepper(
                 &mut c,
-                "at_zero",
-                &m::rules_at_zero(),
-                super::room::at_zero_name(play.at_zero).into(),
-                (at > 0, at + 1 < ddi_room::AtZero::ALL.len()),
+                "charts",
+                &m::rules_charts(),
+                super::room::charts_name(play.charts).into(),
+                (at > 0, at + 1 < ddi_room::Charts::ALL.len()),
                 false,
                 ry + ROW / 2.0,
             );
             ry += ROW;
             let color = if self.zero_focused { "Secondary" } else { "Muted" };
             for (k, line) in zero_about.iter().enumerate() {
-                let mut t = env.text(&format!("Rule.at_zero.About{k}"), line, 12.0, 400, color);
+                let mut t = env.text(&format!("Rule.charts.About{k}"), line, 12.0, 400, color);
                 look::ellipsized(&mut t, inner);
                 c.push(left(t, x0, ry + 4.0));
                 ry += 17.0;
             }
-            said_to("at_zero", ry);
+            said_to("charts", ry);
         } else {
             let row_y = ry + ROW / 2.0;
             c.push(left(
-                env.text("Rule.at_zero", &m::rules_at_zero(), 14.0, 400, "Secondary"),
+                env.text("Rule.charts", &m::rules_charts(), 14.0, 400, "Secondary"),
                 x0,
                 row_y,
             ));
             let mut v = env.text(
-                "Rule.at_zero.Value",
-                &m::rules_at_zero_online(),
+                "Rule.charts.Value",
+                &m::rules_charts_online(),
                 13.0,
                 400,
                 "Muted",
@@ -1366,8 +1366,8 @@ impl Screen for RulesDialog {
                     rows.push(pair(id));
                 }
             }
-            if self.step_down_offered() {
-                rows.push(pair("at_zero"));
+            if self.adaptive_offered() {
+                rows.push(pair("charts"));
             }
             if self.cpus_shown() && self.row_editable("cpus") {
                 for k in 0..self.roster().len() {
@@ -1449,12 +1449,12 @@ impl Screen for RulesDialog {
                 super::restore_focus(root, focused.as_deref());
             }
         }
-        // The At zero life row's sentence brightens while it is focused.
-        if self.step_down_offered() {
+        // The Charts row's sentence brightens while it is focused.
+        if self.adaptive_offered() {
             let focused = cx.focused().map(str::to_string);
             let on = focused
                 .as_deref()
-                .is_some_and(|f| f == "Dec.at_zero" || f == "Inc.at_zero");
+                .is_some_and(|f| f == "Dec.charts" || f == "Inc.charts");
             if on != self.zero_focused {
                 self.zero_focused = on;
                 *root = self.build(cx);
@@ -1558,13 +1558,13 @@ impl Screen for RulesDialog {
                         self.edited().borrow_mut().boos = name == "Inc.boos";
                         rebuild(self, root, cx, name);
                     }
-                    "Dec.at_zero" | "Inc.at_zero"
-                        if self.editable() && self.step_down_offered() =>
+                    "Dec.charts" | "Inc.charts"
+                        if self.editable() && self.adaptive_offered() =>
                     {
-                        self.edited().borrow_mut().at_zero = if name == "Inc.at_zero" {
-                            ddi_room::AtZero::StepDown
+                        self.edited().borrow_mut().charts = if name == "Inc.charts" {
+                            ddi_room::Charts::Adaptive
                         } else {
-                            ddi_room::AtZero::Out
+                            ddi_room::Charts::AsPicked
                         };
                         self.zero_focused = true;
                         rebuild(self, root, cx, name);

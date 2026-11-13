@@ -132,13 +132,13 @@ pub struct RoomView {
     /// The draft's Points choice (`strong`, `medium`, `mild`) where the
     /// room offers it.
     pub draft_points: Option<String>,
-    /// The draft's At zero life choice (`out`, `step_down`) where the
+    /// The draft's Charts choice (`as_picked`, `adaptive`) where the
     /// room offers it.
-    pub draft_at_zero: Option<String>,
+    pub draft_charts: Option<String>,
     pub rules_problem: Option<String>,
     /// While a match runs, the pop-up says so at its top (`rules_running`),
     /// marks the rows whose draft differs from the running match's
-    /// (`stages`, `difficulty`, `boos`, `at_zero`, `cpus`, `attacks`, `points`), and offers
+    /// (`stages`, `difficulty`, `boos`, `charts`, `cpus`, `attacks`, `points`), and offers
     /// Apply and restart to who may use it (`restart_offered`).
     pub rules_running: bool,
     pub rules_changed: Vec<String>,
@@ -146,7 +146,7 @@ pub struct RoomView {
     /// During a match whose room takes changes from a later stage on:
     /// where the pop-up's edits go (`stage`, `next`), the stage a change
     /// lands on (its number), and the stage's rules as edited
-    /// (difficulty, Boos, Attacks, At zero life).
+    /// (difficulty, Boos, Attacks, Charts).
     pub rules_destination: Option<String>,
     pub rules_from: Option<u16>,
     pub stage_draft_rules: Option<(String, bool, bool, String)>,
@@ -2120,7 +2120,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         draft: kept.draft,
         draft_rules: kept.draft_rules,
         draft_points: kept.draft_points,
-        draft_at_zero: kept.draft_at_zero,
+        draft_charts: kept.draft_charts,
         rules_problem: kept.rules_problem,
         rules_running: kept.rules_running,
         rules_changed: kept.rules_changed,
@@ -2337,7 +2337,7 @@ pub fn rules_words(rules: &crate::state::room::StageRules, attacks: Option<bool>
         on(rules.boos),
         on(attacks.unwrap_or(true)),
         rules.points.id(),
-        rules.at_zero.id(),
+        rules.charts.id(),
     )
 }
 
@@ -2361,8 +2361,8 @@ pub fn change_words(
     if attacks_offered && before.attacks() != after.attacks() {
         parts.push(m::rules_change_attacks(on(after.attacks())));
     }
-    if before.at_zero != after.at_zero {
-        parts.push(m::rules_change_at_zero(after.at_zero.id()));
+    if before.charts != after.charts {
+        parts.push(m::rules_change_charts(after.charts.id()));
     }
     if before.points != after.points {
         parts.push(m::rules_change_points(after.points.id()));
@@ -2397,19 +2397,19 @@ pub fn pending_change(r: &RoomClient) -> Option<(u16, UiText)> {
     Some((u16::try_from(index + 1).unwrap_or(u16::MAX), words))
 }
 
-/// The At zero life choice's name (`MatchRules::at_zero`).
-pub fn at_zero_name(z: ddi_room::AtZero) -> UiText {
+/// The Charts choice's name (`MatchRules::charts`).
+pub fn charts_name(z: ddi_room::Charts) -> UiText {
     match z {
-        ddi_room::AtZero::Out => m::rules_at_zero_out(),
-        ddi_room::AtZero::StepDown => m::rules_at_zero_step_down(),
+        ddi_room::Charts::AsPicked => m::rules_charts_as_picked(),
+        ddi_room::Charts::Adaptive => m::rules_charts_adaptive(),
     }
 }
 
 /// What the At zero life choice does, under its row.
-pub fn at_zero_about(z: ddi_room::AtZero) -> UiText {
+pub fn charts_about(z: ddi_room::Charts) -> UiText {
     match z {
-        ddi_room::AtZero::Out => m::rules_at_zero_out_about(),
-        ddi_room::AtZero::StepDown => m::rules_at_zero_step_down_about(),
+        ddi_room::Charts::AsPicked => m::rules_charts_as_picked_about(),
+        ddi_room::Charts::Adaptive => m::rules_charts_adaptive_about(),
     }
 }
 
