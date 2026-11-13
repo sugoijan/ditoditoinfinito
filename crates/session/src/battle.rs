@@ -163,35 +163,7 @@ pub fn raised_speed(
     chart: usize,
     options: &ddi_engine::player::PlayOptions,
 ) -> Option<ddi_engine::scroll::SpeedMod> {
-    use ddi_engine::scroll::SpeedMod;
-    let c = song.charts.get(chart)?;
-    let timing = c.timing(song);
-    let seconds = c
-        .notes
-        .iter()
-        .map(|n| timing.seconds_at(n.tick))
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), t| {
-            (a.min(t), b.max(t))
-        });
-    if !seconds.0.is_finite() {
-        return None;
-    }
-    let cap = LEAD_V0.horizon_cap_us() as f64 / 1e6;
-    let mut o = *options;
-    let mut raised = false;
-    for _ in 0..8 {
-        let h = ddi_engine::battle::reading_horizon(&o, timing, seconds.0 - 2.0, seconds.1);
-        if h <= cap {
-            break;
-        }
-        let k = h / cap * 1.05;
-        o.scroll.speed = match o.scroll.speed {
-            SpeedMod::XMod(m) => SpeedMod::XMod(m * k),
-            SpeedMod::CMod(b) => SpeedMod::CMod(b * k),
-        };
-        raised = true;
-    }
-    raised.then_some(o.scroll.speed)
+    ddi_ui::state::battle_plan::raised_speed(song, chart, options)
 }
 
 /// Whether a stage with attacks raises the speed `settings` would play

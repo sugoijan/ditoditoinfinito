@@ -1061,6 +1061,7 @@ fn checked(mut inbox: Inbox, profile: Profile) -> Inbox {
                 ShellNews::PreparedShared {
                     job,
                     result: Ok(picked),
+                    live,
                 } if job.stage != SPOTLIGHT => {
                     let playable = crate::play::load::read_chart(&picked.song.id)
                         .map_err(|e| format!("{e:?}"))
@@ -1076,6 +1077,7 @@ fn checked(mut inbox: Inbox, profile: Profile) -> Inbox {
                         });
                     ShellNews::PreparedShared {
                         job,
+                        live,
                         result: match playable {
                             Ok(()) => Ok(picked),
                             Err(e) => {
@@ -1485,6 +1487,7 @@ mod tests {
             cpus: Vec::new(),
             others: 3,
             watching: false,
+            live: None,
         };
         let profile = Profile {
             name: "T".into(),

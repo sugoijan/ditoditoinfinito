@@ -808,6 +808,7 @@ fn person_status(
                 Some(LoadProblem::Download) => m::state_failed_download(),
                 Some(LoadProblem::Unreadable) => m::state_failed_unreadable(),
                 Some(LoadProblem::Changed) => m::state_failed_changed(),
+                Some(LoadProblem::PlanMismatch) => m::state_failed_plan(),
                 _ => m::state_load_failed(),
             };
             (text.into(), Tone::Failed)
@@ -1959,6 +1960,7 @@ pub fn load_problem_text(p: LoadProblem) -> UiText {
         LoadProblem::Changed => m::load_changed(),
         LoadProblem::CpuCannotPlay => m::load_cpu(),
         LoadProblem::Download => m::load_download(),
+        LoadProblem::PlanMismatch => m::load_plan(),
     }
 }
 

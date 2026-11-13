@@ -21,7 +21,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_ui::state::room::{
-    LoadJob, LoadProblem, RoomClient, SharedRoom, StageOrder, UploadJob, picked_of, prepare_chart,
+    LoadJob, LoadProblem, RoomClient, SharedRoom, StageOrder, UploadJob, picked_of, prepare_stage,
 };
 
 use crate::router::Route;
@@ -275,7 +275,7 @@ pub(crate) fn discard() {
 }
 
 /// Prepares a stage's song on this device for `room`: its chart read (as a
-/// play reads it) and checked (`ddi_ui::state::room::prepare_chart`: the
+/// play reads it) and checked (`ddi_ui::state::room::prepare_stage`: the
 /// chart chosen, the CPUs' plan in practice); an online member's from the
 /// room's share (`crate::share`, held for the session), its chart found
 /// by the digest chosen. The room told it loaded or why not.
@@ -295,28 +295,30 @@ pub(crate) fn prepare_for(room: SharedRoom, job: LoadJob) {
                         warn(&format!("{e:?}"));
                         Err(LoadProblem::Unreadable)
                     }
-                    Ok(song) => prepare_chart(&job, &song, &mut |e| warn(e)).and_then(|index| {
+                    Ok(song) => prepare_stage(&job, &song, &mut |e| warn(e)).and_then(|p| {
                         let record = &loaded.songs.first().ok_or(LoadProblem::Download)?.record;
                         let entry = &record.entry;
                         let banner = entry
                             .banner
                             .as_ref()
                             .and_then(|b| crate::share::file_url(&entry.id, b.as_str()));
-                        picked_of(entry, index, &record.pack, banner).ok_or(LoadProblem::Changed)
+                        picked_of(entry, p.index, &record.pack, banner)
+                            .map(|picked| (picked, p.live))
+                            .ok_or(LoadProblem::Changed)
                     }),
                 },
             };
-            room.borrow_mut().finish_shared_load(&job, result);
+            room.borrow_mut().finish_shared_load_live(&job, result);
             return;
         }
         let result = match crate::songs::load_chart(&job.song).await {
-            Ok(song) => prepare_chart(&job, &song, &mut |e| warn(e)).map(|_| ()),
+            Ok(song) => prepare_stage(&job, &song, &mut |e| warn(e)).map(|p| p.live),
             Err(e) => {
                 warn(&format!("unreadable: {e:?}"));
                 Err(LoadProblem::Unreadable)
             }
         };
-        room.borrow_mut().finish_load(&job, result);
+        room.borrow_mut().finish_load_live(&job, result);
     });
 }
 

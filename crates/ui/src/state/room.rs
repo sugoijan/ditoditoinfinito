@@ -176,6 +176,11 @@ pub enum LoadProblem {
     CpuCannotPlay,
     /// The room's share of the song could not be downloaded (online).
     Download,
+    /// An online room that plays live: this device worked out another
+    /// battle plan from the chart than the room has
+    /// (`docs/plans/multiplayer-online-play.md`, "The battle plan"): it
+    /// sits the stage out, as a chart digest's mismatch does.
+    PlanMismatch,
 }
 
 impl LoadProblem {
@@ -186,6 +191,7 @@ impl LoadProblem {
             Self::Changed => "changed",
             Self::CpuCannotPlay => "cpu-plan",
             Self::Download => "download",
+            Self::PlanMismatch => "battle_plan_mismatch",
         }
     }
 
@@ -195,6 +201,7 @@ impl LoadProblem {
             Self::Changed,
             Self::CpuCannotPlay,
             Self::Download,
+            Self::PlanMismatch,
         ]
         .into_iter()
         .find(|p| p.code() == code)
@@ -208,7 +215,7 @@ impl LoadProblem {
 /// share `share`'s first (`song` is its shared id, `chart` unknown until
 /// read: found by its digest), answered by
 /// [`RoomClient::finish_shared_load`].
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LoadJob {
     pub stage: StageId,
     pub readiness_rev: u32,
@@ -218,6 +225,71 @@ pub struct LoadJob {
     pub share: Option<String>,
     /// CPUs play it: their plan is checked too (practice).
     pub cpus: bool,
+    /// An online room that plays live: what its preparation works out
+    /// besides ([`prepare_stage`]: the reading horizon, the battle plan).
+    pub live: Option<LiveAsk>,
+}
+
+/// What a stage's preparation works out for an online room that plays it
+/// live (`docs/plans/multiplayer-online-play.md`, "The battle plan"): the
+/// stage's seed (`ddi_room::live::plan::seed_for`), the match's rules,
+/// whether it has attacks, and how this player plays (their options, read
+/// from the settings as the job was made: the reading horizon).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LiveAsk {
+    pub seed: u64,
+    pub rules: StageRules,
+    pub attacks: bool,
+    pub options: ddi_engine::player::PlayOptions,
+    pub speed_source: ddi_engine::scroll::SpeedSource,
+}
+
+/// What a stage's preparation worked out for live play: how far ahead the
+/// player reads (µs: the room's lead for them) and, with attacks, the
+/// battle plan of the chart.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LivePrep {
+    pub horizon_us: i64,
+    pub plan: Option<ddi_room::live::plan::BattlePlan>,
+}
+
+/// A stage's song prepared ([`prepare_stage`]): the chart's index, and
+/// what live play needs of it where the job asked.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Prepared {
+    pub index: usize,
+    pub live: Option<LivePrep>,
+}
+
+/// [`prepare_chart`], and where the job asks ([`LoadJob::live`]) what an
+/// online room that plays live needs of the chart: the player's reading
+/// horizon under their options, and the battle plan where the match has
+/// attacks (`crate::state::battle_plan`).
+pub fn prepare_stage(
+    job: &LoadJob,
+    song: &ddi_chart::Song,
+    log: &mut dyn FnMut(&str),
+) -> Result<Prepared, LoadProblem> {
+    let index = prepare_chart(job, song, log)?;
+    let live = job.live.as_ref().map(|ask| {
+        let mut options = ask.options;
+        options.transform = Default::default();
+        options.clock.rate = 1.0;
+        options.scroll.speed =
+            ddi_engine::scroll::speed_for_chart(song, index, options.scroll.speed, ask.speed_source);
+        LivePrep {
+            horizon_us: crate::state::battle_plan::reading_horizon_us(
+                song,
+                index,
+                &options,
+                ask.attacks,
+            ),
+            plan: ask
+                .attacks
+                .then(|| crate::state::battle_plan::plan(song, index, &ask.rules, ask.seed)),
+        }
+    });
+    Ok(Prepared { index, live })
 }
 
 /// A stage's song to upload as an online room's share (M5d): the library
@@ -283,6 +355,9 @@ pub enum ShellNews {
     PreparedShared {
         job: Box<LoadJob>,
         result: Result<Box<Picked>, LoadProblem>,
+        /// What live play needs of the chart, where the job asked
+        /// ([`prepare_stage`]).
+        live: Option<LivePrep>,
     },
 }
 
@@ -416,6 +491,23 @@ pub struct StageOrder {
     /// ([`RoomClient::watches`]: CPU practice, the CPUs' plays judged on
     /// this device). `me` is then nobody's seat in it.
     pub watching: bool,
+    /// An online room that plays the stage live
+    /// (`docs/plans/multiplayer-online-play.md`): what this device worked
+    /// out for it and who else plays it. Its song starts at the room's
+    /// instant ([`RoomClient::song_zero_in`]), its plays are streamed and
+    /// its attacks are the room's.
+    pub live: Option<LiveOrder>,
+}
+
+/// A stage an online room plays live, as its order carries it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LiveOrder {
+    /// This device's reading horizon and battle plan (none: it did not
+    /// say it plays live, a stage it watches or sits out).
+    pub prep: Option<LivePrep>,
+    /// The other people of the stage, in the room's order, with their
+    /// names as the room has them (data).
+    pub people: Vec<(ParticipantId, String)>,
 }
 
 impl StageOrder {
@@ -714,6 +806,13 @@ pub struct RoomClient {
     /// ([`RoomClient::take_live_news`]).
     live_news: Vec<ddi_room::live::LiveNews>,
     live_reader: bool,
+    /// Stages prepared for live play whose Loaded waits on the room's
+    /// battle plan, with the readiness revision prepared for.
+    preparing: BTreeMap<StageId, (u32, LivePrep)>,
+    /// The battle plans this device offered (once a stage).
+    offered: BTreeSet<StageId>,
+    /// What this device worked out for each stage it said it plays live.
+    live_preps: BTreeMap<StageId, LivePrep>,
 }
 
 /// The room shared by the screens that show it (the room, its song
@@ -843,6 +942,9 @@ impl RoomClient {
             asking: Rc::default(),
             live_news: Vec::new(),
             live_reader: false,
+            preparing: BTreeMap::new(),
+            offered: BTreeSet::new(),
+            live_preps: BTreeMap::new(),
         };
         room.pump();
         room
@@ -902,6 +1004,9 @@ impl RoomClient {
             asking: Rc::default(),
             live_news: Vec::new(),
             live_reader: false,
+            preparing: BTreeMap::new(),
+            offered: BTreeSet::new(),
+            live_preps: BTreeMap::new(),
         };
         room.tick(now_ms);
         room
@@ -1369,6 +1474,11 @@ impl RoomClient {
         if !self.picks.contains_key(&st.content.as_ref()?.id) {
             return None;
         }
+        // Its battle plan is not the room's here: it sits the stage out
+        // (the room's song select says why), nothing to be ready for.
+        if st.play.is_none() && self.load_problem(stage) == Some(LoadProblem::PlanMismatch) {
+            return None;
+        }
         (self.in_stage(stage) || self.watches()).then_some(stage)
     }
 
@@ -1686,12 +1796,15 @@ impl RoomClient {
         }
     }
 
-    /// Whether attacks can be played in this room: where its ledger runs
-    /// on this device and the shocks go into the plays judged here,
-    /// which is CPU practice. An online room has neither yet, whatever
-    /// its rules say (`crate::screens::room::attacks_offered`).
+    /// Whether attacks can be played in this room: CPU practice, where
+    /// its ledger runs on this device and the shocks go into the plays
+    /// judged here; an online room that plays live, where the room runs
+    /// the ledger on everyone's streamed reports
+    /// (`docs/plans/multiplayer-online-play.md`). An online room that does
+    /// not (a server from before live play) has neither, whatever its
+    /// rules say (`crate::screens::room::attacks_offered`).
     pub fn attacks_offered(&self) -> bool {
-        !self.is_online()
+        !self.is_online() || self.plays_live()
     }
 
     /// Whether a match under `rules` is really played with attacks here:
@@ -1758,6 +1871,7 @@ impl RoomClient {
         if self.readiness_rev(job.stage) != job.readiness_rev {
             return;
         }
+        self.preparing.remove(&job.stage);
         let loading = match result {
             Ok(()) => Loading::Loaded,
             Err(p) => Loading::Failed {
@@ -1803,6 +1917,185 @@ impl RoomClient {
         self.finish_load(job, result);
     }
 
+    /// The shell prepared `job` for an online room that plays live
+    /// ([`prepare_stage`]): with what live play needs of the chart, its
+    /// Loaded waits until the room's battle plan is known and agrees
+    /// (`docs/plans/multiplayer-online-play.md`, "The battle plan"): the
+    /// picker's device offers its own; every device then says it is ready
+    /// to play live (its reading horizon and the plan's digest) and
+    /// reports Loaded, or reports the mismatch and sits the stage out.
+    /// Without what it needs (`None`), Loaded at once, as a device that
+    /// does not play live.
+    pub fn finish_load_live(&mut self, job: &LoadJob, result: Result<Option<LivePrep>, LoadProblem>) {
+        match result {
+            Ok(Some(prep)) if job.live.is_some() => {
+                if self.readiness_rev(job.stage) != job.readiness_rev {
+                    return;
+                }
+                self.preparing
+                    .insert(job.stage, (job.readiness_rev, prep));
+                self.sync_live();
+            }
+            Ok(_) => self.finish_load(job, Ok(())),
+            Err(p) => self.finish_load(job, Err(p)),
+        }
+    }
+
+    /// [`Self::finish_shared_load`] with what live play needs
+    /// ([`Self::finish_load_live`]).
+    pub fn finish_shared_load_live(
+        &mut self,
+        job: &LoadJob,
+        result: Result<(Picked, Option<LivePrep>), LoadProblem>,
+    ) {
+        let (result, prep) = match result {
+            Ok((picked, prep)) => (Ok(picked), prep),
+            Err(p) => (Err(p), None),
+        };
+        if job.stage == SPOTLIGHT || prep.is_none() || job.live.is_none() {
+            return self.finish_shared_load(job, result);
+        }
+        if self.readiness_rev(job.stage) != job.readiness_rev {
+            return;
+        }
+        let content = self
+            .state()
+            .stage(job.stage)
+            .and_then(|s| s.content.as_ref())
+            .map(|c| c.id.clone());
+        match (result, content) {
+            (Ok(picked), Some(content)) => {
+                self.picks.insert(content, picked);
+                self.finish_load_live(job, Ok(prep));
+            }
+            (Ok(_), None) => {}
+            (Err(p), _) => self.finish_load(job, Err(p)),
+        }
+    }
+
+    /// What a stage's preparation should work out for live play here
+    /// (none: the room does not play live).
+    fn live_ask(&self, stage: StageId, content: &ContentId) -> Option<LiveAsk> {
+        if !self.plays_live() {
+            return None;
+        }
+        let rules = self.locked_rules().unwrap_or_else(|| self.rules()).clone();
+        let settings = crate::state::settings::Settings::load();
+        Some(LiveAsk {
+            seed: ddi_room::live::plan::seed_for(&self.state().room, stage, &content.chart),
+            rules: StageRules::of(&rules),
+            attacks: self.attacks_played(&rules),
+            options: settings.play_options(None),
+            speed_source: settings.speed_source,
+        })
+    }
+
+    /// Stages prepared for live play whose Loaded waits on the room's
+    /// battle plan: the picker's device offers its own; once the room has
+    /// one, the device says it is ready to play live and reports Loaded,
+    /// or reports the plan's mismatch.
+    fn sync_live(&mut self) {
+        if self.preparing.is_empty() || self.link_state() != LinkState::Connected {
+            return;
+        }
+        let pending: Vec<(StageId, u32, LivePrep)> = self
+            .preparing
+            .iter()
+            .map(|(s, (rev, prep))| (*s, *rev, prep.clone()))
+            .collect();
+        for (stage, rev, prep) in pending {
+            // Taken meanwhile (a command's answer ran this again).
+            if !self.preparing.contains_key(&stage) {
+                continue;
+            }
+            let Some(st) = self.state().stage(stage) else {
+                self.preparing.remove(&stage);
+                continue;
+            };
+            if st.readiness_rev != rev || st.play.is_some() {
+                self.preparing.remove(&stage);
+                continue;
+            }
+            let room_plan = st.content.as_ref().and_then(|c| c.battle.clone());
+            let digest = match (&prep.plan, room_plan) {
+                (None, _) => None,
+                (Some(plan), None) => {
+                    // The picker's device offers it, once; the others
+                    // wait for the room to say which it took.
+                    if self.chooses() && self.offered.insert(stage)
+                        && let Some(link) = self.online_link_mut()
+                    {
+                        link.authority
+                            .live_mut()
+                            .send(ddi_room::live::ClientLive::OfferPlan {
+                                stage,
+                                plan: Box::new(plan.clone()),
+                            });
+                    }
+                    continue;
+                }
+                (Some(plan), Some(room)) if room == plan.digest => Some(room),
+                (Some(_), Some(_)) => {
+                    self.preparing.remove(&stage);
+                    self.finish_mismatch(stage, rev);
+                    continue;
+                }
+            };
+            self.preparing.remove(&stage);
+            if let Some(link) = self.online_link_mut() {
+                link.authority
+                    .live_mut()
+                    .send(ddi_room::live::ClientLive::Prepared {
+                        stage,
+                        horizon_us: prep.horizon_us,
+                        plan: digest,
+                    });
+            }
+            self.live_preps.insert(stage, prep);
+            let _ = self.send(Command::ReportLoading {
+                stage,
+                readiness_rev: rev,
+                loading: Loading::Loaded,
+            });
+        }
+    }
+
+    /// This device's battle plan of `stage` is not the room's: its
+    /// preparation reported failed (it sits the stage out).
+    fn finish_mismatch(&mut self, stage: StageId, readiness_rev: u32) {
+        self.live_preps.remove(&stage);
+        let _ = self.send(Command::ReportLoading {
+            stage,
+            readiness_rev,
+            loading: Loading::Failed {
+                code: LoadProblem::PlanMismatch.code().into(),
+            },
+        });
+    }
+
+    /// What this device worked out for stage `stage`'s live play (its
+    /// reading horizon, its battle plan), once it said it is ready to play
+    /// it live.
+    pub fn live_prep(&self, stage: StageId) -> Option<&LivePrep> {
+        self.live_preps.get(&stage)
+    }
+
+    /// Seconds from now (this device's clock) until stage `stage`'s song
+    /// time zero, where the room plays it live and its start is committed
+    /// (`StagePlay::song_zero_at`), on the room's clock as estimated here;
+    /// negative once it has passed.
+    pub fn song_zero_in(&self, stage: StageId) -> Option<f64> {
+        let zero = self.song_zero_at(stage)?;
+        let now = self.room_now()?;
+        Some((zero.0 as f64 - now.0 as f64) / 1_000.0)
+    }
+
+    /// Stage `stage`'s song time zero on the room's clock, where the room
+    /// plays it live and its start is committed.
+    pub fn song_zero_at(&self, stage: StageId) -> Option<ddi_room::Millis> {
+        self.state().stage(stage)?.play.as_ref()?.song_zero_at
+    }
+
     /// Where a shell's own threads' answers come from, read each tick.
     pub fn set_inbox(&mut self, inbox: Inbox) {
         self.inbox = Some(inbox);
@@ -1821,8 +2114,8 @@ impl RoomClient {
                 }
                 ShellNews::Uploaded { stage, result } => self.upload_finished(stage, result),
                 ShellNews::Prepared { job, result } => self.finish_load(&job, result),
-                ShellNews::PreparedShared { job, result } => {
-                    self.finish_shared_load(&job, result.map(|p| *p))
+                ShellNews::PreparedShared { job, result, live } => {
+                    self.finish_shared_load_live(&job, result.map(|p| (*p, live)))
                 }
             }
         }
@@ -2211,6 +2504,17 @@ impl RoomClient {
             )
             .unwrap_or(u16::MAX),
             watching: !self.in_stage(stage),
+            live: self.plays_live().then(|| LiveOrder {
+                prep: self.live_preps.get(&stage).cloned(),
+                people: field
+                    .iter()
+                    .filter(|id| **id != self.me)
+                    .filter_map(|id| match &s.member(*id)?.kind {
+                        MemberKind::Human { name, .. } => Some((*id, name.clone())),
+                        MemberKind::Cpu { .. } => None,
+                    })
+                    .collect(),
+            }),
         };
         self.launched.insert(stage);
         Some(order)
@@ -2495,8 +2799,25 @@ impl RoomClient {
             return;
         };
         let news = l.authority.live_mut().take_news();
+        // A plan this device computed differently: it sits the stage out.
+        let mismatched: Vec<StageId> = news
+            .iter()
+            .filter_map(|n| match n {
+                ddi_room::live::LiveNews::Refused(ddi_room::live::LiveRefusal::PlanMismatch {
+                    stage,
+                    ..
+                }) => Some(*stage),
+                _ => None,
+            })
+            .collect();
         if self.live_reader {
             self.live_news.extend(news);
+        }
+        for stage in mismatched {
+            let rev = self.readiness_rev(stage);
+            if self.state().stage(stage).is_some_and(|s| s.play.is_none()) {
+                self.finish_mismatch(stage, rev);
+            }
         }
     }
 
@@ -2520,7 +2841,8 @@ impl RoomClient {
     /// shell to prepare ([`Self::take_load_jobs`]).
     fn sync_loading(&mut self) {
         if self.is_online() {
-            return self.sync_online();
+            self.sync_online();
+            return self.sync_live();
         }
         loop {
             let me = self.me;
@@ -2563,6 +2885,7 @@ impl RoomClient {
                     digest: p.chart.digest,
                     share: None,
                     cpus: true,
+                    live: None,
                 });
             }
         }
@@ -2615,6 +2938,7 @@ impl RoomClient {
             digest: spot.content.chart.as_str().parse().ok(),
             share: Some(share),
             cpus: false,
+            live: None,
         });
     }
 
@@ -2679,6 +3003,7 @@ impl RoomClient {
                 continue;
             }
             let digest = content.chart.as_str().parse().ok();
+            let live = self.live_ask(stage, &content);
             let job = match self.picks.get(&content) {
                 Some(p) => LoadJob {
                     stage,
@@ -2688,6 +3013,7 @@ impl RoomClient {
                     digest,
                     share: None,
                     cpus: false,
+                    live,
                 },
                 None => LoadJob {
                     stage,
@@ -2697,6 +3023,7 @@ impl RoomClient {
                     digest,
                     share: Some(share),
                     cpus: false,
+                    live,
                 },
             };
             self.jobs.push(job);

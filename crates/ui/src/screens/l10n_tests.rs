@@ -929,6 +929,7 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         Refusal::Load(LoadProblem::Unreadable),
         Refusal::Load(LoadProblem::Changed),
         Refusal::Load(LoadProblem::CpuCannotPlay),
+        Refusal::Load(LoadProblem::PlanMismatch),
     ] {
         checked(vec![super::room::refusal_text(&r).into()], found);
     }

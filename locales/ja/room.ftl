@@ -76,6 +76,8 @@ room-load-cpu = CPUはこの譜面をプレイできません。別の譜面を�
 
 room-load-download = ルームの曲をダウンロードできませんでした。
 
+room-load-plan = この端末で出したステージの攻撃がルームのものと合わないため、このステージは見学になります。
+
 room-rules-stage-count = 1対戦のステージ数は1〜{ $max }です。
 
 room-rules-over-cap = CPUを含めて最大{ $cap }人です。
@@ -429,6 +431,7 @@ room-state-sitting-out = 見学
 room-state-failed-download = ダウンロード失敗
 room-state-failed-unreadable = 曲を読めません
 room-state-failed-changed = 譜面が変更されました
+room-state-failed-plan = 攻撃が不一致
 
 room-panel-points = 得点
 

@@ -2,6 +2,7 @@
 //! P12): plain data, kept through [`ddi_platform::storage`] under the
 //! web's keys, so both shells read and write the same values.
 
+pub mod battle_plan;
 pub mod bind;
 pub mod cpu_roster;
 pub mod editor;

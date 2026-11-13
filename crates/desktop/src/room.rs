@@ -28,8 +28,8 @@ use ddi_ui::screens::room::{RoomCall, RoomShell};
 use ddi_ui::screens::select::{SelectCall, SelectScreen};
 use ddi_ui::state::online::Redirect;
 use ddi_ui::state::room::{
-    Inbox, LoadJob, LoadProblem, RoomClient, SharedRoom, ShellNews, UploadJob, picked_of,
-    prepare_chart,
+    Inbox, LivePrep, LoadJob, LoadProblem, RoomClient, SharedRoom, ShellNews, UploadJob, picked_of,
+    prepare_chart, prepare_stage,
 };
 
 use crate::preview::SharedPlayer;
@@ -72,6 +72,8 @@ struct SharedSong {
     index: usize,
     pack: String,
     banner: Option<String>,
+    /// What live play needs of its chart (`prepare_stage`).
+    live: Option<LivePrep>,
 }
 
 /// Where an online room's threads send their news: one room client's
@@ -95,14 +97,18 @@ pub fn news_inbox() -> (NewsTx, Inbox) {
             .map(|n| match n {
                 News::Progress { stage, done, total } => ShellNews::Progress { stage, done, total },
                 News::Uploaded { stage, result } => ShellNews::Uploaded { stage, result },
-                News::PreparedShared { job, result } => ShellNews::PreparedShared {
-                    result: result.and_then(|found| {
-                        picked_of(&found.entry, found.index, &found.pack, found.banner)
-                            .map(Box::new)
-                            .ok_or(LoadProblem::Changed)
-                    }),
-                    job,
-                },
+                News::PreparedShared { job, result } => {
+                    let live = result.as_ref().ok().and_then(|f| f.live.clone());
+                    ShellNews::PreparedShared {
+                        result: result.and_then(|found| {
+                            picked_of(&found.entry, found.index, &found.pack, found.banner)
+                                .map(Box::new)
+                                .ok_or(LoadProblem::Changed)
+                        }),
+                        job,
+                        live,
+                    }
+                }
             })
             .collect()
     });
@@ -163,11 +169,12 @@ pub fn prepare_online_with(tx: Option<&NewsTx>, room: &SharedRoom, job: LoadJob)
                 LoadProblem::Unreadable
             })
             .and_then(|song| {
-                prepare_chart(&job, &song, &mut |e| {
+                prepare_stage(&job, &song, &mut |e| {
                     eprintln!("room: stage song {}: {e}", job.song)
                 })
             });
-        room.borrow_mut().finish_load(&job, result.map(|_| ()));
+        room.borrow_mut()
+            .finish_load_live(&job, result.map(|p| p.live));
         return;
     };
     let Some(tx) = tx.map(|t| t.0.clone()) else {
@@ -186,13 +193,14 @@ pub fn prepare_online_with(tx: Option<&NewsTx>, room: &SharedRoom, job: LoadJob)
                     eprintln!("room: stage song {} unreadable: {e:?}", job.song);
                     LoadProblem::Unreadable
                 })?;
-                let index = prepare_chart(&job, &song, &mut |e| eprintln!("room: {e}"))?;
+                let prepared = prepare_stage(&job, &song, &mut |e| eprintln!("room: {e}"))?;
                 let first = loaded.songs.first().ok_or(LoadProblem::Download)?;
                 Ok(Box::new(SharedSong {
                     entry: first.entry.clone(),
-                    index,
+                    index: prepared.index,
                     pack: first.pack.clone(),
                     banner: first.entry.banner.as_deref().map(|b| first.source(b)),
+                    live: prepared.live,
                 }))
             })();
             let _ = tx.send(News::PreparedShared {

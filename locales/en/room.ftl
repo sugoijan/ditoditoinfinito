@@ -147,6 +147,12 @@ room-load-cpu = The CPUs cannot play this chart. Choose another.
 # An online room's song could not be downloaded from the room's share.
 room-load-download = The room's song could not be downloaded.
 
+# An online room that plays its stages live: this device worked out a
+# different attack plan from the stage's chart than the room has (another
+# version of the game, or another copy of the chart), so it sits the stage
+# out.
+room-load-plan = This device sees the stage's attacks differently from the room, so you sit this stage out.
+
 # Variables:
 #   $max (Number) - the most stages a match may have
 room-rules-stage-count = A match has 1 to { $max } stages.
@@ -872,6 +878,9 @@ room-state-sitting-out = Sitting out
 room-state-failed-download = Download failed
 room-state-failed-unreadable = Song unreadable
 room-state-failed-changed = Chart changed
+# The same place: their device worked out the stage's attacks differently
+# from the room (they sit the stage out).
+room-state-failed-plan = Attacks differ
 
 # The heading over the players' match points in the players panel on the
 # room's song select (about 8 letters, in small capitals' place).
