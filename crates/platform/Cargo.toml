@@ -9,7 +9,6 @@ repository.workspace = true
 description = "DitoDitoInfinito: platform crate"
 
 [dependencies]
-ddi-chart.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # Pure-Rust audio decoding (Ogg Vorbis and MP3), the fallback for files the

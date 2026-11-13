@@ -1322,7 +1322,6 @@ dependencies = [
 name = "ddi-platform"
 version = "0.1.0"
 dependencies = [
- "ddi-chart",
  "rubato",
  "rusty-opus",
  "serde",
@@ -7701,7 +7700,6 @@ dependencies = [
  "ddi-library",
  "ddi-noteskin",
  "ddi-platform",
- "ddi-render",
  "fluent-syntax",
  "intl_pluralrules",
  "miniz_oxide 0.9.1",

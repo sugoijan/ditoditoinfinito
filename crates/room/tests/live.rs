@@ -1062,8 +1062,7 @@ fn a_final_attack_holds_the_decision_and_its_knockout_is_a_shared_first() {
             r
         })
         .collect();
-    for kk in 0..=k {
-        let at = plan.checkpoints_us[kk];
+    for (kk, &at) in plan.checkpoints_us[..=k].iter().enumerate() {
         let reports: Vec<_> = reps
             .iter_mut()
             .zip(&base)

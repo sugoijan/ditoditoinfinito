@@ -26,7 +26,6 @@ miniz_oxide.workspace = true
 ddi-chart.workspace = true
 ddi-library.workspace = true
 ddi-noteskin.workspace = true
-ddi-render.workspace = true
 ddi-platform.workspace = true
 swc_ecma_minifier = "63"
 swc_common = "26"

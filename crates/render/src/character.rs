@@ -471,8 +471,8 @@ impl CharacterScene {
         let mut capsules_a = [[0., -10., 0., 0.]; 6];
         let mut capsules_b = capsules_a;
         if appearance.is_some_and(|a| a.studio) {
-            for finger in 0..2 {
-                if let [Some(a), Some(b), Some(c)] = self.occluder_joints[finger] {
+            for (finger, &joints) in self.occluder_joints.iter().enumerate() {
+                if let [Some(a), Some(b), Some(c)] = joints {
                     let points = [a, b, c].map(|id| {
                         [
                             pose.worlds[id][12],

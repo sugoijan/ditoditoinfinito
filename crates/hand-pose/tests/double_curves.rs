@@ -42,20 +42,17 @@ fn check_stalled_stance(offset: [f64; 2]) {
         let t = i as f64 / 8000.;
         let s = curve.sample(t);
         let g = model.geometry(&s.pose);
-        for d in 0..2 {
-            let error = g.tips[d]
+        for (d, tip) in g.tips.iter().enumerate() {
+            let error = tip
                 .iter()
                 .zip(plan.targets(t).tips[d])
                 .map(|(a, b)| (a - b).powi(2))
                 .sum::<f64>()
                 .sqrt();
             assert!(error <= 2., "target at {t}: {error}");
-            assert!(g.tips[d][2].abs() <= 0.25, "contact at {t}");
+            assert!(tip[2].abs() <= 0.25, "contact at {t}");
             let center = plan.tile_center(plan.panel_at(d, t));
-            let margin = 11.5
-                - (g.tips[d][0] - center[0])
-                    .abs()
-                    .max((g.tips[d][1] - center[1]).abs());
+            let margin = 11.5 - (tip[0] - center[0]).abs().max((tip[1] - center[1]).abs());
             assert!(margin >= 1., "tile at {t}");
         }
         assert!(g.knuckles.iter().all(|h| *h >= 40.), "knuckles at {t}");

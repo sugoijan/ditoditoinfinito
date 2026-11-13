@@ -37,7 +37,6 @@ ddi-web = { path = "crates/web" }
 ddi-desktop = { path = "crates/desktop", default-features = false }
 ddi-session = { path = "crates/session" }
 ddi-shell = { path = "crates/shell" }
-ddi-svg-worker = { path = "crates/svg-worker" }
 ddi-l10n = { path = "crates/l10n" }
 ddi-room = { path = "crates/room" }
 ddi-share-protocol = { path = "crates/share-protocol" }

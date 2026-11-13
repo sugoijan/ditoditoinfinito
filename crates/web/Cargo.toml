@@ -8,7 +8,10 @@ authors.workspace = true
 repository.workspace = true
 description = "DitoDitoInfinito: the web shell (wasm only; run through the `ddi` crate)"
 
-[dependencies]
+# The crate is empty natively (`#![cfg(target_arch = "wasm32")]`), so its
+# dependencies are wasm's alone: a native workspace build neither builds
+# them nor reports them unused.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
 ddi-actor.workspace = true
 ddi-chart.workspace = true
 ddi-engine.workspace = true
