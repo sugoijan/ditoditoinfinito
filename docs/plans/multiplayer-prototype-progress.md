@@ -1297,7 +1297,11 @@ or a local one; never part of the game's menus.
   2 s after its last note. Each bot's name, level and personality come
   from the CPU roster (`cpu_roster.json`) in an order drawn from the
   run's seed, or from `--names`, `--level`, `--personality`. It is not a
-  skill-tuned player and plays nothing but taps.
+  skill-tuned player and plays nothing but taps. `--level A-B`
+  (2026-11-13) spreads the bots over that inclusive range: with as many
+  bots as levels every level is used, with fewer each takes a distinct
+  one; which bot gets which is drawn from `--seed` (the run's first line
+  says each bot's level).
 - **The host bot** (`--host`): makes a room, prints its invite link,
   saves its Rules (`--stages N`), waits for players (`--wait-for N`,
   default 2), rests on a song (`--rest S`, default 8 s; the others see

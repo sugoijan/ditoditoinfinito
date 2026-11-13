@@ -14,7 +14,9 @@
 //! (`ReportOutcome`, self-reported as everyone's is). Its play is
 //! `ddi_engine::cpu`'s [`Opponent`] (the chart's tap-only copy, a level
 //! relative to the chart and a personality from the CPU roster or the
-//! flags) judged on a real-time song clock: never a skill-tuned player.
+//! flags: `--level N` puts every bot at level N, `--level A-B` spreads
+//! them over that range, [`spread_levels`]) judged on a real-time song
+//! clock: never a skill-tuned player.
 //! In a room that plays live (`docs/plans/multiplayer-online-play.md`) a
 //! bot plays as a person's device does: it offers or compares the battle
 //! plan, says it plays live, starts its song clock at the room's instant,
@@ -77,8 +79,11 @@ pub struct Options {
     pub site: Option<String>,
     /// Bots' names (`--names`), else the CPU roster's.
     pub names: Vec<String>,
-    /// A level, from 1, and a personality for every bot, over the roster's.
-    pub level: Option<u8>,
+    /// The bots' levels, from 1, over the roster's: an inclusive range
+    /// (one level: every bot at it), spread over the bots in an order
+    /// drawn from the seed ([`spread_levels`]).
+    pub level: Option<(u8, u8)>,
+    /// A personality for every bot, over the roster's.
     pub personality: Option<String>,
     /// The host's songs: these folders' (`--songs`), else the library's
     /// (the bundled songs and the settings' folders).
@@ -131,7 +136,9 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   --api URL            the server (else DDI_API_URL, else the production one)
   --site URL           the game's page for invite links
   --names A,B,…        the bots' names (else the CPU roster's)
-  --level 1-10         every bot's CPU level (else the roster's)
+  --level N | A-B      every bot's CPU level N (1 to 10), or levels spread over
+                       A to B inclusive in an order drawn from --seed (else
+                       the roster's)
   --personality P      every bot's personality: a preset or seven multipliers
   --songs DIR          the host's songs from this folder (repeatable)
   --pick ID[:N],…      the host's songs in this order (chart index N)
@@ -184,14 +191,7 @@ impl Options {
                         .map(String::from)
                         .collect()
                 }
-                "--level" => {
-                    let l = value(i, a)?.parse::<u8>().ok();
-                    let levels = ddi_engine::cpu::LEVELS as u8;
-                    o.level = Some(
-                        l.filter(|l| (1..=levels).contains(l))
-                            .ok_or(format!("--level takes 1 to {levels}"))?,
-                    );
-                }
+                "--level" => o.level = Some(parse_levels(value(i, a)?)?),
                 "--personality" => {
                     let p = value(i, a)?;
                     Skills::parse(p).map_err(|e| format!("--personality: {e}"))?;
@@ -287,6 +287,58 @@ pub struct Profile {
     pub skills: String,
 }
 
+/// `--level`'s value: one level (`7`, every bot at it) or an inclusive
+/// range (`5-10`), each from 1 to the engine's ten.
+fn parse_levels(v: &str) -> Result<(u8, u8), String> {
+    let levels = ddi_engine::cpu::LEVELS as u8;
+    let bad = || format!("--level takes a level from 1 to {levels}, or a range such as 5-{levels}");
+    let level = |s: &str| {
+        s.trim()
+            .parse::<u8>()
+            .ok()
+            .filter(|l| (1..=levels).contains(l))
+    };
+    let (lo, hi) = match v.split_once('-') {
+        Some((a, b)) => (level(a).ok_or_else(bad)?, level(b).ok_or_else(bad)?),
+        None => {
+            let l = level(v).ok_or_else(bad)?;
+            (l, l)
+        }
+    };
+    if lo > hi {
+        return Err(format!("--level {v}: the range goes from the lower level to the higher"));
+    }
+    Ok((lo, hi))
+}
+
+/// `count` bots' levels over `lo..=hi`, spread rather than clumped: with
+/// at least as many bots as levels every level is used (none more than
+/// once more than another), with fewer the bots take distinct levels
+/// evenly apart; which bot gets which, and with fewer bots where the
+/// levels sit, drawn from `seed`.
+pub fn spread_levels(lo: u8, hi: u8, count: usize, seed: u64) -> Vec<u8> {
+    let span = usize::from(hi - lo) + 1;
+    let mut x = mix(seed, 0x6c65_7665_6c73) | 1;
+    let mut next = || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x
+    };
+    let mut levels: Vec<u8> = if count >= span {
+        (0..count).map(|n| lo + (n % span) as u8).collect()
+    } else {
+        let off = (next() % count.max(1) as u64) as usize;
+        (0..count)
+            .map(|n| lo + ((n * span + off) / count) as u8)
+            .collect()
+    };
+    for i in (1..levels.len()).rev() {
+        levels.swap(i, (next() % (i as u64 + 1)) as usize);
+    }
+    levels
+}
+
 /// The run's bots' profiles: the names given, else the CPU roster's in an
 /// order drawn from `seed`; each its roster level and personality unless
 /// the options set them (a named bot not on the roster: level 8,
@@ -302,6 +354,9 @@ pub fn profiles(o: &Options, count: usize, seed: u64) -> Vec<Profile> {
         x ^= x << 17;
         order.swap(i, (x % (i as u64 + 1)) as usize);
     }
+    let levels = o
+        .level
+        .map(|(lo, hi)| spread_levels(lo, hi, count, seed));
     (0..count)
         .map(|n| {
             let from_roster = if o.names.is_empty() {
@@ -315,8 +370,9 @@ pub fn profiles(o: &Options, count: usize, seed: u64) -> Vec<Profile> {
                 .cloned()
                 .or_else(|| from_roster.map(|c| c.name.clone()))
                 .unwrap_or_else(|| format!("Bot {}", n + 1));
-            let level = o
-                .level
+            let level = levels
+                .as_ref()
+                .and_then(|l| l.get(n).copied())
                 .or_else(|| from_roster.map(|c| c.level))
                 .unwrap_or(8);
             Profile {
@@ -1473,8 +1529,10 @@ mod tests {
         );
         assert_eq!(
             (o.level, o.personality.as_deref()),
-            (Some(2), Some("jacks"))
+            (Some((2, 2)), Some("jacks"))
         );
+        let o = Options::parse(&args("--mp-bots --host --guests 3 --level 5-10")).unwrap();
+        assert_eq!(o.level, Some((5, 10)));
         for bad in [
             "--mp-bots",
             "--mp-bots --guests 2",
@@ -1482,6 +1540,11 @@ mod tests {
             "--mp-bots --host --guests 8",
             "--mp-bots --host --level 11",
             "--mp-bots --host --level 0",
+            "--mp-bots --host --level 7-3",
+            "--mp-bots --host --level 0-4",
+            "--mp-bots --host --level 3-11",
+            "--mp-bots --host --level 3-",
+            "--mp-bots --host --level 3..5",
             "--mp-bots --host --personality wobbly",
             "--mp-bots --host --stages 0",
             "--mp-bots --host --guests 2 --names A,B",
@@ -1516,6 +1579,43 @@ mod tests {
         let b = profiles(&o, 2, 7);
         assert_eq!(b[0].name, "Alpha");
         assert_eq!((b[1].level, b[1].skills.as_str()), (4, "stream"));
+        // A range: the bots spread over it, the same for the same seed.
+        let o = Options::parse(&args("--mp-bots --host --guests 5 --level 5-10")).unwrap();
+        let c = profiles(&o, 6, 7);
+        let mut levels: Vec<usize> = c.iter().map(|p| p.level + 1).collect();
+        assert_eq!(c, profiles(&o, 6, 7));
+        levels.sort_unstable();
+        assert_eq!(levels, vec![5, 6, 7, 8, 9, 10]);
+    }
+
+    /// A range's levels: every one used where there are enough bots, none
+    /// more than once more than another; distinct where there are fewer;
+    /// always within the range; the order (and where fewer sit) by seed.
+    #[test]
+    fn a_level_range_is_spread_over_the_bots() {
+        for (lo, hi) in [(1u8, 10u8), (5, 10), (3, 4), (7, 7)] {
+            let span = usize::from(hi - lo) + 1;
+            for count in 1..=8 {
+                for seed in 0..20 {
+                    let l = spread_levels(lo, hi, count, seed);
+                    assert_eq!(l.len(), count);
+                    assert!(l.iter().all(|x| (lo..=hi).contains(x)), "{l:?}");
+                    let uses: Vec<usize> = (lo..=hi)
+                        .map(|v| l.iter().filter(|x| **x == v).count())
+                        .collect();
+                    if count >= span {
+                        let (min, max) = (uses.iter().min().unwrap(), uses.iter().max().unwrap());
+                        assert!(*min >= 1 && max - min <= 1, "{lo}-{hi} x{count}: {l:?}");
+                    } else {
+                        assert!(uses.iter().all(|u| *u <= 1), "{lo}-{hi} x{count}: {l:?}");
+                    }
+                }
+            }
+        }
+        assert_eq!(spread_levels(5, 10, 4, 3), spread_levels(5, 10, 4, 3));
+        let orders: std::collections::BTreeSet<Vec<u8>> =
+            (0..20).map(|s| spread_levels(5, 10, 6, s)).collect();
+        assert!(orders.len() > 5, "the seed decides the order");
     }
 
     fn beatucada() -> ddi_chart::Song {

@@ -1462,12 +1462,13 @@ Rust and the browser are implementation details, not advertised features.
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--mp-bots [--host] [--join LINK] [--guests N] [--api URL] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
-  [--pick ID[:N],…] [--names A,B] [--level 1-10] [--personality P]`
+  [--pick ID[:N],…] [--names A,B] [--level N|A-B] [--personality P]`
   (DEVELOPMENT TOOL: bots in a private online room, played by the CPU,
   no window or sound; the admin share token from `DDI_SHARE_TOKEN`;
   locally `DDI_SHARE_TOKEN=test-token … --api
   http://127.0.0.1:8787/ditoditoinfinito/api --site http://localhost:8080/`;
-  `--help` lists the flags; Ctrl-C leaves),
+  `--level 5-10` spreads the bots over those levels in an order drawn
+  from `--seed`; `--help` lists the flags; Ctrl-C leaves),
   `--fake-pad "1.0:13+,1.1:13-"`, `--silent` (no sound device: plays run
   on the host clock), `--lang TAG` (the UI's language for the run: `ja`,
   `qps-ploc`, `qps-wide`), `--volume V`, `--seconds N` (quits, printing the
