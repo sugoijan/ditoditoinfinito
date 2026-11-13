@@ -4462,6 +4462,139 @@ rooms."
   the non-live room's row as before), `../ddi-server` (a new room plays
   live with Attacks On).
 
+## The Rules pop-up during a match: said at its top, and a restart (2026-11-13)
+
+The maintainer: "rules can't change mid-match but the Rules pop-up
+doesn't convey that very well, maybe it can both convey it and offer to
+restart the current match, or we can even support mid-match rule changes
+(although it doesn't always work)." The first is built; the second is
+written down as an open option (below).
+
+- **As found**: a match's rules lock when it starts. The Rules pop-up
+  edited the next match's draft (Cancel and Apply) under a small "This
+  match · locked" line with the running match's rules in a few words,
+  and a muted note at the foot ("Changes apply to the next match; this
+  one keeps its rules."). Applying mid-match changed nothing anyone
+  could feel until the match ended. More's Stop match interrupts it.
+- **Said where it cannot be missed** (`room_dialogs::RulesDialog`):
+  while a match runs (`PhaseKind::match_running`: a stage's readiness,
+  countdown, play and song end, the intermission) the pop-up's title is
+  **"Rules for the next match"**, and its top says "This match is on
+  stage 1 of 4 and keeps these rules:", the running match's rules on the
+  next line in the existing few words ("4 stages · 3 CPUs · DDI · Hard
+  timing"), then in gold "The rows below are for the next match." The
+  "Next match" heading and the foot's locked note go (the statement says
+  both). A row whose draft differs from the running match's (stages,
+  timing difficulty, Boos, the CPU roster, Attacks) has a small gold
+  **●** in the margin before its label, and the sentence then adds "●
+  marks what differs from this one." A member who cannot edit sees the
+  same statement over read-only rows, with Close. Between matches (the
+  lobby, a match's results, a stopped match) the pop-up is as it was.
+- **Apply and restart**: beside Apply, at the foot's left (on a row of
+  its own where the pop-up is too narrow), for whoever may both save the
+  rules and stop the match (`Capability::EditNextRules` and
+  `StopMatch`: the owner, co-hosts, administrators), offered only while
+  a match runs, in StopMatch's own phases (all of the above, a stage's
+  play and countdown included: stopping is allowed there, so is this).
+  It checks the draft, then asks once: "Restart the match?" / "This
+  match stops now, and its points so far won't carry over. The next
+  song picked starts a new match under these rules." (Cancel focused
+  first; Restart match). Then the draft is saved and the match stopped;
+  the stopped match's standings pop up as after Stop match (its
+  finished stages, recorded as an interrupted match), and the status
+  line says "Match stopped. Pick a song to start the next match under
+  the new rules." (said wherever a stopped match's next rules differ
+  from the ones it was played under, so also after Apply then Stop
+  match). The plain Apply still saves the draft for the next match.
+  Keyboard (Left from Cancel), controller and touch as the pop-up's
+  other buttons; nothing animates.
+- **One change in the room**: `Command::RestartMatch { rules }`
+  (`ddi-room`): both capabilities checked, the envelope's base against
+  the draft's last save (as `SaveNextRules`), the rules validated, then
+  the same events as `SaveNextRules` followed by `StopMatch`'s, in one
+  revision; refused whole otherwise. Two operators cannot come between
+  the apply and the stop, and a restart made against a draft someone
+  saved since is refused as stale.
+- **Older peers**: additive to protocol 2. The room says its authority
+  reads the command: `RoomPolicy::restart`, true for every room this
+  build makes (`RoomPolicy::default`, which the server's rooms are made
+  from), left out of the JSON when false. A room whose authority
+  predates it (or a room the server stored before its deploy) has no
+  such field: there **the action is not offered** (`RoomClient::
+  may_restart`), never sent, and the plain Apply and More's Stop match
+  work as before. Not the two old commands in turn: that would let
+  another operator's command land between them. Old events only, so an
+  older client mirrors a restart as a save and a stop. **Online rooms
+  need the server's deploy** to offer it (no code change there: the
+  server builds its rooms' policy from the default); practice has it at
+  once.
+- **Tested**: `ddi-room` (`walkthroughs`: refused in the lobby, to a
+  member, with rules the room cannot use and against a stale draft;
+  a co-host's in the intermission as one revision, saved then stopped;
+  refused once stopped; the next match under the new rules; during a
+  stage's play; a policy without the field reads false. `online`: the
+  local authority, `FakeServer` and every mirror agree). `ddi-ui`
+  (`room_tests`: practice before a match as before, the statement, the
+  marks, the action, the question and its Cancel, by keyboard and by
+  controller, the restart, the status line, the pop-up after it, the
+  next pick under the new rules; an online room's member read-only with
+  no action, a co-host restarting for everyone, a room from before the
+  command never offered or sent it while its Apply still saves), the
+  `qps-ploc` walk (the statement with a row marked, the question, the
+  status line), `xtask l10n check`. Headless Chrome and Firefox in CPU
+  practice at 1280×720 and 844×390, English and Japanese
+  (`target/scratch/mp/rules/shots/`).
+
+- **Open**: after a restart (and after Stop match) the stopped match's
+  standings pop up even where no stage was finished, a table of zeros.
+  Skip them there?
+
+### The other option, not built: changing rules from the next stage on
+
+The maintainer's second alternative: rules changed during a match, taking
+effect from its next stage. For the maintainer to decide.
+
+- **What could change between stages**: the rules each stage is played
+  under on its own: Timing difficulty, Boos, Attacks. A stage's prompt
+  already says its rules ("Rules: DDI · Hard timing · Boos"), its play,
+  its CPUs and the bots are built from `StageRules` per stage, and the
+  battle preset (survival or attacks) is chosen per stage. The model
+  would need the rules a stage was played under recorded on the stage
+  (today they are the match's, `MatchState::rules`), a command that
+  edits the running match's per-stage rules (refused once the next
+  stage's readiness or countdown has begun, or applying from the stage
+  after it), and an event every mirror applies. Additive as above.
+- **What could not without unfairness or model changes**: the number of
+  stages once some are played (fewer could end a match early after a
+  favorable stage; more changes what "the match" means for the award
+  scheme and the standings' columns); the practice roster or the seats
+  once standings exist (a CPU added mid-match has no points for the
+  stages before; one removed leaves its points or erases them); the
+  award scheme (points by place) mid-match; and anything that changes
+  who is seated.
+- **What "doesn't always work" means**: a stage counted down or in play
+  keeps its rules, so a change lands a stage later than it seems to;
+  online, a change racing a pick or a start must be ordered by the
+  room's revision (the base check), and someone who loaded the stage
+  under the old rules would play the new ones; CPUs' plans are built
+  per stage and would follow.
+- **What the standings would mean**: points from stages played under
+  different rules added together, as today's stages on different songs
+  are. Fair if the same rule applied to everyone in each stage, but a
+  Hard stage's points are no harder won than an Easy one's, so the
+  results should say that the rules changed and from which stage
+  (e.g. the standings' column headings marked, the match's record
+  keeping each stage's rules).
+- **What the room would have to tell everyone**: a status line when
+  the change is saved ("From stage 3: Hard timing · Boos"), the next
+  stage's prompt saying its rules (already there), and the match's
+  results noting the stages played under other rules.
+- **Cost**: the model (per-stage rules, a command, an event, the
+  record), the server's deploy, the Rules pop-up's form for "from the
+  next stage" beside "for the next match", the standings' marks. A
+  restart (built) covers the common case of a host who set the wrong
+  rules before the first stage was played.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
