@@ -5001,6 +5001,46 @@ the drift's, each shift the other's correction, the delay as without
 drift and no stall). The study prints a third row, "mapped once, kept in
 step".
 
+### The browser's Back during a stage's play
+
+The web's play of a room's stage pushes a history entry of its own over
+the play's (the same address, its trail one longer; `GameCanvas::guard_stage`,
+`router::push_guard`). The browser's Back pops it: the stage is left as the
+play's quit leaves it (`PlaySession::leave`: a forfeit, "Left the stage"
+over the dimmed field, the stage watched on: online the others' streams, in
+practice the CPUs judged here), the page staying on the play's address.
+Forward comes back to the guard's entry and changes nothing; once the stage
+was left (or the play is over, on its results), a Back to the play's entry
+goes on back at once (one `history.back()`, to another address), so a
+second Back reaches the room's song select in one press and the results'
+own way back counts the guard. No `go` of ours waits on another
+(`ddi_ui::back_stack`'s rule).
+
+**Where the question is asked**: over the stage's results, not over the
+watching view. Neither shell draws a screen's dialog over a running play
+(the desktop's close request asks over the results the same way:
+`Shell::ask_after_play`), and drawing the UI over the play view is more
+than this item. Once the results of a stage left by Back are up, an
+online room's question is asked by itself (`ResultsScreen::after_back`:
+"You left this stage: no points for it." and what leaving the room does,
+Stay chosen first): Stay keeps the results, Leave tells the room and goes
+to the multiplayer home (`crate::room::results_shell`). The player can
+watch on as long as they like before that, or skip to the results at once.
+**Practice** forfeits and watches on with nothing asked (the maintainer:
+practice is never asked about); leaving outright was considered and not
+chosen: Back then does what the play's own quit does, one rule for both.
+
+Tested: `ddi-ui`
+`a_stages_results_after_the_browsers_back_ask_and_leave_only_on_leave`
+(online over the fake room: asked by itself with the stage's sentence
+first, Stay kept and not asked again, Leave telling the room and leaving
+through the shell; practice asks nothing). Headless Chrome and Firefox
+(`target/scratch/mp/left/back.mjs`, practice, autoplayed): the Back
+forfeits and watches on at the same address, Forward changes nothing,
+Enter skips to the results (nothing asked, the line Left and QUIT), a Back
+from the results reaches the room in one press, and a Forward from there
+shows the room (an address the room did not hand over).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

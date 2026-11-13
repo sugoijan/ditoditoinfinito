@@ -103,6 +103,11 @@ pub(super) struct StageMode {
     /// The game is quitting once the room has answered the player's
     /// leaving, or at this time on the UI's clock.
     quit_at: Option<f64>,
+    /// The player left the stage's play by the browser's Back
+    /// ([`ResultsScreen::after_back`]): the room's question is asked once
+    /// these results are up (where leaving the room costs something), and
+    /// its Leave leaves through this shell.
+    back: Option<(crate::screens::room::RoomShell, bool)>,
 }
 
 /// The stage's standings as the debug state shows them
@@ -965,7 +970,22 @@ impl ResultsScreen {
             time: 0.0,
             watched: false,
             quit_at: None,
+            back: None,
         });
+        self
+    }
+
+    /// The player left the stage's play by the browser's Back (the web:
+    /// the stage forfeited, watched on to these results): the room's
+    /// question is asked over them once they are up ("Leave the room?",
+    /// saying first that the stage was left), where leaving the room
+    /// costs something (an online room; practice is never asked). Stay
+    /// keeps these results (the forfeit is not undone); Leave leaves the
+    /// room through `shell`, as the room's song select's Back does.
+    pub fn after_back(mut self, shell: crate::screens::room::RoomShell) -> ResultsScreen {
+        if let Some(sm) = &mut self.stage {
+            sm.back = Some((shell, false));
+        }
         self
     }
 
@@ -997,6 +1017,11 @@ impl ResultsScreen {
             && !room::ask_leave_after(&self.env, &sm.room, room::LeaveBy::Quit, left_stage, cx)
         {
             cx.request(crate::UiRequest::Quit);
+        }
+        if room::left_by(msg) == Some(room::LeaveBy::Back)
+            && let Some((shell, _)) = sm.back.clone()
+        {
+            room::leave_now(&sm.room, &shell, room::LeaveBy::Back, cx);
         }
         if room::left_by(msg) == Some(room::LeaveBy::Quit) {
             let told = {
@@ -1265,6 +1290,22 @@ impl ResultsScreen {
         let room = sm.room.clone();
         room.borrow_mut()
             .tick((cx.clock() * 1000.0).max(0.0) as u64);
+        if let Some((_, asked)) = &mut sm.back
+            && !*asked
+            && cx.is_current_screen()
+        {
+            *asked = true;
+            crate::screens::room::ask_leave_after(
+                &self.env,
+                &room,
+                crate::screens::room::LeaveBy::Back,
+                true,
+                cx,
+            );
+        }
+        let Some(sm) = &mut self.stage else {
+            return;
+        };
         if let Some(at) = sm.quit_at
             && (cx.time() >= at || room.borrow().link_state().ended())
         {

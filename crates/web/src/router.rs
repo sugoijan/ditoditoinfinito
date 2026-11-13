@@ -723,6 +723,19 @@ fn trail() -> ddi_ui::navigation::RouteTrail {
         .unwrap_or_else(|| ddi_ui::navigation::RouteTrail::at(current))
 }
 
+/// Pushes an entry of the address shown over its own, marked `key`, its
+/// trail one longer (the way back from it counts it): a page's guard of
+/// the browser's Back (a room's stage's play). Whether it was pushed.
+pub(crate) fn push_guard(key: &str) -> bool {
+    let Some(history) = web_sys::window().and_then(|w| w.history().ok()) else {
+        return false;
+    };
+    let state = history_state();
+    put_trail(&state, &trail().push(hash()));
+    let _ = js_sys::Reflect::set(&state, &key.into(), &true.into());
+    history.push_state_with_url(&state, "", None).is_ok()
+}
+
 fn put_trail(state: &js_sys::Object, trail: &ddi_ui::navigation::RouteTrail) {
     if let Ok(text) = serde_json::to_string(trail) {
         let _ = js_sys::Reflect::set(state, &NAVIGATION.into(), &text.into());

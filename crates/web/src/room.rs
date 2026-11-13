@@ -392,6 +392,27 @@ pub(crate) fn back_route() -> Route {
 
 /// The room the last stage handed over is of (its results ask it how the
 /// stage went).
+/// The room's calls from a stage's results the player reached by the
+/// browser's Back during its play (`ResultsScreen::after_back`): the
+/// room's question's Leave leaves the room (an online one told and
+/// forgotten, a practice forgotten) for the multiplayer home.
+pub(crate) fn results_shell() -> ddi_ui::screens::room::RoomShell {
+    use ddi_ui::UiRequest;
+    use ddi_ui::screens::room::RoomCall;
+    Rc::new(move |call, cx| match call {
+        RoomCall::Leave => cx.request(UiRequest::Navigate(Route::Multiplayer.to_hash())),
+        RoomCall::Discard => {
+            if last_room().try_borrow().is_ok_and(|r| r.is_online()) {
+                crate::online::discard();
+            } else {
+                discard();
+            }
+            cx.request(UiRequest::Navigate(Route::Multiplayer.to_hash()));
+        }
+        _ => {}
+    })
+}
+
 pub(crate) fn last_room() -> SharedRoom {
     LAST.with(|l| l.borrow().as_ref().map(|(_, r)| r.clone()))
         .unwrap_or_else(current)

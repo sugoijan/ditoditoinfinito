@@ -3543,6 +3543,80 @@ fn a_stages_results_ask_before_the_game_closes_and_say_the_stage_was_left() {
     assert_eq!(quits(&h), 1);
 }
 
+/// The browser's Back during an online stage's play (the web): the stage
+/// is forfeited and watched on, and once its results are up the room's
+/// question is asked by itself, saying first that the stage was left
+/// (`ResultsScreen::after_back`). Stay keeps the results (and they are
+/// not asked again); Leave tells the room and leaves it through the
+/// shell (the home). CPU practice's results ask nothing.
+#[test]
+fn a_stages_results_after_the_browsers_back_ask_and_leave_only_on_leave() {
+    use super::data::ResultsKind;
+    use super::results::{ResultsActions, ResultsScreen};
+    let env = env();
+    let left: Rc<RefCell<u32>> = Rc::default();
+    let shell = |left: &Rc<RefCell<u32>>| -> RoomShell {
+        let left = left.clone();
+        Rc::new(move |call, _cx| {
+            if matches!(call, RoomCall::Leave | RoomCall::Discard) {
+                *left.borrow_mut() += 1;
+            }
+        })
+    };
+    let results = |room: &SharedRoom| {
+        let mut data = sample::results();
+        data.kind = ResultsKind::Stage;
+        data.quit = true;
+        ResultsScreen::new(env.clone(), data, ResultsActions::default())
+            .with_room(room.clone(), ddi_room::StageId(1))
+            .after_back(shell(&left))
+    };
+    let t = Three::new(true);
+    let mut h = harness();
+    h.push(results(&t.alice));
+    t.settle(400, &mut [&mut h]);
+    h.run(0.3);
+    assert!(asked(&h), "asked by itself: {}", top(&h));
+    let texts = h.texts();
+    let line = |want: &str| texts.iter().position(|t| t == want);
+    assert!(
+        line("You left this stage: no points for it.") < line("You are the host. bob will become the host."),
+        "{texts:?}"
+    );
+    assert_eq!(h.ui.focused(), Some("Cancel"), "Stay is chosen first");
+    // Stay: the results, not asked again.
+    h.key("Escape", "Escape");
+    h.run(0.5);
+    assert_eq!(top(&h), "results");
+    assert!(!asked(&h));
+    assert_eq!(*left.borrow(), 0);
+    // Asked again by a second Back's way: the results' own question (the
+    // close request's path) and Leave: the room told and left.
+    h.ui.broadcast(crate::Message::new(crate::CLOSE_REQUESTED));
+    h.run(0.3);
+    assert!(asked(&h));
+    let t2 = Three::new(true);
+    let mut h = harness();
+    h.push(results(&t2.alice));
+    t2.settle(400, &mut [&mut h]);
+    h.run(0.3);
+    press(&mut h, "Confirm");
+    t2.settle(400, &mut [&mut h]);
+    h.run(0.5);
+    assert_eq!(*left.borrow(), 1, "left through the shell");
+    let s = t2.server.borrow().state().clone();
+    assert!(s.member(ddi_room::ParticipantId(1)).unwrap().left, "the room told");
+    // CPU practice: nothing asked.
+    let room = RoomClient::shared(0, 1);
+    let s = &library("dance-single").songs[0];
+    room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+    let mut h = harness();
+    h.push(results(&room));
+    h.run(0.5);
+    assert!(!asked(&h));
+    assert_eq!(*left.borrow(), 1);
+}
+
 /// A private online room that plays live (the maintainer, 2026-11-13):
 /// its Rules show Attacks On by default, the host turns them Off (the
 /// summary then says "No attacks") and Reset (the Rules' first form)

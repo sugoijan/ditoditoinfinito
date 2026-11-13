@@ -174,6 +174,9 @@ pub(crate) enum Msg {
     DeviceLost,
     /// Escape/Backspace outside of play: leave the screen.
     BackRequested,
+    /// The browser's Back during a room's stage's play: the history entry
+    /// the play pushed was popped ([`GameCanvas::guard_stage`]).
+    BackDuringStage,
     SongLoaded(Result<Rc<Loaded>, LoadError>),
     /// The answer to asking for a linked song's folder.
     Access(bool),
@@ -425,7 +428,17 @@ pub(crate) struct GameCanvas {
     ghost: Option<ddi_ui::state::history::Ghost>,
     /// The announcer studio's scene in play, if this is one.
     scene: Option<SceneState>,
+    /// A room's stage's play guards the browser's Back with a history
+    /// entry of its own ([`GameCanvas::guard_stage`]): its listener.
+    stage_guard: Option<EventListener>,
+    /// The browser's Back left the stage's play (a forfeit, watched on):
+    /// its results ask the room's question ([`ResultsScreen::after_back`]).
+    left_by_back: bool,
 }
+
+/// The history entry's key a stage's play pushes over its own
+/// ([`GameCanvas::guard_stage`]).
+const STAGE_GUARD: &str = "ddiStageGuard";
 
 /// The announcer studio's scene in play (`Props::scene`,
 /// `crate::studio_scene`): what it is said with and how it is staged.
@@ -926,6 +939,8 @@ impl Component for GameCanvas {
             replay_check: None,
             ghost: None,
             scene,
+            stage_guard: None,
+            left_by_back: false,
         }
     }
 
@@ -1278,6 +1293,26 @@ impl GameCanvas {
             Msg::BackRequested if self.scene.is_some() => {
                 // A scene leaves at once, whatever shows.
                 self.leave_scene(ctx);
+                false
+            }
+            Msg::BackDuringStage => {
+                // The stage is left as the play's quit leaves it (a
+                // forfeit, watched on where the others play on: online
+                // they are streamed, in practice judged here); the room's
+                // question follows on the results (online; practice is
+                // never asked). The page stays on the play's address.
+                if matches!(self.stage, Stage::Playing) && !self.left_by_back {
+                    self.left_by_back = true;
+                    if let Some(game) = self.game.borrow_mut().as_mut() {
+                        game.leave_play();
+                    }
+                } else if let Some(history) = web_sys::window().and_then(|w| w.history().ok()) {
+                    // Left already, or the play is over (its results, on
+                    // the guard's entry): the guard is passed through, the
+                    // Back goes where it would have (one `go`, one
+                    // `popstate`, to another address).
+                    let _ = history.back();
+                }
                 false
             }
             Msg::BackRequested => {
@@ -2479,9 +2514,50 @@ impl GameCanvas {
                     );
                 }
                 self.stage = Stage::Playing;
+                self.guard_stage(ctx);
             }
             Err(e) => self.stage = Stage::Error(LoadFailure::Other(e)),
         }
+    }
+}
+
+impl GameCanvas {
+    /// A room's stage's play guards the browser's Back: an entry of its
+    /// own pushed over the play's (the same address, so no page changes),
+    /// whose pop is the Back ([`Msg::BackDuringStage`]: a forfeit, watched
+    /// on; the room's question on the results). One entry, pushed once,
+    /// never moved by a `go` of ours: a later Back leaves the play's
+    /// address as any Back does, Forward from there comes back to the
+    /// guard's entry (nothing more to do); once the stage was left (or
+    /// the play is over), a Back to the play's entry goes on back at once.
+    /// The guard's trail is one longer, so the results' own way back
+    /// counts it.
+    fn guard_stage(&mut self, ctx: &Context<Self>) {
+        if ctx.props().room_stage.is_none() || self.stage_guard.is_some() {
+            return;
+        }
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        if !crate::router::push_guard(STAGE_GUARD) {
+            return;
+        }
+        let route = window.location().hash().unwrap_or_default();
+        let link = ctx.link().clone();
+        self.stage_guard = Some(EventListener::new(&window, "popstate", move |_| {
+            // A pop to the play's own entry (its address unchanged, the
+            // guard's key gone): the Back.
+            let here = web_sys::window()
+                .and_then(|w| w.location().hash().ok())
+                .unwrap_or_default();
+            let guarded = js_sys::Reflect::get(&crate::router::history_state(), &STAGE_GUARD.into())
+                .ok()
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if here == route && !guarded {
+                link.send_message(Msg::BackDuringStage);
+            }
+        }));
     }
 }
 
@@ -3346,6 +3422,9 @@ impl GameCanvas {
             Some(order) if order.watching => results
                 .with_room(crate::room::last_room(), order.stage)
                 .watched(),
+            Some(order) if self.left_by_back => results
+                .with_room(crate::room::last_room(), order.stage)
+                .after_back(crate::room::results_shell()),
             Some(order) => results.with_room(crate::room::last_room(), order.stage),
             None => results,
         });

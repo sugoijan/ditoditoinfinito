@@ -483,6 +483,15 @@ impl GameLoop {
     }
 
     /// The play taken back (a restart's sound and music).
+    /// The player leaves the play from outside it (the browser's Back
+    /// during a stage's play): its quit made whole (`PlaySession::leave`:
+    /// a stage's is a forfeit, watched on where others play on).
+    pub(crate) fn leave_play(&mut self) {
+        if let Some(s) = self.session.as_mut() {
+            s.leave();
+        }
+    }
+
     pub(crate) fn take_session(&mut self) -> Option<PlaySession> {
         self.session.take()
     }
