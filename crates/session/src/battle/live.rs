@@ -395,6 +395,8 @@ pub(crate) struct Live {
     /// commitments, not their records): those whose deadline had passed
     /// at its time.
     snapshot_known: usize,
+    /// [`Live::cpu_lead_us`].
+    cpu_lead_us: i64,
 }
 
 /// A judge event as a moment of the stream (none: nothing a field
@@ -533,9 +535,10 @@ impl Live {
         let (rules, view_delay) = {
             let room = handle.room.borrow();
             let rules = room.live_rules();
-            let delay = room.view_delay(&rules);
+            let delay = room.view_delay_for(stage, &rules);
             (rules, delay)
         };
+        let cpu_lead_us = handle.room.borrow().cpu_lead_ms(stage) as i64 * 1_000;
         let delay = view_delay.delay_ms() / 1_000.0;
         let seats = people
             .iter()
@@ -592,7 +595,15 @@ impl Live {
             rungs: Vec::new(),
             steps_sent: 0,
             snapshot_known: 0,
+            cpu_lead_us,
         }
+    }
+
+    /// How far ahead of this play's song time the CPUs computed here are
+    /// judged (µs): a member watching with the music delayed judges them
+    /// on the room's song time (`LiveRoom::cpu_lead_ms`).
+    pub(crate) fn cpu_lead_us(&self) -> i64 {
+        self.cpu_lead_us
     }
 
     /// The room's client and the shell's clock.

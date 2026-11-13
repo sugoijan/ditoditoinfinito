@@ -1306,7 +1306,9 @@ Rust and the browser are implementation details, not advertised features.
   `StageOrder` (`AUDIENCE_ME`), fed through `room::LiveRoom` (the trait
   `ddi_session::battle::live` reads a member's `RoomClient` or a seat
   by), its music and fields `MUSIC_DELAY_V0` behind the room's song
-  time; `screens/audience.rs` its page between stages
+  time (a member who watches a live stage the same way,
+  `room::WATCH_MUSIC_V0`, `RoomClient::watch_music_ms`);
+  `screens/audience.rs` its page between stages
   (`AudienceScreen`, `AudienceCall`; `ThemeState::audience`); the invite
   page's Watch with the audience (`Online::watch_audience`,
   `OnlineCall::Watch`), members' count on the status line, Host options'

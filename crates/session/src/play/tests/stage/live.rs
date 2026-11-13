@@ -1668,12 +1668,14 @@ fn the_audience_watches_a_live_stage_behind_the_room_with_the_members_fields() {
     // (the same lines, each by its ends' participants), and the count
     // never on the room's status line while the stage is played.
     let mut lines: [std::collections::BTreeSet<(u32, u64, u64)>; 2] = Default::default();
+    let mut member_behind = Vec::new();
     let mut ended = play_out(&r, &mut plays, 200.0, |t, plays| {
         let host = *r.host.borrow();
         let song_t = (wall(host) as f64 - zero.0 as f64) / 1_000.0;
         let a = plays[3].player.judge_time(HostTime(host));
         if song_t > 2.0 {
             behind.push(song_t - a);
+            member_behind.push(song_t - plays[2].player.judge_time(HostTime(host)));
             let line = String::from(ddi_ui::screens::room::status(&r.rooms[0].borrow()));
             assert!(!line.contains("watching"), "{line}");
         }
@@ -1714,6 +1716,17 @@ fn the_audience_watches_a_live_stage_behind_the_room_with_the_members_fields() {
         most_delay + hi * 1_000.0 <= ddi_room::audience::AUDIENCE_V0.presentation_delay_ms as f64,
         "{most_delay} ms beyond {delay} s"
     );
+    // The member who watches hears the music behind the room's song time
+    // too (`WATCH_MUSIC_V0`, 0.4 s with nothing measured before), so that
+    // it matches the fields drawn behind; those who play hear it on time.
+    let music = r.rooms[2].borrow().watch_music_ms(order.stage) as f64 / 1_000.0;
+    assert_eq!(music, 0.4);
+    let (lo, hi) = member_behind
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(l, h), x| (l.min(*x), h.max(*x)));
+    eprintln!("member who watches: the music {lo:.3}..{hi:.3} s behind the room's song time");
+    assert!(lo >= music - 0.06 && hi <= music + 0.1, "{lo:.3}..{hi:.3} for {music}");
+    assert_eq!(r.rooms[0].borrow().watch_music_ms(order.stage), 0);
     // The fields as the member who watches has them.
     let member = plays[2].battle().unwrap();
     let audience = plays[3].battle().unwrap();

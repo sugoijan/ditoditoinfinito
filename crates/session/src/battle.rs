@@ -954,7 +954,7 @@ impl Battle {
         };
         self.log.extend(got.log);
         // The CPUs computed here, to the room's song time now.
-        self.step_online_cpus(&l, &got.others, l.room_now_us(t));
+        self.step_online_cpus(&l, &got.others, l.room_now_us(t) + l.cpu_lead_us());
         let base = self.seats.len();
         let cpu_seat = |p: ParticipantId, seats: &[Seat]| seats.iter().position(|s| s.seat.participant == p);
         for (attack, sender, recipient, first_us, delivered) in got.committed {

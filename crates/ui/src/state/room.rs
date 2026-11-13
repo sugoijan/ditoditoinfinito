@@ -883,7 +883,36 @@ pub struct RoomClient {
     /// A practice room whose roster the settings keep as it changes
     /// (`Settings::practice_roster`): the shells' ([`RoomClient::practice`]).
     remembers_roster: bool,
+    /// The music's delay behind the room's song time of each live stage
+    /// this member watches (ms; fixed as its order is handed over).
+    watch_music: BTreeMap<StageId, u64>,
+    /// The next watched stage's ([`WATCH_MUSIC_V0`]'s rule).
+    watch_music_next: u64,
+    /// The fields' own delay beyond the music, a frame each, over the last
+    /// stage watched: what the next one's music delay follows.
+    watch_lags: Option<(StageId, Vec<f32>)>,
 }
+
+/// How far behind the room's song time a member who watches a live stage
+/// hears its music, so that it matches the others' fields, which are
+/// drawn the view's delay behind (about half a second, `live-v2`;
+/// the maintainer, 2026-11-13): 0.4 s with nothing measured, moved only at
+/// a stage's start (the music is one take) by what the last stage watched
+/// needed beyond it (its fields' own delay's 90th percentile past 100 ms,
+/// rounded up to 50 ms), at most 0.8 s (which leaves the fields 0.2 s of
+/// the live rules' one-second ceiling), down 0.1 s a stage after one that
+/// needed less. The audience's rule ([`crate::state::audience::AudienceView`])
+/// with a member's numbers. A player out of a stage who watches it on
+/// keeps the music on time (it is not moved mid-song), and CPU practice
+/// has no delay. PROVISIONAL (`watch-music-v0`).
+pub const WATCH_MUSIC_V0: crate::state::audience::AudienceView = crate::state::audience::AudienceView {
+    id: "watch-music-v0",
+    music_delay_ms: 400,
+    most_music_delay_ms: 800,
+    rise_above_ms: 100,
+    fall_ms: 100,
+    lag_quantile: 0.9,
+};
 
 /// The room shared by the screens that show it (the room, its song
 /// picker) and kept by the shell while the player goes elsewhere.
@@ -942,6 +971,22 @@ pub trait LiveRoom {
     /// beyond what the music already is (ms; an audience's: its next
     /// stage's music delay follows it). A member keeps nothing.
     fn note_view_delay(&mut self, _stage: StageId, _delay_ms: f64) {}
+    /// [`LiveRoom::view_delay`] for stage `stage`: a member who watches it
+    /// with its music delayed has the fields' delay beyond the music's.
+    fn view_delay_for(
+        &self,
+        _stage: StageId,
+        rules: &ddi_room::live::LiveRules,
+    ) -> ddi_room::live::ViewDelay {
+        self.view_delay(rules)
+    }
+    /// How far ahead of this device's song time (ms) the CPUs it computes
+    /// for `stage` are judged: a member watching with its music delayed
+    /// judges them on the room's song time all the same, so that what it
+    /// reports for them is on time. None for anyone else.
+    fn cpu_lead_ms(&self, _stage: StageId) -> u64 {
+        0
+    }
     /// Stage `stage`'s CPU `cpu` as this device computed it
     /// (`ddi_room::live::cpus`): judged to song µs `through_us`, the
     /// reports it made since and its stream's end, kept and sent where
@@ -1041,12 +1086,55 @@ impl LiveRoom for RoomClient {
             .map_or(0, |c| c.uncertainty_us)
     }
 
+    /// The room's song zero, a member who watches the stage hearing its
+    /// music [`RoomClient::watch_music_ms`] later.
     fn song_zero_at(&self, stage: StageId) -> Option<ddi_room::Millis> {
-        RoomClient::song_zero_at(self, stage)
+        let zero = RoomClient::song_zero_at(self, stage)?;
+        Some(ddi_room::Millis(zero.0 + self.watch_music_ms(stage)))
     }
 
     fn song_zero_in(&self, stage: StageId) -> Option<f64> {
-        RoomClient::song_zero_in(self, stage)
+        let zero = LiveRoom::song_zero_at(self, stage)?;
+        let now = self.room_now()?;
+        Some((zero.0 as f64 - now.0 as f64) / 1_000.0)
+    }
+
+    /// Watching with the music delayed: what is left of the ceiling once
+    /// the music is moved behind, from nothing, as the frames measure (as
+    /// the audience's).
+    fn view_delay_for(
+        &self,
+        stage: StageId,
+        rules: &ddi_room::live::LiveRules,
+    ) -> ddi_room::live::ViewDelay {
+        use ddi_room::live::{VIEW_DELAY_V0, ViewDelay, ViewDelayRules};
+        let music = self.watch_music_ms(stage);
+        if music == 0 {
+            return self.view_delay(rules);
+        }
+        let rules_of = ViewDelayRules {
+            id: "watch-view-delay-v0",
+            floor_ms: 0,
+            ..VIEW_DELAY_V0
+        };
+        let left = (rules.presentation_delay_ms.saturating_sub(music)) as f64;
+        ViewDelay::new(rules_of, left, 0.0)
+    }
+
+    fn cpu_lead_ms(&self, stage: StageId) -> u64 {
+        self.watch_music_ms(stage)
+    }
+
+    /// The fields' own delay beyond the music this frame, where the music
+    /// is delayed: kept for the next watched stage's.
+    fn note_view_delay(&mut self, stage: StageId, delay_ms: f64) {
+        if self.watch_music_ms(stage) == 0 {
+            return;
+        }
+        match &mut self.watch_lags {
+            Some((s, lags)) if *s == stage => lags.push(delay_ms as f32),
+            _ => self.watch_lags = Some((stage, vec![delay_ms as f32])),
+        }
     }
 
     fn tick(&mut self, now_ms: u64) {
@@ -1242,6 +1330,9 @@ impl RoomClient {
             offered: BTreeSet::new(),
             live_preps: BTreeMap::new(),
             remembers_roster: false,
+            watch_music: BTreeMap::new(),
+            watch_music_next: WATCH_MUSIC_V0.music_delay_ms,
+            watch_lags: None,
         };
         room.pump();
         room
@@ -1368,6 +1459,9 @@ impl RoomClient {
             offered: BTreeSet::new(),
             live_preps: BTreeMap::new(),
             remembers_roster: false,
+            watch_music: BTreeMap::new(),
+            watch_music_next: WATCH_MUSIC_V0.music_delay_ms,
+            watch_lags: None,
         };
         room.tick(now_ms);
         room
@@ -3072,7 +3166,23 @@ impl RoomClient {
             }),
         };
         self.launched.insert(stage);
+        // A live stage this member watches: its music delayed to match the
+        // fields, from what the last one watched needed (fixed for it).
+        if order.watching && order.live.is_some() && !self.watch_music.contains_key(&stage) {
+            if let Some((_, lags)) = self.watch_lags.take() {
+                self.watch_music_next = WATCH_MUSIC_V0.next_music_delay(self.watch_music_next, &lags);
+            }
+            self.watch_music.insert(stage, self.watch_music_next);
+        }
         Some(order)
+    }
+
+    /// The music's delay behind the room's song time (ms) for `stage`, a
+    /// live stage this member watches ([`WATCH_MUSIC_V0`]); 0 for a stage
+    /// they play (and after going out of it: it is never moved mid-song),
+    /// and in practice.
+    pub fn watch_music_ms(&self, stage: StageId) -> u64 {
+        self.watch_music.get(&stage).copied().unwrap_or(0)
     }
 
     /// A stage played on this device, reported to its room: an online

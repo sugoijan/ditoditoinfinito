@@ -6366,6 +6366,38 @@ OK kept as the default; three unreadable values falling back).
   competitor's own lines in the focus view; pictures `watch-grid-attack`
   and `watch-focus-attack`, looked at).
 
+### A watching member's music matches the fields
+
+In an online room that plays live, a member who chose Watch heard the song
+on the room's time while the others' fields were drawn the view's delay
+behind it (about half a second). Now their music is put behind too, as
+the audience's is: `WATCH_MUSIC_V0` (`watch-music-v0`, PROVISIONAL,
+`ddi_ui::state::room`), the audience's rule (`AudienceView`) with a
+member's numbers: 0.4 s with nothing measured, fixed when the stage is
+handed over (`RoomClient::watch_music_ms`), the next watched stage's up
+by what the fields still needed beyond it (their 90th percentile past
+100 ms, rounded up to 50 ms) to at most 0.8 s, which leaves the fields
+0.2 s of the live rules' one-second ceiling, down 0.1 s a stage after
+one that needed less. The room client's `LiveRoom` gives the stage's
+song zero that much later (the play's clock is the music's), the fields'
+own delay from nothing beyond it (`LiveRoom::view_delay_for`), and keeps
+the fields' delay a frame (`note_view_delay`). The CPUs such a device
+computes are still judged on the room's song time (`LiveRoom::cpu_lead_ms`,
+`Live::cpu_lead_us`), so what it reports for them, where it is one that
+sends, is not late.
+
+- **CPU practice** has no delay (its CPUs are judged here: nothing is
+  behind) and stays on time.
+- **A player out of the stage who watches on keeps the music on time**
+  until the stage ends: the music is one take, and moving it mid-song is
+  a jump that is heard (or a slow pitch change); the stage's end comes
+  within the song anyway, and their own field, which is on time, is
+  still on screen beside the others'. The fields are drawn behind as
+  before.
+- Tested: `ddi-session` (the audience's live stage, its member who
+  watches: the music 0.400 s behind the room's song time throughout, the
+  players' on time, the fields equal to the audience's at the end).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -6500,6 +6532,12 @@ OK kept as the default; three unreadable values falling back).
 | The standings' attack columns take the combo's place; the summary flows under the lines | `screens::results_stage` (`columns`, `summary_lines`) | With attacks the stage's standings have no max combo | Which column should give way (the combo, the place in the match, the judgments' strip) |
 
 ## Open questions
+
+- Watching (2026-11-13): a watching member's music is delayed to match
+  the fields (`watch-music-v0`). The maintainer wants to explore later
+  whether delayed judgments could be drawn over on-time music and notes
+  instead (the others' hits shown late over a field that scrolls on
+  time), which would need no music delay at all.
 
 - Rooms of 1+72: fields under eight. ANSWERED (the maintainer,
   2026-11-13): "the 12, 6, ... points progression for fewer players too,
