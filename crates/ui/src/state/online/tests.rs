@@ -54,6 +54,8 @@ pub(crate) fn err(status: u16, code: &str) -> Option<ApiResponse> {
 
 pub(crate) const ME: &str = r#"{"player_id":"dev:carol","login":"carol","display_name":"Carol","admin":false,"expires_at_ms":1}"#;
 pub(crate) const INVITE: &str = "Room000001.abcdefghijABCDEFGHIJ01";
+/// The same room's watch-only link's invite.
+pub(crate) const WATCH_INVITE: &str = "Room000001.watchwatchWATCHWATCH01";
 
 pub(crate) struct Rig {
     pub(crate) online: SharedOnline,
@@ -471,8 +473,9 @@ pub(crate) mod room {
                 // reducer's join).
                 (Method::Get, p) if p.starts_with("/invites/") => {
                     let full = s.borrow().state().players_full();
+                    let kind = if p.ends_with(WATCH_INVITE) { "watch" } else { "play" };
                     ok(&format!(
-                        r#"{{"room_id":"Room000001","room_name":"After Hours","host_display_name":"alice","phase":"lobby","admission":"open","players_full":{full},"members":2}}"#
+                        r#"{{"room_id":"Room000001","room_name":"After Hours","host_display_name":"alice","phase":"lobby","admission":"open","players_full":{full},"kind":"{kind}","members":2}}"#
                     ))
                 }
                 (Method::Post, "/rooms/Room000001/join") => {
@@ -481,10 +484,13 @@ pub(crate) mod room {
                         .state()
                         .member_by_identity(&identity)
                         .is_some_and(|m| !m.left);
-                    let id = s
-                        .borrow_mut()
-                        .join(identity.clone(), who, Intent::Play)
-                        .unwrap();
+                    let watch = req.body.as_deref().unwrap_or("").contains(WATCH_INVITE);
+                    let id = if watch {
+                        s.borrow_mut().join_watch_only(identity.clone(), who)
+                    } else {
+                        s.borrow_mut().join(identity.clone(), who, Intent::Play)
+                    }
+                    .unwrap();
                     let intent = match s.borrow().state().member(id).unwrap().intent {
                         Intent::Play => "play",
                         Intent::Watch => "watch",
@@ -495,7 +501,7 @@ pub(crate) mod room {
                     ))
                 }
                 (Method::Get, "/rooms/Room000001/invite") if who == "alice" => ok(&format!(
-                    r#"{{"invite":"{INVITE}","expires_at_ms":9,"admission":"open"}}"#
+                    r#"{{"invite":"{INVITE}","watch_invite":"{WATCH_INVITE}","expires_at_ms":9,"admission":"open"}}"#
                 )),
                 (Method::Get, "/rooms/Room000001/invite") => err(403, "not_an_operator"),
                 (Method::Post, "/rooms/Room000001/grant") => {
@@ -726,6 +732,66 @@ pub(crate) mod room {
             server.borrow().state().member_by_identity(&Identity::new("dev:carol")).unwrap().intent,
             Intent::Play
         );
+    }
+
+    /// The watch-only link (part 2): the host copies it beside the
+    /// room's invite; its page invites to watch with a Watch button; the
+    /// join is in to watch and held to it (no "full" line, no Play
+    /// offered), until the host's Let play, after which Play is theirs to
+    /// choose.
+    #[test]
+    fn a_watch_only_link_joins_to_watch_until_the_host_lets_them_play() {
+        use crate::screens::online::preview_text;
+        use crate::screens::room::{more_items, refusal_text};
+        use ddi_l10n::msg::room as m;
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &[]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        tick(&clock, &mut [&mut alice], 400);
+        alice.fetch_invite();
+        tick(&clock, &mut [&mut alice], 400);
+        let link = alice.watch_invite_link().expect("the watch-only link");
+        assert!(link.ends_with(&format!("#/mp/join/{WATCH_INVITE}?mp=1")));
+        let items: Vec<String> = more_items(&alice, false).into_iter().map(|(id, _)| id).collect();
+        let at = items.iter().position(|i| i == "copy").unwrap();
+        assert_eq!(items[at + 1], "copywatch");
+        // The fan's page: invited to watch, the button Watch.
+        let fan_online = person(&server, "fan");
+        fan_online.borrow_mut().open_invite(WATCH_INVITE);
+        fan_online.borrow_mut().poll(1);
+        let said: String = {
+            let o = fan_online.borrow();
+            preview_text(o.invite().unwrap().preview.as_ref().unwrap().as_ref().unwrap()).into()
+        };
+        assert_eq!(said, String::from(m::invite_watch()));
+        fan_online.borrow_mut().join_invite();
+        fan_online.borrow_mut().poll(2);
+        assert_eq!(fan_online.borrow_mut().take_entered().as_deref(), Some("Room000001"));
+        // Not said to be full: the page said why already.
+        assert!(!fan_online.borrow_mut().take_seated_to_watch("Room000001"));
+        let mut fan = client(&server, fan_online, "fan", 1_000);
+        tick(&clock, &mut [&mut alice, &mut fan], 400);
+        assert!(fan.watching());
+        assert!(fan.watch_only());
+        assert!(!fan.may_choose_intent());
+        assert!(!more_items(&fan, false).iter().any(|(id, _)| id == "intent"));
+        assert_eq!(fan.link_notice(), None);
+        // An older screen's Play: refused in words of its own.
+        assert!(fan.set_intent(Intent::Play).is_err());
+        assert_eq!(
+            String::from(refusal_text(fan.refusal().unwrap())),
+            String::from(m::refused_watch_only())
+        );
+        // The host lets them play; they choose it.
+        let id = fan.me();
+        alice.let_play(id).unwrap();
+        tick(&clock, &mut [&mut alice, &mut fan], 400);
+        assert!(!fan.watch_only());
+        assert!(fan.watching(), "let, not moved");
+        assert!(fan.may_choose_intent());
+        fan.set_intent(Intent::Play).unwrap();
+        tick(&clock, &mut [&mut alice, &mut fan], 400);
+        assert!(!fan.watching());
     }
 
     fn shared_pick(s: &crate::screens::data::SongEntry) -> Picked {

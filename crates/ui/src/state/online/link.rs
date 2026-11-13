@@ -21,6 +21,8 @@ pub enum LinkNotice {
     InviteReplaced,
     /// Replacing the invite was refused or failed.
     InviteNotReplaced,
+    /// More's Copy watch-only link.
+    WatchInviteCopied,
     /// Joined to watch because every player's place was taken: said for
     /// [`JOINED_TO_WATCH_MS`] once the room is connected.
     JoinedToWatch,
@@ -46,6 +48,8 @@ pub struct OnlineLink {
     identity: Identity,
     name: Option<String>,
     invite: Option<String>,
+    /// The watch-only link's invite, where the server makes one.
+    watch_invite: Option<String>,
     epoch: u64,
     ticket_req: Option<u64>,
     summary_req: Option<u64>,
@@ -83,6 +87,7 @@ impl OnlineLink {
             identity,
             name: None,
             invite: None,
+            watch_invite: None,
             epoch,
             ticket_req: None,
             summary_req,
@@ -121,6 +126,15 @@ impl OnlineLink {
     pub fn invite_link(&self) -> Option<String> {
         let site = self.online.borrow().config.site.clone();
         self.invite.as_deref().map(|i| api::invite_link(&site, i))
+    }
+
+    /// The watch-only link to share (joins to watch, held to it), for an
+    /// operator, once read from a server that makes one.
+    pub fn watch_invite_link(&self) -> Option<String> {
+        let site = self.online.borrow().config.site.clone();
+        self.watch_invite
+            .as_deref()
+            .map(|i| api::invite_link(&site, i))
     }
 
     pub fn notice(&self) -> Option<LinkNotice> {
@@ -225,6 +239,7 @@ impl OnlineLink {
             self.invite_req = None;
             if let Ok(i) = api::read::<InviteDoc>(&r) {
                 self.invite = Some(i.invite);
+                self.watch_invite = i.watch_invite;
             }
             changed = true;
         }
@@ -233,6 +248,7 @@ impl OnlineLink {
             match api::read::<InviteDoc>(&r) {
                 Ok(i) => {
                     self.invite = Some(i.invite);
+                    self.watch_invite = i.watch_invite;
                     self.notice = Some(LinkNotice::InviteReplaced);
                 }
                 Err(_) => self.notice = Some(LinkNotice::InviteNotReplaced),

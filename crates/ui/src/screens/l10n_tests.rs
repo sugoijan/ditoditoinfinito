@@ -913,6 +913,7 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             requested: 10,
             cap: 9,
         }),
+        Rejection::WatchOnly,
         Rejection::InvalidRules(RulesProblem::EliminationWithLateEntry),
         Rejection::UnknownClient,
     ] {
@@ -1341,6 +1342,9 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         ok(
             r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"open","players_full":true,"members":9}"#,
         ),
+        ok(
+            r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"open","kind":"watch","members":2}"#,
+        ),
         err(410, "invite_expired"),
         err(403, "invite_rotated"),
         err(404, "invite_unknown"),
@@ -1471,6 +1475,20 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     ha.tap(PointerKind::Mouse, "CoHost.2");
     step(400);
     shown(&mut ha, found);
+    // Bob held to watching (the watch-only link): Let play and the line
+    // under his name, then let.
+    server
+        .borrow_mut()
+        .authority(ddi_room::Command::SetWatchOnly {
+            participant: ParticipantId(2),
+            on: true,
+        })
+        .unwrap();
+    step(400);
+    shown(&mut ha, found);
+    ha.tap(PointerKind::Mouse, "CoHost.2");
+    step(400);
+    shown(&mut ha, found);
     for _ in 0..2 {
         ha.tap(PointerKind::Mouse, "Close");
         ha.run(0.3);
@@ -1561,6 +1579,7 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
             crate::state::online::link::LinkNotice::InviteReplaced,
             crate::state::online::link::LinkNotice::InviteNotReplaced,
             crate::state::online::link::LinkNotice::JoinedToWatch,
+            crate::state::online::link::LinkNotice::WatchInviteCopied,
         ]
         .into_iter()
         .map(|n| {

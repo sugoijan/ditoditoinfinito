@@ -1225,6 +1225,36 @@ impl RoomClient {
         self.online_link().and_then(OnlineLink::invite_link)
     }
 
+    /// The watch-only link to share (an online room's operators, from a
+    /// server that makes one, once read).
+    pub fn watch_invite_link(&self) -> Option<String> {
+        self.online_link().and_then(OnlineLink::watch_invite_link)
+    }
+
+    /// The local player came by the watch-only link and is still held to
+    /// watching (an owner never is).
+    pub fn watch_only(&self) -> bool {
+        self.state()
+            .member(self.me)
+            .is_some_and(|m| m.watch_only && m.role != Role::Owner)
+    }
+
+    /// The owner lets `participant`, held to watching, play
+    /// (`Command::SetWatchOnly`): they choose Play themselves after.
+    pub fn let_play(&mut self, participant: ParticipantId) -> Result<(), Refusal> {
+        let held = self
+            .state()
+            .member(participant)
+            .is_some_and(|m| m.watch_only);
+        if !held || !self.manages_hosts() || !self.may(Capability::ChangeAccess) {
+            return Ok(());
+        }
+        self.send(Command::SetWatchOnly {
+            participant,
+            on: false,
+        })
+    }
+
     /// What the online link last did, for the status line.
     pub fn link_notice(&self) -> Option<LinkNotice> {
         self.online_link().and_then(OnlineLink::notice)
@@ -1527,6 +1557,10 @@ impl RoomClient {
     /// match sits its next stages out (or comes back for them), one who
     /// was watching when it began waits for the next match.
     pub fn may_choose_intent(&self) -> bool {
+        // Held to watching (the watch-only link): no Play to offer.
+        if self.watch_only() && self.watching() {
+            return false;
+        }
         let s = self.state();
         match s.phase {
             Phase::Countdown { stage, .. }

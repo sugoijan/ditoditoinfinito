@@ -1528,6 +1528,10 @@ struct Person {
     name: String,
     sub: String,
     co_host: bool,
+    /// Came by the watch-only link and held to watching: the first
+    /// button lets them play (`RoomClient::let_play`) in the place of
+    /// Make co-host, until it is pressed.
+    watch_only: bool,
     /// The room may be handed to them now (there, connected).
     can_host: bool,
 }
@@ -1555,6 +1559,8 @@ impl HostDialog {
                     (_, true) => Some(m::role_admin().into()),
                     _ => None,
                 };
+                let held: Option<String> =
+                    (mb.watch_only && mb.role != Role::Owner).then(|| m::host_watch_only().into());
                 let away: Option<String> = match mb.connection {
                     ddi_room::Connection::Connected => None,
                     ddi_room::Connection::Joining => Some(m::conn_joining().into()),
@@ -1564,12 +1570,13 @@ impl HostDialog {
                 Person {
                     id: mb.id.0,
                     name: person_name(mb),
-                    sub: [role, away]
+                    sub: [role, held, away]
                         .into_iter()
                         .flatten()
                         .collect::<Vec<_>>()
                         .join(" · "),
                     co_host: mb.role == Role::CoHost,
+                    watch_only: mb.watch_only && mb.role != Role::Owner,
                     can_host: r.may_make_host(mb.id),
                 }
             })
@@ -1722,6 +1729,7 @@ impl Screen for HostDialog {
         let width = |t: &str| look::mono_width(t, 15.0) + 28.0;
         let co_w = width(&m::make_co_host())
             .max(width(&m::remove_co_host()))
+            .max(width(&m::let_play()))
             .min((inner - 10.0) * 0.58);
         let host_w = width(&m::make_host()).min((inner - 10.0) * 0.42);
         for p in people.iter().skip(self.first).take(shown) {
@@ -1753,7 +1761,9 @@ impl Screen for HostDialog {
             } else {
                 ry + row_h - 26.0
             };
-            let co_label = if p.co_host {
+            let co_label = if p.watch_only {
+                m::let_play()
+            } else if p.co_host {
                 m::remove_co_host()
             } else {
                 m::make_co_host()
@@ -1891,7 +1901,12 @@ impl Screen for HostDialog {
                                 .and_then(|n| n.parse::<u64>().ok())
                                 .and_then(|id| self.people().into_iter().find(|p| p.id == id))
                         };
-                        if let Some(p) = person("CoHost.") {
+                        if let Some(p) = person("CoHost.")
+                            && p.watch_only
+                        {
+                            let _ = self.room.borrow_mut().let_play(ParticipantId(p.id));
+                            self.rebuild(root, cx);
+                        } else if let Some(p) = person("CoHost.") {
                             let _ = self
                                 .room
                                 .borrow_mut()

@@ -168,6 +168,17 @@ pub enum Admission {
     Full,
 }
 
+/// Which of a room's two invites a link is: the room's own, or the
+/// watch-only link (joined to watch, held to it until the owner lets them
+/// play). A server that predates the second has only the first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InviteKind {
+    #[default]
+    Play,
+    Watch,
+}
+
 /// What an invite shows before signing in (`GET /invites/<invite>`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct Preview {
@@ -184,6 +195,10 @@ pub struct Preview {
     /// server that predates it, which refused such a join as `full`.
     #[serde(default)]
     pub players_full: bool,
+    /// Which invite this is (absent from a server that predates the
+    /// watch-only link: the room's own).
+    #[serde(default)]
+    pub kind: InviteKind,
     #[serde(default)]
     pub members: usize,
     #[serde(default)]
@@ -221,6 +236,9 @@ pub struct TicketDoc {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct InviteDoc {
     pub invite: String,
+    /// The room's watch-only link's invite, from a server that makes one.
+    #[serde(default)]
+    pub watch_invite: Option<String>,
     #[serde(default)]
     pub expires_at_ms: i64,
 }

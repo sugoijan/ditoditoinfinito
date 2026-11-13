@@ -166,6 +166,18 @@ pub enum Command {
     MakeHost {
         participant: ParticipantId,
     },
+    /// Whether `participant` is held to watching (`Member::watch_only`).
+    /// The authority sets it for one who came by the room's watch-only
+    /// link (right after their `Join`); the owner may only lift it (`on`
+    /// false: "Let play", under `Capability::ChangeAccess`, as the room's
+    /// access is). Lifting it changes nothing else: they choose Play
+    /// themselves. Additive to protocol 2: a member is held to it only by
+    /// an authority that has it, and the owner is offered it only for
+    /// such a member, so it is never sent to one that could not read it.
+    SetWatchOnly {
+        participant: ParticipantId,
+        on: bool,
+    },
 
     // The authority alone.
     /// A person entered (or returned to) the room, as the authority
@@ -251,6 +263,11 @@ pub enum Event {
     RoleChanged {
         participant: ParticipantId,
         role: Role,
+    },
+    /// [`Command::SetWatchOnly`].
+    WatchOnlyChanged {
+        participant: ParticipantId,
+        on: bool,
     },
     /// A member's own attack policy ([`Command::SetTargeting`]).
     TargetingChanged {
@@ -481,6 +498,9 @@ pub enum Rejection {
     },
     /// The room ended (`RoomState::closed`).
     RoomClosed,
+    /// Came by the watch-only link: Play waits for the owner's Let play
+    /// (`Member::watch_only`). Additive: only such a member is refused it.
+    WatchOnly,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

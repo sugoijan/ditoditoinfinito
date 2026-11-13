@@ -598,6 +598,7 @@ impl RoomState {
                 connection: Connection::Connected,
                 left: false,
                 targeting: Default::default(),
+                watch_only: false,
             },
         );
         Self {

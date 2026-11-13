@@ -353,6 +353,7 @@ pub fn status(r: &RoomClient) -> UiText {
             LinkNotice::InviteReplaced => m::invite_replaced(),
             LinkNotice::InviteNotReplaced => m::invite_not_replaced(),
             LinkNotice::JoinedToWatch => m::joined_to_watch(),
+            LinkNotice::WatchInviteCopied => m::watch_invite_copied(),
         };
     }
     let s = r.state();
@@ -962,6 +963,9 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
         if r.invite_link().is_some() {
             items.push(("copy".to_string(), m::copy_invite().into()));
         }
+        if r.watch_invite_link().is_some() {
+            items.push((MORE_COPY_WATCH.to_string(), m::copy_watch_invite().into()));
+        }
         if r.invite_link().is_some() && r.may(Capability::ChangeAccess) {
             items.push(("rotate".to_string(), m::replace_invite().into()));
         }
@@ -975,6 +979,10 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
     items.push(("leave".to_string(), m::leave().into()));
     items
 }
+
+/// More's Copy watch-only link (an operator's, from a server that makes
+/// one).
+const MORE_COPY_WATCH: &str = "copywatch";
 
 /// More's item that changes between Play and Watch.
 const MORE_INTENT: &str = "intent";
@@ -1235,6 +1243,14 @@ pub fn more_picked(id: &str, room: &SharedRoom, cx: &mut Cx) -> MoreAction {
                 cx.request(crate::UiRequest::CopyText(link));
                 room.borrow_mut()
                     .set_link_notice(Some(LinkNotice::InviteCopied));
+            }
+        }
+        MORE_COPY_WATCH => {
+            let link = room.borrow().watch_invite_link();
+            if let Some(link) = link {
+                cx.request(crate::UiRequest::CopyText(link));
+                room.borrow_mut()
+                    .set_link_notice(Some(LinkNotice::WatchInviteCopied));
             }
         }
         "rotate" => room.borrow_mut().rotate_invite(),
@@ -2013,6 +2029,7 @@ pub fn refusal_text(why: &Refusal) -> UiText {
             Rejection::NotEnoughReady { .. } => m::refused_too_few(),
             Rejection::NoPlayingHumans => m::refused_all_watching(),
             Rejection::Cap(_) => m::refused_players_full(),
+            Rejection::WatchOnly => m::refused_watch_only(),
             Rejection::StageStarted | Rejection::StartCommitted => m::refused_started(),
             Rejection::WrongPhase { .. } | Rejection::NotUpcoming | Rejection::WindowOpen => {
                 m::refused_phase()

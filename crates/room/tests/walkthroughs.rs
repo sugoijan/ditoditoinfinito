@@ -3343,3 +3343,75 @@ fn a_stage_needs_competitors_and_practice_cpus_play_alone_for_a_watcher() {
     ));
     assert_eq!(r.s, before);
 }
+
+#[test]
+fn a_member_held_to_watching_plays_only_once_the_owner_lets_them() {
+    let mut r = Room::hosted(1);
+    let host = r.host;
+    let fan = r.join("fan", Intent::Watch);
+    let other = r.join("other", Intent::Play);
+    // The authority holds the newcomer to watching (the watch-only link).
+    let events = r
+        .sys(Command::SetWatchOnly {
+            participant: fan,
+            on: true,
+        })
+        .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::WatchOnlyChanged {
+            participant: fan,
+            on: true
+        }]
+    );
+    assert!(r.s.members[&fan].watch_only);
+    let play = Command::SetIntent {
+        intent: Intent::Play,
+    };
+    assert_eq!(r.by(fan, play.clone()), Err(Rejection::WatchOnly));
+    // Nobody but the authority holds anyone to it; nobody but the owner
+    // lets them go.
+    assert_eq!(
+        r.by(
+            host,
+            Command::SetWatchOnly {
+                participant: other,
+                on: true
+            }
+        ),
+        Err(Rejection::AuthorityOnly)
+    );
+    let let_play = Command::SetWatchOnly {
+        participant: fan,
+        on: false,
+    };
+    assert!(matches!(
+        r.by(fan, let_play.clone()),
+        Err(Rejection::Unauthorized { .. })
+    ));
+    assert!(matches!(
+        r.by(other, let_play.clone()),
+        Err(Rejection::Unauthorized { .. })
+    ));
+    // Let play: still watching until they choose Play.
+    r.by(host, let_play.clone()).unwrap();
+    assert!(!r.s.members[&fan].watch_only);
+    assert_eq!(r.s.members[&fan].intent, Intent::Watch);
+    assert_eq!(r.by(host, let_play), Ok(vec![]));
+    r.by(fan, play.clone()).unwrap();
+    assert_eq!(r.s.members[&fan].intent, Intent::Play);
+    // An owner is never held to it.
+    r.sys(Command::SetWatchOnly {
+        participant: host,
+        on: true,
+    })
+    .unwrap();
+    r.by(
+        host,
+        Command::SetIntent {
+            intent: Intent::Watch,
+        },
+    )
+    .unwrap();
+    r.by(host, play).unwrap();
+}

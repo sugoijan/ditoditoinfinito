@@ -285,6 +285,12 @@ room-host-nobody = Nobody else is here yet.
 # each): make them a co-host, make a co-host an ordinary player again,
 # and hand the room over to them (asked once more first).
 room-make-co-host = Make co-host
+# The same button's place on the row of someone who came by the room's
+# watch-only link: lets them choose Play.
+room-let-play = Let play
+# Under the name of someone who came by the watch-only link and may not
+# play until let (Host options).
+room-host-watch-only = Watch-only link
 room-remove-co-host = Remove co-host
 room-make-host = Make host
 
@@ -665,6 +671,8 @@ room-invite-full = This room is full.
 # In the place of room-invite-open or room-invite-next-match where every
 # player's place is taken: joining is still possible, to watch.
 room-invite-full-watch = The room is full: you'll join to watch.
+# In the same place on the room's watch-only link's page.
+room-invite-watch = You're invited to watch.
 
 # Why an invite does not admit (one of these).
 room-invite-expired = This invite has expired. Ask the host for a new link.
@@ -680,6 +688,8 @@ room-invite-refused = Couldn't join ({ $code }).
 
 # Buttons (about 24 letters each).
 room-invite-join = Join room
+# The same button on a watch-only link's page.
+room-invite-watch-join = Watch
 room-invite-sign-in = Sign in with Twitch to join
 
 # While joining.
@@ -766,11 +776,15 @@ room-chart-no-digest = This chart can't be chosen online yet. Try again once the
 
 # More's items (about 24 letters each).
 room-copy-invite = Copy invite link
+# A second link to the room: whoever comes by it watches, and plays only
+# once the host lets them.
+room-copy-watch-invite = Copy watch-only link
 room-replace-invite = Replace invite link
 room-sign-in-again = Sign in again
 
 # The status line after More's invite items.
 room-invite-copied = Invite link copied.
+room-watch-invite-copied = Watch-only link copied.
 room-invite-replaced = Invite replaced: the old link no longer works.
 room-invite-not-replaced = Couldn't replace the invite.
 
@@ -1117,6 +1131,10 @@ room-refused-all-watching = Everyone is watching. Someone has to play.
 # On the status line when a watcher chose Play and every player's place
 # is taken. "Play" is the control's name (room-intent-play).
 room-refused-players-full = Every player's place is taken. Choose Play again when one frees up.
+
+# On the status line when someone who came by the room's watch-only link
+# chose Play (only an older screen offers it).
+room-refused-watch-only = You came by a watch-only link: the host can let you play.
 
 ## A stage watched: everyone's fields over the whole screen, or one
 ## player's field large in the middle with the others beside it.

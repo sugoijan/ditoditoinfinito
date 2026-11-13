@@ -615,9 +615,17 @@ impl Online {
                 match result {
                     Ok(j) => {
                         // Asked to play (`api::join`), in to watch: the
-                        // room was full of players.
+                        // room was full of players (not the watch-only
+                        // link, which says so on its page).
+                        let watch_link = self
+                            .invite
+                            .as_ref()
+                            .and_then(|v| v.preview.as_ref())
+                            .and_then(|p| p.as_ref().ok())
+                            .is_some_and(|p| p.kind == api::InviteKind::Watch);
                         self.seated_to_watch = (j.intent == ddi_room::Intent::Watch
-                            && !j.already)
+                            && !j.already
+                            && !watch_link)
                             .then(|| j.room_id.clone());
                         self.entered = Some(j.room_id);
                     }

@@ -4269,11 +4269,71 @@ as a watcher, never refused for being full of players.
   notice, the refusal), `xtask l10n check`; `../ddi-server` (the join
   route and the preview at the cap and at the member limit).
 
+### A watch-only link (2026-11-13)
+
+The maintainer: "additionally we could offer an option for the host to
+create a Watch-only link". Built as a second invite beside the room's.
+
+- **The link** (the server): each room's invite has a watch-only twin,
+  `<room id>.<secret>` like it, its secret a one-way hash of the
+  invite's (`invite::watch_secret`), so the watch link cannot be turned
+  into the room's own. Replacing the invite (More's Replace invite link,
+  the owner's) replaces both; the old watch link then says it was
+  replaced, as the old invite does. Expiry is the invite's. The invite's
+  answer to its operators (`GET /rooms/<id>/invite`, the owner, co-hosts
+  and administrators, who see the room's invite today) carries
+  `watch_invite`; the preview carries `kind` (`play` or `watch`).
+- **Who may copy it**: whoever sees the room's invite today (the owner
+  and co-hosts; More's "Copy watch-only link" under Copy invite link,
+  "Watch-only link copied." on the status line). Only where the server
+  answered a `watch_invite`, so never against a server that cannot honor
+  it.
+- **Its page**: "You're invited to watch." in the place of the
+  admission's sentence (the closed and full refusals stay theirs), and
+  the button **Watch** (signing in as for any join: "Sign in with Twitch
+  to join").
+- **The rule** (the model, `ddi-room`): a newcomer by it joins to watch
+  and is held to it, `Member::watch_only`, set by the authority right
+  after the join (`Command::SetWatchOnly { on: true }`, authority only;
+  `Event::WatchOnlyChanged`). Their Play is refused
+  (`Rejection::WatchOnly`: "You came by a watch-only link: the host can
+  let you play.") and their screens offer no Play (More and the Players
+  pop-up have no Play/Watch item for them). **The owner lets them play**:
+  Host options' row for such a person says "Watch-only link" under the
+  name, and its first button is **Let play** in the place of Make
+  co-host (`SetWatchOnly { on: false }`, under
+  `Capability::ChangeAccess`, the owner's, as the room's access is); once
+  let, the row is anyone's again and the person chooses Play themselves
+  (nobody is moved). An owner is never held to it (a watch-only person
+  handed the room may play). Someone already a member who opens a link
+  of either kind is answered as they are; the "room is full" line is not
+  said to someone who came by the watch link.
+- **Older peers**: all additive (`watch_only` left out of the JSON when
+  false, a new command, event and refusal, `kind` and `watch_invite`
+  fields). A game that predates it never sees a watch link (it reads no
+  `watch_invite`); opening one in it shows the room's ordinary page and
+  joins, held to watching; its Play is refused with a refusal it cannot
+  read (passed over, as an unknown frame is), and the owner's
+  `watch_only_changed` is mended by the room asked for again. A server
+  that predates it gives no `watch_invite`, so nothing is offered.
+- **Tested**: `ddi-room` (held by the authority alone, Play refused,
+  nobody but the owner lets them, let and then Play, an owner never
+  held; through `FakeServer::join_watch_only` and every mirror);
+  `ddi-ui` over the fake room (More's item after Copy invite link, the
+  page's sentence, the join held, no Play offered and no "full" line,
+  the refusal's words, Let play and then Play), the `qps-ploc` walk
+  (the page, the copied line, the refusal, Host options with a held
+  person and after Let play); `../ddi-server` (the twin's secret, its
+  preview, the join held and answered as before on a second join, the
+  room's own invite unchanged, both replaced together, expiry).
+- **Needs the server's deploy.**
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
 | `join-watch-v0`: a join asking to play where every player's place is taken is in to watch; nobody is moved to Play when a place frees up; the arrival is said on the status line for 12 s | `ddi_room::RoomState::arrival_intent`, `players_full`; `ddi_ui`'s `LinkNotice::JoinedToWatch`, `JOINED_TO_WATCH_MS` | A tenth person joins a room of nine players to watch, and plays only once they choose Play after a place frees | Whether a freed place should go to the longest-waiting watcher (asked, or at once) |
+| The watch-only link: held to watching until the owner's Let play (the owner alone; co-hosts may copy the link but not let); replaced with the room's invite | `ddi_room::Member::watch_only`, `Command::SetWatchOnly`; `../ddi-server` `invite::watch_secret` | Someone who came to watch never takes a player's place unless the host lets them | Whether co-hosts should let people play; whether the watch link should be replaceable on its own |
 | `watch-v0`: a grid's field is at most a play's own field (`GRID_LANE_SHARE` 1.0); a layout with more rows wins within a tenth of the largest lane (`GRID_FILL` 0.9) | `ddi_shell::opponents::arrange_grid` | One to three watched fields are nearly the screen's height; eight are four by two at lanes of 29 px (1280×720) | The sizes; whether eight should give up the play's proportion (shorter fields, larger lanes) |
 | `watch-v0`: a watched stage's results follow 2.5 s after it is decided, the music fading (`WATCH_END_HOLD`) | `ddi_session::play::watch` | A watcher (and a player out of the stage) does not see the winner finish the song | Whether to stay to the song's end (the design study's "winner finishing") |
 | `watch-v0`: where every person watches, a practice stage starts with the pick (the room's countdown), with no press of the watcher's | `ddi_room` `humans_needed`, `maybe_commit` | A watching host's pick is followed by the stage three seconds later | Whether a watching host should start it with a press |

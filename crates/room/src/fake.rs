@@ -305,6 +305,29 @@ impl FakeServer {
         Ok(id)
     }
 
+    /// `POST /rooms/<id>/join` with the room's watch-only invite: a
+    /// newcomer joins to watch and is held to it
+    /// (`Command::SetWatchOnly`); a present member is answered as they
+    /// are.
+    pub fn join_watch_only(
+        &mut self,
+        identity: Identity,
+        name: &str,
+    ) -> Result<ParticipantId, Rejection> {
+        let known = self
+            .state()
+            .member_by_identity(&identity)
+            .is_some_and(|m| !m.left);
+        let id = self.join(identity, name, Intent::Watch)?;
+        if !known {
+            self.authority(Command::SetWatchOnly {
+                participant: id,
+                on: true,
+            })?;
+        }
+        Ok(id)
+    }
+
     /// `POST /rooms/<id>/ticket`: a one-use ticket for a present member
     /// (`Rejection::RoomClosed` for a room that ended: the server's `410
     /// room_closed`).

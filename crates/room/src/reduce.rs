@@ -271,6 +271,10 @@ impl RoomState {
                 if self.members[&id].intent == *intent {
                     return Ok(());
                 }
+                let m = &self.members[&id];
+                if *intent == Intent::Play && m.watch_only && m.role != Role::Owner {
+                    return Err(Rejection::WatchOnly);
+                }
                 if *intent == Intent::Play {
                     self.policy
                         .check_competitors(self.reserved_humans() + 1)
@@ -688,6 +692,32 @@ impl RoomState {
                 }
                 Ok(())
             }
+            Command::SetWatchOnly { participant, on } => {
+                // The authority holds a newcomer to it; the owner only
+                // lets them play.
+                if *on {
+                    Self::authority_only(actor)?;
+                } else {
+                    self.require(actor, Capability::ChangeAccess)?;
+                }
+                let m = self
+                    .members
+                    .get(participant)
+                    .ok_or(Rejection::UnknownParticipant)?;
+                if m.is_cpu() {
+                    return Err(Rejection::NotAHuman);
+                }
+                if m.watch_only != *on {
+                    self.emit(
+                        out,
+                        Event::WatchOnlyChanged {
+                            participant: *participant,
+                            on: *on,
+                        },
+                    );
+                }
+                Ok(())
+            }
             Command::SetAccess {
                 admission,
                 rotate_invite,
@@ -782,6 +812,7 @@ impl RoomState {
                             connection: Connection::Connected,
                             left: false,
                             targeting: Default::default(),
+                            watch_only: false,
                         },
                     },
                 );
@@ -1162,6 +1193,7 @@ impl RoomState {
                     connection: Connection::Connected,
                     left: false,
                     targeting: Default::default(),
+                    watch_only: false,
                 }
             })
             .collect();
@@ -1630,6 +1662,11 @@ impl RoomState {
             Event::RoleChanged { participant, role } => {
                 if let Some(m) = self.members.get_mut(participant) {
                     m.role = *role;
+                }
+            }
+            Event::WatchOnlyChanged { participant, on } => {
+                if let Some(m) = self.members.get_mut(participant) {
+                    m.watch_only = *on;
                 }
             }
             Event::AccessChanged { access } => self.access = *access,

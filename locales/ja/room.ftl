@@ -153,6 +153,8 @@ room-host-people = ほかのプレイヤー
 room-host-nobody = まだほかに誰もいません。
 
 room-make-co-host = 共同ホストにする
+room-let-play = プレイを許可
+room-host-watch-only = 観戦専用リンク
 room-remove-co-host = 共同ホストから外す
 room-make-host = ホストにする
 
@@ -317,6 +319,7 @@ room-invite-next-match = 試合中です。観戦して、次の試合から参�
 room-invite-closed = ホストが新しい参加を締め切りました。
 room-invite-full = このルームは満員です。
 room-invite-full-watch = プレイヤーの席が埋まっています。観戦で参加します。
+room-invite-watch = 観戦に招待されています。
 
 room-invite-expired = この招待は期限切れです。ホストに新しいリンクをもらってください。
 room-invite-rotated = この招待は差し替えられました。ホストに新しいリンクをもらってください。
@@ -327,6 +330,7 @@ room-invite-unreachable = サーバーに接続できませんでした。
 room-invite-refused = 参加できませんでした（{ $code }）。
 
 room-invite-join = ルームに参加
+room-invite-watch-join = 観戦する
 room-invite-sign-in = Twitchでサインインして参加
 
 room-invite-joining = 参加しています…
@@ -372,10 +376,12 @@ room-status-online-stage = ステージ{ $number }をプレイ中です。全員
 room-chart-no-digest = この譜面はまだオンラインで選べません。ライブラリの読み込み後にもう一度試してください。
 
 room-copy-invite = 招待リンクをコピー
+room-copy-watch-invite = 観戦専用リンクをコピー
 room-replace-invite = 招待リンクを差し替え
 room-sign-in-again = もう一度サインイン
 
 room-invite-copied = 招待リンクをコピーしました。
+room-watch-invite-copied = 観戦専用リンクをコピーしました。
 room-invite-replaced = 招待を差し替えました。古いリンクは使えません。
 room-invite-not-replaced = 招待を差し替えられませんでした。
 room-joined-to-watch = プレイヤーの席が埋まっているため、観戦しています。席が空いたら「プレイする」を選べます。
@@ -537,6 +543,7 @@ room-intent-play = プレイする
 
 room-refused-all-watching = プレイする人がいません。
 room-refused-players-full = プレイヤーの席が埋まっています。席が空いてから「プレイする」を選んでください。
+room-refused-watch-only = 観戦専用リンクで参加しています。ホストが許可するとプレイできます。
 
 room-watch-hint = Tabかタップでプレイヤーを選べます
 room-live-lost = ルームがステージの中継を失いました。結果は最後に送られます

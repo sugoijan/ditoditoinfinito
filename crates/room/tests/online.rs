@@ -1472,3 +1472,49 @@ fn a_join_to_a_room_full_of_players_watches_alike_everywhere() {
         "nobody is moved to Play by a place freeing up"
     );
 }
+
+/// The watch-only link: the fake server's join holds the newcomer to
+/// watching, every mirror agrees, Play is refused until the owner lets
+/// them play.
+#[test]
+fn a_watch_only_join_is_held_alike_everywhere_until_the_owner_lets_them_play() {
+    let clock = ManualClock::new(1_000);
+    let server = hosted(&clock).shared();
+    let mut alice = Client::new(&server, &clock, "dev:alice");
+    let mut fan = Client::new(&server, &clock, "dev:fan");
+    let id = server
+        .borrow_mut()
+        .join_watch_only(Identity::new("dev:fan"), "Fan")
+        .unwrap();
+    // Again: the same row, nothing more.
+    assert_eq!(
+        server
+            .borrow_mut()
+            .join_watch_only(Identity::new("dev:fan"), "Fan")
+            .unwrap(),
+        id
+    );
+    pump_all(&mut [&mut alice, &mut fan]);
+    for room in [server.borrow().state(), alice.room(), fan.room()] {
+        let m = room.member(id).unwrap();
+        assert_eq!((m.intent, m.watch_only), (Intent::Watch, true));
+    }
+    let seq = fan.send(Command::SetIntent {
+        intent: Intent::Play,
+    });
+    pump_all(&mut [&mut alice, &mut fan]);
+    assert_eq!(fan.answer(seq), Some(&Some(Rejection::WatchOnly)));
+    let seq = alice.send(Command::SetWatchOnly {
+        participant: id,
+        on: false,
+    });
+    pump_all(&mut [&mut alice, &mut fan]);
+    assert_eq!(alice.answer(seq), Some(&None));
+    assert!(!fan.room().member(id).unwrap().watch_only);
+    let seq = fan.send(Command::SetIntent {
+        intent: Intent::Play,
+    });
+    pump_all(&mut [&mut alice, &mut fan]);
+    assert_eq!(fan.answer(seq), Some(&None));
+    assert_eq!(server.borrow().state().member(id).unwrap().intent, Intent::Play);
+}

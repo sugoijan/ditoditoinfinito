@@ -33,6 +33,17 @@ pub struct Member {
     /// reads and writes the same room.
     #[serde(default, skip_serializing_if = "is_spread")]
     pub targeting: Targeting,
+    /// Came by the room's watch-only link: watches, and may not choose
+    /// Play (`Rejection::WatchOnly`) until the owner lets them
+    /// ([`crate::Command::SetWatchOnly`]); an owner is never held to it.
+    /// Additive: left out of the JSON when false, so a peer that
+    /// predates it reads and writes the same room.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub watch_only: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 fn is_spread(t: &Targeting) -> bool {

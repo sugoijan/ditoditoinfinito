@@ -170,6 +170,9 @@ pub fn admission_text(a: Admission) -> UiText {
 /// (`Preview::players_full`) joined to watch.
 pub fn preview_text(p: &Preview) -> UiText {
     match p.admission {
+        Admission::Open | Admission::NextMatch if p.kind == api::InviteKind::Watch => {
+            m::invite_watch()
+        }
         Admission::Open | Admission::NextMatch if p.players_full => m::invite_full_watch(),
         a => admission_text(a),
     }
@@ -180,6 +183,7 @@ fn invite_doc(online: &Online) -> PageDoc {
     let mut blocks = Vec::new();
     let view = online.invite();
     let mut joinable = false;
+    let mut watch = false;
     match view.and_then(|v| v.preview.as_ref()) {
         None => blocks.push(Block::Text(m::invite_reading().into())),
         Some(Ok(p)) => {
@@ -190,6 +194,7 @@ fn invite_doc(online: &Online) -> PageDoc {
             blocks.push(Block::Muted(m::invite_members(p.members).into()));
             blocks.push(Block::Text(preview_text(p).into()));
             joinable = matches!(p.admission, Admission::Open | Admission::NextMatch);
+            watch = p.kind == api::InviteKind::Watch;
         }
         Some(Err(p)) => blocks.push(Block::Note(invite_problem(p).into())),
     }
@@ -204,7 +209,15 @@ fn invite_doc(online: &Online) -> PageDoc {
         blocks.push(Block::Note(m::invite_joining().into()));
     } else if joinable && !online.sign_in_state().busy() {
         actions.push(if online.me().is_some() {
-            Action::new("join", m::invite_join()).primary()
+            Action::new(
+                "join",
+                if watch {
+                    m::invite_watch_join()
+                } else {
+                    m::invite_join()
+                },
+            )
+            .primary()
         } else {
             Action::new("join", m::invite_sign_in()).primary()
         });
