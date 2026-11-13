@@ -112,9 +112,30 @@ pub fn schedule_with(
 /// (DDI, its difficulty and Boos), from the stage's seed (`seed_for`):
 /// what the picker's device offers and every other compares
 /// (`attacks-v1`, the engine's placement, `power-classes-v0`).
+///
+/// Where the match's zero life steps down (`StageRules::steps_down`) the
+/// sections are placed over the stage's chart and its ladder at once
+/// (`ddi_engine::ladder::merged`), so one plan holds whatever chart a
+/// competitor is on, and the plan names each rung's chart digest
+/// (`BattlePlan::ladder`), so that every device proves it has the same.
 pub fn plan(song: &Song, chart: usize, rules: &StageRules, seed: u64) -> BattlePlan {
     let judge = rules.build().judge;
     let placement = ddi_engine::battle::PLACEMENT;
+    let ladder: Vec<usize> = if rules.steps_down() {
+        ddi_engine::cpu::planned_ladder(song, chart)
+            .into_iter()
+            .map(|r| r.chart)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let placed;
+    let over = if ladder.is_empty() {
+        song
+    } else {
+        placed = ddi_engine::ladder::merged(song, chart, &ladder);
+        &placed
+    };
     BattlePlan::new(
         ATTACKS.id,
         placement.id,
@@ -122,7 +143,13 @@ pub fn plan(song: &Song, chart: usize, rules: &StageRules, seed: u64) -> BattleP
         &rules.ruleset,
         seed,
         checkpoints(song, chart, &ATTACKS),
-        schedule_with(song, chart, &judge, seed, &placement, &ATTACKS),
+        schedule_with(over, chart, &judge, seed, &placement, &ATTACKS),
+    )
+    .with_ladder(
+        ladder
+            .iter()
+            .map(|&r| song.chart_digest(r).to_string())
+            .collect(),
     )
 }
 

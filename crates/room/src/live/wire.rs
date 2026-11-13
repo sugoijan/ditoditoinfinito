@@ -21,6 +21,12 @@ pub const BATCH_V1: u8 = 0xB1;
 /// A frame, version 1.
 pub const FRAME_V1: u8 = 0xF1;
 
+/// A step down's moment travels as a refusal's kind with its flag (unused
+/// before), the rung counted down from this in the attack's place: a
+/// reader that predates it reads the refusal of an attack no stage has
+/// (no stage numbers its attacks near it) and takes nothing off.
+pub const STEP_DOWN_ATTACK: u32 = u32::MAX;
+
 /// Why bytes were not read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WireError {
@@ -252,6 +258,7 @@ impl Writer {
                 MomentKind::Shock => (3, false),
                 MomentKind::Boo => (4, false),
                 MomentKind::Refused { .. } => (5, false),
+                MomentKind::StepDown { .. } => (5, true),
             };
             self.byte(kind | if flag { 0x10 } else { 0 });
             self.i(i64::from(m.at_ms) - at);
@@ -267,6 +274,9 @@ impl Writer {
                     self.i(i64::from(offset_ms));
                 }
                 MomentKind::Refused { attack } => self.u(u64::from(attack)),
+                MomentKind::StepDown { rung } => {
+                    self.u(u64::from(STEP_DOWN_ATTACK - u32::from(rung)))
+                }
                 _ => {}
             }
             self.i(i64::from(m.life_ppm) - life);
@@ -448,6 +458,14 @@ impl Reader<'_> {
                 2 => MomentKind::Mine,
                 3 => MomentKind::Shock,
                 4 => MomentKind::Boo,
+                5 if flag => {
+                    let rung = STEP_DOWN_ATTACK
+                        .checked_sub(self.u32()?)
+                        .ok_or(WireError::Invalid)?;
+                    MomentKind::StepDown {
+                        rung: u8::try_from(rung).map_err(|_| WireError::Invalid)?,
+                    }
+                }
                 5 => MomentKind::Refused {
                     attack: self.u32()?,
                 },
@@ -642,6 +660,48 @@ pub(crate) mod tests {
             let _ = decode(&flipped);
         }
         assert_eq!(decode(&[0x7b]), Err(WireError::Unknown(0x7b)));
+    }
+
+    /// A step down's moment (a match's "At zero life: Step down") reads
+    /// back as itself; a reader that predates it reads it as the refusal
+    /// of an attack no stage has (a refusal's kind with its flag, the
+    /// rung counted down from `STEP_DOWN_ATTACK`), never an error.
+    #[test]
+    fn a_step_down_reads_back_and_an_older_reader_takes_it_for_nothing() {
+        let mut ms = moments(6, 83, 4);
+        ms[3].kind = MomentKind::StepDown { rung: 2 };
+        let b = Batch {
+            stage: StageId(1),
+            seq: 1,
+            through_us: 3_000_000,
+            moments: ms.clone(),
+            reports: Vec::new(),
+            end: None,
+        };
+        let bytes = encode_batch(&b);
+        assert_eq!(decode_batch(&bytes), Ok(b));
+        // The older reader reads kind 5 as a refusal whatever its flag:
+        // the same bytes without the flag, read here.
+        let one = Batch {
+            stage: StageId(1),
+            seq: 1,
+            through_us: 0,
+            moments: vec![ms[3]],
+            reports: Vec::new(),
+            end: None,
+        };
+        let mut bytes = encode_batch(&one);
+        // The batch's byte, the stage, the seq, the time, the count: then
+        // the moment's head.
+        assert_eq!(bytes[5], 0x15);
+        bytes[5] = 0x05;
+        let older = decode_batch(&bytes).unwrap();
+        assert_eq!(
+            older.moments[0].kind,
+            MomentKind::Refused {
+                attack: STEP_DOWN_ATTACK - 2
+            }
+        );
     }
 
     #[test]

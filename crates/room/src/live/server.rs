@@ -21,7 +21,8 @@ use crate::command::Command;
 use crate::ids::{Millis, ParticipantId, StageId};
 use crate::live::plan::{BattlePlan, PlanDigest};
 use crate::live::stream::{
-    Batch, CheckpointNews, Commitment, Frame, FrameEntry, LiveReport, Moment, StreamEnd,
+    Batch, CheckpointNews, Commitment, Frame, FrameEntry, LiveReport, Moment, MomentKind,
+    StreamEnd,
 };
 use crate::live::wire;
 use crate::live::{ClientLive, LiveRefusal, LiveRules, Pong, ServerLive, room_instant};
@@ -425,6 +426,9 @@ struct Comp {
     reported: Option<u32>,
     /// Life as last reported (millionths).
     life_ppm: u32,
+    /// The steps down its stream said (a match's "At zero life: Step
+    /// down"): the highest rung.
+    steps: u8,
 }
 
 impl Comp {
@@ -546,6 +550,7 @@ impl LiveStage {
                         reports: BTreeMap::new(),
                         reported: None,
                         life_ppm: 1_000_000,
+                        steps: 0,
                     },
                 )
             })
@@ -628,6 +633,11 @@ impl LiveStage {
         self.comps.get(&p).and_then(|c| c.end)
     }
 
+    /// The steps down `p`'s stream said (the rung it plays).
+    pub fn steps(&self, p: ParticipantId) -> u8 {
+        self.comps.get(&p).map_or(0, |c| c.steps)
+    }
+
     /// Whether `p` plays live (prepared, its plan agreed).
     pub fn plays_live(&self, p: ParticipantId) -> bool {
         self.comps.get(&p).is_some_and(|c| c.live)
@@ -669,6 +679,11 @@ impl LiveStage {
         c.through_us = c.through_us.max(b.through_us);
         if let Some(m) = b.moments.last() {
             c.last = Some(*m);
+        }
+        for m in &b.moments {
+            if let MomentKind::StepDown { rung } = m.kind {
+                c.steps = c.steps.max(rung);
+            }
         }
         for r in b.reports {
             if (r.k as usize) < checkpoints {
@@ -825,7 +840,7 @@ impl LiveStage {
                         accuracy: 0.0,
                         absolute: None,
                         score: c.last.map(|m| m.score),
-                        steps: 0,
+                        steps: c.steps,
                     },
                 },
             })

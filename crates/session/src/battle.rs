@@ -524,17 +524,18 @@ pub struct Rung {
 /// rules say so (`StageRules::steps_down`; `ddi_engine::ladder`): the
 /// song's easier charts in its style, the next first, cut at the first
 /// one the CPUs cannot plan (so everyone has the same ladder), each
-/// planned for them once. Empty where zero life is out, and in a stage
-/// played on several devices (an online room's: its contract does not
-/// carry a ladder yet).
+/// planned for them once (`ddi_engine::cpu::planned_ladder`). Empty
+/// where zero life is out, and in a stage played on several devices that
+/// is not played live (its contract carries the ladder only live: the
+/// battle plan's rung digests, a stream's step moments).
 pub fn stage_ladder(song: &Song, chart: usize, setup: &StageSetup) -> Vec<ddi_engine::cpu::PlannedRung> {
-    if !setup.rules.steps_down() || setup.remote() {
+    let online = setup.remote() || setup.live.is_some();
+    if !setup.rules.steps_down()
+        || (online && (setup.live.is_none() || !ddi_ui::state::room::ONLINE_STEP_DOWN))
+    {
         return Vec::new();
     }
-    ddi_engine::ladder::ladder(song, chart)
-        .into_iter()
-        .map_while(|r| ddi_engine::cpu::PlannedRung::new(song, r).ok())
-        .collect()
+    ddi_engine::cpu::planned_ladder(song, chart)
 }
 
 /// The most points chart `chart` of `song`, whole, gives under `ruleset`
@@ -783,6 +784,7 @@ impl Battle {
         ));
         if let Some(l) = self.remote_live.as_mut() {
             l.set_most(most);
+            l.set_rungs(self.rungs.iter().map(|r| r.track.clone()).collect());
             self.log.push(l.describe());
         }
         self
@@ -2526,6 +2528,7 @@ pub fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView, steps: usize) -
 
 #[cfg(test)]
 mod study;
+
 
 #[cfg(test)]
 mod tests {

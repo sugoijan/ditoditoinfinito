@@ -60,6 +60,14 @@ pub struct BattlePlan {
     /// to four beats past the last note).
     pub checkpoints_us: Vec<i64>,
     pub schedule: Schedule,
+    /// The stage's ladder where its zero life steps down (a match's "At
+    /// zero life: Step down"): each rung's chart digest, the next easier
+    /// first, so that every device proves it has the same charts (the
+    /// sections are then placed over every rung at once). ADDITIVE: empty
+    /// (left out, and out of the digest) where zero life is out, so a
+    /// plan without it is what it was, digest and all.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ladder: Vec<String>,
     pub digest: PlanDigest,
 }
 
@@ -90,10 +98,19 @@ impl BattlePlan {
             seed,
             checkpoints_us,
             schedule,
+            ladder: Vec::new(),
             digest: PlanDigest(String::new()),
         };
         plan.digest = plan.compute_digest();
         plan
+    }
+
+    /// The plan with the stage's ladder (each rung's chart digest), its
+    /// digest computed again.
+    pub fn with_ladder(mut self, ladder: Vec<String>) -> BattlePlan {
+        self.ladder = ladder;
+        self.digest = self.compute_digest();
+        self
     }
 
     /// The digest of its contents (everything but the digest).
@@ -132,6 +149,15 @@ impl BattlePlan {
                     h.i64(*clear_us);
                     h.i64(*recover_after_us);
                 }
+            }
+        }
+        // The ladder only where there is one: a plan without it keeps
+        // the digest it had.
+        if !self.ladder.is_empty() {
+            h.u64(0x5354_4550);
+            h.u64(self.ladder.len() as u64);
+            for d in &self.ladder {
+                h.bytes(d.as_bytes());
             }
         }
         let mut text = String::from("fnv1a64:");
@@ -290,6 +316,24 @@ pub(crate) mod tests {
         // Read back from JSON, the same plan.
         let text = serde_json::to_string(&p).unwrap();
         assert_eq!(serde_json::from_str::<BattlePlan>(&text).unwrap(), p);
+    }
+
+    /// A plan without a ladder keeps the digest it had; one with a ladder
+    /// is told apart by it, and its JSON names it.
+    #[test]
+    fn a_ladder_is_in_the_digest_only_where_there_is_one() {
+        let p = plan(40, 7, |j| j % 3 != 0);
+        let before = p.digest.clone();
+        assert_eq!(p.clone().with_ladder(Vec::new()).digest, before);
+        let json = serde_json::to_value(&p).unwrap();
+        assert!(json.get("ladder").is_none());
+        let laddered = p.clone().with_ladder(vec!["a".into(), "b".into()]);
+        assert_ne!(laddered.digest, before);
+        assert_ne!(p.clone().with_ladder(vec!["a".into()]).digest, laddered.digest);
+        let json = serde_json::to_value(&laddered).unwrap();
+        assert_eq!(json["ladder"], serde_json::json!(["a", "b"]));
+        let back: BattlePlan = serde_json::from_value(json).unwrap();
+        assert_eq!(back.compute_digest(), laddered.digest);
     }
 
     #[test]

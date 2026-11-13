@@ -91,7 +91,7 @@ pub const SPOTLIGHT: StageId = StageId(0);
 /// (`ddi_engine::ladder`): only once its live contract carries a stage's
 /// ladder and a competitor's steps (`docs/plans/multiplayer-prototype-progress.md`,
 /// "Step down").
-pub const ONLINE_STEP_DOWN: bool = false;
+pub const ONLINE_STEP_DOWN: bool = true;
 
 /// What the room's screens show now (M7b's flow): song select (the host
 /// picking, the others following), or a stage's start prompt.
@@ -2983,11 +2983,12 @@ impl RoomClient {
     }
 
     /// The match's "At zero life" rule can be set here: CPU practice,
-    /// where every play is judged on this device; never an online room
-    /// yet, nor one whose authority would drop the rule
-    /// (`RoomPolicy::step_down`).
+    /// where every play is judged on this device, and an online room that
+    /// plays live (its contract carries the ladder and the steps); never
+    /// one whose authority would drop the rule (`RoomPolicy::step_down`).
     pub fn step_down_offered(&self) -> bool {
-        self.state().policy.step_down && (!self.is_online() || ONLINE_STEP_DOWN)
+        self.state().policy.step_down
+            && (!self.is_online() || (ONLINE_STEP_DOWN && self.plays_live()))
     }
 
     /// Whether the song the picker rests on (or picked last) has an

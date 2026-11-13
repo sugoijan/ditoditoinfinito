@@ -161,6 +161,9 @@ pub(crate) struct RemoteSeat {
     /// on its own song clock with it, so that its hits meet its notes.
     pub shift_us: i64,
     shifts: VecDeque<i64>,
+    /// The steps down its stream said (a match's "At zero life: Step
+    /// down"): the rung it plays.
+    pub steps: u8,
 }
 
 impl RemoteSeat {
@@ -380,6 +383,10 @@ pub(crate) struct Live {
     /// Why this device's link to the stage ended for good, once it did
     /// (an audience's seat: `LiveRoom::seat_end`): the view is stale.
     seat_end: Option<ddi_ui::state::room::SeatEnd>,
+    /// The stage's ladder as the fields draw it (each rung's chart), where
+    /// zero life steps down, and the local play's steps streamed so far.
+    rungs: Vec<feed::TapTrack>,
+    steps_sent: usize,
 }
 
 /// A judge event as a moment of the stream (none: nothing a field
@@ -461,6 +468,7 @@ fn feed_moment(
         MomentKind::Mine => feed::MomentKind::MineHit,
         MomentKind::Boo => feed::MomentKind::Boo,
         MomentKind::Refused { .. } => feed::MomentKind::Mark,
+        MomentKind::StepDown { rung } => feed::MomentKind::StepDown(rung),
     };
     let (offset, w0) = match m.kind {
         MomentKind::Tap { offset_ms, w0, .. } => (f32::from(offset_ms) / 1_000.0, Some(w0)),
@@ -539,6 +547,7 @@ impl Live {
                     w0s: 0,
                     shift_us: 0,
                     shifts: VecDeque::new(),
+                    steps: 0,
                 }
             })
             .collect();
@@ -572,7 +581,16 @@ impl Live {
             room_us: i64::MIN,
             said_off: false,
             seat_end: None,
+            rungs: Vec::new(),
+            steps_sent: 0,
         }
+    }
+
+    /// The stage's ladder (each rung's chart, the next easier first), where
+    /// zero life steps down: what a remote field draws once its stream
+    /// says it stepped down.
+    pub(crate) fn set_rungs(&mut self, rungs: Vec<feed::TapTrack>) {
+        self.rungs = rungs;
     }
 
     /// This frame's song time `t` (this play's judged song second, on its
@@ -757,9 +775,37 @@ impl Live {
         }
         let judge = &human.ruleset().judge;
         let life = (f64::from(human.ruleset().gauge.life().clamp(0.0, 1.0)) * 1e6).round() as u32;
-        let (combo, score) = (human.combo(), score_of(human));
+        // A play that stepped down: its sum on the stage chart's scale, as
+        // the room compares it (`CPU_SCORE_V0`'s way).
+        let score = if human.steps().is_empty() {
+            score_of(human)
+        } else {
+            crate::battle::cpu_score(&human.ruleset().score.view(), self.most)
+                .ddi
+                .map_or(0, |d| d.score)
+        };
+        let combo = human.combo();
         let slew = &self.slew;
-        let moments: Vec<Moment> = judged
+        // Its steps down, each a moment: when, to which rung, from which
+        // boundary (its tick), the life given back.
+        let steps: Vec<Moment> = human
+            .steps()
+            .iter()
+            .skip(self.steps_sent)
+            .map(|st| Moment {
+                at_ms: (slew.to_room(micros(st.at)) as f64 / 1_000.0).round() as i32,
+                tick: st.tick.0,
+                lane: 0,
+                kind: MomentKind::StepDown { rung: st.rung },
+                life_ppm: (f64::from(human.life_at(st.at + 1e-6).clamp(0.0, 1.0)) * 1e6).round()
+                    as u32,
+                combo,
+                score,
+            })
+            .collect();
+        self.steps_sent = human.steps().len();
+        let slew = &self.slew;
+        let mut moments: Vec<Moment> = judged
             .iter()
             .filter_map(|e| {
                 let (tick, lane, kind) = moment_of(e, judge)?;
@@ -775,6 +821,8 @@ impl Live {
                 })
             })
             .collect();
+        moments.extend(steps);
+        moments.sort_by_key(|m| m.at_ms);
         let t_us = micros(t);
         let mut reports = Vec::new();
         if let Some(r) = self.reporter.as_mut() {
@@ -953,6 +1001,19 @@ impl Live {
                 let mut fm = feed_moment(m, false, ddi);
                 // Back on its own song clock, where its notes are.
                 fm.at -= seat.shift_us as f64 / 1e6;
+                // A step down: its field draws the rung's chart from the
+                // boundary.
+                if let MomentKind::StepDown { rung } = m.kind
+                    && let Some(r) = self.rungs.get(usize::from(rung).wrapping_sub(1))
+                {
+                    seat.steps = seat.steps.max(rung);
+                    seat.feed.step_down(
+                        r.clone(),
+                        fm.at,
+                        track.seconds_at(Tick(m.tick)),
+                        rung,
+                    );
+                }
                 seat.feed.push(track, fm);
             }
             if let Some(end) = e.end

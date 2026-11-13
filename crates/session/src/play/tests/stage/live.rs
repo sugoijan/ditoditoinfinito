@@ -2137,3 +2137,69 @@ fn the_audience_watches_seventy_three_players_through_the_session() {
     assert_eq!(outs, 12);
     assert_eq!(views.iter().filter(|v| !v.out).count(), N - outs);
 }
+
+/// A live room whose zero life steps down (a match's "At zero life: Step
+/// down"): the picker's plan names the ladder and every device's agrees;
+/// Bob, missing everything, steps down the song's ladder, his stream says
+/// each step, Alice's view of his field follows the chart he is on; the
+/// room ranks fewer steps first.
+#[test]
+fn a_live_stage_steps_down_and_the_others_fields_follow() {
+    let song = bundled("beatucada");
+    const HARD: usize = 5;
+    let r = Room::new(&[("alice", Intent::Play), ("bob", Intent::Play)], None);
+    r.run(1.0);
+    assert!(r.rooms[0].borrow().step_down_offered(), "offered live");
+    let mut rules = r.rooms[0].borrow().rules().clone();
+    rules.at_zero = ddi_room::AtZero::StepDown;
+    r.rooms[0].borrow_mut().save_rules(rules).unwrap();
+    r.run(1.0);
+    let orders = pick_and_ready(&r, &song, true, HARD);
+    let o = orders[0].as_ref().unwrap();
+    assert!(o.rules.steps_down());
+    // The plan names the ladder; both devices made the same.
+    let plan = r.rooms[0].borrow().live_prep(o.stage).unwrap().plan.clone().unwrap();
+    let ladder = ddi_engine::ladder::ladder(&song, HARD);
+    assert_eq!(
+        plan.ladder,
+        ladder
+            .iter()
+            .map(|&c| song.chart_digest(c).to_string())
+            .collect::<Vec<_>>()
+    );
+    let bobs = r.rooms[1].borrow().live_prep(o.stage).unwrap().plan.clone().unwrap();
+    assert_eq!(bobs.digest, plan.digest);
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 5.0]);
+    let mut followed = false;
+    let mut ended = play_out(&r, &mut plays, 200.0, |_, plays| {
+        let bob_steps = plays[1].player.steps().len();
+        let seen = plays[0]
+            .battle()
+            .unwrap()
+            .feeds()
+            .next()
+            .map_or(0, |f| f.steps().count());
+        followed |= bob_steps > 0 && seen > 0;
+    });
+    let (_, alice) = ended[0].take().expect("Alice's play ended");
+    let (_, bob) = ended[1].take().expect("Bob's play ended");
+    assert!(plays[1].player.steps().len() >= 2, "{:?}", plays[1].player.steps());
+    assert!(followed, "Alice's view of Bob's field stepped down with him");
+    let seen: Vec<(f64, f64, u8)> = plays[0].battle().unwrap().feeds().next().unwrap().steps().collect();
+    assert_eq!(seen.len(), plays[1].player.steps().len());
+    for (s, st) in seen.iter().zip(plays[1].player.steps()) {
+        assert_eq!(s.2, st.rung);
+        assert!((s.1 - st.boundary).abs() < 1e-6, "the boundary {s:?} {st:?}");
+    }
+    // Alice first; the room's stream counted Bob's steps.
+    assert_eq!(alice.ranking[0][0].participant, r.rooms[0].borrow().me());
+    let server = r.server.borrow();
+    let stage = server.live().unwrap().stage_or_last().unwrap();
+    assert!(stage.steps(r.rooms[1].borrow().me()) >= 2);
+    drop(server);
+    match bob.mine {
+        ddi_room::Run::Live { steps, .. } => assert!(steps >= 2),
+        ddi_room::Run::Out { .. } => assert_eq!(plays[1].player.steps().len(), ladder.len()),
+        ref other => panic!("{other:?}"),
+    }
+}

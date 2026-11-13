@@ -40,6 +40,14 @@ pub enum MomentKind {
     /// An attack's shocks the device refused to put into its play (they
     /// reached it too late to be shown fairly): the views take them off.
     Refused { attack: AttackId },
+    /// Their life ran out and they stepped down to rung `rung` (from 1)
+    /// of the stage's ladder (a match's "At zero life: Step down",
+    /// `step-down-v0`): the moment's time is when, its tick the
+    /// boundary's (from which the rung's notes are theirs), its life what
+    /// was given back. ADDITIVE on the wire ([`crate::live::wire`]): a
+    /// refusal's kind with its flag, so that a reader that predates it
+    /// reads the refusal of an attack no stage has and does nothing.
+    StepDown { rung: u8 },
 }
 
 /// One judged moment of a competitor's play.

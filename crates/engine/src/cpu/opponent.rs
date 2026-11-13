@@ -40,6 +40,16 @@ pub struct PlannedRung {
     pub notes: Vec<(f64, u8)>,
 }
 
+/// A stage's ladder on chart `chart` of `song` as everyone plays it
+/// (`crate::ladder::ladder`), cut at the first rung the CPUs cannot plan,
+/// each rung planned: the same on every device.
+pub fn planned_ladder(song: &Song, chart: usize) -> Vec<PlannedRung> {
+    crate::ladder::ladder(song, chart)
+        .into_iter()
+        .map_while(|r| PlannedRung::new(song, r).ok())
+        .collect()
+}
+
 impl PlannedRung {
     /// Chart `chart` of `song` planned; refused where the CPU cannot
     /// plan it.
