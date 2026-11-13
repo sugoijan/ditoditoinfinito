@@ -4550,51 +4550,127 @@ written down as an open option (below).
   standings pop up even where no stage was finished, a table of zeros.
   Skip them there?
 
-### The other option, not built: changing rules from the next stage on
+### Changing rules from the next stage on (built, 2026-11-13)
 
-The maintainer's second alternative: rules changed during a match, taking
-effect from its next stage. For the maintainer to decide.
+The maintainer's second alternative, queued after the restart: a running
+match's rules changed from a later stage on. Built in the room's model,
+the Rules pop-up, practice and online (over the fake server; the
+server's deploy offers it online).
 
-- **What could change between stages**: the rules each stage is played
-  under on its own: Timing difficulty, Boos, Attacks. A stage's prompt
-  already says its rules ("Rules: DDI · Hard timing · Boos"), its play,
-  its CPUs and the bots are built from `StageRules` per stage, and the
-  battle preset (survival or attacks) is chosen per stage. The model
-  would need the rules a stage was played under recorded on the stage
-  (today they are the match's, `MatchState::rules`), a command that
-  edits the running match's per-stage rules (refused once the next
-  stage's readiness or countdown has begun, or applying from the stage
-  after it), and an event every mirror applies. Additive as above.
-- **What could not without unfairness or model changes**: the number of
-  stages once some are played (fewer could end a match early after a
-  favorable stage; more changes what "the match" means for the award
-  scheme and the standings' columns); the practice roster or the seats
-  once standings exist (a CPU added mid-match has no points for the
-  stages before; one removed leaves its points or erases them); the
-  award scheme (points by place) mid-match; and anything that changes
-  who is seated.
-- **What "doesn't always work" means**: a stage counted down or in play
-  keeps its rules, so a change lands a stage later than it seems to;
-  online, a change racing a pick or a start must be ordered by the
-  room's revision (the base check), and someone who loaded the stage
-  under the old rules would play the new ones; CPUs' plans are built
-  per stage and would follow.
-- **What the standings would mean**: points from stages played under
-  different rules added together, as today's stages on different songs
-  are. Fair if the same rule applied to everyone in each stage, but a
-  Hard stage's points are no harder won than an Easy one's, so the
-  results should say that the rules changed and from which stage
-  (e.g. the standings' column headings marked, the match's record
-  keeping each stage's rules).
-- **What the room would have to tell everyone**: a status line when
-  the change is saved ("From stage 3: Hard timing · Boos"), the next
-  stage's prompt saying its rules (already there), and the match's
-  results noting the stages played under other rules.
-- **Cost**: the model (per-stage rules, a command, an event, the
-  record), the server's deploy, the Rules pop-up's form for "from the
-  next stage" beside "for the next match", the standings' marks. A
-  restart (built) covers the common case of a host who set the wrong
-  rules before the first stage was played.
+- **What may change**: the rules each stage is played under on its own
+  (`ddi_room::PlayRules`): **Timing difficulty, Boos, Attacks** and
+  **At zero life** (Out / Step down: per stage by its nature, a stage's
+  ladder and plan are worked out per stage). **Points does not**: a
+  stage's award is per stage, but the bias decides what every stage is
+  worth against the others, so changing it mid-match would make the
+  match's total a sum of two scales; the simpler honest choice is the
+  match's Points for its whole length (Next match or Apply and restart
+  for it). Open question below. Never: the stage count, the seats and
+  the practice roster, the ruleset.
+- **When it lands** (`RoomState::rules_land_on`): on the next stage
+  nobody has begun: not one whose readiness window is open (a pick opens
+  it with the song), whose countdown or play has begun, or that anyone
+  readied or loaded for. So a change saved in the intermission before the
+  next song is picked lands on that next stage; once it is picked (or
+  counting down, or playing) it lands on the stage after. The pop-up says
+  which before Apply ("From stage 3"), and follows the room while open.
+  With no stage left (the last stage gathering or playing) the pop-up
+  is today's form.
+- **The model** (additive to protocol 2): `Match::changes` (each
+  `RulesChange { from, rules, saved_at }`, a later change from the same
+  or an earlier stage replacing those from its stage on; left out of the
+  JSON while empty), `Match::rules_for(stage)` (every reader of a stage's
+  rules: the stage's order and so the play, its CPUs, the bots, the
+  battle preset and the ledger, the live plan, the room's settlement and
+  live server, the Standings), `Match::stage_rules_changed`.
+  `Command::ChangeStageRules { from, rules }`: `EditNextRules` (the Rules
+  pop-up's operator), a running match, the envelope's base against the
+  last change (`Match::changes_saved_at`, else `Rejection::Stale`), and
+  `from` the stage it lands on now, else `Rejection::RulesLandLater {
+  asked, from }` naming where it would land (never moved silently: a
+  change racing a pick or a start is ordered by the room's revision);
+  Step down only where the authority honors it
+  (`RulesProblem::StepDownNotHonored`). `Event::StageRulesChanged`, which
+  every mirror applies. `RoomPolicy::stage_rules` says the authority
+  reads the command (true for every room this build makes, left out when
+  false): a room without it never offers the choice nor is sent the
+  command, and the pop-up is today's. `RestartMatch` and the next
+  match's draft are unchanged.
+- **Two devices never on different rules**: a change never lands on a
+  stage once picked, so every device loads a stage with its rules known.
+  The battle plan also names a changed stage's rules
+  (`BattlePlan::stage_rules`, e.g. `hard/boos/out`, in the digest only
+  then: a stage under the match's own rules has the plan it had), so a
+  device that would play it under the match's rules (one that predates
+  the change) disagrees on the digest and sits it out. Proved over
+  `FakeServer` (`a_live_change_of_rules_lands_after_the_stage_loaded_and_both_devices_agree`):
+  Alice changes the timing while stage 1 loads (after its plan was
+  worked out); it lands on stage 2; both devices play stage 1 under the
+  match's rules and stage 2 under Hard, the same plan digest on both, an
+  older device's another.
+- **The Rules pop-up** (`room_dialogs::RulesDialog`), while a match runs
+  in such a room, for whoever may edit rules: a row **Changes apply: ‹
+  From stage 2 ›** under the statement, From stage N first; its other
+  value **Next match**. From stage N: the title "Rules from stage 2", the
+  statement "This match is on stage 1 of 4, under these rules:" (the
+  rules of the stage it is on), then in gold "Timing, Boos, zero life and
+  attacks below apply from stage 2 on." (● marks the rows changed from
+  that stage's rules); the per-stage rows edit that stage's rules, the
+  others (Stages, the CPUs, Points) are shown as values with a quiet
+  note: "Stages, CPUs and Points can't change during a match: choose
+  Next match for them, or Apply and restart." Next match: as before the
+  round (the rows the next match's, marked against the running match).
+  Apply saves each edit where it was made; **Apply and restart** keeps
+  its place and takes what the pop-up shows (from From stage N, the
+  per-stage rows as shown become the next match's). Keyboard and
+  controller as the other rows (the destination is a ‹ › pair); a
+  member sees today's read-only form. Pictures:
+  `target/scratch/mp/nextstage/shots/` (`rules-from-stage.png`,
+  `standings-marked.png` from the desktop's offscreen test;
+  `2-from-stage-*`, `3-marked-*`, `4-status-*`, `5-next-match-*` from
+  headless Chrome and Firefox).
+- **Telling everyone**: the room's status line, for everyone, from the
+  change until its stage begins: "From stage 2: Hard timing · Boos · No
+  attacks. Pick stage 2's song." (what differs from the stage before,
+  `room::change_words`; then the line it would say). The stage's prompt
+  says that stage's own rules (its order's). A refused change says "The
+  stage these changes were for has begun since. Check where they apply
+  now, then Apply again." The Standings tab beside its heading, where the
+  stage was played under changed rules: "● Changed rules: DDI · Hard
+  timing"; the match's standings pop-up a gold line "● From stage 2: DDI
+  · Hard timing" a change and a gold ● on each such stage's column
+  heading. The Players panel is untouched. The audience's public view
+  keeps the match's rules and names a changed stage's
+  (`PublicStage::rules`, additive); a seat plays and words each stage by
+  its own.
+- **Online, what a deploy changes**: the server builds against the room
+  crate by path and needed no change (its clippy, tests and the wasm
+  check pass as they are); once deployed, its rooms say `stage_rules`
+  and decide the command. Before the deploy the deployed server's policy
+  says nothing, so a new client shows today's form there and sends
+  nothing. An older client in a newer room: it reads `changes` as
+  nothing, so it would play a changed stage under the match's rules; its
+  plan digest differs where the stage has attacks, so it sits such
+  stages out; a stage without attacks has no plan, and the older client
+  would play it under the match's timing and Boos (open question).
+
+PROVISIONAL choices: where a change lands (above); Points fixed for the
+match; Apply and restart taking the per-stage rows as shown.
+
+Tested: `ddi-room` (`walkthroughs`: between stages, a second change
+replacing the first, back to the match's own, refused in the lobby, to a
+member, without a base, with no stage left, racing a pick, stale, Step
+down where not honored, the record keeping each stage's rules, the JSON
+additive both ways; `online`: both authorities and every mirror alike;
+the plan's digest), `ddi-ui` (`room_tests`: the three destinations, the
+status line, the refusal, the Standings' marks, a member and an older
+room never offered it, an online co-host's change over the fake reaching
+every mirror and status line; the `qps-ploc` walk; `xtask l10n check`),
+`ddi-session` (a practice match through its stages: Hard timing from
+stage 2 and attacks off from stage 3, each stage judged, its battle and
+ranking under its own rules; the live test above), desktop offscreen
+(`room_rules_offscreen`), headless Chrome and Firefox at 1280×720 in
+English and 844×390 in Japanese.
 
 ## Rooms of 1+72 players: the award curve, the caps, the screens for a large field (2026-11-13)
 
@@ -5534,10 +5610,10 @@ skill, and a step down costs standing.
   (`StageCue::StepDown`; no announcer line exists). The field's old notes
   vanish, the new chart's scroll in from the boundary; reduced motion
   changes nothing here (nothing moves but the notes).
-- **The hand** plays the new chart from the boundary
-  (`RuntimePreview::step_down`): the notes its planner was not given yet
-  are the new chart's; those it was given already stay (it is an
-  autoplay, never judged).
+- **The hand** plays out the notes its planner was given before the step
+  and then rests to the end of the stage (`RuntimePreview::step_down`,
+  2026-11-13): given the new chart from the boundary (the first way) it
+  failed now and then in the desktop's offscreen stage; see "Not done".
 - **Not in solo play.** Stage plays are not kept in the history; nothing
   stored changes. The rule is locked for a match like the others.
 
@@ -5730,23 +5806,35 @@ nothing is planned lazily.
 
 - An older client in a room that steps down plays without the ladder
   and sits laddered stages out (above); nothing tells it why.
-- The assist clap and the mine sound are scheduled from the stage
-  chart's notes at the play's start: after a step they follow the old
-  chart's notes (the clap is off by default; the rooms' DDI has no clap).
+- (Fixed 2026-11-13) The assist clap follows the new chart from a step:
+  its rows past the step are the judge's after it
+  (`EventSounds::step_down`); at most the 0.3 s it schedules ahead of
+  the old chart's are still heard (the backend cannot take a scheduled
+  sound back). The mine sound always followed what is judged. Tested on
+  the fake clock (`the_claps_follow_the_new_chart_after_a_step`).
 - The audience's seats draw a stepped field only where their device
   computed the same ladder (it does when it loads the stage like a
   member); not tested through a relay.
 - Time signatures are not read for the boundary's bar lines.
-- The dancing hand follows the new chart from the boundary, but in the
-  desktop offscreen test it stopped soon after the first step down
-  (`floor_penetration` in its preparation): it then hides, never
-  blocking play. Why the new notes' first contacts fail its checks is
-  not worked out.
+- The dancing hand does not play the new chart after a step: it plays
+  out what its planner was given and rests (2026-11-13). What was found:
+  given the new chart's notes from the boundary, its motion preparation
+  failed with `floor_penetration` on the way to the first new contact
+  (at 12.47 s, the step at 8.94 s, the boundary at 13.77 s on
+  Beatucada's Hard) in three of four runs of the desktop's offscreen
+  stage, which draws eight frames a second on the real clock; never at
+  60 or 120 frames a second, nor at 8 in the shell's own test on a fake
+  or real clock (`the_hand_plays_on_through_a_step_down`), so it depends
+  on how the preparation's work falls between frames rather than on the
+  notes alone. Playing the new chart as a fresh preparation from a rest
+  (as a quick restart warms a fresh buffer) is left for a later round;
+  the offscreen test now asserts the hand never stops.
 
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| Rules from the next stage (2026-11-13): a change lands on the next stage nobody has readied, loaded or started (once picked, the one after); Points fixed for the match; Apply and restart takes the per-stage rows as shown | `RoomState::rules_land_on`, `room_dialogs::RulesDialog` | A host's change of timing, Boos, attacks or zero life applies from the stage the pop-up names, said on everyone's status line | Whether Points may change mid-match; whether a change should land on a picked stage nobody has readied yet |
 | `step-down-v0` (2026-11-13): life back to half at the zero; the boundary the first bar line (four beats) at least the reading horizon plus 1 s ahead; a breather until it with nothing of a chart judged, stray presses free and life kept at one point or more | `ddi_engine::ladder::STEP_DOWN_V0` | A player out of life plays on an easier chart after a few seconds' rest, with half a bar | The life given back; the breather's length; whether a player may ever step back up |
 | The ladder: the style's original charts of lower slots on the same timing, nearest slot first, by meter; never an Edit below a slotted chart; cut at the first rung the CPUs cannot plan | `ddi_engine::ladder::ladder`, `cpu::planned_ladder` | Hard steps to Medium, then Easy, then Beginner | How Edits and split-timing charts should take part |
 | Standing under Step down: fewer steps first, then life, then the score; a stepped run's score put on the stage chart's scale | `ddi_room::battle::rank`, `ddi_session::battle::Battle::on_stage_scale` | One step down places below everyone who stayed on the stage's chart | How a step down should rank (by steps first, or a points penalty) |
@@ -6241,3 +6329,19 @@ nothing is planned lazily.
   a step down should rank (fewer steps first now) are the maintainer's
   to decide. Measured: under Normal it keeps the weakest CPUs in to the
   song's end without moving the stage's order much.
+- Rules from the next stage (2026-11-13): Points stays the match's for
+  its whole length (a stage's award, but what each stage is worth against
+  the others); should it change from a stage on like the others, the
+  match's total then a sum of two scales?
+- Rules from the next stage: a change never lands on a stage once picked
+  (its window open), even if nobody has readied or loaded yet. Should a
+  picked stage whose readiness has not begun take it (sooner, but its
+  song's prompt may already be on someone's screen)?
+- Rules from the next stage: an older client in a newer room plays a
+  changed stage under the match's own timing and Boos where the stage
+  has no attacks (no plan to disagree on). Acceptable for the gated
+  prototype, or should the content (not only the plan) name a stage's
+  changed rules?
+- Rules from the next stage: Apply and restart from "From stage N"
+  takes the per-stage rows as shown into the next match's rules. Right,
+  or should it take the next match's draft alone?

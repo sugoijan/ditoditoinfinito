@@ -1049,6 +1049,20 @@ Rust and the browser are implementation details, not advertised features.
   `Blocked` waits; `SETTLEMENT_V0`, decided only with no attack against
   the last one in outstanding, a waiting one counted, a knockout by it a
   shared first; trace tests in `attacks/tests.rs`).
+  A running match's per-stage rules (`rules::PlayRules`: Timing
+  difficulty, Boos, Attacks, At zero life; never the stages, seats,
+  CPUs, ruleset or Points) changed from a later stage on
+  (`Command::ChangeStageRules { from, rules }`, the operator's who may
+  edit rules, against `Match::changes_saved_at`; `Event::StageRulesChanged`;
+  `Match::changes`, `rules_for(stage)`, `stage_rules_changed`): a change
+  lands on `RoomState::rules_land_on`, the next stage nobody has readied,
+  loaded or started (a pick opens its window, so a change saved once a
+  stage is picked lands on the one after), and one made for a stage that
+  has begun since is refused with `Rejection::RulesLandLater`; the
+  battle plan names a changed stage's rules (`BattlePlan::stage_rules`,
+  in the digest only then), the public view a changed stage's
+  (`PublicStage::rules`); additive, offered where
+  `RoomPolicy::stage_rules` says the authority reads it.
   M7b's match flow in the model: `Command::Pick` (the operator's Start on
   a song: the next stage's song, the match started or gone on, its
   readiness window opened, all as one change), `Command::Spotlight` and
@@ -1298,6 +1312,13 @@ Rust and the browser are implementation details, not advertised features.
   room's screens share (`RoomCall`, the per-frame `Pump`, the status and
   rows, the panel, More, `ThemeState::room`, a `RoomView`, for tests);
   `screens/room_dialogs.rs` Rules (from their button, Cancel and Apply;
+  during a running match whose room takes changes from a later stage
+  (`RoomClient::may_change_stage_rules`) a row "Changes apply": From
+  stage N, first, where only the per-stage rows change
+  (`RoomClient::change_stage_rules`), or Next match; Apply and restart
+  takes what the pop-up shows; the status line says a change until its
+  stage begins, `room::pending_change`; the Standings mark such stages,
+  `StageRules::changed`;
   a room opens straight on its song select with the default rules, and
   only the hidden option `Settings::multiplayer_rules_first`, off by
   default, opens them by themselves on entering in their first form,
