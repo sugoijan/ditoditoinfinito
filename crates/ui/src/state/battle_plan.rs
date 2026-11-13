@@ -151,6 +151,7 @@ pub fn plan(song: &Song, chart: usize, rules: &StageRules, seed: u64) -> BattleP
             .map(|&r| song.chart_digest(r).to_string())
             .collect(),
     )
+    .with_stage_rules(rules.changed_tag())
 }
 
 /// The first and last note of chart `chart` of `song`, song seconds.

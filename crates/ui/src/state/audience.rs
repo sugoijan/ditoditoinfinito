@@ -456,18 +456,44 @@ impl AudienceClient {
     /// Attacks are played in the view's match (its rule On, the room
     /// playing live).
     pub fn attacks(&self) -> bool {
-        self.plays_live() && self.view().is_some_and(|v| v.rules.attacks)
+        self.attacks_of(self.current_stage())
     }
 
-    /// The stage's rules (everyone's).
+    /// The stage's rules (everyone's): the stage the room is on.
     pub fn stage_rules(&self) -> StageRules {
-        self.view().map_or_else(StageRules::default, |v| StageRules {
-            ruleset: v.rules.ruleset.clone(),
-            difficulty: v.rules.difficulty,
-            boos: v.rules.boos,
-            points: v.rules.points,
-            ..StageRules::default()
-        })
+        self.stage_rules_of(self.current_stage())
+    }
+
+    /// Stage `stage`'s rules: the match's, or those the public view says
+    /// it is played under where they were changed during the match.
+    pub fn stage_rules_of(&self, stage: Option<StageId>) -> StageRules {
+        let Some(v) = self.view() else {
+            return StageRules::default();
+        };
+        let changed = stage
+            .and_then(|id| v.stages.iter().find(|s| s.id == id))
+            .and_then(|s| s.rules.as_ref());
+        let r = changed.unwrap_or(&v.rules);
+        StageRules {
+            ruleset: r.ruleset.clone(),
+            difficulty: r.difficulty,
+            boos: r.boos,
+            points: r.points,
+            at_zero: r.at_zero,
+            changed: changed.is_some(),
+        }
+    }
+
+    /// Attacks are played in stage `stage` (the room playing live).
+    pub fn attacks_of(&self, stage: Option<StageId>) -> bool {
+        let Some(v) = self.view() else {
+            return false;
+        };
+        let r = stage
+            .and_then(|id| v.stages.iter().find(|s| s.id == id))
+            .and_then(|s| s.rules.as_ref())
+            .unwrap_or(&v.rules);
+        self.plays_live() && r.attacks
     }
 
     /// A player's name as the view shows it (a CPU's from its number).
@@ -507,8 +533,8 @@ impl AudienceClient {
         let settings = crate::state::settings::Settings::load();
         let live = LiveAsk {
             seed: ddi_room::live::plan::seed_for(&RoomId::new(self.room.clone()), stage, &chart),
-            rules: self.stage_rules(),
-            attacks: self.attacks(),
+            rules: self.stage_rules_of(Some(stage)),
+            attacks: self.attacks_of(Some(stage)),
             options: settings.play_options(None),
             speed_source: settings.speed_source,
         };
@@ -630,7 +656,7 @@ impl AudienceClient {
                 BattlePreset::GaugeSurvivalV0
             },
             attacks_offered: true,
-            rules: self.stage_rules(),
+            rules: self.stage_rules_of(Some(stage)),
             me: AUDIENCE_ME,
             targeting: Default::default(),
             cpus: Vec::new(),

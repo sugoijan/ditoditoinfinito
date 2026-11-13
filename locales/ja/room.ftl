@@ -167,6 +167,50 @@ room-rules-restart-title = 対戦をやり直しますか？
 room-rules-restart-body = この対戦は今すぐ中止され、これまでのポイントは引き継がれません。次に選ばれた曲から、このルールで新しい対戦が始まります。
 room-rules-restart-confirm = やり直す
 
+room-rules-title-from = ステージ{ $number }からのルール
+
+room-rules-running-stage = この対戦はステージ { $number } / { $stages } です。現在のルール：
+
+room-rules-running-from = { $marked ->
+    [yes] 以下のタイミング・Boo・ライフ0のとき・攻撃はステージ{ $number }から適用されます。●は変更した項目です。
+   *[no] 以下のタイミング・Boo・ライフ0のとき・攻撃はステージ{ $number }から適用されます。
+}
+
+room-rules-destination = 変更の適用先
+room-rules-destination-stage = ステージ{ $number }から
+room-rules-destination-next = 次の対戦
+
+room-rules-stage-only-note = ステージ数・CPU・得点は対戦中には変更できません。変更するには「次の対戦」を選ぶか、「適用してやり直す」を使ってください。
+
+room-status-rules-change = ステージ{ $number }から：{ $rules }。{ $then }
+
+room-rules-change-timing = { $difficulty ->
+    [easy] イージータイミング
+    [hard] ハードタイミング
+   *[normal] ノーマルタイミング
+}
+room-rules-change-boos = { $boos ->
+    [on] Booあり
+   *[off] Booなし
+}
+room-rules-change-attacks = { $attacks ->
+    [on] 攻撃あり
+   *[off] 攻撃なし
+}
+room-rules-change-at-zero = { $zero ->
+    [step_down] 譜面ダウン
+   *[out] ライフ0で脱落
+}
+room-rules-change-join = { $first } · { $second }
+
+room-refused-rules-later = この変更の対象だったステージはすでに始まっています。適用先を確かめて、もう一度適用してください。
+
+room-refused-rules-no-stage = この対戦で変更できるステージは残っていません。変更は次の対戦に適用できます。
+
+room-table-rules-changed = ● ルール変更：{ $rules }
+
+room-results-rules-changed = ● ステージ{ $number }から：{ $rules }
+
 ## More.
 
 room-leave = ルームを出る

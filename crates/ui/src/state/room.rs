@@ -343,6 +343,9 @@ pub enum SharingProblem {
 /// What a shell's own threads tell the room client (desktop's uploads and
 /// downloads), drained each tick through [`RoomClient::set_inbox`]: the
 /// same answers a single-threaded shell gives by calling the client.
+/// (A few a stage: the live preparation's battle plan is the large part,
+/// kept inline so the shells build it as before.)
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum ShellNews {
     Progress {
@@ -549,6 +552,10 @@ pub struct StageRules {
     /// What zero life does: out, or a step down the song's ladder
     /// (`ddi_engine::ladder`, `step-down-v0`).
     pub at_zero: ddi_room::AtZero,
+    /// The stage is played under per-stage rules changed during the match
+    /// (`ddi_room::Match::changes`): other than those the match began
+    /// with. Its battle plan says so ([`StageRules::changed_tag`]).
+    pub changed: bool,
 }
 
 impl StageRules {
@@ -559,7 +566,35 @@ impl StageRules {
             boos: rules.boos,
             points: rules.points,
             at_zero: rules.at_zero,
+            changed: false,
         }
+    }
+
+    /// Stage `stage` of match `m`'s rules: the match's, or a change from
+    /// it or an earlier stage on.
+    pub fn of_stage(m: &ddi_room::Match, stage: StageId) -> StageRules {
+        StageRules {
+            changed: m.stage_rules_changed(stage),
+            ..StageRules::of(&m.rules_for(stage))
+        }
+    }
+
+    /// What a stage's battle plan names of rules changed during the
+    /// match (`BattlePlan::stage_rules`): its difficulty, Boos and zero
+    /// life, so a device that plays it under other rules (one that
+    /// predates the change) disagrees on the plan's digest and sits it
+    /// out. `None` for a stage under the match's own rules, whose plan is
+    /// what it was.
+    pub fn changed_tag(&self) -> Option<String> {
+        self.changed.then(|| {
+            format!(
+                "{:?}/{}/{}",
+                self.difficulty,
+                if self.boos { "boos" } else { "no-boos" },
+                self.at_zero.id()
+            )
+            .to_lowercase()
+        })
     }
 
     /// Zero life steps down the song's ladder (`ddi_engine::ladder`).
@@ -2122,7 +2157,26 @@ impl RoomClient {
     /// Whether the match being played (else the next one's rules) is
     /// played with attacks: where the screens show the policies.
     pub fn attacks_on(&self) -> bool {
-        self.attacks_played(self.locked_rules().unwrap_or_else(|| self.rules()))
+        match self.rules_now() {
+            Some(r) => self.attacks_played(&r),
+            None => self.attacks_played(self.locked_rules().unwrap_or_else(|| self.rules())),
+        }
+    }
+
+    /// The rules of the stage the running match is on (gathering,
+    /// counting down, playing, or next after an intermission), which a
+    /// change during the match may have made other than the match's.
+    pub fn rules_now(&self) -> Option<MatchRules> {
+        let s = self.state();
+        let stage = match s.phase {
+            Phase::Preparing { stage, .. }
+            | Phase::Countdown { stage, .. }
+            | Phase::Stage { stage }
+            | Phase::SongCompletion { stage } => stage,
+            Phase::Intermission { next } => next,
+            _ => return None,
+        };
+        s.current.as_ref().map(|m| m.rules_for(stage))
     }
 
     /// Whether the local player is ready for the upcoming stage (or in
@@ -2283,11 +2337,24 @@ impl RoomClient {
         if !self.plays_live() {
             return None;
         }
-        let rules = self.locked_rules().unwrap_or_else(|| self.rules()).clone();
+        // The stage's own rules: the match's, or a change from it or an
+        // earlier stage on (a pick always comes after the change it is
+        // played under: a change never lands on a stage once picked).
+        let s = self.state();
+        let (rules, stage_rules) = match s.current.as_ref().filter(|_| s.phase != Phase::Lobby) {
+            Some(m) if m.stage_index(stage).is_some() => {
+                (m.rules_for(stage), StageRules::of_stage(m, stage))
+            }
+            _ => {
+                let r = self.locked_rules().unwrap_or_else(|| self.rules()).clone();
+                let sr = StageRules::of(&r);
+                (r, sr)
+            }
+        };
         let settings = crate::state::settings::Settings::load();
         Some(LiveAsk {
             seed: ddi_room::live::plan::seed_for(&self.state().room, stage, &content.chart),
-            rules: StageRules::of(&rules),
+            rules: stage_rules,
             attacks: self.attacks_played(&rules),
             options: settings.play_options(None),
             speed_source: settings.speed_source,
@@ -2738,8 +2805,8 @@ impl RoomClient {
             number: u16::try_from(index + 1).unwrap_or(u16::MAX),
             of: u16::try_from(m.stages.len()).unwrap_or(u16::MAX),
             confirmed,
-            rules: StageRules::of(&m.rules),
-            attacks: self.attacks_played(&m.rules),
+            rules: StageRules::of_stage(m, stage),
+            attacks: self.attacks_played(&m.rules_for(stage)),
             summary: self.summaries.get(&stage).cloned(),
             experimental: play.result.as_ref().is_some_and(|r| r.rule.experimental()),
             rows,
@@ -2788,13 +2855,13 @@ impl RoomClient {
             chart: picked.chart,
             // What is really played: attacks only where they are
             // offered (never a rule that silently does nothing).
-            battle: if self.attacks_played(&m.rules) {
+            battle: if self.attacks_played(&m.rules_for(stage)) {
                 BattlePreset::GaugeAttacksV0
             } else {
                 BattlePreset::GaugeSurvivalV0
             },
             attacks_offered: self.attacks_offered(),
-            rules: StageRules::of(&m.rules),
+            rules: StageRules::of_stage(m, stage),
             dev_mines_at_beat: development().mines_at_beat,
             me: self.me,
             targeting: self.my_targeting(),
@@ -3024,6 +3091,57 @@ impl RoomClient {
         self.state().policy.restart
             && self.may(Capability::EditNextRules)
             && self.may(Capability::StopMatch)
+    }
+
+    /// Whether the running match's per-stage rules may be changed from a
+    /// later stage on here (the Rules pop-up's "From stage N"): the room's
+    /// authority reads the change (`RoomPolicy::stage_rules`), the player
+    /// may edit rules, and a stage is left for it to land on.
+    pub fn may_change_stage_rules(&self) -> bool {
+        self.state().policy.stage_rules
+            && self.may(Capability::EditNextRules)
+            && self.rules_land_on().is_some()
+    }
+
+    /// Where a change of the running match's per-stage rules saved now
+    /// would land: the stage and its number, from 1
+    /// (`RoomState::rules_land_on`).
+    pub fn rules_land_on(&self) -> Option<(StageId, u16)> {
+        let s = self.state();
+        let stage = s.rules_land_on()?;
+        let index = s.current.as_ref()?.stage_index(stage)?;
+        Some((stage, u16::try_from(index + 1).unwrap_or(u16::MAX)))
+    }
+
+    /// The rules stage `stage` of the running (or last) match is played
+    /// under ([`ddi_room::Match::rules_for`]).
+    pub fn rules_for_stage(&self, stage: StageId) -> Option<MatchRules> {
+        let s = self.state();
+        s.current.as_ref().map(|m| m.rules_for(stage))
+    }
+
+    /// The rules a change saved now would change: those of the stage it
+    /// would land on (the match's, or an earlier change's).
+    pub fn rules_ahead(&self) -> Option<MatchRules> {
+        let (stage, _) = self.rules_land_on()?;
+        self.rules_for_stage(stage)
+    }
+
+    /// Change the running match's per-stage rules (`rules`' Timing
+    /// difficulty, Boos, Attacks and At zero life; the rest is the
+    /// match's) from stage `from` on, the stage the player was told
+    /// ([`RoomClient::rules_land_on`]). Refused with
+    /// `Rejection::RulesLandLater` where the room has moved on since.
+    pub fn change_stage_rules(&mut self, from: StageId, rules: &MatchRules) -> Result<(), Refusal> {
+        if !self.state().policy.stage_rules {
+            return self.refuse(Refusal::Room(Rejection::Unauthorized {
+                capability: Capability::EditNextRules,
+            }));
+        }
+        self.send(Command::ChangeStageRules {
+            from,
+            rules: rules.play_rules(),
+        })
     }
 
     /// Save `rules` for the next match and stop the running match, as one

@@ -1248,6 +1248,53 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             online.mods,
             m::play_out().into(),
             m::play_won().into(),
+            // A change of the rules from a later stage (2026-11-13): the
+            // status line, its refusals, the Standings' marks.
+            m::status_rules_change(
+                3,
+                super::room::change_words(
+                    &ddi_room::MatchRules::hosted(),
+                    &{
+                        let mut r = ddi_room::MatchRules::hosted();
+                        r.difficulty = ddi_room::MatchDifficulty::Hard;
+                        r.boos = true;
+                        r.at_zero = ddi_room::AtZero::StepDown;
+                        r.set_attacks(true);
+                        r
+                    },
+                    true,
+                )
+                .unwrap(),
+                m::status_pick_next(3),
+            )
+            .into(),
+            super::room::change_words(
+                &{
+                    let mut r = ddi_room::MatchRules::hosted();
+                    r.difficulty = ddi_room::MatchDifficulty::Hard;
+                    r.boos = true;
+                    r.at_zero = ddi_room::AtZero::StepDown;
+                    r.set_attacks(true);
+                    r
+                },
+                &ddi_room::MatchRules::hosted(),
+                true,
+            )
+            .unwrap()
+            .into(),
+            m::rules_change_timing("easy").into(),
+            m::refused_rules_later().into(),
+            m::refused_rules_no_stage().into(),
+            m::table_rules_changed("DDI").into(),
+            m::results_rules_changed(2, "DDI").into(),
+            m::rules_title_from(2).into(),
+            m::rules_running_stage(1, 4).into(),
+            m::rules_running_from(2, "yes").into(),
+            m::rules_running_from(2, "no").into(),
+            m::rules_destination().into(),
+            m::rules_destination_stage(2).into(),
+            m::rules_destination_next().into(),
+            m::rules_stage_only_note().into(),
             // A battle's moments shown beside the play.
             m::play_cue_match_begin().into(),
             m::play_cue_stage_begin(2).into(),

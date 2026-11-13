@@ -143,6 +143,13 @@ pub struct RoomView {
     pub rules_running: bool,
     pub rules_changed: Vec<String>,
     pub restart_offered: bool,
+    /// During a match whose room takes changes from a later stage on:
+    /// where the pop-up's edits go (`stage`, `next`), the stage a change
+    /// lands on (its number), and the stage's rules as edited
+    /// (difficulty, Boos, Attacks, At zero life).
+    pub rules_destination: Option<String>,
+    pub rules_from: Option<u16>,
+    pub stage_draft_rules: Option<(String, bool, bool, String)>,
     /// The roster pop-ups: Add custom, Players, the stage's standings.
     pub add_open: bool,
     pub players_open: bool,
@@ -368,6 +375,22 @@ pub fn audience_words(r: &RoomClient) -> Option<UiText> {
 }
 
 fn room_status(r: &RoomClient) -> UiText {
+    let line = phase_status(r);
+    // A change of the rules from a later stage, said until that stage
+    // begins (for everyone: the operator who made it and the others).
+    match pending_change(r) {
+        Some((n, words))
+            if r.refusal().is_none()
+                && r.link_notice().is_none()
+                && (!r.is_online() || r.link_state() == LinkState::Connected) =>
+        {
+            m::status_rules_change(n, words, line)
+        }
+        _ => line,
+    }
+}
+
+fn phase_status(r: &RoomClient) -> UiText {
     if r.is_online() {
         match r.link_state() {
             LinkState::Joining => return m::link_joining(),
@@ -2026,6 +2049,9 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         rules_running: kept.rules_running,
         rules_changed: kept.rules_changed,
         restart_offered: kept.restart_offered,
+        rules_destination: kept.rules_destination,
+        rules_from: kept.rules_from,
+        stage_draft_rules: kept.stage_draft_rules,
         add_open: kept.add_open,
         players_open: kept.players_open,
         standings_open: kept.standings_open,
@@ -2162,6 +2188,8 @@ pub fn refusal_text(why: &Refusal) -> UiText {
             Rejection::Unauthorized { .. } => m::refused_host_only(),
             Rejection::NotPicker { .. } => m::refused_not_picker(),
             Rejection::InvalidRules(p) | Rejection::RulesNeedReview(p) => rules_problem(p),
+            Rejection::RulesLandLater { from: Some(_), .. } => m::refused_rules_later(),
+            Rejection::RulesLandLater { from: None, .. } => m::refused_rules_no_stage(),
             other => {
                 let code = format!("{other:?}");
                 let code = code.split([' ', '{', '(']).next().unwrap_or("").to_string();
@@ -2238,6 +2266,59 @@ pub fn rules_words(rules: &crate::state::room::StageRules, attacks: Option<bool>
         rules.points.id(),
         rules.at_zero.id(),
     )
+}
+
+/// What a change of the running match's per-stage rules changes, from
+/// the rules `before` it (the stage before the change's) to `after`, in
+/// the parts' words joined ("Hard timing · Boos · No attacks"); `None`
+/// where nothing a player plays by differs.
+pub fn change_words(
+    before: &ddi_room::MatchRules,
+    after: &ddi_room::MatchRules,
+    attacks_offered: bool,
+) -> Option<UiText> {
+    let on = |b: bool| if b { "on" } else { "off" };
+    let mut parts: Vec<UiText> = Vec::new();
+    if before.difficulty != after.difficulty {
+        parts.push(m::rules_change_timing(difficulty_id(after.difficulty)));
+    }
+    if before.boos != after.boos {
+        parts.push(m::rules_change_boos(on(after.boos)));
+    }
+    if attacks_offered && before.attacks() != after.attacks() {
+        parts.push(m::rules_change_attacks(on(after.attacks())));
+    }
+    if before.at_zero != after.at_zero {
+        parts.push(m::rules_change_at_zero(after.at_zero.id()));
+    }
+    parts.into_iter().reduce(m::rules_change_join)
+}
+
+/// The running match's latest change of its per-stage rules whose stage
+/// has not begun yet (nobody readied for it), with that stage's number
+/// and what it changes: what the status line says until then.
+pub fn pending_change(r: &RoomClient) -> Option<(u16, UiText)> {
+    let s = r.state();
+    if !s.phase.kind().match_running() {
+        return None;
+    }
+    let m = s.current.as_ref()?;
+    let change = m.changes.last()?;
+    let index = m.stage_index(change.from)?;
+    let st = &m.stages[index];
+    let gathering = matches!(
+        s.phase,
+        Phase::Preparing { stage, window: Some(_) } if stage == change.from
+    );
+    if st.play.is_some() || gathering {
+        return None;
+    }
+    let before = match index.checked_sub(1) {
+        Some(i) => m.rules_for(m.stages[i].id),
+        None => m.rules.clone(),
+    };
+    let words = change_words(&before, &m.rules_for(change.from), attacks_offered(r))?;
+    Some((u16::try_from(index + 1).unwrap_or(u16::MAX), words))
 }
 
 /// The At zero life choice's name (`MatchRules::at_zero`).

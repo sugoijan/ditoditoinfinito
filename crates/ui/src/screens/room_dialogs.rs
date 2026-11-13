@@ -167,7 +167,22 @@ pub struct RulesDialog {
     points_focused: bool,
     /// The At zero life row is focused (its sentence brightens).
     zero_focused: bool,
+    /// During a match whose room takes changes from a later stage on
+    /// (`RoomClient::may_change_stage_rules`): where the edits go, from
+    /// the stage named (the default) or to the next match.
+    to_stage: bool,
+    /// The per-stage rules as edited for the stage a change lands on
+    /// (Timing difficulty, Boos, At zero life, Attacks; the rest is the
+    /// running match's), not yet applied.
+    stage_draft: Rc<RefCell<MatchRules>>,
+    /// The stage the change was said to land on when last built, and its
+    /// number: what Apply sends.
+    from: Option<(ddi_room::StageId, u16)>,
 }
+
+/// The rows a running match may change from a later stage on
+/// (`ddi_room::PlayRules`).
+const PER_STAGE: [&str; 4] = ["difficulty", "boos", "at_zero", "attacks"];
 
 impl RulesDialog {
     /// From its button: Cancel and Apply.
@@ -184,6 +199,9 @@ impl RulesDialog {
     fn opened(env: Env, room: SharedRoom, first: bool) -> RulesDialog {
         let draft = room.borrow().state().next.rules.clone();
         let draws = room.borrow().now_ms();
+        let ahead = room.borrow().rules_ahead();
+        let from = room.borrow().rules_land_on();
+        let stage_draft = ahead.unwrap_or_else(|| draft.clone());
         RulesDialog {
             env,
             room,
@@ -194,7 +212,40 @@ impl RulesDialog {
             draws,
             points_focused: false,
             zero_focused: false,
+            to_stage: true,
+            stage_draft: Rc::new(RefCell::new(stage_draft)),
+            from,
         }
+    }
+
+    /// The edits may go to a later stage of the running match: from its
+    /// button, while a match runs, to who may edit rules, in a room whose
+    /// authority takes them and with a stage left for them
+    /// (`RoomClient::may_change_stage_rules`). Elsewhere the pop-up is as
+    /// it was: the next match's.
+    fn stage_offered(&self) -> bool {
+        !self.first && self.running() && self.room.borrow().may_change_stage_rules()
+    }
+
+    /// The edits go to the running match from a later stage on.
+    fn to_stage(&self) -> bool {
+        self.to_stage && self.stage_offered()
+    }
+
+    /// The rules the rows edit: the stage's where the edits go there,
+    /// else the next match's.
+    fn edited(&self) -> Rc<RefCell<MatchRules>> {
+        if self.to_stage() {
+            self.stage_draft.clone()
+        } else {
+            self.draft.clone()
+        }
+    }
+
+    /// Row `id` may be changed here: by who may edit rules, and from a
+    /// later stage only the per-stage ones.
+    fn row_editable(&self, id: &str) -> bool {
+        self.editable() && (!self.to_stage() || PER_STAGE.contains(&id))
     }
 
     /// The player may change the rules (an operator).
@@ -266,6 +317,27 @@ impl RulesDialog {
         if !self.running() {
             return Vec::new();
         }
+        if self.to_stage() {
+            let r = self.room.borrow();
+            let Some(ahead) = r.rules_ahead() else {
+                return Vec::new();
+            };
+            let d = self.stage_draft.borrow();
+            let mut v = Vec::new();
+            if d.difficulty != ahead.difficulty {
+                v.push("difficulty");
+            }
+            if d.boos != ahead.boos {
+                v.push("boos");
+            }
+            if r.step_down_offered() && d.at_zero != ahead.at_zero {
+                v.push("at_zero");
+            }
+            if super::room::attacks_offered(&r) && d.attacks() != ahead.attacks() {
+                v.push("attacks");
+            }
+            return v;
+        }
         let r = self.room.borrow();
         let Some(locked) = r.locked_rules() else {
             return Vec::new();
@@ -333,6 +405,20 @@ impl RulesDialog {
     fn publish(&self) {
         let items: Vec<String> = self.focusables().into_iter().map(|f| f.name).collect();
         self.env.state.borrow_mut().page_items = items;
+        let to_stage = self.to_stage();
+        let destination = self.stage_offered().then(|| {
+            if to_stage { "stage" } else { "next" }.to_string()
+        });
+        let from = self.from.filter(|_| self.stage_offered()).map(|(_, n)| n);
+        let stage_rules = self.stage_offered().then(|| {
+            let d = self.stage_draft.borrow();
+            (
+                super::room::difficulty_id(d.difficulty).to_string(),
+                d.boos,
+                d.attacks(),
+                d.at_zero.id().to_string(),
+            )
+        });
         let draft = self.draft.borrow();
         let cpus = u16::try_from(self.roster().len()).unwrap_or(u16::MAX);
         let (stages, problem, first) = (draft.stages, self.problem.clone(), self.first);
@@ -362,13 +448,28 @@ impl RulesDialog {
             v.rules_running = running;
             v.rules_changed = changed;
             v.restart_offered = restart;
+            v.rules_destination = destination;
+            v.rules_from = from;
+            v.stage_draft_rules = stage_rules;
         });
+    }
+
+    /// The rules a restart starts the next match under: the next match's
+    /// draft, with the per-stage rows as shown where the edits went to a
+    /// later stage (Apply and restart takes what the pop-up shows).
+    fn restart_rules(&self) -> MatchRules {
+        let draft = self.draft.borrow().clone();
+        if self.to_stage() {
+            draft.with_play(&self.stage_draft.borrow().play_rules())
+        } else {
+            draft
+        }
     }
 
     /// Apply and restart: the draft checked, then asked once ("Restart
     /// the match?", Cancel first).
     fn ask_restart(&mut self, root: &mut Actor, cx: &mut Cx) {
-        let draft = self.draft.borrow().clone();
+        let draft = self.restart_rules();
         let checked = self.room.borrow().check_rules(&draft);
         if let Err(p) = checked {
             self.problem = Some(super::room::rules_problem(&p).into());
@@ -395,7 +496,7 @@ impl RulesDialog {
     /// change; closes, or says why not. A match that ended meanwhile has
     /// nothing to stop: the draft is saved for the next one, as Apply.
     fn restart(&mut self, root: &mut Actor, cx: &mut Cx) {
-        let draft = self.draft.borrow().clone();
+        let draft = self.restart_rules();
         let may = self.room.borrow().may_restart();
         let done = if may {
             self.room.borrow_mut().restart_match(draft)
@@ -422,15 +523,29 @@ impl RulesDialog {
         cx.close(cancel);
     }
 
-    /// Applies the draft (when it differs); closes, or says why not.
+    /// Applies the draft (when it differs) and, where the edits may go
+    /// to a later stage, the stage's rules (when they differ from that
+    /// stage's): each edit where it was made; closes, or says why not.
     fn apply(&mut self, root: &mut Actor, cx: &mut Cx, name: &str) {
         let draft = self.draft.borrow().clone();
         let same = self.room.borrow().state().next.rules == draft;
-        let saved = if same || !self.editable() {
+        let mut saved = if same || !self.editable() {
             Ok(())
         } else {
             self.room.borrow_mut().save_rules(draft)
         };
+        if saved.is_ok() && self.stage_offered() {
+            let stage = self.stage_draft.borrow().clone();
+            let ahead = self.room.borrow().rules_ahead();
+            let differs = ahead.is_some_and(|a| a.play_rules() != stage.play_rules());
+            if differs && let Some((from, _)) = self.from {
+                saved = self.room.borrow_mut().change_stage_rules(from, &stage);
+                if saved.is_err() {
+                    // Where it would land now, for Apply again.
+                    self.from = self.room.borrow().rules_land_on();
+                }
+            }
+        }
         match saved {
             Ok(()) => {
                 cx.broadcast(crate::Message::new(RULES_SAVED));
@@ -465,9 +580,20 @@ impl Screen for RulesDialog {
         let w = 560.0_f32.min(screen[0] - 16.0);
         let inner = w - 48.0;
         let draft = self.draft.borrow().clone();
+        // The per-stage rows show (and edit) the stage's rules where the
+        // edits go to a later stage, else the next match's.
+        let to_stage = self.to_stage();
+        let stage_offered = self.stage_offered();
+        if stage_offered {
+            self.from = self.room.borrow().rules_land_on();
+        }
+        let play = self.edited().borrow().clone();
         let roster = self.roster();
         let cpus = self.cpus_shown();
         let mut notes: Vec<(String, &str)> = Vec::new();
+        if to_stage {
+            notes.push((m::rules_stage_only_note().into(), "Muted"));
+        }
         if cpus {
             notes.push((m::rules_level_note().into(), "Muted"));
         }
@@ -516,9 +642,18 @@ impl Screen for RulesDialog {
         self.cpu_first = scrolled(self.cpu_first, 0, roster.len(), shown);
         // During a match, a statement at the top: the match, the rules it
         // keeps, and that the rows are the next match's.
+        let from_n = self.from.map_or(0, |(_, n)| n);
         let statement = running.then(|| {
             let (n, stages) = self.stage_of();
-            let rules = locked.as_ref().map_or_else(String::new, |l| {
+            // Where the rules may change from a later stage, those of the
+            // stage the match is on now (a change may have made them other
+            // than the match began with).
+            let now = if stage_offered {
+                self.room.borrow().rules_now()
+            } else {
+                None
+            };
+            let rules = now.as_ref().or(locked.as_ref()).map_or_else(String::new, |l| {
                 m::rules_locked_line(
                     l.stages,
                     cpu_roster::roster_of(l, humans).len(),
@@ -530,10 +665,20 @@ impl Screen for RulesDialog {
                 .into()
             });
             let marked = if changed.is_empty() { "no" } else { "yes" };
+            let heading = if stage_offered {
+                m::rules_running_stage(n, stages)
+            } else {
+                m::rules_running(n, stages)
+            };
+            let next = if to_stage {
+                m::rules_running_from(from_n, marked)
+            } else {
+                m::rules_running_next(marked)
+            };
             (
-                super::dialog::wrap_lines(&m::rules_running(n, stages), inner, 14.0),
+                super::dialog::wrap_lines(&heading, inner, 14.0),
                 super::dialog::wrap_lines(&rules, inner, 14.0),
-                super::dialog::wrap_lines(&m::rules_running_next(marked), inner, 13.0),
+                super::dialog::wrap_lines(&next, inner, 13.0),
             )
         });
         let locked_h = match &statement {
@@ -544,6 +689,8 @@ impl Screen for RulesDialog {
             None => 0.0,
         };
         let next_h = if running { 0.0 } else { 28.0 };
+        // Where the edits go: a row of its own under the statement.
+        let dest_h = if stage_offered { ROW + 6.0 } else { 0.0 };
         // Apply and restart sits at the foot's left, or on a row of its
         // own above the others where the pop-up is too narrow for it.
         let restart_w = look::mono_width(&m::rules_apply_restart(), 15.0) + 28.0;
@@ -557,7 +704,11 @@ impl Screen for RulesDialog {
                 } else {
                     0.0
                 }
-                + if editable { ROW + 8.0 } else { 0.0 }
+                + if editable && !to_stage {
+                    ROW + 8.0
+                } else {
+                    0.0
+                }
         } else {
             0.0
         };
@@ -571,8 +722,8 @@ impl Screen for RulesDialog {
         // The At zero life choice's sentence, under its row (and, where
         // the song picked has no easier chart, that it plays as Out).
         let zero_about = if self.step_down_offered() {
-            let mut text: String = super::room::at_zero_about(draft.at_zero).into();
-            if draft.at_zero == ddi_room::AtZero::StepDown
+            let mut text: String = super::room::at_zero_about(play.at_zero).into();
+            if play.at_zero == ddi_room::AtZero::StepDown
                 && self.room.borrow().picked_ladder() == Some(false)
             {
                 text.push(' ');
@@ -586,6 +737,7 @@ impl Screen for RulesDialog {
         let h = 64.0
             + locked_h
             + next_h
+            + dest_h
             + 3.0 * ROW
             + zero_h
             + cpu_h
@@ -595,7 +747,9 @@ impl Screen for RulesDialog {
             + lines as f32 * 17.0
             + restart_h
             + 72.0;
-        let title = if running {
+        let title = if to_stage {
+            m::rules_title_from(from_n)
+        } else if running {
             m::rules_title_next()
         } else {
             m::rules_title()
@@ -664,6 +818,7 @@ impl Screen for RulesDialog {
         // change it (a number's − and +, a choice's ‹ and ›; `lo` and `hi`,
         // whether there is a value that way); the value alone at the
         // row's end for someone who may not change it.
+        let row_edit = |id: &str| editable && (!to_stage || PER_STAGE.contains(&id));
         let stepper = |c: &mut Vec<Actor>,
                        id: &str,
                        label: &str,
@@ -671,11 +826,13 @@ impl Screen for RulesDialog {
                        (lo, hi): (bool, bool),
                        number: bool,
                        ry: f32| {
+            let edit = row_edit(id) || id == "dest";
             let mut l = env.text(&format!("Rule.{id}"), label, 14.0, 400, "Secondary");
             look::ellipsized(&mut l, inner - 190.0);
             c.push(left(l, x0, ry));
-            let mut v = env.text(&format!("Rule.{id}.Value"), &value, 14.0, 600, "Text");
-            if editable {
+            let fixed = if edit { "Text" } else if editable { "Muted" } else { "Text" };
+            let mut v = env.text(&format!("Rule.{id}.Value"), &value, 14.0, 600, fixed);
+            if edit {
                 let (less, more) = if number {
                     (m::rules_less(), m::rules_more())
                 } else {
@@ -707,6 +864,24 @@ impl Screen for RulesDialog {
         let on_off = |on: bool| -> String {
             if on { common::on() } else { common::off() }.into()
         };
+        // Where the edits go: from the stage named, or the next match.
+        if stage_offered {
+            let value: String = if to_stage {
+                m::rules_destination_stage(from_n).into()
+            } else {
+                m::rules_destination_next().into()
+            };
+            stepper(
+                &mut c,
+                "dest",
+                &m::rules_destination(),
+                value,
+                (!to_stage, to_stage),
+                false,
+                ry + ROW / 2.0,
+            );
+            ry += ROW + 6.0;
+        }
         let max_stages = self.room.borrow().state().policy.max_stages;
         mark(&mut c, "stages", ry + ROW / 2.0);
         stepper(
@@ -722,13 +897,13 @@ impl Screen for RulesDialog {
         // DDI's options that are the match's, everyone's (D0): its
         // difficulty and Boos. (The ruleset has no row: it is DDI, which
         // the note under the rows says.)
-        let at = draft.difficulty.index();
+        let at = play.difficulty.index();
         mark(&mut c, "difficulty", ry + ROW / 2.0);
         stepper(
             &mut c,
             "difficulty",
             &m::rules_difficulty(),
-            super::room::difficulty_name(draft.difficulty).into(),
+            super::room::difficulty_name(play.difficulty).into(),
             (at > 0, at + 1 < MatchDifficulty::ALL.len()),
             false,
             ry + ROW / 2.0,
@@ -739,8 +914,8 @@ impl Screen for RulesDialog {
             &mut c,
             "boos",
             &m::rules_boos(),
-            on_off(draft.boos),
-            (draft.boos, !draft.boos),
+            on_off(play.boos),
+            (play.boos, !play.boos),
             false,
             ry + ROW / 2.0,
         );
@@ -748,13 +923,13 @@ impl Screen for RulesDialog {
         // At zero life: out, or a step down the song's ladder, where the
         // room plays it; said Out where it cannot yet.
         if self.step_down_offered() {
-            let at = draft.at_zero.index();
+            let at = play.at_zero.index();
             mark(&mut c, "at_zero", ry + ROW / 2.0);
             stepper(
                 &mut c,
                 "at_zero",
                 &m::rules_at_zero(),
-                super::room::at_zero_name(draft.at_zero).into(),
+                super::room::at_zero_name(play.at_zero).into(),
                 (at > 0, at + 1 < ddi_room::AtZero::ALL.len()),
                 false,
                 ry + ROW / 2.0,
@@ -839,16 +1014,17 @@ impl Screen for RulesDialog {
                 look::ellipsized(&mut n, inner * 0.45);
                 c.push(left(n, x0, row_y));
                 // Its personality, then its level's stars at the row's end.
-                let end = x0 + inner - if editable { 48.0 } else { 0.0 };
+                let cpu_edit = row_edit("cpus");
+                let end = x0 + inner - if cpu_edit { 48.0 } else { 0.0 };
                 level_line_right(
                     &env,
                     &mut c,
                     &format!("Cpu{k}"),
                     (cpu_level(spec), &cpu_sub(spec)),
                     [end, row_y],
-                    inner * 0.55 - if editable { 48.0 } else { 0.0 },
+                    inner * 0.55 - if cpu_edit { 48.0 } else { 0.0 },
                 );
-                if editable {
+                if cpu_edit {
                     c.push(button(
                         &env,
                         &format!("Remove.{k}"),
@@ -876,7 +1052,7 @@ impl Screen for RulesDialog {
                 }
                 ry += MARK;
             }
-            if editable {
+            if row_edit("cpus") {
                 let free = self.free_seats() > 0;
                 let kind = if free { "Button" } else { "Button.Disabled" };
                 let bw = (inner - 10.0) / 2.0;
@@ -907,8 +1083,8 @@ impl Screen for RulesDialog {
                 &mut c,
                 "attacks",
                 &m::rules_attacks(),
-                on_off(draft.attacks()),
-                (draft.attacks(), !draft.attacks()),
+                on_off(play.attacks()),
+                (play.attacks(), !play.attacks()),
                 false,
                 ry + ROW / 2.0,
             );
@@ -1019,13 +1195,18 @@ impl Screen for RulesDialog {
         }
         let mut v = Vec::new();
         if self.editable() {
+            if self.stage_offered() {
+                pair(&mut v, "dest");
+            }
             for id in ["stages", "difficulty", "boos"] {
-                pair(&mut v, id);
+                if self.row_editable(id) {
+                    pair(&mut v, id);
+                }
             }
             if self.step_down_offered() {
                 pair(&mut v, "at_zero");
             }
-            if self.cpus_shown() {
+            if self.cpus_shown() && self.row_editable("cpus") {
                 let roster = self.roster();
                 for k in (self.cpu_first..roster.len()).take(CPU_ROWS) {
                     v.push(Focusable::new(format!("Remove.{k}")));
@@ -1036,7 +1217,7 @@ impl Screen for RulesDialog {
             if self.attacks_offered() {
                 pair(&mut v, "attacks");
             }
-            if self.points_offered() {
+            if self.points_offered() && self.row_editable("points") {
                 pair(&mut v, "points");
             }
         }
@@ -1047,6 +1228,27 @@ impl Screen for RulesDialog {
     }
 
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+        // The stage a change would land on moved (a pick, a start), or no
+        // stage is left for one: said before Apply.
+        if self.stage_offered() || self.from.is_some() {
+            let now = self
+                .room
+                .borrow()
+                .may_change_stage_rules()
+                .then(|| self.room.borrow().rules_land_on())
+                .flatten();
+            if now != self.from {
+                if let Some(ahead) = self.room.borrow().rules_ahead()
+                    && !self.changed().iter().any(|c| PER_STAGE.contains(c))
+                {
+                    *self.stage_draft.borrow_mut() = ahead;
+                }
+                self.from = now;
+                let focused = cx.focused().map(str::to_string);
+                *root = self.build(cx);
+                super::restore_focus(root, focused.as_deref());
+            }
+        }
         // The At zero life row's sentence brightens while it is focused.
         if self.step_down_offered() {
             let focused = cx.focused().map(str::to_string);
@@ -1105,7 +1307,11 @@ impl Screen for RulesDialog {
             Input::Activate { name } => {
                 let max_stages = self.room.borrow().state().policy.max_stages;
                 match name.as_str() {
-                    "Dec.stages" | "Inc.stages" if self.editable() => {
+                    "Dec.dest" | "Inc.dest" if self.stage_offered() => {
+                        self.to_stage = name == "Dec.dest";
+                        rebuild(self, root, cx, name);
+                    }
+                    "Dec.stages" | "Inc.stages" if self.row_editable("stages") => {
                         let mut d = self.draft.borrow_mut();
                         d.stages = if name == "Inc.stages" {
                             d.stages.saturating_add(1)
@@ -1117,7 +1323,8 @@ impl Screen for RulesDialog {
                         rebuild(self, root, cx, name);
                     }
                     "Dec.difficulty" | "Inc.difficulty" if self.editable() => {
-                        let mut d = self.draft.borrow_mut();
+                        let edited = self.edited();
+                        let mut d = edited.borrow_mut();
                         let at = d.difficulty.index();
                         let at = if name == "Inc.difficulty" {
                             (at + 1).min(MatchDifficulty::ALL.len() - 1)
@@ -1129,13 +1336,13 @@ impl Screen for RulesDialog {
                         rebuild(self, root, cx, name);
                     }
                     "Dec.boos" | "Inc.boos" if self.editable() => {
-                        self.draft.borrow_mut().boos = name == "Inc.boos";
+                        self.edited().borrow_mut().boos = name == "Inc.boos";
                         rebuild(self, root, cx, name);
                     }
                     "Dec.at_zero" | "Inc.at_zero"
                         if self.editable() && self.step_down_offered() =>
                     {
-                        self.draft.borrow_mut().at_zero = if name == "Inc.at_zero" {
+                        self.edited().borrow_mut().at_zero = if name == "Inc.at_zero" {
                             ddi_room::AtZero::StepDown
                         } else {
                             ddi_room::AtZero::Out
@@ -1143,7 +1350,9 @@ impl Screen for RulesDialog {
                         self.zero_focused = true;
                         rebuild(self, root, cx, name);
                     }
-                    "Dec.points" | "Inc.points" if self.editable() && self.points_offered() => {
+                    "Dec.points" | "Inc.points"
+                        if self.row_editable("points") && self.points_offered() =>
+                    {
                         let mut d = self.draft.borrow_mut();
                         let at = d.points.index();
                         let at = if name == "Inc.points" {
@@ -1159,7 +1368,7 @@ impl Screen for RulesDialog {
                     "Dec.attacks" | "Inc.attacks"
                         if self.editable() && self.attacks_offered() =>
                     {
-                        self.draft.borrow_mut().set_attacks(name == "Inc.attacks");
+                        self.edited().borrow_mut().set_attacks(name == "Inc.attacks");
                         rebuild(self, root, cx, name);
                     }
                     "Cpu.Up" | "Cpu.Down" => {
@@ -1168,7 +1377,7 @@ impl Screen for RulesDialog {
                         self.cpu_first = scrolled(self.cpu_first, by, len, len.min(CPU_ROWS));
                         rebuild(self, root, cx, name);
                     }
-                    "AddRandom" if self.free_seats() > 0 => {
+                    "AddRandom" if self.free_seats() > 0 && self.row_editable("cpus") => {
                         let mut roster = self.roster();
                         self.draws = self.draws.wrapping_add(1);
                         if let Some(spec) =
@@ -1180,7 +1389,7 @@ impl Screen for RulesDialog {
                         }
                         rebuild(self, root, cx, name);
                     }
-                    "AddCustom" if self.free_seats() > 0 => {
+                    "AddCustom" if self.free_seats() > 0 && self.row_editable("cpus") => {
                         cx.overlay(
                             AddCpuDialog::new(
                                 self.env.clone(),
@@ -1206,7 +1415,7 @@ impl Screen for RulesDialog {
                         if let Some(k) = other
                             .strip_prefix("Remove.")
                             .and_then(|k| k.parse::<usize>().ok())
-                            && self.editable()
+                            && self.row_editable("cpus")
                         {
                             let mut roster = self.roster();
                             if k < roster.len() {
@@ -1255,6 +1464,9 @@ impl Drop for RulesDialog {
             v.rules_running = false;
             v.rules_changed.clear();
             v.restart_offered = false;
+            v.rules_destination = None;
+            v.rules_from = None;
+            v.stage_draft_rules = None;
         });
     }
 }
@@ -2499,6 +2711,30 @@ impl Screen for StandingsDialog {
                 "Gold",
             ));
         }
+        // The stages from which the rules changed during the match: a
+        // line each, their columns marked.
+        let changed_cols: Vec<bool> = s.current.as_ref().map_or_else(Vec::new, |m| {
+            m.stages.iter().map(|st| m.stage_rules_changed(st.id)).collect()
+        });
+        if let Some(m) = s.current.as_ref() {
+            for c in &m.changes {
+                let Some(i) = m.stage_index(c.from) else {
+                    continue;
+                };
+                let rules = m.rules_for(c.from);
+                lines.push((
+                    m::results_rules_changed(
+                        i + 1,
+                        super::room::rules_words(
+                            &crate::state::room::StageRules::of(&rules),
+                            super::room::attacks_offered(&r).then(|| rules.attacks()),
+                        ),
+                    )
+                    .into(),
+                    "Gold",
+                ));
+            }
+        }
         let wrapped: Vec<(String, &str)> = lines
             .iter()
             .flat_map(|(t, c)| {
@@ -2537,17 +2773,25 @@ impl Screen for StandingsDialog {
         if show_stages {
             for i in 0..stages {
                 let at = x0 + inner - total_w - cell * (stages - 1 - i) as f32;
+                let marked = changed_cols.get(i).copied().unwrap_or(false);
                 c.push(right(
                     env.text(
                         &format!("S{i}"),
                         &m::results_stage(i + 1),
                         11.0,
                         700,
-                        "Muted",
+                        if marked { "Gold" } else { "Muted" },
                     ),
                     at,
                     hy,
                 ));
+                if marked {
+                    c.push(right(
+                        env.text(&format!("S{i}.Changed"), "●", 8.0, 400, "Gold"),
+                        at - look::mono_width(&m::results_stage(i + 1), 11.0) - 3.0,
+                        hy,
+                    ));
+                }
             }
         }
         ry += 30.0;

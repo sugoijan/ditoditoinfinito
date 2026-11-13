@@ -523,7 +523,7 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     h.run(0.5);
     assert_eq!(view(&env).phase, "preparing");
     press(&mut h, "Room.Rules");
-    assert!(has(&h, "This match is on stage 1 of 4 and keeps these rules:"), "{:?}", h.texts());
+    assert!(has(&h, "This match is on stage 1 of 4, under these rules:"), "{:?}", h.texts());
     assert!(
         h.texts()
             .iter()
@@ -3821,8 +3821,14 @@ fn the_rules_pop_up_during_a_match_says_so_and_restarts_it_on_request() {
     let v = view(&env);
     assert!(v.rules_running && v.restart_offered, "{v:?}");
     assert!(v.rules_changed.is_empty());
+    // The edits go from stage 2 first (2026-11-13); the next match's
+    // rows one step away.
+    assert_eq!(v.rules_destination.as_deref(), Some("stage"));
+    assert!(has(&h, "Rules from stage 2"), "{:?}", h.texts());
+    press(&mut h, "Inc.dest");
+    assert_eq!(view(&env).rules_destination.as_deref(), Some("next"));
     assert!(has(&h, "Rules for the next match"), "{:?}", h.texts());
-    assert!(has(&h, "This match is on stage 1 of 4 and keeps these rules:"), "{:?}", h.texts());
+    assert!(has(&h, "This match is on stage 1 of 4, under these rules:"), "{:?}", h.texts());
     assert!(
         has(&h, "4 stages · 3 CPUs · DDI"),
         "{:?}",
@@ -3966,7 +3972,14 @@ fn an_online_rooms_restart_is_for_its_operators_and_never_sent_to_an_older_room(
         "Match stopped. Pick a song to start the next match under the new rules."
     );
     // A room whose authority predates the restart.
-    let t = Three::over(|s| s.policy.restart = false, true);
+    // (It predates changes from a later stage too.)
+    let t = Three::over(
+        |s| {
+            s.policy.restart = false;
+            s.policy.stage_rules = false;
+        },
+        true,
+    );
     let (ea, eb) = (env(), env());
     let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
     let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
@@ -3977,6 +3990,10 @@ fn an_online_rooms_restart_is_for_its_operators_and_never_sent_to_an_older_room(
     let v = view(&eb);
     assert!(v.rules_running && !v.restart_offered, "{v:?}");
     assert!(!there(&hb, "Restart"));
+    // Nor a change from a later stage: today's form, nothing to send.
+    assert_eq!(v.rules_destination, None);
+    assert!(!there(&hb, "Inc.dest") && has(&hb, "Rules for the next match"));
+    assert!(!t.bob.borrow().may_change_stage_rules());
     let rules = t.bob.borrow().rules().clone();
     assert!(t.bob.borrow_mut().restart_match(rules).is_err(), "never sent");
     t.bob.borrow_mut().clear_refusal();
@@ -3986,4 +4003,168 @@ fn an_online_rooms_restart_is_for_its_operators_and_never_sent_to_an_older_room(
     let s = t.server.borrow().state().clone();
     assert!(s.next.rules.boos, "saved for the next match");
     assert_eq!(s.phase.kind(), ddi_room::PhaseKind::Preparing, "the match goes on");
+}
+
+/// The Rules pop-up during a match whose room takes changes from a later
+/// stage on (2026-11-13): its three destinations. From stage N (first):
+/// only the per-stage rows change, the change lands on the stage named,
+/// the status line says it for everyone until that stage begins, and
+/// that stage's order carries its rules while the earlier one keeps the
+/// match's; Next match saves the draft and leaves the match alone; Apply
+/// and restart takes what the pop-up shows. The Standings mark the stages
+/// played under other rules. By keyboard as well.
+#[test]
+fn the_rules_pop_up_changes_rules_from_the_next_stage_next_match_or_by_restart() {
+    use ddi_room::{Finish, Finisher, MatchDifficulty};
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    // Between matches: no destination, the pop-up as it was.
+    press(&mut h, "Room.Rules");
+    assert_eq!(view(&env).rules_destination, None);
+    assert!(!there(&h, "Inc.dest"));
+    press(&mut h, "Cancel");
+    // Stage 1 picked: its window open, a change lands on stage 2.
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    let order1 = orders.borrow_mut().pop().expect("a prompt");
+    press(&mut h, "Room.Rules");
+    let v = view(&env);
+    assert_eq!(v.rules_destination.as_deref(), Some("stage"));
+    assert_eq!(v.rules_from, Some(2));
+    assert!(has(&h, "Rules from stage 2") && has(&h, "Changes apply") && has(&h, "From stage 2"));
+    assert!(h.texts().concat().contains("Timing, Boos, zero life and attacks below apply from stage 2 on.") || h.texts().join(" ").contains("Timing, Boos, zero life and attacks below apply from stage 2 on."), "{:?}", h.texts());
+    assert!(
+        h.texts()
+            .iter()
+            .any(|t| t.starts_with("Stages, CPUs and Points can't change during a match")),
+        "{:?}",
+        h.texts()
+    );
+    // The rows that never change mid-match are shown, not offered.
+    assert!(!there(&h, "Inc.stages") && !there(&h, "AddRandom") && !there(&h, "Inc.points"));
+    assert!(there(&h, "Inc.difficulty") && there(&h, "Inc.attacks"));
+    press(&mut h, "Inc.difficulty");
+    assert_eq!(view(&env).rules_changed, vec!["difficulty".to_string()]);
+    assert!(h.texts().concat().contains("Timing, Boos, zero life and attacks below apply from stage 2 on. ● marks what you changed.") || h.texts().join(" ").contains("Timing, Boos, zero life and attacks below apply from stage 2 on. ● marks what you changed."), "{:?}", h.texts());
+    press(&mut h, "Apply");
+    assert_eq!(top(&h), "select");
+    {
+        let r = room.borrow();
+        let s = r.state();
+        let m = s.current.as_ref().unwrap();
+        assert_eq!(m.rules_for(m.stages[1].id).difficulty, MatchDifficulty::Hard);
+        assert_eq!(m.rules_for(order1.stage).difficulty, MatchDifficulty::Normal);
+        assert_eq!(s.next.rules.difficulty, MatchDifficulty::Normal, "the next match's alone");
+    }
+    assert_eq!(order1.rules.difficulty, MatchDifficulty::Normal);
+    let status = view(&env).status;
+    assert!(status.starts_with("From stage 2: Hard timing. "), "{status}");
+    // Opened again: the stage's rules as they now are, nothing marked.
+    press(&mut h, "Room.Rules");
+    assert!(view(&env).rules_changed.is_empty());
+    assert_eq!(
+        view(&env).stage_draft_rules.map(|r| r.0),
+        Some("hard".to_string())
+    );
+    // Next match, by keyboard: the destination's ›, then Boos on, Apply.
+    use crate::nav::MenuAction;
+    focus_on(
+        &mut h,
+        "Inc.dest",
+        &[(MenuAction::Up, "ArrowUp"), (MenuAction::Right, "ArrowRight")],
+        false,
+    );
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    assert_eq!(view(&env).rules_destination.as_deref(), Some("next"));
+    assert!(has(&h, "Rules for the next match"));
+    press(&mut h, "Inc.boos");
+    press(&mut h, "Apply");
+    {
+        let r = room.borrow();
+        let s = r.state();
+        assert!(s.next.rules.boos, "saved for the next match");
+        let m = s.current.as_ref().unwrap();
+        assert!(!m.rules_for(m.stages[1].id).boos, "the match left alone");
+    }
+    // A change for a stage that has begun since: refused, said.
+    let s1 = order1.stage;
+    let hard = room.borrow().rules_ahead().unwrap();
+    assert!(room.borrow_mut().change_stage_rules(s1, &hard).is_err());
+    h.run(0.3);
+    assert_eq!(
+        view(&env).status,
+        "The stage these changes were for has begun since. Check where they apply now, then Apply again."
+    );
+    room.borrow_mut().clear_refusal();
+    // Stage 1 played under the match's rules, stage 2 under Hard timing.
+    let finish = |order: &StageOrder| {
+        // (Ready already, or counting down.)
+        let _ = room.borrow_mut().set_ready(true);
+        room.borrow_mut().clear_refusal();
+        let later = room.borrow().now_ms() + 4_000;
+        room.borrow_mut().tick(later);
+        let mut ids: Vec<_> = order.cpus.iter().map(|c| c.participant).collect();
+        ids.insert(0, order.me);
+        let ranking = ids
+            .into_iter()
+            .map(|participant| {
+                vec![Finisher {
+                    participant,
+                    finish: Finish::Survived,
+                }]
+            })
+            .collect();
+        room.borrow_mut()
+            .report_stage(order.stage, ranking, false)
+            .unwrap();
+    };
+    finish(&order1);
+    h.run(0.5);
+    assert!(!room.borrow().stage_table(s1).unwrap().rules.changed);
+    press(&mut h, "Continue");
+    h.run(0.3);
+    assert!(
+        view(&env).status.starts_with("From stage 2: Hard timing. "),
+        "said until stage 2 begins: {}",
+        view(&env).status
+    );
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    let order2 = orders.borrow_mut().pop().expect("stage 2's prompt");
+    assert_eq!(order2.rules.difficulty, MatchDifficulty::Hard);
+    assert!(order2.rules.changed);
+    assert!(!view(&env).status.starts_with("From stage 2"), "stage 2 begun");
+    finish(&order2);
+    h.run(0.5);
+    let table = room.borrow().stage_table(order2.stage).unwrap();
+    assert!(table.rules.changed && table.rules.difficulty == MatchDifficulty::Hard);
+    // The match's standings mark it.
+    assert!(
+        h.texts()
+            .iter()
+            .any(|t| t == "● From stage 2: DDI · Hard timing"),
+        "{:?}",
+        h.texts()
+    );
+    assert!(there(&h, "S1.Changed") && !there(&h, "S0.Changed"));
+    press(&mut h, "Continue");
+    // Apply and restart takes what the pop-up shows: Attacks off from
+    // stage 3 becomes the next match's rule.
+    press(&mut h, "Room.Rules");
+    assert_eq!(view(&env).rules_from, Some(3));
+    press(&mut h, "Dec.attacks");
+    press(&mut h, "Restart");
+    press(&mut h, "Confirm");
+    let r = room.borrow();
+    assert!(!r.state().next.rules.attacks());
+    // The per-stage rows as shown (stage 3's: Hard timing, no Boos).
+    assert_eq!(r.state().next.rules.difficulty, MatchDifficulty::Hard);
+    assert!(!r.state().next.rules.boos);
+    assert_eq!(r.state().phase.kind(), ddi_room::PhaseKind::Interrupted);
 }

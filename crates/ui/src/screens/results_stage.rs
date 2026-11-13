@@ -1191,6 +1191,14 @@ impl ResultsScreen {
         );
         let note: String = if !table.confirmed {
             m::table_waiting().into()
+        } else if table.rules.changed {
+            // Played under rules changed during the match: said, with
+            // those rules, beside the heading.
+            m::table_rules_changed(crate::screens::room::rules_words(
+                &table.rules,
+                Some(table.attacks),
+            ))
+            .into()
         } else if table.experimental {
             m::mark_experimental().into()
         } else {

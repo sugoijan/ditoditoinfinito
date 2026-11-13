@@ -309,6 +309,115 @@ room-rules-restart-title = Restart the match?
 room-rules-restart-body = This match stops now, and its points so far won't carry over. The next song picked starts a new match under these rules.
 room-rules-restart-confirm = Restart match
 
+## Changing a running match's rules from a later stage on (where the
+## room's authority takes such a change): the Rules pop-up's edits go to
+## the running match from a stage not begun yet, or to the next match.
+
+# The Rules pop-up's title while its rows change the running match's rules
+# from a later stage on.
+# Variables:
+#   $number (Number) - the stage the changes apply from, from 1
+room-rules-title-from = Rules from stage { $number }
+
+# The first line at the top of the Rules pop-up while a match is running
+# in a room whose rules can change from a later stage on; the rules of the
+# stage the match is on follow on the next line (as room-rules-locked-line
+# writes them).
+# Variables:
+#   $number (Number) - the stage the match is on, from 1
+#   $stages (Number) - the match's stages
+room-rules-running-stage = This match is on stage { $number } of { $stages }, under these rules:
+
+# The line under those where the pop-up's rows change the running match's
+# rules from a later stage on (the stage named: one nobody has readied or
+# loaded for yet). Where a row's value differs from that stage's rules, a
+# small dot (●) marks it, which the sentence explains (keep the dot).
+# Variables:
+#   $number (Number) - the stage the changes apply from, from 1
+#   $marked (String) - "yes" when some row is marked, else "no"
+room-rules-running-from = { $marked ->
+    [yes] Timing, Boos, zero life and attacks below apply from stage { $number } on. ● marks what you changed.
+   *[no] Timing, Boos, zero life and attacks below apply from stage { $number } on.
+}
+
+# A row at the top of the Rules pop-up while a match is running: where its
+# changes go. Its label (about 16 letters), then one of its two values
+# (about 16 letters each).
+room-rules-destination = Changes apply
+# Variables:
+#   $number (Number) - the stage the changes apply from, from 1
+room-rules-destination-stage = From stage { $number }
+room-rules-destination-next = Next match
+
+# A quiet note under the rows while the changes apply from a later stage:
+# the rows that never change during a match ("Apply and restart" is the
+# button of room-rules-apply-restart).
+room-rules-stage-only-note = Stages, CPUs and Points can't change during a match: choose Next match for them, or Apply and restart.
+
+# The room's status line once the rules were changed from a later stage
+# on, until that stage begins: what changes, then the line it would say
+# otherwise.
+# Variables:
+#   $number (Number) - the stage the change applies from, from 1
+#   $rules (String) - what changes, the parts below joined ("Hard timing · Boos · No attacks")
+#   $then (String) - the status line it would say otherwise (a sentence)
+room-status-rules-change = From stage { $number }: { $rules }. { $then }
+
+# The parts of such a change, each a rule as it becomes: the timing
+# difficulty ("Hard timing": never a chart's difficulty), Boos on or off,
+# attacks on or off, what zero life does.
+# Variables:
+#   $difficulty (String) - "easy", "normal" or "hard"
+room-rules-change-timing = { $difficulty ->
+    [easy] Easy timing
+    [hard] Hard timing
+   *[normal] Normal timing
+}
+# Variables:
+#   $boos (String) - "on" or "off"
+room-rules-change-boos = { $boos ->
+    [on] Boos
+   *[off] No Boos
+}
+# Variables:
+#   $attacks (String) - "on" or "off"
+room-rules-change-attacks = { $attacks ->
+    [on] Attacks
+   *[off] No attacks
+}
+# Variables:
+#   $zero (String) - "step_down" or "out"
+room-rules-change-at-zero = { $zero ->
+    [step_down] Step down
+   *[out] Out at zero life
+}
+# Two of those parts (or a part and the parts joined before) in a list.
+# Variables:
+#   $first (String) - the parts before
+#   $second (String) - the next part
+room-rules-change-join = { $first } · { $second }
+
+# Refused: a change of the running match's rules made for a stage that
+# has begun since (someone picked its song or started it first).
+room-refused-rules-later = The stage these changes were for has begun since. Check where they apply now, then Apply again.
+
+# Refused: no stage of the running match is left for a change.
+room-refused-rules-no-stage = No stage of this match is left to change: the changes can be for the next match.
+
+# Beside the Standings tab's heading where the stage was played under
+# rules changed during the match (keep the dot).
+# Variables:
+#   $rules (String) - the stage's rules in a few words, as room-rules-words writes them ("DDI · Hard timing · Boos")
+room-table-rules-changed = ● Changed rules: { $rules }
+
+# Under the match's standings' title, a line for each stage from which the
+# rules changed during the match (keep the dot: the stage columns played
+# under other rules than the match began with are marked with it).
+# Variables:
+#   $number (Number) - the stage the change applied from, from 1
+#   $rules (String) - those rules in a few words, as room-rules-words writes them
+room-results-rules-changed = ● From stage { $number }: { $rules }
+
 ## The More pop-up.
 
 # Leaves the room for the multiplayer home, forgetting the practice.
