@@ -567,3 +567,272 @@ struct Seen {
     locked: Option<String>,
     delays: Vec<f64>,
 }
+
+/// CPUs in an online room (`ddi_room::live::cpus`, `online-cpus-v0`) as
+/// the desktop window plays a live stage with them: the person's play
+/// (autoplayed) beside another device's scripted stream and the match's
+/// two CPUs, which this device computes: their miniatures drawn beside
+/// Bob's (three slots), their fields fed from the computation (their
+/// combos rising), their levels shown (stars, never Bot), and their
+/// reports sent to the room, which takes them (no mismatch). The
+/// pictures (`DDI_ROOM_SHOTS`): the play with the three miniatures.
+#[test]
+fn a_live_stage_with_cpus_draws_their_fields_from_this_devices_computation() {
+    common::indexes();
+    let instance = gpu::instance();
+    let Some(adapter) = gpu::adapter(&instance, None) else {
+        eprintln!("no GPU adapter: skipped");
+        return;
+    };
+    let (device, queue) = gpu::device(&adapter).unwrap();
+    let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
+    let _ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
+    let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
+    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("start", fold);
+    env.reduced_motion.set(true);
+    ui.handle(UiEvent::Resize {
+        size: [SIZE[0] as f32, SIZE[1] as f32],
+        ratio: 1.0,
+    });
+    let mut host = Host::new(Rc::default(), None);
+    let clock = Arc::new(AtomicU64::new(1_000_000_000));
+    let c = clock.clone();
+    host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
+    let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: SIZE[0],
+            height: SIZE[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+    });
+    let wall: Rc<dyn Fn() -> u64> = {
+        let c = clock.clone();
+        Rc::new(move || WALL + (c.load(Ordering::SeqCst) - 1_000_000_000) / 1_000_000)
+    };
+    let server_clock = ManualClock::new(wall());
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy::default().with_live(),
+        server_clock.clone(),
+    )
+    .shared();
+    server
+        .borrow_mut()
+        .join(Identity::new("dev:bob"), "bob", Intent::Play)
+        .unwrap();
+    let rooms: Vec<SharedRoom> = ["alice", "bob"]
+        .into_iter()
+        .map(|who| {
+            Rc::new(RefCell::new(RoomClient::online(
+                person(&server, who),
+                "Room000001",
+                Box::new(FakeSocket::new(server.clone())),
+                ddi_room::ClientId::new(format!("{who}-test")),
+                wall(),
+            )))
+        })
+        .collect();
+    let step = |ns: u64| {
+        clock.fetch_add(ns, Ordering::SeqCst);
+        server_clock.set(wall());
+        for r in &rooms {
+            r.borrow_mut().tick(wall());
+        }
+        server.borrow_mut().pump();
+    };
+    let run = |seconds: f64| {
+        for _ in 0..(seconds * 20.0) as usize {
+            step(FRAME_NS);
+        }
+    };
+    for _ in 0..10 {
+        run(0.5);
+        if rooms.iter().all(|r| r.borrow().room_now().is_some()) {
+            break;
+        }
+    }
+    // One stage, attacks on, two CPUs of the roster.
+    let song = ddi_desktop::play::load::read_chart("beatucada").unwrap();
+    let chart = 4;
+    let mut rules = rooms[0].borrow().rules().clone();
+    rules.set_attacks(true);
+    rules.stages = 1;
+    rules.cpu.mode = ddi_room::CpuMode::Roster;
+    rules.cpu.roster = [(2u8, "Ember Ratchet"), (7, "Mossy Accordion")]
+        .into_iter()
+        .enumerate()
+        .map(|(i, (level, name))| ddi_room::OpponentSpec {
+            level,
+            seed: 90 + i as u64,
+            personality: None,
+            name: Some(name.into()),
+            targeting: None,
+        })
+        .collect();
+    rooms[0].borrow_mut().save_rules(rules).unwrap();
+    run(1.0);
+    let entry = SongEntry {
+        id: "beatucada".into(),
+        title: "Beatucada".into(),
+        charts: vec![ChartEntry {
+            style: "dance-single".into(),
+            difficulty: Difficulty::Medium,
+            index: chart,
+            digest: Some(song.chart_digest(chart)),
+            ..ChartEntry::default()
+        }],
+        ..SongEntry::default()
+    };
+    rooms[0].borrow_mut().pick(&entry, &entry.charts[0]).unwrap();
+    run(1.0);
+    let uploads = rooms[0].borrow_mut().take_upload_jobs();
+    for j in uploads {
+        server
+            .borrow_mut()
+            .authority(Command::SetContentStatus {
+                stage: j.stage,
+                status: ContentStatus::Available,
+                share: Some("abc12345".into()),
+            })
+            .unwrap();
+        rooms[0].borrow_mut().upload_finished(j.stage, Ok("abc12345".into()));
+    }
+    run(0.5);
+    let mut orders = vec![None, None];
+    for _ in 0..12 {
+        for (o, room) in orders.iter_mut().zip(&rooms) {
+            let jobs = room.borrow_mut().take_load_jobs();
+            for job in jobs {
+                let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+                if job.share.is_some() {
+                    let picked = Picked {
+                        song: SongEntry {
+                            id: job.song.clone(),
+                            ..entry.clone()
+                        },
+                        chart: entry.charts[0].clone(),
+                    };
+                    room.borrow_mut()
+                        .finish_shared_load_live(&job, Ok((picked, prepared.live)));
+                } else {
+                    room.borrow_mut().finish_load_live(&job, Ok(prepared.live));
+                }
+            }
+            if o.is_none() {
+                *o = room.borrow_mut().take_stage_order();
+            }
+        }
+        if orders.iter().all(Option::is_some) {
+            break;
+        }
+        run(0.5);
+    }
+    let orders: Vec<_> = orders.into_iter().map(|o| o.expect("a stage order")).collect();
+    let stage = orders[0].stage;
+    assert_eq!(orders[0].cpus.len(), 2, "the roster seated");
+    ddi_desktop::room::set_live_for_tests(rooms[0].clone(), wall.clone());
+    let mut request = ddi_desktop::play::Request::stage(orders[0].clone());
+    request.auto = true;
+    *host.requested.borrow_mut() = Some(request);
+    fn dev<'a>(device: &'a wgpu::Device, queue: &'a wgpu::Queue, formats: Formats) -> Device<'a> {
+        Device {
+            device,
+            queue,
+            formats,
+        }
+    }
+    let mut waited = 0;
+    while !host.prompt_ready() {
+        host.poll(&mut ui, &env, Some(dev(&device, &queue, formats)), 48_000);
+        ui.set_clock(wall() as f64 / 1_000.0);
+        ui.update(0.05);
+        step(FRAME_NS);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        waited += 1;
+        assert!(waited < 2_000, "the song was never read");
+    }
+    for r in &rooms {
+        r.borrow_mut().set_ready(true).unwrap();
+    }
+    let mut waited = 0;
+    while !host.playing() {
+        step(FRAME_NS);
+        ui.set_clock(wall() as f64 / 1_000.0);
+        ui.update(0.05);
+        host.poll(&mut ui, &env, Some(dev(&device, &queue, formats)), 48_000);
+        waited += 1;
+        assert!(waited < 400, "the stage never started: {:?}", ui.layers());
+    }
+    let zero = rooms[1].borrow().song_zero_at(stage).unwrap();
+    let (moments, _) = script(&song, chart, 30.0);
+    let mut sent = 0;
+    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
+        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+        ..Default::default()
+    });
+    let plain = texture.create_view(&Default::default());
+    let mut shot = false;
+    let mut most_combo = [0u32; 2];
+    for frame in 0..(20 * 40) {
+        step(FRAME_NS);
+        let bob_now = rooms[1]
+            .borrow()
+            .room_now()
+            .map_or(0, |n| n.0 as i64 - zero.0 as i64);
+        {
+            let mut r = rooms[1].borrow_mut();
+            if let Some(out) = r.live_stream(stage) {
+                while let Some(m) = moments.get(sent).filter(|m| i64::from(m.at_ms) <= bob_now) {
+                    out.moment(*m);
+                    sent += 1;
+                }
+                out.judged_to(bob_now.max(0) * 1_000);
+            }
+        }
+        let now = clock.load(Ordering::SeqCst);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        ui.set_clock(wall() as f64 / 1_000.0);
+        host.draw_play(
+            &dev(&device, &queue, formats),
+            &mut encoder,
+            &srgb,
+            Some(&plain),
+            SIZE,
+            HostTime(now as f64 / 1e9),
+            &mut ui,
+            &env,
+        );
+        queue.submit(Some(encoder.finish()));
+        let play = host.running().expect("playing");
+        let b = play.session.battle().expect("a stage");
+        let views = b.views();
+        assert_eq!(views.len(), 3, "two CPUs and Bob");
+        for (k, v) in views.iter().take(2).enumerate() {
+            assert!(v.level.is_some(), "a CPU's stars");
+            most_combo[k] = most_combo[k].max(v.combo);
+        }
+        if !shot && frame > 20 * 25 {
+            shot = true;
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            let _ = device.poll(wgpu::PollType::wait_indefinitely());
+            ppm("live-cpus", &gpu::read_rgba(&device, &queue, &texture));
+        }
+    }
+    assert_eq!(host.opponent_fields().unwrap().slots.len(), 3);
+    assert!(most_combo.iter().all(|c| *c > 10), "their fields fed: {most_combo:?}");
+    let server = server.borrow();
+    let live = server.live().unwrap().stage().unwrap();
+    let (messages, reports) = live.cpu_traffic();
+    assert!(messages > 0 && reports > 0, "{messages} {reports}");
+    assert_eq!(live.cpu_mismatches(), 0);
+}
