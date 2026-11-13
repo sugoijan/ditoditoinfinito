@@ -199,3 +199,34 @@ fn the_picker_offers_the_plan_and_every_device_compares_it_before_loaded() {
     assert_eq!(live.people.len(), 2);
     assert!(all[2].take_stage_order().is_none(), "Carol sits it out");
 }
+
+/// Close code 1012 (a room given live play while its sockets were open:
+/// "connect again") is not an end: the client reconnects at once, reads
+/// the room's policy again and plays live.
+#[test]
+fn close_1012_reconnects_and_plays_live() {
+    let clock = ManualClock::new(5_000);
+    let server = room_with(&clock, &["bob"], RoomPolicy::default().with_live());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 5_000);
+    for _ in 0..20 {
+        tick(&clock, &mut [&mut alice, &mut bob], 40);
+    }
+    assert!(bob.live_link().unwrap().is_on());
+    let me = bob.me();
+    server
+        .borrow_mut()
+        .fault(me, ddi_room::fake::Fault::Close(1012));
+    tick(&clock, &mut [&mut alice, &mut bob], 40);
+    assert!(
+        matches!(bob.link_state(), LinkState::Reconnecting { .. }),
+        "{:?}",
+        bob.link_state()
+    );
+    assert!(!bob.live_link().unwrap().is_on());
+    for _ in 0..40 {
+        tick(&clock, &mut [&mut alice, &mut bob], 40);
+    }
+    assert_eq!(bob.link_state(), LinkState::Connected);
+    assert!(bob.plays_live() && bob.live_link().unwrap().is_on());
+}

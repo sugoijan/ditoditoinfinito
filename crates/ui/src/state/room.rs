@@ -1500,10 +1500,12 @@ impl RoomClient {
 
     /// Whether a stage the local player is not in is watched on this
     /// device (`watch-v0`): CPU practice, where the CPUs' plays are judged
-    /// here and feed the spectator view. An online room's are not
-    /// streamed yet: a watcher there stays on the room's song select.
+    /// here and feed the spectator view; an online room that plays live,
+    /// whose frames feed it (`docs/plans/multiplayer-online-play.md`,
+    /// "Watching"). An online room that does not play live streams
+    /// nothing: a watcher there stays on the room's song select.
     pub fn watches(&self) -> bool {
-        !self.is_online()
+        !self.is_online() || self.plays_live()
     }
 
     /// The local player's own choice, Play or Watch
@@ -1580,7 +1582,8 @@ impl RoomClient {
         }
         // A watcher leaving a start already committed (the CPUs wait for
         // nobody): the start canceled, so that no stage runs unwatched.
-        if self.watches()
+        if !self.is_online()
+            && self.watches()
             && !self.in_stage(stage)
             && self.may(Capability::Advance)
             && matches!(self.state().phase, Phase::Countdown { stage: p, .. } if p == stage)

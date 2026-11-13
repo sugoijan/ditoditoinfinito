@@ -229,6 +229,13 @@ impl LiveLink {
     pub(crate) fn due(&mut self, now: u64) -> Vec<LiveSend> {
         let mut out = Vec::new();
         if !self.on {
+            // No socket: the stream is still cut on time, its batches
+            // kept for the next socket (sent again as every batch not
+            // acknowledged is), so that none of them carries more than an
+            // interval's moments however long the link was down.
+            for o in self.outboxes.values_mut() {
+                let _ = o.due(now);
+            }
             return out;
         }
         let text = |m: ClientLive| {
@@ -288,5 +295,91 @@ impl LiveLink {
         self.outboxes
             .retain(|s, o| Some(*s) == following || !o.done());
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::live::LIVE_V1;
+    use crate::live::stream::{LiveReport, Moment, MomentKind};
+
+    fn moment(at_ms: i32) -> Moment {
+        Moment {
+            at_ms,
+            tick: i64::from(at_ms),
+            lane: (at_ms % 4) as u8,
+            kind: MomentKind::Tap {
+                tier: 1,
+                offset_ms: -12,
+                w0: false,
+            },
+            life_ppm: 987_654,
+            combo: 1_234,
+            score: 4_321_000,
+        }
+    }
+
+    /// The server refuses a binary message over 64 KiB (`bad_batch`): a
+    /// batch never comes near it. Cut every interval, also while the link
+    /// is down (a long reconnect at 20 notes a second), none carries more
+    /// than an interval's moments, and the largest the room takes (its
+    /// bounds' moments, reports of a dense checkpoint) is well under.
+    #[test]
+    fn batches_stay_small_through_a_long_disconnect() {
+        let mut link = LiveLink::new(LIVE_V1);
+        let stage = StageId(1);
+        link.opened(0);
+        let _ = link.due(0);
+        link.closed();
+        let mut sent = Vec::new();
+        for ms in (0..60_000).step_by(50) {
+            let o = link.stream(stage);
+            o.moment(moment(ms));
+            o.judged_to(i64::from(ms) * 1_000);
+            sent.extend(link.due(ms as u64));
+        }
+        assert!(sent.is_empty(), "nothing sent while down");
+        link.opened(60_000);
+        let batches: Vec<Vec<u8>> = link
+            .due(60_000)
+            .into_iter()
+            .filter_map(|s| match s {
+                LiveSend::Binary(b) => Some(b),
+                LiveSend::Text(_) => None,
+            })
+            .collect();
+        assert!(batches.len() > 200, "{} batches", batches.len());
+        for b in &batches {
+            let Ok(wire::Binary::Batch(batch)) = wire::decode(b) else {
+                panic!("a batch");
+            };
+            assert!(batch.moments.len() <= 6, "{}", batch.moments.len());
+            assert!(b.len() < 1_024);
+        }
+        // The largest batch the room's bounds allow, reports of a
+        // checkpoint of a very dense chart (64 judgments) included.
+        let mut o = Outbox::new(stage, LIVE_V1);
+        o.judged_to(1);
+        for i in 0..LIVE_V1.max_batch_moments {
+            o.moment(moment(i as i32 * 7));
+        }
+        for k in 0..LIVE_V1.max_batch_reports {
+            o.report(LiveReport {
+                k: k as u32,
+                judged: (0..64)
+                    .map(|j| crate::attacks::Judged {
+                        at_us: j * 31_250,
+                        tier: (j % 6) as u8,
+                    })
+                    .collect(),
+                life_ppm: 500_000,
+                out_at_us: None,
+                targeting: None,
+            });
+        }
+        let biggest = o.due(0).pop().unwrap();
+        let bytes = wire::encode_batch(&biggest);
+        assert!(bytes.len() < 32 * 1_024, "{} bytes", bytes.len());
     }
 }

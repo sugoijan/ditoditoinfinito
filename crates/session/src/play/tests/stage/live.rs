@@ -257,28 +257,38 @@ fn sessions(
         r.step(0.02, true);
     }
     assert!(r.rooms[0].borrow().stage_started(stage), "the room started it");
-    let settings = Settings::default();
     orders
         .iter()
         .enumerate()
         .filter_map(|(i, o)| Some((i, o.as_ref()?)))
-        .map(|(i, order)| {
-            let mut config = SessionConfig::from_settings(&settings, true, None);
-            config.auto_bias = bias.get(i).copied().unwrap_or(0.0);
-            config.opponents = Some(StageSetup::of(order));
-            config.live = Some(r.handle(i));
-            PlaySession::start(
-                song,
-                order.chart.index,
-                &settings,
-                config,
-                FakeAudio::new(&r.host, 0.02),
-                110.0,
-                FakeInputs::new(&r.host),
-            )
-            .unwrap()
-        })
+        .map(|(i, order)| session_for(r, song, order, i, bias.get(i).copied().unwrap_or(0.0)))
         .collect()
+}
+
+/// Person `i`'s play of `order`, started now (`bias`: its autoplayer's
+/// lateness).
+fn session_for(
+    r: &Room,
+    song: &Song,
+    order: &StageOrder,
+    i: usize,
+    bias: f64,
+) -> PlaySession<FakeAudio, FakeInputs> {
+    let settings = Settings::default();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.auto_bias = bias;
+    config.opponents = Some(StageSetup::of(order));
+    config.live = Some(r.handle(i));
+    PlaySession::start(
+        song,
+        order.chart.index,
+        &settings,
+        config,
+        FakeAudio::new(&r.host, 0.02),
+        110.0,
+        FakeInputs::new(&r.host),
+    )
+    .unwrap()
 }
 
 /// The plays run frame by frame on the shared clock until each ended
@@ -453,4 +463,236 @@ fn the_rooms_attacks_go_into_the_plays_and_onto_the_fields() {
     for id in ids {
         assert_eq!(live.end(id), Some(StreamEnd::Finished));
     }
+}
+
+/// A member who watches gets the live stage: the music from the room's
+/// instant, every competitor's field fed by the frames (a second behind),
+/// the room's attacks between them; nothing of their own is streamed.
+#[test]
+fn a_watcher_follows_the_live_stage_from_the_frames() {
+    let song = bundled("beatucada");
+    let r = Room::new(
+        &[
+            ("alice", Intent::Play),
+            ("bob", Intent::Play),
+            ("carol", Intent::Watch),
+        ],
+        None,
+    );
+    let orders = pick_and_ready(&r, &song, true, 0);
+    let carol = orders[2].as_ref().expect("the watcher's order");
+    assert!(carol.watching);
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 0.0, 0.0]);
+    let mut most = [0u32; 2];
+    let mut ended = play_out(&r, &mut plays, 200.0, |_, plays| {
+        let views = plays[2].battle().unwrap().views();
+        for (m, v) in most.iter_mut().zip(&views) {
+            *m = (*m).max(v.combo);
+        }
+    });
+    let (_, watched) = ended[2].take().expect("the watcher's play ended");
+    assert!(watched.watched);
+    let b = plays[2].battle().unwrap();
+    assert_eq!(b.views().len(), 2, "both competitors' fields");
+    assert!(most.iter().all(|c| *c > 50), "{most:?}");
+    // Their fields carry the shocks the room committed against them.
+    let server = r.server.borrow();
+    let live = server.live().unwrap().stage_or_last().unwrap();
+    let attacks = live.ledger().unwrap().attacks().to_vec();
+    let ids: Vec<_> = r.rooms.iter().map(|x| x.borrow().me()).collect();
+    for (i, feed) in b.feeds().enumerate() {
+        let against = attacks.iter().filter(|a| a.recipient == ids[i]).count() * 8;
+        assert_eq!(feed.shocks().len(), against);
+    }
+    assert_eq!(live.end(ids[2]), None, "the watcher streamed nothing");
+    assert!(!live.plays_live(ids[2]));
+}
+
+/// A device that could not start on time joins late, up to the late join:
+/// its play starts where the room's clock has the song, the notes it
+/// missed judged as misses, its stream taken by the room; later than that
+/// it does not play: it forfeits and watches the rest.
+#[test]
+fn a_late_device_joins_part_way_and_a_too_late_one_forfeits_and_watches() {
+    let song = bundled("beatucada");
+    let r = Room::new(
+        &[
+            ("alice", Intent::Play),
+            ("bob", Intent::Play),
+            ("carol", Intent::Play),
+        ],
+        None,
+    );
+    let orders = pick_and_ready(&r, &song, false, 0);
+    let mut plays = sessions(&r, &song, &orders[..1], &[0.0]);
+    let zero = r.rooms[0]
+        .borrow()
+        .song_zero_at(orders[0].as_ref().unwrap().stage)
+        .unwrap();
+    // Alice plays; Bob's and Carol's devices are late (their screens still
+    // tick their clients).
+    let mut late: Vec<PlaySession<FakeAudio, FakeInputs>> = Vec::new();
+    for (who, at) in [(1usize, 4.7), (2usize, 7.0)] {
+        while (wall(*r.host.borrow()) as f64 - zero.0 as f64) / 1_000.0 < at {
+            r.step(1.0 / 60.0, false);
+            let now = *r.host.borrow();
+            let _ = plays[0].tick(HostTime(now));
+            for (i, room) in r.rooms.iter().enumerate() {
+                if i >= who {
+                    room.borrow_mut().tick(wall(now));
+                }
+            }
+            for p in &mut late {
+                let _ = p.tick(HostTime(now));
+            }
+        }
+        late.push(session_for(&r, &song, orders[who].as_ref().unwrap(), who, 0.0));
+    }
+    plays.extend(late);
+    let now = *r.host.borrow();
+    let song_now = (wall(now) as f64 - zero.0 as f64) / 1_000.0;
+    // Bob: in, part-way, the notes before missed.
+    let t = plays[1].player.judge_time(HostTime(now));
+    assert!(t > 4.0 && t <= song_now + 0.5, "{t} {song_now}");
+    assert!(plays[1].battle().unwrap().me_in(&plays[1].player));
+    let before = plays[1]
+        .player
+        .judge()
+        .notes()
+        .iter()
+        .filter(|n| n.judgeable && n.seconds < t - 0.3)
+        .count() as u32;
+    // (Beatucada's first note comes after the late join's bound: what
+    // came before is checked where there is some.)
+    assert!(
+        plays[1].player.tally().taps[5] >= before,
+        "missed what came before: {} of {before}",
+        plays[1].player.tally().taps[5]
+    );
+    // Carol: past the late join, a forfeit, watching.
+    assert!(plays[2].battle().unwrap().forfeited());
+    let mut ended = play_out(&r, &mut plays, 200.0, |_, _| {});
+    let (_, carol) = ended[2].take().unwrap();
+    assert_eq!(carol.mine, ddi_room::Run::Forfeit);
+    let server = r.server.borrow();
+    let live = server.live().unwrap().stage_or_last().unwrap();
+    let ids: Vec<_> = r.rooms.iter().map(|x| x.borrow().me()).collect();
+    assert_eq!(live.end(ids[1]), Some(StreamEnd::Finished), "Bob's stream taken");
+    assert!(
+        matches!(live.end(ids[2]), Some(StreamEnd::Forfeit | StreamEnd::NoShow)),
+        "{:?}",
+        live.end(ids[2])
+    );
+}
+
+/// The taps of `who`'s stream as `reader` received it.
+fn taps_read(r: &Room, reader: usize, who: ddi_room::ParticipantId) -> Vec<ddi_room::live::Moment> {
+    let room = r.rooms[reader].borrow();
+    room.live_link()
+        .unwrap()
+        .reader()
+        .unwrap()
+        .moments(who)
+        .iter()
+        .filter(|m| matches!(m.kind, ddi_room::live::MomentKind::Tap { .. }))
+        .copied()
+        .collect()
+}
+
+/// A player's socket dropped mid-stage (the network: no close frame): the
+/// play goes on, the client reconnects, sends every batch not acknowledged
+/// and resumes the frames, so that everyone's view of the stage ends whole:
+/// every tap the play judged in the others' streams, the same as someone
+/// who never lost a frame; frames lost on the way down asked for again.
+#[test]
+fn a_socket_lost_mid_stage_resends_and_resumes_the_stage_whole() {
+    let song = bundled("beatucada");
+    let r = Room::new(
+        &[
+            ("alice", Intent::Play),
+            ("bob", Intent::Play),
+            ("carol", Intent::Watch),
+        ],
+        Some(Latency {
+            down_ms: 20,
+            down_jitter_ms: 100,
+            up_ms: 20,
+            up_jitter_ms: 100,
+            seed: 3,
+        }),
+    );
+    let orders = pick_and_ready(&r, &song, true, 0);
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 0.02, 0.0]);
+    let ids: Vec<_> = r.rooms.iter().map(|x| x.borrow().me()).collect();
+    let mut dropped = false;
+    let server = r.server.clone();
+    let _ = play_out(&r, &mut plays, 200.0, |t, _| {
+        if t > 30.0 && !dropped {
+            dropped = true;
+            server.borrow_mut().drop_socket(ids[1]);
+            // Frames lost on their way to Alice too.
+            for f in [ddi_room::fake::Fault::Drop, ddi_room::fake::Fault::Drop] {
+                server.borrow_mut().fault(ids[0], f);
+            }
+        }
+    });
+    assert!(dropped);
+    r.run(3.0);
+    let bob_taps: u32 = plays[1].player.tally().taps.iter().sum();
+    let alice_taps: u32 = plays[0].player.tally().taps.iter().sum();
+    assert_eq!(taps_read(&r, 0, ids[1]).len() as u32, bob_taps, "Alice saw every tap of Bob's");
+    assert_eq!(taps_read(&r, 2, ids[1]).len() as u32, bob_taps, "so did Carol");
+    assert_eq!(taps_read(&r, 1, ids[0]).len() as u32, alice_taps, "Bob saw every tap of Alice's");
+    assert_eq!(taps_read(&r, 1, ids[0]), taps_read(&r, 2, ids[0]));
+    let live = r.server.borrow();
+    let stage = live.live().unwrap().stage_or_last().unwrap();
+    assert_eq!(stage.end(ids[1]), Some(StreamEnd::Finished));
+}
+
+/// A commitment that reaches its target too late to be shown fairly (its
+/// first shock's warning already due: here, every frame three seconds
+/// late on its way to Bob) is refused by Bob's play and said in his
+/// stream: nothing goes into his play, and the others' views take those
+/// shocks off his field.
+#[test]
+fn an_attack_that_comes_too_late_is_refused_and_taken_off_the_views() {
+    let song = bundled("beatucada");
+    let r = Room::new(&[("alice", Intent::Play), ("bob", Intent::Play)], None);
+    let orders = pick_and_ready(&r, &song, true, 0);
+    let ids: Vec<_> = r.rooms.iter().map(|x| x.borrow().me()).collect();
+    r.server.borrow_mut().set_latency(
+        ids[1],
+        Latency {
+            down_ms: 3_000,
+            down_jitter_ms: 0,
+            up_ms: 10,
+            up_jitter_ms: 0,
+            seed: 1,
+        },
+    );
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 0.0]);
+    let _ = play_out(&r, &mut plays, 200.0, |_, _| {});
+    r.run(5.0);
+    let server = r.server.borrow();
+    let live = server.live().unwrap().stage_or_last().unwrap();
+    let against_bob = live
+        .ledger()
+        .unwrap()
+        .attacks()
+        .iter()
+        .filter(|a| a.recipient == ids[1])
+        .count();
+    assert!(against_bob > 0, "attacks against Bob");
+    let bob = plays[1].battle().unwrap();
+    assert_eq!(bob.refused() as usize, against_bob, "every one refused");
+    assert_eq!(
+        plays[1].player.results_brief().battle_mines.map_or(0, |b| b.hit),
+        0
+    );
+    let alice = plays[0].battle().unwrap();
+    assert_eq!(alice.refused(), 0);
+    assert!(
+        alice.feeds().next().unwrap().shocks().is_empty(),
+        "taken off Bob's field"
+    );
 }
