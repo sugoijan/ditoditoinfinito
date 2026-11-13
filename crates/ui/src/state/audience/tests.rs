@@ -181,6 +181,12 @@ fn the_audience_link_is_watched_with_the_room_s_view_and_count_told_to_the_membe
     assert!(alice.has_audience());
     assert_eq!(alice.audience(), Some((1, true)));
     assert!(alice.may_close_audience());
+    // Said after the room's status line between stages, never on a
+    // stage's prompt (`screens::room::status_line`).
+    let line = String::from(crate::screens::room::status(&alice));
+    assert!(line.ends_with(" · One watching"), "{line}");
+    let alone = String::from(crate::screens::room::status_line(&alice));
+    assert!(!alone.contains("watching"), "{alone}");
     assert!(alice.audience_invite_link().is_none(), "the invite not read yet");
     // The audience is nobody in the room's state: no member, no event.
     assert_eq!(server.borrow().state().members.len(), 2);

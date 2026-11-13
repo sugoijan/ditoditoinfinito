@@ -1664,12 +1664,25 @@ fn the_audience_watches_a_live_stage_behind_the_room_with_the_members_fields() {
     let mut behind = Vec::new();
     let mut most_delay: f64 = 0.0;
     let mut restarted = false;
+    // Who attacks whom as the member who watches and the audience see it
+    // (the same lines, each by its ends' participants), and the count
+    // never on the room's status line while the stage is played.
+    let mut lines: [std::collections::BTreeSet<(u32, u64, u64)>; 2] = Default::default();
     let mut ended = play_out(&r, &mut plays, 200.0, |t, plays| {
         let host = *r.host.borrow();
         let song_t = (wall(host) as f64 - zero.0 as f64) / 1_000.0;
         let a = plays[3].player.judge_time(HostTime(host));
         if song_t > 2.0 {
             behind.push(song_t - a);
+            let line = String::from(ddi_ui::screens::room::status(&r.rooms[0].borrow()));
+            assert!(!line.contains("watching"), "{line}");
+        }
+        for (k, p) in plays[2..4].iter().enumerate() {
+            let b = p.battle().unwrap();
+            let who: Vec<u64> = b.views().iter().map(|v| v.participant.0).collect();
+            for l in b.seen_links() {
+                lines[k].insert((l.attack, who[l.from], who[l.to]));
+            }
         }
         if let Some(l) = plays[3].battle().unwrap().live_state() {
             most_delay = most_delay.max(l.delay_ms);
@@ -1715,7 +1728,10 @@ fn the_audience_watches_a_live_stage_behind_the_room_with_the_members_fields() {
         assert_eq!(m.shocks().len(), a.shocks().len(), "the same shocks");
     }
     assert_eq!(aud.borrow().sockets(), 1, "the relay's restart opened no socket");
-    // The members heard the count.
+    assert!(!lines[0].is_empty(), "attacks between the players");
+    assert_eq!(lines[0], lines[1], "the same lines for both who watch");
+    // The members heard the count (said between stages only: never
+    // above while the stage was played).
     r.run(3.0);
     assert_eq!(r.rooms[0].borrow().audience(), Some((1, true)));
 }

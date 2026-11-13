@@ -2193,6 +2193,76 @@ fn run_until(
     None
 }
 
+/// Who attacks whom as someone watching sees it (`Battle::seen_links`,
+/// the maintainer, 2026-11-13: every line in the grid, the followed
+/// competitor's in the focus view), the same for a spectator and for a
+/// player out of the stage: each attack between two fields not cleared
+/// yet; a player who left is a field too (`Battle::own_seat`, after the
+/// others), their attack still on its way drawn from it, none against
+/// them.
+#[test]
+fn everyone_watching_sees_every_attack_between_the_fields() {
+    let song = bundled("beatucada");
+    // A spectator: the CPUs' attacks between them, each seen.
+    let mut practice = attacks_room(&song, 4, 6);
+    let mut now = 0;
+    let order = begin_watching(&song, &mut practice, &mut now, LONG);
+    let (mut s, clock) = stage_session(&song, &order, false, &[]);
+    let mut seen = std::collections::BTreeSet::new();
+    loop {
+        let until = *clock.borrow() + 0.25;
+        if run_until(&mut s, &clock, 60.0, until).is_some() || until > 200.0 {
+            break;
+        }
+        let b = s.battle().unwrap();
+        assert_eq!(b.own_seat(), None, "a spectator is no field");
+        for l in b.seen_links() {
+            assert!(l.from < 4 && l.to < 4 && l.from != l.to, "{l:?}");
+            seen.insert(l.attack);
+        }
+    }
+    let ledger = s.battle().unwrap().attacks().unwrap().ledger();
+    let shown = ledger
+        .attacks()
+        .iter()
+        .filter(|a| a.state != ddi_room::attacks::AttackState::Expired)
+        .filter(|a| seen.contains(&a.id))
+        .count();
+    assert!(shown >= 3, "{shown} of {}", ledger.attacks().len());
+    // A player who leaves with an attack of their own on its way: it is
+    // drawn from their field among the others'.
+    let mut practice = attacks_room(&song, 3, 3);
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let (mut s, clock) = stage_session(&song, &order, true, &[]);
+    let mut sent = None;
+    while sent.is_none() {
+        let until = *clock.borrow() + 0.1;
+        assert!(run_until(&mut s, &clock, 60.0, until).is_none());
+        assert!(until < 120.0, "the player never attacked");
+        let b = s.battle().unwrap();
+        let t = s.player.judge().last_time().unwrap_or(0.0);
+        sent = b
+            .links(&s.player)
+            .into_iter()
+            .find(|l| l.outgoing && l.first > t + 1.0)
+            .map(|l| (l.attack, l.seat));
+    }
+    let (attack, to) = sent.unwrap();
+    s.leave();
+    let until = *clock.borrow() + 0.2;
+    assert!(run_until(&mut s, &clock, 60.0, until).is_none());
+    assert!(s.watch(until).is_some(), "watching on");
+    let b = s.battle().unwrap();
+    let own = b.own_seat().expect("their field");
+    assert_eq!(own, 3);
+    let links = b.seen_links();
+    assert!(
+        links.iter().any(|l| l.attack == attack && l.from == own && l.to == to),
+        "{links:?}"
+    );
+    assert!(links.iter().all(|l| l.to != own));
+}
+
 /// A stage with no local player: the CPUs run on the song clock to its
 /// settlement, the same at 60 and 144 frames a second and as played out
 /// at once; the watcher is nobody's seat (not ranked, no sender and no

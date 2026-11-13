@@ -359,12 +359,20 @@ pub fn seconds_left(r: &RoomClient) -> Option<u64> {
 /// panel's first line for the others, the prompt's under its song): what
 /// the room waits for, and the last refusal or link change; with how many
 /// watch with the room's audience after it, where the room has one and
-/// someone watches (`docs/plans/multiplayer-audience.md`: between stages,
-/// never over a play, whose status line is the play's own).
+/// someone watches (`docs/plans/multiplayer-audience.md`: between stages
+/// only, the maintainer, 2026-11-13: never while a stage is counted down
+/// or played, nor on a stage's prompt, [`status_line`], nor over a play,
+/// whose status line is the play's own).
 pub fn status(r: &RoomClient) -> UiText {
     let line = room_status(r);
+    let in_stage = matches!(
+        r.state().phase,
+        Phase::Countdown { .. } | Phase::Stage { .. } | Phase::SongCompletion { .. }
+    );
     match r.audience() {
-        Some((count, true)) if count > 0 && r.link_state() == LinkState::Connected => {
+        Some((count, true))
+            if count > 0 && !in_stage && r.link_state() == LinkState::Connected =>
+        {
             m::status_with_audience(&line, count)
         }
         _ => line,
@@ -378,6 +386,12 @@ pub fn audience_words(r: &RoomClient) -> Option<UiText> {
         (count, true) => Some(m::audience_watching(count)),
         (_, false) => Some(m::audience_closed_short()),
     }
+}
+
+/// The room's status line alone, without how many watch with its
+/// audience: a stage's prompt's (a stage is beginning there).
+pub fn status_line(r: &RoomClient) -> UiText {
+    room_status(r)
 }
 
 fn room_status(r: &RoomClient) -> UiText {

@@ -225,7 +225,7 @@ impl PromptScreen {
             };
             return vec![(line.into(), "Gold")];
         }
-        vec![(room::status(&r).into(), "Accent")]
+        vec![(room::status_line(&r).into(), "Accent")]
     }
 
     /// The width the diagram leaves the players' column in a room.

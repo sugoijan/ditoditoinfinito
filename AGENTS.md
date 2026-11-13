@@ -700,7 +700,8 @@ Rust and the browser are implementation details, not advertised features.
   outside the play), watched on from their own field until it is
   decided (`WATCH_END_HOLD`), the song ends or they skip (Enter, Start,
   `TOUCH_SKIP_CONTROL`); who attacks whom for a watcher,
-  `Battle::seen_links`, and the stage's moments in the third person,
+  `Battle::seen_links`, the same for every way of watching (a player
+  out of it a field too, `Battle::own_seat`), and the stage's moments in the third person,
   `WatchMoment`; an online room's stage has nothing to watch yet and
   ends as before).
   Platform-free, natively tested on a fake clock.

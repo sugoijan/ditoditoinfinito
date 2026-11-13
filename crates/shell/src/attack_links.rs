@@ -891,6 +891,14 @@ mod tests {
         let mut list = DrawList::new();
         draw(&mut list, &at(10.3, false), &f, 1.0);
         assert!(list.commands.len() > 3);
+        // A grid's page shows only the lines between its own fields: an
+        // attack from or to a field on another page is left out (no stub
+        // at the edge; that field's own page shows it).
+        let off = [
+            ddi_session::battle::SeenLink { from: 14, ..seen[0] },
+            ddi_session::battle::SeenLink { to: 20, ..seen[0] },
+        ];
+        assert!(shown_between(&off, &layout, 10.3, false, ATTACK_LINKS_V0).is_empty());
     }
 
     /// At every size the miniatures' table uses, with and without

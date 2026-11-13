@@ -257,6 +257,13 @@ impl Rig {
         ppm(name, &gpu::read_rgba(&self.device, &self.queue, &self.texture));
     }
 
+    /// The frame drawn last, as it is (a moment that would pass in
+    /// [`Rig::shot`]'s frames: an attack's line lasts 1.5 s).
+    fn shot_now(&mut self, name: &str) {
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        ppm(name, &gpu::read_rgba(&self.device, &self.queue, &self.texture));
+    }
+
     fn edge(&mut self, device: DeviceId, control: &str, pressed: bool) {
         let at = self.clock.load(Ordering::SeqCst) as f64 / 1e9 - 0.1;
         self.host.feed.borrow_mut().edges.push(RawInput {
@@ -403,9 +410,15 @@ fn a_practice_stage_is_watched_from_the_grid_and_a_seat_to_its_results() {
 
     // To its end: who attacks whom is drawn between the fields, the
     // warning beside the recipient's.
+    // Then (the maintainer, 2026-11-13) a followed competitor's own
+    // attacks, to and from the fields beside theirs: the recipient of the
+    // grid's first line followed at once (Tab to their seat), its line
+    // and outline drawn from the field beside, then back to the grid.
     let (mut lines, mut warned, mut attacks) = (0, 0, 0);
     let mut frames = 0;
     let mut shot = false;
+    let (mut following, mut focus_shot, mut focus_lines) = (false, false, 0);
+    let mut followed_for = 0;
     while rig.host.playing() {
         rig.frame();
         let links = rig.host.attack_links();
@@ -414,17 +427,38 @@ fn a_practice_stage_is_watched_from_the_grid_and_a_seat_to_its_results() {
         {
             attacks = a.ledger().attacks().len();
         }
-        for l in &links {
-            assert!(l.from.is_some(), "between two competitors");
-            assert_ne!(l.from, Some(l.seat));
-        }
-        lines += links.iter().filter(|l| l.line > 0.0).count();
         let w = rig.host.watch();
+        if w.as_ref().is_some_and(|w| w.view == "grid") {
+            for l in &links {
+                assert!(l.from.is_some(), "between two competitors");
+                assert_ne!(l.from, Some(l.seat));
+            }
+            lines += links.iter().filter(|l| l.line > 0.0).count();
+        } else if following {
+            // The followed competitor's: theirs to or from a field beside.
+            assert!(links.iter().all(|l| l.from.is_none()));
+            focus_lines += links.len();
+            followed_for += 1;
+            if !focus_shot && links.iter().any(|l| l.line > 0.0) {
+                focus_shot = true;
+                rig.shot_now("watch-focus-attack");
+            }
+            if focus_shot || followed_for > 240 {
+                rig.press("Escape");
+                following = false;
+            }
+        }
         let now_warned = w.as_ref().map_or(0, |w| w.warned.len());
         warned += now_warned;
         if !shot && now_warned > 0 && links.iter().any(|l| l.line > 0.0) {
             shot = true;
-            rig.shot("watch-grid-attack");
+            rig.shot_now("watch-grid-attack");
+            let to = links.iter().find(|l| l.line > 0.0).unwrap().seat;
+            for _ in 0..=to {
+                rig.press("Tab");
+                rig.frame();
+            }
+            following = true;
         }
         if frames % 16 == 0 {
             let _ = rig.device.poll(wgpu::PollType::wait_indefinitely());
@@ -434,6 +468,7 @@ fn a_practice_stage_is_watched_from_the_grid_and_a_seat_to_its_results() {
     }
     assert!(attacks > 0, "the CPUs attacked each other");
     assert!(lines > 0 && warned > 0, "{lines} lines, {warned} warnings");
+    assert!(focus_lines > 0, "a followed competitor's attacks drawn");
     let _ = rig.device.poll(wgpu::PollType::wait_indefinitely());
     rig.ui.update(0.05);
     assert_eq!(top(&rig.ui), "results");

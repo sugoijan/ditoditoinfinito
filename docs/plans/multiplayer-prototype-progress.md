@@ -6321,6 +6321,51 @@ practice room through `RoomClient::shared`, so both remember. Tested:
 CPUs the same in order with their own seeds and four stages; Reset then
 OK kept as the default; three unreadable values falling back).
 
+### The audience's count between stages only; attack lines for those who watch
+
+- **The count** ("· 132 watching") shows to the room's people between
+  stages only: the room's song select status line (not while a stage is
+  counted down, played or completing: `screens::room::status` leaves it
+  out in `Countdown`, `Stage` and `SongCompletion`), Host options, the
+  invite page and the audience's page. Taken out of a stage's prompt
+  (`screens::room::status_line`, the line alone). Nothing in a play or a
+  watched stage ever showed it (checked: the shells' play view and the
+  session read no count). Tested: `ddi-ui` (the status line with and
+  without it), `ddi-session` (never on the status line while the
+  audience's live stage is played).
+- **Who attacks whom, for everyone who watches** (the maintainer: "all
+  attack lines … for the overall view, and incoming/outgoing attacks for
+  a selected player view"). The three ways of watching (a member who
+  chose Watch, a player out of the stage watching on, an audience's
+  seat) already drew through one path (`PlayView`: the grid's every link
+  between fields, `attack_links::shown_between`; the focus view's
+  followed competitor's links to and from the fields beside it and their
+  warning by the large field's receptors, `SeenLink::of`,
+  `Battle::incoming_for`), from one list (`Battle::seen_links`, the
+  audience's from the ledger its frames carry). What differed: a player
+  out of the stage had no field among the others for their own attacks
+  still on their way. Now their field is one (`Battle::own_seat`, after
+  the others', as the play view places their miniature while they follow
+  someone): their attack is drawn from it; none against them (an attack
+  on them ends with their going out). Around their own dimmed field
+  (following nobody) the field is the band, which a line between
+  miniatures never enters, so it is not drawn there.
+- **A large field's grid**: a page shows only the lines between its own
+  fields; an attack from or to a field on another page is left out (no
+  stub at the grid's edge: a stub says nothing of whom, and twelve
+  fields a page already carry many lines); that field's page shows it.
+- **Tested**: `ddi-session`
+  `everyone_watching_sees_every_attack_between_the_fields` (a spectator's
+  practice stage: every link between two of the four fields, most of the
+  stage's attacks seen; a player who leaves with an attack on its way:
+  drawn from their field, nothing against them), the audience's live
+  stage (the member who watches and the audience's seat see the same
+  lines, by their ends' participants); `ddi-shell` (a link with an end
+  off the page left out); `ddi-desktop` `room_watch_offscreen` (a watched
+  practice stage: lines in the grid with a warning, then a followed
+  competitor's own lines in the focus view; pictures `watch-grid-attack`
+  and `watch-focus-attack`, looked at).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -6334,7 +6379,7 @@ OK kept as the default; three unreadable values falling back).
 | A step down on the live wire as a flagged refusal (`STEP_DOWN_ATTACK`) | `ddi_room::live::wire` | Older readers ignore it | Whether to version the wire instead when it next changes |
 | `audience-view-v0` (2026-11-13): an audience device plays the music and draws the fields 0.8 s behind the room's song time (fixed for a stage), the fields a little more where frames come later, within the audience's 2 s ceiling | `ddi_ui::state::audience::MUSIC_DELAY_V0` | A seat sees the stage about a second behind the players | The delay; whether to raise it after a stage that lagged |
 | `audience-view-v1` (2026-11-13, follows v0): the music's delay moved only at a stage's start, up by what the last stage's fields needed beyond it (their 90th percentile past 100 ms, rounded up to 50 ms, at most 1.6 s), down 0.2 s a stage to 0.8 s after good ones | `ddi_ui::state::audience::AUDIENCE_VIEW_V1` | After a laggy stage the next one is watched further behind, its fields in step with the sound; nothing heard changes within a stage | The numbers; whether a stage's own lag should be fixed within it |
-| The count shown to members between stages only (the status line of song select and the prompt), never over a play | `screens::room::status` | "· 132 watching" after the room's line | The audience plan's open question 3 |
+| The count shown to members between stages only (song select's status line, Host options, the invite and audience pages; since 2026-11-13 not a stage's prompt nor while a stage is played) | `screens::room::status` | "· 132 watching" after the room's line | Answered (the maintainer, 2026-11-13): between stages only |
 | `join-watch-v0`: a join asking to play where every player's place is taken is in to watch; nobody is moved to Play when a place frees up; the arrival is said on the status line for 12 s | `ddi_room::RoomState::arrival_intent`, `players_full`; `ddi_ui`'s `LinkNotice::JoinedToWatch`, `JOINED_TO_WATCH_MS` | A tenth person joins a room of nine players to watch, and plays only once they choose Play after a place frees | Whether a freed place should go to the longest-waiting watcher (asked, or at once) |
 | The watch-only link: held to watching until an operator's Let play (co-hosts too since round B1, ANSWERED); replaced with the room's invite; its Copy hidden behind `Settings::multiplayer_watch_link` | `ddi_room::Member::watch_only`, `Command::SetWatchOnly`, `Capability::LetPlay`; `../ddi-server` `invite::watch_secret` | Someone who came to watch never takes a player's place unless the host or a co-host lets them | Whether the watch link should be replaceable on its own |
 | `watch-v0`: a grid's field is at most a play's own field (`GRID_LANE_SHARE` 1.0); a layout with more rows wins within a tenth of the largest lane (`GRID_FILL` 0.9) | `ddi_shell::opponents::arrange_grid` | One to three watched fields are nearly the screen's height; eight are four by two at lanes of 29 px (1280×720) | The sizes; whether eight should give up the play's proportion (shorter fields, larger lanes) |

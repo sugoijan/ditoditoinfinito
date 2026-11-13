@@ -1261,6 +1261,13 @@ impl Battle {
         }
     }
 
+    /// The local player's own field's place among the fields someone
+    /// watching is shown ([`Battle::feeds`]' count: after everyone
+    /// else's), where they compete in the stage; none for a watcher.
+    pub fn own_seat(&self) -> Option<usize> {
+        (!self.setup.watching).then(|| self.feeds().count())
+    }
+
     /// The local player's own field as a stream draws it (their judged
     /// play, their going out): their miniature among the others' once
     /// they are out of the stage and follow a competitor large.
@@ -2128,8 +2135,13 @@ impl Battle {
     /// Who attacks whom among the competitors, as someone watching sees
     /// it (`watch-v0`): each attack between two of them that has not
     /// cleared yet, in the order committed; none once the stage is
-    /// decided, none against a recipient who went out.
+    /// decided, none against a recipient who went out. The same for
+    /// every way of watching (a member who chose Watch, a player out of
+    /// the stage, an audience's seat; the maintainer, 2026-11-13): a
+    /// player out of the stage is one of the fields too, at
+    /// [`Battle::own_seat`], their attacks still on their way from it.
     pub fn seen_links(&self) -> Vec<SeenLink> {
+        let own = self.own_seat();
         if self.live_attacks().is_some() {
             if self.decided.is_some() {
                 return Vec::new();
@@ -2137,7 +2149,15 @@ impl Battle {
             return self
                 .live_links()
                 .into_iter()
-                .filter(|x| x.from != usize::MAX && x.to != usize::MAX)
+                // Never against the player out of it (an attack on them
+                // ends with their going out).
+                .filter(|x| x.to != usize::MAX)
+                .filter_map(|mut x| {
+                    if x.from == usize::MAX {
+                        x.from = own?;
+                    }
+                    Some(x)
+                })
                 .collect();
         }
         let Some(a) = self.attacks.as_ref() else {
@@ -2147,7 +2167,13 @@ impl Battle {
             return Vec::new();
         }
         let now = attacks::micros(self.now);
-        let seat = |p: ParticipantId| self.seats.iter().position(|s| s.seat.participant == p);
+        let seat = |p: ParticipantId| {
+            if p == self.setup.me {
+                own
+            } else {
+                self.seats.iter().position(|s| s.seat.participant == p)
+            }
+        };
         let live: Vec<&ddi_room::attacks::Attack> = a
             .ledger()
             .attacks()
@@ -2162,7 +2188,7 @@ impl Battle {
         live.iter()
             .filter_map(|x| {
                 let (from, to) = (seat(x.sender)?, seat(x.recipient)?);
-                if self.seats[to].out_at().is_some() {
+                if self.seats.get(to).is_none_or(|s| s.out_at().is_some()) {
                     return None;
                 }
                 let committed = a
