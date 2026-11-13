@@ -101,6 +101,10 @@ pub struct Options {
     pub wait_for: usize,
     /// Seed of the names' order and the bots' plays (default: the time).
     pub seed: Option<u64>,
+    /// Seats in the room's audience that only watch (`--audience N`,
+    /// `docs/plans/multiplayer-audience.md`): no play, nothing sent but
+    /// what a seat sends; each reports what it received.
+    pub audience: usize,
 }
 
 impl Default for Options {
@@ -121,6 +125,7 @@ impl Default for Options {
             matches: None,
             wait_for: 2,
             seed: None,
+            audience: 0,
         }
     }
 }
@@ -147,7 +152,11 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   --stages N           the host's Rules: stages a match
   --matches N          stop after N matches
   --wait-for N         players the host waits for before picking (default 2)
-  --seed N             names' order and plays";
+  --seed N             names' order and plays
+  --audience N         N seats in the room's audience by --join's link (its
+                       audience link, or its invite at the member bound): they
+                       only watch (no play) and report what they received,
+                       two seats a signed-in bot (at most 5000)";
 
 impl Options {
     /// `args` (the command line after the program) read.
@@ -247,6 +256,13 @@ impl Options {
                         .filter(|n| (2..=MAX_BOTS).contains(n))
                         .ok_or("--wait-for takes 2 to 73")?
                 }
+                "--audience" => {
+                    o.audience = value(i, a)?
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|n| (1..=MAX_AUDIENCE).contains(n))
+                        .ok_or("--audience takes 1 to 5000")?
+                }
                 "--seed" => {
                     o.seed = Some(
                         value(i, a)?
@@ -258,7 +274,17 @@ impl Options {
             }
             i += if took { 2 } else { 1 };
         }
-        o.guests = guests.unwrap_or(if o.join.is_some() { 3 } else { 0 });
+        o.guests = guests.unwrap_or(if o.join.is_some() && o.audience == 0 {
+            3
+        } else {
+            0
+        });
+        if o.audience > 0 && o.join.is_none() {
+            return Err("--audience needs --join".into());
+        }
+        if o.audience > 0 && !o.host && o.guests == 0 {
+            return Ok(o);
+        }
         if !o.host && o.join.is_none() {
             return Err("--mp-bots needs --host or --join".into());
         }
@@ -1372,6 +1398,9 @@ pub fn run(args: &[String]) -> i32 {
 /// The bots of `o`, signed in with the admin `token`, until stopped or
 /// their matches are played; the exit code.
 pub fn run_with(o: Options, token: &str) -> i32 {
+    if o.audience > 0 && !o.host && o.guests == 0 {
+        return run_audience(&o, token);
+    }
     let base = crate::share::base();
     let site = o.site.clone().unwrap_or_else(crate::online::site);
     let seed = o.seed.unwrap_or_else(now_ms);
@@ -1541,7 +1570,17 @@ mod tests {
         );
         let o = Options::parse(&args("--mp-bots --host --guests 3 --level 5-10")).unwrap();
         assert_eq!(o.level, Some((5, 10)));
+        // Audience seats alone, by an audience link.
+        let o = Options::parse(&args(
+            "--mp-bots --audience 40 --join http://localhost:8080/#/mp/audience/Room000001.abcdefghijABCDEFGHIJ01?mp=1",
+        ))
+        .unwrap();
+        assert_eq!((o.audience, o.guests), (40, 0), "no guests by default beside an audience");
+        assert_eq!(o.join.as_deref(), Some("Room000001.abcdefghijABCDEFGHIJ01"));
         for bad in [
+            "--mp-bots --audience 3",
+            "--mp-bots --audience 0 --join Room000001.abcdefghijABCDEFGHIJ01",
+            "--mp-bots --audience 5001 --join Room000001.abcdefghijABCDEFGHIJ01",
             "--mp-bots",
             "--mp-bots --guests 2",
             "--mp-bots --join nonsense",
@@ -1739,4 +1778,119 @@ mod tests {
         assert_eq!(choose_chart(&song, Some(2)), None, "not four lanes");
         assert_eq!(choose_chart(&song, Some(3)), None, "no digest");
     }
+}
+
+/// `--audience`'s bound: seats one run opens.
+pub const MAX_AUDIENCE: usize = 5_000;
+
+/// What an audience seat received, for its report.
+#[derive(Default)]
+struct Watched {
+    stages: std::collections::BTreeSet<u64>,
+    last_count: Option<u32>,
+}
+
+/// `--audience N` alone (DEVELOPMENT TOOL): N seats in the room's audience
+/// by `--join`'s link, two a signed-in bot, that only watch: each one's
+/// seat over the shell's socket, ticked until Ctrl-C (or the audience's
+/// end); a line every ten seconds (seats watching, frames received, the
+/// count as said, the room's phase) and each seat's totals at the end.
+fn run_audience(o: &Options, token: &str) -> i32 {
+    use ddi_ui::state::audience::{AudienceClient, SeatState};
+    let base = crate::share::base();
+    let site = o.site.clone().unwrap_or_else(crate::online::site);
+    let link = o.join.clone().unwrap_or_default();
+    let seed = o.seed.unwrap_or_else(now_ms);
+    let people = o.audience.div_ceil(2);
+    println!(
+        "{} audience: {} seats by {link} against {base}, {people} bots signed in (DEVELOPMENT TOOL; Ctrl-C leaves)",
+        clock_text(),
+        o.audience
+    );
+    let mut seats = Vec::new();
+    for k in 0..people {
+        let name = format!("Watcher {:x}{}", seed % 0xffff, k + 1);
+        let session = match sign_in(&base, token, &name) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("audience: {name} could not sign in: {e}");
+                return 1;
+            }
+        };
+        let online = Online::new(
+            Box::new(crate::online::ThreadHttp::with_base(base.clone())),
+            OnlineConfig {
+                platform: Platform::Desktop,
+                site: site.clone(),
+            },
+        )
+        .with_token(Some(session), Rc::new(|_: Option<&str>| {}))
+        .shared();
+        online.borrow_mut().check();
+        for _ in 0..2.min(o.audience - seats.len()) {
+            seats.push((
+                AudienceClient::new(
+                    online.clone(),
+                    &link,
+                    Box::new(crate::online::SocketTransport::audience(Some(base.clone()))),
+                    None,
+                    now_ms(),
+                ),
+                Watched::default(),
+            ));
+        }
+    }
+    catch_stop();
+    let mut said_at = 0;
+    loop {
+        let now = now_ms();
+        for (a, w) in &mut seats {
+            a.tick(now);
+            // Nothing is played: the songs are never read.
+            let _ = a.take_load_jobs();
+            if let Some(st) = a.current_stage() {
+                w.stages.insert(st.0);
+            }
+            w.last_count = a.count();
+        }
+        let ended = seats
+            .iter()
+            .filter(|(a, _)| matches!(a.state(), SeatState::Ended(_) | SeatState::Refused(_)))
+            .count();
+        if now >= said_at {
+            said_at = now + 10_000;
+            let watching = seats
+                .iter()
+                .filter(|(a, _)| a.state() == SeatState::Watching)
+                .count();
+            let frames: u64 = seats.iter().map(|(a, _)| u64::from(a.frames())).sum();
+            let count = seats.iter().filter_map(|(a, _)| a.count()).max();
+            let phase = seats
+                .iter()
+                .find_map(|(a, _)| a.view().map(|v| format!("{:?}", v.phase.kind())));
+            println!(
+                "{} audience: {watching} of {} watching, {frames} frames received, count {count:?}, phase {phase:?}",
+                clock_text(),
+                seats.len()
+            );
+        }
+        if ended == seats.len() || STOP.load(Ordering::SeqCst) > 0 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    for (k, (a, w)) in seats.iter_mut().enumerate() {
+        println!(
+            "{} audience: seat {}: {:?}, {} frames, {} sockets, stages {:?}, count {:?}",
+            clock_text(),
+            k + 1,
+            a.state(),
+            a.frames(),
+            a.sockets(),
+            w.stages,
+            w.last_count
+        );
+        a.leave();
+    }
+    0
 }
