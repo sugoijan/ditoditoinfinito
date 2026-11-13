@@ -245,6 +245,7 @@ pub fn drawn(pixels: &[u8], size: [u32; 2], [x0, y0, x1, y1]: [f32; 4]) -> bool 
 /// A tap at the middle of the actor named `name` on `ui` (a mouse's),
 /// then `seconds` of frames.
 pub fn tap(ui: &mut Ui, name: &str, seconds: f32) {
+    reveal(ui, name);
     let b = ui
         .bounds(name)
         .unwrap_or_else(|| panic!("no actor {name:?} with a box"));
@@ -267,6 +268,33 @@ pub fn tap(ui: &mut Ui, name: &str, seconds: f32) {
     }
     for _ in 0..(seconds * 60.0).round() as usize {
         ui.update(1.0 / 60.0);
+    }
+}
+
+/// Scrolls `name` into view whole where a pop-up's rows hold it scrolled
+/// away (the Rules pop-up's), by the wheel over the screen's middle, as
+/// a person would before tapping it.
+fn reveal(ui: &mut Ui, name: &str) {
+    let whole = |ui: &Ui| match (ui.bounds(name), ui.visible_bounds(name)) {
+        (Some(b), Some(v)) => b.iter().zip(v).all(|(a, b)| (a - b).abs() < 0.5),
+        _ => ui.bounds(name).is_none(),
+    };
+    for dy in [40.0, -40.0] {
+        for _ in 0..200 {
+            if whole(ui) {
+                return;
+            }
+            let v = ui.viewport();
+            let mid = v.to_physical([v.screen.width / 2.0, v.screen.height / 2.0]);
+            ui.handle(UiEvent::Wheel(ddi_ui::event::WheelEvent {
+                pos: [mid[0] / v.ratio, mid[1] / v.ratio],
+                delta: [0.0, dy],
+                source: ddi_ui::event::WheelSource::Pixels,
+                modifiers: ddi_ui::Modifiers::default(),
+                time: 0.0,
+            }));
+            ui.update(1.0 / 60.0);
+        }
     }
 }
 
