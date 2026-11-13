@@ -334,6 +334,10 @@ pub(crate) struct Received {
     /// Competitors whose stream ended out of the stage this frame.
     pub outs: Vec<ParticipantId>,
     pub log: Vec<String>,
+    /// Attacks committed against someone this play has no stream of (a
+    /// CPU computed here, `crate::battle::cpus`): the recipient, its
+    /// checkpoint, the attack and its shocks.
+    pub others: Vec<(ParticipantId, usize, u32, Vec<Hazard>)>,
 }
 
 /// One stage played live on this device.
@@ -387,6 +391,10 @@ pub(crate) struct Live {
     /// zero life steps down, and the local play's steps streamed so far.
     rungs: Vec<feed::TapTrack>,
     steps_sent: usize,
+    /// The checkpoints whose news came in a snapshot (it carries their
+    /// commitments, not their records): those whose deadline had passed
+    /// at its time.
+    snapshot_known: usize,
 }
 
 /// A judge event as a moment of the stream (none: nothing a field
@@ -583,7 +591,20 @@ impl Live {
             seat_end: None,
             rungs: Vec::new(),
             steps_sent: 0,
+            snapshot_known: 0,
         }
+    }
+
+    /// The room's client and the shell's clock.
+    pub(crate) fn handle(&self) -> &LiveHandle {
+        &self.handle
+    }
+
+    /// The stage's checkpoints whose news has come (their records, and
+    /// with them every commitment they made): what a CPU computed here
+    /// may be judged up to the shocks of (`crate::battle::cpus::Drive`).
+    pub(crate) fn known_checkpoints(&self) -> usize {
+        self.ledger.checkpoints.max(self.snapshot_known)
     }
 
     /// The stage's ladder (each rung's chart, the next easier first), where
@@ -634,7 +655,7 @@ impl Live {
 
     /// The room's song time now as streamed and drawn (µs; this play's own
     /// before the first [`Live::sync`]).
-    fn room_now_us(&self, t: f64) -> i64 {
+    pub(crate) fn room_now_us(&self, t: f64) -> i64 {
         if self.room_us == i64::MIN {
             micros(t)
         } else {
@@ -920,6 +941,20 @@ impl Live {
                     for c in s.commitments.clone() {
                         self.commit(track, c, t, human.as_deref_mut(), &mut got);
                     }
+                    // The checkpoints run by the snapshot's time: every
+                    // one whose deadline (and a tick) had passed.
+                    if let Some(plan) = &self.plan {
+                        let at_us = ddi_room::live::song_us_at(s.song_zero_at, s.at);
+                        let ran = plan
+                            .checkpoints_us
+                            .iter()
+                            .take_while(|cp| {
+                                **cp + (self.rules.report_deadline_ms + self.rules.tick_ms) as i64 * 1_000
+                                    < at_us
+                            })
+                            .count();
+                        self.snapshot_known = self.snapshot_known.max(ran);
+                    }
                 }
                 LiveNews::Refused(LiveRefusal::UnknownStage { stage }) if stage == self.stage => {
                     // The room's live part is gone (it restarted): keep
@@ -1116,7 +1151,7 @@ impl Live {
             after_clear: 0,
         });
         self.learned.push((c.attack, t.max(committed_us as f64 / 1e6)));
-        let mut delivered = false;
+        let delivered;
         if c.recipient == self.me {
             // Shown fairly: its first shock still a reading horizon and
             // the warning away.
@@ -1178,6 +1213,12 @@ impl Live {
         } else if let Some(seat) = self.seats.iter_mut().find(|s| s.participant == c.recipient) {
             seat.feed.add_hazards(track, &hazards, committed_us as f64 / 1e6);
             delivered = true;
+        } else {
+            // A CPU computed here: its play takes them at the song time
+            // every device does (`crate::battle::cpus`).
+            got.others
+                .push((c.recipient, c.checkpoint as usize, c.attack, hazards.clone()));
+            delivered = true;
         }
         got.committed
             .push((c.attack, c.sender, c.recipient, first_us, delivered));
@@ -1224,6 +1265,19 @@ pub struct LivePlay {
     live: Live,
     track: feed::TapTrack,
     log: Vec<String>,
+    /// The stage's CPUs, computed here as on every device
+    /// (`crate::battle::cpus`): a bot reports for them as a person's
+    /// device does.
+    cpus: Vec<BotCpu>,
+    most: Option<i64>,
+}
+
+/// A CPU of the stage as a bot's play computes it.
+struct BotCpu {
+    seat: ddi_ui::state::room::CpuSeat,
+    opponent: ddi_engine::cpu::Opponent,
+    drive: crate::battle::cpus::Drive,
+    run_sent: bool,
 }
 
 impl LivePlay {
@@ -1255,12 +1309,105 @@ impl LivePlay {
             &track,
             None,
         );
-        let log = vec![play.describe()];
+        let mut log = vec![play.describe()];
+        let setup = crate::battle::StageSetup::of(order);
+        let ruleset = crate::battle::stage_ruleset(&order.rules);
+        let ladder = crate::battle::stage_ladder(song, chart, &setup);
+        let checkpoints = prep
+            .plan
+            .as_ref()
+            .filter(|_| order.battle.attacks())
+            .map(|p| p.checkpoints_us.clone());
+        let cpus = order
+            .cpus
+            .iter()
+            .map(|seat| {
+                let mut opponent = crate::battle::cpus::opponent(song, chart, &ruleset, seat, &ladder)?;
+                let drive = crate::battle::cpus::Drive::new(
+                    ddi_room::live::cpus::ONLINE_CPUS_V0,
+                    seat.participant,
+                    checkpoints.clone(),
+                    &mut opponent,
+                );
+                Ok(BotCpu {
+                    seat: seat.clone(),
+                    opponent,
+                    drive,
+                    run_sent: false,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        if !cpus.is_empty() {
+            log.push(format!("live: {} CPUs computed here", cpus.len()));
+        }
         Ok(Some(LivePlay {
             live: play,
             track,
             log,
+            cpus,
+            most: crate::battle::chart_most(song, chart, &ruleset),
         }))
+    }
+
+    /// The stage's CPUs judged on to song second `t` (the room's song
+    /// clock as this bot has it), `others` the shocks the room committed
+    /// against them: their reports, ends and runs to the room.
+    fn step_cpus(&mut self, t: f64, others: &[(ParticipantId, usize, u32, Vec<Hazard>)]) {
+        if self.cpus.is_empty() {
+            return;
+        }
+        for (cpu, k, attack, cells) in others {
+            if let Some(c) = self.cpus.iter_mut().find(|c| c.seat.participant == *cpu) {
+                c.drive.commit(*k, *attack, cells.clone());
+            }
+        }
+        let known = self.live.known_checkpoints();
+        let limit = self.live.room_now_us(t);
+        let stage = self.live.stage;
+        let launched = |p: ParticipantId, l: &Live| {
+            let all = &l.ledger.attacks;
+            (
+                all.iter().filter(|a| a.sender == p).count() as u32,
+                all.iter().filter(|a| a.recipient == p).count() as u32,
+            )
+        };
+        for c in &mut self.cpus {
+            c.drive.known(known);
+            let _ = c.drive.advance(&mut c.opponent, limit);
+            let reports = c.drive.take_reports();
+            let end = c.drive.take_end();
+            if reports.is_empty() && end.is_none() {
+                continue;
+            }
+            let p = c.seat.participant;
+            self.live.handle.room.borrow_mut().cpu_news(stage, p, c.drive.at_us(), reports, end);
+            if end.is_some() && !c.run_sent {
+                c.run_sent = true;
+                let player = c.opponent.player();
+                let score = crate::battle::cpu_score(&c.opponent.score(), self.most);
+                let run = crate::battle::run_of(
+                    c.opponent.out_at(),
+                    c.opponent.life(),
+                    &score,
+                    player.steps().len(),
+                );
+                let mut results = player.results_brief();
+                results.score = score;
+                let detail = ddi_ui::state::room::run_detail(
+                    &results,
+                    player.ruleset(),
+                    c.opponent.life(),
+                    Some(launched(p, &self.live)),
+                )
+                .bounded();
+                self.live.handle.room.borrow_mut().cpu_run(
+                    stage,
+                    p,
+                    ddi_room::ReportedRun::of(run),
+                    Some(detail),
+                );
+            }
+        }
     }
 
     /// The play judged to song second `t` (`judged`: its events since the
@@ -1282,6 +1429,7 @@ impl LivePlay {
     ) -> Vec<(ParticipantId, ParticipantId, bool)> {
         let got = self.live.receive(&self.track, t, Some(deliver));
         self.log.extend(got.log);
+        self.step_cpus(t, &got.others);
         got.committed
             .into_iter()
             .map(|(_, from, to, _, delivered)| (from, to, delivered))

@@ -89,6 +89,7 @@ pub struct Drive {
     reports: Vec<LiveReport>,
     end: Option<StreamEnd>,
     end_taken: bool,
+    plays_on: bool,
 }
 
 impl Drive {
@@ -119,7 +120,19 @@ impl Drive {
             reports: Vec::new(),
             end: None,
             end_taken: false,
+            plays_on: false,
         }
+    }
+
+    /// Checkpoint `k`'s song time, where the stage has attacks.
+    pub fn checkpoint_us(&self, k: usize) -> Option<i64> {
+        self.checkpoints_us.get(k).copied()
+    }
+
+    /// The stage was decided with it a winner: its gauge emptying after
+    /// it is no end of its stream (it plays the song out).
+    pub fn plays_on(&mut self) {
+        self.plays_on = true;
     }
 
     pub fn participant(&self) -> ParticipantId {
@@ -178,7 +191,12 @@ impl Drive {
     /// gate allow: each step's shocks put in, its judgments to its
     /// reporter, its reports made. Its judgments, for its field.
     pub fn advance(&mut self, opponent: &mut Opponent, limit_us: i64) -> Vec<JudgeEvent> {
-        let target = self.gate_us(limit_us);
+        // Nothing comes after its chart's end and the stage's last
+        // checkpoint (a second on, to be sure of both).
+        let last = micros(opponent.player().end_time())
+            .max(self.checkpoints_us.last().copied().unwrap_or(i64::MIN))
+            .saturating_add(1_000_000);
+        let target = self.gate_us(limit_us).min(last);
         let step = self.rules.step_us.max(1);
         let mut events = Vec::new();
         // Late ones first (they missed their step).
@@ -214,7 +232,7 @@ impl Drive {
                     });
                 }
             }
-            if let Some(at) = out {
+            if let Some(at) = out.filter(|_| !self.plays_on) {
                 r.out_at(micros(at));
             }
             let player = opponent.player();
@@ -226,7 +244,7 @@ impl Drive {
             }
         }
         if self.end.is_none() {
-            if let Some(at) = out {
+            if let Some(at) = out.filter(|_| !self.plays_on) {
                 self.end = Some(StreamEnd::Out { at_us: micros(at) });
             } else if opponent.finished() {
                 self.end = Some(StreamEnd::Finished);

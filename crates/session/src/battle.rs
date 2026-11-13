@@ -124,9 +124,11 @@ impl StageSetup {
         }
     }
 
-    /// Decided by the room from everyone's reports, never on this device.
+    /// Decided by the room from everyone's reports, never on this device:
+    /// other people play it on their own devices, or the room plays it
+    /// live (its CPUs too, `ddi_room::live::cpus`).
     pub fn remote(&self) -> bool {
-        self.others > 0
+        self.others > 0 || self.live.is_some()
     }
 }
 
@@ -425,6 +427,11 @@ struct Seat {
     /// it plays the song out and is never put out after it, whatever its
     /// gauge does (the decision stands; [`Seat::out_at`]).
     plays_on: bool,
+    /// An online room's CPU (`ddi_room::live::cpus`): played alike on
+    /// every device, its reports sent to the room ([`cpus::Drive`]); its
+    /// run sent once its stream ended.
+    drive: Option<cpus::Drive>,
+    run_sent: bool,
 }
 
 impl Seat {
@@ -443,8 +450,17 @@ impl Seat {
 pub struct Battle {
     setup: StageSetup,
     seats: Vec<Seat>,
-    /// The chart's tap-only copy the CPUs play, as their fields draw it.
+    /// The chart as the fields of people draw it: the tap-only copy in
+    /// practice, the chart itself where others play it (their streams).
     track: feed::TapTrack,
+    /// The chart's tap-only copy the CPUs play, as their fields draw it,
+    /// and its ladder's (a step down's).
+    cpu_track: feed::TapTrack,
+    cpu_rungs: Vec<feed::TapTrack>,
+    /// An online room's CPUs' battle plan where this device has none of
+    /// its own (one watching the stage): made from the chart and the
+    /// stage's seed (`LiveOrder::seed`), what puts the room's shocks in.
+    cpu_plan: Option<ddi_room::live::plan::BattlePlan>,
     /// The most the whole chart gives (DDI): the scale the CPUs' scores
     /// are put on ([`cpu_score`]).
     most: Option<i64>,
@@ -611,19 +627,30 @@ impl Battle {
             })
             .collect::<Result<Vec<Rung>, String>>()?;
         // People play the chart itself; the CPUs a tap-only copy of it.
+        let cpu_track = feed::TapTrack::new(song, chart)?;
         let track = if setup.remote() {
             feed::TapTrack::full(song, chart)?
         } else {
-            feed::TapTrack::new(song, chart)?
+            cpu_track.clone()
         };
+        let cpu_rungs = ladder
+            .iter()
+            .map(|r| feed::TapTrack::new(song, r.chart))
+            .collect::<Result<Vec<_>, String>>()?;
+        // An online room's CPUs are played alike on every device
+        // (`cpus::Drive`, made with the stage's plan in `with_live`), from
+        // one song time, under the match's rules alone.
+        let online = setup.live.is_some();
         let seats = setup
             .cpus
             .iter()
             .map(|seat| {
                 let level = usize::from(seat.level).min(levels - 1);
                 let mut opponent = cpus::opponent(song, chart, ruleset, seat, ladder)?;
-                opponent.start(song_offset);
-                let mut feed = feed::FieldFeed::new(&track, opponent.life(), feed::LOCAL_DELAY);
+                if !online {
+                    opponent.start(song_offset);
+                }
+                let mut feed = feed::FieldFeed::new(&cpu_track, opponent.life(), feed::LOCAL_DELAY);
                 // A shock stepped on locks its lane where the rules do
                 // (DDI): its miniature shows the lock.
                 feed.set_lock(opponent.player().ruleset().judge.lock);
@@ -638,6 +665,8 @@ impl Battle {
                     level: u8::try_from(level + 1).unwrap_or(u8::MAX),
                     feed,
                     plays_on: false,
+                    drive: None,
+                    run_sent: false,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -674,6 +703,16 @@ impl Battle {
             attacks::AttackRunner::new(over, chart, &setup.rules.ruleset, &ruleset.judge, roster)
         });
         let own = feed::FieldFeed::new(&track, 1.0, feed::LOCAL_DELAY);
+        // A device watching an online stage with CPUs and attacks makes
+        // the stage's plan itself (a player's comes with its preparation).
+        let cpu_plan = match (&setup.live, setup.battle.attacks() && !seats.is_empty()) {
+            (Some(order), true) if order.prep.as_ref().and_then(|p| p.plan.as_ref()).is_none() => {
+                order
+                    .seed
+                    .map(|seed| ddi_ui::state::battle_plan::plan(song, chart, &setup.rules, seed))
+            }
+            _ => None,
+        };
         Ok(Battle {
             policy: setup.targeting,
             setup,
@@ -681,6 +720,9 @@ impl Battle {
             own,
             own_out: false,
             track,
+            cpu_track,
+            cpu_rungs,
+            cpu_plan,
             most: chart_most(song, chart, ruleset),
             attacks,
             decided: None,
@@ -723,16 +765,16 @@ impl Battle {
     /// A field's steps down not put in yet, from `player`'s (its
     /// `field`'s): each its rung's chart from the boundary and a moment
     /// with the life given back.
-    fn feed_steps(rungs: &[Rung], field: &mut feed::FieldFeed, player: &Player) {
+    fn feed_steps(rungs: &[feed::TapTrack], field: &mut feed::FieldFeed, player: &Player) {
         let known = field.steps().count();
         for st in player.steps().iter().skip(known) {
             let Some(rung) = rungs.get(usize::from(st.rung) - 1) else {
                 continue;
             };
-            field.step_down(rung.track.clone(), st.at, st.boundary, st.rung);
+            field.step_down(rung.clone(), st.at, st.boundary, st.rung);
             let life = player.life_at(st.at + 1e-6).clamp(0.0, 1.0);
             field.push(
-                &rung.track,
+                rung,
                 feed::Moment {
                     at: st.at,
                     tick: st.tick,
@@ -759,14 +801,28 @@ impl Battle {
         };
         let prep = live::prep_now(&handle, self.setup.stage, &order);
         let most = self.most;
+        let attacks = self.setup.battle.attacks();
+        let plan = prep
+            .as_ref()
+            .and_then(|p| p.plan.clone())
+            .or_else(|| self.cpu_plan.clone())
+            .filter(|_| attacks);
+        let streams = self.competes() && prep.is_some();
+        // The stage's CPUs, played as every other device plays them.
+        for s in &mut self.seats {
+            s.drive = Some(cpus::Drive::new(
+                ddi_room::live::cpus::ONLINE_CPUS_V0,
+                s.seat.participant,
+                plan.as_ref().map(|p| p.checkpoints_us.clone()),
+                &mut s.opponent,
+            ));
+        }
         self.remote_live = Some(live::Live::new(
             handle,
             self.setup.stage,
             self.setup.me,
-            self.competes() && prep.is_some(),
-            prep.as_ref()
-                .and_then(|p| p.plan.clone())
-                .filter(|_| self.setup.battle.attacks()),
+            streams,
+            plan,
             prep.map_or(0, |p| p.horizon_us),
             &order.people,
             &self.track,
@@ -776,8 +832,38 @@ impl Battle {
             l.set_most(most);
             l.set_rungs(self.rungs.iter().map(|r| r.track.clone()).collect());
             self.log.push(l.describe());
+            if !self.seats.is_empty() {
+                self.log.push(format!(
+                    "live: stage {}: {} CPUs computed here ({})",
+                    self.setup.stage.0,
+                    self.seats.len(),
+                    ddi_room::live::cpus::ONLINE_CPUS_V0.id
+                ));
+            }
         }
         self
+    }
+
+    /// TESTS: each online CPU as this device computed it (its stream's
+    /// end, the attacks put into its play, the song µs it is judged to,
+    /// its score and tally): what every device must have alike.
+    #[cfg(test)]
+    pub(crate) fn cpu_states(&self) -> Vec<String> {
+        self.seats
+            .iter()
+            .map(|s| {
+                let d = s.drive.as_ref();
+                format!(
+                    "{:?} end {:?} applied {:?} late {} score {:?} tally {:?}",
+                    s.seat.participant,
+                    d.and_then(|d| d.end()),
+                    d.map(|d| d.applied().to_vec()),
+                    d.map_or(0, |d| d.late),
+                    s.opponent.score().ddi.map(|x| x.score),
+                    s.opponent.player().tally(),
+                )
+            })
+            .collect()
     }
 
     /// Each remote competitor's song clock against the room's as its taps
@@ -851,7 +937,10 @@ impl Battle {
             None => l.receive(&self.track, t, None),
         };
         self.log.extend(got.log);
+        // The CPUs computed here, to the room's song time now.
+        self.step_online_cpus(&l, &got.others, l.room_now_us(t));
         let base = self.seats.len();
+        let cpu_seat = |p: ParticipantId, seats: &[Seat]| seats.iter().position(|s| s.seat.participant == p);
         for (attack, sender, recipient, first_us, delivered) in got.committed {
             let first = first_us as f64 / 1e6;
             if self.competes() && in_now {
@@ -861,12 +950,12 @@ impl Battle {
                     self.attack_moments.push((AttackMoment::Launched, first));
                 }
             } else if delivered {
-                let seat = |p: ParticipantId| l.seats.iter().position(|s| s.participant == p);
+                let seat = |p: ParticipantId| {
+                    cpu_seat(p, &self.seats)
+                        .or_else(|| l.seats.iter().position(|s| s.participant == p).map(|i| base + i))
+                };
                 if let (Some(from), Some(to)) = (seat(sender), seat(recipient)) {
-                    self.watch_moments.push(WatchMoment::Attack {
-                        from: base + from,
-                        to: base + to,
-                    });
+                    self.watch_moments.push(WatchMoment::Attack { from, to });
                 }
             }
             self.seen.push((attack, t));
@@ -918,8 +1007,18 @@ impl Battle {
         if let Some(l) = &self.remote_live {
             match ranking.first().map(Vec::as_slice) {
                 Some([one]) => {
-                    if let Some(seat) = l.seats.iter().position(|s| s.participant == one.participant) {
-                        self.watch_moments.push(WatchMoment::Won { seat: base + seat });
+                    let seat = self
+                        .seats
+                        .iter()
+                        .position(|s| s.seat.participant == one.participant)
+                        .or_else(|| {
+                            l.seats
+                                .iter()
+                                .position(|s| s.participant == one.participant)
+                                .map(|i| base + i)
+                        });
+                    if let Some(seat) = seat {
+                        self.watch_moments.push(WatchMoment::Won { seat });
                     }
                 }
                 Some([_, _, ..]) => self.watch_moments.push(WatchMoment::Drawn),
@@ -987,7 +1086,9 @@ impl Battle {
     /// still playing it.
     pub fn goes_on(&self) -> bool {
         if let Some(l) = &self.remote_live {
-            return self.decided.is_none() && l.seats.iter().any(|s| s.end.is_none());
+            return self.decided.is_none()
+                && (l.seats.iter().any(|s| s.end.is_none())
+                    || self.seats.iter().any(|s| s.out_at().is_none() && !s.opponent.finished()));
         }
         self.decided.is_none()
             && !self.setup.remote()
@@ -1010,6 +1111,8 @@ impl Battle {
                 (None, _) => true,
                 (Some(_), Some(end_us)) => !l.shown_to(end_us, self.now),
                 (Some(_), None) => false,
+            }) || self.seats.iter().any(|s| {
+                s.out_at().is_none() && s.drive.as_ref().is_some_and(|d| d.end().is_none())
             });
         }
         !self.setup.remote()
@@ -1073,7 +1176,12 @@ impl Battle {
     /// window, holds' ends, mines and shocks stepped on, Boos; their
     /// going out (their gauge, or the forfeit) once.
     fn feed_own(&mut self, human: &Player, judged: &[JudgeEvent]) {
-        Self::feed_steps(&self.rungs, &mut self.own, human);
+        let rungs: Vec<feed::TapTrack> = if human.steps().len() > self.own.steps().count() {
+            self.rungs.iter().map(|r| r.track.clone()).collect()
+        } else {
+            Vec::new()
+        };
+        Self::feed_steps(&rungs, &mut self.own, human);
         let judge = &human.ruleset().judge;
         let (life, combo) = (human.ruleset().gauge.life().clamp(0.0, 1.0), human.combo());
         let score = human.ruleset().score.view();
@@ -1181,60 +1289,143 @@ impl Battle {
     fn step_cpus(&mut self, t: f64) {
         for s in &mut self.seats {
             s.opponent.advance(t);
-            // Its steps down: its field draws the rung's chart.
-            Self::feed_steps(&self.rungs, &mut s.feed, s.opponent.player());
-            // Its judgments as moments of its stream: what its field shows.
-            let (life, combo, out_at) =
-                (s.opponent.life(), s.opponent.combo(), s.out_at());
-            // Its score as the room shows it, for its field shown large.
-            let score = cpu_score(&s.opponent.score(), self.most);
             let events = s.opponent.take_judged();
-            let judge = &s.opponent.player().ruleset().judge;
-            // What a field shown large says of each: early or late, and
-            // the ruleset's inner window.
-            let said: Vec<(f32, Option<bool>)> = events
-                .iter()
-                .map(|e| match e.kind {
-                    JudgeEventKind::Tap(j, delta) if !j.is_miss() => {
-                        (delta as f32, judge.is_w0(j, delta))
-                    }
-                    _ => (0.0, None),
-                })
-                .collect();
             if let Some(a) = self.attacks.as_mut() {
                 a.judged(s.seat.participant, &events);
-                if let Some(at) = out_at {
+                if let Some(at) = s.out_at() {
                     a.out_at(s.seat.participant, at);
                 }
             }
-            for (e, (offset, w0)) in events.into_iter().zip(said) {
-                let kind = match e.kind {
-                    JudgeEventKind::Tap(judgment, _) => feed::MomentKind::Tap(judgment),
-                    // A battle shock stepped on (its copy has no mines of
-                    // its own).
-                    JudgeEventKind::HitMine
-                        if e.note_index
-                            .is_some_and(|n| n >= ddi_engine::battle::HAZARD_INDEX_BASE) =>
-                    {
-                        feed::MomentKind::ShockHit
-                    }
-                    _ => continue,
-                };
-                let moment = feed::Moment {
-                    at: e.song_time,
-                    tick: e.tick,
-                    lane: e.lane,
-                    kind,
-                    life,
-                    combo,
-                    out: out_at.is_some_and(|o| o <= e.song_time),
-                    offset,
-                    w0,
-                    score,
-                };
-                s.feed.push(&self.track, moment);
+            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, self.most, s, events);
+        }
+    }
+
+    /// A CPU's judgments `events` as moments of its stream: what its field
+    /// shows (its steps down drawing the rung's chart).
+    fn feed_cpu(
+        track: &feed::TapTrack,
+        rungs: &[feed::TapTrack],
+        most: Option<i64>,
+        s: &mut Seat,
+        events: Vec<JudgeEvent>,
+    ) {
+        Self::feed_steps(rungs, &mut s.feed, s.opponent.player());
+        let (life, combo, out_at) = (s.opponent.life(), s.opponent.combo(), s.out_at());
+        // Its score as the room shows it, for its field shown large.
+        let score = cpu_score(&s.opponent.score(), most);
+        let judge = &s.opponent.player().ruleset().judge;
+        for e in events {
+            // An online CPU plays on after its gauge emptied (alike on
+            // every device): its field shows it out from then.
+            if out_at.is_some_and(|o| e.song_time > o + 1e-6) && s.drive.is_some() {
+                continue;
+            }
+            let kind = match e.kind {
+                JudgeEventKind::Tap(judgment, _) => feed::MomentKind::Tap(judgment),
+                // A battle shock stepped on (its copy has no mines of
+                // its own).
+                JudgeEventKind::HitMine
+                    if e.note_index
+                        .is_some_and(|n| n >= ddi_engine::battle::HAZARD_INDEX_BASE) =>
+                {
+                    feed::MomentKind::ShockHit
+                }
+                _ => continue,
+            };
+            // What a field shown large says of it: early or late, and the
+            // ruleset's inner window.
+            let (offset, w0) = match e.kind {
+                JudgeEventKind::Tap(j, delta) if !j.is_miss() => (delta as f32, judge.is_w0(j, delta)),
+                _ => (0.0, None),
+            };
+            let moment = feed::Moment {
+                at: e.song_time,
+                tick: e.tick,
+                lane: e.lane,
+                kind,
+                life,
+                combo,
+                out: out_at.is_some_and(|o| o <= e.song_time),
+                offset,
+                w0,
+                score,
+            };
+            s.feed.push(track, moment);
+        }
+    }
+
+    /// An online room's CPUs computed here (`cpus::Drive`), with `l`'s
+    /// news read this frame (`got`: the shocks against them): the shocks
+    /// put in at the song time every device does, their plays judged on
+    /// to the room's song time now as this device has it (`limit_us`),
+    /// their fields fed and drawn the view's delay behind as the others'
+    /// are, their reports and ends to the room, and their runs once
+    /// ended.
+    fn step_online_cpus(
+        &mut self,
+        l: &live::Live,
+        others: &[(ParticipantId, usize, u32, Vec<ddi_engine::battle::Hazard>)],
+        limit_us: i64,
+    ) {
+        if self.seats.is_empty() {
+            return;
+        }
+        for (cpu, k, attack, cells) in others {
+            let Some(s) = self.seats.iter_mut().find(|s| s.seat.participant == *cpu) else {
+                continue;
+            };
+            let Some(d) = s.drive.as_mut() else { continue };
+            let at = d.checkpoint_us(*k).unwrap_or(0) as f64 / 1e6;
+            if !d.commit(*k, *attack, cells.clone()) {
+                self.log.push(format!(
+                    "live: attack {attack} against {} came after its song time: put in at once (this device's copy may differ)",
+                    s.name
+                ));
+            }
+            s.feed.add_hazards(&self.cpu_track, cells, at);
+        }
+        let known = l.known_checkpoints();
+        let stage = self.setup.stage;
+        for i in 0..self.seats.len() {
+            let s = &mut self.seats[i];
+            let Some(d) = s.drive.as_mut() else { continue };
+            d.known(known);
+            let events = d.advance(&mut s.opponent, limit_us);
+            let reports = d.take_reports();
+            let end = d.take_end();
+            let through = d.at_us();
+            let participant = s.seat.participant;
+            s.feed.set_delay(l.field_delay_s(participant));
+            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, self.most, s, events);
+            if reports.is_empty() && end.is_none() {
+                continue;
+            }
+            l.handle()
+                .room
+                .borrow_mut()
+                .cpu_news(stage, participant, through, reports, end);
+            if end.is_some() && !self.seats[i].run_sent {
+                self.seats[i].run_sent = true;
+                let (run, detail) = self.cpu_run(i);
+                l.handle()
+                    .room
+                    .borrow_mut()
+                    .cpu_run(stage, participant, run, Some(detail));
             }
         }
+    }
+
+    /// The `i`th CPU's run as the room ranks it and how it performed.
+    fn cpu_run(&self, i: usize) -> (ddi_room::ReportedRun, RunDetail) {
+        let s = &self.seats[i];
+        let run = run_of(
+            s.out_at(),
+            s.opponent.life(),
+            &cpu_score(&s.opponent.score(), self.most),
+            s.opponent.player().steps().len(),
+        );
+        let detail = self.cpu_detail(i);
+        (ddi_room::ReportedRun::of(run), detail)
     }
 
     /// The attack checkpoints every competitor still in has been judged
@@ -1516,7 +1707,11 @@ impl Battle {
             }
         }
         for s in &mut self.seats {
-            s.opponent.finish();
+            // An online room's CPU goes on with the shocks still to come
+            // on the devices still playing (`ddi_room::live::cpus`).
+            if s.drive.is_none() {
+                s.opponent.finish();
+            }
         }
     }
 
@@ -1593,7 +1788,13 @@ impl Battle {
                 })
             {
                 s.plays_on = true;
-                s.opponent.set_fail(ddi_engine::FailPolicy::Off);
+                match s.drive.as_mut() {
+                    // Online: its play is the same everywhere whenever the
+                    // decision came (it plays on past an emptied gauge
+                    // already); only its end is not an out any more.
+                    Some(d) => d.plays_on(),
+                    None => s.opponent.set_fail(ddi_engine::FailPolicy::Off),
+                }
             }
         }
     }
@@ -1739,6 +1940,12 @@ impl Battle {
     /// that competitor): none once they are out or the stage is decided.
     pub fn incoming_for(&self, seat: usize) -> Option<Incoming> {
         if let Some(l) = self.live_attacks() {
+            if let Some(s) = self.seats.get(seat) {
+                if self.decided.is_some() || s.out_at().is_some() {
+                    return None;
+                }
+                return self.incoming_of(s.seat.participant);
+            }
             let r = l.seats.get(seat.checked_sub(self.seats.len())?)?;
             if self.decided.is_some() || r.gone() {
                 return None;
@@ -1989,7 +2196,17 @@ impl Battle {
             if p == self.setup.me {
                 Some(usize::MAX)
             } else {
-                l.seats.iter().position(|s| s.participant == p).map(|i| base + i)
+                self.seats
+                    .iter()
+                    .position(|s| s.seat.participant == p)
+                    .or_else(|| l.seats.iter().position(|s| s.participant == p).map(|i| base + i))
+            }
+        };
+        let gone = |to: usize| {
+            if to < base {
+                self.seats[to].out_at().is_some()
+            } else {
+                l.seats[to - base].gone()
             }
         };
         let live: Vec<&ddi_room::attacks::Attack> = l
@@ -2006,7 +2223,7 @@ impl Battle {
         live.iter()
             .filter_map(|x| {
                 let (from, to) = (seat(x.sender)?, seat(x.recipient)?);
-                if to != usize::MAX && l.seats[to - base].gone() {
+                if to != usize::MAX && gone(to) {
                     return None;
                 }
                 // On the song's clock where the recipient's field shows
@@ -2130,6 +2347,16 @@ impl Battle {
         &self.track
     }
 
+    /// The chart as seat `seat`'s field draws it ([`Battle::feeds`]'
+    /// order): a CPU's tap-only copy, or the chart people play.
+    pub fn track_of(&self, seat: usize) -> &feed::TapTrack {
+        if seat < self.seats.len() {
+            &self.cpu_track
+        } else {
+            &self.track
+        }
+    }
+
     /// Each opponent's field's stream, in their stable slots' order.
     pub fn feeds(&self) -> impl Iterator<Item = &feed::FieldFeed> {
         self.seats.iter().map(|s| &s.feed).chain(
@@ -2176,22 +2403,44 @@ impl Battle {
         let mut views: Vec<OpponentView> = self
             .seats
             .iter()
-            .map(|s| OpponentView {
-                participant: s.seat.participant,
-                name: s.name.clone(),
-                level: Some(s.level),
-                life: s.opponent.life(),
-                out: s.out_at().is_some(),
-                score: accuracy(&s.opponent.score()),
-                sum: cpu_score(&s.opponent.score(), self.most)
-                    .ddi
-                    .map(|d| d.score),
-                combo: s.opponent.combo(),
-                power: self
-                    .attacks
-                    .as_ref()
-                    .filter(|_| s.out_at().is_none())
-                    .map(|a| a.bar(s.seat.participant)),
+            .map(|s| match &self.remote_live {
+                // An online room's CPU, as its field shows it: the view's
+                // delay behind, as the others' are.
+                Some(l) if s.drive.is_some() => {
+                    let shown = s.feed.shown(self.now);
+                    let view = s.feed.shown_score(self.now);
+                    OpponentView {
+                        participant: s.seat.participant,
+                        name: s.name.clone(),
+                        level: Some(s.level),
+                        life: shown.life,
+                        out: shown.out,
+                        score: view.as_ref().map_or(0.0, accuracy),
+                        sum: Some(view.and_then(|v| v.ddi).map_or(0, |d| d.score)),
+                        combo: shown.combo,
+                        power: self
+                            .live_attacks()
+                            .filter(|_| s.out_at().is_none())
+                            .map(|_| l.ledger.bar(s.seat.participant)),
+                    }
+                }
+                _ => OpponentView {
+                    participant: s.seat.participant,
+                    name: s.name.clone(),
+                    level: Some(s.level),
+                    life: s.opponent.life(),
+                    out: s.out_at().is_some(),
+                    score: accuracy(&s.opponent.score()),
+                    sum: cpu_score(&s.opponent.score(), self.most)
+                        .ddi
+                        .map(|d| d.score),
+                    combo: s.opponent.combo(),
+                    power: self
+                        .attacks
+                        .as_ref()
+                        .filter(|_| s.out_at().is_none())
+                        .map(|a| a.bar(s.seat.participant)),
+                },
             })
             .collect();
         views.extend(remote);
@@ -2226,6 +2475,14 @@ impl Battle {
         } else {
             self.my_run(human, quit)
         };
+        // The CPUs computed here judged as far as the room's news allows
+        // (to their ends, where the stage's last checkpoints came), their
+        // news sent before this device's play goes.
+        if let Some(l) = self.remote_live.take() {
+            self.step_online_cpus(&l, &[], i64::MAX);
+            l.tick_room();
+            self.remote_live = Some(l);
+        }
         if self.decided.is_none() {
             self.play_out(human, quit);
         }
@@ -2349,23 +2606,26 @@ impl Battle {
 
     /// How each CPU performed, as judged by its own play.
     fn cpu_details(&self) -> Vec<(ParticipantId, RunDetail)> {
-        self.seats
-            .iter()
-            .map(|s| {
-                let player = s.opponent.player();
-                // Its score on the chart's scale (`CPU_SCORE_V0`).
-                let mut results = player.results_brief();
-                results.score = cpu_score(&results.score, self.most);
-                let mut detail = run_detail(
-                    &results,
-                    player.ruleset(),
-                    s.opponent.life(),
-                    self.launched(s.seat.participant),
-                );
-                detail.chart = self.rung_name(player.steps().len()).map(str::to_string);
-                (s.seat.participant, detail.bounded())
-            })
+        (0..self.seats.len())
+            .map(|i| (self.seats[i].seat.participant, self.cpu_detail(i)))
             .collect()
+    }
+
+    /// How the `i`th CPU performed, as judged by its own play.
+    fn cpu_detail(&self, i: usize) -> RunDetail {
+        let s = &self.seats[i];
+        let player = s.opponent.player();
+        // Its score on the chart's scale (`CPU_SCORE_V0`).
+        let mut results = player.results_brief();
+        results.score = cpu_score(&results.score, self.most);
+        let mut detail = run_detail(
+            &results,
+            player.ruleset(),
+            s.opponent.life(),
+            self.launched(s.seat.participant),
+        );
+        detail.chart = self.rung_name(player.steps().len()).map(str::to_string);
+        detail.bounded()
     }
 
     /// The stage's end as the local player's results tell it, from its

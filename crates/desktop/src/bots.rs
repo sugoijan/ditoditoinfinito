@@ -105,6 +105,10 @@ pub struct Options {
     /// `docs/plans/multiplayer-audience.md`): no play, nothing sent but
     /// what a seat sends; each reports what it received.
     pub audience: usize,
+    /// The host's Rules: CPUs of the match's roster (`--cpus N[:LEVEL]`,
+    /// `online-cpus-v0`: no socket plays them; every device, the bots'
+    /// included, computes them), at one level from 1 where given.
+    pub cpus: Option<(usize, Option<u8>)>,
 }
 
 impl Default for Options {
@@ -126,6 +130,7 @@ impl Default for Options {
             wait_for: 2,
             seed: None,
             audience: 0,
+            cpus: None,
         }
     }
 }
@@ -153,6 +158,9 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   --matches N          stop after N matches
   --wait-for N         players the host waits for before picking (default 2)
   --seed N             names' order and plays
+  --cpus N[:LEVEL]     the host's Rules: N CPUs of the roster beside the bots
+                       (CPUs, never bots: every device computes them and
+                       reports for them), all at LEVEL (1 to 10) where given
   --audience N         N seats in the room's audience by --join's link (its
                        audience link, or its invite at the member bound): they
                        only watch (no play) and report what they received,
@@ -202,6 +210,24 @@ impl Options {
                         .collect()
                 }
                 "--level" => o.level = Some(parse_levels(value(i, a)?)?),
+                "--cpus" => {
+                    let v = value(i, a)?;
+                    let (n, level) = match v.split_once(':') {
+                        Some((n, l)) => (n, Some(l)),
+                        None => (v.as_str(), None),
+                    };
+                    let n = n.parse::<usize>().map_err(|_| "--cpus takes N or N:LEVEL")?;
+                    let level = match level {
+                        Some(l) => Some(
+                            l.parse::<u8>()
+                                .ok()
+                                .filter(|l| (1..=10).contains(l))
+                                .ok_or("--cpus: LEVEL is 1 to 10")?,
+                        ),
+                        None => None,
+                    };
+                    o.cpus = Some((n, level));
+                }
                 "--personality" => {
                     let p = value(i, a)?;
                     Skills::parse(p).map_err(|e| format!("--personality: {e}"))?;
@@ -650,6 +676,7 @@ struct Host {
     resting: Option<u64>,
     rules: bool,
     stages: Option<u16>,
+    cpus: Option<(usize, Option<u8>)>,
     rest_ms: u64,
     wait_for: usize,
     not_before: u64,
@@ -1077,6 +1104,35 @@ impl Bot {
             if let Some(n) = host.stages {
                 rules.stages = n;
             }
+            if let Some((n, level)) = host.cpus {
+                if room.borrow().cpus_offered() {
+                    let mut roster =
+                        ddi_ui::state::cpu_roster::starting(n, mix(now, n as u64));
+                    // The roster's names run out before the cap: the rest
+                    // are its common profile's.
+                    while roster.len() < n {
+                        roster.push(ddi_room::OpponentSpec {
+                            level: 4,
+                            seed: mix(now, roster.len() as u64),
+                            personality: None,
+                            name: None,
+                            targeting: None,
+                        });
+                    }
+                    if let Some(l) = level {
+                        for c in &mut roster {
+                            c.level = l - 1;
+                        }
+                    }
+                    let seats = rules.seats;
+                    let humans = room.borrow().humans();
+                    rules = ddi_ui::state::cpu_roster::with_roster(rules, roster, humans);
+                    rules.seats = rules.seats.max(seats);
+                    say(format!("Rules: {n} CPUs of the roster"));
+                } else {
+                    say("Rules: this room's server cannot seat CPUs online".into());
+                }
+            }
             let stages = rules.stages;
             match room.borrow_mut().save_rules(rules) {
                 Ok(()) => say(format!("Rules: OK ({stages} stages a match)")),
@@ -1459,6 +1515,7 @@ pub fn run_with(o: Options, token: &str) -> i32 {
                 resting: None,
                 rules: false,
                 stages: o.stages,
+                cpus: o.cpus,
                 rest_ms: o.rest_ms,
                 wait_for: o.wait_for,
                 not_before: 0,

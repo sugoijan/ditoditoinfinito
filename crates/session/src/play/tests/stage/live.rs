@@ -2318,3 +2318,110 @@ fn a_live_change_of_rules_lands_after_the_stage_loaded_and_both_devices_agree() 
         .and_then(|c| c.battle.clone());
     assert_eq!(room_plan, Some(a.digest.clone()));
 }
+
+/// CPUs in an online room (`ddi_room::live::cpus`, `online-cpus-v0`): two
+/// players and a watcher, three CPUs of the match's roster, attacks on.
+/// Every device computes the CPUs; they are the same on all three to the
+/// last tap (the room counts no mismatch), the room's attacks go to and
+/// from them, a CPU goes out, the room ranks them with the people and
+/// keeps their runs as the devices reported them.
+#[test]
+fn a_live_stage_with_cpus_plays_them_alike_on_every_device() {
+    let song = bundled("beatucada");
+    let r = Room::new(
+        &[
+            ("alice", Intent::Play),
+            ("bob", Intent::Play),
+            ("carol", Intent::Watch),
+        ],
+        Some(Latency {
+            down_ms: 30,
+            down_jitter_ms: 60,
+            up_ms: 30,
+            up_jitter_ms: 60,
+            seed: 13,
+        }),
+    );
+    for _ in 0..10 {
+        r.run(0.5);
+        if r.rooms.iter().all(|x| x.borrow().room_now().is_some()) {
+            break;
+        }
+    }
+    assert!(r.server.borrow().state().policy.cpus);
+    let mut rules = r.rooms[0].borrow().rules().clone();
+    rules.seats = 5;
+    rules.difficulty = ddi_room::MatchDifficulty::Hard;
+    rules.cpu.mode = ddi_room::CpuMode::Roster;
+    rules.cpu.roster = [(0u8, Some("reckless")), (5, None), (9, Some("evasive"))]
+        .into_iter()
+        .enumerate()
+        .map(|(i, (level, p))| ddi_room::OpponentSpec {
+            level,
+            seed: 40 + i as u64,
+            personality: p.map(str::to_string),
+            name: Some(format!("Robo{i}")),
+            targeting: None,
+        })
+        .collect();
+    r.rooms[0].borrow_mut().save_rules(rules).unwrap();
+    r.run(1.0);
+    let orders = pick_and_ready(&r, &song, true, 0);
+    let o = orders[0].as_ref().unwrap();
+    assert_eq!(o.cpus.len(), 3, "the roster seated");
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 0.01, 0.0]);
+    for p in &plays {
+        let b = p.battle().unwrap();
+        assert_eq!(b.views().iter().filter(|v| v.level.is_some()).count(), 3);
+    }
+    let mut ended = play_out(&r, &mut plays, 220.0, |_, _| {});
+    let outcomes: Vec<_> = ended
+        .iter_mut()
+        .map(|e| e.take().expect("ended").1)
+        .collect();
+    // The same CPUs on every device.
+    let states: Vec<Vec<String>> = plays.iter().map(|p| p.battle().unwrap().cpu_states()).collect();
+    assert_eq!(states[0], states[1], "alice's and bob's");
+    assert_eq!(states[0], states[2], "alice's and the watcher's");
+    let ids: Vec<_> = o.cpus.iter().map(|c| c.participant).collect();
+    {
+        let server = r.server.borrow();
+        let live = server.live().unwrap().stage_or_last().unwrap();
+        assert_eq!(live.cpu_mismatches(), 0, "{:?}", server.notes());
+        let (messages, reports) = live.cpu_traffic();
+        eprintln!("CPU news: {messages} messages, {reports} reports; {states:#?}");
+        assert!(messages > 10 && reports > 30, "{messages} {reports}");
+        let attacks = live.ledger().unwrap().attacks().to_vec();
+        assert!(attacks.iter().any(|a| ids.contains(&a.sender)), "{attacks:?}");
+        assert!(attacks.iter().any(|a| ids.contains(&a.recipient)), "{attacks:?}");
+        for id in &ids {
+            assert!(
+                matches!(live.end(*id), Some(StreamEnd::Finished | StreamEnd::Out { .. })),
+                "{id:?} {:?}",
+                live.end(*id)
+            );
+        }
+        assert!(
+            ids.iter().any(|id| matches!(live.end(*id), Some(StreamEnd::Out { .. }))),
+            "a CPU knocked out: {states:?}"
+        );
+    }
+    // The people's runs reported as the shells report them.
+    for (i, o) in outcomes.into_iter().enumerate().take(2) {
+        r.rooms[i]
+            .borrow_mut()
+            .report_played(o.stage, o.mine, o.ranking, o.confirmed_early, o.details)
+            .unwrap();
+    }
+    r.run(3.0);
+    let s = r.server.borrow().state().clone();
+    let m = s.current.as_ref().or(s.history.last().map(|h| &h.played)).unwrap();
+    let play = m.stage(o.stage).unwrap().play.clone().unwrap();
+    assert!(play.song_ended, "{:?}", s.phase);
+    let result = play.result.unwrap();
+    assert_eq!(result.placements.len(), 5);
+    for id in &ids {
+        assert!(play.reports.contains_key(id), "{id:?}'s run kept");
+        assert!(play.details.contains_key(id), "{id:?}'s detail");
+    }
+}

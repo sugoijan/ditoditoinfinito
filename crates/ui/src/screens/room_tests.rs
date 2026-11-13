@@ -4215,3 +4215,56 @@ fn an_online_rooms_operator_changes_rules_from_the_next_stage_for_everyone() {
         assert!(status.starts_with("From stage 1: Boos. "), "{status}");
     }
 }
+
+/// CPUs in an online room (`ddi_room::live::cpus`, `online-cpus-v0`): the
+/// Rules pop-up offers the roster as practice's where the room plays live
+/// and its authority seats CPUs online; the roster saved keeps the room's
+/// seats for people still to come; an authority that predates it (or a
+/// room that does not play live) is offered none and sent none.
+#[test]
+fn an_online_rooms_rules_offer_the_roster_where_its_authority_seats_cpus() {
+    use ddi_room::RoomPolicy;
+    for (policy, offered) in [
+        (RoomPolicy::default().with_live(), true),
+        (
+            RoomPolicy {
+                cpus: false,
+                ..RoomPolicy::default().with_live()
+            },
+            false,
+        ),
+        (RoomPolicy::default(), false),
+    ] {
+        let p = policy.clone();
+        let t = Three::over(move |s| s.policy = p, false);
+        let (ea, eb, ec) = (env(), env(), env());
+        let orders = Orders::default();
+        let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+        let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+        let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+        t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+        press(&mut ha, "Room.Rules");
+        assert_eq!(top(&ha), "room-rules");
+        assert_eq!(there(&ha, "AddRandom"), offered, "{policy:?}");
+        if !offered {
+            press(&mut ha, "Cancel");
+            continue;
+        }
+        press(&mut ha, "AddRandom");
+        press(&mut ha, "AddRandom");
+        press(&mut ha, "Apply");
+        t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+        let server = t.server.borrow().state().clone();
+        assert_eq!(server.next.rules.cpu.roster.len(), 2);
+        assert_eq!(
+            server.next.rules.seats,
+            RoomPolicy::INITIAL_COMPETITOR_CAP,
+            "the seats kept for people still to come"
+        );
+        // Everyone sees them, as stars, never as Bot.
+        for (room, h) in [(&t.alice, &ha), (&t.bob, &hb), (&t.carol, &hc)] {
+            assert!(room.borrow().has_cpus());
+            assert!(!h.texts().iter().any(|x| x.contains("Bot")), "{:?}", h.texts());
+        }
+    }
+}

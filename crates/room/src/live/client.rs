@@ -78,9 +78,36 @@ struct CpuKept {
     through_sent: i64,
     end: Option<StreamEnd>,
     end_sent: bool,
+    /// Its run once its stream ended (`ClientLive::CpuRun`), and whether
+    /// it went.
+    run: Option<(crate::battle::ReportedRun, Option<crate::battle::RunDetail>)>,
+    run_sent: bool,
 }
 
 impl CpuOutbox {
+    /// The CPUs' runs not sent yet (`ClientLive::CpuRun`), marked sent.
+    fn runs(&mut self, stage: StageId, all: bool) -> Vec<ClientLive> {
+        let mut out = Vec::new();
+        for (cpu, k) in &mut self.cpus {
+            if all {
+                k.run_sent = false;
+            }
+            if k.run_sent {
+                continue;
+            }
+            if let Some((run, detail)) = &k.run {
+                k.run_sent = true;
+                out.push(ClientLive::CpuRun {
+                    stage,
+                    cpu: *cpu,
+                    run: *run,
+                    detail: detail.clone(),
+                });
+            }
+        }
+        out
+    }
+
     fn news(&mut self, stage: StageId, all: bool) -> Vec<CpuNews> {
         let rules = crate::live::cpus::ONLINE_CPUS_V0;
         let mut out = Vec::new();
@@ -197,6 +224,28 @@ impl LiveLink {
         }
     }
 
+    /// Stage `stage`'s CPU `cpu`'s run as this device computed it, once its
+    /// stream ended: sent (as `ClientLive::CpuRun`) while this device is
+    /// one that sends.
+    pub fn cpu_run(
+        &mut self,
+        stage: StageId,
+        cpu: ParticipantId,
+        run: crate::battle::ReportedRun,
+        detail: Option<crate::battle::RunDetail>,
+    ) {
+        let k = self
+            .cpus
+            .entry(stage)
+            .or_default()
+            .cpus
+            .entry(cpu)
+            .or_default();
+        if k.run.is_none() {
+            k.run = Some((run, detail));
+        }
+    }
+
     /// Whether this device sends stage `stage`'s CPUs' news
     /// (`crate::live::cpus::sends_for_cpus`, read from the mirror each
     /// time it changes). Becoming one sends everything kept.
@@ -206,6 +255,7 @@ impl LiveLink {
             for k in o.cpus.values_mut() {
                 k.sent = 0;
                 k.end_sent = false;
+                k.run_sent = false;
             }
         }
         o.sends = sends;
@@ -453,12 +503,15 @@ impl LiveLink {
                 continue;
             }
             let news = o.news(*stage, fresh);
-            if news.is_empty() {
+            let runs = o.runs(*stage, fresh);
+            if news.is_empty() && runs.is_empty() {
                 continue;
             }
             o.last_sent_ms = Some(now);
             o.sent += news.len() as u32;
             out.extend(news.iter().map(|n| LiveSend::Binary(wire::encode_cpus(n))));
+            // A run after the news of its end.
+            out.extend(runs.into_iter().filter_map(text));
         }
         if let Some(r) = self.reader.as_mut()
             && let Some(after) = r.wants_resume(now)

@@ -149,6 +149,19 @@ fn defaults(room: &SharedRoom) -> MatchRules {
     )
 }
 
+/// `rules` seating `roster` in `room` (`cpu_roster::with_roster`): an
+/// online room keeps its seats for the people still to come (its CPUs
+/// count toward the cap all the same).
+fn seat_roster(room: &SharedRoom, rules: MatchRules, roster: Vec<OpponentSpec>) -> MatchRules {
+    let r = room.borrow();
+    let seats = rules.seats;
+    let mut rules = cpu_roster::with_roster(rules, roster, r.humans());
+    if r.is_online() {
+        rules.seats = seats.max(rules.seats);
+    }
+    rules
+}
+
 pub struct RulesDialog {
     env: Env,
     room: SharedRoom,
@@ -253,9 +266,10 @@ impl RulesDialog {
         self.room.borrow().may(Capability::EditNextRules)
     }
 
-    /// The CPUs are practice's (online rooms seat none yet).
+    /// The CPUs: practice's, or an online room's where its authority
+    /// plays them online (`RoomClient::cpus_offered`).
     fn cpus_shown(&self) -> bool {
-        !self.room.borrow().is_online()
+        self.room.borrow().cpus_offered()
     }
 
     /// The Points row is a choice (`RoomClient::points_offered`).
@@ -278,9 +292,8 @@ impl RulesDialog {
     }
 
     fn set_roster(&self, roster: Vec<OpponentSpec>) {
-        let humans = self.room.borrow().humans();
         let rules = self.draft.borrow().clone();
-        *self.draft.borrow_mut() = cpu_roster::with_roster(rules, roster, humans);
+        *self.draft.borrow_mut() = seat_roster(&self.room, rules, roster);
     }
 
     fn free_seats(&self) -> usize {
@@ -357,7 +370,7 @@ impl RulesDialog {
         if r.step_down_offered() && d.at_zero != locked.at_zero {
             v.push("at_zero");
         }
-        if !r.is_online()
+        if r.cpus_offered()
             && cpu_roster::roster_of(&d, humans) != cpu_roster::roster_of(locked, humans)
         {
             v.push("cpus");
@@ -1520,11 +1533,10 @@ impl AddCpuDialog {
         if more.is_empty() {
             return;
         }
-        let humans = self.room.borrow().humans();
         let mut roster = self.roster();
         roster.extend(more);
         let rules = self.draft.borrow().clone();
-        *self.draft.borrow_mut() = cpu_roster::with_roster(rules, roster, humans);
+        *self.draft.borrow_mut() = seat_roster(&self.room, rules, roster);
         self.seed = self.seed.wrapping_add(1);
         cx.broadcast(crate::Message::new(ROSTER_CHANGED));
     }

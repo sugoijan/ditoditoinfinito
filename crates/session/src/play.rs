@@ -2188,7 +2188,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         if let Some((b, feed)) = feed {
             let options = self.player.options();
             let mut large = feed.frame_large(
-                b.track(),
+                b.track_of(w.focus.unwrap_or(usize::MAX)),
                 options.scroll,
                 frame.song_time,
                 options.visible_range,

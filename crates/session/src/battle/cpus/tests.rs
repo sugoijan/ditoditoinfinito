@@ -352,3 +352,59 @@ fn a_report_s_digest_is_its_contents() {
     assert_eq!(digests.len(), 4);
     assert!(digests.windows(2).all(|w| w[0] != w[1]));
 }
+
+/// What computing an online room's CPUs costs a device a frame: 8, 24 and
+/// 72 CPUs of the bundled chart judged on at 60 frames a second, the
+/// room's shocks put in (every checkpoint known at once). Printed
+/// (`--ignored --nocapture`); run natively and built for wasm32 under
+/// Node (the browser's engine) as the module's header says.
+#[test]
+#[ignore = "a measurement"]
+fn what_computing_the_cpus_costs_a_frame() {
+    let song = song();
+    let (rules, _) = scenarios().remove(0);
+    let ruleset = crate::battle::stage_ruleset(&rules);
+    let plan = ddi_ui::state::battle_plan::plan(&song, 4, &rules, 5);
+    for n in [8u64, 24, 72] {
+        let seats: Vec<CpuSeat> = (0..n)
+            .map(|i| CpuSeat {
+                participant: ParticipantId(100 + i),
+                ordinal: i as u16,
+                level: (i % 10) as u8,
+                seed: i,
+                name: None,
+                skills: None,
+                targeting: Targeting::Spread,
+            })
+            .collect();
+        let built = std::time::Instant::now();
+        let mut cpus: Vec<(Opponent, Drive)> = seats
+            .iter()
+            .map(|s| {
+                let mut o = opponent(&song, 4, &ruleset, s, &[]).unwrap();
+                let mut d = Drive::new(ONLINE_CPUS_V0, s.participant, Some(plan.checkpoints_us.clone()), &mut o);
+                d.known(plan.checkpoints_us.len());
+                (o, d)
+            })
+            .collect();
+        let built = built.elapsed().as_secs_f64() * 1e3;
+        let mut frames = Vec::new();
+        let mut t = 0i64;
+        while t < 100_000_000 {
+            t += 16_667;
+            let f = std::time::Instant::now();
+            for (o, d) in &mut cpus {
+                let _ = d.advance(o, t);
+                let _ = d.take_reports();
+            }
+            frames.push(f.elapsed().as_secs_f64() * 1e3);
+        }
+        frames.sort_by(f64::total_cmp);
+        let mean = frames.iter().sum::<f64>() / frames.len() as f64;
+        eprintln!(
+            "{n} CPUs: built in {built:.0} ms; a frame {mean:.3} ms mean, {:.3} p99, {:.3} max",
+            frames[frames.len() * 99 / 100],
+            frames[frames.len() - 1]
+        );
+    }
+}

@@ -35,7 +35,7 @@ use ddi_room::{
 use super::online::SharedOnline;
 use super::online::api::{self, AudienceTicketDoc, Problem};
 use super::room::{
-    LiveAsk, LiveOrder, LivePrep, LiveRoom, LoadJob, LoadProblem, Picked, SeatEnd, StageOrder,
+    CpuSeat, LiveAsk, LiveOrder, LivePrep, LiveRoom, LoadJob, LoadProblem, Picked, SeatEnd, StageOrder,
     StageRules, ranking_of,
 };
 
@@ -639,11 +639,38 @@ impl AudienceClient {
             p.plan = None;
             self.mismatched.insert(stage);
         }
+        // The CPUs computed here as every member's device computes them
+        // (`ddi_room::live::cpus`); the people drawn from their streams.
+        let cpu_of = |id: &ParticipantId| {
+            v.players.iter().find(|p| p.id == *id).and_then(|p| match &p.kind {
+                PublicKind::Cpu {
+                    level,
+                    ordinal,
+                    seed,
+                    personality,
+                    targeting,
+                } => Some(CpuSeat {
+                    participant: *id,
+                    ordinal: *ordinal,
+                    level: *level,
+                    seed: *seed,
+                    name: p.name.clone(),
+                    skills: personality.clone(),
+                    targeting: targeting.unwrap_or_default(),
+                }),
+                _ => None,
+            })
+        };
+        let cpus: Vec<CpuSeat> = play.lineup.iter().filter_map(cpu_of).collect();
         let people: Vec<(ParticipantId, String)> = play
             .lineup
             .iter()
+            .filter(|id| cpu_of(id).is_none())
             .map(|id| (*id, self.player_name(*id)))
             .collect();
+        let seed = st.chart.as_ref().map(|c| {
+            ddi_room::live::plan::seed_for(&RoomId::new(self.room.clone()), stage, c)
+        });
         let order = StageOrder {
             stage,
             number: u16::try_from(index + 1).unwrap_or(u16::MAX),
@@ -659,11 +686,15 @@ impl AudienceClient {
             rules: self.stage_rules_of(Some(stage)),
             me: AUDIENCE_ME,
             targeting: Default::default(),
-            cpus: Vec::new(),
+            cpus,
             dev_mines_at_beat: None,
             others: u16::try_from(people.len()).unwrap_or(u16::MAX),
             watching: true,
-            live: Some(LiveOrder { prep, people }),
+            live: Some(LiveOrder {
+                prep,
+                people,
+                seed,
+            }),
         };
         self.launched.insert(stage);
         // The music's delay for it, from what the stage watched last needed.

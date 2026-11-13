@@ -517,6 +517,10 @@ pub struct LiveOrder {
     /// The other people of the stage, in the room's order, with their
     /// names as the room has them (data).
     pub people: Vec<(ParticipantId, String)>,
+    /// The stage's seed (`ddi_room::live::plan::seed_for`): what the
+    /// stage's CPUs' battle plan is made from on a device that has none
+    /// of its own (one watching it; `ddi_room::live::cpus`).
+    pub seed: Option<u64>,
 }
 
 impl StageOrder {
@@ -927,6 +931,29 @@ pub trait LiveRoom {
     /// beyond what the music already is (ms; an audience's: its next
     /// stage's music delay follows it). A member keeps nothing.
     fn note_view_delay(&mut self, _stage: StageId, _delay_ms: f64) {}
+    /// Stage `stage`'s CPU `cpu` as this device computed it
+    /// (`ddi_room::live::cpus`): judged to song µs `through_us`, the
+    /// reports it made since and its stream's end, kept and sent where
+    /// this device is one that sends (`sends_for_cpus`). An audience's
+    /// seat sends nothing.
+    fn cpu_news(
+        &mut self,
+        _stage: StageId,
+        _cpu: ParticipantId,
+        _through_us: i64,
+        _reports: Vec<ddi_room::live::LiveReport>,
+        _end: Option<ddi_room::live::StreamEnd>,
+    ) {
+    }
+    /// Its run, once its stream ended.
+    fn cpu_run(
+        &mut self,
+        _stage: StageId,
+        _cpu: ParticipantId,
+        _run: ddi_room::ReportedRun,
+        _detail: Option<RunDetail>,
+    ) {
+    }
 }
 
 /// Why a seat watching with a room's audience ended during a watched
@@ -1040,6 +1067,40 @@ impl LiveRoom for RoomClient {
 
     fn live_prep(&self, stage: StageId) -> Option<LivePrep> {
         RoomClient::live_prep(self, stage).cloned()
+    }
+
+    fn cpu_news(
+        &mut self,
+        stage: StageId,
+        cpu: ParticipantId,
+        through_us: i64,
+        reports: Vec<ddi_room::live::LiveReport>,
+        end: Option<ddi_room::live::StreamEnd>,
+    ) {
+        if !self.plays_live() {
+            return;
+        }
+        let sends = ddi_room::live::cpus::sends_for_cpus(self.state(), stage, self.me);
+        if let Link::Online(l) = &mut self.link {
+            let live = l.authority.live_mut();
+            live.cpu_news(stage, cpu, through_us, reports, end);
+            live.set_cpu_sends(stage, sends);
+        }
+    }
+
+    fn cpu_run(
+        &mut self,
+        stage: StageId,
+        cpu: ParticipantId,
+        run: ddi_room::ReportedRun,
+        detail: Option<RunDetail>,
+    ) {
+        if !self.plays_live() {
+            return;
+        }
+        if let Link::Online(l) = &mut self.link {
+            l.authority.live_mut().cpu_run(stage, cpu, run, detail);
+        }
     }
 }
 
@@ -2018,10 +2079,14 @@ impl RoomClient {
     /// or every member can check it by its digest (online).
     pub fn pickable(&self, chart: &ChartEntry) -> Result<(), Unsupported> {
         if self.is_online() {
-            // No CPUs in a hosted room; its content must be named by the
-            // chart's digest, which every participant can check.
+            // A hosted room's content must be named by the chart's digest,
+            // which every participant can check; where its match has CPUs
+            // (`ddi_room::live::cpus`), they must be able to play it.
             if chart.digest.is_none() {
                 return Err(Unsupported::NoDigest);
+            }
+            if self.has_cpus() {
+                return eligible(chart);
             }
             Ok(())
         } else {
@@ -2029,11 +2094,26 @@ impl RoomClient {
         }
     }
 
-    /// Whether the room can play charts of style `style` at all: a
-    /// practice's CPUs play one-player charts with four lanes
-    /// ([`eligible`]); an online room has none and plays any.
+    /// The match the room plays (its running one, else the next) seats
+    /// CPUs.
+    pub fn has_cpus(&self) -> bool {
+        let rules = self.locked_rules().unwrap_or_else(|| self.rules());
+        rules.cpu_seats(self.state().reserved_humans()) > 0
+    }
+
+    /// The room can seat CPUs: practice, or an online room whose authority
+    /// plays them online (`RoomPolicy::seats_cpus`: it plays live and
+    /// takes their reports from the devices).
+    pub fn cpus_offered(&self) -> bool {
+        let s = self.state();
+        s.policy.seats_cpus(s.source)
+    }
+
+    /// Whether the room can play charts of style `style` at all: CPUs
+    /// play one-player charts with four lanes ([`eligible`]); an online
+    /// room without them plays any.
     pub fn style_playable(&self, style: &str) -> bool {
-        self.is_online()
+        (self.is_online() && !self.has_cpus())
             || matches!(
                 ddi_chart::Layout::builtin(style),
                 Some(l) if l.players == 1 && l.lanes.len() == 4
@@ -2876,6 +2956,9 @@ impl RoomClient {
             .unwrap_or(u16::MAX),
             watching: !self.in_stage(stage),
             live: self.plays_live().then(|| LiveOrder {
+                seed: st.content.as_ref().map(|c| {
+                    ddi_room::live::plan::seed_for(&s.room, stage, &c.id.chart)
+                }),
                 prep: self.live_preps.get(&stage).cloned(),
                 people: field
                     .iter()

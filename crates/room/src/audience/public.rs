@@ -107,10 +107,19 @@ pub enum PublicKind {
     Person,
     /// A simulated player (the server's bots), labeled Bot.
     Bot,
-    /// A CPU of the match: its level (1 to 10, shown as stars).
+    /// A CPU of the match: its level (1 to 10, shown as stars). Its
+    /// seed, personality and attack policy: what an audience device
+    /// computes its play from where the room plays its CPUs online
+    /// (`crate::live::cpus`; ADDITIVE, left out at their defaults).
     Cpu {
         level: u8,
         ordinal: u16,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        seed: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        personality: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        targeting: Option<crate::attacks::Targeting>,
     },
 }
 
@@ -259,6 +268,9 @@ impl PublicView {
                         PublicKind::Cpu {
                             level: opponent.level,
                             ordinal: *ordinal,
+                            seed: opponent.seed,
+                            personality: opponent.personality.clone(),
+                            targeting: opponent.targeting,
                         },
                     ),
                 };
@@ -309,4 +321,8 @@ impl PublicView {
             ..self.clone()
         } == *other
     }
+}
+
+fn is_zero(x: &u64) -> bool {
+    *x == 0
 }

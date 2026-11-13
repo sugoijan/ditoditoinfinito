@@ -1309,8 +1309,8 @@ impl<H: PlayHost> PlayView<H> {
                 let Some(feed) = feeds.get(slot.seat) else {
                     continue;
                 };
-                locks.push(feed.locks(b.track().lanes(), t));
-                let mini = feed.frame(b.track(), scroll, t, range);
+                locks.push(feed.locks(b.track_of(slot.seat).lanes(), t));
+                let mini = feed.frame(b.track_of(slot.seat), scroll, t, range);
                 if !hits {
                     flashes.push(mini.receptors.iter().map(|r| r.flash).collect());
                 }
