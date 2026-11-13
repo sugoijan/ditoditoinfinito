@@ -10,7 +10,7 @@
 use std::sync::OnceLock;
 
 use ddi_room::{CpuMode, MatchRules, OpponentSpec};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// One CPU of the catalog.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -199,6 +199,89 @@ pub fn with_roster(mut rules: MatchRules, roster: Vec<OpponentSpec>, humans: usi
     }
     rules.cpu.roster = roster;
     rules
+}
+
+/// One CPU of a practice roster as the settings keep it
+/// (`Settings::practice_roster`, [`kept`]): its name, level (the engine's
+/// index), personality and policy; never its seed (each room draws its
+/// own).
+#[derive(Serialize, Deserialize)]
+struct KeptCpu {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    level: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    personality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    targeting: Option<ddi_room::attacks::Targeting>,
+}
+
+/// A practice roster as the settings keep it, versioned: a later shape
+/// is another version, which this build reads as none (the default).
+#[derive(Serialize, Deserialize)]
+struct KeptRoster {
+    v: u32,
+    cpus: Vec<KeptCpu>,
+}
+
+/// The version of [`kept`]'s shape this build writes and reads.
+const KEPT_VERSION: u32 = 1;
+
+/// `roster` as the settings keep it, for the next practice room
+/// (the maintainer, 2026-11-13): the CPUs in order, each by name, level,
+/// personality and policy.
+pub fn kept(roster: &[OpponentSpec]) -> serde_json::Value {
+    let kept = KeptRoster {
+        v: KEPT_VERSION,
+        cpus: roster
+            .iter()
+            .map(|s| KeptCpu {
+                name: s.name.clone(),
+                level: s.level,
+                personality: s.personality.clone(),
+                targeting: s.targeting,
+            })
+            .collect(),
+    };
+    serde_json::to_value(kept).unwrap_or_default()
+}
+
+/// The roster `value` keeps ([`kept`]), each CPU's seed drawn from
+/// `seed`, where this build reads it whole: its version, every level and
+/// personality playable, no name twice, at most `most` CPUs. `None`
+/// otherwise (the default roster then).
+pub fn from_kept(value: &serde_json::Value, seed: u64, most: usize) -> Option<Vec<OpponentSpec>> {
+    let kept = KeptRoster::deserialize(value).ok()?;
+    if kept.v != KEPT_VERSION || kept.cpus.len() > most {
+        return None;
+    }
+    let mut names = std::collections::BTreeSet::new();
+    let mut out = Vec::with_capacity(kept.cpus.len());
+    for (n, c) in kept.cpus.into_iter().enumerate() {
+        if let Some(name) = &c.name
+            && !names.insert(name.clone())
+        {
+            return None;
+        }
+        let spec = OpponentSpec {
+            level: c.level,
+            seed: mix(seed, n as u64),
+            personality: c.personality,
+            name: c.name,
+            targeting: c.targeting,
+        };
+        if !spec.fits()
+            || usize::from(spec.level) >= ddi_engine::cpu::LEVELS
+            || spec
+                .personality
+                .as_deref()
+                .is_some_and(|p| ddi_engine::cpu::Skills::parse(p).is_err())
+        {
+            return None;
+        }
+        out.push(spec);
+    }
+    Some(out)
 }
 
 /// The personality's preset name (`stream`), or `None` for seven

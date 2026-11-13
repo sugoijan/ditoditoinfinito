@@ -285,6 +285,15 @@ pub struct Settings {
     /// `#/?mp=1&mpwatchlink=1` (`mpwatchlink=0`), desktop's
     /// `--mp-watch-link on|off`; never a row of Options.
     pub multiplayer_watch_link: bool,
+    /// The CPU roster the last practice room was left with (names,
+    /// levels, personalities and policies, in order; never their seeds):
+    /// what the next practice room starts with
+    /// (`crate::state::cpu_roster::kept`). Kept as it was stored, read
+    /// only when a practice room is made, so a roster this build cannot
+    /// read falls back to the default without touching the rest. `None`:
+    /// the default roster.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub practice_roster: Option<serde_json::Value>,
 }
 
 /// The music's gain in a fresh profile: 69% on the volume slider (about
@@ -609,6 +618,7 @@ impl Default for Settings {
             multiplayer: false,
             multiplayer_rules_first: false,
             multiplayer_watch_link: false,
+            practice_roster: None,
             controls: ControlBindings::default(),
             fast_pad_poll: true,
             controller_styles: Default::default(),

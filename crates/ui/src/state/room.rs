@@ -880,6 +880,9 @@ pub struct RoomClient {
     offered: BTreeSet<StageId>,
     /// What this device worked out for each stage it said it plays live.
     live_preps: BTreeMap<StageId, LivePrep>,
+    /// A practice room whose roster the settings keep as it changes
+    /// (`Settings::practice_roster`): the shells' ([`RoomClient::practice`]).
+    remembers_roster: bool,
 }
 
 /// The room shared by the screens that show it (the room, its song
@@ -1238,6 +1241,7 @@ impl RoomClient {
             preparing: BTreeMap::new(),
             offered: BTreeSet::new(),
             live_preps: BTreeMap::new(),
+            remembers_roster: false,
         };
         room.pump();
         room
@@ -1259,8 +1263,55 @@ impl RoomClient {
         Self::practice_under(now_ms, rules, policy)
     }
 
+    /// A new practice room as the shells make it: [`RoomClient::new`]'s,
+    /// its CPUs the roster the last practice room was left with where the
+    /// settings keep one this build reads (`Settings::practice_roster`;
+    /// the maintainer, 2026-11-13), and its roster kept there again as it
+    /// changes. Never the stage count, the other rules or the player's
+    /// own attack policy.
+    pub fn practice(now_ms: u64, seed: u64) -> RoomClient {
+        let mut room = RoomClient::new(now_ms, seed);
+        let most = usize::from(room.max_cpus());
+        let kept = crate::state::settings::Settings::cached()
+            .practice_roster
+            .and_then(|v| super::cpu_roster::from_kept(&v, seed, most));
+        if let Some(roster) = kept {
+            let rules = super::cpu_roster::with_roster(room.state().next.rules.clone(), roster, 1);
+            if room.check_rules(&rules).is_ok() {
+                let _ = room.save_rules(rules);
+            }
+        }
+        room.remembers_roster = true;
+        room
+    }
+
     pub fn shared(now_ms: u64, seed: u64) -> SharedRoom {
-        Rc::new(RefCell::new(RoomClient::new(now_ms, seed)))
+        Rc::new(RefCell::new(RoomClient::practice(now_ms, seed)))
+    }
+
+    /// Whether this room keeps its roster in the settings as it changes
+    /// ([`RoomClient::practice`]).
+    pub fn remembers_roster(&self) -> bool {
+        self.remembers_roster
+    }
+
+    /// The next match's roster kept in the settings where this room
+    /// remembers it ([`RoomClient::practice`]), saved only when it changed.
+    fn remember_roster(&self) {
+        if !self.remembers_roster {
+            return;
+        }
+        let rules = &self.state().next.rules;
+        let roster = match rules.cpu.mode {
+            ddi_room::CpuMode::Roster | ddi_room::CpuMode::Off => rules.cpu.roster.clone(),
+            _ => return,
+        };
+        let kept = super::cpu_roster::kept(&roster);
+        let mut settings = crate::state::settings::Settings::load();
+        if settings.practice_roster.as_ref() != Some(&kept) {
+            settings.practice_roster = Some(kept);
+            settings.save();
+        }
     }
 
     /// Online room `room_id` for the person signed in on `online`, its
@@ -1316,6 +1367,7 @@ impl RoomClient {
             preparing: BTreeMap::new(),
             offered: BTreeSet::new(),
             live_preps: BTreeMap::new(),
+            remembers_roster: false,
         };
         room.tick(now_ms);
         room
@@ -3309,7 +3361,9 @@ impl RoomClient {
                 capability: Capability::StopMatch,
             }));
         }
-        self.send(Command::RestartMatch { rules })
+        self.send(Command::RestartMatch { rules })?;
+        self.remember_roster();
+        Ok(())
     }
 
     /// From a finished or stopped match back to the lobby, the next match's
@@ -3321,7 +3375,9 @@ impl RoomClient {
     /// Save the next match's rules (in the lobby, the rules the match will
     /// start with; during a match, a draft that leaves it alone).
     pub fn save_rules(&mut self, rules: MatchRules) -> Result<(), Refusal> {
-        self.send(Command::SaveNextRules { rules })
+        self.send(Command::SaveNextRules { rules })?;
+        self.remember_roster();
+        Ok(())
     }
 
     /// Whether `rules` would be accepted for the next match now: the room's

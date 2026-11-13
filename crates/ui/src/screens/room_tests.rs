@@ -365,6 +365,87 @@ fn the_hosts_start_picks_the_song_and_starts_the_match() {
     );
 }
 
+/// A practice room's roster is remembered (the maintainer, 2026-11-13):
+/// the CPUs a Rules pop-up applied, by name, level, personality and
+/// policy in order, are the next practice room's; Reset still gives the
+/// default; the stage count is not kept; a roster this build cannot read
+/// is the default.
+#[test]
+fn a_practice_rooms_roster_is_what_the_next_one_starts_with() {
+    let env = env();
+    let names = |room: &SharedRoom| -> Vec<(Option<String>, u8, Option<String>)> {
+        room.borrow()
+            .state()
+            .next
+            .rules
+            .cpu
+            .roster
+            .iter()
+            .map(|s| (s.name.clone(), s.level, s.personality.clone()))
+            .collect()
+    };
+    let room = RoomClient::shared(0, 1);
+    let default = names(&room);
+    assert_eq!(default.len(), 3);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    press(&mut h, "Room.Rules");
+    press(&mut h, "AddRandom");
+    press(&mut h, "AddRandom");
+    press(&mut h, "Remove.0");
+    press(&mut h, "Dec.stages");
+    press(&mut h, "Apply");
+    assert_eq!(top(&h), "select");
+    let kept = names(&room);
+    assert_eq!(kept.len(), 4);
+    assert_ne!(kept, default);
+    assert_eq!(room.borrow().state().next.rules.stages, 3);
+    // The next practice room: the same CPUs in the same order, the
+    // stages as ever, each CPU's seed its own room's.
+    let next = RoomClient::shared(0, 2);
+    assert_eq!(names(&next), kept);
+    assert_eq!(next.borrow().state().next.rules.stages, 4);
+    assert_ne!(
+        next.borrow().state().next.rules.cpu.roster[0].seed,
+        room.borrow().state().next.rules.cpu.roster[0].seed
+    );
+    // Reset gives the default roster, and that is remembered in turn.
+    let mut h = harness();
+    next.borrow_mut().set_rules_seen(true);
+    h.push(room_select(&env, next.clone(), "dance-single", &orders));
+    h.run(0.5);
+    let mut settings = crate::state::settings::Settings::load();
+    settings.multiplayer_rules_first = true;
+    settings.save();
+    next.borrow_mut().set_rules_seen(false);
+    h.run(0.5);
+    assert_eq!(top(&h), "room-rules");
+    press(&mut h, "Reset");
+    press(&mut h, "Ok");
+    let reset = names(&next);
+    assert_eq!(reset.len(), 3);
+    assert_eq!(names(&RoomClient::shared(0, 3)), reset);
+    // A roster this build cannot read (a later shape, a level it lacks):
+    // the default, the rest of the settings untouched.
+    for odd in [
+        serde_json::json!({ "v": 2, "cpus": [] }),
+        serde_json::json!({ "v": 1, "cpus": [{ "name": "X", "level": 40 }] }),
+        serde_json::json!("not a roster"),
+    ] {
+        let mut settings = crate::state::settings::Settings::load();
+        settings.practice_roster = Some(odd);
+        settings.save();
+        let fresh = RoomClient::shared(0, 1);
+        assert_eq!(names(&fresh), default);
+        assert!(crate::state::settings::Settings::load().multiplayer_rules_first);
+    }
+    // Not online rooms, nor a room made without the shells' constructor.
+    assert!(!RoomClient::new(0, 1).remembers_roster());
+}
+
 /// The Rules pop-up: Reset restores the defaults and stays; the roster
 /// takes CPUs at random, by level (several at once) and by name, each
 /// removable, up to the cap; Apply saves them; a running match's rules

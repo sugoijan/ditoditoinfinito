@@ -1229,7 +1229,9 @@ Rust and the browser are implementation details, not advertised features.
   screens. `state/cpu_roster.rs` (with `cpu_roster.json`): the named CPUs
   practice seats (invented names, data in every language; each at one of
   the ten levels, every level somebody's, shown as stars and never as a
-  number), Add random's `RosterAim` hook. A stage's prompt says so (`PromptInfo::set_stage`),
+  number), Add random's `RosterAim` hook; the roster a practice room was
+  left with is the next one's (`Settings::practice_roster`, `cpu_roster::kept`,
+  `RoomClient::practice`). A stage's prompt says so (`PromptInfo::set_stage`),
   its results go back to the room (`ResultsKind::Stage`: no Retry) and
   have two tabs where the graphs are (feedback round B,
   `ResultsScreen::with_room`, `screens/results_stage.rs`): Standings,

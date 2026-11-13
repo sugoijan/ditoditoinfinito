@@ -6297,6 +6297,30 @@ Challenge 40.0 → 37.5. So about as many attacks, a little more waiting
 room), the same damage: the lead moves when a stage's shocks land, not
 how many there are.
 
+### The practice roster is remembered
+
+A practice room's CPU roster (each CPU's name, level, personality and
+attack policy, in order) is kept in the settings whenever its Rules are
+applied (`Settings::practice_roster`, written by `RoomClient::save_rules`
+and `restart_match` where the room is the shells' practice room,
+`RoomClient::practice`), and the next practice room starts with it
+instead of the default three. Kept as a versioned value of its own
+(`cpu_roster::kept`, `{"v":1,"cpus":[…]}`), read only when a practice
+room is made (`cpu_roster::from_kept`): a later version, a level or
+personality this build lacks, a name twice or more CPUs than the cap is
+the default roster, and the rest of the settings is never touched by it
+(the field is plain JSON to the settings, so an unreadable roster never
+fails their load). Each CPU's seed is the new room's own (the same CPUs,
+not the same plays). Not kept: the stage count and the other rules, the
+player's own attack policy (decided: "Don't remember your last choice"),
+online rooms, the development switch's rooms. Reset in Rules still gives
+the default (applied, that is what is kept then). Both shells make their
+practice room through `RoomClient::shared`, so both remember. Tested:
+`ddi-ui` `a_practice_rooms_roster_is_what_the_next_one_starts_with`
+(through the Rules pop-up: two added, one removed, Apply; the next room's
+CPUs the same in order with their own seeds and four stages; Reset then
+OK kept as the default; three unreadable values falling back).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -6319,7 +6343,7 @@ how many there are.
 | `watch-v0`: where every person watches, a practice stage starts with the pick (the room's countdown), with no press of the watcher's | `ddi_room` `humans_needed`, `maybe_commit` | A watching host's pick is followed by the stage three seconds later | Whether a watching host should start it with a press |
 | `watch-v0`: the status line's moments for a watcher: out, attacks, the win; an attack never takes the line from someone going out | `ddi_session::play::watch::Watch::tell` | With eight CPUs attacking the line changes every few seconds | Which moments a watcher is told, and whether as a line of the announcer's |
 | A forfeit in play: the stage is watched on; the player's results are graded QUIT, their line last with no points | `Battle::forfeit_now`, `PlaySession::tick` | Escape twice in a stage shows "Left the stage" over the field and the stage goes on | Whether leaving should ask first, or be undoable for a moment |
-| CPU practice with a match running is forgotten when left, silently | `screens::room::leave_now`, the web's `forget_left_practice` | Back from a running practice match, then CPU practice again, is a new room with the default rules | Whether the practice's own rules (its roster) should survive |
+| CPU practice with a match running is forgotten when left, silently | `screens::room::leave_now`, the web's `forget_left_practice` | Back from a running practice match, then CPU practice again, is a new room with the default rules | Answered (2026-11-13): its roster survives, kept in the settings; the other rules do not |
 | A room from before the picker (no `picking` in its state) keeps every operator choosing and offers no take, for as long as it lives | `ddi_room::RoomState::chooses`, `may_take_pick` | A room open across the server's deploy never gets Pick songs; a new one does | Whether such a room should turn into a one-picker room at the deploy |
 | The pick returns to the owner when its holder is Disconnected: the server's reconnect grace (30 s); a pick nobody holds is the owner's whenever the owner is there | `reduce.rs` `release_pick`, `settle_host`; `../ddi-server` `ROOM_RECONNECT_GRACE_MS` | A picker whose connection is down for more than 30 s finds the owner choosing on return; nobody chooses only while the owner is away with nobody connected | The grace for a picker |
 | A host away is given the room's reconnect grace, 30 s (`Connection::Disconnected`), then the room passes on or closes by its setting | `reduce.rs` `settle_host`; `../ddi-server` `ROOM_RECONNECT_GRACE_MS` | A host whose connection is down for more than 30 s comes back a member (since round B1; one press by the new host hands it back), or to a closed room under Close | Whether a host should be waited for longer than a picker (a minute, say), above all under Close |
