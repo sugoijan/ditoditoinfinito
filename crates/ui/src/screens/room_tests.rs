@@ -691,9 +691,10 @@ fn a_room_on_an_older_server_shows_points_fixed() {
     h.run(0.5);
     press(&mut h, "Room.Rules");
     assert!(!there(&h, "Inc.points"));
-    assert_eq!(said(&h, "Fixed.0.Value"), "By place · experimental");
+    assert_eq!(said(&h, "Fixed.0.Value"), "By place");
     assert_eq!(view(&env).draft_points, None);
-    assert!(has(&h, "Points for fields other than eight players follow an experimental rule."));
+    // No mark and no note: every field reads the eight-player table.
+    assert!(!h.texts().iter().any(|t| t.contains("experimental")), "{:?}", h.texts());
 }
 
 /// The rules' summary says what differs from the usual: attacks are On by

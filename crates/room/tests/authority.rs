@@ -618,7 +618,8 @@ fn every_message_kind_survives_the_wire() {
         .result
         .clone()
         .unwrap();
-    assert_eq!(stage_result.placements[0].points, Points::ratio(7, 2));
+    // Four: 12, 6, 3, 1; the two tied first share 12 and 6.
+    assert_eq!(stage_result.placements[0].points, Points::whole(9));
     for envelope in authority.poll() {
         round_trip(&envelope);
     }

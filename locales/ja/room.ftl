@@ -126,7 +126,7 @@ room-rules-at-zero-no-ladder = 選ばれた曲には易しい譜面がないた�
 
 room-rules-at-zero-online = 脱落 · オンラインルームではまだ使えません
 
-room-rules-points-value = 順位制 · 試験的
+room-rules-points-value = 順位制
 
 room-rules-points-strong = 強め
 room-rules-points-medium = 中くらい
@@ -137,8 +137,7 @@ room-rules-points-medium-about = 中間です。上位が優位なまま、下�
 room-rules-points-mild-about = 大人数でも下の順位まで得点が行き渡り、上位の差は小さくなります。
 
 room-rules-level-note = CPUの星はレベルを表します。譜面に対する強さで、腕前の評価ではありません。
-room-rules-points-note = 8人以外の人数での得点は試験的なルールによります。
-room-rules-points-bias-note = 得点の設定は8人以下では何も変えません。8人未満の得点は試験的なルールによります。
+room-rules-points-bias-note = 得点の設定は8人以下では何も変えません。
 room-rules-ruleset-note = 試合では各自のオプションではなく、全員がDDIのこのルールでプレイします。
 room-rules-battle-note = バトルは暫定です。ライフが尽きるとそのステージはアウト。攻撃オンでは、タイミングが良いとパワーゲージがたまり、満タンでほかのプレイヤーのフィールドにショックを8つ送ります。
 room-rules-locked-note = 変更は次の対戦から適用され、この対戦のルールは変わりません。
@@ -321,8 +320,6 @@ room-mark-survived = ステージ { $number }: { $field }人中 { $place }位 ·
 room-mark-out = ステージ { $number }: ゲージ切れ · { $field }人中 { $place }位 · +{ $points }点
 
 room-mark-forfeit = ステージ { $number }: 途中でやめた · { $field }人中 { $place }位 · 得点なし
-
-room-mark-experimental = 得点は試験的
 
 room-rank-points = { $rank }位 · { $points }点
 

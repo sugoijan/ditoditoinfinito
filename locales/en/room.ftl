@@ -238,9 +238,8 @@ room-rules-at-zero-no-ladder = The song picked has no easier chart: it plays as 
 # online room; about 32 letters).
 room-rules-at-zero-online = Out · not in online rooms yet
 
-# How stage points are given: by place, a rule still under study
-# (about 24 letters).
-room-rules-points-value = By place · experimental
+# How stage points are given: by place (about 24 letters).
+room-rules-points-value = By place
 
 # The Points row's choices where the room offers them: how strongly a
 # field of nine players or more favors its top places (one word each).
@@ -255,10 +254,9 @@ room-rules-points-mild-about = Points reach furthest down a large field; the top
 
 # Lines under the rows, muted.
 room-rules-level-note = A CPU's stars show its level: its strength relative to the chart, not a skill rating.
-room-rules-points-note = Points for fields other than eight players follow an experimental rule.
-# The same note where the room offers the Points row's choice: the choice
+# A note where the room offers the Points row's choice: the choice
 # matters only with nine players or more.
-room-rules-points-bias-note = The Points choice changes nothing with eight players or fewer; fewer than eight follow an experimental rule.
+room-rules-points-bias-note = The Points choice changes nothing with eight players or fewer.
 room-rules-ruleset-note = Everyone plays the match under DDI with these rules, whatever their own options say.
 room-rules-battle-note = The battle is provisional: your stage ends when your life runs out. With attacks, good timing fills a power bar, and a full bar sends eight shocks into another player's field.
 room-rules-locked-note = Changes apply to the next match; this one keeps its rules.
@@ -793,10 +791,6 @@ room-mark-out = Stage { $number }: out of life · place { $place } of { $field }
 #   $place (Number) - the place, from 1
 #   $field (Number) - how many played the stage
 room-mark-forfeit = Stage { $number }: left the stage · place { $place } of { $field } · no points
-
-# After that note when the points came from the experimental rule for
-# fewer than eight players (short).
-room-mark-experimental = points experimental
 
 # A player's place and points in the players' column during a match.
 # Variables:

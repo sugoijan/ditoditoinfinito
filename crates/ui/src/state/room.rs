@@ -668,8 +668,6 @@ pub struct StageMark {
     pub placement: Placement,
     /// How many started it.
     pub field: u16,
-    /// Its points came from an experimental rule.
-    pub experimental: bool,
 }
 
 /// One starter's line of a stage's standings ([`StageTable`]).
@@ -711,8 +709,6 @@ pub struct StageTable {
     /// The local player's attacks of the stage, where it was played here
     /// with attacks ([`AttackSummary`]).
     pub summary: Option<AttackSummary>,
-    /// The points came from an experimental rule.
-    pub experimental: bool,
     pub rows: Vec<StageRow>,
     /// The match's result, where this was its last stage and the match is
     /// over: everyone in it with their place and total, best first.
@@ -2900,7 +2896,6 @@ impl RoomClient {
             rules: StageRules::of_stage(m, stage),
             attacks: self.attacks_played(&m.rules_for(stage)),
             summary: self.summaries.get(&stage).cloned(),
-            experimental: play.result.as_ref().is_some_and(|r| r.rule.experimental()),
             rows,
             result,
         })
@@ -3094,7 +3089,6 @@ impl RoomClient {
                 number: u16::try_from(i + 1).unwrap_or(u16::MAX),
                 placement: *result.placement(self.me)?,
                 field: u16::try_from(play.lineup.len()).unwrap_or(u16::MAX),
-                experimental: result.rule.experimental(),
             })
         })
     }
@@ -3110,7 +3104,6 @@ impl RoomClient {
             number: u16::try_from(i + 1).unwrap_or(u16::MAX),
             placement: *result.placement(self.me)?,
             field: u16::try_from(play.lineup.len()).unwrap_or(u16::MAX),
-            experimental: result.rule.experimental(),
         })
     }
 
@@ -3972,7 +3965,7 @@ mod tests {
         assert_eq!(room.next_pick_number(), 2);
         let mark = room.last_mark().unwrap();
         assert_eq!((mark.number, mark.placement.place, mark.field), (1, 1, 4));
-        assert!(mark.experimental);
+        assert_eq!(mark.placement.points, ddi_room::Points::whole(12));
         assert!(!room.ready(), "the next stage asks for Ready again");
         assert_eq!(room.match_end(), None, "the match goes on");
         let second = play(&mut room, false, false);
@@ -3986,7 +3979,8 @@ mod tests {
             .iter()
             .find(|s| s.participant == room.me())
             .unwrap();
-        assert_eq!(mine.total, ddi_room::Points::whole(5));
+        // First (12), then last (1) of four.
+        assert_eq!(mine.total, ddi_room::Points::whole(13));
         assert_eq!(room.match_end(), Some(MatchEnd::NotWon));
         assert_eq!(room.next_pick_number(), 1, "the next match's first");
         play(&mut room, true, true);

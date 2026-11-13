@@ -11,7 +11,6 @@
 //! next-match draft (`rules`), ordered stages and their content, each
 //! participant's participation per match and stage, loading and readiness,
 //! and connection. Provisional choices sit behind named, versioned types:
-//! `awards::AwardRule::ExperimentalLinearV0`,
 //! `rules::ReadinessPolicy::HOSTED_DEADLINE_V0`,
 //! `battle::BattlePreset::GaugeSurvivalV0`; attack power's ledger,
 //! `attacks::StageBattle` under `attacks::ATTACKS_V0` and

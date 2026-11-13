@@ -715,11 +715,10 @@ impl Screen for RulesDialog {
         }
         let points = self.points_offered();
         let field = humans + roster.len();
-        let points_note: Option<UiText> = if points {
-            (field <= 8).then(m::rules_points_bias_note)
-        } else {
-            (field != 8).then(m::rules_points_note)
-        };
+        // Every field reads the eight-player table (the maintainer,
+        // 2026-11-13): the only note left is that the choice changes
+        // nothing at eight or fewer.
+        let points_note: Option<UiText> = (points && field <= 8).then(m::rules_points_bias_note);
         notes.push((m::rules_ruleset_note().into(), "Muted"));
         notes.push((m::rules_battle_note().into(), "Muted"));
         let running = self.running();

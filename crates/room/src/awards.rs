@@ -7,11 +7,13 @@
 //! results"). Fields of nine and more read that table stretched down the
 //! field and biased toward the top (`TopBiased*V1`, the maintainer,
 //! 2026-11-13), the bias a match rule ([`PointsBias`]). Fields under eight
-//! have no decided rule: `ExperimentalLinearV0` stands in, clearly
-//! provisional, until the design decides; `DevelopmentLinearV0` awards any
-//! field of a development-only practice room. `ExperimentalNineV0`, what
-//! nine earned before the stretched table, is retired: never awarded by
-//! this build, still read from an authority one build behind.
+//! read the same table squeezed up the field (`EightPlayerScaledV1`, the
+//! maintainer, 2026-11-13: "the 12, 6, ... points progression for fewer
+//! players too, for consistency"); `DevelopmentLinearV0` awards any field
+//! of a development-only practice room. `ExperimentalLinearV0` (what fields
+//! under eight earned before) and `ExperimentalNineV0` (what nine earned
+//! before the stretched table) are retired: never awarded by this build,
+//! still read from stored or mirrored results.
 
 use crate::ids::ParticipantId;
 use crate::points::Points;
@@ -22,9 +24,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum AwardScheme {
     /// Placement points summed over stages, equal stage weights. Eight
-    /// starters use `EightPlayerV1`; fewer use the EXPERIMENTAL
-    /// `ExperimentalLinearV0`; nine to [`TopBiased::MAX_FIELD`] the
-    /// stretched table at the match's [`PointsBias`]; more have no rule.
+    /// starters use `EightPlayerV1`; fewer `EightPlayerScaledV1`; nine to
+    /// [`TopBiased::MAX_FIELD`] the stretched table at the match's
+    /// [`PointsBias`]; more have no rule.
     PlacementPointsV1,
     /// DEVELOPMENT ONLY: `DevelopmentLinearV0` for any field, for a practice
     /// room with far more CPUs than the cap (`RoomPolicy::development`).
@@ -38,7 +40,7 @@ impl AwardScheme {
     pub fn rule_for(self, field: usize, bias: PointsBias) -> Result<AwardRule, NoAwardRule> {
         match (self, field) {
             (Self::PlacementPointsV1, 8) => Ok(AwardRule::EightPlayerV1),
-            (Self::PlacementPointsV1, 1..=7) => Ok(AwardRule::ExperimentalLinearV0),
+            (Self::PlacementPointsV1, 1..=7) => Ok(AwardRule::EightPlayerScaledV1),
             (Self::PlacementPointsV1, TopBiased::MIN_FIELD..=TopBiased::MAX_FIELD) => {
                 Ok(AwardRule::top_biased(bias))
             }
@@ -155,16 +157,21 @@ impl TopBiased {
 pub enum AwardRule {
     /// The working eight-player table, for exactly eight starters.
     EightPlayerV1,
+    /// The eight-player table read up a field of one to seven starters
+    /// (the maintainer, 2026-11-13): place `p` of `N` at position
+    /// `7 × (p − 1) ÷ (N − 1)`, linearly between its entries, rounded to a
+    /// whole number (halves up), so first earns 12 alone and last 1; a
+    /// field of one earns 12. Exact arithmetic, fixed in [`SCALED`].
+    EightPlayerScaledV1,
     /// [`TopBiased`] at [`PointsBias::Strong`], for nine to 73 starters.
     TopBiasedStrongV1,
     /// [`TopBiased`] at [`PointsBias::Medium`].
     TopBiasedMediumV1,
     /// [`TopBiased`] at [`PointsBias::Mild`].
     TopBiasedMildV1,
-    /// EXPERIMENTAL, provisional: for a field of `n` under eight, place `p`
-    /// earns `n + 1 - p` (one point per starter placed below, plus one), so
-    /// last earns 1 and first earns `n`. Chosen for simplicity; it is not a
-    /// truncation of the eight-player table and not a decided design.
+    /// RETIRED (2026-11-13, replaced by `EightPlayerScaledV1`): for a field
+    /// of `n` under eight, place `p` earned `n + 1 - p`. Never awarded by
+    /// this build; still read from stored or mirrored results.
     ExperimentalLinearV0,
     /// RETIRED (2026-11-13, replaced by the top-biased tables): for exactly
     /// nine starters, the eight-player table for the first eight places and
@@ -187,6 +194,7 @@ impl AwardRule {
     pub fn id(self) -> &'static str {
         match self {
             Self::EightPlayerV1 => "eight-player-v1",
+            Self::EightPlayerScaledV1 => "eight-player-scaled-v1",
             Self::TopBiasedStrongV1 => "top-biased-strong-v1",
             Self::TopBiasedMediumV1 => "top-biased-medium-v1",
             Self::TopBiasedMildV1 => "top-biased-mild-v1",
@@ -206,13 +214,15 @@ impl AwardRule {
         }
     }
 
-    /// Not a decided design: results under it say so. The eight-player
-    /// table and its stretch for larger fields are the maintainer's; fields
-    /// under eight (and the retired nine, and development's) are not.
+    /// Not a decided design: the retired rules and development's. Every
+    /// rule this build awards in a real room is the maintainer's (the
+    /// eight-player table, read up and down the field); the screens no
+    /// longer mark any result.
     pub fn experimental(self) -> bool {
         !matches!(
             self,
             Self::EightPlayerV1
+                | Self::EightPlayerScaledV1
                 | Self::TopBiasedStrongV1
                 | Self::TopBiasedMediumV1
                 | Self::TopBiasedMildV1
@@ -224,6 +234,7 @@ impl AwardRule {
     pub fn awards(self, field: usize) -> Option<Vec<u64>> {
         match self {
             Self::EightPlayerV1 => (field == 8).then(|| Self::EIGHT_PLAYER_TABLE.to_vec()),
+            Self::EightPlayerScaledV1 => (1..8).contains(&field).then(|| SCALED[field - 1].to_vec()),
             Self::TopBiasedStrongV1 => TopBiased::awards(PointsBias::Strong, field),
             Self::TopBiasedMediumV1 => TopBiased::awards(PointsBias::Medium, field),
             Self::TopBiasedMildV1 => TopBiased::awards(PointsBias::Mild, field),
@@ -240,6 +251,20 @@ impl AwardRule {
         }
     }
 }
+
+/// `EightPlayerScaledV1`'s awards for fields of one to seven, best first:
+/// the eight-player table at `7 × (p − 1) ÷ (N − 1)`, halves up, checked
+/// in exact arithmetic by the tests (`scaled_tables_follow_the_formula`).
+/// Five's second place is exactly 7.5 and rounds up to 8.
+const SCALED: [&[u64]; 7] = [
+    &[12],
+    &[12, 1],
+    &[12, 5, 1],
+    &[12, 6, 3, 1],
+    &[12, 8, 5, 3, 1],
+    &[12, 8, 5, 4, 2, 1],
+    &[12, 9, 6, 5, 3, 2, 1],
+];
 
 /// The fields [`TopBiased`] has a table for.
 const FIELDS: usize = TopBiased::MAX_FIELD - TopBiased::MIN_FIELD + 1;
@@ -568,25 +593,73 @@ mod tests {
     }
 
     #[test]
-    fn small_fields_use_the_named_experimental_rule_never_a_truncated_table() {
-        let rule = AwardScheme::PlacementPointsV1.rule_for(4, PointsBias::Mild).unwrap();
-        assert_eq!(rule, AwardRule::ExperimentalLinearV0);
-        assert!(rule.experimental());
-        assert_eq!(rule.id(), "experimental-linear-v0");
-        assert_eq!(rule.awards(4), Some(vec![4, 3, 2, 1]));
+    fn small_fields_read_the_eight_player_table_up_the_field() {
+        let tables = [
+            vec![12],
+            vec![12, 1],
+            vec![12, 5, 1],
+            vec![12, 6, 3, 1],
+            vec![12, 8, 5, 3, 1],
+            vec![12, 8, 5, 4, 2, 1],
+            vec![12, 9, 6, 5, 3, 2, 1],
+            AwardRule::EIGHT_PLAYER_TABLE.to_vec(),
+        ];
+        for (n, table) in (1..=8).zip(tables) {
+            // The bias changes nothing at eight or fewer.
+            for bias in PointsBias::ALL {
+                let rule = AwardScheme::PlacementPointsV1.rule_for(n, bias).unwrap();
+                assert!(!rule.experimental(), "{n}");
+                assert_eq!(rule.awards(n), Some(table.clone()), "{n}");
+            }
+        }
+        let rule = AwardRule::EightPlayerScaledV1;
+        assert_eq!(rule.id(), "eight-player-scaled-v1");
         assert_eq!(rule.awards(8), None);
+        assert_eq!(rule.awards(0), None);
         assert_eq!(AwardRule::EightPlayerV1.awards(4), None);
+        // Ties share the awards they occupy: 6 and 3 for four.
         let result = StageResult::award(rule, &[group(&[1]), group(&[2, 3]), group(&[4])]).unwrap();
         assert_eq!(
             result.placement(ParticipantId(2)).unwrap().points,
-            Points::ratio(5, 2)
+            Points::ratio(9, 2)
         );
+        assert_eq!(result.placement(ParticipantId(3)).unwrap().place, 2);
         assert_eq!(result.placement(ParticipantId(4)).unwrap().place, 4);
+        assert_eq!(
+            result.placement(ParticipantId(4)).unwrap().points,
+            Points::whole(1)
+        );
+        // Everyone tied in a field of three share 18 ÷ 3.
+        let all = StageResult::award(rule, &[group(&[1, 2, 3])]).unwrap();
+        assert!(all.placements.iter().all(|p| p.points == Points::whole(6) && p.place == 1));
+    }
+
+    /// The scaled tables from the formula in exact arithmetic: position
+    /// `x = 7 (p − 1) ÷ (N − 1)` as a fraction over `N − 1`, the table read
+    /// linearly there, halves rounded up.
+    #[test]
+    fn scaled_tables_follow_the_formula() {
+        let t = AwardRule::EIGHT_PLAYER_TABLE.map(|v| v as i64);
+        for n in 2..=7usize {
+            let d = (n - 1) as i64;
+            let formula: Vec<u64> = (0..n as i64)
+                .map(|p| {
+                    let x = 7 * p; // over d
+                    let i = (x / d).min(6);
+                    let frac = x - i * d; // over d
+                    let i = i as usize;
+                    let v = t[i] * d + (t[i + 1] - t[i]) * frac; // over d
+                    ((2 * v + d).div_euclid(2 * d)) as u64
+                })
+                .collect();
+            assert_eq!(SCALED[n - 1], formula.as_slice(), "{n}");
+        }
+        assert_eq!(SCALED[0], [12]);
     }
 
     #[test]
     fn a_forfeit_earns_zero_and_leaves_its_award_unused() {
-        let rule = AwardRule::ExperimentalLinearV0;
+        let rule = AwardRule::EightPlayerScaledV1;
         let mut ranking = vec![group(&[1]), group(&[2])];
         ranking.push(vec![Finisher {
             participant: ParticipantId(3),
@@ -595,7 +668,7 @@ mod tests {
         let result = StageResult::award(rule, &ranking).unwrap();
         assert_eq!(
             result.placement(ParticipantId(1)).unwrap().points,
-            Points::whole(3)
+            Points::whole(12)
         );
         let forfeit = result.placement(ParticipantId(3)).unwrap();
         assert_eq!((forfeit.place, forfeit.points), (3, Points::ZERO));
@@ -734,6 +807,20 @@ mod tests {
     fn the_bias_is_additive_and_old_rules_are_still_read() {
         assert_eq!(PointsBias::default(), PointsBias::Strong);
         assert_eq!(PointsBias::ALL.map(PointsBias::index), [0, 1, 2]);
+        // A result awarded under eight by the retired linear rule is still
+        // read, its points as given.
+        let r: StageResult = serde_json::from_str(
+            r#"{"rule":"experimental_linear_v0","placements":[{"participant":1,"place":1,"finish":"survived","points":{"num":4,"den":1}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(r.rule, AwardRule::ExperimentalLinearV0);
+        assert_eq!(r.placements[0].points, Points::whole(4));
+        for n in 1..8 {
+            assert_ne!(
+                AwardScheme::PlacementPointsV1.rule_for(n, PointsBias::Strong),
+                Ok(AwardRule::ExperimentalLinearV0)
+            );
+        }
         // An authority one build behind awarded nine so; it is still read.
         let old: AwardRule = serde_json::from_str(r#""experimental_nine_v0""#).unwrap();
         assert_eq!(old, AwardRule::ExperimentalNineV0);

@@ -1328,7 +1328,6 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
                 points: ddi_room::Points::ratio(5, 2),
             },
             field: 4,
-            experimental: true,
         };
         checked(vec![super::room::mark_text(&mark)], found);
     }

@@ -1199,8 +1199,6 @@ impl ResultsScreen {
                 Some(table.attacks),
             ))
             .into()
-        } else if table.experimental {
-            m::mark_experimental().into()
         } else {
             String::new()
         };

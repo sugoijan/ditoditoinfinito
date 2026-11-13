@@ -6070,6 +6070,47 @@ Tested: `ddi-ui` (`prompt::tests::a_watched_stages_prompt_has_no_key_diagram_nor
 headless Chrome and Firefox with autoplay blocked over the fake seat
 (the prompt asking for its press: `target/scratch/mp/fua/shots/gesture-asked-*.png`).
 
+## Decisions round B1: the room's model after the maintainer's answers (2026-11-13)
+
+The maintainer answered the open questions on awards, the host's
+succession, who may do what, CPU seeds and older clients on 2026-11-13.
+
+### One award rule for every field size
+
+"Let's go with the 12, 6, ... points progression for fewer players too,
+for consistency." Fields under eight read the eight-player table (12, 9,
+7, 5, 4, 3, 2, 1) as large fields do, squeezed up the field:
+`ddi_room::AwardRule::EightPlayerScaledV1` (`eight-player-scaled-v1`).
+Place `p` of `N` is read at position `7 × (p − 1) ÷ (N − 1)`, linearly
+between the table's entries, rounded to a whole number (halves up); a
+field of one earns 12. Fixed tables in the source, checked by a test in
+exact arithmetic (`scaled_tables_follow_the_formula`). The Points bias
+changes nothing at eight or fewer.
+
+| Field | Awards |
+| --- | --- |
+| 1 | 12 |
+| 2 | 12 1 |
+| 3 | 12 5 1 |
+| 4 | 12 6 3 1 |
+| 5 | 12 8 5 3 1 |
+| 6 | 12 8 5 4 2 1 |
+| 7 | 12 9 6 5 3 2 1 |
+| 8 | 12 9 7 5 4 3 2 1 |
+
+Five's second place is exactly 7.5 (position 1.75, between 9 and 7) and
+rounds up to 8 by the rule; the brief's example had 7.
+
+`ExperimentalLinearV0` is retired as `ExperimentalNineV0` is: never
+awarded, still read (a stored or mirrored result keeps the points it was
+given). Every "points experimental" mark went: the Rules' fixed row says
+"By place", its notes only that the Points choice changes nothing with
+eight players or fewer (where it is offered), and the Standings, the
+results' footer and the status lines' stage marks no longer say
+"points experimental" (`room-mark-experimental` and
+`room-rules-points-note` removed from every language). Shared places
+share as before (four: two tied first share 12 and 6, 9 each).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -6108,7 +6149,7 @@ headless Chrome and Firefox with autoplay blocked over the fake seat
 | The results' tab is remembered for the session, the last stage always opening on the standings | `results_stage.rs` `CHOSEN` | A player who prefers the graphs sees them after middle stages | Whether it should be a saved setting, or always the standings |
 | Bots: 12 h sessions, never re-signed; 200 sessions an hour per admin token; 73 bots in a room (60 and 8 before 2026-11-13) | `../ddi-server` `bots.rs` | A long bot run stops after 12 h (signed out); a 74th bot is refused | The limits for bots on the deployed server |
 | Bot tool pacing: Ready after 0.7–2.5 s, host rests 8 s on a song, 15 s after each stage's results, waits for 2 players | `crates/desktop/src/bots.rs` | How quickly a room of bots moves | None (a test tool), unless it should mimic people more closely |
-| Under-eight awards: `ExperimentalLinearV0`, place `p` of `n` earns `n + 1 - p` (practice's 4-player field: 4, 3, 2, 1) | `awards::AwardRule` | Practice and small rooms show points on this scale, marked experimental | The award rule for fields under eight |
+| Under-eight awards: `EightPlayerScaledV1`, the eight-player table read up the field (practice's four: 12, 6, 3, 1); `ExperimentalLinearV0` retired, still read (ANSWERED by the maintainer, 2026-11-13) | `awards::AwardRule` | Small rooms earn on the eight-player scale, unmarked | None |
 | Award field = the stage's committed starters; sit-outs are not counted | `awards::AwardScheme::rule_for` | A stage with seven starters out of eight seats uses the small-field rule | The population basis for points with sit-outs |
 | A confirmed forfeit earns zero; its place's award goes unused | `awards::StageResult::award` | A disconnect forfeit adds nothing, earlier points stay | Forfeit scoring (the connection-loss study proposes zero) |
 | Readiness policy `hosted-deadline-v0`: 15 s window, 3 s countdown, at least one ready human and two competitors | `rules::ReadinessPolicy` | Start opens a 15 s window when someone is unready | Window and countdown values; minimum population |
@@ -6205,9 +6246,9 @@ headless Chrome and Firefox with autoplay blocked over the fake seat
 
 ## Open questions
 
-- Rooms of 1+72: fields under eight still use the experimental linear
-  rule (4, 3, 2, 1 for four). Should they read the eight-player table
-  too (stretched the other way), or keep their own rule?
+- Rooms of 1+72: fields under eight. ANSWERED (the maintainer,
+  2026-11-13): "the 12, 6, ... points progression for fewer players too,
+  for consistency" (decisions round B1).
 - Rooms of 1+72: an older client cannot read a stage result awarded by
   the top-biased tables (from the first stage of nine or more): it must
   be reloaded. Acceptable for the gated prototype?
@@ -6408,8 +6449,8 @@ headless Chrome and Firefox with autoplay blocked over the fake seat
 - M7b: the server's `ROOM_READINESS_WINDOW_MS` is 15 s in its
   `wrangler.toml` (your file); the model's default is now 30 s, counted
   from the song's availability. Raise it there?
-- Fields under eight: keep a linear rule, scale the eight-player table, or
-  something else? Should sit-outs count toward the field?
+- Fields under eight: ANSWERED (round B1: the eight-player table read up
+  the field). Should sit-outs count toward the field?
 - Should a forfeit occupy a place (it does: last of its group) or be
   ranked separately below everyone?
 - Readiness in the lobby gathers on the first stage before the roster is

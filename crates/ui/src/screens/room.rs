@@ -2106,17 +2106,12 @@ pub(crate) fn member_name(m: &ddi_room::Member) -> String {
 pub fn mark_text(mark: &StageMark) -> String {
     let p = &mark.placement;
     let points = points_text(p.points);
-    let line: String = match p.finish {
+    match p.finish {
         Finish::Survived => m::mark_survived(mark.number, p.place, mark.field, points),
         Finish::Eliminated => m::mark_out(mark.number, p.place, mark.field, points),
         Finish::Forfeit => m::mark_forfeit(mark.number, p.place, mark.field),
     }
-    .into();
-    if mark.experimental && p.finish != Finish::Forfeit {
-        format!("{line} · {}", m::mark_experimental())
-    } else {
-        line
-    }
+    .into()
 }
 
 /// A value's name as serde writes it (`co_host`, `reconnecting`), for the

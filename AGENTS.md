@@ -1001,9 +1001,9 @@ Rust and the browser are implementation details, not advertised features.
   as named rules (the eight-player table; for nine to 73 the same table
   stretched toward the top, `TopBiased`'s fixed tables, its bias the
   match rule `MatchRules::points`, Strong, Medium or Mild, offered where
-  `RoomPolicy::points_bias` says the authority reads it; provisional
-  `ExperimentalLinearV0` under eight; `ExperimentalNineV0` retired, still
-  read; development-only `DevelopmentLinearV0`; exact fractions,
+  `RoomPolicy::points_bias` says the authority reads it; under eight the
+  table read up the field, `EightPlayerScaledV1`; `ExperimentalLinearV0`
+  and `ExperimentalNineV0` retired, still read; development-only `DevelopmentLinearV0`; exact fractions,
   `Points`, shown as decimals); the battle a stage is
   played under, by name and version, and its ranking of judged runs
   (`battle.rs`: `BattlePreset::GaugeSurvivalV0`, provisional: each

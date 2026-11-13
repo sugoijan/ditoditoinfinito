@@ -283,7 +283,7 @@ fn a_missed_stage_keeps_earlier_points_and_a_later_stage_can_be_readied() {
     let s1 = r.play();
     r.end(s1, &[&[cara], &[host], &[ana]]);
     let cara_after_one = r.total(cara);
-    assert_eq!(cara_after_one, Points::whole(3)); // experimental 3-player field
+    assert_eq!(cara_after_one, Points::whole(12)); // three: 12, 5, 1
     // Intermission: cara reads her results and does not ready. That blocks
     // nothing: the host's Start opens the window and the deadline commits.
     let s2 = r.upcoming();
@@ -969,7 +969,7 @@ fn reconnecting_restores_the_same_row_and_points_without_a_respawn() {
             .unwrap();
     r.end(s1, &[&[ana], &[cpu], &[host]]);
     let ana_points = r.total(ana);
-    assert_eq!(ana_points, Points::whole(3));
+    assert_eq!(ana_points, Points::whole(12));
 
     // Stage 2: Ana's connection drops mid-song. No forfeit is inferred, no
     // CPU takes her seat, and she comes back to the same row.
@@ -1194,7 +1194,7 @@ fn an_interrupted_stage_awards_nothing_and_earlier_stages_stay_as_partial_result
         }
     );
     assert!(record.winners().is_empty(), "no overall winner");
-    assert_eq!(record.played.standings()[0].total, Points::whole(2));
+    assert_eq!(record.played.standings()[0].total, Points::whole(12));
     assert_eq!(r.s.phase, Phase::Lobby);
 }
 
@@ -1361,10 +1361,11 @@ fn practice_plays_a_match_with_cpus_and_starts_another_with_fresh_readiness() {
     let s1 = r.play();
     r.end(s1, &[&[me], &[cpus[0]], &[cpus[1], cpus[2]]]);
     let result = r.s.stage(s1).unwrap().play.clone().unwrap().result.unwrap();
-    assert_eq!(result.rule, AwardRule::ExperimentalLinearV0);
+    assert_eq!(result.rule, AwardRule::EightPlayerScaledV1);
+    // Four: 12, 6, 3, 1; the tied two share 3 and 1.
     assert_eq!(
         result.placement(cpus[1]).unwrap().points,
-        Points::ratio(3, 2)
+        Points::whole(2)
     );
     // Intermission: nothing carries over; the player readies again.
     assert_eq!(
@@ -1378,8 +1379,9 @@ fn practice_plays_a_match_with_cpus_and_starts_another_with_fresh_readiness() {
     let s2 = r.play();
     r.end(s2, &[&[cpus[0]], &[me], &[cpus[1]], &[cpus[2]]]);
     assert_eq!(r.s.phase, Phase::MatchResults);
-    assert_eq!(r.total(me), Points::whole(7));
-    assert_eq!(r.total(cpus[0]), Points::whole(7));
+    // 12 + 6 each.
+    assert_eq!(r.total(me), Points::whole(18));
+    assert_eq!(r.total(cpus[0]), Points::whole(18));
     let mut winners = r.s.match_winners();
     winners.sort();
     assert_eq!(winners, vec![me, cpus[0]], "equal totals share the rank");
