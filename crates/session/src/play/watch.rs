@@ -119,10 +119,12 @@ impl Watch {
         }
     }
 
-    /// What `raw` asks: Tab and Shift+Tab or a pad's shoulders cycle a
-    /// spectator's focus, a tap on a field follows it; Enter, a pad's
-    /// Start or South, or a tap on its button skips a stage the player is
-    /// out of to its results. `menu`: the edge as a menu reads a pad's.
+    /// What `raw` asks: Tab and Shift+Tab or a pad's shoulders cycle the
+    /// focus (a spectator's round the seats and the grid, a player out of
+    /// the stage's round the seats and their own field), a tap on a field
+    /// follows it; Enter, a pad's Start or South, or a tap on its button
+    /// skips a stage the player is out of to its results. `menu`: the
+    /// edge as a menu reads a pad's.
     pub fn read(&mut self, raw: &RawInput, menu: Option<MenuInput>) -> Option<Ask> {
         let spectator = self.why == Watching::Spectator;
         match &raw.device {
@@ -135,7 +137,7 @@ impl Watch {
                     return None;
                 }
                 match raw.control.as_str() {
-                    "Tab" if spectator => Some(Ask::Cycle(if self.shift { -1 } else { 1 })),
+                    "Tab" => Some(Ask::Cycle(if self.shift { -1 } else { 1 })),
                     "PageDown" if spectator => Some(Ask::Page(1)),
                     "PageUp" if spectator => Some(Ask::Page(-1)),
                     "Enter" | "NumpadEnter" if !spectator => Some(Ask::Skip),
@@ -146,21 +148,19 @@ impl Watch {
                 if raw.control == TOUCH_SKIP_CONTROL {
                     return (!spectator).then_some(Ask::Skip);
                 }
-                if !spectator {
-                    return None;
-                }
                 if raw.control == TOUCH_WATCH_ALL {
                     return Some(Ask::Focus(None));
                 }
                 let seat = raw.control.strip_prefix(TOUCH_WATCH_CONTROL)?;
                 match seat.parse().ok()? {
-                    TOUCH_PAGE_SEAT => Some(Ask::Page(1)),
+                    TOUCH_PAGE_SEAT if spectator => Some(Ask::Page(1)),
+                    TOUCH_PAGE_SEAT => None,
                     s => Some(Ask::Focus(Some(s))),
                 }
             }
             DeviceId::Gamepad(_) if raw.pressed => match menu? {
-                MenuInput::Previous if spectator => Some(Ask::Cycle(-1)),
-                MenuInput::Next if spectator => Some(Ask::Cycle(1)),
+                MenuInput::Previous => Some(Ask::Cycle(-1)),
+                MenuInput::Next => Some(Ask::Cycle(1)),
                 MenuInput::Down if spectator => Some(Ask::Page(1)),
                 MenuInput::Up if spectator => Some(Ask::Page(-1)),
                 MenuInput::Confirm | MenuInput::Start if !spectator => Some(Ask::Skip),
@@ -328,10 +328,38 @@ mod tests {
     }
 
     #[test]
-    fn a_player_out_of_the_stage_skips_and_follows_nobody() {
+    fn a_player_out_of_the_stage_skips_and_follows_one_large() {
         for why in [Watching::Out, Watching::Left] {
             let mut w = Watch::new(why, 0.0);
-            assert_eq!(w.read(&key("Tab", true), None), None);
+            // Tab round the seats and back to their own field; Shift+Tab
+            // the other way; a tap on a field, and on their own.
+            let mut seen = Vec::new();
+            for _ in 0..4 {
+                let ask = w.read(&key("Tab", true), None).unwrap();
+                w.apply(ask, 3);
+                seen.push(w.focus);
+            }
+            assert_eq!(seen, [Some(0), Some(1), Some(2), None]);
+            w.read(&key("ShiftLeft", true), None);
+            let ask = w.read(&key("Tab", true), None).unwrap();
+            w.apply(ask, 3);
+            assert_eq!(w.focus, Some(2));
+            w.read(&key("ShiftLeft", false), None);
+            let tap = |control: &str| RawInput {
+                device: DeviceId::Touch,
+                control: control.into(),
+                pressed: true,
+                host_time: HostTime(0.0),
+                slot: 0,
+            };
+            let ask = w.read(&tap("watch:1"), None).unwrap();
+            w.apply(ask, 3);
+            assert_eq!(w.focus, Some(1));
+            let ask = w.read(&tap(TOUCH_WATCH_ALL), None).unwrap();
+            w.apply(ask, 3);
+            assert_eq!(w.focus, None);
+            // No pages.
+            assert_eq!(w.read(&key("PageDown", true), None), None);
             let ask = w.read(&key("Enter", true), None).unwrap();
             assert_eq!(ask, Ask::Skip);
             w.apply(ask, 3);
@@ -344,7 +372,8 @@ mod tests {
                 slot: 0,
             };
             assert_eq!(w.read(&pad, Some(MenuInput::Start)), Some(Ask::Skip));
-            assert_eq!(w.read(&pad, Some(MenuInput::Next)), None);
+            assert_eq!(w.read(&pad, Some(MenuInput::Next)), Some(Ask::Cycle(1)));
+            assert_eq!(w.read(&pad, Some(MenuInput::Previous)), Some(Ask::Cycle(-1)));
         }
     }
 

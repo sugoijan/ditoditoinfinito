@@ -482,6 +482,13 @@ pub struct Battle {
     /// A stage the room plays live: its stream, the others' fields and the
     /// room's ledger as told ([`live::Live`]).
     remote_live: Option<live::Live>,
+    /// The local player's own play as a field of the stage, fed from its
+    /// judged events as the others' are from their streams: what shows
+    /// as their miniature once they are out of the stage and follow a
+    /// competitor large ([`Battle::own_feed`]); whether its going out was
+    /// put in.
+    own: feed::FieldFeed,
+    own_out: bool,
 }
 
 /// The most points chart `chart` of `song`, whole, gives under `ruleset`
@@ -602,10 +609,13 @@ impl Battle {
             };
             attacks::AttackRunner::new(song, chart, &setup.rules.ruleset, &ruleset.judge, roster)
         });
+        let own = feed::FieldFeed::new(&track, 1.0, feed::LOCAL_DELAY);
         Ok(Battle {
             policy: setup.targeting,
             setup,
             seats,
+            own,
+            own_out: false,
             track,
             most: chart_most(song, chart, ruleset),
             attacks,
@@ -919,6 +929,7 @@ impl Battle {
             return self.advance_watched(t);
         }
         self.now = t;
+        self.feed_own(human, judged);
         if self.remote_live.is_some() {
             return self.advance_live(t, Some(human), judged);
         }
@@ -937,6 +948,99 @@ impl Battle {
             self.run_attacks(None);
         }
         self.settle(Some(human))
+    }
+
+    /// The local player's judged events as moments of their own field
+    /// ([`Battle::own_feed`]): taps with their early or late and inner
+    /// window, holds' ends, mines and shocks stepped on, Boos; their
+    /// going out (their gauge, or the forfeit) once.
+    fn feed_own(&mut self, human: &Player, judged: &[JudgeEvent]) {
+        let judge = &human.ruleset().judge;
+        let (life, combo) = (human.ruleset().gauge.life().clamp(0.0, 1.0), human.combo());
+        let score = human.ruleset().score.view();
+        let gone = human.gauge_failed_at().or(self.forfeit);
+        for e in judged {
+            let kind = match e.kind {
+                JudgeEventKind::Tap(j, _) => feed::MomentKind::Tap(j),
+                JudgeEventKind::Held => feed::MomentKind::HoldEnd(true),
+                JudgeEventKind::LetGo => feed::MomentKind::HoldEnd(false),
+                JudgeEventKind::HitMine
+                    if e.note_index
+                        .is_some_and(|n| n >= ddi_engine::battle::HAZARD_INDEX_BASE) =>
+                {
+                    feed::MomentKind::ShockHit
+                }
+                JudgeEventKind::HitMine => feed::MomentKind::MineHit,
+                JudgeEventKind::Boo => feed::MomentKind::Boo,
+                _ => continue,
+            };
+            let (offset, w0) = match e.kind {
+                JudgeEventKind::Tap(j, delta) if !j.is_miss() => {
+                    (delta as f32, judge.is_w0(j, delta))
+                }
+                _ => (0.0, None),
+            };
+            self.own.push(
+                &self.track,
+                feed::Moment {
+                    at: e.song_time,
+                    tick: e.tick,
+                    lane: e.lane,
+                    kind,
+                    life,
+                    combo,
+                    out: false,
+                    offset,
+                    w0,
+                    score,
+                },
+            );
+        }
+        if let Some(at) = gone
+            && !self.own_out
+        {
+            self.own_out = true;
+            self.own.push(
+                &self.track,
+                feed::Moment {
+                    at,
+                    tick: ddi_chart::Tick(0),
+                    lane: 0,
+                    kind: feed::MomentKind::Mark,
+                    life: 0.0,
+                    combo,
+                    out: true,
+                    offset: 0.0,
+                    w0: None,
+                    score,
+                },
+            );
+        }
+    }
+
+    /// The local player's own field as a stream draws it (their judged
+    /// play, their going out): their miniature among the others' once
+    /// they are out of the stage and follow a competitor large.
+    pub fn own_feed(&self) -> &feed::FieldFeed {
+        &self.own
+    }
+
+    /// The local player as a miniature's opponent (`name`: "You"), as
+    /// their own field shows them now.
+    pub fn own_view(&self, human: &Player, name: String) -> OpponentView {
+        let shown = self.own.shown(self.now);
+        let view = human.ruleset().score.view();
+        OpponentView {
+            participant: self.setup.me,
+            name,
+            level: None,
+            life: shown.life,
+            out: shown.out,
+            score: accuracy(&view),
+            sum: view.ddi.map(|d| d.score),
+            combo: shown.combo,
+            power: None,
+        }
     }
 
     /// [`Battle::advance`] for a stage the local player is not in (a

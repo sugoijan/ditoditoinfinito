@@ -2091,7 +2091,8 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     /// moments says it (`crate::battle::feed::FieldFeed::frame_large`:
     /// its notes, its judgment's word, its life, combo and score), or an
     /// empty field while every field shows; a player's out of the stage
-    /// is their own field, blank (the shell dims it and says why).
+    /// is their own field, blank (the shell dims it and says why), or the
+    /// competitor they follow, as a spectator's.
     pub fn frame(&self, present: HostTime) -> Frame {
         let mut frame = self.player.frame(present);
         if self.view.hide_notes {
@@ -2100,10 +2101,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let Some(w) = &self.watch else {
             return frame;
         };
+        // (A player out of the stage who follows one: theirs too.)
         let feed = self
             .battle
             .as_ref()
-            .filter(|_| w.why == Watching::Spectator)
             .and_then(|b| Some((b, b.feeds().nth(w.focus?)?)));
         if let Some((b, feed)) = feed {
             let options = self.player.options();

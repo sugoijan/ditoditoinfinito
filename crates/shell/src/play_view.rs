@@ -956,7 +956,14 @@ impl<H: PlayHost> PlayView<H> {
         // keeps theirs, dimmed.
         let watch = session.watch(moment.now.0);
         let spectator = watch.filter(|w| w.why == ddi_session::play::Watching::Spectator);
-        let focus = spectator.and_then(|w| w.focus);
+        // A player out of the stage may follow a competitor large too,
+        // their own field then a miniature among the others (its seat the
+        // last: `own_seat`).
+        let focus = watch.and_then(|w| w.focus);
+        let following = focus.is_some() && spectator.is_none();
+        let own_seat = following
+            .then(|| session.battle().map(|b| b.feeds().count()))
+            .flatten();
         let grid = spectator.is_some() && focus.is_none();
         self.upload_backgrounds(device, queue, self.playing_at);
         if std::mem::take(&mut self.skins_changed) {
@@ -999,7 +1006,7 @@ impl<H: PlayHost> PlayView<H> {
         }
         self.host.lap(Lap::Movies);
         let mut render = render;
-        render.no_field = spectator.is_some();
+        render.no_field = spectator.is_some() || following;
         render.hud_time = Some(moment.now.0);
         render.frame_aspect = frame_aspect;
         if let Some(entrance) = &mut self.entrance {
@@ -1153,7 +1160,8 @@ impl<H: PlayHost> PlayView<H> {
         let fields = battle.and_then(|b| {
             // Everyone but the competitor followed, whose field is the
             // large one.
-            let n = b.feeds().count() - usize::from(focus.is_some());
+            let n = b.feeds().count() + usize::from(own_seat.is_some())
+                - usize::from(focus.is_some());
             let key = FieldsKey {
                 n,
                 geo,
@@ -1272,7 +1280,7 @@ impl<H: PlayHost> PlayView<H> {
         self.renderer.set_battle_bar(
             session
                 .battle()
-                .filter(|_| spectator.is_none())
+                .filter(|_| spectator.is_none() && !following)
                 .and_then(|b| bar(b.my_power(&session.player))),
         );
         let mut minis = self.renderer.take_miniatures();
@@ -1287,8 +1295,12 @@ impl<H: PlayHost> PlayView<H> {
         if let Some(b) = battle {
             let scroll = session.player.options().scroll;
             let hits = layer.as_ref().is_some_and(|l| l.miniature_hits()) || layer.is_none();
-            let feeds: Vec<_> = b.feeds().collect();
-            let views = b.views();
+            let mut feeds: Vec<_> = b.feeds().collect();
+            let mut views = b.views();
+            if own_seat.is_some() {
+                feeds.push(b.own_feed());
+                views.push(b.own_view(&session.player, ddi_l10n::msg::room::you().into()));
+            }
             let t = frame.song_time;
             // Each slot's field, then the large one's (its notes as far
             // ahead as a play's own shows them).
@@ -1399,7 +1411,8 @@ impl<H: PlayHost> PlayView<H> {
             .or(cue);
         // The status line's quiet word: who is followed, or, for a
         // stage's first seconds, how to follow someone.
-        let label: Option<String> = spectator
+        let label: Option<String> = watch
+            .filter(|w| w.why == ddi_session::play::Watching::Spectator || w.focus.is_some())
             .and_then(|w| match w.focus {
                 Some(seat) => names
                     .get(seat)
@@ -1509,6 +1522,7 @@ impl<H: PlayHost> PlayView<H> {
                     panel: band_box,
                     mark,
                     skip,
+                    dimmed: !following,
                 }
             });
         // The slots as drawn: the miniatures', then the large field's.
@@ -1523,8 +1537,13 @@ impl<H: PlayHost> PlayView<H> {
                 [m::play_out().into(), m::play_won().into()]
             });
             let mut opponents = b.views();
+            let mut all: Vec<_> = b.feeds().collect();
+            if own_seat.is_some() {
+                opponents.push(b.own_view(&session.player, ddi_l10n::msg::room::you().into()));
+                all.push(b.own_feed());
+            }
             // Life and out as their streams show them.
-            for (o, feed) in opponents.iter_mut().zip(b.feeds()) {
+            for (o, feed) in opponents.iter_mut().zip(all) {
                 let shown = feed.shown(frame.song_time);
                 o.life = shown.life;
                 o.out = shown.out;
@@ -1537,6 +1556,14 @@ impl<H: PlayHost> PlayView<H> {
                     label,
                     large: large_at,
                     stale: b.stale_seats(),
+                    own: own_seat.zip(watch).map(|(seat, w)| {
+                        use ddi_l10n::msg::room as m;
+                        let word: String = match w.why {
+                            ddi_session::play::Watching::Left => m::play_forfeit().into(),
+                            _ => m::play_out().into(),
+                        };
+                        (seat, word)
+                    }),
                     ladder: self.ladder.clone().map(|l| {
                         use ddi_l10n::msg::room as m;
                         let words: String = match (l.place, self.ladder_page) {
@@ -1601,14 +1628,15 @@ impl<H: PlayHost> PlayView<H> {
         // What a tap follows, and where one skips.
         let css = |r: [f32; 4]| r.map(|v| v / screen.ratio);
         let mut watch_at: Vec<(Option<usize>, [f32; 4])> = Vec::new();
-        if spectator.is_some()
+        if watch.is_some()
             && let Some(f) = &fields
         {
             // (An empty slot, a paged grid's last page's, follows nobody.)
             watch_at.extend(f.slots.iter().filter(|s| s.seat != usize::MAX).map(|s| {
                 let [x, y, w, h] = s.rect;
                 (
-                    Some(s.seat),
+                    // (The player's own miniature: back to their field.)
+                    Some(s.seat).filter(|&seat| Some(seat) != own_seat),
                     css([x.min(s.panel[0]), y, (x + w).max(s.panel[2]), y + h]),
                 )
             }));

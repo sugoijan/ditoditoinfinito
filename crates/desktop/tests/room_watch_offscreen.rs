@@ -523,11 +523,27 @@ fn a_player_out_of_a_stage_watches_on_and_skips_to_its_results() {
     let p = rig.host.running().unwrap();
     assert!(p.session.player.failed() && p.session.song_going());
     assert!(rig.host.feed.borrow().skip_at.is_some());
-    // Tab is nothing of theirs.
+    rig.shot("watch-out");
+    // Tab follows a competitor large, as a watcher's focus: their own
+    // field then a miniature among the others (its seat the last, after
+    // the three CPUs'), marked Out; the skip's plate stays.
     rig.press("Tab");
     rig.frame();
+    rig.frame();
+    let w = rig.host.watch().unwrap();
+    assert_eq!((w.view, w.focus), ("out", Some(0)));
+    let seats: Vec<usize> = w.fields.iter().map(|(s, _)| *s).collect();
+    assert_eq!(seats.len(), 4, "{seats:?}");
+    assert!(seats.contains(&3) && seats.last() == Some(&0), "{seats:?}");
+    assert!(rig.host.feed.borrow().skip_at.is_some());
+    assert_eq!(w.label.as_deref().map(|l| l.starts_with("Watching")), Some(true));
+    rig.shot("watch-out-follow");
+    // Escape once: back to their own dimmed field.
+    rig.press("Escape");
+    rig.frame();
+    rig.frame();
     assert_eq!(rig.host.watch().unwrap().focus, None);
-    rig.shot("watch-out");
+    assert!(rig.host.playing(), "once is not the quit");
     // Enter: the results at once.
     rig.press("Enter");
     rig.until_results();

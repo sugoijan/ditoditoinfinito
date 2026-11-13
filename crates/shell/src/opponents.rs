@@ -77,6 +77,11 @@ pub struct Shown {
     /// A large field's ladder ([`crate::rivals::Ladder`]) and its words
     /// ("17 of 73 · 41 still in"), drawn in [`Fields::ladder`]'s place.
     pub ladder: Option<(String, crate::rivals::Ladder)>,
+    /// The local player's own field among the miniatures (they are out of
+    /// the stage and follow a competitor large): its seat and the word it
+    /// is marked with in place of [`Shown::out`] ("Left" where they left
+    /// the stage).
+    pub own: Option<(usize, String)>,
 }
 
 /// What a miniature says of its opponent's score, as the local player's
@@ -1298,7 +1303,12 @@ pub fn draw_fields(
             let [l, t, r, b] = slot.panel;
             list.rect([l, t, r, b], [0.0, 0.0, 0.0, 0.45]);
             let st = style(size.min(13.0), 600);
-            let word = fitted(measure, &shown.out, &st, r - l);
+            let said = shown
+                .own
+                .as_ref()
+                .filter(|(seat, _)| *seat == slot.seat)
+                .map_or(&shown.out, |(_, w)| w);
+            let word = fitted(measure, said, &st, r - l);
             let ww = measure.measure(&word, &st).advance;
             list.push(run(
                 word,
@@ -1327,6 +1337,10 @@ pub struct OwnOut {
     pub panel: [f32; 4],
     pub mark: String,
     pub skip: Option<String>,
+    /// Their own field is in the band, dimmed with the mark; not while
+    /// they follow a competitor large there (the skip's plate alone, at
+    /// the band's foot: their own field is then a miniature).
+    pub dimmed: bool,
 }
 
 impl OwnOut {
@@ -1334,7 +1348,12 @@ impl OwnOut {
     /// plate under the mark, in the band's middle.
     pub fn skip_area(&self, ratio: f32) -> [f32; 4] {
         let [l, t, r, b] = self.panel;
-        let (cx, cy) = ((l + r) / 2.0, (t + b) / 2.0);
+        let cx = (l + r) / 2.0;
+        let cy = if self.dimmed {
+            (t + b) / 2.0
+        } else {
+            b - 96.0 * ratio
+        };
         let half = ((r - l) / 2.0 - 8.0 * ratio).clamp(40.0 * ratio, 130.0 * ratio);
         [cx - half, cy + 22.0 * ratio, cx + half, cy + 52.0 * ratio]
     }
@@ -1351,12 +1370,15 @@ pub fn draw_own_out(list: &mut DrawList, own: &OwnOut, ratio: f32, measure: &mut
         s
     };
     let [l, t, r, b] = own.panel;
-    list.rect([l, t, r, b], [0.0, 0.0, 0.0, 0.45]);
-    let (cx, cy) = ((l + r) / 2.0, (t + b) / 2.0);
-    let st = style(24.0, 700);
-    let mark = fitted(measure, &own.mark, &st, r - l - 8.0 * ratio);
-    let w = measure.measure(&mark, &st).advance;
-    list.push(run(mark, &st, [cx - w / 2.0, cy - 24.0 * ratio], TEXT));
+    let cx = (l + r) / 2.0;
+    if own.dimmed {
+        list.rect([l, t, r, b], [0.0, 0.0, 0.0, 0.45]);
+        let cy = (t + b) / 2.0;
+        let st = style(24.0, 700);
+        let mark = fitted(measure, &own.mark, &st, r - l - 8.0 * ratio);
+        let w = measure.measure(&mark, &st).advance;
+        list.push(run(mark, &st, [cx - w / 2.0, cy - 24.0 * ratio], TEXT));
+    }
     if let Some(skip) = &own.skip {
         let [pl, pt, pr, pb] = own.skip_area(ratio);
         let mut plate = Quad::plain([pl, pt, pr, pb], [1.0, 1.0, 1.0, 0.08]);
@@ -1468,6 +1490,7 @@ pub(crate) mod tests {
             large: None,
             stale: Vec::new(),
             ladder: None,
+            own: None,
         }
     }
 
@@ -1784,7 +1807,20 @@ pub(crate) mod tests {
                 panel: [mid - band / 2.0, 0.0, mid + band / 2.0, g.height],
                 mark: "Left the stage".into(),
                 skip: Some("Enter: skip to results".into()),
+                dimmed: true,
             };
+            // Following a competitor large: the plate alone, at the
+            // band's foot, below its middle.
+            let low = OwnOut {
+                dimmed: false,
+                ..own.clone()
+            };
+            let [_, lt, _, lb] = low.skip_area(ratio);
+            assert!(lt > g.height * 0.75 && lb < g.height, "{w}x{h}");
+            let mut list = DrawList::new();
+            draw_own_out(&mut list, &low, ratio, &mut FixedMeasure);
+            let said = texts_of(&list);
+            assert!(!said.iter().any(|t| t.starts_with("Left")) && said.iter().any(|t| t.contains("skip")));
             let [l, t, r, b] = own.skip_area(ratio);
             assert!(l >= own.panel[0] && r <= own.panel[2], "{w}x{h}");
             assert!(t > g.height / 2.0 && b < g.height, "{w}x{h}");

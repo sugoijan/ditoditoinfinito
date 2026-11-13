@@ -454,7 +454,31 @@ fn a_live_stage_is_started_streamed_attacked_and_decided_by_the_room() {
     }
     let mut seen_other = [false, false];
     let mut in_step = true;
+    // Bob, once out, follows Alice large (Tab) and goes back (Escape).
+    let mut followed: (Option<f64>, bool, bool) = (None, false, false);
     let mut ended = play_out(&r, &mut plays, 200.0, |t, plays| {
+        let host = *r.host.borrow();
+        if let Some(w) = plays[1].watch(host) {
+            match followed.0 {
+                None => {
+                    followed.0 = Some(host);
+                    plays[1].inputs.key(host + 0.01, "Tab", true);
+                    plays[1].inputs.key(host + 0.05, "Tab", false);
+                    plays[1].inputs.key(host + 1.0, "Escape", true);
+                    plays[1].inputs.key(host + 1.05, "Escape", false);
+                }
+                Some(at) if host > at + 0.5 && host < at + 0.9 && w.focus == Some(0) => {
+                    // Alice's field in his own's place, his own a
+                    // miniature marked out.
+                    let b = plays[1].battle().unwrap();
+                    let f = plays[1].frame(HostTime(host));
+                    let want = b.feeds().next().unwrap().shown(f.song_time);
+                    followed.1 |= f.combo == want.combo && b.own_feed().shown(f.song_time).out;
+                }
+                Some(at) if host > at + 1.5 => followed.2 |= w.focus.is_none(),
+                _ => {}
+            }
+        }
         // A second in: both plays at the same song second (the room's
         // instant), whatever their clocks.
         if (1.0..1.05).contains(&t) {
@@ -471,6 +495,7 @@ fn a_live_stage_is_started_streamed_attacked_and_decided_by_the_room() {
         }
     });
     assert!(in_step, "started at the room's instant");
+    assert!(followed.1 && followed.2, "Bob followed Alice and came back: {followed:?}");
     assert!(seen_other[1], "Bob saw Alice's field move");
     let (alice_event, alice) = ended[0].take().expect("Alice's play ended");
     let (_, bob) = ended[1].take().expect("Bob's play ended");

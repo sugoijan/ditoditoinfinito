@@ -2528,10 +2528,13 @@ fn a_quit_in_a_stage_forfeits_and_watches_on_until_skipped() {
             (8.05, "Escape", false),
             (8.2, "Escape", true),
             (8.25, "Escape", false),
-            // Not a skip while it is a lane's or anyone's: Tab changes
-            // nothing for a player out of the stage.
+            // Out of the stage, Tab follows a competitor large (their
+            // own field a miniature among the others); Escape once goes
+            // back to their own field (no skip: once is not the quit).
             (10.0, "Tab", true),
             (10.05, "Tab", false),
+            (11.0, "Escape", true),
+            (11.05, "Escape", false),
         ];
         if second == "Enter" {
             keys.push((14.0, "Enter", true));
@@ -2543,6 +2546,25 @@ fn a_quit_in_a_stage_forfeits_and_watches_on_until_skipped() {
         let (mut s, clock) = stage_session(&song, &order, true, &keys);
         assert!(run_until(&mut s, &clock, 60.0, 8.1).is_none());
         assert!(s.watch(8.1).is_none(), "one press only shows the hint");
+        assert!(run_until(&mut s, &clock, 60.0, 10.5).is_none());
+        let w = s.watch(10.5).expect("watching on");
+        assert_eq!((w.why, w.focus), (Watching::Left, Some(0)));
+        // The followed competitor's field in theirs' place: its stream's.
+        let b = s.battle().unwrap();
+        let feed = b.feeds().next().unwrap();
+        let mut want = feed.frame_large(
+            b.track(),
+            s.player.options().scroll,
+            s.frame(HostTime(10.5)).song_time,
+            s.player.options().visible_range,
+        );
+        want.failed = false;
+        let got = s.frame(HostTime(10.5));
+        assert_eq!(got.notes.len(), want.notes.len());
+        assert_eq!((got.combo, got.life), (want.combo, want.life));
+        // Their own field as a stream: out (left) at the forfeit.
+        let own = b.own_feed().shown(10.5);
+        assert!(own.out, "their own miniature is out");
         assert!(run_until(&mut s, &clock, 60.0, 13.0).is_none(), "no results yet");
         let w = s.watch(13.0).expect("watching on");
         assert_eq!((w.why, w.focus), (Watching::Left, None));

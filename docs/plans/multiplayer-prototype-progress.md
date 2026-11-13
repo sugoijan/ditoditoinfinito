@@ -4048,7 +4048,8 @@ without its practice line.
   carry); hold states (above); the dancing hand never follows a
   competitor.
 - A player out of a stage cannot follow one competitor large: their
-  own field stays where it is.
+  own field stays where it is. (Built since: "A player out of a stage
+  follows a competitor large".)
 
 ## Online play's shared base: the contract in `crates/room` (implemented, 2026-11-13)
 
@@ -5040,6 +5041,33 @@ forfeits and watches on at the same address, Forward changes nothing,
 Enter skips to the results (nothing asked, the line Left and QUIT), a Back
 from the results reaches the room in one press, and a Forward from there
 shows the room (an address the room did not hand over).
+
+### A player out of a stage follows a competitor large
+
+After going out or leaving a stage's play, Tab and Shift+Tab, a
+controller's shoulders, or a press on a miniature put that competitor in
+the large center field exactly as a watcher's focus does (their notes,
+judgment's word, combo, score, life and power bar, their attack warning
+and links; the status line "Watching [name]"). The player's own field is
+then a miniature among the others, named "You" and marked "Out" or "Left
+the stage" (`opponents::Shown::own`), fed from their own judged play as
+the others' are from their streams (`Battle::own_feed`, `own_view`: taps,
+holds' ends, mines, shocks, Boos, their going out). Tab goes round the
+competitors and back to their own field; Escape once (or a press on their
+own miniature, or on the large field) goes back to their own dimmed field
+with its mark; Escape held or twice still skips to the results, as do
+Enter, Start or South and the skip's plate (at the band's foot while
+following, `OwnOut::dimmed`). Practice and online alike (one code path).
+
+Tested: `ddi-session` `watch`'s keys (`a_player_out_of_the_stage_skips_and_follows_one_large`),
+`a_quit_in_a_stage_forfeits_and_watches_on_until_skipped` (Tab follows
+seat 0, the frame the feed's large frame, their own miniature out, Escape
+back), the live stage's test (`a_live_stage_is_started_streamed_attacked_and_decided_by_the_room`:
+Bob, out, follows Alice's streamed field and comes back); `ddi-shell` the
+plate's place while following; `ddi-desktop` `room_watch_offscreen`
+(out, Tab: four slots with their own among them and the followed last,
+the label, the plate; Escape once back, the play going on; picture
+looked at).
 
 ## Provisional choices
 
