@@ -15,6 +15,11 @@
 //! `ddi_engine::cpu`'s [`Opponent`] (the chart's tap-only copy, a level
 //! relative to the chart and a personality from the CPU roster or the
 //! flags) judged on a real-time song clock: never a skill-tuned player.
+//! In a room that plays live (`docs/plans/multiplayer-online-play.md`) a
+//! bot plays as a person's device does: it offers or compares the battle
+//! plan, says it plays live, starts its song clock at the room's instant,
+//! streams its moments and checkpoint reports and takes the room's attacks
+//! into its CPU's play (`ddi_session::battle::live::LivePlay`).
 //!
 //! A host bot (`--host`) makes a room, prints its invite, accepts its
 //! Rules, rests on each song before picking it (so that the others see and
@@ -118,7 +123,8 @@ pub const USAGE: &str = "\
 ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   Simulated players (DEVELOPMENT TOOL) in a private online room, played by
   the CPU; the server signs them in for an admin share token (DDI_SHARE_TOKEN,
-  else the settings' share token). Ctrl-C leaves.
+  else the settings' share token). In a room that plays live they play live:
+  their plays streamed, the room's attacks taken. Ctrl-C leaves.
   --host               a host bot: makes a room, prints its invite, picks songs
   --join LINK|INVITE   guest bots join this room (else the host bot's)
   --guests N           guest bots (default 3 with --join, else 0; at most 8 bots)
@@ -358,6 +364,9 @@ pub struct StagePlay {
     /// bot plays the CPU's tap-only copy beside people on the chart).
     most: Option<i64>,
     started_ms: u64,
+    /// The stage played live (`ddi_session::battle::live`): its stream to
+    /// the room and the room's attacks into its CPU's play.
+    live: Option<ddi_session::battle::live::LivePlay>,
 }
 
 impl StagePlay {
@@ -385,12 +394,39 @@ impl StagePlay {
             opponent,
             most,
             started_ms: now_ms,
+            live: None,
         })
+    }
+
+    /// Played live in `room` (its stream sent, the room's attacks taken),
+    /// its song clock on the room's: song time zero at the room's instant.
+    pub fn go_live(
+        &mut self,
+        room: &SharedRoom,
+        order: &StageOrder,
+        song: &ddi_chart::Song,
+        now_ms: u64,
+    ) -> Result<(), String> {
+        let handle = ddi_session::battle::live::LiveHandle {
+            room: room.clone(),
+            wall_ms: Rc::new(now_ms_fn),
+        };
+        self.live =
+            ddi_session::battle::live::LivePlay::new(handle, order, song, order.chart.index)?;
+        if self.live.is_some()
+            && let Some(zero_in) = room.borrow().song_zero_in(order.stage)
+        {
+            // `song_time` reads `LEAD_S` before the start: the start put
+            // there so that song time zero is the room's instant.
+            let start = now_ms as f64 + zero_in * 1_000.0 - LEAD_S * 1_000.0;
+            self.started_ms = start.max(0.0) as u64;
+        }
+        Ok(())
     }
 
     /// The song's second at `now_ms`.
     pub fn song_time(&self, now_ms: u64) -> f64 {
-        now_ms.saturating_sub(self.started_ms) as f64 / 1000.0 - LEAD_S
+        (now_ms as f64 - self.started_ms as f64) / 1000.0 - LEAD_S
     }
 
     /// Played up to `now_ms`; its run once it is over (out, or the song
@@ -398,11 +434,25 @@ impl StagePlay {
     pub fn advance(&mut self, now_ms: u64) -> Option<Run> {
         let t = self.song_time(now_ms);
         self.opponent.advance(t);
+        if let Some(live) = &mut self.live {
+            // Its stream reads the play as judged; the room's attacks go
+            // into it.
+            let judged = self.opponent.take_judged();
+            live.send(t, self.opponent.player(), &judged);
+            let opponent = &mut self.opponent;
+            let mut deliver = |cells: &[ddi_engine::battle::Hazard]| {
+                opponent.receive_hazards(cells).is_ok()
+            };
+            live.receive(t, &mut deliver);
+        }
         if let Some(at) = self.opponent.out_at() {
             return Some(Run::Out { at });
         }
         let end = self.opponent.player().end_time();
         let over = (self.opponent.finished() && t >= end + TAIL_S) || t >= end + 30.0;
+        if over && let Some(live) = &mut self.live {
+            live.end(ddi_room::live::StreamEnd::Finished, t);
+        }
         over.then(|| {
             ddi_session::battle::run_of(
                 None,
@@ -465,6 +515,10 @@ fn mix(a: u64, b: u64) -> u64 {
 
 fn now_ms() -> u64 {
     crate::clock::epoch_ms().max(0.0) as u64
+}
+
+fn now_ms_fn() -> u64 {
+    now_ms()
 }
 
 fn clock_text() -> String {
@@ -832,7 +886,10 @@ impl Bot {
             let read = crate::play::load::read_chart(&order.song.id)
                 .map_err(|e| format!("{e:?}"))
                 .and_then(|song| {
-                    StagePlay::new(&order, &song, order.chart.index, &self.profile, seed, now)
+                    let mut play =
+                        StagePlay::new(&order, &song, order.chart.index, &self.profile, seed, now)?;
+                    play.go_live(room, &order, &song, now)?;
+                    Ok(play)
                 });
             match read {
                 Ok(play) => {

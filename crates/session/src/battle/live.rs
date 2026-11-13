@@ -734,3 +734,85 @@ impl Drop for Live {
         }
     }
 }
+
+/// A live stage played by something other than a [`crate::play::PlaySession`]
+/// (DEVELOPMENT TOOL: `ddi --mp-bots`' bots, each a CPU's play on a real-time
+/// song clock): the same stream and the same delivery of the room's attacks
+/// as a person's play.
+pub struct LivePlay {
+    live: Live,
+    track: feed::TapTrack,
+}
+
+impl LivePlay {
+    /// Stage `order` of chart `chart` of `song` played live through
+    /// `handle` (none where the room does not play it live, or this device
+    /// did not say it plays it live).
+    pub fn new(
+        handle: LiveHandle,
+        order: &ddi_ui::state::room::StageOrder,
+        song: &ddi_chart::Song,
+        chart: usize,
+    ) -> Result<Option<LivePlay>, String> {
+        let Some(live) = &order.live else {
+            return Ok(None);
+        };
+        let Some(prep) = &live.prep else {
+            return Ok(None);
+        };
+        let track = feed::TapTrack::full(song, chart)?;
+        let plan = prep.plan.clone().filter(|_| order.battle.attacks());
+        Ok(Some(LivePlay {
+            live: Live::new(
+                handle,
+                order.stage,
+                order.me,
+                true,
+                plan,
+                prep.horizon_us,
+                &live.people,
+                &track,
+                None,
+            ),
+            track,
+        }))
+    }
+
+    /// The play judged to song second `t` (`judged`: its events since the
+    /// last call) streamed.
+    pub fn send(&mut self, t: f64, player: &Player, judged: &[JudgeEvent]) {
+        self.live.send(t, player, judged);
+        self.live.tick_room();
+    }
+
+    /// The room's news read at song second `t`; `deliver` puts an attack
+    /// committed against this play into it. The attacks committed: sender,
+    /// recipient and whether it went into this play.
+    pub fn receive(
+        &mut self,
+        t: f64,
+        deliver: &mut Deliver<'_>,
+    ) -> Vec<(ParticipantId, ParticipantId, bool)> {
+        self.live
+            .receive(&self.track, t, Some(deliver))
+            .committed
+            .into_iter()
+            .map(|(_, from, to, _, delivered)| (from, to, delivered))
+            .collect()
+    }
+
+    /// The stream ends (sent at once, before the run reported with it).
+    pub fn end(&mut self, end: StreamEnd, t: f64) {
+        self.live.end(end, t);
+    }
+
+    /// The room decided the stage before the song's end.
+    pub fn decided_early(&self) -> bool {
+        self.live.decision().is_some_and(|(_, early)| early)
+    }
+
+    /// Attacks against this play it refused (too late).
+    pub fn refused(&self) -> u32 {
+        self.live.refused
+    }
+}

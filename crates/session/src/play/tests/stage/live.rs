@@ -696,3 +696,68 @@ fn an_attack_that_comes_too_late_is_refused_and_taken_off_the_views() {
         "taken off Bob's field"
     );
 }
+
+/// A bot's play (DEVELOPMENT TOOL: `ddi --mp-bots`, a CPU on a real-time
+/// song clock, `crate::battle::live::LivePlay`) streams as a person's play
+/// does: the person sees its field move, the room's attacks against it go
+/// into its CPU's play, and its stream ends before its run.
+#[test]
+fn a_bots_cpu_play_streams_live_beside_a_person() {
+    use crate::battle::live::LivePlay;
+    let song = bundled("beatucada");
+    let r = Room::new(&[("alice", Intent::Play), ("bot", Intent::Play)], None);
+    let orders = pick_and_ready(&r, &song, true, 0);
+    let mut plays = sessions(&r, &song, &orders[..1], &[0.0]);
+    let order = orders[1].clone().unwrap();
+    let mut cpu = ddi_engine::cpu::Opponent::with_skills(
+        &song,
+        0,
+        crate::battle::stage_ruleset(&order.rules),
+        9,
+        3,
+        Default::default(),
+    )
+    .unwrap();
+    cpu.start(0.0);
+    let mut bot = LivePlay::new(r.handle(1), &order, &song, 0).unwrap().expect("live");
+    let zero = r.rooms[0].borrow().song_zero_at(order.stage).unwrap();
+    let mut received = 0;
+    let mut bot_done = false;
+    let bot_id = order.me;
+    let _ = play_out(&r, &mut plays, 200.0, |_, _| {
+        let t = (wall(*r.host.borrow()) as f64 - zero.0 as f64) / 1_000.0;
+        if bot_done {
+            return;
+        }
+        cpu.advance(t);
+        let judged = cpu.take_judged();
+        bot.send(t, cpu.player(), &judged);
+        let c = &mut cpu;
+        let mut deliver = |cells: &[ddi_engine::battle::Hazard]| c.receive_hazards(cells).is_ok();
+        received += bot
+            .receive(t, &mut deliver)
+            .iter()
+            .filter(|x| x.1 == bot_id && x.2)
+            .count();
+        if cpu.finished() && t > cpu.player().end_time() + 1.0 {
+            bot.end(StreamEnd::Finished, t);
+            bot_done = true;
+        }
+    });
+    r.run(3.0);
+    let ids: Vec<_> = r.rooms.iter().map(|x| x.borrow().me()).collect();
+    let server = r.server.borrow();
+    let live = server.live().unwrap().stage_or_last().unwrap();
+    let against = live
+        .ledger()
+        .unwrap()
+        .attacks()
+        .iter()
+        .filter(|a| a.recipient == ids[1])
+        .count();
+    assert!(against > 0);
+    assert_eq!(received, against, "into the bot's CPU play");
+    assert_eq!(live.end(ids[1]), Some(StreamEnd::Finished));
+    let seen = taps_read(&r, 0, ids[1]).len();
+    assert!(seen > 100, "Alice saw the bot's taps: {seen}");
+}
