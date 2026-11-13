@@ -2180,11 +2180,11 @@ fn the_audience_watches_seventy_three_players_through_the_session() {
     assert_eq!(views.iter().filter(|v| !v.out).count(), N - outs);
 }
 
-/// A live room whose zero life steps down (a match's "At zero life: Step
-/// down"): the picker's plan names the ladder and every device's agrees;
-/// Bob, missing everything, steps down the song's ladder, his stream says
-/// each step, Alice's view of his field follows the chart he is on; the
-/// room ranks fewer steps first.
+/// A live room whose charts adapt (a match's "Charts: Adaptive"): the
+/// picker's plan names the ladder and every device's agrees; Bob, missing
+/// everything, steps down the song's ladder, his stream says each step,
+/// Alice's view of his field follows the chart he is on; the room ranks
+/// Alice, still in, first.
 #[test]
 fn a_live_stage_steps_down_and_the_others_fields_follow() {
     let song = bundled("beatucada");
@@ -2243,6 +2243,68 @@ fn a_live_stage_steps_down_and_the_others_fields_follow() {
         ddi_room::Run::Live { steps, .. } => assert!(steps >= 2),
         ddi_room::Run::Out { .. } => {
             assert_eq!(plays[1].player.steps().len(), ddi_engine::ladder::below(&song, HARD).len())
+        }
+        ref other => panic!("{other:?}"),
+    }
+}
+
+/// A live room whose charts adapt, from Medium: Alice, playing every
+/// note, steps up the ladder above it (Hard, then Challenge), her stream
+/// says each step and Bob's view of her field follows her up; nothing on
+/// the wire is new for a rung above (a rung's number names it); the room
+/// ranks by the score as earned and its stream's last rung is hers.
+#[test]
+fn a_live_stage_steps_up_and_the_others_fields_follow() {
+    let song = bundled("beatucada");
+    let medium = song
+        .charts
+        .iter()
+        .position(|c| c.layout == "dance-single" && c.difficulty == ddi_chart::Difficulty::Medium)
+        .unwrap();
+    let r = Room::new(&[("alice", Intent::Play), ("bob", Intent::Play)], None);
+    r.run(1.0);
+    let mut rules = r.rooms[0].borrow().rules().clone();
+    rules.charts = ddi_room::Charts::Adaptive;
+    r.rooms[0].borrow_mut().save_rules(rules).unwrap();
+    r.run(1.0);
+    let orders = pick_and_ready(&r, &song, true, medium);
+    let o = orders[0].as_ref().unwrap();
+    let plan = r.rooms[0].borrow().live_prep(o.stage).unwrap().plan.clone().unwrap();
+    let ladder = ddi_engine::ladder::Ladder::of(&song, medium);
+    assert!(!ladder.above.is_empty());
+    assert_eq!(
+        plan.ladder,
+        ladder.rungs().iter().map(|&c| song.chart_digest(c).to_string()).collect::<Vec<_>>()
+    );
+    let bobs = r.rooms[1].borrow().live_prep(o.stage).unwrap().plan.clone().unwrap();
+    assert_eq!(bobs.digest, plan.digest);
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 5.0]);
+    let mut ended = play_out(&r, &mut plays, 200.0, |_, _| {});
+    let (_, alice) = ended[0].take().expect("Alice's play ended");
+    let _ = ended[1].take().expect("Bob's play ended");
+    let steps = plays[0].player.steps().to_vec();
+    assert!(steps.iter().filter(|s| s.up).count() >= 2, "{steps:?}");
+    // Bob's view of Alice's field: each step at its boundary, up.
+    let seen: Vec<(f64, f64, u8)> = plays[1].battle().unwrap().feeds().next().unwrap().steps().collect();
+    assert_eq!(seen.len(), steps.len());
+    for (s, st) in seen.iter().zip(&steps) {
+        assert_eq!(s.2, st.rung);
+        assert!((s.1 - st.boundary).abs() < 1e-6, "the boundary {s:?} {st:?}");
+    }
+    let field = plays[1].battle().unwrap().feeds().next().unwrap();
+    let last = steps.last().unwrap();
+    assert_eq!(field.rung_at(last.boundary + 1.0 + field.delay()), last.rung);
+    assert_eq!(ladder.level(last.rung), steps.iter().filter(|s| s.up).count() as i8);
+    // Alice first; the room's stream says her last rung; her run's score
+    // her play's own sum.
+    assert_eq!(alice.ranking[0][0].participant, r.rooms[0].borrow().me());
+    let server = r.server.borrow();
+    let stage = server.live().unwrap().stage_or_last().unwrap();
+    assert_eq!(stage.steps(r.rooms[0].borrow().me()), last.rung);
+    drop(server);
+    match alice.mine {
+        ddi_room::Run::Live { score, .. } => {
+            assert_eq!(score, plays[0].player.ruleset().score.view().ddi.map(|d| d.score))
         }
         ref other => panic!("{other:?}"),
     }

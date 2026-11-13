@@ -551,9 +551,10 @@ pub struct Battle {
     /// put in.
     own: feed::FieldFeed,
     own_out: bool,
-    /// The stage's ladder where zero life steps down (a match's "At zero
-    /// life: Step down", [`stage_ladder`]): each rung's chart, its copy as
-    /// the fields draw it and its name; empty where zero life is out.
+    /// The stage's ladder where the charts adapt (a match's "Charts:
+    /// Adaptive", [`stage_ladder`]): each rung's chart, its copy as the
+    /// fields draw it, its name and whether it is above the stage's
+    /// chart; empty where the charts are as picked.
     rungs: Vec<Rung>,
 }
 
@@ -865,8 +866,8 @@ impl Battle {
         })
     }
 
-    /// The stage's ladder ([`stage_ladder`]): empty where zero life is
-    /// out.
+    /// The stage's ladder ([`stage_ladder`]), numbered from 1 as
+    /// `Ladder::rungs`: empty where the charts are as picked.
     pub fn rungs(&self) -> &[Rung] {
         &self.rungs
     }
