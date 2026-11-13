@@ -871,7 +871,8 @@ impl JudgeNames {
 
     /// DDI's names as shown in a language (round 4): `word(tier, late)`
     /// gives a word by its tier (0 W0, 1 to 5 W1 to W5 by side, 6 Miss,
-    /// 7 Boo; `ddi_l10n::judgments::ddi_word`), or `None` to keep the
+    /// 7 Boo, 8 a hold held, 9 one dropped;
+    /// `ddi_l10n::judgments::ddi_word`), or `None` to keep the
     /// ruleset's own. `None` for a ruleset without DDI's words (one name
     /// a tier) or where every word is kept: the names as they are.
     /// Only words: the colors, tiers and everything judged stay.
@@ -902,6 +903,8 @@ impl JudgeNames {
         if let Some(boo) = out.boo.as_mut() {
             take(boo, 7, false);
         }
+        take(&mut out.held, 8, false);
+        take(&mut out.let_go, 9, false);
         any.then_some(out)
     }
 
@@ -1392,7 +1395,8 @@ mod tests {
 mod shown_tests {
     use super::*;
 
-    /// DDI's words in a language (round 4): every word given is used, the
+    /// DDI's words in a language (round 4; the holds' since 2026-11-13):
+    /// every word given is used, the
     /// rest kept, and nothing but words changes; a ruleset with one name
     /// a tier is never touched.
     #[test]
@@ -1405,7 +1409,8 @@ mod shown_tests {
         assert_eq!(shown.tiers[5], "6L");
         assert_eq!(shown.w0, Some(("0E".into(), "1L".into())));
         assert_eq!(shown.boo.as_deref(), Some("7E"));
-        assert_eq!((shown.held.as_str(), shown.let_go.as_str()), ("Held", "Off"));
+        // The holds' words too (since 2026-11-13).
+        assert_eq!((shown.held.as_str(), shown.let_go.as_str()), ("8E", "9E"));
         assert_eq!(shown.palette, ddi.palette);
         assert_eq!(shown.word(Judgement::W3, -0.05, false), "3E");
         assert_eq!(shown.word(Judgement::W1, 0.0, true), "0E");

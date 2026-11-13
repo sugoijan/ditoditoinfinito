@@ -40,3 +40,9 @@ judgments-boo = Boo
 # What the results call the count of stray presses, a row's label beside
 # a number.
 judgments-boos = Boos
+# A hold or roll held to its end, shown by its receptor during a play (one
+# short word) and in the results' "Held / Off" row.
+judgments-held = Held
+# A hold or roll let go before its end (dropped), shown as the one above.
+# Short: a word, the opposite of the one above.
+judgments-dropped = Off

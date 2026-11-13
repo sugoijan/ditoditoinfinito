@@ -284,7 +284,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
     let names = &*shown;
     // Tiers the ruleset has: named ("—" names none) and judged (a
     // disabled window counts nothing).
-    let judgements = Judgement::ALL
+    let judgements: Vec<JudgementCount> = Judgement::ALL
         .iter()
         .filter(|j| {
             let name = names.name(**j).trim();
@@ -357,6 +357,25 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         .collect();
     let t = &r.tally;
     let judge = &p.ruleset.judge;
+    // Where every stray press counts (FFR's Boo; DDI with Boos on).
+    let counts_strays = matches!(
+        judge.empty_press,
+        EmptyPress::Boo | EmptyPress::BooFromFirstNote | EmptyPress::Guarded { .. }
+    );
+    let ddi = p.ruleset.is_ddi();
+    // DDI with Boos on: the Boos a row of their own among the judgments,
+    // in the Boo's color (the maintainer, 2026-11-13); off, no row.
+    let mut judgements = judgements;
+    if ddi && r.ddi.is_some() && counts_strays {
+        judgements.push(JudgementCount {
+            name: ddi_l10n::judgments::word(ddi_l10n::judgments::Word::Boos)
+                .unwrap_or_else(|| UiText::data(ddi_engine::rules::ddi::BOOS_WORD))
+                .into(),
+            color: "Judgement.Boo".to_string(),
+            count: t.boo,
+            sides: None,
+        });
+    }
     let mut stats = Vec::new();
     // Rules that play only taps (FFR's) have no holds or mines to count.
     if !judge.taps_only {
@@ -375,26 +394,13 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
     if !judge.taps_only {
         stats.push((rm::mines_hit().into(), t.mine_hit.to_string()));
     }
-    // Where every stray press counts (FFR's Boo), always.
-    let counts_strays = matches!(
-        judge.empty_press,
-        EmptyPress::Boo | EmptyPress::BooFromFirstNote | EmptyPress::Guarded { .. }
-    );
-    let ddi = p.ruleset.is_ddi();
     // DDI's display, where the play is its own.
     let percent = ddi && Settings::cached().ddi_percent();
-    if t.boo > 0 || counts_strays {
-        stats.push((
-            if ddi {
-                // DDI's own word for them, a judgment's.
-                ddi_l10n::judgments::word(ddi_l10n::judgments::Word::Boos)
-                    .unwrap_or_else(|| UiText::data(ddi_engine::rules::ddi::BOOS_WORD))
-                    .into()
-            } else {
-                rm::stray_presses().into()
-            },
-            t.boo.to_string(),
-        ));
+    // Stray presses counted (always where every one counts): under DDI
+    // their row is among the judgments (above) where Boos are on, and a
+    // play without them counts none.
+    if !(ddi && r.ddi.is_some()) && (t.boo > 0 || counts_strays) {
+        stats.push((rm::stray_presses().into(), t.boo.to_string()));
     }
     stats.push((rm::max_combo().into(), r.max_combo.to_string()));
     stats.extend(flare_stat(r));
@@ -1075,8 +1081,9 @@ mod tests {
         assert_eq!(stat(&d, "Held / Off").as_deref(), Some("3 / 1"));
         assert_eq!(stat(&d, "Early / late").as_deref(), Some("6 / 11"));
         assert_eq!(stat(&d, "Fast / slow"), None);
-        // Boos off: not counted, not shown.
+        // Boos off: not counted, not shown, no row.
         assert_eq!(stat(&d, "Boos"), None);
+        assert!(!names(&d).contains(&"Boos"));
         assert_eq!(stat(&d, "Stray presses"), None);
         // The score, 951,000 of the ratio and 190,220 of the absolute
         // score, with the percent beside it; no line for the absolute.
@@ -1106,7 +1113,22 @@ mod tests {
         r.gauge_failed_at = Some(95.0);
         r.failed = true;
         let d = results_data(&info(&r, &boos, &layout));
-        assert_eq!(stat(&d, "Boos").as_deref(), Some("2"));
+        // Boos a row of its own among the judgments, last, in the Boo's
+        // color (2026-11-13); not among the other counts.
+        let last = d.judgements.last().unwrap();
+        assert_eq!(
+            (last.name.as_str(), last.count, last.color.as_str(), last.sides),
+            ("Boos", 2, "Judgement.Boo", None)
+        );
+        assert_eq!(d.judgements.len(), 8);
+        assert_eq!(stat(&d, "Boos"), None);
+        // In the player's language with the rest, the holds' words too.
+        assert!(ddi_l10n::force("ja"));
+        let ja = results_data(&info(&r, &boos, &layout));
+        ddi_l10n::unforce();
+        ddi_l10n::choose(Some("en"));
+        assert_eq!(ja.judgements.last().unwrap().name, "ブー");
+        assert!(ja.stats.iter().any(|(l, v)| l == "キープ / オフ" && v == "3 / 1"), "{:?}", ja.stats);
         assert!(d.mods.ends_with("hard timing · Boos · practice"), "{}", d.mods);
         assert_eq!(
             d.notes,

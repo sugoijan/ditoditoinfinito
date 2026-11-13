@@ -905,8 +905,10 @@ every other ruleset looks, judges and saves as before.
   replays and the announcer studio's staged plays all follow it, and a
   kept play (its record has tiers, never words) shows in the language of
   now. English reads as before either way. Grades (Absolute Dito,
-  Absolute Bot, SSS … F) and lamps stay Latin; Held and Off stay as the
-  ruleset names them. The Japanese set is in `locales/ja/GLOSSARY.md`
+  Absolute Bot, SSS … F) and lamps stay Latin; Held and Off follow
+  the other words since 2026-11-13 (`judgments-held`, `judgments-dropped`:
+  キープ and オフ in Japanese), and with Boos on the results show the Boos as
+  a row of their own among the judgments, in the Boo's color. The Japanese set is in `locales/ja/GLOSSARY.md`
   (an unverified draft): every late word has a ゛, no early word does;
   W5 is ハヤトチリ / マニアワズ rather than a transliteration. Tests: each
   language's hint (`ddi_l10n` `every_late_word_has_its_hint_and_no_early_word_does`;

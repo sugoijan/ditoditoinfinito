@@ -168,6 +168,8 @@ their own; nothing hints by them).
 | W5 | Too early | ハヤトチリ | Too late | マニアワズ |
 | Miss | Miss | ミス | | |
 | Boo (and the results' count, Boos) | Boo | ブー | | |
+| A hold held to its end (2026-11-13, unverified draft) | Held | キープ | | |
+| A hold dropped (2026-11-13, unverified draft) | Off | オフ | | |
 
 W5 is not transliterated: トゥーアーリー reads badly, and the plain
 ハヤスギ / オソスギ would put a ゛ in the early word. ハヤトチリ (早とちり,
@@ -175,7 +177,11 @@ jumping the gun) and マニアワズ (間に合わず, did not make it) say it i
 the Dancing☆Onigiri spirit and keep the hint. Unsure: whether those two
 read naturally as judgments to a native player; オーサム (rare in
 Japanese) and アブソリュート (long) might want other words. The hold
-outcomes Held and Off stay as the ruleset names them.
+outcomes (since 2026-11-13): キープ (kept down to the end) and オフ (let
+off), plain game katakana, neither early nor late; Dancing☆Onigiri's own
+キター / イクナイ were the tone's reference but read as net slang. English
+may rename Off to "Dropped" (one message, `judgments-dropped`): ドロップ
+would follow.
 
 ## Review decisions (2026-11-08, approved by the maintainer)
 

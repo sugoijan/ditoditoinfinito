@@ -6398,6 +6398,64 @@ sends, is not late.
   watches: the music 0.400 s behind the room's song time throughout, the
   players' on time, the fields equal to the audience's at the end).
 
+### Hold judgments in the player's language, and a Boos row on the results
+
+- **Held and Off** follow DDI's other judgment words where Options →
+  Rules → Judgment words is "In your language" (the default): two
+  messages, `judgments-held` and `judgments-dropped` (English "Held" and
+  "Off"; "Off" is the one message to rename should "Dropped" be chosen),
+  `ddi_l10n::judgments::Word::Held`/`Dropped`, taken by
+  `JudgeNames::shown` (tiers 8 and 9), so the HUD's word by a hold's
+  receptor and the results' "Held / Off" row follow, as the other words
+  do (a kept play in the language of now). Japanese (an unverified
+  draft, in `locales/ja/GLOSSARY.md`): キープ and オフ, plain game
+  katakana, neither early nor late; Dancing☆Onigiri's キター / イクナイ
+  were considered and read as net slang.
+- **Boos as a row of their own** on the results where the play had Boos
+  on: last among the judgments, its count, the Boo's color
+  (`Judgement.Boo`), the word in the player's language ("Boos", ブー); off,
+  no row (and no Boos line among the counts any more under DDI). A kept
+  play's record keeps its ruleset's options (`RulesetKey`'s DDI options,
+  Boos among them), so its results and its replay's show the row exactly
+  where it was played with Boos on. The stage's Standings are unchanged.
+  Other rulesets keep their "Stray presses" line as before.
+- Tested: `ddi-ui` (the row, its color and count, none with Boos off,
+  Japanese words for the row and the holds), `ddi-engine` (`shown` takes
+  the holds' words), `ddi-l10n` (the words in English); `xtask l10n
+  check`; headless Chrome and Firefox (a DDI play with Boos on, quit,
+  its results in English and Japanese: `results-boos-*`, looked at).
+
+### Three small fixes in the Rules pop-up and the status line
+
+- **A row that grows stays in view.** A row's sentences under it (Points'
+  and At zero life's) now count as the row's when focus or a press
+  scrolls it into view (`RulesDialog::scroll_for`, the sentences' end
+  kept as built, `below`), so changing Points with the mouse at the
+  bottom of the scrolled rows brings its new sentence up with it; the
+  row's top wins where both cannot show.
+- **The status line reads in order.** Where a change is for a later
+  stage than the one the line is about (being picked, gathered or
+  counted down), the line comes first and the change after it, one
+  message (`room-status-then-rules-change`): "Pick stage 1's song. From
+  stage 2 on: Medium points." (ja: "…ステージ2からは：…。"); where it is
+  the same stage, as before ("From stage 2: Medium points. Pick stage
+  2's song.").
+- **A change that names no Points keeps the stage's.** The reducer read
+  a change without a bias as the match's own Points, so a change from a
+  later stage by a peer that names none (an older client's, which cannot)
+  put Points back to the match's after an earlier change had moved them.
+  `ddi_room`'s reducer now completes a change from the rules of the stage
+  it lands on as they stand (`Match::rules_for(from)`, one line in
+  `reduce.rs`), and the client names the bias wherever it differs from
+  the match's or from that stage's, so a change back to the match's own
+  is still said (to an authority of either build). A match whose Points
+  nobody changes sends and keeps what it did.
+- Tested: `ddi-ui` (the Points sentence in view after a press at the
+  rows' foot; the status line's order both ways, en and ja; a later
+  change of timing keeping Medium; a change back to the match's own),
+  `ddi-room` (a change naming no Points after one that moved them keeps
+  them); `xtask l10n check`; the `qps-ploc` walk.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

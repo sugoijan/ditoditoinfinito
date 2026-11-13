@@ -1985,7 +1985,10 @@ where the tap judgments show, a judgment of its own
 (`JudgementFlash::boo`, set where the event is scored so a replay and
 the results' count agree with it; `JudgeNames::boo`, `scene::BOO_COLOR`,
 the theme's `Judgement.Boo`), with no early or late word and nothing on
-the receptor; an exempt press shows nothing. A grade may be two words ("Absolute Dito"): the results
+the receptor; an exempt press shows nothing; the results count them
+in a row of their own among the judgments, in the Boo's color, where
+Boos are on (the holds' Held and Off are judgment words too,
+`Word::Held`, `Word::Dropped`). A grade may be two words ("Absolute Dito"): the results
 set it on two lines, the lists write AD and AB
 (`ddi_ui::state::history::list_grade`). A play judged from its log does
 not know who played: grade an autoplayed record's with

@@ -1199,10 +1199,12 @@ impl Infinito {
         call(&mut bar, "diffusealpha", &[0.85]);
         let count = at_right(self.num("Count", "", 15.0, "Text"), w, h / 2.0);
         let mut name = name;
-        // StepMania's set's tiers, then DDI's (`Judgement.Ddi.W0` …).
+        // StepMania's set's tiers, then DDI's (`Judgement.Ddi.W0` …), and
+        // the Boos' row under DDI (`Judgement.Boo`).
         let ddi = ddi_engine::rules::colors::DDI.named("Judgement.Ddi.");
         let ddi = ddi.iter().map(|(k, _)| k.clone()).filter(|k| !k.ends_with("Boo"));
-        for key in JUDGEMENTS.iter().map(|j| format!("Judgement.{j}")).chain(ddi) {
+        let boo = std::iter::once("Judgement.Boo".to_string());
+        for key in JUDGEMENTS.iter().map(|j| format!("Judgement.{j}")).chain(ddi).chain(boo) {
             let c = rgba(self.c(&key));
             command_of(&mut name, &key, &format!("diffuse,{c}"));
             command_of(&mut bar, &key, &format!("diffuse,{c};diffusealpha,0.85"));
