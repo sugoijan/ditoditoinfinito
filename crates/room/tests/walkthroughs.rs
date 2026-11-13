@@ -2482,8 +2482,9 @@ fn the_pick_goes_back_to_the_owner_when_its_holder_cannot_hold_it() {
     assert_eq!(r.s.owner().map(|m| m.id), Some(b));
     assert_eq!((r.s.picker(), r.s.spotlight.clone()), (Some(b), None));
     assert!(r.s.one_picker());
-    // The one before, back in the room, is a co-host: the pick is theirs
-    // to take, not theirs.
+    // The one before, back in the room, is a member (the room passed on
+    // by itself: no role kept); the new owner may make them a co-host, and
+    // the pick is then theirs to take, not theirs.
     r.sys(Command::Join {
         identity: Identity::new("twitch:host"),
         name: "Host".into(),
@@ -2492,7 +2493,11 @@ fn the_pick_goes_back_to_the_owner_when_its_holder_cannot_hold_it() {
     })
     .unwrap();
     assert_eq!(r.s.member(host).unwrap().connection, Connection::Connected);
-    assert_eq!(r.s.member(host).unwrap().role, Role::CoHost);
+    assert_eq!(r.s.member(host).unwrap().role, Role::Member);
+    assert!(!r.s.may_take_pick(host));
+    let mut by_b = Room { host: b, ..clone(&r) };
+    co_host(&mut by_b, host, true);
+    r = by_b;
     assert_eq!(r.s.picker(), Some(b));
     assert_eq!(
         r.by(host, rest(3)),
@@ -2513,6 +2518,8 @@ fn the_pick_goes_back_to_the_owner_when_its_holder_cannot_hold_it() {
     let mut other = r.s.clone();
     r.sys(gone(b, Connection::Connected)).unwrap();
     assert_eq!(r.s.picker(), Some(b), "the owner back has it again");
+    // An administrator who only observes (watching, no role of the
+    // room's) is never passed the room: the owner away keeps it.
     other
         .apply(
             Actor::Authority,
@@ -2521,8 +2528,9 @@ fn the_pick_goes_back_to_the_owner_when_its_holder_cannot_hold_it() {
             Millis(0),
         )
         .unwrap();
-    assert_eq!(other.owner().map(|m| m.id), Some(admin));
-    assert_eq!(other.picker(), Some(admin));
+    assert!(other.observes(other.member(admin).unwrap()));
+    assert_eq!(other.owner().map(|m| m.id), Some(b));
+    assert_eq!(other.picker(), None);
 }
 
 #[test]
@@ -2671,7 +2679,8 @@ fn bot(r: &mut Room, name: &str) -> ParticipantId {
 /// Pass it on, the default: a host who leaves hands the room to a
 /// co-host, the one who joined first among them; with none, to the member
 /// who joined first; those connected before those away, never a bot. The
-/// new owner has everything an owner has, the pick included.
+/// new owner has everything an owner has, the pick included; the host
+/// gone keeps no role (`succession-v1`).
 #[test]
 fn a_host_who_leaves_passes_the_room_to_a_co_host_then_to_whoever_joined_first() {
     let mut r = Room::hosted(1);
@@ -2686,8 +2695,8 @@ fn a_host_who_leaves_passes_the_room_to_a_co_host_then_to_whoever_joined_first()
     co_host(&mut r, c, true);
     co_host(&mut r, d, true);
     assert_eq!(r.s.if_host_left(), HostDeparture::PassTo(c));
-    // The co-host who joined first, at once; the one before is a co-host
-    // from then on, gone or back.
+    // The co-host who joined first, at once; the one before is a member
+    // from then on, gone or back: the room never makes anyone a co-host.
     let events = r.by(host, Command::Leave).unwrap();
     assert_eq!(
         events,
@@ -2695,7 +2704,7 @@ fn a_host_who_leaves_passes_the_room_to_a_co_host_then_to_whoever_joined_first()
             Event::MemberLeft { participant: host },
             Event::RoleChanged {
                 participant: host,
-                role: Role::CoHost
+                role: Role::Member
             },
             Event::RoleChanged {
                 participant: c,
@@ -2704,7 +2713,7 @@ fn a_host_who_leaves_passes_the_room_to_a_co_host_then_to_whoever_joined_first()
             Event::PickerChanged { picker: Some(c) },
         ]
     );
-    assert_eq!((owner(&r), role(&r, host), role(&r, d)), (c, Role::CoHost, Role::CoHost));
+    assert_eq!((owner(&r), role(&r, host), role(&r, d)), (c, Role::Member, Role::CoHost));
     assert!(r.s.member(host).unwrap().left);
     // Everything an owner has: access, co-hosts, the setting, the pick.
     r.by(
@@ -2725,7 +2734,7 @@ fn a_host_who_leaves_passes_the_room_to_a_co_host_then_to_whoever_joined_first()
     r.sys(connection(a, Connection::Reconnecting)).unwrap();
     assert_eq!(r.s.if_host_left(), HostDeparture::PassTo(b));
     r.by(c, Command::Leave).unwrap();
-    assert_eq!((owner(&r), role(&r, c)), (b, Role::CoHost));
+    assert_eq!((owner(&r), role(&r, c)), (b, Role::Member));
     assert_eq!(r.s.picker(), Some(b));
     // Whoever is still coming back before whoever is away, whatever the
     // role; a bot never.
@@ -2739,10 +2748,11 @@ fn a_host_who_leaves_passes_the_room_to_a_co_host_then_to_whoever_joined_first()
     assert_eq!(r.s.heir(d, true), None);
     assert!(!r.s.member(robot).unwrap().left);
     assert_eq!(r.s.closed, None);
-    // The first owner, back by the link, is a co-host; the room's owner
-    // is away past the grace, so it is theirs again, with the pick.
+    // The first owner, back by the link, is a member; the room's owner
+    // is away past the grace, so it is theirs again, with the pick, and
+    // the one away a member.
     back(&mut r, "host");
-    assert_eq!((owner(&r), role(&r, d)), (host, Role::CoHost));
+    assert_eq!((owner(&r), role(&r, d)), (host, Role::Member));
     assert_eq!(r.s.picker(), Some(host));
 }
 
@@ -2812,7 +2822,7 @@ fn a_host_who_leaves_alone_or_among_bots_closes_the_room() {
 
 /// A dropped connection costs the host nothing inside the authority's
 /// patience (Reconnecting: a reload). Past it (Disconnected) the room
-/// passes to someone connected; the one before comes back a co-host, and
+/// passes to someone connected; the one before comes back a member, and
 /// the new owner hands it back in one command. With nobody connected to
 /// pass it to, the room keeps its absent host until someone is there.
 #[test]
@@ -2840,7 +2850,7 @@ fn a_dropped_host_keeps_the_room_inside_the_grace_and_passes_it_on_past_it() {
             },
             Event::RoleChanged {
                 participant: host,
-                role: Role::CoHost
+                role: Role::Member
             },
             Event::RoleChanged {
                 participant: b,
@@ -2850,9 +2860,9 @@ fn a_dropped_host_keeps_the_room_inside_the_grace_and_passes_it_on_past_it() {
         ]
     );
     assert!(!r.s.member(host).unwrap().left);
-    // Back: a co-host, who operates but does not own.
+    // Back: a member, who neither operates nor owns.
     r.sys(connection(host, Connection::Connected)).unwrap();
-    assert_eq!((owner(&r), role(&r, host)), (b, Role::CoHost));
+    assert_eq!((owner(&r), role(&r, host)), (b, Role::Member));
     assert_eq!(
         r.by(host, Command::MakeHost { participant: host }),
         Err(Rejection::Unauthorized {
@@ -2886,7 +2896,7 @@ fn a_dropped_host_keeps_the_room_inside_the_grace_and_passes_it_on_past_it() {
     let before = clone(&r);
     r.sys(connection(a, Connection::Connected)).unwrap();
     assert_eq!((owner(&r), r.s.picker()), (a, Some(a)));
-    assert_eq!(role(&r, host), Role::CoHost);
+    assert_eq!(role(&r, host), Role::Member);
     // Or the host is first back: nothing passed on.
     let mut r = before;
     r.sys(connection(host, Connection::Connected)).unwrap();
@@ -2896,6 +2906,142 @@ fn a_dropped_host_keeps_the_room_inside_the_grace_and_passes_it_on_past_it() {
     r.sys(connection(host, Connection::Disconnected)).unwrap();
     let new = r.join("new", Intent::Play);
     assert_eq!(owner(&r), new);
+}
+
+/// A co-host comes before any member, also one away inside the reconnect
+/// grace (`Reconnecting`): the room waits for them, nobody made
+/// anything meanwhile and nobody choosing songs; back, they have it; past
+/// the grace (`Disconnected`), the next co-host, else the member who joined
+/// first (the maintainer, 2026-11-13: "a member can inherit the host role
+/// if there isn't a co-host to inherit it").
+#[test]
+fn a_co_host_inside_the_grace_is_waited_for_before_any_member() {
+    for host_leaves in [false, true] {
+        let mut r = Room::hosted(1);
+        let host = r.host;
+        let a = r.join("a", Intent::Play);
+        let c = r.join("c", Intent::Play);
+        let d = r.join("d", Intent::Play);
+        co_host(&mut r, c, true);
+        co_host(&mut r, d, true);
+        r.sys(connection(c, Connection::Reconnecting)).unwrap();
+        r.sys(connection(d, Connection::Reconnecting)).unwrap();
+        assert_eq!(r.s.succession(host, true), Succession::Wait(c));
+        assert_eq!(r.s.if_host_left(), HostDeparture::PassTo(c));
+        // The host goes: nothing changes hands while c may come back.
+        let events = if host_leaves {
+            r.by(host, Command::Leave).unwrap()
+        } else {
+            r.sys(connection(host, Connection::Disconnected)).unwrap()
+        };
+        assert_eq!(events.len(), 2, "{events:?}"); // gone, and the pick freed
+        assert!(events.contains(&Event::PickerChanged { picker: None }) || !host_leaves);
+        assert_eq!(owner(&r), host);
+        assert_eq!(r.s.closed, None);
+        assert_eq!((role(&r, a), role(&r, c)), (Role::Member, Role::CoHost));
+        assert_eq!(r.s.picker(), None, "nobody chooses while the room waits");
+        // Another arrival makes nobody anything either.
+        let e = r.join("e", Intent::Play);
+        assert_eq!((owner(&r), role(&r, e)), (host, Role::Member));
+        let mut back_in = clone(&r);
+        // c back: the room is theirs, with the pick; the host a member.
+        back_in.sys(connection(c, Connection::Connected)).unwrap();
+        assert_eq!((owner(&back_in), back_in.s.picker()), (c, Some(c)));
+        assert_eq!(role(&back_in, host), Role::Member);
+        // c past the grace: the next co-host, still inside it, is waited for.
+        r.sys(connection(c, Connection::Disconnected)).unwrap();
+        assert_eq!(owner(&r), host);
+        assert_eq!(r.s.succession(host, true), Succession::Wait(d));
+        // d past it too: the member who joined first, never a co-host
+        // made by the room.
+        r.sys(connection(d, Connection::Disconnected)).unwrap();
+        assert_eq!(owner(&r), a);
+        assert_eq!(r.s.picker(), Some(a));
+        assert_eq!((role(&r, host), role(&r, e)), (Role::Member, Role::Member));
+        assert_eq!((role(&r, c), role(&r, d)), (Role::CoHost, Role::CoHost));
+    }
+    // A connected co-host is not made to wait for one inside the grace.
+    let mut r = Room::hosted(1);
+    let host = r.host;
+    let c = r.join("c", Intent::Play);
+    let d = r.join("d", Intent::Play);
+    co_host(&mut r, c, true);
+    co_host(&mut r, d, true);
+    r.sys(connection(c, Connection::Reconnecting)).unwrap();
+    assert_eq!(r.s.succession(host, false), Succession::To(d));
+}
+
+/// An administrator who only observes (watching, no role of the room's)
+/// is never passed the room; one who plays is a member like anyone, and
+/// one made a co-host a co-host.
+#[test]
+fn an_observing_administrator_is_skipped() {
+    let mut r = Room::hosted(1);
+    let host = r.host;
+    let admin = r.join_as("admin", Intent::Watch, true).unwrap();
+    let a = r.join("a", Intent::Play);
+    assert!(r.s.observes(r.s.member(admin).unwrap()));
+    assert_eq!(r.s.if_host_left(), HostDeparture::PassTo(a));
+    // Alone with the observer, the host's leaving ends the room.
+    let mut alone = clone(&r);
+    alone.by(a, Command::Leave).unwrap();
+    assert_eq!(alone.s.if_host_left(), HostDeparture::Close);
+    // Playing, the administrator is a player who joined before a.
+    r.by(
+        admin,
+        Command::SetIntent {
+            intent: Intent::Play,
+        },
+    )
+    .unwrap();
+    assert!(!r.s.observes(r.s.member(admin).unwrap()));
+    assert_eq!(r.s.if_host_left(), HostDeparture::PassTo(admin));
+    // Watching again but made a co-host: a co-host.
+    r.by(
+        admin,
+        Command::SetIntent {
+            intent: Intent::Watch,
+        },
+    )
+    .unwrap();
+    co_host(&mut r, admin, true);
+    assert!(!r.s.observes(r.s.member(admin).unwrap()));
+    r.by(host, Command::Leave).unwrap();
+    assert_eq!(owner(&r), admin);
+}
+
+/// A co-host who is away or leaves while the host is connected changes no
+/// role (the maintainer, 2026-11-13: "if a co-host disconnects and there's
+/// still a host connected there should be no role changes"); a pick they
+/// held goes back to the host.
+#[test]
+fn a_co_host_going_while_the_host_is_there_changes_no_role() {
+    let mut r = Room::hosted(1);
+    let host = r.host;
+    let a = r.join("a", Intent::Play);
+    let c = r.join("c", Intent::Play);
+    let d = r.join("d", Intent::Play);
+    co_host(&mut r, c, true);
+    co_host(&mut r, d, true);
+    let roles = |r: &Room| [host, a, c, d].map(|p| role(r, p));
+    let before = roles(&r);
+    r.by(c, Command::TakePick).unwrap();
+    for step in [Connection::Reconnecting, Connection::Disconnected] {
+        let events = r.sys(connection(c, step)).unwrap();
+        assert!(
+            !events.iter().any(|e| matches!(e, Event::RoleChanged { .. })),
+            "{events:?}"
+        );
+        assert_eq!(roles(&r), before);
+    }
+    assert_eq!(r.s.picker(), Some(host), "the pick back with the host");
+    r.sys(connection(c, Connection::Connected)).unwrap();
+    assert_eq!(roles(&r), before);
+    r.by(d, Command::TakePick).unwrap();
+    let events = r.by(d, Command::Leave).unwrap();
+    assert!(!events.iter().any(|e| matches!(e, Event::RoleChanged { .. })));
+    assert_eq!(roles(&r), before);
+    assert_eq!((owner(&r), r.s.picker()), (host, Some(host)));
 }
 
 /// "Close the room": the setting is the owner's alone, kept on the wire;
@@ -3017,10 +3163,10 @@ fn a_running_match_goes_on_under_the_new_owner() {
         .unwrap();
     assert_eq!(result.placement(a).unwrap().place, 1);
     assert_eq!(result.placement(host).unwrap().finish, Finish::Forfeit);
-    // The one before, back, is a co-host: an owner's commands are refused
-    // whole, an operator's still theirs.
+    // The one before, back, is a member: an owner's commands are refused
+    // whole, and so are an operator's.
     back(&mut r, "host");
-    assert_eq!(role(&r, host), Role::CoHost);
+    assert_eq!(role(&r, host), Role::Member);
     assert_eq!(
         r.by(
             host,
@@ -3035,7 +3181,9 @@ fn a_running_match_goes_on_under_the_new_owner() {
     );
     assert_eq!(
         r.by(host, pick_cmd(2)),
-        Err(Rejection::NotPicker { picker: Some(a) })
+        Err(Rejection::Unauthorized {
+            capability: Capability::ChooseContent
+        })
     );
     // The new owner picks the next stage; the match goes on.
     r.by(a, pick_cmd(2)).unwrap();
@@ -3053,7 +3201,7 @@ fn a_running_match_goes_on_under_the_new_owner() {
     }
     assert!(matches!(r.s.phase, Phase::Countdown { .. }));
     r.sys(connection(a, Connection::Disconnected)).unwrap();
-    assert_eq!(owner(&r), host, "the co-host before the member");
+    assert_eq!(owner(&r), host, "no co-host: the member who joined first");
     assert!(matches!(
         r.s.phase,
         Phase::Preparing { window: None, .. }

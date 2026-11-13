@@ -81,4 +81,5 @@ pub use state::{
     Closure, ContentCard, ContentStatus, HostDeparture, HostLeaves, Hosting, Loading, Match,
     MatchEnding, MatchRecord, NextMatchDraft, Participation, Picking, Prep, RoomState, RulesChange,
     Seat, SitOutReason, Spotlight, Stage, StageContent, StagePlay, StageStanding, Standing,
+    Succession,
 };

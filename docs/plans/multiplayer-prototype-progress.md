@@ -6111,6 +6111,52 @@ results' footer and the status lines' stage marks no longer say
 `room-rules-points-note` removed from every language). Shared places
 share as before (four: two tied first share 12 and 6, 9 each).
 
+### The host's succession (`succession-v1`)
+
+The maintainer: "A co-host role should never be inherited, a member can
+inherit the host role if there isn't a co-host to inherit it, but if a
+co-host disconnects and there's still a host connected there should be
+no role changes", and an administrator who only observes is skipped.
+`RoomState::succession` (`Succession::To`, `Wait`, `Nobody`;
+`RoomState::heir` its `To` or `Wait`): among the people present who may
+run the room (never a bot, never an administrator who only observes),
+a connected co-host (the first joined); else a co-host inside the
+reconnect grace (`Reconnecting`), waited for; else the connected member
+who joined first; else, only where the host left the room, whoever is
+coming back, then whoever is away. An administrator who only observes
+is `RoomState::observes`: the admin flag, no role of the room's and
+watching (how an administrator who is not a member enters, from a
+ticket alone, `../ddi-server` `RoomCore::connect`); one who chose Play
+competes and may inherit, one made a co-host is a co-host; one who
+joined by the invite to watch looks the same and is skipped too.
+
+While a co-host inside the grace is waited for, nothing changes hands:
+the room keeps the host gone as its owner (left or away), nobody is
+made anything, the pick is nobody's ("Nobody is choosing songs right
+now.", operators told they may use Pick songs, which a connected
+operator may) until the co-host is back (theirs, with the pick) or the
+authority sets them `Disconnected` at the end of their grace (the next
+co-host, else the member). `Joining` is never waited for: no grace times
+it.
+
+| Who goes | Who is there | What happens to each role |
+| --- | --- | --- |
+| The host leaves, or is away past the grace (Pass it on) | a connected co-host | that co-host (the first joined) becomes the host; the host gone becomes a member; everyone else as they were |
+| The same | co-hosts only inside the grace, members connected | nothing yet; the room waits for the first such co-host: back, the host; past the grace, the next co-host, else the first-joined connected member; the host gone then a member |
+| The same | no co-host present (or all past the grace), members connected | the first-joined connected member becomes the host; the host gone a member |
+| The host leaves | nobody connected | whoever is coming back, then whoever is away (a co-host before a member) becomes the host; with nobody at all, the room closes |
+| The host is away past the grace | nobody connected | nothing: the room keeps its absent host; the first person to connect (a co-host first) has it |
+| Either | only bots or observing administrators | as nobody: the room closes (the host left) or waits (the host away) |
+| Either, under Close the room | anyone | the room closes for everyone |
+| A co-host leaves or is away (any time) while the host is connected | anyone | no role changes; a pick the co-host held goes back to the host |
+| The host hands it over (`MakeHost`) | a connected person | they become the host; the host before becomes a co-host (a deliberate act, the one case the room makes a co-host) |
+
+Before: the host gone was made a co-host whenever the room passed on,
+and a connected member came before a co-host who was away inside the
+grace. The Players pop-up's sentence ("If the host leaves, a co-host
+becomes the host, or else the player who joined first") promises the
+same order and stays.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -6136,9 +6182,9 @@ share as before (four: two tied first share 12 and 6, 9 each).
 | CPU practice with a match running is forgotten when left, silently | `screens::room::leave_now`, the web's `forget_left_practice` | Back from a running practice match, then CPU practice again, is a new room with the default rules | Whether the practice's own rules (its roster) should survive |
 | A room from before the picker (no `picking` in its state) keeps every operator choosing and offers no take, for as long as it lives | `ddi_room::RoomState::chooses`, `may_take_pick` | A room open across the server's deploy never gets Pick songs; a new one does | Whether such a room should turn into a one-picker room at the deploy |
 | The pick returns to the owner when its holder is Disconnected: the server's reconnect grace (30 s); a pick nobody holds is the owner's whenever the owner is there | `reduce.rs` `release_pick`, `settle_host`; `../ddi-server` `ROOM_RECONNECT_GRACE_MS` | A picker whose connection is down for more than 30 s finds the owner choosing on return; nobody chooses only while the owner is away with nobody connected | The grace for a picker |
-| A host away is given the room's reconnect grace, 30 s (`Connection::Disconnected`), then the room passes on or closes by its setting | `reduce.rs` `settle_host`; `../ddi-server` `ROOM_RECONNECT_GRACE_MS` | A host whose connection is down for more than 30 s comes back a co-host (one press by the new host hands it back), or to a closed room under Close | Whether a host should be waited for longer than a picker (a minute, say), above all under Close |
+| A host away is given the room's reconnect grace, 30 s (`Connection::Disconnected`), then the room passes on or closes by its setting | `reduce.rs` `settle_host`; `../ddi-server` `ROOM_RECONNECT_GRACE_MS` | A host whose connection is down for more than 30 s comes back a member (since round B1; one press by the new host hands it back), or to a closed room under Close | Whether a host should be waited for longer than a picker (a minute, say), above all under Close |
 | A host away with nobody connected keeps the room (Pass it on); a host who leaves with nobody to pass it to ends it | `reduce.rs` `settle_host` | A host alone whose connection drops finds their room as it was; the first other person to connect meanwhile becomes its host | Whether an absent host's empty room should close after a while sooner than the server's idle end (7 days) |
-| Succession order: connected, then coming back, then away; a co-host before a member among equals; then join order; never a bot; administrators as anyone | `ddi_room::RoomState::heir` | A connected member is passed the room before a co-host who is away; a watching administrator can be passed it | Whether a co-host inside the grace should come before a connected member; whether administrators who only watch should be skipped |
+| `succession-v1` (round B1, ANSWERED by the maintainer): a connected co-host, else a co-host inside the grace (waited for), else the first-joined connected member; never a bot or an observing administrator; the host gone a member | `ddi_room::RoomState::succession`, `observes` | A co-host reconnecting is waited for before a member is made host | None |
 | A room from before the setting passes on from its first change after the deploy | `reduce.rs` `apply` | A room open across the server's deploy gets the succession without being made again | None, unless such rooms should stay as they were |
 | A quitting game waits 0.6 s for the room's answer to its leaving | `screens::room::QUIT_WAIT` | Leave from the window's close takes up to 0.6 s to close the window | The time; whether to wait at all |
 | Asked again while the question is open, desktop quits without it | `Shell::close_requested` | Closing the window twice always closes it; the room then sees a dropped connection, not a leaving | Whether the second request should still tell the room first |
@@ -6267,12 +6313,10 @@ share as before (four: two tied first share 12 and 6, 9 each).
   the room (it waits, and the first other person to connect becomes its
   host); only a host who leaves ends an empty room. The brief had both
   end it. Right?
-- The host's succession: a connected member is passed the room before
-  a co-host who is away or reconnecting. Should a named co-host inside
-  the grace come first?
-- The host's succession: an administrator who only watches a room can
-  be passed it like anyone (after everyone who joined before them).
-  Should observers be skipped?
+- The host's succession: a co-host inside the grace, and administrators
+  who only watch. ANSWERED (the maintainer, 2026-11-13): "a member can
+  inherit the host role if there isn't a co-host to inherit it"; the
+  co-host inside the grace first; observers skipped (round B1).
 - Leaving: Back on an online room's song select now leaves the room
   (it used to keep the player in it, silent, behind the home). Right
   for a member between matches too, who is not asked, or should that

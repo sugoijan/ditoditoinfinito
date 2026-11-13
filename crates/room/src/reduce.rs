@@ -13,7 +13,7 @@ use crate::phase::{Phase, ReadinessWindow};
 use crate::rules::{Access, Admission, ContentSource};
 use crate::state::{
     Closure, ContentCard, ContentStatus, HostLeaves, Hosting, Match, MatchEnding, MatchRecord,
-    RoomState, Seat, SitOutReason, Spotlight, Stage, StageContent, StagePlay,
+    RoomState, Seat, SitOutReason, Spotlight, Stage, StageContent, StagePlay, Succession,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -148,11 +148,14 @@ impl RoomState {
     /// so it holds whatever led to them: a host who left the room, or who
     /// is away past the authority's patience (`Disconnected`), no longer
     /// has it. By the room's setting it ends ([`HostLeaves::Close`]) or
-    /// goes to [`RoomState::heir`]: at once for one who left (anyone
+    /// goes to [`RoomState::succession`]: at once for one who left (anyone
     /// present, else the room ends), and for one who is away to someone
     /// connected, as soon as there is one (the room keeps its absent host
-    /// meanwhile: nobody is there to run it for). Then a pick nobody
-    /// holds is the host's while the host is there.
+    /// meanwhile: nobody is there to run it for); while a co-host inside
+    /// the grace is waited for, nothing changes hands. The host gone keeps
+    /// no role: a member from then on (only an explicit
+    /// [`crate::Command::MakeHost`] makes the one before a co-host). Then
+    /// a pick nobody holds is the host's while the host is there.
     fn settle_host(&mut self, out: &mut Vec<Event>) {
         if self.closed.is_some() {
             return;
@@ -161,12 +164,14 @@ impl RoomState {
             let (from, left) = (owner.id, owner.left);
             if left || owner.connection == Connection::Disconnected {
                 let heir = match self.if_host_leaves() {
-                    HostLeaves::Close => None,
-                    HostLeaves::PassOn => self.heir(from, left),
+                    HostLeaves::Close => Succession::Nobody,
+                    HostLeaves::PassOn => self.succession(from, left),
                 };
                 match heir {
-                    Some(to) => self.hand_over(from, to, out),
-                    None if left || self.if_host_leaves() == HostLeaves::Close => {
+                    Succession::To(to) => self.hand_over(from, Role::Member, to, out),
+                    // A co-host inside the grace: the room waits for them.
+                    Succession::Wait(_) => {}
+                    Succession::Nobody if left || self.if_host_leaves() == HostLeaves::Close => {
                         self.emit(
                             out,
                             Event::RoomClosed {
@@ -175,7 +180,7 @@ impl RoomState {
                         );
                         return;
                     }
-                    None => {}
+                    Succession::Nobody => {}
                 }
             }
         }
@@ -189,13 +194,21 @@ impl RoomState {
         }
     }
 
-    /// The room changes hands: `from` a co-host, `to` its owner.
-    fn hand_over(&mut self, from: ParticipantId, to: ParticipantId, out: &mut Vec<Event>) {
+    /// The room changes hands: `from` becomes `was` (a co-host where the
+    /// host handed it over, a member where it passed on by itself), `to`
+    /// its owner.
+    fn hand_over(
+        &mut self,
+        from: ParticipantId,
+        was: Role,
+        to: ParticipantId,
+        out: &mut Vec<Event>,
+    ) {
         self.emit(
             out,
             Event::RoleChanged {
                 participant: from,
-                role: Role::CoHost,
+                role: was,
             },
         );
         self.emit(
@@ -802,8 +815,9 @@ impl RoomState {
                 if m.left || m.connection != Connection::Connected {
                     return Err(Rejection::NotPresent);
                 }
+                // A deliberate hand-over: the one before stays a co-host.
                 if *participant != from {
-                    self.hand_over(from, *participant, out);
+                    self.hand_over(from, Role::CoHost, *participant, out);
                 }
                 Ok(())
             }

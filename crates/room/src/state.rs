@@ -105,6 +105,22 @@ pub enum Closure {
     HostLeft,
 }
 
+/// Who the room passes to when its host goes ([`RoomState::succession`];
+/// `succession-v1`, the maintainer, 2026-11-13).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Succession {
+    /// To this member, now.
+    To(ParticipantId),
+    /// To this co-host, who is away but inside the reconnect grace
+    /// (`Reconnecting`, which the authority ends with `Disconnected` when
+    /// the grace runs out): nobody is made anything while the room waits;
+    /// it passes to them once back, or on to the next in line once they
+    /// are `Disconnected`. (Never `Joining`: no grace times that.)
+    Wait(ParticipantId),
+    /// Nobody to pass it to.
+    Nobody,
+}
+
 /// What the host's leaving would do now ([`RoomState::if_host_left`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HostDeparture {
@@ -773,23 +789,70 @@ impl RoomState {
     }
 
     /// Who the room passes to when host `from` goes
-    /// ([`HostLeaves::PassOn`]): among the people present (never a bot: a
-    /// bot follows a room, it does not run one), those connected first,
-    /// then those whose connection is coming or coming back, then those
-    /// away, and only with `away_too`; among equals a co-host before a
-    /// member, then whoever joined first. None: nobody to pass it to.
-    pub fn heir(&self, from: ParticipantId, away_too: bool) -> Option<ParticipantId> {
+    /// ([`HostLeaves::PassOn`]; `succession-v1`, the maintainer,
+    /// 2026-11-13: "a member can inherit the host role if there isn't a
+    /// co-host to inherit it"). Among the people present who may run it
+    /// (never a bot, which follows a room, nor an administrator who only
+    /// observes, [`RoomState::observes`]):
+    ///
+    /// 1. a connected co-host, the one who joined first;
+    /// 2. else a co-host inside the reconnect grace (`Reconnecting`): the
+    ///    room waits for them ([`Succession::Wait`]);
+    /// 3. else a connected member, the one who joined first;
+    /// 4. else, only with `away_too` (the host left the room, so someone
+    ///    must hold it), whoever is coming back, then whoever is away; a
+    ///    co-host before a member among equals, then join order.
+    pub fn succession(&self, from: ParticipantId, away_too: bool) -> Succession {
+        let pool = || {
+            self.members.values().filter(move |m| {
+                m.id != from && !m.left && !m.is_cpu() && !m.is_bot() && !self.observes(m)
+            })
+        };
+        let co_host = |m: &&Member| m.role == Role::CoHost;
+        let connected = |m: &&Member| m.connection == Connection::Connected;
+        let first = |it: &mut dyn Iterator<Item = &Member>| it.map(|m| m.id).min();
+        if let Some(id) = first(&mut pool().filter(co_host).filter(connected)) {
+            return Succession::To(id);
+        }
+        let in_grace = |m: &&Member| m.connection == Connection::Reconnecting;
+        if let Some(id) = first(&mut pool().filter(co_host).filter(in_grace)) {
+            return Succession::Wait(id);
+        }
+        if let Some(id) = first(&mut pool().filter(connected)) {
+            return Succession::To(id);
+        }
+        if !away_too {
+            return Succession::Nobody;
+        }
         let rank = |c: Connection| match c {
             Connection::Connected => 0,
             Connection::Joining | Connection::Reconnecting => 1,
             Connection::Disconnected => 2,
         };
-        self.members
-            .values()
-            .filter(|m| m.id != from && !m.left && !m.is_cpu() && !m.is_bot())
-            .filter(|m| away_too || m.connection == Connection::Connected)
+        pool()
             .min_by_key(|m| (rank(m.connection), m.role != Role::CoHost, m.id))
-            .map(|m| m.id)
+            .map_or(Succession::Nobody, |m| Succession::To(m.id))
+    }
+
+    /// Who the room goes to when host `from` goes, now or once back
+    /// ([`RoomState::succession`]'s `To` or `Wait`). None: nobody.
+    pub fn heir(&self, from: ParticipantId, away_too: bool) -> Option<ParticipantId> {
+        match self.succession(from, away_too) {
+            Succession::To(id) | Succession::Wait(id) => Some(id),
+            Succession::Nobody => None,
+        }
+    }
+
+    /// An administrator who only observes the room: the admin flag, no
+    /// role of the room's (the host never made them a co-host) and
+    /// watching. What the model knows of how they came: an administrator
+    /// who is not a member enters watching from a ticket alone (the
+    /// server's `RoomCore::connect`), while one who chose Play competes
+    /// and is a player like anyone. An administrator who joined by the
+    /// invite to watch looks the same and is skipped too. Never passed
+    /// the room.
+    pub fn observes(&self, m: &Member) -> bool {
+        m.admin && m.role == Role::Member && m.intent == Intent::Watch
     }
 
     /// What the host's leaving the room now would do, by the room's

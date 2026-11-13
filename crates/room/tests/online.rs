@@ -1263,8 +1263,9 @@ fn the_hosts_succession_is_kept_alike_by_both_authorities_and_every_mirror() {
     );
     assert_eq!(local.owner().map(|m| m.id), Some(bob));
     assert_eq!(local.picker(), Some(bob));
+    // The room passed on by itself: the one gone keeps no role.
     let a = local.member(alice).unwrap();
-    assert!(a.left && a.role == Role::CoHost);
+    assert!(a.left && a.role == Role::Member);
     assert_eq!(local.if_host_leaves(), HostLeaves::PassOn);
     assert_eq!(local.closed, None);
     for faults in [
@@ -1286,7 +1287,7 @@ fn the_hosts_succession_is_kept_alike_by_both_authorities_and_every_mirror() {
 
 /// A host whose socket is gone keeps the room inside the server's
 /// reconnect grace (a reload); past it the room passes to whoever is
-/// connected, and the host comes back a co-host.
+/// connected, and the host comes back a member.
 #[test]
 fn a_dropped_host_is_waited_for_then_the_room_passes_on() {
     use ddi_room::Role;
@@ -1311,7 +1312,7 @@ fn a_dropped_host_is_waited_for_then_the_room_passes_on() {
     pump_all(&mut [&mut alice, &mut bob]);
     assert_eq!((owner(&bob), bob.room().picker()), (Some(a), Some(a)));
 
-    // Past it: Bob's, with the pick; Alice, back, is a co-host and in
+    // Past it: Bob's, with the pick; Alice, back, is a member and in
     // step.
     server.borrow_mut().drop_socket(a);
     pump_all(&mut [&mut alice, &mut bob]);
@@ -1325,7 +1326,7 @@ fn a_dropped_host_is_waited_for_then_the_room_passes_on() {
     pump_all(&mut [&mut alice, &mut bob]);
     assert_eq!(alice.link.link(), LinkState::Connected);
     assert_eq!(alice.room(), server.borrow().state());
-    assert_eq!(alice.room().member(a).unwrap().role, Role::CoHost);
+    assert_eq!(alice.room().member(a).unwrap().role, Role::Member);
     // One command hands it back.
     let seq = bob.send(Command::MakeHost { participant: a });
     pump_all(&mut [&mut alice, &mut bob]);

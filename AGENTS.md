@@ -1099,10 +1099,12 @@ Rust and the browser are implementation details, not advertised features.
   the room's setting "If the host leaves", `HostLeaves`: Pass it on or
   Close, the owner's `Command::SetHostLeaves`): when the owner leaves,
   or is away past the authority's patience (`Connection::Disconnected`,
-  the server's reconnect grace), the room passes to `RoomState::heir`
-  (people connected first, a co-host before a member, then whoever
-  joined first, never a bot; two `RoleChanged`, the one before a
-  co-host from then on) or ends (`Event::RoomClosed`,
+  the server's reconnect grace), the room passes by
+  `RoomState::succession` (`succession-v1`: a connected co-host, else a
+  co-host inside the grace, waited for, else the connected member who
+  joined first; never a bot nor an observing administrator,
+  `RoomState::observes`; the one before a member, only `MakeHost`
+  leaving them a co-host) or ends (`Event::RoomClosed`,
   `RoomState::closed`, `Rejection::RoomClosed`: its authority closes
   every socket with 4410); an owner away with nobody connected keeps
   the room; `Command::MakeHost` hands it over; a pick nobody holds is
