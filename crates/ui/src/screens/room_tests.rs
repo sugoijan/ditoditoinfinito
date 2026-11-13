@@ -4168,3 +4168,50 @@ fn the_rules_pop_up_changes_rules_from_the_next_stage_next_match_or_by_restart()
     assert!(!r.state().next.rules.boos);
     assert_eq!(r.state().phase.kind(), ddi_room::PhaseKind::Interrupted);
 }
+
+/// An online room over the fake server (2026-11-13): a co-host changes
+/// the running match's rules from the stage nothing has begun for, through
+/// the Rules pop-up; every device's mirror keeps the change and every
+/// status line says it; a member is never offered it.
+#[test]
+fn an_online_rooms_operator_changes_rules_from_the_next_stage_for_everyone() {
+    use ddi_room::{Actor, Command, Millis, ParticipantId};
+    let start = |s: &mut ddi_room::RoomState| {
+        let rev = s.revision;
+        s.apply(
+            Actor::Member(ParticipantId(1)),
+            Some(rev),
+            &Command::StartMatch,
+            Millis(1_000),
+        )
+        .unwrap();
+    };
+    let t = Three::new(true);
+    let (ea, eb, ec) = (env(), env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    t.server.borrow_mut().rewrite(start);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    // Stage 1 gathers nobody yet: a change lands on it.
+    press(&mut hc, "Room.Rules");
+    assert_eq!(view(&ec).rules_destination, None, "a member: not offered");
+    press(&mut hc, "Cancel");
+    press(&mut hb, "Room.Rules");
+    assert_eq!(view(&eb).rules_destination.as_deref(), Some("stage"));
+    assert_eq!(view(&eb).rules_from, Some(1));
+    press(&mut hb, "Inc.boos");
+    press(&mut hb, "Apply");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    let server = t.server.borrow().state().clone();
+    let m = server.current.as_ref().unwrap();
+    assert!(m.rules_for(m.stages[0].id).boos);
+    assert!(!m.rules.boos && !server.next.rules.boos);
+    for (room, e) in [(&t.alice, &ea), (&t.bob, &eb), (&t.carol, &ec)] {
+        assert_eq!(room.borrow().state(), &server, "the mirror is the room");
+        let status = view(e).status;
+        assert!(status.starts_with("From stage 1: Boos. "), "{status}");
+    }
+}
