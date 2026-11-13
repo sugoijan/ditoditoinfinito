@@ -14,6 +14,14 @@
 //!
 //! PROVISIONAL and uncalibrated: [`MINE_RESPONSE_V0`]'s numbers are working
 //! values, never a measurement.
+//!
+//! Since the DDI ruleset's round 4 (the maintainer's M8 decision D8: mine
+//! avoidance an eighth skill axis) a CPU's response is
+//! [`MINE_RESPONSE_V1`]'s: its level's response as before, bent by its
+//! `Skills`' Evasion where the shock is hard to get around (a busy
+//! stretch of the chart, a note of its lane beside it, where
+//! `placement-v2` aims shocks). Evasion 1 is the level's response exactly.
+//! A model of a CPU, never of a person's skill.
 
 /// What a CPU does about the shocks of one attack.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -147,6 +155,107 @@ impl MineResponseTable {
     }
 }
 
+/// What a shock's place in its chart says of it ([`MineModel::context`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShockContext {
+    /// How busy the chart is around it, `0..=1`.
+    pub busy: f64,
+    /// A note of its lane is beside it.
+    pub beside: bool,
+}
+
+/// How a CPU's response to a shock follows its Evasion and the shock's
+/// place (`mine-response-v1`): the level's response
+/// ([`MineResponseTable`]) times `evasion^-γ` for the chance it steps on
+/// the shock and leaves out a press near it, `evasion^-γ/2` for how far
+/// such a press moves, with `γ = 1 + (busy + beside) / 2` (1 to 2): a dodger
+/// (Evasion above 1) steps on fewer shocks everywhere and most fewer
+/// where they are hard to get around, a stomper (below 1) on more, most
+/// where they are hard. Evasion 1 changes nothing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MineModel {
+    pub id: &'static str,
+    /// The level's response ([`MINE_RESPONSE_V0`]'s table).
+    pub table: MineResponseTable,
+    /// Seconds either side of a shock the notes counted for `busy` lie in.
+    pub busy_window: f64,
+    /// Notes in that window (all lanes) from which the stretch is busy at
+    /// all, and how many more make it busy at its most.
+    pub busy_from: f64,
+    pub busy_span: f64,
+    /// Seconds either side of a shock a note of its lane is beside it.
+    pub lane_window: f64,
+    /// How much more Evasion counts where a shock is hard to get around:
+    /// `γ`'s share of the stretch's busyness and of a note beside it.
+    pub bend: f64,
+    /// The most a chance (to step on a shock, to leave a press out) may
+    /// come to.
+    pub most: f64,
+}
+
+/// `mine-response-v1` (PROVISIONAL; measured, never against people: the
+/// tables in `docs/plans/cpu-player.md`, "Evasion"): `mine-response-v0`'s
+/// levels, busy from 2 notes within half a second either side (all lanes)
+/// to its most at 8, beside a note of its lane within half a second; each
+/// adds half to `γ`.
+pub const MINE_RESPONSE_V1: MineModel = MineModel {
+    id: "mine-response-v1",
+    table: MINE_RESPONSE_V0,
+    busy_window: 0.5,
+    busy_from: 2.0,
+    busy_span: 6.0,
+    lane_window: 0.5,
+    bend: 0.5,
+    most: 0.95,
+};
+
+impl MineModel {
+    /// The context of a shock at `at` seconds in `lane` among `notes`
+    /// (the CPU's chart's, `(seconds, lane)`, in time order).
+    pub fn context(&self, notes: &[(f64, u8)], at: f64, lane: u8) -> ShockContext {
+        let from = notes.partition_point(|n| n.0 < at - self.busy_window.max(self.lane_window));
+        let mut near = 0.0;
+        let mut beside = false;
+        for &(t, l) in notes[from..]
+            .iter()
+            .take_while(|n| n.0 <= at + self.busy_window.max(self.lane_window))
+        {
+            if (t - at).abs() <= self.busy_window {
+                near += 1.0;
+            }
+            if l == lane && (t - at).abs() <= self.lane_window {
+                beside = true;
+            }
+        }
+        ShockContext {
+            busy: ((near - self.busy_from) / self.busy_span).clamp(0.0, 1.0),
+            beside,
+        }
+    }
+
+    /// `base` (a level's response) for a CPU of Evasion `evasion` facing a
+    /// shock in `context`.
+    pub fn response(
+        &self,
+        base: MineResponse,
+        evasion: f64,
+        context: ShockContext,
+    ) -> MineResponse {
+        if evasion == 1.0 || !evasion.is_finite() || evasion <= 0.0 {
+            return base;
+        }
+        let beside = if context.beside { 1.0 } else { 0.0 };
+        let gamma = 1.0 + (context.busy.clamp(0.0, 1.0) + beside) * self.bend;
+        let f = evasion.powf(-gamma);
+        MineResponse {
+            hit: (base.hit * f).min(self.most),
+            jitter: base.jitter * evasion.powf(-gamma / 2.0),
+            slip: (base.slip * f).min(self.most),
+            near: base.near,
+        }
+    }
+}
+
 /// What a draw is for: each purpose its own stream.
 #[derive(Clone, Copy)]
 pub(super) enum Purpose {
@@ -204,6 +313,44 @@ mod tests {
         let mid = t.response(0.85);
         assert!(mid.hit < t.typical.hit && mid.hit > t.good.hit);
         assert!(MineResponse::OFF.is_off() && !t.good.is_off());
+    }
+
+    #[test]
+    fn evasion_bends_the_level_s_response_most_where_shocks_are_hard() {
+        let m = MINE_RESPONSE_V1;
+        let base = m.table.poor;
+        let easy = ShockContext {
+            busy: 0.0,
+            beside: false,
+        };
+        let hard = ShockContext {
+            busy: 1.0,
+            beside: true,
+        };
+        // Evasion 1: the level's response exactly, wherever.
+        assert_eq!(m.response(base, 1.0, easy), base);
+        assert_eq!(m.response(base, 1.0, hard), base);
+        // A dodger steps on fewer, most fewer where it is hard; a stomper
+        // on more, most where it is hard.
+        let (de, dh) = (m.response(base, 2.0, easy), m.response(base, 2.0, hard));
+        assert!(dh.hit < de.hit && de.hit < base.hit);
+        assert!(dh.slip < base.slip && dh.jitter < base.jitter);
+        let (se, sh) = (m.response(base, 0.5, easy), m.response(base, 0.5, hard));
+        assert!(sh.hit > se.hit && se.hit > base.hit && sh.hit <= m.most);
+        assert!((de.hit - base.hit / 2.0).abs() < 1e-12);
+        assert!((dh.hit - base.hit / 4.0).abs() < 1e-12);
+        // The context from the chart: notes around it, its lane's beside it.
+        let notes: Vec<(f64, u8)> = (0..40)
+            .map(|i| (f64::from(i) * 0.1, (i % 4) as u8))
+            .collect();
+        let c = m.context(&notes, 2.0, 1);
+        assert_eq!(c.busy, 1.0);
+        assert!(c.beside);
+        let sparse = [(0.0, 0u8), (1.8, 2), (3.0, 1)];
+        let c = m.context(&sparse, 2.0, 1);
+        assert_eq!(c.busy, 0.0);
+        assert!(!c.beside);
+        assert!(m.context(&sparse, 2.6, 1).beside);
     }
 
     #[test]

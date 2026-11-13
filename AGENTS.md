@@ -63,7 +63,9 @@ Rust and the browser are implementation details, not advertised features.
   `DDI_CPU_CORPUS`, under the rulesets `DDI_CPU_RULES` names: a preset's
   id, or `ddi-easy`, `ddi-normal`, `ddi-hard`, the rooms' match rule) and its response to shocks put into its play
   (`cpu/mines.rs`: one avoidance value a CPU from its level,
-  `MINE_RESPONSE_V0`, `Opponent::receive_hazards`); DDI, our own
+  `MINE_RESPONSE_V0`, bent by its `Skills`' eighth axis, Evasion, where
+  a shock is hard to get around, `MINE_RESPONSE_V1`, Evasion 1 the
+  level's response exactly; `Opponent::receive_hazards`); DDI, our own
   ruleset (`rules/ddi.rs`, `docs/plans/ddi-ruleset.md`: `RulesetKey`'s
   `ddi` options, windows on a 1/120 s grid in real seconds (at a music
   rate `ddi::at_rate`), early and late words (`JudgeNames::word`), hold

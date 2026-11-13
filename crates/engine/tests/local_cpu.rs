@@ -17,12 +17,22 @@
 //! - `DDI_CPU_SEEDS=<n>` (3), `DDI_CPU_RULES=<id>[,…]` (`itg-fa+,ddi`;
 //!   `ddi-easy`, `ddi-normal` and `ddi-hard` are DDI at a difficulty, the
 //!   rooms' match rule).
+//!
+//! `DDI_CPU_SHOCKS=1` with the corpus runs `local_cpu_shocks` instead (the
+//! DDI ruleset's round 4: Evasion, the eighth skill axis): every chart
+//! given up to four attacks of eight shocks where `placement-v2` puts
+//! them (`ddi_engine::battle::schedule`, sections at least 16 beats
+//! apart), under DDI Normal with the fail off, each level at Evasion 0.5,
+//! 1 and 2 (`MINE_RESPONSE_V1`): the shocks stepped on, the notes missed
+//! in a lane a shock locked, the life those cost an attack (5 a shock, 10
+//! a note), the share of plays whose gauge empties while one of the
+//! attacks passes, and the attacks a play was given.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use ddi_chart::{Difficulty, Song};
-use ddi_engine::cpu::{CPU_LEVELS_V0, Level, Opponent, Plan, Skills};
+use ddi_engine::cpu::{CPU_LEVELS_V0, Level, MINE_RESPONSE_V0, Opponent, Plan, Skills};
 use ddi_engine::rules::presets::{self, HoldStyle};
 use ddi_engine::rules::{FailPolicy, Judgement};
 use ddi_library::scan::parse_simfile;
@@ -305,5 +315,240 @@ fn local_cpu_levels() {
         println!("  out %    {}", row(&|s| 100.0 * f64::from(s.out) / n(s)));
         println!("  life %   {}", row(&|s| 100.0 * s.life / n(s)));
         println!("  missed % {}", row(&|s| 100.0 * s.missed / n(s)));
+    }
+}
+
+/// One chart's attacks against one CPU.
+#[derive(Clone, Copy, Default)]
+struct Shocked {
+    plays: u32,
+    attacks: u32,
+    shocks: u32,
+    stepped: u32,
+    locked_missed: u32,
+    knocked_out: u32,
+}
+
+impl Shocked {
+    fn add(&mut self, o: &Shocked) {
+        self.plays += o.plays;
+        self.attacks += o.attacks;
+        self.shocks += o.shocks;
+        self.stepped += o.stepped;
+        self.locked_missed += o.locked_missed;
+        self.knocked_out += o.knocked_out;
+    }
+}
+
+const EVASIONS: [f64; 3] = [0.5, 1.0, 2.0];
+
+fn shocked(
+    plan: &Plan,
+    song: &Song,
+    chart: usize,
+    sections: &[ddi_engine::battle::Section],
+    level: usize,
+    evasion: f64,
+    seed: u64,
+) -> Shocked {
+    use ddi_engine::battle::HazardState;
+    use ddi_engine::judge::NoteState;
+    let mut ruleset = ruleset_of("ddi-normal", song, chart);
+    ruleset.fail = FailPolicy::Off;
+    let table = ruleset.judge.clone();
+    let skills = Skills::default().with_evasion(evasion).unwrap();
+    let Ok(mut o) = Opponent::planned(
+        plan,
+        song,
+        chart,
+        ruleset,
+        (
+            CPU_LEVELS_V0.levels[level],
+            MINE_RESPONSE_V0.avoidance(level),
+        ),
+        seed,
+        skills,
+    ) else {
+        return Shocked::default();
+    };
+    o.start(0.0);
+    for s in sections {
+        if o.receive_hazards(&s.cells).is_err() {
+            return Shocked::default();
+        }
+    }
+    o.finish();
+    let p = o.player();
+    let (lock, window, reach) = (
+        table.lock.unwrap_or(0.0),
+        table.mine_window_seconds(),
+        table.miss_after(),
+    );
+    let Some(h) = p.hazards() else {
+        return Shocked::default();
+    };
+    let hits: Vec<(u8, f64)> = h
+        .mines()
+        .iter()
+        .filter(|m| m.state == HazardState::Hit)
+        .map(|m| (m.lane, m.seconds))
+        .collect();
+    let locked_missed = p
+        .judge()
+        .notes()
+        .iter()
+        .filter(|n| n.state == NoteState::Missed)
+        .filter(|n| {
+            hits.iter().any(|&(lane, at)| {
+                lane == n.note.lane && n.seconds > at - reach && n.seconds < at + lock + reach
+            })
+        })
+        .count() as u32;
+    let timing = song.charts[chart].timing(song);
+    let knocked_out = o.out_at().is_some_and(|out| {
+        sections.iter().any(|s| {
+            let first = s.cells.first().map(|c| timing.seconds_at(c.tick));
+            let last = s.cells.last().map(|c| timing.seconds_at(c.tick));
+            first.is_some_and(|f| out >= f - window)
+                && last.is_some_and(|l| out <= l + window + lock + reach)
+        })
+    });
+    Shocked {
+        plays: 1,
+        attacks: sections.len() as u32,
+        shocks: h.mines().len() as u32,
+        stepped: hits.len() as u32,
+        locked_missed,
+        knocked_out: u32::from(knocked_out),
+    }
+}
+
+type ShockTable = BTreeMap<String, (u32, Vec<Shocked>)>;
+
+#[test]
+fn local_cpu_shocks() {
+    let (Some(dirs), true) = (
+        std::env::var_os("DDI_CPU_CORPUS"),
+        std::env::var("DDI_CPU_SHOCKS").is_ok_and(|v| v == "1"),
+    ) else {
+        return;
+    };
+    let seeds: u64 = std::env::var("DDI_CPU_SEEDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3);
+    let mut files = Vec::new();
+    for dir in std::env::split_paths(&dirs) {
+        collect(&dir, &mut files);
+    }
+    files.sort();
+    let columns = CPU_LEVELS_V0.levels.len() * EVASIONS.len();
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
+    let chunk = files.len().div_ceil(workers).max(1);
+    let parts: Vec<ShockTable> = std::thread::scope(|scope| {
+        let handles: Vec<_> = files
+            .chunks(chunk)
+            .map(|files| {
+                scope.spawn(move || {
+                    let mut table = ShockTable::new();
+                    for path in files {
+                        let ext = path
+                            .extension()
+                            .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                            .unwrap_or_default();
+                        let Ok(bytes) = std::fs::read(path) else {
+                            continue;
+                        };
+                        let text = ddi_library::pack::decode_text(&bytes);
+                        let Ok(song) = parse_simfile(&text, &ext) else {
+                            continue;
+                        };
+                        for (index, chart) in song.charts.iter().enumerate() {
+                            if chart.layout != "dance-single" || chart.derivation.is_some() {
+                                continue;
+                            }
+                            let Ok(plan) = Plan::automatic(&song, index) else {
+                                continue;
+                            };
+                            let judge = ruleset_of("ddi-normal", &song, index).judge;
+                            let mut sections: Vec<ddi_engine::battle::Section> = Vec::new();
+                            for s in ddi_engine::battle::schedule(&song, index, &judge, 11)
+                                .into_iter()
+                                .flatten()
+                            {
+                                if sections.len() < 4
+                                    && sections
+                                        .last()
+                                        .is_none_or(|l| s.start_beat >= l.start_beat + 16)
+                                {
+                                    sections.push(s);
+                                }
+                            }
+                            if sections.is_empty() {
+                                continue;
+                            }
+                            let mut sums = vec![Shocked::default(); columns];
+                            for level in 0..CPU_LEVELS_V0.levels.len() {
+                                for (k, &e) in EVASIONS.iter().enumerate() {
+                                    for seed in 1..=seeds {
+                                        sums[level * EVASIONS.len() + k].add(&shocked(
+                                            &plan, &song, index, &sections, level, e, seed,
+                                        ));
+                                    }
+                                }
+                            }
+                            for g in ["all".to_string(), slot(chart.difficulty).to_string()] {
+                                let e = table
+                                    .entry(g)
+                                    .or_insert_with(|| (0, vec![Shocked::default(); columns]));
+                                e.0 += 1;
+                                for (a, b) in e.1.iter_mut().zip(&sums) {
+                                    a.add(b);
+                                }
+                            }
+                        }
+                    }
+                    table
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let mut table = ShockTable::new();
+    for t in parts {
+        for (k, (n, sums)) in t {
+            let e = table
+                .entry(k)
+                .or_insert_with(|| (0, vec![Shocked::default(); columns]));
+            e.0 += n;
+            for (a, b) in e.1.iter_mut().zip(&sums) {
+                a.add(b);
+            }
+        }
+    }
+    println!(
+        "{} files, {seeds} seeds, DDI Normal, mine-response-v1",
+        files.len()
+    );
+    for (group, (charts, sums)) in &table {
+        println!("{group} | {charts} charts | by level, Evasion 0.5 / 1 / 2");
+        for (level, cells) in sums.chunks(EVASIONS.len()).enumerate() {
+            let cell = |f: &dyn Fn(&Shocked) -> f64| {
+                cells
+                    .iter()
+                    .map(|s| format!("{:5.2}", f(s)))
+                    .collect::<Vec<_>>()
+                    .join(" /")
+            };
+            let a = |s: &Shocked| f64::from(s.attacks.max(1));
+            println!(
+                "  level {:>2}: stepped of 8 {} | life an attack {} | knocked out % of plays {} | attacks a play {}",
+                level + 1,
+                cell(&|s| 8.0 * f64::from(s.stepped) / f64::from(s.shocks.max(1))),
+                cell(&|s| (5.0 * f64::from(s.stepped) + 10.0 * f64::from(s.locked_missed)) / a(s)),
+                cell(&|s| 100.0 * f64::from(s.knocked_out) / f64::from(s.plays.max(1))),
+                cell(&|s| f64::from(s.attacks) / f64::from(s.plays.max(1))),
+            );
+        }
     }
 }

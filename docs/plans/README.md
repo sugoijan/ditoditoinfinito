@@ -281,7 +281,7 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   chains, a battle's shocks drawn by a skin's `Tap Shock`) built
   2026-11-12, and 4 (2026-11-13: one set of tier colors, white to red,
   for words and hit effects; the judgment words in the player's
-  language); left: the
+  language; shock avoidance a CPU's eighth skill axis); left: the
   targeting choice, online attacks. Our own
   ruleset, the only one in multiplayer and the default for normal play:
   W0–W5 on a 1/120 s grid (1/144 Hard, 1/90 Easy) with early and late

@@ -205,16 +205,9 @@ pub fn with_roster(mut rules: MatchRules, roster: Vec<OpponentSpec>, humans: usi
 /// multipliers of their own.
 pub fn preset(skills: &str) -> Option<&'static str> {
     let parsed = ddi_engine::cpu::Skills::parse(skills).ok()?;
-    [
-        "balanced",
-        "stream",
-        "jacks",
-        "chords",
-        "stamina",
-        "technical",
-    ]
-    .into_iter()
-    .find(|p| ddi_engine::cpu::Skills::parse(p).ok() == Some(parsed))
+    ddi_engine::cpu::PRESET_NAMES
+        .into_iter()
+        .find(|p| ddi_engine::cpu::Skills::parse(p).ok() == Some(parsed))
 }
 
 #[cfg(test)]

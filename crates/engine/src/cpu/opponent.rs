@@ -13,10 +13,10 @@
 //! out). A battle's shocks put into its play (M8b,
 //! [`Opponent::receive_hazards`]) are judged by its own player as anyone's
 //! are; its script of presses still to come responds to them by its level
-//! alone (`super::mines`, [`super::MINE_RESPONSE_V0`]). Its life is its
+//! and its skills' Evasion (`super::mines`, [`super::MINE_RESPONSE_V1`]). Its life is its
 //! own gauge under the ruleset it is given, judged, never drawn by hand.
 
-use super::mines::{MINE_RESPONSE_V0, MineResponse, Purpose, draw};
+use super::mines::{MINE_RESPONSE_V1, MineResponse, Purpose, draw};
 use super::*;
 use crate::battle::{Hazard, HazardError};
 use crate::player::Player;
@@ -37,9 +37,15 @@ pub struct Opponent {
     judged: Vec<crate::judge::JudgeEvent>,
     /// Its seed (its responses' draws are keyed by it too).
     seed: u64,
-    /// How well it avoids shocks, `0..=1`, and what it does about them.
+    /// How well it avoids shocks, `0..=1`, and what it does about them
+    /// (its level's response).
     avoidance: f64,
     response: MineResponse,
+    /// Its skills' Evasion, which bends that response shock by shock
+    /// ([`MINE_RESPONSE_V1`]), and its chart's notes, `(seconds, lane)`
+    /// in time order, which say where a shock is hard to get around.
+    evasion: f64,
+    notes: Vec<(f64, u8)>,
 }
 
 impl Opponent {
@@ -122,6 +128,14 @@ impl Opponent {
             crate::player::PlayOptions::default(),
         );
         player.set_autoplay(true);
+        let mut notes: Vec<(f64, u8)> = player
+            .judge()
+            .notes()
+            .iter()
+            .filter(|n| n.judgeable && n.seconds.is_finite())
+            .map(|n| (n.seconds, n.note.lane))
+            .collect();
+        notes.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         Ok(Opponent {
             player,
             presses,
@@ -131,7 +145,9 @@ impl Opponent {
             judged: Vec::new(),
             seed,
             avoidance,
-            response: MINE_RESPONSE_V0.response(avoidance),
+            response: MINE_RESPONSE_V1.table.response(avoidance),
+            evasion: skills.evasion(),
+            notes,
         })
     }
 
@@ -167,13 +183,20 @@ impl Opponent {
             return Ok(());
         }
         let r = self.response;
+        let model = MINE_RESPONSE_V1;
         let window = self
             .player
             .hazards()
             .map_or(crate::battle::INJECTED_MINE_V0.fallback, |h| h.window());
-        let mines: Vec<(Hazard, f64)> = cells
+        // Each shock with its own response: the level's bent by its
+        // Evasion where the shock is hard to get around.
+        let mines: Vec<(Hazard, f64, MineResponse)> = cells
             .iter()
-            .map(|c| (*c, self.player.timing().seconds_at(c.tick)))
+            .map(|c| {
+                let at = self.player.timing().seconds_at(c.tick);
+                let context = model.context(&self.notes, at, c.lane);
+                (*c, at, model.response(r, self.evasion, context))
+            })
             .collect();
         // Only what is still to come and clear of now.
         let now = self
@@ -187,14 +210,15 @@ impl Opponent {
                     .map_or(f64::NEG_INFINITY, |p| p.press),
             )
             + self.judge_offset.max(0.0);
-        let floor = now + r.jitter + 0.001;
+        let jitter = mines.iter().map(|m| m.2.jitter).fold(r.jitter, f64::max);
+        let floor = now + jitter + 0.001;
         let mut changed: Vec<Press> = Vec::with_capacity(self.presses.len() - self.next + 8);
         for p in &self.presses[self.next..] {
             let near = mines
                 .iter()
-                .filter(|(_, at)| (p.press - at).abs() <= r.near)
+                .filter(|(_, at, _)| (p.press - at).abs() <= r.near)
                 .min_by(|a, b| (p.press - a.1).abs().total_cmp(&(p.press - b.1).abs()));
-            let (Some((cell, _)), true) = (near, p.press > floor) else {
+            let (Some((cell, _, r)), true) = (near, p.press > floor) else {
                 changed.push(*p);
                 continue;
             };
@@ -210,7 +234,7 @@ impl Opponent {
                 lane: p.lane,
             });
         }
-        for (cell, at) in &mines {
+        for (cell, at, r) in &mines {
             if draw(self.seed, cell.tick.0, cell.lane, Purpose::Hit, 0) >= r.hit {
                 continue;
             }
@@ -666,4 +690,150 @@ mod tests {
             "no level 11"
         );
     }
+
+    /// What every level does about four sections of shocks, by seed: a
+    /// hash of its presses then, its shocks stepped on and its tally.
+    fn shock_fixture(song: &Song, skills: Skills) -> Vec<(usize, u64, u64, u32, u32)> {
+        let mut out = Vec::new();
+        for level in 0..super::LEVELS {
+            for seed in 1..=4u64 {
+                let mut o = Opponent::with_skills(song, 1, rules(), level, seed, skills).unwrap();
+                o.start(0.0);
+                for s in sections(song).iter().take(4) {
+                    o.receive_hazards(&s.cells).unwrap();
+                }
+                let mut h = 0xcbf2_9ce4_8422_2325_u64;
+                for p in o.presses() {
+                    for v in [p.press.to_bits(), p.release.to_bits(), u64::from(p.lane)] {
+                        h = (h ^ v).wrapping_mul(0x0100_0000_01b3);
+                    }
+                }
+                o.finish();
+                let hit = o.player().hazards().unwrap().counts().0;
+                let missed = o.player().tally().taps[5];
+                out.push((level, seed, h, hit, missed));
+            }
+        }
+        out
+    }
+
+    /// Evasion 1 leaves a level's response exactly as it was: with no
+    /// eighth value (every seed and roster CPU before round 4) a CPU's
+    /// presses after four sections of shocks, the shocks it steps on and
+    /// its misses are as `mine-response-v0` made them (the fixture taken
+    /// from the build before; balanced, and a roster CPU's own seven).
+    #[test]
+    fn evasion_one_responds_exactly_as_mine_response_v0_did() {
+        let song = song();
+        for (skills, want) in [
+            ("balanced", BALANCED_V0),
+            ("1.1,1,1,0.9,1.2,1,0.8", CUSTOM_V0),
+        ] {
+            let got = shock_fixture(&song, Skills::parse(skills).unwrap());
+            assert_eq!(got, want, "{skills}");
+        }
+        // And an eighth value of 1 is the same CPU.
+        assert_eq!(
+            shock_fixture(&song, Skills::parse("1,1,1,1,1,1,1,1").unwrap()),
+            BALANCED_V0
+        );
+        // A dodger steps on fewer shocks than the level, a stomper on more.
+        let stepped = |e: f64| -> u32 {
+            shock_fixture(&song, Skills::default().with_evasion(e).unwrap())
+                .iter()
+                .map(|f| f.3)
+                .sum()
+        };
+        let (dodger, level, stomper) = (stepped(2.0), stepped(1.0), stepped(0.5));
+        assert!(
+            dodger < level && level < stomper,
+            "{dodger} {level} {stomper}"
+        );
+    }
+
+    /// `(level, seed, presses' hash, shocks stepped on, misses)`.
+    const BALANCED_V0: [(usize, u64, u64, u32, u32); 40] = [
+        (0, 1, 12644587548427991872, 5, 0),
+        (0, 2, 5390699820817223490, 5, 0),
+        (0, 3, 12683791391249642834, 5, 0),
+        (0, 4, 10156452717982803138, 5, 0),
+        (1, 1, 12456761093607094426, 5, 0),
+        (1, 2, 4449103971517048307, 5, 0),
+        (1, 3, 4476676210479347219, 5, 0),
+        (1, 4, 11286949876874043516, 5, 0),
+        (2, 1, 16926452996149813455, 5, 0),
+        (2, 2, 2230730451439837311, 5, 0),
+        (2, 3, 2623470500724881099, 5, 0),
+        (2, 4, 6623830531180444546, 5, 0),
+        (3, 1, 7780207060611785259, 5, 0),
+        (3, 2, 13564433352698024081, 5, 0),
+        (3, 3, 5593264625379709119, 5, 0),
+        (3, 4, 10776335962794265028, 5, 0),
+        (4, 1, 18396473872998388888, 5, 0),
+        (4, 2, 6923997244725870273, 4, 0),
+        (4, 3, 17878045646674304349, 5, 0),
+        (4, 4, 10072092854588491910, 4, 1),
+        (5, 1, 10467682203878033719, 5, 0),
+        (5, 2, 15336477412646474335, 4, 0),
+        (5, 3, 9824261850096163867, 5, 0),
+        (5, 4, 16776980410603012573, 3, 0),
+        (6, 1, 12365859758034194081, 5, 0),
+        (6, 2, 908753023979430523, 4, 0),
+        (6, 3, 7969925767273837093, 5, 0),
+        (6, 4, 7302122824047443977, 3, 0),
+        (7, 1, 15294976252602108971, 5, 0),
+        (7, 2, 2235882859966796232, 2, 0),
+        (7, 3, 5350815333291544202, 1, 1),
+        (7, 4, 573166749483343131, 2, 0),
+        (8, 1, 12237707240959185173, 5, 0),
+        (8, 2, 12783921805380916832, 2, 0),
+        (8, 3, 4610328142332941682, 1, 1),
+        (8, 4, 14827477005743867491, 2, 0),
+        (9, 1, 18352016939461868639, 4, 0),
+        (9, 2, 568873959764713046, 2, 0),
+        (9, 3, 1155254195008070793, 0, 1),
+        (9, 4, 2392023948904027071, 0, 0),
+    ];
+    const CUSTOM_V0: [(usize, u64, u64, u32, u32); 40] = [
+        (0, 1, 12644587548427991872, 5, 0),
+        (0, 2, 5390699820817223490, 5, 0),
+        (0, 3, 12683791391249642834, 5, 0),
+        (0, 4, 10156452717982803138, 5, 0),
+        (1, 1, 12456761093607094426, 5, 0),
+        (1, 2, 4449103971517048307, 5, 0),
+        (1, 3, 4476676210479347219, 5, 0),
+        (1, 4, 11286949876874043516, 5, 0),
+        (2, 1, 16926452996149813455, 5, 0),
+        (2, 2, 2230730451439837311, 5, 0),
+        (2, 3, 2623470500724881099, 5, 0),
+        (2, 4, 6623830531180444546, 5, 0),
+        (3, 1, 7780207060611785259, 5, 0),
+        (3, 2, 13564433352698024081, 5, 0),
+        (3, 3, 5593264625379709119, 5, 0),
+        (3, 4, 10776335962794265028, 5, 0),
+        (4, 1, 18396473872998388888, 5, 0),
+        (4, 2, 6923997244725870273, 4, 0),
+        (4, 3, 17878045646674304349, 5, 0),
+        (4, 4, 10072092854588491910, 4, 1),
+        (5, 1, 10467682203878033719, 5, 0),
+        (5, 2, 15336477412646474335, 4, 0),
+        (5, 3, 9824261850096163867, 5, 0),
+        (5, 4, 16776980410603012573, 3, 0),
+        (6, 1, 12365859758034194081, 5, 0),
+        (6, 2, 908753023979430523, 4, 0),
+        (6, 3, 7969925767273837093, 5, 0),
+        (6, 4, 7302122824047443977, 3, 0),
+        (7, 1, 15294976252602108971, 5, 0),
+        (7, 2, 2235882859966796232, 2, 0),
+        (7, 3, 5350815333291544202, 1, 1),
+        (7, 4, 573166749483343131, 2, 0),
+        (8, 1, 12237707240959185173, 5, 0),
+        (8, 2, 12783921805380916832, 2, 0),
+        (8, 3, 4610328142332941682, 1, 1),
+        (8, 4, 14827477005743867491, 2, 0),
+        (9, 1, 18352016939461868639, 4, 0),
+        (9, 2, 568873959764713046, 2, 0),
+        (9, 3, 1155254195008070793, 0, 1),
+        (9, 4, 2392023948904027071, 0, 0),
+    ];
 }

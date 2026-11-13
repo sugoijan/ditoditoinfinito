@@ -15,9 +15,11 @@ mod opponent;
 mod personality;
 pub use automatic::{Automatic, Plan};
 pub use levels::{CPU_LEVELS_V0, LEVELS, Level, LevelTable};
-pub use mines::{MINE_RESPONSE_V0, MineResponse, MineResponseTable};
+pub use mines::{
+    MINE_RESPONSE_V0, MINE_RESPONSE_V1, MineModel, MineResponse, MineResponseTable, ShockContext,
+};
 pub use opponent::Opponent;
-pub use personality::{SKILL_NAMES, Skills};
+pub use personality::{PATTERN_AXES, PRESET_NAMES, SKILL_NAMES, Skills};
 
 pub const MAX_ROWS: usize = 4096;
 /// Compact automatic plans do not keep five dense probability matrices.

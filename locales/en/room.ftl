@@ -965,7 +965,11 @@ room-cpu-style-jacks = Jacks
 room-cpu-style-chords = Chords
 room-cpu-style-stamina = Stamina
 room-cpu-style-technical = Technical
-# Seven multipliers of its own, no preset's.
+# Good at getting around a battle's shocks (a dodger).
+room-cpu-style-evasive = Evasive
+# Prone to stepping on a battle's shocks (a stomper).
+room-cpu-style-reckless = Reckless
+# Multipliers of its own, no preset's.
 room-cpu-style-custom = Custom
 
 # At the right of a player's row (about 12 letters each).

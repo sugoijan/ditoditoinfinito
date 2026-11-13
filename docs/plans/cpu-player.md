@@ -34,11 +34,14 @@ lifts, fakes and tails are omitted. Source charts are unchanged.
 ## Skill personality
 
 Automatic mode accepts `&skills=jacks` on the web, or `--cpu-skills jacks`
-on desktop. Use `balanced` (the default), `stream`, `jacks`, `chords`, `stamina`
-or `technical`, or seven comma-separated multipliers in this order:
-**Stream, Jumpstream, Handstream, Stamina, JackSpeed, Chordjack, Technical**.
+on desktop. Use `balanced` (the default), `stream`, `jacks`, `chords`, `stamina`,
+`technical`, `evasive` or `reckless`, or seven or eight comma-separated
+multipliers in this order:
+**Stream, Jumpstream, Handstream, Stamina, JackSpeed, Chordjack, Technical,
+Evasion** (seven leave Evasion at 1, as every vector was before it).
 Each value is 0.5–2 inclusive in steps of 0.001. One is neutral; larger means
-better at that pattern. For example:
+better at that pattern, and for Evasion better at getting around a battle's
+shocks (below). For example:
 
 ```text
 #/play?song=<song-id>&chart=0&cpu=1&strength=normal&seed=7&skills=1.1,0.9,1,1.25,0.8,1,1
@@ -50,14 +53,21 @@ cargo run -- --play SONG --cpu=1 --cpu-skills 1.1,0.9,1,1.25,0.8,1,1 --cpu-seed 
 
 Presets are explicit vectors, not trained players:
 
-| Preset | Stream | Jumpstream | Handstream | Stamina | JackSpeed | Chordjack | Technical |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| balanced | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| stream | 1.25 | 1 | 1 | 1 | 0.8 | 1 | 1 |
-| jacks | 0.8 | 1 | 1 | 1 | 1.25 | 1 | 1 |
-| chords | 0.8 | 1.25 | 1.25 | 1 | 0.8 | 1.25 | 0.8 |
-| stamina | 0.8 | 1 | 1 | 1.25 | 1 | 1 | 1 |
-| technical | 0.8 | 1 | 1 | 1 | 1 | 1 | 1.25 |
+| Preset | Stream | Jumpstream | Handstream | Stamina | JackSpeed | Chordjack | Technical | Evasion |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| balanced | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| stream | 1.25 | 1 | 1 | 1 | 0.8 | 1 | 1 | 1 |
+| jacks | 0.8 | 1 | 1 | 1 | 1.25 | 1 | 1 | 1 |
+| chords | 0.8 | 1.25 | 1.25 | 1 | 0.8 | 1.25 | 0.8 | 0.8 |
+| stamina | 0.8 | 1 | 1 | 1.25 | 1 | 1 | 1 | 1 |
+| technical | 0.8 | 1 | 1 | 1 | 1 | 1 | 1.25 | 1.25 |
+| evasive | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1.6 |
+| reckless | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0.6 |
+
+Evasion's values (round 4 of `docs/plans/ddi-ruleset.md`): `technical` dodges
+better (mine-dodging is footwork), `chords` mashes onto more shocks, and two
+balanced presets, `evasive` and `reckless`, differ in Evasion alone (the
+practice roster's dodgers and stompers). The others stay at 1.
 
 These borrow MSD names but are **heuristic pattern controls, not MSD ratings**.
 The prompt/results show the numeric vector. Balanced preserves the previous
@@ -251,6 +261,93 @@ What the tables say:
   "Measured: the ten CPU levels under DDI": percent 61.4 to 95.9 under
   Normal, out of the stage on a fifth of the charts at level 1 and never
   from level 5 on; never out under Easy; Hard about where ITG FA+ was.
+
+## Evasion: a CPU against a battle's shocks
+
+The eighth skill axis (the maintainer's M8 decision D8; round 4 of
+`docs/plans/ddi-ruleset.md`): how a CPU opponent fares against the
+shocks an attack puts into its play. Like the other axes it is a model
+of a CPU, never a measure of a person's skill, and PROVISIONAL.
+
+`MINE_RESPONSE_V1` (`mine-response-v1`, `ddi_engine::cpu::mines`):
+
+- Each level keeps its response as `mine-response-v0` had it (the chance
+  it steps on a shock, how far its presses within 0.3 s of one move, the
+  chance one is left out; from its level's avoidance).
+- Evasion bends that response shock by shock: the chances times
+  `Evasion^-γ`, the moves times `Evasion^-γ/2`, with
+  `γ = 1 + (busy + beside) / 2`. `busy` is how full the chart is around
+  the shock (0 with two notes or fewer within half a second either side,
+  all lanes, 1 at eight or more); `beside` is a note of the shock's own
+  lane within half a second, where `placement-v2` aims six shocks of
+  eight. So a dodger (Evasion above 1) steps on fewer shocks everywhere
+  and most fewer where they are hard to get around; a stomper (below 1)
+  on more, most where they are hard. Capped at 95%.
+- **Evasion 1 is the level's response exactly**: every seed, every
+  roster CPU without an eighth value and every seven-value vector plays
+  as before (a fixture of presses, shocks stepped on and misses taken
+  from the build before, `ddi-engine`
+  `evasion_one_responds_exactly_as_mine_response_v0_did`).
+- Deterministic per chart, level, seed and skills at any frame rate: the
+  context comes from the CPU's chart (its judged notes), the draws are
+  the same keyed draws as before.
+
+The roster's dodgers and stompers (`cpu_roster.json`, stars unchanged,
+their personality shown as Evasive or Reckless): Brisk Otter (level 1)
+and Tessel Moth (8) reckless, Velvet Metronome (5) and Saltglass Rook
+(10) evasive.
+
+### Measured
+
+Between eight CPUs of one level, all at one Evasion, over the attack-rate
+study's six bundled charts under DDI Normal (`DDI_ATTACK_ONLY=evasion
+cargo test --release -p ddi-session --lib attack_rates -- --ignored
+--nocapture`, four seeds; an attack received: shocks stepped on of
+eight, the life it cost (a shock 5, a note missed in a locked lane 10),
+and the share of attacks whose recipient went out while it passed):
+
+| Level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Stepped on, Evasion 0.5 | 5.09 | 4.61 | 4.70 | 4.21 | 3.91 | 3.44 | 3.23 | 1.54 | 1.60 | 0.58 |
+| Stepped on, Evasion 1 | 2.40 | 2.23 | 2.11 | 1.87 | 1.66 | 1.38 | 1.22 | 0.54 | 0.54 | 0.19 |
+| Stepped on, Evasion 2 | 1.22 | 1.04 | 0.95 | 0.81 | 0.70 | 0.60 | 0.48 | 0.20 | 0.18 | 0.06 |
+| Life an attack, 0.5 | 62.8 | 61.1 | 63.9 | 61.9 | 59.3 | 56.8 | 49.8 | 27.1 | 28.2 | 10.6 |
+| Life an attack, 1 | 32.8 | 33.2 | 31.7 | 30.9 | 29.0 | 25.6 | 21.3 | 9.2 | 9.8 | 3.3 |
+| Life an attack, 2 | 18.1 | 17.2 | 15.7 | 14.0 | 13.2 | 11.5 | 8.5 | 3.5 | 3.3 | 1.1 |
+| Knocked out by it %, 0.5 | 73.3 | 61.4 | 49.4 | 44.2 | 29.7 | 22.9 | 20.3 | 1.8 | 2.2 | 0.0 |
+| Knocked out by it %, 1 | 23.1 | 18.3 | 11.8 | 7.5 | 3.9 | 1.0 | 0.7 | 0.0 | 0.0 | 0.0 |
+| Knocked out by it %, 2 | 12.1 | 4.6 | 4.6 | 1.8 | 0.0 | 0.0 | 0.1 | 0.0 | 0.0 | 0.0 |
+
+Over the maintainer's local arcade mixes, read in place (thirteen
+folders, 996 simfiles, 4,147 dance-single charts; aggregates only;
+`DDI_CPU_SHOCKS=1 DDI_CPU_CORPUS=… cargo test --release -p ddi-engine
+--test local_cpu local_cpu_shocks -- --nocapture`, four seeds): each
+chart given up to four attacks where `placement-v2` puts them (sections
+16 beats apart or more), one CPU alone, the fail off; knocked out is
+the share of plays whose gauge emptied while one of the attacks passed:
+
+| Level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Stepped on, Evasion 0.5 | 5.85 | 5.22 | 4.66 | 4.08 | 3.56 | 3.00 | 2.99 | 1.24 | 1.23 | 0.47 |
+| Stepped on, Evasion 1 | 2.71 | 2.49 | 2.19 | 1.79 | 1.49 | 1.25 | 1.22 | 0.56 | 0.55 | 0.17 |
+| Stepped on, Evasion 2 | 1.23 | 1.07 | 0.96 | 0.85 | 0.72 | 0.57 | 0.54 | 0.23 | 0.22 | 0.07 |
+| Life an attack, 0.5 | 68.0 | 62.4 | 55.7 | 48.5 | 41.9 | 35.1 | 34.9 | 14.7 | 14.6 | 5.5 |
+| Life an attack, 1 | 29.5 | 26.7 | 23.5 | 19.5 | 16.4 | 14.0 | 13.5 | 6.2 | 6.0 | 1.9 |
+| Life an attack, 2 | 14.0 | 12.0 | 10.4 | 9.1 | 7.6 | 6.1 | 5.5 | 2.4 | 2.2 | 0.7 |
+| Knocked out %, 0.5 | 99.6 | 99.6 | 99.6 | 99.2 | 97.6 | 91.5 | 90.7 | 14.6 | 14.1 | 0.4 |
+| Knocked out %, 1 | 91.2 | 84.7 | 71.2 | 49.3 | 29.7 | 14.3 | 12.3 | 0.6 | 0.6 | 0.0 |
+| Knocked out %, 2 | 39.5 | 25.5 | 12.3 | 6.0 | 2.1 | 0.7 | 0.4 | 0.0 | 0.0 | 0.0 |
+
+By difficulty slot the same order holds in every row; an attack costs
+more on harder charts (level 1 at Evasion 1: 20.7 life on Beginner
+charts, 40.5 on Challenge). What they say: at a level, Evasion 0.5 about
+doubles the shocks stepped on and Evasion 2 about halves them (a little
+more than that, since busy stretches and notes beside the shocks count
+for more); the life an attack costs moves the same way, so a weak level
+at 0.5 is out by four attacks on nearly every chart and a strong one at
+2 hardly feels them. The axis spans more than a level step does, which
+is why the presets and the roster use 0.6 to 1.6: a decision for the
+maintainer, with the shares in `γ`.
 
 ## Implementation and bounds
 

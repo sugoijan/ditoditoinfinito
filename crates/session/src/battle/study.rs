@@ -18,8 +18,13 @@
 //! by the difficulty (a mine's and a Miss's), and whether its recipient
 //! went out before the attack's last shock and its lock were over.
 //!
+//! Last, by the CPUs' Evasion (the eighth skill axis, round 4 of the DDI
+//! ruleset): eight CPUs of one level, all at Evasion 0.5, 1 or 2, under
+//! Normal. `DDI_ATTACK_ONLY=evasion` runs that table alone.
+//!
 //! MEASUREMENTS OF CPUS AGAINST CPUS, not of people: the CPUs' response
-//! to shocks is `MINE_RESPONSE_V0`'s, invented and uncalibrated.
+//! to shocks is `MINE_RESPONSE_V1`'s (the levels' `MINE_RESPONSE_V0`,
+//! invented, bent by Evasion), a model of a CPU.
 
 use super::*;
 use ddi_engine::battle::HazardState;
@@ -108,6 +113,7 @@ fn stage(
     difficulty: MatchDifficulty,
     levels: &[u8],
     seed: u64,
+    skills: Option<&str>,
 ) -> Vec<Seat> {
     let rules = StageRules {
         difficulty,
@@ -133,7 +139,7 @@ fn stage(
                     .wrapping_mul(0x9E37_79B9_7F4A_7C15)
                     .wrapping_add(i as u64 * 7919 + 1),
                 name: None,
-                skills: None,
+                skills: skills.map(str::to_string),
                 targeting: Targeting::Spread,
             })
             .collect(),
@@ -263,14 +269,15 @@ fn attack_rates() {
             100.0 * s.percent / n,
         );
     };
-    for d in [D::Normal, D::Easy, D::Hard] {
+    let only_evasion = std::env::var("DDI_ATTACK_ONLY").is_ok_and(|v| v == "evasion");
+    for d in [D::Normal, D::Easy, D::Hard].into_iter().filter(|_| !only_evasion) {
         println!("== DDI {d:?}: eight CPUs at one level, {} charts, {seeds} seeds", songs.len());
         for level in 0..10u8 {
             let mut sum = Seat::default();
             let mut stages = 0;
             for (song, chart) in &songs {
                 for seed in 1..=seeds {
-                    for s in stage(song, *chart, d, &[level; 8], seed) {
+                    for s in stage(song, *chart, d, &[level; 8], seed, None) {
                         sum.add(&s);
                     }
                     stages += 1;
@@ -291,7 +298,7 @@ fn attack_rates() {
                 let levels: Vec<u8> = (0..field.len())
                     .map(|i| field[(i + turn) % field.len()])
                     .collect();
-                for (i, s) in stage(song, *chart, d, &levels, seed).iter().enumerate() {
+                for (i, s) in stage(song, *chart, d, &levels, seed, None).iter().enumerate() {
                     by_level[(i + turn) % field.len()].add(s);
                     total.add(s);
                 }
@@ -307,13 +314,42 @@ fn attack_rates() {
             f64::from(total.launched) / f64::from(stages.max(1))
         );
     }
+    // By Evasion: eight CPUs of one level, all at one Evasion.
+    println!(
+        "== DDI Normal: eight CPUs at one level and one Evasion, {} charts, {seeds} seeds",
+        songs.len()
+    );
+    for level in 0..10u8 {
+        for evasion in ["0.5", "1", "2"] {
+            let skills = format!("1,1,1,1,1,1,1,{evasion}");
+            let mut sum = Seat::default();
+            let mut stages = 0;
+            for (song, chart) in &songs {
+                for seed in 1..=seeds {
+                    for s in stage(song, *chart, D::Normal, &[level; 8], seed, Some(&skills)) {
+                        sum.add(&s);
+                    }
+                    stages += 1;
+                }
+            }
+            line(
+                &format!("level {:>2} evasion {evasion:<3}", level + 1),
+                D::Normal,
+                &sum,
+                stages,
+            );
+        }
+    }
+    if only_evasion {
+        return;
+    }
     // Per chart, Normal, a mixed field: how long, how many attacks.
     println!("== per chart, DDI Normal, the mixed field");
     for (song, chart) in &songs {
         let c = &song.charts[*chart];
         let mut total = Seat::default();
         for seed in 1..=seeds {
-            for s in stage(song, *chart, D::Normal, &[0, 1, 2, 3, 4, 5, 7, 9], seed) {
+            for s in stage(song, *chart, D::Normal, &[0, 1, 2, 3, 4, 5, 7, 9], seed, None) {
                 total.add(&s);
             }
         }

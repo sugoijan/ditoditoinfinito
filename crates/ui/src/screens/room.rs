@@ -532,6 +532,8 @@ pub fn personality_text(skills: Option<&str>) -> UiText {
         Some(Some("chords")) => m::cpu_style_chords(),
         Some(Some("stamina")) => m::cpu_style_stamina(),
         Some(Some("technical")) => m::cpu_style_technical(),
+        Some(Some("evasive")) => m::cpu_style_evasive(),
+        Some(Some("reckless")) => m::cpu_style_reckless(),
         Some(_) => m::cpu_style_custom(),
     }
 }

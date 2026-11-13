@@ -3060,7 +3060,7 @@ impl GameCanvas {
                 && let Ok(text) = serde_json::to_string(&serde_json::json!({
                     "strength": ddi_engine::cpu::LABELS[cpu.level],
                     "model": if cpu.path.is_some() { "prepared" } else { "analytical-runtime-v1" },
-                    "seed": cpu.seed.to_string(), "skills": cpu.skills.values(), "skills_version": 1, "log": facts.log,
+                    "seed": cpu.seed.to_string(), "skills": cpu.skills.values(), "skills_version": 2, "log": facts.log,
                     "results": results,
                 }))
                 && let Ok(value) = js_sys::JSON::parse(&text)

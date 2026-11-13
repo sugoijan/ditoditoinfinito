@@ -21,7 +21,8 @@ fn vectors_are_bounded_and_round_trip() {
     }
     for input in [
         "1,1,1",
-        "1,1,1,1,1,1,1,1",
+        "1,1,1,1,1,1,1,1,1",
+        "1,1,1,1,1,1,1,0.49",
         "NaN,1,1,1,1,1,1",
         "inf,1,1,1,1,1,1",
         "0.499,1,1,1,1,1,1",
@@ -32,6 +33,29 @@ fn vectors_are_bounded_and_round_trip() {
     }
     let s = Skills::parse("0.5,2,1.001,1,1,1,1").unwrap();
     assert_eq!(s.to_string(), "0.5,2,1.001,1,1,1,1");
+    // Seven values are Evasion 1, written back as seven; eight take it.
+    assert_eq!(s.evasion(), 1.0);
+    assert_eq!(Skills::parse("0.5,2,1.001,1,1,1,1,1").unwrap(), s);
+    let e = Skills::parse("0.5,2,1.001,1,1,1,1,1.6").unwrap();
+    assert_eq!(
+        (e.evasion(), e.to_string()),
+        (1.6, "0.5,2,1.001,1,1,1,1,1.6".into())
+    );
+    assert_eq!(Skills::parse(&e.vector()).unwrap(), e);
+    assert_eq!(e.log_values(), s.log_values(), "Evasion bends no pattern");
+    assert_eq!(s.with_evasion(1.6).unwrap(), e);
+    // The presets: where the character suggests it, another Evasion.
+    for name in PRESET_NAMES {
+        let p = Skills::parse(name).unwrap();
+        let want = match name {
+            "technical" => 1.25,
+            "chords" => 0.8,
+            "evasive" => 1.6,
+            "reckless" => 0.6,
+            _ => 1.0,
+        };
+        assert_eq!(p.evasion(), want, "{name}");
+    }
 }
 
 #[test]

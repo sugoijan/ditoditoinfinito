@@ -429,8 +429,8 @@ The attack decisions of 2026-11-11 stand, read for DDI:
   (a new version if it changes: `placement-v1`'s margins in round 3,
   `placement-v2`'s aim beside the lane's notes in round 3b).
 - **CPUs:** a CPU's shocks lock its lanes too (`MINE_RESPONSE_V0`'s
-  play then misses what passes in them). Mine avoidance becomes the 8th
-  skill axis later, as decided.
+  play then misses what passes in them). Mine avoidance is the 8th skill
+  axis since round 4 (Evasion, `MINE_RESPONSE_V1`).
 - **Ranking:** those still in by life, then score (the sum, round 3b);
   unchanged otherwise.
 
@@ -926,4 +926,17 @@ every other ruleset looks, judges and saves as before.
   each shaped once and then cached as in play): 0.11 ms a frame for
   English and 0.11 ms for Japanese, CPU and GPU together. The wasm is
   unchanged in size (no face is embedded in it).
-
+- **Shock avoidance a CPU's skill** (the maintainer's M8 decision D8).
+  `Skills` has an eighth axis, Evasion (0.5 to 2; seven-value lists keep
+  parsing, the eighth 1; `--cpu-skills`, the web's `skills=` and the
+  roster take eight), and a CPU's response to shocks is
+  `MINE_RESPONSE_V1`'s: its level's (`mine-response-v0`'s) bent by
+  `Evasion^-γ`, `γ = 1 + (busy + beside) / 2`, busy the chart's notes
+  around the shock and beside a note of its lane, where `placement-v2`
+  aims them. Evasion 1 is the level's response exactly (a fixture from
+  the build before). Presets: technical 1.25, chords 0.8, and two new,
+  evasive 1.6 and reckless 0.6; four roster CPUs dodge or stomp. Measured
+  between CPUs over the bundled charts and over the maintainer's local
+  arcade mixes (`docs/plans/cpu-player.md`, "Evasion"): Evasion 0.5
+  about doubles the shocks a level steps on and 2 about halves them. A
+  model of a CPU, never a person's skill.

@@ -466,6 +466,8 @@ room-cpu-style-jacks = 縦連
 room-cpu-style-chords = 同時押し
 room-cpu-style-stamina = 体力
 room-cpu-style-technical = テクニック
+room-cpu-style-evasive = 回避上手
+room-cpu-style-reckless = 踏みがち
 room-cpu-style-custom = カスタム
 
 room-state-loading = 読み込み中
