@@ -573,6 +573,11 @@ impl StageBattle {
         &self.checkpoints_us
     }
 
+    /// The chart's possible starts, as the attacks are placed in.
+    pub fn schedule(&self) -> &Schedule {
+        &self.schedule
+    }
+
     /// Checkpoint `k` (the next one) from everyone's `reports`, in this
     /// order: (1) those out before it are out; (2) each competitor still
     /// in is credited what its judgments earned, up to the cap (the rest

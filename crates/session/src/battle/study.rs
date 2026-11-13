@@ -31,6 +31,7 @@ use ddi_engine::battle::HazardState;
 use ddi_engine::judge::NoteState;
 use ddi_room::MatchDifficulty;
 use ddi_ui::state::room::StageRules;
+use std::collections::BTreeMap;
 
 /// The M8b study's charts: a bundled song's folder and its chart.
 const CHARTS: [(&str, usize); 6] = [
@@ -123,6 +124,42 @@ fn stage(
     seed: u64,
     skills: Option<&str>,
 ) -> Vec<Seat> {
+    stage_with(song, chart, difficulty, levels, seed, skills, Targeting::Spread).0
+}
+
+/// What a stage's attacks came to as a whole (`attacks-v2`'s study).
+#[derive(Clone, Copy, Default)]
+struct Facts {
+    attacks: u32,
+    /// The longest run of consecutive safe sections filled against one
+    /// recipient.
+    longest_run: u32,
+    /// The most attacks against one recipient still to come at once
+    /// (the one committed and those before it not cleared yet).
+    most_ahead: u32,
+    /// The most attacked recipient's share of the stage's attacks, and
+    /// how much of the safe sections over its attacked span were filled
+    /// against it.
+    top_share: f64,
+    top_filled: f64,
+    /// Checkpoints a full bar waited, and launches.
+    waited: u32,
+    launched: u32,
+    drawn: bool,
+    /// Seconds from last standing to the decision, where it waited.
+    last_standing: Option<f64>,
+}
+
+/// [`stage`] with every CPU's policy `targeting`, and the stage's facts.
+fn stage_with(
+    song: &Song,
+    chart: usize,
+    difficulty: MatchDifficulty,
+    levels: &[u8],
+    seed: u64,
+    skills: Option<&str>,
+    targeting: Targeting,
+) -> (Vec<Seat>, Facts) {
     let rules = StageRules {
         difficulty,
         ..StageRules::default()
@@ -148,7 +185,7 @@ fn stage(
                     .wrapping_add(i as u64 * 7919 + 1),
                 name: None,
                 skills: skills.map(str::to_string),
-                targeting: Targeting::Spread,
+                targeting,
             })
             .collect(),
         dev_mines_at_beat: None,
@@ -163,13 +200,14 @@ fn stage(
     }
     b.play_out_as(Some(Run::Forfeit));
     let ledger = b.attacks.as_ref().unwrap().ledger();
+    let facts = facts(&b, ledger);
     let table = ruleset.judge.clone();
     let (lock, window, reach) = (
         table.lock.unwrap_or(0.0),
         table.mine_window_seconds(),
         table.miss_after(),
     );
-    b.seats
+    let seats = b.seats
         .iter()
         .map(|s| {
             let p = s.opponent.player();
@@ -234,7 +272,77 @@ fn stage(
                 waited: stats.waited_no_eligible + stats.waited_no_safe_section,
             }
         })
-        .collect()
+        .collect();
+    (seats, facts)
+}
+
+fn facts(b: &Battle, ledger: &ddi_room::attacks::StageBattle) -> Facts {
+    let attacks = ledger.attacks();
+    let slots = &ledger.schedule().slots;
+    // The first safe slot starting at or after `us`.
+    let first_from = |us: i64| {
+        (slots.partition_point(|s| s.start_us < us)..slots.len()).find(|&j| slots[j].section.is_some())
+    };
+    let mut by: BTreeMap<ParticipantId, Vec<&ddi_room::attacks::Attack>> = BTreeMap::new();
+    for a in attacks {
+        by.entry(a.recipient).or_default().push(a);
+    }
+    // A run: attacks against one recipient each in the very first safe
+    // section after the one before it cleared (nothing free between).
+    let mut longest_run = 0;
+    let mut top = (0usize, 0.0f64);
+    for got in by.values_mut() {
+        got.sort_by_key(|a| a.slot);
+        let mut run = 0u32;
+        let mut last: Option<i64> = None;
+        for a in got.iter() {
+            run = if last.is_some_and(|c| first_from(c) == Some(a.slot)) { run + 1 } else { 1 };
+            longest_run = longest_run.max(run);
+            last = Some(a.clear_us);
+        }
+        if got.len() > top.0 {
+            // How many attacks back to back would fit over its attacked
+            // span, and how many it got.
+            let (first, end) = (got[0].slot, got.last().unwrap().slot);
+            let mut fit = 0;
+            let mut j = Some(first);
+            while let Some(k) = j.filter(|&k| k <= end) {
+                fit += 1;
+                j = slots[k].section.as_ref().and_then(|x| first_from(x.clear_us));
+            }
+            top = (got.len(), got.len() as f64 / f64::from(fit.max(1)));
+        }
+    }
+    let checkpoints = ledger.checkpoints_us();
+    let most_ahead = attacks
+        .iter()
+        .map(|x| {
+            let at = checkpoints[x.checkpoint];
+            1 + attacks
+                .iter()
+                .filter(|o| o.id < x.id && o.recipient == x.recipient && o.clear_us >= at)
+                .count() as u32
+        })
+        .max()
+        .unwrap_or(0);
+    let (mut waited, mut launched) = (0, 0);
+    for s in &b.seats {
+        let st = ledger.stats(s.seat.participant);
+        waited += st.waited_no_eligible + st.waited_no_safe_section;
+        launched += st.launched;
+    }
+    let (stood, settled) = b.last_standing_span();
+    Facts {
+        attacks: attacks.len() as u32,
+        longest_run,
+        most_ahead,
+        top_share: top.0 as f64 / attacks.len().max(1) as f64,
+        top_filled: top.1,
+        waited,
+        launched,
+        drawn: b.drawn_by_final_attack(),
+        last_standing: stood.zip(settled).map(|(a, z)| z - a),
+    }
 }
 
 #[test]
@@ -376,5 +484,124 @@ fn attack_rates() {
             f64::from(total.launched) / total.minutes.max(1e-9),
             f64::from(total.waited) / seeds as f64,
         );
+    }
+}
+
+/// `attacks-v2`'s study (2026-11-13): what chaining without limit does in
+/// fields of 4, 9 and 33 CPUs of mixed levels under DDI Normal and Hard,
+/// every CPU on one targeting policy, over the same charts. Run it once a
+/// rules version (`DDI_ATTACK_RULES=v1`, none for `attacks-v2`,
+/// `v2-gap1` or `v2-cool2` for the limits proposed):
+///
+/// `DDI_ATTACK_RULES=v1 cargo test --release -p ddi-session --lib
+/// chain_pileups -- --ignored --nocapture`
+///
+/// `DDI_ATTACK_SEEDS` seeds a chart (2), `DDI_CHAIN_SIZES` the fields
+/// (`4,9,33`).
+#[test]
+#[ignore = "a study: prints what unlimited chaining does"]
+fn chain_pileups() {
+    use MatchDifficulty as D;
+    let seeds: u64 = std::env::var("DDI_ATTACK_SEEDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2);
+    let sizes: Vec<usize> = std::env::var("DDI_CHAIN_SIZES")
+        .ok()
+        .map(|v| v.split(',').filter_map(|n| n.parse().ok()).collect())
+        .unwrap_or_else(|| vec![4, 9, 33]);
+    let songs: Vec<(Song, usize)> = CHARTS
+        .iter()
+        .map(|&(id, which)| {
+            let song = bundled(id);
+            let chart = chart_of(&song, which);
+            (song, chart)
+        })
+        .collect();
+    let costs = |d: D| match d {
+        D::Easy => (1.0, 2.0),
+        D::Normal => (5.0, 10.0),
+        D::Hard => (10.0, 20.0),
+    };
+    const MIX: [u8; 8] = [0, 1, 2, 3, 4, 5, 7, 9];
+    println!(
+        "== {}: {} charts, {seeds} seeds; fields of mixed levels (1, 2, 3, 4, 5, 6, 8, 10 in turn)",
+        attacks::rules().id,
+        songs.len()
+    );
+    for &n in &sizes {
+        for d in [D::Normal, D::Hard] {
+            for t in Targeting::ALL {
+                let mut by_level = [Seat::default(); 10];
+                let mut f = Facts::default();
+                let (mut stages, mut runs, mut drawn, mut stood, mut stood_s, mut stood_max) =
+                    (0u32, 0u64, 0u32, 0u32, 0.0, 0.0f64);
+                let (mut longest, mut ahead) = (0u32, 0u32);
+                let (mut share, mut filled) = (0.0, 0.0);
+                for (song, chart) in &songs {
+                    for seed in 1..=seeds {
+                        let levels: Vec<u8> =
+                            (0..n).map(|i| MIX[(i + seed as usize) % MIX.len()]).collect();
+                        let (seats, x) = stage_with(song, *chart, d, &levels, seed, None, t);
+                        for (s, &l) in seats.iter().zip(&levels) {
+                            by_level[usize::from(l)].add(s);
+                        }
+                        stages += 1;
+                        f.attacks += x.attacks;
+                        f.waited += x.waited;
+                        f.launched += x.launched;
+                        runs += u64::from(x.longest_run);
+                        longest = longest.max(x.longest_run);
+                        ahead = ahead.max(x.most_ahead);
+                        share += x.top_share;
+                        filled += x.top_filled;
+                        drawn += u32::from(x.drawn);
+                        if let Some(sec) = x.last_standing {
+                            stood += 1;
+                            stood_s += sec;
+                            stood_max = stood_max.max(sec);
+                        }
+                    }
+                }
+                let k = f64::from(stages.max(1));
+                println!(
+                    "{n:>2} {d:?} {t:?}: attacks/stage {:5.1} | longest run of sections against one: mean {:4.1} max {:2} \
+                     | most at once {:2} | top recipient {:4.1}% of attacks, {:4.1}% of its span filled \
+                     | blocked {:4.1}% of checkpoints with a full bar | drawn by a final attack {:4.1}% \
+                     | last standing {:4.1}% of stages, mean {:4.1} s, max {:4.1} s",
+                    f64::from(f.attacks) / k,
+                    runs as f64 / k,
+                    longest,
+                    ahead,
+                    100.0 * share / k,
+                    100.0 * filled / k,
+                    100.0 * f64::from(f.waited) / f64::from((f.waited + f.launched).max(1)),
+                    100.0 * f64::from(drawn) / k,
+                    100.0 * f64::from(stood) / k,
+                    stood_s / f64::from(stood.max(1)),
+                    stood_max,
+                );
+                let (mine, miss) = costs(d);
+                let words: Vec<String> = MIX
+                    .iter()
+                    .map(|&l| {
+                        let s = &by_level[usize::from(l)];
+                        let seats = f64::from(s.seats.max(1));
+                        format!(
+                            "L{} recv {:.1} life {:.0} KO {:.0}%",
+                            l + 1,
+                            f64::from(s.received) / seats,
+                            (f64::from(s.stepped) * mine + f64::from(s.locked_missed) * miss) / seats,
+                            100.0 * f64::from(s.knocked_out) / seats,
+                        )
+                    })
+                    .collect();
+                println!("     by level (a seat): {}", words.join(" | "));
+                // A CPU never steps on more shocks than it was sent.
+                for s in &by_level {
+                    assert!(s.stepped <= 8 * s.received, "double counting");
+                }
+            }
+        }
     }
 }

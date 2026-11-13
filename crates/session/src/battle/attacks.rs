@@ -68,8 +68,10 @@ fn placement() -> ddi_engine::battle::Placement {
 /// ([`ATTACKS`], `attacks-v2`). The attack-rate study (tests only) may
 /// ask for the older ones to compare with (`DDI_ATTACK_RULES=v0` or
 /// `v1`), or for `attacks-v2` with a limit (`v2-gap1`: a safe section
-/// left empty between chained attacks; `v2-cool2`: a sender's cooldown of
-/// two checkpoints).
+/// left empty between chained attacks; `v2-cap2`: at most three placed
+/// against one recipient at once, the one passing and two behind it;
+/// `v2-gap1-cap2`: both;
+/// `v2-cool2`: a sender's cooldown of two checkpoints).
 pub fn rules() -> ddi_room::attacks::AttackRules {
     #[cfg(test)]
     match std::env::var("DDI_ATTACK_RULES").as_deref() {
@@ -78,6 +80,21 @@ pub fn rules() -> ddi_room::attacks::AttackRules {
         Ok("v2-gap1") => {
             return ddi_room::attacks::AttackRules {
                 id: "attacks-v2-gap1",
+                chain_gap: 1,
+                ..ATTACKS
+            };
+        }
+        Ok("v2-cap2") => {
+            return ddi_room::attacks::AttackRules {
+                id: "attacks-v2-cap2",
+                chain: 2,
+                ..ATTACKS
+            };
+        }
+        Ok("v2-gap1-cap2") => {
+            return ddi_room::attacks::AttackRules {
+                id: "attacks-v2-gap1-cap2",
+                chain: 2,
                 chain_gap: 1,
                 ..ATTACKS
             };
