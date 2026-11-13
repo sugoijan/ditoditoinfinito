@@ -164,6 +164,10 @@ pub enum Lap {
     Hand,
     /// The field's passes recorded.
     Render,
+    /// What is drawn over the play (a stage's miniatures' words, the
+    /// ladder, the lines, the warnings; the lyrics): worked out and
+    /// recorded by the 2D pass.
+    Overlay,
 }
 
 /// What a shell brings to its plays' drawing.
@@ -797,6 +801,12 @@ impl<H: PlayHost> PlayView<H> {
 
     /// Where the last frame drew a stage's opponents' miniature fields,
     /// if it did.
+    /// What the 2D pass over the play holds and drew last (its text's
+    /// runs drawn and uploaded so far, its draws), once it has drawn.
+    pub fn overlay_stats(&self) -> Option<ddi_render::painter::PainterStats> {
+        self.overlay.as_ref().map(|(p, _)| p.stats())
+    }
+
     pub fn opponent_fields(&self) -> Option<&crate::opponents::Fields> {
         self.fields_drawn.as_ref()
     }
@@ -1763,6 +1773,7 @@ impl<H: PlayHost> PlayView<H> {
         } else {
             self.fields_drawn = None;
         }
+        self.host.lap(Lap::Overlay);
         Drawn {
             song_time: frame.song_time,
             quit_at: quit.map(|b| b.map(|v| v / screen.ratio)),

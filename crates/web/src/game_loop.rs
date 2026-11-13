@@ -112,6 +112,7 @@ impl PlayHost for Browser {
             Shared::Scene => Lap::Scene,
             Shared::Hand => Lap::Hand,
             Shared::Render => Lap::Render,
+            Shared::Overlay => Lap::Overlay,
         });
     }
 }
@@ -575,7 +576,7 @@ impl GameLoop {
             self.gfx.set_mode(crate::web::gfx::SurfaceMode::Plain);
         }
         let Some(surface) = self.gfx.frame() else {
-            perf::frame_end(f64::NAN, 0.0);
+            perf::frame_end(f64::NAN, 0.0, None, None);
             return;
         };
         perf::lap(Lap::Surface);
@@ -741,7 +742,14 @@ impl GameLoop {
             self.publish_debug(host_now);
         }
         perf::lap(Lap::Present);
-        perf::frame_end(song_second, self.view.dance.prepare_ms());
+        perf::frame_end(
+            song_second,
+            self.view.dance.prepare_ms(),
+            perf::recording()
+                .then(|| self.view.overlay_stats())
+                .flatten(),
+            Some(self.view.renderer.frame_stats()),
+        );
         if std::mem::take(&mut self.end_perf_after) {
             self.end_perf();
         }

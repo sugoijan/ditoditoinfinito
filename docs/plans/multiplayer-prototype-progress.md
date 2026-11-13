@@ -7490,6 +7490,115 @@ pictures in `target/scratch/mp/cpuabs/shots/`).
   hardest charts of its slot more as the slots get denser (7% of Medium
   charts at level 5, 18% of Challenge at level 9).
 
+## Frame cost in the browser (2026-11-14)
+
+The maintainer (2026-11-13): "The native works very well, but on the
+browser on large rooms I can see some framerate drop (from 120fps to
+~50fps sometimes)." The maintainer plays in Firefox (WebGL2) on a
+120 Hz display (a MacBook Pro's, 3024×1964 at scale 2); a frame there
+has 8.3 ms for everything, a drop to 50 means frames of 20 ms.
+
+### How it was measured
+
+- The frame recorder (`perf=1`, `crates/web/src/perf.rs`) has more
+  columns: the overlay (the 2D pass over the play: the miniatures'
+  words, the ladder, the lines, the warnings, the lyrics) apart from the
+  submit, the battle's own time inside the session's tick
+  (`ddi_session::perf`, a clock only while recording), the overlay's
+  text runs drawn and uploaded and its draws, and the scene's render
+  passes, conversions (WebGL2), instances and skins' quad batches
+  (`ddi_render::FrameStats`). Off, each costs one thread-local read.
+- `target/scratch/mp/perf/perf.mjs` (and `runs.sh`, `scenes.sh`,
+  `table.py`, `analyze.py`, `prof.py`): a release build as deployed,
+  served by the verify skill's server; CPU practice with a roster of
+  mixed levels (1 to 10 in turn, set as the remembered practice roster),
+  autoplayed, Beatucada's Challenge, Infinito, attacks on, the hand on;
+  20 s of a stage from its third second; canvas 1280×720 at scale 1 and
+  1280×720 CSS at scale 2 (2560×1440). Headless Chrome (WebGPU, its
+  display at 60 Hz) and Playwright's headless Firefox (WebGL2, at
+  120 Hz; the stock Firefox is the maintainer's to run). A build of the
+  same optimization keeping wasm's function names (`data-keep-debug`,
+  `wasm-opt -g`) for Chrome's CPU profiles: its frames cost the same
+  within noise (2.1 ms mean against 2.1).
+- "total" below is the frame callback's main-thread time; Firefox
+  rounds its clock to a millisecond, so its p95 and max are whole
+  milliseconds (its means are not). Under automation the debug state
+  is built every tenth frame (about 1 ms at 72 CPUs, in "present"); a
+  player's page builds it once a second.
+
+### Before (the code as it was, about 1,200 frames in Chrome and 2,400 in Firefox a row)
+
+Main-thread ms a frame, mean / p95 / max; "GPU" is WebGPU's submit to
+done (Chrome only):
+
+| Scene | Chrome 1280×720 | Chrome 2560×1440 | GPU 720 / 1440 | Firefox 1280×720 | Firefox 2560×1440 |
+| --- | --- | --- | --- | --- | --- |
+| Solo | 1.66 / 3.2 / 5.5 | 1.62 / 3.1 / 6.3 | 2.6 / 3.9 | 1.59 / 3 / 17 | 1.62 / 3 / 5 |
+| 3 CPUs | 1.95 / 3.8 / 5.7 | | 3.0 | 2.13 / 4 / 18 | |
+| 8 CPUs | 1.84 / 3.3 / 5.8 | 1.92 / 3.4 / 5.4 | 2.9 / 4.4 | 2.74 / 5 / 61 | 2.52 / 4 / 8 |
+| 33 CPUs | 2.13 / 3.9 / 8.3 | | 2.7 | 2.45 / 4 / 6 | |
+| 72 CPUs | 2.19 / 4.0 / 6.1 | 2.12 / 4.0 / 5.9 | 2.7 / 4.2 | 2.67 / 4 / 9 | 2.85 / 5 / 20 |
+| 72, Adaptive charts | 2.30 / 4.4 / 7.1 | 2.28 / 4.1 / 6.9 | 2.9 / 4.0 | 2.80 / 5 / 8 | 2.91 / 5 / 10 |
+| 72 watched (the grid's page) | 1.54 / 3.7 / 5.8 | 1.30 / 2.8 / 6.0 | 2.2 / 3.7 | 2.38 / 5 / 12 | 2.27 / 4 / 9 |
+| 72 watched, one followed | 1.37 / 3.3 / 11.2 | 1.32 / 2.6 / 15.0 | 2.3 / 3.5 | 1.77 / 3 / 7 | 2.00 / 4 / 14 |
+| 33 watched | 1.37 / 3.4 / 6.4 | | 4.7 | 1.92 / 3 / 4 | |
+
+What a frame is made of (72 CPUs played, 1280×720, mean ms): the hand
+1.0–1.1 (its preparation is given a share of the refresh,
+`dance_runtime::frame_budget`: 2 ms at 120 Hz, at most 2.5 at 60), the
+field's passes 0.25, the session's tick 0.2 (the battle 0.17 of it: the
+72 CPUs, the feeds, the ledger), the miniatures' frames 0.15, the debug
+state 0.1; in Chrome the overlay and submit 0.3, in Firefox 1.1–1.2,
+against 0.4 in a solo play. On WebGL2 the submit is where the frame's
+GL calls run, and the miniatures had made them many: the skins' quads
+were drawn in about 115 batches a frame (one draw call each, its
+pipeline and bindings set again), against 10 in a solo play, for about
+280 quads; the overlay drew in 20–27 draws. Chrome's profile (named
+build) puts the hand's preparation and its picture first (1.2 ms),
+then the field's passes, the CPUs' steps (0.12), `Battle::views` (0.07,
+built three times a frame), the debug state (0.11).
+
+The GPU, which headless Firefox cannot time, was measured there by
+waiting for it after each frame (a 1×1 `readPixels` after the frame's
+draws, `GPUSYNC=1`; it serializes the two, so a measurement only): at
+2560×1440 a solo play 3.4 ms mean, 72 CPUs 3.7 (p95 5), against 1.8 and
+2.2 at 1280×720; without the hand 2.4 and 3.2, without the generated
+background 2.7 and 3.0. It grows with the pixels (about 0.5 ms a
+million at 72 CPUs), and the canvas's frame is drawn in a 16-bit float
+texture with the skins' runs converted to and from an 8-bit one (six
+conversions a frame in a stage, 1.7 screens of pixels, four in a solo
+play).
+
+The spikes: Firefox's worst frames were 17–61 ms, now and then (one or
+two a 20 s run, not in every run), each in a single part of the frame
+(the GL calls' submit, 29 and 60 ms; the hand 11 ms) with nothing of
+the battle's at that moment, and none in Chrome (its worst 15 ms was a
+followed field's first frame).
+
+### Fixes, each measured
+
+| Fix | What | Firefox 1280×720, 72 played: total / submit | Firefox, 72 watched | Firefox, solo | Chrome, 72 played |
+| --- | --- | --- | --- | --- | --- |
+| Before (instrumented build) | | 2.76 / 1.08 | 2.04 / 1.03 | 1.83 / 0.53 | 2.19 (render 0.26) |
+| 1. Skins' quads in fewer batches (`ddi_render::batching`) | a quad joins an earlier batch of its kind where nothing drawn between touches its pixels; batches 115 → 19 a frame (watched 7) | 2.32 / 0.69 | 1.65 / 0.49 | 1.50 / 0.42 | 2.25–2.42 (render 0.32) |
+
+1. **Batches.** Two quads that touch no pixel in common draw the same
+   pixels in either order, so a quad may move back into an earlier
+   batch of its own texture, material and blend past every batch that
+   touches none of its pixels (its corners' box two pixels wider, the
+   conversions' own; a quad that uses the mask, or has no box, moves
+   nothing past it). Each batch keeps up to eight boxes of what it
+   touches, so a quad's check is bounded; it looks back 48 batches at
+   most. The miniatures, which never overlap, gather into a few
+   batches; the play's own field too where its notes stand apart.
+   Firefox's frame is 0.3–0.45 ms lighter (the GL calls), the solo play
+   0.3 ms; in Chrome, where a draw is cheap, the ordering's own cost
+   (0.06 ms) is about what it saves. Pixel for pixel the same:
+   `opponent_fields_offscreen` draws each picture's frame with the
+   ordering off, on and off again and compares them (148 → 47 batches
+   for eight CPUs, 168 → 52 for 72), and `batching`'s tests check that
+   every pair that may touch a pixel in common keeps its order.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

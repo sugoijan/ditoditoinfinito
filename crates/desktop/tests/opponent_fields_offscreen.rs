@@ -326,24 +326,42 @@ fn play(s: &Scenario) -> Option<Played> {
             // The text's fonts are read on a thread: real time for them.
             std::thread::sleep(std::time::Duration::from_millis(200));
             let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            let mut encoder = device.create_command_encoder(&Default::default());
-            host.draw_play(
-                &dev(),
-                &mut encoder,
-                &srgb,
-                Some(&plain),
-                size,
-                HostTime(now as f64 / 1e9),
-                &mut ui,
-                &env,
+            // The same frame drawn with the skins' quads in their own
+            // order, then put in fewer batches (`ddi_render`'s
+            // batching), then in their order again: the same pixels.
+            let mut drawn = Vec::new();
+            for batching in [false, true, false] {
+                host.set_batching(batching);
+                let mut encoder = device.create_command_encoder(&Default::default());
+                host.draw_play(
+                    &dev(),
+                    &mut encoder,
+                    &srgb,
+                    Some(&plain),
+                    size,
+                    HostTime(now as f64 / 1e9),
+                    &mut ui,
+                    &env,
+                );
+                queue.submit(Some(encoder.finish()));
+                let _ = device.poll(wgpu::PollType::wait_indefinitely());
+                let runs = host.frame_stats().map_or(0, |f| f.quad_batches);
+                drawn.push((gpu::read_rgba(&device, &queue, &texture), runs));
+            }
+            host.set_batching(true);
+            assert!(drawn[0].0 == drawn[2].0, "{}: the frame drawn twice alike", s.name);
+            assert!(
+                drawn[1].0 == drawn[0].0,
+                "{}: the batched frame differs ({} pixels)",
+                s.name,
+                drawn[0].0.iter().zip(&drawn[1].0).filter(|(a, b)| a != b).count()
             );
-            queue.submit(Some(encoder.finish()));
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            ppm(
-                size,
-                &format!("{}-at-{t:.0}s", s.name),
-                &gpu::read_rgba(&device, &queue, &texture),
+            assert!(drawn[1].1 <= drawn[0].1);
+            eprintln!(
+                "{} at {t:.0} s: the skins' quads in {} batches, {} in their own order",
+                s.name, drawn[1].1, drawn[0].1
             );
+            ppm(size, &format!("{}-at-{t:.0}s", s.name), &drawn[1].0);
             eprintln!(
                 "{} at {t:.0} s: {} slots, {} out",
                 s.name, played.slots, played.out

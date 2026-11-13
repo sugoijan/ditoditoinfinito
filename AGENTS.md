@@ -126,7 +126,14 @@ Rust and the browser are implementation details, not advertised features.
   skins'
   materials (`crates/render/src/material.rs`: a WGSL `paint` checked for
   WebGL2 with naga, drawn by the textured pipeline,
-  `docs/plans/noteskin-scene.md`). No platform code.
+  `docs/plans/noteskin-scene.md`); each run of skins' quads put in an
+  order drawing the same pixels in fewer batches
+  (`crates/render/src/batching.rs`: a quad joins an earlier batch of its
+  kind past batches that touch none of its pixels; `Renderer::set_batching`
+  for the tests that compare, `opponent_fields_offscreen`), and what a
+  frame's scene took (`Renderer::frame_stats`: passes, WebGL2's
+  conversions, instances, batches) for the web's frame recorder. No
+  platform code.
 - `crates/dance-mat/` owns physical tile identities (single/left 1–9, right
   10–18), versioned millimeter geometry, built-in lane target sets and the
   accepted No Stretch regions. DanOni 9A's Oni has two alternative centers;
@@ -723,7 +730,9 @@ Rust and the browser are implementation details, not advertised features.
   out of it a field too, `Battle::own_seat`), and the stage's moments in the third person,
   `WatchMoment`; an online room's stage has nothing to watch yet and
   ends as before).
-  Platform-free, natively tested on a fake clock.
+  Parts of a frame timed for a shell's frame recorder (`perf.rs`: a
+  clock set only while the web's `perf=1` records; the battle's
+  advance). Platform-free, natively tested on a fake clock.
 - `crates/shell/` what both shells do between the settings (`ddi-ui`) and
   `render` (`ddi-shell`), so neither keeps a copy: a play's
   `RenderOptions` and Options' field preview's options and skin from the

@@ -34,6 +34,7 @@ pub mod battle;
 pub mod calibration;
 pub mod listen;
 pub mod movies;
+pub mod perf;
 pub mod play;
 pub mod preview;
 pub mod record;

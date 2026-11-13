@@ -435,6 +435,8 @@ pub struct TexturedPipeline {
     material_uniforms: Vec<u8>,
     /// A frame's skin materials' ids, its room reused.
     material_ids: Vec<u32>,
+    /// Puts a run's quads in fewer batches ([`TexturedPipeline::order_run`]).
+    batcher: crate::batching::Batcher,
 }
 
 /// A texture quads are drawn into, with what draws it.
@@ -559,6 +561,7 @@ impl TexturedPipeline {
             sources: Vec::new(),
             material_uniforms: Vec::new(),
             material_ids: Vec::new(),
+            batcher: Default::default(),
         };
         let blank = p.create_texture(device, 1, 1, false, false);
         p.blank = Some(p.bind(device, &blank));
@@ -1343,6 +1346,29 @@ impl TexturedPipeline {
         self.stats.stencil_clears = quads.iter().filter(|q| q.mask == Mask::Clear).count() as u32;
         self.stats.material_quads = quads.iter().filter(|q| q.material.is_some()).count() as u32;
         self.staging = instances;
+    }
+
+    /// Puts `quads`, one run drawn in one pass, in an order that draws
+    /// the same pixels in fewer batches (`crate::batching`) on a target of
+    /// `width × height` pixels: after the frame's materials are named and
+    /// its textures packed ([`TexturedPipeline::name_skin_materials`],
+    /// [`TexturedPipeline::pack`]), before [`TexturedPipeline::prepare`].
+    pub(crate) fn order_run(&mut self, quads: &mut [TexQuad], width: u32, height: u32) {
+        let atlas = &self.atlas;
+        self.batcher.order(
+            quads,
+            |q| crate::batching::Key {
+                texture: match atlas.get(q.texture as usize).copied().flatten() {
+                    Some((page, _)) if !q.wrap => page,
+                    _ => q.texture,
+                },
+                blend: q.blend,
+                wrap: q.wrap,
+                material: q.material.map(|m| m.material),
+                images: q.material.map_or([UNTEXTURED; 2], |m| m.images),
+            },
+            |q| crate::renderer::quad_rect(q, width, height),
+        );
     }
 
     /// What the last frame prepared drew.

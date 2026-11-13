@@ -45,7 +45,26 @@ impl SkinBlending {
     }
 }
 
+/// What the last frame's scene took on the GPU's side, for a shell's
+/// frame recorder: its render passes, and (drawn offscreen, WebGL2) the
+/// conversions between the scene and the plain texture and the pixels
+/// they covered.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameStats {
+    pub passes: u32,
+    pub conversions: u32,
+    pub converted_px: u64,
+    pub sprites: u32,
+    pub quads: u32,
+    /// The runs the skins' quads are drawn in.
+    pub quad_batches: u32,
+}
+
 pub struct Renderer {
+    /// The last frame's [`FrameStats`].
+    frame_stats: FrameStats,
+    /// Skins' quads put in fewer batches ([`Renderer::set_batching`]).
+    batching: bool,
     /// The ruleset's names as last shown in the player's language
     /// ([`shown_names`]).
     shown_names: Option<ShownNames>,
@@ -122,6 +141,8 @@ impl Renderer {
             SkinBlending::Scene => TexturedPipeline::new(device, format, None, false),
         };
         Renderer {
+            frame_stats: FrameStats::default(),
+            batching: true,
             shown_names: None,
             quit_button: None,
             miniatures: Vec::new(),
@@ -634,6 +655,18 @@ impl Renderer {
         std::mem::take(&mut self.miniatures)
     }
 
+    /// Whether skins' quads are put in an order drawing the same pixels
+    /// in fewer batches (`crate::batching`; on by default, off for the
+    /// tests that compare the two).
+    pub fn set_batching(&mut self, on: bool) {
+        self.batching = on;
+    }
+
+    /// What the last frame's scene took ([`FrameStats`]).
+    pub fn frame_stats(&self) -> FrameStats {
+        self.frame_stats
+    }
+
     /// Start a new play without life trails or a combo pulse from its predecessor.
     pub fn hud_spots(&self) -> crate::hud::HudSpots {
         self.hud_spots
@@ -777,6 +810,16 @@ impl Renderer {
             // Its parts packed into atlas pages (once each).
             self.textured.pack(device, encoder, l.atlas_textures());
         }
+        // Each run of quads in as few batches as draw the same pixels.
+        if self.batching {
+            for segment in &scene.order {
+                if let Segment::Quads(r) = segment
+                    && let Some(run) = scene.quads.get_mut(r.start as usize..r.end as usize)
+                {
+                    self.textured.order_run(run, width, height);
+                }
+            }
+        }
         let linear = self.skin_colors_linear();
         self.textured.set_materials(crate::material::MaterialFrame {
             params: layer.as_ref().map_or(&[], |l| l.materials()),
@@ -825,6 +868,13 @@ impl Renderer {
             .current()
             .filter(|_| plans.iter().any(|p| p.stencil));
         let mut stencil_cleared = false;
+        let mut stats = FrameStats {
+            passes: plans.len() as u32 + u32::from(self.offscreen.is_some()),
+            sprites: scene.instances.len() as u32,
+            quads: scene.quads.len() as u32,
+            quad_batches: self.textured.stats().runs,
+            ..FrameStats::default()
+        };
         let clear = self.clear_color();
         let offscreen = self.offscreen.as_mut().map(|o| {
             o.prepare(device, width, height);
@@ -879,6 +929,10 @@ impl Renderer {
                 pass.set_scissor_rect(0, 0, width.max(1), height.max(1));
             };
             let conversion = offscreen.zip(run).filter(|_| turned);
+            if let Some((_, r)) = conversion {
+                stats.conversions += 1;
+                stats.converted_px += u64::from(r.width) * u64::from(r.height);
+            }
             if let Some((o, r)) = conversion
                 && pass_plan.stencil
             {
@@ -930,6 +984,7 @@ impl Renderer {
         }
         self.text.trim();
         self.scene = scene;
+        self.frame_stats = stats;
     }
 }
 
@@ -938,7 +993,7 @@ type Rect = crate::atlas::PageRect;
 
 /// The pixels a quad or triangle may touch on a `width × height` target
 /// (its corners' box, two pixels wider for filtering); `None` off it.
-fn quad_rect(q: &crate::textured::TexQuad, width: u32, height: u32) -> Option<Rect> {
+pub(crate) fn quad_rect(q: &crate::textured::TexQuad, width: u32, height: u32) -> Option<Rect> {
     use crate::textured::Shape;
     let (corners, count) = match q.shape {
         Shape::Quad { transform: m, .. } => (

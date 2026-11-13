@@ -48,15 +48,18 @@ pub(crate) enum Lap {
     Hand,
     /// The field's passes recorded.
     Render,
-    /// What is drawn over the play, and the commands finished and submitted.
+    /// What is drawn over the play (a stage's miniatures' words, the
+    /// ladder, the lines; the lyrics), worked out and recorded.
+    Overlay,
+    /// The commands finished and submitted.
     Submit,
     /// The texture handed back to the browser, and the debug state.
     Present,
 }
 
-const LAPS: usize = 9;
+const LAPS: usize = 10;
 /// A frame's row after the time it was asked for.
-const COLUMNS: [&str; 16] = [
+const COLUMNS: [&str; 26] = [
     "song_s",
     "late_start",
     "upload",
@@ -66,6 +69,7 @@ const COLUMNS: [&str; 16] = [
     "scene",
     "hand",
     "render",
+    "overlay",
     "submit",
     "present",
     "total",
@@ -73,6 +77,15 @@ const COLUMNS: [&str; 16] = [
     "pads",
     "pad_polls",
     "gpu_done",
+    "battle",
+    "text_drawn",
+    "text_uploads",
+    "overlay_draws",
+    "passes",
+    "conversions",
+    "converted_mpx",
+    "instances",
+    "quad_batches",
 ];
 const SONG: usize = 0;
 const LATE_START: usize = 1;
@@ -82,6 +95,15 @@ const HAND_PREPARE: usize = TOTAL + 1;
 const PADS: usize = TOTAL + 2;
 const PAD_POLLS: usize = TOTAL + 3;
 const GPU_DONE: usize = TOTAL + 4;
+const BATTLE: usize = TOTAL + 5;
+const TEXT_DRAWN: usize = TOTAL + 6;
+const TEXT_UPLOADS: usize = TOTAL + 7;
+const OVERLAY_DRAWS: usize = TOTAL + 8;
+const PASSES: usize = TOTAL + 9;
+const CONVERSIONS: usize = TOTAL + 10;
+const CONVERTED_MPX: usize = TOTAL + 11;
+const INSTANCES: usize = TOTAL + 12;
+const QUAD_BATCHES: usize = TOTAL + 13;
 
 type Row = [f32; COLUMNS.len()];
 
@@ -105,6 +127,9 @@ struct Recording {
     lap_began: f64,
     pads_ms: f32,
     pad_polls: f32,
+    /// The overlay's text counters at the last frame's end (runs drawn,
+    /// uploads), for each frame's own.
+    text_seen: Option<(u64, u64)>,
     late_answers: Rc<RefCell<Vec<(f64, f32)>>>,
     _heartbeat: Interval,
 }
@@ -131,6 +156,7 @@ impl Recording {
             lap_began: 0.0,
             pads_ms: 0.0,
             pad_polls: 0.0,
+            text_seen: None,
             late_answers,
             _heartbeat: heartbeat,
         }
@@ -205,6 +231,7 @@ pub(crate) fn begin_play() {
         install_save();
     }
     GPU_SPENT.take();
+    ddi_session::perf::set_clock(wanted.then_some(PerformanceClock::now_ms as fn() -> f64));
     RECORDING.with_borrow_mut(|r| *r = wanted.then(Recording::new));
 }
 
@@ -214,6 +241,7 @@ pub(crate) fn end_play(meta: impl FnOnce() -> (String, f64)) {
     let Some(recording) = RECORDING.with_borrow_mut(Option::take) else {
         return;
     };
+    ddi_session::perf::set_clock(None);
     let (meta, period) = meta();
     let play = recording.finish(meta, period);
     PLAYS.with_borrow_mut(|plays| {
@@ -271,11 +299,34 @@ pub(crate) fn submitted(queue: &wgpu::Queue, webgpu: bool) {
 }
 
 /// The frame ended, showing song second `song`, the hand having prepared
-/// for `hand_prepare_ms`.
-pub(crate) fn frame_end(song: f64, hand_prepare_ms: f64) {
+/// for `hand_prepare_ms`; `overlay` the 2D pass over the play as it stands
+/// (its text's runs drawn and uploaded so far, the frame's draws), `scene`
+/// what the field's scene took on the GPU's side.
+pub(crate) fn frame_end(
+    song: f64,
+    hand_prepare_ms: f64,
+    overlay: Option<ddi_render::PainterStats>,
+    scene: Option<ddi_render::FrameStats>,
+) {
     with(|r| {
         let now = PerformanceClock::now_ms();
         r.row[SONG] = song as f32;
+        if let Some(s) = scene {
+            r.row[PASSES] = s.passes as f32;
+            r.row[CONVERSIONS] = s.conversions as f32;
+            r.row[CONVERTED_MPX] = (s.converted_px as f64 / 1e6) as f32;
+            r.row[INSTANCES] = (s.sprites + s.quads) as f32;
+            r.row[QUAD_BATCHES] = s.quad_batches as f32;
+        }
+        r.row[BATTLE] = ddi_session::perf::take(ddi_session::perf::Part::Battle) as f32;
+        if let Some(o) = overlay {
+            let seen = (o.text.drawn, o.text.uploads);
+            let (drawn, uploads) = r.text_seen.unwrap_or(seen);
+            r.row[TEXT_DRAWN] = seen.0.saturating_sub(drawn) as f32;
+            r.row[TEXT_UPLOADS] = seen.1.saturating_sub(uploads) as f32;
+            r.row[OVERLAY_DRAWS] = o.draws as f32;
+            r.text_seen = Some(seen);
+        }
         r.row[TOTAL] = (now - r.began) as f32;
         r.row[HAND_PREPARE] = hand_prepare_ms as f32;
         r.row[PADS] = std::mem::take(&mut r.pads_ms);

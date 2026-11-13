@@ -540,6 +540,25 @@ impl Host {
         }
     }
 
+    /// Whether the play's skins' quads are put in an order drawing the
+    /// same pixels in fewer batches (on by default; tests compare the
+    /// two, `ddi_render::Renderer::set_batching`).
+    pub fn set_batching(&mut self, on: bool) {
+        if let Stage::Playing(r, ..) = &mut self.stage
+            && let Some(v) = r.view.as_mut()
+        {
+            v.renderer.set_batching(on);
+        }
+    }
+
+    /// What the play's last frame's scene took (tests).
+    pub fn frame_stats(&self) -> Option<ddi_render::FrameStats> {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return None;
+        };
+        Some(r.view.as_ref()?.renderer.frame_stats())
+    }
+
     /// Where the play's last frame drew a stage's opponents' miniature
     /// fields, if it did (tests).
     pub fn opponent_fields(&self) -> Option<ddi_shell::opponents::Fields> {
