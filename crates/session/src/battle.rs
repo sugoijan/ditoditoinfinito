@@ -3040,7 +3040,7 @@ pub fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView, steps: usize) -
 mod study;
 
 #[cfg(test)]
-mod step_study;
+mod adaptive_study;
 
 
 #[cfg(test)]
