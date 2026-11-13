@@ -1270,12 +1270,16 @@ pub fn draw_fields(
             let Some((j, age)) = *flash else {
                 continue;
             };
-            let k = (1.0 - age / FLASH).clamp(0.0, 1.0);
+            // A stage plays DDI alone (`ddi_room::MatchRules::RULESETS`):
+            // its tiers' colors and strengths, as the play's own field.
+            let palette = ddi_engine::rules::colors::Palette::Ddi;
+            let k = ddi_render::scene::flash_strength(palette, j)
+                * (1.0 - age / FLASH).clamp(0.0, 1.0);
             if k <= 0.0 {
                 continue;
             }
             // A soft glow round the receptor, in the judgment's color.
-            let mut c = ddi_render::scene::judgement_color(j);
+            let mut c = ddi_render::scene::tier_color(palette, j);
             c[3] = 0.55 * k;
             let (cx, cy) = (geo.lane_x(lane as f32), geo.receptor_y);
             let r = geo.arrow * 0.55;

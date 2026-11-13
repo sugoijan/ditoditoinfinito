@@ -36,6 +36,22 @@ use crate::scene::FieldGeometry;
 use crate::stencil::Mask;
 use crate::textured::{self, QuadBlend, Shape, TexQuad, UNTEXTURED};
 
+/// What a skin's Lua is told of the tiers' colors under `palette`
+/// (`Env::judgment_colors`, `NOTESKIN:GetJudgmentColor`): DDI's own set by
+/// tier, `#rrggbb`; nothing under StepMania's, where a skin keeps its art.
+pub fn judgment_colors(palette: ddi_engine::rules::colors::Palette) -> Vec<(String, String)> {
+    use ddi_engine::rules::colors::{Palette, hex};
+    match palette {
+        Palette::StepMania => Vec::new(),
+        Palette::Ddi => palette
+            .colors()
+            .named("")
+            .into_iter()
+            .map(|(tier, c)| (tier, hex(c)))
+            .collect(),
+    }
+}
+
 /// What the built-in skin draws when the noteskin does not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayerPart {

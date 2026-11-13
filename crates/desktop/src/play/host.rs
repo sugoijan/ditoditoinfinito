@@ -2302,7 +2302,7 @@ pub fn noteskin(
     String,
 )> {
     let shift = settings.song_offset(&loaded.entry.id);
-    let (wants, layout) = skin_wants(loaded, chart, settings, shift, false)?;
+    let (wants, layout) = skin_wants(loaded, chart, settings, shift, None)?;
     let skins = crate::library::noteskins::all(&crate::library::all_folders());
     let (key, env) = ddi_shell::first_there(wants, &crate::library::noteskins::choices(&skins));
     let p = super::skins::prepare(&key, &layout, env, &skins)?;
@@ -2318,14 +2318,17 @@ fn skin_wants(
     chart: usize,
     settings: &Settings,
     shift: f64,
-    shocks: bool,
+    stage: Option<bool>,
 ) -> Option<(ddi_shell::SkinWants, ddi_chart::Layout)> {
     let c = loaded.song.charts.get(chart)?;
     let layout = loaded.song.layout_of(c)?;
     let mut wants = ddi_shell::play_skins(settings, &loaded.song, c, &layout, shift);
-    // A stage that may be given a battle's shocks: its skin is told
+    // A stage: played under DDI whatever the settings say, and its skin
+    // told whether it may be given a battle's shocks
     // (`StageOrder::may_have_shocks`).
-    wants.env.shocks = shocks;
+    if let Some(shocks) = stage {
+        ddi_shell::stage_skin_env(&mut wants.env, shocks);
+    }
     Some((wants, layout))
 }
 
@@ -2338,11 +2341,8 @@ fn read_skin(
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> Option<(super::skins::Reading, ddi_chart::Layout)> {
     let shift = request.song_shift(settings);
-    let shocks = request
-        .stage
-        .as_ref()
-        .is_some_and(|o| o.may_have_shocks());
-    let (wants, layout) = skin_wants(loaded, request.chart, settings, shift, shocks)?;
+    let stage = request.stage.as_ref().map(|o| o.may_have_shocks());
+    let (wants, layout) = skin_wants(loaded, request.chart, settings, shift, stage)?;
     Some((super::skins::Reading::first(wants, &layout, wake), layout))
 }
 

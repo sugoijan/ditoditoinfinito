@@ -71,17 +71,68 @@ Slow. The results show them beside the tiers.
 
 ### Hit effects
 
-As the skins mostly have them now: W0 and W1 a white shine, W0 a little
-brighter; W2 a yellowish shine; W3 blueish and dimmer; W4 greenish with
-no shine. W5 and Miss show no explosion. A skin keeps its own art; this
-is Infinito's and the built-in arrows'.
+W0 and W1 a white shine, W0 a little brighter; W2 a yellowish shine;
+W3 greenish; W4 blueish and dimmer (round 4, below; the first draft had
+W3 blueish and W4 greenish, as the skins then did). W5 and Miss show no
+explosion. A skin keeps its own art; this is Infinito's and the
+built-in arrows'.
 
 **Noted for later (maintainer, 2026-11-12):** the shine's colors and the
 colors the tiers' words have do not agree (W3's shine is blueish and
 its word green, W4's shine greenish and its word purple). Make them one
 set, and revisit the set itself: DDR's colors make more sense to the
 maintainer (white for the best, yellow, green, blue, then red for a
-miss). Not started; to be decided before changing either.
+miss).
+
+**One set, built in round 4 (2026-11-13); awaiting the maintainer's
+eye.** DDI's tiers have their own colors, in one table
+(`ddi_engine::rules::colors::DDI`) that the play's words, the built-in
+arrows' receptor flash, Infinito's hit effects, the results' rows and
+timing histogram, a stage's Standings bar and its miniatures' flashes
+and Options' preview all read (the theme's `Judgement.Ddi.*` colors
+are made from it):
+
+| | Word | Hit effect |
+| --- | --- | --- |
+| W0 Absolute | `#ffffff` white | white shine, full |
+| W1 Awesome / Amazing | `#e2e4ee` white, a touch cooler | white shine, a little dimmer (`SkinEvent::dim`) |
+| W2 Fantastic / Glorious | `#ffe14a` yellow | yellow echo with a white core |
+| W3 Nice / Great | `#45eb7f` green | green echo |
+| W4 OK / Good | `#4f9dff` blue | blue echo, dimmer (0.55 of the others' peak; the built-in flash 0.6) |
+| W5 Too early / Too late | `#ff9633` orange | none |
+| Miss | `#ff3d3d` red | none |
+| Boo | `#ff5c9e` pink, as before | none |
+
+- *W5 orange, not violet.* Both were drawn side by side (the sheet,
+  below). Orange reads as "nearly a miss" next to Miss's red and keeps
+  away from the Boo's pink, which shows in the same place; a violet W5
+  is all but the same color as W4's blue for a red-green deficient eye
+  (CIELAB ΔE 3 under a simulated deuteranopia, 10 under protanopia,
+  Machado et al. 2009 at full severity), where orange stays 115 or more
+  from blue.
+- *What was checked:* every color is at least 5.9:1 against the
+  field's ground (#05020d; a test holds 4.5:1); between neighbors under
+  simulated protanopia, deuteranopia and tritanopia the closest pairs
+  are W5–Miss (ΔE 19 deutan), W2–W5 (17 deutan) and W3–Miss (25
+  deutan): told apart by lightness rather than hue, as DDR's own
+  yellow–green–orange order is for those eyes. The word itself and its
+  early/late form carry the tier too, so hue is never the only cue.
+- *Only DDI changes.* The set travels with the ruleset's names
+  (`JudgeNames::palette`); ITG, FA+, SM5, DDR A (and X, EXTREME), FFR
+  and Dancing☆Onigiri keep StepMania's set exactly as the renderer and
+  the theme had it (a value test over every ruleset in
+  `ddi_render::scene`, and the offscreen pixel test
+  `hud_colors_offscreen` for ITG and DDI).
+- *Skins.* A skin keeps its own art; its Lua may ask
+  `NOTESKIN:GetJudgmentColor("W4")` (our extension: `#rrggbb` under a
+  ruleset with its own set, nil otherwise). Infinito's echoes take it
+  under DDI and keep their own yellow, green and mint under every other
+  ruleset. A room's stage tells its skin DDI's set whatever the
+  player's own ruleset is.
+- *Not changed:* DDI's lamps keep their colors (the Amazing Full Combo's
+  pale cyan was W1's old color: an open question whether it should turn
+  white, beside the near-white Absolute Dito); the Lua prelude's
+  `JudgmentLineToColor`, StepMania's for its skins, stays StepMania's.
 
 ### Names in other languages (later phase)
 

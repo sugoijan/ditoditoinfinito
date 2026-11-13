@@ -113,6 +113,11 @@ pub struct Env {
     /// that a skin whose mines can look like its `Tap Shock` keeps the
     /// two apart.
     pub shocks: bool,
+    /// The colors the play's ruleset shows its tiers in, by tier (`W0` …
+    /// `W5`, `Miss`, `Boo`) as `#rrggbb`, where it has a set of its own
+    /// (DDI's, `ddi_engine::rules::colors`): `NOTESKIN:GetJudgmentColor`,
+    /// our extension. Empty: the skin's own art.
+    pub judgment_colors: Vec<(String, String)>,
 }
 
 impl Default for Env {
@@ -131,6 +136,7 @@ impl Default for Env {
             screen: [640.0, 480.0],
             params: crate::params::Values::new(),
             shocks: false,
+            judgment_colors: Vec::new(),
         }
     }
 }

@@ -720,6 +720,7 @@ impl Renderer {
                 &mut scene,
                 &self.miniatures,
                 layout,
+                names.palette,
                 &opts,
                 band,
                 layer.as_deref_mut(),

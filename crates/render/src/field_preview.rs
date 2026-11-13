@@ -38,6 +38,7 @@
 use ddi_chart::Layout;
 use ddi_engine::demo::{Demo, DemoFrame};
 use ddi_engine::player::PlayOptions;
+use ddi_engine::rules::colors::Palette;
 use ddi_engine::rules::{JudgeNames, RulesetKey, presets};
 
 use crate::background::Backdrop;
@@ -146,6 +147,9 @@ pub struct SkinWant {
     pub layout: String,
     pub reverse: bool,
     pub params: ddi_noteskin::params::Values,
+    /// The set of colors the play's ruleset shows its tiers in, which
+    /// the skin's hit effects may take (`NOTESKIN:GetJudgmentColor`).
+    pub palette: Palette,
 }
 
 impl SkinWant {
@@ -156,6 +160,7 @@ impl SkinWant {
             layout: options.layout.clone(),
             reverse: options.play.scroll.reverse,
             params: Default::default(),
+            palette: options.rules.palette(),
         }
     }
 
@@ -184,6 +189,7 @@ impl SkinWant {
             columns: layout.lane_count() as u32,
             reversed: self.reverse,
             params: self.params.clone(),
+            judgment_colors: crate::noteskin::judgment_colors(self.palette),
             ..env
         }
     }

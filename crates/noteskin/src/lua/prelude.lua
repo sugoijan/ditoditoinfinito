@@ -282,6 +282,15 @@ function NOTESKIN:PlayHasShocks()
 	return H.play_has_shocks() == true
 end
 
+-- Our extension (docs/plans/noteskin-authoring.md): the color the play's
+-- ruleset shows a tier's judgment in ("W0" … "W5", "Miss", "Boo"), as
+-- "#rrggbb", where the ruleset has a set of its own (DDI's); nil where it
+-- has none, and the skin keeps its own art. A skin's hit effects may take
+-- it so that a tier's shine is its word's hue.
+function NOTESKIN:GetJudgmentColor(tier)
+	return H.judgment_color(tostring(tier))
+end
+
 local loader -- the table the NoteSkin.lua chain returned
 
 -- `NoteSkinManager::PushActorTemplate`: the skin's `Load` with the element's

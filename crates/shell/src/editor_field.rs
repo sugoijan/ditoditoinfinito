@@ -97,6 +97,7 @@ pub fn skin(settings: &Settings, picture: &FieldPicture) -> SkinWant {
         key: Some(key),
         layout: picture.layout.clone(),
         reverse: picture.reverse,
+        palette: settings.ruleset().key().palette(),
     }
 }
 
@@ -106,6 +107,7 @@ pub fn skin_env(want: &SkinWant, song: &Song, chart: &Chart) -> Env {
     let layout = want.layout();
     Env {
         params: want.params.clone(),
+        judgment_colors: ddi_render::noteskin::judgment_colors(want.palette),
         ..ddi_noteskin::lua::chart_env(song, chart, &layout, want.reverse)
     }
 }

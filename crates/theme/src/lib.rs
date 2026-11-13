@@ -69,6 +69,19 @@ pub fn attack_colors() -> [Rgba; 2] {
     })
 }
 
+/// DDI's tier colors under the theme's names (`Judgement.Ddi.W0` …
+/// `Judgement.Ddi.Miss`, the Boo's `Judgement.Boo`), from the engine's
+/// one table (`ddi_engine::rules::colors::DDI`) rather than the tunables,
+/// so the screens and the play cannot drift apart. StepMania's set stays
+/// in the tunables (`Judgement.W1` …), as it always was.
+pub(crate) fn judgment_colors() -> impl Iterator<Item = (String, Rgba)> {
+    use ddi_engine::rules::colors::DDI;
+    DDI.named("Judgement.Ddi.")
+        .into_iter()
+        .filter(|(k, _)| !k.ends_with(".Boo"))
+        .chain([("Judgement.Boo".to_string(), DDI.boo)])
+}
+
 /// Our theme.
 pub struct Infinito {
     keycap_material: std::cell::Cell<KeycapMaterial>,
@@ -107,6 +120,7 @@ impl Infinito {
             colors: tables::COLORS
                 .iter()
                 .map(|(k, c)| (k.to_string(), *c))
+                .chain(judgment_colors())
                 .collect(),
             metrics: tables::METRICS
                 .iter()
@@ -1185,8 +1199,10 @@ impl Infinito {
         call(&mut bar, "diffusealpha", &[0.85]);
         let count = at_right(self.num("Count", "", 15.0, "Text"), w, h / 2.0);
         let mut name = name;
-        for j in JUDGEMENTS {
-            let key = format!("Judgement.{j}");
+        // StepMania's set's tiers, then DDI's (`Judgement.Ddi.W0` …).
+        let ddi = ddi_engine::rules::colors::DDI.named("Judgement.Ddi.");
+        let ddi = ddi.iter().map(|(k, _)| k.clone()).filter(|k| !k.ends_with("Boo"));
+        for key in JUDGEMENTS.iter().map(|j| format!("Judgement.{j}")).chain(ddi) {
             let c = rgba(self.c(&key));
             command_of(&mut name, &key, &format!("diffuse,{c}"));
             command_of(&mut bar, &key, &format!("diffuse,{c};diffusealpha,0.85"));

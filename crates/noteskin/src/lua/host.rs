@@ -683,6 +683,26 @@ pub(crate) fn table<'gc>(ctx: Context<'gc>, host: &Rc<RefCell<Host>>) -> (Table<
         })),
     );
 
+    // The color the play's ruleset shows a tier in, `#rrggbb` (our
+    // extension, `Env::judgment_colors`); nil where it gives none.
+    let shared = host.clone();
+    set(
+        "judgment_color",
+        func(Callback::from_fn(&ctx, move |ctx, mut exec, mut stack| {
+            let name = string(stack.get(0)).unwrap_or_default();
+            charge(&mut exec, name.len());
+            let host = shared.borrow();
+            let value = host
+                .env
+                .judgment_colors
+                .iter()
+                .find(|(tier, _)| *tier == name)
+                .map_or(Value::Nil, |(_, c)| Value::String(ctx.intern(c.as_bytes())));
+            stack.replace(ctx, value);
+            Ok(CallbackReturn::Return)
+        })),
+    );
+
     // A parameter's value (our extension, `crate::params`): a copy of
     // what the host resolved at load, and its kind; nil for a name the
     // skin does not declare.

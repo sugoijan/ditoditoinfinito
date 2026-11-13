@@ -4,6 +4,7 @@
 //! and [`GaugeRules`]) for the parts that carry state and formulas. A
 //! [`Ruleset`] bundles one of each; [`presets`] builds the shipped ones.
 
+pub mod colors;
 pub mod danoni;
 pub mod ddi;
 pub mod ddr;
@@ -823,6 +824,10 @@ pub struct JudgeNames {
     /// "Boo"). `None`: a stray press shows no word, counted or not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boo: Option<String>,
+    /// The set of colors the tiers are shown in ([`colors`]): DDI's own,
+    /// else StepMania's.
+    #[serde(default, skip_serializing_if = "colors::Palette::is_stepmania")]
+    pub palette: colors::Palette,
 }
 
 impl JudgeNames {
@@ -834,7 +839,13 @@ impl JudgeNames {
             w0: None,
             early: None,
             boo: None,
+            palette: colors::Palette::StepMania,
         }
+    }
+
+    /// The color a hit of tier `j` is shown in ([`colors::TierColors::color`]).
+    pub fn color(&self, j: Judgement, w0: Option<bool>) -> colors::Rgba {
+        self.palette.colors().color(j, w0)
     }
 
     pub fn name(&self, j: Judgement) -> &str {
@@ -1050,6 +1061,16 @@ pub struct RulesetKey {
 }
 
 impl RulesetKey {
+    /// The set of colors the ruleset shows its tiers in
+    /// ([`JudgeNames::palette`]).
+    pub fn palette(&self) -> colors::Palette {
+        if self.id == ddi::ID {
+            colors::Palette::Ddi
+        } else {
+            colors::Palette::StepMania
+        }
+    }
+
     /// The ruleset this key was taken from, for `chart`.
     pub fn build(&self, chart: &ddi_chart::Chart) -> Ruleset {
         match self.id.as_str() {

@@ -1425,6 +1425,50 @@ fn a_skin_s_tap_shock_loads_and_its_lua_is_told_of_shocks() {
     assert!(!turned("Tap Mine", true));
 }
 
+/// Our extension: `NOTESKIN:GetJudgmentColor` gives the color the play's
+/// ruleset shows a tier in where it has a set of its own (DDI's), and nil
+/// otherwise, so a skin keeps its own art under every other ruleset.
+#[test]
+fn a_skin_s_lua_is_told_the_ruleset_s_tier_colors() {
+    let lua = "local c = NOTESKIN:GetJudgmentColor('W4')\n\
+               return Def.Sprite {\n\
+                 Texture = 'tap.png';\n\
+                 InitCommand = function(self)\n\
+                   self:rotationz(c == '#4f9dff' and 90 or c == nil and 45 or 0)\n\
+                 end;\n\
+               }\n";
+    let folders = vec![folder(
+        "dance",
+        "p",
+        &[
+            ("metrics.ini", "[Global]\nFallbackNoteSkin=default\n"),
+            ("Down Tap Note.lua", lua),
+            ("tap.png", ""),
+        ],
+    )];
+    let turned = |colors: Vec<(String, String)>| {
+        let skin = Skin::load(&folders, "dance", "p").unwrap().into_owned();
+        let mut skin = load(
+            skin,
+            Env {
+                judgment_colors: colors,
+                ..Env::default()
+            },
+            LoadBudget::default(),
+            Box::new(|| 0.0),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        let images = Sizes(vec![("tap.png", (64, 64))]);
+        let e = built(skin.element(Button::Down, "Tap Note", &mut Textures::default(), &images));
+        e.current().rotation[2]
+    };
+    assert_eq!(turned(Vec::new()), 45.0);
+    assert_eq!(
+        turned(vec![("W4".into(), "#4f9dff".into())]),
+        90.0
+    );
+}
+
 #[test]
 fn a_skins_lua_reads_its_parameters_and_cannot_change_them() {
     use crate::params::Value;

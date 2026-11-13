@@ -218,6 +218,15 @@ from the chart's own mines.
   `ddi_noteskin::lua::Env::shocks`, set by the shells from
   `StageOrder::may_have_shocks`), for a skin whose mines can look like
   its shocks.
+- **`NOTESKIN:GetJudgmentColor(tier)`** (`"W0"` … `"W5"`, `"Miss"`,
+  `"Boo"`) gives the color the play's ruleset shows that tier in, as
+  `#rrggbb`, where the ruleset has a set of its own (DDI's,
+  `ddi_engine::rules::colors`; `Env::judgment_colors`, set by
+  `ddi_shell::play_skins`, a stage's always DDI's), and nil otherwise:
+  a skin's hit effects may take a tier's word's hue under DDI and keep
+  their own art under every other ruleset (Infinito's echoes do;
+  `docs/plans/ddi-ruleset.md`, "Hit effects"). Test: `ddi-noteskin`
+  `a_skin_s_lua_is_told_the_ruleset_s_tier_colors`.
 - **Infinito** (`metrics.ini`, `NoteSkin.lua`, `_spiral mine.lua`): its
   `Tap Shock` is the lane-shaped shock arrow, always; its `Tap Mine` is
   what the `ShockArrows` parameter says, but the spiked band wherever

@@ -7,6 +7,7 @@
 use ddi_chart::{Color, Glyph, Layout};
 use ddi_engine::FieldPlace;
 use ddi_engine::frame::{Frame, JudgementFlash, NoteSprite, SpriteKind};
+use ddi_engine::rules::colors::Palette;
 use ddi_engine::rules::{JudgeNames, Judgement};
 
 use crate::noteskin::{LayerPart, NoteLayer};
@@ -44,26 +45,27 @@ impl Default for Skin {
 
 /// A Fantastic outside ITG FA+'s 15 ms window (Simply Love's white one;
 /// the theme's `Judgement.W1White`).
-pub const W1_OUTSIDE_W0: [f32; 4] = [0.96, 0.95, 0.97, 1.0];
+pub const W1_OUTSIDE_W0: [f32; 4] = ddi_engine::rules::colors::STEPMANIA.tiers[0];
 
 /// A stray press counted against the play (`JudgementFlash::boo`, DDI's
 /// Boo): beside Miss's red, toward pink (the theme's `Judgement.Boo`).
-pub const BOO_COLOR: [f32; 4] = [1.0, 92.0 / 255.0, 158.0 / 255.0, 1.0];
+pub const BOO_COLOR: [f32; 4] = ddi_engine::rules::colors::DDI.boo;
 
 /// What a judgment being shown is called and its color: a Boo's word in
 /// its own color where the ruleset names one; a tap's early or late word
 /// of its tier where the ruleset has them (DDI), W0's own, else the
-/// tier's name, in the tier's color (a W1 outside an FA+ window white).
+/// tier's name, in the tier's color from the ruleset's set
+/// ([`JudgeNames::palette`]; a W1 outside an FA+ window white).
 pub fn judgement_word<'a>(names: &'a JudgeNames, flash: &JudgementFlash) -> (&'a str, [f32; 4]) {
     if flash.boo {
-        return (names.boo.as_deref().unwrap_or(""), BOO_COLOR);
+        return (
+            names.boo.as_deref().unwrap_or(""),
+            names.palette.colors().boo,
+        );
     }
-    // ITG FA+: a Fantastic outside the 15 ms window is a white one.
-    let color = if flash.judgement == Judgement::W1 && flash.w0 == Some(false) {
-        W1_OUTSIDE_W0
-    } else {
-        judgement_color(flash.judgement)
-    };
+    // ITG FA+: a Fantastic outside the 15 ms window is a white one; DDI's
+    // W0 and W1 are its two whites.
+    let color = names.color(flash.judgement, flash.w0);
     // DDI: the early or the late word of the tier, W0's own.
     let label = if names.early.is_some() {
         names.word(flash.judgement, flash.delta_seconds, flash.w0 == Some(true))
@@ -73,14 +75,26 @@ pub fn judgement_word<'a>(names: &'a JudgeNames, flash: &JudgementFlash) -> (&'a
     (label, color)
 }
 
+/// A tier's color in StepMania's set (every ruleset's but DDI's).
 pub fn judgement_color(j: Judgement) -> [f32; 4] {
-    match j {
-        Judgement::W1 => [0.55, 0.95, 1.0, 1.0],
-        Judgement::W2 => [1.0, 0.9, 0.35, 1.0],
-        Judgement::W3 => [0.45, 0.95, 0.45, 1.0],
-        Judgement::W4 => [0.75, 0.5, 1.0, 1.0],
-        Judgement::W5 => [1.0, 0.55, 0.3, 1.0],
-        Judgement::Miss => [1.0, 0.3, 0.3, 1.0],
+    tier_color(Palette::StepMania, j)
+}
+
+/// A tier's color in `palette`, where whether a W1 was inside a W0
+/// window is not known (a receptor's flash: DDI's both white).
+pub fn tier_color(palette: Palette, j: Judgement) -> [f32; 4] {
+    palette.colors().color(j, None)
+}
+
+/// How bright a receptor's flash of tier `j` is drawn under `palette`:
+/// DDI's are the plan's strengths ("Hit effects": W4 dimmer, W5 and Miss
+/// none); StepMania's set flashes every tier alike, as it always has.
+pub fn flash_strength(palette: Palette, j: Judgement) -> f32 {
+    match (palette, j) {
+        (Palette::StepMania, _) => 1.0,
+        (Palette::Ddi, Judgement::W4) => 0.6,
+        (Palette::Ddi, Judgement::W5 | Judgement::Miss) => 0.0,
+        (Palette::Ddi, _) => 1.0,
     }
 }
 
@@ -1025,7 +1039,10 @@ pub fn build_into(
             0.0
         };
         let (color, flash) = match state.and_then(|s| s.flash) {
-            Some((j, age)) => (judgement_color(j), (1.0 - age / 0.25).clamp(0.0, 1.0)),
+            Some((j, age)) => (
+                tier_color(names.palette, j),
+                flash_strength(names.palette, j) * (1.0 - age / 0.25).clamp(0.0, 1.0),
+            ),
             None => ([1.0; 4], 0.0),
         };
         instances.push(
@@ -1344,6 +1361,7 @@ pub(crate) fn add_miniatures(
     out: &mut SceneOutput,
     minis: &[Miniature],
     layout: &Layout,
+    palette: Palette,
     opts: &RenderOptions,
     band: Option<f32>,
     mut layer: Option<&mut (dyn NoteLayer + '_)>,
@@ -1379,7 +1397,10 @@ pub(crate) fn add_miniatures(
                 continue;
             }
             let (color, flash) = match frame.receptors.get(i).and_then(|s| s.flash) {
-                Some((j, age)) => (judgement_color(j), (1.0 - age / 0.25).clamp(0.0, 1.0)),
+                Some((j, age)) => (
+                    tier_color(palette, j),
+                    flash_strength(palette, j) * (1.0 - age / 0.25).clamp(0.0, 1.0),
+                ),
                 None => ([1.0; 4], 0.0),
             };
             out.instances.push(
@@ -1630,6 +1651,7 @@ mod tests {
             &mut out,
             &minis,
             &layout,
+            Palette::StepMania,
             &RenderOptions::default(),
             Some(0.4),
             None,
@@ -2134,6 +2156,63 @@ mod tests {
                 .any(|t| t.ends_with('%') && t != "50.00%")
         );
         assert!(texts(Some(ScoreDelta::Percent(-2.0))).contains(&"-2.00%".to_string()));
+    }
+
+    /// Every ruleset but DDI keeps StepMania's colors exactly (its words,
+    /// receptor flashes and skins' Lua told nothing); DDI's come from the
+    /// engine's one table (round 4).
+    #[test]
+    fn only_ddi_takes_its_own_tier_colors() {
+        use ddi_engine::frame::JudgementFlash;
+        use ddi_engine::rules::colors::{DDI, Palette};
+        // The colors every ruleset but DDI showed before round 4, as the
+        // renderer had them written.
+        let before = |j: Judgement, w0: Option<bool>| match (j, w0) {
+            (Judgement::W1, Some(false)) => [0.96, 0.95, 0.97, 1.0],
+            (Judgement::W1, _) => [0.55, 0.95, 1.0, 1.0],
+            (Judgement::W2, _) => [1.0, 0.9, 0.35, 1.0],
+            (Judgement::W3, _) => [0.45, 0.95, 0.45, 1.0],
+            (Judgement::W4, _) => [0.75, 0.5, 1.0, 1.0],
+            (Judgement::W5, _) => [1.0, 0.55, 0.3, 1.0],
+            (Judgement::Miss, _) => [1.0, 0.3, 0.3, 1.0],
+        };
+        let flash = |judgement, w0| JudgementFlash {
+            judgement,
+            delta_seconds: 0.01,
+            age: 0.1,
+            combo_at: 0,
+            w0,
+            boo: false,
+        };
+        let mut others = presets::all();
+        others.retain(|r| !r.is_ddi());
+        others.push(presets::danoni());
+        assert_eq!(others.len(), 8, "ITG, FA+, SM5, three DDRs, FFR, DanOni");
+        for r in &others {
+            assert_eq!(r.names.palette, Palette::StepMania, "{}", r.id);
+            assert!(crate::noteskin::judgment_colors(r.key().palette()).is_empty());
+            for j in Judgement::ALL {
+                for w0 in [None, Some(true), Some(false)] {
+                    let (_, c) = judgement_word(&r.names, &flash(j, w0));
+                    assert_eq!(c, before(j, w0), "{} {j:?} {w0:?}", r.id);
+                }
+                assert_eq!(tier_color(r.names.palette, j), before(j, None));
+                assert_eq!(flash_strength(r.names.palette, j), 1.0);
+            }
+        }
+        // DDI's: from the one table, W0 and W1 its two whites.
+        let ddi = presets::ddi().names;
+        assert_eq!(judgement_word(&ddi, &flash(Judgement::W1, Some(true))).1, DDI.w0);
+        assert_eq!(
+            judgement_word(&ddi, &flash(Judgement::W1, Some(false))).1,
+            DDI.tiers[0]
+        );
+        assert_eq!(judgement_word(&ddi, &flash(Judgement::W4, None)).1, DDI.tiers[3]);
+        assert_eq!(flash_strength(Palette::Ddi, Judgement::W5), 0.0);
+        assert_eq!(
+            crate::noteskin::judgment_colors(presets::ddi().key().palette())[4],
+            ("W4".to_string(), "#4f9dff".to_string())
+        );
     }
 
     /// A Boo shows its word where the tap judgments show, in its own

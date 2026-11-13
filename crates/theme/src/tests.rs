@@ -61,8 +61,9 @@ fn the_shipped_tunables_parse() {
     assert!(parse(&TUNABLES.replace("\"#ff6ea0\"", "\"pink\"")).is_err());
     // The tables are the file's.
     let t2 = parse(TUNABLES).unwrap();
+    // (DDI's tier colors come from the engine's table, not the file.)
     assert_eq!(
-        t2.colors.len(),
+        t2.colors.len() + crate::judgment_colors().count(),
         t.keys().iter().filter(|k| k.starts_with("color:")).count()
     );
 }
@@ -397,9 +398,12 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
     // An ITG FA+ play's white Fantastics (the sample plays ITG).
     let _ = theme.color("Judgement.W1White");
     // DDI's Boo, whose word a play shows (the sample's results count
-    // none; the play's HUD has the color as its own constant,
-    // `ddi_render::scene::BOO_COLOR`).
+    // none), and DDI's tiers (the sample plays ITG): the engine's table
+    // (`ddi_engine::rules::colors::DDI`), as the play draws them.
     let _ = theme.color("Judgement.Boo");
+    for (name, c) in crate::judgment_colors() {
+        assert_eq!(theme.color(&name), Some(c), "{name}");
+    }
     // The results' timing histogram, in a panel set the results do not
     // show until the sets' picker comes (`Settings::results_panels`).
     let _ = theme.color("Graph.Bar");

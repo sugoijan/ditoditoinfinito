@@ -105,7 +105,10 @@ numbers_weight = 800
 "Lamp.AmazingFullCombo" = "#8cf2ff"
 "Lamp.AbsoluteDito" = "#fbf7ff"
 # Judgements as the HUD draws them (crates/render/src/scene.rs,
-# `judgement_color`), so results read as play does.
+# `judgement_color`), so results read as play does: StepMania's set, every
+# ruleset's but DDI's. DDI's own (`Judgement.Ddi.W0` … `Judgement.Ddi.Miss`)
+# and the Boo's (`Judgement.Boo`) come from the engine's table
+# (`ddi_engine::rules::colors::DDI`), never from this file.
 "Judgement.W1" = "#8cf2ff"
 # ITG FA+: a Fantastic outside its 15 ms window (Simply Love's white one).
 "Judgement.W1White" = "#f4f2f7"
@@ -114,9 +117,6 @@ numbers_weight = 800
 "Judgement.W4" = "#bf80ff"
 "Judgement.W5" = "#ff8c4d"
 "Judgement.Miss" = "#ff4d4d"
-# DDI's Boo, a stray press counted: beside Miss's red, toward pink
-# (`ddi_render::scene::BOO_COLOR`).
-"Judgement.Boo" = "#ff5c9e"
 "Graph.Line" = "#6ee08a"
 "Graph.Bar" = "#ffe55a"
 "Graph.Point" = "#8ef2ff"

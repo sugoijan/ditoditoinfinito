@@ -18,10 +18,17 @@ local function layer(name, when, tint, opacity, zoom, angle, image, salt)
         Opacity=opacity, Zoom=zoom or 1, Rotation=angle or 0, Material=material}
 end
 local white, yellow, green, mint = "#ffffff", "#fff064", "#3fff3f", "#3effbf"
+-- Under a ruleset with tier colors of its own (DDI's), each echo takes its
+-- word's hue and W4's is dimmer (docs/plans/ddi-ruleset.md, "Hit effects");
+-- otherwise the skin's own yellow, green and mint.
+local tiers = NOTESKIN:GetJudgmentColor("W4") ~= nil
+local function tint(tier, own) return NOTESKIN:GetJudgmentColor(tier) or own end
 -- One echo geometry, three independently tinted judgment layers.
 -- Framed tint is unnecessary: separate parts keep When explicit and editable.
-for _, echo in ipairs({{"tap-echo","W2",yellow}, {"tap-echo-w3","W3",green}, {"tap-echo-w4","W4",mint}}) do
-    layer(echo[1], {echo[2]}, echo[3], curve({0,0.9,0.15,0}), curve({0,1,0.15,1.25}), turn)
+for _, echo in ipairs({{"tap-echo","W2",yellow,0.9}, {"tap-echo-w3","W3",green,0.9},
+        {"tap-echo-w4","W4",mint,tiers and 0.55 or 0.9}}) do
+    layer(echo[1], {echo[2]}, tint(echo[2], echo[3]), curve({0,echo[4],0.15,0}),
+        curve({0,1,0.15,1.25}), turn)
 end
 for i,alpha in ipairs({1,0.8}) do
     layer("burst-"..i, {"W1"}, white, curve({0,alpha,0.025,alpha,0.175,0}),

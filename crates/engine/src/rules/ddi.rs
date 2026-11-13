@@ -624,6 +624,7 @@ pub fn names() -> JudgeNames {
         w0: Some((W0_WORD.into(), LATE_WORDS[0].into())),
         early: Some(EARLY_WORDS.map(String::from)),
         boo: Some(BOO_WORD.into()),
+        palette: super::colors::Palette::Ddi,
         ..JudgeNames::new(LATE_WORDS, HELD_WORD, DROPPED_WORD)
     }
 }

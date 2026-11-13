@@ -826,7 +826,7 @@ impl ResultsScreen {
                         centre <= w.late
                     }
                 })
-                .map_or("Judgement.Miss", |w| w.color.as_str());
+                .map_or(self.data.miss_color(), |w| w.color.as_str());
             let bh = n as f32 / max * ih;
             let mut q = quad("", [(slot - 1.0).max(1.0), bh], env.color(color));
             call(
@@ -970,7 +970,7 @@ impl ResultsScreen {
                         [x, iy],
                         [x, iy + ih],
                         1.5,
-                        env.color("Judgement.Miss"),
+                        env.color(self.data.miss_color()),
                     ));
                 }
             }

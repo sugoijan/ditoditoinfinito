@@ -843,6 +843,16 @@ pub enum ResultsKind {
 }
 
 impl ResultsData {
+    /// The misses' color's name in the ruleset's set: its Miss row's
+    /// (`Judgement.Ddi.Miss` under DDI), else `Judgement.Miss`.
+    pub fn miss_color(&self) -> &str {
+        self.judgements
+            .iter()
+            .map(|j| j.color.as_str())
+            .find(|c| c.ends_with(".Miss"))
+            .unwrap_or("Judgement.Miss")
+    }
+
     /// The panels of the set shown.
     pub fn panels(&self) -> &[PanelKind] {
         self.panel_sets

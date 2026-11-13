@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_engine::frame::{Frame, JudgementFlash, ReceptorState};
-use ddi_engine::rules::{Judgement, presets};
+use ddi_engine::rules::{Judgement, ddi, presets};
 use ddi_render::scene::{W1_OUTSIDE_W0, judgement_color};
 use ddi_render::{RenderOptions, Renderer, SkinBlending};
 use ddi_ui::UiEvent;
@@ -79,13 +79,22 @@ fn hud_and_menu_colors_draw_as_written() {
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
     let layout = ddi_chart::Layout::dance_single();
-    let names = presets::itg().names;
-    // ITG FA+'s white Fantastic (a W1 outside its W0 window) last.
-    for (j, w0) in [
-        (Judgement::W1, None),
-        (Judgement::W4, None),
-        (Judgement::Miss, None),
-        (Judgement::W1, Some(false)),
+    // ITG FA+'s white Fantastic (a W1 outside its W0 window) last; then
+    // DDI's own set (round 4), W0 to Miss.
+    let itg = presets::itg().names;
+    let ddi = ddi::names();
+    for (names, j, w0) in [
+        (&itg, Judgement::W1, None),
+        (&itg, Judgement::W4, None),
+        (&itg, Judgement::Miss, None),
+        (&itg, Judgement::W1, Some(false)),
+        (&ddi, Judgement::W1, Some(true)),
+        (&ddi, Judgement::W1, Some(false)),
+        (&ddi, Judgement::W2, None),
+        (&ddi, Judgement::W3, None),
+        (&ddi, Judgement::W4, None),
+        (&ddi, Judgement::W5, None),
+        (&ddi, Judgement::Miss, None),
     ] {
         let frame = Frame {
             song_time: 0.0,
@@ -157,15 +166,20 @@ fn hud_and_menu_colors_draw_as_written() {
                 SIZE[1],
                 &frame,
                 &layout,
-                &names,
+                names,
                 RenderOptions::default(),
                 None,
             );
             let px = read(&device, &queue, &tex, enc);
-            let want = bytes(if w0 == Some(false) {
-                W1_OUTSIDE_W0
+            let want = bytes(if names.palette.is_stepmania() {
+                // StepMania's set exactly as it always was.
+                if w0 == Some(false) {
+                    W1_OUTSIDE_W0
+                } else {
+                    judgement_color(j)
+                }
             } else {
-                judgement_color(j)
+                names.color(j, w0)
             });
             let (ok, top) = shows(&px, want);
             assert!(

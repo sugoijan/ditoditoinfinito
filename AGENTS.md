@@ -1859,6 +1859,12 @@ set it on two lines, the lists write AD and AB
 not know who played: grade an autoplayed record's with
 `Worked::from_replay`, `Replay::grade_as_played` or `Player::set_bot`.
 What a play came to as played is never replaced by a second judgment.
+DDI's tiers have colors of their own, one table
+(`ddi_engine::rules::colors::DDI`: white, white, yellow, green, blue,
+orange, red; round 4), carried by `JudgeNames::palette` to the play,
+the receptors' flashes, the results, the Standings and the miniatures,
+to the theme as `Judgement.Ddi.*` and to skins' Lua as
+`NOTESKIN:GetJudgmentColor`; every other ruleset keeps StepMania's set.
 
 ## Additional chart versions
 

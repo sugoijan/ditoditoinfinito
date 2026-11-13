@@ -85,6 +85,7 @@ impl Gpu {
             layout: "dance-single".into(),
             reverse: false,
             params: Default::default(),
+            palette: Default::default(),
         };
         let layout = want.layout();
         let mut name = "built-in".to_string();

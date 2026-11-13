@@ -280,8 +280,20 @@ pub fn play_skins(
     {
         keys.push(want(&settings));
     }
-    let env = ddi_noteskin::lua::chart_env(song, chart, layout, settings.reverse).shifted(shift);
+    let mut env =
+        ddi_noteskin::lua::chart_env(song, chart, layout, settings.reverse).shifted(shift);
+    env.judgment_colors =
+        ddi_render::noteskin::judgment_colors(settings.ruleset_for(chart).names.palette);
     SkinWants { keys, env }
+}
+
+/// What a room's stage's skin is told beside [`play_skins`]'s: DDI's
+/// tier colors (a stage plays DDI whatever the settings' ruleset) and
+/// whether the play may be given a battle's shocks.
+pub fn stage_skin_env(env: &mut Env, shocks: bool) {
+    env.shocks = shocks;
+    env.judgment_colors =
+        ddi_render::noteskin::judgment_colors(ddi_engine::rules::colors::Palette::Ddi);
 }
 
 /// The first of `wants` ([`play_skins`]) among the skins one can pick,

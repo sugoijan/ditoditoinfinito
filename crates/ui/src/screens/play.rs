@@ -8,6 +8,7 @@
 use ddi_chart::{Glyph, Layout};
 use ddi_engine::judge::JudgeEventKind;
 use ddi_engine::rules::ddr::flare_name;
+use ddi_engine::rules::colors::Palette;
 use ddi_engine::rules::{EmptyPress, FailType};
 use ddi_engine::{
     Appearance, AtOnce, Judgement, Results, Ruleset, ScrollAction, TimingCut, TransformOptions,
@@ -55,9 +56,6 @@ pub const FAILED_MARK: &str = "FAILED";
 pub const AUTOPLAY_MARK: &str = "AUTOPLAY";
 pub const ASSIST_MARK: &str = "ASSIST";
 
-/// The color name of a Fantastic outside ITG FA+'s 15 ms window (Simply
-/// Love's white Fantastic).
-const W1_OUTSIDE_W0: &str = "Judgement.W1White";
 
 /// The EX score as the ruleset keeps it: its points of the chart's most,
 /// or Simply Love's percentage (ITG FA+).
@@ -71,15 +69,39 @@ pub fn ex_text(score: &ddi_engine::ScoreView) -> Option<String> {
     Some(UiText::data(ex).into())
 }
 
-/// The color names of the tiers, best first.
-const TIER_COLORS: [&str; 6] = [
-    "Judgement.W1",
-    "Judgement.W2",
-    "Judgement.W3",
-    "Judgement.W4",
-    "Judgement.W5",
-    "Judgement.Miss",
-];
+/// The color names of the tiers in `palette` (the ruleset's,
+/// [`ddi_engine::rules::JudgeNames::palette`]), best first: the best
+/// tier's (inside a W0 window where the ruleset has one: FA+'s blue
+/// Fantastic, DDI's Absolute), then W2 to Miss.
+pub fn tier_colors(palette: Palette) -> &'static [&'static str; 6] {
+    match palette {
+        Palette::StepMania => &[
+            "Judgement.W1",
+            "Judgement.W2",
+            "Judgement.W3",
+            "Judgement.W4",
+            "Judgement.W5",
+            "Judgement.Miss",
+        ],
+        Palette::Ddi => &[
+            "Judgement.Ddi.W0",
+            "Judgement.Ddi.W2",
+            "Judgement.Ddi.W3",
+            "Judgement.Ddi.W4",
+            "Judgement.Ddi.W5",
+            "Judgement.Ddi.Miss",
+        ],
+    }
+}
+
+/// The color name of a W1 outside the ruleset's W0 window in `palette`:
+/// ITG FA+'s white Fantastic (Simply Love's), DDI's W1.
+pub fn w1_outside_w0(palette: Palette) -> &'static str {
+    match palette {
+        Palette::StepMania => "Judgement.W1White",
+        Palette::Ddi => "Judgement.Ddi.W1",
+    }
+}
 
 /// One of a ruleset's tap tiers as the results list them: its name (the
 /// ruleset's word, data in every language) and its color's name.
@@ -113,24 +135,24 @@ fn tier_rows(ruleset: &Ruleset, tally: &ddi_engine::Tally) -> Vec<(Tier, u32)> {
         match (j, &names.w0) {
             (Judgement::W1, _) if ruleset.is_ddi() => {
                 rows.push((
-                    tier(names.word(j, 0.0, true).to_string(), TIER_COLORS[0]),
+                    tier(names.word(j, 0.0, true).to_string(), tier_colors(names.palette)[0]),
                     tally.w0,
                 ));
-                rows.push((tier(both(j), W1_OUTSIDE_W0), count.saturating_sub(tally.w0)));
+                rows.push((tier(both(j), w1_outside_w0(names.palette)), count.saturating_sub(tally.w0)));
             }
             (Judgement::W1, Some((blue, white))) => {
-                rows.push((tier(blue.clone(), TIER_COLORS[0]), tally.w0));
+                rows.push((tier(blue.clone(), tier_colors(names.palette)[0]), tally.w0));
                 rows.push((
-                    tier(white.clone(), W1_OUTSIDE_W0),
+                    tier(white.clone(), w1_outside_w0(names.palette)),
                     count.saturating_sub(tally.w0),
                 ));
             }
             (j, _) if ruleset.is_ddi() && j.is_miss() => {
-                rows.push((tier(names.sides(j).1.to_string(), TIER_COLORS[5]), count));
+                rows.push((tier(names.sides(j).1.to_string(), tier_colors(names.palette)[5]), count));
             }
-            (j, _) if ruleset.is_ddi() => rows.push((tier(both(j), TIER_COLORS[j.index()]), count)),
+            (j, _) if ruleset.is_ddi() => rows.push((tier(both(j), tier_colors(names.palette)[j.index()]), count)),
             (j, _) => rows.push((
-                tier(names.name(j).to_string(), TIER_COLORS[j.index()]),
+                tier(names.name(j).to_string(), tier_colors(names.palette)[j.index()]),
                 count,
             )),
         }
@@ -275,21 +297,21 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
                     Judgement::W1 => vec![
                         tier(
                             names.word(*j, 0.0, true).to_string(),
-                            TIER_COLORS[0],
+                            tier_colors(names.palette)[0],
                             r.tally.w0,
                             None,
                         ),
                         tier(
                             format!("{early} / {late}"),
-                            W1_OUTSIDE_W0,
+                            w1_outside_w0(names.palette),
                             count.saturating_sub(r.tally.w0),
                             Some(ddi.sides[j.index()]),
                         ),
                     ],
-                    j if j.is_miss() => vec![tier(late.to_string(), TIER_COLORS[5], count, None)],
+                    j if j.is_miss() => vec![tier(late.to_string(), tier_colors(names.palette)[5], count, None)],
                     j => vec![tier(
                         format!("{early} / {late}"),
-                        TIER_COLORS[j.index()],
+                        tier_colors(names.palette)[j.index()],
                         count,
                         Some(ddi.sides[j.index()]),
                     )],
@@ -300,20 +322,20 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
                 (Some((blue, white)), Judgement::W1) => vec![
                     JudgementCount {
                         name: UiText::data(blue).into(),
-                        color: TIER_COLORS[0].to_string(),
+                        color: tier_colors(names.palette)[0].to_string(),
                         count: r.tally.w0,
                         sides: None,
                     },
                     JudgementCount {
                         name: UiText::data(white).into(),
-                        color: W1_OUTSIDE_W0.to_string(),
+                        color: w1_outside_w0(names.palette).to_string(),
                         count: count.saturating_sub(r.tally.w0),
                         sides: None,
                     },
                 ],
                 _ => vec![JudgementCount {
                     name: UiText::data(names.name(*j)).into(),
-                    color: TIER_COLORS[j.index()].to_string(),
+                    color: tier_colors(names.palette)[j.index()].to_string(),
                     count,
                     sides: None,
                 }],
@@ -402,7 +424,7 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
         Window {
             early: ms,
             late: ms,
-            color: TIER_COLORS[0].to_string(),
+            color: tier_colors(names.palette)[0].to_string(),
         }
     });
     let windows = w0
@@ -413,9 +435,9 @@ pub fn results_data(p: &PlayInfo) -> ResultsData {
                 early: (w.early * 1000.0) as f32,
                 late: (w.late * 1000.0) as f32,
                 color: if *j == Judgement::W1 && judge.w0.is_some() {
-                    W1_OUTSIDE_W0
+                    w1_outside_w0(names.palette)
                 } else {
-                    TIER_COLORS[j.index()]
+                    tier_colors(names.palette)[j.index()]
                 }
                 .to_string(),
             })

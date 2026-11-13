@@ -10,6 +10,7 @@ description = "DitoDitoInfinito: our theme (Infinito), a look for the UI core wi
 
 [dependencies]
 ddi-actor.workspace = true
+ddi-engine.workspace = true
 ddi-l10n.workspace = true
 ddi-ui.workspace = true
 
