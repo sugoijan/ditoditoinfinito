@@ -330,6 +330,19 @@ fn pick_and_ready_with(
     orders
 }
 
+/// [`pick_and_ready`] up to the readiness: every device prepared, its
+/// stage's order taken, nobody ready yet (their prompts ready them).
+fn pick_and_prepare(r: &Room, song: &Song, attacks: bool, chart: usize) -> Vec<Option<StageOrder>> {
+    let orders = pick_and_ready_with(r, song, attacks, chart, |_, _| {});
+    for room in &r.rooms {
+        let stage = orders[0].as_ref().unwrap().stage;
+        if room.borrow().in_stage(stage) {
+            room.borrow_mut().set_ready(false).unwrap();
+        }
+    }
+    orders
+}
+
 /// Each player's play (a session on the shared fake clock), started once
 /// the room started the stage, as the prompt starts it: `bias`, its
 /// autoplayer's lateness (seconds: far enough, every note missed).
@@ -1222,4 +1235,224 @@ fn a_live_stage_keeps_the_room_s_clock_while_the_devices_drift_and_judges_as_wit
         assert!(a.1 <= b.1 + 40.0, "{a:?} against {b:?}");
         assert_eq!(a.3, 0, "{a:?}");
     }
+}
+
+/// A whole live stage through the screens (the UI harness: each device's
+/// stage prompt and results on its own `Ui`, their clocks the room's), three
+/// devices over the fake room with latency: Alice (the host) and Bob play,
+/// Carol watches. Ready is pressed on the prompts and the room starts the
+/// stage on every one; Bob's device joins two seconds late (his first notes
+/// missed); Alice's socket drops mid-stage and reconnects; attacks go both
+/// ways; Bob leaves the stage's play once both have been attacked (a
+/// forfeit), which decides it early; Carol's view runs to Alice's finish,
+/// not to the decision; each results screen shows the Standings, confirmed.
+#[test]
+fn a_live_stage_through_the_screens_of_three_devices() {
+    use ddi_ui::TextMode;
+    use ddi_ui::screens::data::ResultsKind;
+    use ddi_ui::screens::prompt::{PromptChoice, PromptScreen, PromptState};
+    use ddi_ui::screens::results::{ResultsActions, ResultsScreen};
+    use ddi_ui::screens::{DESIGN, Env};
+    use ddi_ui::testing::Harness;
+    let song = bundled("beatucada");
+    let r = Room::new(
+        &[
+            ("alice", Intent::Play),
+            ("bob", Intent::Play),
+            ("carol", Intent::Watch),
+        ],
+        Some(Latency {
+            down_ms: 40,
+            down_jitter_ms: 40,
+            up_ms: 40,
+            up_jitter_ms: 40,
+            seed: 11,
+        }),
+    );
+    let orders = pick_and_prepare(&r, &song, true, 0);
+    let stage = orders[0].as_ref().unwrap().stage;
+    assert!(orders[2].as_ref().unwrap().watching);
+    let ids: Vec<_> = r.rooms.iter().map(|x| x.borrow().me()).collect();
+    let env = || {
+        Env::new(
+            Rc::new(ddi_ui::look::Plain),
+            Rc::new(|s: &str| s.to_lowercase()),
+        )
+    };
+    let envs: Vec<Env> = (0..3).map(|_| env()).collect();
+    let chosen: Vec<Rc<RefCell<Vec<PromptChoice>>>> = (0..3).map(|_| Rc::default()).collect();
+    let mut hs: Vec<Harness> = (0..3)
+        .map(|_| Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own))
+        .collect();
+    let noop: ddi_ui::screens::room::RoomShell = Rc::new(|_, _| {});
+    for i in 0..3 {
+        let sink = chosen[i].clone();
+        hs[i].push(
+            PromptScreen::new(
+                envs[i].clone(),
+                Rc::new(RefCell::new(PromptState::default())),
+                Rc::new(move |c, _| sink.borrow_mut().push(c)),
+            )
+            .with_room(r.rooms[i].clone(), stage, noop.clone()),
+        );
+    }
+    // The screens on the room's clock (they tick their clients with it).
+    let ui = |r: &Room, hs: &mut [Harness], dt: f32| {
+        for h in hs.iter_mut() {
+            h.ui.set_clock(wall(*r.host.borrow()) as f64 / 1_000.0);
+            h.run(dt);
+        }
+    };
+    ui(&r, &mut hs, 0.3);
+    assert!(hs[2].texts().iter().any(|t| t == "Watching"), "{:?}", hs[2].texts());
+    // Ready pressed on the players' prompts (Enter on Ready).
+    for h in hs.iter_mut().take(2) {
+        h.key("Enter", "Enter");
+    }
+    for _ in 0..25 {
+        r.step(0.02, true);
+        ui(&r, &mut hs, 0.02);
+    }
+    assert!(
+        r.rooms[0].borrow().ready() && r.rooms[1].borrow().ready(),
+        "{:?}",
+        chosen
+    );
+    // The room counts down and starts the stage: Start on every prompt.
+    for _ in 0..400 {
+        if chosen.iter().all(|c| c.borrow().contains(&PromptChoice::Start)) {
+            break;
+        }
+        r.step(0.02, true);
+        ui(&r, &mut hs, 0.02);
+    }
+    assert!(
+        chosen.iter().all(|c| c.borrow().contains(&PromptChoice::Start)),
+        "{chosen:?}"
+    );
+    // Alice and Carol start at once; Bob's device two seconds late.
+    let mut plays = vec![
+        session_for(&r, &song, orders[0].as_ref().unwrap(), 0, 0.0),
+        session_for(&r, &song, orders[2].as_ref().unwrap(), 2, 0.0),
+    ];
+    let zero = r.rooms[0].borrow().song_zero_at(stage).unwrap();
+    let song_now = |r: &Room| (wall(*r.host.borrow()) as f64 - zero.0 as f64) / 1_000.0;
+    while song_now(&r) < 2.0 {
+        r.step(1.0 / 60.0, false);
+        let now = *r.host.borrow();
+        for p in &mut plays {
+            let _ = p.tick(HostTime(now));
+        }
+        r.rooms[1].borrow_mut().tick(wall(now));
+    }
+    plays.insert(1, session_for(&r, &song, orders[1].as_ref().unwrap(), 1, 0.0));
+    *r.play_devices.borrow_mut() = vec![0, 1, 2];
+    let t = plays[1].player.judge_time(HostTime(*r.host.borrow()));
+    assert!(t > 1.5, "Bob joined part-way: {t}");
+    assert!(plays[1].battle().unwrap().me_in(&plays[1].player));
+    let server = r.server.clone();
+    let (mut dropped, mut left_at, mut decided_at) = (false, None, None);
+    let mut carol_over_at_decision = None;
+    let (mut alice_done, mut carol_done) = (None, None);
+    let mut ended = play_out(&r, &mut plays, 300.0, |t, plays| {
+        if t > 20.0 && !dropped {
+            dropped = true;
+            server.borrow_mut().drop_socket(ids[0]);
+        }
+        // Bob leaves once attacks have gone both ways into the plays and
+        // the one against him has passed.
+        let taken = |p: &PlaySession<FakeAudio, FakeInputs>| {
+            p.battle()
+                .and_then(|b| b.live_state())
+                .is_some_and(|l| l.incoming.iter().any(|x| x.fate == crate::battle::live::Fate::Taken))
+        };
+        let both = taken(&plays[0]) && taken(&plays[1]);
+        let host = *r.host.borrow();
+        if both && left_at.is_none() && plays[1].battle().is_some_and(|b| b.incoming(&plays[1].player).is_none()) {
+            left_at = Some(t);
+            plays[1].leave();
+        }
+        for (k, done) in [(0usize, &mut alice_done), (2, &mut carol_done)] {
+            if done.is_none() && plays[k].player.started() && !plays[k].song_going() {
+                *done = Some(t);
+            }
+        }
+        if decided_at.is_none() && plays[2].battle().is_some_and(|b| b.decided()) {
+            decided_at = Some(t);
+            carol_over_at_decision = plays[2].watch(host).map(|w| w.over);
+        }
+    });
+    assert!(dropped);
+    let left_at = left_at.unwrap_or_else(|| {
+        let s = server.borrow();
+        let l = s.live().and_then(|l| l.stage_or_last()).and_then(|l| l.ledger());
+        panic!(
+            "attacks both ways: {:?}",
+            l.map(|l| l.attacks().iter().map(|a| (a.sender, a.recipient, a.clear_us)).collect::<Vec<_>>())
+        )
+    });
+    let decided_at = decided_at.expect("decided early");
+    assert!(decided_at >= left_at);
+    assert_eq!(carol_over_at_decision, Some(false), "Carol watches on past the decision");
+    // Her view runs to Alice's finish (drawn its delay behind), not to
+    // the decision.
+    let (alice_done, carol_done) = (alice_done.unwrap(), carol_done.unwrap());
+    assert!(carol_done >= alice_done && carol_done > decided_at + 10.0, "{decided_at} {alice_done} {carol_done}");
+    let outcomes: Vec<_> = ended
+        .iter_mut()
+        .map(|e| e.take().expect("every play ended"))
+        .collect();
+    assert!(outcomes[0].1.confirmed_early && outcomes[2].1.confirmed_early);
+    assert_eq!(outcomes[1].1.mine, ddi_room::Run::Forfeit);
+    assert!(outcomes[2].1.watched);
+    // Attacks both ways went into the plays (none late; one the room
+    // committed against Bob as he left comes to a play that is out).
+    for (i, p) in plays.iter().take(2).enumerate() {
+        let b = p.battle().unwrap();
+        let incoming = b.live_state().unwrap().incoming;
+        let fates: Vec<_> = incoming.iter().map(|x| x.fate).collect();
+        assert!(fates.contains(&crate::battle::live::Fate::Taken), "{i}: {fates:?}");
+        assert!(!fates.contains(&crate::battle::live::Fate::Late), "{i}: {fates:?}");
+    }
+    // The runs reported, as the shells report them; each device's results
+    // with the Standings.
+    for (i, (_, o)) in outcomes.into_iter().enumerate() {
+        if !o.watched {
+            r.rooms[i]
+                .borrow_mut()
+                .report_played(o.stage, o.mine, o.ranking, o.confirmed_early, o.details)
+                .unwrap();
+        }
+    }
+    for i in 0..3 {
+        let mut data = ddi_ui::screens::sample::results();
+        data.kind = ResultsKind::Stage;
+        data.quit = i == 1;
+        let results = ResultsScreen::new(envs[i].clone(), data, ResultsActions::default())
+            .with_room(r.rooms[i].clone(), stage);
+        hs[i].push(if i == 2 { results.watched() } else { results });
+    }
+    for _ in 0..100 {
+        r.step(0.05, true);
+        ui(&r, &mut hs, 0.05);
+    }
+    for (i, env) in envs.iter().enumerate() {
+        let view = env.state.borrow().stage.clone().expect("the standings");
+        assert!(view.confirmed, "{i}: {view:?}");
+        assert_eq!(view.rows.len(), 2, "{i}: the two competitors");
+        let row = |id: ddi_room::ParticipantId| {
+            view.rows
+                .iter()
+                .find(|x| x.id == id.0)
+                .unwrap_or_else(|| panic!("{i}: {id:?} in {:?}", view.rows))
+        };
+        let (alice, bob) = (row(ids[0]), row(ids[1]));
+        assert_eq!((alice.place, bob.place), (Some(1), Some(2)), "{i}");
+        assert_eq!(view.watched, i == 2);
+        if i < 2 {
+            assert!(view.rows.iter().any(|x| x.me));
+        }
+    }
+    let s = r.server.borrow().state().clone();
+    assert!(s.stage(stage).unwrap().play.as_ref().unwrap().song_ended);
 }
