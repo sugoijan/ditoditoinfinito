@@ -34,7 +34,7 @@ app-check:
 # Check the platform-independent crates natively (the desktop without
 # preparing its DanOni importer: DDI_IMPORTER_TEST_ONLY)
 core-check:
-    @DDI_IMPORTER_TEST_ONLY=1 cargo check -p ddi-icon -p ddi-chart -p ddi-engine -p ddi-character -p ddi-hand-pose -p ddi-hand-plan -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-l10n -p ddi-opus-worker -p ddi-svg-worker -p ddi-desktop -p ddi -p xtask
+    @DDI_IMPORTER_TEST_ONLY=1 cargo check -p ddi-icon -p ddi-chart -p ddi-engine -p ddi-character -p ddi-hand-pose -p ddi-hand-plan -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-room -p ddi-share-protocol -p ddi-l10n -p ddi-opus-worker -p ddi-svg-worker -p ddi-desktop -p ddi -p xtask
 
 # Run all checks
 check: core-check app-check regen-seo reuse-lint l10n-check
@@ -80,7 +80,7 @@ test:
     @cargo run -q -p xtask -- gen-noteskins
     @cargo run -q -p xtask -- gen-announcers
     @# The desktop's DanOni importer is built but not prepared (no JDK).
-    @DDI_IMPORTER_TEST_ONLY=1 cargo test -p ddi-icon -p ddi-chart -p ddi-engine -p ddi-character -p ddi-hand-pose -p ddi-hand-plan -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-l10n -p ddi-desktop -p ddi -p xtask --features ddi-icon/raster,ddi-platform/decode,ddi-library/nfkd,ddi-noteskin/raster
+    @DDI_IMPORTER_TEST_ONLY=1 cargo test -p ddi-icon -p ddi-chart -p ddi-engine -p ddi-character -p ddi-hand-pose -p ddi-hand-plan -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-room -p ddi-share-protocol -p ddi-l10n -p ddi-desktop -p ddi -p xtask --features ddi-icon/raster,ddi-platform/decode,ddi-library/nfkd,ddi-noteskin/raster
 
 # DanOni workspace SDK, desktop probe and pack verifier checks (Python 3 and ffmpeg; no live imports)
 danoni-check *args:
