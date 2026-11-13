@@ -1673,6 +1673,7 @@ fn a_reports_detail_is_additive_on_the_wire() {
                 accuracy: 0.995,
                 absolute: None,
                 score: None,
+                steps: 0,
             }),
             detail: Some(detail.clone()),
         },
@@ -1741,6 +1742,7 @@ fn an_online_stage_settles_on_its_starters_reports() {
         accuracy: 0.9,
         absolute: None,
         score: None,
+        steps: 0,
     };
     report(&mut r, ana, stage, Run::Out { at: 20.0 }).unwrap();
     assert_eq!(r.s.phase, Phase::Stage { stage }, "waits for the host");
@@ -2084,6 +2086,7 @@ fn the_spotlight_is_shared_once_and_a_pick_of_it_reuses_the_share() {
                 accuracy: 0.9,
                 absolute: None,
                 score: None,
+                steps: 0,
             },
         )
         .unwrap();
@@ -2997,6 +3000,7 @@ fn a_running_match_goes_on_under_the_new_owner() {
             accuracy: 0.9,
             absolute: None,
             score: None,
+            steps: 0,
         };
         report(&mut r, who, s1, run).unwrap();
     }

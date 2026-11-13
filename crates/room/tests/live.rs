@@ -353,6 +353,7 @@ impl Player {
                     accuracy_ppm: 900_000,
                     absolute: None,
                     score: last.map(|m| m.score),
+                    steps: 0,
                 },
                 detail: None,
             });

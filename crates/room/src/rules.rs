@@ -65,6 +65,15 @@ pub struct RoomPolicy {
     /// is said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audience: Option<crate::audience::AudiencePolicy>,
+    /// The authority honors the match's "At zero life: Step down"
+    /// ([`MatchRules::at_zero`]): it keeps the rule and ranks a stage by
+    /// the steps its runs report ([`crate::battle::rank`]). True for every
+    /// room this build makes; false (left out of the JSON) for an
+    /// authority that predates it, which would drop the rule and rank a
+    /// stepped-down run as any run still in, so the row is offered only
+    /// where this says so. ADDITIVE to protocol 2.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub step_down: bool,
 }
 
 /// What a room that plays live tells its clients of how
@@ -197,6 +206,7 @@ impl Default for RoomPolicy {
             restart: true,
             points_bias: true,
             audience: None,
+            step_down: true,
         }
     }
 }
@@ -366,6 +376,47 @@ pub struct MatchRules {
     /// by its own rule (`RoomPolicy::points_bias` says which).
     #[serde(default, skip_serializing_if = "PointsBias::is_strong")]
     pub points: PointsBias,
+    /// What zero life does in a stage (Out by default): out of the stage,
+    /// or a step down to the song's next easier chart while it has one
+    /// (`ddi_engine::ladder`, PROVISIONAL `step-down-v0`). ADDITIVE, as
+    /// `difficulty`: left out while Out, read as Out where missing; an
+    /// authority that predates it drops it (`RoomPolicy::step_down` says
+    /// whether it is honored).
+    #[serde(default, skip_serializing_if = "AtZero::is_out")]
+    pub at_zero: AtZero,
+}
+
+/// What zero life does in a stage ([`MatchRules::at_zero`]).
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum AtZero {
+    /// Out of the stage (as ever).
+    #[default]
+    Out,
+    /// A step down to the song's next easier chart, out on the lowest.
+    StepDown,
+}
+
+impl AtZero {
+    pub const ALL: [AtZero; 2] = [Self::Out, Self::StepDown];
+
+    pub fn is_out(&self) -> bool {
+        *self == Self::Out
+    }
+
+    /// Its place in [`AtZero::ALL`].
+    pub fn index(self) -> usize {
+        self as usize
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Out => "out",
+            Self::StepDown => "step_down",
+        }
+    }
 }
 
 fn is_false(b: &bool) -> bool {
@@ -495,6 +546,7 @@ impl MatchRules {
             difficulty: MatchDifficulty::Normal,
             boos: false,
             points: PointsBias::Strong,
+            at_zero: AtZero::Out,
         }
     }
 
@@ -649,6 +701,28 @@ pub enum RulesProblem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn at_zero_is_an_additive_match_rule_and_the_policy_says_it_is_honored() {
+        // Out by default, left out of the JSON then, read as Out where
+        // missing (rules from an authority that predates it).
+        let rules = MatchRules::hosted();
+        assert_eq!(rules.at_zero, AtZero::Out);
+        let json = serde_json::to_value(&rules).unwrap();
+        assert!(json.get("at_zero").is_none());
+        let mut on = rules.clone();
+        on.at_zero = AtZero::StepDown;
+        let json = serde_json::to_value(&on).unwrap();
+        assert_eq!(json["at_zero"], "step_down");
+        assert_eq!(serde_json::from_value::<MatchRules>(json).unwrap(), on);
+        // This build's authority honors it; one that predates it says
+        // nothing, read as not.
+        let policy = serde_json::to_value(RoomPolicy::default()).unwrap();
+        assert_eq!(policy["step_down"], true);
+        let mut old = policy.clone();
+        old.as_object_mut().unwrap().remove("step_down");
+        assert!(!serde_json::from_value::<RoomPolicy>(old).unwrap().step_down);
+    }
 
     #[test]
     fn ddi_is_the_only_ruleset_and_old_values_read_as_it() {

@@ -825,6 +825,7 @@ impl LiveStage {
                         accuracy: 0.0,
                         absolute: None,
                         score: c.last.map(|m| m.score),
+                        steps: 0,
                     },
                 },
             })

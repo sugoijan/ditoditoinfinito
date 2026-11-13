@@ -541,6 +541,7 @@ fn an_online_stages_lines_fill_in_as_the_reports_come() {
                 accuracy: 0.965,
                 absolute: None,
                 score: None,
+                steps: 0,
             },
             Some(detail),
         )

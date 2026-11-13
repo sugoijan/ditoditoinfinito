@@ -132,10 +132,13 @@ pub struct RoomView {
     /// The draft's Points choice (`strong`, `medium`, `mild`) where the
     /// room offers it.
     pub draft_points: Option<String>,
+    /// The draft's At zero life choice (`out`, `step_down`) where the
+    /// room offers it.
+    pub draft_at_zero: Option<String>,
     pub rules_problem: Option<String>,
     /// While a match runs, the pop-up says so at its top (`rules_running`),
     /// marks the rows whose draft differs from the running match's
-    /// (`stages`, `difficulty`, `boos`, `cpus`, `attacks`, `points`), and offers
+    /// (`stages`, `difficulty`, `boos`, `at_zero`, `cpus`, `attacks`, `points`), and offers
     /// Apply and restart to who may use it (`restart_offered`).
     pub rules_running: bool,
     pub rules_changed: Vec<String>,
@@ -2018,6 +2021,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         draft: kept.draft,
         draft_rules: kept.draft_rules,
         draft_points: kept.draft_points,
+        draft_at_zero: kept.draft_at_zero,
         rules_problem: kept.rules_problem,
         rules_running: kept.rules_running,
         rules_changed: kept.rules_changed,
@@ -2232,7 +2236,24 @@ pub fn rules_words(rules: &crate::state::room::StageRules, attacks: Option<bool>
         on(rules.boos),
         on(attacks.unwrap_or(true)),
         rules.points.id(),
+        rules.at_zero.id(),
     )
+}
+
+/// The At zero life choice's name (`MatchRules::at_zero`).
+pub fn at_zero_name(z: ddi_room::AtZero) -> UiText {
+    match z {
+        ddi_room::AtZero::Out => m::rules_at_zero_out(),
+        ddi_room::AtZero::StepDown => m::rules_at_zero_step_down(),
+    }
+}
+
+/// What the At zero life choice does, under its row.
+pub fn at_zero_about(z: ddi_room::AtZero) -> UiText {
+    match z {
+        ddi_room::AtZero::Out => m::rules_at_zero_out_about(),
+        ddi_room::AtZero::StepDown => m::rules_at_zero_step_down_about(),
+    }
 }
 
 /// The Points choice's name (`MatchRules::points`).

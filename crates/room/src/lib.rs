@@ -74,7 +74,7 @@ pub use protocol::{
     Resync, ServerEnvelope, ServerMessage, Want,
 };
 pub use rules::{
-    Access, Admission, CapExceeded, ContentSource, CpuMode, CpuRules, LivePolicy, MatchDifficulty,
+    Access, Admission, AtZero, CapExceeded, ContentSource, CpuMode, CpuRules, LivePolicy, MatchDifficulty,
     MatchRules, OutcomePolicy, ReadinessPolicy, RoomPolicy, RulesProblem,
 };
 pub use state::{

@@ -2399,6 +2399,7 @@ pub fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView) -> Run {
                 most: d.most,
             }),
             score: score.ddi.as_ref().map(|d| d.score),
+            steps: 0,
         },
     }
 }

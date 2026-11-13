@@ -638,6 +638,7 @@ fn settlement_waits_for_the_last_attack_and_a_knockout_by_it_is_drawn() {
         accuracy: 0.9,
         absolute: None,
         score: None,
+        steps: 0,
     };
     // B alone in, an attack against B outstanding: not decided.
     let field = [
@@ -847,6 +848,7 @@ fn a_chain_expires_whole_and_keeps_the_stage_from_settling() {
         accuracy: 0.9,
         absolute: None,
         score: None,
+        steps: 0,
     };
     let field = [
         entrant(A, Run::Out { at: 4.5 }),

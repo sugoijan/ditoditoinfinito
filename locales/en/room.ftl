@@ -219,6 +219,25 @@ room-rules-attacks = Attacks
 # turned on yet (about 32 letters).
 room-rules-attacks-online = Off · not in online rooms yet
 
+# The row saying what happens when a player's life runs out in a stage
+# (about 20 letters), and its two choices (one or two words each): out of
+# the stage, or a step down to an easier chart of the same song.
+room-rules-at-zero = At zero life
+room-rules-at-zero-out = Out
+room-rules-at-zero-step-down = Step down
+
+# A line under the At zero life row saying what the chosen value does.
+room-rules-at-zero-out-about = A player whose life runs out is out until the next stage.
+room-rules-at-zero-step-down-about = A player whose life runs out gets half of it back and plays the song's next easier chart from a bar ahead, placing below everyone who stayed on the stage's chart. On the easiest chart they are out.
+
+# Added after that line where the song picked for the stage has no easier
+# chart in its style.
+room-rules-at-zero-no-ladder = The song picked has no easier chart: it plays as Out.
+
+# The At zero life row's value in a room that cannot step down yet (an
+# online room; about 32 letters).
+room-rules-at-zero-online = Out · not in online rooms yet
+
 # How stage points are given: by place, a rule still under study
 # (about 24 letters).
 room-rules-points-value = By place · experimental
@@ -465,6 +484,12 @@ room-play-cue-survivors = { $count } players left
 # The player's life ran out: out of this stage.
 room-play-cue-eliminated = You're out
 
+# The player's life ran out and they step down to an easier chart of the
+# song (a match's rule), named as the song list names it.
+# Variables:
+#   $chart (String) - the chart's name ("Medium")
+room-play-cue-step-down = Stepping down: { $chart }
+
 # The player and others went out last together: first place shared.
 room-play-cue-stage-drawn = Stage drawn
 
@@ -579,6 +604,7 @@ room-prompt-ruleset = Rules: { $rules }
 #   $boos (String) - "on" or "off"
 #   $attacks (String) - "off" when the match's attacks are turned off, else "on"
 #   $points (String) - "strong", "medium" or "mild"
+#   $zero (String) - "step_down" when a player whose life runs out steps down to an easier chart, else "out"
 room-rules-words = { $ruleset }{ $difficulty ->
     [easy] {" "}· Easy timing
     [hard] {" "}· Hard timing
@@ -593,6 +619,9 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [medium] {" "}· Medium points
     [mild] {" "}· Mild points
    *[strong] {""}
+}{ $zero ->
+    [step_down] {" "}· Step down
+   *[out] {""}
 }
 
 # A note on a stage's results and under the song in the room: how the
@@ -1167,6 +1196,13 @@ room-table-out = Out { $time }
 
 # A row's life column for a player who left the stage (about 6 letters).
 room-table-left = Left
+
+# Beside a player's name in the table where they stepped down to an easier
+# chart of the song during the stage (a match's rule): the chart they
+# finished on, named as the song list names it, after a down arrow.
+# Variables:
+#   $chart (String) - the chart's name ("Easy")
+room-table-stepped = ↓ { $chart }
 
 # Three small columns at the table's end where the match has attacks,
 # a number under each (their headings as the others': capitals small,

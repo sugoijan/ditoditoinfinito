@@ -123,15 +123,35 @@ pub fn ladder(song: &Song, chart: usize) -> Vec<usize> {
         .filter(|(i, c)| fits(*i, c))
         .filter_map(|(i, c)| {
             let s = slot(c.difficulty)?;
-            let easier = match slot(stage.difficulty) {
-                Some(top) => s < top,
-                None => c.meter < stage.meter,
-            };
-            easier.then_some((s, c.meter, i))
+            is_easier((stage.difficulty, stage.meter), (c.difficulty, c.meter))
+                .then_some((s, c.meter, i))
         })
         .collect();
     rungs.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
     rungs.into_iter().map(|r| r.2).collect()
+}
+
+/// Whether a chart of difficulty and meter `other` is easier than the
+/// stage's (`stage`) as [`ladder`] has it: a lower slot below a slotted
+/// chart; a slotted chart of a lower meter below an Edit; never an Edit.
+pub fn is_easier(stage: (Difficulty, u32), other: (Difficulty, u32)) -> bool {
+    let Some(s) = slot(other.0) else {
+        return false;
+    };
+    match slot(stage.0) {
+        Some(top) => s < top,
+        None => other.1 < stage.1,
+    }
+}
+
+/// A rung's name as the song list shows it: a named Edit's name, else
+/// its difficulty's (data, as the list's).
+pub fn rung_name(chart: &Chart) -> String {
+    if chart.difficulty == Difficulty::Edit && !chart.name.trim().is_empty() {
+        chart.name.trim().to_string()
+    } else {
+        chart.difficulty.name().to_string()
+    }
 }
 
 /// The boundary of a step at judged song second `at` for a player who

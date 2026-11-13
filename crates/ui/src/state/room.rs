@@ -87,6 +87,12 @@ pub const SPOTLIGHT_REST_MS: u64 = 3_000;
 /// numbered from 1): the server's grant for "no stage" (M7b).
 pub const SPOTLIGHT: StageId = StageId(0);
 
+/// Whether an online room may play the match's "At zero life: Step down"
+/// (`ddi_engine::ladder`): only once its live contract carries a stage's
+/// ladder and a competitor's steps (`docs/plans/multiplayer-prototype-progress.md`,
+/// "Step down").
+pub const ONLINE_STEP_DOWN: bool = false;
+
 /// What the room's screens show now (M7b's flow): song select (the host
 /// picking, the others following), or a stage's start prompt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -540,6 +546,9 @@ pub struct StageRules {
     /// The points' bias for fields of nine and more (summaries name it
     /// where it is not Strong; the play never reads it).
     pub points: ddi_room::PointsBias,
+    /// What zero life does: out, or a step down the song's ladder
+    /// (`ddi_engine::ladder`, `step-down-v0`).
+    pub at_zero: ddi_room::AtZero,
 }
 
 impl StageRules {
@@ -549,7 +558,13 @@ impl StageRules {
             difficulty: rules.difficulty,
             boos: rules.boos,
             points: rules.points,
+            at_zero: rules.at_zero,
         }
+    }
+
+    /// Zero life steps down the song's ladder (`ddi_engine::ladder`).
+    pub fn steps_down(&self) -> bool {
+        self.at_zero == ddi_room::AtZero::StepDown
     }
 
     /// DDI's options for a stage under these rules: the match's
@@ -2964,6 +2979,43 @@ impl RoomClient {
     /// drops it and awards by its own rule).
     pub fn points_offered(&self) -> bool {
         self.state().policy.points_bias
+    }
+
+    /// The match's "At zero life" rule can be set here: CPU practice,
+    /// where every play is judged on this device; never an online room
+    /// yet, nor one whose authority would drop the rule
+    /// (`RoomPolicy::step_down`).
+    pub fn step_down_offered(&self) -> bool {
+        self.state().policy.step_down && (!self.is_online() || ONLINE_STEP_DOWN)
+    }
+
+    /// Whether the song the picker rests on (or picked last) has an
+    /// easier chart in its chart's style, as the song list has it (a
+    /// chart of a timing of its own is no rung either, which only the
+    /// stage's load knows: `ddi_engine::ladder::ladder`); `None` where no
+    /// song is known.
+    pub fn picked_ladder(&self) -> Option<bool> {
+        let picked = self
+            .resting
+            .as_ref()
+            .and_then(|(id, _, _)| self.picks.get(id))
+            .or_else(|| self.spotlight().and_then(|(_, p)| p))?;
+        let stage = &picked.chart;
+        Some(picked.song.charts.iter().any(|c| {
+            c.index != stage.index
+                && c.style == stage.style
+                && c.version.is_none()
+                && ddi_engine::ladder::is_easier(
+                    (stage.difficulty, stage.meter),
+                    (c.difficulty, c.meter),
+                )
+        }))
+    }
+
+    /// Whether a match under `rules` really steps down here: its rule,
+    /// where it is offered.
+    pub fn steps_down(&self, rules: &MatchRules) -> bool {
+        self.step_down_offered() && rules.at_zero == ddi_room::AtZero::StepDown
     }
 
     pub fn may_restart(&self) -> bool {

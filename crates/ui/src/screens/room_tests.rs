@@ -583,6 +583,71 @@ fn the_points_row_chooses_the_bias_where_the_room_offers_it() {
     settings.save();
 }
 
+/// The At zero life row ("Step down", `step-down-v0`): Out first, each
+/// choice with its sentence; applied, it is the match's and the summary
+/// names it (Out is never named); Reset gives Out; a room whose authority
+/// cannot honor it, or an online room, shows it fixed at Out.
+#[test]
+fn the_at_zero_row_chooses_step_down_where_the_room_offers_it() {
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    press(&mut h, "Room.Rules");
+    assert_eq!(said(&h, "Rule.at_zero.Value"), "Out");
+    assert_eq!(view(&env).draft_at_zero.as_deref(), Some("out"));
+    assert!(has(&h, "A player whose life runs out is out until the next stage."));
+    press(&mut h, "Inc.at_zero");
+    assert_eq!(said(&h, "Rule.at_zero.Value"), "Step down");
+    assert_eq!(view(&env).draft_at_zero.as_deref(), Some("step_down"));
+    assert!(
+        h.texts().iter().any(|t| t.starts_with("A player whose life runs out gets half")),
+        "{:?}",
+        h.texts()
+    );
+    press(&mut h, "Apply");
+    assert_eq!(room.borrow().rules().at_zero, ddi_room::AtZero::StepDown);
+    let words = |r: &ddi_room::MatchRules| {
+        String::from(super::room::rules_words(
+            &crate::state::room::StageRules::of(r),
+            None,
+        ))
+    };
+    assert_eq!(words(room.borrow().rules()), "DDI · Step down");
+    assert_eq!(words(&ddi_room::MatchRules::hosted()), "DDI");
+    // Reset's default is Out.
+    let mut settings = crate::state::settings::Settings::load();
+    settings.multiplayer_rules_first = true;
+    settings.save();
+    room.borrow_mut().set_rules_seen(false);
+    h.run(0.5);
+    press(&mut h, "Reset");
+    assert_eq!(view(&env).draft_at_zero.as_deref(), Some("out"));
+    press(&mut h, "Ok");
+    assert_eq!(room.borrow().rules().at_zero, ddi_room::AtZero::Out);
+    settings.multiplayer_rules_first = false;
+    settings.save();
+    // An authority that cannot honor it: fixed at Out, nothing offered.
+    let older = ddi_room::RoomPolicy {
+        step_down: false,
+        ..ddi_room::RoomPolicy::default()
+    };
+    let room = std::rc::Rc::new(std::cell::RefCell::new(RoomClient::practice_with_policy(
+        0, 1, older,
+    )));
+    room.borrow_mut().set_rules_seen(true);
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    press(&mut h, "Room.Rules");
+    assert!(!there(&h, "Inc.at_zero"));
+    assert_eq!(said(&h, "Rule.at_zero.Value"), "Out · not in online rooms yet");
+    assert_eq!(view(&env).draft_at_zero, None);
+}
+
 /// An authority that predates the Points choice: the row is fixed, as it
 /// was, and nothing is offered it cannot honor.
 #[test]

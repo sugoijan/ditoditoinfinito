@@ -466,6 +466,7 @@ impl AudienceClient {
             difficulty: v.rules.difficulty,
             boos: v.rules.boos,
             points: v.rules.points,
+            ..StageRules::default()
         })
     }
 

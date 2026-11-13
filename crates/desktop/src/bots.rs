@@ -1736,6 +1736,7 @@ mod tests {
                 accuracy,
                 absolute,
                 score,
+                ..
             } => {
                 assert!((0.0..=1.0).contains(&life) && life > 0.0);
                 assert!(accuracy > 0.5 && accuracy <= 1.0, "{accuracy}");

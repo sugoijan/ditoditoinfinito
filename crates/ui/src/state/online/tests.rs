@@ -992,6 +992,7 @@ pub(crate) mod room {
                     accuracy: 0.8,
                     absolute: None,
                     score: None,
+                    steps: 0,
                 },
                 Some(detail.clone()),
             )

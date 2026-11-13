@@ -165,6 +165,8 @@ pub struct RulesDialog {
     draws: u64,
     /// The Points row is focused (its sentence brightens).
     points_focused: bool,
+    /// The At zero life row is focused (its sentence brightens).
+    zero_focused: bool,
 }
 
 impl RulesDialog {
@@ -191,6 +193,7 @@ impl RulesDialog {
             problem: None,
             draws,
             points_focused: false,
+            zero_focused: false,
         }
     }
 
@@ -207,6 +210,11 @@ impl RulesDialog {
     /// The Points row is a choice (`RoomClient::points_offered`).
     fn points_offered(&self) -> bool {
         self.room.borrow().points_offered()
+    }
+
+    /// The At zero life rule can be set here (`RoomClient::step_down_offered`).
+    fn step_down_offered(&self) -> bool {
+        self.room.borrow().step_down_offered()
     }
 
     /// The Attacks rule can be set here (`room::attacks_offered`).
@@ -274,6 +282,9 @@ impl RulesDialog {
         if d.boos != locked.boos {
             v.push("boos");
         }
+        if r.step_down_offered() && d.at_zero != locked.at_zero {
+            v.push("at_zero");
+        }
         if !r.is_online()
             && cpu_roster::roster_of(&d, humans) != cpu_roster::roster_of(locked, humans)
         {
@@ -333,6 +344,9 @@ impl RulesDialog {
         let points = self
             .points_offered()
             .then(|| draft.points.id().to_string());
+        let at_zero = self
+            .step_down_offered()
+            .then(|| draft.at_zero.id().to_string());
         drop(draft);
         let running = self.running();
         let changed: Vec<String> = self.changed().into_iter().map(String::from).collect();
@@ -343,6 +357,7 @@ impl RulesDialog {
             v.draft = vec![stages, cpus];
             v.draft_rules = Some(rules);
             v.draft_points = points;
+            v.draft_at_zero = at_zero;
             v.rules_problem = problem;
             v.rules_running = running;
             v.rules_changed = changed;
@@ -553,10 +568,26 @@ impl Screen for RulesDialog {
             Vec::new()
         };
         let about_h = about.len() as f32 * 17.0;
+        // The At zero life choice's sentence, under its row (and, where
+        // the song picked has no easier chart, that it plays as Out).
+        let zero_about = if self.step_down_offered() {
+            let mut text: String = super::room::at_zero_about(draft.at_zero).into();
+            if draft.at_zero == ddi_room::AtZero::StepDown
+                && self.room.borrow().picked_ladder() == Some(false)
+            {
+                text.push(' ');
+                text.push_str(&String::from(m::rules_at_zero_no_ladder()));
+            }
+            super::dialog::wrap_lines(&text, inner, 12.0)
+        } else {
+            Vec::new()
+        };
+        let zero_h = ROW + zero_about.len() as f32 * 17.0;
         let h = 64.0
             + locked_h
             + next_h
             + 3.0 * ROW
+            + zero_h
             + cpu_h
             + 2.0 * ROW
             + about_h
@@ -714,6 +745,46 @@ impl Screen for RulesDialog {
             ry + ROW / 2.0,
         );
         ry += ROW;
+        // At zero life: out, or a step down the song's ladder, where the
+        // room plays it; said Out where it cannot yet.
+        if self.step_down_offered() {
+            let at = draft.at_zero.index();
+            mark(&mut c, "at_zero", ry + ROW / 2.0);
+            stepper(
+                &mut c,
+                "at_zero",
+                &m::rules_at_zero(),
+                super::room::at_zero_name(draft.at_zero).into(),
+                (at > 0, at + 1 < ddi_room::AtZero::ALL.len()),
+                false,
+                ry + ROW / 2.0,
+            );
+            ry += ROW;
+            let color = if self.zero_focused { "Secondary" } else { "Muted" };
+            for (k, line) in zero_about.iter().enumerate() {
+                let mut t = env.text(&format!("Rule.at_zero.About{k}"), line, 12.0, 400, color);
+                look::ellipsized(&mut t, inner);
+                c.push(left(t, x0, ry + 4.0));
+                ry += 17.0;
+            }
+        } else {
+            let row_y = ry + ROW / 2.0;
+            c.push(left(
+                env.text("Rule.at_zero", &m::rules_at_zero(), 14.0, 400, "Secondary"),
+                x0,
+                row_y,
+            ));
+            let mut v = env.text(
+                "Rule.at_zero.Value",
+                &m::rules_at_zero_online(),
+                13.0,
+                400,
+                "Muted",
+            );
+            look::ellipsized(&mut v, inner - 110.0);
+            c.push(right(v, x0 + inner, row_y));
+            ry += ROW;
+        }
         // Practice's CPUs: the roster, each removable, then the adds.
         if cpus {
             mark(&mut c, "cpus", ry + 14.0);
@@ -951,6 +1022,9 @@ impl Screen for RulesDialog {
             for id in ["stages", "difficulty", "boos"] {
                 pair(&mut v, id);
             }
+            if self.step_down_offered() {
+                pair(&mut v, "at_zero");
+            }
             if self.cpus_shown() {
                 let roster = self.roster();
                 for k in (self.cpu_first..roster.len()).take(CPU_ROWS) {
@@ -973,6 +1047,18 @@ impl Screen for RulesDialog {
     }
 
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+        // The At zero life row's sentence brightens while it is focused.
+        if self.step_down_offered() {
+            let focused = cx.focused().map(str::to_string);
+            let on = focused
+                .as_deref()
+                .is_some_and(|f| f == "Dec.at_zero" || f == "Inc.at_zero");
+            if on != self.zero_focused {
+                self.zero_focused = on;
+                *root = self.build(cx);
+                super::restore_focus(root, focused.as_deref());
+            }
+        }
         // The Points row's sentence brightens while the row is focused.
         if self.points_offered() {
             let focused = cx.focused().map(str::to_string);
@@ -1044,6 +1130,17 @@ impl Screen for RulesDialog {
                     }
                     "Dec.boos" | "Inc.boos" if self.editable() => {
                         self.draft.borrow_mut().boos = name == "Inc.boos";
+                        rebuild(self, root, cx, name);
+                    }
+                    "Dec.at_zero" | "Inc.at_zero"
+                        if self.editable() && self.step_down_offered() =>
+                    {
+                        self.draft.borrow_mut().at_zero = if name == "Inc.at_zero" {
+                            ddi_room::AtZero::StepDown
+                        } else {
+                            ddi_room::AtZero::Out
+                        };
+                        self.zero_focused = true;
                         rebuild(self, root, cx, name);
                     }
                     "Dec.points" | "Inc.points" if self.editable() && self.points_offered() => {

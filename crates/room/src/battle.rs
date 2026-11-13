@@ -89,11 +89,20 @@ pub enum Run {
         absolute: Option<Absolute>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         score: Option<i64>,
+        /// The steps down they made to easier charts (a match's "At zero
+        /// life: Step down", [`crate::AtZero::StepDown`]): 0 where none,
+        /// left out then. ADDITIVE: read as 0 where missing.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        steps: u8,
     },
     /// Their gauge emptied at judged song second `at`.
     Out { at: f64 },
     /// Left the stage while competing (a quit, an interruption).
     Forfeit,
+}
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
 }
 
 /// A score not divided by the chart's size (DDI's absolute score, `100 ×
@@ -127,6 +136,10 @@ pub enum ReportedRun {
         absolute: Option<Absolute>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         score: Option<i64>,
+        /// As [`Run::Live`]'s; an authority one build behind drops it
+        /// (and is never offered the rule, `RoomPolicy::step_down`).
+        #[serde(default, skip_serializing_if = "is_zero")]
+        steps: u8,
     },
     Out { at_ms: u64 },
     Forfeit,
@@ -143,11 +156,13 @@ impl ReportedRun {
                 accuracy,
                 absolute,
                 score,
+                steps,
             } => ReportedRun::Live {
                 life_ppm: ppm(life),
                 accuracy_ppm: ppm(accuracy),
                 absolute,
                 score,
+                steps,
             },
             Run::Out { at } => ReportedRun::Out {
                 at_ms: (at.max(0.0) * 1_000.0).round() as u64,
@@ -163,11 +178,13 @@ impl ReportedRun {
                 accuracy_ppm,
                 absolute,
                 score,
+                steps,
             } => Run::Live {
                 life: f64::from(life_ppm) / Self::SCALE,
                 accuracy: f64::from(accuracy_ppm) / Self::SCALE,
                 absolute,
                 score,
+                steps,
             },
             ReportedRun::Out { at_ms } => Run::Out {
                 at: at_ms as f64 / 1_000.0,
@@ -272,7 +289,9 @@ pub fn decided(entrants: &[Entrant]) -> bool {
 /// [`BattlePreset::GaugeSurvivalV0`]'s ranking (and
 /// [`BattlePreset::GaugeAttacksV0`]'s), best first, each group tied
 /// (`docs/plans/multiplayer.md`, "Elimination and a truthful result"):
-/// those still in by life, then by the score ([`Run::Live`]'s `score`:
+/// those still in by the steps down they made (fewer first: a match's
+/// "At zero life: Step down", `step-down-v0`; none where the rule is
+/// Out), then by life, then by the score ([`Run::Live`]'s `score`:
 /// under DDI the sum, everyone's on the chart's own scale), equal ones
 /// tied. Then those out, later first (the same second: tied); then
 /// forfeits, tied. Participants are ordered by id within a group.
@@ -288,8 +307,8 @@ pub fn rank(entrants: &[Entrant]) -> Vec<Vec<Finisher>> {
         Run::Live { score, .. } => score.is_some(),
         _ => true,
     });
-    let mut live: Vec<(f64, f64, Option<Absolute>, ParticipantId)> = Vec::new();
-    let mut by_score: Vec<(f64, i64, ParticipantId)> = Vec::new();
+    let mut live: Vec<(u8, f64, f64, Option<Absolute>, ParticipantId)> = Vec::new();
+    let mut by_score: Vec<(u8, f64, i64, ParticipantId)> = Vec::new();
     let mut out: Vec<(f64, ParticipantId)> = Vec::new();
     let mut forfeit: Vec<ParticipantId> = Vec::new();
     for e in entrants {
@@ -297,22 +316,25 @@ pub fn rank(entrants: &[Entrant]) -> Vec<Vec<Finisher>> {
             Run::Live {
                 life,
                 score: Some(score),
+                steps,
                 ..
-            } if scored => by_score.push((life, score, e.participant)),
+            } if scored => by_score.push((steps, life, score, e.participant)),
             Run::Live {
                 life,
                 accuracy,
                 absolute,
+                steps,
                 ..
-            } => live.push((life, accuracy, absolute, e.participant)),
+            } => live.push((steps, life, accuracy, absolute, e.participant)),
             Run::Out { at } => out.push((at, e.participant)),
             Run::Forfeit => forfeit.push(e.participant),
         }
     }
     live.sort_by(|a, b| {
-        b.0.total_cmp(&a.0)
+        a.0.cmp(&b.0)
             .then(b.1.total_cmp(&a.1))
-            .then(a.3.cmp(&b.3))
+            .then(b.2.total_cmp(&a.2))
+            .then(a.4.cmp(&b.4))
     });
     out.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
     forfeit.sort();
@@ -321,16 +343,21 @@ pub fn rank(entrants: &[Entrant]) -> Vec<Vec<Finisher>> {
         participant,
         finish,
     };
-    // Life, then the score: equal ones share a place.
-    by_score.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
-    let mut last: Option<(f64, i64)> = None;
-    for (life, score, id) in by_score {
+    // The steps, then life, then the score: equal ones share a place.
+    by_score.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then(b.1.total_cmp(&a.1))
+            .then(b.2.cmp(&a.2))
+            .then(a.3.cmp(&b.3))
+    });
+    let mut last: Option<(u8, f64, i64)> = None;
+    for (steps, life, score, id) in by_score {
         let f = finisher(id, Finish::Survived);
         match ranking.last_mut() {
-            Some(group) if last == Some((life, score)) => group.push(f),
+            Some(group) if last == Some((steps, life, score)) => group.push(f),
             _ => ranking.push(vec![f]),
         }
-        last = Some((life, score));
+        last = Some((steps, life, score));
     }
     // Without everyone's score: each run of equal life and accuracy,
     // split by the absolute score.
@@ -338,18 +365,18 @@ pub fn rank(entrants: &[Entrant]) -> Vec<Vec<Finisher>> {
     while i < live.len() {
         let same = live[i..]
             .iter()
-            .take_while(|l| l.0 == live[i].0 && l.1 == live[i].1)
+            .take_while(|l| l.0 == live[i].0 && l.1 == live[i].1 && l.2 == live[i].2)
             .count();
         // Per set of the same notes (none known: a set of its own), the
         // distinct scores from the best: a competitor's level is its
         // score's place among them.
-        let level = |l: &(f64, f64, Option<Absolute>, ParticipantId)| -> usize {
-            let Some(mine) = l.2 else {
+        let level = |l: &(u8, f64, f64, Option<Absolute>, ParticipantId)| -> usize {
+            let Some(mine) = l.3 else {
                 return 0;
             };
             let mut better: Vec<i64> = live[i..i + same]
                 .iter()
-                .filter_map(|o| o.2)
+                .filter_map(|o| o.3)
                 .filter(|o| o.most == mine.most && o.score > mine.score)
                 .map(|o| o.score)
                 .collect();
@@ -358,7 +385,7 @@ pub fn rank(entrants: &[Entrant]) -> Vec<Vec<Finisher>> {
             better.len()
         };
         let mut levels: Vec<(usize, ParticipantId)> =
-            live[i..i + same].iter().map(|l| (level(l), l.3)).collect();
+            live[i..i + same].iter().map(|l| (level(l), l.4)).collect();
         levels.sort();
         let mut last: Option<usize> = None;
         for (level, id) in levels {
@@ -416,6 +443,7 @@ mod tests {
             accuracy: 0.912_345_67,
             absolute: None,
             score: None,
+            steps: 0,
         });
         assert_eq!(
             live,
@@ -424,6 +452,7 @@ mod tests {
                 accuracy_ppm: 912_346,
                 absolute: None,
                 score: None,
+                steps: 0,
             }
         );
         assert!(live.finished_song());
@@ -458,6 +487,7 @@ mod tests {
             accuracy: 0.9,
             absolute,
             score: None,
+            steps: 0,
         });
         assert_eq!(
             serde_json::to_string(&scored).unwrap(),
@@ -470,6 +500,7 @@ mod tests {
                 accuracy: 0.9,
                 absolute,
                 score: None,
+                steps: 0,
             }
         );
     }
@@ -480,6 +511,7 @@ mod tests {
             accuracy,
             absolute: absolute.map(|(score, most)| Absolute { score, most }),
             score: None,
+            steps: 0,
         }
     }
 
@@ -489,7 +521,44 @@ mod tests {
             accuracy: 0.5,
             absolute: None,
             score: Some(score),
+            steps: 0,
         }
+    }
+
+    /// Step down (`step-down-v0`): among those still in, fewer steps
+    /// first, then life, then the score; those out after, as ever. A
+    /// report without steps reads as none, and one with none says none.
+    #[test]
+    fn fewer_steps_down_rank_first_among_those_still_in() {
+        let stepped = |life: f64, score: i64, steps: u8| Run::Live {
+            life,
+            accuracy: 0.5,
+            absolute: None,
+            score: Some(score),
+            steps,
+        };
+        let r = rank(&[
+            e(1, stepped(1.0, 9_000_000, 1)),
+            e(2, stepped(0.2, 1_000, 0)),
+            e(3, stepped(0.9, 9_500_000, 2)),
+            e(4, Run::Out { at: 80.0 }),
+            e(5, stepped(0.5, 5_000_000, 1)),
+        ]);
+        assert_eq!(ids(&r), vec![vec![2], vec![1], vec![5], vec![3], vec![4]]);
+        // As before rounds 3b too (someone without a score).
+        let r = rank(&[
+            e(1, Run::Live { life: 1.0, accuracy: 0.9, absolute: None, score: None, steps: 1 }),
+            e(2, live(0.1, 0.1, None)),
+        ]);
+        assert_eq!(ids(&r), vec![vec![2], vec![1]]);
+        // The wire: steps left out at none, read as none where missing.
+        let none = serde_json::to_value(ReportedRun::of(stepped(1.0, 5, 0))).unwrap();
+        assert!(none["live"].get("steps").is_none(), "{none}");
+        let two = ReportedRun::of(stepped(1.0, 5, 2));
+        let json = serde_json::to_value(two).unwrap();
+        assert_eq!(json["live"]["steps"], 2);
+        assert_eq!(serde_json::from_value::<ReportedRun>(json).unwrap(), two);
+        assert_eq!(two.run(), stepped(1.0, 5, 2));
     }
 
     /// Round 3b: life, then the score (the sum), whatever notes each
@@ -587,6 +656,7 @@ mod tests {
                     accuracy: 0.9,
                     absolute: None,
                     score: None,
+                    steps: 0,
                 },
             ),
             e(3, Run::Forfeit),
@@ -597,6 +667,7 @@ mod tests {
                     accuracy: 0.7,
                     absolute: None,
                     score: None,
+                    steps: 0,
                 },
             ),
             e(5, Run::Out { at: 50.0 }),
@@ -607,6 +678,7 @@ mod tests {
                     accuracy: 0.95,
                     absolute: None,
                     score: None,
+                    steps: 0,
                 },
             ),
         ]);
@@ -625,6 +697,7 @@ mod tests {
             accuracy: 0.9,
             absolute: None,
             score: None,
+            steps: 0,
         };
         let ranking = rank(&[
             e(2, same),
@@ -644,6 +717,7 @@ mod tests {
             accuracy: 0.5,
             absolute: None,
             score: None,
+            steps: 0,
         };
         assert!(!decided(&[
             e(1, live),
