@@ -442,6 +442,7 @@ impl AudienceClient {
             }
         }
         self.sync_loading();
+        self.note_seen();
     }
 
     /// Notes the stage the room gathers or counts down for: seen before
