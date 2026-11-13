@@ -353,6 +353,8 @@ Rust and the browser are implementation details, not advertised features.
   the built-in arrows on the way; on the web one preview outlives the pages.
   Modifiers sit below
   the diagram on the same card, without tabs or instructional copy;
+  a watched stage's prompt has neither (`PromptInfo::watched`, set by
+  `set_watched_stage`: the card, the watching line and the buttons);
   auto-start always takes priority. Its countdown fills the Start button's
   background beneath the label (whole-second steps under reduced motion),
   without a separate bar or countdown text.

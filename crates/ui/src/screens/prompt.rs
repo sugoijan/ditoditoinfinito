@@ -67,6 +67,11 @@ pub struct PromptInfo {
     /// row (a replay, a test); `Some`, a row below the modifiers kept
     /// at one height, empty or with the line and its Calibrate link.
     pub timing: Option<String>,
+    /// A stage this device watches ([`PromptInfo::set_watched_stage`]):
+    /// no controls diagram, key bindings or this play's options, which
+    /// mean nothing to someone watching; the song's card, the watching
+    /// line with the rules, and the buttons stay.
+    pub watched: bool,
 }
 
 /// [`timing_hint`] for the devices `ids` (the play's probe; else those
@@ -519,6 +524,7 @@ impl PromptInfo {
             msg::room::prompt_ruleset(super::room::rules_words(rules, attacks)).into();
         self.mods = format!("{note} · {rules}");
         self.timing = None;
+        self.watched = true;
     }
 
     /// A stage with attacks plays faster than the player's speed (an
@@ -561,6 +567,7 @@ impl PromptInfo {
             mods: super::play::options_line(&options),
             badge,
             timing: None,
+            watched: false,
         }
     }
 
@@ -1061,7 +1068,11 @@ impl PromptScreen {
                 &mut y,
             );
         }
-        if !i.mods.is_empty() && (state.step != PromptStep::Ready || state.options.is_empty()) {
+        // A watched stage has no options: its watching line shows instead.
+        let watched = i.watched;
+        if !i.mods.is_empty()
+            && (state.step != PromptStep::Ready || state.options.is_empty() || watched)
+        {
             line(&mut c, "Mods", &i.mods, SMALL, 400, "Muted", &mut y);
         }
         // A room's status: what it waits for, or why the prompt goes.
@@ -1080,6 +1091,7 @@ impl PromptScreen {
         // Options' own rows.
         let mut controls: Vec<String> = Vec::new();
         if state.step == PromptStep::Ready
+            && !watched
             && let Some(binding) = &state.bindings
         {
             y += 12.0;
@@ -1109,7 +1121,7 @@ impl PromptScreen {
             c.extend(list);
             y += list_h;
         }
-        if state.step == PromptStep::Ready && !state.options.is_empty() {
+        if state.step == PromptStep::Ready && !watched && !state.options.is_empty() {
             y += 14.0;
             let head = look::tracked(
                 env.text(
@@ -1560,7 +1572,7 @@ impl PromptScreen {
             .preview_size
             .get()
             .zip(st.bindings.clone())
-            .filter(|_| st.step == PromptStep::Ready)
+            .filter(|_| st.step == PromptStep::Ready && !st.info.watched)
             .map(|(size, controls)| super::prompt_controls::Picture {
                 controls,
                 size: size.map(|v| v * cx.viewport().scale),
@@ -2382,6 +2394,7 @@ mod tests {
             mods: "×3 · reverse".into(),
             badge: Badge::None,
             timing: None,
+            watched: false,
         };
         let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Mirror);
         state.borrow_mut().set_info(info);
@@ -2413,6 +2426,43 @@ mod tests {
                 _ => None,
             })
             .unwrap()
+    }
+
+    /// A watched stage's prompt (a member's Watch, CPU practice's stage
+    /// the player is not in, the audience's): no controls diagram, key
+    /// bindings or this play's options, which mean nothing to someone
+    /// watching; the song's card, the watching line with the rules and
+    /// the buttons stay, and no field preview is asked for.
+    #[test]
+    fn a_watched_stages_prompt_has_no_key_diagram_nor_play_options() {
+        let state = controls_state();
+        let (mut h, _) = prompt(&state);
+        assert!(h.ui.actor("BindingKey0").is_some() && h.ui.actor("Opt.speed").is_some());
+        let mut info = state.borrow().info.clone();
+        info.set_watched_stage(
+            1,
+            4,
+            3,
+            &crate::state::room::StageRules::default(),
+            Some(true),
+        );
+        state.borrow_mut().set_info(info);
+        h.requests.clear();
+        h.run(0.5);
+        assert!(h.ui.actor("BindingKey0").is_none(), "no key diagram");
+        assert!(h.ui.actor("KeyMotion0").is_none());
+        assert!(h.ui.actor("Opt.speed").is_none() && h.ui.actor("OptionsHeading").is_none());
+        let texts = h.texts().join("\n");
+        assert!(texts.contains("Some Things Must"), "{texts}");
+        assert!(texts.contains("watching 3 players"), "{texts}");
+        assert!(texts.contains("Rules: DDI"), "{texts}");
+        assert!(h.ui.actor("Start").is_some() && h.ui.actor("Back").is_some());
+        assert!(
+            !h.requests
+                .iter()
+                .any(|r| matches!(r, crate::UiRequest::ReceptorPreview(Some(_)))),
+            "no field preview asked for"
+        );
     }
 
     #[test]

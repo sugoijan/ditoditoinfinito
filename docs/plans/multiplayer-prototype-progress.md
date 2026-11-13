@@ -6057,6 +6057,19 @@ blocks autoplay), still shows the prompt's card asking for one press
 path runs a watched stage's picture without its sound, and no "Tap to
 hear" plate was built.
 
+### A watched stage's prompt has no key diagram
+
+A watched stage's prompt (a member who chose Watch, a stage watched in
+CPU practice, the audience's) showed the player's controls diagram, key
+bindings and this play's options, which mean nothing to someone
+watching. `PromptInfo::watched` (set by `set_watched_stage`, which both
+shells call for every watched stage) leaves them out: no diagram, no
+field preview asked for, no Modifiers; the song's card, the line
+"Stage 1 of 4 · watching 3 players · Rules: …" and the buttons stay.
+Tested: `ddi-ui` (`prompt::tests::a_watched_stages_prompt_has_no_key_diagram_nor_play_options`),
+headless Chrome and Firefox with autoplay blocked over the fake seat
+(the prompt asking for its press: `target/scratch/mp/fua/shots/gesture-asked-*.png`).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
