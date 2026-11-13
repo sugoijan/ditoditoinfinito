@@ -63,34 +63,63 @@ pub struct RoomPolicy {
 /// (`crate::live::LiveRules` by name, and when a stage's song begins).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LivePolicy {
-    /// The live rules' id (`crate::live::LIVE_V1`'s `live-v1`).
+    /// The live contract's id (`crate::live::LIVE_V1`'s `live-v1`): the
+    /// messages and their meaning, which every live build speaks. A build
+    /// that knows this id plays live in the room.
     pub id: String,
     /// From a stage's committed start (the countdown's end) to its song's
     /// time zero, on the room's clock: room for every device's own lead-in
     /// (a play is drawn from song second −0.8). PROVISIONAL.
     pub prelude_ms: u64,
+    /// The room's timing, where it is not the contract's own
+    /// (`crate::live::LIVE_V2`'s `live-v2`: a frame and a batch every
+    /// 100 ms, 2026-11-13). ADDITIVE: a build that predates it reads the
+    /// id alone and plays live by `live-v1`'s numbers (batches every
+    /// 250 ms, its views a second behind), which a room ticking faster
+    /// serves as well; a build that knows it follows it. A room without
+    /// it (one made before it) runs `live-v1`'s numbers for every build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timing: Option<String>,
 }
 
 impl LivePolicy {
-    /// `live-v1` (PROVISIONAL): song zero one second after the countdown.
+    /// `live-v1` (PROVISIONAL): song zero one second after the countdown,
+    /// a frame and a batch every 250 ms.
     pub fn v1() -> Self {
         Self {
             id: crate::live::LIVE_V1.id.into(),
             prelude_ms: 1_000,
+            timing: None,
         }
     }
 
-    /// The live rules it names, if this build knows them.
+    /// `live-v1`'s contract with `live-v2`'s timing (PROVISIONAL, what a
+    /// room this build makes plays): a frame and a batch every 100 ms.
+    pub fn v2() -> Self {
+        Self {
+            timing: Some(crate::live::LIVE_V2.id.into()),
+            ..Self::v1()
+        }
+    }
+
+    /// The live rules it names, if this build knows them: its timing's
+    /// where it names one this build knows, else its contract's.
     pub fn rules(&self) -> Option<crate::live::LiveRules> {
-        crate::live::LiveRules::named(&self.id)
+        let base = crate::live::LiveRules::named(&self.id)?;
+        Some(
+            self.timing
+                .as_deref()
+                .and_then(crate::live::LiveRules::named)
+                .unwrap_or(base),
+        )
     }
 }
 
 impl RoomPolicy {
-    /// This policy with live play (`LivePolicy::v1`): what an online
+    /// This policy with live play (`LivePolicy::v2`): what an online
     /// room's authority that plays live sets.
     pub fn with_live(mut self) -> Self {
-        self.live = Some(LivePolicy::v1());
+        self.live = Some(LivePolicy::v2());
         self
     }
 }

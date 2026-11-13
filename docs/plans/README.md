@@ -25,7 +25,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   by the room at deadlines from a battle plan that comes with the pick,
   settlement by the room; the fake room runs all of it. The server's and
   the game's fronts, the timing budget, the sizes and costs at 9, 33 and 73
-  competitors, and the open questions.
+  competitors, the views' delay (`live-v2`'s 100 ms ticks and a delay each
+  device measures, half a second or less at typical latencies), and the
+  open questions.
 - [Multiplayer prototype progress](multiplayer-prototype-progress.md)
   (2026-11-10): what the prototype has actually built and tested, kept apart
   from the design studies below. M1: the shared room, match and stage model

@@ -1,6 +1,8 @@
 # Online play: the shared base
 
 Status (2026-11-13): the contract is built and tested in `crates/room`
+(since the second round of live play: `live-v2`'s 100 ms ticks and a view
+delay each device measures, "The views' delay, lateness and ends")
 (`ddi_room::live`, the fake room, the reducer's additions); the server's
 side (`../ddi-server`) plays live; the game's side (the client front) is
 built and tested against the fake room
@@ -43,8 +45,9 @@ decided, and when the stage is decided.
 
 | Part | Where | What it is |
 | --- | --- | --- |
-| Live policy | `RoomPolicy::live` (`LivePolicy`, `live-v1`) | The room says it plays live; its absence says the authority predates it |
-| Rules | `live::LIVE_V1` (`LiveRules`) | Every number below, named and versioned |
+| Live policy | `RoomPolicy::live` (`LivePolicy`: the contract `live-v1`, the timing `live-v2`) | The room says it plays live and how fast; its absence says the authority predates it |
+| Rules | `live::LIVE_V1`, `live::LIVE_V2` (`LiveRules`) | Every number below, named and versioned |
+| View delay | `live::delay` (`ViewDelay`, `VIEW_DELAY_V0`, `ViewMeter`) | How far behind the song a device draws the others' fields: what its frames measure, a second at most |
 | Clock | `live::clock` | `Ping`/`Pong` and `ClockEstimator` |
 | Start | `Event::StartCommitted::song_zero_at`, `StagePlay::song_zero_at` | Song time zero as an instant on the room's clock |
 | Battle plan | `live::plan` (`BattlePlan`, `PlanDigest`, `seed_for`), `Command::SetBattlePlan`, `Event::BattlePlanSet`, `StageContent::battle` | The chart's checkpoints and safe sections, offered by the picker's device, checked by digest |
@@ -62,6 +65,9 @@ decided, and when the stage is decided.
 | Old client | New server | It ignores `live` in the policy, `song_zero_at`, `battle` on content and every live message (text it cannot parse is passed over; binary is dropped by both shells' sockets). It never says hello, so it is sent no frames. It plays on its own Start press and reports at the end. The room treats it as a competitor that does not play live (next row). |
 | Old client in a live stage | The room | Not in the ledger (not attackable, earns nothing), not streamed; the room makes no early decision for that stage (it cannot know when that device's player went out) and settles on the reports as before. |
 | New shell transport without binary | Its own client | `Transport::binary()` false: no live socket, the M5d path. The web's and desktop's transports must say true (client front). |
+| A client that predates `live-v2` | A room made after it (`timing: live-v2`) | It reads the contract's id alone (`live-v1`) and plays live by `live-v1`'s numbers: a batch every 250 ms, its views a second behind. The room ticks every 100 ms; nothing it decides depends on a device's batching. Its field reaches the others a little later than a new client's (their delays rise toward it, or it stalls now and then). |
+| A new client | A room made before `live-v2` (no `timing`), or a server that predates it | `live-v1`'s numbers: batches every 250 ms, the room's frames every 250 ms; its views still adapt (about 0.6 to 0.85 s at 20 to 80 ms each way, never more than a second). |
+| A room in play across a deploy | The new server | A stored room keeps its policy as stored: one made before `live-v2` ticks at 250 ms until it closes. Only rooms made after the deploy (or stored before live play, given it on load) tick at 100 ms. |
 
 ## One clock
 
@@ -180,7 +186,8 @@ moment says it was hit.
 
 ### Up: batches
 
-A competitor's device cuts a batch every 250 ms (`batch_ms`) while its play
+A competitor's device cuts a batch every 100 ms under `live-v2` (250 ms
+under `live-v1`; `batch_ms`) while its play
 runs, and at once for its end: its number (`seq`, from 1), the song time
 its play has been judged to (`through_us`), the moments and checkpoint
 reports since the last one, and its end (`finished`, `out` with its time,
@@ -195,8 +202,8 @@ what the live side has first).
 
 ### Down: one frame a tick
 
-The room does not relay each batch to each member. Every 250 ms
-(`tick_ms`) it builds one frame and sends the same bytes to every socket
+The room does not relay each batch to each member. Every 100 ms under
+`live-v2` (250 ms under `live-v1`; `tick_ms`) it builds one frame and sends the same bytes to every socket
 that said hello: its number `n` (one more each frame sent; an empty tick
 sends none), the room's time, and for each competitor with news its last
 batch taken (`seq`: its acknowledgement), its `through_us`, its new moments
@@ -216,15 +223,89 @@ player gets the stage at once.
 
 ### The views' delay, lateness and ends
 
-Views draw a remote moment 1 s after it happened (`presentation_delay_ms`):
-batching (≤ 250 ms), the trip up (≤ 150 ms typical worst), the tick
-(≤ 250 ms), the trip down (≤ 150 ms) and the clock's error (≤ 50 ms) come to
-about 0.85 s. A competitor whose `through_us` falls behind the view's song
-time holds: its notes not yet judged keep scrolling as unjudged, its last
-numbers stay; past 2 s (`stale_ms`) the field is marked stale; when its
-batches come, the field catches up (their moments apply at once, newest
-numbers win). One late competitor never holds the others: the frame
-carries whatever came.
+A device draws the others' fields a delay behind the song: their notes
+scroll, their moments show and their shocks come and go that far behind
+the music, so that a moment shows as its note reaches the receptors
+(`ddi_session::battle::feed::FieldFeed`, `set_delay`). The delay is the
+device's own, measured, and display alone: nothing the room decides, no
+judgment and nothing another device sees depends on it
+(`live::delay`, `VIEW_DELAY_V0`, PROVISIONAL, 2026-11-13).
+
+**What it is made of.** A moment reaches a view after the sender's
+batching (up to a batch period), the trip up, the wait for the room's
+tick (up to a tick), the trip down, and the receiving frame; a field's
+stream is judged to the sender's song time when the batch is cut, so
+just before the next frame comes, a view is behind it by about
+`batch + tick + up + down` (with each trip's jitter) and the two clocks'
+error. Under `live-v1` that is up to 500 ms of periods alone, and the
+views waited a constant second (`presentation_delay_ms`).
+
+**What a device does now.** Each time a frame brings a competitor's
+news, the device samples how far that competitor's stream had fallen
+behind its own song time just before (the peak of what a view must
+cover); a field whose stream is not judged to the view's time (a stall)
+is sampled at once and counted. The target is the 99th percentile of
+the last 8 s of samples and 40 ms, within 150 ms and the rules' ceiling
+(`presentation_delay_ms`, a second); the delay drawn with rises toward a
+higher target at 500 ms a second (the view runs at half speed meanwhile,
+never backwards) and falls toward a lower one at 50 ms a second. It
+starts from a guess: a batch, a tick, three of the clock's half round
+trips and twice the margin. One device, one delay for every field it
+draws (the lines between fields need one time); a field whose stream is
+slower than the rest stalls now and then rather than holding everyone
+back (its samples are a small share of the window's).
+
+**Where the time came out.** `live-v2` halves both periods (a frame and
+a batch every 100 ms), the adaptive delay takes out the constant's
+slack. Considered and left out: a room forwarding a batch at once
+instead of on its tick (in a full room batches arrive all through a
+tick, so it saves nothing there unless the frames multiply, and moving
+the room's alarm for it costs a storage write each time; in a small
+room it would save about 50 ms on average); batches cut as soon as there
+is a moment (a stream's judged time moves on with every frame, so there
+is always something to send: the period is the bound).
+
+**Measured** (`crates/room/tests/live.rs`, `view_delay_study`, in
+process through `FakeServer` with `Latency`, each way the floor plus a
+uniform jitter, nine competitors and a watcher, every device's view
+measured from the song's eighth second to its 38th, three seeds;
+`the_views_follow_half_a_second_behind_at_typical_latencies` holds the
+80 ms row):
+
+| Timing | Each way (ms) | Delay mean / p95 / max (ms) | Field-time stalled | Stalls a field-minute |
+| --- | --- | --- | --- | --- |
+| `live-v1`, constant second (as before) | 80 + up to 40 | 1,000 | 0 | 0 |
+| `live-v1`, constant second (as before) | 200 + up to 100 | 1,000 | 0.83% | 13.9 |
+| `live-v1`, constant second (as before) | 200 + up to 200 | 1,000 | 13.7% | 92 |
+| `live-v1` with the adaptive delay | 20 + up to 20 | 631 / 640 / 650 | 0 | 0 |
+| `live-v1` with the adaptive delay | 80 + up to 40 | 781 / 800 / 810 | 0 | 0 |
+| `live-v1` with the adaptive delay | 200 + up to 100 | 1,000 (the ceiling) | 0.83% | 13.9 |
+| `live-v2` | 20 + up to 20 | 292 / 310 / 310 | 0 | 0 |
+| `live-v2` | 50 + up to 30 | 370 / 410 / 410 | 0.03% | 0.9 |
+| `live-v2` | 80 + up to 40 | 479 / 500 / 500 | 0 | 0 |
+| `live-v2` | 80 + up to 80 | 524 / 540 / 550 | 0 | 0 |
+| `live-v2` | 150 + up to 75 | 693 / 730 / 740 | 0 | 0 |
+| `live-v2` | 200 + up to 100 | 822 / 850 / 870 | 0 | 0 |
+| `live-v2` | 200 + up to 200 | 994 / 1,000 / 1,000 | 0.01% | 0.3 |
+| `live-v2`, 73 competitors | 20 + up to 20 | 299 / 310 / 310 | 0 | 0 |
+| `live-v2`, 73 competitors | 80 + up to 40 | 480 / 490 / 490 | 0 | 0 |
+| `live-v2`, 73 competitors | 200 + up to 100 | 837 / 860 / 880 | 0 | 0 |
+
+So: half a second or less at typical latencies (20 to 80 ms each way),
+a little over it where the jitter is as large as the latency; at 200 ms
+each way it rises toward the second, and at 200 ms with as much jitter
+it sits at the ceiling (as `live-v1`'s constant did, with a hundredth of
+its stalls). Stalls: under 0.1% of field-time and about one a
+field-minute at worst in every row that is not at the ceiling. The
+state is in `__DDI_DEBUG.live.delay` (`ms`, `target_ms`, `rules`,
+`live_rules`, `stalls`, `stalled_now`).
+
+**Lateness.** A competitor whose stream falls behind the view's time
+holds: its notes not yet judged keep scrolling as unjudged, its last
+numbers stay (a stall, which raises the delay); past 2 s (`stale_ms`)
+the field is marked stale; when its batches come, the field catches up
+(their moments apply at once, newest numbers win). One late competitor
+never holds the others: the frame carries whatever came.
 
 A stream ends with its device's own end (`finished`, `out`, `forfeit`), or
 the room's: `dropped` once the member is Disconnected (the server's 30 s
@@ -284,6 +365,18 @@ The earliest section of an attack committed at c starts at
 target must show its first shock a horizon and the warning before that,
 at `c + 1.35 s`. The commitment reaches it by `c + 1.2 s` at worst: 0.15 s
 to spare at worst, 0.6–0.9 s typically, more for later sections.
+
+Under `live-v2` (a batch and a tick every 100 ms) the batch is cut by
+0.3 s, the checkpoint runs by 0.85 s at worst (0.6 s with every report
+in), the frame is down by 1.0 s and the clock's error leaves it at
+1.05 s: 0.3 s to spare at worst. Measured (2026-11-13, the study below
+under `live-v2`, 36 stages): the least time to spare 1.81, 1.51 and
+1.11 s at 20, 80 and 200 ms each way (with as much again of jitter),
+against 1.51, 1.27 and 0.78 s under `live-v1`; no attack refused, 150
+taken at each latency. The deadline (0.75 s) and the network's lead
+(1.25 s) are unchanged: the room is there to take 0.25 s off the lead
+(attacks would land that much sooner online), which is the maintainer's
+to decide ("Open questions", 4).
 
 Measured (2026-11-13): commitments are taken from frames as they arrive
 (not at the views' delay). In process, a person among three bots at 20,
@@ -500,7 +593,12 @@ with what the server's room does about each.
   [WebSockets best practices](https://developers.cloudflare.com/durable-objects/best-practices/websockets/).
   The room therefore closes with 1012 the sockets still open when it is
   given live play on loading (they reconnect and read the live policy).
-- **Billing.** Incoming WebSocket messages are billed as requests at
+- **Billing** (the figures below are `live-v1`'s; under `live-v2` a
+  full room's batches are 10 a second each and its alarms 10 a second:
+  about 138,000 requests, 36,000 alarms and 36,000 rows written an hour,
+  about 7 cents an hour; and 73 competitors with 300 watching send the
+  room about 920 messages a second, under the 1,000 a second the next
+  item names). Incoming WebSocket messages are billed as requests at
   20:1; outgoing messages and protocol pings are free; alarm invocations
   are requests; each `setAlarm` is a row written (SQLite objects); duration
   is wall time at 128 MB while the object is active and not eligible to
@@ -657,7 +755,8 @@ moving a refused attack.
 
 | Choice | Where | Effect | Decision needed |
 | --- | --- | --- | --- |
-| `live-v1`: a frame every 250 ms, batches every 250 ms, views 1 s behind, stale after 2 s | `live::LIVE_V1` | Remote fields are 1 s behind the player's song | The delay (a 100 ms tick would be about 0.6 s, at 2.5 times the messages) |
+| `live-v2` (a room's `timing`, 2026-11-13): a frame and a batch every 100 ms; `live-v1`'s 250 ms kept by rooms made before | `live::LIVE_V2`, `LivePolicy::v2` | Remote fields about half a second behind at typical latencies, at two and a half times the messages (about 7 cents an hour of a full room, was 3) | The periods |
+| `view-delay-v0`: each device's view delay the 99th percentile of the last 8 s of measured lags and 40 ms, within 150 ms and a second, up at 500 ms a second, down at 50 | `live::delay::VIEW_DELAY_V0` | A remote field runs a little slow for a moment when the network gets worse, a little fast as it recovers; one slow competitor's field stalls now and then rather than holding the others back | The numbers; whether a slow field should hold everyone back instead |
 | Checkpoints decided 750 ms after their instant; a later report counts at the next | `LIVE_V1.report_deadline_ms` | A slow device's power arrives a checkpoint late | The deadline |
 | 1.25 s more lead online | `LIVE_V1.network_lead_us` | Online attacks land about 1.25 s later than practice's | The margin |
 | A late commitment is refused by its target and dropped, not moved | client rule, `MomentKind::Refused` | Rarely, an attack does nothing | Drop or move |
@@ -671,8 +770,9 @@ moving a refused attack.
 
 ## Open questions for the maintainer
 
-1. Is 1 s of delay on the opponents' fields acceptable, or worth more
-   messages to shorten?
+1. (Answered 2026-11-13: aim for half a second or less, a second where it
+   must.) Built as `live-v2` and a measured delay; is the price (two and a
+   half times the messages, about 7 cents an hour of a full room) right?
 2. Late join (up to 5 s, missed notes as misses) or always sit out a stage
    the device cannot start on time?
 3. An attack that reaches its target too late: dropped (as now) or moved to

@@ -1314,6 +1314,17 @@ fn live_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
         "stale": b.stale_seats(),
         "refused": b.refused(),
         "lost": b.live_lost(),
+        // How far behind the song the others' fields are drawn now, what
+        // the delay moves toward (`ddi_room::live::delay`), and the stalls
+        // seen: a field whose stream was not judged to the view's time.
+        "delay": b.live_state().map(|m| json!({
+            "ms": m.delay_ms,
+            "target_ms": m.delay_target_ms,
+            "rules": m.delay_rules,
+            "live_rules": m.rules,
+            "stalls": m.stalls,
+            "stalled_now": m.stalled_now,
+        })),
         // This play's own part: streamed to the room, with the battle
         // plan (attacks can go into it), and what became of each attack
         // the room committed against it (`fate`: taken, late, out,

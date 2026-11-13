@@ -30,6 +30,7 @@
 
 pub mod client;
 pub mod clock;
+pub mod delay;
 pub mod plan;
 pub mod server;
 pub mod stream;
@@ -41,6 +42,7 @@ use serde::{Deserialize, Serialize};
 
 pub use client::{LiveLink, LiveNews};
 pub use clock::{ClockEstimate, ClockEstimator, Ping, Pong};
+pub use delay::{VIEW_DELAY_V0, ViewDelay, ViewDelayRules, ViewMeter};
 pub use plan::{BattlePlan, PlanDigest, PlanProblem};
 pub use server::{LiveOut, LiveReply, LiveServer, LiveStage};
 pub use stream::{
@@ -59,8 +61,11 @@ pub struct LiveRules {
     pub tick_ms: u64,
     /// A competitor sends a batch this often (and once more at its end).
     pub batch_ms: u64,
-    /// The views draw a remote moment this long after it happened (song
-    /// time): what hides batching, both trips and the room's tick.
+    /// The views draw a remote moment at most this long after it happened
+    /// (song time): what hides batching, both trips and the room's tick.
+    /// `live-v1`'s views drew every moment exactly this late; since
+    /// `live-v2` a view waits as little as its own measurements allow
+    /// ([`delay::ViewDelay`]), this its ceiling.
     pub presentation_delay_ms: u64,
     /// A view marks a field stale once its stream is this far behind the
     /// view's own song time.
@@ -120,10 +125,26 @@ pub const LIVE_V1: LiveRules = LiveRules {
     max_report_judged: 4_096,
 };
 
+/// `live-v2` (PROVISIONAL, 2026-11-13): `live-v1`'s contract with a frame
+/// and a batch every 100 ms, so that a view can follow a remote field half
+/// a second behind or less (`delay::VIEW_DELAY_V0`). Everything the room
+/// decides is as `live-v1`'s: the checkpoint deadline, the network's lead
+/// and the late join are unchanged (nothing measured called for changing
+/// them). `presentation_delay_ms` is the views' ceiling now: a view waits
+/// as little as its measurements allow (`delay::ViewDelay`), at most this.
+/// Bought with two and a half times the messages each way
+/// (`docs/plans/multiplayer-online-play.md`, "The views' delay").
+pub const LIVE_V2: LiveRules = LiveRules {
+    id: "live-v2",
+    tick_ms: 100,
+    batch_ms: 100,
+    ..LIVE_V1
+};
+
 impl LiveRules {
     /// The rules an id names, if this build knows them.
     pub fn named(id: &str) -> Option<LiveRules> {
-        (id == LIVE_V1.id).then_some(LIVE_V1)
+        [LIVE_V1, LIVE_V2].into_iter().find(|r| r.id == id)
     }
 
     /// A target's lead online: practice's ([`crate::attacks::LEAD_V0`],
@@ -295,9 +316,26 @@ mod tests {
         let policy = crate::RoomPolicy::default();
         assert!(!serde_json::to_string(&policy).unwrap().contains("live"));
         let live = serde_json::to_string(&policy.clone().with_live()).unwrap();
-        assert!(live.contains(r#""live":{"id":"live-v1","prelude_ms":1000}"#));
+        assert!(live.contains(
+            r#""live":{"id":"live-v1","prelude_ms":1000,"timing":"live-v2"}"#
+        ));
         let back: crate::RoomPolicy = serde_json::from_str(&live).unwrap();
-        assert_eq!(back.live.unwrap().rules(), Some(LIVE_V1));
+        assert_eq!(back.live.unwrap().rules(), Some(LIVE_V2));
+        // A room made before `live-v2` (no timing) runs `live-v1`'s numbers.
+        let old: crate::LivePolicy =
+            serde_json::from_str(r#"{"id":"live-v1","prelude_ms":1000}"#).unwrap();
+        assert_eq!(old.rules(), Some(LIVE_V1));
+        // A timing this build does not know: the contract's own numbers,
+        // as a build that predates `live-v2` reads a `live-v2` room.
+        let newer: crate::LivePolicy = serde_json::from_str(
+            r#"{"id":"live-v1","prelude_ms":1000,"timing":"live-v9"}"#,
+        )
+        .unwrap();
+        assert_eq!(newer.rules(), Some(LIVE_V1));
+        // A contract this build does not know: not live.
+        let other: crate::LivePolicy =
+            serde_json::from_str(r#"{"id":"live-v9","prelude_ms":1000}"#).unwrap();
+        assert_eq!(other.rules(), None);
     }
 
     #[test]

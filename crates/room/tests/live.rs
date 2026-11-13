@@ -14,7 +14,10 @@ use ddi_room::fake::{FakeServer, FakeSocket, Fault, Latency, OffsetClock, Shared
 use ddi_room::live::plan::BattlePlan;
 use ddi_room::live::server::{LiveDurable, LiveServer, Prepared};
 use ddi_room::live::stream::{LiveReport, Moment, MomentKind, StreamEnd};
-use ddi_room::live::{ClientLive, LIVE_V1, LiveNews, LiveRefusal, PlanDigest, song_us_at, wire};
+use ddi_room::live::{
+    ClientLive, LIVE_V1, LiveNews, LiveRefusal, PlanDigest, VIEW_DELAY_V0, ViewDelay, ViewMeter,
+    song_us_at, wire,
+};
 use ddi_room::{
     ChartKey, ClientEnvelope, ClientId, Clock, Command, ContentId, ContentStatus, Finish, Identity,
     Intent, Loading, ManualClock, MatchRules, Millis, OnlineAuthority, ParticipantId, Phase,
@@ -438,6 +441,13 @@ fn room(setup: &Setup) -> Room {
         players,
     };
     r.run(1_000);
+    // A slow link's first exchanges take longer.
+    for _ in 0..8 {
+        if r.players.iter().all(|p| p.link.live().clock().is_some()) {
+            break;
+        }
+        r.run(500);
+    }
     for p in &r.players {
         assert!(p.link.live().is_on(), "{:?} plays live", p.id);
         assert!(p.link.live().clock().is_some(), "{:?} has the clock", p.id);
@@ -1545,5 +1555,210 @@ fn someone_who_comes_in_mid_stage_gets_the_stage_as_it_stands_and_follows_it() {
         assert!(seen.len() > sc.moments.len() / 2, "{}", seen.len());
         assert_eq!(seen, &sc.moments[sc.moments.len() - seen.len()..]);
         assert_eq!(reader.end(q.id), Some(StreamEnd::Finished));
+    }
+}
+
+/// One device's view of the others, as a play's would be
+/// (`ddi_room::live::delay`'s `ViewMeter`), fed as its device reads the
+/// frames.
+struct View {
+    meter: Option<ViewMeter>,
+    read: usize,
+}
+
+impl View {
+    fn new() -> View {
+        View {
+            meter: None,
+            read: 0,
+        }
+    }
+
+    /// One step of `p`'s device (`fixed`: `live-v1`'s constant second);
+    /// measured from song ms `from` on.
+    fn step(&mut self, p: &Player, fixed: bool, from: f64) {
+        let Some(zero) = p
+            .link
+            .room()
+            .and_then(|r| r.stage(STAGE))
+            .and_then(|s| s.play.as_ref())
+            .and_then(|s| s.song_zero_at)
+        else {
+            return;
+        };
+        let Some(now) = p.link.room_now() else {
+            return;
+        };
+        let now = song_us_at(zero, now) as f64 / 1_000.0;
+        if now < -1_000.0 {
+            return;
+        }
+        let rules = p.link.live().rules();
+        let meter = self.meter.get_or_insert_with(|| {
+            let delay = if fixed {
+                ViewDelay::fixed(rules.presentation_delay_ms as f64)
+            } else {
+                let u = p
+                    .link
+                    .live()
+                    .clock()
+                    .map_or(100.0, |c| c.uncertainty_us as f64 / 1_000.0);
+                let ceiling = rules.presentation_delay_ms as f64;
+                ViewDelay::new(
+                    VIEW_DELAY_V0,
+                    ceiling,
+                    VIEW_DELAY_V0.initial_ms(&rules, u, ceiling),
+                )
+            };
+            ViewMeter::new(delay, Some(p.id))
+        });
+        for n in &p.news[self.read..] {
+            if let LiveNews::Frame(f) = n {
+                meter.frame(f, now);
+            }
+        }
+        self.read = p.news.len();
+        meter.step(now, from);
+    }
+}
+
+/// What the views of one stage measured: the delay drawn with (mean, 95th
+/// percentile, most, ms), the share of field-steps stalled and the stalls
+/// begun a minute a field.
+#[derive(Debug)]
+struct Measured {
+    mean: f64,
+    p95: f64,
+    max: f64,
+    stalled: f64,
+    onsets_per_min: f64,
+    frames_per_s: f64,
+}
+
+/// A stage of `competitors` and a watcher at `latency` (each way: floor
+/// and jitter, ms) under `policy`, every device's views measured from the
+/// song's eighth second to its 38th (`fixed`: `live-v1`'s constant
+/// second).
+fn measure_views(
+    competitors: usize,
+    latency: (u64, u64),
+    policy: RoomPolicy,
+    fixed: bool,
+    seed: u64,
+) -> Measured {
+    let mut setup = Setup::new(competitors);
+    setup.watchers = 1;
+    setup.policy = policy;
+    setup.latency = Some(Latency {
+        down_ms: latency.0,
+        down_jitter_ms: latency.1,
+        up_ms: latency.0,
+        up_jitter_ms: latency.1,
+        seed,
+    });
+    let mut r = room(&setup);
+    start(&mut r, None, competitors);
+    started(&r);
+    let scripts: Vec<Script> = (1..=competitors as u64)
+        .map(|i| script(seed * 31 + i, 90 + (i % 7) as i32 * 10, 40_000, None))
+        .collect();
+    give_plays(&mut r, &scripts, None);
+    let mut views: Vec<View> = r.players.iter().map(|_| View::new()).collect();
+    let end = r.now() + 40_000;
+    while r.now() < end {
+        r.clock.advance(STEP_MS);
+        r.pump();
+        for (v, p) in views.iter_mut().zip(&r.players) {
+            v.step(p, fixed, 8_000.0);
+        }
+    }
+    let meters: Vec<&ViewMeter> = views.iter().filter_map(|v| v.meter.as_ref()).collect();
+    let mut all: Vec<f64> = meters.iter().flat_map(|m| m.delays.iter().copied()).collect();
+    all.sort_by(f64::total_cmp);
+    let field_ms: f64 = meters.iter().map(|m| m.field_ms).sum();
+    let stalled_ms: f64 = meters.iter().map(|m| m.stalled_ms).sum();
+    let onsets: u32 = meters.iter().map(|m| m.onsets).sum();
+    let field_minutes = field_ms / 60_000.0;
+    let frames = r
+        .server
+        .borrow()
+        .live()
+        .and_then(|l| l.stage_or_last().map(|s| s.frames()))
+        .unwrap_or(0);
+    Measured {
+        mean: all.iter().sum::<f64>() / all.len().max(1) as f64,
+        p95: all.get(all.len() * 95 / 100).copied().unwrap_or(0.0),
+        max: all.last().copied().unwrap_or(0.0),
+        stalled: stalled_ms / field_ms.max(1e-9),
+        onsets_per_min: f64::from(onsets) / field_minutes.max(1e-9),
+        frames_per_s: f64::from(frames) / 41.0,
+    }
+}
+
+/// `live-v2` with the view delay: half a second or less at typical
+/// latencies (here 80 ms each way with up to 40 ms of jitter), stalls
+/// rare; `live-v1`'s constant second never stalls there either.
+#[test]
+fn the_views_follow_half_a_second_behind_at_typical_latencies() {
+    let v2 = measure_views(5, (80, 40), RoomPolicy::default().with_live(), false, 3);
+    eprintln!("live-v2, 80+40 ms: {v2:?}");
+    assert!(v2.mean <= 500.0 && v2.p95 <= 520.0, "{v2:?}");
+    assert!(v2.stalled < 0.005, "{v2:?}");
+    assert!(v2.frames_per_s > 9.0, "{v2:?}");
+    let old = RoomPolicy {
+        live: Some(ddi_room::LivePolicy::v1()),
+        ..RoomPolicy::default()
+    };
+    let v1 = measure_views(5, (80, 40), old, true, 3);
+    eprintln!("live-v1, 80+40 ms, a constant second: {v1:?}");
+    assert_eq!((v1.mean, v1.stalled), (1_000.0, 0.0), "{v1:?}");
+    assert!(v1.frames_per_s < 4.5, "{v1:?}");
+}
+
+/// The study behind `view-delay-v0` (`cargo test -p ddi-room --test live
+/// view_delay_study -- --ignored --nocapture`): the delay reached and the
+/// stalls at latencies from 20 to 200 ms each way, `live-v1`'s timing and
+/// `live-v2`'s, nine competitors and a watcher, three seeds each.
+#[test]
+#[ignore]
+fn view_delay_study() {
+    let old = RoomPolicy {
+        live: Some(ddi_room::LivePolicy::v1()),
+        ..RoomPolicy::default()
+    };
+    let new = RoomPolicy::default().with_live();
+    eprintln!("| timing | each way (ms) | delay mean / p95 / max (ms) | field-steps stalled | stalls a field-minute |");
+    eprintln!("| --- | --- | --- | --- | --- |");
+    for (name, policy) in [("live-v1, view-delay-v0", &old), ("live-v2, view-delay-v0", &new)] {
+        for lat in [(20, 20), (50, 30), (80, 40), (80, 80), (150, 75), (200, 100), (200, 200)] {
+            let runs: Vec<Measured> = (1..=3)
+                .map(|seed| measure_views(9, lat, policy.clone(), false, seed))
+                .collect();
+            let n = runs.len() as f64;
+            eprintln!(
+                "| {name} | {} + up to {} | {:.0} / {:.0} / {:.0} | {:.3}% | {:.2} |",
+                lat.0,
+                lat.1,
+                runs.iter().map(|m| m.mean).sum::<f64>() / n,
+                runs.iter().map(|m| m.p95).fold(0.0, f64::max),
+                runs.iter().map(|m| m.max).fold(0.0, f64::max),
+                100.0 * runs.iter().map(|m| m.stalled).sum::<f64>() / n,
+                runs.iter().map(|m| m.onsets_per_min).sum::<f64>() / n,
+            );
+        }
+    }
+    // A full field: 73 competitors and a watcher, one seed.
+    for lat in [(20, 20), (80, 40), (200, 100)] {
+        let m = measure_views(73, lat, new.clone(), false, 1);
+        eprintln!(
+            "| live-v2, 73 competitors | {} + up to {} | {:.0} / {:.0} / {:.0} | {:.3}% | {:.2} |",
+            lat.0,
+            lat.1,
+            m.mean,
+            m.p95,
+            m.max,
+            100.0 * m.stalled,
+            m.onsets_per_min
+        );
     }
 }

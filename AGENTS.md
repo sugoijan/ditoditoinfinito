@@ -664,8 +664,9 @@ Rust and the browser are implementation details, not advertised features.
   `SessionConfig::live`), the play started at the room's instant
   (`live_start`, a late join up to `late_join_ms`, past it a forfeit
   watched), its moments and checkpoint reports streamed, the room's
-  frames feeding people's fields (`TapTrack::full`, a second behind,
-  stale ones dimmed), its commitments into the play (refused when too
+  frames feeding people's fields (`TapTrack::full`, drawn wholly the
+  device's view delay behind the song, `FieldFeed::set_delay`, a stall
+  raising it, stale ones dimmed; `__DDI_DEBUG.live.delay`), its commitments into the play (refused when too
   late), its records driving the bars, warnings and links, its decision
   shown; `LivePlay` the same for the bots;
   a stage watched (`play/watch.rs`, `watch-v0`,
@@ -1121,7 +1122,13 @@ Rust and the browser are implementation details, not advertised features.
   `LiveDurable` for the server's storage) and the client's in
   `OnlineAuthority` (`live/client.rs`, `LiveLink`); `FakeServer` runs it
   with latency and faults both ways (`Latency`, `OffsetClock`,
-  `fault_uplink`); `tests/live.rs`. All live numbers in `LIVE_V1`.
+  `fault_uplink`); `tests/live.rs`. All live numbers in `LIVE_V1` and
+  `LIVE_V2` (a frame and a batch every 100 ms: a room's
+  `LivePolicy::timing`, additive; a room made before keeps `live-v1`'s);
+  how far behind the song a device draws the others' fields, measured
+  from its frames and a second at most (`live/delay.rs`: `ViewDelay`,
+  `VIEW_DELAY_V0`; `ViewMeter` for the tests and the server's load
+  driver; `view_delay_study`).
   Pure (serde and JSON), natively tested.
 - The multiplayer prototype's CPU practice (M2 and M3,
   `docs/plans/multiplayer-prototype-progress.md`), behind a hidden switch

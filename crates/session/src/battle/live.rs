@@ -12,9 +12,12 @@
 //! client (`ddi_ui::state::room::RoomClient`) is ticked here each frame,
 //! as the screens tick it outside a play: its socket carries the stream.
 //!
-//! Its numbers are `ddi_room::live::LIVE_V1`'s (PROVISIONAL): views a
-//! second behind the moments they draw, stale past two seconds, a late
-//! join of five seconds at most.
+//! Its numbers are the room's live rules' (`ddi_room::live::LIVE_V2` in a
+//! room this build makes, `LIVE_V1` in one made before; PROVISIONAL): the
+//! others' fields drawn as far behind the song as this device's view delay
+//! says (`ddi_room::live::delay`, `VIEW_DELAY_V0`: what its frames
+//! measure, a second at most), stale past two seconds, a late join of
+//! five seconds at most.
 
 use std::collections::BTreeSet;
 use std::rc::Rc;
@@ -30,7 +33,9 @@ use ddi_room::attacks::{
 };
 use ddi_room::live::plan::BattlePlan;
 use ddi_room::live::stream::{CheckpointNews, Commitment, Frame, LiveReport, Moment, MomentKind};
-use ddi_room::live::{LIVE_V1, LiveNews, LiveRefusal, LiveRules, StreamEnd};
+use ddi_room::live::{
+    LIVE_V1, LiveNews, LiveRefusal, LiveRules, StreamEnd, VIEW_DELAY_V0, ViewDelay,
+};
 use ddi_room::{Finisher, ParticipantId, Phase, StageId};
 use ddi_ui::state::room::SharedRoom;
 
@@ -112,6 +117,16 @@ pub struct LiveState<'a> {
     pub horizon_us: i64,
     /// Every attack committed against it, as it came.
     pub incoming: &'a [Incoming],
+    /// The others' fields' delay behind the song (ms), what it moves
+    /// toward, its rules' id, and the stalls seen so far (a field whose
+    /// stream was not judged to its view's time), with those stalled now.
+    pub delay_ms: f64,
+    pub delay_target_ms: f64,
+    pub delay_rules: &'static str,
+    pub stalls: u32,
+    pub stalled_now: usize,
+    /// The room's live rules' id (`live-v1`, `live-v2`).
+    pub rules: &'static str,
 }
 
 /// Another competitor of the stage, as its stream draws it.
@@ -309,6 +324,12 @@ pub(crate) struct Live {
     pub refused: u32,
     /// Every attack committed against this play, as it came.
     pub incoming: Vec<Incoming>,
+    /// How far behind the song the others' fields are drawn, as this
+    /// device measures its frames (`ddi_room::live::delay`).
+    delay: ViewDelay,
+    /// The seats whose fields are stalled now (their stream not judged to
+    /// the view's time).
+    stalled: BTreeSet<ParticipantId>,
 }
 
 /// A judge event as a moment of the stream (none: nothing a field
@@ -402,8 +423,28 @@ impl Live {
         track: &feed::TapTrack,
         lock: Option<f64>,
     ) -> Live {
-        let rules = LIVE_V1;
-        let delay = rules.presentation_delay_ms as f64 / 1_000.0;
+        let (rules, uncertainty_ms) = {
+            let room = handle.room.borrow();
+            let rules = room
+                .state()
+                .policy
+                .live
+                .as_ref()
+                .and_then(|l| l.rules())
+                .unwrap_or(LIVE_V1);
+            let u = room
+                .live_link()
+                .and_then(|l| l.clock())
+                .map_or(100.0, |c| c.uncertainty_us as f64 / 1_000.0);
+            (rules, u)
+        };
+        let ceiling = rules.presentation_delay_ms as f64;
+        let view_delay = ViewDelay::new(
+            VIEW_DELAY_V0,
+            ceiling,
+            VIEW_DELAY_V0.initial_ms(&rules, uncertainty_ms, ceiling),
+        );
+        let delay = view_delay.delay_ms() / 1_000.0;
         let seats = people
             .iter()
             .filter(|(p, _)| *p != me)
@@ -445,6 +486,42 @@ impl Live {
             learned: Vec::new(),
             refused: 0,
             incoming: Vec::new(),
+            delay: view_delay,
+            stalled: BTreeSet::new(),
+        }
+    }
+
+    /// The others' fields' delay behind the song now, seconds.
+    pub(crate) fn delay_s(&self) -> f64 {
+        self.delay.delay_ms() / 1_000.0
+    }
+
+    /// The view at song second `t` (after this frame's news): the delay
+    /// follows what the frames measured, every field is drawn that far
+    /// behind, and a field whose stream was not judged to the view's time
+    /// is a stall (counted, and the delay rises for it at once).
+    pub(crate) fn view(&mut self, t: f64) {
+        let now_ms = t * 1_000.0;
+        let d = self.delay.advance(now_ms);
+        let view_us = micros(t) - (d * 1_000.0).round() as i64;
+        for seat in &mut self.seats {
+            seat.feed.set_delay(d / 1_000.0);
+            let behind = match (seat.end, seat.through_us) {
+                (None, Some(through)) if view_us > 0 && through < view_us => {
+                    Some(micros_s(micros(t) - through) * 1_000.0)
+                }
+                _ => None,
+            };
+            match behind {
+                Some(lag_ms) => {
+                    if self.stalled.insert(seat.participant) {
+                        self.delay.stalled(now_ms, lag_ms);
+                    }
+                }
+                None => {
+                    self.stalled.remove(&seat.participant);
+                }
+            }
         }
     }
 
@@ -455,6 +532,12 @@ impl Live {
             plan: self.plan.is_some(),
             horizon_us: self.horizon_us,
             incoming: &self.incoming,
+            delay_ms: self.delay.delay_ms(),
+            delay_target_ms: self.delay.target_ms(),
+            delay_rules: self.delay.rules().id,
+            stalls: self.delay.stalls(),
+            stalled_now: self.stalled.len(),
+            rules: self.rules.id,
         }
     }
 
@@ -627,6 +710,7 @@ impl Live {
                 _ => {}
             }
         }
+        self.view(t);
         got
     }
 
@@ -645,6 +729,13 @@ impl Live {
             let Some(seat) = self.seats.iter_mut().find(|s| s.participant == e.participant) else {
                 continue;
             };
+            // How far its stream had fallen behind this device's song
+            // time just before its news came: what the view must cover.
+            if let Some(before) = seat.through_us
+                && seat.end.is_none()
+            {
+                self.delay.sample(t * 1_000.0, micros_s(micros(t) - before) * 1_000.0);
+            }
             seat.through_us = Some(seat.through_us.map_or(e.through_us, |x| x.max(e.through_us)));
             for m in &e.moments {
                 if let MomentKind::Refused { attack } = m.kind {
@@ -863,7 +954,7 @@ impl Live {
         if seat.end.is_some() {
             return false;
         }
-        let view_us = micros(t) - self.rules.presentation_delay_ms as i64 * 1_000;
+        let view_us = micros(t) - (self.delay.delay_ms() * 1_000.0).round() as i64;
         let behind = view_us - seat.through_us.unwrap_or(0);
         view_us > 0 && behind > self.rules.stale_ms as i64 * 1_000
     }

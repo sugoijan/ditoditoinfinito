@@ -136,8 +136,15 @@ impl LiveLink {
         std::mem::take(&mut self.news)
     }
 
-    /// A socket to a room that plays live gave its first snapshot.
-    pub(crate) fn opened(&mut self, now: u64) {
+    /// A socket to a room that plays live by `rules` (its policy's: the
+    /// batches' period) gave its first snapshot.
+    pub(crate) fn opened(&mut self, now: u64, rules: LiveRules) {
+        if rules != self.rules {
+            self.rules = rules;
+            for o in self.outboxes.values_mut() {
+                o.set_rules(rules);
+            }
+        }
         self.on = true;
         self.hello_due = true;
         self.burst = self.rules.ping_burst;
@@ -329,7 +336,7 @@ mod tests {
     fn batches_stay_small_through_a_long_disconnect() {
         let mut link = LiveLink::new(LIVE_V1);
         let stage = StageId(1);
-        link.opened(0);
+        link.opened(0, LIVE_V1);
         let _ = link.due(0);
         link.closed();
         let mut sent = Vec::new();
@@ -340,7 +347,7 @@ mod tests {
             sent.extend(link.due(ms as u64));
         }
         assert!(sent.is_empty(), "nothing sent while down");
-        link.opened(60_000);
+        link.opened(60_000, LIVE_V1);
         let batches: Vec<Vec<u8>> = link
             .due(60_000)
             .into_iter()

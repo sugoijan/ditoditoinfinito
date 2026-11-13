@@ -265,12 +265,16 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
         self.live.room_ms(self.clock.now().0)
     }
 
-    fn live_capable(&self) -> bool {
-        self.transport.binary()
-            && self
-                .mirror
-                .state()
-                .is_some_and(|r| r.policy.live.as_ref().and_then(|l| l.rules()).is_some())
+    /// The live rules of the room, where this socket plays live (its
+    /// policy names rules this build knows and the transport carries
+    /// binary messages).
+    fn live_rules(&self) -> Option<crate::live::LiveRules> {
+        if !self.transport.binary() {
+            return None;
+        }
+        self.mirror
+            .state()
+            .and_then(|r| r.policy.live.as_ref().and_then(|l| l.rules()))
     }
 
     fn pump_live(&mut self) {
@@ -407,9 +411,9 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
                     for e in self.unanswered.clone() {
                         self.send_envelope(&e);
                     }
-                    if self.live_capable() {
+                    if let Some(rules) = self.live_rules() {
                         let now = self.clock.now().0;
-                        self.live.opened(now);
+                        self.live.opened(now, rules);
                     }
                 }
                 self.hand_on(envelope);

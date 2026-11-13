@@ -4812,6 +4812,72 @@ Screenshots: `target/scratch/mp/scale/shots/` (`play-player-{16,33,72}-*`,
 `grid-*`, `grid-page2-*`, `focus-*`, `results-*`, `select-*`, the
 desktop's `practice-72-cpus-1280x720-at-21s.png`).
 
+## Live play, second round: half a second behind (2026-11-13)
+
+The maintainer (2026-11-13): "1-second delay is a bit much, I'd like to
+aim for 500ms or even lower, if that proves to be too unstable we can aim
+for 1s." Everything here is real and tested; the numbers are in
+[Online play](multiplayer-online-play.md), "The views' delay, lateness
+and ends".
+
+### The others' fields half a second behind, or less
+
+- **What the delay was made of** (`live-v1`): a batch every 250 ms, a
+  frame every 250 ms, both trips and the clocks' error: a view must
+  cover `batch + tick + up + down` just before a frame comes, so up to
+  500 ms of periods alone; it waited a constant second.
+- **`live-v2`** (`ddi_room::live::LIVE_V2`, PROVISIONAL): a frame and a
+  batch every 100 ms; everything the room decides as `live-v1`'s (the
+  checkpoint deadline, the network's lead, the late join). A room says
+  it by an additive `timing` beside its contract's id
+  (`LivePolicy::v2`: `{"id":"live-v1","prelude_ms":1000,"timing":"live-v2"}`).
+  The server makes new rooms so; a stored room keeps its policy as
+  stored (a stage in play across the deploy is not re-timed). The
+  client follows its room's rules when its socket opens
+  (`LiveLink::opened`, `Outbox::set_rules`); bots and the server's load
+  driver use the same client, so they follow too.
+- **A delay each device measures** (`ddi_room::live::delay`,
+  `ViewDelay`, `VIEW_DELAY_V0` `view-delay-v0`, PROVISIONAL): sampled
+  from each competitor's news as it comes (how far its stream had
+  fallen behind just before) and from each stall at once; the 99th
+  percentile of the last 8 s and 40 ms, within 150 ms and a second, up
+  at 500 ms a second, down at 50. Display only: nothing the room
+  decides depends on it.
+- **The fields wholly behind** (`ddi_session::battle::feed`): a remote
+  field's notes now scroll the delay behind the song too, not only its
+  moments (`FieldFeed::set_delay`, `view_time`). Found on the way: with
+  `live-v1`'s second, notes scrolled on the song's time while their hits
+  showed a second later, so a remote person's hit notes passed the
+  receptors as if missed and vanished a second after. The attack
+  warnings and the lines between fields of a remote recipient are said
+  on that field's time (`Battle::incoming_for`, the watcher's links).
+- **Old and new**: a client that predates `live-v2` reads the id alone
+  and plays live by `live-v1`'s numbers in a new room (batches every
+  250 ms, its views a second behind; the room serves it as before); a
+  new client in an old room (or on an old server) batches at 250 ms and
+  its views still adapt (0.6 to 0.85 s). Nothing on the wire changed.
+- **Measured** in process (`crates/room/tests/live.rs`,
+  `view_delay_study`, 9 competitors and a watcher, three seeds): at 20,
+  50, 80 ms each way (with up to 20, 30, 40 ms of jitter) the delay is
+  292, 370, 479 ms on average (p95 310, 410, 500), at 80 ms with 80 of
+  jitter 524 ms, at 150 ms 693, at 200 ms 822, at 200 ms with 200 of
+  jitter at the ceiling (994); 73 competitors the same within 15 ms.
+  Stalls: under 0.1% of field-time and at most about one a field-minute.
+  `live-v1`'s constant second: 0.8% of field-time stalled at 200 ms and
+  13.7% at 200 ms with as much jitter. The test
+  `the_views_follow_half_a_second_behind_at_typical_latencies` holds the
+  80 ms row (mean ≤ 500, p95 ≤ 520, stalls under 0.5%).
+- **Attacks' budget**: unchanged in the rules, larger in fact: the least
+  time to spare when a commitment came, 1.81, 1.51 and 1.11 s at 20, 80
+  and 200 ms (was 1.51, 1.27, 0.78; `person_among_bots_study`, 36 stages
+  each, none refused).
+- **Considered and left out**: the room forwarding a batch at once (in a
+  full room it saves nothing without multiplying frames; moving the
+  alarm writes storage each time); batches cut on the first moment (a
+  stream's time moves every frame: the period is the bound).
+- **Debug**: `__DDI_DEBUG.live.delay` (`ms`, `target_ms`, `rules`,
+  `live_rules`, `stalls`, `stalled_now`).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -4903,7 +4969,7 @@ desktop's `practice-72-cpus-1280x720-at-21s.png`).
 | Every miniature at the local player's speed and direction | `PlayView::draw` | Opponents' fields read like the player's own, not like theirs | Their own display settings once a remote stream carries them |
 | A judgment shows 0.4 s; a skin's explosion components drawn at 0.4 opacity on a miniature; a skin without them gets a soft glow of the judgment's color | `feed::FLASH_SECONDS`, `noteskin::MINIATURE_HIT_ALPHA`, `opponents::draw_fields` | Infinito's W1 burst is a faint flash on a miniature; Peters-DDR's miniatures glow instead of exploding | The miniature's hit effect |
 | An actor-drawn receptor is drawn as it rested a second into the play | `NoteskinPlay::rest_receptors` | StepMania skins' miniature receptors do not press | None expected (no Lua per miniature) |
-| Life, combo and moments drawn after a presentation delay, 0 for local CPUs | `feed::LOCAL_DELAY`, `FieldFeed::new` | None locally | The online delay and how it is corrected |
+| Life, combo and moments drawn after a presentation delay, 0 for local CPUs; online each device's measured delay (`view-delay-v0`) | `feed::LOCAL_DELAY`, `FieldFeed::set_delay`, `ddi_room::live::delay` | None locally; online about half a second at typical latencies | The online delay's numbers |
 | A miniature's combo never below 0.3 of the play's scale | `hud::MINI_COMBO_MIN_SCALE` | Below 22 px lanes the combo is larger than its field's scale | Legibility against faithfulness at small sizes |
 | Nine players: `ExperimentalNineV0`, the eight-player table and 0 for ninth: RETIRED 2026-11-13 (the top-biased tables, decided by the maintainer) | `ddi_room::awards` | None now; still read from an authority one build behind | None |
 | Development only: practice beyond the cap (129), linear points for any field; past what fits, the opponents take turns in the slots, `ROTATION_V0` (8 s a turn, 0.4 s darkening, none under reduced motion), each always in its own slot, priority seats never rotating (none yet) | `RoomPolicy::development`, `AwardScheme::DevelopmentV0`, `opponents::rotate`, `opponents::priority_seats` | Only through `mpcpus=` / `--mp-dev-cpus` | The large-party density policy |

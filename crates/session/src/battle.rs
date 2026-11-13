@@ -1469,7 +1469,15 @@ impl Battle {
     fn incoming_of(&self, participant: ParticipantId) -> Option<Incoming> {
         let now = attacks::micros(self.now);
         if let Some(l) = self.live_attacks() {
-            let mut all = l.ledger.incoming(participant, now);
+            // Another competitor's field is drawn the view's delay behind
+            // the song: its attack's times are said on the song's clock
+            // where that field shows them.
+            let d = if participant == self.setup.me {
+                0.0
+            } else {
+                l.delay_s()
+            };
+            let mut all = l.ledger.incoming(participant, now - attacks::micros(d));
             let attack = all.next()?;
             let more = all.next().is_some();
             let plan_at = |k: usize| {
@@ -1480,9 +1488,9 @@ impl Battle {
             };
             return Some(Incoming {
                 shocks: attack.cells.len().min(usize::from(u8::MAX)) as u8,
-                committed: plan_at(0),
-                first: attack.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6,
-                clear: attack.clear_us as f64 / 1e6,
+                committed: plan_at(0) + d,
+                first: attack.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6 + d,
+                clear: attack.clear_us as f64 / 1e6 + d,
                 more,
             });
         }
@@ -1683,6 +1691,9 @@ impl Battle {
         };
         let now = attacks::micros(self.now);
         let base = self.seats.len();
+        let me = self.setup.me;
+        let view_delay = attacks::micros(l.delay_s());
+        let delay = |p: ParticipantId| if p == me { 0 } else { view_delay };
         let seat = |p: ParticipantId| {
             if p == self.setup.me {
                 Some(usize::MAX)
@@ -1698,7 +1709,7 @@ impl Battle {
                 matches!(
                     x.state,
                     ddi_room::attacks::AttackState::Active | ddi_room::attacks::AttackState::Cleared
-                ) && x.clear_us >= now
+                ) && x.clear_us >= now - delay(x.recipient)
             })
             .collect();
         live.iter()
@@ -1707,6 +1718,9 @@ impl Battle {
                 if to != usize::MAX && l.seats[to - base].gone() {
                     return None;
                 }
+                // On the song's clock where the recipient's field shows
+                // it (another's: the view's delay behind).
+                let d = delay(x.recipient) as f64 / 1e6;
                 Some(SeenLink {
                     attack: x.id,
                     from,
@@ -1715,9 +1729,10 @@ impl Battle {
                         .learned
                         .iter()
                         .find(|(id, _)| *id == x.id)
-                        .map_or(0.0, |(_, t)| *t),
-                    first: x.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6,
-                    clear: x.clear_us as f64 / 1e6,
+                        .map_or(0.0, |(_, t)| *t)
+                        + d,
+                    first: x.cells.first().map_or(0, |c| c.at_us) as f64 / 1e6 + d,
+                    clear: x.clear_us as f64 / 1e6 + d,
                     chained: live
                         .iter()
                         .any(|y| y.recipient == x.recipient && y.id < x.id),

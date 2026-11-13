@@ -179,6 +179,12 @@ impl Outbox {
         self.stage
     }
 
+    /// The room's rules changed (a socket opened on its policy): the
+    /// period batches are cut on from now.
+    pub fn set_rules(&mut self, rules: LiveRules) {
+        self.rules = rules;
+    }
+
     /// A judged moment (in the order judged).
     pub fn moment(&mut self, m: Moment) {
         if self.end.is_none() {

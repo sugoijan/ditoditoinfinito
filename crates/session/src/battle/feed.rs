@@ -10,8 +10,11 @@
 //! the player behind them, so that a remote player's stream can feed the
 //! same view later. A local CPU's moments come from its own judged play
 //! as it is advanced ([`crate::battle::Battle`]), with no delay
-//! ([`LOCAL_DELAY`]); a network's would come late, and its delay hides
-//! that: a moment shows once the song is `delay` seconds past it.
+//! ([`LOCAL_DELAY`]); a network's come late, and its delay hides that:
+//! the whole field is drawn `delay` seconds behind the song (its notes
+//! scrolling, its moments, its shocks), so that a moment shows when its
+//! note reaches the receptors. A live stage's delay changes as its device
+//! measures the network (`ddi_room::live::delay`, [`FieldFeed::set_delay`]).
 //!
 //! The notes are those of the chart's tap-only copy the CPUs play
 //! (`ddi_engine::cpu::project`: holds and rolls as taps, mines, lifts
@@ -199,10 +202,10 @@ pub struct FeedShock {
     pub lane: u8,
     pub seconds: f64,
     displayed: f64,
-    /// Drawn from this song second on (its attack's commitment plus the
-    /// delay).
+    /// Drawn from this song second of the field's own time on (its
+    /// attack's commitment).
     pub shown_from: f64,
-    /// When it leaves the field: stepped on (its moment plus the delay).
+    /// When it leaves the field: stepped on (its moment), field time.
     pub gone: f64,
 }
 
@@ -211,7 +214,7 @@ pub struct FeedShock {
 pub struct FieldFeed {
     moments: Vec<Moment>,
     /// For each note of the track: when it leaves the field (its hit's
-    /// moment plus the delay), if it was hit.
+    /// moment, the field's own time), if it was hit.
     gone: Vec<f64>,
     /// The battle's shocks put into their play, in time order.
     shocks: Vec<FeedShock>,
@@ -230,8 +233,8 @@ pub struct FieldFeed {
 }
 
 impl FieldFeed {
-    /// A field of `track` starting at `life`, its moments drawn `delay`
-    /// seconds after they happened.
+    /// A field of `track` starting at `life`, drawn `delay` seconds
+    /// behind the song.
     pub fn new(track: &TapTrack, life: f32, delay: f64) -> FieldFeed {
         FieldFeed {
             moments: Vec::new(),
@@ -260,8 +263,9 @@ impl FieldFeed {
         let Some(lock) = self.lock else {
             return out;
         };
+        let v = self.view_time(t);
         for m in self.shown_moments(t).iter().rev() {
-            let since = t - (m.at + self.delay);
+            let since = v - m.at;
             if since >= lock {
                 break;
             }
@@ -279,6 +283,17 @@ impl FieldFeed {
         self.delay
     }
 
+    /// Draw it `delay` seconds behind the song from now (a live stage's
+    /// view delay, as its device measures the network).
+    pub fn set_delay(&mut self, delay: f64) {
+        self.delay = delay.max(0.0);
+    }
+
+    /// The field's own time at song second `t`: what it shows then.
+    pub fn view_time(&self, t: f64) -> f64 {
+        t - self.delay
+    }
+
     /// The moments received, in the order they happened.
     pub fn moments(&self) -> &[Moment] {
         &self.moments
@@ -290,8 +305,9 @@ impl FieldFeed {
     }
 
     /// An attack's shocks `cells` put into their play at song second `at`
-    /// (its commitment): drawn from the delay after it (on `track`'s
-    /// timing), as they scroll in.
+    /// (its commitment): drawn from then on the field's own time (the
+    /// delay after it on the song's), on `track`'s timing, as they scroll
+    /// in.
     pub fn add_hazards(&mut self, track: &TapTrack, cells: &[Hazard], at: f64) {
         for c in cells {
             let seconds = track.timing.seconds_at(c.tick);
@@ -300,7 +316,7 @@ impl FieldFeed {
                 lane: c.lane,
                 seconds,
                 displayed: track.timing.displayed_beat(c.tick.beat()),
-                shown_from: at + self.delay,
+                shown_from: at,
                 gone: f64::INFINITY,
             };
             let i = self.shocks.partition_point(|s| s.seconds <= seconds);
@@ -321,7 +337,7 @@ impl FieldFeed {
         match m.kind {
             MomentKind::Tap(j) if !j.is_miss() => {
                 if let Some(i) = track.find(m.tick, m.lane) {
-                    self.gone[i] = self.gone[i].min(m.at + self.delay);
+                    self.gone[i] = self.gone[i].min(m.at);
                 }
             }
             MomentKind::Tap(_) | MomentKind::Mark => {}
@@ -331,7 +347,7 @@ impl FieldFeed {
                     .iter_mut()
                     .find(|s| s.tick == m.tick && s.lane == m.lane)
                 {
-                    s.gone = s.gone.min(m.at + self.delay);
+                    s.gone = s.gone.min(m.at);
                 }
             }
         }
@@ -344,7 +360,8 @@ impl FieldFeed {
 
     /// The moments shown at song second `t`.
     fn shown_moments(&self, t: f64) -> &[Moment] {
-        let n = self.moments.partition_point(|m| m.at + self.delay <= t);
+        let v = self.view_time(t);
+        let n = self.moments.partition_point(|m| m.at <= v);
         &self.moments[..n]
     }
 
@@ -360,7 +377,7 @@ impl FieldFeed {
         Shown {
             life: last.map_or(self.life, |m| m.life),
             combo: last.map_or(0, |m| m.combo),
-            out: self.out_at + self.delay <= t,
+            out: self.out_at <= self.view_time(t),
         }
     }
 
@@ -370,9 +387,11 @@ impl FieldFeed {
     /// faded in at the far end and out a little past the receptors (a
     /// miniature has no edge to hide them behind), each lane's last
     /// judgment shown within [`FLASH_SECONDS`]. Out of the stage, no
-    /// notes, as a play's field goes blank.
+    /// notes, as a play's field goes blank. All of it the delay behind
+    /// the song (its frame's time is the field's own).
     pub fn frame(&self, track: &TapTrack, scroll: ScrollOptions, t: f64, range: f32) -> Frame {
-        let state = ScrollState::at(scroll, &track.timing, t);
+        let v = self.view_time(t);
+        let state = ScrollState::at(scroll, &track.timing, v);
         let shown = self.shown_moments(t);
         let out = shown.iter().any(|m| m.out);
         let mut receptors = vec![
@@ -385,7 +404,7 @@ impl FieldFeed {
             usize::from(track.lanes)
         ];
         for m in shown.iter().rev() {
-            let age = (t - (m.at + self.delay)) as f32;
+            let age = (v - m.at) as f32;
             if age > FLASH_SECONDS {
                 break;
             }
@@ -402,13 +421,13 @@ impl FieldFeed {
         if !out {
             // From a second back (a missed note still in sight) to the
             // first one past the far end.
-            let from = track.notes.partition_point(|n| n.seconds < t - 1.0);
+            let from = track.notes.partition_point(|n| n.seconds < v - 1.0);
             for (i, n) in track.notes.iter().enumerate().skip(from) {
                 let y = state.y_displayed(n.displayed, n.seconds);
-                if y > range && n.seconds > t {
+                if y > range && n.seconds > v {
                     break;
                 }
-                if self.gone[i] <= t || y > range || y < -0.6 {
+                if self.gone[i] <= v || y > range || y < -0.6 {
                     continue;
                 }
                 let alpha = ((range - y) / 0.8).min((y + 0.6) / 0.6).clamp(0.0, 1.0);
@@ -430,7 +449,7 @@ impl FieldFeed {
             // The battle's shocks: from their commitment, until stepped
             // on; avoided ones scroll on past the receptors.
             for (i, s) in self.shocks.iter().enumerate() {
-                if s.shown_from > t || s.gone <= t {
+                if s.shown_from > v || s.gone <= v {
                     continue;
                 }
                 let y = state.y_displayed(s.displayed, s.seconds);
@@ -457,7 +476,7 @@ impl FieldFeed {
         let life = shown.last().map_or(self.life, |m| m.life);
         let combo = shown.last().map_or(0, |m| m.combo);
         Frame {
-            song_time: t,
+            song_time: v,
             beat: state.beat(),
             note_motion: state.note_motion(&track.timing),
             roll_window_seconds: 0.0,
@@ -491,6 +510,7 @@ impl FieldFeed {
         range: f32,
     ) -> Frame {
         let mut frame = self.frame(track, scroll, t, range);
+        let v = self.view_time(t);
         let shown = self.shown_moments(t);
         frame.score = shown.last().map(|m| m.score).unwrap_or_default();
         frame.judgement = shown
@@ -500,7 +520,7 @@ impl FieldFeed {
                 MomentKind::Tap(judgement) => Some(JudgementFlash {
                     judgement,
                     delta_seconds: f64::from(m.offset),
-                    age: (t - (m.at + self.delay)).max(0.0) as f32,
+                    age: (v - m.at).max(0.0) as f32,
                     combo_at: m.combo,
                     w0: m.w0,
                     boo: false,
