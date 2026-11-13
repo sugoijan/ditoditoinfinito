@@ -123,11 +123,12 @@ fn scrolled(first: usize, by: i32, len: usize, fit: usize) -> usize {
 }
 
 /// The defaults Reset restores: practice's rules and starting CPUs (from
-/// the room's seed), or a hosted room's.
+/// the room's seed), or a hosted room's (`MatchRules::hosted_for`: Attacks
+/// On where the room plays live).
 fn defaults(room: &SharedRoom) -> MatchRules {
     let r = room.borrow();
     if r.is_online() {
-        return MatchRules::hosted();
+        return MatchRules::hosted_for(&r.state().policy);
     }
     let seed = r.state().next.rules.cpu.opponent.seed;
     let rules = crate::state::room::practice_rules(OpponentSpec {

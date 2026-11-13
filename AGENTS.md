@@ -989,8 +989,9 @@ Rust and the browser are implementation details, not advertised features.
   `Run::Live` and `ReportedRun::Live`;
   `GaugeAttacksV0`, the same with attacks, chosen by the match's Attacks
   rule, `MatchRules::attacks`, On by default where attacks are offered
-  (`MatchRules::practice`; a hosted room's rules name no battle with
-  them, and a room that offers none plays none whatever its rules say,
+  (`MatchRules::practice`; a hosted room's, `MatchRules::hosted_for`,
+  where it plays live, else none; a room that offers none plays none
+  whatever its rules say,
   `ddi_ui`'s `RoomClient::attacks_played`); a member's own attack policy, `Member::targeting`
   (Spread until they choose; `Command::SetTargeting`, taken outside a
   stage's play, nobody's readiness cleared; a CPU's its

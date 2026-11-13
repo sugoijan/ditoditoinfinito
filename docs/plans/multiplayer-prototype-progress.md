@@ -4328,6 +4328,36 @@ create a Watch-only link". Built as a second invite beside the room's.
   room's own invite unchanged, both replaced together, expiry).
 - **Needs the server's deploy.**
 
+### Attacks On by default in a private room that plays live (2026-11-13)
+
+The maintainer: "I think Attacks should be on by default on private
+rooms."
+
+- **Where the default lives**: `ddi_room::MatchRules::hosted_for(policy)`:
+  `MatchRules::hosted` with the Attacks rule On where the room's policy
+  plays live (`RoomPolicy::live`: its authority runs the attack ledger),
+  as practice's (`MatchRules::practice`); Off where it does not. The
+  server makes a new room's rules with it (`RoomCore::create`), as
+  `FakeServer::hosted` does; Rules' Reset in an online room restores it
+  (`room_dialogs::defaults`). The host still turns them Off in Rules.
+- **What is played follows what really runs**, unchanged: a room that
+  does not play live (a server from before live play, or a room made
+  there) plays without attacks and says so ("Off · not in online rooms
+  yet") whatever its stored rule says (`RoomClient::attacks_played`,
+  `attacks_offered`), and its stage's battle is survival.
+- **Rooms made before**: their stored rules stay as they were (a live
+  room made before the server's deploy has Attacks Off, its hosted
+  default then, until its host turns them On; Reset there now gives On).
+  Nothing flips a stored rule.
+- **Summaries**: they say only what differs from the default, so a live
+  room's rules with Attacks Off read "DDI · No attacks", as practice's.
+- **Needs the server's deploy** for new rooms to start with them On.
+- Tested: `ddi-room` (`hosted_for` with and without live play, the fake
+  server's rooms), `ddi-ui` over the fake room (a live room's Rules On
+  by default, Off applied and summarized "No attacks", Reset back to On;
+  the non-live room's row as before), `../ddi-server` (a new room plays
+  live with Attacks On).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -4429,7 +4459,7 @@ create a Watch-only link". Built as a second invite beside the room's.
 | The match's ruleset is DDI alone (the DDI ruleset's round 3; `itg-fa+` and six more until then, whose ids are still read and played as DDI), its Difficulty (Normal by default) and Boos (Off) match rules; never Practice; fail immediate | `ddi_room::MatchRules::{ruleset, difficulty, boos}`, `ruleset_id`, `ddi_session::battle::stage_ruleset` | Everyone's stage plays DDI under the match's difficulty and Boos, whatever their own options say | The defaults; whether a match should be able to mix difficulties (a handicap) |
 | `attacks-v0`: a bar of 100, an attack 100, checkpoints every four beats from beat 4 to four beats past the last note; overflow lost | `ddi_room::attacks::ATTACKS_V0`, `AttackRunner::new` | The bar moves in steps every four beats and fills from about 50 best-window notes | The bar's size and the checkpoint's beat count |
 | `power-classes-v0`: the best window 2, the next 1, the rest 0, for every match ruleset (D2); DDI's W0 and W1 2 (±16.67 ms on Normal), W2 1 | `ddi_room::attacks::POWER_CLASSES_V0` | A bar fills from 50 notes in the top class: a strong CPU fills about three and a half a minute on the bundled charts, a one-star CPU one (the round's tables) | The classes, the bar's size and an attack's cost, from the measured rates |
-| Attacks are a match rule, On by default where they are offered (CPU practice: `gauge-attacks-v0`; Off by default until M8 round 3); an online room shows them as not there yet and plays none whatever its rules say | `ddi_room::MatchRules::practice`, `attacks`, `ddi_ui`'s `RoomClient::attacks_played`, `screens::room::attacks_offered`; conveniences `mpattacks=0` (Off), `--mp-attacks` and `mpattacks=1` (redundant) | A practice match has attacks unless someone turns them off in Rules; an online host cannot turn them on | Online attacks |
+| Attacks are a match rule, On by default where they are offered (CPU practice: `gauge-attacks-v0`; Off by default until M8 round 3; a private online room that plays live since 2026-11-13, `MatchRules::hosted_for`); an online room that does not play live shows them as not there yet and plays none whatever its rules say | `ddi_room::MatchRules::practice`, `hosted_for`, `attacks`, `ddi_ui`'s `RoomClient::attacks_played`, `screens::room::attacks_offered`; conveniences `mpattacks=0` (Off), `--mp-attacks` and `mpattacks=1` (redundant) | A practice match and a new live room's match have attacks unless the host turns them off in Rules | Whether a public room (later) should too |
 | A shock is a mine under DDI: −5 life on Normal (−1 Easy, −10 Hard), −10 points, the combo, the floors, the lamp, and its lane locked a second; `injected-mine-v0` (the ruleset's miss to the gauge alone) only under a ruleset without the lock, which no room plays | `ddi_engine::Player::shock_is_mine`, `ddi_engine::battle::INJECTED_MINE_V0` | A shock stepped on costs what a chart's mine costs and a second of its lane | The lock's second and the mine's cost (DDI's *tune* values) |
 | `placement-v1`: eight shocks over eight beats from a checkpoint, the eighths then the sixteenths, at most two a beat, one a row; margins about each step of the lane: none within 0.25 s after it nor within W3 before it, none from a hold's or roll's head to 0.25 s past its end, none from 1 s before a lift (`placement-v0`'s clearances by windows kept for comparison) | `ddi_engine::battle::PLACEMENT`, `Clearance::Margins` | Where the shocks fall: a shock may sit a sixteenth before a note of its lane from 150 BPM on, where a press more than half of W3 early steps on it | The 0.25 s; whether "before" should be W3 plus the mine window; whether sixteenths are acceptable |
 | Development trigger: the first safe section from a beat in each practice stage, its seed the stage's id | `--mp-dev-mines`, `mpdevmines=`, `ddi_session::battle::dev_shocks` | Only through the switch | Replaced by the attack loop (S4) |

@@ -412,6 +412,22 @@ impl MatchRules {
         }
     }
 
+    /// A hosted room's starting rules under `policy`, and what Rules'
+    /// Reset restores there: [`MatchRules::hosted`], with the Attacks rule
+    /// On where the room plays live (`RoomPolicy::live`: its authority
+    /// runs the attack ledger), as practice has it (the maintainer,
+    /// 2026-11-13: "Attacks should be on by default on private rooms").
+    /// Off where it does not, which plays none whatever the rule says.
+    /// Only a new room starts so: a room's stored rules stay as its host
+    /// left them.
+    pub fn hosted_for(policy: &RoomPolicy) -> Self {
+        let mut rules = Self::hosted();
+        if policy.live.is_some() {
+            rules.set_attacks(true);
+        }
+        rules
+    }
+
     /// How many CPUs a match with `humans` admitted people would seat.
     pub fn cpu_seats(&self, humans: usize) -> usize {
         match self.cpu.mode {

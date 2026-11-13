@@ -3394,3 +3394,83 @@ fn a_stages_results_ask_before_the_game_closes_and_say_the_stage_was_left() {
     assert!(!asked(&h));
     assert_eq!(quits(&h), 1);
 }
+
+/// A private online room that plays live (the maintainer, 2026-11-13):
+/// its Rules show Attacks On by default, the host turns them Off (the
+/// summary then says "No attacks") and Reset (the Rules' first form)
+/// brings them back On. A room
+/// that does not play live keeps its row as before (tested above).
+#[test]
+fn a_live_online_rooms_attacks_are_on_by_default_and_reset_brings_them_back() {
+    use super::room::rules_words;
+    use crate::state::online::tests::room::{client, person, song, tick};
+    use crate::state::room::StageRules;
+    use ddi_room::fake::FakeServer;
+    use ddi_room::{Identity, Intent, ManualClock, RoomPolicy};
+    let clock = ManualClock::new(1_000);
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy::default().with_live(),
+        clock.clone(),
+    )
+    .shared();
+    server
+        .borrow_mut()
+        .join(Identity::new("dev:bob"), "bob", Intent::Play)
+        .unwrap();
+    assert!(server.borrow().state().next.rules.attacks());
+    let alice = Rc::new(RefCell::new(client(
+        &server,
+        person(&server, "alice"),
+        "alice",
+        1_000,
+    )));
+    let step = |ms: u64| tick(&clock, &mut [&mut alice.borrow_mut()], ms);
+    let ea = env();
+    let orders = Orders::default();
+    let mut data = library("dance-single");
+    data.songs.insert(0, song());
+    let uploads = Uploads::default();
+    let mut ha = harness();
+    ha.push(
+        sample::room_select(&ea, alice.clone(), data)
+            .with_room(alice.clone(), shell_with(&alice, &orders, &uploads)),
+    );
+    step(400);
+    step(400);
+    ha.run(0.3);
+    assert!(alice.borrow().plays_live());
+    assert!(view(&ea).attacks_offered);
+    assert!(alice.borrow().attacks_on());
+    press(&mut ha, "Room.Rules");
+    assert_eq!(said(&ha, "Rule.attacks.Value"), "On");
+    press(&mut ha, "Dec.attacks");
+    assert_eq!(said(&ha, "Rule.attacks.Value"), "Off");
+    press(&mut ha, "Apply");
+    step(200);
+    step(200);
+    ha.run(0.3);
+    assert!(!alice.borrow().attacks_on());
+    assert!(!server.borrow().state().next.rules.attacks());
+    let words = {
+        let r = alice.borrow();
+        String::from(rules_words(
+            &StageRules::of(r.rules()),
+            r.attacks_offered().then(|| r.rules().attacks()),
+        ))
+    };
+    assert_eq!(words, "DDI · No attacks");
+    // Reset (the Rules' first form, under the hidden option): On again.
+    ha.push(super::room_dialogs::RulesDialog::first(ea.clone(), alice.clone()));
+    ha.run(0.5);
+    assert_eq!(said(&ha, "Rule.attacks.Value"), "Off");
+    press(&mut ha, "Reset");
+    assert_eq!(said(&ha, "Rule.attacks.Value"), "On");
+    press(&mut ha, "Ok");
+    step(200);
+    step(200);
+    ha.run(0.3);
+    assert!(alice.borrow().attacks_on());
+}

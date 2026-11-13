@@ -163,8 +163,8 @@ pub struct FakeServer {
 pub type SharedFake = Rc<RefCell<FakeServer>>;
 
 impl FakeServer {
-    /// A hosted room (as the server makes one: `MatchRules::hosted`,
-    /// content shared) owned by `owner`, not connected yet.
+    /// A hosted room (as the server makes one: `MatchRules::hosted_for`
+    /// its policy, content shared) owned by `owner`, not connected yet.
     pub fn hosted(
         room: &str,
         owner: Identity,
@@ -172,12 +172,13 @@ impl FakeServer {
         policy: RoomPolicy,
         clock: ManualClock,
     ) -> Self {
+        let rules = MatchRules::hosted_for(&policy);
         let state = RoomState::new(
             RoomId::new(room),
             owner,
             name.into(),
             policy,
-            MatchRules::hosted(),
+            rules,
             ContentSource::Shared,
         );
         let mut fake = Self::with_state(state, clock);

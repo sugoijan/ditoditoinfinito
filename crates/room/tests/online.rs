@@ -1518,3 +1518,31 @@ fn a_watch_only_join_is_held_alike_everywhere_until_the_owner_lets_them_play() {
     assert_eq!(fan.answer(seq), Some(&None));
     assert_eq!(server.borrow().state().member(id).unwrap().intent, Intent::Play);
 }
+
+/// A hosted room's default Attacks rule follows what it really plays: On
+/// where the room plays live (as practice's), Off where it does not; the
+/// fake server makes its rooms as the server does.
+#[test]
+fn a_hosted_rooms_attacks_are_on_by_default_only_where_it_plays_live() {
+    let live = RoomPolicy::default().with_live();
+    assert!(MatchRules::hosted_for(&live).attacks());
+    assert!(!MatchRules::hosted_for(&RoomPolicy::default()).attacks());
+    assert_eq!(
+        MatchRules::hosted_for(&RoomPolicy::default()),
+        MatchRules::hosted()
+    );
+    let mut on = MatchRules::hosted();
+    on.set_attacks(true);
+    assert_eq!(MatchRules::hosted_for(&live), on, "nothing else differs");
+    let clock = ManualClock::new(1_000);
+    for (policy, attacks) in [(live, true), (RoomPolicy::default(), false)] {
+        let server = FakeServer::hosted(
+            ROOM,
+            Identity::new("dev:alice"),
+            "Alice",
+            policy,
+            clock.clone(),
+        );
+        assert_eq!(server.state().next.rules.attacks(), attacks);
+    }
+}
