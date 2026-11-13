@@ -212,7 +212,9 @@ async fn send(request: &ApiRequest) -> ApiResponse {
 }
 
 /// A room's socket: the browser's `WebSocket` on
-/// `<api>/sockets/<id>/ws?ticket=` (`ws:` or `wss:` as the API's scheme).
+/// `<api>/sockets/<id>/ws?ticket=` (`ws:` or `wss:` as the API's scheme),
+/// text both ways and binary (live play's batches and frames) as
+/// `ArrayBuffer`s.
 #[derive(Default)]
 struct WebSocketTransport {
     socket: Option<Socket>,
@@ -281,10 +283,16 @@ impl Transport for WebSocketTransport {
         let (events, now) = (self.events.clone(), current.clone());
         let message =
             Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |e: web_sys::MessageEvent| {
-                if now()
-                    && let Some(text) = e.data().as_string()
-                {
+                if !now() {
+                    return;
+                }
+                let data = e.data();
+                if let Some(text) = data.as_string() {
                     events.borrow_mut().push_back(TransportEvent::Text(text));
+                } else if let Some(buffer) = data.dyn_ref::<js_sys::ArrayBuffer>() {
+                    // Live play's frames (`ddi_room::live::wire`).
+                    let bytes = js_sys::Uint8Array::new(buffer).to_vec();
+                    events.borrow_mut().push_back(TransportEvent::Binary(bytes));
                 }
             });
         let (events, now) = (self.events.clone(), current);
@@ -296,6 +304,8 @@ impl Transport for WebSocketTransport {
                         .push_back(TransportEvent::Closed { code: e.code() });
                 }
             });
+        // Binary messages as `ArrayBuffer`s, read at once (not `Blob`s).
+        ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
         ws.set_onopen(Some(open.as_ref().unchecked_ref()));
         ws.set_onmessage(Some(message.as_ref().unchecked_ref()));
         ws.set_onclose(Some(close.as_ref().unchecked_ref()));
@@ -313,6 +323,18 @@ impl Transport for WebSocketTransport {
         {
             let _ = s.ws.send_with_str(&text);
         }
+    }
+
+    fn send_binary(&mut self, bytes: Vec<u8>) {
+        if let Some(s) = &self.socket
+            && s.ws.ready_state() == web_sys::WebSocket::OPEN
+        {
+            let _ = s.ws.send_with_u8_array(&bytes);
+        }
+    }
+
+    fn binary(&self) -> bool {
+        true
     }
 
     fn close(&mut self) {

@@ -49,6 +49,7 @@ web-sys = { workspace = true, features = [
     "AudioParam",
     "AudioScheduledSourceNode",
     "BaseAudioContext",
+    "BinaryType",
     "Blob",
     "BlobPropertyBag",
     "CanvasRenderingContext2d",

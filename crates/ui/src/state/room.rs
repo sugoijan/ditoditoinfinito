@@ -710,6 +710,10 @@ pub struct RoomClient {
     /// The question before leaving is open on a screen of this room
     /// ([`RoomClient::asking_leave`]).
     asking: Rc<std::cell::Cell<bool>>,
+    /// The live side's news for the stage played live here, while one is
+    /// ([`RoomClient::take_live_news`]).
+    live_news: Vec<ddi_room::live::LiveNews>,
+    live_reader: bool,
 }
 
 /// The room shared by the screens that show it (the room, its song
@@ -837,6 +841,8 @@ impl RoomClient {
             details: BTreeMap::new(),
             summaries: BTreeMap::new(),
             asking: Rc::default(),
+            live_news: Vec::new(),
+            live_reader: false,
         };
         room.pump();
         room
@@ -894,6 +900,8 @@ impl RoomClient {
             details: BTreeMap::new(),
             summaries: BTreeMap::new(),
             asking: Rc::default(),
+            live_news: Vec::new(),
+            live_reader: false,
         };
         room.tick(now_ms);
         room
@@ -939,6 +947,38 @@ impl RoomClient {
     /// Whether this is an online room.
     pub fn is_online(&self) -> bool {
         matches!(self.link, Link::Online(_))
+    }
+
+    /// Whether this online room plays its stages live
+    /// (`docs/plans/multiplayer-online-play.md`): its policy says so
+    /// (`RoomPolicy::live`, a server that predates it says nothing) and
+    /// the shell's socket carries binary messages. Practice: never (its
+    /// stages are played on this device).
+    pub fn plays_live(&self) -> bool {
+        let Some(l) = self.online_link() else {
+            return false;
+        };
+        l.authority.transport().binary()
+            && self
+                .state()
+                .policy
+                .live
+                .as_ref()
+                .and_then(|p| p.rules())
+                .is_some()
+    }
+
+    /// The live link of an online room's socket (`ddi_room::live`): the
+    /// room's clock, the frames read.
+    pub fn live_link(&self) -> Option<&ddi_room::live::LiveLink> {
+        self.online_link().map(|l| l.authority.live())
+    }
+
+    /// The room's time now on its own clock, as estimated from this
+    /// device's (an online room's that plays live, once its clock is
+    /// known).
+    pub fn room_now(&self) -> Option<ddi_room::Millis> {
+        self.online_link().and_then(|l| l.authority.room_now())
     }
 
     /// The online link's state (practice: always connected).
@@ -1236,6 +1276,7 @@ impl RoomClient {
         self.take_grants();
         self.read_inbox();
         self.pump();
+        self.read_live();
         self.tell_spotlight();
         if self.link_state() != before {
             self.version += 1;
@@ -2431,12 +2472,46 @@ impl RoomClient {
                 ));
             }
         }
-        if let Link::Online(l) = &self.link
-            && let Some(m) = self.state().member_by_identity(l.identity())
-        {
-            self.me = m.id;
+        let found = match &self.link {
+            Link::Online(l) => self.state().member_by_identity(l.identity()).map(|m| m.id),
+            Link::Local(_) => None,
+        };
+        if let Some(id) = found {
+            self.me = id;
+            // Live play reads its stream's acknowledgements from this
+            // participant's frame entries.
+            if let Link::Online(l) = &mut self.link {
+                l.authority.live_mut().set_me(id);
+            }
         }
         answer
+    }
+
+    /// What the room's live side said since the last tick: kept for the
+    /// stage being played, which reads it (`take_live_news`); nothing is
+    /// kept while no stage is played live here, so that it never piles up.
+    fn read_live(&mut self) {
+        let Link::Online(l) = &mut self.link else {
+            return;
+        };
+        let news = l.authority.live_mut().take_news();
+        if self.live_reader {
+            self.live_news.extend(news);
+        }
+    }
+
+    /// The room's live news (frames, snapshots, refusals) since the last
+    /// call, for the stage played live on this device; asking for it keeps
+    /// it coming ([`Self::stop_live_news`] stops it).
+    pub fn take_live_news(&mut self) -> Vec<ddi_room::live::LiveNews> {
+        self.live_reader = true;
+        std::mem::take(&mut self.live_news)
+    }
+
+    /// The stage played live here is over: its news is no longer kept.
+    pub fn stop_live_news(&mut self) {
+        self.live_reader = false;
+        self.live_news.clear();
     }
 
     /// Practice's content is the device's own library: every unstarted

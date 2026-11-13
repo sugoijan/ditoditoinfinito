@@ -255,15 +255,23 @@ fn send(url: &str, request: &ApiRequest) -> ApiResponse {
 }
 
 /// A room's socket on a thread of its own: tungstenite over the system's
-/// TLS (native-tls, as the HTTP), `<api>/sockets/<id>/ws?ticket=`.
+/// TLS (native-tls, as the HTTP), `<api>/sockets/<id>/ws?ticket=`; text
+/// both ways and binary (live play's batches and frames).
 #[derive(Default)]
 pub struct SocketTransport {
     base: Option<String>,
     socket: Option<Running>,
 }
 
+/// What the game puts on the socket.
+enum Outgoing {
+    Text(String),
+    Binary(Vec<u8>),
+    Close,
+}
+
 struct Running {
-    out: Sender<Option<String>>,
+    out: Sender<Outgoing>,
     events: Receiver<TransportEvent>,
 }
 
@@ -311,13 +319,23 @@ impl Transport for SocketTransport {
 
     fn send(&mut self, text: String) {
         if let Some(s) = &self.socket {
-            let _ = s.out.send(Some(text));
+            let _ = s.out.send(Outgoing::Text(text));
         }
+    }
+
+    fn send_binary(&mut self, bytes: Vec<u8>) {
+        if let Some(s) = &self.socket {
+            let _ = s.out.send(Outgoing::Binary(bytes));
+        }
+    }
+
+    fn binary(&self) -> bool {
+        true
     }
 
     fn close(&mut self) {
         if let Some(s) = self.socket.take() {
-            let _ = s.out.send(None);
+            let _ = s.out.send(Outgoing::Close);
         }
     }
 
@@ -342,10 +360,15 @@ impl Drop for SocketTransport {
     }
 }
 
+/// How long the socket's thread waits for a message before it looks at
+/// what the game wants sent: short, as a live ping waits this long at most
+/// on its way out (the clock's estimate takes the round trip).
+const READ_WAIT: Duration = Duration::from_millis(10);
+
 /// The socket's thread: connect, then read (a short timeout at a time)
-/// and write what comes from the game, until either side closes. `None`
-/// from the game closes it.
-fn run_socket(url: &str, out: &Receiver<Option<String>>, events: &Sender<TransportEvent>) {
+/// and write what comes from the game, until either side closes.
+/// [`Outgoing::Close`] from the game closes it.
+fn run_socket(url: &str, out: &Receiver<Outgoing>, events: &Sender<TransportEvent>) {
     use tungstenite::Message;
     use tungstenite::stream::MaybeTlsStream;
     let closed = |code: u16| {
@@ -364,18 +387,24 @@ fn run_socket(url: &str, out: &Receiver<Option<String>>, events: &Sender<Transpo
         _ => None,
     };
     if let Some(tcp) = tcp {
-        let _ = tcp.set_read_timeout(Some(Duration::from_millis(50)));
+        let _ = tcp.set_read_timeout(Some(READ_WAIT));
+        let _ = tcp.set_nodelay(true);
     }
     let _ = events.send(TransportEvent::Opened);
     loop {
         loop {
             match out.try_recv() {
-                Ok(Some(text)) => {
+                Ok(Outgoing::Text(text)) => {
                     if ws.send(Message::text(text)).is_err() {
                         return closed(1006);
                     }
                 }
-                Ok(None) | Err(TryRecvError::Disconnected) => {
+                Ok(Outgoing::Binary(bytes)) => {
+                    if ws.send(Message::binary(bytes)).is_err() {
+                        return closed(1006);
+                    }
+                }
+                Ok(Outgoing::Close) | Err(TryRecvError::Disconnected) => {
                     let _ = ws.close(None);
                     let _ = ws.flush();
                     return;
@@ -386,6 +415,9 @@ fn run_socket(url: &str, out: &Receiver<Option<String>>, events: &Sender<Transpo
         match ws.read() {
             Ok(Message::Text(t)) => {
                 let _ = events.send(TransportEvent::Text(t.to_string()));
+            }
+            Ok(Message::Binary(b)) => {
+                let _ = events.send(TransportEvent::Binary(b.to_vec()));
             }
             Ok(Message::Close(frame)) => {
                 let code = frame.map_or(1005, |f| u16::from(f.code));
