@@ -841,11 +841,27 @@ mod tests {
 
     /// A stage's play stepping down its ladder (a match's "At zero life:
     /// Step down"), nothing pressed, the hand beside it at 120 and at 8
-    /// frames a second (8 also on the real clock, as the desktop's
-    /// offscreen stage runs): it plays out what it was given, rests, and
-    /// is shown to the play's end, never failing.
+    /// frames a second on a clock of the test's own: it plays out what it
+    /// was given, rests, and is shown to the play's end, never failing.
     #[test]
     fn the_hand_plays_on_through_a_step_down() {
+        hand_through_a_step_down(&[(120., 0.0000005), (8., 0.0000005)]);
+    }
+
+    /// The same at 8 frames a second on the real clock, as the desktop's
+    /// offscreen stage runs. What the hand prepares in a frame then
+    /// depends on the machine's speed (a slow one misses the planner's
+    /// deadline, which hides the hand and never blocks the play), so it
+    /// is run by hand, not in CI.
+    #[test]
+    #[ignore = "depends on the machine's speed: the real clock"]
+    fn the_hand_plays_on_through_a_step_down_on_the_real_clock() {
+        hand_through_a_step_down(&[(8., -1.)]);
+    }
+
+    /// Each case a frame rate and what a read of the clock costs in
+    /// seconds (negative: the real clock).
+    fn hand_through_a_step_down(cases: &[(f64, f64)]) {
         let dir =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs/beatucada");
         let path = std::fs::read_dir(dir)
@@ -866,7 +882,7 @@ mod tests {
             })
             .unwrap();
         let real = std::time::Instant::now();
-        for (fps, read) in [(120., 0.0000005), (8., 0.0000005), (8., -1.)] {
+        for &(fps, read) in cases {
             let mut rules =
                 ddi_engine::rules::ddi::ruleset(&ddi_engine::rules::ddi::DdiOptions::default());
             rules.fail = ddi_engine::FailPolicy::Immediate;

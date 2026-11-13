@@ -274,8 +274,14 @@ mod tests {
         let Claim::Theirs(other) = claim(&dir) else {
             panic!("locked twice");
         };
-        assert_eq!(other.pid, Some(std::process::id()));
-        assert!(other.started.is_some_and(|s| s > 1_700_000_000));
+        if cfg!(windows) {
+            // Windows refuses another handle's reads of a locked file:
+            // who has the folder is unknown there.
+            assert_eq!(other, Other::default());
+        } else {
+            assert_eq!(other.pid, Some(std::process::id()));
+            assert!(other.started.is_some_and(|s| s > 1_700_000_000));
+        }
         // Still refused: asking changed nothing.
         assert!(matches!(claim(&dir), Claim::Theirs(_)));
         drop(first);
@@ -285,7 +291,9 @@ mod tests {
         let again = ours(&dir);
         drop(again);
         std::fs::write(dir.join(FILE), "pid 1\nstarted 5\n").unwrap();
-        let _stale = ours(&dir);
+        // (Read once the lock is gone: Windows refuses reads of a locked
+        // file.)
+        drop(ours(&dir));
         assert_eq!(
             Other::read(&std::fs::read_to_string(dir.join(FILE)).unwrap()).pid,
             Some(std::process::id())

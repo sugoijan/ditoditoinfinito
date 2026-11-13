@@ -151,7 +151,14 @@ fn a_second_app_on_one_folder_does_not_start_until_the_first_is_gone() {
         line.contains(&home.join("config").display().to_string()),
         "{line}"
     );
-    assert!(line.contains(&format!("process {pid},")), "{line}");
+    if cfg!(windows) {
+        // Windows refuses reads of a locked file: the line cannot name
+        // the process there.
+        let _ = pid;
+        assert!(line.contains("(another process)"), "{line}");
+    } else {
+        assert!(line.contains(&format!("process {pid},")), "{line}");
+    }
     // Still the first's: asking changed nothing.
     let third = App::start(&home, "--play song --auto", false);
     assert_eq!(third.ended().0, Some(instance::EXIT_RUNNING));
