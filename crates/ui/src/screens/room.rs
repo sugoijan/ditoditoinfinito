@@ -1090,14 +1090,19 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
         if r.invite_link().is_some() {
             items.push(("copy".to_string(), m::copy_invite().into()));
         }
-        if r.watch_invite_link().is_some() {
+        // The watch-only link is kept but hidden (the maintainer,
+        // 2026-11-13): its Copy only under the hidden option
+        // (`Settings::multiplayer_watch_link`).
+        if r.watch_invite_link().is_some()
+            && crate::state::settings::Settings::cached().multiplayer_watch_link
+        {
             items.push((MORE_COPY_WATCH.to_string(), m::copy_watch_invite().into()));
         }
         if r.audience_invite_link().is_some() {
             items.push((MORE_COPY_AUDIENCE.to_string(), m::copy_audience_invite().into()));
         }
-        if r.invite_link().is_some() && r.may(Capability::ChangeAccess) {
-            items.push(("rotate".to_string(), m::replace_invite().into()));
+        if r.may_replace_invite() {
+            items.push((MORE_REPLACE_INVITE.to_string(), m::replace_invite().into()));
         }
         if r.state()
             .upcoming_stage()
@@ -1113,6 +1118,25 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
 /// More's Copy watch-only link (an operator's, from a server that makes
 /// one).
 const MORE_COPY_WATCH: &str = "copywatch";
+
+/// More's Replace invite link (an operator's, round B1), asked once.
+pub const MORE_REPLACE_INVITE: &str = "rotate";
+
+/// The question before the invite is replaced: it cannot be undone, and
+/// the watch-only and audience links change with it.
+pub fn ask_replace_invite(env: &Env, room: &SharedRoom, cx: &mut Cx) {
+    let room = room.clone();
+    cx.overlay(
+        super::dialog::ConfirmDialog::new(
+            env.clone(),
+            &m::replace_invite_title(),
+            &m::replace_invite_body(),
+            &m::replace_invite(),
+            std::rc::Rc::new(move |_| room.borrow_mut().rotate_invite()),
+        ),
+        true,
+    );
+}
 
 /// More's Copy audience link (an operator's, where the room has an
 /// audience).
@@ -1158,6 +1182,8 @@ pub fn open_more(env: &Env, room: &SharedRoom, compact: bool, cx: &mut Cx) {
 pub enum MoreAction {
     Rules,
     Players,
+    /// Replace invite link: asked once first ([`ask_replace_invite`]).
+    ReplaceInvite,
     /// Leave room: asked first where it costs something ([`leave`]).
     Leave,
     /// Done here (or nothing): the screen redraws.
@@ -1395,7 +1421,8 @@ pub fn more_picked(id: &str, room: &SharedRoom, cx: &mut Cx) -> MoreAction {
                     .set_link_notice(Some(LinkNotice::AudienceInviteCopied));
             }
         }
-        "rotate" => room.borrow_mut().rotate_invite(),
+        // Asked once: it cannot be undone.
+        MORE_REPLACE_INVITE => return MoreAction::ReplaceInvite,
         "signin" => room.borrow_mut().sign_in_again(),
         "retry" => {
             let up = room.borrow().state().upcoming_stage();
@@ -2037,7 +2064,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
             admin: r.my_role().is_some_and(|(_, a)| a),
             invite: r.invite_link(),
             can_invite: r.invite_link().is_some(),
-            can_rotate: r.invite_link().is_some() && r.may(Capability::ChangeAccess),
+            can_rotate: r.may_replace_invite(),
         }),
         ..RoomView::default()
     };

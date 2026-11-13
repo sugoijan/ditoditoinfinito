@@ -58,6 +58,22 @@ impl Http for RoomHttp {
                     Err(_) => no(403, "not_a_member"),
                 }
             }
+            // The room's invite, read and replaced by its operators.
+            (_, p) if p == format!("{room}/invite") => {
+                let operator = self
+                    .server
+                    .borrow()
+                    .state()
+                    .member_by_identity(&identity)
+                    .is_some_and(|m| m.admin || matches!(m.role, Role::Owner | Role::CoHost));
+                if operator {
+                    ok(format!(
+                        r#"{{"invite":"{ROOM}.invite","watch_invite":"{ROOM}.watch","expires_at_ms":9,"admission":"open"}}"#
+                    ))
+                } else {
+                    no(403, "not_an_operator")
+                }
+            }
             (Method::Post, p) if p == format!("{room}/grant") => {
                 let operator = self
                     .server

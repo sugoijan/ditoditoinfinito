@@ -1573,13 +1573,31 @@ impl RoomClient {
     }
 
     /// Whether the local player may close and open the room's audience
-    /// (the owner's, as the room's access is: `Capability::ChangeAccess`).
+    /// (an operator's: `Capability::CloseAudience`, round B1).
     pub fn may_close_audience(&self) -> bool {
-        self.has_audience() && self.may(Capability::ChangeAccess)
+        self.has_audience() && self.may(Capability::CloseAudience)
     }
 
-    /// The owner closes (every seat sent away, joins refused) or opens the
-    /// room's audience. Nothing is sent where it may not be.
+    /// Whether the local player has Host options: the owner always
+    /// ([`RoomClient::manages_hosts`]); a co-host (or an administrator)
+    /// while there is something an operator may do there (round B1: the
+    /// audience's row, Let play for someone held to watching), never the
+    /// owner's own rows (co-hosts, the host, what the room does if its
+    /// host leaves).
+    pub fn may_host_options(&self) -> bool {
+        self.manages_hosts()
+            || (self.is_online()
+                && self.link_state() == LinkState::Connected
+                && self.may(Capability::LetPlay)
+                && (self.may_close_audience()
+                    || self
+                        .other_people()
+                        .iter()
+                        .any(|m| m.watch_only && m.role != Role::Owner)))
+    }
+
+    /// An operator closes (every seat sent away, joins refused) or opens
+    /// the room's audience. Nothing is sent where it may not be.
     pub fn set_audience_open(&mut self, open: bool) {
         if !self.may_close_audience() {
             return;
@@ -1605,14 +1623,15 @@ impl RoomClient {
             .is_some_and(|m| m.watch_only && m.role != Role::Owner)
     }
 
-    /// The owner lets `participant`, held to watching, play
-    /// (`Command::SetWatchOnly`): they choose Play themselves after.
+    /// An operator (the owner, a co-host) lets `participant`, held to
+    /// watching, play (`Command::SetWatchOnly`): they choose Play
+    /// themselves after.
     pub fn let_play(&mut self, participant: ParticipantId) -> Result<(), Refusal> {
         let held = self
             .state()
             .member(participant)
             .is_some_and(|m| m.watch_only);
-        if !held || !self.manages_hosts() || !self.may(Capability::ChangeAccess) {
+        if !held || !self.may_host_options() {
             return Ok(());
         }
         self.send(Command::SetWatchOnly {
@@ -1640,8 +1659,19 @@ impl RoomClient {
         }
     }
 
-    /// The owner replaces the online room's invite.
+    /// Whether the local player may replace the online room's invite (an
+    /// operator's, as copying it is: `Capability::ReplaceInvite`, round
+    /// B1), once the invite is read.
+    pub fn may_replace_invite(&self) -> bool {
+        self.invite_link().is_some() && self.may(Capability::ReplaceInvite)
+    }
+
+    /// An operator replaces the online room's invite (the watch-only and
+    /// audience links with it). Nothing is sent where it may not be.
     pub fn rotate_invite(&mut self) {
+        if !self.may_replace_invite() {
+            return;
+        }
         if let Some(l) = self.online_link_mut() {
             l.rotate_invite();
         }

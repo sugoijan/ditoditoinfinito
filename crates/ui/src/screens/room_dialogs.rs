@@ -2113,11 +2113,19 @@ impl Screen for PlayersDialog {
         // What the room does when its host leaves, said to everyone
         // (where the room says).
         let about: Option<String> = r.has_succession().then(|| host_leaves_about(&r).into());
-        // The host's: Host options, and a tap on another person's row.
-        self.manages = r.manages_hosts();
+        // An operator's: Host options, and a tap on another person's row
+        // (the owner's on anyone's; a co-host's on those they may let
+        // play, round B1).
+        self.manages = r.may_host_options();
         self.chooses = r.may_choose_intent();
         if self.manages {
-            let others: Vec<u64> = r.other_people().iter().map(|mb| mb.id.0).collect();
+            let owner = r.manages_hosts();
+            let others: Vec<u64> = r
+                .other_people()
+                .iter()
+                .filter(|mb| owner || (mb.watch_only && mb.role != Role::Owner))
+                .map(|mb| mb.id.0)
+                .collect();
             for row in &mut rows {
                 if let PanelRow::Player(p) = row
                     && p.id.is_some_and(|id| others.contains(&id))
@@ -2279,7 +2287,8 @@ impl Screen for PlayersDialog {
                 }
                 Handled::Yes
             }
-            // The host taps another person's row: Host options, on them.
+            // An operator taps another person's row: Host options, on
+            // them (rows they can do nothing for are not marked).
             Input::Pointer {
                 target: Some(t),
                 gesture: crate::Gesture::Tap,
@@ -2329,7 +2338,9 @@ const PERSON_ROW_TALL: f32 = 80.0;
 /// passes on: its two values, each said in a sentence), and the other
 /// people in the room, each with Make co-host or Remove co-host and Make
 /// host (asked once more: the giver cannot undo it alone). Never a bot or
-/// a CPU: they follow a room. The room decides; the rows follow it.
+/// a CPU: they follow a room. The room decides; the rows follow it. A
+/// co-host (round B1) has what an operator may use: the audience's row
+/// and Let play for those held to watching, nothing of the owner's.
 pub struct HostDialog {
     env: Env,
     room: SharedRoom,
@@ -2344,6 +2355,9 @@ pub struct HostDialog {
     seen: u64,
     /// The rows that fit.
     fit: usize,
+    /// Opened as the owner's (all of it), else as a co-host's: it closes
+    /// when that changes (the room handed over or passed on).
+    as_owner: Option<bool>,
 }
 
 /// One of the other people, as Host options lists them.
@@ -2370,14 +2384,18 @@ impl HostDialog {
             focus_first: Some(at.map_or_else(|| "Close".to_string(), |id| format!("CoHost.{id}"))),
             seen: u64::MAX,
             fit: 1,
+            as_owner: None,
         }
     }
 
     fn people(&self) -> Vec<Person> {
         let r = self.room.borrow();
+        // A co-host's: only those they may let play.
+        let owner = r.manages_hosts();
         let mut people = r
             .other_people()
             .into_iter()
+            .filter(|mb| owner || (mb.watch_only && mb.role != Role::Owner))
             .map(|mb| {
                 let role: Option<String> = match (mb.role, mb.admin) {
                     (Role::CoHost, _) => Some(m::role_co_host().into()),
@@ -2448,11 +2466,14 @@ impl Screen for HostDialog {
         let w = 560.0_f32.min(screen[0] - 16.0);
         let inner = w - 48.0;
         let people = self.people();
-        let (succession, policy) = {
+        let (succession, owner, policy) = {
             let r = self.room.borrow();
             self.seen = r.version();
-            (r.has_succession(), r.if_host_leaves())
+            (r.has_succession(), r.manages_hosts(), r.if_host_leaves())
         };
+        // What the room does if its host leaves, and Make host: the
+        // owner's alone.
+        let succession = succession && owner;
         let about: Vec<String> = if succession {
             let text: String = host_leaves_about(&self.room.borrow()).into();
             super::dialog::wrap_lines(&text, inner, 13.0)
@@ -2632,11 +2653,17 @@ impl Screen for HostDialog {
             } else {
                 m::make_co_host()
             };
+            // A co-host's one button stands where the owner's two end.
+            let co_x = if owner {
+                x0 + inner - host_w - 10.0 - co_w / 2.0
+            } else {
+                x0 + inner - co_w / 2.0
+            };
             c.push(button(
                 &env,
                 &format!("CoHost.{}", p.id),
                 &co_label,
-                [x0 + inner - host_w - 10.0 - co_w / 2.0, by],
+                [co_x, by],
                 co_w,
                 "Button",
             ));
@@ -2692,7 +2719,10 @@ impl Screen for HostDialog {
             });
         };
         let mut v = Vec::new();
-        let succession = self.room.borrow().has_succession();
+        let succession = {
+            let r = self.room.borrow();
+            r.has_succession() && r.manages_hosts()
+        };
         if succession {
             pair(&mut v, "Dec.leaves".into(), "Inc.leaves".into());
         }
@@ -2723,8 +2753,14 @@ impl Screen for HostDialog {
     }
 
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
-        // No longer the host's (the room handed over, the link gone).
-        if !self.room.borrow().manages_hosts() {
+        // No longer an operator's (the role gone, the link gone, nothing
+        // left for a co-host to do), or no longer the owner's it was
+        // opened as.
+        let (may, owner) = {
+            let r = self.room.borrow();
+            (r.may_host_options(), r.manages_hosts())
+        };
+        if !may || *self.as_owner.get_or_insert(owner) != owner {
             cx.close(true);
             return;
         }
@@ -2778,7 +2814,9 @@ impl Screen for HostDialog {
                         {
                             let _ = self.room.borrow_mut().let_play(ParticipantId(p.id));
                             self.rebuild(root, cx);
-                        } else if let Some(p) = person("CoHost.") {
+                        } else if let Some(p) = person("CoHost.")
+                            && self.room.borrow().manages_hosts()
+                        {
                             let _ = self
                                 .room
                                 .borrow_mut()

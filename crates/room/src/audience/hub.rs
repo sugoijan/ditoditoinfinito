@@ -285,15 +285,15 @@ impl AudienceHub {
         self.relays.remove(&relay);
     }
 
-    /// A member asks to open or close the audience: the owner's
-    /// (`Capability::ChangeAccess`, as the room's access is). Anyone else
-    /// is passed over.
+    /// A member asks to open or close the audience: an operator's
+    /// (`Capability::CloseAudience`: the owner, a co-host; the owner's
+    /// alone before round B1). Anyone else is passed over.
     pub fn set_open(&mut self, room: &RoomState, from: ParticipantId, open: bool) -> HubOut {
         let mut out = HubOut::default();
         let may = room.member(from).is_some_and(|m| {
             !m.left
                 && !m.is_cpu()
-                && can(m.role, m.admin, Capability::ChangeAccess, room.phase.kind())
+                && can(m.role, m.admin, Capability::CloseAudience, room.phase.kind())
         });
         if !may || open == self.open || self.ended {
             return out;

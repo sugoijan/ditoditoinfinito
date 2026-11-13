@@ -577,7 +577,8 @@ fn share_switch(hash: &str) {
 /// practice room starts with its Attacks rule Off, which anyone sets in
 /// Rules (`mpattacks=1`, On, is the default now); and a hidden
 /// option, `mprules=1`, a room's Rules opening by themselves on entering,
-/// `Settings::multiplayer_rules_first`). Off,
+/// `Settings::multiplayer_rules_first`; another, `mpwatchlink=1`, More's
+/// Copy watch-only link, `Settings::multiplayer_watch_link`). Off,
 /// the start menu's Multiplayer says "Coming soon" and the prototype's
 /// routes lead to the start menu.
 fn multiplayer_switch(hash: &str) {
@@ -657,11 +658,24 @@ fn multiplayer_switch(hash: &str) {
         Some(("mprules", "0")) => Some(false),
         _ => None,
     });
+    // `mpwatchlink=1` beside `mp=1`: More offers Copy watch-only link
+    // (`Settings::multiplayer_watch_link`, a hidden option, off by
+    // default: the link is kept but hidden); `mpwatchlink=0` hides it.
+    let watch_link = query.split('&').find_map(|kv| match kv.split_once('=') {
+        Some(("mpwatchlink", "1")) => Some(true),
+        Some(("mpwatchlink", "0")) => Some(false),
+        _ => None,
+    });
     let mut settings = crate::settings::Settings::load();
     let rules_first = rules_first.unwrap_or(settings.multiplayer_rules_first);
-    if settings.multiplayer != on || settings.multiplayer_rules_first != rules_first {
+    let watch_link = watch_link.unwrap_or(settings.multiplayer_watch_link);
+    if settings.multiplayer != on
+        || settings.multiplayer_rules_first != rules_first
+        || settings.multiplayer_watch_link != watch_link
+    {
         settings.multiplayer = on;
         settings.multiplayer_rules_first = rules_first;
+        settings.multiplayer_watch_link = watch_link;
         settings.save();
     }
 }

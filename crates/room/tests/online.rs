@@ -146,13 +146,13 @@ fn script() -> Vec<Step> {
                 on: true,
             },
         ),
-        // A member may not change access; a client may not send the
-        // authority's commands.
+        // A co-host may not change the admission (the owner's); a client
+        // may not send the authority's commands.
         Step::Cmd(
             "dev:bob",
             Command::SetAccess {
-                admission: ddi_room::Admission::Open,
-                rotate_invite: true,
+                admission: ddi_room::Admission::Closed,
+                rotate_invite: false,
             },
         ),
         Step::Cmd(

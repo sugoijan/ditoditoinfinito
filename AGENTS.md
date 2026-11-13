@@ -1361,7 +1361,10 @@ Rust and the browser are implementation details, not advertised features.
   host leaves" setting, Make co-host and Remove co-host, Make host
   asked once more, never for a bot; `RoomClient::set_host_leaves`,
   `set_co_host`, `make_host`, which send nothing a room could not
-  read), `StandingsDialog` and the refusal notice. Leaving asks first
+  read; a co-host's Host options, `RoomClient::may_host_options`, only
+  Let play and the audience's row; More's Replace invite link asked
+  once, `room::ask_replace_invite`; Copy watch-only link only under the
+  hidden option `Settings::multiplayer_watch_link`), `StandingsDialog` and the refusal notice. Leaving asks first
   where it costs something (`RoomClient::leave_cost`, `LeaveCost`: an
   online room's host always; during a running match a player in it,
   the one choosing its songs, a co-host; practice with a match
@@ -1579,7 +1582,9 @@ Rust and the browser are implementation details, not advertised features.
   LINK|INVITE` an online room's invite; `--mp-rules-first on|off`, a
   hidden option, off by default: a room's Rules open by themselves on
   entering, as the web's `mprules=1` (`mprules=0`) beside `mp=1`,
-  `Settings::multiplayer_rules_first`; `--mp-attacks` and its old name
+  `Settings::multiplayer_rules_first`; `--mp-watch-link on|off`, another,
+  More's Copy watch-only link, as the web's `mpwatchlink=1`,
+  `Settings::multiplayer_watch_link`; `--mp-attacks` and its old name
   `--mp-dev-attacks`, still taken and redundant: a practice room's
   Attacks rule is On by default (anyone turns it Off in Rules), as the
   web's `mpattacks=1`; the web's `mpattacks=0` starts a practice room

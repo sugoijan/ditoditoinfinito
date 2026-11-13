@@ -1035,9 +1035,14 @@ room-chart-no-digest = This chart can't be chosen online yet. Try again once the
 # More's items (about 24 letters each).
 room-copy-invite = Copy invite link
 # A second link to the room: whoever comes by it watches, and plays only
-# once the host lets them.
+# once the host or a co-host lets them.
 room-copy-watch-invite = Copy watch-only link
 room-replace-invite = Replace invite link
+# The question asked before the invite is replaced (it cannot be undone):
+# its title, then what it does. The button that does it is
+# room-replace-invite.
+room-replace-invite-title = Replace the invite link?
+room-replace-invite-body = The old invite link stops working, and so do the room's other links made from it (watch-only and audience). Everyone already in the room stays.
 room-sign-in-again = Sign in again
 
 # The status line after More's invite items.
@@ -1407,7 +1412,7 @@ room-refused-players-full = Every player's place is taken. Choose Play again whe
 
 # On the status line when someone who came by the room's watch-only link
 # chose Play (only an older screen offers it).
-room-refused-watch-only = You came by a watch-only link: the host can let you play.
+room-refused-watch-only = You came by a watch-only link: the host or a co-host can let you play.
 
 ## A stage watched: everyone's fields over the whole screen, or one
 ## player's field large in the middle with the others beside it.

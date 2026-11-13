@@ -830,8 +830,14 @@ fn the_audience_is_bounded_counted_and_closed_plainly() {
         .send(ClientLive::Audience { open: false });
     r.run(500);
     assert!(r.server.borrow().audience_hub().unwrap().is_open());
-    // The owner closes it: every seat goes, said why; nobody gets in.
-    r.players[0]
+    // A co-host closes it (an operator's, round B1): every seat goes,
+    // said why; nobody gets in.
+    let co = r.players[1].id;
+    r.server.borrow_mut().rewrite(|s| {
+        s.members.get_mut(&co).unwrap().role = ddi_room::Role::CoHost;
+    });
+    r.run(500);
+    r.players[1]
         .link
         .live_mut()
         .send(ClientLive::Audience { open: false });

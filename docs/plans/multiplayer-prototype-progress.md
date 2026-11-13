@@ -6157,6 +6157,44 @@ grace. The Players pop-up's sentence ("If the host leaves, a co-host
 becomes the host, or else the player who joined first") promises the
 same order and stays.
 
+### Who may do what
+
+- Letting someone who came by the watch-only link play, and closing and
+  opening the audience, are an operator's (the owner, a co-host, an
+  administrator): `ddi_room::Capability::LetPlay` (`SetWatchOnly` off)
+  and `Capability::CloseAudience` (`AudienceHub::set_open`, which the
+  server's `RoomAudience` runs, so the authority's side follows by the
+  path dependency). A co-host's Host options
+  (`RoomClient::may_host_options`) have only those rows, shown where
+  there is something to do (someone held to watching, a room with an
+  audience): Let play beside each such person, the audience's Close or
+  Open; never the "If the host leaves" setting, Make co-host or Make
+  host. A tap on a row of the Players pop-up opens it on those people
+  only. Host options opened as the owner's close when the room changes
+  hands, as before.
+- The invite is the host's and co-hosts' to copy and to replace (the
+  maintainer: "they can share an invite and after some people join they
+  can regenerate it"). Replace invite link was already More's, the
+  owner's alone and done at once; it is now an operator's
+  (`Capability::ReplaceInvite`: `SetAccess` with the admission as it
+  is; changing the admission stays `ChangeAccess`, the owner's) and
+  asked once ("Replace the invite link?": the old invite link stops
+  working, and so do the room's other links made from it, watch-only and
+  audience; everyone already in the room stays), on both shells (the
+  room's song select's More). What it does to the other links: the
+  server derives the watch-only link's secret from the invite's and the
+  audience link's from the watch-only link's (`../ddi-server`
+  `invite::watch_secret`, `audience_secret_of_watch`), so all three
+  change together; a join by any old one is refused (`invite_rotated`,
+  `audience_link_unknown`); seats already in the audience stay
+  (`AudienceHub::set_key`); members stay.
+- The watch-only link is kept but hidden ("Keep, but maybe we can keep
+  watch-only hidden"): joining by one works exactly as before; More
+  offers Copy watch-only link only with the hidden option
+  `Settings::multiplayer_watch_link` (off by default; the web's
+  `mpwatchlink=1`/`0` beside `mp=1`, desktop's `--mp-watch-link on|off`).
+  More shows Copy invite link and Copy audience link otherwise.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -6172,7 +6210,7 @@ same order and stays.
 | `audience-view-v1` (2026-11-13, follows v0): the music's delay moved only at a stage's start, up by what the last stage's fields needed beyond it (their 90th percentile past 100 ms, rounded up to 50 ms, at most 1.6 s), down 0.2 s a stage to 0.8 s after good ones | `ddi_ui::state::audience::AUDIENCE_VIEW_V1` | After a laggy stage the next one is watched further behind, its fields in step with the sound; nothing heard changes within a stage | The numbers; whether a stage's own lag should be fixed within it |
 | The count shown to members between stages only (the status line of song select and the prompt), never over a play | `screens::room::status` | "· 132 watching" after the room's line | The audience plan's open question 3 |
 | `join-watch-v0`: a join asking to play where every player's place is taken is in to watch; nobody is moved to Play when a place frees up; the arrival is said on the status line for 12 s | `ddi_room::RoomState::arrival_intent`, `players_full`; `ddi_ui`'s `LinkNotice::JoinedToWatch`, `JOINED_TO_WATCH_MS` | A tenth person joins a room of nine players to watch, and plays only once they choose Play after a place frees | Whether a freed place should go to the longest-waiting watcher (asked, or at once) |
-| The watch-only link: held to watching until the owner's Let play (the owner alone; co-hosts may copy the link but not let); replaced with the room's invite | `ddi_room::Member::watch_only`, `Command::SetWatchOnly`; `../ddi-server` `invite::watch_secret` | Someone who came to watch never takes a player's place unless the host lets them | Whether co-hosts should let people play; whether the watch link should be replaceable on its own |
+| The watch-only link: held to watching until an operator's Let play (co-hosts too since round B1, ANSWERED); replaced with the room's invite; its Copy hidden behind `Settings::multiplayer_watch_link` | `ddi_room::Member::watch_only`, `Command::SetWatchOnly`, `Capability::LetPlay`; `../ddi-server` `invite::watch_secret` | Someone who came to watch never takes a player's place unless the host or a co-host lets them | Whether the watch link should be replaceable on its own |
 | `watch-v0`: a grid's field is at most a play's own field (`GRID_LANE_SHARE` 1.0); a layout with more rows wins within a tenth of the largest lane (`GRID_FILL` 0.9) | `ddi_shell::opponents::arrange_grid` | One to three watched fields are nearly the screen's height; eight are four by two at lanes of 29 px (1280×720) | The sizes; whether eight should give up the play's proportion (shorter fields, larger lanes) |
 | `slew-v0` (2026-11-13): a live play's stream and views on the room's song clock, its correction averaged over 4 s and moved at most 2 ms a second; its judging on its own | `ddi_room::live::slew::SLEW_V0`, `ddi_session::battle::live::Live::sync` | None visible: remote fields keep their delay however the devices' clocks drift | The rate; whether a large disagreement should be told to the room |
 | `watch-v1` (2026-11-13; `watch-v0` ended 2.5 s after the decision): a watched stage goes on after its decision while anyone still plays its song, its results 2.5 s after the last one ended (`WATCH_END_HOLD`) or at the song's end | `ddi_session::play::watch`, `Battle::still_playing` | A watcher (and a player out of the stage) sees the winner finish the song, "X wins the stage" on the status line from the decision on; Enter or Start still skips | Whether the hold after the winner finishes should be shorter |
@@ -6583,8 +6621,8 @@ same order and stays.
 - M5c: the sign-in prompt was the home's page itself. Answered in M7a:
   a dialog naming Twitch and what it is for, opened where a sign-in is
   needed.
-- M5c: who may copy the invite: the server gives it to operators
-  (owner, co-hosts, admins); should members be able to share it?
+- M5c: who may copy the invite. ANSWERED (the maintainer, 2026-11-13):
+  the host and co-hosts, who may also replace it (round B1).
 - M5c: an admin who is not a member enters watching from a ticket; the
   client has no admin-specific entry point beyond a link.
 - M5c: the room's countdown seconds briefly replay part of the screen's

@@ -307,7 +307,12 @@ pub fn run() {
     match utility {
         Some(utility) => {
             store::install_reading();
-            for flag in ["--sharing", "--multiplayer", "--mp-rules-first"] {
+            for flag in [
+                "--sharing",
+                "--multiplayer",
+                "--mp-rules-first",
+                "--mp-watch-link",
+            ] {
                 if args.iter().any(|a| a == flag) {
                     eprintln!(
                         "{flag} is not saved by a run that opens no window ({utility}): start the game with it"
@@ -458,6 +463,28 @@ pub fn run() {
         let mut settings = ddi_ui::state::settings::Settings::load();
         if settings.multiplayer_rules_first != on {
             settings.multiplayer_rules_first = on;
+            settings.save();
+        }
+    }
+    // `--mp-watch-link on|off`: a hidden option, off by default, as the
+    // web's `mpwatchlink=1` beside `mp=1`: More offers Copy watch-only
+    // link in an online room (`Settings::multiplayer_watch_link`).
+    if let Some(on) = args
+        .iter()
+        .position(|a| a == "--mp-watch-link")
+        .and_then(|i| args.get(i + 1))
+    {
+        let on = match on.as_str() {
+            "on" | "1" => true,
+            "off" | "0" => false,
+            _ => {
+                eprintln!("--mp-watch-link takes on or off");
+                std::process::exit(2);
+            }
+        };
+        let mut settings = ddi_ui::state::settings::Settings::load();
+        if settings.multiplayer_watch_link != on {
+            settings.multiplayer_watch_link = on;
             settings.save();
         }
     }

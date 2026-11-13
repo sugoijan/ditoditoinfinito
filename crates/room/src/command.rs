@@ -175,6 +175,9 @@ pub enum Command {
         participant: ParticipantId,
         on: bool,
     },
+    /// The admission is the owner's; replacing the invite with the
+    /// admission as it is (`rotate_invite`) an operator's
+    /// (`Capability::ReplaceInvite`, round B1).
     SetAccess {
         admission: Admission,
         rotate_invite: bool,
@@ -197,12 +200,13 @@ pub enum Command {
     },
     /// Whether `participant` is held to watching (`Member::watch_only`).
     /// The authority sets it for one who came by the room's watch-only
-    /// link (right after their `Join`); the owner may only lift it (`on`
-    /// false: "Let play", under `Capability::ChangeAccess`, as the room's
-    /// access is). Lifting it changes nothing else: they choose Play
-    /// themselves. Additive to protocol 2: a member is held to it only by
-    /// an authority that has it, and the owner is offered it only for
-    /// such a member, so it is never sent to one that could not read it.
+    /// link (right after their `Join`); an operator (the owner, a
+    /// co-host) may only lift it (`on` false: "Let play", under
+    /// `Capability::LetPlay`; the owner's alone before round B1). Lifting
+    /// it changes nothing else: they choose Play themselves. Additive to
+    /// protocol 2: a member is held to it only by an authority that has
+    /// it, and it is offered only for such a member, so it is never sent
+    /// to one that could not read it.
     SetWatchOnly {
         participant: ParticipantId,
         on: bool,

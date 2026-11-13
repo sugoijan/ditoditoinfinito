@@ -745,13 +745,22 @@ pub(crate) mod room {
         use crate::screens::room::{more_items, refusal_text};
         use ddi_l10n::msg::room as m;
         let clock = ManualClock::new(1_000);
-        let server = room_of(&clock, &[]);
+        let server = room_of(&clock, &["bob"]);
         let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
-        tick(&clock, &mut [&mut alice], 400);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
         alice.fetch_invite();
         tick(&clock, &mut [&mut alice], 400);
         let link = alice.watch_invite_link().expect("the watch-only link");
         assert!(link.ends_with(&format!("#/mp/join/{WATCH_INVITE}?mp=1")));
+        // Kept but hidden (round B1): its Copy only under the hidden
+        // option.
+        let items: Vec<String> = more_items(&alice, false).into_iter().map(|(id, _)| id).collect();
+        assert!(!items.iter().any(|i| i == "copywatch"), "{items:?}");
+        let mut settings = crate::state::settings::Settings::load();
+        assert!(!settings.multiplayer_watch_link, "off by default");
+        settings.multiplayer_watch_link = true;
+        settings.save();
         let items: Vec<String> = more_items(&alice, false).into_iter().map(|(id, _)| id).collect();
         let at = items.iter().position(|i| i == "copy").unwrap();
         assert_eq!(items[at + 1], "copywatch");
@@ -782,11 +791,17 @@ pub(crate) mod room {
             String::from(refusal_text(fan.refusal().unwrap())),
             String::from(m::refused_watch_only())
         );
-        // The host lets them play; they choose it.
+        // A co-host lets them play (round B1; Host options offered them
+        // for it, never the owner's rows); they choose it.
         let id = fan.me();
-        alice.let_play(id).unwrap();
-        tick(&clock, &mut [&mut alice, &mut fan], 400);
+        assert!(!bob.may_host_options());
+        alice.set_co_host(bob.me(), true).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob, &mut fan], 400);
+        assert!(bob.may_host_options() && !bob.manages_hosts());
+        bob.let_play(id).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob, &mut fan], 400);
         assert!(!fan.watch_only());
+        assert!(!bob.may_host_options(), "nothing left for a co-host there");
         assert!(fan.watching(), "let, not moved");
         assert!(fan.may_choose_intent());
         fan.set_intent(Intent::Play).unwrap();

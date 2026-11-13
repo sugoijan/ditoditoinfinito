@@ -1107,6 +1107,9 @@ impl SelectScreen {
             match room::more_picked(id, &room, cx) {
                 room::MoreAction::Rules => self.open_rules(cx),
                 room::MoreAction::Players => self.open_players(cx),
+                room::MoreAction::ReplaceInvite => {
+                    room::ask_replace_invite(&self.env, &room, cx);
+                }
                 room::MoreAction::Leave => {
                     self.room_leave(room::LeaveBy::More, cx);
                 }

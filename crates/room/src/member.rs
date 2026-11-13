@@ -202,6 +202,19 @@ pub enum Capability {
     /// Hand the room over (`crate::Command::MakeHost`): the owner's, who
     /// becomes a co-host.
     MakeHost,
+    /// Let someone who came by the watch-only link play
+    /// (`crate::Command::SetWatchOnly` off): an operator's (round B1, the
+    /// maintainer, 2026-11-13; the owner's alone before).
+    LetPlay,
+    /// Close and open the room's audience (`crate::live::ClientLive::Audience`):
+    /// an operator's (round B1; the owner's alone before).
+    CloseAudience,
+    /// Replace the room's invite (`crate::Command::SetAccess` with
+    /// `rotate_invite` and the admission as it is), which replaces the
+    /// watch-only and audience links with it: an operator's, as copying it
+    /// is (round B1; the owner's alone before). Changing the admission
+    /// stays [`Capability::ChangeAccess`].
+    ReplaceInvite,
 }
 
 /// Whether a member with `role` (and `admin`) may use `capability` in a
@@ -211,7 +224,12 @@ pub fn can(role: Role, admin: bool, capability: Capability, phase: PhaseKind) ->
     let operator = admin || matches!(role, Role::Owner | Role::CoHost);
     match capability {
         Capability::Inspect | Capability::Participate => true,
-        Capability::ChooseContent | Capability::EditNextRules | Capability::TakePick => operator,
+        Capability::ChooseContent
+        | Capability::EditNextRules
+        | Capability::TakePick
+        | Capability::LetPlay
+        | Capability::CloseAudience
+        | Capability::ReplaceInvite => operator,
         Capability::Advance => {
             operator && !matches!(phase, PhaseKind::Stage | PhaseKind::SongCompletion)
         }
@@ -236,6 +254,9 @@ mod tests {
             Capability::EditNextRules,
             Capability::Advance,
             Capability::TakePick,
+            Capability::LetPlay,
+            Capability::CloseAudience,
+            Capability::ReplaceInvite,
         ] {
             assert!(can(Role::Owner, false, cap, p));
             assert!(can(Role::CoHost, false, cap, p));

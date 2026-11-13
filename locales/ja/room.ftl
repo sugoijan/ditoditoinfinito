@@ -488,6 +488,8 @@ room-chart-no-digest = この譜面はまだオンラインで選べません。
 room-copy-invite = 招待リンクをコピー
 room-copy-watch-invite = 観戦専用リンクをコピー
 room-replace-invite = 招待リンクを差し替え
+room-replace-invite-title = 招待リンクを差し替えますか？
+room-replace-invite-body = 古い招待リンクは使えなくなり、そこから作られたほかのリンク（観戦専用と観客）も使えなくなります。すでにルームにいる人はそのまま残ります。
 room-sign-in-again = もう一度サインイン
 
 room-invite-copied = 招待リンクをコピーしました。
@@ -658,7 +660,7 @@ room-intent-play = プレイする
 
 room-refused-all-watching = プレイする人がいません。
 room-refused-players-full = プレイヤーの席が埋まっています。席が空いてから「プレイする」を選んでください。
-room-refused-watch-only = 観戦専用リンクで参加しています。ホストが許可するとプレイできます。
+room-refused-watch-only = 観戦専用リンクで参加しています。ホストか共同ホストが許可するとプレイできます。
 
 room-watch-hint = Tabかタップでプレイヤーを選べます
 

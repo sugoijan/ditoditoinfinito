@@ -754,12 +754,12 @@ impl RoomState {
                 Ok(())
             }
             Command::SetWatchOnly { participant, on } => {
-                // The authority holds a newcomer to it; the owner only
-                // lets them play.
+                // The authority holds a newcomer to it; an operator (the
+                // owner or a co-host) lets them play.
                 if *on {
                     Self::authority_only(actor)?;
                 } else {
-                    self.require(actor, Capability::ChangeAccess)?;
+                    self.require(actor, Capability::LetPlay)?;
                 }
                 let m = self
                     .members
@@ -783,7 +783,13 @@ impl RoomState {
                 admission,
                 rotate_invite,
             } => {
-                self.require(actor, Capability::ChangeAccess)?;
+                // The admission is the owner's; replacing the invite an
+                // operator's, as copying it is.
+                if *admission != self.access.admission || !*rotate_invite {
+                    self.require(actor, Capability::ChangeAccess)?;
+                } else {
+                    self.require(actor, Capability::ReplaceInvite)?;
+                }
                 let access = Access {
                     admission: *admission,
                     invite_generation: self.access.invite_generation + u32::from(*rotate_invite),

@@ -3539,8 +3539,8 @@ fn a_member_held_to_watching_plays_only_once_the_owner_lets_them() {
         intent: Intent::Play,
     };
     assert_eq!(r.by(fan, play.clone()), Err(Rejection::WatchOnly));
-    // Nobody but the authority holds anyone to it; nobody but the owner
-    // lets them go.
+    // Nobody but the authority holds anyone to it; nobody but an
+    // operator lets them go.
     assert_eq!(
         r.by(
             host,
@@ -3563,7 +3563,12 @@ fn a_member_held_to_watching_plays_only_once_the_owner_lets_them() {
         r.by(other, let_play.clone()),
         Err(Rejection::Unauthorized { .. })
     ));
-    // Let play: still watching until they choose Play.
+    // Let play, by a co-host too (round B1): still watching until they
+    // choose Play.
+    let mut by_co = clone(&r);
+    co_host(&mut by_co, other, true);
+    by_co.by(other, let_play.clone()).unwrap();
+    assert!(!by_co.s.members[&fan].watch_only);
     r.by(host, let_play.clone()).unwrap();
     assert!(!r.s.members[&fan].watch_only);
     assert_eq!(r.s.members[&fan].intent, Intent::Watch);
@@ -3584,6 +3589,42 @@ fn a_member_held_to_watching_plays_only_once_the_owner_lets_them() {
     )
     .unwrap();
     r.by(host, play).unwrap();
+}
+
+/// Replacing the invite is an operator's, as copying it is (round B1);
+/// the admission stays the owner's, also beside a replacement.
+#[test]
+fn a_co_host_replaces_the_invite_and_only_the_owner_changes_the_admission() {
+    let mut r = Room::hosted(1);
+    let host = r.host;
+    let co = r.join("co", Intent::Play);
+    let mem = r.join("mem", Intent::Play);
+    co_host(&mut r, co, true);
+    let rotate = |admission| Command::SetAccess {
+        admission,
+        rotate_invite: true,
+    };
+    let open = r.s.access.admission;
+    let closed = Admission::Closed;
+    assert_ne!(open, closed);
+    let generation = r.s.access.invite_generation;
+    assert_eq!(
+        r.by(mem, rotate(open)),
+        Err(Rejection::Unauthorized {
+            capability: Capability::ReplaceInvite
+        })
+    );
+    r.by(co, rotate(open)).unwrap();
+    assert_eq!(r.s.access.invite_generation, generation + 1);
+    assert_eq!(
+        r.by(co, rotate(closed)),
+        Err(Rejection::Unauthorized {
+            capability: Capability::ChangeAccess
+        })
+    );
+    r.by(host, rotate(closed)).unwrap();
+    assert_eq!(r.s.access.invite_generation, generation + 2);
+    assert_eq!(r.s.access.admission, closed);
 }
 
 /// The Rules pop-up's "Apply and restart" (2026-11-13): the next match's

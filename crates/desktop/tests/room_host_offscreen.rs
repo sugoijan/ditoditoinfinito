@@ -11,7 +11,9 @@
 //! before the room is handed over, a member's Players pop-up (no
 //! controls), the room after the handover as its new owner sees it, and
 //! "Leave the room?" as the host is asked it on Back: with someone to pass
-//! the room to, and alone.
+//! the room to, and alone. Since round B1 dave came by the watch-only
+//! link: the co-host's Host options (Let play for dave alone, nothing of
+//! the owner's) and the question before a co-host replaces the invite.
 //! `DDI_OFFSCREEN_PPM=<dir>` keeps them.
 
 mod room_fake;
@@ -74,6 +76,10 @@ fn the_hosts_pop_ups_and_a_room_handed_over() {
                 on: true,
             })
             .unwrap();
+        let dave = server
+            .borrow_mut()
+            .join_watch_only(Identity::new("dev:dave"), "dave")
+            .unwrap();
         let (a, b, c) = (library(0, 0x1000), library(9, 0x9000), library(20, 0x20000));
         let all: Songs = Rc::new(a.songs.iter().chain(&b.songs).cloned().collect());
         let mut scene = Scene {
@@ -129,7 +135,8 @@ fn the_hosts_pop_ups_and_a_room_handed_over() {
         assert!(drawn(&players, size, [0.3, 0.3, 0.7, 0.7]));
         tap(&mut scene.people[0].ui, "HostOptions", 0.6);
         assert_eq!(top(&scene, 0), "room-host", "{lang} {size:?}");
-        for name in ["Dec.leaves", "Inc.leaves", "CoHost.2", "MakeHost.2", "CoHost.3", "MakeHost.3"] {
+        // (A phone shows the first rows; the rest scroll.)
+        for name in ["Dec.leaves", "Inc.leaves", "CoHost.2", "MakeHost.2"] {
             let b = scene.people[0].ui.bounds(name).unwrap_or_else(|| panic!("{name}"));
             assert!(
                 b[0] >= 0.0 && b[1] >= 0.0 && b[2] > b[0] && b[3] > b[1],
@@ -150,6 +157,33 @@ fn the_hosts_pop_ups_and_a_room_handed_over() {
         assert!(scene.people[2].ui.actor("Person.1").is_none());
         shot(&mut scene, 2, "host-3-member-players");
         tap(&mut scene.people[2].ui, "Close", 0.5);
+        // A co-host's Host options (round B1): Let play for the one held
+        // to watching, nothing of the owner's.
+        open_players(&mut scene.people[1].ui);
+        assert!(scene.people[1].ui.actor("HostOptions").is_some(), "{lang} {size:?}");
+        tap(&mut scene.people[1].ui, "HostOptions", 0.6);
+        assert_eq!(top(&scene, 1), "room-host", "{lang} {size:?}");
+        let let_play = format!("CoHost.{}", dave.0);
+        assert!(scene.people[1].ui.actor(&let_play).is_some());
+        for name in ["Dec.leaves", "CoHost.3", "MakeHost.3"] {
+            assert!(scene.people[1].ui.actor(name).is_none(), "{name}");
+        }
+        shot(&mut scene, 1, "host-7-co-host-options");
+        for _ in 0..2 {
+            tap(&mut scene.people[1].ui, "Close", 0.4);
+        }
+        // Replacing the invite, a co-host's too, is asked once.
+        tap(&mut scene.people[1].ui, "More", 0.6);
+        tap(&mut scene.people[1].ui, "Item.rotate", 0.6);
+        assert_eq!(top(&scene, 1), "confirm", "{lang} {size:?}");
+        shot(&mut scene, 1, "host-8-replace-invite");
+        tap(&mut scene.people[1].ui, "Cancel", 0.5);
+        // Dave goes: the rest as before.
+        scene
+            .server
+            .borrow_mut()
+            .rewrite(|s| s.members.get_mut(&dave).unwrap().left = true);
+        scene.run(0.5);
         // Make host, asked once more.
         tap(&mut scene.people[0].ui, "MakeHost.3", 0.6);
         assert_eq!(top(&scene, 0), "confirm", "{lang} {size:?}");
@@ -161,7 +195,8 @@ fn the_hosts_pop_ups_and_a_room_handed_over() {
         assert_eq!(vc.online.as_ref().unwrap().role, "owner");
         assert!(vc.manages_hosts && !va.manages_hosts && !va.host_open);
         // The one before sees the Players pop-up again, without the
-        // controls; the new owner has them.
+        // controls (nobody held to watching, no audience: nothing for a
+        // co-host there); the new owner has them.
         assert_eq!(top(&scene, 0), "room-players");
         assert!(scene.people[0].ui.actor("HostOptions").is_none());
         shot(&mut scene, 0, "host-5-former-owner");

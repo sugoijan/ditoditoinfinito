@@ -278,6 +278,13 @@ pub struct Settings {
     /// button): `#/?mp=1&mprules=1` (`mprules=0`), desktop's
     /// `--mp-rules-first on|off`; never a row of Options.
     pub multiplayer_rules_first: bool,
+    /// More offers Copy watch-only link in an online room. The watch-only
+    /// link is kept but hidden (the maintainer, 2026-11-13: "Keep, but
+    /// maybe we can keep watch-only hidden"): joining by one works as
+    /// ever; its Copy shows only with this hidden option, off by default:
+    /// `#/?mp=1&mpwatchlink=1` (`mpwatchlink=0`), desktop's
+    /// `--mp-watch-link on|off`; never a row of Options.
+    pub multiplayer_watch_link: bool,
 }
 
 /// The music's gain in a fresh profile: 69% on the volume slider (about
@@ -601,6 +608,7 @@ impl Default for Settings {
             share_token: String::new(),
             multiplayer: false,
             multiplayer_rules_first: false,
+            multiplayer_watch_link: false,
             controls: ControlBindings::default(),
             fast_pad_poll: true,
             controller_styles: Default::default(),
