@@ -45,6 +45,10 @@ thread_local! {
     static PLAYING: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
     /// Where the online room's threads send their news ([`inbox`]).
     static NEWS: RefCell<Option<Sender<News>>> = const { RefCell::new(None) };
+    /// The stage handed to the play host to watch with the room's
+    /// audience, and its seat's client ([`audience_stage`]).
+    static WATCHING: RefCell<Option<(StageId, ddi_ui::state::audience::SharedAudience)>> =
+        const { RefCell::new(None) };
     /// Where the audience's threads send theirs ([`audience_inbox`]).
     static AUDIENCE_NEWS: RefCell<Option<NewsTx>> = const { RefCell::new(None) };
     /// TESTS ONLY: the wall clock a live stage's play reads the room's
@@ -58,6 +62,18 @@ thread_local! {
 /// system's and the room screen's.
 pub fn set_live_for_tests(room: SharedRoom, wall_ms: Rc<dyn Fn() -> u64>) {
     PLAYING.with_borrow_mut(|p| *p = Some(room));
+    TEST_WALL.with_borrow_mut(|w| *w = Some(wall_ms));
+}
+
+/// TESTS ONLY (an offscreen audience's stage on a fake clock): stage
+/// `stage` watched with the room's audience through `audience`, the wall
+/// clock its play reads `wall_ms` (as the audience's page hands it over).
+pub fn set_audience_for_tests(
+    stage: StageId,
+    audience: ddi_ui::state::audience::SharedAudience,
+    wall_ms: Rc<dyn Fn() -> u64>,
+) {
+    WATCHING.with_borrow_mut(|w| *w = Some((stage, audience)));
     TEST_WALL.with_borrow_mut(|w| *w = Some(wall_ms));
 }
 
@@ -227,6 +243,22 @@ pub fn prepare_online_with(tx: Option<&NewsTx>, room: &SharedRoom, job: LoadJob)
     }
 }
 
+/// The audience's client watching `order`, where it was handed over to
+/// watch with the room's audience ([`audience_screen`]).
+pub fn audience_stage(
+    order: &ddi_ui::state::room::StageOrder,
+) -> Option<ddi_ui::state::audience::SharedAudience> {
+    (order.me == ddi_ui::state::audience::AUDIENCE_ME && order.watching)
+        .then(|| {
+            WATCHING.with_borrow(|w| {
+                w.as_ref()
+                    .filter(|(s, _)| *s == order.stage)
+                    .map(|(_, a)| a.clone())
+            })
+        })
+        .flatten()
+}
+
 /// The room watched with its audience's inbox: its stages' songs read
 /// from the room's share on threads ([`prepare_audience`]).
 pub fn audience_inbox() -> ddi_ui::state::audience::AudienceInbox {
@@ -285,6 +317,10 @@ pub fn live_handle(
     let wall_ms = TEST_WALL
         .with_borrow(Clone::clone)
         .unwrap_or_else(|| Rc::new(|| crate::clock::epoch_ms().max(0.0) as u64));
+    // Watched with the room's audience: its seat's client feeds it.
+    if let Some(a) = audience_stage(order) {
+        return Some(ddi_session::battle::live::LiveHandle { room: a, wall_ms });
+    }
     Some(ddi_session::battle::live::LiveHandle {
         room: stage_room(),
         wall_ms,
@@ -297,6 +333,9 @@ pub fn live_handle(
 /// the player's own run (`true`), practice's left to the play host
 /// (`false`: its CPUs are played to their end).
 pub fn left_stage(stage: StageId) -> bool {
+    if WATCHING.with_borrow(|w| w.as_ref().is_some_and(|(s, _)| *s == stage)) {
+        return true;
+    }
     let room = stage_room();
     if room.borrow_mut().leave_prompt(stage) == ddi_ui::state::room::PromptExit::Withdraw {
         return true;
@@ -390,7 +429,8 @@ fn online_page(
                 if invite_page {
                     cx.close(false);
                 }
-                cx.push(audience_screen(&e, &link, Some(ticket)));
+                let play = songs.as_ref().map(|s| s.play.clone());
+                cx.push(audience_screen(&e, &link, Some(ticket), play));
             }
             OnlineCall::Redirect(r) => redirect(&r),
             OnlineCall::Leave => cx.close(true),
@@ -404,20 +444,26 @@ pub fn audience_screen(
     env: &Env,
     link: &str,
     ticket: Option<String>,
+    play: Option<Rc<RefCell<Option<crate::play::Request>>>>,
 ) -> ddi_ui::screens::audience::AudienceScreen {
     use ddi_ui::screens::audience::{AudienceCall, AudienceScreen};
+    let audience = crate::online::audience(link, ticket);
+    let a = audience.clone();
     AudienceScreen::new(
         env.clone(),
-        crate::online::audience(link, ticket),
-        Rc::new(|call, cx| match call {
+        audience,
+        Rc::new(move |call, cx| match call {
             AudienceCall::Prepare(job) => prepare_audience(job),
-            // NOT BUILT on desktop yet: the play host's stage path is the
-            // room's (its prompt, its report, its results); the page stays
-            // and shows the stage's result when the room settles it.
-            AudienceCall::Watch(order) => eprintln!(
-                "audience: stage {} handed over (watching it in the window is not built yet)",
-                order.number
-            ),
+            // Watched over the audience's page through the play host: its
+            // prompt counting down, the spectator view, then back to the
+            // page (no results of its own: the page shows the stage's).
+            AudienceCall::Watch(order) => match &play {
+                Some(slot) => {
+                    WATCHING.with_borrow_mut(|w| *w = Some((order.stage, a.clone())));
+                    *slot.borrow_mut() = Some(crate::play::Request::stage(*order));
+                }
+                None => eprintln!("audience: stage {}: no library to play it from", order.number),
+            },
             AudienceCall::Redirect(r) => redirect(&r),
             AudienceCall::Leave => {
                 crate::online::discard_audience();
@@ -534,6 +580,10 @@ pub fn room_screen_with(
 /// others'. How the match ended for the player, where that was its last
 /// stage (an online room's is not known yet: `None`).
 pub fn report(outcome: ddi_session::battle::StageOutcome) -> Option<ddi_ui::state::room::MatchEnd> {
+    // Watched with the audience: nothing is reported (it is no member).
+    if WATCHING.with_borrow(|w| w.as_ref().is_some_and(|(s, _)| *s == outcome.stage)) {
+        return None;
+    }
     let room = stage_room();
     room.borrow_mut()
         .set_stage_summary(outcome.stage, outcome.summary);

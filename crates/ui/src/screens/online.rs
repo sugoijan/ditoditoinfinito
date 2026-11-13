@@ -156,6 +156,9 @@ pub fn invite_problem(p: &Problem) -> UiText {
         "admission_closed" => m::invite_closed(),
         "room_full" => m::invite_full(),
         "unreachable" => m::invite_unreachable(),
+        // A relay that could not reach the room in time: try again
+        // shortly (the server's `503 relay_unready`).
+        "relay_unready" => m::invite_unreachable(),
         // The audience join's (`ddi_room::audience::AudienceRefusal`).
         "audience_full" => m::audience_full(),
         "audience_closed" => m::audience_closed(),

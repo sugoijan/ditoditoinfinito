@@ -757,8 +757,11 @@ impl Host {
             *choice.borrow_mut() = Some(c);
         });
         let mut prompt = PromptScreen::new(env.clone(), r.prompt.clone(), act).over_select();
-        // A room's stage (M7b): its prompt is the readiness check.
-        if let Some(order) = &r.request.stage {
+        // A room's stage (M7b): its prompt is the readiness check (a
+        // stage watched with the audience has none: it counts down).
+        if let Some(order) = &r.request.stage
+            && crate::room::audience_stage(order).is_none()
+        {
             let room = crate::room::stage_room();
             let shell = crate::room::prompt_shell(&room);
             prompt = prompt.with_room(room, order.stage, shell);
@@ -1819,6 +1822,16 @@ impl Host {
                         }
                         Stage::Idle
                     }
+                    // Watched with the audience: back to its page, which
+                    // shows the stage's result.
+                    _ if play
+                        .request
+                        .stage
+                        .as_deref()
+                        .is_some_and(|o| crate::room::audience_stage(o).is_some()) =>
+                    {
+                        Stage::Idle
+                    }
                     _ => {
                         self.show_results(&r, &play, &results, device_changed, ui, env);
                         r.lingering = Some(play.into_sound());
@@ -1836,7 +1849,14 @@ impl Host {
                     .replay
                     .as_ref()
                     .is_some_and(|rp| rp.quit_by_viewer(&results));
-                if play.request.calibration.is_some() || viewer_quit {
+                let audience = play
+                    .request
+                    .stage
+                    .as_deref()
+                    .is_some_and(|o| crate::room::audience_stage(o).is_some());
+                if audience {
+                    Stage::Idle
+                } else if play.request.calibration.is_some() || viewer_quit {
                     self.open_menu(ui, env);
                     Stage::Idle
                 } else {
