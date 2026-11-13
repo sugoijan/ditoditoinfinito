@@ -10,7 +10,8 @@
 //! standing (still in first, by life, then score), as many above as below.
 //! A slot changes hands rarely and calmly: an opponent shown stays for at
 //! least [`RivalPolicy::hold`] seconds, and while it is within
-//! [`RivalPolicy::margin`] places of the nearest it keeps its slot, so two
+//! [`RivalPolicy::margin`] places (and a share of the field) of the
+//! nearest it keeps its slot, so two
 //! rivals trading places every tick never flicker; one attacking comes in
 //! at once. A change fades in over [`RivalPolicy::fade`] seconds (at once
 //! under reduced motion). Small rooms (every opponent in a slot of its
@@ -37,18 +38,22 @@ pub struct RivalPolicy {
     /// Seconds an opponent shown keeps its slot at least.
     pub hold: f64,
     /// Places past the nearest rivals an opponent shown may drift and
-    /// still keep its slot.
+    /// still keep its slot, and that much more as a share of the field
+    /// (a large field's standings move more at once).
     pub margin: usize,
+    pub margin_share: f32,
     /// Seconds a slot's new opponent fades in over (none under reduced
     /// motion).
     pub fade: f32,
 }
 
-/// `rivals-v0`: six seconds at least, two places of slack, a third of a
-/// second's fade.
+/// `rivals-v0`: eight seconds at least; two places of slack and a
+/// twelfth of the field (eight places among 72); a third of a second's
+/// fade.
 pub const RIVALS_V0: RivalPolicy = RivalPolicy {
-    hold: 6.0,
+    hold: 8.0,
     margin: 2,
+    margin_share: 1.0 / 12.0,
     fade: 0.3,
 };
 
@@ -203,14 +208,14 @@ impl Rivals {
             .map(|&s| distance(s).0)
             .max()
             .unwrap_or(0)
-            + policy.margin;
+            + policy.margin
+            + (n as f32 * policy.margin_share) as usize;
         // Who keeps their slot: the pinned, those still near enough, and
         // those who came in less than `hold` ago.
         for s in &mut self.slots {
             if let Some((seat, at)) = *s {
-                let keep = pins.contains(&seat)
-                    || distance(seat).0 <= reach
-                    || now - at < policy.hold;
+                let keep =
+                    pins.contains(&seat) || distance(seat).0 <= reach || now - at < policy.hold;
                 if !keep {
                     *s = None;
                 }
@@ -369,7 +374,11 @@ mod tests {
         // Seats 33 and 34 trade places every tick for a minute.
         for k in 0..600 {
             let t = 1.0 + k as f64 * 0.1;
-            let (a, b) = if k % 2 == 0 { (0.66, 0.67) } else { (0.67, 0.66) };
+            let (a, b) = if k % 2 == 0 {
+                (0.66, 0.67)
+            } else {
+                (0.67, 0.66)
+            };
             f[33].life = a;
             f[34].life = b;
             r.update(8, &f, Some(me), &[], t, RIVALS_V0);
@@ -388,7 +397,7 @@ mod tests {
         f[30].out = true;
         r.update(8, &f, Some(me), &[], 2.0, RIVALS_V0);
         assert!(r.seats().contains(&Some(30)), "held");
-        r.update(8, &f, Some(me), &[], 7.5, RIVALS_V0);
+        r.update(8, &f, Some(me), &[], 9.5, RIVALS_V0);
         assert!(!r.seats().contains(&Some(30)), "replaced after the hold");
         assert!(r.seats().contains(&Some(34)), "by the next nearest");
     }

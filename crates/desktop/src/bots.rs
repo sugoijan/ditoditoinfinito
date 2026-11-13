@@ -244,8 +244,8 @@ impl Options {
                     o.wait_for = value(i, a)?
                         .parse::<usize>()
                         .ok()
-                        .filter(|n| (2..=9).contains(n))
-                        .ok_or("--wait-for takes 2 to 9")?
+                        .filter(|n| (2..=MAX_BOTS).contains(n))
+                        .ok_or("--wait-for takes 2 to 73")?
                 }
                 "--seed" => {
                     o.seed = Some(

@@ -32,7 +32,11 @@ fn seventy_three_play_and_more_watch_up_to_the_member_bound() {
     // 72 more players: every one plays.
     for i in 2..=73 {
         let id = s
-            .join(Identity::new(format!("p:{i}")), &format!("P{i}"), Intent::Play)
+            .join(
+                Identity::new(format!("p:{i}")),
+                &format!("P{i}"),
+                Intent::Play,
+            )
             .unwrap();
         assert_eq!(s.state().members[&id].intent, Intent::Play, "{i}");
     }
@@ -42,7 +46,11 @@ fn seventy_three_play_and_more_watch_up_to_the_member_bound() {
     let members = usize::from(policy.max_members);
     for i in 74..=members {
         let id = s
-            .join(Identity::new(format!("p:{i}")), &format!("P{i}"), Intent::Play)
+            .join(
+                Identity::new(format!("p:{i}")),
+                &format!("P{i}"),
+                Intent::Play,
+            )
             .unwrap();
         assert_eq!(s.state().members[&id].intent, Intent::Watch, "{i}");
     }
@@ -91,7 +99,11 @@ fn what_a_large_room_costs() {
         for i in 2..=total {
             let t = Instant::now();
             let id = s
-                .join(Identity::new(format!("p:{i}")), &format!("Player {i}"), Intent::Play)
+                .join(
+                    Identity::new(format!("p:{i}")),
+                    &format!("Player {i}"),
+                    Intent::Play,
+                )
                 .unwrap();
             // The server writes the room's state as one row on every change.
             let row = serde_json::to_string(s.state()).unwrap();

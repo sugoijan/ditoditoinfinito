@@ -1599,7 +1599,8 @@ impl<H: PlayHost> PlayView<H> {
         if spectator.is_some()
             && let Some(f) = &fields
         {
-            watch_at.extend(f.slots.iter().map(|s| {
+            // (An empty slot, a paged grid's last page's, follows nobody.)
+            watch_at.extend(f.slots.iter().filter(|s| s.seat != usize::MAX).map(|s| {
                 let [x, y, w, h] = s.rect;
                 (
                     Some(s.seat),
@@ -1634,7 +1635,11 @@ impl<H: PlayHost> PlayView<H> {
             fields: shown
                 .as_ref()
                 .map_or_else(Vec::new, |(_, f, ..)| {
-                    f.slots.iter().map(|s| (s.seat, css(s.panel))).collect()
+                    f.slots
+                        .iter()
+                        .filter(|s| s.seat != usize::MAX)
+                        .map(|s| (s.seat, css(s.panel)))
+                        .collect()
                 }),
             label: shown.as_ref().and_then(|(s, ..)| s.label.clone()),
             cue: shown
