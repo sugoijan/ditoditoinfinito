@@ -147,6 +147,7 @@ jobs:
         run: |
           cargo run --locked -p xtask -- gen-songs
           cargo run --locked -p xtask -- gen-noteskins
+          cargo run --locked -p xtask -- gen-announcers
           cargo run --locked -p xtask -- gen-credits
           cargo build --locked -p ddi --no-default-features --features danoni-importer
           python3 tools/danoni-importer/build.py package --app target/debug/ddi --output "$RUNNER_TEMP/ddi-package"

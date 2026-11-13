@@ -67,6 +67,7 @@ video-check file="": video
 package:
     @cargo run -q -p xtask -- gen-songs
     @cargo run -q -p xtask -- gen-noteskins
+    @cargo run -q -p xtask -- gen-announcers
     @cargo run -q -p xtask -- gen-credits
     @cargo build --locked -p ddi --profile desktop
     @python3 tools/package/package.py dist --app target/desktop/ddi --output-dir target/dist

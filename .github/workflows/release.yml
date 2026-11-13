@@ -101,6 +101,7 @@ jobs:
         run: |
           cargo run --locked -p xtask -- gen-songs
           cargo run --locked -p xtask -- gen-noteskins
+          cargo run --locked -p xtask -- gen-announcers
           cargo run --locked -p xtask -- gen-credits
       # Fails on a language missing a message (none ships incomplete);
       # each language's review states go in the release's notes.
