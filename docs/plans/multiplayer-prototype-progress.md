@@ -6016,6 +6016,47 @@ small). Now:
   `target/scratch/mp/fua/shots/rules-*cpus-*.png`), headless Chrome and
   Firefox (`target/scratch/mp/fua/shots/`).
 
+### The audience's page offers a stage in progress
+
+- **Watch** (`room-audience-watch-stage`, "Watch the stage"): the
+  audience's page shows it, primary and focused first as it comes
+  (`PageScreen::focus_button`), whenever the room plays a stage the seat
+  can follow and is not watching (`AudienceClient::watchable`: its song
+  begun, prepared here, the room playing live, the seat not ended). Its
+  press hands the stage over as it stands (`AudienceClient::watch_now`:
+  the order made again, the play joining part-way as a late watcher's
+  does; the stage's music delay kept as it was the first time), the
+  shell told first inside the press (`AudienceCall::WatchPressed`: the
+  web makes and starts the audio context there, as the invite page's
+  Watch does; desktop needs nothing).
+- **Which stages start by themselves**: as before, a stage the seat saw
+  gathering or counting down is handed over as it starts. A stage the
+  seat first saw already playing (it arrived during it, or its page was
+  reloaded) is no longer handed over by itself: the page offers Watch,
+  whose press is the gesture that starts the sound. A stage handed over
+  and left (the browser's Back on the web) is offered again the same
+  way, never handed twice by itself.
+- **Tested**: desktop offscreen (`audience_offscreen`: a second seat
+  arriving mid-stage is not handed it, its page shows Watch focused,
+  Enter tells the shell of the press then hands the stage over; the
+  first seat, back from it, is offered it again), headless Chrome and
+  Firefox over the fake seat (the stage, the browser's Back, Watch
+  focused, Enter, the stage again from where it stands; Firefox with
+  autoplay blocked too: `target/scratch/mp/fua/shots/watch-*`,
+  `gesture-*`).
+
+### Sound after a reload during a watched stage: nothing to build
+
+With Watch on the audience's page (above), a reload during a watched
+stage lands on the page with Watch focused, and its press is the gesture
+that makes and starts the audio context before the stage is handed over.
+The other way into a watched stage without a press, a stage that starts
+by itself after a reload (no press on the page yet, a browser that
+blocks autoplay), still shows the prompt's card asking for one press
+(the existing "needs a tap" path), and the picture waits for it. So no
+path runs a watched stage's picture without its sound, and no "Tap to
+hear" plate was built.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

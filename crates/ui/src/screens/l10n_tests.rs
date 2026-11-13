@@ -1303,6 +1303,8 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             m::rules_points_shift(3, "strong", "no").into(),
             m::rules_change_points("mild").into(),
             m::rules_change_points("strong").into(),
+            // The audience's page's Watch for a stage being played.
+            m::audience_watch_stage().into(),
             // A battle's moments shown beside the play.
             m::play_cue_match_begin().into(),
             m::play_cue_stage_begin(2).into(),

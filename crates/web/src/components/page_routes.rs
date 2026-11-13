@@ -255,6 +255,13 @@ fn audience_screen(env: &ddi_ui::screens::Env, link: &str) -> AudienceScreen {
         crate::online::audience(link),
         Rc::new(|call, cx| match call {
             AudienceCall::Prepare(job) => crate::room::prepare_audience(job),
+            // In the press: the context the stage's music plays on (made
+            // and started there, as the invite page's Watch does).
+            AudienceCall::WatchPressed => {
+                if cx.in_gesture() {
+                    crate::online::audience_gesture();
+                }
+            }
             AudienceCall::Watch(order) => crate::online::watch_stage(*order, cx),
             AudienceCall::Redirect(r) => redirect(r),
             AudienceCall::Leave => {

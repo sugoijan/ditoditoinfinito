@@ -431,6 +431,22 @@ impl PageScreen {
         self
     }
 
+    /// Focuses the button `id` (an action), where it is on the page:
+    /// what a press of Enter or Start then means.
+    pub fn focus_button(&mut self, id: &str, root: &mut Actor, cx: &mut Cx) -> bool {
+        let Some(i) = self
+            .items
+            .iter()
+            .position(|it| matches!(it, Item::Button(b) if b == id))
+        else {
+            return false;
+        };
+        self.focus = Some(i);
+        cx.focus("Column");
+        self.rebuild_column(root);
+        true
+    }
+
     pub fn with_shell(mut self, shell: PageShell, feed: PageFeed) -> PageScreen {
         self.shell = Some(shell);
         self.feed = Some(feed);

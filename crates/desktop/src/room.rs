@@ -466,6 +466,8 @@ pub fn audience_screen(
                 }
                 None => eprintln!("audience: stage {}: no library to play it from", order.number),
             },
+            // Desktop's sound needs no press.
+            AudienceCall::WatchPressed => {}
             AudienceCall::Redirect(r) => redirect(&r),
             AudienceCall::Leave => {
                 crate::online::discard_audience();

@@ -1443,7 +1443,10 @@ Rust and the browser are implementation details, not advertised features.
   `crate::online::watch_stage`, `game_canvas::Props::watch`: no prompt to
   press where the browser starts the sound, the Watch press's context
   kept for it; nothing reported, back to the audience's page; reloaded,
-  the audience's page hands the stage over again as it stands); TESTING
+  or back on the page during a stage, the page offers Watch, focused
+  first, whose press starts the sound and hands the stage over as it
+  stands, `AudienceClient::watch_now`, `AudienceCall::WatchPressed`);
+  TESTING
   ONLY, `#/?mp=1&mpfakeseat=1` (`mpfakeend=S`) makes the next seat one
   in a fake room in the page (`crate::fake_seat`). `Trunk.toml` passes `/api/` (redirects untouched) and
   `/api/sockets/` (WebSockets) to `just dev` of `../ddi-server`.

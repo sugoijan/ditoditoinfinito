@@ -38,6 +38,10 @@ pub enum AudienceCall {
     /// Watch this stage now (the play's spectator view, fed by the
     /// audience's frames: `ddi_session::battle::live`).
     Watch(Box<StageOrder>),
+    /// Watch pressed on the page (inside the press: the web makes and
+    /// starts the stage's audio context there, as the invite page's
+    /// Watch does); the stage's [`AudienceCall::Watch`] follows at once.
+    WatchPressed,
     /// Where signing in again needs.
     Redirect(Redirect),
     /// Back: the seat is left.
@@ -287,6 +291,11 @@ pub fn doc(a: &AudienceClient) -> PageDoc {
         }
     }
     let mut actions = Vec::new();
+    // A stage being played that the seat is not watching (it arrived,
+    // reloaded or came back during it): Watch, first.
+    if a.watchable().is_some() {
+        actions.push(Action::new(WATCH, m::audience_watch_stage()).primary());
+    }
     if state == SeatState::SignInAgain {
         actions.push(Action::new("signin", m::sign_in_again()).primary());
     }
@@ -299,6 +308,9 @@ pub fn doc(a: &AudienceClient) -> PageDoc {
     }
 }
 
+/// The page's Watch: the stage being played, as it stands.
+pub const WATCH: &str = "watch";
+
 /// The audience's page over its client.
 pub struct AudienceScreen {
     env: Env,
@@ -308,6 +320,8 @@ pub struct AudienceScreen {
     shell: AudienceShell,
     seen: u64,
     time: f64,
+    /// Watch was offered when last laid out (it is focused as it comes).
+    offered: bool,
 }
 
 impl AudienceScreen {
@@ -332,6 +346,15 @@ impl AudienceScreen {
                     PageCall::Button(id) if id == "signin" => {
                         audience.borrow_mut().sign_in_again();
                     }
+                    PageCall::Button(id) if id == WATCH => {
+                        // In the press: the sound's gesture, then the
+                        // stage handed over as it stands.
+                        shell(AudienceCall::WatchPressed, cx);
+                        let order = audience.borrow_mut().watch_now();
+                        if let Some(order) = order {
+                            shell(AudienceCall::Watch(Box::new(order)), cx);
+                        }
+                    }
                     _ => return None,
                 }
                 Some(doc(&audience.borrow()))
@@ -348,6 +371,7 @@ impl AudienceScreen {
             shell,
             seen,
             time: 0.0,
+            offered: false,
         }
     }
 }
@@ -421,6 +445,15 @@ impl Screen for AudienceScreen {
             let d = doc(&self.audience.borrow());
             *self.feed.borrow_mut() = Some(d);
             self.page.message(&crate::Message::new(PAGE_CHANGED), root, cx);
+        }
+        // Watch focused first as it comes (Enter or Start presses it).
+        let offered = self.audience.borrow().watchable().is_some();
+        if offered && !self.offered {
+            if self.page.focus_button(WATCH, root, cx) {
+                self.offered = true;
+            }
+        } else if !offered {
+            self.offered = false;
         }
         if let Some(order) = order {
             (self.shell)(AudienceCall::Watch(Box::new(order)), cx);

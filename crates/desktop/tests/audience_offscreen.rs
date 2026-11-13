@@ -429,6 +429,95 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
         }
     }
     let order = order.expect("the audience's order");
+    // A seat that arrives during the stage: not handed it by itself; its
+    // page offers Watch, focused first, and Enter takes it into the stage
+    // as it stands (the shell told of the press first). The seat that was
+    // handed it is offered it again (back from it, as after Back).
+    {
+        use ddi_ui::screens::audience::{AudienceCall, AudienceScreen};
+        let online = Online::new(
+            Box::new(AudienceHttp {
+                server: server.clone(),
+                out: Vec::new(),
+            }),
+            OnlineConfig {
+                platform: Platform::Desktop,
+                site: "http://localhost:8080/".into(),
+            },
+        )
+        .shared();
+        online.borrow_mut().check();
+        online.borrow_mut().poll(0);
+        let late = Rc::new(RefCell::new(AudienceClient::new(
+            online,
+            "Room000001.audienceAUDIENCEaudien01",
+            Box::new(FakeAudienceSocket::new(server.clone())),
+            None,
+            wall(),
+        )));
+        let calls: Rc<RefCell<Vec<&'static str>>> = Rc::default();
+        let c = calls.clone();
+        let jobs: Rc<RefCell<Vec<ddi_ui::state::room::LoadJob>>> = Rc::default();
+        let j = jobs.clone();
+        let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
+        let (mut page_ui, page_env, _) = ddi_desktop::shell::theme_ui("start", fold);
+        page_env.reduced_motion.set(true);
+        page_ui.handle(UiEvent::Resize {
+            size: [SIZE[0] as f32, SIZE[1] as f32],
+            ratio: 1.0,
+        });
+        page_ui.push_over(AudienceScreen::new(
+            page_env.clone(),
+            late.clone(),
+            Rc::new(move |call, _| {
+                c.borrow_mut().push(match call {
+                    AudienceCall::WatchPressed => "pressed",
+                    AudienceCall::Watch(_) => "watch",
+                    AudienceCall::Prepare(job) => {
+                        j.borrow_mut().push(job);
+                        "prepare"
+                    }
+                    _ => "other",
+                })
+            }),
+        ));
+        for _ in 0..200 {
+            step(FRAME_NS);
+            stream(&mut sent);
+            audience.borrow_mut().tick(wall());
+            let mut todo = late.borrow_mut().take_load_jobs();
+            todo.extend(jobs.borrow_mut().drain(..));
+            for job in todo {
+                let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+                late.borrow_mut()
+                    .finish_load(&job, Ok((picked("beatucada"), prepared.live)));
+            }
+            page_ui.set_clock(wall() as f64 / 1_000.0);
+            page_ui.update(0.05);
+            if late.borrow().watchable().is_some() {
+                break;
+            }
+        }
+        assert_eq!(late.borrow().watchable(), Some(stage), "the late seat may watch");
+        for _ in 0..4 {
+            page_ui.update(0.05);
+        }
+        assert!(!calls.borrow().contains(&"watch"), "never handed over by itself");
+        assert!(
+            page_ui.actor("Item.watch").is_some() || page_env.state.borrow().page_items.iter().any(|i| i.contains("watch")),
+            "Watch on the page: {:?}",
+            page_env.state.borrow().page_items
+        );
+        page_ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::down("Enter", "Enter")));
+        page_ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::up("Enter", "Enter")));
+        page_ui.update(0.05);
+        let seen = calls.borrow().iter().filter(|c| **c != "prepare").copied().collect::<Vec<_>>();
+        assert_eq!(seen, vec!["pressed", "watch"], "Watch focused first and pressed");
+        // The first seat, handed it before: offered it again.
+        assert_eq!(audience.borrow().watchable(), Some(stage));
+        assert!(audience.borrow_mut().take_stage_order().is_none(), "not twice by itself");
+        assert_eq!(audience.borrow_mut().watch_now().map(|o| o.stage), Some(stage));
+    }
     // Handed to the play host as the audience's page hands it.
     ddi_desktop::room::set_audience_for_tests(stage, audience.clone(), wall.clone());
     *host.requested.borrow_mut() = Some(ddi_desktop::play::Request::stage(order));

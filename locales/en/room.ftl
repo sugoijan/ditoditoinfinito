@@ -1568,6 +1568,10 @@ room-audience-title = Watching
 room-audience-heading = Audience
 # Its Back.
 room-audience-leave = Stop watching
+# Its button while a stage is being played that this device is not
+# watching (it arrived, reloaded or came back during it): into the stage
+# as it stands (about 20 letters).
+room-audience-watch-stage = Watch the stage
 # What the room is doing, between stages.
 room-audience-doing-lobby = The host is choosing the first song.
 # Variables:

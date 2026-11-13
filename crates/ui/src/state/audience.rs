@@ -198,6 +198,14 @@ pub struct AudienceClient {
     /// room's: watched without shocks, said quietly.
     mismatched: BTreeSet<StageId>,
     launched: BTreeSet<StageId>,
+    /// Stages the seat saw before their song began (gathering, counting
+    /// down): handed over by themselves as they start. A stage the seat
+    /// first saw playing (it arrived, or came back after a reload) waits
+    /// for Watch ([`AudienceClient::watch_now`]), the press that starts
+    /// the sound where a browser asks for one.
+    seen_before: BTreeSet<StageId>,
+    /// Stages asked for with Watch.
+    watch_asked: BTreeSet<StageId>,
     /// The music's delay for each stage handed to the shell.
     delays: BTreeMap<StageId, u64>,
     /// The next stage's music delay ([`AudienceView::next_music_delay`]).
@@ -270,6 +278,8 @@ impl AudienceClient {
             problems: BTreeMap::new(),
             mismatched: BTreeSet::new(),
             launched: BTreeSet::new(),
+            seen_before: BTreeSet::new(),
+            watch_asked: BTreeSet::new(),
             delays: BTreeMap::new(),
             music_next: AUDIENCE_VIEW_V1.music_delay_ms,
             lags: None,
@@ -432,6 +442,44 @@ impl AudienceClient {
             }
         }
         self.sync_loading();
+    }
+
+    /// Notes the stage the room gathers or counts down for: seen before
+    /// its song began.
+    fn note_seen(&mut self) {
+        if let Some(v) = self.view()
+            && let Phase::Preparing { stage, .. } | Phase::Countdown { stage, .. } = v.phase
+        {
+            self.seen_before.insert(stage);
+        }
+    }
+
+    /// The stage being played now that the seat can follow but is not
+    /// watching (Watch on the audience's page): its song begun, prepared
+    /// here, the room playing live, the seat not ended, and not handed
+    /// over now (or handed over and left: the browser's Back, a reload).
+    pub fn watchable(&self) -> Option<StageId> {
+        if self.seat.link().ended().is_some() || !self.plays_live() {
+            return None;
+        }
+        let v = self.view()?;
+        let stage = match v.phase {
+            Phase::Stage { stage } | Phase::SongCompletion { stage } => stage,
+            _ => return None,
+        };
+        let st = v.stages.iter().find(|s| s.id == stage)?;
+        st.play.as_ref()?.song_zero_at?;
+        self.prepared.contains_key(&stage).then_some(stage)
+    }
+
+    /// Watch pressed: the stage being played, handed over as it stands
+    /// (its order, joining part-way), whether it was handed over before
+    /// or never (a seat that arrived during it).
+    pub fn watch_now(&mut self) -> Option<StageOrder> {
+        let stage = self.watchable()?;
+        self.launched.remove(&stage);
+        self.watch_asked.insert(stage);
+        self.take_stage_order()
     }
 
     /// The stage the room plays (or prepares) now, as the view says.
@@ -621,8 +669,13 @@ impl AudienceClient {
         if self.seat.link().ended().is_some() {
             return None;
         }
+        self.note_seen();
         let stage = self.current_stage()?;
         if self.launched.contains(&stage) || !self.plays_live() {
+            return None;
+        }
+        // Begun before the seat saw it: Watch hands it over.
+        if !self.seen_before.contains(&stage) && !self.watch_asked.contains(&stage) {
             return None;
         }
         let now = self.clock.now().0;
@@ -701,11 +754,14 @@ impl AudienceClient {
             }),
         };
         self.launched.insert(stage);
-        // The music's delay for it, from what the stage watched last needed.
-        if let Some((_, lags)) = self.lags.take() {
-            self.music_next = self.view_rules.next_music_delay(self.music_next, &lags);
+        // The music's delay for it, from what the stage watched last
+        // needed (a stage watched again keeps its own).
+        if !self.delays.contains_key(&stage) {
+            if let Some((_, lags)) = self.lags.take() {
+                self.music_next = self.view_rules.next_music_delay(self.music_next, &lags);
+            }
+            self.delays.insert(stage, self.music_next);
         }
-        self.delays.insert(stage, self.music_next);
         self.version += 1;
         Some(order)
     }

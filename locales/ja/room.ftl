@@ -719,6 +719,7 @@ room-audience-none = このルームには観客席がありません。
 room-audience-title = 観戦
 room-audience-heading = 観客席
 room-audience-leave = 観戦をやめる
+room-audience-watch-stage = ステージを観戦
 room-audience-doing-lobby = ホストが最初の曲を選んでいます。
 room-audience-doing-picking = ステージ{ $number }：曲を選んでいます。
 room-audience-doing-picked = ステージ{ $number }：{ $song }。プレイヤーの準備ができしだい始まります。
