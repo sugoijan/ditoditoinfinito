@@ -6214,6 +6214,55 @@ same chart in two stages played two ways
 `the_cpus_play_alike` with its fixture unchanged, natively and for
 wasm32-wasip1.
 
+### "Reload to update": the room model's revision
+
+The maintainer: "Refusing with 'reload to update' seems useful, I'd
+rather not focus on keeping compatibility right now." From now on rounds
+need not build per-feature soft failures for older clients: raise
+`ddi_room::ROOM_MODEL_REVISION` (1, holding this round's changes)
+whenever peers must agree on something new, and the older client is
+told to update.
+
+- The wire: the client says `"model": N` in the bodies of the requests
+  where the authority first hears from it: `POST /rooms/<id>/join`,
+  `POST /rooms/<id>/ticket` (every socket, so every reconnect and reload)
+  and `POST /rooms/<id>/audience` (`ddi_ui::state::online::api`). The
+  authority (`ddi_room::check_model`) refuses a client whose revision is
+  lower than its own, or that says none, with the problem body
+  `{"error":"update_required"}` (`ddi_room::UPDATE_REQUIRED`): 409 at a
+  join or an audience join, 403 at a ticket. A ticket is checked by the
+  room (`RoomState::admits_model`, `../ddi-server`
+  `RoomCore::admits_model`) and never refused while a stage is under way
+  (its countdown, play or song's end): a deploy restarts the room's
+  sockets, and a member who reconnects mid-stage plays it out; their next
+  reconnect between stages is refused. A socket that stays open is not
+  checked again (none survives a deploy of the server).
+- What a new client shows: an invite's page whose join was refused says
+  "The game was updated. Reload to play in this room." with a Reload
+  button (the web: `UiRequest::Reload`, a real reload of the page) or
+  "This room needs a newer version of the game." with Back (desktop); a
+  member refused a ticket ends its link `LinkState::UpdateRequired`: the
+  room's status line says the same, and the web's More has Reload. The
+  bots stop with a line.
+- What an older client shows (one that predates the revision): it sends
+  no `model`, so a new server refuses it. Its join and audience join
+  show their usual "Couldn't join (update_required)."; a ticket refused
+  with 403 ends its link as Left ("You left the room" on its status
+  line), the closest it has.
+- The other direction stays soft: a client newer than its authority
+  sends a `model` the older server ignores, and keeps hiding what that
+  authority does not honor by the policy flags, as before.
+- What a deploy changes: deploying the server after the game makes every
+  client from before this build (no `model`) unable to join, watch or
+  reconnect between stages until it reloads (web) or updates (desktop);
+  stages under way finish. Deploying the game first changes nothing
+  until the server follows (the new client's `model` is ignored).
+- `FakeServer::set_model`, `admit_join`, `admit_ticket` stand for an
+  authority ahead; tests: `an_older_room_model_is_refused_except_during_a_stage`
+  (the model), `an_authority_ahead_refuses_an_older_client_between_stages`
+  (the client, its invite page and its link), and the server's
+  `a_ticket_for_an_older_room_model_is_refused_between_stages`.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -6268,7 +6317,7 @@ wasm32-wasip1.
 | Present people who want to play hold a seat at the match start whatever their connection | `reduce.rs`, `start_match` | A disconnected person sits out stages rather than losing the seat | Roster lock for absent people |
 | Persistent elimination ranks by points like the default | `state::Match::standings` | Under that option the standings are not yet survival order | Its ranking (the design says survival placement) |
 | Admins may exceed the member limit by `admin_reserve` (4) | `rules::RoomPolicy` | Admins can always enter to help | Operator-observer capacity |
-| Protocol version 1, accepting only 1 (`OLDEST_PROTOCOL_VERSION`); the first incompatible change must keep the previous accepted | `protocol.rs` | None yet | The server's compatibility window |
+| Protocol version 2, accepting 1 (`OLDEST_PROTOCOL_VERSION`); beside it the room model's revision (`ROOM_MODEL_REVISION` 1, round B1): an older client refused at a join and at a ticket between stages ("reload to update"), a newer one soft | `protocol.rs`, `RoomState::admits_model` | An old page in a room on a newer server is told to reload | Whether a socket open across a revision change should be told too |
 | The room keeps the last 8 finished matches | `RoomPolicy::history` | Older match records drop from the room | How long a room keeps results |
 | Practice's default level is level 8 of ten (the engine's `normal`; "level 3 of 5" before feedback round A), seeds from the time the room was made | `state::room::DEFAULT_CPU_LEVEL`, `PracticeRoom::new` | Add CPUs starts at three gold and two silver stars; two rooms differ in their CPUs' seeds | Practice's default profile; whether the seed should be shown or fixed |
 | CPU levels `cpu-levels-v0`: ten, the last five the frozen strengths 0.75 to 1.25, the first five strength and lapse 0.40/0.20, 0.47/0.19, 0.54/0.16, 0.61/0.12, 0.68/0.07, chosen by measurement over local arcade packs, never against people | `ddi_engine::cpu::CPU_LEVELS_V0` | How weak a one-star CPU is: about 40% under ITG FA+ over the arcade charts, out of two stages in three; five silver stars about 77%, out of one in twenty-five | The levels' spacing; whether the five strengths should be respaced (they span 86% to 97% and never go out); calibration against people |
@@ -6353,8 +6402,9 @@ wasm32-wasip1.
   2026-11-13): "the 12, 6, ... points progression for fewer players too,
   for consistency" (decisions round B1).
 - Rooms of 1+72: an older client cannot read a stage result awarded by
-  the top-biased tables (from the first stage of nine or more): it must
-  be reloaded. Acceptable for the gated prototype?
+  the top-biased tables. ANSWERED (the maintainer, 2026-11-13: "Refusing
+  with 'reload to update' seems useful"): the room model's revision
+  (round B1).
 - Rooms of 1+72: the member bound is 384 (a full field and about 300
   watching). Enough until the audience exists? The deployed
   `ROOM_MAX_MEMBERS = "32"` is raised to 73 by the server; set it to 384

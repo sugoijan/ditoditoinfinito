@@ -844,6 +844,8 @@ impl Shell {
                 }
                 UiRequest::Back => {}
                 UiRequest::Quit => self.request_quit(),
+                // The web's alone (desktop needs a newer build).
+                UiRequest::Reload => {}
                 UiRequest::CopyText(text) => {
                     let _ = crate::os::copy(&text);
                 }

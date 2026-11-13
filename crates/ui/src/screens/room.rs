@@ -404,6 +404,10 @@ fn phase_status(r: &RoomClient) -> UiText {
             LinkState::SignInAgain => return m::link_sign_in_again(),
             LinkState::Closed => return m::link_closed(),
             LinkState::Left => return m::link_left(),
+            // The room's authority is newer: a reload (More's Reload on
+            // the web), or a newer desktop build.
+            LinkState::UpdateRequired if r.on_web() => return m::update_reload(),
+            LinkState::UpdateRequired => return m::update_required(),
             LinkState::Connected => {}
         }
     }
@@ -1087,6 +1091,9 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
         if r.link_state() == LinkState::SignInAgain {
             items.push(("signin".to_string(), m::sign_in_again().into()));
         }
+        if r.link_state() == LinkState::UpdateRequired && r.on_web() {
+            items.push((MORE_RELOAD.to_string(), m::update_reload_button().into()));
+        }
         if r.invite_link().is_some() {
             items.push(("copy".to_string(), m::copy_invite().into()));
         }
@@ -1118,6 +1125,10 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
 /// More's Copy watch-only link (an operator's, from a server that makes
 /// one).
 const MORE_COPY_WATCH: &str = "copywatch";
+
+/// More's Reload (the web, where the room's authority is newer than the
+/// page: `ddi_room::UPDATE_REQUIRED`).
+pub const MORE_RELOAD: &str = "reload";
 
 /// More's Replace invite link (an operator's, round B1), asked once.
 pub const MORE_REPLACE_INVITE: &str = "rotate";
@@ -1424,6 +1435,7 @@ pub fn more_picked(id: &str, room: &SharedRoom, cx: &mut Cx) -> MoreAction {
         // Asked once: it cannot be undone.
         MORE_REPLACE_INVITE => return MoreAction::ReplaceInvite,
         "signin" => room.borrow_mut().sign_in_again(),
+        MORE_RELOAD => cx.request(crate::UiRequest::Reload),
         "retry" => {
             let up = room.borrow().state().upcoming_stage();
             if let Some(up) = up {

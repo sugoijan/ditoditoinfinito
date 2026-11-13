@@ -1112,7 +1112,14 @@ Rust and the browser are implementation details, not advertised features.
   command); additive, and a room without `hosting` (an authority that
   predates it) is never sent the two commands
   (`RoomState::has_succession`);
-  protocol 2, still taking 1. The reducer (`reduce.rs`): commands from an
+  protocol 2, still taking 1; the room model's revision
+  (`ROOM_MODEL_REVISION`, round B1), said in the join's, ticket's and
+  audience join's `model`, an authority refusing an older client with
+  `update_required` (`check_model`; a ticket not during a stage,
+  `RoomState::admits_model`) and the shells saying so (the web with a
+  Reload, `UiRequest::Reload`): raise it whenever peers must agree on
+  something new, and build no per-feature soft failures for older
+  clients any more. The reducer (`reduce.rs`): commands from an
   `Actor` (a member, or the authority for joins, connections, content status
   and confirmed outcomes) decided into events, atomic, refusals typed
   (`Rejection`); `RoomState::commit` applies a revision's events, so a

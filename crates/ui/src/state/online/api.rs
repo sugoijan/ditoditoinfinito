@@ -353,9 +353,18 @@ pub fn preview(invite: &str) -> ApiRequest {
     ApiRequest::new(Method::Get, format!("/invites/{}", encode(invite)))
 }
 
+/// The room model this build speaks (`ddi_room::ROOM_MODEL_REVISION`),
+/// said where the authority first hears from it: the join's, the
+/// ticket's and the audience join's bodies (`model`). An authority whose
+/// model is newer refuses it (`update_required`).
+fn model() -> u32 {
+    ddi_room::ROOM_MODEL_REVISION
+}
+
 pub fn join(room: &str, invite: Option<&str>) -> ApiRequest {
-    ApiRequest::new(Method::Post, format!("/rooms/{room}/join"))
-        .json(serde_json::json!({ "invite": invite, "intent": "play" }))
+    ApiRequest::new(Method::Post, format!("/rooms/{room}/join")).json(
+        serde_json::json!({ "invite": invite, "intent": "play", "model": model() }),
+    )
 }
 
 pub fn summary(room: &str) -> ApiRequest {
@@ -364,6 +373,7 @@ pub fn summary(room: &str) -> ApiRequest {
 
 pub fn ticket(room: &str) -> ApiRequest {
     ApiRequest::new(Method::Post, format!("/rooms/{room}/ticket"))
+        .json(serde_json::json!({ "model": model() }))
 }
 
 pub fn invite(room: &str) -> ApiRequest {
@@ -394,7 +404,7 @@ pub fn socket_path(room: &str, ticket: &str) -> String {
 /// (`ddi_room::audience::AudienceRefusal`'s code).
 pub fn audience_join(room: &str, link: &str) -> ApiRequest {
     ApiRequest::new(Method::Post, format!("/rooms/{room}/audience"))
-        .json(serde_json::json!({ "invite": link }))
+        .json(serde_json::json!({ "invite": link, "model": model() }))
 }
 
 /// An audience seat's socket's path for a ticket

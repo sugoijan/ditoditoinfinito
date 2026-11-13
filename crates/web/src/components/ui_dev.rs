@@ -1921,6 +1921,12 @@ impl Host {
                     self.navigate_after_pops = Some("back".into());
                 }
                 UiRequest::Quit => {}
+                // A newer game for a room whose authority is ahead.
+                UiRequest::Reload => {
+                    if let Some(w) = web_sys::window() {
+                        let _ = w.location().reload();
+                    }
+                }
                 UiRequest::StartAudio => self.beep(),
                 UiRequest::Announce(line) => crate::announcers::announce(line),
                 UiRequest::SetCursor(c) => {

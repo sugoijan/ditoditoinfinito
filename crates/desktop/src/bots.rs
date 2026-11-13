@@ -902,6 +902,10 @@ impl Bot {
                 self.say("the room closed");
                 self.done = true;
             }
+            LinkState::UpdateRequired => {
+                self.say("this room needs a newer version of the game");
+                self.done = true;
+            }
             LinkState::Left => {
                 self.say("left the room");
                 self.done = true;

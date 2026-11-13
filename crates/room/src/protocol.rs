@@ -45,6 +45,47 @@ pub fn supported(version: u32) -> bool {
     (OLDEST_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&version)
 }
 
+/// The room model's revision (round B1, 2026-11-13): raised whenever a
+/// round changes what peers must agree on (awards, roles, capabilities,
+/// seeds, the live contract). 1 holds round B1's changes. A client says
+/// its revision where the authority first hears from it (`model` in the
+/// join's, the ticket's and the audience join's request bodies); an
+/// authority refuses a client whose revision is lower than its own
+/// ([`check_model`], [`UPDATE_REQUIRED`]: "reload to update", the
+/// maintainer: "I'd rather not focus on keeping compatibility right
+/// now"). A client newer than its authority is never refused: it hides
+/// what the authority does not honor, as the policy flags have it. An
+/// authority that predates the revision ignores the field.
+pub const ROOM_MODEL_REVISION: u32 = 1;
+
+/// The problem code an authority answers a client too old for it with
+/// (the HTTP body's `error`): a client that predates it shows it as a
+/// join it could not make, with the code.
+pub const UPDATE_REQUIRED: &str = "update_required";
+
+/// A client too old for this authority's room model: it must update
+/// (reload the page, or a newer desktop build).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateRequired {
+    /// The authority's revision.
+    pub model: u32,
+}
+
+/// Whether a client of room model revision `client` (none: a client that
+/// predates the revision) may join or watch this authority's rooms.
+pub fn check_model(client: Option<u32>) -> Result<(), UpdateRequired> {
+    check_model_against(client, ROOM_MODEL_REVISION)
+}
+
+/// [`check_model`] for an authority of revision `authority` (a test's
+/// authority ahead of this build).
+pub fn check_model_against(client: Option<u32>, authority: u32) -> Result<(), UpdateRequired> {
+    match client {
+        Some(r) if r >= authority => Ok(()),
+        _ => Err(UpdateRequired { model: authority }),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientEnvelope {
     pub v: u32,

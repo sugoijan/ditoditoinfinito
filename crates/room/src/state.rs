@@ -885,6 +885,30 @@ impl RoomState {
         }
     }
 
+    /// Whether a member's ticket (a socket opened again: a reconnect, a
+    /// reload) is given to a client of room model revision `client`
+    /// ([`crate::check_model`]): refused where it is too old, except while
+    /// a stage is under way (its countdown, its play, its song's end), so
+    /// a deploy of the authority never throws anyone out of a stage; the
+    /// next reconnect between stages is refused. A join is always checked.
+    pub fn admits_model(&self, client: Option<u32>) -> Result<(), crate::UpdateRequired> {
+        self.admits_model_against(client, crate::ROOM_MODEL_REVISION)
+    }
+
+    /// [`RoomState::admits_model`] for an authority of revision
+    /// `authority`.
+    pub fn admits_model_against(
+        &self,
+        client: Option<u32>,
+        authority: u32,
+    ) -> Result<(), crate::UpdateRequired> {
+        use crate::phase::PhaseKind;
+        match self.phase.kind() {
+            PhaseKind::Countdown | PhaseKind::Stage | PhaseKind::SongCompletion => Ok(()),
+            _ => crate::check_model_against(client, authority),
+        }
+    }
+
     /// Whether `id` chooses the room's songs now (rests on them for the
     /// others, picks them): the picker; in a room from before the picker,
     /// every operator.

@@ -95,6 +95,10 @@ pub enum UiRequest {
     Back,
     /// Desktop only: the same orderly shutdown as closing the window.
     Quit,
+    /// Web only: reload the page (a newer game, for a room whose
+    /// authority is ahead, `ddi_room::UPDATE_REQUIRED`). Desktop passes
+    /// it over.
+    Reload,
     /// Make (or resume) the audio context. Placeholder until the screens
     /// that need it move over.
     StartAudio,

@@ -630,3 +630,45 @@ fn every_message_kind_survives_the_wire() {
         },
     ));
 }
+
+/// The room model's revision (round B1): a client says its own; an
+/// authority refuses one older than itself (or one that says none) at a
+/// join, and at a ticket except while a stage is under way; a newer
+/// client is never refused.
+#[test]
+fn an_older_room_model_is_refused_except_during_a_stage() {
+    use ddi_room::{ROOM_MODEL_REVISION, UPDATE_REQUIRED, UpdateRequired, check_model_against};
+    let rev = ROOM_MODEL_REVISION;
+    assert_eq!(rev, 1);
+    assert_eq!(UPDATE_REQUIRED, "update_required");
+    assert!(ddi_room::check_model(Some(rev)).is_ok());
+    assert!(ddi_room::check_model(Some(rev + 1)).is_ok(), "a newer client");
+    assert_eq!(
+        ddi_room::check_model(None),
+        Err(UpdateRequired { model: rev })
+    );
+    assert_eq!(
+        check_model_against(Some(rev), rev + 1),
+        Err(UpdateRequired { model: rev + 1 })
+    );
+    let mut state = RoomState::new(
+        RoomId::new("room"),
+        Identity::new("twitch:host"),
+        "Host".into(),
+        RoomPolicy::default(),
+        MatchRules::hosted(),
+        ContentSource::Shared,
+    );
+    assert!(state.admits_model_against(Some(rev), rev + 1).is_err());
+    for phase in [
+        Phase::Stage { stage: StageId(1) },
+        Phase::SongCompletion { stage: StageId(1) },
+    ] {
+        state.phase = phase;
+        assert!(state.admits_model_against(Some(rev), rev + 1).is_ok());
+        assert!(state.admits_model_against(None, rev + 1).is_ok());
+    }
+    state.phase = Phase::Lobby;
+    assert!(state.admits_model(Some(rev)).is_ok());
+    assert!(state.admits_model(None).is_err());
+}

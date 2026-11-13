@@ -457,7 +457,23 @@ pub(crate) mod room {
         let s = server.clone();
         let handler: Handler = Box::new(move |req| {
             let identity = Identity::new(format!("dev:{who}"));
+            // The room model the request says (round B1), as the server
+            // reads it.
+            let model = req
+                .body
+                .as_deref()
+                .and_then(|b| serde_json::from_str::<serde_json::Value>(b).ok())
+                .and_then(|v| v.get("model").and_then(|m| m.as_u64()))
+                .map(|m| m as u32);
             match (req.method, req.path.as_str()) {
+                (Method::Post, "/rooms/Room000001/ticket")
+                    if s.borrow().admit_ticket(model).is_err() =>
+                {
+                    err(403, ddi_room::UPDATE_REQUIRED)
+                }
+                (Method::Post, "/rooms/Room000001/join") if s.borrow().admit_join(model).is_err() => {
+                    err(409, ddi_room::UPDATE_REQUIRED)
+                }
                 (Method::Get, "/me") => ok(&me_of(who)),
                 (Method::Get, "/rooms/Room000001") => ok(
                     r#"{"room_id":"Room000001","name":"After Hours","revision":1,"phase":"lobby","admission":"open","participant":1}"#,
@@ -807,6 +823,57 @@ pub(crate) mod room {
         fan.set_intent(Intent::Play).unwrap();
         tick(&clock, &mut [&mut alice, &mut fan], 400);
         assert!(!fan.watching());
+    }
+
+    /// "Reload to update" (round B1): an authority whose room model is
+    /// newer refuses this client's join with a page saying so (a Reload on
+    /// the web), and a member's ticket between stages (the room's status
+    /// line, More's Reload); never during a stage, so a deploy throws
+    /// nobody out of one.
+    #[test]
+    fn an_authority_ahead_refuses_an_older_client_between_stages() {
+        use crate::screens::online::RELOAD;
+        use crate::screens::room::{MORE_RELOAD, more_items, status};
+        use ddi_l10n::msg::room as m;
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        tick(&clock, &mut [&mut alice], 400);
+        assert_eq!(alice.link_state(), LinkState::Connected);
+        // The server deployed ahead of this build.
+        server.borrow_mut().set_model(ddi_room::ROOM_MODEL_REVISION + 1);
+        // A newcomer's join: refused, said plainly, Reload offered.
+        let carol = person(&server, "carol");
+        carol.borrow_mut().open_invite(INVITE);
+        carol.borrow_mut().poll(1);
+        carol.borrow_mut().join_invite();
+        carol.borrow_mut().poll(2);
+        assert_eq!(carol.borrow_mut().take_entered(), None);
+        let page = crate::screens::online::invite_page(&carol.borrow());
+        assert!(page.0.contains(&String::from(m::update_reload())), "{page:?}");
+        assert!(page.1.iter().any(|a| a == RELOAD), "{page:?}");
+        // A member's reconnect during a stage keeps them in it.
+        server.borrow_mut().rewrite(|s| {
+            s.phase = ddi_room::Phase::Stage {
+                stage: ddi_room::StageId(1),
+            };
+        });
+        tick(&clock, &mut [&mut alice], 400);
+        server.borrow_mut().drop_socket(alice.me());
+        tick(&clock, &mut [&mut alice], 2_000);
+        assert_eq!(alice.link_state(), LinkState::Connected);
+        // Between stages: refused.
+        server.borrow_mut().rewrite(|s| s.phase = ddi_room::Phase::Lobby);
+        tick(&clock, &mut [&mut alice], 400);
+        server.borrow_mut().drop_socket(alice.me());
+        tick(&clock, &mut [&mut alice], 2_000);
+        assert_eq!(alice.link_state(), LinkState::UpdateRequired);
+        assert_eq!(String::from(status(&alice)), String::from(m::update_reload()));
+        assert!(more_items(&alice, false).iter().any(|(id, _)| id == MORE_RELOAD));
+        // A client as new as the server is admitted.
+        server.borrow_mut().set_model(ddi_room::ROOM_MODEL_REVISION);
+        assert!(server.borrow().admit_join(Some(ddi_room::ROOM_MODEL_REVISION)).is_ok());
+        assert!(server.borrow().admit_join(None).is_err(), "one that says none is too old");
     }
 
     fn shared_pick(s: &crate::screens::data::SongEntry) -> Picked {

@@ -1363,6 +1363,14 @@ impl RoomClient {
         matches!(self.link, Link::Online(_))
     }
 
+    /// An online room on the web (a page that reloads to update), as
+    /// against desktop's.
+    pub fn on_web(&self) -> bool {
+        self.online_link().is_some_and(|l| {
+            l.online().borrow().config.platform == crate::state::online::Platform::Web
+        })
+    }
+
     /// Whether this online room plays its stages live
     /// (`docs/plans/multiplayer-online-play.md`): its policy says so
     /// (`RoomPolicy::live`, a server that predates it says nothing) and

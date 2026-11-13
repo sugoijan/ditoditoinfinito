@@ -118,13 +118,20 @@ pub enum LinkState {
     Closed,
     /// Left the room (4000), or no member any more.
     Left,
+    /// The room's authority is newer than this client's room model
+    /// ([`crate::UPDATE_REQUIRED`], a ticket refused): only a newer game
+    /// mends it (a reload on the web).
+    UpdateRequired,
 }
 
 impl LinkState {
     /// Whether the link is over until the person acts (signs in again,
     /// leaves for the home).
     pub fn ended(self) -> bool {
-        matches!(self, Self::SignInAgain | Self::Closed | Self::Left)
+        matches!(
+            self,
+            Self::SignInAgain | Self::Closed | Self::Left | Self::UpdateRequired
+        )
     }
 }
 
@@ -137,6 +144,9 @@ pub enum TicketProblem {
     NotAMember,
     /// `404 room_unknown`, `410 room_closed`.
     RoomClosed,
+    /// `403 update_required`: this client's room model is older than the
+    /// authority's ([`crate::check_model`]).
+    UpdateRequired,
     /// No answer, or another failure: retried.
     Unreachable,
 }
@@ -333,6 +343,7 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
             Err(TicketProblem::SignedOut) => self.end(LinkState::SignInAgain),
             Err(TicketProblem::NotAMember) => self.end(LinkState::Left),
             Err(TicketProblem::RoomClosed) => self.end(LinkState::Closed),
+            Err(TicketProblem::UpdateRequired) => self.end(LinkState::UpdateRequired),
             Err(TicketProblem::Unreachable) => self.retry_later(),
         }
     }
@@ -515,9 +526,10 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
             LinkState::Joining => Connection::Joining,
             LinkState::Connected => Connection::Connected,
             LinkState::Reconnecting { .. } => Connection::Reconnecting,
-            LinkState::SignInAgain | LinkState::Closed | LinkState::Left => {
-                Connection::Disconnected
-            }
+            LinkState::SignInAgain
+            | LinkState::Closed
+            | LinkState::Left
+            | LinkState::UpdateRequired => Connection::Disconnected,
         }
     }
 }

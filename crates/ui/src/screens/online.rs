@@ -170,6 +170,8 @@ pub fn invite_problem(p: &Problem) -> UiText {
         "too_many_seats" => m::audience_too_many_seats(),
         "audience_link_unknown" => m::audience_link_unknown(),
         "no_audience" => m::audience_none(),
+        // The room's authority is newer than this game (round B1).
+        ddi_room::UPDATE_REQUIRED => m::update_required(),
         code => m::invite_refused(UiText::data(code)),
     }
 }
@@ -203,6 +205,25 @@ pub fn preview_text(p: &Preview) -> UiText {
 /// An invite page's button that watches with the room's audience.
 pub const AUDIENCE: &str = "audience";
 
+/// An invite page's Reload, where the room's authority is newer than the
+/// page (the web).
+pub const RELOAD: &str = "reload";
+
+/// An invite's page as its notes' text and its actions' ids (tests).
+#[cfg(test)]
+pub(crate) fn invite_page(online: &Online) -> (Vec<String>, Vec<String>) {
+    let mut notes = Vec::new();
+    let mut actions = Vec::new();
+    for b in invite_doc(online).blocks {
+        match b {
+            Block::Note(t) => notes.push(t),
+            Block::Actions(a) => actions.extend(a.into_iter().map(|a| a.id)),
+            _ => {}
+        }
+    }
+    (notes, actions)
+}
+
 /// An invite's page.
 fn invite_doc(online: &Online) -> PageDoc {
     let mut blocks = Vec::new();
@@ -234,11 +255,26 @@ fn invite_doc(online: &Online) -> PageDoc {
         Some(Err(p)) => blocks.push(Block::Note(invite_problem(p).into())),
     }
     let offered_now = view.is_some_and(|v| v.offered);
+    let mut update = false;
     if let Some(p) = view.and_then(|v| v.refused.as_ref()) {
         // A join refused at the member bound with the audience offered:
         // said as the offer.
         if offered_now && p.code == "room_full" {
             blocks.push(Block::Note(m::invite_full_audience().into()));
+            joinable = false;
+        } else if p.code == ddi_room::UPDATE_REQUIRED {
+            // A plain page: said, with a real reload of the page on the
+            // web; desktop needs a newer build (Back alone).
+            let web = online.config.platform == crate::state::online::Platform::Web;
+            blocks.push(Block::Note(
+                if web {
+                    m::update_reload()
+                } else {
+                    m::update_required()
+                }
+                .into(),
+            ));
+            update = web;
             joinable = false;
         } else {
             blocks.push(Block::Note(invite_problem(p).into()));
@@ -248,7 +284,9 @@ fn invite_doc(online: &Online) -> PageDoc {
     blocks.push(account_block(online));
     sign_in_blocks(online, &mut blocks, !joinable && !audience);
     let mut actions = Vec::new();
-    if view.is_some_and(|v| v.joining) {
+    if update {
+        actions.push(Action::new(RELOAD, m::update_reload_button()).primary());
+    } else if view.is_some_and(|v| v.joining) {
         blocks.push(Block::Note(if audience {
             m::audience_joining().into()
         } else {
@@ -372,6 +410,11 @@ impl OnlinePageScreen {
                             o.sign_in(dest);
                         }
                         "join" => o.join_invite(),
+                        RELOAD => {
+                            drop(o);
+                            cx.request(crate::UiRequest::Reload);
+                            return None;
+                        }
                         AUDIENCE => {
                             o.watch_audience();
                             drop(o);

@@ -302,6 +302,7 @@ fn ticket_of(r: &ApiResponse) -> Result<String, TicketProblem> {
     match api::read::<TicketDoc>(r) {
         Ok(t) => Ok(t.ticket),
         Err(p) => Err(match p.status {
+            _ if p.code == ddi_room::UPDATE_REQUIRED => TicketProblem::UpdateRequired,
             401 => TicketProblem::SignedOut,
             403 => TicketProblem::NotAMember,
             404 | 410 => TicketProblem::RoomClosed,

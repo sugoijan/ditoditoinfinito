@@ -454,6 +454,9 @@ room-link-reconnecting = 接続が切れました。再接続しています…
 room-link-sign-in-again = サインインの期限が切れました。ルームに戻るにはもう一度サインインしてください。
 
 room-link-closed = このルームは閉じられました。
+room-update-required = このルームには新しいバージョンのゲームが必要です。
+room-update-reload = ゲームが更新されました。このルームで遊ぶには再読み込みしてください。
+room-update-reload-button = 再読み込み
 
 room-link-left = このルームから退出しました。
 

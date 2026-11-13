@@ -70,7 +70,8 @@ pub use phase::{Interruption, Phase, PhaseKind, ReadinessWindow};
 pub use points::Points;
 pub use protocol::{
     ClientEnvelope, ClientFrame, Mirror, MirrorError, OLDEST_PROTOCOL_VERSION, PROTOCOL_VERSION,
-    Resync, ServerEnvelope, ServerMessage, Want,
+    ROOM_MODEL_REVISION, Resync, ServerEnvelope, ServerMessage, UPDATE_REQUIRED, UpdateRequired,
+    Want, check_model, check_model_against,
 };
 pub use rules::{
     Access, Admission, AtZero, CapExceeded, ContentSource, CpuMode, CpuRules, LivePolicy,

@@ -969,6 +969,15 @@ room-link-sign-in-again = Your sign-in ended. Sign in again to return to the roo
 # The status line when the room closed.
 room-link-closed = This room has closed.
 
+# Said (on an invite's page, or on the room's status line) where the
+# room's server is newer than this game: desktop's, which needs a newer
+# build of the game.
+room-update-required = This room needs a newer version of the game.
+# The same on the web, where reloading the page brings the newer game.
+room-update-reload = The game was updated. Reload to play in this room.
+# The button that reloads the page (the web; about 12 letters).
+room-update-reload-button = Reload
+
 # The status line after leaving.
 room-link-left = You left this room.
 

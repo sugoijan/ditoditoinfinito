@@ -152,6 +152,10 @@ pub struct FakeServer {
     conns: BTreeMap<u64, Conn>,
     next_conn: u64,
     next_ticket: u64,
+    /// The room model revision this fake authority runs
+    /// ([`crate::ROOM_MODEL_REVISION`] unless a test sets one ahead,
+    /// [`FakeServer::set_model`]).
+    model: u32,
     tickets: BTreeMap<String, ParticipantId>,
     /// Faults for the next socket a person opens, by participant.
     pending_faults: BTreeMap<ParticipantId, Vec<Fault>>,
@@ -247,6 +251,7 @@ impl FakeServer {
             conns: BTreeMap::new(),
             next_conn: 1,
             next_ticket: 1,
+            model: crate::ROOM_MODEL_REVISION,
             tickets: BTreeMap::new(),
             pending_faults: BTreeMap::new(),
             grace_ms: None,
@@ -418,6 +423,26 @@ impl FakeServer {
     /// `POST /rooms/<id>/ticket`: a one-use ticket for a present member
     /// (`Rejection::RoomClosed` for a room that ended: the server's `410
     /// room_closed`).
+    /// Run as an authority of room model revision `model` (a server
+    /// deployed ahead of this build, for "reload to update").
+    pub fn set_model(&mut self, model: u32) {
+        self.model = model;
+    }
+
+    /// The server's check of a join's or an audience join's `model`
+    /// (`crate::check_model`): the body `{"error":"update_required"}`
+    /// with status 409 where it is too old.
+    pub fn admit_join(&self, model: Option<u32>) -> Result<(), crate::UpdateRequired> {
+        crate::check_model_against(model, self.model)
+    }
+
+    /// The server's check of a ticket's `model`
+    /// ([`RoomState::admits_model`]): refused (403 `update_required`)
+    /// where too old, except while a stage is under way.
+    pub fn admit_ticket(&self, model: Option<u32>) -> Result<(), crate::UpdateRequired> {
+        self.state().admits_model_against(model, self.model)
+    }
+
     pub fn ticket(&mut self, identity: &Identity) -> Result<String, Rejection> {
         if self.state().closed.is_some() {
             return Err(Rejection::RoomClosed);
