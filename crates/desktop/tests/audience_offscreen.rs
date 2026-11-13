@@ -440,7 +440,9 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
         }
     }
     let mut waited = 0;
-    while !host.prompt_ready() {
+    // (A watched stage may start by itself while it loads: its prompt
+    // is then never seen ready.)
+    while !host.prompt_ready() && !host.playing() {
         host.poll(&mut ui, &env, Some(dev(&device, &queue, formats)), 48_000);
         ui.set_clock(wall() as f64 / 1_000.0);
         ui.update(0.05);
@@ -457,8 +459,10 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
         );
     }
     // Start (the prompt's countdown would; pressed here at once).
-    ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::down("Enter", "Enter")));
-    ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::up("Enter", "Enter")));
+    if !host.playing() {
+        ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::down("Enter", "Enter")));
+        ui.handle(UiEvent::Key(ddi_ui::event::KeyEvent::up("Enter", "Enter")));
+    }
     let mut waited = 0;
     while !host.playing() {
         step(FRAME_NS);
