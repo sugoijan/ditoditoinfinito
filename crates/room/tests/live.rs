@@ -1006,6 +1006,38 @@ fn a_connection_lost_past_the_grace_is_a_forfeit_and_does_not_hold_the_stage_up(
 }
 
 #[test]
+fn a_stage_everyone_misses_is_decided_and_its_song_ended_in_the_same_tick() {
+    // Everyone said they would play live and nobody streamed: the room ends
+    // every stream as a no-show in one tick, decides the stage and ends its
+    // song at once (the song's end after the decision takes no ranking).
+    let mut r = room(&Setup::new(2));
+    start(&mut r, None, 2);
+    started(&r);
+    let zero = r
+        .state()
+        .stage(STAGE)
+        .unwrap()
+        .play
+        .as_ref()
+        .unwrap()
+        .song_zero_at
+        .unwrap();
+    r.run(zero.0 + 5_750 + 1_000 - r.now());
+    let s = r.state();
+    assert!(
+        matches!(s.phase, Phase::MatchResults | Phase::Intermission { .. }),
+        "the song ended at once, not at the report deadline: {:?}",
+        s.phase
+    );
+    let play = s.stage(STAGE).unwrap().play.as_ref().unwrap();
+    assert!(play.song_ended);
+    let result = play.result.as_ref().unwrap();
+    for p in [ParticipantId(1), ParticipantId(2)] {
+        assert_eq!(result.placement(p).unwrap().finish, Finish::Forfeit);
+    }
+}
+
+#[test]
 fn a_final_attack_holds_the_decision_and_its_knockout_is_a_shared_first() {
     let plan = plan(30, 3, |_| true);
     let ids: Vec<ParticipantId> = (1..=3).map(ParticipantId).collect();

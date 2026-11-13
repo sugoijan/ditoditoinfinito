@@ -920,6 +920,10 @@ impl LiveStage {
         }
         let ranking = match room.phase {
             Phase::SongCompletion { stage } if stage == self.id => None,
+            // Decided in this same tick: its `ConfirmStage` goes first and
+            // puts the room in SongCompletion, where the song's end takes
+            // no ranking (one would be refused, the song left waiting).
+            Phase::Stage { stage } if stage == self.id && self.decided => None,
             Phase::Stage { stage } if stage == self.id => {
                 let entrants: Vec<Entrant> = play
                     .lineup
