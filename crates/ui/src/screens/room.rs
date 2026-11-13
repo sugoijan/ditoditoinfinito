@@ -352,6 +352,7 @@ pub fn status(r: &RoomClient) -> UiText {
             LinkNotice::InviteCopied => m::invite_copied(),
             LinkNotice::InviteReplaced => m::invite_replaced(),
             LinkNotice::InviteNotReplaced => m::invite_not_replaced(),
+            LinkNotice::JoinedToWatch => m::joined_to_watch(),
         };
     }
     let s = r.state();
@@ -2011,6 +2012,7 @@ pub fn refusal_text(why: &Refusal) -> UiText {
             Rejection::NoContent | Rejection::ContentPending => m::refused_no_song(),
             Rejection::NotEnoughReady { .. } => m::refused_too_few(),
             Rejection::NoPlayingHumans => m::refused_all_watching(),
+            Rejection::Cap(_) => m::refused_players_full(),
             Rejection::StageStarted | Rejection::StartCommitted => m::refused_started(),
             Rejection::WrongPhase { .. } | Rejection::NotUpcoming | Rejection::WindowOpen => {
                 m::refused_phase()

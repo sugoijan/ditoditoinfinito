@@ -21,7 +21,14 @@ pub enum LinkNotice {
     InviteReplaced,
     /// Replacing the invite was refused or failed.
     InviteNotReplaced,
+    /// Joined to watch because every player's place was taken: said for
+    /// [`JOINED_TO_WATCH_MS`] once the room is connected.
+    JoinedToWatch,
 }
+
+/// How long the status line says a join was to watch (from the room's
+/// first connection).
+pub const JOINED_TO_WATCH_MS: u64 = 12_000;
 
 /// A stage's upload grant as the room answered it: for the content chosen
 /// at `chosen` (its `content_changed_at`).
@@ -48,6 +55,9 @@ pub struct OnlineLink {
     grant_reqs: Vec<(u64, StageId, Revision)>,
     grants: Vec<GrantNews>,
     notice: Option<LinkNotice>,
+    /// When [`LinkNotice::JoinedToWatch`] ends (set at the first tick
+    /// connected).
+    notice_until: Option<u64>,
 }
 
 impl OnlineLink {
@@ -65,6 +75,7 @@ impl OnlineLink {
             (Identity::new(id), o.epoch())
         };
         let summary_req = Some(online.borrow_mut().request(api::summary(room_id)));
+        let seated = online.borrow_mut().take_seated_to_watch(room_id);
         OnlineLink {
             authority: OnlineAuthority::new(RoomId::new(room_id), transport, clock),
             online,
@@ -80,7 +91,8 @@ impl OnlineLink {
             rotate_req: None,
             grant_reqs: Vec::new(),
             grants: Vec::new(),
-            notice: None,
+            notice: seated.then_some(LinkNotice::JoinedToWatch),
+            notice_until: None,
         }
     }
 
@@ -117,6 +129,7 @@ impl OnlineLink {
 
     pub fn set_notice(&mut self, notice: Option<LinkNotice>) {
         self.notice = notice;
+        self.notice_until = None;
     }
 
     /// Ask for the invite (operators only; others are refused and see
@@ -177,6 +190,18 @@ impl OnlineLink {
             if self.authority.link() == LinkState::SignInAgain {
                 self.authority.restart();
                 changed = true;
+            }
+        }
+        if self.notice == Some(LinkNotice::JoinedToWatch) {
+            match self.notice_until {
+                None if self.authority.link() == LinkState::Connected => {
+                    self.notice_until = Some(now_ms + JOINED_TO_WATCH_MS);
+                }
+                Some(until) if now_ms >= until => {
+                    self.set_notice(None);
+                    changed = true;
+                }
+                _ => {}
             }
         }
         if self.authority.wants_ticket() {

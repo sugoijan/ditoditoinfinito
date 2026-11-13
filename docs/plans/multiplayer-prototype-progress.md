@@ -4204,10 +4204,76 @@ the others' views; a bot's CPU play beside a person.
 - The clock is mapped to the audio clock once, at the play's start (no
   drift correction over a song).
 
+## Joining a room full of players: in to watch (2026-11-13)
+
+The maintainer, on the Play/Watch choice: "by default join as 'Play'
+unless the room is full, then join as 'Watch'". Everyone still joins
+meaning to play; where every player's place is taken, the join succeeds
+as a watcher, never refused for being full of players.
+
+- **As found**: the reducer refused a join asking to play past the
+  competitor cap (`Rejection::Cap`), and the server's join route asked
+  again to watch on that refusal, so an online room already seated such
+  a person watching, silently (the invite's page said "You can join
+  now", nothing said why the player watched). The server's `full`
+  (admission) was, and is, the member limit, not the players' cap.
+  `FakeServer` refused.
+- **The rule, one decision in `ddi-room`** (`join-watch-v0`,
+  PROVISIONAL): `RoomState::players_full` (one more who wants to play
+  would pass `RoomPolicy::check_competitors`) and
+  `RoomState::arrival_intent`, which the reducer's `Command::Join` makes:
+  asking to play where the room is full of players joins to watch
+  (`MemberJoined` carries the intent, so every mirror agrees). The
+  server's join route and `FakeServer` follow it by running the reducer
+  (the server's retry is gone); the server's invite preview says it
+  ahead (`players_full`, additive).
+- **What bounds a room's members**: `RoomPolicy::max_members`, 32
+  people besides CPUs (the server's `ROOM_MAX_MEMBERS`), administrators
+  four more (`admin_reserve`), bots eight of them
+  (`MAX_BOTS_PER_ROOM`); watchers count in it. At the member limit the
+  join is refused as before (`room_full`; the invite's page "This room
+  is full."). So a room has at most nine who play and the rest of its
+  32 watching. Kept; an audience beyond the members is later work.
+- **Told once**: the invite's page says "The room is full: you'll join
+  to watch." in the place of "You can join now…" (or of the running
+  match's line), and Join stays offered. After joining, the room's
+  status line says "The room is full: you're watching. Choose Play when
+  a place frees up." for 12 s from the room's first connection
+  (`LinkNotice::JoinedToWatch`, `JOINED_TO_WATCH_MS`; carried from the
+  join's answer, `Joined::intent` Watch on a new join, by
+  `Online::take_seated_to_watch`), then the room's own line. Their line
+  in the players panel and pop-up says "Watching", as any watcher's.
+  Nothing new on the main screen.
+- **A place later**: nobody is moved to Play when a place frees up
+  (PROVISIONAL: they may be away from the screen). The watcher chooses
+  Play with the existing control (More, the Players pop-up's foot);
+  while the room is still full it is refused in words of its own,
+  "Every player's place is taken. Choose Play again when one frees up."
+  (it said "Couldn't do that (Cap)." before).
+- **Older peers**: a new game against a server that predates this has
+  no `players_full` in the preview (the page says "You can join now"),
+  but that server seats the person watching all the same (its retry),
+  and the join's answer says Watch, so the room's line says it after
+  joining. Its `full` (the member limit) still shows today's refusal.
+  An older game joining a newer server's full room joins as a watcher
+  and sees "Watching" on its line with no explanation (accepted). The
+  server needs a deploy for the preview's sentence; nothing else of it
+  changed in behavior.
+- **Tested**: `ddi-room` (the join at the cap in to watch, the event's
+  intent, the member limit refusing, Play refused while full and taken
+  once a place frees up with nobody moved; the same through
+  `FakeServer`, the members' mirrors and `LocalAuthority`); `ddi-ui`
+  over the fake room (the invite's sentence from the preview, the join
+  in to watch, the status line and its end, "Watching", the refusal's
+  words, Play taken later), the `qps-ploc` walk (the preview, the
+  notice, the refusal), `xtask l10n check`; `../ddi-server` (the join
+  route and the preview at the cap and at the member limit).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `join-watch-v0`: a join asking to play where every player's place is taken is in to watch; nobody is moved to Play when a place frees up; the arrival is said on the status line for 12 s | `ddi_room::RoomState::arrival_intent`, `players_full`; `ddi_ui`'s `LinkNotice::JoinedToWatch`, `JOINED_TO_WATCH_MS` | A tenth person joins a room of nine players to watch, and plays only once they choose Play after a place frees | Whether a freed place should go to the longest-waiting watcher (asked, or at once) |
 | `watch-v0`: a grid's field is at most a play's own field (`GRID_LANE_SHARE` 1.0); a layout with more rows wins within a tenth of the largest lane (`GRID_FILL` 0.9) | `ddi_shell::opponents::arrange_grid` | One to three watched fields are nearly the screen's height; eight are four by two at lanes of 29 px (1280×720) | The sizes; whether eight should give up the play's proportion (shorter fields, larger lanes) |
 | `watch-v0`: a watched stage's results follow 2.5 s after it is decided, the music fading (`WATCH_END_HOLD`) | `ddi_session::play::watch` | A watcher (and a player out of the stage) does not see the winner finish the song | Whether to stay to the song's end (the design study's "winner finishing") |
 | `watch-v0`: where every person watches, a practice stage starts with the pick (the room's countdown), with no press of the watcher's | `ddi_room` `humans_needed`, `maybe_commit` | A watching host's pick is followed by the stage three seconds later | Whether a watching host should start it with a press |

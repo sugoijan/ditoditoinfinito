@@ -466,6 +466,34 @@ pub(crate) mod room {
                         Err(_) => err(403, "not_a_member"),
                     }
                 }
+                // The invite's preview and the join, as the server
+                // answers them from the room (`players_full`, the
+                // reducer's join).
+                (Method::Get, p) if p.starts_with("/invites/") => {
+                    let full = s.borrow().state().players_full();
+                    ok(&format!(
+                        r#"{{"room_id":"Room000001","room_name":"After Hours","host_display_name":"alice","phase":"lobby","admission":"open","players_full":{full},"members":2}}"#
+                    ))
+                }
+                (Method::Post, "/rooms/Room000001/join") => {
+                    let already = s
+                        .borrow()
+                        .state()
+                        .member_by_identity(&identity)
+                        .is_some_and(|m| !m.left);
+                    let id = s
+                        .borrow_mut()
+                        .join(identity.clone(), who, Intent::Play)
+                        .unwrap();
+                    let intent = match s.borrow().state().member(id).unwrap().intent {
+                        Intent::Play => "play",
+                        Intent::Watch => "watch",
+                    };
+                    ok(&format!(
+                        r#"{{"room_id":"Room000001","participant":{},"intent":"{intent}","participation":"watching","already":{already}}}"#,
+                        id.0
+                    ))
+                }
                 (Method::Get, "/rooms/Room000001/invite") if who == "alice" => ok(&format!(
                     r#"{{"invite":"{INVITE}","expires_at_ms":9,"admission":"open"}}"#
                 )),
@@ -609,6 +637,95 @@ pub(crate) mod room {
                 .unwrap();
         }
         server
+    }
+
+    /// A room whose player places are all taken (a cap of two): the
+    /// invite's page says the join is to watch, the join is in to watch,
+    /// the room's status line says so for a while and the player's line
+    /// says Watching; Play is refused in plain words while it is full, and
+    /// taken once a place frees up (nobody moved to it meanwhile).
+    #[test]
+    fn a_join_to_a_room_full_of_players_is_told_and_watches() {
+        use crate::screens::online::{admission_text, preview_text};
+        use crate::screens::room::{refusal_text, status};
+        use ddi_l10n::msg::room as m;
+        let clock = ManualClock::new(1_000);
+        let server = FakeServer::hosted(
+            "Room000001",
+            Identity::new("dev:alice"),
+            "alice",
+            RoomPolicy {
+                max_competitors: 2,
+                ..RoomPolicy::default()
+            },
+            clock.clone(),
+        )
+        .shared();
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        // Bob's join takes the last player's place.
+        let bob_online = person(&server, "bob");
+        bob_online.borrow_mut().open_invite(INVITE);
+        bob_online.borrow_mut().poll(1);
+        let bob_said: String = {
+            let o = bob_online.borrow();
+            preview_text(o.invite().unwrap().preview.as_ref().unwrap().as_ref().unwrap()).into()
+        };
+        let open: String = admission_text(super::api::Admission::Open).into();
+        assert_eq!(bob_said, open);
+        bob_online.borrow_mut().join_invite();
+        bob_online.borrow_mut().poll(2);
+        assert_eq!(bob_online.borrow_mut().take_entered().as_deref(), Some("Room000001"));
+        assert!(!bob_online.borrow_mut().take_seated_to_watch("Room000001"));
+        // Carol's invite page: full, she'll join to watch.
+        let carol_online = person(&server, "carol");
+        carol_online.borrow_mut().open_invite(INVITE);
+        carol_online.borrow_mut().poll(3);
+        let carol_said: String = {
+            let o = carol_online.borrow();
+            preview_text(o.invite().unwrap().preview.as_ref().unwrap().as_ref().unwrap()).into()
+        };
+        let full_watch: String = m::invite_full_watch().into();
+        assert_eq!(carol_said, full_watch);
+        carol_online.borrow_mut().join_invite();
+        carol_online.borrow_mut().poll(4);
+        assert_eq!(carol_online.borrow_mut().take_entered().as_deref(), Some("Room000001"));
+        let mut bob = client(&server, bob_online, "bob", 1_000);
+        let mut carol = client(&server, carol_online.clone(), "carol", 1_000);
+        // Said once: a link made again for the room says nothing.
+        assert!(!carol_online.borrow_mut().take_seated_to_watch("Room000001"));
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        assert_eq!(carol.link_state(), LinkState::Connected);
+        assert!(carol.watching());
+        let told: String = m::joined_to_watch().into();
+        assert_eq!(String::from(status(&carol)), told);
+        assert_ne!(String::from(status(&bob)), told);
+        let rows = crate::screens::room::player_rows(&carol);
+        let row = rows.iter().find(|r| r.me).unwrap();
+        assert_eq!(row.status, String::from(m::watching()));
+        // Play while full: refused, in plain words.
+        assert!(carol.set_intent(Intent::Play).is_err());
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        let refused = carol.refusal().expect("refused while full");
+        assert_eq!(
+            String::from(refusal_text(refused)),
+            String::from(m::refused_players_full())
+        );
+        assert!(carol.watching());
+        // The line goes after a while, the room's own status back.
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 13_000);
+        assert_eq!(carol.link_notice(), None);
+        // Bob watches: a place frees up, Carol is not moved to it…
+        bob.set_intent(Intent::Watch).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        assert!(carol.watching());
+        // …she takes it.
+        carol.set_intent(Intent::Play).unwrap();
+        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+        assert!(!carol.watching());
+        assert_eq!(
+            server.borrow().state().member_by_identity(&Identity::new("dev:carol")).unwrap().intent,
+            Intent::Play
+        );
     }
 
     fn shared_pick(s: &crate::screens::data::SongEntry) -> Picked {

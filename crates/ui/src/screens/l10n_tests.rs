@@ -909,6 +909,10 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             cap: 8,
         })),
         Rejection::InvalidRules(RulesProblem::TooFewSeats { seats: 1, min: 2 }),
+        Rejection::Cap(CapExceeded {
+            requested: 10,
+            cap: 9,
+        }),
         Rejection::InvalidRules(RulesProblem::EliminationWithLateEntry),
         Rejection::UnknownClient,
     ] {
@@ -1334,6 +1338,9 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         ok(
             r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"full","members":32}"#,
         ),
+        ok(
+            r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"open","players_full":true,"members":9}"#,
+        ),
         err(410, "invite_expired"),
         err(403, "invite_rotated"),
         err(404, "invite_unknown"),
@@ -1553,6 +1560,7 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
             crate::state::online::link::LinkNotice::InviteCopied,
             crate::state::online::link::LinkNotice::InviteReplaced,
             crate::state::online::link::LinkNotice::InviteNotReplaced,
+            crate::state::online::link::LinkNotice::JoinedToWatch,
         ]
         .into_iter()
         .map(|n| {

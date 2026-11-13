@@ -166,6 +166,9 @@ pub struct Online {
     creating: bool,
     create_problem: Option<Problem>,
     entered: Option<String>,
+    /// A room joined to watch because every player's place was taken
+    /// (the join asked to play): its id, until its link says so.
+    seated_to_watch: Option<String>,
     redirect: Option<Redirect>,
     next_id: u64,
     pending: BTreeMap<u64, Want>,
@@ -197,6 +200,7 @@ impl Online {
             creating: false,
             create_problem: None,
             entered: None,
+            seated_to_watch: None,
             redirect: None,
             next_id: 1,
             pending: BTreeMap::new(),
@@ -293,6 +297,17 @@ impl Online {
     /// A room to show now (made or joined), once.
     pub fn take_entered(&mut self) -> Option<String> {
         self.entered.take()
+    }
+
+    /// Whether room `room_id` was just joined to watch because every
+    /// player's place was taken, once (its link's notice says so).
+    pub fn take_seated_to_watch(&mut self, room_id: &str) -> bool {
+        if self.seated_to_watch.as_deref() == Some(room_id) {
+            self.seated_to_watch = None;
+            true
+        } else {
+            false
+        }
     }
 
     /// Ask who is signed in, unless known or being asked.
@@ -598,7 +613,14 @@ impl Online {
                     return;
                 }
                 match result {
-                    Ok(j) => self.entered = Some(j.room_id),
+                    Ok(j) => {
+                        // Asked to play (`api::join`), in to watch: the
+                        // room was full of players.
+                        self.seated_to_watch = (j.intent == ddi_room::Intent::Watch
+                            && !j.already)
+                            .then(|| j.room_id.clone());
+                        self.entered = Some(j.room_id);
+                    }
                     Err(p) => {
                         if p.signed_out() {
                             self.forget_session();
