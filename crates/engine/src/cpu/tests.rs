@@ -634,3 +634,178 @@ fn absolute_levels_stay_within_bounds_on_extreme_rows() {
         validate_script(&presses).unwrap();
     }
 }
+
+/// The presses of `rows` within 40 ms of a note of their lane, as a share
+/// of the notes, over seeds 1 to 8, at level 5 of `cpu-levels-v1` with
+/// `skills`.
+fn absolute_hits(rows: &[Row], skills: Skills) -> f64 {
+    let d = absolute::row_demands(rows, &ABSOLUTE_V1);
+    let notes: usize = rows.iter().map(|r| r.mask.count_ones() as usize).sum();
+    let mut hits = 0;
+    for seed in 1..=8 {
+        let presses = absolute::script(rows, &d, CPU_LEVELS_V1.levels[4], seed, skills).unwrap();
+        hits += presses
+            .iter()
+            .filter(|p| {
+                rows.iter().any(|r| {
+                    r.mask & (1 << p.lane) != 0 && (p.press - r.seconds).abs() <= 0.040
+                })
+            })
+            .count();
+    }
+    hits as f64 / (8 * notes) as f64
+}
+
+/// `cpu-levels-v1`: each of the seven pattern axes bends the limit its
+/// pattern meets, so a CPU strong on an axis (2) does better than a
+/// balanced one on that pattern and one weak on it (0.5) worse; the
+/// presets and the practice roster's personalities follow from these.
+#[test]
+fn each_axis_bends_the_absolute_limit_its_pattern_meets() {
+    let rows = |gaps: &[f64], masks: &[u8], n: usize| -> Vec<Row> {
+        let mut t = 1.0;
+        (0..n)
+            .map(|i| {
+                let r = Row {
+                    seconds: t,
+                    mask: masks[i % masks.len()],
+                };
+                t += gaps[i % gaps.len()];
+                r
+            })
+            .collect()
+    };
+    // Level 5 keeps up with about 3.95 notes a second.
+    let patterns: [(usize, Vec<Row>); 7] = [
+        (0, rows(&[0.2], &[1, 2, 4, 8], 300)),
+        (1, rows(&[0.3], &[3, 12, 6, 9], 300)),
+        (2, rows(&[0.45], &[7, 14, 13, 11], 300)),
+        (3, rows(&[0.3], &[1, 2, 4, 8], 600)),
+        (4, rows(&[1.0 / 3.0], &[1], 300)),
+        (5, rows(&[0.4], &[3], 300)),
+        (6, rows(&[0.15, 0.3], &[1, 2, 4, 8], 300)),
+    ];
+    for (axis, pattern) in &patterns {
+        let at = |v: f64| {
+            let mut values = [1.0; 7];
+            values[*axis] = v;
+            absolute_hits(pattern, Skills::new(values).unwrap())
+        };
+        let (weak, plain, strong) = (at(0.5), at(1.0), at(2.0));
+        assert!(
+            weak < plain && plain <= strong && weak < strong,
+            "{}: {weak} {plain} {strong}",
+            SKILL_NAMES[*axis]
+        );
+    }
+}
+
+/// Opt-in, the cost of a plan and of a CPU's presses on every bundled
+/// single chart: `cpu-levels-v0` against `cpu-levels-v1`, natively or in
+/// wasm32 (`cargo test --release -p ddi-engine --lib planning_cost --
+/// --ignored --nocapture`, and with `--target wasm32-wasip1` under a WASI
+/// runner). The plan is the same for both (its rows, the v0 frequencies
+/// and demands and the v1 demands); the presses differ.
+#[test]
+#[ignore]
+fn planning_cost() {
+    // Compiled in: a WASI runner reads no files.
+    const SONGS: [&str; 4] = [
+        include_str!("../../../../assets/songs/beatucada/Beatucada.ssc"),
+        include_str!("../../../../assets/songs/into-my-dream/Into My Dream.ssc"),
+        include_str!("../../../../assets/songs/some-things-must/Some Things Must (OutFox Edit).ssc"),
+        include_str!("../../../../assets/songs/sweeteners/Sweeteners.ssc"),
+    ];
+    let mut charts = Vec::new();
+    for text in SONGS {
+        let song = ddi_library::scan::parse_simfile(text, "ssc").unwrap();
+        for i in 0..song.charts.len() {
+            if song.charts[i].layout == "dance-single" && Plan::automatic(&song, i).is_ok() {
+                charts.push((song.clone(), i));
+            }
+        }
+    }
+    let rounds = 5;
+    let time = |f: &mut dyn FnMut()| {
+        let start = std::time::Instant::now();
+        for _ in 0..rounds {
+            f();
+        }
+        start.elapsed().as_secs_f64() * 1e6 / f64::from(rounds) / charts.len() as f64
+    };
+    let plans: Vec<Plan> = charts
+        .iter()
+        .map(|(s, i)| Plan::automatic(s, *i).unwrap())
+        .collect();
+    let rows: usize = plans.iter().map(|p| p.demands().len()).sum::<usize>() / plans.len();
+    let plan = time(&mut || {
+        for (s, i) in &charts {
+            std::hint::black_box(Plan::automatic(s, *i).unwrap());
+        }
+    });
+    let script = |strength: Strength| {
+        time(&mut || {
+            for p in &plans {
+                std::hint::black_box(p.script_strength(strength, 7, Skills::default()).unwrap());
+            }
+        })
+    };
+    let v0_frozen = script(LevelScale::RelativeV0.strength(7).unwrap());
+    let v0_weak = script(LevelScale::RelativeV0.strength(2).unwrap());
+    let v1_strong = script(LevelScale::AbsoluteV1.strength(7).unwrap());
+    let v1_weak = script(LevelScale::AbsoluteV1.strength(2).unwrap());
+    println!(
+        "{} charts, {rows} rows on average: a plan {plan:.0} us; presses v0 level 8 {v0_frozen:.0} us, v0 level 3 {v0_weak:.0} us, v1 level 8 {v1_strong:.0} us, v1 level 3 {v1_weak:.0} us (a chart)",
+        charts.len()
+    );
+}
+
+/// Opt-in, a level watched (`DDI_WATCH_LEVEL`, 3 by default; `cargo test
+/// --release -p ddi-engine --lib a_level_watched -- --ignored
+/// --nocapture`): Beatucada's charts under DDI Normal, as a stage plays
+/// them (out when its life empties), four seeds each: the percent, the
+/// judgments (W0 apart, then the tiers to Miss), and when it went out.
+#[test]
+#[ignore]
+fn a_level_watched() {
+    let level: usize = std::env::var("DDI_WATCH_LEVEL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3);
+    let song = bundled_songs()
+        .into_iter()
+        .find(|s| s.title == "Beatucada")
+        .unwrap();
+    for (i, chart) in song.charts.iter().enumerate() {
+        if chart.layout != "dance-single" || chart.derivation.is_some() {
+            continue;
+        }
+        for seed in 1..=4 {
+            let mut rules = crate::rules::ddi::ruleset(&crate::rules::ddi::DdiOptions::default());
+            rules.fail = crate::rules::FailPolicy::Immediate;
+            let mut o = Opponent::on_scale(
+                &song,
+                i,
+                rules,
+                LevelScale::AbsoluteV1,
+                level - 1,
+                seed,
+                Skills::default(),
+            )
+            .unwrap();
+            o.start(0.0);
+            o.finish();
+            let t = o.player().tally();
+            println!(
+                "level {level} {:?} (meter {}) seed {seed}: {:.1}% W0 {} tiers {:?} out {:?} of {:.0} s",
+                chart.difficulty,
+                chart.meter,
+                o.score().percent.unwrap_or(0.0) * 100.0,
+                t.w0,
+                t.taps,
+                o.out_at().map(|s| (s * 10.0).round() / 10.0),
+                o.player().song_end_time()
+            );
+        }
+    }
+}

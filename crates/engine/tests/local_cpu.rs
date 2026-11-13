@@ -70,6 +70,10 @@ struct Sum {
     life: f64,
     out: u32,
     missed: f64,
+    /// Charts, and the sum of each chart's standard deviation of the
+    /// percent across its seeds.
+    charts: u32,
+    spread: f64,
 }
 
 impl Sum {
@@ -79,6 +83,8 @@ impl Sum {
         self.life += o.life;
         self.out += o.out;
         self.missed += o.missed;
+        self.charts += o.charts;
+        self.spread += o.spread;
     }
 }
 
@@ -130,6 +136,7 @@ fn play(plan: &Plan, song: &Song, chart: usize, rules: &str, level: Strength, se
         life: if out { 0.0 } else { f64::from(o.life()) },
         out: u32::from(out),
         missed: f64::from(tally.taps[Judgement::Miss as usize]) / f64::from(taps.max(1)),
+        ..Sum::default()
     }
 }
 
@@ -249,9 +256,19 @@ fn local_cpu_levels() {
                                     .iter()
                                     .map(|&level| {
                                         let mut s = Sum::default();
+                                        let mut each = Vec::new();
                                         for seed in 1..=seeds {
-                                            s.add(&play(&plan, &song, index, r, level, seed));
+                                            let one = play(&plan, &song, index, r, level, seed);
+                                            each.push(one.percent);
+                                            s.add(&one);
                                         }
+                                        // The chart's spread across its seeds.
+                                        let n = each.len() as f64;
+                                        let mean = each.iter().sum::<f64>() / n;
+                                        let var = each.iter().map(|p| (p - mean).powi(2)).sum::<f64>()
+                                            / (n - 1.0).max(1.0);
+                                        s.charts = 1;
+                                        s.spread = var.sqrt();
                                         s
                                     })
                                     .collect();
@@ -316,6 +333,10 @@ fn local_cpu_levels() {
         println!("  out %    {}", row(&|s| 100.0 * f64::from(s.out) / n(s)));
         println!("  life %   {}", row(&|s| 100.0 * s.life / n(s)));
         println!("  missed % {}", row(&|s| 100.0 * s.missed / n(s)));
+        println!(
+            "  seed sd  {}",
+            row(&|s| 100.0 * s.spread / f64::from(s.charts.max(1)))
+        );
     }
 }
 
