@@ -1751,7 +1751,8 @@ Rust and the browser are implementation details, not advertised features.
   `target/fonts/`). `xtask l10n report <tag> [--unverified]
   [--area A]` lists messages for a review pass; `xtask l10n review <tag>
   --by agent|human <ids…>|--area A` records one (`locales/README.md`).
-- `just test` native tests (chart, engine, render, session, shell,
+- `just test` native tests (chart, engine, render, session, shell, room,
+  share-protocol,
   platform with `decode` and, through desktop, `decode-all` (its references against
   the `ffmpeg` command where it is installed), library with `nfkd`,
   actor, ui, l10n, theme, noteskin, lua, desktop, xtask), after writing the
