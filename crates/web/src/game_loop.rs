@@ -1539,22 +1539,24 @@ fn extend(debug: &mut Value, more: Value) {
     }
 }
 
-/// A stage's steps down as the debug state has them (`battle.step_down`).
+/// A stage's steps as the debug state has them (`battle.step_down`, its
+/// old name: the ladder, each step's moment, boundary, rung and whether
+/// it was up, the cue's rung and direction, each field's steps).
 fn step_down_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
     s: &ddi_session::play::PlaySession<A, I>,
     host: f64,
 ) -> serde_json::Value {
     let ladder: Vec<serde_json::Value> = s.battle().map_or_else(Vec::new, |b| {
-        b.rungs().iter().map(|r| json!([r.chart, r.name])).collect()
+        b.rungs().iter().map(|r| json!([r.chart, r.name, r.up])).collect()
     });
     let steps: Vec<serde_json::Value> = s
         .player
         .steps()
         .iter()
-        .map(|st| json!([st.at, st.boundary, st.rung]))
+        .map(|st| json!([st.at, st.boundary, st.rung, st.up]))
         .collect();
     let cue = s.stage_cue(host).and_then(|(c, _)| match c {
-        ddi_session::announcer::battle::StageCue::StepDown(r) => Some(r),
+        ddi_session::announcer::battle::StageCue::Step { rung, up } => Some(json!([rung, up])),
         _ => None,
     });
     let fields: Vec<usize> = s

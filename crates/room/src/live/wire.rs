@@ -310,7 +310,7 @@ impl Writer {
                 MomentKind::Shock => (3, false),
                 MomentKind::Boo => (4, false),
                 MomentKind::Refused { .. } => (5, false),
-                MomentKind::StepDown { .. } => (5, true),
+                MomentKind::Step { .. } => (5, true),
             };
             self.byte(kind | if flag { 0x10 } else { 0 });
             self.i(i64::from(m.at_ms) - at);
@@ -326,7 +326,7 @@ impl Writer {
                     self.i(i64::from(offset_ms));
                 }
                 MomentKind::Refused { attack } => self.u(u64::from(attack)),
-                MomentKind::StepDown { rung } => {
+                MomentKind::Step { rung } => {
                     self.u(u64::from(STEP_DOWN_ATTACK - u32::from(rung)))
                 }
                 _ => {}
@@ -514,7 +514,7 @@ impl Reader<'_> {
                     let rung = STEP_DOWN_ATTACK
                         .checked_sub(self.u32()?)
                         .ok_or(WireError::Invalid)?;
-                    MomentKind::StepDown {
+                    MomentKind::Step {
                         rung: u8::try_from(rung).map_err(|_| WireError::Invalid)?,
                     }
                 }
@@ -721,7 +721,7 @@ pub(crate) mod tests {
     #[test]
     fn a_step_down_reads_back_and_an_older_reader_takes_it_for_nothing() {
         let mut ms = moments(6, 83, 4);
-        ms[3].kind = MomentKind::StepDown { rung: 2 };
+        ms[3].kind = MomentKind::Step { rung: 2 };
         let b = Batch {
             stage: StageId(1),
             seq: 1,

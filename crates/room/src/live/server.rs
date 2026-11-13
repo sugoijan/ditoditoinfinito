@@ -835,7 +835,8 @@ impl LiveStage {
         self.comps.get(&p).and_then(|c| c.end)
     }
 
-    /// The steps down `p`'s stream said (the rung it plays).
+    /// The rung `p`'s stream last said it stepped to (0 where none, or
+    /// back on the stage's chart).
     pub fn steps(&self, p: ParticipantId) -> u8 {
         self.comps.get(&p).map_or(0, |c| c.steps)
     }
@@ -883,8 +884,8 @@ impl LiveStage {
             c.last = Some(*m);
         }
         for m in &b.moments {
-            if let MomentKind::StepDown { rung } = m.kind {
-                c.steps = c.steps.max(rung);
+            if let MomentKind::Step { rung } = m.kind {
+                c.steps = rung;
             }
         }
         for r in b.reports {

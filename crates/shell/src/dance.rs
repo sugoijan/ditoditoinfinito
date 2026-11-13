@@ -263,9 +263,11 @@ impl Preview {
     }
 
     /// The milliseconds the last frame spent preparing motion.
-    /// The play stepped down to an easier chart since the hand last
-    /// looked (a match's "At zero life: Step down"): it plays out what it
-    /// was given and rests to the end ([`RuntimePreview::step_down`]).
+    /// The play stepped to another chart since the hand last looked (a
+    /// match's "Charts: Adaptive", down or up): it plays out what it was
+    /// given and rests to the end ([`RuntimePreview::step_down`]; after a
+    /// step up too, so it may rest a few seconds before the old chart
+    /// ends: the hand is never the play).
     pub fn follow_steps(&mut self, player: &ddi_engine::player::Player) {
         let steps = player.steps().len();
         if steps == self.steps {

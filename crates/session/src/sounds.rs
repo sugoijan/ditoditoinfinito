@@ -238,14 +238,16 @@ impl<B> EventSounds<B> {
         }
     }
 
-    /// The player stepped down at song second `at` (a match's "At zero
-    /// life: Step down"): the claps still to schedule are those of
-    /// `notes`, the judge's after the step (the old chart's notes not
-    /// judged by `at` taken away, the new chart's from its boundary on).
-    /// Claps already asked for stay: at most [`CLAP_LOOKAHEAD`] of the
-    /// old chart's past the step, which the backend cannot take back.
-    /// The mine sound needs nothing: it follows what is judged.
-    pub fn step_down(&mut self, notes: &[JudgedNote], at: f64) {
+    /// The player stepped at song second `at` (a match's "Charts:
+    /// Adaptive"): the claps still to schedule are those of `notes`, the
+    /// judge's after the step (down: the old chart's notes not judged by
+    /// `at` taken away; up: the old chart's from the boundary on; the new
+    /// chart's from its boundary on either way). Claps already asked for
+    /// stay: at most [`CLAP_LOOKAHEAD`] of the old chart's past a step
+    /// down, which the backend cannot take back (a step up's boundary is
+    /// further ahead than that). The mine sound needs nothing: it follows
+    /// what is judged.
+    pub fn step(&mut self, notes: &[JudgedNote], at: f64) {
         if self.clap.is_none() {
             return;
         }

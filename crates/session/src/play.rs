@@ -498,7 +498,7 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     over: bool,
     /// The player's steps down so far as told: each one's rung and the
     /// host second it was noticed at (the status line's cue).
-    steps_told: Vec<(u8, f64)>,
+    steps_told: Vec<(u8, bool, f64)>,
 }
 
 /// Which cue a simulated player follows. In calibration it plays as a
@@ -1812,36 +1812,43 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         &self.attack_told
     }
 
-    /// The player stepped down to an easier chart (a match's "At zero
-    /// life: Step down"): told once (the status line's cue), and the
-    /// autoplayer's presses from the boundary on made for the new chart.
+    /// The player stepped to another chart (a match's "Charts:
+    /// Adaptive"): told once (the status line's cue), and the
+    /// autoplayer's presses from the boundary on made for the new chart
+    /// (after a step up, the old chart's before it kept).
     fn follow_steps(&mut self, host: f64) {
         let steps = self.player.steps();
         if steps.len() <= self.steps_told.len() {
             return;
         }
         for st in &steps[self.steps_told.len()..] {
-            self.steps_told.push((st.rung, host));
+            self.steps_told.push((st.rung, st.up, host));
         }
         let Some(step) = steps.last().copied() else {
             return;
         };
-        self.sounds.step_down(self.player.judge().notes(), step.at);
+        self.sounds.step(self.player.judge().notes(), step.at);
         if let Some(a) = self.auto.as_mut() {
             let early = self.player.ruleset().judge.max_early();
-            let fed_until = a.events[..a.next].last().map_or(f64::NEG_INFINITY, |p| p.release);
+            let from = step.boundary - early;
+            let keep = if step.up {
+                a.next + a.events[a.next..].partition_point(|p| p.press < from)
+            } else {
+                a.next
+            };
+            let fed_until = a.events[..keep].last().map_or(f64::NEG_INFINITY, |p| p.release);
             let fresh: Vec<Press> = ddi_engine::autoplay::script(self.player.judge().notes(), a.bias)
                 .into_iter()
-                .filter(|p| p.press >= step.boundary - early && p.press > fed_until)
+                .filter(|p| p.press >= from && p.press > fed_until)
                 .collect();
-            a.events.truncate(a.next);
+            a.events.truncate(keep);
             a.events.extend(fresh);
         }
     }
 
-    /// The player's steps down as told: each one's rung and the host
-    /// second it was noticed at.
-    pub fn steps_told(&self) -> &[(u8, f64)] {
+    /// The player's steps as told: each one's rung, whether it was up and
+    /// the host second it was noticed at.
+    pub fn steps_told(&self) -> &[(u8, bool, f64)] {
         &self.steps_told
     }
 
@@ -1863,16 +1870,16 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .map(|t| (t, host - t.at))
             .filter(|(_, age)| *age < policy.cue_seconds)
             .map(|(t, age)| (policy.attack_priority(t.moment), StageCue::Attack(t.moment), age));
-        // A step down of the player's own, as their going out would be.
+        // A step of the player's own, as their going out would be.
         let stepped = self
             .steps_told
             .last()
-            .map(|&(rung, at)| (rung, host - at))
-            .filter(|(_, age)| *age < policy.cue_seconds)
-            .map(|(rung, age)| {
+            .map(|&(rung, up, at)| (rung, up, host - at))
+            .filter(|(_, _, age)| *age < policy.cue_seconds)
+            .map(|(rung, up, age)| {
                 (
                     policy.priority(ddi_library::announcer::Battle::Eliminated),
-                    StageCue::StepDown(rung),
+                    StageCue::Step { rung, up },
                     age,
                 )
             });

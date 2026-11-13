@@ -1400,7 +1400,7 @@ impl<H: PlayHost> PlayView<H> {
             let rung = |r: u8| {
                 session
                     .battle()?
-                    .rung_name(usize::from(r))
+                    .chart_name(r)
                     .map(str::to_string)
             };
             Some((
@@ -2024,8 +2024,11 @@ fn cue_words(
         StageCue::Attack(AttackMoment::Launched) => {
             return Some(m::play_cue_attack_launched().into());
         }
-        StageCue::StepDown(r) => {
+        StageCue::Step { rung: r, up: false } => {
             return Some(m::play_cue_step_down(rung(r)?).into());
+        }
+        StageCue::Step { rung: r, up: true } => {
+            return Some(m::play_cue_step_up(rung(r)?).into());
         }
         StageCue::Event(event) => event,
     };

@@ -73,13 +73,15 @@ pub enum MomentKind {
     /// Nothing a note shows (their going out): their numbers after it
     /// alone.
     Mark,
-    /// Their life ran out and they stepped down to this rung of the
-    /// stage's ladder (a match's "At zero life: Step down",
-    /// `ddi_engine::ladder`): from the moment the notes of the chart they
-    /// were on are gone, from the boundary (the moment's tick) the
-    /// rung's are theirs ([`FieldFeed::step_down`]); the life after it is
-    /// what was given back.
-    StepDown(u8),
+    /// They stepped to this rung of the stage's ladder (a match's
+    /// "Charts: Adaptive", `ddi_engine::ladder`; numbered as
+    /// `Ladder::rungs`, 0 the stage's chart): down, their life ran out
+    /// and from the moment the notes of the chart they were on are gone;
+    /// up, after full bars, the chart they were on played to the
+    /// boundary; from the boundary (the moment's tick) the rung's notes
+    /// are theirs ([`FieldFeed::step`]); the life after it is what it
+    /// is then (given back after a step down).
+    Step(u8),
 }
 
 /// One judged moment of a player's run.
@@ -283,21 +285,43 @@ pub struct FieldFeed {
     /// long the stream (a large field's, `docs/plans/multiplayer-prototype-progress.md`,
     /// "Rooms of 1+72 players").
     out_at: f64,
-    /// Their steps down to easier charts, in order: what the field draws
-    /// from each one on ([`FieldFeed::step_down`]).
+    /// Their steps down and up the ladder, in order: what the field
+    /// draws from each one on ([`FieldFeed::step`]).
     steps: Vec<FeedStep>,
 }
 
-/// A step down in a field: the chart they play from its boundary, and
-/// what of its notes the moments said.
+/// A step in a field: the chart they play from its boundary, and what of
+/// its notes the moments said.
 #[derive(Clone, Debug)]
 struct FeedStep {
     at: f64,
     boundary: f64,
+    /// The boundary's tick: after a step up, a moment of a note from it
+    /// on is the new chart's (one before it, the old chart's, judged late).
+    tick: ddi_chart::Tick,
     rung: u8,
+    up: bool,
     track: TapTrack,
     gone: Vec<f64>,
     hold_end: Vec<Option<(f64, bool)>>,
+}
+
+impl FeedStep {
+    /// Where the chart before it stops being drawn: the step down's
+    /// moment (the rest taken away), the step up's boundary.
+    fn cut(&self) -> f64 {
+        if self.up { self.boundary } else { self.at }
+    }
+
+    /// Whether a moment judged at `at` of a note at `tick` is of this
+    /// step's chart or a later one's.
+    fn holds(&self, at: f64, tick: ddi_chart::Tick) -> bool {
+        if self.up {
+            at >= self.at && tick >= self.tick
+        } else {
+            at > self.at
+        }
+    }
 }
 
 /// Each note index a step's chart draws with is past this many times its
@@ -321,13 +345,20 @@ impl FieldFeed {
         }
     }
 
-    /// They stepped down at song second `at` to rung `rung` (from 1), whose
-    /// chart, `track`, they play from `boundary` on (a match's "At zero
-    /// life: Step down"): the field draws the chart they were on to `at`,
-    /// then the rung's from the boundary, the breather between empty. A
-    /// step already known is not taken again.
-    pub fn step_down(&mut self, track: TapTrack, at: f64, boundary: f64, rung: u8) {
-        if self.steps.iter().any(|s| s.rung == rung) {
+    /// They stepped at song second `at` to rung `rung` (a match's
+    /// "Charts: Adaptive"), whose chart, `track`, they play from
+    /// `boundary` (its tick `tick`) on: down (`up` false), the field draws
+    /// the chart they were on to `at`, the breather empty; up, to the
+    /// boundary; then the rung's from the boundary. A step already known
+    /// (its rung at its moment) is not taken again.
+    pub fn step(
+        &mut self,
+        track: TapTrack,
+        (at, boundary, tick): (f64, f64, ddi_chart::Tick),
+        rung: u8,
+        up: bool,
+    ) {
+        if self.steps.iter().any(|s| s.rung == rung && s.at == at) {
             return;
         }
         let n = track.len();
@@ -337,7 +368,9 @@ impl FieldFeed {
             FeedStep {
                 at,
                 boundary,
+                tick,
                 rung,
+                up,
                 track,
                 gone: vec![f64::INFINITY; n],
                 hold_end: vec![None; n],
@@ -346,26 +379,27 @@ impl FieldFeed {
     }
 
     /// The rung they play as shown at song second `t`: 0 the stage's
-    /// chart, else the last step down shown.
+    /// chart, else the last step's whose chart is drawn by then (a step
+    /// down's from its moment, a step up's from its boundary).
     pub fn rung_at(&self, t: f64) -> u8 {
         let v = self.view_time(t);
         self.steps
             .iter()
             .rev()
-            .find(|s| s.at <= v)
+            .find(|s| s.cut() <= v)
             .map_or(0, |s| s.rung)
     }
 
-    /// The rungs they stepped down to, with when (judged song seconds).
+    /// The rungs they stepped to, with when (judged song seconds: the
+    /// moment and the boundary).
     pub fn steps(&self) -> impl Iterator<Item = (f64, f64, u8)> + '_ {
         self.steps.iter().map(|s| (s.at, s.boundary, s.rung))
     }
 
-    /// The chart a moment judged at `at` is of: its step's (the last
-    /// before it), none for the stage's chart.
-    fn step_of(&self, at: f64) -> Option<usize> {
-        let k = self.steps.partition_point(|s| s.at < at);
-        k.checked_sub(1)
+    /// The chart a moment judged at `at` of a note at `tick` is of: its
+    /// step's (the last that holds it), none for the stage's chart.
+    fn step_of(&self, at: f64, tick: ddi_chart::Tick) -> Option<usize> {
+        self.steps.iter().rposition(|s| s.holds(at, tick))
     }
 
     /// The stage's rules lock a lane a shock is stepped on in for
@@ -455,7 +489,7 @@ impl FieldFeed {
     /// Takes in a moment of the stream (they come in the order they
     /// happened; one out of order is put in its place).
     pub fn push(&mut self, track: &TapTrack, m: Moment) {
-        let step = self.step_of(m.at);
+        let step = self.step_of(m.at, m.tick);
         let (track, gone, hold_end) = match step {
             Some(k) => {
                 let s = &mut self.steps[k];
@@ -481,7 +515,7 @@ impl FieldFeed {
                     gone[i] = gone[i].min(m.at);
                 }
             }
-            MomentKind::Tap(_) | MomentKind::Boo | MomentKind::Mark | MomentKind::StepDown(_) => {}
+            MomentKind::Tap(_) | MomentKind::Boo | MomentKind::Mark | MomentKind::Step(_) => {}
             MomentKind::ShockHit => {
                 if let Some(s) = self
                     .shocks
@@ -567,19 +601,26 @@ impl FieldFeed {
             // From a second back (a missed note still in sight; a hold
             // still being held, however long) to the first one past the
             // far end.
-            // The stage's chart to their first step down shown, each
-            // step's chart from its boundary to the next step shown.
+            // The stage's chart to their first step shown, each step's
+            // chart from its boundary to the next step shown (a step
+            // down's moment, a step up's boundary; the earliest of those
+            // after it, a step up a step down overtook ending nothing).
             let shown_steps: Vec<&FeedStep> = self.steps.iter().filter(|s| s.at <= v).collect();
-            let first_cut = shown_steps.first().map_or(f64::INFINITY, |s| s.at);
+            let cut_after = |k: usize| {
+                shown_steps[k..]
+                    .iter()
+                    .map(|s| s.cut())
+                    .fold(f64::INFINITY, f64::min)
+            };
             self.draw_notes(
                 (track, &self.gone, &self.hold_end),
-                (f64::NEG_INFINITY, first_cut, 0),
+                (f64::NEG_INFINITY, cut_after(0), 0),
                 (v, &state, range),
                 &mut notes,
                 &mut receptors,
             );
             for (k, step) in shown_steps.iter().enumerate() {
-                let cut = shown_steps.get(k + 1).map_or(f64::INFINITY, |s| s.at);
+                let cut = cut_after(k + 1);
                 self.draw_notes(
                     (&step.track, &step.gone, &step.hold_end),
                     (step.boundary - 1e-6, cut, STEP_INDEX * usize::from(step.rung)),
@@ -788,7 +829,7 @@ impl FieldFeed {
                 | MomentKind::HoldEnd(_)
                 | MomentKind::MineHit
                 | MomentKind::Mark
-                | MomentKind::StepDown(_) => None,
+                | MomentKind::Step(_) => None,
             })
             .filter(|f| f.age < WORD_SECONDS);
         frame

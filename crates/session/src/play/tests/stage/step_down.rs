@@ -34,7 +34,7 @@ fn idle(
         *clock.borrow_mut() += 1.0 / fps;
         let now = *clock.borrow();
         let (_, event) = s.tick(HostTime(now));
-        if let Some((crate::announcer::battle::StageCue::StepDown(_), age)) = s.stage_cue(now)
+        if let Some((crate::announcer::battle::StageCue::Step { .. }, age)) = s.stage_cue(now)
             && age == 0.0
         {
             cues.push(now);
@@ -59,9 +59,10 @@ fn the_player_and_the_cpus_step_down_alike_at_any_frame_rate() {
     let (b, ob, _) = idle(&song, &order, 144.0);
     // The player stepped down every rung, then went out on the last.
     let ladder: Vec<usize> = a.battle().unwrap().rungs().iter().map(|r| r.chart).collect();
-    assert_eq!(ladder, ddi_engine::ladder::below(&song, HARD));
+    assert_eq!(ladder, ddi_engine::ladder::Ladder::of(&song, HARD).rungs());
+    let below = ddi_engine::ladder::below(&song, HARD).len();
     let steps = a.player.steps().to_vec();
-    assert_eq!(steps.len(), ladder.len(), "{steps:?}");
+    assert_eq!(steps.len(), below, "{steps:?}");
     assert_eq!(steps, b.player.steps(), "60 and 144 frames a second");
     assert_eq!(a.player.results().tally, b.player.results().tally);
     assert!(a.player.gauge_failed_at().is_some(), "out on the lowest rung");
@@ -244,4 +245,119 @@ fn the_claps_follow_the_new_chart_after_a_step() {
     assert_eq!(heard, 0, "rows of the new charts not clapped");
     // The mine sound follows what is judged: nothing stepped on here.
     assert_eq!(s.event_sounds().1, 0);
+}
+
+/// Beatucada's Medium single: Hard and Challenge above it, Easy and
+/// Beginner below.
+fn medium(song: &Song) -> usize {
+    song.charts
+        .iter()
+        .position(|c| {
+            c.layout == "dance-single"
+                && c.difficulty == ddi_chart::Difficulty::Medium
+                && c.derivation.is_none()
+        })
+        .unwrap()
+}
+
+/// The stage of `order` autoplayed at `fps` to its end, the step cues
+/// seen (their host seconds and directions).
+fn autoplayed(
+    song: &Song,
+    order: &StageOrder,
+    fps: f64,
+) -> (PlaySession<FakeAudio, FakeInputs>, crate::battle::StageOutcome, Vec<(f64, bool)>) {
+    let (mut s, clock) = stage_session(song, order, true, &[]);
+    let mut cues = Vec::new();
+    loop {
+        *clock.borrow_mut() += 1.0 / fps;
+        let now = *clock.borrow();
+        let (_, event) = s.tick(HostTime(now));
+        if let Some((crate::announcer::battle::StageCue::Step { up, .. }, age)) = s.stage_cue(now)
+            && age == 0.0
+        {
+            cues.push((now, up));
+        }
+        if event.is_some() || now > 400.0 {
+            break;
+        }
+    }
+    let outcome = s.take_stage_outcome().expect("its outcome");
+    (s, outcome, cues)
+}
+
+/// The player, autoplayed from Medium, and the strongest CPUs climb the
+/// ladder above the stage's chart, the same at any frame rate; the cue
+/// says each step up, the fields follow both ways, the Standings mark
+/// the chart finished on as harder.
+#[test]
+fn the_player_and_strong_cpus_step_up_alike_at_any_frame_rate() {
+    let song = bundled("beatucada");
+    let stage = medium(&song);
+    let mut practice = step_room(&song, 3, 10, ddi_room::Charts::Adaptive);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, stage);
+    let (a, oa, cues) = autoplayed(&song, &order, 60.0);
+    let (b, ob, _) = autoplayed(&song, &order, 144.0);
+    let steps = a.player.steps().to_vec();
+    assert!(steps.iter().any(|s| s.up), "{steps:?}");
+    assert!(steps.iter().all(|s| s.up), "a perfect play only climbs: {steps:?}");
+    assert_eq!(steps, b.player.steps(), "60 and 144 frames a second");
+    assert_eq!(a.player.results().tally, b.player.results().tally);
+    assert_eq!(ids(&oa), ids(&ob));
+    // Its own cue, once a step, saying up.
+    assert_eq!(cues.len(), steps.len(), "{cues:?}");
+    assert!(cues.iter().all(|c| c.1));
+    // Its own field steps as its play did, drawing the new chart from
+    // the boundary and the old one up to it.
+    let own = a.battle().unwrap().own_feed();
+    let seen: Vec<(f64, f64, u8)> = own.steps().collect();
+    assert_eq!(seen.len(), steps.len());
+    let first = steps[0];
+    assert_eq!(own.rung_at(first.boundary - 0.5), 0, "the old chart to the boundary");
+    assert_eq!(own.rung_at(first.boundary + 0.5), first.rung);
+    // The CPUs alike either way; the strongest climb too.
+    let cpu_steps = |s: &PlaySession<FakeAudio, FakeInputs>| -> Vec<Vec<(f64, f64, u8)>> {
+        s.battle().unwrap().feeds().map(|f| f.steps().collect()).collect()
+    };
+    assert_eq!(cpu_steps(&a), cpu_steps(&b));
+    assert!(cpu_steps(&a).iter().any(|f| !f.is_empty()), "a strong CPU climbs");
+    // The details: the player finished on a harder chart, marked so.
+    let mine = oa.details.iter().find(|(p, _)| *p == order.me).unwrap().1.clone();
+    let last = song.charts[steps.last().unwrap().chart].difficulty.name();
+    assert_eq!(mine.chart.as_deref(), Some(last));
+    assert!(mine.harder);
+    // Its score is as earned: its play's own sum, never another scale.
+    assert_eq!(
+        mine.score,
+        a.player.ruleset().score.view().ddi.map(|d| d.score)
+    );
+}
+
+/// One-star CPUs on Hard (a CPU's strength is relative to the chart it is
+/// on, so even they climb to Challenge now and then, and fall back): their
+/// fields and their plays agree on every step, both ways, at any frame
+/// rate.
+#[test]
+fn fields_follow_steps_down_and_back_up() {
+    let song = bundled("beatucada");
+    let mut practice = step_room(&song, 7, 1, ddi_room::Charts::Adaptive);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, HARD);
+    let (a, _, _) = idle(&song, &order, 60.0);
+    let (b, _, _) = idle(&song, &order, 144.0);
+    let battle = a.battle().unwrap();
+    let mut both = false;
+    for (seat, field) in battle.feeds().enumerate() {
+        let player = battle.opponent_player(seat).unwrap();
+        let steps: Vec<(f64, f64, u8)> = player.steps().iter().map(|s| (s.at, s.boundary, s.rung)).collect();
+        let seen: Vec<(f64, f64, u8)> = field.steps().collect();
+        assert_eq!(seen, steps, "seat {seat}");
+        both |= player.steps().iter().any(|s| s.up) && player.steps().iter().any(|s| !s.up);
+    }
+    let fields = |s: &PlaySession<FakeAudio, FakeInputs>| -> Vec<Vec<(f64, f64, u8)>> {
+        s.battle().unwrap().feeds().map(|f| f.steps().collect()).collect()
+    };
+    assert_eq!(fields(&a), fields(&b));
+    assert!(both, "a one-star CPU up to Challenge and back down");
 }

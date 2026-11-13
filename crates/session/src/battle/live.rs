@@ -161,9 +161,11 @@ pub(crate) struct RemoteSeat {
     /// on its own song clock with it, so that its hits meet its notes.
     pub shift_us: i64,
     shifts: VecDeque<i64>,
-    /// The steps down its stream said (a match's "At zero life: Step
-    /// down"): the rung it plays.
+    /// The rung its stream last said it stepped to (a match's "Charts:
+    /// Adaptive"; 0 the stage's chart).
     pub steps: u8,
+    /// The rung it stepped from at its last step.
+    steps_from: u8,
 }
 
 impl RemoteSeat {
@@ -387,9 +389,12 @@ pub(crate) struct Live {
     /// Why this device's link to the stage ended for good, once it did
     /// (an audience's seat: `LiveRoom::seat_end`): the view is stale.
     seat_end: Option<ddi_ui::state::room::SeatEnd>,
-    /// The stage's ladder as the fields draw it (each rung's chart), where
-    /// zero life steps down, and the local play's steps streamed so far.
-    rungs: Vec<feed::TapTrack>,
+    /// The stage's ladder as the fields draw it (each rung's chart, and
+    /// whether it is above the stage's), where the charts adapt, and the
+    /// local play's steps streamed so far.
+    rungs: Vec<(feed::TapTrack, bool)>,
+    /// What the CPUs computed here have their scores put on.
+    scales: crate::battle::Scales,
     steps_sent: usize,
     /// The checkpoints whose news came in a snapshot (it carries their
     /// commitments, not their records): those whose deadline had passed
@@ -478,7 +483,7 @@ fn feed_moment(
         MomentKind::Mine => feed::MomentKind::MineHit,
         MomentKind::Boo => feed::MomentKind::Boo,
         MomentKind::Refused { .. } => feed::MomentKind::Mark,
-        MomentKind::StepDown { rung } => feed::MomentKind::StepDown(rung),
+        MomentKind::Step { rung } => feed::MomentKind::Step(rung),
     };
     let (offset, w0) = match m.kind {
         MomentKind::Tap { offset_ms, w0, .. } => (f32::from(offset_ms) / 1_000.0, Some(w0)),
@@ -559,6 +564,7 @@ impl Live {
                     shift_us: 0,
                     shifts: VecDeque::new(),
                     steps: 0,
+                    steps_from: 0,
                 }
             })
             .collect();
@@ -593,6 +599,7 @@ impl Live {
             said_off: false,
             seat_end: None,
             rungs: Vec::new(),
+            scales: Default::default(),
             steps_sent: 0,
             snapshot_known: 0,
             cpu_lead_us,
@@ -618,10 +625,10 @@ impl Live {
         self.ledger.checkpoints.max(self.snapshot_known)
     }
 
-    /// The stage's ladder (each rung's chart, the next easier first), where
-    /// zero life steps down: what a remote field draws once its stream
-    /// says it stepped down.
-    pub(crate) fn set_rungs(&mut self, rungs: Vec<feed::TapTrack>) {
+    /// The stage's ladder (each rung's chart and whether it is above the
+    /// stage's, numbered as `Ladder::rungs`), where the charts adapt: what
+    /// a remote field draws once its stream says it stepped.
+    pub(crate) fn set_rungs(&mut self, rungs: Vec<(feed::TapTrack, bool)>) {
         self.rungs = rungs;
     }
 
@@ -698,6 +705,12 @@ impl Live {
     /// others' percents are worked out from their sums against it.
     pub(crate) fn set_most(&mut self, most: Option<i64>) {
         self.most = most;
+    }
+
+    /// What the CPUs computed here have their scores put on
+    /// (`crate::battle::Scales`).
+    pub(crate) fn set_scales(&mut self, scales: crate::battle::Scales) {
+        self.scales = scales;
     }
 
     /// The view at song second `t` (after this frame's news): the delay
@@ -807,19 +820,13 @@ impl Live {
         }
         let judge = &human.ruleset().judge;
         let life = (f64::from(human.ruleset().gauge.life().clamp(0.0, 1.0)) * 1e6).round() as u32;
-        // A play that stepped down: its sum on the stage chart's scale, as
-        // the room compares it (`CPU_SCORE_V0`'s way).
-        let score = if human.steps().is_empty() {
-            score_of(human)
-        } else {
-            crate::battle::cpu_score(&human.ruleset().score.view(), self.most)
-                .ddi
-                .map_or(0, |d| d.score)
-        };
+        // Its sum as earned, whatever charts it stepped to (as the room
+        // compares it under adaptive charts).
+        let score = score_of(human);
         let combo = human.combo();
         let slew = &self.slew;
-        // Its steps down, each a moment: when, to which rung, from which
-        // boundary (its tick), the life given back.
+        // Its steps, each a moment: when, to which rung, from which
+        // boundary (its tick), the life then.
         let steps: Vec<Moment> = human
             .steps()
             .iter()
@@ -828,7 +835,7 @@ impl Live {
                 at_ms: (slew.to_room(micros(st.at)) as f64 / 1_000.0).round() as i32,
                 tick: st.tick.0,
                 lane: 0,
-                kind: MomentKind::StepDown { rung: st.rung },
+                kind: MomentKind::Step { rung: st.rung },
                 life_ppm: (f64::from(human.life_at(st.at + 1e-6).clamp(0.0, 1.0)) * 1e6).round()
                     as u32,
                 combo,
@@ -1047,18 +1054,27 @@ impl Live {
                 let mut fm = feed_moment(m, false, ddi);
                 // Back on its own song clock, where its notes are.
                 fm.at -= seat.shift_us as f64 / 1e6;
-                // A step down: its field draws the rung's chart from the
-                // boundary.
-                if let MomentKind::StepDown { rung } = m.kind
-                    && let Some(r) = self.rungs.get(usize::from(rung).wrapping_sub(1))
-                {
-                    seat.steps = seat.steps.max(rung);
-                    seat.feed.step_down(
-                        r.clone(),
-                        fm.at,
-                        track.seconds_at(Tick(m.tick)),
-                        rung,
-                    );
+                // A step: its field draws the rung's chart from the
+                // boundary (the stage's again for rung 0).
+                if let MomentKind::Step { rung } = m.kind {
+                    let r = match usize::from(rung).checked_sub(1) {
+                        None => Some((track.clone(), false)),
+                        Some(i) => self.rungs.get(i).cloned(),
+                    };
+                    if let Some((r, up)) = r {
+                        seat.steps = rung;
+                        let boundary = track.seconds_at(Tick(m.tick));
+                        // Back to the stage's chart: up where it came from
+                        // a rung below it.
+                        let up = up
+                            || (rung == 0
+                                && self
+                                    .rungs
+                                    .get(usize::from(seat.steps_from).wrapping_sub(1))
+                                    .is_some_and(|f| !f.1));
+                        seat.steps_from = rung;
+                        seat.feed.step(r, (fm.at, boundary, Tick(m.tick)), rung, up);
+                    }
                 }
                 seat.feed.push(track, fm);
             }
@@ -1280,7 +1296,7 @@ pub struct LivePlay {
     /// (`crate::battle::cpus`): a bot reports for them as a person's
     /// device does.
     cpus: Vec<BotCpu>,
-    most: Option<i64>,
+    scales: crate::battle::Scales,
 }
 
 /// A CPU of the stage as a bot's play computes it.
@@ -1356,7 +1372,7 @@ impl LivePlay {
             track,
             log,
             cpus,
-            most: crate::battle::chart_most(song, chart, &ruleset),
+            scales: crate::battle::Scales::of(song, chart, &ruleset, &ladder)?,
         }))
     }
 
@@ -1395,7 +1411,7 @@ impl LivePlay {
             if end.is_some() && !c.run_sent {
                 c.run_sent = true;
                 let player = c.opponent.player();
-                let score = crate::battle::cpu_score(&c.opponent.score(), self.most);
+                let score = crate::battle::cpu_score(&c.opponent.score(), self.scales.most_for(player));
                 let run = crate::battle::run_of(
                     c.opponent.out_at(),
                     c.opponent.life(),
