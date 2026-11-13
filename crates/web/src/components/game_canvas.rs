@@ -2448,7 +2448,7 @@ impl GameCanvas {
                 self.stage = Stage::Error("CPU profile missing".into());
                 return;
             };
-            let mut script = match profile.script_with_skills(cpu.level, cpu.seed, cpu.skills) {
+            let mut script = match cpu.script(profile) {
                 Ok(s) => s,
                 Err(e) => {
                     self.stage = Stage::Error(e.into());
@@ -2832,7 +2832,7 @@ impl GameCanvas {
             },
         };
         if let Some(cpu) = &props.cpu {
-            info.set_cpu_with_skills(cpu.level, cpu.seed, cpu.skills);
+            info.set_cpu_at(cpu.level, cpu.absolute, cpu.seed, cpu.skills);
         }
         if let Some(order) = props.room_stage.as_ref().filter(|o| o.watching) {
             // Watched (a member's Watch, or with the room's audience).
@@ -3192,6 +3192,7 @@ impl GameCanvas {
             if let Some(window) = web_sys::window()
                 && let Ok(text) = serde_json::to_string(&serde_json::json!({
                     "strength": ddi_engine::cpu::LABELS[cpu.level],
+                    "level": cpu.absolute.map(|l| l + 1),
                     "model": if cpu.path.is_some() { "prepared" } else { "analytical-runtime-v1" },
                     "seed": cpu.seed.to_string(), "skills": cpu.skills.values(), "skills_version": 2, "log": facts.log,
                     "results": results,
@@ -3333,8 +3334,11 @@ impl GameCanvas {
         );
         video_notes.extend(scripts_note);
         if let Some(cpu) = &ctx.props().cpu {
-            video_notes.push(ddi_ui::screens::prompt::cpu_description_with_skills(
-                cpu.level, cpu.seed, cpu.skills,
+            video_notes.push(ddi_ui::screens::prompt::cpu_description_at(
+                cpu.level,
+                cpu.absolute,
+                cpu.seed,
+                cpu.skills,
             ));
         }
         // A stage's: how it went for the player, as the room confirmed it.

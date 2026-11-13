@@ -285,12 +285,51 @@ pub fn strength(value: &str) -> Result<usize, String> {
         .ok_or_else(|| "CPU strength: relaxed, easy, normal, strong or expert".into())
 }
 
+/// A solo CPU's level on the opponents' absolute scale (`--cpu-level N`,
+/// the web's `level=N`): `1` to `10`, as an index into
+/// [`CPU_LEVELS_V1`] (0 the weakest).
+pub fn absolute_level(value: &str) -> Result<usize, String> {
+    value
+        .trim()
+        .parse::<usize>()
+        .ok()
+        .filter(|l| (1..=LEVELS).contains(l))
+        .map(|l| l - 1)
+        .ok_or_else(|| format!("CPU level: 1 to {LEVELS}"))
+}
+
+/// The solo CPU's presses on `plan`: at its named strength (`strength`,
+/// an index into [`STRENGTHS`], chart-relative, `cpu-levels-v0`, exactly
+/// as before), or where `absolute` names one, at that level of the
+/// opponents' absolute scale ([`CPU_LEVELS_V1`]; an automatic plan's
+/// alone).
+pub fn solo_script(
+    plan: &Plan,
+    strength: usize,
+    absolute: Option<usize>,
+    seed: u64,
+    skills: Skills,
+) -> Result<Vec<Press>, String> {
+    match absolute {
+        None => plan.script_with_skills(strength, seed, skills),
+        Some(level) => {
+            let at = CPU_LEVELS_V1
+                .level(level)
+                .ok_or_else(|| format!("CPU level: 1 to {LEVELS}"))?;
+            plan.script_strength(Strength::Absolute(at), seed, skills)
+        }
+    }
+}
+
 /// A web play's explicit, non-sticky CPU selection. `1` prepares an analytical
 /// plan from the loaded chart; other values are site-relative prepared JSON.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Selection {
     pub path: Option<String>,
     pub level: usize,
+    /// A level of the opponents' absolute scale instead of the strength
+    /// (`level=N`, [`absolute_level`]).
+    pub absolute: Option<usize>,
     pub seed: u64,
     pub skills: Skills,
 }
@@ -314,12 +353,28 @@ impl Selection {
         };
         Ok(Self {
             path,
+            absolute: None,
             skills: Skills::default(),
             level: strength(level)?,
             seed: seed
                 .parse()
                 .map_err(|_| "CPU seed must be an unsigned 64-bit integer")?,
         })
+    }
+
+    /// At level `value` (1 to 10) of the opponents' absolute scale
+    /// instead of a strength; automatic mode alone.
+    pub fn with_level(mut self, value: &str) -> Result<Self, String> {
+        self.absolute = Some(absolute_level(value)?);
+        if self.path.is_some() {
+            return Err("A CPU level requires automatic mode (cpu=1)".into());
+        }
+        Ok(self)
+    }
+
+    /// Its presses on `plan` ([`solo_script`]).
+    pub fn script(&self, plan: &Plan) -> Result<Vec<Press>, String> {
+        solo_script(plan, self.level, self.absolute, self.seed, self.skills)
     }
 
     pub fn with_skills(mut self, value: &str) -> Result<Self, String> {

@@ -218,6 +218,15 @@ impl Route {
                 )
                 .and_then(|cpu| {
                     cpu.with_skills(params.get("skills").map_or("balanced", String::as_str))
+                })
+                .and_then(|cpu| match params.get("level") {
+                    // A level of the multiplayer CPUs' absolute scale
+                    // instead of a strength (`docs/plans/cpu-player.md`).
+                    Some(_) if params.contains_key("strength") => {
+                        Err("CPU strength and level cannot be combined".into())
+                    }
+                    Some(level) => cpu.with_level(level),
+                    None => Ok(cpu),
                 }) {
                     Ok(cpu) => Some(cpu),
                     Err(error) => return Route::NotFound(error),
@@ -226,9 +235,11 @@ impl Route {
                 if params.contains_key("strength")
                     || params.contains_key("seed")
                     || params.contains_key("skills")
+                    || params.contains_key("level")
                 {
                     return Route::NotFound(
-                        "CPU strength, seed and skills require cpu=1 or a profile path".into(),
+                        "CPU strength, level, seed and skills require cpu=1 or a profile path"
+                            .into(),
                     );
                 }
                 None
@@ -357,11 +368,17 @@ impl Route {
                     } else {
                         format!("&skills={}", percent_encode(&cpu.skills.to_string()))
                     };
+                    let strength = match cpu.absolute {
+                        Some(level) => format!("level={}", level + 1),
+                        None => format!(
+                            "strength={}",
+                            ddi_engine::cpu::LABELS[cpu.level].to_ascii_lowercase()
+                        ),
+                    };
                     return format!(
-                        "#/play?song={}&chart={chart}&cpu={}&strength={}&seed={}{skills}{gl}{slow}",
+                        "#/play?song={}&chart={chart}&cpu={}&{strength}&seed={}{skills}{gl}{slow}",
                         percent_encode(song),
                         percent_encode(cpu.path.as_deref().unwrap_or("1")),
-                        ddi_engine::cpu::LABELS[cpu.level].to_ascii_lowercase(),
                         cpu.seed
                     );
                 }
@@ -1073,6 +1090,12 @@ mod tests {
             matches!(&route,Route::Play(PlayRoute{cpu:Some(c),..}) if c.level==1 && c.seed==u64::MAX)
         );
         assert_eq!(Route::parse(&route.to_hash()), route);
+        // A level of the multiplayer CPUs' absolute scale.
+        let route = Route::parse("#/play?song=beatucada&chart=3&cpu=1&level=4&seed=9");
+        assert!(
+            matches!(&route,Route::Play(PlayRoute{cpu:Some(c),..}) if c.absolute==Some(3) && c.seed==9)
+        );
+        assert_eq!(Route::parse(&route.to_hash()), route);
         for suffix in [
             "cpu=1&auto=1",
             "cpu=1&edit=1",
@@ -1087,6 +1110,11 @@ mod tests {
             "cpu=1&skills=0.1,1,1,1,1,1,1",
             "cpu=cpu/a.json&skills=jacks",
             "cpu=../x.json",
+            "cpu=1&level=0",
+            "cpu=1&level=11",
+            "cpu=1&level=3&strength=easy",
+            "cpu=cpu/a.json&level=3",
+            "level=3",
         ] {
             assert!(matches!(
                 Route::parse(&format!("#/play?song=beatucada&{suffix}")),

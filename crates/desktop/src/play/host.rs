@@ -447,7 +447,7 @@ fn full_info(request: &Request, loaded: &Loaded, settings: &Settings) -> PromptI
         info.badge,
     );
     if let Some(cpu) = &request.cpu {
-        info.set_cpu_with_skills(cpu.level, cpu.seed, cpu.skills);
+        info.set_cpu_at(cpu.level, cpu.absolute, cpu.seed, cpu.skills);
     }
     if let Some(order) = &request.stage
         && order.watching
@@ -2044,8 +2044,11 @@ impl Host {
             replay.as_deref(),
         ));
         if let Some(cpu) = &play.request.cpu {
-            notes.push(ddi_ui::screens::prompt::cpu_description_with_skills(
-                cpu.level, cpu.seed, cpu.skills,
+            notes.push(ddi_ui::screens::prompt::cpu_description_at(
+                cpu.level,
+                cpu.absolute,
+                cpu.seed,
+                cpu.skills,
             ));
         }
         // A stage's: how it went for the player, as the room confirmed it.

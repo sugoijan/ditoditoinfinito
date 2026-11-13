@@ -450,7 +450,27 @@ pub fn cpu_description_with_skills(
     seed: u64,
     skills: ddi_engine::cpu::Skills,
 ) -> String {
-    let base = cpu_description(level, seed);
+    cpu_description_at(level, None, seed, skills)
+}
+
+/// [`cpu_description_with_skills`], or where `absolute` names one, the
+/// level of the opponents' scale it plays at instead of its strength
+/// (`--cpu-level`, `level=`: from 0, shown from 1).
+pub fn cpu_description_at(
+    level: usize,
+    absolute: Option<usize>,
+    seed: u64,
+    skills: ddi_engine::cpu::Skills,
+) -> String {
+    let base = match absolute {
+        None => cpu_description(level, seed),
+        Some(l) => msg::prompt::cpu_description_level(
+            UiText::data(seed.to_string()),
+            (l + 1) as i64,
+            ddi_engine::cpu::LEVELS as i64,
+        )
+        .into(),
+    };
     if skills == ddi_engine::cpu::Skills::default() {
         return base;
     }
@@ -470,8 +490,20 @@ impl PromptInfo {
         seed: u64,
         skills: ddi_engine::cpu::Skills,
     ) {
+        self.set_cpu_at(level, None, seed, skills);
+    }
+
+    /// [`PromptInfo::set_cpu_with_skills`] at a level of the opponents'
+    /// scale where `absolute` names one ([`cpu_description_at`]).
+    pub fn set_cpu_at(
+        &mut self,
+        level: usize,
+        absolute: Option<usize>,
+        seed: u64,
+        skills: ddi_engine::cpu::Skills,
+    ) {
         self.badge = Badge::Cpu;
-        self.mods = cpu_description_with_skills(level, seed, skills);
+        self.mods = cpu_description_at(level, absolute, seed, skills);
         self.timing = None;
     }
 
@@ -2275,6 +2307,25 @@ mod tests {
             .map(|b| b.text())
             .collect();
         assert_eq!(texts, ["", "AUTOPLAY", "REPLAY"]);
+    }
+
+    /// The solo CPU's line says its strength, or the level of the
+    /// opponents' scale it plays at (`--cpu-level`, `level=`), from 1.
+    #[test]
+    fn a_solo_cpu_says_its_strength_or_its_level() {
+        let skills = ddi_engine::cpu::Skills::default();
+        assert_eq!(
+            cpu_description_at(2, None, 7, skills),
+            "CPU · Tap-only · No fail · Strength 1× · Seed 7"
+        );
+        assert_eq!(
+            cpu_description_at(2, Some(2), 7, skills),
+            "CPU · Tap-only · No fail · Level 3 of 10 · Seed 7"
+        );
+        let mut info = PromptInfo::default();
+        info.set_cpu_at(2, Some(9), 1, skills);
+        assert_eq!(info.badge, Badge::Cpu);
+        assert!(info.mods.contains("Level 10 of 10"), "{}", info.mods);
     }
 
     #[test]

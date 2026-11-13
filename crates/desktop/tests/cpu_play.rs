@@ -156,6 +156,11 @@ fn cpu_flags_reject_ambiguous_and_missing_options() {
         vec!["--cpu=1"],
         vec!["--cpu=1", "--play", "song", "--auto"],
         vec!["--cpu=1", "--play", "song", "--chart", "-1"],
+        vec!["--cpu=1", "--play", "song", "--cpu-level", "11"],
+        vec!["--cpu=1", "--play", "song", "--cpu-level", "0"],
+        vec!["--cpu=1", "--play", "song", "--cpu-level", "3", "--cpu-strength", "easy"],
+        vec!["--cpu", "none", "--cpu-level", "3"],
+        vec!["--cpu-level", "3"],
     ] {
         assert!(cpu::arguments(&args.into_iter().map(str::to_string).collect::<Vec<_>>()).is_err());
     }
@@ -174,7 +179,15 @@ fn cpu_flags_reject_ambiguous_and_missing_options() {
     assert_eq!(request.chart, 3);
     let cpu = request.cpu.unwrap();
     assert_eq!(cpu.seed, 7);
+    assert_eq!(cpu.absolute, None);
     assert!(cpu.source_file.is_none() && cpu.profile.is_none());
+    // A level of the opponents' absolute scale instead of a strength.
+    let request = cpu::arguments(
+        &["--play", "beatucada", "--cpu=1", "--cpu-level", "10"].map(String::from),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(request.cpu.unwrap().absolute, Some(9));
 }
 
 #[test]

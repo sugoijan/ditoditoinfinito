@@ -248,7 +248,9 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// `--play SONG --cpu=1 [--cpu-skills PRESET_OR_VECTOR]` prepares automatically;
 /// no fail, no personal history. Its artifact selects the chart.
 /// `--play SONG --chart N --cpu=1` prepares an analytical CPU directly from
-/// the library chart, with the same strength and seed flags.
+/// the library chart, with the same strength and seed flags; `--cpu-level
+/// N` (1 to 10, instead of `--cpu-strength`) plays it at that level of the
+/// multiplayer CPUs' absolute scale (`cpu-levels-v1`).
 ///
 /// A run that opens the window takes its data folder's lock first and
 /// does not start where another app has it; the runs that open none

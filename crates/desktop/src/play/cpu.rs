@@ -11,6 +11,9 @@ pub struct CpuRequest {
     pub source_file: Option<PathBuf>,
     pub profile: Option<Arc<Plan>>,
     pub level: usize,
+    /// A level of the opponents' absolute scale instead of the strength
+    /// (`--cpu-level N`, from 0; `ddi_engine::cpu::solo_script`).
+    pub absolute: Option<usize>,
     pub seed: u64,
     pub skills: Skills,
 }
@@ -50,6 +53,7 @@ pub fn read(path: &str, strength: &str, seed: u64) -> Result<Request, String> {
         source_file: Some(prepared.source_file),
         profile: Some(Arc::new(Plan::Prepared(prepared.profile))),
         level,
+        absolute: None,
         seed,
         skills: Skills::default(),
     });
@@ -95,6 +99,12 @@ pub fn arguments(args: &[String]) -> Result<Option<Request>, String> {
             .parse()
             .map_err(|_| "CPU chart index must be a nonnegative integer")?;
         let level = ddi_engine::cpu::strength(get("--cpu-strength")?.unwrap_or("normal"))?;
+        let absolute = get("--cpu-level")?
+            .map(ddi_engine::cpu::absolute_level)
+            .transpose()?;
+        if absolute.is_some() && get("--cpu-strength")?.is_some() {
+            return Err("--cpu-level and --cpu-strength cannot be combined".into());
+        }
         let seed = get("--cpu-seed")?
             .unwrap_or("1")
             .parse()
@@ -104,6 +114,7 @@ pub fn arguments(args: &[String]) -> Result<Option<Request>, String> {
             source_file: None,
             profile: None,
             level,
+            absolute,
             seed,
             skills: Skills::parse(get("--cpu-skills")?.unwrap_or("balanced"))?,
         });
@@ -112,7 +123,12 @@ pub fn arguments(args: &[String]) -> Result<Option<Request>, String> {
     let Some(path) = get("--cpu")? else {
         if args
             .iter()
-            .any(|a| a == "--cpu-strength" || a == "--cpu-seed" || a == "--cpu-skills")
+            .any(|a| {
+                a == "--cpu-strength"
+                    || a == "--cpu-seed"
+                    || a == "--cpu-skills"
+                    || a == "--cpu-level"
+            })
         {
             return Err("CPU settings need --cpu FILE".into());
         }
@@ -134,6 +150,9 @@ pub fn arguments(args: &[String]) -> Result<Option<Request>, String> {
         .contains(&a.as_str())
     }) {
         return Err("--cpu selects its own chart and cannot be combined with play/replay/calibration/autoplay flags".into());
+    }
+    if get("--cpu-level")?.is_some() {
+        return Err("A CPU level requires automatic mode (--cpu=1)".into());
     }
     let strength = get("--cpu-strength")?.unwrap_or("normal");
     let seed = get("--cpu-seed")?

@@ -209,6 +209,48 @@ fn web_selection_is_explicit_and_bounded() {
     assert!(Selection::parse("1", "bad", "1").is_err());
 }
 
+/// The solo CPU at a level of the opponents' absolute scale (`level=N`,
+/// `--cpu-level N`): 1 to 10, automatic plans alone; its presses are the
+/// level's, and without a level the strength's exactly as before.
+#[test]
+fn a_solo_cpu_plays_at_an_absolute_level_where_asked() {
+    let s = Selection::parse("1", "normal", "7")
+        .unwrap()
+        .with_level("3")
+        .unwrap();
+    assert_eq!((s.level, s.absolute), (2, Some(2)));
+    for bad in ["0", "11", "x", "-1", "2.5"] {
+        assert!(absolute_level(bad).is_err(), "{bad}");
+        assert!(Selection::parse("1", "normal", "7").unwrap().with_level(bad).is_err());
+    }
+    assert!(
+        Selection::parse("cpu/custom.json", "normal", "7")
+            .unwrap()
+            .with_level("3")
+            .is_err()
+    );
+    let (song, profile) = fixture();
+    let plan = Plan::automatic(&song, 1).unwrap();
+    let at = s.script(&plan).unwrap();
+    let opponent = Opponent::on_scale(
+        &song,
+        1,
+        presets::itg(),
+        LevelScale::AbsoluteV1,
+        2,
+        7,
+        Skills::default(),
+    )
+    .unwrap();
+    assert_eq!(at, opponent.presses());
+    let plain = Selection::parse("1", "normal", "7").unwrap();
+    assert_eq!(
+        plain.script(&plan).unwrap(),
+        plan.script_with_skills(2, 7, Skills::default()).unwrap()
+    );
+    assert!(solo_script(&Plan::Prepared(profile), 2, Some(2), 7, Skills::default()).is_err());
+}
+
 #[test]
 fn skills_preserve_balanced_motor_and_reject_prepared_modification() {
     let (song, p) = fixture();

@@ -193,5 +193,14 @@ prompt-play-restart = hold or double-tap { $key } to restart
 # $strength (Number) is the ability multiplier, not a promised score.
 prompt-cpu-description = CPU · Tap-only · No fail · Strength { $strength }× · Seed { $seed }
 
+# The same where the CPU plays at a level of the multiplayer CPUs' scale
+# instead of a strength (wraps): what the level keeps up with, never a
+# skill rating.
+# Variables:
+#   $seed (String) - the exact reproducible random seed, without grouping
+#   $level (Number) - the level, the weakest 1
+#   $levels (Number) - how many levels there are (10)
+prompt-cpu-description-level = CPU · Tap-only · No fail · Level { $level } of { $levels } · Seed { $seed }
+
 # $skills (String) is the seven comma-separated CPU skill multipliers.
 prompt-cpu-skills = Skills: { $skills }

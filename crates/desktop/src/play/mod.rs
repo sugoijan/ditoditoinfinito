@@ -504,7 +504,8 @@ impl Play {
                 &automatic
             };
             let mut projected = profile.check_song(&loaded.song, request.chart)?;
-            let mut script = profile.script_with_skills(cpu.level, cpu.seed, cpu.skills)?;
+            let mut script =
+                ddi_engine::cpu::solo_script(profile, cpu.level, cpu.absolute, cpu.seed, cpu.skills)?;
             for p in &mut script {
                 p.press += shift;
                 p.release += shift;
