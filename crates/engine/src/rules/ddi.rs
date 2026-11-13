@@ -356,6 +356,11 @@ impl ScoreRules for DdiScore {
         }
     }
 
+    fn restep(&mut self, ctx: &ScoreCtx) {
+        self.most =
+            MOST_TAP_POINTS * i64::from(ctx.steps) + UNIT_POINTS * i64::from(ctx.hold_units);
+    }
+
     fn view(&self) -> ScoreView {
         let ddi = DdiScoreView::of(self.points, self.most, self.w0);
         ScoreView {
@@ -436,6 +441,11 @@ impl GaugeRules for DdiLife {
 
     fn danger_line(&self) -> Option<f32> {
         Some((LIFE_DANGER / LIFE_MAX) as f32)
+    }
+
+    fn set_life(&mut self, life: f32) -> bool {
+        self.life = (f64::from(life.clamp(0.0, 1.0)) * tenths(LIFE_MAX) as f64).round() as i64;
+        true
     }
 
     fn fresh(&self) -> Box<dyn GaugeRules> {

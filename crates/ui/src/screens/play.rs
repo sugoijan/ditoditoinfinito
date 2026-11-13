@@ -888,6 +888,7 @@ mod tests {
             ffr: None,
             battle_mines: None,
             ddi: None,
+            steps: Vec::new(),
         }
     }
 

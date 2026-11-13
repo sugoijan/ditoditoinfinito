@@ -17,6 +17,7 @@ use crate::frame::{
 use crate::history::{LoggedHazard, LoggedInput, PlayLog};
 use crate::input::InputEvent;
 use crate::judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};
+use crate::ladder::{STEP_DOWN_V0, StepDown, StepDownRule};
 use crate::rules::ddi::{self, DdiResult, Lamp};
 use crate::rules::ddr::{DdrClear, flare_points};
 use crate::rules::ffr::FfrResult;
@@ -177,6 +178,10 @@ pub struct Results {
     /// Under DDI's rules, its lamp (`rules::ddi`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ddi: Option<DdiResult>,
+    /// The play's steps down to easier charts (`crate::ladder`), in
+    /// order; none in every play without a ladder.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<StepDown>,
 }
 
 /// A play's battle shocks ([`Results::battle_mines`]).
@@ -319,6 +324,27 @@ pub struct Player {
     /// A battle's shocks, judged apart from the chart
     /// ([`Player::add_hazards`]).
     hazards: Option<HazardJudge>,
+    /// The easier charts it may step down to (`crate::ladder`), the next
+    /// first, and the rule ([`Player::add_rung`]); empty in every play
+    /// without a ladder.
+    ladder: Vec<Rung>,
+    rule: StepDownRule,
+    /// The reading horizon the boundaries are reckoned from (taken with
+    /// the first rung).
+    horizon: f64,
+    /// The steps down so far; the rung it is on is their count.
+    steps: Vec<StepDown>,
+    /// A step whose life ran out at this judged second, to be made once
+    /// its event is applied.
+    stepping: Option<f64>,
+}
+
+/// An easier chart a play may step down to, as it would play it.
+#[derive(Clone, Debug)]
+struct Rung {
+    chart: usize,
+    notes: Vec<Note>,
+    meter: u32,
 }
 
 /// One note's place for [`Player::frame`]'s walk.
@@ -337,23 +363,31 @@ struct Reach {
 /// note can be drawn out of that order (a `#SCROLLS` running back, a
 /// note with a speed of its own).
 fn note_reach(notes: &[JudgedNote], displayed: &[(f64, f64)]) -> Option<Vec<Reach>> {
-    let in_order = notes.windows(2).zip(displayed.windows(2)).all(|(n, d)| {
-        n[0].note.tick <= n[1].note.tick && n[0].seconds <= n[1].seconds && d[0].0 <= d[1].0
-    }) && notes
+    // Notes a step down took away are never drawn: they keep the place
+    // of the note before them.
+    let drawn: Vec<(&JudgedNote, &(f64, f64))> = notes
         .iter()
         .zip(displayed)
+        .filter(|(n, _)| n.state != NoteState::Removed)
+        .collect();
+    let in_order = drawn.windows(2).all(|w| {
+        let ((a, da), (b, db)) = (w[0], w[1]);
+        a.note.tick <= b.note.tick && a.seconds <= b.seconds && da.0 <= db.0
+    }) && drawn
+        .iter()
         .all(|(n, d)| n.note.speed_mul.is_none() && n.seconds <= n.end_seconds && d.0 <= d.1);
     in_order.then(|| {
         let mut far = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+        let mut head = (f64::NEG_INFINITY, f64::NEG_INFINITY);
         notes
             .iter()
             .zip(displayed)
             .map(|(n, d)| {
-                far = (far.0.max(d.1), far.1.max(n.end_seconds));
-                Reach {
-                    head: (d.0, n.seconds),
-                    far,
+                if n.state != NoteState::Removed {
+                    far = (far.0.max(d.1), far.1.max(n.end_seconds));
+                    head = (d.0, n.seconds);
                 }
+                Reach { head, far }
             })
             .collect()
     })
@@ -477,6 +511,11 @@ impl Player {
             cover_changed: None,
             shown_cover: options.cover,
             hazards: None,
+            ladder: Vec::new(),
+            rule: STEP_DOWN_V0,
+            horizon: 0.0,
+            steps: Vec::new(),
+            stepping: None,
             judge,
             ruleset,
         };
@@ -503,7 +542,17 @@ impl Player {
     fn reset_counts(&mut self) {
         self.rows = vec![RowAcc::default(); self.judge.rows().len()];
         self.row_judged = vec![0; self.judge.rows().len()];
-        self.ctx = ScoreCtx {
+        self.ctx = self.totals();
+        self.ruleset.score.begin(&self.ctx);
+        self.ruleset.gauge.begin(&self.ctx);
+        self.timeline.clear();
+        self.life = vec![[self.song_offset as f32, self.ruleset.gauge.life()]];
+    }
+
+    /// The chart's totals as the judge has them (what the score and the
+    /// gauge are given), no event's own.
+    fn totals(&self) -> ScoreCtx {
+        ScoreCtx {
             steps: if self.ruleset.combo.per_row {
                 self.judge.row_count()
             } else {
@@ -528,11 +577,7 @@ impl Player {
                 0
             },
             units: 0,
-        };
-        self.ruleset.score.begin(&self.ctx);
-        self.ruleset.gauge.begin(&self.ctx);
-        self.timeline.clear();
-        self.life = vec![[self.song_offset as f32, self.ruleset.gauge.life()]];
+        }
     }
 
     /// The audio was scheduled from `song_offset` seconds into the song at
@@ -812,6 +857,155 @@ impl Player {
             lane: c.lane,
         }));
         Ok(())
+    }
+
+    /// Adds an easier chart to the play's ladder (`crate::ladder`, a
+    /// match's "At zero life: Step down"): chart `chart` of `song` (the
+    /// stage's song, or a CPU's tap-only copy of it), played with the
+    /// play's own options, the rung below those added before. Before the
+    /// start only, under DDI's rules (its gauge is given back and its
+    /// most taken again), on the play's own timing (the boundary and the
+    /// breather are measured on one).
+    pub fn add_rung(&mut self, song: &Song, chart: usize) -> Result<(), &'static str> {
+        if self.started {
+            return Err("a ladder is set before the start");
+        }
+        if !self.ruleset.is_ddi() {
+            return Err("a ladder needs DDI's rules");
+        }
+        let c = song.charts.get(chart).ok_or("no such chart")?;
+        if !crate::ladder::same_timing(c.timing(song), &self.timing) {
+            return Err("a rung is on the stage chart's timing");
+        }
+        let chart_lanes = c
+            .notes
+            .iter()
+            .map(|n| usize::from(n.lane) + 1)
+            .max()
+            .unwrap_or(0);
+        let layout = song
+            .layout_of(c)
+            .unwrap_or_else(|| Layout::generic(chart_lanes));
+        if layout.lane_count().max(chart_lanes) > usize::from(self.lanes) {
+            return Err("a rung has the stage chart's lanes");
+        }
+        let mut t = transform::apply(&c.notes, &layout, &self.options.transform, self.options.seed);
+        if self.ruleset.judge.shock_rows {
+            shock_rows(&mut t.notes, layout.lane_count().max(chart_lanes));
+        }
+        if self.ruleset.judge.taps_only {
+            taps_only(&mut t.notes);
+        }
+        if self.ladder.is_empty() {
+            self.horizon = self.reading_horizon();
+        }
+        self.ladder.push(Rung {
+            chart,
+            notes: t.notes,
+            meter: c.meter,
+        });
+        Ok(())
+    }
+
+    /// The step-down rule the play follows (`STEP_DOWN_V0`; tests may
+    /// give another).
+    pub fn set_step_down_rule(&mut self, rule: StepDownRule) {
+        self.rule = rule;
+    }
+
+    /// The charts it may step down to, the next first (their places in
+    /// the song).
+    pub fn ladder(&self) -> Vec<usize> {
+        self.ladder.iter().map(|r| r.chart).collect()
+    }
+
+    /// Its steps down so far ([`Results::steps`]).
+    pub fn steps(&self) -> &[StepDown] {
+        &self.steps
+    }
+
+    /// The rung it plays: 0 the stage's chart, 1 the first easier one.
+    pub fn rung(&self) -> u8 {
+        self.steps.len() as u8
+    }
+
+    /// From when to when it is in a step's breather (judged seconds):
+    /// the old chart taken away, the new one's notes from the second.
+    pub fn breather(&self) -> Option<(f64, f64)> {
+        self.steps.last().map(|s| (s.at, s.boundary))
+    }
+
+    /// Whether judged song second `t` is in a breather.
+    fn breathing(&self, t: f64) -> bool {
+        self.breather().is_some_and(|(at, until)| t >= at && t < until)
+    }
+
+    /// Whether a rung is left below the one it plays.
+    fn can_step(&self) -> bool {
+        self.steps.len() < self.ladder.len()
+    }
+
+    /// The step down whose life ran out at judged second `at`: the old
+    /// chart's notes not judged by then taken away, `taken` too (those
+    /// judged past `at` in the same update), the next rung's from the
+    /// boundary put in, the play's totals and tables made again.
+    fn step_down(&mut self, at: f64, taken: &[usize]) {
+        let Some(next) = self.ladder.get(self.steps.len()).cloned() else {
+            return;
+        };
+        let (tick, boundary) = crate::ladder::boundary(&self.rule, &self.timing, at, self.horizon);
+        let incoming: Vec<Note> = next.notes.iter().filter(|n| n.tick >= tick).cloned().collect();
+        // Each row's progress by its tick (a row all taken away goes).
+        let rows: std::collections::BTreeMap<ddi_chart::Tick, (RowAcc, u32)> = self
+            .judge
+            .rows()
+            .iter()
+            .zip(self.rows.iter().cloned().zip(self.row_judged.iter().copied()))
+            .map(|(r, acc)| (r.tick, acc))
+            .collect();
+        self.judge.step_down(at, taken, &incoming, &self.timing);
+        let (accs, judged): (Vec<RowAcc>, Vec<u32>) = self
+            .judge
+            .rows()
+            .iter()
+            .map(|r| rows.get(&r.tick).cloned().unwrap_or_default())
+            .unzip();
+        self.rows = accs;
+        self.row_judged = judged;
+        self.row_notes = vec![Vec::new(); self.judge.rows().len()];
+        for (index, n) in self.judge.notes().iter().enumerate() {
+            if let Some(r) = n.row {
+                self.row_notes[r].push((n.note.lane, index));
+            }
+        }
+        let timing = &self.timing;
+        self.displayed = self
+            .judge
+            .notes()
+            .iter()
+            .map(|n| {
+                let at = |t: ddi_chart::Tick| timing.displayed_beat(t.beat());
+                (at(n.note.tick), at(n.note.end_tick()))
+            })
+            .collect();
+        self.reach = note_reach(self.judge.notes(), &self.displayed);
+        self.meter = next.meter;
+        self.steps.push(StepDown {
+            at,
+            boundary,
+            tick,
+            rung: self.steps.len() as u8 + 1,
+            chart: next.chart,
+        });
+        // What it was shown: the notes judged before and the new chart's.
+        let (combo, units, w0) = (self.ctx.combo, self.ctx.units, self.ctx.w0);
+        self.ctx = ScoreCtx {
+            combo,
+            units,
+            w0,
+            ..self.totals()
+        };
+        self.ruleset.score.restep(&self.ctx);
     }
 
     /// How far ahead this play reads (`crate::battle::reading_horizon`):
@@ -1169,17 +1363,45 @@ impl Player {
     /// Those after the play ended (an immediate fail) are not judged, and
     /// are dropped from `events`.
     fn apply(&mut self, events: &mut Vec<JudgeEvent>) {
-        for (i, ev) in events.iter().enumerate() {
+        let mut i = 0;
+        while i < events.len() {
+            let ev = &{ events[i] };
             if self.finished {
                 events.truncate(i);
                 return;
             }
+            // A stray press in a step's breather counts for nothing.
+            if ev.kind == JudgeEventKind::Boo && self.breathing(ev.song_time) {
+                events.remove(i);
+                continue;
+            }
+            self.apply_one(ev);
+            // Its life ran out with a rung below: the step down, made
+            // here so that the chart's events judged past it in the same
+            // update are not the play's (their notes are taken away too);
+            // a battle's shocks are judged on.
+            if let Some(at) = self.stepping.take() {
+                let rest: Vec<JudgeEvent> = events.drain(i + 1..).collect();
+                let (kept, gone): (Vec<JudgeEvent>, Vec<JudgeEvent>) = rest
+                    .into_iter()
+                    .partition(|e| e.note_index.is_some_and(|n| n >= HAZARD_INDEX_BASE));
+                let taken: Vec<usize> = gone.iter().filter_map(|e| e.note_index).collect();
+                self.step_down(at, &taken);
+                events.extend(kept);
+            }
+            i += 1;
+        }
+    }
+
+    /// One event of [`Player::apply`].
+    fn apply_one(&mut self, ev: &JudgeEvent) {
+        {
             // A battle's shock: a mine where the rules lock its lane (it
             // goes on as any mine's event), else the ruleset's miss to the
             // gauge alone.
             if ev.note_index.is_some_and(|n| n >= HAZARD_INDEX_BASE) && !self.shock_is_mine() {
                 self.hazard_event(ev);
-                continue;
+                return;
             }
             // The offset to the microsecond, as a record keeps it
             // ([`crate::history::PlayTiming`]).
@@ -1550,6 +1772,21 @@ impl Player {
         if !self.failed && !self.quit {
             self.ruleset.gauge.on_event(ev, &self.ctx);
         }
+        // A step's breather: never below its floor until the boundary.
+        if self.breathing(ev.song_time) && self.ruleset.gauge.life() < self.rule.floor {
+            self.ruleset.gauge.set_life(self.rule.floor);
+        }
+        // Life out with a rung below: not out, a step down (made once the
+        // event is applied, [`Player::apply`]), the life given back.
+        if self.stepping.is_none()
+            && !self.failed
+            && !self.quit
+            && self.can_step()
+            && self.ruleset.gauge.failed()
+            && self.ruleset.gauge.set_life(self.rule.life)
+        {
+            self.stepping = Some(ev.song_time);
+        }
         let life = self.ruleset.gauge.life();
         if self.life.last().is_none_or(|l| l[1] != life) {
             // In time order: a press judged after a miss in the same
@@ -1618,6 +1855,10 @@ impl Player {
             }
             // A shock stepped on: the notes still to come vanish a moment.
             if blind.is_some() && n.state == NoteState::Pending {
+                continue;
+            }
+            // Taken away by a step down.
+            if n.state == NoteState::Removed {
                 continue;
             }
             let kind = match n.note.kind {
@@ -1896,6 +2137,7 @@ impl Player {
                 ),
                 sides: self.sides,
             }),
+            steps: self.steps.clone(),
         }
     }
 

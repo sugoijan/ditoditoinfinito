@@ -996,6 +996,10 @@ pub trait ScoreRules {
     fn begin(&mut self, ctx: &ScoreCtx);
     fn on_event(&mut self, ev: &JudgeEvent, ctx: &ScoreCtx);
     fn view(&self) -> ScoreView;
+    /// The play's totals changed with what it was shown (a step down,
+    /// `crate::ladder`): the points kept, the most taken again from
+    /// `ctx`. Nothing where the score has no most of its own.
+    fn restep(&mut self, _ctx: &ScoreCtx) {}
     /// A new instance with the same parameters and no state.
     fn fresh(&self) -> Box<dyn ScoreRules>;
 }
@@ -1036,6 +1040,12 @@ pub trait GaugeRules {
     /// `oni` comment speaks on them.
     fn lives(&self) -> Option<u32> {
         None
+    }
+    /// Sets the life to `life` (`0..=1`, as [`GaugeRules::life`]), where
+    /// the gauge can be set so (a step down's, `crate::ladder`): `false`
+    /// where it cannot.
+    fn set_life(&mut self, _life: f32) -> bool {
+        false
     }
     /// A new instance with the same parameters and no state.
     fn fresh(&self) -> Box<dyn GaugeRules>;

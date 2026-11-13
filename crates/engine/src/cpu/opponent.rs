@@ -26,6 +26,9 @@ use crate::rules::{Ruleset, ScoreView};
 /// either way.
 const HIT_SPREAD: f64 = 0.6;
 
+/// A rung's presses and its notes `(seconds, lane)` in time order.
+type RungPlan = (Vec<Press>, Vec<(f64, u8)>);
+
 /// A CPU's play: the plan's presses on its own player.
 pub struct Opponent {
     player: Player,
@@ -46,6 +49,16 @@ pub struct Opponent {
     /// in time order, which say where a shock is hard to get around.
     evasion: f64,
     notes: Vec<(f64, u8)>,
+    /// Its level and skills, which its plans for easier charts are made
+    /// at ([`Opponent::add_rungs`]).
+    level: Level,
+    skills: Skills,
+    /// The presses its plan made for each rung of its ladder (the next
+    /// easier chart first), and each one's notes as `notes` has them.
+    rungs: Vec<RungPlan>,
+    /// The battle's shocks received so far (its response to them is made
+    /// again on a new rung's presses).
+    received: Vec<Hazard>,
 }
 
 impl Opponent {
@@ -148,7 +161,78 @@ impl Opponent {
             response: MINE_RESPONSE_V1.table.response(avoidance),
             evasion: skills.evasion(),
             notes,
+            level,
+            skills,
+            rungs: Vec::new(),
+            received: Vec::new(),
         })
+    }
+
+    /// Its ladder (`crate::ladder`, a match's "At zero life: Step
+    /// down"): chart by chart of `song`, the next easier first, each
+    /// planned at its own level relative to that chart (a plan of the
+    /// chart's own, [`Plan::automatic`]) with its seed, its tap-only copy
+    /// a rung of its player's. Before the start. Refused, with the
+    /// engine's reason, where the CPU cannot plan one.
+    pub fn add_rungs(&mut self, song: &Song, charts: &[usize]) -> Result<(), String> {
+        for &chart in charts {
+            let plan = Plan::automatic(song, chart)?;
+            let projected = plan.check_song(song, chart)?;
+            let presses = plan.script_at(self.level, self.seed, self.skills)?;
+            self.player.add_rung(&projected, chart)?;
+            let rung = Player::new(
+                &projected,
+                chart,
+                self.player.ruleset().fresh(),
+                crate::player::PlayOptions::default(),
+            );
+            let mut notes: Vec<(f64, u8)> = rung
+                .judge()
+                .notes()
+                .iter()
+                .filter(|n| n.judgeable && n.seconds.is_finite())
+                .map(|n| (n.seconds, n.note.lane))
+                .collect();
+            notes.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            self.rungs.push((presses, notes));
+        }
+        Ok(())
+    }
+
+    /// Whether it has a ladder ([`Opponent::add_rungs`]).
+    fn has_ladder(&self) -> bool {
+        !self.rungs.is_empty()
+    }
+
+    /// Its player stepped down to a rung it was not playing yet: the
+    /// presses still to come are the rung's plan's from just before its
+    /// boundary, its response to the shocks still to come made again on
+    /// them.
+    fn follow_step(&mut self, played: usize) {
+        let steps = self.player.steps();
+        if steps.len() <= played {
+            return;
+        }
+        let Some(step) = steps.last().copied() else {
+            return;
+        };
+        let Some((presses, notes)) = self.rungs.get(usize::from(step.rung) - 1).cloned() else {
+            return;
+        };
+        let early = self.player.ruleset().judge.max_early();
+        let from = step.boundary - early - self.judge_offset.max(0.0) - 0.001;
+        let mut script = self.presses[..self.next].to_vec();
+        let last = script.last().map_or(f64::NEG_INFINITY, |p| p.release);
+        script.extend(presses.into_iter().filter(|p| p.press >= from && p.press > last));
+        if validate_script(&script).is_ok() {
+            self.presses = script;
+        } else {
+            self.presses.truncate(self.next);
+        }
+        self.notes = notes;
+        let cells = std::mem::take(&mut self.received);
+        self.respond(&cells);
+        self.received = cells;
     }
 
     /// How well it avoids shocks, `0..=1` (its level's,
@@ -179,8 +263,18 @@ impl Opponent {
     /// kept as it was.
     pub fn receive_hazards(&mut self, cells: &[Hazard]) -> Result<(), HazardError> {
         self.player.add_hazards(cells)?;
+        if self.has_ladder() {
+            self.received.extend_from_slice(cells);
+        }
+        self.respond(cells);
+        Ok(())
+    }
+
+    /// Its response to `cells` on the presses still to come
+    /// ([`Opponent::receive_hazards`]).
+    fn respond(&mut self, cells: &[Hazard]) {
         if self.response.is_off() || cells.is_empty() {
-            return Ok(());
+            return;
         }
         let r = self.response;
         let model = MINE_RESPONSE_V1;
@@ -272,7 +366,6 @@ impl Opponent {
         if validate_script(&script).is_ok() {
             self.presses = script;
         }
-        Ok(())
     }
 
     /// Starts it with the play, from song second `song_offset` (presses
@@ -286,6 +379,9 @@ impl Opponent {
     /// presses and releases due by then fed at their own times, then the
     /// player updated, as a replay is. `t` only goes forward.
     pub fn advance(&mut self, t: f64) {
+        if self.has_ladder() {
+            return self.advance_on_ladder(t);
+        }
         let mut due = Vec::new();
         while let Some(p) = self
             .presses
@@ -312,6 +408,63 @@ impl Opponent {
         }
         let events = self.player.update_at(t);
         self.judged.extend(events);
+    }
+
+    /// [`Opponent::advance`] with a ladder: each edge's time judged to
+    /// before it is fed, so that a step down is found where its life ran
+    /// out whatever the frames, and the old chart's presses after it are
+    /// never fed (the new rung's are, [`Opponent::follow_step`]).
+    fn advance_on_ladder(&mut self, t: f64) {
+        loop {
+            let offset = self.judge_offset;
+            let press = self
+                .presses
+                .get(self.next)
+                .map(|p| p.press - offset)
+                .filter(|&at| at <= t);
+            let release = self
+                .pending
+                .iter()
+                .enumerate()
+                .map(|(i, &(r, _))| (i, r - offset))
+                .filter(|&(_, at)| at <= t)
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            // The earliest edge due: a release before a press at once.
+            let (at, release) = match (press, release) {
+                (Some(p), Some((i, r))) if r <= p => (r, Some(i)),
+                (Some(p), _) => (p, None),
+                (None, Some((i, r))) => (r, Some(i)),
+                (None, None) => break,
+            };
+            let played = self.player.steps().len();
+            let events = self.player.update_at(at + crate::player::JUDGE_LAG);
+            self.judged.extend(events);
+            if self.player.steps().len() > played {
+                self.follow_step(played);
+                // A press of the old chart's after the step is never fed
+                // (a release is: its key is down).
+                if release.is_none() {
+                    continue;
+                }
+            }
+            let (lane, pressed) = match release {
+                Some(i) => (self.pending.remove(i).1, false),
+                None => {
+                    let p = self.presses[self.next];
+                    self.pending.push((p.release, p.lane));
+                    self.next += 1;
+                    (p.lane, true)
+                }
+            };
+            let played = self.player.steps().len();
+            let events = self.player.input_at(lane, pressed, at);
+            self.judged.extend(events);
+            self.follow_step(played);
+        }
+        let played = self.player.steps().len();
+        let events = self.player.update_at(t);
+        self.judged.extend(events);
+        self.follow_step(played);
     }
 
     /// Its judgments since the last call, in the order they were made:
@@ -662,6 +815,76 @@ mod tests {
         }
         assert!(stepped > 40, "the poorest avoider steps on many: {stepped}");
         assert!(passed_locked > 0, "notes passed in a locked lane");
+    }
+
+    /// A CPU with a ladder (a match's "At zero life: Step down") steps
+    /// down where its life runs out and plays the next rung's plan, the
+    /// same at any frame rate; without one it plays as ever.
+    #[test]
+    fn a_cpu_steps_down_its_ladder_the_same_at_any_frame_rate() {
+        use crate::rules::ddi::{self, DdiOptions};
+        const HARD: usize = 5;
+        let song = song();
+        let rules = || {
+            let mut r = ddi::ruleset(&DdiOptions::default());
+            r.fail = FailPolicy::Immediate;
+            r
+        };
+        let rungs = crate::ladder::ladder(&song, HARD);
+        assert!(!rungs.is_empty());
+        let play = |seed: u64, step: f64, ladder: bool| {
+            let mut o = Opponent::new(&song, HARD, rules(), 0, seed).unwrap();
+            if ladder {
+                o.add_rungs(&song, &rungs).unwrap();
+            }
+            o.start(0.0);
+            for s in sections(&song).iter().take(4) {
+                let _ = o.receive_hazards(&s.cells);
+            }
+            let mut t = -2.0;
+            while !o.finished() && t < 400.0 {
+                t += step;
+                o.advance(t);
+            }
+            o
+        };
+        let mut stepped = 0;
+        for seed in 1..=6u64 {
+            let a = play(seed, 1.0 / 60.0, true);
+            let b = play(seed, 1.0 / 144.0, true);
+            let (ra, rb) = (a.player().results(), b.player().results());
+            assert_eq!(ra.steps, rb.steps, "{seed}");
+            assert_eq!(ra.tally, rb.tally, "{seed}");
+            assert_eq!(ra.life, rb.life, "{seed}");
+            assert_eq!(a.presses(), b.presses(), "{seed}");
+            validate_script(a.presses()).unwrap();
+            stepped += ra.steps.len();
+            // Without its ladder: out where it was, as before.
+            let plain = play(seed, 1.0 / 60.0, false);
+            let alone = run_ddi(&song, HARD, seed);
+            assert_eq!(plain.player().results().tally, alone.player().results().tally);
+            if let Some(first) = ra.steps.first() {
+                assert!(plain.out_at().is_some_and(|o| (o - first.at).abs() < 1e-9));
+            }
+        }
+        assert!(stepped > 0, "the weakest level steps down on Hard");
+    }
+
+    fn run_ddi(song: &Song, chart: usize, seed: u64) -> Opponent {
+        use crate::rules::ddi::{self, DdiOptions};
+        let mut r = ddi::ruleset(&DdiOptions::default());
+        r.fail = FailPolicy::Immediate;
+        let mut o = Opponent::new(song, chart, r, 0, seed).unwrap();
+        o.start(0.0);
+        for s in sections(song).iter().take(4) {
+            let _ = o.receive_hazards(&s.cells);
+        }
+        let mut t = -2.0;
+        while !o.finished() && t < 400.0 {
+            t += 1.0 / 30.0;
+            o.advance(t);
+        }
+        o
     }
 
     #[test]

@@ -38,6 +38,7 @@ pub mod frame;
 pub mod history;
 pub mod input;
 pub mod judge;
+pub mod ladder;
 pub mod lyrics;
 pub mod place;
 pub mod player;

@@ -42,6 +42,9 @@ pub enum NoteState {
     MineAvoided,
     /// Never judged (fake, dummy, autokeysound, inside a warp or fake segment).
     Faked,
+    /// Taken away unjudged by a step down (`crate::ladder`): never
+    /// judged, never drawn.
+    Removed,
 }
 
 impl NoteState {
@@ -253,6 +256,10 @@ pub struct Judge {
     /// Per lane, the next release is of a key the lock let go of or a
     /// press it ignored, and is ignored too.
     release_ignored: Vec<bool>,
+    /// Per lane, the last lock that changed it: when it began, the end
+    /// of the lock before it, and whether it let go of a key that was
+    /// down (what a step down puts back, [`Judge::step_down`]).
+    locks: Vec<Option<(f64, f64, bool)>>,
 }
 
 /// What [`EmptyPress::Guarded`] reads of the chart: where its notes
@@ -318,7 +325,12 @@ impl BooGuards {
 impl Judge {
     /// Precomputes seconds and judgeability for `notes` (sorted by tick).
     pub fn new(notes: &[Note], timing: &TimingMap, table: JudgeTable) -> Judge {
-        let notes: Vec<JudgedNote> = notes
+        Self::assemble(Self::judged(notes, timing), timing, table)
+    }
+
+    /// `notes` with their seconds and judgeability on `timing`, pending.
+    fn judged(notes: &[Note], timing: &TimingMap) -> Vec<JudgedNote> {
+        notes
             .iter()
             .map(|n| {
                 let seconds = timing.seconds_at(n.tick);
@@ -348,7 +360,11 @@ impl Judge {
                     head_hit: false,
                 }
             })
-            .collect();
+            .collect()
+    }
+
+    /// The judge of `notes` as they are (their states kept).
+    fn assemble(notes: Vec<JudgedNote>, timing: &TimingMap, table: JudgeTable) -> Judge {
         let lane_count = notes
             .iter()
             .map(|n| usize::from(n.note.lane) + 1)
@@ -396,7 +412,11 @@ impl Judge {
             .filter(|n| n.judgeable && n.is_press_judged())
             .map(|n| n.seconds)
             .reduce(f64::min);
-        let last_end = notes.iter().map(|n| n.end_seconds).reduce(f64::max);
+        let last_end = notes
+            .iter()
+            .filter(|n| n.state != NoteState::Removed)
+            .map(|n| n.end_seconds)
+            .reduce(f64::max);
         let guards = match table.empty_press {
             EmptyPress::Guarded { .. } => BooGuards::of(&notes, table.max_early()),
             _ => None,
@@ -420,6 +440,7 @@ impl Judge {
             next_head: 0,
             down: vec![false; lane_count],
             shocks,
+            locks: vec![None; lane_count],
         };
         judge.rebuild_rows();
         judge
@@ -481,6 +502,7 @@ impl Judge {
             self.down.resize(lanes, false);
             self.locked_until.resize(lanes, f64::NEG_INFINITY);
             self.release_ignored.resize(lanes, false);
+            self.locks.resize(lanes, None);
         }
         self
     }
@@ -581,9 +603,74 @@ impl Judge {
         next.down[..self.down.len()].copy_from_slice(&self.down);
         next.locked_until[..self.locked_until.len()].copy_from_slice(&self.locked_until);
         next.release_ignored[..self.release_ignored.len()].copy_from_slice(&self.release_ignored);
+        next.locks[..self.locks.len()].copy_from_slice(&self.locks);
         next.first_note = self.first_note.or(next.first_note);
         *self = next;
         Ok(())
+    }
+
+    /// A step down at judged song second `at` (`crate::ladder`): every
+    /// note not judged by then is taken away unjudged
+    /// ([`NoteState::Removed`]: an active hold too, neither kept nor let
+    /// go), and so are `taken`, the notes judged past `at` in the same
+    /// update (their events are not the play's), with what judging them
+    /// did to a lane's lock and its key put back; `incoming` (another
+    /// chart's notes from the boundary on, sorted, on the same `timing`)
+    /// come after the notes kept and are judged from now on. The notes
+    /// kept keep their places (their indices), the incoming ones follow;
+    /// the buttons, the judging clock and every other lock stay as they
+    /// are.
+    pub fn step_down(&mut self, at: f64, taken: &[usize], incoming: &[Note], timing: &TimingMap) {
+        let window = self.table.mine_window_seconds();
+        let mut reverted: Vec<usize> = Vec::new();
+        for (i, n) in self.notes.iter_mut().enumerate() {
+            let past_mine = n.state == NoteState::MineAvoided && n.seconds + window > at;
+            let judged_after = taken.contains(&i);
+            if !(judged_after || past_mine || (n.judgeable && !n.state.is_terminal())) {
+                continue;
+            }
+            if judged_after && matches!(n.state, NoteState::MineHit) {
+                reverted.push(usize::from(n.note.lane));
+            }
+            n.state = NoteState::Removed;
+            n.judgeable = false;
+            n.row = None;
+        }
+        for l in reverted {
+            if let Some(Some((from, before, released))) = self.locks.get(l).copied()
+                && from > at
+            {
+                self.locked_until[l] = before;
+                if released {
+                    self.down[l] = true;
+                    self.release_ignored[l] = false;
+                }
+                self.locks[l] = None;
+            }
+        }
+        let kept = self.notes.len();
+        let mut notes = std::mem::take(&mut self.notes);
+        notes.extend(Self::judged(incoming, timing));
+        let lanes = self.down.len();
+        let mut next = Self::assemble(notes, timing, self.table.clone()).with_lanes(lanes);
+        let width = next.down.len();
+        next.down[..lanes].copy_from_slice(&self.down);
+        next.locked_until[..lanes].copy_from_slice(&self.locked_until);
+        next.release_ignored[..lanes].copy_from_slice(&self.release_ignored);
+        next.locks[..lanes].copy_from_slice(&self.locks);
+        debug_assert!(width >= lanes);
+        next.last_time = self.last_time;
+        next.first_note = self.first_note.or(next.first_note);
+        // Each lane from its first note still to judge.
+        for lane in 0..next.lanes.len() {
+            next.advance_cursor(lane);
+        }
+        if let Some(t) = self.last_time {
+            next.next_checkpoint = next.checkpoints.partition_point(|r| r.seconds < t);
+            next.next_head = next.heads.partition_point(|&i| next.notes[i].seconds <= t);
+        }
+        debug_assert!(next.notes[..kept].iter().all(|n| n.state != NoteState::Pending || !n.judgeable));
+        *self = next;
     }
 
     /// Physical buttons at the current judging checkpoint.
@@ -752,7 +839,11 @@ impl Judge {
         if l >= self.lanes.len() || !at.is_finite() {
             return;
         }
-        self.locked_until[l] = self.locked_until[l].max(at + seconds);
+        let before = self.locked_until[l];
+        self.locked_until[l] = before.max(at + seconds);
+        if self.locked_until[l] != before {
+            self.locks[l] = Some((at, before, self.down[l]));
+        }
         if !self.down[l] {
             return;
         }
