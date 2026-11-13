@@ -206,6 +206,10 @@ pub enum ClientLive {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         after: Option<u32>,
     },
+    /// The owner opens or closes the room's audience (`crate::audience`;
+    /// sent only where the room's policy has one). A room's live side
+    /// passes it over; its audience side takes it from the owner alone.
+    Audience { open: bool },
 }
 
 /// The room's live message (JSON text: `{"v":2,"live":{"kind":…}}`).
@@ -220,6 +224,13 @@ pub enum ServerLive {
     /// The stage as it stands, for a socket that could not resume from
     /// the frames kept; the frames after it follow.
     Snapshot(Box<server::LiveSnapshot>),
+    /// How many watch in the room's audience (`crate::audience`), and
+    /// whether it is open: when it changed, once a second at most. A
+    /// client that predates it passes it over.
+    Audience {
+        count: u32,
+        open: bool,
+    },
 }
 
 /// Why the room refused a live message.

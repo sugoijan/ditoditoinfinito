@@ -25,6 +25,10 @@
 //! over a socket each shell supplies (`Transport`). `fake::FakeServer` is
 //! the server's room in process for tests, with faults in the way.
 //!
+//! The audience (`audience`, `docs/plans/multiplayer-audience.md`): people
+//! who watch a room beyond its members, counted and not listed, served by
+//! relays from frames the room coalesces from its members' (`audience-v0`).
+//!
 //! Live play in an online room (`live`, `docs/plans/multiplayer-online-play.md`):
 //! a shared clock, a stage started at one instant, each competitor's play
 //! streamed and gathered into one frame a tick, attacks and settlement
@@ -32,6 +36,7 @@
 //! the fake runs too) and the client's inside `OnlineAuthority`.
 
 pub mod attacks;
+pub mod audience;
 pub mod authority;
 pub mod awards;
 pub mod battle;

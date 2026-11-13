@@ -219,7 +219,8 @@ impl LiveServer {
     ) -> LiveOut {
         let mut out = LiveOut::default();
         match msg {
-            ClientLive::Hello { .. } => {}
+            // The audience's (`crate::audience::AudienceHub::set_open`).
+            ClientLive::Hello { .. } | ClientLive::Audience { .. } => {}
             ClientLive::Ping(p) => out
                 .reply
                 .push(LiveReply::Message(ServerLive::Pong(Pong::answer(p, now.0)))),

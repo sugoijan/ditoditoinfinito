@@ -41,6 +41,9 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 
+mod audience;
+pub use audience::{AudienceStats, FakeAudienceSocket};
+
 /// Something done to the frames the room sends one person.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fault {
@@ -161,6 +164,12 @@ pub struct FakeServer {
     /// The stage in play whose live part a restart lost
     /// ([`FakeServer::restart_live`]), while the room is still on it.
     lost: Option<crate::StageId>,
+    /// The room's audience (`crate::audience`), where its policy has one:
+    /// its audience side, relays and seats (`audience.rs`).
+    audience: Option<audience::FakeAudience>,
+    /// The room's name as the server keeps it beside the state (the
+    /// audience's view says it).
+    room_name: String,
 }
 
 pub type SharedFake = Rc<RefCell<FakeServer>>;
@@ -199,6 +208,13 @@ impl FakeServer {
             .as_ref()
             .and_then(|l| l.rules())
             .map(LiveServer::new);
+        let audience = state
+            .policy
+            .audience
+            .as_ref()
+            .and_then(|a| a.rules())
+            .map(audience::FakeAudience::new);
+        let room_name = state.room.0.clone();
         let mut authority = LocalAuthority::new(state, clock.clone());
         // The constructor's snapshot is no one's.
         let _ = authority.poll();
@@ -216,7 +232,14 @@ impl FakeServer {
             pending_latency: BTreeMap::new(),
             pending_up_faults: BTreeMap::new(),
             lost: None,
+            audience,
+            room_name,
         }
+    }
+
+    /// The room's name (as its host gave it; the room's id until set).
+    pub fn set_room_name(&mut self, name: &str) {
+        self.room_name = name.into();
     }
 
     /// The room's object restarts, as the server's may mid-stage: what
@@ -290,6 +313,7 @@ impl FakeServer {
     pub fn pump(&mut self) {
         self.uplinks();
         self.route(None);
+        self.audience_pump();
     }
 
     /// The server's reconnect grace (`ROOM_RECONNECT_GRACE_MS`, 30 s
@@ -589,6 +613,9 @@ impl FakeServer {
         {
             c.live = true;
         }
+        if let ClientLive::Audience { open } = msg {
+            self.audience_open(participant, open);
+        }
         let Some(live) = self.live.as_mut() else {
             self.close_conn(conn, close::BAD_MESSAGE);
             return;
@@ -619,6 +646,7 @@ impl FakeServer {
             }
         }
         for b in broadcast {
+            self.audience_member_frame(&b);
             let live: Vec<u64> = self
                 .conns
                 .iter()

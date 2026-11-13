@@ -5069,6 +5069,41 @@ plate's place while following; `ddi-desktop` `room_watch_offscreen`
 the label, the plate; Escape once back, the play going on; picture
 looked at).
 
+## The audience: the design and its contract (2026-11-13)
+
+The maintainer: "for 'watch only' I'd like to have no limit (at least
+within reason of what the Cloudflare deploy can work with)." Designed in
+[The audience](multiplayer-audience.md): people who only watch, beyond the
+members, counted and not listed, by a link of their own (and offered at
+the member bound), served by relay objects that take each audience frame
+once from the room and send it to up to 500 seats each (relays
+recommended over the room's own sockets and over cached segments, with
+the platform's numbers and costs: about $0.03, $0.07 and $0.26 an hour at
+1,000, 5,000 and 20,000 watching).
+
+- **Real and tested, in `crates/room` alone** (`ddi_room::audience`,
+  `audience-v0`, PROVISIONAL): the public view and what it leaves out, the
+  coalesced audience frames (four a second, built and encoded once by the
+  room), the room's side (`AudienceHub`), a relay's (`Relay`) and a
+  device's (`AudienceLink`, `Audience`), all sans-IO; the count to the
+  members (`ServerLive::Audience`) and the owner's closing
+  (`ClientLive::Audience`), both live messages an older peer passes over;
+  `RoomPolicy::audience` (additive). `FakeServer` runs it: 2,000 seats on
+  a 73-player stage with attacks, every seat's fields equal to the room's,
+  a moment at a seat 367 ms after its song time at the median and 661 ms
+  at most (20–120 ms each way); a relay's restart mid-stage; the members'
+  frames byte for byte and time for time the same with 500 seats as with
+  none (`tests/audience.rs`).
+- **Not built**: the server's relays, room side, audience link and join;
+  the game's audience page, spectator view on audience frames and the
+  count on the room's screens. Nothing is reachable yet; singleplayer and
+  the members' protocol are unchanged.
+- **Provisional**: a third link; signed-in seats, two an identity; 20,000
+  seats in relays of 500, four homes; four frames a second with every
+  field; two seconds of delay at most; the owner closes the audience
+  (`multiplayer-audience.md`, "Provisional choices"; its open questions 1
+  to 6).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

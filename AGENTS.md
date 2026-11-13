@@ -1132,6 +1132,19 @@ Rust and the browser are implementation details, not advertised features.
   from its frames and a second at most (`live/delay.rs`: `ViewDelay`,
   `VIEW_DELAY_V0`; `ViewMeter` for the tests and the server's load
   driver; `view_delay_study`).
+  The audience (`audience.rs`, `docs/plans/multiplayer-audience.md`,
+  `audience-v0`, PROVISIONAL): people who watch beyond the members,
+  counted and not listed, served by relays; where `RoomPolicy::audience`
+  says so, the public view derived from the state (`audience/public.rs`,
+  `PublicView`: nothing a member alone knows), the members' frames
+  coalesced four a second into one audience frame (`audience/frames.rs`),
+  the room's side (`audience/hub.rs`, `AudienceHub`), a relay's
+  (`audience/relay.rs`, `Relay`: admission, seats, fold, resume,
+  `restore`) and a device's (`audience/client.rs`, `AudienceLink`,
+  `Audience`), sans-IO; the count to members (`ServerLive::Audience`)
+  and the owner's closing (`ClientLive::Audience`); `FakeServer` runs it
+  (`fake/audience.rs`: `audience_join`, `FakeAudienceSocket`,
+  `restart_relay`); `tests/audience.rs`.
   Pure (serde and JSON), natively tested.
 - The multiplayer prototype's CPU practice (M2 and M3,
   `docs/plans/multiplayer-prototype-progress.md`), behind a hidden switch

@@ -18,7 +18,7 @@ pub struct RoomPolicy {
     /// Room members who are not administrators, watchers included: every
     /// one listed in the room's state, so a bound on what the state and
     /// its writes carry (`DEFAULT_MAX_MEMBERS`, PROVISIONAL). An audience
-    /// beyond it (counted, not listed) is not built.
+    /// beyond it is counted and not listed ([`RoomPolicy::audience`]).
     pub max_members: u16,
     /// Extra room for administrators entering to help, so a full room never
     /// shuts them out. Bounded; the real limit is a server-capacity decision.
@@ -57,6 +57,14 @@ pub struct RoomPolicy {
     /// offered only where this says so. ADDITIVE to protocol 2.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub points_bias: bool,
+    /// An audience beyond the members (`crate::audience`,
+    /// `docs/plans/multiplayer-audience.md`): people who watch, counted and
+    /// not listed, served by relays. `None`: the authority has none (one
+    /// that predates it, or local practice). ADDITIVE to protocol 2: a
+    /// client offers the audience's link, count and control only where it
+    /// is said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<crate::audience::AudiencePolicy>,
 }
 
 /// What a room that plays live tells its clients of how
@@ -116,6 +124,13 @@ impl LivePolicy {
 }
 
 impl RoomPolicy {
+    /// This policy with an audience (`AudiencePolicy::v0`): what an online
+    /// room's authority that serves one sets.
+    pub fn with_audience(mut self) -> Self {
+        self.audience = Some(crate::audience::AudiencePolicy::v0());
+        self
+    }
+
     /// This policy with live play (`LivePolicy::v2`): what an online
     /// room's authority that plays live sets.
     pub fn with_live(mut self) -> Self {
@@ -181,6 +196,7 @@ impl Default for RoomPolicy {
             live: None,
             restart: true,
             points_bias: true,
+            audience: None,
         }
     }
 }

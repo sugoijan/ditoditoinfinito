@@ -50,6 +50,7 @@ pub struct LiveLink {
     queued: Vec<ClientLive>,
     news: Vec<LiveNews>,
     fresh: bool,
+    audience: Option<(u32, bool)>,
 }
 
 impl LiveLink {
@@ -68,6 +69,7 @@ impl LiveLink {
             queued: Vec::new(),
             news: Vec::new(),
             fresh: false,
+            audience: None,
         }
     }
 
@@ -132,6 +134,13 @@ impl LiveLink {
         self.reader.as_ref()
     }
 
+    /// The room's audience as last said (`ServerLive::Audience`): how many
+    /// watch and whether it is open; none until said (a room without an
+    /// audience never says it).
+    pub fn audience(&self) -> Option<(u32, bool)> {
+        self.audience
+    }
+
     pub fn take_news(&mut self) -> Vec<LiveNews> {
         std::mem::take(&mut self.news)
     }
@@ -186,6 +195,7 @@ impl LiveLink {
                 self.clock.pong(&p, now);
             }
             ServerLive::Refused { refusal } => self.news.push(LiveNews::Refused(refusal)),
+            ServerLive::Audience { count, open } => self.audience = Some((count, open)),
             ServerLive::Snapshot(snap) => {
                 if self
                     .reader
