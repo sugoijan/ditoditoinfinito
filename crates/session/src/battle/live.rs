@@ -658,6 +658,9 @@ impl Live {
         let room_us = self.room_now_us(t);
         let now_ms = room_us as f64 / 1_000.0;
         let d = self.delay.advance(now_ms);
+        if room_us > 0 {
+            self.handle.room.borrow_mut().note_view_delay(self.stage, d);
+        }
         let view_us = room_us - (d * 1_000.0).round() as i64;
         let correction = self.slew.correction_us() as f64 / 1e6;
         for seat in &mut self.seats {

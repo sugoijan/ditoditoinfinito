@@ -872,6 +872,10 @@ pub trait LiveRoom {
     fn seat_end(&self) -> Option<SeatEnd> {
         None
     }
+    /// How far behind the stage's song its fields are drawn this frame
+    /// beyond what the music already is (ms; an audience's: its next
+    /// stage's music delay follows it). A member keeps nothing.
+    fn note_view_delay(&mut self, _stage: StageId, _delay_ms: f64) {}
 }
 
 /// Why a seat watching with a room's audience ended during a watched

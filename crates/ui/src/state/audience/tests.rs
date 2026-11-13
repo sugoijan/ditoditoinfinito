@@ -464,3 +464,60 @@ fn a_seat_s_end_during_a_watched_stage_is_its_relay_s_or_a_refused_ticket() {
         "This audience link isn't this room's, or it was replaced."
     );
 }
+
+/// `audience-view-v1`: a stage whose fields had to fall behind the music
+/// puts the next stage's music that much further behind (rounded up, at
+/// most 1.6 s), and good stages bring it back 0.2 s at a time to 0.8 s;
+/// a stage watched with no lag beyond the threshold changes nothing more,
+/// and nothing watched keeps it.
+#[test]
+fn the_music_s_delay_follows_what_the_fields_needed_stage_by_stage() {
+    let v = AUDIENCE_VIEW_V1;
+    let steady = |ms: f32| vec![ms; 600];
+    assert_eq!(v.next_music_delay(800, &[]), 800, "nothing watched");
+    assert_eq!(v.next_music_delay(800, &steady(40.0)), 800, "good: as it was");
+    // Lagged: the fields 330 ms behind the music for most of it.
+    let mut lagged = steady(30.0);
+    lagged.extend(steady(330.0));
+    assert_eq!(v.next_music_delay(800, &lagged), 1_150);
+    // A spike alone (a few frames) is not a lag that moves the music.
+    let mut spike = steady(20.0);
+    spike.extend(vec![900.0; 20]);
+    assert_eq!(v.next_music_delay(800, &spike), 800);
+    // At most 1.6 s, the fields keeping 0.4 s of the ceiling.
+    assert_eq!(v.next_music_delay(1_400, &steady(700.0)), 1_600);
+    // Good again: back 0.2 s a stage, to 0.8 s and no lower.
+    let mut d = 1_600;
+    let mut seen = Vec::new();
+    for _ in 0..6 {
+        d = v.next_music_delay(d, &steady(10.0));
+        seen.push(d);
+    }
+    assert_eq!(seen, [1_400, 1_200, 1_000, 800, 800, 800]);
+    // `audience-view-v0` never moved.
+    assert_eq!(MUSIC_DELAY_V0.next_music_delay(800, &steady(700.0)), 800);
+}
+
+/// The seat keeps the fields' delay a frame as its play notes it, and the
+/// next stage's music delay is moved by it when that stage is handed over
+/// (`LiveRoom::note_view_delay`); within the ceiling throughout.
+#[test]
+fn the_seat_notes_the_fields_delay_for_the_next_stage() {
+    use crate::state::room::LiveRoom;
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let mut seat = arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap();
+    assert_eq!(seat.next_music_delay_ms(), 800);
+    // The fields of stage 1 lagged 400 ms beyond the music.
+    for _ in 0..500 {
+        seat.note_view_delay(ddi_room::StageId(1), 400.0);
+    }
+    // Moved once the next stage is handed over (here: the rule, applied as
+    // `take_stage_order` applies it).
+    let lags = seat.lags.take().unwrap().1;
+    seat.music_next = seat.view_rules().next_music_delay(seat.music_next, &lags);
+    assert_eq!(seat.next_music_delay_ms(), 1_200);
+    // The fields' own room is what is left of the ceiling.
+    let d = seat.view_delay(&ddi_room::live::LIVE_V1);
+    assert!(d.delay_ms() <= 800.0, "{}", d.delay_ms());
+}

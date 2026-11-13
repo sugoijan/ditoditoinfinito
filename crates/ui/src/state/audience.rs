@@ -14,7 +14,7 @@
 //! (`ddi_session::play`, `StageSetup::watching`) fed by the audience's
 //! frames through the same feed a member's view reads
 //! ([`LiveRoom`]), its music and fields drawn a delay behind the room's
-//! song time ([`MUSIC_DELAY_V0`], within the audience's ceiling).
+//! song time ([`AUDIENCE_VIEW_V1`], within the audience's ceiling).
 //!
 //! It sends nothing to the room but its hello, a resume after a gap and
 //! its keep-alive (the seat's own). Sans-IO; natively tested over the fake
@@ -47,17 +47,78 @@ use super::room::{
 /// Fixed for a stage (the music cannot move); the fields fall a little
 /// further behind it where a frame comes later still (their own delay
 /// from what the frames measure, `ddi_room::live::ViewDelay`).
-/// PROVISIONAL (`audience-view-v0`).
+/// PROVISIONAL (`audience-view-v0`; followed by [`AUDIENCE_VIEW_V1`]).
 pub const MUSIC_DELAY_V0: AudienceView = AudienceView {
     id: "audience-view-v0",
     music_delay_ms: 800,
+    most_music_delay_ms: 800,
+    rise_above_ms: u64::MAX,
+    fall_ms: 0,
+    lag_quantile: 0.9,
+};
+
+/// `audience-view-v0`'s music delay, moved at each stage's start by what
+/// the last stage watched needed: where the fields had to fall further
+/// behind the music than `rise_above_ms` for a tenth of its frames or
+/// more (their own delay's 90th percentile), the next stage's music is
+/// put that much further behind (rounded up to 50 ms, at most
+/// `most_music_delay_ms`, which leaves the fields 400 ms of the
+/// two-second ceiling); after a stage that needed less, it falls back
+/// `fall_ms` toward `music_delay_ms`. Never within a stage: the music is
+/// one take, never moved, sped up or slowed down, so nothing is heard;
+/// within a stage the fields keep adapting on top of it, as before.
+/// Resyncing at a silence was not chosen (songs have few, and a jump in
+/// the sound is heard however short), nor a slow drift (a rate change of
+/// the music is a pitch change, and the play's clock is the music's).
+/// PROVISIONAL (`audience-view-v1`, 2026-11-13).
+pub const AUDIENCE_VIEW_V1: AudienceView = AudienceView {
+    id: "audience-view-v1",
+    music_delay_ms: 800,
+    most_music_delay_ms: 1_600,
+    rise_above_ms: 100,
+    fall_ms: 200,
+    lag_quantile: 0.9,
 };
 
 /// The audience's view's numbers, named and versioned. PROVISIONAL.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AudienceView {
     pub id: &'static str,
+    /// The music's delay with nothing measured yet, and the one it falls
+    /// back toward (ms).
     pub music_delay_ms: u64,
+    /// The most it rises to (ms; within the audience's ceiling).
+    pub most_music_delay_ms: u64,
+    /// The fields' own delay beyond the music's (its `lag_quantile` over
+    /// the last stage watched, ms) past which the next stage's music is
+    /// put that much further behind.
+    pub rise_above_ms: u64,
+    /// How much it falls back after a stage that needed no rise (ms).
+    pub fall_ms: u64,
+    pub lag_quantile: f64,
+}
+
+impl AudienceView {
+    /// The next stage's music delay after one watched at `current` ms
+    /// whose fields fell `lags` ms further behind it (one a frame; none:
+    /// nothing watched, kept).
+    pub fn next_music_delay(&self, current: u64, lags: &[f32]) -> u64 {
+        if lags.is_empty() {
+            return current;
+        }
+        let mut sorted = lags.to_vec();
+        sorted.sort_by(f32::total_cmp);
+        let i = ((sorted.len() - 1) as f64 * self.lag_quantile).round() as usize;
+        let lag = f64::from(sorted[i].max(0.0)).ceil() as u64;
+        let next = if lag > self.rise_above_ms {
+            current + lag.div_ceil(50) * 50
+        } else {
+            current
+                .saturating_sub(self.fall_ms)
+                .max(self.music_delay_ms)
+        };
+        next.min(self.most_music_delay_ms.max(self.music_delay_ms))
+    }
 }
 
 /// Where the seat is.
@@ -139,6 +200,11 @@ pub struct AudienceClient {
     launched: BTreeSet<StageId>,
     /// The music's delay for each stage handed to the shell.
     delays: BTreeMap<StageId, u64>,
+    /// The next stage's music delay ([`AudienceView::next_music_delay`]).
+    music_next: u64,
+    /// The stage watched last and how far behind the music its fields
+    /// were drawn, a sample a frame (ms).
+    lags: Option<(StageId, Vec<f32>)>,
     /// Frames taken, sockets opened (the debug state's).
     sockets: u32,
     /// The shell's threads' preparations (desktop's).
@@ -189,7 +255,7 @@ impl AudienceClient {
             link: link.into(),
             seat,
             clock,
-            view_rules: MUSIC_DELAY_V0,
+            view_rules: AUDIENCE_VIEW_V1,
             ticket_req: None,
             attempt: 0,
             retry_at: 0,
@@ -205,6 +271,8 @@ impl AudienceClient {
             mismatched: BTreeSet::new(),
             launched: BTreeSet::new(),
             delays: BTreeMap::new(),
+            music_next: AUDIENCE_VIEW_V1.music_delay_ms,
+            lags: None,
             sockets: 0,
             inbox: None,
         };
@@ -495,8 +563,18 @@ impl AudienceClient {
         self.delays
             .get(&stage)
             .copied()
-            .unwrap_or(self.view_rules.music_delay_ms)
+            .unwrap_or(self.music_next)
             .min(self.ceiling_ms())
+    }
+
+    /// The music delay the next stage handed over will have (ms).
+    pub fn next_music_delay_ms(&self) -> u64 {
+        self.music_next.min(self.ceiling_ms())
+    }
+
+    /// The view's rules (its id for the debug state).
+    pub fn view_rules(&self) -> AudienceView {
+        self.view_rules
     }
 
     fn ceiling_ms(&self) -> u64 {
@@ -561,7 +639,11 @@ impl AudienceClient {
             live: Some(LiveOrder { prep, people }),
         };
         self.launched.insert(stage);
-        self.delays.insert(stage, self.view_rules.music_delay_ms);
+        // The music's delay for it, from what the stage watched last needed.
+        if let Some((_, lags)) = self.lags.take() {
+            self.music_next = self.view_rules.next_music_delay(self.music_next, &lags);
+        }
+        self.delays.insert(stage, self.music_next);
         self.version += 1;
         Some(order)
     }
@@ -598,7 +680,7 @@ impl LiveRoom for AudienceClient {
             floor_ms: 0,
             ..VIEW_DELAY_V0
         };
-        let music = self.view_rules.music_delay_ms.min(self.ceiling_ms());
+        let music = self.music_next.min(self.ceiling_ms());
         ViewDelay::new(rules, (self.ceiling_ms() - music) as f64, 0.0)
     }
 
@@ -669,6 +751,15 @@ impl LiveRoom for AudienceClient {
 
     fn seat_end(&self) -> Option<SeatEnd> {
         seat_end_of(&self.state())
+    }
+
+    /// The fields' own delay beyond the music this frame: kept for the
+    /// next stage's music delay.
+    fn note_view_delay(&mut self, stage: StageId, delay_ms: f64) {
+        match &mut self.lags {
+            Some((s, lags)) if *s == stage => lags.push(delay_ms as f32),
+            _ => self.lags = Some((stage, vec![delay_ms as f32])),
+        }
     }
 }
 

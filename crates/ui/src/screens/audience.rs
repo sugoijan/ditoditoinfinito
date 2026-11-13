@@ -64,6 +64,10 @@ pub struct AudienceView {
     /// The music's delay behind the room's song time for the stage
     /// handed over last (ms).
     pub delay_ms: Option<u64>,
+    /// The next stage's (`audience-view-v1`: moved by what the last one
+    /// needed) and the rules' id.
+    pub next_delay_ms: u64,
+    pub view_rules: String,
     pub players: usize,
     pub stages: usize,
 }
@@ -96,6 +100,8 @@ pub fn debug_view(a: &AudienceClient) -> AudienceView {
         frames: a.frames(),
         sockets: a.sockets(),
         delay_ms: a.current_stage().filter(|s| a.launched(*s)).map(|s| a.music_delay_ms(s)),
+        next_delay_ms: a.next_music_delay_ms(),
+        view_rules: a.view_rules().id.into(),
         players: v.map_or(0, |v| v.players.len()),
         stages: v.map_or(0, |v| v.stages.len()),
     }
