@@ -2,8 +2,9 @@
 
 Status (2026-11-13): designed; the contract for the recommended path
 (relays) is built and tested in `crates/room` (`ddi_room::audience`,
-`audience-v0`, PROVISIONAL) with the fake room running it; nothing of it
-is on the server or in the game yet (the two work lists below).
+`audience-v0`, PROVISIONAL) with the fake room running it; the server's
+side is built and tested in `../ddi-server` (not deployed; "The server, as
+built" below); nothing of it is in the game yet.
 
 Read with [Online play: the shared base](multiplayer-online-play.md) (the
 live contract, its frames, the load tests and "Platform facts") and
@@ -419,6 +420,98 @@ the room's state: no revision, no event.
    files limit; 2,000, 5,000 and 20,000), measuring the room's alarm time
    and CPU with and without them, each relay's CPU, frame spacing at the
    seats, the count, and the members' frame spacing unchanged.
+
+## The server, as built (2026-11-13)
+
+`../ddi-server` (`worker/src/audience.rs`, `relay_do.rs`, `room_do.rs`;
+its README's Rooms section). Its list above, item by item:
+
+1. `AudienceRelay` (`AUDIENCE_RELAYS`, migration `v3`, SQLite, storing
+   nothing) runs `Relay` through a host core (`RelayCore`) that adds the
+   seats given and not yet taken (a ticket takes its seat once), the seats'
+   open sockets, and its socket up (opening, answered, refused, the room
+   ended). Seats' attachments are `{room, relay, seat, mark}`, the mark as
+   text (JavaScript's numbers cannot hold a `u64`: the first local run
+   found it). **Not as the list says:** tags are given when a socket is
+   accepted and never changed after, so seats are not tagged `hello`; the
+   relay sends to the seats `Relay::hello_seats` names (a frame still one
+   buffer for all). **Additions:** the socket up is closed after a minute
+   without seats (an outgoing socket keeps the object, and its billing,
+   awake; the next admission opens it again), and while frames flow the
+   relay wakes each second (`RELAY_STAGE_CHECK_MS`, PROVISIONAL; every
+   30 s otherwise while it has seats), so one that lost its memory with
+   its seats' sockets kept (their keep-alives never wake it) is back within
+   the two seconds of frames the room resends: its seats resume from frames
+   rather than a snapshot with a hole.
+2. `RoomDO` holds a `RoomAudience` beside the live side (the hub, the
+   audience link's key following the invite); relays' sockets on
+   `/relay/ws`, tagged `relay`, attachment `{relay, seats}` (a room that
+   lost its memory counts them again from it); the members' broadcasts and
+   the idle end leave relays out (an audience keeps no room open).
+3. The audience link's secret is a one-way hash of the watch-only link's
+   (so of the invite's): any of the three links can join the audience (a
+   join at the member bound by the invite or watch-only link is offered it)
+   and none can be climbed. It has no expiry of its own. `GET
+   /invites/<link>`: `kind: audience`, `audience_count`; at the bound
+   `audience: true` (preview and `room_full`).
+4. The join answers `{ticket, relay, expires_at_ms}`; the socket is `GET
+   /sockets/<id>/audience/ws?ticket=` (or `/rooms/…`). A relay that cannot
+   be readied in 5 s answers `503 relay_unready`.
+5. As the contract says.
+
+Native tests drive the objects' handler sequences (the server's live
+harness with relays and the game's `Audience` on each seat): the join and
+every refusal (the 20,000-seat bound, two an identity, a closed audience,
+an ended room, no audience, a link not the room's), a seat following a
+stage with attacks, the count reaching the members, a relay restarted
+mid-stage, the audience closed and opened again, the invite replaced, and
+the members' frames the same bytes at the same times with 60 seats.
+
+### The local load test
+
+`ddi-load --audience N` on a 73-player stage of 40 s, attacks on, against
+a local `wrangler dev` (one `workerd` process on the maintainer's Mac, 10
+cores), the first 50 seats the game's own client, the rest light clients
+reading the same wire. Two builds, the dev build first:
+
+| Seats | Relays | Room alarm p50 / p99 (ms) | Members' frame gap p99 (ms) | Audience frame gap p50 / p99 (ms) | Frames to every seat | Count seen | workerd CPU (ms/s) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | 4 / 9 | 105 | | | | 38 |
+| 2,000 | 6 | 5 / 77 | 168 | 251 / 292 | 166 of 166 | 2,000 | 231 |
+| 5,000 | 12 | stalled | stalled | stalled | | 5,000 | |
+
+Release build (dev-auth), a second series:
+
+| Seats | Relays | Room alarm p50 / p99 (ms) | Members' frame gap p99 (ms) | Audience frame gap p50 / p99 (ms) | Count seen | workerd CPU (ms/s) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | 4 / 15 | 128 | | | 40 |
+| 2,000 | 6 | 5 / 217 | 378 | 253 / 467 | 2,000 | 225 |
+| 3,500 | 8 | 8 / 306 | 550 | 254 / 795 | 3,500 | 368 |
+| 5,000 | 12 | stalled | stalled | stalled | 5,000 | |
+
+What they show: the whole path works at thousands (joins 20–30 ms at the
+median, every seat sees its view, every audience frame and the count, the
+members see the count; four frames a second at 250 ms; no refusal, no
+unexpected close). A relay's cost all included is about 25 µs a send
+locally ((231 − 38) ms/s over 7,600 sends a second at 2,000; 23 µs at
+3,500): a full relay (500 seats, 2,000 sends a second) about 0.05 of a
+local core, within the plan's estimate, so 500 seats a relay holds.
+
+What they do not show: the local runtime runs every object, the room and
+its relays alike, on one thread of one process, beside the driver's own
+thousands of sockets on the same machine. The members' spacing and the
+room's alarms grow with the audience here because the relays' sends share
+that thread with the room (the room's own audience work is one frame built
+and encoded four times a second, 56–86 µs natively); on the platform each
+relay is its own object. The local alarm spans of a relay last until its
+next alarm while its socket up is open (an artefact of local tracing; they
+are counted apart). At 5,000 seats (and in an earlier run too) the local
+`workerd` stopped serving altogether, idle (no CPU, waiting in its event
+loop), with 1.4 GB resident: a limit of the local runtime, not measured
+further. 20,000 seats cannot be opened from one machine to one local
+address in any case (macOS's ephemeral ports, 49152–65535: 16,384). The
+bound, the relay size and the platform's own cost of a send need a
+measurement on the platform.
 
 ## What the game builds
 
