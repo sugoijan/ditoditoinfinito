@@ -241,6 +241,19 @@ fn pick_and_ready_with(
     song: &Song,
     attacks: bool,
     chart: usize,
+    tweak: impl FnMut(usize, &mut ddi_ui::state::room::LoadJob),
+) -> Vec<Option<StageOrder>> {
+    pick_and_ready_staged(r, song, attacks, chart, 1, tweak)
+}
+
+/// [`pick_and_ready_with`] in a match of `stages` (the next match's rules
+/// saved so before the pick; a pick in a running match goes on with it).
+fn pick_and_ready_staged(
+    r: &Room,
+    song: &Song,
+    attacks: bool,
+    chart: usize,
+    stages: u16,
     mut tweak: impl FnMut(usize, &mut ddi_ui::state::room::LoadJob),
 ) -> Vec<Option<StageOrder>> {
     for _ in 0..10 {
@@ -259,7 +272,7 @@ fn pick_and_ready_with(
     }
     let mut rules = r.rooms[0].borrow().rules().clone();
     rules.set_attacks(attacks);
-    rules.stages = 1;
+    rules.stages = stages;
     r.rooms[0].borrow_mut().save_rules(rules).unwrap();
     // (Long enough for the slowest latency tried: 400 ms each way.)
     r.run(2.0);
@@ -2202,4 +2215,106 @@ fn a_live_stage_steps_down_and_the_others_fields_follow() {
         ddi_room::Run::Out { .. } => assert_eq!(plays[1].player.steps().len(), ladder.len()),
         ref other => panic!("{other:?}"),
     }
+}
+
+/// A running live match's rules changed from its next stage on
+/// (2026-11-13) while its first stage loads, after that stage's battle
+/// plan was worked out: the change lands on stage 2, never on the stage
+/// both devices loaded; stage 1 is played under the match's rules on
+/// both, stage 2 under the new ones on both, its plan naming them, so a
+/// device that would play it under the match's own rules (one from
+/// before the change) disagrees on the digest and sits it out.
+#[test]
+fn a_live_change_of_rules_lands_after_the_stage_loaded_and_both_devices_agree() {
+    let song = bundled("beatucada");
+    const HARD: usize = 5;
+    let r = Room::new(&[("alice", Intent::Play), ("bob", Intent::Play)], None);
+    r.run(1.0);
+    let mut landed = None;
+    let orders = pick_and_ready_staged(&r, &song, true, HARD, 2, |i, _| {
+        if i != 0 || landed.is_some() {
+            return;
+        }
+        // Alice, the room's operator, changes the timing to Hard while
+        // the stage loads: the plan of stage 1 is being worked out.
+        let room = &r.rooms[0];
+        assert!(room.borrow().may_change_stage_rules());
+        let (from, n) = room.borrow().rules_land_on().unwrap();
+        let mut hard = room.borrow().rules_ahead().unwrap();
+        hard.difficulty = ddi_room::MatchDifficulty::Hard;
+        room.borrow_mut().change_stage_rules(from, &hard).unwrap();
+        landed = Some((from, n));
+    });
+    let (from, n) = landed.expect("changed");
+    assert_eq!(n, 2, "never the stage loaded");
+    let o1 = orders[0].as_ref().unwrap();
+    assert_ne!(o1.stage, from);
+    for o in orders.iter().flatten() {
+        assert_eq!(o.rules.difficulty, ddi_room::MatchDifficulty::Normal);
+        assert!(!o.rules.changed);
+    }
+    let plan = |i: usize, stage| r.rooms[i].borrow().live_prep(stage).unwrap().plan.clone().unwrap();
+    assert_eq!(plan(0, o1.stage).digest, plan(1, o1.stage).digest);
+    assert_eq!(plan(0, o1.stage).stage_rules, None, "stage 1's plan as it was");
+    // Both mirrors keep the change.
+    r.run(1.0);
+    for room in &r.rooms {
+        let room = room.borrow();
+        let m = room.state().current.as_ref().unwrap();
+        assert_eq!(m.rules_for(from).difficulty, ddi_room::MatchDifficulty::Hard);
+    }
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 0.0]);
+    let ended = play_out(&r, &mut plays, 200.0, |_, _| {});
+    assert!(ended.iter().all(Option::is_some), "stage 1 played out");
+    drop(plays);
+    // The runs reported, as the shells report them.
+    for (i, e) in ended.into_iter().enumerate() {
+        let (_, o) = e.unwrap();
+        r.rooms[i]
+            .borrow_mut()
+            .report_played(o.stage, o.mine, o.ranking, o.confirmed_early, o.details)
+            .unwrap();
+    }
+    for _ in 0..20 {
+        r.run(0.5);
+        if matches!(r.server.borrow().state().phase, ddi_room::Phase::Intermission { .. }) {
+            break;
+        }
+    }
+    assert!(
+        matches!(r.server.borrow().state().phase, ddi_room::Phase::Intermission { .. }),
+        "{:?}",
+        r.server.borrow().state().phase
+    );
+    // Stage 2: Hard on both devices, the plan naming it, alike.
+    let orders = pick_and_ready_staged(&r, &song, true, HARD, 2, |_, _| {});
+    let o2 = orders[0].as_ref().unwrap();
+    assert_eq!(o2.stage, from);
+    for o in orders.iter().flatten() {
+        assert_eq!(o.rules.difficulty, ddi_room::MatchDifficulty::Hard);
+        assert!(o.rules.changed);
+    }
+    let (a, b) = (plan(0, o2.stage), plan(1, o2.stage));
+    assert_eq!(a.digest, b.digest, "both devices made the same plan");
+    assert_eq!(a.stage_rules, o2.rules.changed_tag());
+    assert!(a.stage_rules.is_some());
+    // A device from before the change works the stage out under the
+    // match's own rules: another digest, so it sits the stage out.
+    let seed = a.seed;
+    let older = ddi_ui::state::battle_plan::plan(
+        &song,
+        HARD,
+        &ddi_ui::state::room::StageRules::of(&r.rooms[0].borrow().state().current.as_ref().unwrap().rules),
+        seed,
+    );
+    assert_ne!(older.digest, a.digest);
+    // The room took the plan the devices offered.
+    let room_plan = r
+        .server
+        .borrow()
+        .state()
+        .stage(o2.stage)
+        .and_then(|s| s.content.as_ref())
+        .and_then(|c| c.battle.clone());
+    assert_eq!(room_plan, Some(a.digest.clone()));
 }
