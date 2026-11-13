@@ -371,6 +371,13 @@ impl Opponent {
     pub fn finished(&self) -> bool {
         self.player.finished()
     }
+
+    /// Its fail policy from now on (`Player::set_fail`): a battle's
+    /// decided winner plays the song out whatever its gauge does
+    /// (`FailPolicy::Off`). Its presses are its plan's, unchanged.
+    pub fn set_fail(&mut self, fail: crate::rules::FailPolicy) {
+        self.player.set_fail(fail);
+    }
 }
 
 #[cfg(test)]

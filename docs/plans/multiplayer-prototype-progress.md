@@ -4902,6 +4902,7 @@ after the decision. A CPU winner keeps its fail after the decision (the
 engine's CPU offers no way to turn it off, and that code was left
 alone), so in practice a winner whose gauge empties afterwards ends the
 watching there; a person who wins has their fail turned off as before.
+(Fixed since: "A winning CPU plays the song out".)
 
 ### The gaps the first round left
 
@@ -5144,6 +5145,23 @@ Mines, the locked lane (darkened, its receptor tinted) and the dropped
 hold's gray look right. The followed field's Boo word was not pictured
 (tested on the feed). Not looked at in a browser: the web draws the same
 `PlayView` and skin.
+
+### A winning CPU plays the song out
+
+Found in the second round: a CPU winner whose gauge emptied after the
+stage was decided went out there, and the watching ended early (its
+field marked Out, `still_playing` false). Now, once a practice stage is
+decided, each CPU of the first place still in plays the song out with its
+fail off and is never put out afterwards, whatever its gauge does
+(`Battle::winners_play_on`, `Seat::out_at`; `ddi_engine::cpu::Opponent::set_fail`,
+new, which only sets its player's fail policy: its plan's presses are
+untouched, every existing seed's fixtures pass unchanged). The decision
+stands whatever happens after, as for a person who wins (their fail
+turned off as before). Tested: `ddi-session`
+`a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely`
+(CPUs on a battery of one life: the winner's field never Out after the
+decision, the results the hold after it finished the chart; it fails
+without the change, the winner put out a frame after the decision).
 
 ## Provisional choices
 

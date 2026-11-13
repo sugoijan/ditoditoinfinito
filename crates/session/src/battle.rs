@@ -420,6 +420,22 @@ struct Seat {
     level: u8,
     /// Its moments as its miniature field is fed them.
     feed: feed::FieldFeed,
+    /// The stage was decided with it the winner (alone or first shared):
+    /// it plays the song out and is never put out after it, whatever its
+    /// gauge does (the decision stands; [`Seat::out_at`]).
+    plays_on: bool,
+}
+
+impl Seat {
+    /// When it went out of the stage: its gauge's first emptying, never
+    /// once it plays the song out as the decided winner.
+    fn out_at(&self) -> Option<f64> {
+        if self.plays_on {
+            None
+        } else {
+            self.opponent.out_at()
+        }
+    }
 }
 
 /// The opponents of a stage being played.
@@ -584,6 +600,7 @@ impl Battle {
                         .unwrap_or_else(|| m::cpu_name(seat.ordinal).into()),
                     level: u8::try_from(level + 1).unwrap_or(u8::MAX),
                     feed,
+                    plays_on: false,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -810,6 +827,7 @@ impl Battle {
             }
         }
         self.drawn = drawn;
+        self.winners_play_on(&ranking);
         self.decided = Some(ranking);
         self.decided_at = match human {
             Some(h) => h.judge().last_time(),
@@ -876,7 +894,7 @@ impl Battle {
             && self
                 .seats
                 .iter()
-                .any(|s| s.opponent.out_at().is_none() && !s.opponent.finished())
+                .any(|s| s.out_at().is_none() && !s.opponent.finished())
     }
 
     /// Whether someone is still playing the stage's song as it is shown
@@ -898,7 +916,7 @@ impl Battle {
             && self
                 .seats
                 .iter()
-                .any(|s| s.opponent.out_at().is_none() && !s.opponent.finished())
+                .any(|s| s.out_at().is_none() && !s.opponent.finished())
     }
 
     pub fn setup(&self) -> &StageSetup {
@@ -1064,7 +1082,7 @@ impl Battle {
             s.opponent.advance(t);
             // Its judgments as moments of its stream: what its field shows.
             let (life, combo, out_at) =
-                (s.opponent.life(), s.opponent.combo(), s.opponent.out_at());
+                (s.opponent.life(), s.opponent.combo(), s.out_at());
             // Its score as the room shows it, for its field shown large.
             let score = cpu_score(&s.opponent.score(), self.most);
             let events = s.opponent.take_judged();
@@ -1141,7 +1159,7 @@ impl Battle {
             .chain(
                 self.seats
                     .iter()
-                    .filter(|s| s.opponent.out_at().is_none())
+                    .filter(|s| s.out_at().is_none())
                     .map(|s| judged_to(s.opponent.player())),
             )
             .reduce(f64::min);
@@ -1337,6 +1355,7 @@ impl Battle {
             _ => {}
         }
         self.drawn = drawn;
+        self.winners_play_on(&ranking);
         self.decided = Some(ranking);
         self.decided_at = match human {
             Some(h) => h.judge().last_time(),
@@ -1377,7 +1396,7 @@ impl Battle {
             let Some(next) = self.attacks.as_ref().and_then(|a| a.next_checkpoint()) else {
                 break;
             };
-            if self.seats.iter().all(|s| s.opponent.out_at().is_some()) {
+            if self.seats.iter().all(|s| s.out_at().is_some()) {
                 break;
             }
             let before = self.attacks.as_ref().map(|a| a.checkpoints().0);
@@ -1388,7 +1407,7 @@ impl Battle {
                 && self
                     .seats
                     .iter()
-                    .all(|s| s.opponent.finished() || s.opponent.out_at().is_some())
+                    .all(|s| s.opponent.finished() || s.out_at().is_some())
             {
                 break;
             }
@@ -1452,7 +1471,28 @@ impl Battle {
             .map_or(&[][..], |a| a.ledger().checkpoints_us());
         let (ranking, drawn) = SETTLEMENT_V0.rank(&entrants, checkpoints, self.settling);
         self.drawn = drawn;
+        self.winners_play_on(&ranking);
         self.decided = Some(ranking);
+    }
+
+    /// The stage decided with `ranking`: its CPU winners (alone, or first
+    /// shared, and still in) play the song out without being put out,
+    /// whatever their gauges do after it (the decision stands), as a
+    /// person who wins has their fail turned off.
+    fn winners_play_on(&mut self, ranking: &[Vec<Finisher>]) {
+        let Some(first) = ranking.first() else {
+            return;
+        };
+        for s in &mut self.seats {
+            if s.opponent.out_at().is_none()
+                && first.iter().any(|f| {
+                    f.participant == s.seat.participant && f.finish == ddi_room::Finish::Survived
+                })
+            {
+                s.plays_on = true;
+                s.opponent.set_fail(ddi_engine::FailPolicy::Off);
+            }
+        }
     }
 
     /// The moments of this frame (before the stage is decided): the local
@@ -1479,7 +1519,7 @@ impl Battle {
             + self
                 .seats
                 .iter()
-                .filter(|s| s.opponent.out_at().is_none())
+                .filter(|s| s.out_at().is_none())
                 .count();
         let milestone = |live: usize, before: usize| {
             (live < before && !decided)
@@ -1508,7 +1548,7 @@ impl Battle {
         if !in_stage {
             self.outs_told.resize(self.seats.len(), false);
             for (seat, s) in self.seats.iter().enumerate() {
-                if s.opponent.out_at().is_some() && !self.outs_told[seat] {
+                if s.out_at().is_some() && !self.outs_told[seat] {
                     self.outs_told[seat] = true;
                     self.watch_moments.push(WatchMoment::Out { seat });
                 }
@@ -1518,7 +1558,7 @@ impl Battle {
             self.outs_told = self
                 .seats
                 .iter()
-                .map(|s| s.opponent.out_at().is_some())
+                .map(|s| s.out_at().is_some())
                 .collect();
         }
         self.danger = Some(danger);
@@ -1603,7 +1643,7 @@ impl Battle {
             return self.incoming_of(r.participant);
         }
         let s = self.seats.get(seat)?;
-        if self.decided.is_some() || s.opponent.out_at().is_some() {
+        if self.decided.is_some() || s.out_at().is_some() {
             return None;
         }
         self.incoming_of(s.seat.participant)
@@ -1696,7 +1736,7 @@ impl Battle {
                 let other = if x.sender == me { x.recipient } else { x.sender };
                 let seat = self.seats.iter().position(|s| s.seat.participant == other)?;
                 // Out since: its miniature says so, nothing to point at.
-                if x.sender == me && self.seats[seat].opponent.out_at().is_some() {
+                if x.sender == me && self.seats[seat].out_at().is_some() {
                     return None;
                 }
                 let committed = a
@@ -1796,7 +1836,7 @@ impl Battle {
         live.iter()
             .filter_map(|x| {
                 let (from, to) = (seat(x.sender)?, seat(x.recipient)?);
-                if self.seats[to].opponent.out_at().is_some() {
+                if self.seats[to].out_at().is_some() {
                     return None;
                 }
                 let committed = a
@@ -2038,7 +2078,7 @@ impl Battle {
                 name: s.name.clone(),
                 level: Some(s.level),
                 life: s.opponent.life(),
-                out: s.opponent.out_at().is_some(),
+                out: s.out_at().is_some(),
                 score: accuracy(&s.opponent.score()),
                 sum: cpu_score(&s.opponent.score(), self.most)
                     .ddi
@@ -2047,7 +2087,7 @@ impl Battle {
                 power: self
                     .attacks
                     .as_ref()
-                    .filter(|_| s.opponent.out_at().is_none())
+                    .filter(|_| s.out_at().is_none())
                     .map(|a| a.bar(s.seat.participant)),
             })
             .collect();
@@ -2285,7 +2325,7 @@ impl Battle {
         out.extend(self.seats.iter().map(|s| Entrant {
             participant: s.seat.participant,
             run: run_of(
-                s.opponent.out_at(),
+                s.out_at(),
                 s.opponent.life(),
                 &cpu_score(&s.opponent.score(), self.most),
             ),

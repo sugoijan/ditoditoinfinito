@@ -2330,6 +2330,7 @@ fn a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely() {
     .unwrap();
     let mut decided_at = None;
     let mut done_at = None;
+    let mut winner = None;
     let mut outs = 0;
     let event = loop {
         *clock.borrow_mut() += 1.0 / 60.0;
@@ -2367,6 +2368,13 @@ fn a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely() {
                 done_at = Some(host);
                 assert!(s.watch(host).unwrap().over);
             }
+            // The winner plays the song out, never put out after the
+            // decision (on its battery of one life, a miss would have).
+            if let Some((WatchMoment::Won { seat }, _)) = w.cue {
+                let b = s.battle().unwrap();
+                assert!(!b.views()[seat].out, "{} s after: the winner put out", host - at);
+                winner = Some(seat);
+            }
         }
         if let Some(e) = event {
             break e;
@@ -2378,11 +2386,15 @@ fn a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely() {
     let host = *clock.borrow();
     match done_at {
         // The last one still playing ended (the winner done with the
-        // chart, or out on its battery after the decision: a CPU's fail
-        // stays): the results the hold after that, not after the
-        // decision (or sooner, at the song's end).
+        // chart: never put out after the decision, its fail off): the
+        // results the hold after that, not after the decision (or
+        // sooner, at the song's end).
         Some(done) => {
             assert!(done >= at);
+            if let Some(seat) = winner {
+                let b = s.battle().unwrap();
+                assert!(!b.views()[seat].out, "the winner finished in");
+            }
             assert!(
                 host - done <= WATCH_END_HOLD + 0.05,
                 "the results {} s after the last one ended",
