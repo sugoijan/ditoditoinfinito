@@ -537,6 +537,9 @@ pub struct StageRules {
     pub ruleset: String,
     pub difficulty: ddi_room::MatchDifficulty,
     pub boos: bool,
+    /// The points' bias for fields of nine and more (summaries name it
+    /// where it is not Strong; the play never reads it).
+    pub points: ddi_room::PointsBias,
 }
 
 impl StageRules {
@@ -545,6 +548,7 @@ impl StageRules {
             ruleset: rules.ruleset_id().into(),
             difficulty: rules.difficulty,
             boos: rules.boos,
+            points: rules.points,
         }
     }
 
@@ -948,6 +952,22 @@ impl RoomClient {
         };
         room.pump();
         room
+    }
+
+    /// A practice room under another `policy` (tests: an older
+    /// authority's, a larger cap).
+    #[cfg(test)]
+    pub fn practice_with_policy(now_ms: u64, seed: u64, policy: RoomPolicy) -> RoomClient {
+        let rules = practice_rules(OpponentSpec {
+            level: DEFAULT_CPU_LEVEL,
+            seed,
+            personality: None,
+            name: None,
+            targeting: None,
+        });
+        let roster = super::cpu_roster::starting(STARTING_CPUS, seed);
+        let rules = super::cpu_roster::with_roster(rules, roster, 1);
+        Self::practice_under(now_ms, rules, policy)
     }
 
     pub fn shared(now_ms: u64, seed: u64) -> SharedRoom {
@@ -2707,6 +2727,14 @@ impl RoomClient {
     /// the intermission), in a room whose authority reads
     /// `Command::RestartMatch` (`RoomPolicy::restart`; never one that
     /// predates it).
+    /// The room's authority awards fields of nine and more by the
+    /// top-biased tables at the match's points bias (`RoomPolicy::points_bias`):
+    /// the Rules pop-up offers the choice only then (an older server
+    /// drops it and awards by its own rule).
+    pub fn points_offered(&self) -> bool {
+        self.state().policy.points_bias
+    }
+
     pub fn may_restart(&self) -> bool {
         self.state().policy.restart
             && self.may(Capability::EditNextRules)

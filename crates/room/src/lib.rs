@@ -49,7 +49,9 @@ pub mod rules;
 pub mod state;
 
 pub use authority::{Clock, LocalAuthority, ManualClock, RoomAuthority};
-pub use awards::{AwardRule, AwardScheme, Finish, Finisher, Placement, StageResult};
+pub use awards::{
+    AwardRule, AwardScheme, Finish, Finisher, Placement, PointsBias, StageResult, TopBiased,
+};
 pub use battle::{Absolute, BattlePreset, Entrant, ReportedRun, Run, RunDetail};
 pub use command::{Actor, CancelReason, Command, Event, RankingProblem, Rejection};
 pub use ids::{

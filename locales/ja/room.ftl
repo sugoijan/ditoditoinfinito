@@ -117,8 +117,17 @@ room-rules-attacks-online = オフ · オンラインルームではまだ使え
 
 room-rules-points-value = 順位制 · 試験的
 
+room-rules-points-strong = 強め
+room-rules-points-medium = 中くらい
+room-rules-points-mild = 弱め
+
+room-rules-points-strong-about = 上位ほど多く得点し、大人数ではそれ以外の順位の得点は小さくなります。
+room-rules-points-medium-about = 中間です。上位が優位なまま、下の順位も少し多く得点します。
+room-rules-points-mild-about = 大人数でも下の順位まで得点が行き渡り、上位の差は小さくなります。
+
 room-rules-level-note = CPUの星はレベルを表します。譜面に対する強さで、腕前の評価ではありません。
 room-rules-points-note = 8人以外の人数での得点は試験的なルールによります。
+room-rules-points-bias-note = 得点の設定は8人以下では何も変えません。8人未満の得点は試験的なルールによります。
 room-rules-ruleset-note = 試合では各自のオプションではなく、全員がDDIのこのルールでプレイします。
 room-rules-battle-note = バトルは暫定です。ライフが尽きるとそのステージはアウト。攻撃オンでは、タイミングが良いとパワーゲージがたまり、満タンでほかのプレイヤーのフィールドにショックを8つ送ります。
 room-rules-locked-note = 変更は次の対戦から適用され、この対戦のルールは変わりません。
@@ -223,6 +232,10 @@ room-rules-words = { $ruleset }{ $difficulty ->
 }{ $attacks ->
     [off] {" "}· 攻撃なし
    *[on] {""}
+}{ $points ->
+    [medium] {" "}· 得点 中くらい
+    [mild] {" "}· 得点 弱め
+   *[strong] {""}
 }
 
 room-mark-survived = ステージ { $number }: { $field }人中 { $place }位 · +{ $points }点

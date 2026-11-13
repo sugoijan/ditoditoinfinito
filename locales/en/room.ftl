@@ -223,9 +223,23 @@ room-rules-attacks-online = Off · not in online rooms yet
 # (about 24 letters).
 room-rules-points-value = By place · experimental
 
+# The Points row's choices where the room offers them: how strongly a
+# field of nine players or more favors its top places (one word each).
+room-rules-points-strong = Strong
+room-rules-points-medium = Medium
+room-rules-points-mild = Mild
+
+# A line under the Points row saying what the chosen value favors.
+room-rules-points-strong-about = The top places earn the most; lower places in a large field earn smaller awards.
+room-rules-points-medium-about = Between the two: the top places still lead, and lower places earn a little more.
+room-rules-points-mild-about = Points reach furthest down a large field; the top places lead by less.
+
 # Lines under the rows, muted.
 room-rules-level-note = A CPU's stars show its level: its strength relative to the chart, not a skill rating.
 room-rules-points-note = Points for fields other than eight players follow an experimental rule.
+# The same note where the room offers the Points row's choice: the choice
+# matters only with nine players or more.
+room-rules-points-bias-note = The Points choice changes nothing with eight players or fewer; fewer than eight follow an experimental rule.
 room-rules-ruleset-note = Everyone plays the match under DDI with these rules, whatever their own options say.
 room-rules-battle-note = The battle is provisional: your stage ends when your life runs out. With attacks, good timing fills a power bar, and a full bar sends eight shocks into another player's field.
 room-rules-locked-note = Changes apply to the next match; this one keeps its rules.
@@ -521,12 +535,14 @@ room-prompt-ruleset = Rules: { $rules }
 # what differs from the usual: the timing difficulty when it is not Normal
 # ("Hard timing", "Easy timing": never a chart's difficulty), Boos
 # when they are on, and that there are no attacks when the match has
-# them turned off (they are on by default).
+# them turned off (they are on by default), and the Points choice when it
+# is not the default Strong.
 # Variables:
 #   $ruleset (String) - the ruleset's name ("DDI")
 #   $difficulty (String) - "easy", "normal" or "hard"
 #   $boos (String) - "on" or "off"
 #   $attacks (String) - "off" when the match's attacks are turned off, else "on"
+#   $points (String) - "strong", "medium" or "mild"
 room-rules-words = { $ruleset }{ $difficulty ->
     [easy] {" "}· Easy timing
     [hard] {" "}· Hard timing
@@ -537,6 +553,10 @@ room-rules-words = { $ruleset }{ $difficulty ->
 }{ $attacks ->
     [off] {" "}· No attacks
    *[on] {""}
+}{ $points ->
+    [medium] {" "}· Medium points
+    [mild] {" "}· Mild points
+   *[strong] {""}
 }
 
 # A note on a stage's results and under the song in the room: how the

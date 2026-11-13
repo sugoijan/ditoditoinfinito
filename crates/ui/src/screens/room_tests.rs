@@ -527,6 +527,80 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     );
 }
 
+/// The Points row (2026-11-13): how strongly a field of nine and more
+/// favors its top places, Strong first, each choice with its sentence;
+/// applied, it is the match's and the summary names it; Reset gives
+/// Strong; a room whose authority predates it shows the fixed row.
+#[test]
+fn the_points_row_chooses_the_bias_where_the_room_offers_it() {
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    press(&mut h, "Room.Rules");
+    assert_eq!(said(&h, "Rule.points.Value"), "Strong");
+    assert_eq!(view(&env).draft_points.as_deref(), Some("strong"));
+    assert!(has(&h, "The top places earn the most; lower places in a large field earn smaller awards."));
+    assert!(
+        h.texts().iter().any(|t| t.starts_with("The Points choice changes nothing")),
+        "{:?}",
+        h.texts()
+    );
+    press(&mut h, "Inc.points");
+    assert_eq!(said(&h, "Rule.points.Value"), "Medium");
+    press(&mut h, "Inc.points");
+    press(&mut h, "Inc.points");
+    assert_eq!(said(&h, "Rule.points.Value"), "Mild", "stops at the last");
+    assert!(has(&h, "Points reach furthest down a large field; the top places lead by less."));
+    press(&mut h, "Dec.points");
+    press(&mut h, "Apply");
+    assert_eq!(room.borrow().rules().points, ddi_room::PointsBias::Medium);
+    let words = super::room::rules_words(
+        &crate::state::room::StageRules::of(room.borrow().rules()),
+        None,
+    );
+    assert_eq!(String::from(words), "DDI · Medium points");
+    // Reset's defaults are Strong.
+    let mut settings = crate::state::settings::Settings::load();
+    settings.multiplayer_rules_first = true;
+    settings.save();
+    room.borrow_mut().set_rules_seen(false);
+    h.run(0.5);
+    press(&mut h, "Reset");
+    assert_eq!(view(&env).draft_points.as_deref(), Some("strong"));
+    press(&mut h, "Ok");
+    assert_eq!(room.borrow().rules().points, ddi_room::PointsBias::Strong);
+    settings.multiplayer_rules_first = false;
+    settings.save();
+}
+
+/// An authority that predates the Points choice: the row is fixed, as it
+/// was, and nothing is offered it cannot honor.
+#[test]
+fn a_room_on_an_older_server_shows_points_fixed() {
+    let env = env();
+    let older = ddi_room::RoomPolicy {
+        points_bias: false,
+        ..ddi_room::RoomPolicy::default()
+    };
+    let room = std::rc::Rc::new(std::cell::RefCell::new(RoomClient::practice_with_policy(
+        0, 1, older,
+    )));
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    press(&mut h, "Room.Rules");
+    assert!(!there(&h, "Inc.points"));
+    assert_eq!(said(&h, "Fixed.0.Value"), "By place · experimental");
+    assert_eq!(view(&env).draft_points, None);
+    assert!(has(&h, "Points for fields other than eight players follow an experimental rule."));
+}
+
 /// The rules' summary says what differs from the usual: attacks are On by
 /// default where they are offered, so it says "No attacks" where the
 /// match has them turned off, and nothing of them where it has them or
@@ -1157,7 +1231,8 @@ fn the_players_are_always_beside_the_song() {
     assert!(there(&h, "Players1.Me") && !there(&h, "Players0.Me"));
     assert_eq!(said(&h, "Players0.Points"), "12");
     assert_eq!(said(&h, "Players1.Points"), "9");
-    assert_eq!(said(&h, "Players8.Points"), "0");
+    // Nine starters: the top-biased table, last earning 1.
+    assert_eq!(said(&h, "Players8.Points"), "1");
 }
 
 /// Past what fits (a development practice's field), the panel counts the

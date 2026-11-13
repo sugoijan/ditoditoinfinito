@@ -3,7 +3,7 @@
 //! the match starts. The next match's rules are an explicit draft the room
 //! keeps beside the running match's (`state::NextMatchDraft`).
 
-use crate::awards::AwardScheme;
+use crate::awards::{AwardScheme, PointsBias};
 use crate::member::OpponentSpec;
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +46,14 @@ pub struct RoomPolicy {
     /// close the socket on a command it cannot read.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub restart: bool,
+    /// The authority awards fields of nine and more by the top-biased
+    /// tables at the match's [`MatchRules::points`] (2026-11-13). True for
+    /// every room this build makes; false (left out of the JSON) for an
+    /// authority that predates it, which ignores the rule (it awards nine
+    /// by its own retired rule and seats no more), so the Points row is
+    /// offered only where this says so. ADDITIVE to protocol 2.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub points_bias: bool,
 }
 
 /// What a room that plays live tells its clients of how
@@ -130,6 +138,7 @@ impl Default for RoomPolicy {
             outcomes: OutcomePolicy::default(),
             live: None,
             restart: true,
+            points_bias: true,
         }
     }
 }
@@ -292,6 +301,13 @@ pub struct MatchRules {
     /// note counts against everyone alike. ADDITIVE, as `difficulty`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub boos: bool,
+    /// How strongly a field of nine and more favors its top places
+    /// (Strong by default; a field of eight or fewer never reads it).
+    /// ADDITIVE, as `difficulty`: left out while Strong, read as Strong
+    /// where missing; an authority that predates it drops it and awards
+    /// by its own rule (`RoomPolicy::points_bias` says which).
+    #[serde(default, skip_serializing_if = "PointsBias::is_strong")]
+    pub points: PointsBias,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -419,6 +435,7 @@ impl MatchRules {
             ruleset: Self::DEFAULT_RULESET.into(),
             difficulty: MatchDifficulty::Normal,
             boos: false,
+            points: PointsBias::Strong,
         }
     }
 
@@ -617,6 +634,25 @@ mod tests {
             MatchDifficulty::ALL.map(MatchDifficulty::index),
             [0, 1, 2]
         );
+    }
+
+    #[test]
+    fn the_points_bias_is_an_additive_match_rule() {
+        let rules = MatchRules::hosted();
+        assert_eq!(rules.points, PointsBias::Strong);
+        let json = serde_json::to_value(&rules).unwrap();
+        assert!(json.get("points").is_none(), "left out at Strong");
+        let mut set = rules.clone();
+        set.points = PointsBias::Mild;
+        let json = serde_json::to_value(&set).unwrap();
+        assert_eq!(json["points"], "mild");
+        assert_eq!(serde_json::from_value::<MatchRules>(json).unwrap(), set);
+        // The policy says the authority reads it; an older one's does not.
+        let policy = serde_json::to_value(RoomPolicy::default()).unwrap();
+        assert_eq!(policy["points_bias"], true);
+        let mut old = policy.clone();
+        old.as_object_mut().unwrap().remove("points_bias");
+        assert!(!serde_json::from_value::<RoomPolicy>(old).unwrap().points_bias);
     }
 
     #[test]

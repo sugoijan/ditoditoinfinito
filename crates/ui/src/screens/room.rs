@@ -126,10 +126,13 @@ pub struct RoomView {
     /// The draft's difficulty (`easy`, `normal`, `hard`), Boos and
     /// Attacks.
     pub draft_rules: Option<(String, bool, bool)>,
+    /// The draft's Points choice (`strong`, `medium`, `mild`) where the
+    /// room offers it.
+    pub draft_points: Option<String>,
     pub rules_problem: Option<String>,
     /// While a match runs, the pop-up says so at its top (`rules_running`),
     /// marks the rows whose draft differs from the running match's
-    /// (`stages`, `difficulty`, `boos`, `cpus`, `attacks`), and offers
+    /// (`stages`, `difficulty`, `boos`, `cpus`, `attacks`, `points`), and offers
     /// Apply and restart to who may use it (`restart_offered`).
     pub rules_running: bool,
     pub rules_changed: Vec<String>,
@@ -1914,6 +1917,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         rules_first: kept.rules_first,
         draft: kept.draft,
         draft_rules: kept.draft_rules,
+        draft_points: kept.draft_points,
         rules_problem: kept.rules_problem,
         rules_running: kept.rules_running,
         rules_changed: kept.rules_changed,
@@ -2127,7 +2131,26 @@ pub fn rules_words(rules: &crate::state::room::StageRules, attacks: Option<bool>
         difficulty_id(rules.difficulty),
         on(rules.boos),
         on(attacks.unwrap_or(true)),
+        rules.points.id(),
     )
+}
+
+/// The Points choice's name (`MatchRules::points`).
+pub fn points_name(b: ddi_room::PointsBias) -> UiText {
+    match b {
+        ddi_room::PointsBias::Strong => m::rules_points_strong(),
+        ddi_room::PointsBias::Medium => m::rules_points_medium(),
+        ddi_room::PointsBias::Mild => m::rules_points_mild(),
+    }
+}
+
+/// What the Points choice favors, a sentence.
+pub fn points_about(b: ddi_room::PointsBias) -> UiText {
+    match b {
+        ddi_room::PointsBias::Strong => m::rules_points_strong_about(),
+        ddi_room::PointsBias::Medium => m::rules_points_medium_about(),
+        ddi_room::PointsBias::Mild => m::rules_points_mild_about(),
+    }
 }
 
 /// Why rules cannot be used, worded.

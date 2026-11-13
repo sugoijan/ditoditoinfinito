@@ -1419,7 +1419,7 @@ impl RoomState {
             let m = self.current.as_ref().ok_or(Rejection::UnknownStage)?;
             let s = m.stage(stage).ok_or(Rejection::UnknownStage)?;
             let play = s.play.as_ref().ok_or(Rejection::UnknownStage)?;
-            (play.lineup.clone(), m.rules.awards)
+            (play.lineup.clone(), (m.rules.awards, m.rules.points))
         };
         let mut seen = BTreeSet::new();
         for group in ranking {
@@ -1443,7 +1443,8 @@ impl RoomState {
             return Err(Rejection::InvalidRanking(RankingProblem::Missing(*missing)));
         }
         let rule = scheme
-            .rule_for(lineup.len())
+            .0
+            .rule_for(lineup.len(), scheme.1)
             .map_err(Rejection::NoAwardRule)?;
         let result = StageResult::award(rule, ranking).ok_or(Rejection::NoAwardRule(
             crate::awards::NoAwardRule {

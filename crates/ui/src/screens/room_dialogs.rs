@@ -17,7 +17,7 @@ use ddi_l10n::UiText;
 use ddi_l10n::msg::{common, room as m};
 use ddi_room::{
     Capability, HostLeaves, MatchDifficulty, MatchRules, MemberKind, OpponentSpec, ParticipantId,
-    Phase, Role, StageStanding,
+    Phase, PointsBias, Role, StageStanding,
 };
 
 use super::dialog::{button, fitted_dialog, shell};
@@ -163,6 +163,8 @@ pub struct RulesDialog {
     problem: Option<String>,
     /// Draws for Add random, one more each.
     draws: u64,
+    /// The Points row is focused (its sentence brightens).
+    points_focused: bool,
 }
 
 impl RulesDialog {
@@ -188,6 +190,7 @@ impl RulesDialog {
             cpu_first: 0,
             problem: None,
             draws,
+            points_focused: false,
         }
     }
 
@@ -199,6 +202,11 @@ impl RulesDialog {
     /// The CPUs are practice's (online rooms seat none yet).
     fn cpus_shown(&self) -> bool {
         !self.room.borrow().is_online()
+    }
+
+    /// The Points row is a choice (`RoomClient::points_offered`).
+    fn points_offered(&self) -> bool {
+        self.room.borrow().points_offered()
     }
 
     /// The Attacks rule can be set here (`room::attacks_offered`).
@@ -274,6 +282,9 @@ impl RulesDialog {
         if super::room::attacks_offered(&r) && d.attacks() != locked.attacks() {
             v.push("attacks");
         }
+        if r.points_offered() && d.points != locked.points {
+            v.push("points");
+        }
         v
     }
 
@@ -319,6 +330,9 @@ impl RulesDialog {
             draft.boos,
             draft.attacks(),
         );
+        let points = self
+            .points_offered()
+            .then(|| draft.points.id().to_string());
         drop(draft);
         let running = self.running();
         let changed: Vec<String> = self.changed().into_iter().map(String::from).collect();
@@ -328,6 +342,7 @@ impl RulesDialog {
             v.rules_first = first;
             v.draft = vec![stages, cpus];
             v.draft_rules = Some(rules);
+            v.draft_points = points;
             v.rules_problem = problem;
             v.rules_running = running;
             v.rules_changed = changed;
@@ -441,7 +456,16 @@ impl Screen for RulesDialog {
         if cpus {
             notes.push((m::rules_level_note().into(), "Muted"));
         }
-        notes.push((m::rules_points_note().into(), "Muted"));
+        let points = self.points_offered();
+        notes.push((
+            if points {
+                m::rules_points_bias_note()
+            } else {
+                m::rules_points_note()
+            }
+            .into(),
+            "Muted",
+        ));
         notes.push((m::rules_ruleset_note().into(), "Muted"));
         notes.push((m::rules_battle_note().into(), "Muted"));
         let running = self.running();
@@ -522,12 +546,20 @@ impl Screen for RulesDialog {
         } else {
             0.0
         };
+        // The Points choice's sentence, under its row.
+        let about = if points {
+            super::dialog::wrap_lines(&super::room::points_about(draft.points), inner, 12.0)
+        } else {
+            Vec::new()
+        };
+        let about_h = about.len() as f32 * 17.0;
         let h = 64.0
             + locked_h
             + next_h
             + 3.0 * ROW
             + cpu_h
             + 2.0 * ROW
+            + about_h
             + 12.0
             + lines as f32 * 17.0
             + restart_h
@@ -827,8 +859,29 @@ impl Screen for RulesDialog {
             c.push(right(v, x0 + inner, row_y));
         }
         ry += ROW;
-        // What is not chosen here yet.
-        {
+        // Points: how strongly a large field favors its top places, where
+        // the room's authority awards so; else what it is, fixed.
+        if points {
+            let at = draft.points.index();
+            mark(&mut c, "points", ry + ROW / 2.0);
+            stepper(
+                &mut c,
+                "points",
+                &m::rules_points(),
+                super::room::points_name(draft.points).into(),
+                (at > 0, at + 1 < PointsBias::ALL.len()),
+                false,
+                ry + ROW / 2.0,
+            );
+            ry += ROW;
+            let color = if self.points_focused { "Secondary" } else { "Muted" };
+            for (k, line) in about.iter().enumerate() {
+                let mut t = env.text(&format!("Rule.points.About{k}"), line, 12.0, 400, color);
+                look::ellipsized(&mut t, inner);
+                c.push(left(t, x0, ry + 4.0));
+                ry += 17.0;
+            }
+        } else {
             let row_y = ry + ROW / 2.0;
             c.push(left(
                 env.text("Fixed.0", &m::rules_points(), 14.0, 400, "Secondary"),
@@ -909,11 +962,29 @@ impl Screen for RulesDialog {
             if self.attacks_offered() {
                 pair(&mut v, "attacks");
             }
+            if self.points_offered() {
+                pair(&mut v, "points");
+            }
         }
         for (name, _) in self.buttons() {
             v.push(Focusable::new(name));
         }
         v
+    }
+
+    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+        // The Points row's sentence brightens while the row is focused.
+        if self.points_offered() {
+            let focused = cx.focused().map(str::to_string);
+            let on = focused
+                .as_deref()
+                .is_some_and(|f| f == "Dec.points" || f == "Inc.points");
+            if on != self.points_focused {
+                self.points_focused = on;
+                *root = self.build(cx);
+                super::restore_focus(root, focused.as_deref());
+            }
+        }
     }
 
     fn message(&mut self, msg: &crate::Message, root: &mut Actor, cx: &mut Cx) {
@@ -973,6 +1044,19 @@ impl Screen for RulesDialog {
                     }
                     "Dec.boos" | "Inc.boos" if self.editable() => {
                         self.draft.borrow_mut().boos = name == "Inc.boos";
+                        rebuild(self, root, cx, name);
+                    }
+                    "Dec.points" | "Inc.points" if self.editable() && self.points_offered() => {
+                        let mut d = self.draft.borrow_mut();
+                        let at = d.points.index();
+                        let at = if name == "Inc.points" {
+                            (at + 1).min(PointsBias::ALL.len() - 1)
+                        } else {
+                            at.saturating_sub(1)
+                        };
+                        d.points = PointsBias::ALL[at];
+                        drop(d);
+                        self.points_focused = true;
                         rebuild(self, root, cx, name);
                     }
                     "Dec.attacks" | "Inc.attacks"
