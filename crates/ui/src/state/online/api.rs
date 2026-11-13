@@ -168,15 +168,18 @@ pub enum Admission {
     Full,
 }
 
-/// Which of a room's two invites a link is: the room's own, or the
-/// watch-only link (joined to watch, held to it until the owner lets them
-/// play). A server that predates the second has only the first.
+/// Which of a room's links a link is: the room's own, the watch-only
+/// link (joined to watch, held to it until the owner lets them play) or
+/// the audience link (watched with the audience, counted and not listed,
+/// never a member: `docs/plans/multiplayer-audience.md`). A server that
+/// predates the others has only the first.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InviteKind {
     #[default]
     Play,
     Watch,
+    Audience,
 }
 
 /// What an invite shows before signing in (`GET /invites/<invite>`).
@@ -201,6 +204,41 @@ pub struct Preview {
     pub kind: InviteKind,
     #[serde(default)]
     pub members: usize,
+    #[serde(default)]
+    pub expires_at_ms: i64,
+    /// The room offers its audience by this link: an audience link's
+    /// preview, or the room's own links at its member bound ("The room is
+    /// full: you can watch with its audience."). Absent from a server
+    /// without an audience.
+    #[serde(default)]
+    pub audience: bool,
+    /// How many watch with the audience, where the server says.
+    #[serde(default)]
+    pub audience_count: Option<u32>,
+}
+
+/// A join refused at the member bound, where the room offers its
+/// audience instead (`{"error":"room_full","audience":true}`).
+#[derive(Deserialize)]
+struct AudienceOffer {
+    #[serde(default)]
+    audience: bool,
+}
+
+/// Whether a refusal's answer offers the room's audience (a member join
+/// at the member bound on a server with an audience).
+pub fn offers_audience(r: &ApiResponse) -> bool {
+    !(200..300).contains(&r.status)
+        && serde_json::from_str::<AudienceOffer>(&r.body).is_ok_and(|o| o.audience)
+}
+
+/// An audience seat's ticket (`POST /rooms/<id>/audience`): for a socket
+/// on the relay it names, once, within a minute.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct AudienceTicketDoc {
+    pub ticket: String,
+    #[serde(default)]
+    pub relay: u32,
     #[serde(default)]
     pub expires_at_ms: i64,
 }
@@ -239,6 +277,10 @@ pub struct InviteDoc {
     /// The room's watch-only link's invite, from a server that makes one.
     #[serde(default)]
     pub watch_invite: Option<String>,
+    /// The room's audience link's invite, from a server whose room has an
+    /// audience.
+    #[serde(default)]
+    pub audience_invite: Option<String>,
     #[serde(default)]
     pub expires_at_ms: i64,
 }
@@ -346,6 +388,21 @@ pub fn socket_path(room: &str, ticket: &str) -> String {
     format!("/sockets/{room}/ws?ticket={}", encode(ticket))
 }
 
+/// A seat in room `room`'s audience by `link` (the audience link, or the
+/// room's own links where it offers its audience at its member bound):
+/// signed in; a ticket ([`AudienceTicketDoc`]) or the refusal
+/// (`ddi_room::audience::AudienceRefusal`'s code).
+pub fn audience_join(room: &str, link: &str) -> ApiRequest {
+    ApiRequest::new(Method::Post, format!("/rooms/{room}/audience"))
+        .json(serde_json::json!({ "invite": link }))
+}
+
+/// An audience seat's socket's path for a ticket
+/// (`/sockets/<id>/audience/ws?ticket=`).
+pub fn audience_socket_path(room: &str, ticket: &str) -> String {
+    format!("/sockets/{room}/audience/ws?ticket={}", encode(ticket))
+}
+
 /// Percent-encoding for a path segment or query value.
 pub fn encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -378,7 +435,10 @@ pub fn valid_invite(token: &str) -> bool {
 /// (`…#/mp/join/<invite>?…`) or the invite itself.
 pub fn invite_in(text: &str) -> Option<String> {
     let text = text.trim();
-    let token = match text.split_once("/mp/join/") {
+    let token = match text
+        .split_once("/mp/join/")
+        .or_else(|| text.split_once("/mp/audience/"))
+    {
         Some((_, rest)) => rest.split(['?', '&', '#', '/']).next().unwrap_or(""),
         None => text,
     };
@@ -403,6 +463,12 @@ pub fn invite_link(site: &str, invite: &str) -> String {
     format!("{site}#/mp/join/{invite}?mp=1")
 }
 
+/// The link that opens a room's audience link in the game on the web:
+/// `site` at `#/mp/audience/<link>`, with the prototype's switch.
+pub fn audience_link(site: &str, link: &str) -> String {
+    invite_link(site, link).replace("#/mp/join/", "#/mp/audience/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -423,6 +489,12 @@ mod tests {
         assert_eq!(invite_in("Room000001.short"), None);
         assert_eq!(invite_in("https://example.com/#/mp/join/x.y"), None);
         assert_eq!(room_of(INVITE), Some("Room000001"));
+        let aud = audience_link("https://sugoijan.dev/ditoditoinfinito/", INVITE);
+        assert_eq!(
+            aud,
+            "https://sugoijan.dev/ditoditoinfinito/#/mp/audience/Room000001.abcdefghijABCDEFGHIJ01?mp=1"
+        );
+        assert_eq!(invite_in(&aud).as_deref(), Some(INVITE));
         assert_eq!(
             invite_link("http://localhost:8080", INVITE),
             "http://localhost:8080/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01?mp=1"
@@ -486,5 +558,30 @@ mod tests {
             socket_path("Room000001", "a.b+c"),
             "/sockets/Room000001/ws?ticket=a.b%2Bc"
         );
+        assert_eq!(
+            audience_socket_path("Room000001", "a.b+c"),
+            "/sockets/Room000001/audience/ws?ticket=a.b%2Bc"
+        );
+        // The member bound's offer, and an audience link's preview.
+        let full = ApiResponse {
+            status: 409,
+            body: r#"{"error":"room_full","audience":true}"#.into(),
+            session: None,
+        };
+        assert!(offers_audience(&full));
+        assert_eq!(read::<Joined>(&full).unwrap_err().code, "room_full");
+        let plain = ApiResponse {
+            status: 409,
+            body: r#"{"error":"room_full"}"#.into(),
+            session: None,
+        };
+        assert!(!offers_audience(&plain));
+        let p = read::<Preview>(&ApiResponse {
+            status: 200,
+            body: r#"{"room_id":"Room000001","room_name":"E2E","host_display_name":"Alice","phase":"stage","admission":"open","kind":"audience","members":3,"audience":true,"audience_count":132}"#.into(),
+            session: None,
+        })
+        .unwrap();
+        assert_eq!((p.kind, p.audience, p.audience_count), (InviteKind::Audience, true, Some(132)));
     }
 }

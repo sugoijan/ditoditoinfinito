@@ -1807,6 +1807,9 @@ fn host_leaves_about(r: &crate::state::room::RoomClient) -> UiText {
 /// The Players pop-up's button that opens Host options (the host's).
 pub const HOST_OPTIONS: &str = "HostOptions";
 
+/// Host options' button that closes or opens the room's audience.
+pub const AUDIENCE: &str = "Audience";
+
 /// The Players pop-up's button that changes the local player between
 /// Play and Watch (`watch-v0`): it says what a press does.
 pub const INTENT: &str = "Intent";
@@ -1956,6 +1959,15 @@ impl Screen for HostDialog {
         } else {
             0.0
         };
+        // The room's audience, where it has one: how many watch, and the
+        // owner's Close the audience / Open the audience.
+        let audience = {
+            let r = self.room.borrow();
+            r.may_close_audience()
+                .then(|| (r.audience().unwrap_or((0, true)), super::room::audience_words(&r)))
+        };
+        let audience_h = if audience.is_some() { ROW + 8.0 } else { 0.0 };
+        let setting_h = setting_h + audience_h;
         // The buttons beside the name where there is room, else under it.
         let one_line = inner >= 500.0;
         let row_h = if one_line { PERSON_ROW } else { PERSON_ROW_TALL };
@@ -2019,7 +2031,32 @@ impl Screen for HostDialog {
                 c.push(left(t, x0, ay));
                 ay += 18.0;
             }
-            ry += setting_h;
+            ry += setting_h - audience_h;
+        }
+        if let Some(((_, open), words)) = &audience {
+            let mid = ry + ROW / 2.0;
+            let label: String = match words {
+                Some(w) => m::host_audience_line(w).into(),
+                None => m::host_audience().into(),
+            };
+            let action = if *open {
+                m::audience_close()
+            } else {
+                m::audience_open()
+            };
+            let bw = (look::mono_width(&action, 15.0) + 28.0).min(inner * 0.5);
+            let mut l = env.text("Audience.Label", &label, 14.0, 400, "Secondary");
+            look::ellipsized(&mut l, inner - bw - 16.0);
+            c.push(left(l, x0, mid));
+            c.push(button(
+                &env,
+                AUDIENCE,
+                &action,
+                [x0 + inner - bw / 2.0, mid],
+                bw,
+                "Button",
+            ));
+            ry += audience_h;
         }
         c.push(left(
             look::tracked(
@@ -2154,6 +2191,9 @@ impl Screen for HostDialog {
         if succession {
             pair(&mut v, "Dec.leaves".into(), "Inc.leaves".into());
         }
+        if self.room.borrow().may_close_audience() {
+            v.push(Focusable::new(AUDIENCE));
+        }
         let people = self.people();
         let shown = people.len().min(self.fit);
         if people.len() > shown {
@@ -2216,6 +2256,11 @@ impl Screen for HostDialog {
                     "People.Up" => self.scroll(-1, root, cx),
                     "People.Down" => self.scroll(1, root, cx),
                     "Close" => cx.close(true),
+                    AUDIENCE => {
+                        let open = self.room.borrow().audience().is_none_or(|(_, o)| o);
+                        self.room.borrow_mut().set_audience_open(!open);
+                        self.rebuild(root, cx);
+                    }
                     other => {
                         let person = |prefix: &str| {
                             other

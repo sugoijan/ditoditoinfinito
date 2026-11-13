@@ -45,6 +45,8 @@ thread_local! {
     static PLAYING: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
     /// Where the online room's threads send their news ([`inbox`]).
     static NEWS: RefCell<Option<Sender<News>>> = const { RefCell::new(None) };
+    /// Where the audience's threads send theirs ([`audience_inbox`]).
+    static AUDIENCE_NEWS: RefCell<Option<NewsTx>> = const { RefCell::new(None) };
     /// TESTS ONLY: the wall clock a live stage's play reads the room's
     /// clock through ([`live_handle`]), where a test runs on a fake one.
     static TEST_WALL: RefCell<Option<Rc<dyn Fn() -> u64>>> = const { RefCell::new(None) };
@@ -225,6 +227,35 @@ pub fn prepare_online_with(tx: Option<&NewsTx>, room: &SharedRoom, job: LoadJob)
     }
 }
 
+/// The room watched with its audience's inbox: its stages' songs read
+/// from the room's share on threads ([`prepare_audience`]).
+pub fn audience_inbox() -> ddi_ui::state::audience::AudienceInbox {
+    let (tx, mut inbox) = news_inbox();
+    AUDIENCE_NEWS.with_borrow_mut(|n| *n = Some(tx));
+    Box::new(move || {
+        inbox()
+            .into_iter()
+            .filter_map(|n| match n {
+                ShellNews::PreparedShared { job, result, live } => {
+                    Some((*job, result.map(|p| (*p, live))))
+                }
+                _ => None,
+            })
+            .collect()
+    })
+}
+
+/// A stage's song of the room watched with its audience, read from the
+/// room's share on a thread (as a member's, [`prepare_online_with`]).
+pub fn prepare_audience(job: LoadJob) {
+    if job.share.is_none() {
+        return;
+    }
+    let tx = AUDIENCE_NEWS.with_borrow(Clone::clone);
+    // A share's preparation never touches the room it is given.
+    prepare_online_with(tx.as_ref(), &current(), job);
+}
+
 /// The room of the stage played last (the practice room otherwise): its
 /// outcome goes there, its results ask it how the stage went.
 pub fn stage_room() -> SharedRoom {
@@ -354,8 +385,44 @@ fn online_page(
             OnlineCall::OpenInvite(token) => {
                 cx.push(invite(&e, token, songs.clone(), sound.clone()))
             }
+            OnlineCall::Watch { link, ticket } => {
+                // The invite's page gives its place to the audience's.
+                if invite_page {
+                    cx.close(false);
+                }
+                cx.push(audience_screen(&e, &link, Some(ticket)));
+            }
             OnlineCall::Redirect(r) => redirect(&r),
             OnlineCall::Leave => cx.close(true),
+        }),
+    )
+}
+
+/// A room watched with its audience (`docs/plans/multiplayer-audience.md`):
+/// its page between stages, its stages' songs read from the room's share.
+pub fn audience_screen(
+    env: &Env,
+    link: &str,
+    ticket: Option<String>,
+) -> ddi_ui::screens::audience::AudienceScreen {
+    use ddi_ui::screens::audience::{AudienceCall, AudienceScreen};
+    AudienceScreen::new(
+        env.clone(),
+        crate::online::audience(link, ticket),
+        Rc::new(|call, cx| match call {
+            AudienceCall::Prepare(job) => prepare_audience(job),
+            // NOT BUILT on desktop yet: the play host's stage path is the
+            // room's (its prompt, its report, its results); the page stays
+            // and shows the stage's result when the room settles it.
+            AudienceCall::Watch(order) => eprintln!(
+                "audience: stage {} handed over (watching it in the window is not built yet)",
+                order.number
+            ),
+            AudienceCall::Redirect(r) => redirect(&r),
+            AudienceCall::Leave => {
+                crate::online::discard_audience();
+                cx.close(true);
+            }
         }),
     )
 }

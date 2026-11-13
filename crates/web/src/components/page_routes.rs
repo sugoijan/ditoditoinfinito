@@ -37,6 +37,9 @@ pub(crate) enum Which {
     /// `select_page::Props::room`).
     Multiplayer,
     Invite(String),
+    /// A room watched with its audience (`#/mp/watch/<link>`,
+    /// `crate::online::audience`).
+    Audience(String),
 }
 
 #[derive(Clone, PartialEq)]
@@ -116,7 +119,9 @@ impl PagePage {
             Which::Calibration => ("calibration", calibration::stored_doc()),
             Which::Credits => ("credits", ddi_ui::screens::credits::waiting(None)),
             Which::SharedGone(why) => ("shared", shared_gone_doc(why)),
-            Which::Multiplayer | Which::Invite(_) => ("multiplayer", PageDoc::default()),
+            Which::Multiplayer | Which::Invite(_) | Which::Audience(_) => {
+                ("multiplayer", PageDoc::default())
+            }
         };
         let shell: PageShell = {
             let env = env.clone();
@@ -174,6 +179,9 @@ impl PagePage {
         } else if let Which::Invite(invite) = &which {
             multiplayer_arrived();
             ui.push(online_screen(&env, OnlinePage::Invite(invite.clone())));
+        } else if let Which::Audience(link) = &which {
+            multiplayer_arrived();
+            ui.push(audience_screen(&env, link));
         } else {
             ui.push(screen);
         }
@@ -222,11 +230,36 @@ fn online_screen(env: &ddi_ui::screens::Env, which: OnlinePage) -> OnlineScreen 
             OnlineCall::OpenInvite(invite) => {
                 cx.request(UiRequest::Navigate(Route::MpJoin { invite }.to_hash()))
             }
+            OnlineCall::Watch { link, ticket } => {
+                crate::online::seat_audience(&link, Some(ticket));
+                cx.request(UiRequest::Navigate(Route::MpWatch { link }.to_hash()))
+            }
             OnlineCall::Redirect(r) => redirect(r),
             OnlineCall::Leave => cx.request(UiRequest::Back),
         }),
     )
 }
+
+/// A room watched with its audience (`crate::online::audience`): its page
+/// between stages; its stages' songs read from the room's share
+/// (`crate::room::prepare_audience`).
+fn audience_screen(env: &ddi_ui::screens::Env, link: &str) -> AudienceScreen {
+    AudienceScreen::new(
+        env.clone(),
+        crate::online::audience(link),
+        Rc::new(|call, cx| match call {
+            AudienceCall::Prepare(job) => crate::room::prepare_audience(job),
+            AudienceCall::Watch(order) => crate::online::watch_stage(*order, cx),
+            AudienceCall::Redirect(r) => redirect(r),
+            AudienceCall::Leave => {
+                crate::online::discard_audience();
+                cx.request(UiRequest::Navigate(Route::Multiplayer.to_hash()))
+            }
+        }),
+    )
+}
+
+use ddi_ui::screens::audience::{AudienceCall, AudienceScreen};
 
 /// Puts `doc` in the feed and tells the screen once the host is free.
 fn send(feed: &PageFeed, host: &Rc<RefCell<Option<std::rc::Weak<RefCell<Host>>>>>, doc: PageDoc) {

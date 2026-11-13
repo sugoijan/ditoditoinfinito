@@ -105,6 +105,18 @@ pub(crate) enum Route {
     MpRoom {
         id: String,
     },
+    /// A room's audience link's page (`#/mp/audience/<link>`,
+    /// `docs/plans/multiplayer-audience.md`): the invite's page offering
+    /// to watch with the audience; the link carries `mp=1`.
+    MpAudience {
+        link: String,
+    },
+    /// A room watched with its audience (`#/mp/watch/<link>`): the
+    /// audience's page between stages, its stages watched in the play's
+    /// spectator view.
+    MpWatch {
+        link: String,
+    },
     /// The video decoder check; `src=a,b` checks those site files,
     /// `decoder=webcodecs` the browser's decoder and `decoder=both` both,
     /// comparing their frames.
@@ -162,6 +174,16 @@ impl Route {
         }
         if let Some(id) = path.strip_prefix("mp/room/") {
             return Route::MpRoom { id: id.to_string() };
+        }
+        if let Some(link) = path.strip_prefix("mp/audience/") {
+            return Route::MpAudience {
+                link: link.to_string(),
+            };
+        }
+        if let Some(link) = path.strip_prefix("mp/watch/") {
+            return Route::MpWatch {
+                link: link.to_string(),
+            };
         }
         let cpu = if path == "play" {
             if let Some(profile) = params.get("cpu") {
@@ -358,6 +380,8 @@ impl Route {
             Route::Room => "#/room".into(),
             Route::MpJoin { invite } => format!("#/mp/join/{}", percent_encode(invite)),
             Route::MpRoom { id } => format!("#/mp/room/{}", percent_encode(id)),
+            Route::MpAudience { link } => format!("#/mp/audience/{}", percent_encode(link)),
+            Route::MpWatch { link } => format!("#/mp/watch/{}", percent_encode(link)),
             Route::VideoCheck { sources, decoder } => {
                 let mut query = Vec::new();
                 if !sources.is_empty() {
@@ -544,7 +568,7 @@ fn multiplayer_switch(hash: &str) {
     let path = path.trim_start_matches('/');
     // The start route, or an invite's link (which carries the switch so it
     // opens where it was never set).
-    if !path.is_empty() && !path.starts_with("mp/join/") {
+    if !path.is_empty() && !path.starts_with("mp/join/") && !path.starts_with("mp/audience/") {
         return;
     }
     let Some(on) = query.split('&').find_map(|kv| match kv.split_once('=') {
@@ -835,7 +859,11 @@ fn fallback_parent(current: Route) -> String {
     use ddi_ui::navigation::Destination;
     // The multiplayer prototype's routes opened directly: each its parent.
     let multiplayer = match &current {
-        Route::Room | Route::MpJoin { .. } | Route::MpRoom { .. } => Some(Route::Multiplayer),
+        Route::Room
+        | Route::MpJoin { .. }
+        | Route::MpRoom { .. }
+        | Route::MpAudience { .. }
+        | Route::MpWatch { .. } => Some(Route::Multiplayer),
         _ => None,
     };
     // A shared song's play opened directly: its share is its list.
@@ -884,6 +912,8 @@ pub(crate) fn has_bars(route: &Route) -> bool {
             | Route::Room
             | Route::MpJoin { .. }
             | Route::MpRoom { .. }
+            | Route::MpAudience { .. }
+            | Route::MpWatch { .. }
     )
 }
 

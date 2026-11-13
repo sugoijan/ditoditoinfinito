@@ -21,7 +21,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_ui::state::room::{
-    LoadJob, LoadProblem, RoomClient, SharedRoom, StageOrder, UploadJob, picked_of, prepare_stage,
+    LivePrep, LoadJob, LoadProblem, Picked, RoomClient, SharedRoom, StageOrder, UploadJob,
+    picked_of, prepare_stage,
 };
 
 use crate::router::Route;
@@ -284,30 +285,8 @@ pub(crate) fn prepare_for(room: SharedRoom, job: LoadJob) {
         let warn = |e: &str| {
             web_sys::console::warn_1(&format!("room: stage song {}: {e}", job.song).into())
         };
-        if let Some(share) = &job.share {
-            let result = match crate::share::load(share).await {
-                Err(e) => {
-                    warn(&e.to_string());
-                    Err(LoadProblem::Download)
-                }
-                Ok(loaded) => match crate::songs::load_chart(&job.song).await {
-                    Err(e) => {
-                        warn(&format!("{e:?}"));
-                        Err(LoadProblem::Unreadable)
-                    }
-                    Ok(song) => prepare_stage(&job, &song, &mut |e| warn(e)).and_then(|p| {
-                        let record = &loaded.songs.first().ok_or(LoadProblem::Download)?.record;
-                        let entry = &record.entry;
-                        let banner = entry
-                            .banner
-                            .as_ref()
-                            .and_then(|b| crate::share::file_url(&entry.id, b.as_str()));
-                        picked_of(entry, p.index, &record.pack, banner)
-                            .map(|picked| (picked, p.live))
-                            .ok_or(LoadProblem::Changed)
-                    }),
-                },
-            };
+        if job.share.is_some() {
+            let result = read_shared(&job).await;
             room.borrow_mut().finish_shared_load_live(&job, result);
             return;
         }
@@ -319,6 +298,43 @@ pub(crate) fn prepare_for(room: SharedRoom, job: LoadJob) {
             }
         };
         room.borrow_mut().finish_load_live(&job, result);
+    });
+}
+
+/// A stage's song read from the room's share `job` names, its chart found
+/// by the digest chosen, with what live play needs of it.
+async fn read_shared(job: &LoadJob) -> Result<(Picked, Option<LivePrep>), LoadProblem> {
+    let warn =
+        |e: &str| web_sys::console::warn_1(&format!("room: stage song {}: {e}", job.song).into());
+    let share = job.share.as_deref().ok_or(LoadProblem::Download)?;
+    let loaded = crate::share::load(share).await.map_err(|e| {
+        warn(&e.to_string());
+        LoadProblem::Download
+    })?;
+    let song = crate::songs::load_chart(&job.song).await.map_err(|e| {
+        warn(&format!("{e:?}"));
+        LoadProblem::Unreadable
+    })?;
+    let p = prepare_stage(job, &song, &mut |e| warn(e))?;
+    let record = &loaded.songs.first().ok_or(LoadProblem::Download)?.record;
+    let entry = &record.entry;
+    let banner = entry
+        .banner
+        .as_ref()
+        .and_then(|b| crate::share::file_url(&entry.id, b.as_str()));
+    picked_of(entry, p.index, &record.pack, banner)
+        .map(|picked| (picked, p.live))
+        .ok_or(LoadProblem::Changed)
+}
+
+/// A stage's song of the room watched with its audience
+/// (`crate::online::audience`), read from the room's share.
+pub(crate) fn prepare_audience(job: LoadJob) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = read_shared(&job).await;
+        if let Some(a) = crate::online::kept_audience() {
+            a.borrow_mut().finish_load(&job, result);
+        }
     });
 }
 

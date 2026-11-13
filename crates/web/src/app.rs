@@ -306,7 +306,12 @@ impl App {
             // canvas (step 6.4).
             // The multiplayer prototype, behind its hidden switch: off,
             // its routes are the start menu's.
-            Route::Multiplayer | Route::Room | Route::MpJoin { .. } | Route::MpRoom { .. }
+            Route::Multiplayer
+            | Route::Room
+            | Route::MpJoin { .. }
+            | Route::MpRoom { .. }
+            | Route::MpAudience { .. }
+            | Route::MpWatch { .. }
                 if !crate::settings::Settings::load().multiplayer =>
             {
                 Box::new(mount::<PagePage>(
@@ -339,6 +344,20 @@ impl App {
                 "main",
                 page_routes::Props {
                     which: Which::Invite(invite.clone()),
+                },
+            )),
+            Route::MpAudience { link } => Box::new(mount::<PagePage>(
+                root,
+                "main",
+                page_routes::Props {
+                    which: Which::Invite(link.clone()),
+                },
+            )),
+            Route::MpWatch { link } => Box::new(mount::<PagePage>(
+                root,
+                "main",
+                page_routes::Props {
+                    which: Which::Audience(link.clone()),
                 },
             )),
             Route::MpRoom { id } => Box::new(mount::<SelectPage>(

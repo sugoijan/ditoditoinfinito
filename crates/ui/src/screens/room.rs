@@ -338,8 +338,30 @@ pub fn seconds_left(r: &RoomClient) -> Option<u64> {
 
 /// The room's status line (M7b: above the list on song select, the
 /// panel's first line for the others, the prompt's under its song): what
-/// the room waits for, and the last refusal or link change.
+/// the room waits for, and the last refusal or link change; with how many
+/// watch with the room's audience after it, where the room has one and
+/// someone watches (`docs/plans/multiplayer-audience.md`: between stages,
+/// never over a play, whose status line is the play's own).
 pub fn status(r: &RoomClient) -> UiText {
+    let line = room_status(r);
+    match r.audience() {
+        Some((count, true)) if count > 0 && r.link_state() == LinkState::Connected => {
+            m::status_with_audience(&line, count)
+        }
+        _ => line,
+    }
+}
+
+/// How many watch with the room's audience, for the players panel and the
+/// debug state (none where the room has no audience or it is closed).
+pub fn audience_words(r: &RoomClient) -> Option<UiText> {
+    match r.audience()? {
+        (count, true) => Some(m::audience_watching(count)),
+        (_, false) => Some(m::audience_closed_short()),
+    }
+}
+
+fn room_status(r: &RoomClient) -> UiText {
     if r.is_online() {
         match r.link_state() {
             LinkState::Joining => return m::link_joining(),
@@ -364,6 +386,9 @@ pub fn status(r: &RoomClient) -> UiText {
             LinkNotice::InviteNotReplaced => m::invite_not_replaced(),
             LinkNotice::JoinedToWatch => m::joined_to_watch(),
             LinkNotice::WatchInviteCopied => m::watch_invite_copied(),
+            LinkNotice::AudienceInviteCopied => m::audience_invite_copied(),
+            LinkNotice::AudienceClosed => m::audience_closed_notice(),
+            LinkNotice::AudienceOpened => m::audience_opened_notice(),
         };
     }
     let s = r.state();
@@ -1033,6 +1058,9 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
         if r.watch_invite_link().is_some() {
             items.push((MORE_COPY_WATCH.to_string(), m::copy_watch_invite().into()));
         }
+        if r.audience_invite_link().is_some() {
+            items.push((MORE_COPY_AUDIENCE.to_string(), m::copy_audience_invite().into()));
+        }
         if r.invite_link().is_some() && r.may(Capability::ChangeAccess) {
             items.push(("rotate".to_string(), m::replace_invite().into()));
         }
@@ -1050,6 +1078,10 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
 /// More's Copy watch-only link (an operator's, from a server that makes
 /// one).
 const MORE_COPY_WATCH: &str = "copywatch";
+
+/// More's Copy audience link (an operator's, where the room has an
+/// audience).
+const MORE_COPY_AUDIENCE: &str = "copyaudience";
 
 /// More's item that changes between Play and Watch.
 const MORE_INTENT: &str = "intent";
@@ -1318,6 +1350,14 @@ pub fn more_picked(id: &str, room: &SharedRoom, cx: &mut Cx) -> MoreAction {
                 cx.request(crate::UiRequest::CopyText(link));
                 room.borrow_mut()
                     .set_link_notice(Some(LinkNotice::WatchInviteCopied));
+            }
+        }
+        MORE_COPY_AUDIENCE => {
+            let link = room.borrow().audience_invite_link();
+            if let Some(link) = link {
+                cx.request(crate::UiRequest::CopyText(link));
+                room.borrow_mut()
+                    .set_link_notice(Some(LinkNotice::AudienceInviteCopied));
             }
         }
         "rotate" => room.borrow_mut().rotate_invite(),

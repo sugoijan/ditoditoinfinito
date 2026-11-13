@@ -1297,3 +1297,111 @@ room-watched-winners = Stage winners
 
 # Under the winner: the viewer took no part.
 room-watched-note = You watched this stage.
+
+## The audience (docs/plans/multiplayer-audience.md): people who watch a
+## room beyond its members, counted and not listed, by a link of their
+## own. "Audience" is everyone who watches that way; the room's own
+## members who watch are not part of it.
+
+# How many watch with the room's audience: on the invite's page, the
+# audience's page and Host options.
+# Variables:
+#   $count (Number) - people watching with the audience
+room-audience-watching = { $count ->
+    [one] One person watching
+   *[other] { $count } watching
+}
+# Host options' line when the host has closed the audience.
+room-audience-closed-short = Audience closed
+# The room's status line (song select, a stage's prompt) with how many
+# watch after it, between stages.
+# Variables:
+#   $status (String) - the room's status line, as it would read alone
+#   $count (Number) - people watching with the audience
+room-status-with-audience = { $count ->
+    [one] { $status } · One watching
+   *[other] { $status } · { $count } watching
+}
+# More's item (about 24 letters): copies the link that lets anyone watch
+# with the audience (they never join the room).
+room-copy-audience-invite = Copy audience link
+# The status line after it.
+room-audience-invite-copied = Audience link copied: anyone with it can watch.
+# Host options: the audience's row, its label alone or with how many watch.
+room-host-audience = Audience
+# Variables:
+#   $state (String) - how many watch, or that it is closed (room-audience-watching, room-audience-closed-short)
+room-host-audience-line = Audience · { $state }
+# Host options' button (about 20 letters): sends everyone watching with
+# the audience away and lets nobody in.
+room-audience-close = Close the audience
+# The same button once closed.
+room-audience-open = Open the audience
+# The status line after the host closes or opens it.
+room-audience-closed-notice = The audience is closed: nobody watches with it now.
+room-audience-opened-notice = The audience is open again.
+
+# The invite page on an audience link, where the room's own says whether
+# one can join.
+room-invite-audience = You're invited to watch with the audience.
+# In its place on the room's own link when every member's place is taken.
+room-invite-full-audience = The room is full: you can watch with its audience.
+# The button there (about 24 letters).
+room-invite-audience-join = Watch with the audience
+# The button before signing in.
+room-invite-audience-sign-in = Sign in with Twitch to watch
+# While the audience join is under way, and on the audience's page before
+# the room is shown.
+room-audience-joining = Joining the audience…
+
+# Why a seat in the audience was refused or ended.
+room-audience-full = The room's audience is full.
+room-audience-closed = The host closed the audience.
+room-audience-too-many-seats = You are already watching this room on two devices.
+room-audience-link-unknown = This audience link isn't this room's, or it was replaced.
+room-audience-none = This room has no audience to watch with.
+
+# The audience's page: its title (window) and heading (header, small caps).
+room-audience-title = Watching
+room-audience-heading = Audience
+# Its Back.
+room-audience-leave = Stop watching
+# What the room is doing, between stages.
+room-audience-doing-lobby = The host is choosing the first song.
+# Variables:
+#   $number (Number) - the stage, from 1
+room-audience-doing-picking = Stage { $number }: a song is being chosen.
+# Variables:
+#   $number (Number) - the stage, from 1
+#   $song (String) - the song's title and artist (data)
+room-audience-doing-picked = Stage { $number }: { $song }. It starts once the players are ready.
+# A room whose stages are not streamed (an older server): only its
+# results come.
+# Variables:
+#   $number (Number) - the stage, from 1
+room-audience-doing-not-live = Stage { $number } is being played. This room's stages can't be watched; their results come here.
+room-audience-doing-match-over = The match is over.
+room-audience-doing-stopped = The match was stopped.
+# This device worked out the stage's attacks differently from the room:
+# the fields are drawn without the shocks.
+room-audience-plan-mismatch = This device sees the stage's attacks differently from the room: the fields are drawn without shocks.
+room-audience-song-unreadable = The stage's song couldn't be read here: its results come when the stage ends.
+# The last stage's winner.
+# Variables:
+#   $number (Number) - the stage, from 1
+#   $names (String) - who placed first (data, comma-separated)
+room-audience-stage-won = Stage { $number } won by { $names }
+room-audience-standings = Standings
+# One standing.
+# Variables:
+#   $rank (Number) - the place, from 1
+#   $name (String) - the player's name (data)
+#   $points (String) - their match points, as a decimal
+room-audience-standing = { $rank }. { $name } · { $points } points
+# The players' heading before any standing.
+# Variables:
+#   $count (Number) - players of the match
+room-audience-players = { $count ->
+    [one] One player
+   *[other] { $count } players
+}

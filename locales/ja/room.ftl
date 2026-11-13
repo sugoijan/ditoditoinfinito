@@ -609,3 +609,43 @@ room-watched-winner = ステージ1位
 room-watched-winners = ステージ1位
 
 room-watched-note = このステージは観戦しました。
+
+room-audience-watching = { $count }人が観戦中
+room-audience-closed-short = 観客席は閉鎖中
+room-status-with-audience = { $status } ・ { $count }人が観戦中
+room-copy-audience-invite = 観客用リンクをコピー
+room-audience-invite-copied = 観客用リンクをコピーしました。誰でも観戦できます。
+room-host-audience = 観客席
+room-host-audience-line = 観客席 ・ { $state }
+room-audience-close = 観客席を閉じる
+room-audience-open = 観客席を開く
+room-audience-closed-notice = 観客席を閉じました。いまは誰も観戦していません。
+room-audience-opened-notice = 観客席をまた開きました。
+
+room-invite-audience = 観客として観戦に招待されています。
+room-invite-full-audience = このルームは満員です。観客として観戦できます。
+room-invite-audience-join = 観客として観戦
+room-invite-audience-sign-in = Twitchでサインインして観戦
+room-audience-joining = 観客席に入っています…
+
+room-audience-full = このルームの観客席は満員です。
+room-audience-closed = ホストが観客席を閉じました。
+room-audience-too-many-seats = すでに2台の端末でこのルームを観戦しています。
+room-audience-link-unknown = この観客用リンクはこのルームのものではないか、差し替えられました。
+room-audience-none = このルームには観客席がありません。
+
+room-audience-title = 観戦
+room-audience-heading = 観客席
+room-audience-leave = 観戦をやめる
+room-audience-doing-lobby = ホストが最初の曲を選んでいます。
+room-audience-doing-picking = ステージ{ $number }：曲を選んでいます。
+room-audience-doing-picked = ステージ{ $number }：{ $song }。プレイヤーの準備ができしだい始まります。
+room-audience-doing-not-live = ステージ{ $number }をプレイ中です。このルームのステージは観戦できません。結果はここに届きます。
+room-audience-doing-match-over = 試合が終わりました。
+room-audience-doing-stopped = 試合は中止されました。
+room-audience-plan-mismatch = この端末ではステージのアタックがルームと違って計算されたため、ショックなしで表示します。
+room-audience-song-unreadable = ステージの曲をここで読めませんでした。結果はステージの終わりに届きます。
+room-audience-stage-won = ステージ{ $number }の勝者：{ $names }
+room-audience-standings = 順位
+room-audience-standing = { $rank }. { $name } ・ { $points }ポイント
+room-audience-players = プレイヤー{ $count }人

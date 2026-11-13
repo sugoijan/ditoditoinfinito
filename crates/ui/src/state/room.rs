@@ -823,6 +823,145 @@ pub struct RoomClient {
 /// picker) and kept by the shell while the player goes elsewhere.
 pub type SharedRoom = Rc<RefCell<RoomClient>>;
 
+/// What a stage played live on this device reads from where it comes
+/// from (`ddi_session::battle::live`): a member's room client, or an
+/// audience seat's (`crate::state::audience::AudienceClient`,
+/// `docs/plans/multiplayer-audience.md`). The room's clock, the stage's
+/// song zero, the frames, the stream sent (a member's alone) and the
+/// room's decision.
+pub trait LiveRoom {
+    /// The live rules the room plays by (`LIVE_V1` where it says none).
+    fn live_rules(&self) -> ddi_room::live::LiveRules;
+    /// The views' delay as a stage's play starts: ceiling, start and
+    /// rules. A member's from the live rules and the clock's uncertainty;
+    /// an audience's what is left of its ceiling once its music is moved
+    /// behind the room's song time (`AudienceClient::music_delay_ms`).
+    fn view_delay(&self, rules: &ddi_room::live::LiveRules) -> ddi_room::live::ViewDelay;
+    /// The room's time at the shell's wall clock `wall_ms`, as estimated.
+    fn room_ms_at(&self, wall_ms: u64) -> Option<ddi_room::Millis>;
+    /// How sure the estimate is (µs).
+    fn clock_uncertainty_us(&self) -> i64;
+    /// Stage `stage`'s song time zero as this device hears and draws it,
+    /// on the room's clock.
+    fn song_zero_at(&self, stage: StageId) -> Option<ddi_room::Millis>;
+    /// Seconds from now until [`LiveRoom::song_zero_at`] (negative once
+    /// passed), on the clock of the last tick.
+    fn song_zero_in(&self, stage: StageId) -> Option<f64>;
+    /// Time passes (the shell's wall ms): its socket read and written.
+    fn tick(&mut self, now_ms: u64);
+    /// The frames, snapshots and refusals since the last call (asking
+    /// keeps them coming).
+    fn take_live_news(&mut self) -> Vec<ddi_room::live::LiveNews>;
+    /// The stage played live here is over: its news is no longer kept.
+    fn stop_live_news(&mut self);
+    /// The local play's stream of `stage` (none: nothing is sent, an
+    /// audience's).
+    fn live_stream(&mut self, stage: StageId) -> Option<&mut ddi_room::live::Outbox>;
+    /// The room lost `stage`'s live part.
+    fn forget_live(&mut self, stage: StageId);
+    /// The room's decision of `stage` once confirmed: its ranking (best
+    /// first, groups tied) and whether it came before the song's end.
+    fn decision(&self, stage: StageId) -> Option<(Vec<Vec<Finisher>>, bool)>;
+    /// What this device worked out for `stage`'s live play.
+    fn live_prep(&self, stage: StageId) -> Option<LivePrep>;
+}
+
+/// A stage's confirmed ranking from its placements (best first, groups
+/// tied by place).
+pub fn ranking_of(placements: &[Placement]) -> Vec<Vec<Finisher>> {
+    let mut groups: Vec<Vec<Finisher>> = Vec::new();
+    let mut last: Option<u16> = None;
+    for p in placements {
+        let f = Finisher {
+            participant: p.participant,
+            finish: p.finish,
+        };
+        if last == Some(p.place) {
+            if let Some(g) = groups.last_mut() {
+                g.push(f);
+            }
+        } else {
+            groups.push(vec![f]);
+        }
+        last = Some(p.place);
+    }
+    groups
+}
+
+impl LiveRoom for RoomClient {
+    fn live_rules(&self) -> ddi_room::live::LiveRules {
+        self.state()
+            .policy
+            .live
+            .as_ref()
+            .and_then(|l| l.rules())
+            .unwrap_or(ddi_room::live::LIVE_V1)
+    }
+
+    fn view_delay(&self, rules: &ddi_room::live::LiveRules) -> ddi_room::live::ViewDelay {
+        use ddi_room::live::{VIEW_DELAY_V0, ViewDelay};
+        let uncertainty_ms = self
+            .live_link()
+            .and_then(|l| l.clock())
+            .map_or(100.0, |c| c.uncertainty_us as f64 / 1_000.0);
+        let ceiling = rules.presentation_delay_ms as f64;
+        ViewDelay::new(
+            VIEW_DELAY_V0,
+            ceiling,
+            VIEW_DELAY_V0.initial_ms(rules, uncertainty_ms, ceiling),
+        )
+    }
+
+    fn room_ms_at(&self, wall_ms: u64) -> Option<ddi_room::Millis> {
+        self.live_link().and_then(|l| l.room_ms(wall_ms))
+    }
+
+    fn clock_uncertainty_us(&self) -> i64 {
+        self.live_link()
+            .and_then(|l| l.clock())
+            .map_or(0, |c| c.uncertainty_us)
+    }
+
+    fn song_zero_at(&self, stage: StageId) -> Option<ddi_room::Millis> {
+        RoomClient::song_zero_at(self, stage)
+    }
+
+    fn song_zero_in(&self, stage: StageId) -> Option<f64> {
+        RoomClient::song_zero_in(self, stage)
+    }
+
+    fn tick(&mut self, now_ms: u64) {
+        RoomClient::tick(self, now_ms);
+    }
+
+    fn take_live_news(&mut self) -> Vec<ddi_room::live::LiveNews> {
+        RoomClient::take_live_news(self)
+    }
+
+    fn stop_live_news(&mut self) {
+        RoomClient::stop_live_news(self);
+    }
+
+    fn live_stream(&mut self, stage: StageId) -> Option<&mut ddi_room::live::Outbox> {
+        RoomClient::live_stream(self, stage)
+    }
+
+    fn forget_live(&mut self, stage: StageId) {
+        RoomClient::forget_live(self, stage);
+    }
+
+    fn decision(&self, stage: StageId) -> Option<(Vec<Vec<Finisher>>, bool)> {
+        let s = self.state();
+        let result = s.stage(stage)?.play.as_ref()?.result.as_ref()?;
+        let early = matches!(s.phase, Phase::SongCompletion { stage: x } if x == stage);
+        Some((ranking_of(&result.placements), early))
+    }
+
+    fn live_prep(&self, stage: StageId) -> Option<LivePrep> {
+        RoomClient::live_prep(self, stage).cloned()
+    }
+}
+
 /// What the shells' switches change in a practice room
 /// (`docs/plans/multiplayer-prototype-progress.md`, M8a), never reached
 /// from a menu.
@@ -1249,6 +1388,63 @@ impl RoomClient {
     /// server that makes one, once read).
     pub fn watch_invite_link(&self) -> Option<String> {
         self.online_link().and_then(OnlineLink::watch_invite_link)
+    }
+
+    /// The audience link to share (an online room's operators, from a
+    /// server whose room has an audience, once read).
+    pub fn audience_invite_link(&self) -> Option<String> {
+        self.has_audience()
+            .then(|| self.online_link().and_then(OnlineLink::audience_invite_link))
+            .flatten()
+    }
+
+    /// The room has an audience (`docs/plans/multiplayer-audience.md`):
+    /// its policy says so in a contract this build reads, and it plays
+    /// live (the count and the closing are live messages). A room on a
+    /// server without one shows no count, link or control.
+    pub fn has_audience(&self) -> bool {
+        self.plays_live()
+            && self
+                .state()
+                .policy
+                .audience
+                .as_ref()
+                .and_then(|a| a.rules())
+                .is_some()
+    }
+
+    /// How many watch with the room's audience and whether it is open, as
+    /// the room last said (`ServerLive::Audience`); none before it said
+    /// or where it has none.
+    pub fn audience(&self) -> Option<(u32, bool)> {
+        self.has_audience()
+            .then(|| self.live_link().and_then(|l| l.audience()))
+            .flatten()
+    }
+
+    /// Whether the local player may close and open the room's audience
+    /// (the owner's, as the room's access is: `Capability::ChangeAccess`).
+    pub fn may_close_audience(&self) -> bool {
+        self.has_audience() && self.may(Capability::ChangeAccess)
+    }
+
+    /// The owner closes (every seat sent away, joins refused) or opens the
+    /// room's audience. Nothing is sent where it may not be.
+    pub fn set_audience_open(&mut self, open: bool) {
+        if !self.may_close_audience() {
+            return;
+        }
+        if let Some(l) = self.online_link_mut() {
+            l.authority
+                .live_mut()
+                .send(ddi_room::live::ClientLive::Audience { open });
+            l.set_notice(Some(if open {
+                LinkNotice::AudienceOpened
+            } else {
+                LinkNotice::AudienceClosed
+            }));
+        }
+        self.version += 1;
     }
 
     /// The local player came by the watch-only link and is still held to

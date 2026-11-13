@@ -56,6 +56,7 @@
 //! motion ([`Env::reduced_motion`]) the slides stop, the art holds still
 //! and the wheel jumps.
 
+pub mod audience;
 pub mod calibration;
 pub mod credits;
 pub mod data;
@@ -236,6 +237,8 @@ pub struct ThemeState {
     pub prompt: Option<prompt::PromptView>,
     /// The multiplayer room, once shown (`room.rs`).
     pub room: Option<room::RoomView>,
+    /// A room watched with its audience, once shown (`audience.rs`).
+    pub audience: Option<audience::AudienceView>,
     /// A multiplayer stage's standings, while its results show
     /// (`results_stage.rs`).
     pub stage: Option<results::StageView>,

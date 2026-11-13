@@ -23,6 +23,7 @@ use ddi_platform::storage::{self, Area};
 use ddi_room::{ClientId, RoomId, Transport, TransportEvent};
 use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
 use ddi_ui::state::online::{Dest, Http, Online, OnlineConfig, Platform, SharedOnline, SignIn};
+use ddi_ui::state::audience::{AudienceClient, SharedAudience};
 use ddi_ui::state::room::{RoomClient, SharedRoom};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
@@ -34,6 +35,70 @@ thread_local! {
     static ONLINE: RefCell<Option<SharedOnline>> = const { RefCell::new(None) };
     /// The online room shown last (its id and client).
     static ROOM: RefCell<Option<(String, SharedRoom)>> = const { RefCell::new(None) };
+    /// The room watched with its audience (its link and seat's client).
+    static AUDIENCE: RefCell<Option<(String, SharedAudience)>> = const { RefCell::new(None) };
+    /// The first ticket a seat was given on the invite's page, for the
+    /// audience's page to open its socket with (by link).
+    static TICKET: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
+}
+
+/// A seat in a room's audience was given by `link` (its first socket's
+/// `ticket`): the audience's page opens it.
+pub(crate) fn seat_audience(link: &str, ticket: Option<String>) {
+    discard_audience();
+    TICKET.with_borrow_mut(|t| *t = ticket.map(|t| (link.to_string(), t)));
+}
+
+/// The room watched by `link`'s client, made (its seat asked for) at
+/// first (`docs/plans/multiplayer-audience.md`).
+pub(crate) fn audience(link: &str) -> SharedAudience {
+    if let Some(a) =
+        AUDIENCE.with_borrow(|a| a.as_ref().filter(|(l, _)| l == link).map(|(_, a)| a.clone()))
+    {
+        return a;
+    }
+    discard_audience();
+    let ticket = TICKET.with_borrow_mut(|t| t.take_if(|(l, _)| l == link).map(|(_, t)| t));
+    let a = Rc::new(RefCell::new(AudienceClient::new(
+        current(),
+        link,
+        Box::new(WebSocketTransport {
+            audience: true,
+            ..Default::default()
+        }),
+        ticket,
+        now_ms(),
+    )));
+    AUDIENCE.with_borrow_mut(|x| *x = Some((link.into(), a.clone())));
+    a
+}
+
+/// The audience's seat kept for the session, if any.
+pub(crate) fn kept_audience() -> Option<SharedAudience> {
+    AUDIENCE.with_borrow(|a| a.as_ref().map(|(_, a)| a.clone()))
+}
+
+/// Stop watching: the seat forgotten (its socket closed).
+pub(crate) fn discard_audience() {
+    if let Some((_, a)) = AUDIENCE.with_borrow_mut(Option::take) {
+        a.borrow_mut().leave();
+    }
+}
+
+/// A stage of the room watched with its audience, handed over by its
+/// page. NOT BUILT on the web yet: the play route's stage path is the
+/// room's (its prompt, its report, its results); the audience's page
+/// stays, saying the stage is being played, and shows its result when the
+/// room settles it (`docs/plans/multiplayer-prototype-progress.md`, "The
+/// audience, the client front").
+pub(crate) fn watch_stage(order: ddi_ui::state::room::StageOrder, _cx: &mut ddi_ui::Cx) {
+    web_sys::console::info_1(
+        &format!(
+            "audience: stage {} handed over (watching it on the web is not built yet)",
+            order.number
+        )
+        .into(),
+    );
 }
 
 fn now_ms() -> u64 {
@@ -73,6 +138,7 @@ fn dest_text(dest: &Dest) -> String {
         Dest::Home => "home".into(),
         Dest::Create => "create".into(),
         Dest::Join(invite) => format!("join:{invite}"),
+        Dest::Audience(link) => format!("audience:{link}"),
         Dest::Room(id) => format!("room:{id}"),
     }
 }
@@ -82,6 +148,7 @@ fn dest_of(text: &str) -> Option<Dest> {
         None if text == "home" => Dest::Home,
         None if text == "create" => Dest::Create,
         Some(("join", invite)) => Dest::Join(invite.into()),
+        Some(("audience", link)) => Dest::Audience(link.into()),
         Some(("room", id)) => Dest::Room(id.into()),
         _ => return None,
     })
@@ -217,6 +284,9 @@ async fn send(request: &ApiRequest) -> ApiResponse {
 /// `ArrayBuffer`s.
 #[derive(Default)]
 struct WebSocketTransport {
+    /// An audience seat's socket (`/sockets/<id>/audience/ws`), not a
+    /// member's.
+    audience: bool,
     socket: Option<Socket>,
     /// Bumped with each socket: an earlier one's events are not reported.
     generation: Rc<RefCell<u64>>,
@@ -240,7 +310,7 @@ impl Drop for Socket {
 }
 
 impl WebSocketTransport {
-    fn url(room: &RoomId, ticket: &str) -> String {
+    fn url(&self, room: &RoomId, ticket: &str) -> String {
         let base = crate::share::base();
         let base = if let Some(rest) = base.strip_prefix("https://") {
             format!("wss://{rest}")
@@ -249,10 +319,12 @@ impl WebSocketTransport {
         } else {
             base
         };
-        format!(
-            "{base}{}",
+        let path = if self.audience {
+            ddi_ui::state::online::api::audience_socket_path(room.as_str(), ticket)
+        } else {
             ddi_ui::state::online::api::socket_path(room.as_str(), ticket)
-        )
+        };
+        format!("{base}{path}")
     }
 }
 
@@ -261,7 +333,7 @@ impl Transport for WebSocketTransport {
         self.socket = None;
         *self.generation.borrow_mut() += 1;
         let generation = *self.generation.borrow();
-        let ws = match web_sys::WebSocket::new(&Self::url(room, ticket)) {
+        let ws = match web_sys::WebSocket::new(&self.url(room, ticket)) {
             Ok(ws) => ws,
             Err(_) => {
                 self.events

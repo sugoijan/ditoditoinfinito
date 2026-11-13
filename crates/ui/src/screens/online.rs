@@ -49,6 +49,10 @@ pub enum OnlineCall {
     Redirect(Redirect),
     /// Open this invite's page (desktop's field).
     OpenInvite(String),
+    /// A seat in a room's audience was given: watch it
+    /// (`docs/plans/multiplayer-audience.md`), by `link`, its first
+    /// socket's `ticket`.
+    Watch { link: String, ticket: String },
     /// Back.
     Leave,
 }
@@ -152,6 +156,12 @@ pub fn invite_problem(p: &Problem) -> UiText {
         "admission_closed" => m::invite_closed(),
         "room_full" => m::invite_full(),
         "unreachable" => m::invite_unreachable(),
+        // The audience join's (`ddi_room::audience::AudienceRefusal`).
+        "audience_full" => m::audience_full(),
+        "audience_closed" => m::audience_closed(),
+        "too_many_seats" => m::audience_too_many_seats(),
+        "audience_link_unknown" => m::audience_link_unknown(),
+        "no_audience" => m::audience_none(),
         code => m::invite_refused(UiText::data(code)),
     }
 }
@@ -169,7 +179,11 @@ pub fn admission_text(a: Admission) -> UiText {
 /// What joining now means, from the preview: the room full of players
 /// (`Preview::players_full`) joined to watch.
 pub fn preview_text(p: &Preview) -> UiText {
+    if p.kind == api::InviteKind::Audience {
+        return m::invite_audience();
+    }
     match p.admission {
+        Admission::Full if p.audience => m::invite_full_audience(),
         Admission::Open | Admission::NextMatch if p.kind == api::InviteKind::Watch => {
             m::invite_watch()
         }
@@ -178,12 +192,19 @@ pub fn preview_text(p: &Preview) -> UiText {
     }
 }
 
+/// An invite page's button that watches with the room's audience.
+pub const AUDIENCE: &str = "audience";
+
 /// An invite's page.
 fn invite_doc(online: &Online) -> PageDoc {
     let mut blocks = Vec::new();
     let view = online.invite();
     let mut joinable = false;
     let mut watch = false;
+    // The room's audience offered: its own link, or the member bound
+    // reached (`docs/plans/multiplayer-audience.md`).
+    let audience = view.is_some_and(|v| v.audience());
+    let audience_link = view.is_some_and(|v| v.audience_link());
     match view.and_then(|v| v.preview.as_ref()) {
         None => blocks.push(Block::Text(m::invite_reading().into())),
         Some(Ok(p)) => {
@@ -191,22 +212,54 @@ fn invite_doc(online: &Online) -> PageDoc {
             blocks.push(Block::Text(
                 m::invite_host(super::room::shown_name(&p.host_display_name, p.host_bot)).into(),
             ));
-            blocks.push(Block::Muted(m::invite_members(p.members).into()));
+            if !audience_link {
+                blocks.push(Block::Muted(m::invite_members(p.members).into()));
+            }
+            if let Some(n) = p.audience_count.filter(|n| *n > 0) {
+                blocks.push(Block::Muted(m::audience_watching(n).into()));
+            }
             blocks.push(Block::Text(preview_text(p).into()));
-            joinable = matches!(p.admission, Admission::Open | Admission::NextMatch);
+            joinable = matches!(p.admission, Admission::Open | Admission::NextMatch)
+                && !audience_link;
             watch = p.kind == api::InviteKind::Watch;
         }
         Some(Err(p)) => blocks.push(Block::Note(invite_problem(p).into())),
     }
+    let offered_now = view.is_some_and(|v| v.offered);
     if let Some(p) = view.and_then(|v| v.refused.as_ref()) {
-        blocks.push(Block::Note(invite_problem(p).into()));
+        // A join refused at the member bound with the audience offered:
+        // said as the offer.
+        if offered_now && p.code == "room_full" {
+            blocks.push(Block::Note(m::invite_full_audience().into()));
+            joinable = false;
+        } else {
+            blocks.push(Block::Note(invite_problem(p).into()));
+        }
     }
     blocks.push(Block::Gap);
     blocks.push(account_block(online));
-    sign_in_blocks(online, &mut blocks, !joinable);
+    sign_in_blocks(online, &mut blocks, !joinable && !audience);
     let mut actions = Vec::new();
     if view.is_some_and(|v| v.joining) {
-        blocks.push(Block::Note(m::invite_joining().into()));
+        blocks.push(Block::Note(if audience {
+            m::audience_joining().into()
+        } else {
+            m::invite_joining().into()
+        }));
+    } else if audience && !joinable && !online.sign_in_state().busy() {
+        actions.push(if online.me().is_some() {
+            Action::new(
+                AUDIENCE,
+                if audience_link {
+                    m::invite_watch_join()
+                } else {
+                    m::invite_audience_join()
+                },
+            )
+            .primary()
+        } else {
+            Action::new(AUDIENCE, m::invite_audience_sign_in()).primary()
+        });
     } else if joinable && !online.sign_in_state().busy() {
         actions.push(if online.me().is_some() {
             Action::new(
@@ -311,6 +364,7 @@ impl OnlinePageScreen {
                             o.sign_in(dest);
                         }
                         "join" => o.join_invite(),
+                        AUDIENCE => o.watch_audience(),
                         "invite-open" => {
                             let found = api::invite_in(&draft.borrow().invite);
                             match found {
@@ -400,13 +454,22 @@ impl Screen for OnlinePageScreen {
         self.time = cx.time();
         self.page.update(dt, root, cx);
         let now = (cx.clock() * 1000.0).max(0.0) as u64;
-        let (redirect, entered) = {
+        let (redirect, entered, seated) = {
             let mut o = self.online.borrow_mut();
             o.poll(now);
-            (o.take_redirect(), o.take_entered())
+            (o.take_redirect(), o.take_entered(), o.take_seated())
         };
         if let Some(r) = redirect {
             (self.shell)(OnlineCall::Redirect(r), cx);
+        }
+        if let Some(s) = seated {
+            (self.shell)(
+                OnlineCall::Watch {
+                    link: s.link,
+                    ticket: s.ticket,
+                },
+                cx,
+            );
         }
         if let Some(room) = entered {
             (self.shell)(OnlineCall::EnterRoom(room), cx);

@@ -25,11 +25,14 @@ use std::time::Duration;
 use ddi_room::{ClientId, RoomId, Transport, TransportEvent};
 use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
 use ddi_ui::state::online::{Http, Online, OnlineConfig, Platform, SharedOnline};
+use ddi_ui::state::audience::{AudienceClient, SharedAudience};
 use ddi_ui::state::room::{RoomClient, SharedRoom};
 
 thread_local! {
     static ONLINE: RefCell<Option<SharedOnline>> = const { RefCell::new(None) };
     static ROOM: RefCell<Option<(String, SharedRoom)>> = const { RefCell::new(None) };
+    /// The room watched with its audience: its link and seat's client.
+    static AUDIENCE: RefCell<Option<(String, SharedAudience)>> = const { RefCell::new(None) };
     /// `--join`'s invite, for the first screens.
     static JOIN: RefCell<Option<String>> = const { RefCell::new(None) };
 }
@@ -160,6 +163,36 @@ pub fn discard() {
     ROOM.with_borrow_mut(|r| *r = None);
 }
 
+/// The room watched with its audience by `link`
+/// (`docs/plans/multiplayer-audience.md`): its seat's client, made at
+/// first with the invite page's `ticket` (else asked for), its stages'
+/// songs read from the room's share on threads (`crate::room::prepare_audience`).
+pub fn audience(link: &str, ticket: Option<String>) -> SharedAudience {
+    if let Some(a) =
+        AUDIENCE.with_borrow(|a| a.as_ref().filter(|(l, _)| l == link).map(|(_, a)| a.clone()))
+    {
+        return a;
+    }
+    discard_audience();
+    let a = Rc::new(RefCell::new(AudienceClient::new(
+        current(),
+        link,
+        Box::new(SocketTransport::audience(None)),
+        ticket,
+        crate::clock::epoch_ms().max(0.0) as u64,
+    )));
+    a.borrow_mut().set_inbox(crate::room::audience_inbox());
+    AUDIENCE.with_borrow_mut(|x| *x = Some((link.into(), a.clone())));
+    a
+}
+
+/// Stop watching: the seat forgotten (its socket closed).
+pub fn discard_audience() {
+    if let Some((_, a)) = AUDIENCE.with_borrow_mut(Option::take) {
+        a.borrow_mut().leave();
+    }
+}
+
 /// HTTP on a thread a request; answers through a channel.
 pub struct ThreadHttp {
     base: String,
@@ -260,6 +293,9 @@ fn send(url: &str, request: &ApiRequest) -> ApiResponse {
 #[derive(Default)]
 pub struct SocketTransport {
     base: Option<String>,
+    /// An audience seat's socket (`/sockets/<id>/audience/ws`,
+    /// `docs/plans/multiplayer-audience.md`), not a member's.
+    audience: bool,
     socket: Option<Running>,
 }
 
@@ -280,6 +316,17 @@ impl SocketTransport {
     pub fn with_base(base: String) -> Self {
         Self {
             base: Some(base),
+            audience: false,
+            socket: None,
+        }
+    }
+
+    /// An audience seat's socket (against the server at `base`, else the
+    /// configured one).
+    pub fn audience(base: Option<String>) -> Self {
+        Self {
+            base,
+            audience: true,
             socket: None,
         }
     }
@@ -294,10 +341,12 @@ impl SocketTransport {
         } else {
             base.to_string()
         };
-        format!(
-            "{base}{}",
+        let path = if self.audience {
+            ddi_ui::state::online::api::audience_socket_path(room.as_str(), ticket)
+        } else {
             ddi_ui::state::online::api::socket_path(room.as_str(), ticket)
-        )
+        };
+        format!("{base}{path}")
     }
 }
 

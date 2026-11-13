@@ -26,6 +26,11 @@ pub enum LinkNotice {
     /// Joined to watch because every player's place was taken: said for
     /// [`JOINED_TO_WATCH_MS`] once the room is connected.
     JoinedToWatch,
+    /// More's Copy audience link.
+    AudienceInviteCopied,
+    /// Host options' Close the audience / Open the audience.
+    AudienceClosed,
+    AudienceOpened,
 }
 
 /// How long the status line says a join was to watch (from the room's
@@ -50,6 +55,8 @@ pub struct OnlineLink {
     invite: Option<String>,
     /// The watch-only link's invite, where the server makes one.
     watch_invite: Option<String>,
+    /// The audience link's invite, where the room has an audience.
+    audience_invite: Option<String>,
     epoch: u64,
     ticket_req: Option<u64>,
     summary_req: Option<u64>,
@@ -88,6 +95,7 @@ impl OnlineLink {
             name: None,
             invite: None,
             watch_invite: None,
+            audience_invite: None,
             epoch,
             ticket_req: None,
             summary_req,
@@ -135,6 +143,15 @@ impl OnlineLink {
         self.watch_invite
             .as_deref()
             .map(|i| api::invite_link(&site, i))
+    }
+
+    /// The audience link to share (`#/mp/audience/<link>`), for an
+    /// operator, once read from a server whose room has an audience.
+    pub fn audience_invite_link(&self) -> Option<String> {
+        let site = self.online.borrow().config.site.clone();
+        self.audience_invite
+            .as_deref()
+            .map(|i| api::audience_link(&site, i))
     }
 
     pub fn notice(&self) -> Option<LinkNotice> {
@@ -240,6 +257,7 @@ impl OnlineLink {
             if let Ok(i) = api::read::<InviteDoc>(&r) {
                 self.invite = Some(i.invite);
                 self.watch_invite = i.watch_invite;
+                self.audience_invite = i.audience_invite;
             }
             changed = true;
         }
@@ -249,6 +267,7 @@ impl OnlineLink {
                 Ok(i) => {
                     self.invite = Some(i.invite);
                     self.watch_invite = i.watch_invite;
+                    self.audience_invite = i.audience_invite;
                     self.notice = Some(LinkNotice::InviteReplaced);
                 }
                 Err(_) => self.notice = Some(LinkNotice::InviteNotReplaced),

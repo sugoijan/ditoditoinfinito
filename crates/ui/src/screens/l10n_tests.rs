@@ -1694,6 +1694,140 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     shown(&mut hb, found);
 }
 
+/// The audience (`docs/plans/multiplayer-audience.md`): an audience
+/// link's page and the member bound's offer, each refusal, the audience's
+/// own page through its states, and a room's count and Host options'
+/// row.
+fn audience_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<String>) {
+    use super::audience::AudienceScreen;
+    use super::online::{OnlinePage, OnlineScreen};
+    use crate::state::audience::tests::{AUDIENCE_LINK, arrive, room, run};
+    use crate::state::online::Platform;
+    use crate::state::online::tests::room::{client, person};
+    use crate::state::online::tests::{INVITE, ME, err, ok, rig};
+    use ddi_room::{ManualClock, RoomPolicy};
+    let quiet = || -> super::online::OnlineShell { Rc::new(|_, _| {}) };
+    let previews = [
+        ok(
+            r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"stage","admission":"open","kind":"audience","members":12,"audience":true,"audience_count":132}"#,
+        ),
+        ok(
+            r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"full","members":384,"audience":true}"#,
+        ),
+        err(409, "audience_full"),
+        err(403, "audience_closed"),
+        err(409, "too_many_seats"),
+        err(404, "audience_link_unknown"),
+        err(404, "no_audience"),
+    ];
+    for (signed_in, preview) in [false, true]
+        .into_iter()
+        .flat_map(|s| previews.iter().cloned().map(move |p| (s, p)))
+    {
+        let p = std::cell::RefCell::new(preview);
+        let r = rig(
+            Platform::Web,
+            Box::new(move |req| match req.path.as_str() {
+                "/me" if signed_in => ok(ME),
+                "/me" => err(401, "signed_out"),
+                _ => p.borrow_mut().take(),
+            }),
+        );
+        let mut h = harness();
+        h.push(OnlineScreen::new(
+            env.clone(),
+            r.online.clone(),
+            OnlinePage::Invite(INVITE.into()),
+            quiet(),
+        ));
+        shown(&mut h, found);
+    }
+    // A member join refused at the bound, the audience offered.
+    let r = rig(
+        Platform::Web,
+        Box::new(|req| match req.path.as_str() {
+            "/me" => ok(ME),
+            p if p.starts_with("/invites/") => ok(
+                r#"{"room_id":"Room000001","room_name":"After Hours","host_display_name":"Alice","phase":"lobby","admission":"open","members":383}"#,
+            ),
+            _ => Some(crate::state::online::api::ApiResponse {
+                status: 409,
+                body: r#"{"error":"room_full","audience":true}"#.into(),
+                session: None,
+            }),
+        }),
+    );
+    let mut h = harness();
+    h.push(OnlineScreen::new(
+        env.clone(),
+        r.online.clone(),
+        OnlinePage::Invite(INVITE.into()),
+        quiet(),
+    ));
+    h.run(0.3);
+    r.online.borrow_mut().join_invite();
+    shown(&mut h, found);
+    // The audience's page: watching, then the room's states, closed and
+    // ended; a room member's count and Host options.
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, RoomPolicy::default().with_live().with_audience());
+    let alice = Rc::new(std::cell::RefCell::new(client(
+        &server,
+        person(&server, "alice"),
+        "alice",
+        5_000,
+    )));
+    let carol = Rc::new(std::cell::RefCell::new(
+        arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap(),
+    ));
+    let step = |ms: u64| {
+        run(
+            &clock,
+            &server,
+            &mut [&mut alice.borrow_mut()],
+            &mut [&mut carol.borrow_mut()],
+            ms,
+        )
+    };
+    let mut h = harness();
+    h.push(AudienceScreen::new(env.clone(), carol.clone(), Rc::new(|_, _| {})));
+    shown(&mut h, found);
+    step(6_000);
+    shown(&mut h, found);
+    let mut ha = harness();
+    ha.push(sample::room_screen(env, alice.clone()));
+    shown(&mut ha, found);
+    if ha.ui.actor("Room.Players").is_some() {
+        ha.tap(PointerKind::Mouse, "Room.Players");
+    } else {
+        ha.tap(PointerKind::Mouse, "More");
+        ha.run(0.3);
+        ha.tap(PointerKind::Mouse, "Item.players");
+    }
+    ha.run(0.3);
+    ha.tap(PointerKind::Mouse, super::room_dialogs::HOST_OPTIONS);
+    shown(&mut ha, found);
+    ha.tap(PointerKind::Mouse, super::room_dialogs::AUDIENCE);
+    step(3_000);
+    shown(&mut ha, found);
+    shown(&mut h, found);
+    // Opened again; the room ends under a newcomer's page.
+    ha.tap(PointerKind::Mouse, super::room_dialogs::AUDIENCE);
+    step(1_000);
+    let dan = Rc::new(std::cell::RefCell::new(
+        arrive(&server, "dan", AUDIENCE_LINK, ddi_room::Clock::now(&clock).0).unwrap(),
+    ));
+    let mut hd = harness();
+    hd.push(AudienceScreen::new(env.clone(), dan.clone(), Rc::new(|_, _| {})));
+    run(&clock, &server, &mut [], &mut [&mut dan.borrow_mut()], 2_000);
+    shown(&mut hd, found);
+    server
+        .borrow_mut()
+        .rewrite(|s| s.closed = Some(ddi_room::Closure::HostLeft));
+    run(&clock, &server, &mut [], &mut [&mut dan.borrow_mut()], 2_000);
+    shown(&mut hd, found);
+}
+
 fn walk() -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     let env = env();
@@ -1710,6 +1844,7 @@ fn walk() -> BTreeSet<String> {
         select_walk(&env, &harness, &mut found);
         room_walk(&env, &harness, &mut found);
         online_walk(&env, &harness, &mut found);
+        audience_walk(&env, &harness, &mut found);
         // The prompt's steps, as the shells hand them in: the loading
         // screen's own word is an identifier, never shown; an error's
         // explanation is still the loader's.

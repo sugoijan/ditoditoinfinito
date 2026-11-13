@@ -117,13 +117,22 @@ impl Room {
     /// [`Room::new`] with each device's audio clock `ppm[i]` millionths
     /// fast (negative: slow).
     fn drifting(people: &[(&'static str, Intent)], latency: Option<Latency>, ppm: &[f64]) -> Room {
+        Room::under(people, latency, ppm, RoomPolicy::default().with_live())
+    }
+
+    fn under(
+        people: &[(&'static str, Intent)],
+        latency: Option<Latency>,
+        ppm: &[f64],
+        policy: RoomPolicy,
+    ) -> Room {
         let host: Clock = Rc::new(RefCell::new(0.0));
         let server_clock = ManualClock::new(wall(0.0));
         let server = FakeServer::hosted(
             "Room000001",
             Identity::new("dev:alice"),
             "alice",
-            RoomPolicy::default().with_live(),
+            policy,
             server_clock.clone(),
         )
         .shared();
@@ -1455,4 +1464,241 @@ fn a_live_stage_through_the_screens_of_three_devices() {
     }
     let s = r.server.borrow().state().clone();
     assert!(s.stage(stage).unwrap().play.as_ref().unwrap().song_ended);
+}
+
+/// An audience seat's HTTP answered from the fake room: who `who` is and
+/// the audience join (the link's key the fake's own), its seat's socket
+/// `latency` away.
+struct AudienceHttp {
+    server: SharedFake,
+    who: &'static str,
+    latency: Option<Latency>,
+    out: Vec<(u64, ApiResponse)>,
+}
+
+impl Http for AudienceHttp {
+    fn start(&mut self, id: u64, req: ApiRequest) {
+        let answer = match (req.method, req.path.as_str()) {
+            (Method::Get, "/me") => ok(format!(
+                r#"{{"player_id":"dev:{0}","login":"{0}","display_name":"{0}","admin":false,"expires_at_ms":1}}"#,
+                self.who
+            )),
+            (Method::Post, "/rooms/Room000001/audience") => {
+                let key = self.server.borrow().audience_key().unwrap();
+                match self.server.borrow_mut().audience_join(
+                    &format!("dev:{}", self.who),
+                    &key,
+                    self.latency,
+                ) {
+                    Ok(t) => ok(format!(r#"{{"ticket":"{t}","relay":0,"expires_at_ms":9}}"#)),
+                    Err(r) => ApiResponse {
+                        status: r.status(),
+                        body: format!(r#"{{"error":"{}"}}"#, r.code()),
+                        session: None,
+                    },
+                }
+            }
+            _ => panic!("unexpected {req:?}"),
+        };
+        self.out.push((id, answer));
+    }
+
+    fn poll(&mut self) -> Vec<(u64, ApiResponse)> {
+        std::mem::take(&mut self.out)
+    }
+}
+
+/// `who`'s seat in the room's audience (its socket `latency` away).
+fn audience_seat(
+    r: &Room,
+    who: &'static str,
+    latency: Option<Latency>,
+) -> Rc<RefCell<ddi_ui::state::audience::AudienceClient>> {
+    let online = Online::new(
+        Box::new(AudienceHttp {
+            server: r.server.clone(),
+            who,
+            latency,
+            out: Vec::new(),
+        }),
+        OnlineConfig {
+            platform: Platform::Web,
+            site: "http://localhost:8080/".into(),
+        },
+    )
+    .shared();
+    online.borrow_mut().check();
+    online.borrow_mut().poll(0);
+    Rc::new(RefCell::new(ddi_ui::state::audience::AudienceClient::new(
+        online,
+        "Room000001.audienceAUDIENCEaudien01",
+        Box::new(ddi_room::fake::FakeAudienceSocket::new(r.server.clone())),
+        None,
+        wall(*r.host.borrow()),
+    )))
+}
+
+/// Someone watching with the room's audience (not a member) follows a live
+/// stage with attacks: the song read from the room's share as the public
+/// view names it, the stage handed over once the room started it, the
+/// music and every field the audience's delay behind the room's song time
+/// (within its ceiling), the fields fed by the audience's frames, four a
+/// second, equal at the song's end to a member's who watches (every
+/// competitor's combo, out or not, the shocks the room committed against
+/// each), the room's decision shown, the count told to the members; a
+/// relay's restart mid-stage changes none of it.
+#[test]
+fn the_audience_watches_a_live_stage_behind_the_room_with_the_members_fields() {
+    let song = bundled("beatucada");
+    let latency = Latency {
+        down_ms: 40,
+        down_jitter_ms: 60,
+        up_ms: 40,
+        up_jitter_ms: 60,
+        seed: 3,
+    };
+    let r = Room::under(
+        &[
+            ("alice", Intent::Play),
+            ("bob", Intent::Play),
+            ("carol", Intent::Watch),
+        ],
+        Some(latency),
+        &[],
+        RoomPolicy::default().with_live().with_audience(),
+    );
+    let aud = audience_seat(
+        &r,
+        "dora",
+        Some(Latency {
+            down_ms: 80,
+            down_jitter_ms: 40,
+            up_ms: 80,
+            up_jitter_ms: 40,
+            seed: 11,
+        }),
+    );
+    let tick_aud = || aud.borrow_mut().tick(wall(*r.host.borrow()));
+    tick_aud();
+    let orders = pick_and_ready(&r, &song, true, 0);
+    // The seat saw the room and its song; it prepares the song from the
+    // share, as a shell does.
+    for _ in 0..50 {
+        r.step(0.02, true);
+        tick_aud();
+    }
+    let e = entry_at(&song, 0);
+    let jobs = aud.borrow_mut().take_load_jobs();
+    assert_eq!(jobs.len(), 1, "the stage's song, once");
+    for job in jobs {
+        assert_eq!(job.share.as_deref(), Some("abc12345"));
+        let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+        let picked = Picked {
+            song: SongEntry {
+                id: job.song.clone(),
+                ..e.clone()
+            },
+            chart: e.charts[0].clone(),
+        };
+        aud.borrow_mut().finish_load(&job, Ok((picked, prepared.live)));
+    }
+    // The members' plays start at the room's instant.
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 0.0, 0.0]);
+    // The seat's order comes once the room started it and a frame said
+    // the room's clock.
+    let mut order = None;
+    for _ in 0..200 {
+        r.step(0.02, false);
+        for p in plays.iter_mut() {
+            let _ = p.tick(HostTime(*r.host.borrow()));
+        }
+        tick_aud();
+        order = aud.borrow_mut().take_stage_order();
+        if order.is_some() {
+            break;
+        }
+    }
+    let order = order.expect("the audience's stage");
+    assert!(order.watching && order.cpus.is_empty());
+    assert_eq!(order.live.as_ref().unwrap().people.len(), 2);
+    assert!(!aud.borrow().plan_mismatch(order.stage), "the room's plan, here too");
+    let delay = aud.borrow().music_delay_ms(order.stage) as f64 / 1_000.0;
+    assert!(delay > 0.0 && delay <= 2.0);
+    let settings = Settings::default();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.opponents = Some(StageSetup::of(&order));
+    let host = r.host.clone();
+    config.live = Some(crate::battle::live::LiveHandle {
+        room: aud.clone(),
+        wall_ms: Rc::new(move || wall(*host.borrow())),
+    });
+    let audience_play = PlaySession::start(
+        &song,
+        order.chart.index,
+        &settings,
+        config,
+        FakeAudio::new(&r.host, 0.02),
+        110.0,
+        FakeInputs::new(&r.host),
+    )
+    .unwrap();
+    plays.push(audience_play);
+    let zero = r.rooms[0].borrow().song_zero_at(order.stage).unwrap();
+    let mut behind = Vec::new();
+    let mut most_delay: f64 = 0.0;
+    let mut restarted = false;
+    let mut ended = play_out(&r, &mut plays, 200.0, |t, plays| {
+        let host = *r.host.borrow();
+        let song_t = (wall(host) as f64 - zero.0 as f64) / 1_000.0;
+        let a = plays[3].player.judge_time(HostTime(host));
+        if song_t > 2.0 {
+            behind.push(song_t - a);
+        }
+        if let Some(l) = plays[3].battle().unwrap().live_state() {
+            most_delay = most_delay.max(l.delay_ms);
+        }
+        // A relay restarts mid-stage: its seats keep their sockets.
+        if !restarted && t > 30.0 {
+            restarted = true;
+            for k in 0..4 {
+                r.server.borrow_mut().restart_relay(k);
+            }
+        }
+    });
+    let (_, watched) = ended[3].take().expect("the audience's play ended");
+    assert!(watched.watched);
+    // The music the delay behind the room's song time, steadily.
+    let (lo, hi) = behind
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(l, h), x| (l.min(*x), h.max(*x)));
+    // (Behind by the delay and the clock's error from the frames' times:
+    // the quickest trip down and the frame's building, never ahead.)
+    eprintln!("audience: the music {lo:.3}..{hi:.3} s behind the room's song time, for {delay} s");
+    assert!(
+        lo >= delay - 0.01 && hi <= delay + 0.3 && hi - lo < 0.05,
+        "{lo:.3}..{hi:.3} behind, for {delay}"
+    );
+    // The fields' own delay beyond the music's within the ceiling.
+    eprintln!("audience: the fields at most {most_delay:.0} ms beyond the music");
+    assert!(
+        most_delay + hi * 1_000.0 <= ddi_room::audience::AUDIENCE_V0.presentation_delay_ms as f64,
+        "{most_delay} ms beyond {delay} s"
+    );
+    // The fields as the member who watches has them.
+    let member = plays[2].battle().unwrap();
+    let audience = plays[3].battle().unwrap();
+    let mv = member.views();
+    let av = audience.views();
+    assert_eq!(av.len(), 2);
+    for (m, a) in mv.iter().zip(&av) {
+        assert_eq!((m.participant, m.combo, m.out), (a.participant, a.combo, a.out));
+        assert!(a.combo > 50, "{a:?}");
+    }
+    for (m, a) in member.feeds().zip(audience.feeds()) {
+        assert_eq!(m.shocks().len(), a.shocks().len(), "the same shocks");
+    }
+    assert_eq!(aud.borrow().sockets(), 1, "the relay's restart opened no socket");
+    // The members heard the count.
+    r.run(3.0);
+    assert_eq!(r.rooms[0].borrow().audience(), Some((1, true)));
 }

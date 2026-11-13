@@ -34,21 +34,24 @@ use ddi_room::attacks::{
 use ddi_room::live::plan::BattlePlan;
 use ddi_room::live::stream::{CheckpointNews, Commitment, Frame, LiveReport, Moment, MomentKind};
 use ddi_room::live::{
-    LIVE_V1, LiveNews, LiveRefusal, LiveRules, SLEW_V0, SongSlew, StreamEnd, VIEW_DELAY_V0,
-    ViewDelay, song_us_at,
+    LiveNews, LiveRefusal, LiveRules, SLEW_V0, SongSlew, StreamEnd, ViewDelay, song_us_at,
 };
-use ddi_room::{Finisher, ParticipantId, Phase, StageId};
-use ddi_ui::state::room::SharedRoom;
+use ddi_room::{Finisher, ParticipantId, StageId};
+use std::cell::RefCell;
+
+use ddi_ui::state::room::LiveRoom;
 
 use super::feed;
 use super::attacks::micros;
 
 /// What a play of a live stage needs of its shell: the room's client (its
-/// socket carries the stream) and the shell's wall clock (ms since the
-/// epoch: the clock the room client's estimate of the room's runs on).
+/// socket carries the stream; a member's `SharedRoom`, or an audience
+/// seat's client, `ddi_ui::state::audience`) and the shell's wall clock
+/// (ms since the epoch: the clock the client's estimate of the room's
+/// runs on).
 #[derive(Clone)]
 pub struct LiveHandle {
-    pub room: SharedRoom,
+    pub room: Rc<RefCell<dyn LiveRoom>>,
     pub wall_ms: Rc<dyn Fn() -> u64>,
 }
 
@@ -104,7 +107,6 @@ pub fn prep_now(
         .room
         .borrow()
         .live_prep(stage)
-        .cloned()
         .or_else(|| order.prep.clone())
 }
 
@@ -509,27 +511,12 @@ impl Live {
         track: &feed::TapTrack,
         lock: Option<f64>,
     ) -> Live {
-        let (rules, uncertainty_ms) = {
+        let (rules, view_delay) = {
             let room = handle.room.borrow();
-            let rules = room
-                .state()
-                .policy
-                .live
-                .as_ref()
-                .and_then(|l| l.rules())
-                .unwrap_or(LIVE_V1);
-            let u = room
-                .live_link()
-                .and_then(|l| l.clock())
-                .map_or(100.0, |c| c.uncertainty_us as f64 / 1_000.0);
-            (rules, u)
+            let rules = room.live_rules();
+            let delay = room.view_delay(&rules);
+            (rules, delay)
         };
-        let ceiling = rules.presentation_delay_ms as f64;
-        let view_delay = ViewDelay::new(
-            VIEW_DELAY_V0,
-            ceiling,
-            VIEW_DELAY_V0.initial_ms(&rules, uncertainty_ms, ceiling),
-        );
         let delay = view_delay.delay_ms() / 1_000.0;
         let seats = people
             .iter()
@@ -598,9 +585,8 @@ impl Live {
         let (room_us, uncertainty) = {
             let room = self.handle.room.borrow();
             let zero = room.song_zero_at(self.stage);
-            let link = room.live_link();
-            let now = link.and_then(|l| l.room_ms((self.handle.wall_ms)()));
-            let unc = link.and_then(|l| l.clock()).map_or(0, |c| c.uncertainty_us);
+            let now = room.room_ms_at((self.handle.wall_ms)());
+            let unc = room.clock_uncertainty_us();
             (zero.zip(now).map(|(z, n)| song_us_at(z, n)), unc)
         };
         self.room_us = self.slew.step(micros(t), room_us, uncertainty);
@@ -1122,28 +1108,7 @@ impl Live {
     /// (best first, groups tied), and whether it was decided before the
     /// song's end.
     pub(crate) fn decision(&self) -> Option<(Vec<Vec<Finisher>>, bool)> {
-        let room = self.handle.room.borrow();
-        let s = room.state();
-        let play = s.stage(self.stage)?.play.as_ref()?;
-        let result = play.result.as_ref()?;
-        let early = matches!(s.phase, Phase::SongCompletion { stage } if stage == self.stage);
-        let mut groups: Vec<Vec<Finisher>> = Vec::new();
-        let mut last: Option<u16> = None;
-        for p in &result.placements {
-            let f = Finisher {
-                participant: p.participant,
-                finish: p.finish,
-            };
-            if last == Some(p.place) {
-                if let Some(g) = groups.last_mut() {
-                    g.push(f);
-                }
-            } else {
-                groups.push(vec![f]);
-            }
-            last = Some(p.place);
-        }
-        Some((groups, early))
+        self.handle.room.borrow().decision(self.stage)
     }
 
     /// A remote seat's field is behind this play's view of it: its stream
