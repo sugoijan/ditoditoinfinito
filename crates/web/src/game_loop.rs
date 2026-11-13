@@ -1052,6 +1052,11 @@ impl GameLoop {
                             ddi_library::announcer::Line::Battle(e).folder()
                         }),
                         "cue_drawn": self.view.battle_cue_drawn(),
+                        // A match whose zero life steps down: the
+                        // ladder's charts, the player's steps (when, the
+                        // boundary, the rung), the step cue showing now
+                        // (its rung), each field's steps as drawn.
+                        "step_down": step_down_debug(s, host_now.0),
                         // Attack power (M8a): each competitor's, the
                         // checkpoints run of the stage's, the last
                         // events.
@@ -1530,4 +1535,28 @@ fn extend(debug: &mut Value, more: Value) {
     if let (Value::Object(to), Value::Object(from)) = (debug, more) {
         to.extend(from);
     }
+}
+
+/// A stage's steps down as the debug state has them (`battle.step_down`).
+fn step_down_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
+    s: &ddi_session::play::PlaySession<A, I>,
+    host: f64,
+) -> serde_json::Value {
+    let ladder: Vec<serde_json::Value> = s.battle().map_or_else(Vec::new, |b| {
+        b.rungs().iter().map(|r| json!([r.chart, r.name])).collect()
+    });
+    let steps: Vec<serde_json::Value> = s
+        .player
+        .steps()
+        .iter()
+        .map(|st| json!([st.at, st.boundary, st.rung]))
+        .collect();
+    let cue = s.stage_cue(host).and_then(|(c, _)| match c {
+        ddi_session::announcer::battle::StageCue::StepDown(r) => Some(r),
+        _ => None,
+    });
+    let fields: Vec<usize> = s
+        .battle()
+        .map_or_else(Vec::new, |b| b.feeds().map(|f| f.steps().count()).collect());
+    json!({"ladder": ladder, "steps": steps, "cue": cue, "fields": fields})
 }
