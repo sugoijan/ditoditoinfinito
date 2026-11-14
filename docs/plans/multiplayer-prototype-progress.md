@@ -5926,10 +5926,10 @@ built as proposed (provisional, every value named).
   gone, live and in practice). A CPU's is put on the charts it played,
   stretch by stretch (`ddi_session::battle::Scales`: each chart's whole
   most in the share of its tap-only copy's notes it was shown; a CPU that
-  never stepped is on the stage chart's most as before). The per-rung
-  score factor (`AdaptiveRule::score_factor`, `rung_score_factor`) is 1
-  and applied nowhere: the named place for balancing once the rule is
-  felt; there is no UI for it.
+  never stepped is on the stage chart's most as before). There is no
+  per-rung score factor: the one named for balancing
+  (`AdaptiveRule::score_factor`, `rung_score_factor`) was 1, applied
+  nowhere, and was deleted (2026-11-14; score balancing deferred).
 - **The Standings** mark the chart each competitor finished on when it is
   not the picked one: "↓ Easy" or "↑ Challenge" (`RunDetail::harder`,
   additive; `room-table-stepped-up`). **The cue**: "Stepping up: Hard" as

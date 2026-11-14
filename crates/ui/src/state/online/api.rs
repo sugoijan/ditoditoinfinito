@@ -4,6 +4,7 @@
 //! them (the web's `fetch` with the session's cookie, desktop's HTTP on a
 //! thread with the session as a bearer). Sans-IO, natively tested.
 
+use ddi_library::share::percent_encode;
 use ddi_room::{Intent, ParticipantId, Participation, PhaseKind};
 use serde::{Deserialize, Serialize};
 
@@ -330,7 +331,7 @@ pub fn logout() -> ApiRequest {
 /// The web's sign-in, a page to go to (not fetched): Twitch, then back to
 /// the game at `route` (`/mp`, `/mp/join/<invite>`, `/mp/room/<id>`).
 pub fn login_path(route: &str) -> String {
-    format!("/auth/twitch/login?return={}", encode(route))
+    format!("/auth/twitch/login?return={}", percent_encode(route))
 }
 
 pub fn new_attempt(route: &str) -> ApiRequest {
@@ -356,7 +357,7 @@ pub fn create_room(name: Option<&str>) -> ApiRequest {
 }
 
 pub fn preview(invite: &str) -> ApiRequest {
-    ApiRequest::new(Method::Get, format!("/invites/{}", encode(invite)))
+    ApiRequest::new(Method::Get, format!("/invites/{}", percent_encode(invite)))
 }
 
 /// The room model this build speaks (`ddi_room::ROOM_MODEL_REVISION`),
@@ -401,7 +402,7 @@ pub fn grant(room: &str, stage: u64) -> ApiRequest {
 
 /// The socket's path for a ticket (`/sockets/<id>/ws?ticket=`).
 pub fn socket_path(room: &str, ticket: &str) -> String {
-    format!("/sockets/{room}/ws?ticket={}", encode(ticket))
+    format!("/sockets/{room}/ws?ticket={}", percent_encode(ticket))
 }
 
 /// A seat in room `room`'s audience by `link` (the audience link, or the
@@ -416,20 +417,7 @@ pub fn audience_join(room: &str, link: &str) -> ApiRequest {
 /// An audience seat's socket's path for a ticket
 /// (`/sockets/<id>/audience/ws?ticket=`).
 pub fn audience_socket_path(room: &str, ticket: &str) -> String {
-    format!("/sockets/{room}/audience/ws?ticket={}", encode(ticket))
-}
-
-/// Percent-encoding for a path segment or query value.
-pub fn encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
-        }
-    }
-    out
+    format!("/sockets/{room}/audience/ws?ticket={}", percent_encode(ticket))
 }
 
 /// A room id: 10 characters of `[0-9A-Za-z]`.
@@ -491,6 +479,23 @@ mod tests {
     use super::*;
 
     const INVITE: &str = "Room000001.abcdefghijABCDEFGHIJ01";
+
+    /// The paths' parts percent-encoded byte for byte, RFC 3986's
+    /// unreserved characters kept (pinned before the encoding became
+    /// the share protocol's own).
+    #[test]
+    fn the_paths_parts_are_percent_encoded() {
+        assert_eq!(
+            login_path("/mp/join/Room000001.x?y=1&z=a b"),
+            "/auth/twitch/login?return=%2Fmp%2Fjoin%2FRoom000001.x%3Fy%3D1%26z%3Da%20b"
+        );
+        assert_eq!(socket_path("R1", "t-_.~+/="), "/sockets/R1/ws?ticket=t-_.~%2B%2F%3D");
+        assert_eq!(
+            audience_socket_path("R1", "é☆\u{0}"),
+            "/sockets/R1/audience/ws?ticket=%C3%A9%E2%98%86%00"
+        );
+        assert_eq!(preview("a/b c").path, "/invites/a%2Fb%20c");
+    }
 
     #[test]
     fn invites_are_found_in_links_and_text() {

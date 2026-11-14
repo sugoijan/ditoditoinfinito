@@ -468,8 +468,9 @@ pub fn picked_of(
 }
 
 /// Whether chart `chart` of `song` (as read) is the one chosen (`digest`,
-/// where the library had one) and the CPUs can plan it (the engine's
-/// automatic plan built and checked: `ddi_engine::cpu::Plan`). The
+/// where the library had one) and the CPUs can play it as they will (the
+/// engine's plan built as a stage's CPUs are, `ddi_engine::cpu::PlannedRung`:
+/// the chart itself, `cpu-play-v1`, and a CPU's presses made from it). The
 /// engine's own words go to `log` (logs stay English); the room hears the
 /// problem.
 pub fn check_chart(
@@ -479,21 +480,17 @@ pub fn check_chart(
     log: &mut dyn FnMut(&str),
 ) -> Result<(), LoadProblem> {
     chart_matches(song, chart, digest)?;
-    let plan = ddi_engine::cpu::Plan::automatic(song, chart).map_err(|e| {
-        log(&e);
-        LoadProblem::CpuCannotPlay
-    })?;
     let level = ddi_engine::cpu::CPU_LEVELS
         .strength(DEFAULT_CPU_LEVEL.into())
         .ok_or(LoadProblem::CpuCannotPlay)?;
-    plan.check_song(song, chart)
-        .and_then(|_| {
-            plan.script_play(
+    ddi_engine::cpu::PlannedRung::new(song, chart)
+        .and_then(|home| {
+            home.plan.script_play(
                 level,
                 0,
                 ddi_engine::cpu::Skills::default(),
                 0.0,
-                ddi_engine::cpu::CpuPlay::TapsV0,
+                home.play,
             )
         })
         .map(|_| ())
@@ -546,15 +543,6 @@ impl CpuSeat {
             skills,
             targeting: targeting.unwrap_or_default(),
         }
-    }
-}
-
-/// The battle a stage is played under: with attacks or without.
-pub fn battle_with(attacks: bool) -> BattlePreset {
-    if attacks {
-        BattlePreset::GaugeAttacksV0
-    } else {
-        BattlePreset::GaugeSurvivalV0
     }
 }
 
@@ -3376,7 +3364,7 @@ impl RoomClient {
             chart: picked.chart,
             // What is really played: attacks only where they are
             // offered (never a rule that silently does nothing).
-            battle: battle_with(self.attacks_played(&m.rules_for(stage))),
+            battle: BattlePreset::with_attacks(self.attacks_played(&m.rules_for(stage))),
             attacks_offered: self.attacks_offered(),
             rules: StageRules::of_stage(m, stage),
             dev_mines_at_beat: development().mines_at_beat,
@@ -4538,5 +4526,33 @@ mod tests {
         assert_eq!(points(&room), PointsBias::Strong);
         let m = room.state().current.clone().unwrap();
         assert_eq!(m.changes.last().unwrap().rules.points, None, "kept in the one form");
+    }
+
+    /// The CPUs play the chart itself (`cpu-play-v1`): a chart they can
+    /// plan as a tap-only copy but not whole (here: more notes than the
+    /// full plan takes, mines past its limit) is refused when it is
+    /// checked, never later when the stage makes its CPUs.
+    #[test]
+    fn a_chart_is_checked_as_the_cpus_play_it() {
+        let text = "#TITLE:t;#BPMS:0.000=120.000;#OFFSET:0;\n#NOTES:\n     dance-single:\n     :\n     Hard:\n     9:\n     0,0,0,0,0:\n1000\n0100\n0010\n0001\n,\n1000\n0100\n0010\n0001\n;\n";
+        let mut song = ddi_chart::formats::sm::parse_simfile(text, "sm").unwrap();
+        let mut log = |_: &str| {};
+        assert_eq!(check_chart(&song, 0, None, &mut log), Ok(()), "a chart they play whole");
+        let limit = ddi_engine::cpu::MAX_AUTOMATIC_ROWS * 4;
+        let first = song.charts[0].notes.last().unwrap().tick.0 + 48;
+        song.charts[0].notes.extend((0..limit as i64).map(|k| ddi_chart::Note {
+            tick: ddi_chart::Tick(first + k),
+            lane: (k % 4) as u8,
+            kind: ddi_chart::NoteKind::Mine,
+            keysound: None,
+            color: None,
+            speed_mul: None,
+        }));
+        assert!(ddi_engine::cpu::Plan::automatic(&song, 0).is_ok(), "its tap-only copy planned");
+        assert!(ddi_engine::cpu::PlannedRung::new(&song, 0).is_err(), "not whole");
+        assert_eq!(
+            check_chart(&song, 0, None, &mut log),
+            Err(LoadProblem::CpuCannotPlay)
+        );
     }
 }
