@@ -501,7 +501,7 @@ fn a_practice_stage_steps_up_the_player_and_a_cpu_climbs_two_rungs() {
 }
 
 /// `cpu-levels-v1` (absolute levels): under Adaptive charts from Some
-/// Things Must's Medium, CPUs of levels 2, 5 and 9 end on different charts
+/// Things Must's Medium, CPUs of levels 1, 5 and 9 end on different charts
 /// (the weak one below the pick, the strong one above), where under
 /// `cpu-levels-v0` every level from about 4 climbed alike. The
 /// standings say where each finished.
@@ -514,7 +514,7 @@ fn absolute_levels_end_a_stage_on_different_charts() {
         .iter()
         .position(|c| c.layout == "dance-single" && c.difficulty == ddi_chart::Difficulty::Medium)
         .unwrap();
-    let Some(mut rig) = rig_with(SONG, medium, Difficulty::Medium, Some(&[1, 4, 8]), 0, 0, 7, true)
+    let Some(mut rig) = rig_with(SONG, medium, Difficulty::Medium, Some(&[0, 4, 8]), 0, 0, 7, true)
     else {
         return;
     };
@@ -561,7 +561,7 @@ fn absolute_levels_end_a_stage_on_different_charts() {
     let level = |c: usize| song.charts[c].difficulty;
     assert!(
         level(ended[0]) < level(ended[2]),
-        "level 2 ended below level 9: {:?}",
+        "level 1 ended below level 9: {:?}",
         ended.iter().map(|&c| level(c)).collect::<Vec<_>>()
     );
     let distinct: std::collections::BTreeSet<usize> = ended.iter().copied().collect();

@@ -2304,7 +2304,7 @@ impl SelectScreen {
         }
         // A room's Rules, beside Options and Calibrate.
         let link_rules = ddi_l10n::msg::room::rules();
-        if self.room.is_some() && !self.room_joining() {
+        if self.room.is_some() && !self.room_joining() && !self.layout.compact {
             links.push(("Room.Rules", link_rules.as_str()));
         }
         links.extend([

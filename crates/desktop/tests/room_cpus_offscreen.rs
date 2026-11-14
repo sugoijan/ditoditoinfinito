@@ -18,8 +18,8 @@ use ddi_room::fake::FakeServer;
 use ddi_room::{Identity, Intent, ManualClock, RoomPolicy};
 use room_fake::{ROOM, Scene, Songs, drawn, keep, library, person, tap};
 
-/// Opens the Rules pop-up on `ui`: its button in the header, or More's
-/// item where the header has no room for it (a phone).
+/// Opens the Rules pop-up on `ui`: its link in the footer, or More's
+/// item where the footer has no room for it (a phone).
 fn open_rules(ui: &mut ddi_ui::Ui) {
     if ui.actor("Room.Rules").is_some() {
         tap(ui, "Room.Rules", 0.6);
@@ -71,6 +71,10 @@ fn an_online_rooms_cpus_on_its_rules_and_its_players() {
         };
         scene.run(2.0);
         assert!(scene.people[0].room.borrow().cpus_offered());
+        // A frame drawn first: the footer's links are placed from their
+        // measured text as a frame is drawn (Rules is one since follow-up
+        // round F), so their boxes are where a person would tap.
+        let _ = gpu.draw_offscreen(&mut scene.people[0].ui, size, format);
         open_rules(&mut scene.people[0].ui);
         assert!(scene.people[0].ui.actor("AddRandom").is_some(), "the roster's rows");
         for _ in 0..3 {

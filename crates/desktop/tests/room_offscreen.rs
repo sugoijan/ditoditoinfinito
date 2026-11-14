@@ -52,10 +52,13 @@ fn the_practice_room_draws_its_parts_inside_the_window() {
     assert_eq!(view.phase, "lobby");
     assert!(view.host);
     assert_eq!(view.status, "Pick a song to start the match.");
+    // The header is singleplayer's: Rules a footer link, no Players
+    // button (follow-up round F).
+    assert!(ui.bounds("Room.Players").is_none());
+    assert!(ui.bounds("Room.Rules").is_some_and(|b| b[1] > 600.0));
     for name in [
         "Back",
         "Room.Rules",
-        "Room.Players",
         "More",
         "Info",
         "Room.Status",
