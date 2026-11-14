@@ -152,9 +152,7 @@ impl PromptScreen {
         };
         rm.time.set(cx.time());
         let changed = rm.pump.borrow_mut().run(&rm.room, &rm.shell, cx);
-        if let Some(at) = rm.quit_at.get()
-            && (cx.time() >= at || rm.room.borrow().link_state().ended())
-        {
+        if room::quit_due(&rm.room, rm.quit_at.get(), cx.time()) {
             rm.quit_at.set(None);
             cx.request(crate::UiRequest::Quit);
             return;
@@ -227,13 +225,7 @@ impl PromptScreen {
             cx.request(crate::UiRequest::Quit);
         }
         if room::left_by(msg) == Some(room::LeaveBy::Quit) {
-            let told = {
-                let r = rm.room.borrow();
-                r.is_online() && r.link_state() == ddi_room::LinkState::Connected
-            };
-            rm.room.borrow_mut().leave();
-            rm.quit_at
-                .set(Some(cx.time() + if told { room::QUIT_WAIT } else { 0.0 }));
+            rm.quit_at.set(Some(room::quit_leaving(&rm.room, cx.time())));
         }
     }
 

@@ -376,10 +376,7 @@ fn percent_text(hundredths: i32) -> String {
 fn score_of(row: &StageRow, percent: bool) -> String {
     let text = match &row.detail {
         Some(d) => match (d.score, d.percent) {
-            (Some(score), Some(p)) if percent => {
-                let _ = score;
-                percent_text(p)
-            }
+            (Some(_), Some(p)) if percent => percent_text(p),
             (Some(score), _) => score.to_string(),
             (None, Some(p)) => percent_text(p),
             (None, None) => String::new(),
@@ -1097,12 +1094,7 @@ impl ResultsScreen {
             room::leave_now(&sm.room, &shell, room::LeaveBy::Back, cx);
         }
         if room::left_by(msg) == Some(room::LeaveBy::Quit) {
-            let told = {
-                let r = sm.room.borrow();
-                r.is_online() && r.link_state() == ddi_room::LinkState::Connected
-            };
-            sm.room.borrow_mut().leave();
-            sm.quit_at = Some(cx.time() + if told { room::QUIT_WAIT } else { 0.0 });
+            sm.quit_at = Some(room::quit_leaving(&sm.room, cx.time()));
         }
     }
 
@@ -1331,10 +1323,7 @@ impl ResultsScreen {
     /// tab, the line pointed at).
     fn stage_redraw(&mut self, root: &mut Actor, cx: &mut Cx) {
         if self.compact {
-            let (m, top) = {
-                let (top, _, m) = self.compact_bars();
-                (m, top)
-            };
+            let (_, _, m) = self.compact_bars();
             let view_w = self.screen[0] - 2.0 * m;
             let (mut content, content_h) = self.compact_content(view_w);
             self.content_h = content_h;
@@ -1344,7 +1333,6 @@ impl ResultsScreen {
                 super::super::refill(old, content);
                 call(old, "y", &[-self.scroll]);
             }
-            let _ = top;
         } else {
             let (_, panels, _) = self.places();
             let fresh = self.stage_panels(panels);
@@ -1385,9 +1373,7 @@ impl ResultsScreen {
         let Some(sm) = &mut self.stage else {
             return;
         };
-        if let Some(at) = sm.quit_at
-            && (cx.time() >= at || room.borrow().link_state().ended())
-        {
+        if crate::screens::room::quit_due(&room, sm.quit_at, cx.time()) {
             sm.quit_at = None;
             cx.request(crate::UiRequest::Quit);
             return;

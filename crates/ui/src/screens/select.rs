@@ -789,9 +789,6 @@ pub struct SelectScreen {
     open: f32,
     /// The multiplayer room it is the main view of (M7b, `select_room.rs`).
     room: Option<room_mode::RoomMode>,
-    /// Whether the room's parts were built for its host, and the room's
-    /// name the header was built with.
-    room_built_heading: Option<String>,
 }
 
 /// The wheel's model over a screen's fields, each borrowed on its own
@@ -900,7 +897,6 @@ impl SelectScreen {
             wheel_motion: None,
             open: 1.0,
             room: None,
-            room_built_heading: None,
         };
         let resume = data.resume.clone();
         let resume_pack = data.resume_pack.clone();
@@ -1634,7 +1630,7 @@ impl SelectScreen {
                 out.push(
                     super::room::rules_words_in(
                         &crate::state::room::StageRules::of(rules),
-                        super::room::attacks_offered(&r).then(|| rules.attacks()),
+                        r.attacks_offered().then(|| rules.attacks()),
                         r.adaptive_offered(),
                     )
                     .into(),

@@ -424,7 +424,7 @@ fn loading_word(s: &ddi_room::RoomState, prep: Option<&ddi_room::Prep>) -> Optio
 /// or played, nor on a stage's prompt, [`status_line`], nor over a play,
 /// whose status line is the play's own).
 pub fn status(r: &RoomClient) -> UiText {
-    let line = room_status(r);
+    let line = status_line(r);
     let in_stage = matches!(
         r.state().phase,
         Phase::Countdown { .. } | Phase::Stage { .. } | Phase::SongCompletion { .. }
@@ -451,10 +451,6 @@ pub fn audience_words(r: &RoomClient) -> Option<UiText> {
 /// The room's status line alone, without how many watch with its
 /// audience: a stage's prompt's (a stage is beginning there).
 pub fn status_line(r: &RoomClient) -> UiText {
-    room_status(r)
-}
-
-fn room_status(r: &RoomClient) -> UiText {
     let line = phase_status(r);
     // A change of the rules from a later stage, said until that stage
     // begins (for everyone: the operator who made it and the others):
@@ -795,9 +791,9 @@ pub fn cpu_level(spec: &ddi_room::OpponentSpec) -> u8 {
 pub const STARS_HEIGHT: f32 = 12.0;
 pub const STARS_GAP: f32 = 7.0;
 
-/// A CPU's level and what goes with it on a line from `x` rightwards, on
-/// `y`, at most `room` wide: its stars (`<id>.Stars`), then `text`
-/// (`<id>.Sub`), muted.
+/// A CPU's level and what goes with it on a line from `x` rightwards (or,
+/// `to_end`, ending at `x`), on `y`, at most `room` wide: its stars
+/// (`<id>.Stars`) and `text` (`<id>.Sub`), muted, the stars nearer `x`.
 pub fn level_line(
     env: &Env,
     out: &mut Vec<Actor>,
@@ -805,45 +801,23 @@ pub fn level_line(
     (level, text): (u8, &str),
     [x, y]: [f32; 2],
     room: f32,
+    to_end: bool,
 ) {
     let w = crate::stars::width(STARS_HEIGHT);
-    out.push(crate::stars::stars_left(
-        env,
-        &format!("{id}.Stars"),
-        level,
-        STARS_HEIGHT,
-        x,
-        y,
-    ));
+    let stars = format!("{id}.Stars");
+    out.push(if to_end {
+        crate::stars::stars_right(env, &stars, level, STARS_HEIGHT, x, y)
+    } else {
+        crate::stars::stars_left(env, &stars, level, STARS_HEIGHT, x, y)
+    });
     if !text.is_empty() && room > w + STARS_GAP + 24.0 {
         let mut sub = env.text(&format!("{id}.Sub"), text, 12.0, 400, "Muted");
         look::ellipsized(&mut sub, room - w - STARS_GAP);
-        out.push(left(sub, x + w + STARS_GAP, y));
-    }
-}
-
-/// [`level_line`] ending at `x`: `text`, then the stars at its end.
-pub fn level_line_right(
-    env: &Env,
-    out: &mut Vec<Actor>,
-    id: &str,
-    (level, text): (u8, &str),
-    [x, y]: [f32; 2],
-    room: f32,
-) {
-    let w = crate::stars::width(STARS_HEIGHT);
-    out.push(crate::stars::stars_right(
-        env,
-        &format!("{id}.Stars"),
-        level,
-        STARS_HEIGHT,
-        x,
-        y,
-    ));
-    if !text.is_empty() && room > w + STARS_GAP + 24.0 {
-        let mut sub = env.text(&format!("{id}.Sub"), text, 12.0, 400, "Muted");
-        look::ellipsized(&mut sub, room - w - STARS_GAP);
-        out.push(right(sub, x - w - STARS_GAP, y));
+        out.push(if to_end {
+            right(sub, x - w - STARS_GAP, y)
+        } else {
+            left(sub, x + w + STARS_GAP, y)
+        });
     }
 }
 
@@ -909,12 +883,10 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
         match &member.kind {
             MemberKind::Human { .. } => {
                 let me = member.id == r.me();
-                let own = if me { r.own_name() } else { None };
-                let badge = own.is_some();
-                let name: String = match (me, own) {
-                    (true, Some(own)) => UiText::data(&own).into(),
-                    (true, None) => m::you().into(),
-                    _ => person_name(member),
+                let (name, badge) = if me {
+                    own_label(r)
+                } else {
+                    (person_name(member), false)
                 };
                 let prep = upcoming.map(|st| st.prep(member.id));
                 let part = s.participation(member.id);
@@ -940,8 +912,8 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     Some(Participation::SittingOut { .. }) => m::state_sitting_out().into(),
                     _ => String::new(),
                 };
-                let (status, tone) = person_status(s, member, upcoming, &state);
-                let (sub, state) = person_row(s, member, points(member.id), state);
+                let (status, tone) = person_status(s, member, part.as_ref(), upcoming, &state);
+                let (sub, state) = person_row(s, member, part.as_ref(), points(member.id), state);
                 let standing = standing(member.id);
                 rows.push(PlayerRow {
                     name,
@@ -1094,18 +1066,21 @@ fn picks_shown(s: &ddi_room::RoomState, member: &ddi_room::Member) -> bool {
 fn person_status(
     s: &ddi_room::RoomState,
     member: &ddi_room::Member,
+    part: Option<&Participation>,
     upcoming: Option<&ddi_room::Stage>,
     state: &str,
 ) -> (String, Tone) {
-    match member.connection {
-        Connection::Joining => return (m::conn_joining().into(), Tone::Plain),
-        Connection::Reconnecting => return (m::conn_reconnecting().into(), Tone::Away),
-        Connection::Disconnected => return (m::conn_away().into(), Tone::Away),
-        Connection::Connected => {}
+    if let Some(word) = conn_word(member.connection) {
+        let tone = match member.connection {
+            Connection::Joining => Tone::Plain,
+            _ => Tone::Away,
+        };
+        return (word, tone);
     }
-    match s.participation(member.id) {
-        Some(Participation::WaitingNextMatch) => (m::next_match().into(), Tone::Plain),
-        Some(Participation::Watching) => (m::watching().into(), Tone::Plain),
+    if let Some(word) = seat_word(part) {
+        return (word, Tone::Plain);
+    }
+    match part {
         Some(Participation::LoadFailed { .. }) => {
             let why = upcoming.and_then(|st| match &st.prep(member.id).loading {
                 ddi_room::Loading::Failed { code } => LoadProblem::from_code(code),
@@ -1146,28 +1121,41 @@ fn person_status(
 fn person_row(
     s: &ddi_room::RoomState,
     member: &ddi_room::Member,
+    part: Option<&Participation>,
     points: Option<String>,
     state: String,
 ) -> (String, String) {
     let role = person_role(s, member);
-    let seat: Option<String> = match s.participation(member.id) {
-        Some(Participation::WaitingNextMatch) => Some(m::next_match().into()),
-        Some(Participation::Watching) => Some(m::watching().into()),
-        _ => None,
-    };
-    let sub = [role, seat, points]
+    let sub = [role, seat_word(part), points]
         .into_iter()
         .flatten()
         .filter(|t| !t.is_empty())
         .collect::<Vec<_>>()
         .join(" · ");
-    let state = match member.connection {
-        Connection::Joining => m::conn_joining().into(),
-        Connection::Reconnecting => m::conn_reconnecting().into(),
-        Connection::Disconnected => m::conn_away().into(),
-        Connection::Connected => state,
-    };
-    (sub, state)
+    (sub, conn_word(member.connection).unwrap_or(state))
+}
+
+/// What a person's connection says where they are not connected.
+pub(crate) fn conn_word(c: Connection) -> Option<String> {
+    Some(
+        match c {
+            Connection::Joining => m::conn_joining(),
+            Connection::Reconnecting => m::conn_reconnecting(),
+            Connection::Disconnected => m::conn_away(),
+            Connection::Connected => return None,
+        }
+        .into(),
+    )
+}
+
+/// What a person's seat says where they are not in the match's play:
+/// waiting for the next match, or watching.
+fn seat_word(part: Option<&Participation>) -> Option<String> {
+    match part {
+        Some(Participation::WaitingNextMatch) => Some(m::next_match().into()),
+        Some(Participation::Watching) => Some(m::watching().into()),
+        _ => None,
+    }
 }
 
 /// One stage of the match as its picks' history shows it.
@@ -1573,6 +1561,24 @@ pub fn leave_now(room: &SharedRoom, shell: &RoomShell, by: LeaveBy, cx: &mut Cx)
 /// before it goes, seconds.
 pub const QUIT_WAIT: f64 = 0.6;
 
+/// Leaving the room to quit the game: the room told, and when the game
+/// quits on the UI's clock (`now`): at once, or for an online room once
+/// it has answered, [`QUIT_WAIT`] at most ([`quit_due`]).
+pub fn quit_leaving(room: &SharedRoom, now: f64) -> f64 {
+    let told = {
+        let r = room.borrow();
+        r.is_online() && r.link_state() == ddi_room::LinkState::Connected
+    };
+    room.borrow_mut().leave();
+    now + if told { QUIT_WAIT } else { 0.0 }
+}
+
+/// Whether a game quitting at `at` ([`quit_leaving`]) quits now: its time
+/// came, or the room answered.
+pub fn quit_due(room: &SharedRoom, at: Option<f64>, now: f64) -> bool {
+    at.is_some_and(|at| now >= at || room.borrow().link_state().ended())
+}
+
 /// Does what More's `id` asks.
 pub fn more_picked(id: &str, room: &SharedRoom, cx: &mut Cx) -> MoreAction {
     match id {
@@ -1792,6 +1798,7 @@ pub fn panel(
                         (level, &p.sub),
                         [x, ry + 31.0],
                         w,
+                        false,
                     );
                 } else if !p.sub.is_empty() {
                     let mut sub = env.text(&format!("Panel{k}.Sub"), &p.sub, 12.0, 400, "Muted");
@@ -1990,6 +1997,7 @@ pub fn players_panel(env: &Env, r: &RoomClient, [x, y, w, h]: [f32; 4]) -> Actor
                 (level, &p.sub),
                 [ax, mid + 1.0],
                 (room - name_w - 10.0).max(stars_w),
+                false,
             );
         } else if !p.role.is_empty() {
             let mut role = env.text(&format!("{id}.Role"), &p.role, 12.0, 400, "Muted");
@@ -2206,7 +2214,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         difficulty: difficulty_id(rules.difficulty).into(),
         boos: rules.boos,
         attacks: r.attacks_played(rules),
-        attacks_offered: attacks_offered(&r),
+        attacks_offered: r.attacks_offered(),
         targeting: snake(&r.my_targeting()),
         watching: r.watching(),
         can_choose_intent: r.may_choose_intent(),
@@ -2483,16 +2491,6 @@ pub fn difficulty_name(d: ddi_room::MatchDifficulty) -> UiText {
     }
 }
 
-/// Whether the room's Attacks rule can be set: where attacks really
-/// work, which is a practice room (its ledger runs on this device, the
-/// shocks go into the plays judged here). An online room has neither the
-/// ledger fed by its members' reports nor shocks delivered to each
-/// member's play yet, so the rule is shown there as unavailable rather
-/// than offered and doing nothing.
-pub fn attacks_offered(room: &crate::state::room::RoomClient) -> bool {
-    room.attacks_offered()
-}
-
 /// The match's rules in a few words, where they are summarized (the Rules
 /// pop-up's locked line, a stage's prompt): the ruleset's name, then what
 /// differs from the usual: its difficulty where it is not Normal, Boos
@@ -2605,7 +2603,7 @@ pub fn pending_change(r: &RoomClient) -> Option<(u16, UiText)> {
         Some(i) => m.rules_for(m.stages[i].id),
         None => m.rules.clone(),
     };
-    let words = change_words(&before, &m.rules_for(change.from), attacks_offered(r))?;
+    let words = change_words(&before, &m.rules_for(change.from), r.attacks_offered())?;
     Some((u16::try_from(index + 1).unwrap_or(u16::MAX), words))
 }
 

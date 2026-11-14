@@ -22,7 +22,7 @@ use ddi_room::{
 
 use super::dialog::{button, fitted_dialog, shell, stepper};
 use super::room::{
-    PanelRow, cpu_level, cpu_name, cpu_sub, level_line_right, mark_text, panel, person_name,
+    PanelRow, cpu_level, cpu_name, cpu_sub, level_line, mark_text, panel, person_name,
     players_first_rows, publish_dialog,
 };
 use super::{Env, call, frame, left, right, scrolled};
@@ -370,9 +370,9 @@ impl RulesDialog {
         self.room.borrow().adaptive_offered()
     }
 
-    /// The Attacks rule can be set here (`room::attacks_offered`).
+    /// The Attacks rule can be set here (`RoomClient::attacks_offered`).
     fn attacks_offered(&self) -> bool {
-        super::room::attacks_offered(&self.room.borrow())
+        self.room.borrow().attacks_offered()
     }
 
     /// The Attacks at once row shows: offered (`RoomClient::at_once_offered`)
@@ -440,7 +440,7 @@ impl RulesDialog {
             if r.adaptive_offered() && d.charts != ahead.charts {
                 v.push("charts");
             }
-            if super::room::attacks_offered(&r) && d.attacks() != ahead.attacks() {
+            if r.attacks_offered() && d.attacks() != ahead.attacks() {
                 v.push("attacks");
             }
             if r.at_once_offered() && d.attacks() && d.at_once != ahead.at_once {
@@ -475,7 +475,7 @@ impl RulesDialog {
         {
             v.push("cpus");
         }
-        if super::room::attacks_offered(&r) && d.attacks() != locked.attacks() {
+        if r.attacks_offered() && d.attacks() != locked.attacks() {
             v.push("attacks");
         }
         if r.at_once_offered() && d.attacks() && d.at_once != locked.at_once {
@@ -1177,13 +1177,14 @@ impl Screen for RulesDialog {
                 // Its personality, then its level's stars at the row's end.
                 let cpu_edit = row_edit("cpus");
                 let end = x0 + inner - if cpu_edit { 48.0 } else { 0.0 };
-                level_line_right(
+                level_line(
                     &env,
                     &mut c,
                     &format!("Cpu{k}"),
                     (cpu_level(spec), &cpu_sub(spec)),
                     [end, row_y],
                     inner * 0.55 - if cpu_edit { 48.0 } else { 0.0 },
+                    true,
                 );
                 if cpu_edit {
                     place(format!("Remove.{k}"), row_y);
@@ -1948,13 +1949,14 @@ impl Screen for AddCpuDialog {
                 );
                 look::ellipsized(&mut n, inner * 0.5);
                 c.push(left(n, x0 + 12.0, row_y));
-                level_line_right(
+                level_line(
                     &env,
                     &mut c,
                     &format!("Name.{k}"),
                     (cpu_level(&spec), &cpu_sub(&spec)),
                     [x0 + inner - 12.0, row_y],
                     inner * 0.5 - 24.0,
+                    true,
                 );
                 ry += ROW;
             }
@@ -2458,12 +2460,7 @@ impl HostDialog {
                 };
                 let held: Option<String> =
                     (mb.watch_only && mb.role != Role::Owner).then(|| m::host_watch_only().into());
-                let away: Option<String> = match mb.connection {
-                    ddi_room::Connection::Connected => None,
-                    ddi_room::Connection::Joining => Some(m::conn_joining().into()),
-                    ddi_room::Connection::Reconnecting => Some(m::conn_reconnecting().into()),
-                    ddi_room::Connection::Disconnected => Some(m::conn_away().into()),
-                };
+                let away = super::room::conn_word(mb.connection);
                 Person {
                     id: mb.id.0,
                     name: person_name(mb),
@@ -3000,7 +2997,7 @@ impl Screen for StandingsDialog {
                         i + 1,
                         super::room::rules_words_in(
                             &crate::state::room::StageRules::of(&rules),
-                            super::room::attacks_offered(&r).then(|| rules.attacks()),
+                            r.attacks_offered().then(|| rules.attacks()),
                             r.adaptive_offered(),
                         ),
                     )

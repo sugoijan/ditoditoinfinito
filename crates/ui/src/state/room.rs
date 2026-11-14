@@ -2639,7 +2639,7 @@ impl RoomClient {
     /// the ledger on everyone's streamed reports
     /// (`docs/plans/multiplayer-online-play.md`). An online room that does
     /// not (a server from before live play) has neither, whatever its
-    /// rules say (`crate::screens::room::attacks_offered`).
+    /// rules say.
     pub fn attacks_offered(&self) -> bool {
         self.judged_here_or_live()
     }
@@ -3587,7 +3587,7 @@ impl RoomClient {
     }
 
     /// The match's Attacks at once can be set here: where attacks are
-    /// offered (`screens::room::attacks_offered`) and the room's authority
+    /// offered ([`Self::attacks_offered`]) and the room's authority
     /// honors the limit (`RoomPolicy::at_once`; one that predates it
     /// would place attacks without it).
     pub fn at_once_offered(&self) -> bool {

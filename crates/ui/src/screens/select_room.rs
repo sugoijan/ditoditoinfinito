@@ -161,6 +161,8 @@ pub(super) struct RoomMode {
     /// The player left the room from this screen (asked or not): nothing
     /// guards it any more.
     left: bool,
+    /// The room's name the header was built with.
+    heading: Option<String>,
     /// What the debug view was last published for: published again only
     /// when it changes ([`SelectScreen::room_publish`]).
     published: std::cell::RefCell<Option<Published>>,
@@ -188,6 +190,7 @@ impl SelectScreen {
             // Never a chart's key: the first update sets the follower's
             // song (none yet, or the host's), not their own list.
             following: Some((String::from(UNFOLLOWED), false)),
+            heading: None,
             published: std::cell::RefCell::new(None),
             library: None,
             place: None,
@@ -532,11 +535,7 @@ impl SelectScreen {
         }
         if enter {
             let backdrop = (from == Side::Joining).then_some("Backdrop");
-            for name in SIDE_PARTS.into_iter().chain(backdrop) {
-                if let Some(part) = now.iter_mut().find(|c| c.name == name) {
-                    part.play("On", &mut problems);
-                }
-            }
+            play_parts(now, SIDE_PARTS.into_iter().chain(backdrop), "On");
         }
     }
 
@@ -574,9 +573,7 @@ impl SelectScreen {
         let changed = rm.pump.run(&room, &shell, cx);
         // Quitting (the window closed, the leaving confirmed): once the
         // room has answered, or after a moment.
-        if let Some(at) = rm.quit_at
-            && (cx.time() >= at || room.borrow().link_state().ended())
-        {
+        if room::quit_due(&room, rm.quit_at, cx.time()) {
             rm.quit_at = None;
             cx.request(crate::UiRequest::Quit);
             return;
@@ -621,15 +618,18 @@ impl SelectScreen {
         // The header names the room: its name comes after the room, and
         // changes in place (the bars stay put).
         let heading = String::from(room::heading(&room.borrow()));
-        if self.room_built_heading.as_deref() != Some(heading.as_str()) {
-            if self.room_built_heading.is_some()
+        let built = self.room.as_ref().and_then(|rm| rm.heading.as_deref());
+        if built != Some(heading.as_str()) {
+            if built.is_some()
                 && !self.layout.compact
                 && let Some(old) = hit::find_mut(root, "Header")
             {
                 let fresh = header(&self.env, cx, self.layout.screen[0], &heading);
                 crate::screens::refill(old, fresh);
             }
-            self.room_built_heading = Some(heading);
+            if let Some(rm) = &mut self.room {
+                rm.heading = Some(heading);
+            }
             self.left_dirty = true;
         }
         // The side the room says this player is on, against the one
@@ -647,14 +647,7 @@ impl SelectScreen {
             if !at_once {
                 match leaving {
                     None => {
-                        let mut problems = ddi_actor::Problems::default();
-                        for name in SIDE_PARTS {
-                            if let Some(part) =
-                                root.children_mut().iter_mut().find(|c| c.name == name)
-                            {
-                                part.play("Off", &mut problems);
-                            }
-                        }
+                        play_parts(root.children_mut(), SIDE_PARTS, "Off");
                         let out = f64::from(self.env.metric("Motion.Screen.Out", 0.15));
                         if let Some(rm) = &mut self.room {
                             rm.leaving = Some(cx.time() + out);
@@ -678,12 +671,7 @@ impl SelectScreen {
             if let Some(rm) = &mut self.room {
                 rm.leaving = None;
             }
-            let mut problems = ddi_actor::Problems::default();
-            for name in SIDE_PARTS {
-                if let Some(part) = root.children_mut().iter_mut().find(|c| c.name == name) {
-                    part.play("On", &mut problems);
-                }
-            }
+            play_parts(root.children_mut(), SIDE_PARTS, "On");
         }
         let side = self.room.as_ref().map_or(Side::Joining, |rm| rm.side);
         match side {
@@ -921,12 +909,7 @@ impl SelectScreen {
         rm.left = true;
         if by == room::LeaveBy::Quit {
             // An online room is told first; nothing else to wait for.
-            let told = {
-                let r = rm.room.borrow();
-                r.is_online() && r.link_state() == ddi_room::LinkState::Connected
-            };
-            rm.room.borrow_mut().leave();
-            rm.quit_at = Some(cx.time() + if told { room::QUIT_WAIT } else { 0.0 });
+            rm.quit_at = Some(room::quit_leaving(&rm.room, cx.time()));
         } else {
             room::leave_now(&rm.room, &rm.shell, by, cx);
         }
@@ -1129,6 +1112,16 @@ impl SelectScreen {
     pub(super) fn room_republish(&self) {
         if let Some(rm) = &self.room {
             *rm.published.borrow_mut() = None;
+        }
+    }
+}
+
+/// Plays `command` on the parts named `names` among `parts`.
+fn play_parts<'a>(parts: &mut [Actor], names: impl IntoIterator<Item = &'a str>, command: &str) {
+    let mut problems = ddi_actor::Problems::default();
+    for name in names {
+        if let Some(part) = parts.iter_mut().find(|c| c.name == name) {
+            part.play(command, &mut problems);
         }
     }
 }
