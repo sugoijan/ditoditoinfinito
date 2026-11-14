@@ -2272,12 +2272,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             return large;
         }
         frame.notes.clear();
-        frame.receptors.fill(ddi_engine::frame::ReceptorState {
-            pressed: false,
-            mine: None,
-            flash: None,
-            holding: None,
-        });
+        frame.receptors.fill(ddi_engine::frame::ReceptorState::default());
         frame.judgement = None;
         frame.holds = Default::default();
         frame.failed = false;

@@ -37,6 +37,8 @@
 //! lane is locked for the lock's time ([`FieldFeed::locks`]), which the
 //! miniature shows.
 
+use std::rc::Rc;
+
 use ddi_chart::{Quantization, Song, Tick, TimingMap};
 use ddi_engine::battle::{HAZARD_INDEX_BASE, Hazard};
 use ddi_engine::frame::{
@@ -303,7 +305,7 @@ struct FeedStep {
     tick: ddi_chart::Tick,
     rung: u8,
     up: bool,
-    track: TapTrack,
+    track: Rc<TapTrack>,
     gone: Vec<f64>,
     hold_end: Vec<Option<(f64, bool)>>,
 }
@@ -355,7 +357,7 @@ impl FieldFeed {
     /// (its rung at its moment) is not taken again.
     pub fn step(
         &mut self,
-        track: TapTrack,
+        track: Rc<TapTrack>,
         (at, boundary, tick): (f64, f64, ddi_chart::Tick),
         rung: u8,
         up: bool,
@@ -495,12 +497,14 @@ impl FieldFeed {
         let (track, gone, hold_end) = match step {
             Some(k) => {
                 let s = &mut self.steps[k];
-                (&s.track, &mut s.gone, &mut s.hold_end)
+                (&*s.track, &mut s.gone, &mut s.hold_end)
             }
             None => (track, &mut self.gone, &mut self.hold_end),
         };
         match m.kind {
-            MomentKind::Tap(j) if !j.is_miss() => {
+            MomentKind::Tap(j) if j.is_miss() => {}
+            // A note hit, or a mine stepped on: gone from then.
+            MomentKind::Tap(_) | MomentKind::MineHit => {
                 if let Some(i) = track.find(m.tick, m.lane) {
                     gone[i] = gone[i].min(m.at);
                 }
@@ -512,12 +516,7 @@ impl FieldFeed {
                     hold_end[i] = Some((m.at, ok));
                 }
             }
-            MomentKind::MineHit => {
-                if let Some(i) = track.find(m.tick, m.lane) {
-                    gone[i] = gone[i].min(m.at);
-                }
-            }
-            MomentKind::Tap(_) | MomentKind::Boo | MomentKind::Mark | MomentKind::Step(_) => {}
+            MomentKind::Boo | MomentKind::Mark | MomentKind::Step(_) => {}
             MomentKind::ShockHit => {
                 if let Some(s) = self
                     .shocks
@@ -570,16 +569,8 @@ impl FieldFeed {
         let v = self.view_time(t);
         let state = ScrollState::at(scroll, &track.timing, v);
         let shown = self.shown_moments(t);
-        let out = shown.iter().any(|m| m.out);
-        let mut receptors = vec![
-            ReceptorState {
-                pressed: false,
-                mine: None,
-                flash: None,
-                holding: None,
-            };
-            usize::from(track.lanes)
-        ];
+        let out = self.out_at <= v;
+        let mut receptors = vec![ReceptorState::default(); usize::from(track.lanes)];
         for m in shown.iter().rev() {
             let age = (v - m.at) as f32;
             if age > FLASH_SECONDS {
@@ -598,8 +589,6 @@ impl FieldFeed {
         }
         let mut notes = Vec::new();
         if !out {
-            // From a second back (a missed note still in sight) to the
-            // first one past the far end.
             // From a second back (a missed note still in sight; a hold
             // still being held, however long) to the first one past the
             // far end.
@@ -624,7 +613,7 @@ impl FieldFeed {
             for (k, step) in shown_steps.iter().enumerate() {
                 let cut = cut_after(k + 1);
                 self.draw_notes(
-                    (&step.track, &step.gone, &step.hold_end),
+                    (&*step.track, &step.gone, &step.hold_end),
                     (step.boundary - 1e-6, cut, STEP_INDEX * usize::from(step.rung)),
                     (v, &state, range),
                     &mut notes,
@@ -658,8 +647,9 @@ impl FieldFeed {
                 });
             }
         }
-        let life = shown.last().map_or(self.life, |m| m.life);
-        let combo = shown.last().map_or(0, |m| m.combo);
+        let last = shown.last();
+        let life = last.map_or(self.life, |m| m.life);
+        let combo = last.map_or(0, |m| m.combo);
         Frame {
             song_time: v,
             beat: state.beat(),
@@ -764,15 +754,15 @@ impl FieldFeed {
             if matches!(kind, SpriteKind::HoldHead { .. } | SpriteKind::RollHead { .. }) {
                 y = y.max(-0.6);
             }
-            if let SpriteKind::HoldHead { active: true, .. } = kind
+            let holding = match kind {
+                SpriteKind::HoldHead { active: true, .. } => Some(HoldKind::Hold),
+                SpriteKind::RollHead { active: true, .. } => Some(HoldKind::Roll),
+                _ => None,
+            };
+            if let Some(h) = holding
                 && let Some(r) = receptors.get_mut(usize::from(n.lane))
             {
-                r.holding = Some(HoldKind::Hold);
-            }
-            if let SpriteKind::RollHead { active: true, .. } = kind
-                && let Some(r) = receptors.get_mut(usize::from(n.lane))
-            {
-                r.holding = Some(HoldKind::Roll);
+                r.holding = Some(h);
             }
             let beat = n.tick.beat();
             notes.push(NoteSprite {

@@ -1362,7 +1362,7 @@ pub struct Memo {
 
 #[derive(Clone, Debug)]
 struct NameCut {
-    name: String,
+    name: std::rc::Rc<str>,
     room: f32,
     size: f32,
     cut: std::sync::Arc<str>,
@@ -1828,7 +1828,7 @@ pub(crate) mod tests {
             opponents: (0..n)
                 .map(|i| OpponentView {
                     participant: ParticipantId(i as u64 + 2),
-                    name: format!("CPU {}", i + 1),
+                    name: format!("CPU {}", i + 1).into(),
                     level: Some(3),
                     life: 0.5,
                     out: i == 1,
@@ -3010,7 +3010,7 @@ pub(crate) mod tests {
         ];
         let view = |i: usize| OpponentView {
             participant: ParticipantId(i as u64 + 2),
-            name: names[i % names.len()].to_string(),
+            name: names[i % names.len()].into(),
             level: (i % 3 != 2).then_some((i % 10) as u8 + 1),
             life: (i as f32 * 0.137).fract(),
             out: i % 7 == 3,

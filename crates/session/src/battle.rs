@@ -45,6 +45,8 @@ pub mod cpus;
 pub mod feed;
 pub mod live;
 
+use std::rc::Rc;
+
 use ddi_chart::Song;
 use ddi_engine::JudgeEventKind;
 use ddi_engine::cpu::Opponent;
@@ -231,8 +233,9 @@ pub fn battle_seed(setup: &StageSetup) -> u64 {
 #[derive(Clone, Debug, PartialEq)]
 pub struct OpponentView {
     pub participant: ParticipantId,
-    /// "CPU 2", in the UI's language (a roster's name is data).
-    pub name: String,
+    /// "CPU 2", in the UI's language (a roster's name is data); shared
+    /// with the battle's seat, so that a frame's views copy no text.
+    pub name: Rc<str>,
     /// A CPU's level, from 1 to ten (drawn as stars); none for a person.
     pub level: Option<u8>,
     /// Its gauge's life, `0..=1`.
@@ -443,7 +446,7 @@ pub fn practice_lead_us(horizon_us: i64) -> i64 {
 struct Seat {
     seat: CpuSeat,
     opponent: Opponent,
-    name: String,
+    name: Rc<str>,
     /// From 1.
     level: u8,
     /// Its moments as its miniature field is fed them.
@@ -477,11 +480,12 @@ pub struct Battle {
     seats: Vec<Seat>,
     /// The chart as the fields of people draw it: the chart itself (their
     /// streams, the local player's own field).
-    track: feed::TapTrack,
+    track: Rc<feed::TapTrack>,
     /// The chart as the CPUs play it, as their fields draw it (the chart
-    /// itself, `cpu-play-v1`), and its ladder's (a step's).
-    cpu_track: feed::TapTrack,
-    cpu_rungs: Vec<feed::TapTrack>,
+    /// itself, `cpu-play-v1`: the same copies), and its ladder's (a
+    /// step's).
+    cpu_track: Rc<feed::TapTrack>,
+    cpu_rungs: Vec<Rc<feed::TapTrack>>,
     /// The stage's chart's name as the song list names it (data).
     stage_name: String,
     /// An online room's CPUs' battle plan where this device has none of
@@ -564,7 +568,7 @@ pub struct Battle {
 #[derive(Clone, Debug)]
 pub struct Rung {
     pub chart: usize,
-    pub track: feed::TapTrack,
+    pub track: Rc<feed::TapTrack>,
     /// Its name as the song list names it (data).
     pub name: String,
     /// Harder than the stage's chart (a rung above it).
@@ -648,20 +652,28 @@ impl Battle {
             .map(|r| {
                 Ok(Rung {
                     chart: r.chart,
-                    track: feed::TapTrack::full(song, r.chart)?,
+                    track: Rc::new(feed::TapTrack::full(song, r.chart)?),
                     name: ddi_engine::ladder::rung_name(&song.charts[r.chart]),
                     up: r.up,
                 })
             })
             .collect::<Result<Vec<Rung>, String>>()?;
         // People play the chart itself, and so do the CPUs
-        // (`cpu-play-v1`).
-        let track = feed::TapTrack::full(song, chart)?;
-        let cpu_track = cpu_track(song, chart)?;
-        let cpu_rungs = ladder
-            .iter()
-            .map(|r| self::cpu_track(song, r.chart))
-            .collect::<Result<Vec<_>, String>>()?;
+        // (`cpu-play-v1`): one copy of each chart for both.
+        let track = Rc::new(feed::TapTrack::full(song, chart)?);
+        let (cpu_track, cpu_rungs) = match ddi_engine::cpu::CPU_PLAY {
+            ddi_engine::cpu::CpuPlay::FullV1 => (
+                Rc::clone(&track),
+                rungs.iter().map(|r| Rc::clone(&r.track)).collect(),
+            ),
+            ddi_engine::cpu::CpuPlay::TapsV0 => (
+                Rc::new(cpu_track(song, chart)?),
+                ladder
+                    .iter()
+                    .map(|r| self::cpu_track(song, r.chart).map(Rc::new))
+                    .collect::<Result<Vec<_>, String>>()?,
+            ),
+        };
         // An online room's CPUs are played alike on every device
         // (`cpus::Drive`, made with the stage's plan in `with_live`), from
         // one song time, under the match's rules alone.
@@ -685,10 +697,10 @@ impl Battle {
                     seat: seat.clone(),
                     opponent,
                     // A roster's name is data, the same in every language.
-                    name: seat
-                        .name
-                        .clone()
-                        .unwrap_or_else(|| m::cpu_name(seat.ordinal).into()),
+                    name: match &seat.name {
+                        Some(n) => n.as_str().into(),
+                        None => String::from(m::cpu_name(seat.ordinal)).into(),
+                    },
                     level: u8::try_from(level + 1).unwrap_or(u8::MAX),
                     feed,
                     plays_on: false,
@@ -831,8 +843,8 @@ impl Battle {
     /// each its rung's chart (`stage`, the stage's chart's, for rung 0)
     /// from the boundary and a moment with the life then.
     fn feed_steps(
-        stage: &feed::TapTrack,
-        rungs: &[feed::TapTrack],
+        stage: &Rc<feed::TapTrack>,
+        rungs: &[Rc<feed::TapTrack>],
         field: &mut feed::FieldFeed,
         player: &Player,
     ) {
@@ -845,7 +857,7 @@ impl Battle {
                     None => continue,
                 },
             };
-            field.step(rung.clone(), (st.at, st.boundary, st.tick), st.rung, st.up);
+            field.step(Rc::clone(rung), (st.at, st.boundary, st.tick), st.rung, st.up);
             let life = player.life_at(st.at + 1e-6).clamp(0.0, 1.0);
             field.push(
                 rung,
@@ -904,7 +916,7 @@ impl Battle {
         ));
         if let Some(l) = self.remote_live.as_mut() {
             l.set_most(most);
-            l.set_rungs(self.rungs.iter().map(|r| (r.track.clone(), r.up)).collect());
+            l.set_rungs(self.rungs.iter().map(|r| (Rc::clone(&r.track), r.up)).collect());
             self.log.push(l.describe());
             if !self.seats.is_empty() {
                 self.log.push(format!(
@@ -1122,6 +1134,13 @@ impl Battle {
         self.competes() && self.forfeit.is_none() && human.gauge_failed_at().is_none()
     }
 
+    /// How many competitors are still in (`me`: the local player is; a
+    /// local CPU whose gauge has not emptied): a [`Run::Live`] each in
+    /// [`Battle::entrants_as`].
+    fn still_in(&self, me: bool) -> usize {
+        usize::from(me) + self.seats.iter().filter(|s| s.out_at().is_none()).count()
+    }
+
     /// The local player's battle goes on: still in, the stage not won.
     fn me_battling(&self, human: &Player) -> bool {
         !self.won() && self.me_in(human)
@@ -1252,13 +1271,12 @@ impl Battle {
     /// window, holds' ends, mines and shocks stepped on, Boos; their
     /// going out (their gauge, or the forfeit) once.
     fn feed_own(&mut self, human: &Player, judged: &[JudgeEvent]) {
-        let rungs: Vec<feed::TapTrack> = if human.steps().len() > self.own.steps().count() {
-            self.rungs.iter().map(|r| r.track.clone()).collect()
+        let rungs: Vec<Rc<feed::TapTrack>> = if human.steps().len() > self.own.steps().count() {
+            self.rungs.iter().map(|r| Rc::clone(&r.track)).collect()
         } else {
             Vec::new()
         };
-        let stage = self.track.clone();
-        Self::feed_steps(&stage, &rungs, &mut self.own, human);
+        Self::feed_steps(&self.track, &rungs, &mut self.own, human);
         let judge = &human.ruleset().judge;
         let (life, combo) = (human.ruleset().gauge.life().clamp(0.0, 1.0), human.combo());
         let score = human.ruleset().score.view();
@@ -1343,7 +1361,7 @@ impl Battle {
         let view = human.ruleset().score.view();
         OpponentView {
             participant: self.setup.me,
-            name,
+            name: name.into(),
             level: None,
             life: shown.life,
             out: shown.out,
@@ -1387,8 +1405,8 @@ impl Battle {
     /// A CPU's judgments `events` as moments of its stream: what its field
     /// shows (its steps down drawing the rung's chart).
     fn feed_cpu(
-        track: &feed::TapTrack,
-        rungs: &[feed::TapTrack],
+        track: &Rc<feed::TapTrack>,
+        rungs: &[Rc<feed::TapTrack>],
         s: &mut Seat,
         events: Vec<JudgeEvent>,
     ) {
@@ -1621,7 +1639,7 @@ impl Battle {
                     self.seats
                         .iter()
                         .find(|s| s.seat.participant == p)
-                        .map_or_else(|| format!("{p:?}"), |s| s.name.clone())
+                        .map_or_else(|| format!("{p:?}"), |s| s.name.to_string())
                 }
             };
             self.log.push(format!(
@@ -1648,12 +1666,20 @@ impl Battle {
             return None;
         }
         let human = human.filter(|_| self.competes());
-        let entrants = self.entrants_as(human.map(|h| self.my_run(h, false)));
         // Others play on their own devices: nothing is decided here.
         if self.setup.remote() {
             self.tell(human, false);
             return None;
         }
+        // Two or more still in: nothing decided and nobody last standing
+        // (`SETTLEMENT.decided` and the settling both ask for at most
+        // one), without working out everyone's run.
+        if self.still_in(human.is_some_and(|h| self.me_in(h))) >= 2 {
+            self.note_last_standing();
+            self.tell(human, false);
+            return None;
+        }
+        let entrants = self.entrants_as(human.map(|h| self.my_run(h, false)));
         // Attacks still to clear against those in: an attack clears once
         // its recipient's play is judged past it.
         let me = self.setup.me;
@@ -2001,11 +2027,9 @@ impl Battle {
             }
         } else {
             // Told once they watch: only what happens from then.
-            self.outs_told = self
-                .seats
-                .iter()
-                .map(|s| s.out_at().is_some())
-                .collect();
+            self.outs_told.clear();
+            self.outs_told
+                .extend(self.seats.iter().map(|s| s.out_at().is_some()));
         }
         self.danger = Some(danger);
         self.live = live;
@@ -2570,10 +2594,8 @@ impl Battle {
                     // worked out from it, the W0s it told and the chart's
                     // most (`live::ddi_of_sum`); none without a most.
                     score: match (view.and_then(|v| v.ddi), self.most) {
-                        (Some(d), Some(_)) if d.most > 0 => accuracy(&ScoreView {
-                            ddi: Some(d),
-                            ..ScoreView::default()
-                        }),
+                        // `accuracy` of a DDI view.
+                        (Some(d), Some(_)) if d.most > 0 => d.ratio as f64 / 1_000_000.0,
                         (None, Some(_)) => 0.0,
                         _ => f64::NAN,
                     },
@@ -2610,21 +2632,24 @@ impl Battle {
                             .map(|_| l.ledger.bar(s.seat.participant)),
                     }
                 }
-                _ => OpponentView {
-                    participant: s.seat.participant,
-                    name: s.name.clone(),
-                    level: Some(s.level),
-                    life: s.opponent.life(),
-                    out: s.out_at().is_some(),
-                    score: accuracy(&s.opponent.score()),
-                    sum: s.opponent.score().ddi.map(|d| d.score),
-                    combo: s.opponent.combo(),
-                    power: self
-                        .attacks
-                        .as_ref()
-                        .filter(|_| s.out_at().is_none())
-                        .map(|a| a.bar(s.seat.participant)),
-                },
+                _ => {
+                    let score = s.opponent.score();
+                    OpponentView {
+                        participant: s.seat.participant,
+                        name: s.name.clone(),
+                        level: Some(s.level),
+                        life: s.opponent.life(),
+                        out: s.out_at().is_some(),
+                        score: accuracy(&score),
+                        sum: score.ddi.map(|d| d.score),
+                        combo: s.opponent.combo(),
+                        power: self
+                            .attacks
+                            .as_ref()
+                            .filter(|_| s.out_at().is_none())
+                            .map(|a| a.bar(s.seat.participant)),
+                    }
+                }
             })
             .collect();
         views.extend(remote);

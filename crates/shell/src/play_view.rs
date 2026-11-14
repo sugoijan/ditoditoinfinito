@@ -1506,7 +1506,7 @@ impl<H: PlayHost> PlayView<H> {
         // went out, who attacks whom, who won), before a battle's moment
         // no line said.
         let names: Vec<&str> = if watch.is_some() {
-            views_now.iter().map(|v| v.name.as_str()).collect()
+            views_now.iter().map(|v| &*v.name).collect()
         } else {
             Vec::new()
         };

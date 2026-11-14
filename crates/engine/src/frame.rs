@@ -7,7 +7,7 @@ use crate::cover::CoverView;
 use crate::rules::{Judgement, ScoreView};
 
 /// One lane's receptor.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct ReceptorState {
     pub pressed: bool,
     /// A battle shock stepped on in this lane and its age in seconds

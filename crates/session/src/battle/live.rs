@@ -143,7 +143,7 @@ pub struct LiveState<'a> {
 /// Another competitor of the stage, as its stream draws it.
 pub(crate) struct RemoteSeat {
     pub participant: ParticipantId,
-    pub name: String,
+    pub name: Rc<str>,
     pub feed: feed::FieldFeed,
     pub through_us: Option<i64>,
     pub end: Option<StreamEnd>,
@@ -392,7 +392,7 @@ pub(crate) struct Live {
     /// The stage's ladder as the fields draw it (each rung's chart, and
     /// whether it is above the stage's), where the charts adapt, and the
     /// local play's steps streamed so far.
-    rungs: Vec<(feed::TapTrack, bool)>,
+    rungs: Vec<(Rc<feed::TapTrack>, bool)>,
     steps_sent: usize,
     /// The checkpoints whose news came in a snapshot (it carries their
     /// commitments, not their records): those whose deadline had passed
@@ -551,7 +551,7 @@ impl Live {
                 feed.set_lock(lock);
                 RemoteSeat {
                     participant: *p,
-                    name: name.clone(),
+                    name: name.as_str().into(),
                     feed,
                     through_us: None,
                     end: None,
@@ -625,7 +625,7 @@ impl Live {
     /// The stage's ladder (each rung's chart and whether it is above the
     /// stage's, numbered as `Ladder::rungs`), where the charts adapt: what
     /// a remote field draws once its stream says it stepped.
-    pub(crate) fn set_rungs(&mut self, rungs: Vec<(feed::TapTrack, bool)>) {
+    pub(crate) fn set_rungs(&mut self, rungs: Vec<(Rc<feed::TapTrack>, bool)>) {
         self.rungs = rungs;
     }
 
@@ -920,7 +920,7 @@ impl Live {
     /// the ledger's records kept. `t`: this play's judged song second.
     pub(crate) fn receive(
         &mut self,
-        track: &feed::TapTrack,
+        track: &Rc<feed::TapTrack>,
         t: f64,
         mut human: Option<&mut Deliver<'_>>,
     ) -> Received {
@@ -989,7 +989,7 @@ impl Live {
 
     fn frame(
         &mut self,
-        track: &feed::TapTrack,
+        track: &Rc<feed::TapTrack>,
         f: &Frame,
         t: f64,
         mut human: Option<&mut Deliver<'_>>,
@@ -1049,7 +1049,7 @@ impl Live {
                 // boundary (the stage's again for rung 0).
                 if let MomentKind::Step { rung } = m.kind {
                     let r = match usize::from(rung).checked_sub(1) {
-                        None => Some((track.clone(), false)),
+                        None => Some((Rc::clone(track), false)),
                         Some(i) => self.rungs.get(i).cloned(),
                     };
                     if let Some((r, up)) = r {
@@ -1059,9 +1059,9 @@ impl Live {
                         // a rung below it.
                         let up = up
                             || (rung == 0
-                                && self
-                                    .rungs
-                                    .get(usize::from(seat.steps_from).wrapping_sub(1))
+                                && usize::from(seat.steps_from)
+                                    .checked_sub(1)
+                                    .and_then(|i| self.rungs.get(i))
                                     .is_some_and(|f| !f.1));
                         seat.steps_from = rung;
                         seat.feed.step(r, (fm.at, boundary, Tick(m.tick)), rung, up);
@@ -1281,7 +1281,7 @@ impl Drop for Live {
 /// as a person's play.
 pub struct LivePlay {
     live: Live,
-    track: feed::TapTrack,
+    track: Rc<feed::TapTrack>,
     log: Vec<String>,
     /// The stage's CPUs, computed here as on every device
     /// (`crate::battle::cpus`): a bot reports for them as a person's
@@ -1313,7 +1313,7 @@ impl LivePlay {
         let Some(prep) = prep_now(&handle, order.stage, live) else {
             return Ok(None);
         };
-        let track = feed::TapTrack::full(song, chart)?;
+        let track = Rc::new(feed::TapTrack::full(song, chart)?);
         let plan = prep.plan.clone().filter(|_| order.battle.attacks());
         let play = Live::new(
             handle,
