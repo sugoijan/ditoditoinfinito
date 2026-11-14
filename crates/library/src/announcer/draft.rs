@@ -439,9 +439,10 @@ pub fn by_name(name: &str) -> Option<Line> {
         }
         if name.chars().count() >= 4 {
             let end = format!(" {name}");
-            let mut ends = Line::all()
-                .into_iter()
-                .filter(|l| l.folder().ends_with(&end));
+            let mut ends = super::folders()
+                .iter()
+                .filter(|(folder, _)| folder.ends_with(&end))
+                .map(|&(_, line)| line);
             if let (Some(line), None) = (ends.next(), ends.next()) {
                 return Some(line);
             }
@@ -491,13 +492,14 @@ impl Draft {
 
     /// A text line on `line`, its words to be written. Its id.
     pub fn write(&mut self, line: Line) -> u64 {
+        self.write_with(line, String::new())
+    }
+
+    /// [`Draft::write`] with its `words`.
+    fn write_with(&mut self, line: Line, words: String) -> u64 {
         let id = self.next;
         self.next += 1;
-        self.scripts.push(Script {
-            id,
-            line,
-            words: String::new(),
-        });
+        self.scripts.push(Script { id, line, words });
         id
     }
 
@@ -563,10 +565,7 @@ impl Draft {
         let i = self.takes.iter().position(|t| t.id == id)?;
         let t = self.takes.remove(i);
         if let (Some(line), Some(words)) = (t.line, &t.words) {
-            let id = self.write(line);
-            if let Some(s) = self.scripts.last_mut().filter(|s| s.id == id) {
-                s.words = words.clone();
-            }
+            self.write_with(line, words.clone());
         }
         Some(t)
     }
@@ -676,17 +675,15 @@ impl Draft {
         let mut bytes = 0;
         for t in self.takes.iter().filter(|t| exported(t)) {
             files += 1;
-            bytes += match (self.write_of(t), t.measure()) {
-                (Write::AsIs, _) => t.bytes,
-                (Write::Opus { .. }, Some(m)) => {
-                    let s = self.seconds(t).unwrap_or(m.seconds);
+            // A measured take's seconds as written ([`Draft::seconds`]).
+            bytes += match (self.write_of(t), t.measure().zip(self.seconds(t))) {
+                (Write::AsIs, _) | (Write::Opus { .. } | Write::Wav { .. }, None) => t.bytes,
+                (Write::Opus { .. }, Some((m, s))) => {
                     ddi_platform::ogg_opus::len(s, usize::from(m.channels))
                 }
-                (Write::Wav { .. }, Some(m)) => {
-                    let s = self.seconds(t).unwrap_or(m.seconds);
+                (Write::Wav { .. }, Some((m, s))) => {
                     crate::wav::len((s * f64::from(m.rate)).round() as u64, m.channels)
                 }
-                (Write::Opus { .. } | Write::Wav { .. }, None) => t.bytes,
             };
         }
         (files, bytes)

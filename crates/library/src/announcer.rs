@@ -292,6 +292,18 @@ pub enum Origin {
     Ours,
 }
 
+/// Every line of [`Line::all`] with its folder, in that order, made once
+/// (an import reads a folder's name against them all).
+pub(crate) fn folders() -> &'static [(String, Line)] {
+    static FOLDERS: std::sync::LazyLock<Vec<(String, Line)>> = std::sync::LazyLock::new(|| {
+        Line::all()
+            .into_iter()
+            .map(|line| (line.folder(), line))
+            .collect()
+    });
+    &FOLDERS
+}
+
 impl Line {
     /// Every line, combos StepMania's hundreds to 1000 (any other count is
     /// one too: [`Line::Combo`]).
@@ -374,7 +386,10 @@ impl Line {
             let n = n.parse::<u32>().ok()?;
             return (n >= 1).then_some(Line::Combo(n));
         }
-        Line::all().into_iter().find(|l| l.folder() == name)
+        folders()
+            .iter()
+            .find(|(folder, _)| *folder == name)
+            .map(|&(_, line)| line)
     }
 
     pub fn spoken(self) -> Spoken {
