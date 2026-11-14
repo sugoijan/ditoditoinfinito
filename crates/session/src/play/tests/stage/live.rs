@@ -2604,6 +2604,9 @@ fn a_live_stage_with_cpus_plays_them_alike_on_every_device() {
     for id in &ids {
         assert!(play.reports.contains_key(id), "{id:?}'s run kept");
         assert!(play.details.contains_key(id), "{id:?}'s detail");
+        // The attacks a person's device counted for it, as a bot's report
+        // and the stage's own outcome have them.
+        assert!(play.details[id].attacks.is_some(), "{id:?}'s attacks counted");
     }
 }
 

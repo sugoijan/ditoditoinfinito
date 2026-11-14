@@ -1477,7 +1477,9 @@ impl Battle {
             s.feed.set_delay(l.field_delay_s(s.seat.participant));
             Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, s, events);
             if ended {
-                let detail = self.cpu_detail(i);
+                // The ledger is `l`'s, taken out of the battle meanwhile.
+                let p = self.seats[i].seat.participant;
+                let detail = cpu_detail(&self.seats[i].opponent, self.launched_in(Some(l), p), &self.rungs);
                 let s = &self.seats[i];
                 if let Some(d) = &s.drive {
                     cpus::report_run(room, stage, d, &s.opponent, detail);
@@ -2532,7 +2534,13 @@ impl Battle {
     /// The attacks `participant` launched and those sent against it,
     /// where the battle has attacks.
     fn launched(&self, participant: ParticipantId) -> Option<(u32, u32)> {
-        if let Some(l) = self.live_attacks() {
+        self.launched_in(self.remote_live.as_ref(), participant)
+    }
+
+    /// [`Battle::launched`] with the live stage's part `live` (where it
+    /// is taken out of the battle while it is advanced).
+    fn launched_in(&self, live: Option<&live::Live>, participant: ParticipantId) -> Option<(u32, u32)> {
+        if let Some(l) = live.filter(|_| self.setup.battle.attacks()) {
             return Some(l.ledger.launched(participant));
         }
         self.attacks.as_ref().map(|a| {
