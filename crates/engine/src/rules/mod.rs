@@ -1128,7 +1128,7 @@ impl RulesetKey {
                 None => presets::danoni(),
             },
             "calibration" => presets::calibration(),
-            "ddi" => ddi::ruleset(&self.ddi.unwrap_or_default()),
+            ddi::ID => ddi::ruleset(&self.ddi.unwrap_or_default()),
             id => presets::stepmania(id, self.holds, chart).with_stepmania(&self.stepmania),
         }
     }
@@ -1200,7 +1200,7 @@ impl Ruleset {
 
     /// Whether these are DDI's rules ([`ddi::ruleset`]).
     pub fn is_ddi(&self) -> bool {
-        self.id == "ddi"
+        self.id == ddi::ID
     }
 
     /// Whether a chart's `#COMBOS` counts: a StepMania rule, so neither

@@ -66,7 +66,8 @@ pub struct MineResponseTable {
     pub typical: MineResponse,
     /// At avoidance 1: steps on the fewest.
     pub good: MineResponse,
-    /// Each level's avoidance (an opponent's ten levels,
+    /// Each level's avoidance (an opponent's ten levels, by a level's
+    /// index on either scale: [`super::CPU_LEVELS_V1`] or
     /// [`super::CPU_LEVELS_V0`]).
     pub by_level: [f64; super::LEVELS],
 }
@@ -121,8 +122,9 @@ pub const MINE_RESPONSE_V0: MineResponseTable = MineResponseTable {
 };
 
 impl MineResponseTable {
-    /// The avoidance of a CPU at `level` (an index into
-    /// [`super::CPU_LEVELS_V0`]'s ten; past the last, the last's).
+    /// The avoidance of a CPU at `level` (a level's index on either scale,
+    /// [`super::CPU_LEVELS_V1`] or [`super::CPU_LEVELS_V0`]; past the
+    /// last, the last's).
     pub fn avoidance(&self, level: usize) -> f64 {
         self.by_level[level.min(self.by_level.len() - 1)]
     }

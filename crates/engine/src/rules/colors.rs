@@ -92,10 +92,6 @@ pub const DDI: TierColors = TierColors {
     boo: rgb(0xff5c9e),
 };
 
-/// The violet W5 shown beside the orange one when the set was chosen
-/// (for the comparison sheet; never shown in play).
-pub const DDI_W5_VIOLET: Rgba = rgb(0xb77bff);
-
 impl Palette {
     /// The set's colors.
     pub fn colors(self) -> &'static TierColors {
@@ -196,7 +192,6 @@ mod tests {
         assert!(between(c.tiers[3], 205.0, 225.0), "W4 blue");
         assert!(between(c.tiers[4], 20.0, 40.0), "W5 orange");
         assert!(between(c.tiers[5], 0.0, 5.0), "Miss red");
-        assert!(between(DDI_W5_VIOLET, 260.0, 280.0));
         // The Boo as it was.
         assert_eq!(c.boo, STEPMANIA.boo);
         assert_eq!(c.color(Judgement::W1, Some(true)), c.w0);

@@ -245,13 +245,14 @@ impl DdiScoreView {
             }
         };
         let absolute = 100 * points + i64::from(w0);
+        let proportional = ratio(1_000_000);
         DdiScoreView {
             points,
             most,
-            ratio: ratio(1_000_000),
+            ratio: proportional,
             percent: ratio(10_000),
             absolute,
-            score: ratio(1_000_000) + absolute,
+            score: proportional + absolute,
         }
     }
 
@@ -300,6 +301,11 @@ impl DdiScore {
     }
 }
 
+/// The most points the chart gives (its steps' and its hold units').
+fn most_of(ctx: &ScoreCtx) -> i64 {
+    MOST_TAP_POINTS * i64::from(ctx.steps) + UNIT_POINTS * i64::from(ctx.hold_units)
+}
+
 /// The points an event gives (a hold's by `ctx.units`).
 fn points_of(kind: &JudgeEventKind, ctx: &ScoreCtx) -> i64 {
     match kind {
@@ -315,8 +321,7 @@ impl ScoreRules for DdiScore {
     fn begin(&mut self, ctx: &ScoreCtx) {
         self.points = 0;
         self.w0 = 0;
-        self.most =
-            MOST_TAP_POINTS * i64::from(ctx.steps) + UNIT_POINTS * i64::from(ctx.hold_units);
+        self.most = most_of(ctx);
     }
 
     fn on_event(&mut self, ev: &JudgeEvent, ctx: &ScoreCtx) {
@@ -327,8 +332,7 @@ impl ScoreRules for DdiScore {
     }
 
     fn restep(&mut self, ctx: &ScoreCtx) {
-        self.most =
-            MOST_TAP_POINTS * i64::from(ctx.steps) + UNIT_POINTS * i64::from(ctx.hold_units);
+        self.most = most_of(ctx);
     }
 
     fn view(&self) -> ScoreView {
