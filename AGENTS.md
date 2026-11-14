@@ -45,30 +45,33 @@ Rust and the browser are implementation details, not advertised features.
   ruleset's miss to the gauge alone, `INJECTED_MINE_V0`; `schedule` and
   `PLACEMENT`, where a chart has room for eight: `placement-v2`, which
   keeps `placement-v1`'s margins about each step of the lane exactly,
-  `Clearance::Margins`, none within 0.25 s after one nor within W3
+  `Clearance`, none within 0.25 s after one nor within W3
   before it, none from a hold's head to past its end nor from a second
   before a lift, and aims six of the eight at places next to a note of
   their lane, `Near`: up to half a second after one or up to twice W3
   before a step, spread over lanes and beats, one a note, a second
-  between two shocks of a lane unless the section has no other room;
-  `placement-v1` and `placement-v0` kept for comparison through
-  `schedule_with`; kept in `PlayLog` version 4; a battle's attack policy
-  as the player changed it during the play in version 5,
+  between two shocks of a lane unless the section has no other room
+  (`placement-v0` and the `placement-v1` constant retired 2026-11-14,
+  v1's way kept as v2's fallback); kept in `PlayLog` version 4; a
+  battle's attack policy as the player changed it during the play in
+  version 5,
   `PlayLog::policies`, `Player::set_policy_at`: a number of the
   battle's own, nothing judged by it;
   `reading_horizon`, how long a play's notes are shown before they are
   judged); a match's "Charts: Adaptive" (`ladder.rs`, `ADAPTIVE`, which
-  is `ADAPTIVE_V1`: sixteen bars back up to a rung whose life ran out, a
-  rung closed once life ran out on it twice, `Step::closes`; `ADAPTIVE_V0`
-  kept by name for comparison, `Player::set_ladder_rule`:
+  is `ADAPTIVE_V2`: sixteen bars back up to a rung whose life ran out, a
+  rung closed once life ran out on it twice, `Step::closes`, a step up
+  asking 95% of its bars' taps in the two best judgments;
+  `adaptive-v0` and `adaptive-v1` retired 2026-11-14; tests and studies
+  set variants of it, `Player::set_ladder_rule`:
   a song's ladder of easier and harder charts, `ladder::Ladder`,
   `below`, `above`, its rungs numbered from 1, the easier then the
   harder, 0 the stage's; a play changes chart, `Player::add_rung`,
   `add_rung_up`, `Player::steps`: down at zero life, the old chart's
   notes not judged taken away, `NoteState::Removed`, `Judge::step_down`,
-  the next rung's from a bar line past the reading horizon and a second,
-  half the life back, a breather with a floor; up after four bars of full
-  life with no miss, eight back to a rung whose life ran out, the old
+  the next rung's from a bar line past the reading horizon, half the
+  life back, a breather with a floor; up after four bars of full life
+  with no miss, from a bar line past the horizon and a second, the old
   chart played to the boundary, `Judge::step_up`, decided at bar lines
   judged to first, `Player::judge_to_bars`; the plan over every rung,
   `ladder::merged`; a CPU's rungs, `cpu::planned_ladder`,
@@ -831,8 +834,8 @@ Rust and the browser are implementation details, not advertised features.
   each one's score small under its gauge (`opponents::ScoreShown`: DDI's
   score, the sum, or the percent, as the player's Score display has
   their own; never the proportional part alone; a CPU's its own, since
-  it plays the whole chart, `cpu-play-v1`; `CPU_SCORE_V0`, the rescaling
-  of a tap-only copy's sum, retired) and a lane a shock
+  it plays the whole chart, `cpu-play-v1`; the rescaling of a tap-only
+  copy's sum, `cpu-score-v0`, retired) and a lane a shock
   locked darkened with its receptor's place tinted for the lock's time;
   a watched stage (`PlayView::watch_drawn`): a spectator's grid,
   everyone's fields over the whole screen in the play's proportion, up
@@ -1140,11 +1143,13 @@ Rust and the browser are implementation details, not advertised features.
   choice (Leader the next in standing, Retaliate Spread's order), none
   valid `Blocked` (`NoRoomInWindow` where someone has room only later);
   named places for a limit, off (`chain_gap`, `cooldown_checkpoints`);
-  `attacks-v2` (chains without limit, `CHAIN_UNLIMITED`),
-  `attacks-v1` (one more reserved behind the one passing) and
-  `attacks-v0` (one at a time until the recipient recovered) kept by
-  name, a stage run under the rules its plan names (`attack_rules`);
-  expiry when the recipient goes out, every one placed; `SETTLEMENT_V1`,
+  a stage run under the rules its plan names (`attack_rules`), a plan
+  naming any other refused as unknown (`attacks-v0` to `attacks-v2`
+  retired 2026-11-14; `Section::recover_after_us` and
+  `AttackEvent::Recovered` stay on the wire, a cleared attack recovered
+  at once);
+  expiry when the recipient goes out, every one placed; `SETTLEMENT_V1`
+  (`settlement-v0` retired),
   decided only with no attack against the last one in outstanding, the
   one left before that last standing (`Settlement::last_standing`), a
   knockout by one of them a shared first; trace tests in
@@ -1410,8 +1415,8 @@ Rust and the browser are implementation details, not advertised features.
   room's share (`LoadJob`) and each stage handed over as a watched
   `StageOrder` (`AUDIENCE_ME`), fed through `room::LiveRoom` (the trait
   `ddi_session::battle::live` reads a member's `RoomClient` or a seat
-  by), its music and fields `MUSIC_DELAY_V0` behind the room's song
-  time (a member who watches a live stage the same way,
+  by), its music and fields `AUDIENCE_VIEW_V1`'s delay behind the
+  room's song time (a member who watches a live stage the same way,
   `room::WATCH_MUSIC_V0`, `RoomClient::watch_music_ms`);
   `screens/audience.rs` its page between stages
   (`AudienceScreen`, `AudienceCall`; `ThemeState::audience`); the invite
@@ -2108,7 +2113,7 @@ player's Score display still chooses what their own HUD shows, and what
 the miniatures and the stage's Standings show of the others: the score
 (the sum) or the percent (round 3b). A CPU plays the chart a person is
 given (`cpu-play-v1`), so its sum is its own and compares directly
-(`CPU_SCORE_V0`, which put a tap-only copy's sum on the chart's scale,
+(`cpu-score-v0`, which put a tap-only copy's sum on the chart's scale,
 is retired); a stage ranks those still in by life, then that score.
 Judgment and grade words are English data (`UiText::data`), the labels
 around them messages, except DDI's judgment words, shown in the player's
