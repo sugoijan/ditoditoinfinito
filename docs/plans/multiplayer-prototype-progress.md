@@ -7950,6 +7950,43 @@ mode."
   attacks until one player is left" (`site/seo/metadata.toml`, then
   `xtask regen-seo`; `docs/research/seo.md`'s copy decision).
 
+### An announcer's line heard "twice" entering song select (found and fixed)
+
+The maintainer: "I can hear duplicated announcer lines when entering the
+song list on the web (or maybe did we add some echo when processing? I
+can't tell)."
+
+- **Not started twice.** With `bundled:mr. clank` chosen, every
+  `AudioBufferSourceNode.start` and every `AudioContext` made were
+  counted in the page before the app loaded (`target/scratch/mp/fbd/tools/item1.mjs`),
+  entering song select from the start menu, by a reload on `#/select`,
+  from Options, from a play's results, back from a stage's prompt, with
+  the language changed, and the practice room's song select, in headless
+  Chrome and Firefox: one start of the intro per entering, on one
+  context, every time (the comment for the chosen song follows 3 s
+  later, a different line).
+- **Not an echo in the sound.** The packs' intro sounds (six of each
+  pack's) decoded and autocorrelated (`tools/echo.py` there): the
+  waveform's strongest repeat past 15 ms is 0.07 to 0.24, at 15 to 28 ms
+  (the voice's own pitch), never a delayed copy; the envelope has no
+  peak past its own smoothing. The packs make no effect beyond the
+  leveling chain (`tidy::LEVELING`: its all-pass smears, it does not
+  repeat). The packs' audio is not changed in this round.
+- **The cause**: song select's lines were decoded once for the session
+  with **one sound a line** (`ddi_session::announcer::menu`, `variants`
+  1), so every entering said **the same intro sound**: from song select
+  to a prompt and back, the identical line a few seconds apart (the
+  measurements show the same buffer, 66,720 samples, at both enterings).
+  Now song select decodes up to eight sounds of each of its lines
+  (`MENU_VARIANTS`) and says them in turn, on both shells (desktop's
+  preview player shares the code). Tested: the session
+  (`song_select_says_another_intro_each_entering`: six enterings, six
+  different intros; it fails with one sound a line), desktop
+  (`ours_speak_from_the_assets`: each entering speaks its intro once on
+  the mixer, never two), and in Chrome after the fix: back from a
+  prompt, the second entering's intro is another sound (46,080 samples,
+  then 66,720), each started once.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

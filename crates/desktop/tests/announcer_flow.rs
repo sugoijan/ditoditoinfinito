@@ -231,10 +231,23 @@ fn ours_speak_from_the_assets() {
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         p.announce_menu(Line::SelectMusic(Comment::Hard));
+        // (Decoded after the intro's sounds, all of them now: spoken once
+        // decoded, while it is due.)
+        while p.spoken.len() < 2 && std::time::Instant::now() < until {
+            p.tick();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         assert_eq!(
             p.spoken,
             ["select music intro", "select music comment hard"],
             "{key}"
         );
+        // Each entering of song select speaks its intro once (round D):
+        // six more enterings, six more lines on the mixer, never two.
+        for n in 1..=6 {
+            p.announce_menu(Line::SelectMusicIntro);
+            p.tick();
+            assert_eq!(p.spoken.len(), 2 + n, "{key}: {:?}", p.spoken);
+        }
     }
 }

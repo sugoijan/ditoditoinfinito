@@ -111,11 +111,21 @@ pub fn wanted(kept: &Kept, notes: u32, bags: &mut Bags) -> Vec<(Line, Vec<RelPat
     })
 }
 
-/// The sounds song select decodes (step 5): `select music intro` and
-/// the chosen song's comments, one of each, the next of each line's bag.
+/// Song select's sounds to decode: up to [`MENU_VARIANTS`] of each of
+/// its lines, the next of each line's bag, its intro's first. Song select
+/// keeps them for the session and speaks each line's in turn
+/// ([`Voice::next`]), so entering it again says another of the intro's
+/// sounds (round D, 2026-11-14: with one sound a line, as before, every
+/// entering said the same sound, heard as the line said twice).
 pub fn menu(kept: &Kept, bags: &mut Bags) -> Vec<(Line, Vec<RelPathBuf>)> {
-    take(kept, bags, |line| line.spoken() == Spoken::Menu)
+    take_each(kept, bags, |line| line.spoken() == Spoken::Menu, |_| MENU_VARIANTS)
 }
+
+/// How many of a song select line's sounds are decoded for the session
+/// ([`menu`]): its few lines are said again at every entering, each in
+/// turn among these (StepMania 5.1 says another of the folder's each
+/// time, `g_DirSoundOrder`).
+pub const MENU_VARIANTS: usize = 8;
 
 /// [`variants`] of each of `kept`'s lines `which` keeps, from their bags,
 /// those said first first: a play's opening, then here we go; song
@@ -124,6 +134,16 @@ fn take(
     kept: &Kept,
     bags: &mut Bags,
     which: impl Fn(Line) -> bool,
+) -> Vec<(Line, Vec<RelPathBuf>)> {
+    take_each(kept, bags, which, variants)
+}
+
+/// [`take`], `count(line)` of each line's sounds.
+fn take_each(
+    kept: &Kept,
+    bags: &mut Bags,
+    which: impl Fn(Line) -> bool,
+    count: impl Fn(Line) -> usize,
 ) -> Vec<(Line, Vec<RelPathBuf>)> {
     let key = kept.key();
     let mut lines: Vec<(Line, Vec<RelPathBuf>)> = kept
@@ -134,7 +154,7 @@ fn take(
             if !which(line) || files.is_empty() {
                 return None;
             }
-            let picks = bags.take(&key, line, files.len(), variants(line));
+            let picks = bags.take(&key, line, files.len(), count(line));
             Some((line, picks.into_iter().map(|i| files[i].clone()).collect()))
         })
         .collect();

@@ -172,12 +172,55 @@ fn a_play_decodes_the_lines_it_can_speak_a_few_sounds_each() {
     let long = wanted(&kept, 1500, &mut bags);
     assert!(long.iter().any(|(l, _)| *l == Line::ComboOverflow));
     assert!(long.iter().any(|(l, _)| *l == Line::Combo(500)));
-    // Song select's: its intro, one sound, the next of its bag each time.
+    // Song select's: its intro, each of its sounds (up to eight).
     let first = menu(&kept, &mut bags);
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].0, Line::SelectMusicIntro);
-    let second = menu(&kept, &mut bags);
-    assert_ne!(first[0].1, second[0].1);
+    assert_eq!(first[0].1.len(), 2);
+}
+
+/// Round D (2026-11-14): entering song select again says another of the
+/// intro's sounds, not the same one: song select decodes its lines'
+/// sounds once for the session and speaks each line's in turn. (With one
+/// sound a line, as before, every entering said the same sound, heard as
+/// "the line twice".)
+#[test]
+fn song_select_says_another_intro_each_entering() {
+    let mut kept = Kept {
+        name: "Voice".into(),
+        ..Kept::default()
+    };
+    let intro: Vec<RelPathBuf> = (0..6)
+        .map(|i| format!("select music intro/{i}.mp3").into())
+        .collect();
+    kept.lines.insert("select music intro".into(), intro);
+    let many: Vec<RelPathBuf> = (0..30)
+        .map(|i| format!("select music comment general/{i}.mp3").into())
+        .collect();
+    kept.lines.insert("select music comment general".into(), many);
+    let mut bags = Bags::new(3);
+    let decoded = menu(&kept, &mut bags);
+    let count = |line| decoded.iter().find(|(l, _)| *l == line).unwrap().1.len();
+    assert_eq!(count(Line::SelectMusicIntro), 6, "every one of six");
+    assert_eq!(
+        count(Line::SelectMusic(ddi_library::announcer::Comment::General)),
+        MENU_VARIANTS,
+        "eight of thirty"
+    );
+    // The session's voice: each entering's intro differs from the last
+    // until all six were said.
+    let voice: SharedVoice<String> = SharedVoice::default();
+    for (line, files) in &decoded {
+        for f in files {
+            voice.borrow_mut().add(*line, f.to_string());
+        }
+    }
+    let mut menu_voice = MenuVoice::new("voice".into(), voice);
+    let said: Vec<String> = (0..6)
+        .map(|k| menu_voice.ask(Line::SelectMusicIntro, f64::from(k)).unwrap().1)
+        .collect();
+    let distinct: std::collections::BTreeSet<&String> = said.iter().collect();
+    assert_eq!(distinct.len(), 6, "{said:?}");
 }
 
 #[test]

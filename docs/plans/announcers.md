@@ -352,8 +352,11 @@ showing (5.1's `BeginScreen`: on arriving, and on coming back from a
 play or Options) and, on a chart chosen, its comment
 (`UiRequest::Announce`; `ddi_ui::screens::select::comment`). The shells
 decode song select's lines the first time one is asked for
-(`ddi_session::announcer::menu`: one sound of each, the next of its
-bag) and speak them at the announcer's share of the music volume; a
+(`ddi_session::announcer::menu`: up to eight sounds of each,
+`MENU_VARIANTS`, the next of its bag, kept for the session and said in
+turn; one of each before 2026-11-14, so that every entering said the
+same intro, heard as the line said twice: the progress note's "Feedback
+round D") and speak them at the announcer's share of the music volume; a
 line asked for while its sound decodes waits for it up to 1.5 s, then
 its moment has passed (`ddi_session::announcer::MenuVoice`, both
 shells'; a line asked for meanwhile takes its place). The web speaks on song select's context where it
