@@ -6,6 +6,7 @@
 //! Skipped where there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>`
 //! keeps the pictures.
 
+mod common;
 use ddi_desktop::gpu;
 use ddi_engine::appearance::Appearance;
 use ddi_engine::transform::Turn;
@@ -80,16 +81,11 @@ impl Gpu {
 }
 
 fn keep(pixels: &[u8], size: [u32; 2], name: &str) {
-    let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") else {
-        return;
-    };
-    let mut ppm = format!("P6\n{} {}\n255\n", size[0], size[1]).into_bytes();
-    ppm.extend(pixels.chunks(4).flat_map(|p| [p[0], p[1], p[2]]));
     let name: String = name
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
         .collect();
-    let _ = std::fs::write(std::path::Path::new(&dir).join(format!("{name}.ppm")), ppm);
+    common::shot(&format!("{name}.ppm"), pixels, size);
 }
 
 fn lum(pixels: &[u8], x: u32, y: u32) -> f32 {

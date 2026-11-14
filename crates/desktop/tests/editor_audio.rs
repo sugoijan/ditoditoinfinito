@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use ddi_chart::{Tick, TimingMap};
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_ui::UiEvent;
-use ddi_ui::event::KeyEvent;
+use common::ui::key;
 
 const RATE: u32 = 48_000;
 const BEATS: [i64; 7] = [2, 3, 5, 9, 15, 16, 21];
@@ -26,11 +26,6 @@ const SSC: &str = "#VERSION:0.83;\n#TITLE:Clicks;\n#ARTIST:Test;\n#MUSIC:clicks.
 #OFFSET:-0.123;\n#BPMS:0=128,16=170;\n#STOPS:24=0.4;\n\
 #NOTEDATA:;\n#STEPSTYPE:dance-single;\n#DIFFICULTY:Easy;\n#METER:1;\n#NOTES:\n\
 1000\n0000\n0000\n0000\n;\n";
-
-fn key(ui: &mut ddi_ui::Ui, code: &str, k: &str) {
-    ui.handle(UiEvent::Key(KeyEvent::down(code, k)));
-    ui.handle(UiEvent::Key(KeyEvent::up(code, k)));
-}
 
 /// A mono 16-bit WAV: quiet, a short decaying burst at each second of
 /// `at`.
@@ -103,9 +98,7 @@ fn clicks_are_on_their_beats_lines() {
     // SAFETY: set before any thread of this test reads the environment.
     unsafe { std::env::set_var("DDI_HOME", dir.join("home")) };
     ddi_desktop::audio::set_headless(true);
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let timing: TimingMap = ddi_chart::formats::sm::parse_ssc(SSC).unwrap().timing;
@@ -154,17 +147,7 @@ fn clicks_are_on_their_beats_lines() {
         ui.update(1.0 / 60.0);
     }
     let keep = |name: &str, pixels: &[u8]| {
-        if let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-            let mut ppm = b"P6\n1280 720\n255\n".to_vec();
-            ppm.extend(
-                pixels
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .flat_map(|p| [p[0], p[1], p[2]]),
-            );
-            std::fs::write(Path::new(&dir).join(name), ppm).expect("ppm");
-        }
+        common::shot(name, pixels, [1280, 720]);
     };
     let v = view();
     assert_eq!(v.audio.layout, "column", "{:?}", v.audio);

@@ -4,6 +4,8 @@
 //! way lands in the same place. Skipped where there is no GPU adapter
 //! (CI).
 
+mod common;
+
 use ddi_desktop::gpu;
 use ddi_render::Painter;
 use ddi_render::draw2d::DrawList;
@@ -73,9 +75,7 @@ fn draw(
 
 #[test]
 fn a_color_reads_back_alike_through_srgb_and_plain_targets() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
@@ -102,9 +102,7 @@ fn screen_vivid_is_continuous_across_different_quads() {
     use ddi_actor::Vivid;
     use ddi_render::draw2d::{Affine, Quad};
 
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");

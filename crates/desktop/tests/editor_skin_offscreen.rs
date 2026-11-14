@@ -19,9 +19,9 @@ use ddi_engine::scroll::{ScrollOptions, SpeedMod};
 use ddi_render::editor_field::{EditorField, FieldDraw};
 use ddi_render::field_preview::SkinWant;
 use ddi_ui::UiEvent;
-use ddi_ui::event::KeyEvent;
 use ddi_ui::screens::editor_field::{FieldPicture, Mapping, frame, shown_seconds};
 use ddi_ui::state::editor::Editor;
+use common::ui::key;
 
 /// Rows of 1536 bytes, as copies want them.
 const SIZE: [u32; 2] = [384, 640];
@@ -122,16 +122,11 @@ impl Gpu {
 }
 
 fn keep(pixels: &[u8], size: [u32; 2], name: &str) {
-    let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") else {
-        return;
-    };
-    let mut ppm = format!("P6\n{} {}\n255\n", size[0], size[1]).into_bytes();
-    ppm.extend(pixels.chunks(4).flat_map(|p| [p[0], p[1], p[2]]));
     let name: String = name
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
         .collect();
-    let _ = std::fs::write(std::path::Path::new(&dir).join(format!("{name}.ppm")), ppm);
+    common::shot(&format!("{name}.ppm"), pixels, size);
 }
 
 /// The view's mapping with `shown` at the line: the edit view at
@@ -383,11 +378,6 @@ fn the_edit_view_is_the_play_view_at_one_tempo() {
     }
 }
 
-fn key(ui: &mut ddi_ui::Ui, code: &str, k: &str) {
-    ui.handle(UiEvent::Key(KeyEvent::down(code, k)));
-    ui.handle(UiEvent::Key(KeyEvent::up(code, k)));
-}
-
 #[test]
 fn the_editor_shows_the_skin_and_its_compact_field() {
     common::indexes();
@@ -396,9 +386,7 @@ fn the_editor_shows_the_skin_and_its_compact_field() {
     // SAFETY: set before any thread of this test reads the environment.
     unsafe { std::env::set_var("DDI_HOME", &home) };
     ddi_desktop::audio::set_headless(true);
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");

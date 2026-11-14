@@ -171,9 +171,7 @@ fn a_component_skin_reads_and_draws() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 
-    let instance = ddi_desktop::gpu::instance();
-    let Some(adapter) = ddi_desktop::gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: drawing skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = ddi_desktop::gpu::device(&adapter).unwrap();

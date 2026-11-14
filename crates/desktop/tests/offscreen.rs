@@ -5,6 +5,8 @@
 //! from text, whose fonts differ (the browser's against cosmic-text's).
 //! Skipped where there is no GPU adapter (CI).
 
+mod common;
+
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_ui::dev::{self, DevScreen, Shared};
 use ddi_ui::{TextMode, Ui, UiEvent};
@@ -26,10 +28,7 @@ const WEB: [((u32, u32), [u8; 3]); 7] = [
 
 #[test]
 fn the_developer_screen_draws_as_the_web_does() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        // CI runners have none.
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
@@ -46,18 +45,8 @@ fn the_developer_screen_draws_as_the_web_does() {
     let size = [1280, 720];
     let pixels = gpu.draw_offscreen(&mut ui, size, format);
     assert_eq!(pixels.len(), 1280 * 720 * 4);
-    // `DDI_OFFSCREEN_PPM=<file>` keeps the picture, to look at.
-    if let Some(path) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-        let mut ppm = format!("P6\n{} {}\n255\n", size[0], size[1]).into_bytes();
-        ppm.extend(
-            pixels
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .flat_map(|p| [p[0], p[1], p[2]]),
-        );
-        std::fs::write(path, ppm).expect("ppm");
-    }
+    // `DDI_OFFSCREEN_PPM=<dir>` keeps the picture, to look at.
+    common::shot("ui-dev.ppm", &pixels, size);
     let at = |x: u32, y: u32| {
         let i = ((y * size[0] + x) * 4) as usize;
         [pixels[i], pixels[i + 1], pixels[i + 2]]

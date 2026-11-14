@@ -126,13 +126,7 @@ impl Test {
             .shell
             .offscreen_frame(1_000.0, now, 0.0, true)
             .expect("drawn offscreen");
-        if let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-            let mut ppm = format!("P6\n{} {}\n255\n", SIZE[0], SIZE[1]).into_bytes();
-            for [r, g, b, _] in rgba.as_chunks::<4>().0 {
-                ppm.extend_from_slice(&[*r, *g, *b]);
-            }
-            std::fs::write(std::path::Path::new(&dir).join(format!("{name}.ppm")), ppm).unwrap();
-        }
+        common::shot(&format!("{name}.ppm"), &rgba, SIZE);
         rgba
     }
 
@@ -256,9 +250,7 @@ fn the_studio_on_desktop() {
     let clock = Arc::new(AtomicU64::new(1_000_000_000));
     let c = clock.clone();
     ddi_desktop::audio::set_headless_clock(Some(Arc::new(move || c.load(Ordering::SeqCst))));
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();

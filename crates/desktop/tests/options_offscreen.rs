@@ -3,32 +3,24 @@
 //! field preview where its panel is, and the window draws the demo chart
 //! there, under the options chosen (Reverse puts the receptors at the
 //! panel's bottom). Skipped where there is no GPU adapter (CI).
-//! `DDI_OFFSCREEN_PPM=<file>` keeps the picture.
+//! `DDI_OFFSCREEN_PPM=<dir>` keeps the picture (`options.ppm`).
 
-use std::rc::Rc;
+mod common;
+
 
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_render::field_preview::FieldPreviewOptions;
-use ddi_ui::dev_widgets::FoldFn;
-use ddi_ui::{UiEvent, UiRequest};
+use ddi_ui::UiRequest;
 
 #[test]
 fn options_show_the_field_preview() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
     let format = wgpu::TextureFormat::Rgba8Unorm;
     let mut gpu = Gpu::new(device, queue, format);
-    let fold: FoldFn = Rc::new(|s: &str| s.to_string());
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("options", fold);
-    env.reduced_motion.set(true);
-    ui.handle(UiEvent::Resize {
-        size: [1280.0, 720.0],
-        ratio: 1.0,
-    });
+    let (mut ui, _env) = common::ui::theme("options", common::ui::identity(), [1280, 720], true);
     let mut rect = None;
     for _ in 0..60 {
         ui.update(1.0 / 60.0);
@@ -45,17 +37,7 @@ fn options_show_the_field_preview() {
         gpu.field.set_rect(rect);
         gpu.field.set_options(options);
         let pixels = gpu.draw_offscreen(ui, size, format);
-        if let Some(path) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-            let mut ppm = format!("P6\n{} {}\n255\n", size[0], size[1]).into_bytes();
-            ppm.extend(
-                pixels
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .flat_map(|p| [p[0], p[1], p[2]]),
-            );
-            std::fs::write(path, ppm).expect("ppm");
-        }
+        common::shot("options.ppm", &pixels, size);
         pixels
     };
     // Light pixels in rows `y0..y1` of the panel (fractions of it).

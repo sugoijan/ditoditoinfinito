@@ -237,36 +237,19 @@ fn a_material_lines_up_with_its_parts_art() {
         eprintln!("no bundled noteskins' index: skipped");
         return;
     }
-    let instance = ddi_desktop::gpu::instance();
-    let Some(adapter) = ddi_desktop::gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let dir = skin();
     let drawn = draw(&adapter, &dir);
     let _ = std::fs::remove_dir_all(&dir);
     let accepted = ddi_noteskin::raster::rasterize(&reference(), 96, 96).unwrap();
-    if let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-        let dir = std::path::PathBuf::from(dir);
+    {
         let rows: Vec<u8> = (0..96)
             .flat_map(|y| drawn[y * W * 4..y * W * 4 + 96 * 4].to_vec())
             .collect();
-        image::save_buffer(
-            dir.join("material-art.png"),
-            &rows,
-            96,
-            96,
-            image::ColorType::Rgba8,
-        )
-        .unwrap();
-        image::save_buffer(
-            dir.join("material-art-reference.png"),
-            &accepted,
-            96,
-            96,
-            image::ColorType::Rgba8,
-        )
-        .unwrap();
+        common::shot("material-art.png", &rows, [96, 96]);
+        common::shot("material-art-reference.png", &accepted, [96, 96]);
     }
     // Inside the part (opaque in the reference, its four neighbors too, so
     // the edges' antialiasing is left out): channel differences.

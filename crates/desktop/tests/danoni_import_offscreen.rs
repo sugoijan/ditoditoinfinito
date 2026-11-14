@@ -1,6 +1,8 @@
 //! Add songs' desktop URL tab with the real painter/fonts, without a window,
 //! runtime helper, network access or audio device. DDI_OFFSCREEN_PPM=<directory>
 //! retains PNGs of parameter entry and both kinds of progress.
+
+mod common;
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_ui::screens::{
     COMPACT, DESIGN, Env,
@@ -14,9 +16,7 @@ use std::{cell::RefCell, rc::Rc};
 
 #[test]
 fn url_import_and_progress_draw_at_desktop_and_compact_sizes() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
@@ -83,18 +83,11 @@ fn url_import_and_progress_draw_at_desktop_and_compact_sizes() {
                 .filter(|p| p[..3].iter().map(|&v| u32::from(v)).sum::<u32>() > 500)
                 .count();
             assert!(light > 200, "missing dialog text at {size:?}/{state}");
-            if let Some(directory) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-                let directory = std::path::PathBuf::from(directory);
-                std::fs::create_dir_all(&directory).unwrap();
-                image::save_buffer(
-                    directory.join(format!("danoni-{}x{}-{state}.png", size[0], size[1])),
-                    &pixels,
-                    size[0],
-                    size[1],
-                    image::ColorType::Rgba8,
-                )
-                .unwrap();
-            }
+            common::shot(
+                &format!("danoni-{}x{}-{state}.png", size[0], size[1]),
+                &pixels,
+                size,
+            );
         }
     }
 }

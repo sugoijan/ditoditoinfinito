@@ -13,9 +13,7 @@ use ddi_ui::state::settings::{ParamValue, Settings};
 #[test]
 fn a_skin_picked_shows_once_read() {
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     if ddi_desktop::library::noteskins::bundled().is_empty() {
@@ -167,8 +165,7 @@ fn a_skin_picked_shows_once_read() {
 #[test]
 fn the_prompt_readies_its_own_skin_and_releases_the_picture() {
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
@@ -225,8 +222,7 @@ fn the_options_screen_switches_the_preview_skin() {
     use ddi_ui::event::{KeyEvent, UiEvent};
     use ddi_ui::{Ui, UiRequest};
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     ddi_platform::storage::install(std::rc::Rc::new(
@@ -349,8 +345,7 @@ fn the_options_screen_switches_the_preview_skin() {
 #[test]
 fn a_warmed_skin_is_ready_on_the_prompts_first_frame() {
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();

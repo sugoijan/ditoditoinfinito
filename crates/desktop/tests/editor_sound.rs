@@ -11,12 +11,8 @@ use std::time::{Duration, Instant};
 
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_ui::UiEvent;
-use ddi_ui::event::{KeyEvent, PointerEvent, PointerKind, PointerPhase};
-
-fn key(ui: &mut ddi_ui::Ui, code: &str, k: &str) {
-    ui.handle(UiEvent::Key(KeyEvent::down(code, k)));
-    ui.handle(UiEvent::Key(KeyEvent::up(code, k)));
-}
+use ddi_ui::event::{PointerEvent, PointerKind, PointerPhase};
+use common::ui::key;
 
 /// A click at a virtual point (CSS pixels at a ratio of 1).
 fn tap(ui: &mut ddi_ui::Ui, at: [f32; 2], time: f64) {
@@ -42,9 +38,7 @@ fn the_overview_and_the_metronome_on_a_bundled_song() {
     // SAFETY: set before any thread of this test reads the environment.
     unsafe { std::env::set_var("DDI_HOME", &home) };
     ddi_desktop::audio::set_headless(true);
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
@@ -75,17 +69,7 @@ fn the_overview_and_the_metronome_on_a_bundled_song() {
     }
     assert!(view().overview > 1000, "{}", view().overview);
     let pixels = gpu.draw_offscreen(&mut ui, [1280, 720], format);
-    if let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-        let mut ppm = b"P6\n1280 720\n255\n".to_vec();
-        ppm.extend(
-            pixels
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .flat_map(|p| [p[0], p[1], p[2]]),
-        );
-        std::fs::write(std::path::Path::new(&dir).join("editor-sound.ppm"), ppm).expect("ppm");
-    }
+    common::shot("editor-sound.ppm", &pixels, [1280, 720]);
     // The strip's bars: lit pixels down its middle.
     let strip = ui.bounds("OverviewPlate").expect("the strip");
     let x = ((strip[0] + strip[2]) / 2.0) as u32;

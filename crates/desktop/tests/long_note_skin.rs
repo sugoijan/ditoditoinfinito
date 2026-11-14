@@ -263,9 +263,7 @@ fn a_long_note_skin_draws_its_holds() {
         "{:?}",
         ready.play.notes
     );
-    let instance = ddi_desktop::gpu::instance();
-    let Some(adapter) = ddi_desktop::gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: drawing skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     for reverse in [false, true] {

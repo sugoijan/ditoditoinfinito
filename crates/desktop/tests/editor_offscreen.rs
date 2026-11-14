@@ -9,12 +9,7 @@ use std::rc::Rc;
 
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_ui::UiEvent;
-use ddi_ui::event::KeyEvent;
-
-fn key(ui: &mut ddi_ui::Ui, code: &str, k: &str) {
-    ui.handle(UiEvent::Key(KeyEvent::down(code, k)));
-    ui.handle(UiEvent::Key(KeyEvent::up(code, k)));
-}
+use common::ui::key;
 
 #[test]
 fn the_editor_draws_a_bundled_song() {
@@ -25,9 +20,7 @@ fn the_editor_draws_a_bundled_song() {
     unsafe { std::env::set_var("DDI_HOME", &home) };
     // No sound device: the editor's listening runs on the host clock.
     ddi_desktop::audio::set_headless(true);
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
@@ -56,17 +49,7 @@ fn the_editor_draws_a_bundled_song() {
         ui.update(1.0 / 60.0);
     }
     let keep = |name: &str, pixels: &[u8]| {
-        if let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-            let mut ppm = b"P6\n1280 720\n255\n".to_vec();
-            ppm.extend(
-                pixels
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .flat_map(|p| [p[0], p[1], p[2]]),
-            );
-            std::fs::write(std::path::Path::new(&dir).join(name), ppm).expect("ppm");
-        }
+        common::shot(name, pixels, [1280, 720]);
     };
     let view = env
         .state

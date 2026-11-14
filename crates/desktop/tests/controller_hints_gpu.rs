@@ -5,10 +5,7 @@ use ddi_desktop::play::Request;
 use ddi_desktop::play::host::{Device, Host};
 use ddi_desktop::play::view::Formats;
 use ddi_ui::controller_hints::{self as hints, Style};
-use ddi_ui::event::UiEvent;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 const SIZE: [u32; 2] = [1280, 720];
 
 fn draw(gpu: &mut Gpu, ui: &mut ddi_ui::Ui) -> Vec<u8> {
@@ -32,37 +29,18 @@ fn draw(gpu: &mut Gpu, ui: &mut ddi_ui::Ui) -> Vec<u8> {
     pixels
 }
 fn save(name: &str, pixels: &[u8]) {
-    if let Some(dir) = std::env::var_os("DDI_CONTROLLER_PROOFS") {
-        std::fs::create_dir_all(&dir).unwrap();
-        image::save_buffer(
-            std::path::Path::new(&dir).join(format!("{name}.png")),
-            pixels,
-            SIZE[0],
-            SIZE[1],
-            image::ColorType::Rgba8,
-        )
-        .unwrap();
-    }
+    common::shot(&format!("{name}.png"), pixels, SIZE);
 }
 #[test]
 fn controller_art_and_pressed_states_reach_the_real_prompt() {
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
     let format = wgpu::TextureFormat::Rgba8Unorm;
     let mut gpu = Gpu::new(device, queue, format);
-    let fold: ddi_ui::dev_widgets::FoldFn =
-        Rc::new(|s: &str| ddi_library::search::Fold::nfkd(&ddi_desktop::Nfkd, s));
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("select", fold);
-    env.reduced_motion.set(true);
-    ui.handle(UiEvent::Resize {
-        size: [SIZE[0] as f32, SIZE[1] as f32],
-        ratio: 1.0,
-    });
+    let (mut ui, env) = common::ui::theme("select", common::ui::nfkd(), SIZE, true);
     ui.push(ddi_ui::screens::sample::select_screen(&env, None));
     ui.update(0.5);
     let controls = ddi_engine::ControlBindings::default();
@@ -97,9 +75,7 @@ fn controller_art_and_pressed_states_reach_the_real_prompt() {
         save(&format!("select-{name}"), &draw(&mut gpu, &mut ui));
     }
     let mut host = Host::new(Rc::default(), None);
-    let clock = Arc::new(AtomicU64::new(1_000_000_000));
-    let c = clock.clone();
-    host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
+    common::rig::fake_clock(&mut host);
     *host.requested.borrow_mut() = Some(Request::song("some-things-must", 5, true));
     let mut waited = 0;
     loop {

@@ -3,6 +3,8 @@
 //! over the blur's length; text likewise. Skipped where there is no GPU
 //! adapter (CI).
 
+mod common;
+
 use ddi_actor::text::TextStyle;
 use ddi_desktop::gpu;
 use ddi_render::cosmic::CosmicRasterizer;
@@ -78,9 +80,7 @@ fn red(pixels: &[u8], x: u32, y: u32) -> f32 {
 
 #[test]
 fn quads_and_runs_smear_along_their_blur() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
@@ -177,8 +177,7 @@ fn quads_and_runs_smear_along_their_blur() {
 /// curve, including inside individual glyphs (not just between letters).
 #[test]
 fn curved_text_preserves_coverage_and_bends_inside_glyphs() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");

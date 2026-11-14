@@ -1,6 +1,8 @@
 //! Cached Gaussian images on the actual GPU: smooth edges, clamped borders,
 //! alpha-safe filtering, one job per upload and regeneration after device loss.
 
+mod common;
+
 use ddi_desktop::gpu;
 use ddi_render::{DrawList, Painter, TextureId, TextureKey, draw2d};
 
@@ -83,9 +85,7 @@ fn pixel(pixels: &[u8], x: usize, y: usize) -> &[u8] {
 
 #[test]
 fn gaussian_is_smooth_alpha_safe_and_only_runs_on_upload() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");

@@ -1,48 +1,29 @@
 //! The theme's credits page drawn offscreen on this machine's GPU, as the
 //! desktop window draws it (`--screen credits`): the shared header with
 //! its Back button and the wordmark, and the column's scrollbar. Skipped
-//! where there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<file>` keeps
-//! the picture.
+//! where there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>` keeps
+//! the picture (`credits.ppm`).
 
-use std::rc::Rc;
+mod common;
+
 
 use ddi_desktop::gpu::{self, Gpu};
-use ddi_ui::UiEvent;
-use ddi_ui::dev_widgets::FoldFn;
 
 #[test]
 fn the_credits_draw_with_the_header_and_a_scrollbar() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
     let format = wgpu::TextureFormat::Rgba8Unorm;
     let mut gpu = Gpu::new(device, queue, format);
-    let fold: FoldFn = Rc::new(|s: &str| ddi_library::search::Fold::nfkd(&ddi_desktop::Nfkd, s));
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("credits", fold);
-    env.reduced_motion.set(true);
-    ui.handle(UiEvent::Resize {
-        size: [1280.0, 720.0],
-        ratio: 1.0,
-    });
+    let (mut ui, _env) = common::ui::theme("credits", common::ui::nfkd(), [1280, 720], true);
     for _ in 0..60 {
         ui.update(1.0 / 60.0);
     }
     let size = [1280, 720];
     let pixels = gpu.draw_offscreen(&mut ui, size, format);
-    if let Some(path) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-        let mut ppm = format!("P6\n{} {}\n255\n", size[0], size[1]).into_bytes();
-        ppm.extend(
-            pixels
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .flat_map(|p| [p[0], p[1], p[2]]),
-        );
-        std::fs::write(path, ppm).expect("ppm");
-    }
+    common::shot("credits.ppm", &pixels, size);
     // The header's row: the Back button, the wordmark filling the
     // height, the title after it, all inside the header's 64 pixels.
     let back = ui.bounds("Back").expect("Back");

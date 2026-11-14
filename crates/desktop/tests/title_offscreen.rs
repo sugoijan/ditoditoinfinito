@@ -1,26 +1,20 @@
 //! The real title shader: its geometry stays fixed while the spatial field
 //! evolves, even a full palette cycle later. Reduced motion freezes both.
+
+mod common;
 use ddi_actor::Kind;
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_ui::UiEvent;
-use std::rc::Rc;
 
 #[test]
 fn title_flows_without_moving_letters_and_stops_for_reduced_motion() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
     let format = wgpu::TextureFormat::Rgba8Unorm;
     let mut gpu = Gpu::new(device, queue, format);
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("start", Rc::new(str::to_string));
-    env.reduced_motion.set(true);
-    ui.handle(UiEvent::Resize {
-        size: [1280.0, 720.0],
-        ratio: 1.0,
-    });
+    let (mut ui, env) = common::ui::theme("start", common::ui::identity(), [1280, 720], true);
     for _ in 0..60 {
         ui.update(1.0 / 60.0);
     }
@@ -71,17 +65,7 @@ fn title_flows_without_moving_letters_and_stops_for_reduced_motion() {
     ui.update(8.0);
     assert_eq!(second, gpu.draw_offscreen(&mut ui, size, format));
     assert!(!ui.needs_redraw());
-    if let Some(path) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-        let mut ppm = format!("P6\n{} {}\n255\n", size[0], size[1]).into_bytes();
-        ppm.extend(
-            second
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .flat_map(|p| [p[0], p[1], p[2]]),
-        );
-        std::fs::write(path, ppm).unwrap();
-    }
+    common::shot("title.ppm", &second, size);
     // Resizing preserves the animation clock and fits both the artwork and
     // the menu's touch targets in portrait and short landscape windows.
     let clock = |ui: &ddi_ui::Ui| match &ui.actor("TitleLayer0").unwrap().kind {

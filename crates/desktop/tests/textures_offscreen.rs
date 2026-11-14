@@ -3,6 +3,8 @@
 //! neither mipmapped nor destroyed while that draw's commands use them.
 //! Skipped where there is no GPU adapter (CI).
 
+mod common;
+
 use std::sync::{Arc, Mutex};
 
 use ddi_desktop::gpu;
@@ -11,9 +13,7 @@ use ddi_render::{DrawList, Painter};
 
 #[test]
 fn images_evicted_in_the_draw_that_mipmaps_them_are_safe() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
