@@ -2062,6 +2062,9 @@ fn cue_words(
         StageCue::Step { rung: r, up: true } => {
             return Some(m::play_cue_step_up(rung(r)?).into());
         }
+        StageCue::Stay { rung: r } => {
+            return Some(m::play_cue_stay(rung(r)?).into());
+        }
         StageCue::Event(event) => event,
     };
     Some(

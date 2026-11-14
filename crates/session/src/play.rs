@@ -1890,7 +1890,14 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .map(|t| (t, host - t.at))
             .filter(|(_, age)| *age < policy.cue_seconds)
             .map(|(t, age)| (policy.attack_priority(t.moment), StageCue::Attack(t.moment), age));
-        // A step of the player's own, as their going out would be.
+        // A step of the player's own, as their going out would be; a
+        // step down that closed the chart it left says they stay.
+        let closes = self
+            .steps_told
+            .len()
+            .checked_sub(1)
+            .and_then(|i| self.player.steps().get(i))
+            .is_some_and(|s| s.closes);
         let stepped = self
             .steps_told
             .last()
@@ -1899,7 +1906,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .map(|(rung, up, age)| {
                 (
                     policy.priority(ddi_library::announcer::Battle::Eliminated),
-                    StageCue::Step { rung, up },
+                    if closes {
+                        StageCue::Stay { rung }
+                    } else {
+                        StageCue::Step { rung, up }
+                    },
                     age,
                 )
             });

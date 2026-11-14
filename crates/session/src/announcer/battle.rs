@@ -205,6 +205,11 @@ pub enum StageCue {
     /// bars; no line says it, the status line does ("Stepping down:
     /// Medium", "Stepping up: Challenge").
     Step { rung: u8, up: bool },
+    /// The player's life ran out on a chart a second time, so it is
+    /// closed to them for the stage (`adaptive-v1`): they stay on this
+    /// rung's chart ("Staying on Hard"), said once instead of the step
+    /// down.
+    Stay { rung: u8 },
 }
 
 /// A stage's voice: the policy, the battle line speaking and until when

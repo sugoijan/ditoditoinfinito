@@ -1568,6 +1568,7 @@ fn step_down_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
         .collect();
     let cue = s.stage_cue(host).and_then(|(c, _)| match c {
         ddi_session::announcer::battle::StageCue::Step { rung, up } => Some(json!([rung, up])),
+        ddi_session::announcer::battle::StageCue::Stay { rung } => Some(json!([rung, "stay"])),
         _ => None,
     });
     let fields: Vec<usize> = s

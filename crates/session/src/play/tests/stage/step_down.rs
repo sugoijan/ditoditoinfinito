@@ -334,16 +334,16 @@ fn the_player_and_strong_cpus_step_up_alike_at_any_frame_rate() {
     );
 }
 
-/// One-star CPUs on Hard (a CPU's strength is relative to the chart it is
-/// on, so even they climb to Challenge now and then, and fall back): their
-/// fields and their plays agree on every step, both ways, at any frame
-/// rate.
+/// Two-star CPUs on Medium (they climb to Hard now and then, and fall
+/// back; from Hard under `adaptive-v1` the song is too short for any to
+/// come back up): their fields and their plays agree on every step, both
+/// ways, at any frame rate.
 #[test]
 fn fields_follow_steps_down_and_back_up() {
     let song = bundled("beatucada");
     let mut practice = step_room(&song, 7, 1, ddi_room::Charts::Adaptive);
     let mut now = 0;
-    let order = begin_at(&song, &mut practice, &mut now, HARD);
+    let order = begin_at(&song, &mut practice, &mut now, medium(&song));
     let (a, _, _) = idle(&song, &order, 60.0);
     let (b, _, _) = idle(&song, &order, 144.0);
     let battle = a.battle().unwrap();
@@ -359,5 +359,49 @@ fn fields_follow_steps_down_and_back_up() {
         s.battle().unwrap().feeds().map(|f| f.steps().collect()).collect()
     };
     assert_eq!(fields(&a), fields(&b));
-    assert!(both, "a one-star CPU up to Challenge and back down");
+    assert!(both, "a two-star CPU up to Hard and back down");
 }
+
+/// A step down that closes the chart it left (`adaptive-v1`: life ran
+/// out there twice; here once, `closed_after: 1`, so that a stage of
+/// nothing pressed shows it) is told as staying on the chart below
+/// ("Staying on Medium"), not as a step down.
+#[test]
+fn a_chart_closed_is_told_as_staying_on_the_one_below() {
+    let song = bundled("beatucada");
+    let mut practice = step_room(&song, 1, 1, ddi_room::Charts::Adaptive);
+    let mut now = 0;
+    let order = begin_at(&song, &mut practice, &mut now, HARD);
+    let (mut s, clock) = stage_session(&song, &order, false, &[]);
+    s.player.set_ladder_rule(ddi_engine::ladder::AdaptiveRule {
+        closed_after: 1,
+        ..ddi_engine::ladder::ADAPTIVE_V1
+    });
+    let mut told = None;
+    loop {
+        *clock.borrow_mut() += 1.0 / 60.0;
+        let now = *clock.borrow();
+        let (_, event) = s.tick(HostTime(now));
+        if let Some((cue, 0.0)) = s.stage_cue(now)
+            && matches!(
+                cue,
+                crate::announcer::battle::StageCue::Stay { .. }
+                    | crate::announcer::battle::StageCue::Step { .. }
+            )
+        {
+            told = Some(cue);
+            break;
+        }
+        if event.is_some() || now > 400.0 {
+            break;
+        }
+    }
+    assert_eq!(
+        told,
+        Some(crate::announcer::battle::StageCue::Stay { rung: 1 }),
+        "{:?}",
+        s.player.steps()
+    );
+    assert!(s.player.steps()[0].closes);
+}
+

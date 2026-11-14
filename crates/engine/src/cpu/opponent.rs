@@ -604,6 +604,12 @@ impl Opponent {
         self.judged.clear();
     }
 
+    /// The ladder rule its play steps by (`ladder::ADAPTIVE` unless set;
+    /// the studies compare `adaptive-v0`).
+    pub fn set_ladder_rule(&mut self, rule: crate::ladder::AdaptiveRule) {
+        self.player.set_ladder_rule(rule);
+    }
+
     /// Its player (read only).
     pub fn player(&self) -> &Player {
         &self.player

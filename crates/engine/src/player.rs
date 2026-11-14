@@ -17,7 +17,7 @@ use crate::frame::{
 use crate::history::{LoggedHazard, LoggedInput, PlayLog};
 use crate::input::InputEvent;
 use crate::judge::{Judge, JudgeEvent, JudgeEventKind, JudgedNote, NoteState};
-use crate::ladder::{ADAPTIVE_V0, AdaptiveRule, Step};
+use crate::ladder::{ADAPTIVE, AdaptiveRule, Step};
 use crate::rules::ddi::{self, DdiResult, Lamp};
 use crate::rules::ddr::{DdrClear, flare_points};
 use crate::rules::ffr::FfrResult;
@@ -537,7 +537,7 @@ impl Player {
             above: Vec::new(),
             home: None,
             chart_index,
-            rule: ADAPTIVE_V0,
+            rule: ADAPTIVE,
             horizon: 0.0,
             steps: Vec::new(),
             stepping: None,
@@ -958,8 +958,8 @@ impl Player {
         })
     }
 
-    /// The ladder rule the play follows ([`ADAPTIVE_V0`]; tests may give
-    /// another).
+    /// The ladder rule the play follows ([`crate::ladder::ADAPTIVE`];
+    /// tests and the studies may give another, as `adaptive-v0`).
     pub fn set_ladder_rule(&mut self, rule: AdaptiveRule) {
         self.rule = rule;
     }
@@ -1038,6 +1038,9 @@ impl Player {
         self.level = to;
         self.clean_from = None;
         let below = self.ladder.len();
+        let closes = self.closed(from)
+            && self.ran_out.iter().filter(|&&p| p == from).count()
+                == self.rule.closed_after as usize;
         self.steps.push(Step {
             at,
             boundary,
@@ -1046,6 +1049,7 @@ impl Player {
             chart: next.chart,
             up: false,
             from: crate::ladder::rung_of(below, from),
+            closes,
         });
     }
 
@@ -1096,6 +1100,7 @@ impl Player {
             chart: next.chart,
             up: true,
             from: crate::ladder::rung_of(below, from),
+            closes: false,
         });
     }
 
@@ -1201,6 +1206,11 @@ impl Player {
         if self.steps.last().is_some_and(|s| s.boundary > b) {
             return;
         }
+        // A rung closed to them (life ran out there too often): never
+        // again, nor past it.
+        if self.closed(to) {
+            return;
+        }
         let bars = if self.ran_out.contains(&to) {
             self.rule.return_bars
         } else {
@@ -1214,6 +1224,14 @@ impl Player {
         if self.clean_from.is_some_and(|c| c <= start) {
             self.step_up(b);
         }
+    }
+
+    /// Whether the rung at place `place` is closed to this play: its life
+    /// ran out there [`AdaptiveRule::closed_after`] times.
+    fn closed(&self, place: i8) -> bool {
+        self.rule.closed_after > 0
+            && self.ran_out.iter().filter(|&&p| p == place).count()
+                >= self.rule.closed_after as usize
     }
 
     /// After event `ev`: whether life is full with nothing missed since

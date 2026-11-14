@@ -225,6 +225,12 @@ fn single(song: &Song, d: ddi_chart::Difficulty) -> usize {
         .unwrap()
 }
 
+thread_local! {
+    /// The ladder rule [`play_on`] and [`replayed_on`] give their plays
+    /// (none: the one a stage plays, `ladder::ADAPTIVE`).
+    static RULE: std::cell::Cell<Option<AdaptiveRule>> = const { std::cell::Cell::new(None) };
+}
+
 /// A player who plays whatever chart it is on perfectly (on time, every
 /// note), except that it presses nothing between the seconds of each of
 /// `gaps`; in frames of `step` seconds, each frame's presses read from
@@ -243,6 +249,9 @@ fn play_on(
     }
     for &r in above {
         p.add_rung_up(song, r).unwrap();
+    }
+    if let Some(rule) = RULE.get() {
+        p.set_ladder_rule(rule);
     }
     p.start(0.0, 0.0);
     let mut fed = f64::NEG_INFINITY;
@@ -287,6 +296,9 @@ fn replayed_on(song: &Song, chart: usize, below: &[usize], above: &[usize], log:
     }
     for &r in above {
         p.add_rung_up(song, r).unwrap();
+    }
+    if let Some(rule) = RULE.get() {
+        p.set_ladder_rule(rule);
     }
     p.start(0.0, log.start);
     for i in &log.inputs {
@@ -366,9 +378,12 @@ fn a_perfect_play_steps_up_once_after_four_bars_the_same_at_any_frame_rate() {
     // On the top rung nothing more happens.
 }
 
-#[test]
-fn a_play_steps_up_then_down_and_back_up_takes_eight_bars() {
+/// Up from Medium to Hard, life run out on Hard (down to Medium), and
+/// back up to Hard: `bars` bars of full life from the step down's
+/// boundary. The steps.
+fn up_down_up(rule: AdaptiveRule) -> (Player, Vec<ddi_engine::ladder::Step>) {
     use ddi_chart::Difficulty::*;
+    RULE.set(Some(rule));
     let song = song();
     let medium = single(&song, Medium);
     let hard = single(&song, Hard);
@@ -380,18 +395,89 @@ fn a_play_steps_up_then_down_and_back_up_takes_eight_bars() {
     let long = play_on(&song, medium, &[easy], &[hard], &[(up.boundary + 2.0, 600.0)], 1.0 / 60.0);
     let zero = long.results().steps[1].at;
     let p = alike(&song, medium, &[easy], &[hard], &[(up.boundary + 2.0, zero + 0.01)]);
-    let r = p.results();
-    assert!(r.steps.len() >= 3, "{:?}", r.steps);
-    assert!(r.steps[0].up);
-    let down = r.steps[1];
-    assert!(!down.up);
+    RULE.set(None);
+    let steps = p.results().steps.clone();
+    (p, steps)
+}
+
+#[test]
+fn a_play_steps_up_then_down_and_back_up_takes_sixteen_bars() {
+    let (p, steps) = up_down_up(ladder::ADAPTIVE);
+    assert_eq!(ladder::ADAPTIVE, ladder::ADAPTIVE_V1);
+    assert!(steps.len() >= 3, "{steps:?}");
+    assert!(steps[0].up);
+    let down = steps[1];
+    assert!(!down.up && !down.closes);
     assert_eq!(down.from, 2, "down from Hard, rung 2 (one rung below, then one above)");
     assert_eq!(down.rung, 0, "to the stage's chart");
-    // Back up to Hard, where life ran out: eight bars of full life.
-    let back = r.steps[2];
+    // Back up to Hard, where life ran out: sixteen bars of full life.
+    let back = steps[2];
     assert!(back.up && back.rung == 2, "{back:?}");
     let beats = p.timing().beat_at(back.at) - p.timing().beat_at(down.boundary);
-    assert!(beats >= 32.0 - 1e-6, "{beats}");
+    assert!(beats >= 64.0 - 1e-6, "{beats}");
+}
+
+#[test]
+fn adaptive_v0_takes_eight_bars_back_up_and_closes_nothing() {
+    let (p, steps) = up_down_up(ladder::ADAPTIVE_V0);
+    let (down, back) = (steps[1], steps[2]);
+    assert!(back.up && back.rung == 2, "{steps:?}");
+    let beats = p.timing().beat_at(back.at) - p.timing().beat_at(down.boundary);
+    assert!((32.0 - 1e-6..64.0).contains(&beats), "{beats}");
+    assert!(steps.iter().all(|s| !s.closes));
+}
+
+/// Life run out on Hard twice: Hard is closed for the rest of the stage,
+/// however well the rest is played; the step down that closed it says
+/// so. The same at 60 and 144 fps and from the log. (`adaptive-v1` with
+/// shorter bars, two up and four back up, so that the bundled song is
+/// long enough for both run-outs and the bars after.)
+#[test]
+fn a_rung_whose_life_ran_out_twice_is_closed() {
+    use ddi_chart::Difficulty::*;
+    RULE.set(Some(AdaptiveRule {
+        up_bars: 2,
+        return_bars: 4,
+        ..ladder::ADAPTIVE_V1
+    }));
+    let song = song();
+    let medium = single(&song, Medium);
+    let hard = single(&song, Hard);
+    let easy = single(&song, Easy);
+    let first = alike(&song, medium, &[easy], &[hard], &[]);
+    let up = first.results().steps[0];
+    let long = play_on(&song, medium, &[easy], &[hard], &[(up.boundary + 2.0, 600.0)], 1.0 / 60.0);
+    let gap = (up.boundary + 2.0, long.results().steps[1].at + 0.01);
+    let again = alike(&song, medium, &[easy], &[hard], &[gap]);
+    let back = again.results().steps[2];
+    assert!(back.up && back.rung == 2, "{:?}", again.results().steps);
+    let long = play_on(
+        &song,
+        medium,
+        &[easy],
+        &[hard],
+        &[gap, (back.boundary + 2.0, 600.0)],
+        1.0 / 60.0,
+    );
+    let second = long.results().steps[3];
+    assert!(!second.up && second.from == 2, "{second:?}");
+    let p = alike(
+        &song,
+        medium,
+        &[easy],
+        &[hard],
+        &[gap, (back.boundary + 2.0, second.at + 0.01)],
+    );
+    let steps = p.results().steps.clone();
+    assert!(steps.len() >= 4, "{steps:?}");
+    let shut = steps[3];
+    assert!(!shut.up && shut.from == 2 && shut.closes, "{shut:?}");
+    assert!(!steps[1].closes);
+    // Played perfectly from there to the end: never up to Hard again.
+    assert!(steps[4..].iter().all(|s| !(s.up && s.rung == 2)), "{steps:?}");
+    let left = p.timing().beat_at(p.end_time()) - p.timing().beat_at(shut.boundary);
+    assert!(left > 32.0, "the song went on long enough to have climbed back: {left}");
+    RULE.set(None);
 }
 
 #[test]
@@ -411,9 +497,9 @@ fn a_play_steps_down_then_up_past_the_picked_chart() {
     assert_eq!(ups[0].rung, 0);
     assert_eq!(ups[1].rung, 2);
     assert_eq!(ups[1].chart, hard);
-    // Back to Medium, where life ran out: eight bars from the boundary.
+    // Back to Medium, where life ran out: sixteen bars from the boundary.
     let beats = p.timing().beat_at(ups[0].at) - p.timing().beat_at(r.steps[0].boundary);
-    assert!(beats >= 32.0 - 1e-6, "{beats}");
+    assert!(beats >= 64.0 - 1e-6, "{beats}");
     // On to Hard: four bars from that boundary.
     let beats = p.timing().beat_at(ups[1].at) - p.timing().beat_at(ups[0].boundary);
     assert!((16.0 - 1e-6..32.0).contains(&beats), "{beats}");

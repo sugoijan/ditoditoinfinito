@@ -240,7 +240,7 @@ room-rules-charts-adaptive = Adaptive
 
 # A line under the Charts row saying what the chosen value does.
 room-rules-charts-as-picked-about = Everyone plays the chart picked; a player whose life runs out is out until the next stage.
-room-rules-charts-adaptive-about = A player whose life runs out gets half of it back and plays the song's next easier chart from a bar ahead; one who keeps full life for four bars without a miss moves up to the next harder chart, above the one picked too. Those still in place by their score: harder charts earn more. On the easiest chart zero life is out.
+room-rules-charts-adaptive-about = A player whose life runs out gets half of it back and plays the song's next easier chart from a bar ahead; one who keeps full life for four bars without a miss moves up to the next harder chart, above the one picked too (back to a chart where their life ran out takes sixteen bars, and never after it ran out there twice). Those still in place by their score: harder charts earn more. On the easiest chart zero life is out.
 
 # Added after that line where the song picked for the stage has no other
 # chart in its style to move to.
@@ -674,6 +674,14 @@ room-play-cue-step-down = Stepping down: { $chart }
 # Variables:
 #   $chart (String) - the chart's name ("Challenge")
 room-play-cue-step-up = Stepping up: { $chart }
+
+# The player's life ran out on a harder chart a second time in this stage
+# (a match's rule "Charts: Adaptive"), so they are not stepped up to it
+# again: they stay on the chart named, said once, quietly, in the play's
+# status line where "Stepping down: …" would be.
+# Variables:
+#   $chart (String) - the chart's name, as the song list names it ("Hard")
+room-play-cue-stay = Staying on { $chart }
 
 # The player and others went out last together: first place shared.
 room-play-cue-stage-drawn = Stage drawn

@@ -1,6 +1,7 @@
-//! Opt-in study: the match rule "Charts: Adaptive" (`adaptive-v0`,
-//! `ddi_engine::ladder`; `docs/plans/multiplayer-prototype-progress.md`,
-//! "Adaptive charts").
+//! Opt-in study: the match rule "Charts: Adaptive" (`adaptive-v1`, with
+//! `adaptive-v0` beside it, `ddi_engine::ladder`;
+//! `docs/plans/multiplayer-prototype-progress.md`, "Adaptive charts" and
+//! "Feedback round D").
 //!
 //! `cargo test --release -p ddi-session --lib adaptive_study -- --ignored
 //! --nocapture` reads the bundled songs and, with `DDI_STEP_CORPUS=<dir>[:<dir>…]`,
@@ -16,11 +17,15 @@
 //!    rung (`placement-v2`);
 //! 3. stages of ten CPUs, one at each level, attacks on, from every Medium
 //!    and Hard pick with a ladder (every `DDI_STEP_EVERY`th, 1), under DDI
-//!    Normal and Hard, each As picked and Adaptive, seeded
-//!    (`DDI_STEP_SEEDS`, 2): by level, where it finished (its rung from
-//!    the pick), its steps up and down, how often it goes out and
-//!    bounces, its place and its score, against As picked; and how often
-//!    a stronger level places above a weaker one;
+//!    Normal and Hard, each As picked, Adaptive under `adaptive-v0` and
+//!    under `adaptive-v1`, seeded (`DDI_STEP_SEEDS`, 2): by level, where
+//!    it finished (its rung from the pick), its steps up and down, how
+//!    often it goes out and bounces (down from a rung, up to it again,
+//!    down again; and that twice), its place and its score, against As
+//!    picked; how often a stronger level places above a weaker one; and,
+//!    for each step up, the share of the two best judgments in the four
+//!    bars before it against whether it later fell back from that rung
+//!    (would a quality condition tell "ready" from "comfortable below"?);
 //! 4. whether playing an easier chart on purpose pays: for each pair of
 //!    neighbouring rungs, a perfect play of the easier against plays of
 //!    85% and 95% of the harder (the score as earned, DDI's sum).
@@ -91,12 +96,12 @@ struct Tally {
     songs: u32,
     songs_with_ladder: u32,
     /// By pick (Medium, Hard), difficulty (Normal, Hard), rule (As
-    /// picked, Adaptive) and level.
-    levels: [[[[LevelSum; 10]; 2]; 2]; 2],
+    /// picked, Adaptive v0, Adaptive v1) and level.
+    levels: [[[[LevelSum; 10]; RULES]; 2]; 2],
     stages: [[u32; 2]; 2],
     /// By pick, difficulty and rule: pairs of levels, and those the
     /// stronger placed above the weaker in.
-    pairs: [[[(u64, u64); 2]; 2]; 2],
+    pairs: [[[(u64, u64); RULES]; 2]; 2],
     /// Neighbouring rungs: pairs, and those where a perfect play of the
     /// easier beats an 85% and a 95% play of the harder; the ratios'
     /// sums (perfect easier over 85% and over 95% harder).
@@ -114,6 +119,12 @@ struct LevelSum {
     ups: u32,
     downs: u32,
     bounced: u32,
+    /// Bounced twice on one rung (left it three times).
+    twice: u32,
+    /// Its steps up by the share of the two best judgments in the four
+    /// bars before (under 80%, 80–85, 85–90, 90–95, 95% and over): held
+    /// the rung, fell back from it later.
+    quality: [[u32; 2]; 5],
 }
 
 impl LevelSum {
@@ -128,6 +139,11 @@ impl LevelSum {
         self.ups += b.ups;
         self.downs += b.downs;
         self.bounced += b.bounced;
+        self.twice += b.twice;
+        for k in 0..5 {
+            self.quality[k][0] += b.quality[k][0];
+            self.quality[k][1] += b.quality[k][1];
+        }
     }
 }
 
@@ -149,7 +165,7 @@ impl Tally {
         for p in 0..2 {
             for d in 0..2 {
                 self.stages[p][d] += o.stages[p][d];
-                for r in 0..2 {
+                for r in 0..RULES {
                     self.pairs[p][d][r].0 += o.pairs[p][d][r].0;
                     self.pairs[p][d][r].1 += o.pairs[p][d][r].1;
                     for l in 0..10 {
@@ -176,6 +192,63 @@ struct Seated {
     out: bool,
     place: usize,
     score: i64,
+    /// Each step up: the share of the two best judgments in the four
+    /// bars before it, and whether it later fell back from that rung.
+    ups: Vec<(f64, bool)>,
+}
+
+/// The rules compared: As picked, Adaptive under `adaptive-v0`, under
+/// `adaptive-v1`.
+const RULES: usize = 3;
+
+fn rule_of(r: usize) -> (Charts, ddi_engine::ladder::AdaptiveRule) {
+    match r {
+        0 => (Charts::AsPicked, ddi_engine::ladder::ADAPTIVE),
+        1 => (Charts::Adaptive, ddi_engine::ladder::ADAPTIVE_V0),
+        _ => (Charts::Adaptive, ddi_engine::ladder::ADAPTIVE_V1),
+    }
+}
+
+/// For each step up in `steps` of `player`'s play: the share of the two
+/// best judgments among the taps judged in the four bars before it, and
+/// whether a later step left that rung down.
+fn up_quality(player: &ddi_engine::Player, steps: &[ddi_engine::ladder::Step]) -> Vec<(f64, bool)> {
+    use ddi_engine::rules::Judgement;
+    let timeline = player.results().timeline;
+    let timing = player.timing();
+    steps
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.up)
+        .map(|(i, s)| {
+            let start = timing.seconds_at_beat(timing.beat_at(s.at) - 16.0);
+            let (mut best, mut all) = (0u32, 0u32);
+            for j in &timeline {
+                let t = f64::from(j.time);
+                if t < start || t > s.at {
+                    continue;
+                }
+                if let ddi_engine::JudgeEventKind::Tap(k, _) = j.kind {
+                    all += 1;
+                    best += u32::from(matches!(k, Judgement::W1 | Judgement::W2));
+                }
+            }
+            let share = if all > 0 { f64::from(best) / f64::from(all) } else { 1.0 };
+            let fell = steps[i + 1..].iter().any(|d| !d.up && d.from == s.rung);
+            (share, fell)
+        })
+        .collect()
+}
+
+/// A share's bucket: under 80%, 80–85, 85–90, 90–95, 95% and over.
+fn quality_bucket(share: f64) -> usize {
+    match share {
+        s if s < 0.80 => 0,
+        s if s < 0.85 => 1,
+        s if s < 0.90 => 2,
+        s if s < 0.95 => 3,
+        _ => 4,
+    }
 }
 
 /// A stage of ten CPUs, one at each level (seated in turn by the seed),
@@ -186,6 +259,7 @@ fn stage(
     chart: usize,
     difficulty: MatchDifficulty,
     charts: Charts,
+    rule: ddi_engine::ladder::AdaptiveRule,
     seed: u64,
 ) -> Option<Vec<Seated>> {
     let rules = StageRules {
@@ -227,6 +301,9 @@ fn stage(
     let ladder = stage_ladder(song, chart, &setup);
     let below = ladder.iter().filter(|r| !r.up).count();
     let mut b = Battle::new(setup, song, chart, &ruleset, 0.0, FORFEIT_HORIZON, &ladder).ok()?;
+    for s in &mut b.seats {
+        s.opponent.set_ladder_rule(rule);
+    }
     if let Some(a) = b.attacks.as_mut() {
         a.out_at(b.setup.me, f64::NEG_INFINITY);
     }
@@ -265,9 +342,17 @@ fn stage(
                 out: s.out_at().is_some(),
                 place: place_of(s.seat.participant),
                 score: b.cpu_detail(i).score.unwrap_or(0),
+                ups: up_quality(s.opponent.player(), s.opponent.player().steps()),
             })
             .collect(),
     )
+}
+
+/// Whether a play bounced twice on one rung: left it down three times.
+fn bounced_twice(steps: &[ddi_engine::ladder::Step]) -> bool {
+    steps.iter().any(|a| {
+        !a.up && steps.iter().filter(|b| !b.up && b.from == a.from).count() >= 3
+    })
 }
 
 /// Whether a play bounced: stepped down from a rung, back up to it, and
@@ -360,8 +445,9 @@ fn study_song(song: &Song, bundled: bool, every: usize, seeds: u64, counter: &mu
             .enumerate()
         {
             for seed in 1..=seeds {
-                for (r, charts) in [Charts::AsPicked, Charts::Adaptive].into_iter().enumerate() {
-                    let Some(seats) = stage(song, index, difficulty, charts, seed) else {
+                for r in 0..RULES {
+                    let (charts, rule) = rule_of(r);
+                    let Some(seats) = stage(song, index, difficulty, charts, rule, seed) else {
                         continue;
                     };
                     if r == 0 {
@@ -386,6 +472,10 @@ fn study_song(song: &Song, bundled: bool, every: usize, seeds: u64, counter: &mu
                         l.ups += s.steps.iter().filter(|st| st.up).count() as u32;
                         l.downs += s.steps.iter().filter(|st| !st.up).count() as u32;
                         l.bounced += u32::from(bounced(&s.steps));
+                        l.twice += u32::from(bounced_twice(&s.steps));
+                        for &(share, fell) in &s.ups {
+                            l.quality[quality_bucket(share)][usize::from(fell)] += 1;
+                        }
                     }
                 }
             }
@@ -439,38 +529,75 @@ fn report(name: &str, t: &Tally, started: std::time::Instant) {
     }
     for (p, pick) in ["Medium", "Hard"].iter().enumerate() {
         for (d, name) in ["Normal", "Hard"].iter().enumerate() {
+            let pairs = |r: usize| 100.0 * t.pairs[p][d][r].1 as f64 / t.pairs[p][d][r].0.max(1) as f64;
             println!(
-                "picked {pick}, DDI {name}, ten CPUs (one a level), attacks on: {} stages a rule; stronger above weaker: as picked {:.1}%, adaptive {:.1}%",
+                "picked {pick}, DDI {name}, ten CPUs (one a level), attacks on: {} stages a rule; stronger above weaker: as picked {:.1}%, adaptive-v0 {:.1}%, adaptive-v1 {:.1}%",
                 t.stages[p][d],
-                100.0 * t.pairs[p][d][0].1 as f64 / t.pairs[p][d][0].0.max(1) as f64,
-                100.0 * t.pairs[p][d][1].1 as f64 / t.pairs[p][d][1].0.max(1) as f64,
+                pairs(0),
+                pairs(1),
+                pairs(2),
             );
             println!(
-                "  level | as picked: out%  place  score     | adaptive: out%  place  score     ups  downs  bounce% | finished -4..+4 %"
+                "  level | as picked: out%  place  score     | v0: out%  place  ups  downs  bounce% twice% | v1: out%  place  score     ups  downs  bounce% twice% | v1 finished -4..+4 %"
             );
             for l in 0..10 {
-                let (o, s) = (t.levels[p][d][0][l], t.levels[p][d][1][l]);
-                let (on, sn) = (f64::from(o.stages.max(1)), f64::from(s.stages.max(1)));
+                let (o, v0, s) = (t.levels[p][d][0][l], t.levels[p][d][1][l], t.levels[p][d][2][l]);
+                let (on, n0, sn) = (
+                    f64::from(o.stages.max(1)),
+                    f64::from(v0.stages.max(1)),
+                    f64::from(s.stages.max(1)),
+                );
                 let finished: Vec<String> = s
                     .finished
                     .iter()
                     .map(|c| format!("{:4.1}", 100.0 * f64::from(*c) / sn))
                     .collect();
                 println!(
-                    "  {:>5} | {:5.1} {:5.2} {:9.0} | {:5.1} {:5.2} {:9.0} {:5.2} {:5.2} {:6.1} | {}",
+                    "  {:>5} | {:5.1} {:5.2} {:9.0} | {:5.1} {:5.2} {:4.2} {:5.2} {:6.1} {:6.1} | {:5.1} {:5.2} {:9.0} {:4.2} {:5.2} {:6.1} {:6.1} | {}",
                     l + 1,
                     100.0 * f64::from(o.out) / on,
                     o.place as f64 / on,
                     o.score as f64 / on,
+                    100.0 * f64::from(v0.out) / n0,
+                    v0.place as f64 / n0,
+                    f64::from(v0.ups) / n0,
+                    f64::from(v0.downs) / n0,
+                    100.0 * f64::from(v0.bounced) / n0,
+                    100.0 * f64::from(v0.twice) / n0,
                     100.0 * f64::from(s.out) / sn,
                     s.place as f64 / sn,
                     s.score as f64 / sn,
                     f64::from(s.ups) / sn,
                     f64::from(s.downs) / sn,
                     100.0 * f64::from(s.bounced) / sn,
+                    100.0 * f64::from(s.twice) / sn,
                     finished.join(" "),
                 );
             }
+            // A quality condition: steps up by the share of the two best
+            // judgments in the four bars before, held or fallen back from
+            // (both rules' steps up, all levels).
+            let mut q = [[0u32; 2]; 5];
+            for rule in &t.levels[p][d][1..] {
+                for level in rule {
+                    for (k, held_fell) in level.quality.iter().enumerate() {
+                        q[k][0] += held_fell[0];
+                        q[k][1] += held_fell[1];
+                    }
+                }
+            }
+            let line: Vec<String> = ["<80", "80-85", "85-90", "90-95", "95+"]
+                .iter()
+                .zip(q)
+                .map(|(b, [held, fell])| {
+                    format!(
+                        "{b}%: {} ups, {:.1}% fell back",
+                        held + fell,
+                        100.0 * f64::from(fell) / f64::from((held + fell).max(1))
+                    )
+                })
+                .collect();
+            println!("  steps up by the best two judgments' share in the four bars before: {}", line.join("; "));
         }
     }
     println!("  ({:.0} s so far)", started.elapsed().as_secs_f64());

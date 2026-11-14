@@ -7742,12 +7742,111 @@ full and reduced motion), the room's screens' entrance tests moved to
 the new line delay, Chrome's frames before (a blank frame at 600 ms)
 and after (none), the smoke check in Chrome and Firefox.
 
+### Adaptive charts without bouncing (`adaptive-v1`)
+
+The maintainer: "after stepping down from a chart the barrier to step up
+should be higher than it originally is, and if you manage to step up and
+end up stepping down, you can't step up again, to prevent bouncing too
+much."
+
+- **The rule** (`ddi_engine::ladder::ADAPTIVE_V1`, what a stage plays,
+  `ladder::ADAPTIVE`; `ADAPTIVE_V0` kept by name, `Player::set_ladder_rule`,
+  `Opponent::set_ladder_rule`): stepping back up to a rung whose life ran
+  out takes **sixteen bars** (`return_bars`, eight under v0) of full life
+  with no miss, no hold let go and no shock stepped on; first-time steps
+  up stay at four. A rung on which a competitor's life ran out **twice**
+  in a stage is **closed** to them for the rest of it
+  (`AdaptiveRule::closed_after`, 2; `Player::closed`): never stepped up to
+  again, nor past it (a step up is one rung). The step down that closes a
+  rung says so (`Step::closes`, additive in the play's record).
+- **The cue**: where the player's step down closes the rung they left,
+  the status line says "Staying on Hard" (the chart they stay on) instead
+  of "Stepping down: Hard", once (`StageCue::Stay`, `room-play-cue-stay`,
+  ja 「Hardのまま」). The Standings need nothing new. The Rules pop-up's
+  sentence for Adaptive says it in a clause (en, ja).
+- **CPUs** step by the same rule (their play is a `Player`). Deterministic
+  from the inputs alone at any frame rate, as before (the engine's tests at
+  60 and 144 fps and from the log); As picked untouched (the fixtures
+  unchanged).
+- **Peers must agree**: `ROOM_MODEL_REVISION` is 6 (a client of 5 is told
+  to reload). The online CPUs' fixture (`the_cpus_play_alike`) needed no
+  new recording: its Adaptive scenario has no return to a rung whose life
+  ran out, so it is byte for byte the same; it passes natively and for
+  wasm32-wasip1. The server needs no code change (it reads the constant
+  from the crate; its tests pass against it).
+- **A quality condition** (a share of the two best judgments in the four
+  bars before a step up) was measured and **not added**: it does tell the
+  CPUs who hold a rung from those who fall back (below), but those
+  judgments are the CPU model's own spread, not a person's, and the
+  closing already bounds bouncing; ready to add as a named value if the
+  maintainer wants it (open question).
+
+**Measured** (`adaptive_study`, now As picked, `adaptive-v0` and
+`adaptive-v1` side by side; the thirteen local arcade mixes in place,
+1,066 songs, 2,080 Medium and 2,078 Hard picks, ten CPUs one a level,
+attacks on, two seeds; 719 s; MEASUREMENTS OF CPUS AGAINST CPUS).
+Bouncing is a stage where a CPU stepped down from a rung, back up to it,
+and down from it again; "twice" is that twice on one rung (left three
+times), which v1 makes impossible:
+
+| Bounce % by level (v0 → v1) | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Medium pick, Normal | 3.9 → 0.5 | 10.0 → 1.5 | 7.5 → 1.4 | 5.4 → 0.9 | 6.6 → 1.0 | 5.7 → 1.0 | 3.7 → 0.8 | 1.8 → 0.4 | 0.6 → 0.1 | 0 → 0 |
+| Medium pick, Hard | 1.2 → 0.1 | 4.7 → 0.9 | 11.3 → 1.8 | 9.1 → 1.5 | 13.2 → 3.1 | 11.2 → 2.6 | 11.1 → 3.2 | 8.7 → 4.1 | 3.9 → 1.8 | 0.5 → 0.2 |
+| Hard pick, Normal | 3.5 → 0.2 | 11.0 → 1.3 | 10.2 → 1.6 | 10.1 → 1.0 | 10.7 → 1.5 | 11.2 → 1.9 | 5.3 → 0.6 | 3.1 → 1.2 | 1.4 → 0.6 | 0 → 0 |
+| Hard pick, Hard | 1.7 → 0 | 5.8 → 0.9 | 13.5 → 1.8 | 12.0 → 1.8 | 18.8 → 4.5 | 21.1 → 5.4 | 15.9 → 4.7 | 11.7 → 6.2 | 6.6 → 3.3 | 1.2 → 0.5 |
+
+Twice on one rung: up to 1.3% of stages under v0 (Hard pick, Hard
+timing, levels 6 to 9), 0 under v1 everywhere. Steps up fall by about a
+sixth to a half at the weak levels (Medium pick, Normal: level 2 0.54 →
+0.37 a stage, level 5 1.22 → 1.11, level 10 1.29 → 1.29), steps down a
+little; going out is unchanged (level 1 6.7% under both from a Medium
+pick, 49% under Hard timing); places unchanged; a stronger level above a
+weaker 98.7% → 98.8% (Medium, Normal), 97.5% → 97.4% (Medium, Hard),
+99.1% and 97.8% from a Hard pick under both.
+
+Where v1 finishes, from a Medium pick under Normal (−2 / −1 / 0 / +1 /
++2 %): level 1 33.3 / 53.4 / 11.8 / 1.4 / 0.1; level 3 4.0 / 31.5 / 43.1
+/ 20.6 / 0.8; level 5 0.3 / 6.9 / 35.5 / 51.4 / 5.8; level 7 0 / 0.3 /
+11.9 / 72.2 / 15.6; level 10 0 / 0 / 0.1 / 71.6 / 28.3 (the levels keep
+their order: the weak below the pick, the middle at it or one up, the
+strong at the top). From a Hard pick: level 1 on Easy or Beginner 88%,
+level 5 on Hard 50%, levels 8 to 10 on Hard 72 to 76% and Challenge the
+rest.
+
+**The quality condition** (each step up, both rules, every level: the
+share of W1 and W2 among the taps in the four bars before it, and whether
+the CPU later fell back from that rung):
+
+| Share before the step up | under 80% | 80–85% | 85–90% | 90–95% | 95% and over |
+| --- | --- | --- | --- | --- | --- |
+| Medium pick, Normal: fell back | 71.5% (957) | 70.9% (1,074) | 62.4% (1,777) | 42.3% (5,742) | 18.4% (31,008) |
+| Medium pick, Hard | 70.8% | 75.0% | 72.5% | 52.8% | 32.9% |
+| Hard pick, Normal | 59.1% | 59.3% | 64.0% | 53.5% | 33.4% |
+| Hard pick, Hard | 59.3% | 63.7% | 62.4% | 64.1% | 46.6% |
+
+A step up after four bars under 95% falls back twice to four times as
+often as one at 95% and over; asking 95% would hold back about a fifth of
+the steps up. Not added (above).
+
+Tested: the engine (`crates/engine/tests/adaptive.rs`): back up to a rung
+whose life ran out takes sixteen bars (`adaptive-v1`) and eight under
+`adaptive-v0`, which closes nothing; a rung whose life ran out twice is
+closed and never climbed to again though the rest is played perfectly,
+the step that closed it marked, the same at 60 and 144 fps and from the
+log. The session: a closing step down told as "Staying on Medium"
+(`a_chart_closed_is_told_as_staying_on_the_one_below`); the fields
+following steps down and back up moved to two-star CPUs from a Medium
+pick (from Hard the song is too short for anyone to come back up under
+v1). The room: the revision's test (6).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
 | `online-cpus-v0` (2026-11-13): an online room's CPUs computed alike on every device (50 ms steps from −2 s, a shock put in 1.25 s after its checkpoint, a 2 s horizon's lead); every connected player's device reports for them, the room taking the first and counting a different one; nobody left to compute ends them as forfeits | `ddi_room::live::cpus`, `ddi_session::battle::cpus` | The host adds CPUs online as in practice; a wrong report that reached the room first stands | First or majority; the bytes (every device sends every CPU); the horizon |
 | Rules from the next stage (2026-11-13): a change lands on the next stage nobody has readied, loaded or started (once picked, the one after); Points changeable from a stage on too (the maintainer, answered); Apply and restart takes the per-stage rows as shown | `RoomState::rules_land_on`, `room_dialogs::RulesDialog` | A host's change of timing, Boos, attacks, zero life or (since the follow-up) Points applies from the stage the pop-up names, said on everyone's status line | Whether a change should land on a picked stage nobody has readied yet |
+| `adaptive-v1` (2026-11-14, the maintainer's "we can do better" on bouncing): `adaptive-v0` with sixteen bars, not eight, of full life with no miss, no hold let go and no shock stepped on to step back up to a rung whose life ran out (first-time steps up stay at four), and a rung closed for the rest of the stage once life ran out on it twice (never stepped up to again, nor past it); "Staying on Hard" said once, quietly, when a rung closes; no quality condition | `ddi_engine::ladder::ADAPTIVE_V1` (`ADAPTIVE`), `AdaptiveRule::closed_after`, `Step::closes`, `StageCue::Stay` | The worst a stage can bounce: down, up once after the higher barrier, down, and there they stay | Sixteen and two; whether a share of the two best judgments should also be asked (measured: it separates CPUs that hold a rung from those that fall back) |
 | `adaptive-v0` (2026-11-13, replaces `step-down-v0`): down at zero life with a rung below, life back to half, the old chart taken away, the boundary the first bar line (four beats) at least the reading horizon plus 1 s ahead, a breather until it (nothing of a chart judged, stray presses free, life kept at one point or more); up after four bars (16 beats) of full life with no miss, no hold let go and no shock stepped on, counted from the last step's boundary, at the next such boundary, the old chart played to it, life unchanged; eight bars to go back up to a rung whose life ran out; every rung's score factor 1 | `ddi_engine::ladder::ADAPTIVE_V0` | A player out of life plays on an easier chart after a few seconds' rest; one who plays cleanly moves up, above the picked chart too | The four bars; the eight; the life given back; whether a player may hold their rung; a per-rung score factor once the rule is felt |
 | The ladder: the style's original charts on the same timing, lower slots below (nearest first, by meter from the highest), higher slots above (nearest first, by meter from the lowest); never an Edit above or below a slotted chart (an Edit's rungs are the slotted charts of a lower or higher meter); each way cut at the first rung the CPUs cannot plan | `ddi_engine::ladder::{below, above, Ladder}`, `cpu::planned_ladder` | From Hard: Medium, Easy, Beginner below; Challenge above | How Edits and split-timing charts should take part |
 | Standing under Adaptive: those still in by the score as earned (each stretch against what it showed, the absolute score growing with the notes played), life only breaking a tie, steps never counted; a CPU's score put on the charts it played stretch by stretch (`CPU_SCORE_V0`'s way: each chart's whole most in the share of its tap-only copy's notes it was shown), never on the stage chart's scale | `ddi_room::RankBy::Score`, `battle::rank`, `ddi_session::battle::Scales` | A player who climbs to denser charts earns more; one who stepped down is not ranked below for it | Life as the tie-break; whether a balancing factor is wanted after playing it |

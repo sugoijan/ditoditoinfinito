@@ -54,7 +54,10 @@ Rust and the browser are implementation details, not advertised features.
   `PlayLog::policies`, `Player::set_policy_at`: a number of the
   battle's own, nothing judged by it;
   `reading_horizon`, how long a play's notes are shown before they are
-  judged); a match's "Charts: Adaptive" (`ladder.rs`, `ADAPTIVE_V0`:
+  judged); a match's "Charts: Adaptive" (`ladder.rs`, `ADAPTIVE`, which
+  is `ADAPTIVE_V1`: sixteen bars back up to a rung whose life ran out, a
+  rung closed once life ran out on it twice, `Step::closes`; `ADAPTIVE_V0`
+  kept by name for comparison, `Player::set_ladder_rule`:
   a song's ladder of easier and harder charts, `ladder::Ladder`,
   `below`, `above`, its rungs numbered from 1, the easier then the
   harder, 0 the stage's; a play changes chart, `Player::add_rung`,
@@ -1161,7 +1164,7 @@ Rust and the browser are implementation details, not advertised features.
   (`RoomState::has_succession`);
   protocol 2, still taking 1; the room model's revision
   (`ROOM_MODEL_REVISION`, round B1; 2 since `attacks-v2`, 3 adaptive
-  charts, 4 `attacks-v3`), said in the join's, ticket's and
+  charts, 4 `attacks-v3`, 5 `cpu-levels-v1`, 6 `adaptive-v1`), said in the join's, ticket's and
   audience join's `model`, an authority refusing an older client with
   `update_required` (`check_model`; a ticket not during a stage,
   `RoomState::admits_model`) and the shells saying so (the web with a

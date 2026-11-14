@@ -1,6 +1,7 @@
 //! Adaptive charts: stepping down and up a song's ladder (a multiplayer
 //! match's rule "Charts: Adaptive", `docs/plans/multiplayer-prototype-progress.md`,
-//! "Adaptive charts"). PROVISIONAL, named [`ADAPTIVE_V0`].
+//! "Adaptive charts"). PROVISIONAL, named: [`ADAPTIVE_V1`] (what is
+//! played, [`ADAPTIVE`]), [`ADAPTIVE_V0`] kept for comparison.
 //!
 //! A stage's **ladder** is the other charts of its song in the stage
 //! chart's style, easier ([`below`]) and harder ([`above`]); everyone
@@ -15,7 +16,9 @@
 //! no shock stepped on moves to the next harder rung from the next
 //! boundary, the old chart played up to it, life unchanged
 //! ([`AdaptiveRule::return_bars`] to go back up to a rung whose life ran
-//! out).
+//! out, and never again to one whose life ran out
+//! [`AdaptiveRule::closed_after`] times: the rung is closed to them for
+//! the rest of the stage).
 //!
 //! The play itself changes chart ([`crate::Player::add_rung`]): one
 //! player, one judge, its notes rebuilt at the step (the notes judged
@@ -48,6 +51,10 @@ pub struct AdaptiveRule {
     /// The bars it takes instead to step back up to a rung whose life
     /// ran out (the hysteresis that keeps anyone from bouncing).
     pub return_bars: u32,
+    /// The times life may run out on a rung before it is closed to the
+    /// competitor for the rest of the stage (never stepped up to again,
+    /// nor past it); 0 never closes one.
+    pub closed_after: u32,
     /// What a stretch played on a rung counts for in a stage's score,
     /// by its place against the stage's chart (negative easier): 1 on
     /// every rung (no balancing; the place for it, [`rung_score_factor`]).
@@ -68,8 +75,26 @@ pub const ADAPTIVE_V0: AdaptiveRule = AdaptiveRule {
     floor: 0.01,
     up_bars: 4,
     return_bars: 8,
+    closed_after: 0,
     score_factor: 1.0,
 };
+
+/// `adaptive-v1` (the maintainer, 2026-11-14: "after stepping down from a
+/// chart the barrier to step up should be higher than it originally is,
+/// and if you manage to step up and end up stepping down, you can't step
+/// up again"): [`ADAPTIVE_V0`] with sixteen bars of full life, not eight,
+/// to step back up to a rung whose life ran out, and a rung closed once
+/// life ran out on it twice. The worst a stage can bounce: down, up once
+/// after the higher barrier, down, and there they stay. PROVISIONAL.
+pub const ADAPTIVE_V1: AdaptiveRule = AdaptiveRule {
+    name: "adaptive-v1",
+    return_bars: 16,
+    closed_after: 2,
+    ..ADAPTIVE_V0
+};
+
+/// The rule a stage plays ([`ADAPTIVE_V1`]).
+pub const ADAPTIVE: AdaptiveRule = ADAPTIVE_V1;
 
 /// What a stretch on the rung `level` places from the stage's chart
 /// (negative easier, 0 the stage's) counts for in a stage's score under
@@ -104,6 +129,11 @@ pub struct Step {
     /// The rung stepped from (as `rung`).
     #[serde(default)]
     pub from: u8,
+    /// A step down that closed the rung it left: life ran out there
+    /// [`AdaptiveRule::closed_after`] times, so it is never stepped up to
+    /// again in the stage.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closes: bool,
 }
 
 /// A stage's ladder: the stage's chart and its rungs either way, each
