@@ -22,6 +22,7 @@
 //!   song select's previews.
 
 pub mod app_menu;
+pub mod args;
 pub mod audio;
 pub mod bots;
 pub mod calibrate;
@@ -262,6 +263,7 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// run beside an open app, and only read the settings ([`instance`]).
 pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let a = args::Args(&args);
     #[cfg(windows)]
     if !args.is_empty() {
         attach_console();
@@ -273,7 +275,7 @@ pub fn run() {
             return;
         }
     };
-    if args.iter().any(|a| a == "--danoni-bundle-info") {
+    if a.has("--danoni-bundle-info") {
         #[cfg(danoni_importer)]
         let mut info = danoni::bundle_info();
         #[cfg(not(danoni_importer))]
@@ -282,7 +284,7 @@ pub fn run() {
         println!("{info}");
         return;
     }
-    if args.iter().any(|a| a == "--danoni-importer-check") {
+    if a.has("--danoni-importer-check") {
         #[cfg(danoni_importer)]
         match danoni::check() {
             Ok(songs) => println!(
@@ -312,12 +314,8 @@ pub fn run() {
     match utility {
         Some(utility) => {
             store::install_reading();
-            for flag in [
-                "--sharing",
-                "--mp-rules-first",
-                "--mp-watch-link",
-            ] {
-                if args.iter().any(|a| a == flag) {
+            for flag in ["--sharing", "--mp-rules-first", "--mp-watch-link"] {
+                if a.has(flag) {
                     eprintln!(
                         "{flag} is not saved by a run that opens no window ({utility}): start the game with it"
                     );
@@ -328,167 +326,91 @@ pub fn run() {
     }
     // DEVELOPMENT TOOL: `--mp-bots …`, simulated players in a private
     // online room, played by the CPU (`bots`; no window, no sound device).
-    if args.iter().any(|a| a == "--mp-bots") {
+    if a.has("--mp-bots") {
         std::process::exit(bots::run(&args));
     }
     // Flags that would be misread: said before anything opens.
-    if let Some(i) = args.iter().position(|a| a == "--calibrate")
-        && !args
-            .get(i + 1)
-            .is_some_and(|m| matches!(m.as_str(), "visual" | "audio" | "combined"))
+    if a.has("--calibrate")
+        && !a
+            .value("--calibrate")
+            .is_some_and(|m| matches!(m, "visual" | "audio" | "combined"))
     {
         eprintln!("--calibrate takes a test: visual, audio or combined");
         std::process::exit(2);
     }
-    if let Some(i) = args.iter().position(|a| a == "--bias")
-        && !args
-            .get(i + 1)
-            .and_then(|v| v.parse::<f64>().ok())
-            .is_some_and(f64::is_finite)
-    {
+    if a.has("--bias") && !a.parsed::<f64>("--bias").is_some_and(f64::is_finite) {
         eprintln!("--bias takes milliseconds (a number)");
         std::process::exit(2);
     }
-    let pacing = match args.iter().position(|a| a == "--pacing") {
-        Some(i) => match args.get(i + 1).and_then(|m| pacing::Mode::parse(m)) {
-            Some(m) => Some(m),
-            None => {
-                eprintln!("--pacing takes block or late");
-                std::process::exit(2);
-            }
-        },
-        None => None,
-    };
-    let in_flight = match args.iter().position(|a| a == "--in-flight") {
-        Some(i) => match args.get(i + 1).map(String::as_str) {
-            Some("1") => Some(1),
-            Some("2") => Some(2),
-            _ => {
-                eprintln!("--in-flight takes 1 or 2");
-                std::process::exit(2);
-            }
-        },
-        None => None,
-    };
+    let pacing = a.has("--pacing").then(|| {
+        a.value("--pacing").and_then(pacing::Mode::parse).unwrap_or_else(|| {
+            eprintln!("--pacing takes block or late");
+            std::process::exit(2);
+        })
+    });
+    let in_flight = a.has("--in-flight").then(|| match a.value("--in-flight") {
+        Some("1") => 1,
+        Some("2") => 2,
+        _ => {
+            eprintln!("--in-flight takes 1 or 2");
+            std::process::exit(2);
+        }
+    });
     if let Some(i) = args.iter().position(|a| a == "--video-check") {
         std::process::exit(video_check(&args, i));
     }
     // No sound device at all: plays run on the host clock.
-    if args.iter().any(|a| a == "--silent") {
+    if a.has("--silent") {
         audio::set_headless(true);
     }
     // `--lang TAG`: the UI's language for this run (`ja`, the
     // pseudo-languages `qps-ploc` and `qps-wide`), whatever the settings
     // say, until one is chosen in Options.
-    if let Some(i) = args.iter().position(|a| a == "--lang") {
-        let tag = args.get(i + 1).map(String::as_str).unwrap_or_default();
-        if !ddi_l10n::force(tag) {
-            let tags: Vec<&str> = ddi_l10n::all().map(|l| l.tag).collect();
-            eprintln!("--lang takes one of {}", tags.join(", "));
-            std::process::exit(2);
-        }
+    if a.has("--lang") && !ddi_l10n::force(a.value("--lang").unwrap_or_default()) {
+        let tags: Vec<&str> = ddi_l10n::all().map(|l| l.tag).collect();
+        eprintln!("--lang takes one of {}", tags.join(", "));
+        std::process::exit(2);
     }
-    let screen = match args.iter().position(|a| a == "--screen") {
-        Some(i) => args.get(i + 1).cloned().unwrap_or_default(),
-        None if args.iter().any(|a| a == "--join") => "multiplayer".into(),
-        None if args.iter().any(|a| a == "--widgets") => "widgets".into(),
-        None if args.iter().any(|a| a == "--dev") => "dev".into(),
-        None if args.iter().any(|a| {
-            matches!(
-                a.as_str(),
-                "--play" | "--replay" | "--calibrate" | "--edit" | "--shared" | "--cpu"
-            )
-        }) =>
-        {
-            "select".into()
-        }
-        None => "start".into(),
+    let screen: String = if a.has("--screen") {
+        a.value("--screen").unwrap_or_default().into()
+    } else if a.has("--join") {
+        "multiplayer".into()
+    } else if a.has("--widgets") {
+        "widgets".into()
+    } else if a.has("--dev") {
+        "dev".into()
+    } else if a.any(&args::OPENS_SELECT) {
+        "select".into()
+    } else {
+        "start".into()
     };
     // `--sharing on|off`: the hidden switch of sharing by link, as the
     // web's `#/?share=1` (`docs/plans/shared-songs.md`).
-    if let Some(on) = args
-        .iter()
-        .position(|a| a == "--sharing")
-        .and_then(|i| args.get(i + 1))
-    {
-        let on = match on.as_str() {
-            "on" | "1" => true,
-            "off" | "0" => false,
-            _ => {
-                eprintln!("--sharing takes on or off");
-                std::process::exit(2);
-            }
-        };
-        let mut settings = ddi_ui::state::settings::Settings::load();
-        if settings.sharing != on {
-            settings.sharing = on;
-            settings.save();
-            // A flag refused below ends the process without the shell.
-            let _ = ddi_platform::storage::flush();
-        }
+    if let Some(on) = a.on_off("--sharing") {
+        args::save_switch(on, |s| &mut s.sharing);
     }
     // `--multiplayer on|off`: once the multiplayer prototype's hidden
     // switch; multiplayer is always there now (2026-11-14), so the flag
     // is still taken and does nothing.
-    if let Some(on) = args
-        .iter()
-        .position(|a| a == "--multiplayer")
-        .and_then(|i| args.get(i + 1))
-    {
-        if !matches!(on.as_str(), "on" | "1" | "off" | "0") {
-            eprintln!("--multiplayer takes on or off");
-            std::process::exit(2);
-        }
+    if a.on_off("--multiplayer").is_some() {
         eprintln!("--multiplayer does nothing now: multiplayer is always there");
     }
     // `--mp-rules-first on|off`: a hidden option, off by default, as the
     // web's `mprules=1`: a room's Rules open by themselves
     // on entering, as M7b had it (`Settings::multiplayer_rules_first`).
-    if let Some(on) = args
-        .iter()
-        .position(|a| a == "--mp-rules-first")
-        .and_then(|i| args.get(i + 1))
-    {
-        let on = match on.as_str() {
-            "on" | "1" => true,
-            "off" | "0" => false,
-            _ => {
-                eprintln!("--mp-rules-first takes on or off");
-                std::process::exit(2);
-            }
-        };
-        let mut settings = ddi_ui::state::settings::Settings::load();
-        if settings.multiplayer_rules_first != on {
-            settings.multiplayer_rules_first = on;
-            settings.save();
-        }
+    if let Some(on) = a.on_off("--mp-rules-first") {
+        args::save_switch(on, |s| &mut s.multiplayer_rules_first);
     }
     // `--mp-watch-link on|off`: a hidden option, off by default, as the
     // web's `mpwatchlink=1`: More offers Copy watch-only
     // link in an online room (`Settings::multiplayer_watch_link`).
-    if let Some(on) = args
-        .iter()
-        .position(|a| a == "--mp-watch-link")
-        .and_then(|i| args.get(i + 1))
-    {
-        let on = match on.as_str() {
-            "on" | "1" => true,
-            "off" | "0" => false,
-            _ => {
-                eprintln!("--mp-watch-link takes on or off");
-                std::process::exit(2);
-            }
-        };
-        let mut settings = ddi_ui::state::settings::Settings::load();
-        if settings.multiplayer_watch_link != on {
-            settings.multiplayer_watch_link = on;
-            settings.save();
-        }
+    if let Some(on) = a.on_off("--mp-watch-link") {
+        args::save_switch(on, |s| &mut s.multiplayer_watch_link);
     }
     // DEVELOPMENT ONLY: `--mp-dev-cpus N`, practice against N CPUs beyond
     // the cap (`room::develop`; M6b's miniature fields).
-    if let Some(i) = args.iter().position(|a| a == "--mp-dev-cpus") {
-        let Some(n) = args.get(i + 1).and_then(|n| n.parse::<u16>().ok()) else {
+    if a.has("--mp-dev-cpus") {
+        let Some(n) = a.parsed::<u16>("--mp-dev-cpus") else {
             eprintln!("--mp-dev-cpus takes a number");
             std::process::exit(2);
         };
@@ -503,14 +425,11 @@ pub fn run() {
     // (`ddi_ui::state::room::Development`).
     {
         let mut d = ddi_ui::state::room::development();
-        if args
-            .iter()
-            .any(|a| a == "--mp-attacks" || a == "--mp-dev-attacks")
-        {
+        if a.any(&["--mp-attacks", "--mp-dev-attacks"]) {
             d.attacks = Some(true);
         }
-        if let Some(i) = args.iter().position(|a| a == "--mp-dev-mines") {
-            let Some(beat) = args.get(i + 1).and_then(|n| n.parse::<u32>().ok()) else {
+        if a.has("--mp-dev-mines") {
+            let Some(beat) = a.parsed::<u32>("--mp-dev-mines") else {
                 eprintln!("--mp-dev-mines takes a beat");
                 std::process::exit(2);
             };
@@ -520,72 +439,42 @@ pub fn run() {
     }
     // `--join LINK|INVITE`: an online room's invite page over the
     // multiplayer home (`crate::online`).
-    if let Some(i) = args.iter().position(|a| a == "--join") {
-        let text = args.get(i + 1).map(String::as_str).unwrap_or_default();
-        if !online::set_join(text) {
-            eprintln!("--join takes an invite link or an invite");
-            std::process::exit(2);
-        }
+    if a.has("--join") && !online::set_join(a.value("--join").unwrap_or_default()) {
+        eprintln!("--join takes an invite link or an invite");
+        std::process::exit(2);
     }
     // `--share ID[,ID…]|pack:NAME [--expires 1h|1d|1w|1m|never]`: the
     // library's songs uploaded as a share, the link printed (the token
     // from the settings, or `DDI_SHARE_TOKEN`; no window).
-    if let Some(ids) = args
-        .iter()
-        .position(|a| a == "--share")
-        .and_then(|i| args.get(i + 1))
-    {
-        std::process::exit(share_from_command_line(&args, ids));
+    if let Some(ids) = a.value("--share") {
+        std::process::exit(share_from_command_line(a, ids));
     }
     // `--shares`: the shares the token may see, listed; `--delete-share
     // ID`: one deleted (an admin's token any, an uploader's its own).
-    if args.iter().any(|a| a == "--shares") {
+    if a.has("--shares") {
         std::process::exit(shares_from_command_line(None));
     }
-    if let Some(id) = args
-        .iter()
-        .position(|a| a == "--delete-share")
-        .and_then(|i| args.get(i + 1))
-    {
+    if let Some(id) = a.value("--delete-share") {
         std::process::exit(shares_from_command_line(Some(id)));
     }
-    let volume = args
-        .iter()
-        .position(|a| a == "--volume")
-        .and_then(|i| args.get(i + 1)?.parse::<f32>().ok())
-        .map(|v| v.clamp(0.0, 1.0));
+    let volume = a.parsed::<f32>("--volume").map(|v| v.clamp(0.0, 1.0));
     // Song select and options on the library on disk (the bundled songs
     // and the song folders), unless `--sample` asks for the sample data;
     // `--songs <dir>` adds a folder for this run.
-    let songs = ((!args.iter().any(|a| a == "--sample")
+    let songs = ((!a.has("--sample")
         && matches!(screen.as_str(), "start" | "select" | "options"))
         || screen == "announcer")
         .then(|| {
-            let extra: Vec<std::path::PathBuf> = args
-                .iter()
-                .enumerate()
-                .filter(|(_, a)| *a == "--songs")
-                .filter_map(|(i, _)| args.get(i + 1).map(std::path::PathBuf::from))
-                .collect();
-            songs::Songs::new(extra)
+            songs::Songs::new(a.values("--songs").map(std::path::PathBuf::from).collect())
         });
     // A play or a test opened from here: no first start's offer over it.
     if let Some(s) = &songs
-        && args.iter().any(|a| {
-            matches!(
-                a.as_str(),
-                "--play" | "--calibrate" | "--replay" | "--edit" | "--shared" | "--cpu"
-            )
-        })
+        && a.any(&args::OPENS_SELECT)
     {
         s.skip_offer();
     }
     // `--shared <link or id>`: song select on that share's songs alone.
-    if let Some(arg) = args
-        .iter()
-        .position(|a| a == "--shared")
-        .and_then(|i| args.get(i + 1))
-    {
+    if let Some(arg) = a.value("--shared") {
         match ddi_library::share::parse_link(arg) {
             Some(id) => {
                 if let Some(s) = &songs {
@@ -602,87 +491,56 @@ pub fn run() {
     play::load::clean_stale_parts();
     let mut shell = shell::Shell::named_with(&screen, volume, songs, true);
     shell.play.master = volume;
-    shell.play.start_when_ready = args.iter().any(|a| a == "--start");
+    shell.play.start_when_ready = a.has("--start");
     // `--bias MS`: autoplay presses that late (negative: early), as the
     // web's `&bias=`.
     // (Checked above.)
-    let bias = args
-        .iter()
-        .position(|a| a == "--bias")
-        .and_then(|i| args.get(i + 1)?.parse::<f64>().ok())
-        .map_or(0.0, |ms| ms / 1000.0);
+    let bias = a.parsed::<f64>("--bias").map_or(0.0, |ms| ms / 1000.0);
+    let auto = a.has("--auto");
     if let Some(songs) = &shell.songs {
-        songs
-            .testing
-            .set((args.iter().any(|a| a == "--auto"), bias));
+        songs.testing.set((auto, bias));
     }
+    // `--chart N`, for `--play` and `--edit`.
+    let chart = a.parsed("--chart").unwrap_or(0);
     // `--play <song> [--chart N] [--auto | --auto=pad]`: that chart's
     // prompt at once (song select under it).
-    if let Some(song) = args
-        .iter()
-        .position(|a| a == "--play")
-        .and_then(|i| args.get(i + 1))
-    {
-        let chart = args
-            .iter()
-            .position(|a| a == "--chart")
-            .and_then(|i| args.get(i + 1)?.parse().ok())
-            .unwrap_or(0);
-        let auto_pad = args.iter().any(|a| a == "--auto=pad");
-        let mut r =
-            play::Request::song(song, chart, auto_pad || args.iter().any(|a| a == "--auto"));
+    if let Some(song) = a.value("--play") {
+        let auto_pad = a.has("--auto=pad");
+        let mut r = play::Request::song(song, chart, auto_pad || auto);
         r.auto_pad = auto_pad;
         r.bias = bias;
         *shell.play.requested.borrow_mut() = Some(r);
     }
     // `--edit <song> [--chart N]`: the chart editor on it (song select
     // under it), once the library has the song.
-    if let Some(song) = args
-        .iter()
-        .position(|a| a == "--edit")
-        .and_then(|i| args.get(i + 1))
+    if let Some(song) = a.value("--edit")
         && let Some(songs) = &shell.songs
     {
-        let chart = args
-            .iter()
-            .position(|a| a == "--chart")
-            .and_then(|i| args.get(i + 1)?.parse().ok())
-            .unwrap_or(0);
-        *songs.edit.borrow_mut() = Some((song.clone(), chart));
+        *songs.edit.borrow_mut() = Some((song.to_string(), chart));
     }
     if let Some(request) = cpu_request {
         *shell.play.requested.borrow_mut() = Some(request);
     }
     // `--replay <play id> [--results]`: a kept play's replay (its
     // prompt at once), or its results (`docs/plans/play-history.md`).
-    if let Some(id) = args
-        .iter()
-        .position(|a| a == "--replay")
-        .and_then(|i| args.get(i + 1))
+    if let Some(id) = a.value("--replay")
         && let Some(plays) = shell.play.plays.clone()
     {
-        let results = args.iter().any(|a| a == "--results");
+        let results = a.has("--results");
         *shell.play.requested.borrow_mut() = Some(play::replays::request(&plays, id, results));
     }
     // `--calibrate visual|audio|combined [--auto [--bias MS]]`: that
     // test's prompt at once (leaving it opens calibration's menu).
-    if let Some(mode) = args
-        .iter()
-        .position(|a| a == "--calibrate")
-        .and_then(|i| args.get(i + 1))
-    {
+    if let Some(mode) = a.value("--calibrate") {
         // (Checked above.)
         let mode = ddi_session::calibration::CalMode::parse(mode);
-        let mut r = play::Request::calibration(mode, args.iter().any(|a| a == "--auto"));
+        let mut r = play::Request::calibration(mode, auto);
         r.bias = bias;
         *shell.play.requested.borrow_mut() = Some(r);
     }
     // `--lose-device-after S`: the GPU device lost on purpose, to see the
     // window recover (as the web's `__DDI_LOSE_DEVICE`).
-    shell.lose_device_after = args
-        .iter()
-        .position(|a| a == "--lose-device-after")
-        .and_then(|i| args.get(i + 1)?.parse().ok());
+    shell.lose_device_after = a.parsed("--lose-device-after");
     // `--pacing block|late`, `--in-flight 1|2`: how a play's frames
     // are paced (`pacing`; the defaults follow the display link, set
     // once the window is open); `--pacing-report`: block and late with one
@@ -693,18 +551,14 @@ pub fn run() {
     // `--load-ms N`, a testing aid: each play frame burns N ms of the
     // main thread, as a busy machine would take it (the dancing hand's
     // rule under load, `ddi_session::hand_load`).
-    if let Some(ms) = args
-        .iter()
-        .position(|a| a == "--load-ms")
-        .and_then(|i| args.get(i + 1)?.parse::<f64>().ok())
-    {
+    if let Some(ms) = a.parsed::<f64>("--load-ms") {
         shell.play.load_ms = ms.clamp(0.0, 50.0);
     }
-    if args.iter().any(|a| a == "--pacing-report") {
+    if a.has("--pacing-report") {
         shell.pacing_report = Some(pacing::Report::alternating(4.0, &pacing::COLUMNS));
     }
-    if let Some(i) = args.iter().position(|a| a == "--seconds") {
-        shell.quit_after = args.get(i + 1).and_then(|s| s.parse().ok());
+    if a.has("--seconds") {
+        shell.quit_after = a.parsed("--seconds");
     }
     // A timed run samples the audio clock every millisecond.
     let probe = shell.quit_after.and_then(|_| {
@@ -751,10 +605,7 @@ pub fn run() {
             }
         }));
     }
-    let fake = args
-        .iter()
-        .position(|a| a == "--fake-pad")
-        .and_then(|i| args.get(i + 1).cloned());
+    let fake = a.value("--fake-pad").map(str::to_string);
     shell.input.start_pads(
         Box::new(move || {
             let _ = proxy.send_event(());
@@ -959,28 +810,14 @@ fn shares_from_command_line(delete: Option<&str>) -> i32 {
 /// `--share ID[,ID…]|pack:NAME [--expires W] [--pack NAME]`: the library
 /// read (the song folders and `--songs`), the songs uploaded, the link
 /// printed; the exit code.
-fn share_from_command_line(args: &[String], ids: &str) -> i32 {
-    let expires = args
-        .iter()
-        .position(|a| a == "--expires")
-        .and_then(|i| args.get(i + 1))
-        .map_or("1w", String::as_str);
+fn share_from_command_line(a: args::Args, ids: &str) -> i32 {
+    let expires = a.value("--expires").unwrap_or("1w");
     if !ddi_library::share::EXPIRIES.contains(&expires) {
         eprintln!("--expires takes 1h, 1d, 1w, 1m or never");
         return 2;
     }
-    let pack = args
-        .iter()
-        .position(|a| a == "--pack")
-        .and_then(|i| args.get(i + 1))
-        .cloned();
-    let extra: Vec<std::path::PathBuf> = args
-        .iter()
-        .enumerate()
-        .filter(|(_, a)| *a == "--songs")
-        .filter_map(|(i, _)| args.get(i + 1).map(std::path::PathBuf::from))
-        .collect();
-    let songs = songs::Songs::new(extra);
+    let pack = a.value("--pack").map(str::to_string);
+    let songs = songs::Songs::new(a.values("--songs").map(std::path::PathBuf::from).collect());
     songs.start(std::sync::Arc::new(|| {}));
     if let Some(l) = songs.library.borrow_mut().as_mut() {
         l.wait();
