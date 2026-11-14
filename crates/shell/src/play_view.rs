@@ -1177,6 +1177,11 @@ impl<H: PlayHost> PlayView<H> {
             .battle()
             .map(|_| behind_field(&geo, span, render.reverse, screen.ratio));
         self.dance.set_behind_field(behind);
+        // The opponents as the play shows them, worked out once a frame
+        // (the miniatures, the large field's standings, the status line
+        // and the overlay read them).
+        let views_now: Vec<ddi_session::battle::OpponentView> =
+            battle.map(|b| b.views()).unwrap_or_default();
         let fields = battle.and_then(|b| {
             // Everyone but the competitor followed, whose field is the
             // large one.
@@ -1222,7 +1227,8 @@ impl<H: PlayHost> PlayView<H> {
             if paged {
                 // A spectator's grid past a page: the page's fields by
                 // standing, the ladder for the whole field.
-                let (standings, _) = large_standings(b, &frame, None, frame.song_time);
+                let (standings, _) =
+                    large_standings(b, &views_now, &frame, None, frame.song_time);
                 let ranked = crate::rivals::order(&standings);
                 let page = spectator.map_or(0, |w| w.page);
                 let from = page * ddi_session::play::GRID_PAGE;
@@ -1236,7 +1242,8 @@ impl<H: PlayHost> PlayView<H> {
                 // A large field: those that matter to the player now in
                 // the slots (around the competitor followed, for a
                 // spectator), the ladder for the whole field.
-                let (standings, me) = large_standings(b, &frame, focus, frame.song_time);
+                let (standings, me) =
+                    large_standings(b, &views_now, &frame, focus, frame.song_time);
                 // The pinned seats as the slots count them (past a
                 // followed competitor's).
                 let pinned: Vec<usize> = pinned
@@ -1316,11 +1323,13 @@ impl<H: PlayHost> PlayView<H> {
             let scroll = session.player.options().scroll;
             let hits = layer.as_ref().is_some_and(|l| l.miniature_hits()) || layer.is_none();
             let mut feeds: Vec<_> = b.feeds().collect();
-            let mut views = b.views();
-            if own_seat.is_some() {
+            // The player's own as the last seat, where they follow
+            // someone else's.
+            let own_view = own_seat.map(|_| {
                 feeds.push(b.own_feed());
-                views.push(b.own_view(&session.player, ddi_l10n::msg::room::you().into()));
-            }
+                b.own_view(&session.player, ddi_l10n::msg::room::you().into())
+            });
+            let view_of = |seat: usize| views_now.get(seat).or(own_view.as_ref().filter(|_| seat == views_now.len()));
             let t = frame.song_time;
             // Each slot's field, then the large one's (its notes as far
             // ahead as a play's own shows them).
@@ -1352,7 +1361,7 @@ impl<H: PlayHost> PlayView<H> {
                     frame: mini,
                     geometry: slot.field,
                     panel: slot.panel,
-                    battle: bar(views.get(slot.seat).and_then(|v| v.power)),
+                    battle: bar(view_of(slot.seat).and_then(|v| v.power)),
                 });
             }
         }
@@ -1421,9 +1430,7 @@ impl<H: PlayHost> PlayView<H> {
         // Someone watching: the stage's moments, nobody's "you" (who
         // went out, who attacks whom, who won), before a battle's moment
         // no line said.
-        let names: Vec<String> = session
-            .battle()
-            .map_or_else(Vec::new, |b| b.views().into_iter().map(|v| v.name).collect());
+        let names: Vec<String> = views_now.iter().map(|v| v.name.clone()).collect();
         let cue = watch
             .and_then(|w| w.cue)
             .and_then(|(m, age)| {
@@ -1589,7 +1596,7 @@ impl<H: PlayHost> PlayView<H> {
                     m::play_last_standing().into(),
                 ]
             });
-            let mut opponents = b.views();
+            let mut opponents = views_now.clone();
             let mut all: Vec<_> = b.feeds().collect();
             if own_seat.is_some() {
                 opponents.push(b.own_view(&session.player, ddi_l10n::msg::room::you().into()));
@@ -1909,11 +1916,11 @@ impl<H: PlayHost> PlayView<H> {
 /// (a spectator's grid).
 fn large_standings(
     b: &ddi_session::battle::Battle,
+    views: &[ddi_session::battle::OpponentView],
     frame: &ddi_engine::frame::Frame,
     focus: Option<usize>,
     t: f64,
 ) -> (Vec<crate::rivals::Standing>, Option<crate::rivals::Standing>) {
-    let views = b.views();
     let all: Vec<crate::rivals::Standing> = views
         .iter()
         .zip(b.feeds())

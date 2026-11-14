@@ -7581,6 +7581,7 @@ followed field's first frame).
 | --- | --- | --- | --- | --- | --- |
 | Before (instrumented build) | | 2.76 / 1.08 | 2.04 / 1.03 | 1.83 / 0.53 | 2.19 (render 0.26) |
 | 1. Skins' quads in fewer batches (`ddi_render::batching`) | a quad joins an earlier batch of its kind where nothing drawn between touches its pixels; batches 115 → 19 a frame (watched 7) | 2.32 / 0.69 | 1.65 / 0.49 | 1.50 / 0.42 | 2.25–2.42 (render 0.32) |
+| 2. The opponents' views worked out once a frame (`play_view`) | `Battle::views` was built four times a frame in a large field (the miniatures, the standings, the names, the overlay) | 2.32–2.53 (noise) | 1.65–1.81 | | played 2.36 → 2.35; watched 1.44 → 1.23 (A/B, the same session) |
 
 1. **Batches.** Two quads that touch no pixel in common draw the same
    pixels in either order, so a quad may move back into an earlier
@@ -7598,6 +7599,37 @@ followed field's first frame).
    ordering off, on and off again and compares them (148 → 47 batches
    for eight CPUs, 168 → 52 for 72), and `batching`'s tests check that
    every pair that may touch a pixel in common keeps its order.
+
+### The spikes
+
+Twelve Firefox runs of 40 s (`spikes.sh`, the build before the batches
+and after, in turn, 8 and 72 CPUs) gave a frame over 16.7 ms in three
+of them (22, 26 and 30 ms) and up to nine over 8.3 ms a run, as often
+after the batches as before: they are not the GL calls' number. They
+come mostly in stages of eight CPUs, 17–21 s in (before the first
+attack is committed, nothing of the battle's at that moment), each in
+one part: the submit (where Firefox's WebGL calls go to its GPU
+process; once the hand's preparation, 18 ms, once the debug state,
+11 ms). Gecko's profiler (`FFPROFILE`, `gecko.py`) shows the content
+process's garbage collection in slices of at most 7.4 ms and minor
+collections of at most 4 ms, as many before the batches as after (26
+and 27 over a run): the collector is not what grew with the room. The
+long submits could not be pinned further headless (Playwright's
+Firefox has no symbols); a submit waiting on the WebGL process while
+it compiles or composites is the likely cause. Chrome had no frame
+over 8.3 ms but a followed field's first.
+
+### Online: the frames read on the frame path
+
+`what_a_tick_costs_with_seventy_three_competitors`
+(`crates/room/tests/live.rs`) now also times a member's device reading
+each frame of 73 competitors (decoded and taken into its reader, as
+`LiveLink::binary` does when the socket's message comes): 23 µs on
+average and 0.22 ms at most natively, 27 µs and 0.40 ms as wasm under
+Node (`wasm32-wasip1`), for frames of 3.5 KB (`live-v1`'s 250 ms ones;
+`live-v2`'s at 100 ms are smaller). Sending the player's batch is
+about 60 bytes encoded. Nothing of it spikes; the room's own tick
+(the server's) is 0.16–0.17 ms, 2.8–3.4 ms at most at a checkpoint.
 
 ## Provisional choices
 

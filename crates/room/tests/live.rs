@@ -1591,6 +1591,10 @@ fn what_a_tick_costs_with_seventy_three_competitors() {
     let (mut read_ns, mut tick_ns, mut frame_bytes, mut batch_bytes, mut ticks) =
         (0u128, 0u128, 0usize, 0usize, 0u32);
     let mut max_tick_ns = 0u128;
+    // A member's device reading each frame as it comes (decoded and taken
+    // into its reader, `LiveLink::binary`'s work), on the frame path.
+    let mut reader = ddi_room::live::stream::FrameReader::new(STAGE);
+    let (mut client_ns, mut max_client_ns, mut frames) = (0u128, 0u128, 0u32);
     for t in 1..=240u64 {
         let now = Millis(zero.0 + t * 250);
         let song_us = t as i64 * 250_000;
@@ -1639,6 +1643,16 @@ fn what_a_tick_costs_with_seventy_three_competitors() {
         max_tick_ns = max_tick_ns.max(took);
         ticks += 1;
         frame_bytes += out.broadcast.iter().map(Vec::len).sum::<usize>();
+        for bytes in &out.broadcast {
+            let begun = Instant::now();
+            if let Ok(wire::Binary::Frame(f)) = wire::decode(bytes) {
+                reader.take(&f, now.0);
+                frames += 1;
+            }
+            let took = begun.elapsed().as_nanos();
+            client_ns += took;
+            max_client_ns = max_client_ns.max(took);
+        }
     }
     let stage = live.stage().unwrap();
     let ledger = stage.ledger().unwrap();
@@ -1646,7 +1660,8 @@ fn what_a_tick_costs_with_seventy_three_competitors() {
     eprintln!(
         "73 competitors at 12 notes/s for 60 s: a batch {:.0} B; reading 73 batches {:.0} µs a tick; \
          the tick (checkpoints, frame) {:.0} µs on average, {:.0} µs at most; a frame {:.0} B \
-         ({:.1} KB/s to each socket); {} checkpoints, {} attacks",
+         ({:.1} KB/s to each socket); {} checkpoints, {} attacks; a device reads a frame in {:.0} µs \
+         on average, {:.0} µs at most ({} frames)",
         batch_bytes as f64 / (ticks as f64 * n as f64),
         read_ns as f64 / ticks as f64 / 1e3,
         tick_ns as f64 / ticks as f64 / 1e3,
@@ -1655,7 +1670,11 @@ fn what_a_tick_costs_with_seventy_three_competitors() {
         frame_bytes as f64 / 60.0 / 1e3,
         ledger.record().len(),
         launched,
+        client_ns as f64 / f64::from(frames.max(1)) / 1e3,
+        max_client_ns as f64 / 1e3,
+        frames,
     );
+    assert!(frames > 0);
     assert!(ledger.record().len() >= 29);
     assert!(launched > 0);
 }
