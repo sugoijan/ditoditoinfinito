@@ -260,13 +260,18 @@ pub fn valid_path(path: &str) -> bool {
 
 /// `part` percent-encoded but for RFC 3986's unreserved characters.
 pub fn percent_encode(part: &str) -> String {
-    let mut out = String::new();
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::with_capacity(part.len());
     for b in part.bytes() {
         match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
                 out.push(b as char)
             }
-            _ => out.push_str(&format!("%{b:02X}")),
+            _ => {
+                out.push('%');
+                out.push(char::from(HEX[usize::from(b >> 4)]));
+                out.push(char::from(HEX[usize::from(b & 0xf)]));
+            }
         }
     }
     out
@@ -498,6 +503,12 @@ pub mod refusals {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn percent_encoding_keeps_only_the_unreserved() {
+        assert_eq!(percent_encode("a b/é~Z9-_.\u{0}"), "a%20b%2F%C3%A9~Z9-_.%00");
+        assert_eq!(encode_path("a b/c"), "a%20b/c");
+    }
 
     fn new_share() -> NewShare {
         NewShare {
