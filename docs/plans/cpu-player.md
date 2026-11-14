@@ -13,32 +13,32 @@ with is the same on every chart, and the solo CPU can play at one of them.
 Append the CPU parameters to a chart's existing web play route:
 
 ```text
-#/play?song=<song-id>&chart=0&cpu=1&strength=normal&seed=7
+#/play?song=<song-id>&chart=0&cpu=1&level=5&seed=7
 ```
 
 Desktop uses the song's library id and zero-based chart index:
 
 ```sh
-cargo run -- --play SONG --chart 0 --cpu=1 --cpu-strength normal --cpu-seed 7
+cargo run -- --play SONG --chart 0 --cpu=1 --cpu-level 5 --cpu-seed 7
 ```
 
-Strengths are `relaxed`, `easy`, `normal`, `strong`, `expert` (multipliers
-0.75, 0.9, 1, 1.1, 1.25). Default: normal, seed 1. Instead of a strength,
-`level=N` on the web or `--cpu-level N` on desktop (1 to 10) plays the CPU
-at that level of the opponents' absolute scale (`cpu-levels-v1`, below;
-automatic mode only, never with a strength), to watch what a level is:
-
-```text
-#/play?song=<song-id>&chart=0&cpu=1&level=3&seed=7
-```
-
-```sh
-cargo run -- --play SONG --chart 0 --cpu=1 --cpu-level 3 --cpu-seed 7
-```
-
-The prompt and the results say "Level 3 of 10" where they say the
-strength otherwise. Without a level the solo CPU plays exactly as before. Seeds are unsigned 64-bit
-integers; the same chart, strength, skills and seed reproduce the same inputs. Retry
+Since 2026-11-14 (the maintainer: "The CPU CLI bots should move to the
+new levels") the solo CPU plays the opponents' absolute scale
+(`cpu-levels-v1`, below): `level=N` on the web or `--cpu-level N` on
+desktop, 1 to 10, is its strength; without one it plays **level 5**
+(`ddi_engine::cpu::SOLO_LEVEL`: the middle of the scale, at home on
+Medium charts, so that a CPU started with no flag plays the common
+charts well and the hard ones badly, as a level should). The five named
+strengths, `strength=` / `--cpu-strength relaxed|easy|normal|strong|expert`,
+are still taken and are **levels 6 to 10** of the new scale
+(`strength_level`), as they were levels 6 to 10 of the chart-relative one;
+a level and a strength cannot be combined. Prepared profiles (`--cpu
+FILE`, a `cpu=` path) play their strength, chart-relative, as before.
+The chart-relative model (`cpu-levels-v0`, the five strengths'
+multipliers 0.75, 0.9, 1, 1.1, 1.25) stays in the engine by name with its
+fixtures, reachable from prepared profiles, the tests and the studies.
+The prompt and the results say "Level 5 of 10". Seed 1 by default. Seeds are unsigned 64-bit
+integers; the same chart, level, skills and seed reproduce the same inputs. Retry
 keeps them; returning to song select does not leave CPU mode enabled.
 
 The play is marked CPU, with no personal history, bests or calibration. Human

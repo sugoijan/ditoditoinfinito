@@ -61,6 +61,9 @@ fn complete_cpu_songs_preserve_inputs_and_do_not_record() {
         model.level = level;
         if model.profile.is_none() {
             model.skills = ddi_engine::cpu::Skills::parse("jacks").unwrap();
+            // Automatic mode plays the absolute levels (2026-11-14): a
+            // named strength is levels 6 to 10.
+            model.absolute = Some(ddi_engine::cpu::strength_level(level));
         }
         let automatic;
         let profile = if let Some(p) = &model.profile {
@@ -69,9 +72,9 @@ fn complete_cpu_songs_preserve_inputs_and_do_not_record() {
             automatic = ddi_engine::cpu::Plan::automatic(&loaded.song, request.chart).unwrap();
             &automatic
         };
-        let script = profile
-            .script_with_skills(level, model.seed, model.skills)
-            .unwrap();
+        let script =
+            ddi_engine::cpu::solo_script(profile, level, model.absolute, model.seed, model.skills)
+                .unwrap();
         let chart = request.chart;
         let clock = Arc::new(AtomicU64::new(1_000_000_000));
         let c = clock.clone();
@@ -179,7 +182,8 @@ fn cpu_flags_reject_ambiguous_and_missing_options() {
     assert_eq!(request.chart, 3);
     let cpu = request.cpu.unwrap();
     assert_eq!(cpu.seed, 7);
-    assert_eq!(cpu.absolute, None);
+    // The absolute levels by default: level 5 where none is named.
+    assert_eq!(cpu.absolute, Some(ddi_engine::cpu::SOLO_LEVEL));
     assert!(cpu.source_file.is_none() && cpu.profile.is_none());
     // A level of the opponents' absolute scale instead of a strength.
     let request = cpu::arguments(
@@ -188,6 +192,13 @@ fn cpu_flags_reject_ambiguous_and_missing_options() {
     .unwrap()
     .unwrap();
     assert_eq!(request.cpu.unwrap().absolute, Some(9));
+    // A named strength: levels 6 to 10 of the absolute scale.
+    let request = cpu::arguments(
+        &["--play", "beatucada", "--cpu=1", "--cpu-strength", "relaxed"].map(String::from),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(request.cpu.unwrap().absolute, Some(5));
 }
 
 #[test]

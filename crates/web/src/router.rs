@@ -226,7 +226,9 @@ impl Route {
                         Err("CPU strength and level cannot be combined".into())
                     }
                     Some(level) => cpu.with_level(level),
-                    None => Ok(cpu),
+                    // The absolute scale by default (2026-11-14): a named
+                    // strength is levels 6 to 10 of it, none level 5.
+                    None => Ok(cpu.on_absolute_scale(params.contains_key("strength"))),
                 }) {
                     Ok(cpu) => Some(cpu),
                     Err(error) => return Route::NotFound(error),

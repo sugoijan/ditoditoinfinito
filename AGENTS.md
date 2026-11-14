@@ -1699,17 +1699,20 @@ Rust and the browser are implementation details, not advertised features.
 - The web build is compiled with wasm SIMD (`.cargo/config.toml`'s
   `+simd128` for `wasm32-unknown-unknown`, `--enable-simd` for wasm-opt in
   index.html; the page refuses a browser without it, `no-wasm-simd`).
-- CPU player: desktop `--play SONG --chart N --cpu=1 --cpu-strength normal
-  --cpu-seed 7`; web `#/play?song=ID&chart=N&cpu=1&strength=normal&seed=7`.
+- CPU player: desktop `--play SONG --chart N --cpu=1 --cpu-level 5
+  --cpu-seed 7`; web `#/play?song=ID&chart=N&cpu=1&level=5&seed=7`.
   Automatic mode accepts web `skills=` / desktop `--cpu-skills`: a preset or seven
   0.5–2 multipliers (Stream, Jumpstream, Handstream, Stamina, JackSpeed, Chordjack,
   Technical). These are pattern proxies, not MSD measurements; balanced preserves
   the original seeded inputs. See `docs/plans/cpu-player.md`.
   Prepares an analytical plan locally for imported/bundled keyboard 4K charts.
-  Tap-only, 1×, no fail; normal judge, no personal history or bests. Strength
-  is chart-relative (`cpu-levels-v0`); `--cpu-level N` / `level=N` (1 to
-  10, instead of a strength) plays it at a level of the multiplayer CPUs'
-  absolute scale (`cpu-levels-v1`, `ddi_engine::cpu::solo_script`).
+  Tap-only, 1×, no fail; normal judge, no personal history or bests. It
+  plays the multiplayer CPUs' absolute scale (`cpu-levels-v1`,
+  `ddi_engine::cpu::solo_script`): `--cpu-level N` / `level=N`, 1 to 10,
+  level 5 where none is named (`SOLO_LEVEL`); the five named strengths
+  (`--cpu-strength`, `strength=`) are levels 6 to 10 (`strength_level`);
+  a prepared profile plays its strength chart-relative (`cpu-levels-v0`)
+  as before.
   Optional external prepared profiles use `--cpu FILE` or
   a site-relative `cpu=cpu/custom.json`; none are bundled. See
   `docs/plans/cpu-player.md` for limits, architecture and verification.

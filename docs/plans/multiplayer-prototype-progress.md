@@ -7987,6 +7987,30 @@ can't tell)."
   prompt, the second entering's intro is another sound (46,080 samples,
   then 66,720), each started once.
 
+### The command-line CPUs on the absolute levels
+
+The maintainer: "The CPU CLI bots should move to the new levels, I
+haven't tested the anchors too much but they seem good."
+
+- **The solo CPU** (`--play SONG --cpu=1`, the web's `cpu=1`) plays
+  `cpu-levels-v1` by default: `--cpu-level N` / `level=N` (1 to 10) is its
+  strength, **level 5 where none is named** (`ddi_engine::cpu::SOLO_LEVEL`:
+  the scale's middle, at home on Medium charts); the five named strengths
+  are still taken and are **levels 6 to 10** (`strength_level`), as they
+  were levels 6 to 10 of the old scale. Skills and seeds as before;
+  prepared profiles play their strength chart-relative as before
+  (`cpu-levels-v0` stays in the engine by name with its fixtures). The
+  prompt and the results name the level ("Level 5 of 10").
+- **The room bots** (`--mp-bots`): each bot's own play and the CPUs a host
+  bot seats (`--cpus N[:LEVEL]`) were already on `cpu-levels-v1` since
+  `Opponent::new`/`with_skills` moved; now proved
+  (`a_bots_play_is_on_the_absolute_levels`: a bot's presses are an
+  absolute-scale opponent's, not a relative one's), and `--help` says
+  `--level` and `--cpus N:LEVEL` read 1 to 10 of the absolute scale.
+- Tested: the engine (`the_solo_cpu_plays_the_absolute_levels_by_default`),
+  desktop's flags and a full CPU song at each named strength on its new
+  level (`cpu_play.rs`), the bots' test.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

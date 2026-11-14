@@ -11,8 +11,10 @@ pub struct CpuRequest {
     pub source_file: Option<PathBuf>,
     pub profile: Option<Arc<Plan>>,
     pub level: usize,
-    /// A level of the opponents' absolute scale instead of the strength
-    /// (`--cpu-level N`, from 0; `ddi_engine::cpu::solo_script`).
+    /// A level of the opponents' absolute scale (`--cpu-level N`, from 0;
+    /// a named strength's, else `ddi_engine::cpu::SOLO_LEVEL`, in
+    /// automatic mode; none for a prepared profile, which plays its
+    /// strength as before; `ddi_engine::cpu::solo_script`).
     pub absolute: Option<usize>,
     pub seed: u64,
     pub skills: Skills,
@@ -98,13 +100,20 @@ pub fn arguments(args: &[String]) -> Result<Option<Request>, String> {
             .unwrap_or("0")
             .parse()
             .map_err(|_| "CPU chart index must be a nonnegative integer")?;
-        let level = ddi_engine::cpu::strength(get("--cpu-strength")?.unwrap_or("normal"))?;
+        let named = get("--cpu-strength")?;
+        let level = ddi_engine::cpu::strength(named.unwrap_or("normal"))?;
         let absolute = get("--cpu-level")?
             .map(ddi_engine::cpu::absolute_level)
             .transpose()?;
-        if absolute.is_some() && get("--cpu-strength")?.is_some() {
+        if absolute.is_some() && named.is_some() {
             return Err("--cpu-level and --cpu-strength cannot be combined".into());
         }
+        // The absolute scale by default (2026-11-14): a named strength is
+        // levels 6 to 10 of it, none level 5.
+        let absolute = Some(absolute.unwrap_or(match named {
+            Some(_) => ddi_engine::cpu::strength_level(level),
+            None => ddi_engine::cpu::SOLO_LEVEL,
+        }));
         let seed = get("--cpu-seed")?
             .unwrap_or("1")
             .parse()

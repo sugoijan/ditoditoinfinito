@@ -809,3 +809,30 @@ fn a_level_watched() {
         }
     }
 }
+
+/// The solo CPU on the absolute levels by default (round D, 2026-11-14):
+/// automatic mode with no level plays level 5; a named strength is levels
+/// 6 to 10 of the absolute scale; a named level is that level; a prepared
+/// profile keeps its strength (chart-relative, as before).
+#[test]
+fn the_solo_cpu_plays_the_absolute_levels_by_default() {
+    assert_eq!(SOLO_LEVEL, 4, "level 5 of 10");
+    let names = ["relaxed", "easy", "normal", "strong", "expert"];
+    for (i, name) in names.iter().enumerate() {
+        assert_eq!(strength_level(strength(name).unwrap()), 5 + i, "{name}");
+    }
+    let plain = Selection::parse("1", "normal", "7").unwrap().on_absolute_scale(false);
+    assert_eq!(plain.absolute, Some(SOLO_LEVEL));
+    let named = Selection::parse("1", "expert", "7").unwrap().on_absolute_scale(true);
+    assert_eq!(named.absolute, Some(9));
+    let level = Selection::parse("1", "normal", "7")
+        .unwrap()
+        .with_level("3")
+        .unwrap()
+        .on_absolute_scale(false);
+    assert_eq!(level.absolute, Some(2));
+    let prepared = Selection::parse("cpu/custom.json", "normal", "7")
+        .unwrap()
+        .on_absolute_scale(true);
+    assert_eq!(prepared.absolute, None);
+}

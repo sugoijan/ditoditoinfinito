@@ -147,9 +147,10 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   --api URL            the server (else DDI_API_URL, else the production one)
   --site URL           the game's page for invite links
   --names A,B,…        the bots' names (else the CPU roster's)
-  --level N | A-B      every bot's CPU level N (1 to 10), or levels spread over
-                       A to B inclusive in an order drawn from --seed (else
-                       the roster's)
+  --level N | A-B      every bot's CPU level N (1 to 10 of the absolute scale,
+                       cpu-levels-v1: the same abilities on every chart), or
+                       levels spread over A to B inclusive in an order drawn
+                       from --seed (else the roster's)
   --personality P      every bot's personality: a preset or seven multipliers
   --songs DIR          the host's songs from this folder (repeatable)
   --pick ID[:N],…      the host's songs in this order (chart index N)
@@ -160,7 +161,8 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   --seed N             names' order and plays
   --cpus N[:LEVEL]     the host's Rules: N CPUs of the roster beside the bots
                        (CPUs, never bots: every device computes them and
-                       reports for them), all at LEVEL (1 to 10) where given
+                       reports for them), all at LEVEL (1 to 10, the same
+                       absolute scale) where given
   --audience N         N seats in the room's audience by --join's link (its
                        audience link, or its invite at the member bound): they
                        only watch (no play) and report what they received,
@@ -1746,6 +1748,39 @@ mod tests {
             .find(|p| p.extension().is_some_and(|e| e == "ssc"))
             .unwrap();
         ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc").unwrap()
+    }
+
+    /// A bot's own play is on the absolute levels (`cpu-levels-v1`,
+    /// `Opponent::with_skills`): the same presses as an opponent on that
+    /// scale, not the chart-relative one's (round D, item 7). The CPUs a
+    /// host bot seats (`--cpus N[:LEVEL]`) are the room's, computed by
+    /// `ddi_session::battle::cpus` on `Opponent::new`, the same scale.
+    #[test]
+    fn a_bots_play_is_on_the_absolute_levels() {
+        let song = beatucada();
+        let chart = (0..song.charts.len())
+            .find(|&i| {
+                song.layout_of(&song.charts[i])
+                    .is_some_and(|l| l.lanes.len() == 4 && l.players == 1)
+            })
+            .unwrap();
+        let rules = ddi_session::battle::StageRules::default();
+        let profile = Profile {
+            name: "Test".into(),
+            level: 2,
+            skills: "balanced".into(),
+        };
+        let bot = cpu_for(&song, chart, &rules, &profile, 9).unwrap();
+        let on = |scale| {
+            let ruleset = ddi_session::battle::stage_ruleset(&rules);
+            Opponent::on_scale(&song, chart, ruleset, scale, 2, 9, Skills::default())
+                .unwrap()
+                .presses()
+                .to_vec()
+        };
+        assert_eq!(bot.presses(), on(ddi_engine::cpu::LevelScale::AbsoluteV1).as_slice());
+        assert_ne!(bot.presses(), on(ddi_engine::cpu::LevelScale::RelativeV0).as_slice());
+        assert_eq!(ddi_engine::cpu::CPU_LEVELS, ddi_engine::cpu::LevelScale::AbsoluteV1);
     }
 
     #[test]

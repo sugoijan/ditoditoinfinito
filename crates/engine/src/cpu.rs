@@ -285,6 +285,19 @@ pub fn strength(value: &str) -> Result<usize, String> {
         .ok_or_else(|| "CPU strength: relaxed, easy, normal, strong or expert".into())
 }
 
+/// The solo CPU's level where none is named (an index into
+/// [`CPU_LEVELS_V1`]: level 5 of 10, the middle, at home on Medium charts),
+/// since it plays the absolute scale by default (2026-11-14, the
+/// maintainer: "The CPU CLI bots should move to the new levels").
+pub const SOLO_LEVEL: usize = 4;
+
+/// A named strength (an index into [`STRENGTHS`]) as a level of the
+/// absolute scale: Relaxed to Expert are levels 6 to 10 (indexes 5 to 9),
+/// as they were levels 6 to 10 of the chart-relative scale.
+pub fn strength_level(strength: usize) -> usize {
+    LEVELS - STRENGTHS.len() + strength.min(STRENGTHS.len() - 1)
+}
+
 /// A solo CPU's level on the opponents' absolute scale (`--cpu-level N`,
 /// the web's `level=N`): `1` to `10`, as an index into
 /// [`CPU_LEVELS_V1`] (0 the weakest).
@@ -370,6 +383,20 @@ impl Selection {
             return Err("A CPU level requires automatic mode (cpu=1)".into());
         }
         Ok(self)
+    }
+
+    /// Automatic mode's level where none was named: the named strength's
+    /// ([`strength_level`]) where `named`, else [`SOLO_LEVEL`]. A prepared
+    /// profile keeps its strength (chart-relative, as before).
+    pub fn on_absolute_scale(mut self, named: bool) -> Self {
+        if self.path.is_none() && self.absolute.is_none() {
+            self.absolute = Some(if named {
+                strength_level(self.level)
+            } else {
+                SOLO_LEVEL
+            });
+        }
+        self
     }
 
     /// Its presses on `plan` ([`solo_script`]).
