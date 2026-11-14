@@ -4,14 +4,14 @@
 //! decodes (`ddi_session::announcer::wanted`, the bags kept for the run)
 //! read and decoded on a thread, and handed to the play as they come
 //! ([`VoiceLoad::poll`]). Start never waits for them. Song select's lines
-//! load the same way ([`For::Menu`], step 5).
+//! load the same way (`For::Menu`, step 5).
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use ddi_library::announcer::Line;
-use ddi_session::announcer::{Bags, SharedVoice};
+use ddi_session::announcer::{Bags, For, SharedVoice};
 
 use crate::audio::Sound;
 use crate::library::announcers::DiskAnnouncer;
@@ -23,15 +23,6 @@ static BAGS: LazyLock<Mutex<Bags>> = LazyLock::new(|| {
         .map_or(1, |d| d.as_nanos() as u64);
     Mutex::new(Bags::new(seed))
 });
-
-/// Whose sounds: a play's (of a chart of `notes` notes), a multiplayer
-/// stage's (`ddi_session::announcer::battle::wanted`), or song select's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum For {
-    Play { notes: u32 },
-    Stage,
-    Menu,
-}
 
 /// What the thread sends.
 enum Arrived {
@@ -74,15 +65,9 @@ impl VoiceLoad {
                     )));
                     return;
                 };
-                let wanted = match (BAGS.lock(), of) {
-                    (Ok(mut bags), For::Play { notes }) => {
-                        ddi_session::announcer::wanted(&a.kept, notes, &mut bags)
-                    }
-                    (Ok(mut bags), For::Stage) => {
-                        ddi_session::announcer::battle::wanted(&a.kept, &mut bags)
-                    }
-                    (Ok(mut bags), For::Menu) => ddi_session::announcer::menu(&a.kept, &mut bags),
-                    (Err(_), _) => return,
+                let wanted = match BAGS.lock() {
+                    Ok(mut bags) => of.wanted(&a.kept, &mut bags),
+                    Err(_) => return,
                 };
                 let _ = tx.send(Arrived::Expect(wanted.iter().map(|(l, _)| *l).collect()));
                 let reader = match a.reader() {

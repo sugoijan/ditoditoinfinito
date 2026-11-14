@@ -1107,9 +1107,9 @@ impl GameCanvas {
                     // A practice stage's: the battle's lines, not a play's
                     // routine.
                     let of = if ctx.props().room_stage.is_some() {
-                        crate::announcers::For::Stage
+                        ddi_session::announcer::For::Stage
                     } else {
-                        crate::announcers::For::Play { notes }
+                        ddi_session::announcer::For::Play { notes }
                     };
                     crate::announcers::load_voice(key, of, voice.clone(), self.alive.clone());
                     self.voice = Some(voice);

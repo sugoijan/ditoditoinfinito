@@ -19,7 +19,7 @@ use ddi_library::announcer::{Bundled, Index, Kept, Line, is_bundled};
 use ddi_library::path::RelPathBuf;
 use ddi_platform::AudioBackend;
 use ddi_session::announcer::scene::director::StagedVoice;
-use ddi_session::announcer::{Bags, MenuVoice, SharedVoice};
+use ddi_session::announcer::{Bags, For, MenuVoice, SharedVoice};
 use wasm_bindgen::JsValue;
 use web_sys::AudioBuffer;
 use web_sys::Blob;
@@ -198,15 +198,6 @@ thread_local! {
     ));
 }
 
-/// Whose sounds: a play's (of a chart of `notes` notes), a multiplayer
-/// stage's (`ddi_session::announcer::battle::wanted`), or song select's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum For {
-    Play { notes: u32 },
-    Stage,
-    Menu,
-}
-
 /// How many of an announcer's sounds are read and decoded at once.
 const AT_ONCE: usize = 4;
 
@@ -226,11 +217,7 @@ pub(crate) fn load_voice(
     wasm_bindgen_futures::spawn_local(async move {
         let started = async {
             let (kept, source) = open(&key).await?;
-            let wanted = BAGS.with_borrow_mut(|b| match of {
-                For::Play { notes } => ddi_session::announcer::wanted(&kept, notes, b),
-                For::Stage => ddi_session::announcer::battle::wanted(&kept, b),
-                For::Menu => ddi_session::announcer::menu(&kept, b),
-            });
+            let wanted = BAGS.with_borrow_mut(|b| of.wanted(&kept, b));
             voice
                 .borrow_mut()
                 .expect(wanted.iter().map(|(line, _)| *line));

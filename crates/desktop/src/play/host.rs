@@ -1233,9 +1233,9 @@ impl Host {
                         // A practice stage's: the battle's lines, not a
                         // play's routine.
                         let of = if r.request.stage.is_some() {
-                            super::voice::For::Stage
+                            ddi_session::announcer::For::Stage
                         } else {
-                            super::voice::For::Play { notes }
+                            ddi_session::announcer::For::Play { notes }
                         };
                         r.voice = Some(super::voice::VoiceLoad::start(
                             key,

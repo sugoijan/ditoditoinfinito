@@ -211,7 +211,7 @@ impl Player {
             let load = crate::play::voice::VoiceLoad::start(
                 key.clone(),
                 crate::library::all_folders(),
-                crate::play::voice::For::Menu,
+                ddi_session::announcer::For::Menu,
                 self.audio.sample_rate(),
                 None,
             );

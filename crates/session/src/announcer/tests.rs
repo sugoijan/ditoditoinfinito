@@ -177,6 +177,17 @@ fn a_play_decodes_the_lines_it_can_speak_a_few_sounds_each() {
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].0, Line::SelectMusicIntro);
     assert_eq!(first[0].1.len(), 2);
+    // The shells' one choice of whose sounds: the same as each call, on
+    // bags shuffled alike.
+    for of in [For::Play { notes: 300 }, For::Stage, For::Menu] {
+        let (mut a, mut b) = (Bags::new(9), Bags::new(9));
+        let direct = match of {
+            For::Play { notes } => wanted(&kept, notes, &mut a),
+            For::Stage => battle::wanted(&kept, &mut a),
+            For::Menu => menu(&kept, &mut a),
+        };
+        assert_eq!(of.wanted(&kept, &mut b), direct, "{of:?}");
+    }
 }
 
 /// Round D (2026-11-14): entering song select again says another of the

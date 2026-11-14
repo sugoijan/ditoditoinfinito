@@ -121,6 +121,28 @@ pub fn menu(kept: &Kept, bags: &mut Bags) -> Vec<(Line, Vec<RelPathBuf>)> {
     take_each(kept, bags, |line| line.spoken() == Spoken::Menu, |_| MENU_VARIANTS)
 }
 
+/// Whose sounds a shell decodes: a play's (of a chart of `notes` notes,
+/// [`wanted`]), a multiplayer stage's ([`battle::wanted`]) or song
+/// select's ([`menu`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum For {
+    Play { notes: u32 },
+    Stage,
+    Menu,
+}
+
+impl For {
+    /// Its sounds of announcer `kept`, the next of each line's bag in
+    /// `bags`.
+    pub fn wanted(self, kept: &Kept, bags: &mut Bags) -> Vec<(Line, Vec<RelPathBuf>)> {
+        match self {
+            For::Play { notes } => wanted(kept, notes, bags),
+            For::Stage => battle::wanted(kept, bags),
+            For::Menu => menu(kept, bags),
+        }
+    }
+}
+
 /// How many of a song select line's sounds are decoded for the session
 /// ([`menu`]): its few lines are said again at every entering, each in
 /// turn among these (StepMania 5.1 says another of the folder's each
