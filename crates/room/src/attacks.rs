@@ -301,17 +301,14 @@ pub struct Cell {
 
 /// A section of the chart with room for an attack's shocks (made by the
 /// engine's placement, `ddi_engine::battle::schedule`): its shocks in time
-/// order; when it is over (the last shock's time and its window); when its
-/// recipient may first recover: since `attacks-v1`, which has no recovery
-/// period, the moment it is over (`recover_after_us` equals `clear_us`
-/// in every plan made; the field stays in the plan and its digest, and a
-/// cleared attack is told [`AttackEvent::Recovered`] once a checkpoint is
-/// past it).
+/// order and when it is over (the last shock's time and its window). There
+/// is no recovery period: an attack is over for its recipient the moment
+/// its section is (since revision 9 a plan says nothing more; one stored
+/// with a `recover_after_us` reads without it).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Section {
     pub cells: Vec<Cell>,
     pub clear_us: i64,
-    pub recover_after_us: i64,
 }
 
 /// One possible start: every [`AttackRules::checkpoint_beats`] beats from
@@ -378,10 +375,10 @@ pub type AttackId = u32;
 pub enum AttackState {
     /// Committed; its shocks still to come or coming.
     Active,
-    /// Its last shock passed; its recipient not recovered yet.
+    /// Its last shock passed: over (a ledger stored before revision 9
+    /// said `recovered` for it, a checkpoint later at most).
+    #[serde(alias = "recovered")]
     Cleared,
-    /// Its recipient may be attacked again.
-    Recovered,
     /// Its recipient went out first (nothing is refunded).
     Expired,
 }
@@ -398,7 +395,6 @@ pub struct Attack {
     pub slot: usize,
     pub cells: Vec<Cell>,
     pub clear_us: i64,
-    pub recover_after_us: i64,
     pub state: AttackState,
 }
 
@@ -422,10 +418,10 @@ pub enum AttackEvent {
         sender: ParticipantId,
         reason: BlockReason,
     },
+    /// Its last shock passed: over (a record stored before revision 9
+    /// may say `recovered` for the same attack a second time).
+    #[serde(alias = "recovered")]
     Cleared {
-        attack: AttackId,
-    },
-    Recovered {
         attack: AttackId,
     },
     Expired {
@@ -593,8 +589,7 @@ impl StageBattle {
     /// in is credited what its judgments earned, up to the cap (the rest
     /// lost), its life is as reported and its policy as it left it
     /// ([`Report::targeting`]); (3) attacks whose last shock
-    /// passed are cleared, and a cleared one's recipient recovers once
-    /// its section's `recover_after_us` has passed (at once: there is no
+    /// passed are cleared, over for their recipients at once (there is no
     /// recovery period); (4) attacks against those out expire; (5) full
     /// bars launch, in an order turning each checkpoint, each at the
     /// target its policy picks among those who can be attacked (judged on
@@ -660,20 +655,16 @@ impl StageBattle {
                 });
             }
         }
-        // (3) Clearing and recovery.
+        // (3) Clearing.
         for a in &mut self.attacks {
             if a.state == AttackState::Active && a.clear_us < at {
                 a.state = AttackState::Cleared;
                 events.push(AttackEvent::Cleared { attack: a.id });
             }
-            if a.state == AttackState::Cleared && at >= a.recover_after_us {
-                a.state = AttackState::Recovered;
-                events.push(AttackEvent::Recovered { attack: a.id });
-            }
         }
         // (4) Expiry: the recipient out (no refund).
         for a in &mut self.attacks {
-            if matches!(a.state, AttackState::Active | AttackState::Cleared)
+            if a.state == AttackState::Active
                 && self
                     .seats
                     .get(&a.recipient)
@@ -700,11 +691,11 @@ impl StageBattle {
         if n == 0 {
             return;
         }
-        // Who is under attacks already (reserved, active or recovering):
-        // how many, and when the last of them clears.
+        // Who is under attacks already: how many, and when the last of
+        // them clears.
         let mut taken: BTreeMap<ParticipantId, (u32, i64)> = BTreeMap::new();
         for a in &self.attacks {
-            if matches!(a.state, AttackState::Active | AttackState::Cleared) {
+            if a.state == AttackState::Active {
                 let t = taken.entry(a.recipient).or_insert((0, i64::MIN));
                 t.0 += 1;
                 t.1 = t.1.max(a.clear_us);
@@ -831,7 +822,6 @@ impl StageBattle {
                         slot,
                         cells: section.cells,
                         clear_us: section.clear_us,
-                        recover_after_us: section.recover_after_us,
                         state: AttackState::Active,
                     });
                     memory.push((recipient, sender));
@@ -942,28 +932,26 @@ impl StageBattle {
         self.attacks.get((id as usize).checked_sub(1)?)
     }
 
-    /// The attack against `participant` it has not recovered from
-    /// (active or cleared), if any: the first of them where more are
-    /// placed behind it ([`AttackRules::chain`]).
+    /// The attack against `participant` not over yet, if any: the first
+    /// of them where more are placed behind it ([`AttackRules::chain`]).
     pub fn incoming(&self, participant: ParticipantId) -> Option<&Attack> {
         self.incoming_all(participant).next()
     }
 
-    /// Every attack against `participant` it has not recovered from, in
-    /// the order they land: the one on its way or passing, then those
-    /// placed behind it.
+    /// Every attack against `participant` not over yet, in the order
+    /// they land: the one on its way or passing, then those placed behind
+    /// it.
     pub fn incoming_all(&self, participant: ParticipantId) -> impl Iterator<Item = &Attack> {
-        self.attacks.iter().filter(move |a| {
-            a.recipient == participant
-                && matches!(a.state, AttackState::Active | AttackState::Cleared)
-        })
+        self.attacks
+            .iter()
+            .filter(move |a| a.recipient == participant && a.state == AttackState::Active)
     }
 
-    /// Its attacks whose recipients have not recovered.
+    /// Its attacks not over yet.
     pub fn outgoing(&self, participant: ParticipantId) -> impl Iterator<Item = &Attack> {
-        self.attacks.iter().filter(move |a| {
-            a.sender == participant && matches!(a.state, AttackState::Active | AttackState::Cleared)
-        })
+        self.attacks
+            .iter()
+            .filter(move |a| a.sender == participant && a.state == AttackState::Active)
     }
 
     /// The recipients of committed attacks not cleared yet, with when

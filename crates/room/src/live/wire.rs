@@ -408,10 +408,6 @@ impl Writer {
                 self.byte(3);
                 self.u(u64::from(attack));
             }
-            AttackEvent::Recovered { attack } => {
-                self.byte(4);
-                self.u(u64::from(attack));
-            }
             AttackEvent::Expired { attack } => {
                 self.byte(5);
                 self.u(u64::from(attack));
@@ -615,9 +611,6 @@ impl<'a> Reader<'a> {
                 },
             },
             3 => AttackEvent::Cleared {
-                attack: self.u32()?,
-            },
-            4 => AttackEvent::Recovered {
                 attack: self.u32()?,
             },
             5 => AttackEvent::Expired {

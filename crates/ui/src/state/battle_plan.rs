@@ -56,10 +56,7 @@ pub fn checkpoints(song: &Song, chart: usize, rules: &AttackRules) -> Vec<i64> {
 /// `judge` (`ddi_engine::battle::schedule`, the engine's placement, drawn
 /// from `seed`), as the ledger has them: a slot every placement's beats
 /// from the chart's start, each section's shocks timed, when it clears
-/// (its last shock and its window). Its recipient may recover once it
-/// clears (`Section::recover_after_us` is `clear_us`: there has been no
-/// recovery period since `attacks-v1`; the field stays in the plan and
-/// its digest).
+/// (its last shock and its window), over for its recipient then.
 pub fn schedule(song: &Song, chart: usize, judge: &JudgeTable, seed: u64) -> Schedule {
     let Some(c) = song.charts.get(chart) else {
         return Schedule::default();
@@ -87,7 +84,6 @@ pub fn schedule(song: &Song, chart: usize, judge: &JudgeTable, seed: u64) -> Sch
                 Section {
                     cells,
                     clear_us: clear,
-                    recover_after_us: clear,
                 }
             }),
         })

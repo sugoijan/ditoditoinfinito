@@ -248,7 +248,6 @@ impl RemoteLedger {
                     self.blocked.retain(|(p, _)| *p != sender);
                 }
                 AttackEvent::Cleared { attack } => self.set(attack, AttackState::Cleared),
-                AttackEvent::Recovered { attack } => self.set(attack, AttackState::Recovered),
                 AttackEvent::Expired { attack } => self.set(attack, AttackState::Expired),
                 AttackEvent::Retargeted {
                     participant,
@@ -271,9 +270,7 @@ impl RemoteLedger {
     /// The attacks against `p` on their way or passing, from `now_us`.
     pub fn incoming(&self, p: ParticipantId, now_us: i64) -> impl Iterator<Item = &Attack> {
         self.attacks.iter().filter(move |a| {
-            a.recipient == p
-                && matches!(a.state, AttackState::Active | AttackState::Cleared)
-                && a.clear_us >= now_us
+            a.recipient == p && a.state == AttackState::Active && a.clear_us >= now_us
         })
     }
 }
@@ -1136,7 +1133,6 @@ impl Live {
             slot: c.slot as usize,
             cells: section.cells.clone(),
             clear_us: section.clear_us,
-            recover_after_us: section.recover_after_us,
             state: AttackState::Active,
         });
         self.learned.push((c.attack, t.max(committed_us as f64 / 1e6)));

@@ -2195,10 +2195,7 @@ impl Battle {
         let live: Vec<&(&ddi_room::attacks::Attack, f64, i64)> = timed
             .iter()
             .filter(|(x, _, delay)| {
-                matches!(
-                    x.state,
-                    ddi_room::attacks::AttackState::Active | ddi_room::attacks::AttackState::Cleared
-                ) && x.clear_us >= now - delay
+                x.state == ddi_room::attacks::AttackState::Active && x.clear_us >= now - delay
             })
             .collect();
         live.iter()

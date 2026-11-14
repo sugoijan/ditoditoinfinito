@@ -176,11 +176,7 @@ impl BattlePlan {
             h.i64(slot.start_us);
             match &slot.section {
                 None => h.u64(0),
-                Some(Section {
-                    cells,
-                    clear_us,
-                    recover_after_us,
-                }) => {
+                Some(Section { cells, clear_us }) => {
                     h.u64(1 + cells.len() as u64);
                     for c in cells {
                         h.i64(c.tick);
@@ -188,7 +184,6 @@ impl BattlePlan {
                         h.i64(c.at_us);
                     }
                     h.i64(*clear_us);
-                    h.i64(*recover_after_us);
                 }
             }
         }
@@ -306,7 +301,6 @@ pub(crate) mod tests {
                         let last = cells.last().unwrap().at_us;
                         Section {
                             clear_us: last + 100_000,
-                            recover_after_us: last + 100_000,
                             cells,
                         }
                     }),
@@ -398,12 +392,12 @@ pub(crate) mod tests {
     #[test]
     fn the_digest_and_the_seed_are_these_values() {
         let p = plan(5, 7, |j| j % 2 == 0);
-        assert_eq!(p.digest.0, "fnv1a64:73e9bb302e296a6d");
+        assert_eq!(p.digest.0, "fnv1a64:4bf1bfba625607d9");
         let all = p
             .with_ladder(vec!["a".into(), "bc".into()])
             .with_stage_rules(Some("hard/boos/out".into()))
             .with_at_once(Some(2));
-        assert_eq!(all.digest.0, "fnv1a64:41ab95e4690782d2");
+        assert_eq!(all.digest.0, "fnv1a64:95c4efe3d8c7c406");
         let seed = seed_for(&RoomId::new("Room000001"), StageId(3), &ChartKey::new("abc"));
         assert_eq!(seed, 16_395_362_131_259_055_977);
     }

@@ -44,7 +44,6 @@ fn schedule(n: usize, room: impl Fn(usize) -> bool) -> Schedule {
                         let last = cells.last().unwrap().at_us;
                         Section {
                             clear_us: last + 100_000,
-                            recover_after_us: last + 100_000,
                             cells,
                         }
                     }),
@@ -279,13 +278,12 @@ fn a_duel_chains_and_an_attack_is_over_as_it_clears() {
     let slots: Vec<usize> = l.incoming_all(A).map(|a| a.slot).collect();
     assert_eq!(slots, vec![3, 4]);
     assert_eq!(l.waiting(A), None);
-    // The checkpoint at 8 s, past the first's last shock: cleared and
-    // recovered at once.
+    // The checkpoint at 8 s, past the first's last shock: cleared, over
+    // at once.
     l.checkpoint(2, &[rep(A, 2, false, 3), rep(B, 2, false, 3)]);
     let e = l.checkpoint(3, &[rep(A, 3, false, 3), rep(B, 3, false, 3)]);
     assert!(e.contains(&AttackEvent::Cleared { attack: first.id }));
-    assert!(e.contains(&AttackEvent::Recovered { attack: first.id }));
-    assert_eq!(l.attack(first.id).unwrap().state, AttackState::Recovered);
+    assert_eq!(l.attack(first.id).unwrap().state, AttackState::Cleared);
     assert_eq!(l.incoming_all(A).count(), 1);
 }
 
@@ -548,7 +546,7 @@ fn a_hundred_and_twenty_eight_seats_stay_bounded() {
         // Never more placed against one than Attacks at once allows.
         let mut open: BTreeMap<ParticipantId, u32> = BTreeMap::new();
         for a in l.attacks() {
-            if matches!(a.state, AttackState::Active | AttackState::Cleared) {
+            if a.state == AttackState::Active {
                 *open.entry(a.recipient).or_default() += 1;
             }
         }
@@ -748,7 +746,6 @@ fn a_chain_lands_back_to_back_and_a_third_waits_for_the_first_to_pass() {
         &[half(rep(C, 3, false, 4)), rep(D, 3, false, 0)],
     );
     assert!(e.contains(&AttackEvent::Cleared { attack: 1 }));
-    assert!(e.contains(&AttackEvent::Recovered { attack: 1 }));
     assert_eq!(committed(&e), vec![(C, D)]);
     assert_eq!(b.waiting(C), None);
     let third = b.attack(3).unwrap().clone();
@@ -757,7 +754,7 @@ fn a_chain_lands_back_to_back_and_a_third_waits_for_the_first_to_pass() {
     assert_eq!(third.slot, 6, "the slot at 12 s");
     assert_eq!(
         states(&b),
-        vec![AttackState::Recovered, AttackState::Active, AttackState::Active]
+        vec![AttackState::Cleared, AttackState::Active, AttackState::Active]
     );
     assert_eq!(b.incoming_all(D).map(|a| a.id).collect::<Vec<_>>(), vec![2, 3]);
     assert_eq!(b.stats(D).received, 3);
@@ -810,7 +807,7 @@ fn a_chain_expires_whole_and_keeps_the_stage_from_settling() {
             &[gone(A, k, 4_500_000), gone(B, k, 4_600_000), gone(C, k, 4_700_000), rep(D, k, false, 4)],
         );
     }
-    assert_eq!(states(&b), vec![AttackState::Recovered, AttackState::Active]);
+    assert_eq!(states(&b), vec![AttackState::Cleared, AttackState::Active]);
     assert_eq!(outstanding(&b), vec![D]);
     assert!(!st.decided(&field, &outstanding(&b)), "the waiting one counts");
     // 10 s: it has passed too: decided.
@@ -818,7 +815,7 @@ fn a_chain_expires_whole_and_keeps_the_stage_from_settling() {
         4,
         &[gone(A, 4, 4_500_000), gone(B, 4, 4_600_000), gone(C, 4, 4_700_000), rep(D, 4, false, 4)],
     );
-    assert_eq!(states(&b), vec![AttackState::Recovered; 2]);
+    assert_eq!(states(&b), vec![AttackState::Cleared; 2]);
     assert!(st.decided(&field, &outstanding(&b)));
 
     // Expiry: D out at 5 s, both attacks still to come.
@@ -910,7 +907,7 @@ fn a_chain_without_limit_places_one_section_after_another() {
     for k in 2..6 {
         b.checkpoint(k, &round(k, &all, &[], D));
     }
-    assert_eq!(b.attacks()[0].state, AttackState::Recovered);
+    assert_eq!(b.attacks()[0].state, AttackState::Cleared);
     assert_eq!(b.incoming(D).map(|a| a.id), Some(4), "at 12 s, the one from 12 s next");
     assert_eq!(b.incoming_all(D).count(), 2);
 }
@@ -1235,4 +1232,26 @@ fn v3_retaliate_goes_by_spread_where_its_attacker_has_no_room() {
     assert_eq!(committed(&e), vec![(B, A), (C, A)]);
     let got = committed(&b.checkpoint(1, &round(1, &all, &[A], A)));
     assert_eq!(got, vec![(A, C)]);
+}
+
+/// A ledger stored before revision 9 (a server's live side keeps one)
+/// still reads: an attack's and a section's `recover_after_us` passed
+/// over, `recovered` read as cleared.
+#[test]
+fn a_ledger_stored_with_recoveries_reads() {
+    let attack: Attack = serde_json::from_value(serde_json::json!({
+        "id": 1, "sender": 1, "recipient": 2, "checkpoint": 3, "slot": 4,
+        "cells": [{"tick": 0, "lane": 1, "at_us": 5}],
+        "clear_us": 9, "recover_after_us": 9, "state": "recovered"
+    }))
+    .unwrap();
+    assert_eq!(attack.state, AttackState::Cleared);
+    let event: AttackEvent =
+        serde_json::from_value(serde_json::json!({"recovered": {"attack": 1}})).unwrap();
+    assert_eq!(event, AttackEvent::Cleared { attack: 1 });
+    let section: Section = serde_json::from_value(serde_json::json!({
+        "cells": [], "clear_us": 9, "recover_after_us": 9
+    }))
+    .unwrap();
+    assert_eq!(section.clear_us, 9);
 }

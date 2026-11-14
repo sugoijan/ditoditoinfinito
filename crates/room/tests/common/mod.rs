@@ -39,7 +39,6 @@ pub fn plan_under(rules: &str, n: usize, seed: u64, room: impl Fn(usize) -> bool
                     let last = cells.last().unwrap().at_us;
                     Section {
                         clear_us: last + 100_000,
-                        recover_after_us: last + 100_000,
                         cells,
                     }
                 }),
