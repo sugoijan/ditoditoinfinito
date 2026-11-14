@@ -89,9 +89,10 @@ pub const SPOTLIGHT_REST_MS: u64 = 3_000;
 pub const SPOTLIGHT: StageId = StageId(0);
 
 /// Whether an online room may play the match's "Charts: Adaptive"
-/// (`ddi_engine::ladder`): only once its live contract carries a stage's
-/// ladder and a competitor's steps (`docs/plans/multiplayer-prototype-progress.md`,
-/// "Adaptive charts").
+/// (`ddi_engine::ladder`): always, since its live contract carries a
+/// stage's ladder and a competitor's steps
+/// (`docs/plans/multiplayer-prototype-progress.md`, "Adaptive charts").
+/// Nothing here reads it; kept while `ddi_session::battle` still does.
 pub const ONLINE_ADAPTIVE: bool = true;
 
 /// What the room's screens show now (M7b's flow): song select (the host
@@ -235,6 +236,50 @@ pub struct LoadJob {
     /// An online room that plays live: what its preparation works out
     /// besides ([`prepare_stage`]: the reading horizon, the battle plan).
     pub live: Option<LiveAsk>,
+}
+
+impl LoadJob {
+    /// `picked`'s song and chart from this device's library.
+    pub fn library(
+        stage: StageId,
+        readiness_rev: u32,
+        picked: &Picked,
+        digest: Option<ddi_chart::ChartDigest>,
+        cpus: bool,
+        live: Option<LiveAsk>,
+    ) -> LoadJob {
+        LoadJob {
+            stage,
+            readiness_rev,
+            song: picked.song.id.clone(),
+            chart: picked.chart.index,
+            digest,
+            share: None,
+            cpus,
+            live,
+        }
+    }
+
+    /// The song of the room's share `share`, its chart the one `chart`
+    /// names by its digest.
+    pub fn from_share(
+        stage: StageId,
+        readiness_rev: u32,
+        share: String,
+        chart: &ddi_room::ChartKey,
+        live: Option<LiveAsk>,
+    ) -> LoadJob {
+        LoadJob {
+            stage,
+            readiness_rev,
+            song: ddi_library::share::song_id(&share, 0),
+            chart: 0,
+            digest: chart.as_str().parse().ok(),
+            share: Some(share),
+            cpus: false,
+            live,
+        }
+    }
 }
 
 /// What a stage's preparation works out for an online room that plays it
@@ -914,13 +959,9 @@ pub struct RoomClient {
     /// (`Settings::practice_roster`): the shells' ([`RoomClient::practice`]).
     remembers_roster: bool,
     /// The music's delay behind the room's song time of each live stage
-    /// this member watches (ms; fixed as its order is handed over).
-    watch_music: BTreeMap<StageId, u64>,
-    /// The next watched stage's ([`WATCH_MUSIC_V0`]'s rule).
-    watch_music_next: u64,
-    /// The fields' own delay beyond the music, a frame each, over the last
-    /// stage watched: what the next one's music delay follows.
-    watch_lags: Option<(StageId, Vec<f32>)>,
+    /// this member watches ([`WATCH_MUSIC_V0`]'s rule; fixed as its order
+    /// is handed over).
+    watch_music: crate::state::audience::MusicDelays,
 }
 
 /// How far behind the room's song time a member who watches a live stage
@@ -1137,18 +1178,12 @@ impl LiveRoom for RoomClient {
         stage: StageId,
         rules: &ddi_room::live::LiveRules,
     ) -> ddi_room::live::ViewDelay {
-        use ddi_room::live::{VIEW_DELAY_V0, ViewDelay, ViewDelayRules};
         let music = self.watch_music_ms(stage);
         if music == 0 {
             return self.view_delay(rules);
         }
-        let rules_of = ViewDelayRules {
-            id: "watch-view-delay-v0",
-            floor_ms: 0,
-            ..VIEW_DELAY_V0
-        };
         let left = (rules.presentation_delay_ms.saturating_sub(music)) as f64;
-        ViewDelay::new(rules_of, left, 0.0)
+        crate::state::audience::behind_music("watch-view-delay-v0", left)
     }
 
     fn cpu_lead_ms(&self, stage: StageId) -> u64 {
@@ -1161,10 +1196,7 @@ impl LiveRoom for RoomClient {
         if self.watch_music_ms(stage) == 0 {
             return;
         }
-        match &mut self.watch_lags {
-            Some((s, lags)) if *s == stage => lags.push(delay_ms as f32),
-            _ => self.watch_lags = Some((stage, vec![delay_ms as f32])),
-        }
+        self.watch_music.note(stage, delay_ms);
     }
 
     fn tick(&mut self, now_ms: u64) {
@@ -1279,22 +1311,24 @@ pub fn practice_rules(opponent: OpponentSpec) -> MatchRules {
     rules
 }
 
+/// The common CPU profile of a practice room seeded by `seed`.
+fn practice_opponent(seed: u64) -> OpponentSpec {
+    OpponentSpec {
+        level: DEFAULT_CPU_LEVEL,
+        seed,
+        personality: None,
+        name: None,
+        targeting: None,
+    }
+}
+
 impl RoomClient {
     /// A new practice room in its lobby: the local player, three CPUs at
     /// the default level, four empty stages (`MatchRules::practice`). The
     /// CPUs' seeds come from `seed` (the shells pass the time it was
     /// made, tests a fixed number).
     pub fn new(now_ms: u64, seed: u64) -> RoomClient {
-        let rules = practice_rules(OpponentSpec {
-            level: DEFAULT_CPU_LEVEL,
-            seed,
-            personality: None,
-            name: None,
-            targeting: None,
-        });
-        let roster = super::cpu_roster::starting(STARTING_CPUS, seed);
-        let rules = super::cpu_roster::with_roster(rules, roster, 1);
-        Self::practice_under(now_ms, rules, RoomPolicy::default())
+        Self::practice_under(now_ms, Self::starting_rules(seed), RoomPolicy::default())
     }
 
     /// DEVELOPMENT ONLY: a practice room of one stage against `cpus` CPUs,
@@ -1307,13 +1341,7 @@ impl RoomClient {
     pub fn development(now_ms: u64, seed: u64, cpus: u16) -> RoomClient {
         let policy = RoomPolicy::development();
         let cpus = cpus.clamp(1, policy.max_competitors - 1);
-        let mut rules = practice_rules(OpponentSpec {
-            level: DEFAULT_CPU_LEVEL,
-            seed,
-            personality: None,
-            name: None,
-            targeting: None,
-        });
+        let mut rules = practice_rules(practice_opponent(seed));
         rules.stages = 1;
         rules.seats = cpus + 1;
         rules.cpu.mode = ddi_room::CpuMode::Fixed { count: cpus };
@@ -1321,16 +1349,17 @@ impl RoomClient {
         Self::practice_under(now_ms, rules, policy)
     }
 
-    fn practice_under(now_ms: u64, rules: MatchRules, policy: RoomPolicy) -> RoomClient {
-        let clock = ManualClock::new(now_ms);
-        // The player's name is the room's data; the screen calls the local
-        // player "You" in the language shown.
-        let (authority, client) =
-            LocalAuthority::practice_under("Player".into(), rules, clock.clone(), policy);
-        let me = authority.participant(&client).unwrap_or(ParticipantId(1));
-        let mut room = RoomClient {
-            link: Link::Local(Box::new(authority)),
-            placeholder: None,
+    /// A client over `link`, its bookkeeping empty.
+    fn with_link(
+        link: Link,
+        placeholder: Option<RoomState>,
+        clock: ManualClock,
+        client: ClientId,
+        me: ParticipantId,
+    ) -> RoomClient {
+        RoomClient {
+            link,
+            placeholder,
             clock,
             client,
             seq: 0,
@@ -1361,10 +1390,26 @@ impl RoomClient {
             offered: BTreeSet::new(),
             live_preps: BTreeMap::new(),
             remembers_roster: false,
-            watch_music: BTreeMap::new(),
-            watch_music_next: WATCH_MUSIC_V0.music_delay_ms,
-            watch_lags: None,
-        };
+            watch_music: crate::state::audience::MusicDelays::new(WATCH_MUSIC_V0),
+        }
+    }
+
+    /// Practice's rules with its starting roster of CPUs, seeded by `seed`.
+    fn starting_rules(seed: u64) -> MatchRules {
+        let rules = practice_rules(practice_opponent(seed));
+        let roster = super::cpu_roster::starting(STARTING_CPUS, seed);
+        super::cpu_roster::with_roster(rules, roster, 1)
+    }
+
+    fn practice_under(now_ms: u64, rules: MatchRules, policy: RoomPolicy) -> RoomClient {
+        let clock = ManualClock::new(now_ms);
+        // The player's name is the room's data; the screen calls the local
+        // player "You" in the language shown.
+        let (authority, client) =
+            LocalAuthority::practice_under("Player".into(), rules, clock.clone(), policy);
+        let me = authority.participant(&client).unwrap_or(ParticipantId(1));
+        let mut room =
+            RoomClient::with_link(Link::Local(Box::new(authority)), None, clock, client, me);
         room.pump();
         room
     }
@@ -1373,16 +1418,7 @@ impl RoomClient {
     /// authority's, a larger cap).
     #[cfg(test)]
     pub fn practice_with_policy(now_ms: u64, seed: u64, policy: RoomPolicy) -> RoomClient {
-        let rules = practice_rules(OpponentSpec {
-            level: DEFAULT_CPU_LEVEL,
-            seed,
-            personality: None,
-            name: None,
-            targeting: None,
-        });
-        let roster = super::cpu_roster::starting(STARTING_CPUS, seed);
-        let rules = super::cpu_roster::with_roster(rules, roster, 1);
-        Self::practice_under(now_ms, rules, policy)
+        Self::practice_under(now_ms, Self::starting_rules(seed), policy)
     }
 
     /// A new practice room as the shells make it: [`RoomClient::new`]'s,
@@ -1458,43 +1494,13 @@ impl RoomClient {
             ContentSource::Shared,
         );
         placeholder.members.clear();
-        let mut room = RoomClient {
-            link: Link::Online(Box::new(link)),
-            placeholder: Some(placeholder),
+        let mut room = RoomClient::with_link(
+            Link::Online(Box::new(link)),
+            Some(placeholder),
             clock,
             client,
-            seq: 0,
-            mirror: Mirror::new(),
-            me: ParticipantId(0),
-            picks: BTreeMap::new(),
-            refusal: None,
-            version: 0,
-            jobs: Vec::new(),
-            asked: BTreeSet::new(),
-            launched: BTreeSet::new(),
-            sharing: BTreeMap::new(),
-            uploads: Vec::new(),
-            inbox: None,
-            resting: None,
-            spotlight_sharing: None,
-            spotlight_loaded: None,
-            spotlight_asked: None,
-            rules_seen: false,
-            own_name: None,
-            results_seen: (None, 0),
-            details: BTreeMap::new(),
-            summaries: BTreeMap::new(),
-            asking: Rc::default(),
-            live_news: Vec::new(),
-            live_reader: false,
-            preparing: BTreeMap::new(),
-            offered: BTreeSet::new(),
-            live_preps: BTreeMap::new(),
-            remembers_roster: false,
-            watch_music: BTreeMap::new(),
-            watch_music_next: WATCH_MUSIC_V0.music_delay_ms,
-            watch_lags: None,
-        };
+            ParticipantId(0),
+        );
         room.tick(now_ms);
         room
     }
@@ -2140,6 +2146,13 @@ impl RoomClient {
     /// "Watching"). An online room that does not play live streams
     /// nothing: a watcher there stays on the room's song select.
     pub fn watches(&self) -> bool {
+        self.judged_here_or_live()
+    }
+
+    /// Practice, which judges every play on this device, or an online
+    /// room that plays live, whose room has the ledger and the streams:
+    /// where watching, attacks and Adaptive charts are offered.
+    fn judged_here_or_live(&self) -> bool {
         !self.is_online() || self.plays_live()
     }
 
@@ -2344,7 +2357,7 @@ impl RoomClient {
     /// The match the room plays (its running one, else the next) seats
     /// CPUs.
     pub fn has_cpus(&self) -> bool {
-        let rules = self.locked_rules().unwrap_or_else(|| self.rules());
+        let rules = self.rules();
         rules.cpu_seats(self.state().reserved_humans()) > 0
     }
 
@@ -2470,7 +2483,7 @@ impl RoomClient {
     /// not (a server from before live play) has neither, whatever its
     /// rules say (`crate::screens::room::attacks_offered`).
     pub fn attacks_offered(&self) -> bool {
-        !self.is_online() || self.plays_live()
+        self.judged_here_or_live()
     }
 
     /// Whether a match under `rules` is really played with attacks here:
@@ -2486,7 +2499,7 @@ impl RoomClient {
     pub fn attacks_on(&self) -> bool {
         match self.rules_now() {
             Some(r) => self.attacks_played(&r),
-            None => self.attacks_played(self.locked_rules().unwrap_or_else(|| self.rules())),
+            None => self.attacks_played(self.rules()),
         }
     }
 
@@ -2583,23 +2596,38 @@ impl RoomClient {
             }
             return;
         }
-        if self.readiness_rev(job.stage) != job.readiness_rev {
-            return;
+        if let Some(result) = self.take_shared_pick(job, result) {
+            self.finish_load(job, result);
         }
-        let content = self
-            .state()
-            .stage(job.stage)
-            .and_then(|s| s.content.as_ref())
-            .map(|c| c.id.clone());
-        let result = match (result, content) {
-            (Ok(picked), Some(content)) => {
+    }
+
+    /// A shared song's `job` prepared: the song and chart kept as the
+    /// stage's content's pick; none where the answer counts for nothing
+    /// (the song replaced since, or the stage without content).
+    fn take_shared_pick(
+        &mut self,
+        job: &LoadJob,
+        result: Result<Picked, LoadProblem>,
+    ) -> Option<Result<(), LoadProblem>> {
+        if self.readiness_rev(job.stage) != job.readiness_rev {
+            return None;
+        }
+        Some(match result {
+            Ok(picked) => {
+                let content = self.stage_content(job.stage)?;
                 self.picks.insert(content, picked);
                 Ok(())
             }
-            (Ok(_), None) => return,
-            (Err(p), _) => Err(p),
-        };
-        self.finish_load(job, result);
+            Err(p) => Err(p),
+        })
+    }
+
+    /// The content stage `stage` plays, where it has some.
+    fn stage_content(&self, stage: StageId) -> Option<ContentId> {
+        self.state()
+            .stage(stage)
+            .and_then(|s| s.content.as_ref())
+            .map(|c| c.id.clone())
     }
 
     /// The shell prepared `job` for an online room that plays live
@@ -2640,21 +2668,10 @@ impl RoomClient {
         if job.stage == SPOTLIGHT || prep.is_none() || job.live.is_none() {
             return self.finish_shared_load(job, result);
         }
-        if self.readiness_rev(job.stage) != job.readiness_rev {
-            return;
-        }
-        let content = self
-            .state()
-            .stage(job.stage)
-            .and_then(|s| s.content.as_ref())
-            .map(|c| c.id.clone());
-        match (result, content) {
-            (Ok(picked), Some(content)) => {
-                self.picks.insert(content, picked);
-                self.finish_load_live(job, Ok(prep));
-            }
-            (Ok(_), None) => {}
-            (Err(p), _) => self.finish_load(job, Err(p)),
+        match self.take_shared_pick(job, result) {
+            Some(Ok(())) => self.finish_load_live(job, Ok(prep)),
+            Some(Err(p)) => self.finish_load(job, Err(p)),
+            None => {}
         }
     }
 
@@ -2673,7 +2690,7 @@ impl RoomClient {
                 (m.rules_for(stage), StageRules::of_stage(m, stage))
             }
             _ => {
-                let r = self.locked_rules().unwrap_or_else(|| self.rules()).clone();
+                let r = self.rules().clone();
                 let sr = StageRules::of(&r);
                 (r, sr)
             }
@@ -2933,30 +2950,15 @@ impl RoomClient {
                 .filter(|st| st.content_changed_at == chosen)
                 .and_then(|st| st.content.as_ref())
                 .map(|c| c.id.clone());
-            let next = match (n.answer, content) {
-                (Ok(answer), Some(content)) => match (answer.grant, answer.share) {
-                    (Some(grant), _) => match self.picks.get(&content) {
-                        Some(p) => {
-                            self.uploads.push(UploadJob {
-                                stage: n.stage,
-                                content,
-                                song: p.song.clone(),
-                                chart: p.chart.clone(),
-                                grant,
-                                max_bytes: answer.max_bytes,
-                            });
-                            Sharing::Uploading {
-                                done: 0.0,
-                                total: 0.0,
-                            }
-                        }
-                        None => continue,
-                    },
-                    (None, Some(_)) => Sharing::Sent,
-                    (None, None) => Sharing::Failed(SharingProblem::Grant("no_grant".into())),
-                },
-                (Ok(_), None) => continue,
-                (Err(p), _) => Sharing::Failed(SharingProblem::Grant(p.code)),
+            let next = match content {
+                Some(content) => self.sharing_after_grant(n.stage, content, n.answer),
+                None => n
+                    .answer
+                    .err()
+                    .map(|p| Sharing::Failed(SharingProblem::Grant(p.code))),
+            };
+            let Some(next) = next else {
+                continue;
             };
             self.sharing.insert(n.stage, (chosen, next));
             self.version += 1;
@@ -2972,12 +2974,29 @@ impl RoomClient {
         let Some((content, Sharing::Asking)) = self.spotlight_sharing.clone() else {
             return;
         };
-        let next = match answer {
-            Ok(answer) => match (answer.grant, self.picks.get(&content)) {
-                (Some(grant), Some(p)) => {
+        let next = self
+            .sharing_after_grant(SPOTLIGHT, content.clone(), answer)
+            .unwrap_or_else(|| Sharing::Failed(SharingProblem::Grant("no_grant".into())));
+        self.spotlight_sharing = Some((content, next));
+    }
+
+    /// The sharing of `content` (stage `stage`'s, or the spotlight's)
+    /// after the room's grant `answer`: its upload handed to the shell
+    /// where there is a grant and a pick, the room's earlier share taken,
+    /// or the refusal kept; none for a grant with no pick to upload.
+    fn sharing_after_grant(
+        &mut self,
+        stage: StageId,
+        content: ContentId,
+        answer: Result<ddi_library::share::GrantAnswer, crate::state::online::api::Problem>,
+    ) -> Option<Sharing> {
+        Some(match answer {
+            Ok(answer) => match answer.grant {
+                Some(grant) => {
+                    let p = self.picks.get(&content)?;
                     self.uploads.push(UploadJob {
-                        stage: SPOTLIGHT,
-                        content: content.clone(),
+                        stage,
+                        content,
                         song: p.song.clone(),
                         chart: p.chart.clone(),
                         grant,
@@ -2988,12 +3007,11 @@ impl RoomClient {
                         total: 0.0,
                     }
                 }
-                (None, _) if answer.share.is_some() => Sharing::Sent,
-                _ => Sharing::Failed(SharingProblem::Grant("no_grant".into())),
+                None if answer.share.is_some() => Sharing::Sent,
+                None => Sharing::Failed(SharingProblem::Grant("no_grant".into())),
             },
             Err(p) => Sharing::Failed(SharingProblem::Grant(p.code)),
-        };
-        self.spotlight_sharing = Some((content, next));
+        })
     }
 
     /// Report one's own run of stage `stage` (an online room's: it ranks
@@ -3246,11 +3264,8 @@ impl RoomClient {
         self.launched.insert(stage);
         // A live stage this member watches: its music delayed to match the
         // fields, from what the last one watched needed (fixed for it).
-        if order.watching && order.live.is_some() && !self.watch_music.contains_key(&stage) {
-            if let Some((_, lags)) = self.watch_lags.take() {
-                self.watch_music_next = WATCH_MUSIC_V0.next_music_delay(self.watch_music_next, &lags);
-            }
-            self.watch_music.insert(stage, self.watch_music_next);
+        if order.watching && order.live.is_some() {
+            self.watch_music.fix(stage);
         }
         Some(order)
     }
@@ -3260,7 +3275,7 @@ impl RoomClient {
     /// they play (and after going out of it: it is never moved mid-song),
     /// and in practice.
     pub fn watch_music_ms(&self, stage: StageId) -> u64 {
-        self.watch_music.get(&stage).copied().unwrap_or(0)
+        self.watch_music.of(stage).unwrap_or(0)
     }
 
     /// A stage played on this device, reported to its room: an online
@@ -3314,7 +3329,8 @@ impl RoomClient {
             }]
         };
         let Link::Local(authority) = &mut self.link else {
-            // Online stages are not played in this slice.
+            // An online room's stage is reported by its members
+            // (`report_run`).
             return self.refuse(Refusal::Room(Rejection::AuthorityOnly));
         };
         for command in commands {
@@ -3404,13 +3420,6 @@ impl RoomClient {
         self.send(Command::StopMatch)
     }
 
-    /// Whether the local player may save `rules` for the next match and
-    /// stop the running match as one change (the Rules pop-up's "Apply
-    /// and restart"): an operator, while a match runs (Stop match's
-    /// phases: a stage's readiness, countdown and play, its song's end,
-    /// the intermission), in a room whose authority reads
-    /// `Command::RestartMatch` (`RoomPolicy::restart`; never one that
-    /// predates it).
     /// The room's authority awards fields of nine and more by the
     /// top-biased tables at the match's points bias (`RoomPolicy::points_bias`):
     /// the Rules pop-up offers the choice only then (an older server
@@ -3425,8 +3434,7 @@ impl RoomClient {
     /// authority would drop the rule or rank by steps
     /// (`RoomPolicy::adaptive`).
     pub fn adaptive_offered(&self) -> bool {
-        self.state().policy.adaptive
-            && (!self.is_online() || (ONLINE_ADAPTIVE && self.plays_live()))
+        self.state().policy.adaptive && self.judged_here_or_live()
     }
 
     /// The match's Attacks at once can be set here: where attacks are
@@ -3469,6 +3477,13 @@ impl RoomClient {
         self.adaptive_offered() && rules.charts == ddi_room::Charts::Adaptive
     }
 
+    /// Whether the local player may save `rules` for the next match and
+    /// stop the running match as one change (the Rules pop-up's "Apply
+    /// and restart"): an operator, while a match runs (Stop match's
+    /// phases: a stage's readiness, countdown and play, its song's end,
+    /// the intermission), in a room whose authority reads
+    /// `Command::RestartMatch` (`RoomPolicy::restart`; never one that
+    /// predates it).
     pub fn may_restart(&self) -> bool {
         self.state().policy.restart
             && self.may(Capability::EditNextRules)
@@ -3627,14 +3642,7 @@ impl RoomClient {
     /// messages that follow (practice: at once; online: later, a refusal
     /// then said on the status line).
     fn send(&mut self, cmd: Command) -> Result<(), Refusal> {
-        self.seq += 1;
-        let seq = self.seq;
-        let base = self.mirror.state().map(|s| s.revision);
-        let client = self.client.clone();
-        self.authority_mut()
-            .submit(ddi_room::ClientEnvelope::new(client, seq, base, cmd));
-        let answer = self.pump_for(seq);
-        match answer {
+        match self.submit(cmd) {
             Some(Some(rejection)) => self.refuse(Refusal::Room(rejection)),
             _ => {
                 self.refusal = None;
@@ -3643,6 +3651,18 @@ impl RoomClient {
                 Ok(())
             }
         }
+    }
+
+    /// One command in its envelope, and what the authority sent after it
+    /// applied: the command's answer if among it ([`Self::pump_for`]).
+    fn submit(&mut self, cmd: Command) -> Option<Option<Rejection>> {
+        self.seq += 1;
+        let seq = self.seq;
+        let base = self.mirror.state().map(|s| s.revision);
+        let client = self.client.clone();
+        self.authority_mut()
+            .submit(ddi_room::ClientEnvelope::new(client, seq, base, cmd));
+        self.pump_for(seq)
     }
 
     fn pump(&mut self) {
@@ -3793,36 +3813,19 @@ impl RoomClient {
             let Some((stage, readiness_rev, content)) = next else {
                 return;
             };
-            self.seq += 1;
-            let seq = self.seq;
-            let base = self.mirror.state().map(|s| s.revision);
-            let client = self.client.clone();
-            self.authority_mut().submit(ddi_room::ClientEnvelope::new(
-                client,
-                seq,
-                base,
-                Command::ReportLoading {
-                    stage,
-                    readiness_rev,
-                    loading: Loading::Loading { permille: 0 },
-                },
-            ));
-            if !matches!(self.pump_for(seq), Some(None)) {
+            let answer = self.submit(Command::ReportLoading {
+                stage,
+                readiness_rev,
+                loading: Loading::Loading { permille: 0 },
+            });
+            if !matches!(answer, Some(None)) {
                 return;
             }
             if let Some(p) = self.picks.get(&content)
                 && self.asked.insert((stage, readiness_rev))
             {
-                self.jobs.push(LoadJob {
-                    stage,
-                    readiness_rev,
-                    song: p.song.id.clone(),
-                    chart: p.chart.index,
-                    digest: p.chart.digest,
-                    share: None,
-                    cpus: true,
-                    live: None,
-                });
+                let job = LoadJob::library(stage, readiness_rev, p, p.chart.digest, true, None);
+                self.jobs.push(job);
             }
         }
     }
@@ -3866,16 +3869,13 @@ impl RoomClient {
             return;
         }
         self.spotlight_asked = Some(spot.content.clone());
-        self.jobs.push(LoadJob {
-            stage: SPOTLIGHT,
-            readiness_rev: 0,
-            song: ddi_library::share::song_id(&share, 0),
-            chart: 0,
-            digest: spot.content.chart.as_str().parse().ok(),
-            share: Some(share),
-            cpus: false,
-            live: None,
-        });
+        self.jobs.push(LoadJob::from_share(
+            SPOTLIGHT,
+            0,
+            share,
+            &spot.content.chart,
+            None,
+        ));
     }
 
     /// An online room's content (M5d). The picker's own pick waiting for
@@ -3938,29 +3938,13 @@ impl RoomClient {
             {
                 continue;
             }
-            let digest = content.chart.as_str().parse().ok();
             let live = self.live_ask(stage, &content);
             let job = match self.picks.get(&content) {
-                Some(p) => LoadJob {
-                    stage,
-                    readiness_rev,
-                    song: p.song.id.clone(),
-                    chart: p.chart.index,
-                    digest,
-                    share: None,
-                    cpus: false,
-                    live,
-                },
-                None => LoadJob {
-                    stage,
-                    readiness_rev,
-                    song: ddi_library::share::song_id(&share, 0),
-                    chart: 0,
-                    digest,
-                    share: Some(share),
-                    cpus: false,
-                    live,
-                },
+                Some(p) => {
+                    let digest = content.chart.as_str().parse().ok();
+                    LoadJob::library(stage, readiness_rev, p, digest, false, live)
+                }
+                None => LoadJob::from_share(stage, readiness_rev, share, &content.chart, live),
             };
             self.jobs.push(job);
         }

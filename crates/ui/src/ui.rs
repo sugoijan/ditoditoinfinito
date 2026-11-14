@@ -1226,10 +1226,6 @@ impl Ui {
         self.hover_stale = false;
     }
 
-    /// Tells the shell the pointer's look when what the mouse is over
-    /// calls for another: its screen's [`Screen::cursor`], else a pointer
-    /// over a focusable actor or a list's item (not a list's empty space,
-    /// which a tap does not act on), else the default.
     /// A change made here: a frame is drawn, and the hover picked again.
     fn touch(&mut self) {
         self.dirty = true;
@@ -1247,6 +1243,10 @@ impl Ui {
             .any(|l| l.phase.in_transition() || l.screen.moving() || l.root.tween_time_left() > 0.0)
     }
 
+    /// Tells the shell the pointer's look when what the mouse is over
+    /// calls for another: its screen's [`Screen::cursor`], else a pointer
+    /// over a focusable actor or a list's item (not a list's empty space,
+    /// which a tap does not act on), else the default.
     fn refresh_cursor(&mut self) {
         // Worked out again only for another hover, or a change.
         if self.cursor_for != self.hover || self.hover_stale {

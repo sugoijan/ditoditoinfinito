@@ -552,10 +552,9 @@ fn the_seat_notes_the_fields_delay_for_the_next_stage() {
     for _ in 0..500 {
         seat.note_view_delay(ddi_room::StageId(1), 400.0);
     }
-    // Moved once the next stage is handed over (here: the rule, applied as
-    // `take_stage_order` applies it).
-    let lags = seat.lags.take().unwrap().1;
-    seat.music_next = seat.view_rules().next_music_delay(seat.music_next, &lags);
+    // Moved once the next stage is handed over (here: fixed as
+    // `take_stage_order` fixes it).
+    seat.music.fix(ddi_room::StageId(2));
     assert_eq!(seat.next_music_delay_ms(), 1_200);
     // The fields' own room is what is left of the ceiling.
     let d = seat.view_delay(&ddi_room::live::LIVE_V1);

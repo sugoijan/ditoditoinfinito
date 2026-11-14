@@ -121,6 +121,77 @@ impl AudienceView {
     }
 }
 
+/// A watching device's music delays behind the room's song time (a
+/// member who watches, [`crate::state::room::WATCH_MUSIC_V0`], or the
+/// audience, [`AUDIENCE_VIEW_V1`]): each stage's fixed as its order is
+/// handed over, the next one's from how far the fields of the stage
+/// watched last fell behind its music ([`AudienceView::next_music_delay`]).
+#[derive(Clone, Debug)]
+pub struct MusicDelays {
+    pub rules: AudienceView,
+    /// The next stage's (ms).
+    next: u64,
+    /// The stage watched last and how far behind the music its fields
+    /// were drawn, a sample a frame (ms).
+    lags: Option<(StageId, Vec<f32>)>,
+    /// Each stage's, fixed (ms).
+    fixed: BTreeMap<StageId, u64>,
+}
+
+impl MusicDelays {
+    pub fn new(rules: AudienceView) -> MusicDelays {
+        MusicDelays {
+            rules,
+            next: rules.music_delay_ms,
+            lags: None,
+            fixed: BTreeMap::new(),
+        }
+    }
+
+    /// The next stage's delay (ms).
+    pub fn next(&self) -> u64 {
+        self.next
+    }
+
+    /// `stage`'s delay, where it was fixed (ms).
+    pub fn of(&self, stage: StageId) -> Option<u64> {
+        self.fixed.get(&stage).copied()
+    }
+
+    /// `stage`'s delay fixed as its order is handed over, from what the
+    /// stage watched last needed (a stage handed over again keeps its own).
+    pub fn fix(&mut self, stage: StageId) -> u64 {
+        if let Some(d) = self.of(stage) {
+            return d;
+        }
+        if let Some((_, lags)) = self.lags.take() {
+            self.next = self.rules.next_music_delay(self.next, &lags);
+        }
+        self.fixed.insert(stage, self.next);
+        self.next
+    }
+
+    /// The fields' own delay beyond the music this frame of `stage`.
+    pub fn note(&mut self, stage: StageId, delay_ms: f64) {
+        match &mut self.lags {
+            Some((s, lags)) if *s == stage => lags.push(delay_ms as f32),
+            _ => self.lags = Some((stage, vec![delay_ms as f32])),
+        }
+    }
+}
+
+/// The fields' own delay where the music is moved behind the room's
+/// song time: what is left of the ceiling, `left_ms`, from nothing, as
+/// the frames measure (rules `id`).
+pub fn behind_music(id: &'static str, left_ms: f64) -> ViewDelay {
+    let rules = ViewDelayRules {
+        id,
+        floor_ms: 0,
+        ..VIEW_DELAY_V0
+    };
+    ViewDelay::new(rules, left_ms, 0.0)
+}
+
 /// Where the seat is.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SeatState {
@@ -181,7 +252,6 @@ pub struct AudienceClient {
     link: String,
     seat: Audience<Box<dyn Transport>, ManualClock>,
     clock: ManualClock,
-    view_rules: AudienceView,
     ticket_req: Option<u64>,
     attempt: u32,
     retry_at: u64,
@@ -207,12 +277,7 @@ pub struct AudienceClient {
     /// Stages asked for with Watch.
     watch_asked: BTreeSet<StageId>,
     /// The music's delay for each stage handed to the shell.
-    delays: BTreeMap<StageId, u64>,
-    /// The next stage's music delay ([`AudienceView::next_music_delay`]).
-    music_next: u64,
-    /// The stage watched last and how far behind the music its fields
-    /// were drawn, a sample a frame (ms).
-    lags: Option<(StageId, Vec<f32>)>,
+    music: MusicDelays,
     /// Frames taken, sockets opened (the debug state's).
     sockets: u32,
     /// The shell's threads' preparations (desktop's).
@@ -263,7 +328,6 @@ impl AudienceClient {
             link: link.into(),
             seat,
             clock,
-            view_rules: AUDIENCE_VIEW_V1,
             ticket_req: None,
             attempt: 0,
             retry_at: 0,
@@ -280,9 +344,7 @@ impl AudienceClient {
             launched: BTreeSet::new(),
             seen_before: BTreeSet::new(),
             watch_asked: BTreeSet::new(),
-            delays: BTreeMap::new(),
-            music_next: AUDIENCE_VIEW_V1.music_delay_ms,
-            lags: None,
+            music: MusicDelays::new(AUDIENCE_VIEW_V1),
             sockets: 0,
             inbox: None,
         };
@@ -599,16 +661,7 @@ impl AudienceClient {
             speed_source: settings.speed_source,
         };
         self.asked.insert(stage);
-        self.jobs.push(LoadJob {
-            stage,
-            readiness_rev: 0,
-            song: ddi_library::share::song_id(&share, 0),
-            chart: 0,
-            digest: chart.as_str().parse().ok(),
-            share: Some(share),
-            cpus: false,
-            live: Some(live),
-        });
+        self.jobs.push(LoadJob::from_share(stage, 0, share, &chart, Some(live)));
         self.version += 1;
     }
 
@@ -647,21 +700,20 @@ impl AudienceClient {
     /// The music's delay behind the room's song time for `stage` (ms):
     /// fixed once its order is handed to the shell.
     pub fn music_delay_ms(&self, stage: StageId) -> u64 {
-        self.delays
-            .get(&stage)
-            .copied()
-            .unwrap_or(self.music_next)
+        self.music
+            .of(stage)
+            .unwrap_or(self.music.next())
             .min(self.ceiling_ms())
     }
 
     /// The music delay the next stage handed over will have (ms).
     pub fn next_music_delay_ms(&self) -> u64 {
-        self.music_next.min(self.ceiling_ms())
+        self.music.next().min(self.ceiling_ms())
     }
 
     /// The view's rules (its id for the debug state).
     pub fn view_rules(&self) -> AudienceView {
-        self.view_rules
+        self.music.rules
     }
 
     fn ceiling_ms(&self) -> u64 {
@@ -768,12 +820,7 @@ impl AudienceClient {
         self.launched.insert(stage);
         // The music's delay for it, from what the stage watched last
         // needed (a stage watched again keeps its own).
-        if !self.delays.contains_key(&stage) {
-            if let Some((_, lags)) = self.lags.take() {
-                self.music_next = self.view_rules.next_music_delay(self.music_next, &lags);
-            }
-            self.delays.insert(stage, self.music_next);
-        }
+        self.music.fix(stage);
         self.version += 1;
         Some(order)
     }
@@ -805,13 +852,8 @@ impl LiveRoom for AudienceClient {
     /// What is left of the audience's ceiling once the music is moved
     /// behind the room's song time: from nothing, as the frames measure.
     fn view_delay(&self, _rules: &LiveRules) -> ViewDelay {
-        let rules = ViewDelayRules {
-            id: "audience-view-delay-v0",
-            floor_ms: 0,
-            ..VIEW_DELAY_V0
-        };
-        let music = self.music_next.min(self.ceiling_ms());
-        ViewDelay::new(rules, (self.ceiling_ms() - music) as f64, 0.0)
+        let music = self.music.next().min(self.ceiling_ms());
+        behind_music("audience-view-delay-v0", (self.ceiling_ms() - music) as f64)
     }
 
     fn room_ms_at(&self, wall_ms: u64) -> Option<Millis> {
@@ -886,10 +928,7 @@ impl LiveRoom for AudienceClient {
     /// The fields' own delay beyond the music this frame: kept for the
     /// next stage's music delay.
     fn note_view_delay(&mut self, stage: StageId, delay_ms: f64) {
-        match &mut self.lags {
-            Some((s, lags)) if *s == stage => lags.push(delay_ms as f32),
-            _ => self.lags = Some((stage, vec![delay_ms as f32])),
-        }
+        self.music.note(stage, delay_ms);
     }
 }
 
