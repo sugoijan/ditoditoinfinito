@@ -3,8 +3,8 @@
 //! Little-endian base-128 varints, signed ones zigzagged; a moment's time,
 //! tick, life, combo and score as differences from the moment before it in
 //! the same list (from zero for the first), so a batch or a frame decodes
-//! alone. The first byte says what it is and its version ([`BATCH_V1`],
-//! [`FRAME_V1`]); a reader refuses anything else, never panics, and never
+//! alone. The first byte says what it is and its version ([`BATCH_V2`],
+//! [`FRAME_V2`]); a reader refuses anything else, never panics, and never
 //! allocates more than the message's length allows.
 //!
 //! Measured (`tests`): a moment takes about 9 bytes here against about 85
@@ -17,20 +17,17 @@ use crate::live::stream::{
     Batch, CheckpointNews, Commitment, Frame, FrameEntry, LiveReport, Moment, MomentKind, StreamEnd,
 };
 
-/// A batch, version 1.
-pub const BATCH_V1: u8 = 0xB1;
-/// A frame, version 1.
-pub const FRAME_V1: u8 = 0xF1;
+/// A batch, version 2 (room model revision 9): a step down's moment is
+/// its own kind. Version 1 (0xB1), which carried it as a refusal's kind
+/// with a flag so that older readers passed over it, is no longer read or
+/// written.
+pub const BATCH_V2: u8 = 0xB2;
+/// A frame, version 2, as [`BATCH_V2`] (version 1 was 0xF1).
+pub const FRAME_V2: u8 = 0xF2;
 /// A device's news of a stage's CPUs (`crate::live::cpus`,
 /// `online-cpus-v0`), version 1. Sent only to a room whose policy seats
 /// CPUs online: a room that predates it would refuse it (`bad_batch`).
 pub const CPUS_V1: u8 = 0xC1;
-
-/// A step down's moment travels as a refusal's kind with its flag (unused
-/// before), the rung counted down from this in the attack's place: a
-/// reader that predates it reads the refusal of an attack no stage has
-/// (no stage numbers its attacks near it) and takes nothing off.
-pub const STEP_DOWN_ATTACK: u32 = u32::MAX;
 
 /// Why bytes were not read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,8 +52,8 @@ pub enum Binary {
 /// Read a binary message.
 pub fn decode(bytes: &[u8]) -> Result<Binary, WireError> {
     match bytes.first() {
-        Some(&BATCH_V1) => decode_batch(bytes).map(Binary::Batch),
-        Some(&FRAME_V1) => decode_frame(bytes).map(Binary::Frame),
+        Some(&BATCH_V2) => decode_batch(bytes).map(Binary::Batch),
+        Some(&FRAME_V2) => decode_frame(bytes).map(Binary::Frame),
         Some(&CPUS_V1) => decode_cpus(bytes).map(Binary::Cpus),
         Some(&b) => Err(WireError::Unknown(b)),
         None => Err(WireError::Truncated),
@@ -65,7 +62,7 @@ pub fn decode(bytes: &[u8]) -> Result<Binary, WireError> {
 
 pub fn encode_batch(b: &Batch) -> Vec<u8> {
     let mut w = Writer(Vec::with_capacity(16 + b.moments.len() * 10));
-    w.byte(BATCH_V1);
+    w.byte(BATCH_V2);
     w.u(b.stage.0);
     w.u(u64::from(b.seq));
     w.i(b.through_us);
@@ -80,7 +77,7 @@ pub fn encode_batch(b: &Batch) -> Vec<u8> {
 
 pub fn decode_batch(bytes: &[u8]) -> Result<Batch, WireError> {
     let mut r = Reader { b: bytes, at: 0 };
-    if r.byte()? != BATCH_V1 {
+    if r.byte()? != BATCH_V2 {
         return Err(WireError::Invalid);
     }
     let stage = StageId(r.u()?);
@@ -151,7 +148,7 @@ pub fn decode_cpus(bytes: &[u8]) -> Result<CpuNews, WireError> {
 
 pub fn encode_frame(f: &Frame) -> Vec<u8> {
     let mut w = Writer(Vec::with_capacity(32 + f.entries.len() * 24));
-    w.byte(FRAME_V1);
+    w.byte(FRAME_V2);
     w.u(f.stage.0);
     w.u(u64::from(f.n));
     w.u(f.at.0);
@@ -198,7 +195,7 @@ pub fn encode_frame(f: &Frame) -> Vec<u8> {
 
 pub fn decode_frame(bytes: &[u8]) -> Result<Frame, WireError> {
     let mut r = Reader { b: bytes, at: 0 };
-    if r.byte()? != FRAME_V1 {
+    if r.byte()? != FRAME_V2 {
         return Err(WireError::Invalid);
     }
     let stage = StageId(r.u()?);
@@ -310,7 +307,7 @@ impl Writer {
                 MomentKind::Shock => (3, false),
                 MomentKind::Boo => (4, false),
                 MomentKind::Refused { .. } => (5, false),
-                MomentKind::Step { .. } => (5, true),
+                MomentKind::Step { .. } => (6, false),
             };
             self.byte(kind | if flag { 0x10 } else { 0 });
             self.i(i64::from(m.at_ms) - at);
@@ -326,9 +323,7 @@ impl Writer {
                     self.i(i64::from(offset_ms));
                 }
                 MomentKind::Refused { attack } => self.u(u64::from(attack)),
-                MomentKind::Step { rung } => {
-                    self.u(u64::from(STEP_DOWN_ATTACK - u32::from(rung)))
-                }
+                MomentKind::Step { rung } => self.byte(rung),
                 _ => {}
             }
             self.i(i64::from(m.life_ppm) - life);
@@ -516,17 +511,10 @@ impl<'a> Reader<'a> {
                 2 => MomentKind::Mine,
                 3 => MomentKind::Shock,
                 4 => MomentKind::Boo,
-                5 if flag => {
-                    let rung = STEP_DOWN_ATTACK
-                        .checked_sub(self.u32()?)
-                        .ok_or(WireError::Invalid)?;
-                    MomentKind::Step {
-                        rung: u8::try_from(rung).map_err(|_| WireError::Invalid)?,
-                    }
-                }
                 5 => MomentKind::Refused {
                     attack: self.u32()?,
                 },
+                6 => MomentKind::Step { rung: self.byte()? },
                 _ => return Err(WireError::Invalid),
             };
             life = life.checked_add(self.i()?).ok_or(WireError::Invalid)?;
@@ -718,12 +706,12 @@ pub(crate) mod tests {
         assert_eq!(decode(&[0x7b]), Err(WireError::Unknown(0x7b)));
     }
 
-    /// A step down's moment (a match's "At zero life: Step down") reads
-    /// back as itself; a reader that predates it reads it as the refusal
-    /// of an attack no stage has (a refusal's kind with its flag, the
-    /// rung counted down from `STEP_DOWN_ATTACK`), never an error.
+    /// A step down's moment (a match's "Charts: Adaptive") reads back as
+    /// itself, a kind of its own (`FRAME_V2`, `BATCH_V2`); a version 1
+    /// message, which carried it as a refusal's kind with a flag, is no
+    /// longer read.
     #[test]
-    fn a_step_down_reads_back_and_an_older_reader_takes_it_for_nothing() {
+    fn a_step_down_is_its_own_kind_and_version_1_is_not_read() {
         let mut ms = moments(6, 83, 4);
         ms[3].kind = MomentKind::Step { rung: 2 };
         let b = Batch {
@@ -736,8 +724,6 @@ pub(crate) mod tests {
         };
         let bytes = encode_batch(&b);
         assert_eq!(decode_batch(&bytes), Ok(b));
-        // The older reader reads kind 5 as a refusal whatever its flag:
-        // the same bytes without the flag, read here.
         let one = Batch {
             stage: StageId(1),
             seq: 1,
@@ -748,16 +734,23 @@ pub(crate) mod tests {
         };
         let mut bytes = encode_batch(&one);
         // The batch's byte, the stage, the seq, the time, the count: then
-        // the moment's head.
-        assert_eq!(bytes[5], 0x15);
-        bytes[5] = 0x05;
-        let older = decode_batch(&bytes).unwrap();
-        assert_eq!(
-            older.moments[0].kind,
-            MomentKind::Refused {
-                attack: STEP_DOWN_ATTACK - 2
-            }
-        );
+        // the moment's head, its kind with no flag.
+        assert_eq!(bytes[5], 0x06);
+        bytes[0] = 0xB1;
+        assert_eq!(decode(&bytes), Err(WireError::Unknown(0xB1)));
+        let frame = encode_frame(&Frame {
+            stage: StageId(1),
+            n: 1,
+            at: Millis(0),
+            entries: Vec::new(),
+            commitments: Vec::new(),
+            checkpoints: Vec::new(),
+            settling: None,
+        });
+        assert_eq!(frame[0], FRAME_V2);
+        let mut old = frame.clone();
+        old[0] = 0xF1;
+        assert_eq!(decode(&old), Err(WireError::Unknown(0xF1)));
     }
 
     #[test]
