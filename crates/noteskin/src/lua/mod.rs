@@ -1053,6 +1053,17 @@ impl LuaSkin {
         self.host.borrow().movies.clone()
     }
 
+    /// Whether a song's scripts show any movie.
+    pub fn has_movies(&self) -> bool {
+        !self.host.borrow().movies.is_empty()
+    }
+
+    /// `f` of [`LuaSkin::movies`] as they are, without a copy (each frame
+    /// of a play reads them).
+    pub fn with_movies<R>(&self, f: impl FnOnce(&[ScriptMovie]) -> R) -> R {
+        f(&self.host.borrow().movies)
+    }
+
     /// Movie `index`'s sprites gave it `seconds` this frame
     /// ([`ddi_actor::Sprite::take_movie_seconds`]): its clock runs on at
     /// its rate (`MovieTexture_Generic::UpdateMovie`), never below 0.

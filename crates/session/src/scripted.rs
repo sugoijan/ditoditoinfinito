@@ -583,7 +583,7 @@ impl Scripts {
         let Some(lua) = self.lua.as_mut() else {
             return;
         };
-        if lua.movies().is_empty() {
+        if !lua.has_movies() {
             return;
         }
         let mut given: Vec<(u32, f64)> = Vec::new();
@@ -618,6 +618,15 @@ impl Scripts {
     /// the song's folder), size, clock, rate and looping now.
     pub fn movies(&self) -> Vec<ddi_noteskin::lua::ScriptMovie> {
         self.lua.as_ref().map_or(Vec::new(), LuaSkin::movies)
+    }
+
+    /// `f` of [`Scripts::movies`] as they are, without a copy (a play's
+    /// frames read them).
+    pub fn with_movies<R>(&self, f: impl FnOnce(&[ddi_noteskin::lua::ScriptMovie]) -> R) -> R {
+        match self.lua.as_ref() {
+            Some(lua) => lua.with_movies(f),
+            None => f(&[]),
+        }
     }
 
     fn step(
