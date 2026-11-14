@@ -828,8 +828,12 @@ mod tests {
     /// Sections of shocks beatucada's chart has under `rules`, none
     /// overlapping (each eight beats, one every four).
     fn sections(song: &Song) -> Vec<crate::battle::Section> {
+        sections_on(song, 1)
+    }
+
+    fn sections_on(song: &Song, chart: usize) -> Vec<crate::battle::Section> {
         let mut out: Vec<crate::battle::Section> = Vec::new();
-        for s in crate::battle::schedule(song, 1, &rules().judge, 11)
+        for s in crate::battle::schedule(song, chart, &rules().judge, 11)
             .into_iter()
             .flatten()
         {
@@ -1175,13 +1179,17 @@ mod tests {
 
     /// What every level does about four sections of shocks, by seed: a
     /// hash of its presses then, its shocks stepped on and its tally.
-    fn shock_fixture(song: &Song, skills: Skills) -> Vec<(usize, u64, u64, u32, u32)> {
+    fn shock_fixture(
+        song: &Song,
+        chart: usize,
+        skills: Skills,
+    ) -> Vec<(usize, u64, u64, u32, u32)> {
         let mut out = Vec::new();
         for level in 0..super::LEVELS {
             for seed in 1..=4u64 {
                 let mut o = Opponent::on_scale(
                     song,
-                    1,
+                    chart,
                     rules(),
                     LevelScale::RelativeV0,
                     level,
@@ -1190,7 +1198,7 @@ mod tests {
                 )
                 .unwrap();
                 o.start(0.0);
-                for s in sections(song).iter().take(4) {
+                for s in sections_on(song, chart).iter().take(4) {
                     o.receive_hazards(&s.cells).unwrap();
                 }
                 let mut h = 0xcbf2_9ce4_8422_2325_u64;
@@ -1216,21 +1224,27 @@ mod tests {
     #[test]
     fn evasion_one_responds_exactly_as_mine_response_v0_did() {
         let song = song();
-        for (skills, want) in [
-            ("balanced", BALANCED_V0),
-            ("1.1,1,1,0.9,1.2,1,0.8", CUSTOM_V0),
+        // A roster CPU's own seven on the Hard chart (on chart 1 every
+        // row's pattern demand is nought: no personality moves a press
+        // there), where they move its presses.
+        const HARD: usize = 5;
+        let custom = Skills::parse("1.1,1,1,0.9,1.2,1,0.8").unwrap();
+        for (chart, skills, want) in [
+            (1, Skills::default(), BALANCED_V0),
+            (HARD, custom, CUSTOM_V0),
         ] {
-            let got = shock_fixture(&song, Skills::parse(skills).unwrap());
-            assert_eq!(got, want, "{skills}");
+            let got = shock_fixture(&song, chart, skills);
+            assert_eq!(got, want, "{skills:?}");
         }
+        assert_ne!(shock_fixture(&song, HARD, Skills::default()), CUSTOM_V0);
         // And an eighth value of 1 is the same CPU.
         assert_eq!(
-            shock_fixture(&song, Skills::parse("1,1,1,1,1,1,1,1").unwrap()),
+            shock_fixture(&song, 1, Skills::parse("1,1,1,1,1,1,1,1").unwrap()),
             BALANCED_V0
         );
         // A dodger steps on fewer shocks than the level, a stomper on more.
         let stepped = |e: f64| -> u32 {
-            shock_fixture(&song, Skills::default().with_evasion(e).unwrap())
+            shock_fixture(&song, 1, Skills::default().with_evasion(e).unwrap())
                 .iter()
                 .map(|f| f.3)
                 .sum()
@@ -1285,46 +1299,47 @@ mod tests {
         (9, 3, 1155254195008070793, 0, 1),
         (9, 4, 2392023948904027071, 0, 0),
     ];
+    /// [`BALANCED_V0`]'s on the Hard chart with a roster CPU's own seven.
     const CUSTOM_V0: [(usize, u64, u64, u32, u32); 40] = [
-        (0, 1, 12644587548427991872, 5, 0),
-        (0, 2, 5390699820817223490, 5, 0),
-        (0, 3, 12683791391249642834, 5, 0),
-        (0, 4, 10156452717982803138, 5, 0),
-        (1, 1, 12456761093607094426, 5, 0),
-        (1, 2, 4449103971517048307, 5, 0),
-        (1, 3, 4476676210479347219, 5, 0),
-        (1, 4, 11286949876874043516, 5, 0),
-        (2, 1, 16926452996149813455, 5, 0),
-        (2, 2, 2230730451439837311, 5, 0),
-        (2, 3, 2623470500724881099, 5, 0),
-        (2, 4, 6623830531180444546, 5, 0),
-        (3, 1, 7780207060611785259, 5, 0),
-        (3, 2, 13564433352698024081, 5, 0),
-        (3, 3, 5593264625379709119, 5, 0),
-        (3, 4, 10776335962794265028, 5, 0),
-        (4, 1, 18396473872998388888, 5, 0),
-        (4, 2, 6923997244725870273, 4, 0),
-        (4, 3, 17878045646674304349, 5, 0),
-        (4, 4, 10072092854588491910, 4, 1),
-        (5, 1, 10467682203878033719, 5, 0),
-        (5, 2, 15336477412646474335, 4, 0),
-        (5, 3, 9824261850096163867, 5, 0),
-        (5, 4, 16776980410603012573, 3, 0),
-        (6, 1, 12365859758034194081, 5, 0),
-        (6, 2, 908753023979430523, 4, 0),
-        (6, 3, 7969925767273837093, 5, 0),
-        (6, 4, 7302122824047443977, 3, 0),
-        (7, 1, 15294976252602108971, 5, 0),
-        (7, 2, 2235882859966796232, 2, 0),
-        (7, 3, 5350815333291544202, 1, 1),
-        (7, 4, 573166749483343131, 2, 0),
-        (8, 1, 12237707240959185173, 5, 0),
-        (8, 2, 12783921805380916832, 2, 0),
-        (8, 3, 4610328142332941682, 1, 1),
-        (8, 4, 14827477005743867491, 2, 0),
-        (9, 1, 18352016939461868639, 4, 0),
-        (9, 2, 568873959764713046, 2, 0),
-        (9, 3, 1155254195008070793, 0, 1),
-        (9, 4, 2392023948904027071, 0, 0),
+        (0, 1, 16855580329386687082, 5, 0),
+        (0, 2, 9481934715047078948, 5, 0),
+        (0, 3, 765011914584035507, 5, 0),
+        (0, 4, 18118797486629230095, 5, 0),
+        (1, 1, 13324101581241512129, 5, 0),
+        (1, 2, 14228428462909356414, 4, 1),
+        (1, 3, 7077131670423487680, 5, 0),
+        (1, 4, 10174780495534834523, 5, 0),
+        (2, 1, 11353539810897967249, 5, 1),
+        (2, 2, 8046181072894119035, 3, 2),
+        (2, 3, 6686591729583607372, 5, 0),
+        (2, 4, 4816858161057995603, 5, 0),
+        (3, 1, 17929834301863620253, 4, 1),
+        (3, 2, 8923404349110516147, 2, 3),
+        (3, 3, 18377906112903897883, 5, 0),
+        (3, 4, 4757200916202306002, 4, 1),
+        (4, 1, 5505362732013897586, 5, 1),
+        (4, 2, 15840742075596068016, 1, 5),
+        (4, 3, 1555181356626093447, 5, 0),
+        (4, 4, 12358536900443443654, 4, 1),
+        (5, 1, 323192761920528764, 4, 1),
+        (5, 2, 4075458160118268006, 1, 3),
+        (5, 3, 1806422691974810743, 5, 0),
+        (5, 4, 11558094452174983470, 3, 2),
+        (6, 1, 7338076482319255656, 4, 1),
+        (6, 2, 4025970842467292942, 3, 0),
+        (6, 3, 17624303393836269594, 5, 0),
+        (6, 4, 14847228235853596433, 4, 1),
+        (7, 1, 5115956417499116862, 4, 1),
+        (7, 2, 16598799689495354406, 0, 1),
+        (7, 3, 13028516212402497215, 3, 0),
+        (7, 4, 9727704467835118989, 3, 2),
+        (8, 1, 10642352720857198959, 4, 0),
+        (8, 2, 18072693961829273131, 0, 0),
+        (8, 3, 963200512426798413, 2, 0),
+        (8, 4, 14047659931998453862, 4, 1),
+        (9, 1, 16197302426448838124, 2, 0),
+        (9, 2, 2104137049899632795, 0, 0),
+        (9, 3, 15455043009436503178, 1, 0),
+        (9, 4, 14258254827587384702, 2, 0),
     ];
 }
