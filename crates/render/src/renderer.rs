@@ -816,6 +816,17 @@ impl Renderer {
                 if let Segment::Quads(r) = segment
                     && let Some(run) = scene.quads.get_mut(r.start as usize..r.end as usize)
                 {
+                    // The miniatures' run: their parts interleaved first.
+                    let parts = &scene.parts;
+                    if parts.first().is_some_and(|p| p.start == r.start)
+                        && parts.last().is_some_and(|p| p.end == r.end)
+                    {
+                        let rel: Vec<std::ops::Range<u32>> = parts
+                            .iter()
+                            .map(|p| p.start - r.start..p.end - r.start)
+                            .collect();
+                        self.textured.interleave_run(run, &rel, width, height);
+                    }
                     self.textured.order_run(run, width, height);
                 }
             }

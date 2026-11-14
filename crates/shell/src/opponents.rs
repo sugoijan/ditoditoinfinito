@@ -82,6 +82,10 @@ pub struct Shown {
     /// is marked with in place of [`Shown::out`] ("Left" where they left
     /// the stage).
     pub own: Option<(usize, String)>,
+    /// The seats whose name shows beside their field where their field
+    /// is too small to carry it ([`Carry::name`]): those attacking the
+    /// player or attacked by them, while their outline lasts.
+    pub named: Vec<usize>,
 }
 
 /// What a miniature says of its opponent's score, as the local player's
@@ -150,6 +154,69 @@ pub const MINI_LANE_CROWD: f32 = 16.0;
 /// them a field is large (`crate::rivals`).
 pub const ROOM_OPPONENTS: usize = 8;
 pub const MINI_LANE_SHARE: f32 = 0.5;
+/// PROVISIONAL (`fields-all-v0`, the feedback round E1 of 2026-11-14):
+/// past a room of nine's eight, every opponent has a field of its own
+/// beside the play wherever all of them fit at this lane or more
+/// (logical pixels: 72 at 1280×720 are nine columns by four rows a side
+/// at about this size); where they do not, as many as fit at it, those
+/// that matter to the player in them (`crate::rivals`), never fewer
+/// than a room of nine's eight. A room of eight or fewer keeps its sizes
+/// ([`MINI_LANE_MIN`] the floor, a phone's).
+pub const MINI_LANE_ALL: f32 = 10.0;
+/// A large field's fields (more than a room of nine's eight) may be cut
+/// shorter than the play's proportion, down to this many lanes (six and
+/// a half of look-ahead past their receptors), only where that lets every
+/// opponent have one at [`MINI_LANE_ALL`].
+const DENSE_ROWS_MIN: f32 = 8.0;
+/// Between a large field's slots: the gap a room's slots have
+/// ([`SLOT_GAP`]) for two columns a side, shrinking with more columns,
+/// down to this (logical pixels).
+const DENSE_GAP: f32 = 3.0;
+
+/// What a large field's miniatures carry at their lane (the feedback
+/// round E1): as they shrink, what no longer reads goes, in this order:
+/// the score, then the level's stars, then the name, then the combo. The
+/// life gauge, the power bar and Out stay at every size. A room of eight
+/// or fewer carries everything at every size, as before.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Carry {
+    pub score: bool,
+    pub stars: bool,
+    pub name: bool,
+    pub combo: bool,
+}
+
+/// PROVISIONAL (`carry-v0`): the lanes (logical pixels) from which a
+/// large field's miniature carries its score, its stars, its name and
+/// its combo.
+pub const CARRY_SCORE: f32 = 16.0;
+pub const CARRY_STARS: f32 = 13.0;
+pub const CARRY_NAME: f32 = 11.0;
+pub const CARRY_COMBO: f32 = 9.0;
+
+impl Carry {
+    /// Everything: a room of eight or fewer's miniatures.
+    pub const ALL: Carry = Carry {
+        score: true,
+        stars: true,
+        name: true,
+        combo: true,
+    };
+
+    /// What a miniature at `lane` carries, in a large field (`dense`) or
+    /// not.
+    pub fn at(lane: f32, dense: bool) -> Carry {
+        if !dense {
+            return Carry::ALL;
+        }
+        Carry {
+            score: lane >= CARRY_SCORE,
+            stars: lane >= CARRY_STARS,
+            name: lane >= CARRY_NAME,
+            combo: lane >= CARRY_COMBO,
+        }
+    }
+}
 /// A miniature's field, in its lanes' heights: the play's own field's
 /// proportion (the screen's height over the play's lane: ten on a screen
 /// wider than it is tall, [`rows_for`]), so that an opponent's field
@@ -221,7 +288,10 @@ pub enum Stars {
     None,
 }
 
-fn stars_at(lane: f32) -> Stars {
+fn stars_at(lane: f32, dense: bool) -> Stars {
+    if !Carry::at(lane, dense).stars {
+        return Stars::None;
+    }
     let w = SLOT_LANES * lane;
     let tall = name_size(lane) * STARS_SHARE;
     if w >= STARS_BESIDE {
@@ -234,19 +304,23 @@ fn stars_at(lane: f32) -> Stars {
 }
 
 /// What a slot has above its field at `lane`: its name line, and its
-/// stars' where they have their own.
-fn label(lane: f32) -> f32 {
+/// stars' where they have their own; nothing where a large field's
+/// (`dense`) carries no name ([`Carry`]).
+fn label(lane: f32, dense: bool) -> f32 {
+    if !Carry::at(lane, dense).name {
+        return 0.0;
+    }
     name_size(lane)
         + NAME_GAP
-        + match stars_at(lane) {
+        + match stars_at(lane, dense) {
             Stars::Under(tall) => tall + STARS_UNDER_GAP,
             _ => 0.0,
         }
 }
 
 /// Whether a slot at `lane`, its field `rows` lanes tall, fits a cell.
-fn fits(lane: f32, rows: f32, [w, h]: [f32; 2]) -> bool {
-    SLOT_LANES * lane <= w + 0.001 && label(lane) + rows * lane <= h + 0.001
+fn fits(lane: f32, rows: f32, [w, h]: [f32; 2], dense: bool) -> bool {
+    SLOT_LANES * lane <= w + 0.001 && label(lane, dense) + rows * lane <= h + 0.001
 }
 
 /// Where an opponent's miniature goes.
@@ -295,8 +369,13 @@ pub struct Fields {
     pub stars: Stars,
     /// A large field's ladder ([`crate::rivals::Ladder`]): `[x, y, width,
     /// height]` in the target's pixels, under the left side's slots; none
-    /// where every opponent has a slot.
+    /// in a room of nine or fewer. Its strip of everyone's life only
+    /// where not everyone has a field ([`Fields::rotating`]).
     pub ladder: Option<[f32; 4]>,
+    /// What each miniature carries at the lane ([`Carry`]).
+    pub carry: Carry,
+    /// A large field's grid: more than a room of nine's eight shown.
+    pub dense: bool,
 }
 
 /// A side's room for slots: `[left, top, right, bottom]`, logical pixels.
@@ -306,8 +385,42 @@ type Region = [f32; 4];
 /// `height` with a field `rows` lanes tall. Its label grows with it, but
 /// for the step down where the stars move beside the name: looked at on
 /// either side of it.
-fn lane_for_height(limit: f32, height: f32, rows: f32) -> f32 {
-    let tall = |lane: f32| label(lane) + rows * lane;
+fn lane_for_height(limit: f32, height: f32, rows: f32, dense: bool) -> f32 {
+    let full = lane_for_height_full(limit, height, rows);
+    if !dense || full >= CARRY_STARS {
+        return full;
+    }
+    // A large field's label is lighter under each of [`Carry`]'s steps:
+    // the largest lane within each step's span, the label constant (or
+    // growing with it) there.
+    let tall = |lane: f32| label(lane, true) + rows * lane;
+    let mut best = 0.0_f32;
+    for (lo, hi) in [(CARRY_NAME, CARRY_STARS), (0.0, CARRY_NAME)] {
+        let hi = limit.min(hi - 0.001);
+        if hi < lo || tall(lo) > height {
+            continue;
+        }
+        let (mut a, mut b) = (lo, hi);
+        if tall(b) <= height {
+            best = best.max(b);
+            continue;
+        }
+        for _ in 0..24 {
+            let mid = (a + b) / 2.0;
+            if tall(mid) <= height {
+                a = mid;
+            } else {
+                b = mid;
+            }
+        }
+        best = best.max(a);
+    }
+    best
+}
+
+/// [`lane_for_height`] where a slot carries everything.
+fn lane_for_height_full(limit: f32, height: f32, rows: f32) -> f32 {
+    let tall = |lane: f32| label(lane, false) + rows * lane;
     let beside = STARS_BESIDE / SLOT_LANES;
     if limit >= beside {
         let lane = limit.min((height - NAME_MAX - NAME_GAP) / rows);
@@ -338,13 +451,16 @@ struct Grid {
     cols: usize,
     rows: usize,
     cell: [f32; 2],
+    /// Between its slots.
+    gap: f32,
+    dense: bool,
 }
 
 impl Grid {
     /// The largest lane its slots can have, their fields `rows` lanes
     /// tall.
     fn lane(&self, rows: f32) -> f32 {
-        lane_for_height(self.cell[0] / SLOT_LANES, self.cell[1], rows)
+        lane_for_height(self.cell[0] / SLOT_LANES, self.cell[1], rows, self.dense)
     }
 }
 
@@ -356,16 +472,19 @@ struct Side {
     gap: f32,
     /// The field is to its right (the left side).
     left: bool,
+    /// A large field's ([`Carry`], [`DENSE_GAP`]).
+    dense: bool,
 }
 
 impl Side {
     /// The grids `k` slots can take in its rooms.
     fn grids(&self, k: usize) -> impl Iterator<Item = Grid> + '_ {
-        let gap = self.gap;
+        let dense = self.dense;
         self.regions.iter().flat_map(move |&region| {
             let (w, h) = (region[2] - region[0], region[3] - region[1]);
             (1..=k).map(move |cols| {
                 let rows = k.div_ceil(cols);
+                let gap = self.gap_for(cols);
                 Grid {
                     region,
                     cols,
@@ -374,9 +493,21 @@ impl Side {
                         (w - (cols as f32 - 1.0) * gap) / cols as f32,
                         (h - (rows as f32 - 1.0) * gap) / rows as f32,
                     ],
+                    gap,
+                    dense,
                 }
             })
         })
+    }
+
+    /// Between `cols` columns of its slots: a room's gap, a large
+    /// field's shrinking past two columns ([`DENSE_GAP`]).
+    fn gap_for(&self, cols: usize) -> f32 {
+        if self.dense {
+            (self.gap * 2.0 / cols.max(1) as f32).clamp(DENSE_GAP.min(self.gap), self.gap)
+        } else {
+            self.gap
+        }
     }
 
     /// The largest lane `k` slots can have on it, their fields `rows`
@@ -398,7 +529,7 @@ impl Side {
             if self.left { -g.region[2] } else { g.region[0] }
         };
         let mut best: Option<Grid> = None;
-        for g in self.grids(k).filter(|g| fits(lane, rows, g.cell)) {
+        for g in self.grids(k).filter(|g| fits(lane, rows, g.cell, self.dense)) {
             let better =
                 best.is_none_or(|b| g.cols < b.cols || (g.cols == b.cols && near(&g) < near(&b)));
             if better {
@@ -411,16 +542,18 @@ impl Side {
     /// How many slots it holds at lane `least`, their fields `rows`
     /// lanes tall.
     fn holds(&self, least: f32, rows: f32) -> usize {
-        let (sw, sh) = (SLOT_LANES * least, label(least) + rows * least);
+        let (sw, sh) = (SLOT_LANES * least, label(least, self.dense) + rows * least);
+        // (A large field's gap at its least.)
+        let gap = if self.dense {
+            DENSE_GAP.min(self.gap)
+        } else {
+            self.gap
+        };
         self.regions
             .iter()
             .map(|r| {
-                let cols = ((r[2] - r[0] + self.gap) / (sw + self.gap))
-                    .floor()
-                    .max(0.0);
-                let lines = ((r[3] - r[1] + self.gap) / (sh + self.gap))
-                    .floor()
-                    .max(0.0);
+                let cols = ((r[2] - r[0] + gap) / (sw + gap)).floor().max(0.0);
+                let lines = ((r[3] - r[1] + gap) / (sh + gap)).floor().max(0.0);
                 (cols * lines) as usize
             })
             .max()
@@ -450,12 +583,35 @@ fn part((share, least, most): (f32, f32, f32), of: f32) -> f32 {
 /// and under one side goes the status line.
 ///
 /// Where all of them do not fit at the least lane ([`MINI_LANE_MIN`] for
-/// a room's eight, a window too narrow for them; [`MINI_LANE_CROWD`]
-/// beyond the cap, a development-only practice), as many slots as fit at
-/// it, and the opponents take turns in them ([`rotate`]); `None` where
+/// a room's eight, a window too narrow for them), as many slots as fit
+/// at it, and the opponents take turns in them ([`rotate`]); `None` where
 /// not even one fits.
+///
+/// Past a room of nine's eight (a large field, the feedback round E1):
+/// every opponent where all fit at [`MINI_LANE_ALL`] (on fields cut
+/// shorter, down to [`DENSE_ROWS_MIN`] lanes, where only that lets them),
+/// in the same grids with narrower gaps, carrying what reads at their
+/// lane ([`Carry`]), in seat order, never moving; else as many as fit at
+/// it (more than eight), or the eight slots a room of nine has, those
+/// that matter to the player shown in them (`crate::rivals`). The
+/// ladder's line under the left side's slots either way.
 pub fn arrange(
     n: usize,
+    geo: &FieldGeometry,
+    span: f32,
+    reverse: bool,
+    ratio: f32,
+    keep_out: &[[f32; 4]],
+) -> Option<Fields> {
+    arrange_up_to(n, usize::MAX, geo, span, reverse, ratio, keep_out)
+}
+
+/// [`arrange`] showing at most `most` opponents (Options' "Up to eight":
+/// [`ROOM_OPPONENTS`], the slots of a room of nine past it as before
+/// the feedback round E1; `usize::MAX`: every one that fits).
+pub fn arrange_up_to(
+    n: usize,
+    most: usize,
     geo: &FieldGeometry,
     span: f32,
     reverse: bool,
@@ -465,12 +621,12 @@ pub fn arrange(
     if n == 0 || ratio <= 0.0 {
         return None;
     }
-    // A large field (more opponents than a room of nine has): the slots
-    // of a room of nine, those that matter to the player in them
-    // (`crate::rivals`), and the ladder under the left side's.
+    // A large field (more opponents than a room of nine has): every one
+    // where they fit at [`MINI_LANE_ALL`], else as many as do (never
+    // fewer than a room of nine's slots), those that matter to the player
+    // in them (`crate::rivals`); the ladder under the left side's.
     let total = n;
-    let n = n.min(ROOM_OPPONENTS);
-    let large = total > n;
+    let large = total > ROOM_OPPONENTS;
     let (w, h) = (geo.width / ratio, geo.height / ratio);
     // The field's band (its filter's, a little wider than the lanes).
     let [mid, band] = ddi_render::scene::filter_band(geo, span);
@@ -485,7 +641,7 @@ pub fn arrange(
     let wide = |side: usize| {
         raw[side] - part(EDGE, raw[side]) - part(FIELD_GAP, raw[side]) >= STATUS_MIN_WIDTH
     };
-    let side = |side: usize, status: bool| -> Side {
+    let side = |side: usize, status: bool, dense: bool| -> Side {
         let (edge, gap) = (part(EDGE, raw[side]), part(FIELD_GAP, raw[side]));
         let wing = if side == 0 {
             [edge, field[0] - gap]
@@ -508,29 +664,30 @@ pub fn arrange(
             regions,
             gap: part(SLOT_GAP, raw[side]),
             left: side == 0,
+            dense,
         }
     };
     // The sides for a split: the status line under the right side where
     // it has slots, else the left.
-    let sides = |counts: [usize; 2]| -> ([Side; 2], usize, bool) {
+    let sides = |counts: [usize; 2], dense: bool| -> ([Side; 2], usize, bool) {
         let under = usize::from(counts[1] > 0);
         let reserved = wide(under);
         (
             [
-                side(0, under == 0 && reserved),
-                side(1, under == 1 && reserved),
+                side(0, under == 0 && reserved, dense),
+                side(1, under == 1 && reserved, dense),
             ],
             under,
             reserved,
         )
     };
     // The play's field's proportion, at no more than this share of it.
-    let rows = rows_for(geo);
+    let rows_play = rows_for(geo);
     let cap = geo.arrow / ratio * MINI_LANE_SHARE;
     // Whole target pixels.
     let whole = |lane: f32| (lane * ratio).floor() / ratio;
-    let lane_for = |counts: [usize; 2]| {
-        let (s, ..) = sides(counts);
+    let lane_for = |counts: [usize; 2], rows: f32, dense: bool| {
+        let (s, ..) = sides(counts, dense);
         let mut lane = whole(
             s[0].lane(counts[0], rows)
                 .min(s[1].lane(counts[1], rows))
@@ -546,46 +703,88 @@ pub fn arrange(
         }
         lane.max(0.0)
     };
-    let least = if n <= ROOM_OPPONENTS {
-        MINI_LANE_MIN
-    } else {
-        MINI_LANE_CROWD
-    };
-    let even = [n.div_ceil(2), n / 2];
-    let mut counts = even;
-    let mut lane = lane_for(counts);
-    if lane < least && n <= ROOM_OPPONENTS {
-        // Another split, where one side has the room the other lacks: the
-        // nearest to even that fits best.
-        let mut lefts: Vec<usize> = (0..=n).collect();
-        lefts.sort_by_key(|l| l.abs_diff(even[0]));
-        for left in lefts {
-            let c = [left, n - left];
-            let l = lane_for(c);
-            if l > lane {
-                (counts, lane) = (c, l);
-            }
-        }
-    }
-    if lane < least {
-        // As many as fit at the least lane; the rest take turns.
-        let holds = [
-            side(0, wide(0)).holds(least, rows),
-            side(1, wide(1)).holds(least, rows),
-        ];
-        let shown = n.min(holds[0] + holds[1]);
-        if shown == 0 {
+    let split = |k: usize| [k.div_ceil(2), k / 2];
+    // A large field shown whole, or as many of it as fit at the least:
+    // the split, the lane and the fields' height.
+    let dense_plan = || -> Option<([usize; 2], f32, f32)> {
+        if !large || most <= ROOM_OPPONENTS {
             return None;
         }
-        let left = shown
-            .div_ceil(2)
-            .max(shown - holds[1].min(shown))
-            .min(holds[0]);
-        counts = [left, shown - left];
-        lane = lane_for(counts).max(least);
-    }
+        let want = total.min(most);
+        // Every one, in the play's proportion, else on fields cut
+        // shorter, a lane at a time, down to [`DENSE_ROWS_MIN`].
+        let mut rows = rows_play;
+        loop {
+            let lane = lane_for(split(want), rows, true);
+            if lane >= MINI_LANE_ALL {
+                return Some((split(want), lane, rows));
+            }
+            if rows - 1.0 < DENSE_ROWS_MIN - 0.001 {
+                break;
+            }
+            rows -= 1.0;
+        }
+        // As many as fit at the least, in the play's proportion.
+        let holds = [
+            side(0, wide(0), true).holds(MINI_LANE_ALL, rows_play),
+            side(1, wide(1), true).holds(MINI_LANE_ALL, rows_play),
+        ];
+        let mut k = want.min(holds[0] + holds[1]);
+        while k > ROOM_OPPONENTS {
+            let left = k.div_ceil(2).max(k - holds[1].min(k)).min(holds[0]);
+            let c = [left, k - left];
+            let lane = lane_for(c, rows_play, true);
+            if lane >= MINI_LANE_ALL {
+                return Some((c, lane, rows_play));
+            }
+            k -= 1;
+        }
+        None
+    };
+    let (counts, lane, rows, dense) = match dense_plan() {
+        Some((counts, lane, rows)) => (counts, lane, rows, true),
+        None => {
+            // A room's eight or fewer, or the slots of a room of nine.
+            let n = n.min(ROOM_OPPONENTS);
+            let least = MINI_LANE_MIN;
+            let even = split(n);
+            let mut counts = even;
+            let mut lane = lane_for(counts, rows_play, false);
+            if lane < least {
+                // Another split, where one side has the room the other
+                // lacks: the nearest to even that fits best.
+                let mut lefts: Vec<usize> = (0..=n).collect();
+                lefts.sort_by_key(|l| l.abs_diff(even[0]));
+                for left in lefts {
+                    let c = [left, n - left];
+                    let l = lane_for(c, rows_play, false);
+                    if l > lane {
+                        (counts, lane) = (c, l);
+                    }
+                }
+            }
+            if lane < least {
+                // As many as fit at the least lane; the rest take turns.
+                let holds = [
+                    side(0, wide(0), false).holds(least, rows_play),
+                    side(1, wide(1), false).holds(least, rows_play),
+                ];
+                let shown = n.min(holds[0] + holds[1]);
+                if shown == 0 {
+                    return None;
+                }
+                let left = shown
+                    .div_ceil(2)
+                    .max(shown - holds[1].min(shown))
+                    .min(holds[0]);
+                counts = [left, shown - left];
+                lane = lane_for(counts, rows_play, false).max(least);
+            }
+            (counts, lane, rows_play, false)
+        }
+    };
     let shown = counts[0] + counts[1];
-    let (sides, under, reserved) = sides(counts);
+    let (sides, under, reserved) = sides(counts, dense);
     let grids: Vec<Option<Grid>> = (0..2)
         .map(|s| {
             (counts[s] > 0)
@@ -601,7 +800,8 @@ pub fn arrange(
         return None;
     }
     // One size for all.
-    let (sw, sh) = (SLOT_LANES * lane, label(lane) + rows * lane);
+    let top = label(lane, dense);
+    let (sw, sh) = (SLOT_LANES * lane, top + rows * lane);
     let px = |v: f32| v * ratio;
     // Both sides' blocks on one middle where their rooms allow (the
     // middle of the room both sides share), else moved into their own.
@@ -618,32 +818,29 @@ pub fn arrange(
             continue;
         };
         let k = counts[s];
-        let gap = sides[s].gap;
+        let gap = g.gap;
         let used = g.cols as f32 * sw + (g.cols as f32 - 1.0) * gap;
         let block = g.rows as f32 * sh + (g.rows as f32 - 1.0) * gap;
-        let [left, top, right, bottom] = g.region;
-        let y0 = (middle - block / 2.0).min(bottom - block).max(top);
+        let [left, top_, right, bottom] = g.region;
+        let y0 = (middle - block / 2.0).min(bottom - block).max(top_);
         // Against the field's side of its room.
         let x0 = if s == 0 { right - used } else { left };
+        // (Under the slots, a room's gap below them.)
+        let below = y0 + block + sides[s].gap / 2.0;
         if s == 0 && large {
             // Under the left side's slots, from its far edge to them.
-            ladder = Some([
-                px(left),
-                px(y0 + block + gap / 2.0),
-                px(x0 + used - left),
-                px(STATUS),
-            ]);
+            ladder = Some([px(left), px(below), px(x0 + used - left), px(STATUS)]);
         }
         if s == under && reserved {
             // From the slots' left to the side's far edge.
             let to = if s == 0 { x0 + used } else { right };
-            status = Some([px(x0), px(y0 + block + gap / 2.0), px(to - x0), px(STATUS)]);
+            status = Some([px(x0), px(below), px(to - x0), px(STATUS)]);
         }
         for i in 0..k {
             let (row, col) = ((i / g.cols) as f32, (i % g.cols) as f32);
             let x = x0 + col * (sw + gap);
             let y = y0 + row * (sh + gap);
-            let (ft, fb) = (y + label(lane), y + sh);
+            let (ft, fb) = (y + top, y + sh);
             // Its lanes inside its band.
             let lanes = x + BAND_MORE / 2.0 * lane;
             let receptor = if reverse {
@@ -700,8 +897,10 @@ pub fn arrange(
         rows,
         range: rows - MINI_RECEPTOR,
         name: name_size(lane),
-        stars: stars_at(lane),
+        stars: stars_at(lane, dense),
         ladder,
+        carry: Carry::at(lane, dense),
+        dense,
     })
 }
 
@@ -812,7 +1011,7 @@ pub fn arrange_grid(
                 let lines = k.div_ceil(cols);
                 let by_width = (rw - (cols as f32 - 1.0) * gap) / (cols as f32 * wide);
                 let cell = (rh - (lines as f32 - 1.0) * gap) / lines as f32;
-                let lane = whole(lane_for_height(by_width.min(cap), cell, rows));
+                let lane = whole(lane_for_height(by_width.min(cap), cell, rows, false));
                 if lane > 0.0 {
                     ways.push((lane, room, cols));
                 }
@@ -838,7 +1037,7 @@ pub fn arrange_grid(
     }
     let (lane, room, cols) = way.filter(|w| w.0 >= GRID_LANE_MIN)?;
     let lines = shown.div_ceil(cols);
-    let (sw, sh) = (SLOT_LANES * lane, label(lane) + rows * lane);
+    let (sw, sh) = (SLOT_LANES * lane, label(lane, false) + rows * lane);
     let cue = GRID_CUE * lane;
     let px = |v: f32| v * ratio;
     let block = lines as f32 * sh + (lines as f32 - 1.0) * gap;
@@ -862,7 +1061,7 @@ pub fn arrange_grid(
         };
         let x = row_left(in_line) + col as f32 * (sw + cue + gap);
         let y = y0 + line as f32 * (sh + gap);
-        let (ft, fb) = (y + label(lane), y + sh);
+        let (ft, fb) = (y + label(lane, false), y + sh);
         let lanes = x + BAND_MORE / 2.0 * lane;
         let receptor = if reverse {
             fb - MINI_RECEPTOR * lane
@@ -905,8 +1104,10 @@ pub fn arrange_grid(
         rows,
         range: rows - MINI_RECEPTOR,
         name: name_size(lane),
-        stars: stars_at(lane),
+        stars: stars_at(lane, false),
         ladder,
+        carry: Carry::ALL,
+        dense: false,
     })
 }
 
@@ -1046,6 +1247,7 @@ pub fn draw_ladder(
     words: &str,
     ladder: &crate::rivals::Ladder,
     place: [f32; 4],
+    strip: bool,
     ratio: f32,
     measure: &mut dyn TextMeasure,
 ) {
@@ -1053,9 +1255,12 @@ pub fn draw_ladder(
     let face = ddi_l10n::font_stack(FACE);
     let mut st = TextStyle::new(face.as_str(), 12.0 * ratio);
     st.weight = 600;
-    let t = fitted(measure, words, &st, w * 0.6);
+    let t = fitted(measure, words, &st, if strip { w * 0.6 } else { w });
     let advance = measure.measure(&t, &st).advance;
     list.push(run(t, &st, [x, y + (h - 12.0 * 1.2 * ratio) / 2.0], MUTED));
+    if !strip {
+        return;
+    }
     let from = x + advance + 8.0 * ratio;
     let room = (x + w - from).max(0.0);
     let n = ladder.marks.len().max(1) as f32;
@@ -1178,7 +1383,8 @@ pub fn draw_fields(
         list.push(run(t, &st, [x, sy], c));
     }
     if let (Some((words, ladder)), Some(place)) = (&shown.ladder, fields.ladder) {
-        draw_ladder(list, words, ladder, place, ratio, measure);
+        // Everyone shown: the fields are the strip; the words alone.
+        draw_ladder(list, words, ladder, place, fields.rotating, ratio, measure);
     }
     for (i, slot) in fields.slots.iter().enumerate() {
         let Some(o) = shown.opponents.get(slot.seat) else {
@@ -1230,9 +1436,11 @@ pub fn draw_fields(
             }
             _ => w,
         };
-        if !large {
+        if !large && fields.carry.name {
             let name = fitted(measure, &o.name, &name_style, room.max(0.0));
             list.push(run(name, &name_style, [x, y], fade(TEXT)));
+        } else if !large && shown.named.contains(&slot.seat) {
+            named(list, &o.name, slot, &name_style, ratio, measure);
         }
         let geo = &slot.field;
         // Its lanes a shock locked (DDI): the lane darkened to its end,
@@ -1248,7 +1456,7 @@ pub fn draw_fields(
             list.rect([cx - half, cy - half, cx + half, cy + half], LOCK_TINT);
         }
         // Its score, small, under its life gauge's right end.
-        if !large {
+        if !large && fields.carry.score {
             let s = geo.arrow / 72.0;
             let size = (size * SCORE_SIZE.0).clamp(SCORE_SIZE.1, SCORE_SIZE.2);
             let mut st = style(size, 600);
@@ -1327,6 +1535,48 @@ pub fn draw_fields(
     }
     cue.is_some()
 }
+
+/// A field too small to carry its name ([`Carry::name`]) that attacks
+/// the player or is attacked by them: its name on a dark plate just above
+/// its field (below it where the screen has no room above), over the gap
+/// and the far end of the field above, centered on its own.
+fn named(
+    list: &mut DrawList,
+    name: &str,
+    slot: &Slot,
+    style: &TextStyle,
+    ratio: f32,
+    measure: &mut dyn TextMeasure,
+) {
+    let [l, t, r, b] = slot.panel;
+    let size = style.size();
+    let room = (r - l) * NAMED_WIDTH;
+    let text = fitted(measure, name, style, room);
+    let tw = measure.measure(&text, style).advance;
+    let pad = 2.0 * ratio;
+    let tall = size * 1.2;
+    let x = ((l + r) / 2.0 - tw / 2.0).max(pad);
+    let y = if t - tall - 2.0 * pad >= 0.0 {
+        t - tall - pad
+    } else {
+        b + pad
+    };
+    let mut plate = Quad::plain(
+        [x - pad, y - pad / 2.0, x + tw + pad, y + tall + pad / 2.0],
+        NAMED_PLATE,
+    );
+    plate.shape = Shape {
+        radius: [2.0 * ratio; 2],
+        ..Shape::NONE
+    };
+    list.push(Command::Quad(plate));
+    list.push(run(text, style, [x, y], TEXT));
+}
+
+/// A named field's plate ([`named`]) and how much wider than its field it
+/// may be.
+const NAMED_PLATE: [f32; 4] = [0.04, 0.03, 0.08, 0.85];
+const NAMED_WIDTH: f32 = 2.5;
 
 /// A player's own field after they are out of a stage they go on
 /// watching (`watch-v0`): its band, the mark over it (Out, or that they
@@ -1501,6 +1751,7 @@ pub(crate) mod tests {
             stale: Vec::new(),
             ladder: None,
             own: None,
+            named: Vec::new(),
         }
     }
 
@@ -1589,9 +1840,10 @@ pub(crate) mod tests {
             };
             assert!((from - 1.5 * a).abs() < 0.01, "{what} slot {i}");
             assert!(s.panel[1] >= r[1] && s.panel[3] <= r[3] + 0.01);
-            // The play's field's proportion, at half its size at most.
+            // The play's field's proportion (a large field's may be cut
+            // shorter), at half its size at most.
             let tall = (s.panel[3] - s.panel[1]) / a;
-            assert!((tall - rows_for(g)).abs() < 0.01, "{what} slot {i} {tall}");
+            assert!((tall - f.rows).abs() < 0.01, "{what} slot {i} {tall}");
             assert!(a <= g.arrow * MINI_LANE_SHARE + 0.01, "{what} slot {i}");
             assert!(
                 !overlaps(r, ltrb(f.status)),
@@ -1604,8 +1856,12 @@ pub(crate) mod tests {
             "{what} status {st:?}"
         );
         assert!(f.status[2] > 0.0, "{what} status {st:?}");
-        assert!((MINI_ROWS_MIN..=MINI_ROWS_MAX).contains(&f.rows), "{what}");
-        assert_eq!(f.rows, rows_for(g), "{what}");
+        if f.dense {
+            assert!(f.rows >= DENSE_ROWS_MIN && f.rows <= rows_for(g), "{what}");
+        } else {
+            assert!((MINI_ROWS_MIN..=MINI_ROWS_MAX).contains(&f.rows), "{what}");
+            assert_eq!(f.rows, rows_for(g), "{what}");
+        }
         assert!((f.range - (f.rows - 1.5)).abs() < 1e-4);
     }
 
@@ -2192,12 +2448,13 @@ pub(crate) mod tests {
             let g = geo(w, h);
             let k = keep(&g, 1.0, false);
             let mut last = 0;
-            for n in [16, 32, 64, 128] {
+            for n in [16, 32, 64, 128, 200] {
                 let mut f = arrange(n, &g, 4.0, false, 1.0, &k).unwrap();
                 assert!(f.slots.len() <= n, "{w}x{h} {n}");
                 assert_eq!(f.rotating, f.slots.len() < n);
-                // Beyond the cap, never under the comfortable least.
-                assert!(f.lane >= MINI_LANE_CROWD);
+                // Past eight, never under the readable least.
+                assert!(f.lane >= MINI_LANE_ALL, "{w}x{h} {n}: {}", f.lane);
+                assert!(f.slots.len() > ROOM_OPPONENTS);
                 sound(&f, &g, &k, false, &format!("{w}x{h} {n}"));
                 assert!(f.status[1] + f.status[3] <= h);
                 if f.rotating {
@@ -2223,39 +2480,243 @@ pub(crate) mod tests {
                 }
                 last = f.slots.len();
             }
-            // The development-only practice's 128 take turns at both.
-            assert!(arrange(128, &g, 4.0, false, 1.0, &k).unwrap().rotating);
+            // Far beyond the cap (a development-only practice): as many
+            // as fit, the rest taking turns, at both.
+            assert!(arrange(400, &g, 4.0, false, 1.0, &k).unwrap().rotating);
         }
     }
 
+    /// The layout's table (the feedback round E1): `DDI_FIELDS_TABLE=1`
+    /// prints it.
     #[test]
-    fn a_large_field_has_a_room_of_nines_slots_and_the_ladder_under_them() {
-        // Past eight opponents: the eight slots a room of nine has, no
-        // smaller than its (the left side a status line's height shorter
-        // for the ladder), and the ladder under the left side's.
-        for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0)] {
-            let g = geo(w, h);
-            let k = keep(&g, 1.0, false);
-            let nine = arrange(8, &g, 4.0, false, 1.0, &k).unwrap();
-            assert!(nine.ladder.is_none(), "a room of nine has none");
-            for n in [9, 32, 72, 128] {
-                let f = arrange(n, &g, 4.0, false, 1.0, &k).unwrap();
-                assert_eq!(f.slots.len(), 8, "{w}x{h} {n}");
-                assert!(f.rotating);
-                assert!(f.lane >= nine.lane - 4.0, "{} {}", f.lane, nine.lane);
-                let [lx, ly, lw, lh] = f.ladder.expect("the ladder");
-                let left: Vec<_> = f.slots.iter().filter(|s| s.left).collect();
-                let bottom = left.iter().map(|s| s.rect[1] + s.rect[3]).fold(0.0, f32::max);
-                assert!(ly >= bottom && ly + lh <= h, "{ly} {bottom}");
-                let right_edge = left.iter().map(|s| s.rect[0] + s.rect[2]).fold(0.0, f32::max);
-                assert!(lx >= 0.0 && lx + lw <= right_edge + 0.5 && lw > 100.0);
-                // Clear of the field and of what the slots keep clear of.
-                for k in &k {
-                    let apart = lx + lw <= k[0] || lx >= k[2] || ly + lh <= k[1] || ly >= k[3];
-                    assert!(apart, "{w}x{h}: the ladder {:?} over {k:?}", [lx, ly, lw, lh]);
+    fn print_the_large_fields_table() {
+        if std::env::var_os("DDI_FIELDS_TABLE").is_none() {
+            return;
+        }
+        for (w, h, ratio) in [
+            (1280.0, 720.0, 1.0),
+            (1920.0, 1080.0, 1.0),
+            (2560.0, 1440.0, 1.0),
+            (1280.0, 720.0, 2.0),
+            (844.0, 390.0, 3.0),
+            (390.0, 844.0, 3.0),
+        ] {
+            for attacks in [true, false] {
+                let g = FieldGeometry::placed(w * ratio, h * ratio, 4.0, false, Default::default());
+                let k = keep(&g, ratio, attacks);
+                for n in [8, 9, 12, 16, 24, 36, 48, 72] {
+                    let Some(f) = arrange(n, &g, 4.0, false, ratio, &k) else {
+                        eprintln!("{w}x{h}@{ratio} attacks {attacks} {n}: none");
+                        continue;
+                    };
+                    let left: Vec<_> = f.slots.iter().filter(|s| s.left).collect();
+                    let cols = |v: &[&Slot]| {
+                        let xs: std::collections::BTreeSet<i32> =
+                            v.iter().map(|s| s.rect[0] as i32).collect();
+                        let ys: std::collections::BTreeSet<i32> =
+                            v.iter().map(|s| s.rect[1] as i32).collect();
+                        (xs.len(), ys.len())
+                    };
+                    let right: Vec<_> = f.slots.iter().filter(|s| !s.left).collect();
+                    eprintln!(
+                        "{w}x{h}@{ratio} attacks {attacks} {n}: shown {} lane {} rows {} left {:?} right {:?} carry {:?}",
+                        f.slots.len(),
+                        f.lane,
+                        f.rows,
+                        cols(&left),
+                        cols(&right),
+                        f.carry
+                    );
                 }
             }
         }
+    }
+
+    /// The feedback round E1: past a room of nine's eight, every opponent
+    /// has a field of its own where they fit at a readable lane, in seat
+    /// order and never moving, the ladder's line under the left side's.
+    #[test]
+    fn a_large_field_shows_everyone_where_they_fit_and_the_ladder_under_them() {
+        for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0), (2560.0, 1440.0)] {
+            for attacks in [false, true] {
+                let g = geo(w, h);
+                let k = keep(&g, 1.0, attacks);
+                let nine = arrange(8, &g, 4.0, false, 1.0, &k).unwrap();
+                assert!(nine.ladder.is_none(), "a room of nine has none");
+                assert!(!nine.dense);
+                let mut last = f32::MAX;
+                for n in [9, 12, 16, 24, 36, 48, 72] {
+                    let what = format!("{w}x{h} attacks {attacks} {n}");
+                    let f = arrange(n, &g, 4.0, false, 1.0, &k).unwrap();
+                    assert_eq!(f.slots.len(), n, "{what}");
+                    assert!(!f.rotating && f.dense, "{what}");
+                    assert!(f.slots.iter().enumerate().all(|(i, s)| s.seat == i));
+                    assert!(f.lane >= MINI_LANE_ALL, "{what}: {}", f.lane);
+                    assert!(f.lane <= last + 1.0, "{what}: {} after {last}", f.lane);
+                    last = f.lane;
+                    sound(&f, &g, &k, false, &what);
+                    // The first half on the left.
+                    assert_eq!(f.slots.iter().filter(|s| s.left).count(), n.div_ceil(2));
+                    let [lx, ly, lw, lh] = f.ladder.expect("the ladder");
+                    let left: Vec<_> = f.slots.iter().filter(|s| s.left).collect();
+                    let bottom = left.iter().map(|s| s.rect[1] + s.rect[3]).fold(0.0, f32::max);
+                    assert!(ly >= bottom && ly + lh <= h, "{what}: {ly} {bottom}");
+                    let right_edge =
+                        left.iter().map(|s| s.rect[0] + s.rect[2]).fold(0.0, f32::max);
+                    assert!(lx >= 0.0 && lx + lw <= right_edge + 0.5 && lw > 100.0);
+                    for k in &k {
+                        let apart = lx + lw <= k[0] || lx >= k[2] || ly + lh <= k[1] || ly >= k[3];
+                        assert!(apart, "{what}: the ladder over {k:?}");
+                    }
+                }
+            }
+        }
+        // Up to eight (Options): the slots of a room of nine, as before.
+        let g = geo(1280.0, 720.0);
+        let k = keep(&g, 1.0, false);
+        let nine = arrange(8, &g, 4.0, false, 1.0, &k).unwrap();
+        for n in [9, 32, 72, 128] {
+            let f = arrange_up_to(n, ROOM_OPPONENTS, &g, 4.0, false, 1.0, &k).unwrap();
+            assert_eq!(f.slots.len(), 8, "{n}");
+            assert!(f.rotating && !f.dense && f.carry == Carry::ALL);
+            assert!(f.lane >= nine.lane - 4.0, "{} {}", f.lane, nine.lane);
+            assert!(f.ladder.is_some());
+        }
+        // A room of eight or fewer is the same either way.
+        for n in 1..=8 {
+            assert_eq!(
+                arrange(n, &g, 4.0, false, 1.0, &k),
+                arrange_up_to(n, ROOM_OPPONENTS, &g, 4.0, false, 1.0, &k)
+            );
+        }
+    }
+
+    /// The layout's table (logical pixels: opponents, the lane, the columns
+    /// and rows of each side), attacks on as practice plays.
+    #[test]
+    fn the_large_fields_table() {
+        // (Opponents, the lane, the left side's columns and rows.)
+        type Row = (usize, f32, (usize, usize));
+        let table: [(f32, f32, f32, &[Row]); 4] = [
+            (
+                1280.0,
+                720.0,
+                1.0,
+                &[(9, 25.0, (3, 2)), (16, 23.0, (4, 2)), (24, 16.0, (4, 3)), (36, 15.0, (6, 3)), (48, 12.0, (6, 4)), (72, 11.0, (9, 4))],
+            ),
+            (
+                1920.0,
+                1080.0,
+                1.0,
+                &[(9, 41.0, (3, 2)), (16, 37.0, (4, 2)), (24, 26.0, (4, 3)), (36, 24.0, (6, 3)), (48, 19.0, (6, 4)), (72, 17.0, (9, 4))],
+            ),
+            (
+                2560.0,
+                1440.0,
+                1.0,
+                &[(9, 56.0, (3, 2)), (16, 52.0, (4, 2)), (24, 35.0, (4, 3)), (36, 33.0, (6, 3)), (48, 26.0, (6, 4)), (72, 23.0, (9, 4))],
+            ),
+            (
+                844.0,
+                390.0,
+                3.0,
+                &[(9, 40.0 / 3.0, (5, 1)), (16, 37.0 / 3.0, (4, 2)), (24, 11.0, (6, 2)), (36, 31.0 / 3.0, (6, 3))],
+            ),
+        ];
+        for (w, h, ratio, rows) in table {
+            let g = FieldGeometry::placed(w * ratio, h * ratio, 4.0, false, Default::default());
+            let k = keep(&g, ratio, true);
+            for &(n, lane, left) in rows {
+                let f = arrange(n, &g, 4.0, false, ratio, &k).unwrap();
+                let what = format!("{w}x{h} {n}");
+                assert_eq!(f.slots.len(), n, "{what}");
+                assert!((f.lane - lane).abs() < 1e-3, "{what}: {}", f.lane);
+                let side: Vec<_> = f.slots.iter().filter(|s| s.left).collect();
+                let cols: std::collections::BTreeSet<i32> =
+                    side.iter().map(|s| s.rect[0] as i32).collect();
+                let lines: std::collections::BTreeSet<i32> =
+                    side.iter().map(|s| s.rect[1] as i32).collect();
+                assert_eq!((cols.len(), lines.len()), left, "{what}");
+            }
+        }
+        // A phone held sideways shows a third of 72, the rest taking
+        // turns; held upright, eleven.
+        let g = FieldGeometry::placed(844.0 * 3.0, 390.0 * 3.0, 4.0, false, Default::default());
+        let f = arrange(72, &g, 4.0, false, 3.0, &keep(&g, 3.0, true)).unwrap();
+        assert_eq!((f.slots.len(), f.rotating, f.lane), (24, true, 11.0));
+        let g = FieldGeometry::placed(390.0 * 3.0, 844.0 * 3.0, 4.0, false, Default::default());
+        let f = arrange(72, &g, 4.0, false, 3.0, &keep(&g, 3.0, true)).unwrap();
+        assert_eq!((f.slots.len(), f.rotating), (11, true));
+        assert!(f.lane >= MINI_LANE_ALL);
+        // Fields cut shorter only where that lets everyone have one: 36
+        // on a phone held sideways, nine lanes tall.
+        let g = FieldGeometry::placed(844.0 * 3.0, 390.0 * 3.0, 4.0, false, Default::default());
+        let f = arrange(36, &g, 4.0, false, 3.0, &keep(&g, 3.0, true)).unwrap();
+        assert_eq!((f.slots.len(), f.rows), (36, 9.0));
+    }
+
+    /// What a large field's miniature carries shrinks in a named order
+    /// (the score, the stars, the name, the combo); the life gauge and Out
+    /// stay. A room of eight carries everything at every size.
+    #[test]
+    fn a_small_field_carries_what_reads() {
+        let order = [CARRY_SCORE, CARRY_STARS, CARRY_NAME, CARRY_COMBO];
+        assert!(order.windows(2).all(|w| w[0] > w[1]));
+        for lane in [8.0, 10.0, 12.0, 14.0, 20.0] {
+            assert_eq!(Carry::at(lane, false), Carry::ALL);
+        }
+        let c = Carry::at(12.0, true);
+        assert!(!c.score && !c.stars && c.name && c.combo);
+        let c = Carry::at(10.0, true);
+        assert!(!c.name && c.combo);
+        assert_eq!(Carry::at(CARRY_SCORE, true), Carry::ALL);
+        // Drawn: 72 at 1280×720 (lanes of 11) carry their names, no score
+        // and no stars; Out still said; no strip under the ladder's words.
+        let g = geo(1280.0, 720.0);
+        let f = arrange(72, &g, 4.0, false, 1.0, &keep(&g, 1.0, true)).unwrap();
+        let mut c = shown(72);
+        c.ladder = Some((
+            "5 of 73 · 72 still in".into(),
+            crate::rivals::Ladder::of(
+                &vec![
+                    crate::rivals::Standing {
+                        life: 0.5,
+                        out: false,
+                        score: 0.0
+                    };
+                    72
+                ],
+                None,
+            ),
+        ));
+        let mut list = DrawList::new();
+        draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure);
+        let t = texts(&list);
+        assert!(t.iter().all(|(s, _)| s != "5900000"), "no score");
+        assert_eq!(t.iter().filter(|(s, _)| s.starts_with("CPU")).count(), 72);
+        assert_eq!(t.iter().filter(|(s, _)| s == "Out").count(), 1);
+        assert!(stars_bounds(&list).is_none(), "no stars");
+        assert!(t.iter().any(|(s, _)| s.starts_with("5 of 73")));
+        // The ladder's strip: none (only text and the Out veil's rects).
+        let marks = list
+            .commands
+            .iter()
+            .filter(|q| matches!(q, Command::Quad(q) if q.colors[0] == LADDER_MARK))
+            .count();
+        assert_eq!(marks, 0);
+        // Smaller (a large field cut to lanes under the name's): no names
+        // but those attacking or attacked, beside their fields.
+        let g = FieldGeometry::placed(390.0 * 3.0, 844.0 * 3.0, 4.0, false, Default::default());
+        let f = arrange(12, &g, 4.0, false, 3.0, &keep(&g, 3.0, false)).unwrap();
+        assert!(!f.carry.name, "{}", f.lane);
+        let mut c = shown(12);
+        c.named = vec![3];
+        let mut list = DrawList::new();
+        draw_fields(&mut list, &c, &f, &[], &[], 3.0, &mut FixedMeasure);
+        let t = texts(&list);
+        let names: Vec<_> = t.iter().filter(|(s, _)| s.starts_with("CPU")).collect();
+        assert_eq!(names.len(), 1, "{names:?}");
+        assert!(names[0].0.starts_with("CPU 4"));
     }
 
     #[test]

@@ -248,12 +248,20 @@ impl Layout<'_> {
 
     /// What a line stays out of, each grown by `by`: the field's band
     /// (the HUD's bars and the judgment are in it), every miniature
-    /// (its name line and its field), the keep-outs, the status line
-    /// and, for a line that does not end there, the warning's place.
+    /// (its name line and its field; not in a large field's grid, whose
+    /// gaps leave no way between them: there a line crosses the fields
+    /// on its way, `crate::opponents::Fields::dense`), the keep-outs, the
+    /// status line and, for a line that does not end there, the warning's
+    /// place.
     fn blocked(&self, by: f32, warning: bool) -> Vec<[f32; 4]> {
         let [band_l, band_r] = self.band();
         let mut out = vec![[band_l, 0.0, band_r, self.geo.height]];
-        out.extend(self.fields.slots.iter().map(|s| {
+        let slots = if self.fields.dense {
+            &[][..]
+        } else {
+            &self.fields.slots[..]
+        };
+        out.extend(slots.iter().map(|s| {
             [
                 s.rect[0].min(s.panel[0]),
                 s.rect[1].min(s.panel[1]),

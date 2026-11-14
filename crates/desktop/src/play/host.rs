@@ -568,6 +568,14 @@ impl Host {
         r.view.as_ref()?.opponent_fields().cloned()
     }
 
+    /// How many opponents' miniatures the play's last frame drew (tests).
+    pub fn miniatures_drawn(&self) -> usize {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return 0;
+        };
+        r.view.as_ref().map_or(0, |v| v.miniatures_drawn())
+    }
+
     /// A large field's ladder as the play's last frame drew it: its words
     /// (tests; `ddi_shell::rivals`).
     pub fn ladder_drawn(&self) -> Option<String> {

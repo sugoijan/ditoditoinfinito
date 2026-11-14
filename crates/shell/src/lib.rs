@@ -97,6 +97,8 @@ pub fn render_options(settings: &Settings) -> RenderOptions {
         ghost: None,
         ddi_percent: settings.ddi_percent(),
         no_field: false,
+        opponents_up_to_eight: settings.opponent_fields
+            == ddi_ui::state::settings::OpponentFields::UpToEight,
     }
 }
 

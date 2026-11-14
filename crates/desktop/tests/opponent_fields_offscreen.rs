@@ -69,6 +69,10 @@ struct Scenario {
     measure: Option<f64>,
     /// `.lrc` lyrics over the play.
     lyrics: bool,
+    /// The match's Attacks rule (practice's default, On).
+    attacks: bool,
+    /// Options' "Up to eight" opponents' fields.
+    up_to_eight: bool,
 }
 
 /// A frame's cost, milliseconds: recording it, and recording it with
@@ -110,6 +114,8 @@ struct Played {
     /// its slots showed.
     ladder: Option<String>,
     seats: Vec<usize>,
+    /// The most miniatures drawn in a frame (each a full feed's frame).
+    drawn: usize,
 }
 
 fn play(s: &Scenario) -> Option<Played> {
@@ -126,6 +132,11 @@ fn play(s: &Scenario) -> Option<Played> {
         ..Settings::default()
     };
     settings.dancing_hand = s.hand;
+    // (The hand plays in a stage only where chosen for multiplayer.)
+    settings.dancing_hand_multiplayer = s.hand;
+    if s.up_to_eight {
+        settings.opponent_fields = ddi_ui::state::settings::OpponentFields::UpToEight;
+    }
     if let Some(lives) = s.lives {
         settings.stepmania.life_type = ddi_engine::rules::LifeType::Battery;
         settings.stepmania.lives = lives;
@@ -207,7 +218,7 @@ fn play(s: &Scenario) -> Option<Played> {
         // miniatures' own, without the attack warning's place kept
         // clear beside the field (with it, eight at 1280×720 have lanes
         // of 25, not 28).
-        rules.set_attacks(false);
+        rules.set_attacks(s.attacks);
         r.save_rules(rules).unwrap();
         r.pick(&entry, &entry.charts[0]).unwrap();
     }
@@ -256,6 +267,7 @@ fn play(s: &Scenario) -> Option<Played> {
         lyrics: false,
         ladder: None,
         seats: Vec::new(),
+        drawn: 0,
     };
     if s.lyrics {
         let mut with = song.clone();
@@ -310,6 +322,7 @@ fn play(s: &Scenario) -> Option<Played> {
         } else if frames % 16 == 0 {
             let _ = device.poll(wgpu::PollType::wait_indefinitely());
         }
+        played.drawn = played.drawn.max(host.miniatures_drawn());
         if let Some(f) = host.opponent_fields() {
             played.slots = played.slots.max(f.slots.len());
             played.lane = f.lane;
@@ -377,11 +390,12 @@ fn play(s: &Scenario) -> Option<Played> {
     Some(played)
 }
 
-/// A room of 73 in practice (72 CPUs, the cap): the eight slots a room
-/// of nine has, those that matter to the player in them, and the ladder
-/// over the whole field (`ddi_shell::rivals`).
+/// A room of 73 in practice (72 CPUs, the cap) at 1280×720: every
+/// opponent a field of its own (the feedback round E1), each drawn from
+/// its full feed, in seat order, and the ladder's words over the whole
+/// field.
 #[test]
-fn seventy_two_cpus_get_a_room_of_nines_slots_and_the_ladder() {
+fn seventy_two_cpus_each_get_a_field_and_the_ladder() {
     let Some(played) = play(&Scenario {
         name: "seventy-two",
         size: [1280, 720],
@@ -394,11 +408,45 @@ fn seventy_two_cpus_get_a_room_of_nines_slots_and_the_ladder() {
         shots: &[8.0],
         measure: None,
         lyrics: false,
+        attacks: false,
+        up_to_eight: false,
+    }) else {
+        return;
+    };
+    assert_eq!(played.slots, 72);
+    assert!(!played.rotating);
+    assert_eq!(played.drawn, 72, "a frame for every field");
+    assert_eq!(played.lane, 11.0);
+    let words = played.ladder.expect("the ladder");
+    assert!(words.ends_with("of 73 · 73 still in"), "{words}");
+    assert_eq!(played.seats, (0..72).collect::<Vec<_>>());
+}
+
+/// The same room with Options' "Up to eight": the eight slots a room of
+/// nine has, those that matter to the player in them, and the ladder
+/// over the whole field (`ddi_shell::rivals`), as before.
+#[test]
+fn seventy_two_cpus_up_to_eight_get_a_room_of_nines_slots() {
+    let Some(played) = play(&Scenario {
+        name: "seventy-two-up-to-eight",
+        size: [1280, 720],
+        cpus: 72,
+        level: 7,
+        skin: None,
+        lives: None,
+        hand: false,
+        chart: 0,
+        shots: &[8.0],
+        measure: None,
+        lyrics: false,
+        attacks: false,
+        up_to_eight: true,
     }) else {
         return;
     };
     assert_eq!(played.slots, 8);
     assert!(played.rotating);
+    assert_eq!(played.drawn, 8);
     let words = played.ladder.expect("the ladder");
     assert!(words.ends_with("of 73 · 73 still in"), "{words}");
     let mut seats = played.seats.clone();
@@ -422,6 +470,8 @@ fn eight_cpus_get_miniature_fields_beside_the_play() {
         shots: &[12.0],
         measure: None,
         lyrics: false,
+        attacks: false,
+        up_to_eight: false,
     }) else {
         return;
     };
@@ -447,6 +497,8 @@ fn a_phone_held_upright_shows_all_eight_in_its_margins() {
         shots: &[12.0],
         measure: None,
         lyrics: false,
+        attacks: false,
+        up_to_eight: false,
     }) else {
         return;
     };
@@ -468,6 +520,8 @@ fn lyrics_over_a_stage_keep_the_miniatures() {
         shots: &[12.0],
         measure: None,
         lyrics: true,
+        attacks: false,
+        up_to_eight: false,
     }) else {
         return;
     };
@@ -490,6 +544,8 @@ fn miniature_scenarios_pictures_and_costs() {
         shots: &[20.0],
         measure: Some(22.0),
         lyrics: false,
+        attacks: false,
+        up_to_eight: false,
     };
     // Two pictures a turn apart: the opponents taking turns in the slots
     // (`ddi_shell::opponents::ROTATION_V0`, eight seconds).
@@ -565,8 +621,43 @@ fn miniature_scenarios_pictures_and_costs() {
         many("development-128-cpus-1920x1080", 128, [1920, 1080]),
         many("development-128-cpus-1280x720", 128, [1280, 720]),
     ];
+    // The feedback round E1's pictures: every opponent shown, attacks on
+    // (practice's default), and the costs against "Up to eight".
+    let all = |name, cpus, size| Scenario {
+        name,
+        cpus,
+        attacks: true,
+        shots: &[20.0],
+        measure: Some(22.0),
+        ..eight("", size, None, false)
+    };
+    let scenarios: Vec<Scenario> = scenarios
+        .into_iter()
+        .chain([
+            all("all-12-cpus-1280x720", 12, [1280, 720]),
+            all("all-24-cpus-1280x720", 24, [1280, 720]),
+            all("all-36-cpus-1280x720", 36, [1280, 720]),
+            all("all-72-cpus-1280x720", 72, [1280, 720]),
+            all("all-12-cpus-1920x1080", 12, [1920, 1080]),
+            all("all-24-cpus-1920x1080", 24, [1920, 1080]),
+            all("all-36-cpus-1920x1080", 36, [1920, 1080]),
+            all("all-72-cpus-1920x1080", 72, [1920, 1080]),
+            all("all-12-cpus-844x390", 12, [844, 390]),
+            all("all-24-cpus-844x390", 24, [844, 390]),
+            all("all-36-cpus-844x390", 36, [844, 390]),
+            all("all-72-cpus-844x390", 72, [844, 390]),
+            Scenario {
+                up_to_eight: true,
+                ..all("upto8-72-cpus-1280x720", 72, [1280, 720])
+            },
+            Scenario {
+                up_to_eight: true,
+                ..all("upto8-72-cpus-1920x1080", 72, [1920, 1080])
+            },
+        ])
+        .collect();
     let only = std::env::var("DDI_FIELDS_ONLY").ok();
-    for s in &scenarios {
+    for s in scenarios.iter() {
         if only.as_deref().is_some_and(|o| !s.name.contains(o)) {
             continue;
         }

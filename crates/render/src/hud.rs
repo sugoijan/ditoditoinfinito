@@ -502,7 +502,7 @@ impl Hud {
             let (geo, frame) = (&m.geometry, &m.frame);
             let now = opts.hud_time.unwrap_or(frame.song_time);
             let life = frame.life.clamp(0.0, 1.0);
-            let combo = if m.out { 0 } else { frame.combo };
+            let combo = if m.out || !m.combo { 0 } else { frame.combo };
             if self.minis.motions.len() <= i {
                 self.minis
                     .motions

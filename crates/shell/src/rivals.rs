@@ -347,6 +347,25 @@ mod tests {
         assert_eq!(again, r);
     }
 
+    /// Where not all of a large field fit (a phone: 24 of 72), its slots
+    /// are chosen as a room of nine's eight are: the attackers and the
+    /// attacked first, then the nearest by standing, as many above as
+    /// below.
+    #[test]
+    fn more_slots_than_eight_are_chosen_the_same_way() {
+        let f = field();
+        let me = s(1.0 - 29.5 / 100.0, 0.0);
+        let mut r = Rivals::default();
+        r.update(24, &f, Some(me), &[70, 3], 1.0, RIVALS_V0);
+        let seats: Vec<usize> = r.seats().into_iter().flatten().collect();
+        assert_eq!(seats.len(), 24);
+        assert_eq!(&seats[..2], &[70, 3], "the pinned first");
+        let mut rest = seats[2..].to_vec();
+        rest.sort_unstable();
+        // 22 more: eleven above the player, eleven below.
+        assert_eq!(rest, (19..41).collect::<Vec<_>>());
+    }
+
     #[test]
     fn an_attacker_comes_in_at_once_and_stays_while_pinned() {
         let f = field();
@@ -434,6 +453,8 @@ mod tests {
             name: 9.0,
             stars: crate::opponents::Stars::Beside(9.0),
             ladder: None,
+            carry: crate::opponents::Carry::ALL,
+            dense: false,
         };
         r.apply(&mut fields, 10.1, RIVALS_V0, false);
         assert!(fields.slots[0].dim > 0.5);

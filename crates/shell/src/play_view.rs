@@ -395,6 +395,8 @@ pub struct PlayView<H: PlayHost> {
     ladder_page: Option<(usize, usize)>,
     /// The ladder as drawn, with its words ([`PlayView::ladder_drawn`]).
     ladder_drawn: Option<(String, crate::rivals::Ladder)>,
+    /// The miniatures the last frame drew, each from its feed's frame.
+    minis_drawn: usize,
     /// The last frame's attack warning and waiting line
     /// (`crate::battle_cue`), if it drew them.
     attack_drawn: Option<crate::battle_cue::Cue>,
@@ -454,6 +456,7 @@ impl<H: PlayHost> PlayView<H> {
             ladder: None,
             ladder_page: None,
             ladder_drawn: None,
+            minis_drawn: 0,
             fields_drawn: None,
             fields_cue: false,
             standing_drawn: None,
@@ -813,6 +816,12 @@ impl<H: PlayHost> PlayView<H> {
 
     /// A large field's ladder as the last frame drew it: its words and
     /// the field it stands for (`crate::rivals`), none in a room of nine.
+    /// How many miniatures the last frame drew (each from its feed's
+    /// whole frame; a field not drawn asks its summary alone).
+    pub fn miniatures_drawn(&self) -> usize {
+        self.minis_drawn
+    }
+
     pub fn ladder_drawn(&self) -> Option<&(String, crate::rivals::Ladder)> {
         self.ladder_drawn.as_ref()
     }
@@ -1195,8 +1204,14 @@ impl<H: PlayHost> PlayView<H> {
                 ratio: screen.ratio,
                 keep_out: keep_out.clone(),
                 grid,
+                most: render.opponents_up_to_eight,
             };
             if self.fields_for.as_ref().is_none_or(|(k, _)| *k != key) {
+                let most = if render.opponents_up_to_eight {
+                    crate::opponents::ROOM_OPPONENTS
+                } else {
+                    usize::MAX
+                };
                 let arranged = if grid {
                     crate::opponents::arrange_grid(
                         n,
@@ -1206,8 +1221,9 @@ impl<H: PlayHost> PlayView<H> {
                         &keep_out,
                     )
                 } else {
-                    crate::opponents::arrange(
+                    crate::opponents::arrange_up_to(
                         n,
+                        most,
                         &geo,
                         span,
                         render.reverse,
@@ -1238,6 +1254,17 @@ impl<H: PlayHost> PlayView<H> {
                 }
                 self.ladder = Some(crate::rivals::Ladder::of(&standings, None));
                 self.ladder_page = Some((page, n.div_ceil(ddi_session::play::GRID_PAGE)));
+            } else if n > crate::opponents::ROOM_OPPONENTS && !grid && !f.rotating {
+                // A large field shown whole (the feedback round E1): each
+                // in its own place for the stage, the ladder's words for
+                // the whole field (the fields are its strip).
+                let (standings, me) =
+                    large_standings(b, &views_now, &frame, focus, frame.song_time);
+                self.ladder = f
+                    .ladder
+                    .is_some()
+                    .then(|| crate::rivals::Ladder::of(&standings, me));
+                self.ladder_page = None;
             } else if n > crate::opponents::ROOM_OPPONENTS && !grid {
                 // A large field: those that matter to the player now in
                 // the slots (around the competitor followed, for a
@@ -1358,6 +1385,8 @@ impl<H: PlayHost> PlayView<H> {
                 }
                 minis.push(ddi_render::scene::Miniature {
                     out: mini.failed,
+                    combo: fields.as_ref().is_none_or(|f| f.carry.combo)
+                        || large.is_some_and(|l| l.seat == slot.seat),
                     frame: mini,
                     geometry: slot.field,
                     panel: slot.panel,
@@ -1365,6 +1394,7 @@ impl<H: PlayHost> PlayView<H> {
                 });
             }
         }
+        self.minis_drawn = minis.len();
         self.renderer.set_miniatures(minis);
         host.lap(Lap::Scene);
         host.before_render(device, encoder);
@@ -1642,6 +1672,13 @@ impl<H: PlayHost> PlayView<H> {
                         (words, l)
                     }),
                     cue,
+                    // Who attacks the player or is attacked by them: a
+                    // name beside a field too small to carry its own.
+                    named: links
+                        .iter()
+                        .filter(|l| l.outline > 0.0 && l.from.is_none())
+                        .map(|l| l.seat)
+                        .collect(),
                     // DDI's score (the sum) or percent, as the player's
                     // Score display has their own; another ruleset's
                     // percent.
@@ -1971,6 +2008,8 @@ struct FieldsKey {
     /// Over the whole screen (a watched stage's grid), not beside a
     /// field.
     grid: bool,
+    /// A room of nine's eight at most (Options' "Up to eight").
+    most: bool,
 }
 
 /// A battle's attacks as a frame shows them (`crate::battle_cue`).

@@ -249,6 +249,10 @@ pub struct Settings {
     /// lacks it: a stage then prepares no hand at all
     /// ([`Self::dancing_hand_in`]).
     pub dancing_hand_multiplayer: bool,
+    /// How many of a multiplayer stage's opponents have a field beside
+    /// the play ([`OpponentFields`]): every one that fits, by default.
+    #[serde(deserialize_with = "ddi_engine::lenient")]
+    pub opponent_fields: OpponentFields,
     pub hand_layout: HandLayout,
     /// Percent of the play viewport, bottom-aligned.
     pub hand_frame_width: u8,
@@ -317,6 +321,18 @@ pub fn volume_to_slider(gain: f32) -> f32 {
 /// Gain for a volume slider position; inverse of [`volume_to_slider`].
 pub fn slider_to_volume(position: f32) -> f32 {
     position.clamp(0.0, 1.0).powi(3)
+}
+
+/// How many of a multiplayer stage's opponents have a field beside the
+/// play (the feedback round E1, `ddi_shell::opponents::arrange_up_to`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OpponentFields {
+    /// Every one that fits at a readable size (up to all 72).
+    #[default]
+    AsManyAsFit,
+    /// A room of nine's eight at most, those that matter to the player in
+    /// them past eight (as before the round).
+    UpToEight,
 }
 
 /// The pointer offered under Options → Display.
@@ -612,6 +628,7 @@ impl Default for Settings {
             ghost: false,
             dancing_hand: true,
             dancing_hand_multiplayer: false,
+            opponent_fields: OpponentFields::default(),
             hand_layout: HandLayout::default(),
             hand_frame_width: 50,
             hand_frame_height: 100,

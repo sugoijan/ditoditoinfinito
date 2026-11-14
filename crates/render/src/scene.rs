@@ -207,6 +207,10 @@ pub struct SceneOutput {
     pub quads: Vec<TexQuad>,
     /// The order the two kinds are drawn in.
     pub order: Vec<Segment>,
+    /// The miniatures' parts of their run of quads, one a miniature, in
+    /// order ([`add_miniatures`]): what each drew, which the renderer may
+    /// interleave where they touch no pixel in common (`crate::batching`).
+    pub parts: Vec<std::ops::Range<u32>>,
 }
 
 /// A run of the scene's drawing.
@@ -329,6 +333,10 @@ pub struct RenderOptions {
     /// (`ddi_shell::opponents::arrange_grid`): everyone's fields over the
     /// whole screen, nobody's large.
     pub no_field: bool,
+    /// A stage's opponents' fields beside the play: a room of nine's
+    /// eight at most (`ddi_shell::opponents::arrange_up_to`), not every
+    /// one that fits.
+    pub opponents_up_to_eight: bool,
 }
 
 impl RenderOptions {
@@ -1156,6 +1164,7 @@ pub fn build_into(
             text,
             quads,
             order: order.segments,
+            parts: Vec::new(),
         };
         return;
     }
@@ -1321,6 +1330,7 @@ pub fn build_into(
         text,
         quads,
         order: order.segments,
+        parts: Vec::new(),
     };
 }
 
@@ -1344,6 +1354,9 @@ pub struct Miniature {
     pub panel: [f32; 4],
     /// Out of the stage: no combo.
     pub out: bool,
+    /// Its combo drawn (a large field's smallest leave it out:
+    /// `ddi_shell::opponents::Carry`).
+    pub combo: bool,
     /// Its attack power above its life, where the battle has attacks
     /// (none once out).
     pub battle: Option<crate::hud::BattleBar>,
@@ -1425,9 +1438,12 @@ pub(crate) fn add_miniatures(
         }
     }
     order.sprites(out.instances.len());
+    out.parts.clear();
     if let Some(l) = layer.as_mut() {
         for m in minis {
+            let from = out.quads.len() as u32;
             l.miniature(&m.frame, layout, &m.geometry, &mut out.quads);
+            out.parts.push(from..out.quads.len() as u32);
         }
     }
     order.quads(out.quads.len());
@@ -1645,6 +1661,7 @@ mod tests {
             geometry: mini_geo,
             panel: [850.0, 200.0, 930.0, 320.0],
             out: false,
+            combo: true,
             battle: None,
         }];
         add_miniatures(

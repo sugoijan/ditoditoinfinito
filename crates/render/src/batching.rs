@@ -96,6 +96,83 @@ impl Group {
     }
 }
 
+/// Interleaves `parts` of `quads` (consecutive ranges of the run, one a
+/// miniature: `scene::SceneOutput::parts`) by their kinds: each part's
+/// own order kept, the next quads of every part of one kind after each
+/// other, round after round, so that a large field's miniatures (72 of
+/// them, each its receptors, holds, notes and hit effects in turn) draw
+/// in about as many batches as one does. Exact for the same reason
+/// [`Batcher::order`] is: only quads of different parts change places,
+/// and never two that may touch a pixel in common: a quad waits for a
+/// later round while a quad of an earlier part not yet drawn may touch
+/// it (only parts whose boxes, the unions of their quads' `rect`s, meet
+/// are looked at: neighbors a few pixels apart). Leaves the run as it is
+/// (and says so) where a quad has no box or uses the mask.
+pub(crate) fn interleave(
+    quads: &mut [TexQuad],
+    parts: &[std::ops::Range<u32>],
+    key: impl Fn(&TexQuad) -> Key,
+    rect: impl Fn(&TexQuad) -> Option<PageRect>,
+) -> bool {
+    if parts.len() < 2
+        || parts.iter().any(|p| p.end as usize > quads.len() || p.start > p.end)
+        || parts.windows(2).any(|w| w[0].end != w[1].start)
+    {
+        return false;
+    }
+    let (from, to) = (parts[0].start as usize, parts[parts.len() - 1].end as usize);
+    let mut rects: Vec<PageRect> = Vec::with_capacity(to - from);
+    for q in &quads[from..to] {
+        match rect(q).filter(|_| q.mask == Mask::None) {
+            Some(r) => rects.push(r),
+            None => return false,
+        }
+    }
+    let r = |i: u32| rects[i as usize - from];
+    let boxes: Vec<Option<PageRect>> = parts
+        .iter()
+        .map(|p| (p.start..p.end).map(r).reduce(PageRect::union))
+        .collect();
+    // Each part's earlier parts whose boxes meet its own.
+    let near: Vec<Vec<usize>> = boxes
+        .iter()
+        .enumerate()
+        .map(|(j, bj)| {
+            let Some(bj) = bj else { return Vec::new() };
+            (0..j)
+                .filter(|&i| boxes[i].is_some_and(|bi| overlaps(bi, *bj)))
+                .collect()
+        })
+        .collect();
+    let mut order: Vec<u32> = Vec::with_capacity(to - from);
+    let mut at: Vec<u32> = parts.iter().map(|p| p.start).collect();
+    // Round by round, the kind of the first part's next quad that has
+    // one (nothing earlier is left to wait for: it always goes).
+    while let Some(k) = parts
+        .iter()
+        .zip(&at)
+        .find(|(p, a)| **a < p.end)
+        .map(|(_, a)| key(&quads[*a as usize]))
+    {
+        for j in 0..parts.len() {
+            while at[j] < parts[j].end && key(&quads[at[j] as usize]) == k {
+                let x = r(at[j]);
+                let waits = near[j]
+                    .iter()
+                    .any(|&i| (at[i]..parts[i].end).any(|a| overlaps(r(a), x)));
+                if waits {
+                    break;
+                }
+                order.push(at[j]);
+                at[j] += 1;
+            }
+        }
+    }
+    let out: Vec<TexQuad> = order.iter().map(|&i| quads[i as usize]).collect();
+    quads[from..to].copy_from_slice(&out);
+    true
+}
+
 /// Reorders runs of quads for fewer batches, its room kept between
 /// frames.
 #[derive(Default)]
@@ -317,5 +394,48 @@ mod tests {
             c.sort_by_key(id);
             assert_eq!(a, c, "the same quads");
         }
+    }
+
+    /// Seventy-two small fields apart, each its kinds in turn (a
+    /// receptor, a note over it, a hold beside, a note again): their
+    /// parts interleaved, about as many batches as one field has, each
+    /// field's own order kept; fields that may touch pixels in common
+    /// are left as they are.
+    #[test]
+    fn apart_miniatures_interleave_into_one_fields_batches() {
+        let field = |i: usize| -> Vec<TexQuad> {
+            let (x, y) = (20.0 + 30.0 * (i % 9) as f32, 20.0 + 40.0 * (i / 9) as f32);
+            vec![
+                quad(x, y, 1),
+                quad(x, y + 2.0, 2),
+                quad(x + 6.0, y + 4.0, 3),
+                quad(x, y + 6.0, 2),
+            ]
+        };
+        let mut quads: Vec<TexQuad> = (0..72).flat_map(field).collect();
+        let parts: Vec<std::ops::Range<u32>> =
+            (0..72).map(|i| i * 4..i * 4 + 4).collect();
+        let before = quads.clone();
+        assert_eq!(batches(&quads), 288);
+        assert!(interleave(&mut quads, &parts, key, rect));
+        assert_eq!(batches(&quads), 4);
+        assert!(keeps_overlapping_order(&before, &quads));
+        // Every field's quads in their own order.
+        for i in 0..72 {
+            let own: Vec<_> = quads.iter().filter(|q| field(i).contains(q)).collect();
+            assert_eq!(own, field(i).iter().collect::<Vec<_>>());
+        }
+        // Fields that may touch, side by side: still every pair that may
+        // touch in its order.
+        let mut close: Vec<TexQuad> = (0..12)
+            .flat_map(|i| {
+                let x = 20.0 + 9.0 * i as f32;
+                [quad(x, 20.0, 1), quad(x, 22.0, 2), quad(x + 6.0, 24.0, 1)]
+            })
+            .collect();
+        let before = close.clone();
+        let parts: Vec<std::ops::Range<u32>> = (0..12).map(|i| i * 3..i * 3 + 3).collect();
+        assert!(interleave(&mut close, &parts, key, rect));
+        assert!(keeps_overlapping_order(&before, &close));
     }
 }
