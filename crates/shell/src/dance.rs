@@ -4,6 +4,7 @@ pub use ddi_character::appearance::{BASE_CAMERA, PlayLook};
 use ddi_chart::Song;
 use ddi_render::{DrawList, Painter, texture_cache::TextureKey};
 use serde_json::{Value, json};
+use ddi_session::hand_load::{HandStep, LIGHTER_SHARE};
 use std::{cell::RefCell, rc::Rc};
 
 /// The painter compositing the picture over a target, only where it is
@@ -42,6 +43,13 @@ pub struct Preview {
     /// ([`Preview::follow_steps`]).
     layout: String,
     steps: usize,
+    /// How much of itself it spends (`ddi_session::hand_load`), and the
+    /// song second its picture stands still at, resting: by that rule,
+    /// or because its motion ran out (it fell behind its bound).
+    load: HandStep,
+    rest_at: Option<f64>,
+    /// Lighter: this frame keeps the last picture.
+    skip_picture: bool,
 }
 
 impl Preview {
@@ -120,6 +128,7 @@ impl Preview {
         self.ever_available = false;
         self.layout = layout.to_string();
         self.steps = player.steps().len();
+        self.set_load(HandStep::Full);
         if !enabled {
             return;
         }
@@ -263,6 +272,7 @@ impl Preview {
         self.failed_at = None;
         self.ever_available = false;
         self.visible = false;
+        self.set_load(HandStep::Full);
     }
 
     /// The milliseconds the last frame spent preparing motion.
@@ -288,7 +298,7 @@ impl Preview {
     /// Numerical preparation runs before drawing, under a host clock shared
     /// by all its stages. Sampling/rendering below never calls the pose solver.
     pub fn prepare(&mut self, song_time: f64, clock: &dyn Fn() -> f64) {
-        if self.failed_at.is_some() {
+        if self.failed_at.is_some() || self.rest_at.is_some() || self.load == HandStep::Gone {
             return;
         }
         if let Some(r) = self.runtime.as_mut() {
@@ -298,11 +308,51 @@ impl Preview {
             if let Some(e) = r.failure() {
                 self.runtime_error = Some(e.to_string());
                 self.failed_at = Some(time);
-            } else if r.starved_frames > 0 {
-                self.runtime_error = Some("dancing hand motion buffer exhausted".into());
-                self.failed_at = Some(time);
+            } else if r.starved_frames > 0 && self.ever_available {
+                // It fell behind its bound: it rests where it stood (its
+                // last pose kept), never taking the frame to catch up.
+                self.rest_at = Some(song_time);
             }
         }
+    }
+
+    /// How much of itself the hand may spend now
+    /// (`ddi_session::hand_load`): lighter, half its share of a frame
+    /// to prepare in and its picture every other frame; resting, no
+    /// more preparation and its picture standing still where it is;
+    /// gone, nothing prepared or drawn. Never what it plans: the
+    /// planning cursor, its published contacts and the play stay as
+    /// they are. Full again only for a new play.
+    pub fn set_load(&mut self, step: HandStep) {
+        self.load = step;
+        if let Some(r) = self.runtime.as_mut() {
+            r.set_share(if step == HandStep::Full { 1. } else { LIGHTER_SHARE });
+        }
+        match step {
+            HandStep::Full => {
+                self.rest_at = None;
+                self.skip_picture = false;
+            }
+            HandStep::Lighter => {}
+            HandStep::Resting => {
+                self.rest_at.get_or_insert(self.song_time);
+            }
+            HandStep::Gone => self.visible = false,
+        }
+    }
+
+    /// Where the rule stands for this play.
+    pub fn load(&self) -> HandStep {
+        self.load
+    }
+
+    /// The hand plays beside the play now: on, supported, not failed
+    /// and not gone (what the rule watches).
+    pub fn playing(&self) -> bool {
+        self.enabled
+            && self.failed_at.is_none()
+            && self.load != HandStep::Gone
+            && self.ever_available
     }
     /// A play's frame before its field is drawn: the motion prepared to
     /// song second `song_time` (under `clock`, host seconds), then the
@@ -423,11 +473,19 @@ impl Preview {
         if self.preload_key.is_some() {
             t = t.max(0.);
         }
-        self.visible = self.enabled && (0.0..=self.duration).contains(&t);
+        if let Some(at) = self.rest_at {
+            // Resting: the picture of the moment it stopped, as drawn.
+            t = (at - self.origin).clamp(0., self.duration);
+        }
+        self.visible = self.enabled
+            && self.load != HandStep::Gone
+            && (0.0..=self.duration).contains(&t);
         let mut opacity = 1.;
         if let Some(failed) = self.failed_at {
             opacity = (1. - (t - failed) / 0.2).clamp(0., 1.) as f32;
             self.visible &= self.ever_available && opacity > 0.;
+        } else if self.rest_at.is_some() {
+            self.visible &= self.ever_available;
         } else {
             self.visible &= self.runtime.as_ref().is_some_and(|r| r.available);
         }
@@ -436,6 +494,14 @@ impl Preview {
         }
         let rect = self.frame_rect(size);
         self.rect = rect;
+        // Lighter: every other frame keeps the picture the last one drew.
+        if self.load == HandStep::Lighter {
+            self.skip_picture = !self.skip_picture;
+            if self.skip_picture && self.host.texture().is_some() {
+                self.opacity = opacity;
+                return Some((rect, opacity, false));
+            }
+        }
         let mut camera = self.look.map_or([-25., 14., 0.52], |l| l.camera);
         if let Some([_, _, w, h]) = self.behind {
             camera[2] = behind_field_distance(camera[2], w, h);
@@ -554,8 +620,13 @@ impl Preview {
         "origin":self.origin,"duration":self.duration,"character":character,
         "runtime":self.runtime.as_ref().map_or(Value::Null, |r| r.debug()),
         "runtime_error":self.runtime_error,"preloaded":self.preload_ready,"preload_pending":self.preload_pending(),
+        "load":self.load.name(),"rest_at":self.rest_at,
         "status":if self.failed_at.is_some() {
             "stopped"
+        } else if self.load == HandStep::Gone {
+            "gone"
+        } else if self.rest_at.is_some() {
+            "resting"
         } else if self.runtime_error.is_some() {
             "unsupported"
         } else if !self.enabled {
@@ -793,6 +864,99 @@ mod preload_tests {
         };
         p.preload(&song, 0., 0, &chosen, &config);
         assert!(p.runtime.is_some() && p.preload_pending());
+    }
+
+    /// The hand giving way (`ddi_session::hand_load`), on a clock of the
+    /// test's own: lighter prepares in half its share; resting prepares
+    /// nothing more and keeps its pose, still shown; gone is neither; a
+    /// hand that falls behind its bound rests where it stood rather than
+    /// taking the frame or fading. The play's notes are never touched.
+    #[test]
+    fn the_hand_gives_way_and_falls_behind_into_rest() {
+        let rows = "1000\n0100\n0010\n0001,".repeat(8);
+        let song = ddi_chart::formats::sm::parse_sm(&format!(
+            "#BPMS:0=120;#NOTES:dance-single::Easy:2:0,0,0,0,0:\n{}0000;",
+            rows
+        ))
+        .unwrap();
+        let settings = ddi_ui::state::settings::Settings {
+            dancing_hand: true,
+            ..Default::default()
+        };
+        let config = ddi_session::play::SessionConfig::from_settings(&settings, true, None);
+        let ticks = std::cell::Cell::new(0f64);
+        let clock = || {
+            let t = ticks.get();
+            ticks.set(t + 0.000_000_5);
+            t
+        };
+        let ready = |p: &mut Preview| {
+            p.reset_preload();
+            p.preload(&song, 0., 0, &settings, &config);
+            for _ in 0..20_000 {
+                p.prepare(-1., &clock);
+                if p.runtime.as_ref().unwrap().available {
+                    break;
+                }
+            }
+            p.start_preloaded();
+        };
+        let checkpoints = |p: &Preview| {
+            let d = p.runtime.as_ref().unwrap().debug();
+            (
+                d["planner"]["checkpoints"].as_u64().unwrap(),
+                d["report"]["checkpoints"].as_u64().unwrap(),
+            )
+        };
+        let mut p = Preview::default();
+        ready(&mut p);
+        let mut t = 0.;
+        let mut frames = |p: &mut Preview, seconds: f64| {
+            let end = t + seconds;
+            while t < end {
+                t += 1. / 120.;
+                p.prepare(t, &clock);
+                p.song_time = t;
+            }
+        };
+        frames(&mut p, 2.);
+        assert!(p.playing() && p.runtime.as_ref().unwrap().available);
+        assert_eq!(p.load(), HandStep::Full);
+        p.set_load(HandStep::Lighter);
+        assert_eq!(p.runtime.as_ref().unwrap().debug()["bound"]["share"], LIGHTER_SHARE);
+        frames(&mut p, 2.);
+        assert!(p.playing() && p.runtime.as_ref().unwrap().available, "{}", p.debug());
+        p.set_load(HandStep::Resting);
+        let (before, pose) = (checkpoints(&p), p.runtime.as_ref().unwrap().payload.borrow().clone());
+        frames(&mut p, 2.);
+        assert_eq!(checkpoints(&p), before, "resting prepares nothing");
+        assert_eq!(*p.runtime.as_ref().unwrap().payload.borrow(), pose);
+        assert!(p.playing() && p.rest_at.is_some());
+        assert_eq!(p.debug()["status"], "resting");
+        p.set_load(HandStep::Gone);
+        frames(&mut p, 1.);
+        assert!(!p.playing());
+        assert_eq!(p.debug()["status"], "gone");
+        assert!(p.runtime_error.is_none() && p.failed_at.is_none());
+        // A new play: as always.
+        ready(&mut p);
+        assert_eq!(p.load(), HandStep::Full);
+        assert!(p.rest_at.is_none());
+        // No time to prepare in: it falls behind and rests, shown.
+        let mut t = 0.;
+        let mut starved = false;
+        for _ in 0..(10 * 120) {
+            t += 1. / 120.;
+            p.prepare(t, &clock);
+            p.song_time = t;
+            if t > 0.5 {
+                p.runtime.as_mut().unwrap().set_share(0.);
+            }
+            starved |= p.rest_at.is_some();
+        }
+        assert!(starved, "{}", p.debug());
+        assert_eq!(p.debug()["status"], "resting");
+        assert!(p.playing() && p.runtime_error.is_none() && p.failed_at.is_none());
     }
 
     /// The settings offer the hand on the layouts its planner places on

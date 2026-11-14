@@ -349,6 +349,11 @@ pub struct PlayView<H: PlayHost> {
     /// The automatic setting's rule, and the refresh rate measured
     /// before the play started.
     guard: MovieGuard,
+    /// The dancing hand giving way when the play runs late
+    /// (`ddi_session::hand_load`), and the main-thread time each play
+    /// frame burns on purpose (ms; a testing aid, [`PlayView::set_load_ms`]).
+    hand_load: ddi_session::hand_load::HandLoad,
+    load_ms: f64,
     /// Time the movies took this second (sum, longest, frames they ran
     /// in), ms, and the last full second's (mean, longest).
     video_ms: (f64, f64, u32),
@@ -438,6 +443,8 @@ impl<H: PlayHost> PlayView<H> {
             frame_shape: FrameShape::default(),
             video: VideoMode::Auto,
             guard: MovieGuard::default(),
+            hand_load: Default::default(),
+            load_ms: 0.0,
             video_ms: (0.0, 0.0, 0),
             video_ms_last: (0.0, 0.0),
             stage: Default::default(),
@@ -642,6 +649,8 @@ impl<H: PlayHost> PlayView<H> {
         self.scripts.restart();
         self.script_movies.stop();
         self.guard.start(self.refresh_hz());
+        self.hand_load.start(self.refresh_hz());
+        self.dance.set_load(ddi_session::hand_load::HandStep::Full);
     }
 
     /// The play is over for good: no lyrics or layers, the movies reset.
@@ -879,6 +888,19 @@ impl<H: PlayHost> PlayView<H> {
         &self.guard
     }
 
+    /// The dancing hand's rule under load (`hand-load-v0`).
+    pub fn hand_load(&self) -> &ddi_session::hand_load::HandLoad {
+        &self.hand_load
+    }
+
+    /// A TESTING AID: each frame of a play burns `ms` of the main thread
+    /// on the host's clock before the hand prepares, as a busy machine
+    /// would take it (the web's `load=` parameter, desktop's
+    /// `--load-ms`); 0, none.
+    pub fn set_load_ms(&mut self, ms: f64) {
+        self.load_ms = ms.max(0.0);
+    }
+
     /// What the movies took in the last full second, ms: mean and longest.
     pub fn video_ms(&self) -> (f64, f64) {
         self.video_ms_last
@@ -979,6 +1001,7 @@ impl<H: PlayHost> PlayView<H> {
         let started = session.player.started();
         let finished = started && !session.song_going();
         self.playing_at = (started && !finished).then_some(frame.song_time);
+        let refresh = self.refresh_hz();
         // A watched stage (`watch-v0`): a spectator has no field of
         // their own (every field over the whole screen, or the one they
         // follow in the play's field's place); a player out of the stage
@@ -1399,6 +1422,10 @@ impl<H: PlayHost> PlayView<H> {
         self.minis_drawn = minis.len();
         self.renderer.set_miniatures(minis);
         host.lap(Lap::Scene);
+        if self.load_ms > 0.0 && started && !finished {
+            let until = host.seconds() + self.load_ms / 1000.0;
+            while host.seconds() < until {}
+        }
         host.before_render(device, encoder);
         // Out of the stage or left it: the hand rests where the play
         // ended rather than dancing on behind the dimmed field.
@@ -1418,6 +1445,15 @@ impl<H: PlayHost> PlayView<H> {
             &|| host.seconds(),
         );
         host.lap(Lap::Hand);
+        // The hand gives way when frames miss their refresh while it
+        // plays: lighter, resting, then gone (one way, a new play fresh).
+        let watching = started && !finished && self.dance.playing();
+        if let Some(step) =
+            self.hand_load
+                .frame(moment.now.0 * 1000.0, moment.second, refresh, watching)
+        {
+            self.dance.set_load(step);
+        }
         self.renderer.render(
             device,
             queue,

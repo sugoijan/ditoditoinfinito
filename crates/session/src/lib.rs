@@ -32,6 +32,7 @@ pub mod announcer;
 pub mod backgrounds;
 pub mod battle;
 pub mod calibration;
+pub mod hand_load;
 pub mod listen;
 pub mod movies;
 pub mod perf;
