@@ -7689,6 +7689,49 @@ small while the frames come late is the GPU's or the browser's
 (compositor), one with a large `submit` is Firefox's WebGL. The same
 stage in a smaller window tells the GPU's share.
 
+### The dancing hand under load (`hand-load-v0`, later the same day)
+
+The maintainer: "under load the dancing hand seems to be the first
+bottleneck to hurt the game … ideally the game would degrade in a way
+that hurts the hand's graphics/movement quality or even dropping the hand
+altogether so that the core game stays smooth." Built, with its causes,
+values and measurements, in `docs/plans/dancing-hand.md`, "Under load":
+
+- **The hand's preparation keeps to its share of a frame**: the share is
+  as it was (a quarter of the refresh, half or twice that by the motion
+  ready); what overran it was the doubled share under load, Firefox's
+  millisecond clock (up to a millisecond past) and, in the capture's
+  23 ms frame, the GPU queue backed up (15 ms in the picture's first GPU
+  writes) and a pause of the thread (8 ms). On a coarse clock the work
+  counted keeps it now (`dance_runtime::Costs`); a hand that falls behind
+  rests where it stood instead of fading out.
+- **`ddi_session::hand_load`** (PROVISIONAL values, named there): while
+  the hand plays, three late seconds in a row (under 90% of the refresh)
+  make it lighter (half its share, its picture every other frame), three
+  more rest it (nothing prepared, its picture still), three more drop it
+  for the rest of the play, with the results' note "The dancing hand was
+  turned off for this song: frames were being dropped (Options)." One
+  way within a play, never on a single late second, a stall counting for
+  nothing; the field, the judging, the sound, the input and the record
+  untouched. No setting added.
+- **Testing**: `load=MS` (web) and `--load-ms N` (desktop) burn main
+  thread a frame; the recorder's new column `hand_step`; the debug state's
+  `hand_load`; `crates/desktop/tests/hand_load_offscreen.rs` (quiet: no
+  step over the whole song; loaded: lighter, resting, gone, the note, the
+  same judgments).
+- **Measured** in both browsers and natively, before and after, on a
+  machine other processes kept busy (load average 8–47): the two builds
+  cost the same within that noise, quiet the hand stays at about 1 ms, and
+  with `load=20` the hand's lap goes to half its preparation, then to
+  nothing. Twelve busy workers in the page did not reproduce the
+  maintainer's 16–17% late frames (7–8% in Firefox, none in Chrome).
+- Open: whether 90% of the refresh and three seconds a step are right on
+  the maintainer's machine under real load (their captures would say: the
+  recorder's `hand_step` column shows when each step came); whether a
+  lighter hand should also draw its picture smaller rather than less
+  often; whether the hand, once gone, should come back for the next song
+  only (it does: every play starts fresh).
+
 ## Feedback round D (the maintainer's test of 2026-11-14)
 
 Seven items, done in the maintainer's order (2, 3, 4, 5, 6, then 1, then
@@ -8813,6 +8856,20 @@ are listed beside the song and a tap on the list opens the pop-up).
   `f-ja.png`, `o-phone.png`). Seen there: the header's pills are the
   player's own options, the ruleset's pill included ("ITG" in the
   pictures' data), though a room plays DDI (open question below).
+- **The ruleset's pill** (2026-11-14, the dancing-hand-under-load round):
+  in a room, where singleplayer shows the player's ruleset's options
+  (`SelectData::rules`: a StepMania preset's fail type, gauge, life and
+  judge; "ITG" in the sample data), the header shows the match's rules
+  in their few words, as everywhere they are summarized
+  (`room::rules_words_in`: "DDI", "DDI · Hard timing · Boos"); the
+  player's own speed and modifiers stay (they apply in a stage).
+  Chosen by looking: left out, the header would say nothing of the rules
+  a stage is played under, and "DDI" is short. Singleplayer unchanged.
+  Tested: `room_tests::a_rooms_header_shows_the_matchs_rules_in_place_of_the_players_ruleset`
+  (singleplayer's pills the player's, a room's the match's, and its
+  Hard timing and Boos once saved). Pictures:
+  `target/scratch/mp/handload/shots/pills-single.png` ("hidden", "fail
+  off" with ITG chosen) and `pills-room.png` ("hidden", "DDI").
 
 ### No "Attack launched" on the status line
 
@@ -9433,7 +9490,7 @@ the launched line said where a voice has it, never shown in words).
 - `adaptive-v2`: the weak CPU levels (1 to 3) practically never climb
   any more, the middle ones half as often: intended, or 95% too strict
   for them (a person's spread is not the CPUs')?
-- A room's header is singleplayer's, so its pills show the player's own
-  options, the ruleset's pill included, though a room plays DDI: hide
-  the ruleset's pill in a room, or show the match's?
+- (Answered 2026-11-14, below "A room's song select header is
+  singleplayer's": a room's header shows the match's rules in their few
+  words where singleplayer shows the player's ruleset's options.)
 

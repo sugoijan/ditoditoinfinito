@@ -265,6 +265,17 @@ Rust and the browser are implementation details, not advertised features.
   buffer. Preload keys include source notes, geometry and effective play options;
   paused draws also invalidate when geometry or procedural source changes.
   Unsupported/failed hand preparation must never block ordinary play.
+  Its preparation keeps to its share of a frame by the clock and, on a
+  coarse one (Firefox's millisecond), by work counted (`dance_runtime::Costs`,
+  per stage, learnt from whole frames); a hand that falls behind (its
+  motion out, a planner or motion deadline missed) rests where it stood,
+  never taking the frame. `ddi_session::hand_load`
+  (`hand-load-v0`, `docs/plans/dancing-hand.md`, "Under load") watches late
+  seconds while it plays and steps it one way per play: lighter (half its
+  share, its picture every other frame), resting (nothing prepared, picture
+  still), gone (a results note, as a movie's); never the field, judging,
+  sound, input or record. `load=MS` (web) and `--load-ms N` (desktop) burn
+  main thread a frame for tests.
   Only `assets/hand/` runtime data/notices are included; development archives,
   external modeling tools, full audits and developer overlays stay on the hand
   research branch. `assets/hand/NOTICE.txt` records what the hand is made from

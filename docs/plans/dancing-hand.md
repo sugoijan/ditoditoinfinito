@@ -1641,3 +1641,213 @@ checks pass. No full library audit is rerun; prior audit results remain historic
 The unsigned cherry-pick commit has local `main` as its sole parent. Neither
 `main` nor the source branch is advanced. Private consolidation logs and source
 parity checks remain at `/private/tmp/ddi-hand-consolidation-20261109/`.
+
+## Under load (2026-11-14)
+
+The maintainer's captures (Firefox 160, WebGPU, 2704×1528 at 120 Hz):
+quiet, the hand costs about 1 ms of a frame's main thread and frames hold
+120 a second with it on (46 late of 11,263; one frame of 23 ms in the
+hand's lap); with other processes competing for the CPU the same stage
+had 16–17% late frames with the hand on against 3.5–4% with it off. The
+hand is an autoplay beside the play, never the play: under load it gives
+way so the field, the judging and the sound stay smooth. Two parts:
+its preparation keeps to a bound it cannot overrun, and a rule over a
+play's late seconds sheds the hand step by step.
+
+### What made the lap overrun
+
+- **The share doubles when motion runs short.** `frame_budget` gives a
+  quarter of the refresh (2 ms at 120 Hz), half that with 1.5 s of motion
+  ready and twice it with less than 0.75 s. In dense stretches, and on a
+  loaded machine (where a frame's wall-clock share buys less work, since
+  the thread is preempted inside it), the motion runs short and the share
+  is 4 ms a frame: the lap that "doubles in dense stretches" and the 2–4
+  ms under load. The shares are as they were; what changed is that they
+  are now kept.
+- **Firefox's clock reads whole milliseconds.** The loop stopped when the
+  clock said the share was spent; at 1 ms resolution it ran on to the next
+  tick, up to a millisecond past the share (a test reproduces it: 1.004 ms
+  past on a millisecond clock with the clock alone).
+- **No checkpoint is long by itself.** Over Beatucada's Challenge at 120
+  frames a second natively, 2.68 million checkpoints: the longest 0.18 ms
+  (a guide step), none over 0.25 ms; the only one ever measured longer
+  (5.5 ms, once) came on a loaded machine and did not come again: a
+  preemption inside it, not work.
+- **The 23 ms frame** (song second 72.98 of the capture
+  `…hand-on-agents-niced.json`) was 8 ms of preparation and 15 ms of the
+  hand's picture, in a second when the GPU was 37–43 ms behind
+  (`gpu_done`) and frames around it started 2–6 ms late. The picture's
+  part is the frame's first writes to the GPU (the hand's vertices, its
+  texture and its copy under the field): where a backed-up WebGPU queue
+  makes the main thread wait, not work of the hand's. The preparation's
+  8 ms is a pause in the thread at that moment (a collection, the
+  browser) past a 2 ms share on a millisecond clock.
+
+### The bound now
+
+`RuntimePreview::prepare` starts a checkpoint only where the clock leaves
+room for it in the frame's share and, on a coarse clock (one never seen to
+move by less than 0.25 ms: Firefox's millisecond; Chrome's 0.1 ms and the
+native clock are fine), where the work counted does too: each stage's
+checkpoint (`search`, `judge`, `guide`, `source`, `correct`, `publish`,
+`arrows`, …) has an expected cost (`dance_runtime::Costs`, 5 µs at first),
+learnt from what whole frames measured (each frame moves the costs of the
+stages it ran by `1 + 0.05 · (measured − expected) / expected`, linear in
+the measurement so that a coarse clock's readings average out over frames).
+The first checkpoint of a frame always runs, so the hand never stops for
+an estimate. (Counting on a fine clock too made the estimates, which
+spread a frame's measurement over the stages it ran, stop frames short of
+their share now and then; the motion then ran shorter and took the doubled
+share more often: natively the 95th percentile of a frame's preparation
+went from 1.2–1.4 to 2.0–2.1 ms. On a fine clock the clock alone keeps
+it, a checkpoint past at most, 0.2 ms natively.) On a millisecond clock with 4 µs checkpoints, from the first half second
+on no frame went past its share by 0.25 ms, and fewer than one in fifty by
+0.1 ms (`the_bound_holds_on_a_millisecond_clock`, at the share and at half
+of it, where the clock alone ran a millisecond past), and the hand kept
+up over the whole dense chart. A hand that falls behind anyway **rests where it stood**: its last pose
+stays shown and nothing more is prepared, where it used to fade out as a
+failure. Falling behind is its motion running out, or a deadline passed
+while the machine was busy: the planner's search over its wall-clock
+limit (`ContactTimeout`), the motion's `runtime_stream_starved`,
+`runtime_publication_deadline` or `runtime_unprepared_window`
+(`dance::fell_behind`; the reason in the debug state's `rest_reason`). A
+chart it cannot play still stops it as before. (Seen in Firefox with
+twelve busy workers in the page: the hand went lighter at 5.9 s and,
+before this, stopped 3 s later on a missed deadline.) Nothing it planned changes: the planning cursor, the
+published contacts and their times, and the judged chart are as they were;
+only how much work a frame may do.
+
+### The rule (`hand-load-v0`, `ddi_session::hand_load`)
+
+Watched while the hand plays beside a running play (on, supported, not
+failed, from the song's start to its end), on the same measured seconds as
+the automatic video setting's rule (`FpsMeter`, `ddi_platform::video::VideoGuard`):
+
+| Value | What |
+| --- | --- |
+| `WARMUP_MS` 2000 | the first two seconds watched are not judged |
+| `LATE_SHARE` 0.9 | a second is late when its frame rate is under 90% of the refresh (the fastest measured since the play started) |
+| `LATE_SECONDS` 3 | late seconds in a row that take each step |
+| `SETTLE_SECONDS` 1 | after a step, a second not judged |
+| `HITCH_MS` 250 | a second holding a frame this long is a stall (a hidden tab): it and a new warm-up count for nothing |
+| `LIGHTER_SHARE` 0.5 | the share a lighter hand prepares in |
+
+1. **Lighter**: half its share of a frame to prepare in, and its picture
+   drawn every other frame (the frame between keeps the last picture: the
+   field's underlay is placed again without a copy). The preparation is
+   most of the hand's main-thread time (0.8 of 1.0 ms in the quiet
+   capture) and its picture most of its GPU time (0.65 ms a frame at
+   2704×1528: 9.96 against 9.31 ms with the hand off); halving both sheds
+   the most for the least seen: its motion stays smooth at 60 pictures a
+   second on a 120 Hz display. Should its motion run out at half the
+   share, it rests (above).
+2. **Resting**: nothing prepared; its picture stands still where it was
+   (no new picture is drawn: its texture is reused), shown.
+3. **Gone**: neither prepared nor drawn for the rest of the play.
+
+Each step after its own three late seconds, one way within a play (a new
+play starts as always: `PlayView::start`); never on a single late second.
+If frames are still late with the hand gone nothing more is shed here (a
+movie has its own rule). What the player sees: the hand going still and
+then away; the results say "The dancing hand was turned off for this song:
+frames were being dropped (Options)." when it went (as a movie's "Video was
+turned off for this song: …"), nothing for the lighter or resting steps.
+No setting was added: the video rule's own setting (Auto) chooses whether
+a movie may be turned off, and the hand has none of its kind; the hand's
+own setting (on or off) stays what it was. The field, the judging, the
+sound and the input are never touched, nor anything of a play's record or
+replay (`hand_load_offscreen`: the loaded play's judgments are the quiet
+one's).
+
+### Testing it under load
+
+- `load=MS` (web, any route, kept for the tab) and `--load-ms N` (desktop)
+  burn that much main thread in each play frame (booked with the scene);
+  the session and shell tests and the desktop's offscreen test use fake
+  clocks, where a late frame is a number.
+- `ddi_session::hand_load`'s tests: no step over a quiet song (and at 110
+  of 120), the steps one way each after its own late seconds, a single
+  late second or a stall takes none, only while the hand plays, fresh at
+  a new play. `dance::preload_tests::the_hand_gives_way_and_falls_behind_into_rest`:
+  lighter halves the share; resting prepares nothing and keeps its pose;
+  gone; a hand with no time to prepare rests, shown, without an error.
+- `crates/desktop/tests/hand_load_offscreen.rs`: Beatucada's Challenge
+  autoplayed offscreen, quiet at 60 frames a second (no step over the
+  whole song, a picture every frame) and loaded from its sixth second (a
+  frame every 25 ms): lighter at 9.1 s (80 pictures in 160 frames, still
+  preparing), resting at 13.1 s (nothing drawn or prepared), gone at
+  17.1 s, the results' note, and the same judgments as the quiet play.
+- In the browsers, `load=20` on a solo autoplay: lighter, resting and gone
+  about 4 s apart (Chrome: song seconds 3.8, 7.9 and 11.9; Firefox: 4.4,
+  8.5 and 12.7), the results' note in both.
+
+### Measured (2026-11-14)
+
+Beatucada's Challenge autoplayed with the hand on, solo, 1280×720 at
+scale 1, a release build as deployed, the frame recorder on (`perf=1`):
+the frame's main-thread total, the hand's lap (its preparation and its
+picture) and its preparation alone, in ms, mean / p95 / p99 / most, over
+song seconds 3–45; late frames are intervals over 1.5 refreshes (headless
+Chrome refreshes at 60 Hz, Playwright's Firefox at 120). "Before" is the
+build of `dev` before this round (`7c2655e1`), "after" this round's. The
+machine was not quiet: other processes (another session's builds; the
+maintainer's own Firefox) kept the load average at 8–47 throughout (said
+beside each row), and every run of ours was at the lowest priority.
+"Loaded" adds twelve busy Web Workers in the page for the window (the
+page's own contention, on a ten-core machine).
+
+| Run | Load avg | Total | Hand lap | Preparation | Late |
+| --- | --- | --- | --- | --- | --- |
+| Chrome before, quiet | 35 | 2.02 / 3.5 / 4.5 / 7.2 | 1.49 / 2.6 / 3.1 / 4.6 | 1.10 / 2.1 / 2.2 / 4.1 | 0 of 2,521 |
+| Chrome after, quiet | 14 | 2.03 / 3.4 / 4.1 / 6.5 | 1.52 / 2.6 / 2.8 / 5.1 | 1.14 / 2.1 / 2.2 / 3.2 | 0 of 2,521 |
+| Chrome before, 12 workers | 15 | 1.49 / 2.9 / 3.2 / 4.0 | 1.08 / 2.4 / 2.4 / 2.7 | 0.81 / 2.1 / 2.1 / 2.2 | 0 of 2,520 |
+| Chrome after, 12 workers | 11 | 1.51 / 2.9 / 3.1 / 4.1 | 1.11 / 2.4 / 2.4 / 2.7 | 0.84 / 2.1 / 2.1 / 2.2 | 0 of 2,520 |
+| Firefox before, quiet | 75 | 1.67 / 3 / 4 / 5 | 0.81 / 2 / 3 / 3 | 0.64 / 2 / 2 / 2 | 2 of 5,037 |
+| Firefox after, quiet | 47 | 1.54 / 3 / 3 / 5 | 0.72 / 2 / 2 / 4 | 0.49 / 2 / 2 / 3 | 0 of 5,041 |
+| Firefox before, 12 workers | 41 | 2.00 / 4 / 5 / 8 | 0.98 / 2 / 3 / 5 | 0.75 / 2 / 2 / 4 | 320 of 4,666 (6.9%) |
+| Firefox after, 12 workers | 14 | 1.98 / 4 / 6 / 9 | 0.92 / 3 / 3 / 5 | 0.65 / 2 / 3 / 5 | 381 of 4,602 (8.3%) |
+
+Within the noise of a machine this busy the two builds cost the same:
+quiet, the hand stays at about 1 ms (Firefox's columns are whole
+milliseconds but their means), and Firefox's quiet runs' 99th percentile
+of the hand's lap went from 3 to 2 ms. The page's workers did not
+reproduce the maintainer's 16–17% late frames (they made Firefox's 7–8%
+late and Chrome's none); in the "after" Firefox run the hand went lighter
+at 48 s, after the table's window. Over the whole song (100 s) quiet,
+neither browser took a step.
+
+With the load injected on the frame's own thread (`load=MS`):
+
+| Run | Steps (song s) | Total | Hand lap | Late |
+| --- | --- | --- | --- | --- |
+| Chrome, `load=14` (60 Hz: 84% of the frame) | none | 15.40 / 16.8 / 17.1 / 17.7 | 1.03 / 2.4 / 2.4 / 2.6 | 0 of 3,551 |
+| Firefox, `load=6` (120 Hz: 72%) | none | 7.08 / 8 / 9 / 12 | 0.34 / 1 / 2 / 3 | 19 of 6,985 |
+| Chrome, `load=20`, full | lighter 3.8, resting 7.9, gone 11.9 | 21.04 / 22.6 / 22.8 / 22.8 | 0.73 / 2.3 / 2.6 / 2.6 | (every frame) |
+| … lighter | | 21.22 / 22.0 / 22.6 / 22.8 | 0.86 / 1.5 / 2.2 / 2.5 | |
+| … resting | | 20.53 / 21.0 / 21.4 / 21.7 | 0.01 / 0.1 / 0.3 / 1.1 | |
+| … gone | | 20.46 / 20.9 / 21.0 / 21.4 | 0.00 / 0.1 / 0.1 / 0.2 | |
+| Firefox, `load=20`, full | lighter 4.4, resting 8.5, gone 12.7 | 21.00 / 23 / 24 / 24 | 0.36 / 2 / 2 / 2 | (every frame) |
+| … lighter | | 21.28 / 23 / 23 / 23 | 0.65 / 2 / 2 / 2 | |
+| … resting | | 20.44 / 22 / 23 / 24 | 0.01 / 0 / 0 / 2 | |
+| … gone | | 20.61 / 22 / 22 / 23 | 0.22 / 1 / 1 / 1 | |
+
+(The `load=20` runs were recorded with the burn booked in the hand's lap,
+before it moved to the scene's, and with the work counted on every clock:
+their hand column here is the recorded lap less the 20 ms, at most the
+hand's.) Resting and gone cost the frame nothing of the hand's;
+lighter about half its preparation.
+
+Natively (`dance_runtime::tests::measure_the_hand_paced_in_real_time`,
+release, a frame every 1/120 s of real time, the song's time the real
+time, 40 s; `DDI_HAND_THREADS` busy threads beside it): a frame's
+preparation, ms, p50 / p95 / p99 / most, and frames over 2 and 4.17 ms.
+
+| Run | Load avg | Preparation | Over 2 / 4.17 ms |
+| --- | --- | --- | --- |
+| before, quiet (three runs) | 32, 15, 10 | 0.26–0.98 / 1.20–1.41 / 2.02–2.72 / 6.6–30.8 | 51–114 / 8–13 |
+| before, 12 threads | 11 | 0.26 / 1.15 / 1.82 / 10.2 | 33 / 3 |
+| after, quiet | 8 | 0.98 / 1.32 / 2.08 / 8.0 | 67 / 5 |
+| after, 12 threads | 8 | 0.97 / 1.22 / 2.05 / 8.6 | 62 / 5 |
+
+The most a frame took natively is a preemption on a busy machine, as
+before: no checkpoint is that long. Neither build starved or stopped.
