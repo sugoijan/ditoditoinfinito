@@ -1953,7 +1953,10 @@ gesture rule below, so it does not replace the maintainer's Safari check.
 The UI (song select, options, the pages, the start prompt and the results)
 is our theme's screens on the canvas, not DOM: drive them by keys, a fake
 pad (`window.__DDI_FAKE_PAD`) or taps at `window.__DDI_DEBUG.ui.rects`, and
-read their state from `__DDI_DEBUG.ui.theme`. The testing parameters (`gfx`, `auto`, `bias`,
+read their state from `__DDI_DEBUG.ui.theme` (published after every
+frame and event where a test drives the page, `navigator.webdriver`;
+otherwise at most a second late, and at once when a screen or dialog
+comes or goes). The testing parameters (`gfx`, `auto`, `bias`,
 `slow`, `perf`, `lang`, and the multiplayer ones, `mprules`,
 `mpwatchlink`, `mpattacks`, `mpcpus`, `mpdevmines`, `mpfakeseat`,
 `mpfakeend`) take effect given in the address the page loads on, on any
