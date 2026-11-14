@@ -1512,7 +1512,9 @@ Rust and the browser are implementation details, not advertised features.
   in the press, Start chosen when the room starts the stage). Text in
   `locales/*/room.ftl`. Desktop keeps the room for the run
   (`crates/desktop/src/room.rs`: the home and the room's song select on
-  the UI's stack, a stage's prompt over it through the play host; `--screen multiplayer|room`, refused with the switch off; a
+  the UI's stack, a stage's prompt over it through the play host;
+  `--screen multiplayer|room` and `--join` open on the song library as
+  song select does, `shell::LIBRARY_SCREENS`; a
   stage played over the room through the play host, `play::Request::stage`,
   `room_screen_with` for tests, `tests/room_stage_flow.rs`). Its online
   rooms (M5c, `crates/desktop/src/online.rs`): HTTP through ureq on a
@@ -1531,8 +1533,12 @@ Rust and the browser are implementation details, not advertised features.
   Bots for testing rooms (M7d, a DEVELOPMENT TOOL,
   `crates/desktop/src/bots.rs`): `ddi --mp-bots`, headless, each bot a
   `RoomClient` over desktop's HTTP, socket and sharing (its own inbox,
-  `room::news_inbox`), its play `ddi_engine::cpu`'s `Opponent` on a
-  real-time song clock, reported as a player's run; signed in by the
+  `room::news_inbox`), its play a room's CPU
+  (`ddi_session::battle::cpus::opponent`, on the stage's ladder where
+  its charts adapt) on a real-time song clock, reported as a player's
+  run, each stage's song checked for it on the thread that read it and
+  read once (`room::SongCheck`), a host bot's songs checked as it comes
+  to each; signed in by the
   server's `POST /auth/bots` for an admin share token, identity
   `bot:<slug>` (`ddi_room::Identity::is_bot`), never an admin, labeled
   Bot wherever players are listed (`screens::room::person_name`, the
@@ -1693,7 +1699,9 @@ Rust and the browser are implementation details, not advertised features.
   archives to a draft release (`docs/plans/packaging.md`).
 - `cargo run` opens the desktop app on our theme's silent start menu
   (`--profile desktop` for smooth frames: `release` is the wasm bundle's,
-  tuned for size and aborting on panics). Flags (`ddi_desktop::run`):
+  tuned for size and aborting on panics). Flags (`ddi_desktop::run`,
+  read through `ddi_desktop::args`; the saved switches written at once,
+  `args::save_switch`):
   `--songs DIR` (a folder for this run), `--sample`, `--screen
   start|select|results|options|calibration|credits|announcer|multiplayer|room`, `--dev`, `--widgets`,
   `--play SONG [--chart N] [--auto | --auto=pad] [--start]`,
