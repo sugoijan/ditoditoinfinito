@@ -152,6 +152,23 @@ pub fn live_stage(room: &RoomState) -> Option<(StageId, &StagePlay)> {
     play.song_zero_at.is_some().then_some((id, play))
 }
 
+impl LiveSnapshot {
+    /// Stage `stage` with nothing known of it, its frames from
+    /// `first_frame` on to follow.
+    pub fn empty(stage: StageId, at: Millis, first_frame: u32) -> Self {
+        Self {
+            stage,
+            song_zero_at: Millis(0),
+            at,
+            first_frame,
+            competitors: Vec::new(),
+            commitments: Vec::new(),
+            plan: None,
+            settling: None,
+        }
+    }
+}
+
 impl LiveServer {
     pub fn new(rules: LiveRules) -> Self {
         Self {
@@ -763,13 +780,7 @@ impl LiveStage {
                         self.cpu_ends.insert(e.cpu, end);
                         c.end = Some(end);
                         ended = true;
-                        let entry = self.pending.entry(e.cpu).or_insert_with(|| FrameEntry {
-                            participant: e.cpu,
-                            seq: 0,
-                            through_us: 0,
-                            moments: Vec::new(),
-                            end: None,
-                        });
+                        let entry = self.pending.entry(e.cpu).or_insert_with(|| FrameEntry::new(e.cpu));
                         entry.through_us = c.through_us.max(0);
                         entry.end = Some(end);
                     }
@@ -909,13 +920,7 @@ impl LiveStage {
         if let Some(end) = b.end {
             c.end = Some(end);
         }
-        let e = self.pending.entry(from).or_insert_with(|| FrameEntry {
-            participant: from,
-            seq: 0,
-            through_us: 0,
-            moments: Vec::new(),
-            end: None,
-        });
+        let e = self.pending.entry(from).or_insert_with(|| FrameEntry::new(from));
         e.seq = c.seq;
         e.through_us = c.through_us;
         e.moments.extend(b.moments);
@@ -933,13 +938,7 @@ impl LiveStage {
             return;
         }
         c.end = Some(end);
-        let e = self.pending.entry(p).or_insert_with(|| FrameEntry {
-            participant: p,
-            seq: 0,
-            through_us: 0,
-            moments: Vec::new(),
-            end: None,
-        });
+        let e = self.pending.entry(p).or_insert_with(|| FrameEntry::new(p));
         e.seq = c.seq;
         e.through_us = c.through_us.max(0);
         e.end = Some(end);

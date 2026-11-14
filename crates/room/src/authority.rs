@@ -144,19 +144,29 @@ impl<C: Clock> LocalAuthority<C> {
         admin: bool,
         intent: Intent,
     ) -> Result<ParticipantId, Rejection> {
+        let id = self.admit(identity, name, admin, intent)?;
+        self.clients.insert(client, id);
+        Ok(id)
+    }
+
+    /// Admit (or restore) a person: their member's id.
+    pub fn admit(
+        &mut self,
+        identity: Identity,
+        name: String,
+        admin: bool,
+        intent: Intent,
+    ) -> Result<ParticipantId, Rejection> {
         self.authority(Command::Join {
             identity: identity.clone(),
             name,
             admin,
             intent,
         })?;
-        let id = self
-            .state
+        self.state
             .member_by_identity(&identity)
             .map(|m| m.id)
-            .ok_or(Rejection::NotAMember)?;
-        self.clients.insert(client, id);
-        Ok(id)
+            .ok_or(Rejection::NotAMember)
     }
 
     /// Bind `client` to member `participant`, admitted already (an online

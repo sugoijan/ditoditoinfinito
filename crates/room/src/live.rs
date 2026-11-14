@@ -40,7 +40,6 @@ pub mod stream;
 pub mod wire;
 
 use crate::ids::{Millis, StageId};
-use crate::protocol::PROTOCOL_VERSION;
 use serde::{Deserialize, Serialize};
 
 pub use client::{LiveLink, LiveNews};
@@ -288,35 +287,8 @@ pub enum LiveRefusal {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientLiveEnvelope {
-    pub v: u32,
-    pub live: ClientLive,
-}
-
-impl ClientLiveEnvelope {
-    pub fn new(live: ClientLive) -> Self {
-        Self {
-            v: PROTOCOL_VERSION,
-            live,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ServerLiveEnvelope {
-    pub v: u32,
-    pub live: ServerLive,
-}
-
-impl ServerLiveEnvelope {
-    pub fn new(live: ServerLive) -> Self {
-        Self {
-            v: PROTOCOL_VERSION,
-            live,
-        }
-    }
-}
+envelope!(ClientLiveEnvelope, live, ClientLive, Eq);
+envelope!(ServerLiveEnvelope, live, ServerLive);
 
 #[cfg(test)]
 mod tests {

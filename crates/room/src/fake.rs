@@ -371,17 +371,9 @@ impl FakeServer {
         {
             return Ok(m.id);
         }
-        self.authority(Command::Join {
-            identity: identity.clone(),
-            name: name.into(),
-            admin: false,
-            intent,
-        })?;
-        let id = self
-            .state()
-            .member_by_identity(&identity)
-            .map(|m| m.id)
-            .ok_or(Rejection::NotAMember)?;
+        let admitted = self.authority.admit(identity, name.into(), false, intent);
+        self.route(None);
+        let id = admitted?;
         let _ = self.authority(Command::SetConnection {
             participant: id,
             connection: Connection::Joining,
@@ -470,13 +462,7 @@ impl FakeServer {
         f(state);
         state.revision = state.revision.next();
         let snapshot = ServerEnvelope::snapshot(self.state());
-        let open: Vec<u64> = self
-            .conns
-            .iter()
-            .filter(|(_, c)| c.open)
-            .map(|(k, _)| *k)
-            .collect();
-        for k in open {
+        for k in self.open_conns(false) {
             self.push(k, &snapshot);
         }
     }
@@ -676,9 +662,7 @@ impl FakeServer {
             for r in reply {
                 match r {
                     LiveReply::Message(m) => {
-                        if let Ok(t) = serde_json::to_string(&ServerLiveEnvelope::new(m)) {
-                            self.push_frame(conn, Frame::Text(t), false);
-                        }
+                        self.push_frame(conn, Frame::Text(ServerLiveEnvelope::text(m)), false);
                     }
                     LiveReply::Frame(b) => self.push_frame(conn, Frame::Binary(b), false),
                 }
@@ -691,13 +675,7 @@ impl FakeServer {
                 Ok(&frame)
             );
             self.audience_member_frame(frame);
-            let live: Vec<u64> = self
-                .conns
-                .iter()
-                .filter(|(_, c)| c.open && c.live)
-                .map(|(k, _)| *k)
-                .collect();
-            for k in live {
+            for k in self.open_conns(true) {
                 self.push_frame(k, Frame::Binary(b.clone()), false);
             }
         }
@@ -835,14 +813,11 @@ impl FakeServer {
         for envelope in self.authority.poll() {
             match &envelope.msg {
                 ServerMessage::Events { .. } => {
-                    let open: Vec<u64> = self
-                        .conns
-                        .iter()
-                        .filter(|(_, c)| c.open)
-                        .map(|(k, _)| *k)
-                        .collect();
-                    for k in open {
-                        self.push(k, &envelope);
+                    // Written once for every socket.
+                    if let Ok(text) = serde_json::to_string(&envelope) {
+                        for k in self.open_conns(false) {
+                            self.push_frame(k, Frame::Text(text.clone()), true);
+                        }
                     }
                 }
                 ServerMessage::Ack { client, seq } => {
@@ -870,6 +845,16 @@ impl FakeServer {
             }
         }
         accepted
+    }
+
+    /// The open sockets (only those that said live hello where
+    /// `live_only`).
+    fn open_conns(&self, live_only: bool) -> Vec<u64> {
+        self.conns
+            .iter()
+            .filter(|(_, c)| c.open && (c.live || !live_only))
+            .map(|(k, _)| *k)
+            .collect()
     }
 
     fn push(&mut self, conn: u64, envelope: &ServerEnvelope) {

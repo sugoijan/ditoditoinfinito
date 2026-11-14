@@ -118,7 +118,26 @@ pub struct CpuNews {
     pub entries: Vec<CpuEntry>,
 }
 
+impl CpuEntry {
+    /// Nothing of `cpu`'s but how far it was judged.
+    pub fn new(cpu: ParticipantId, through_us: i64) -> Self {
+        Self {
+            cpu,
+            through_us,
+            reports: Vec::new(),
+            end: None,
+        }
+    }
+}
+
 impl CpuNews {
+    pub fn new(stage: StageId) -> Self {
+        Self {
+            stage,
+            entries: Vec::new(),
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entries
             .iter()

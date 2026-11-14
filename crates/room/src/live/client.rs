@@ -111,10 +111,7 @@ impl CpuOutbox {
     fn news(&mut self, stage: StageId, all: bool) -> Vec<CpuNews> {
         let rules = crate::live::cpus::ONLINE_CPUS_V0;
         let mut out = Vec::new();
-        let mut cur = CpuNews {
-            stage,
-            entries: Vec::new(),
-        };
+        let mut cur = CpuNews::new(stage);
         let mut reports = 0usize;
         let mut judged = 0usize;
         for (cpu, k) in &mut self.cpus {
@@ -126,12 +123,7 @@ impl CpuOutbox {
             if !fresh {
                 continue;
             }
-            let mut entry = CpuEntry {
-                cpu: *cpu,
-                through_us: k.through_us,
-                reports: Vec::new(),
-                end: None,
-            };
+            let mut entry = CpuEntry::new(*cpu, k.through_us);
             for r in &k.reports[k.sent..] {
                 // A message's bounds (and well under the room's 64 KiB).
                 if reports + 1 > rules.max_reports
@@ -139,23 +131,10 @@ impl CpuOutbox {
                     || cur.entries.len() + 1 >= rules.max_entries
                 {
                     if !entry.reports.is_empty() {
-                        cur.entries.push(std::mem::replace(
-                            &mut entry,
-                            CpuEntry {
-                                cpu: *cpu,
-                                through_us: k.through_us,
-                                reports: Vec::new(),
-                                end: None,
-                            },
-                        ));
+                        cur.entries
+                            .push(std::mem::replace(&mut entry, CpuEntry::new(*cpu, k.through_us)));
                     }
-                    out.push(std::mem::replace(
-                        &mut cur,
-                        CpuNews {
-                            stage,
-                            entries: Vec::new(),
-                        },
-                    ));
+                    out.push(std::mem::replace(&mut cur, CpuNews::new(stage)));
                     reports = 0;
                     judged = 0;
                 }
@@ -202,6 +181,11 @@ impl LiveLink {
     /// Stage `stage`'s CPU `cpu` judged to song µs `through_us`, with the
     /// reports it made since (`crate::live::cpus`): kept, and sent while
     /// this device is one that sends.
+    /// What this device keeps of stage `stage`'s CPU `cpu`.
+    fn kept(&mut self, stage: StageId, cpu: ParticipantId) -> &mut CpuKept {
+        self.cpus.entry(stage).or_default().cpus.entry(cpu).or_default()
+    }
+
     pub fn cpu_news(
         &mut self,
         stage: StageId,
@@ -210,13 +194,7 @@ impl LiveLink {
         reports: Vec<LiveReport>,
         end: Option<StreamEnd>,
     ) {
-        let k = self
-            .cpus
-            .entry(stage)
-            .or_default()
-            .cpus
-            .entry(cpu)
-            .or_default();
+        let k = self.kept(stage, cpu);
         k.through_us = k.through_us.max(through_us);
         k.reports.extend(reports);
         if k.end.is_none() {
@@ -234,13 +212,7 @@ impl LiveLink {
         run: crate::battle::ReportedRun,
         detail: Option<crate::battle::RunDetail>,
     ) {
-        let k = self
-            .cpus
-            .entry(stage)
-            .or_default()
-            .cpus
-            .entry(cpu)
-            .or_default();
+        let k = self.kept(stage, cpu);
         if k.run.is_none() {
             k.run = Some((run, detail));
         }
@@ -368,17 +340,8 @@ impl LiveLink {
     /// `started`: its song is playing already (a socket opened mid-stage):
     /// the stage as it stands is asked for at once.
     pub(crate) fn follow(&mut self, stage: Option<StageId>, started: bool) {
-        if let Some(stage) = stage
-            && self
-                .reader
-                .as_ref()
-                .is_none_or(|r| r.stage().is_none_or(|s| s < stage))
-        {
-            let mut r = FrameReader::new(stage);
-            if started {
-                r.ask_resume();
-            }
-            self.reader = Some(r);
+        if let Some(stage) = stage {
+            FrameReader::follow(&mut self.reader, stage, started);
         }
     }
 
@@ -395,13 +358,7 @@ impl LiveLink {
                     .as_ref()
                     .is_none_or(|r| r.stage().is_none_or(|s| s <= snap.stage))
                 {
-                    let r = self
-                        .reader
-                        .get_or_insert_with(|| FrameReader::new(snap.stage));
-                    if r.stage() != Some(snap.stage) {
-                        *r = FrameReader::new(snap.stage);
-                    }
-                    r.snapshot(&snap);
+                    FrameReader::adopt(&mut self.reader, &snap);
                 }
                 if let Some(me) = self.me
                     && let Some(c) = snap.competitors.iter().find(|c| c.participant == me)

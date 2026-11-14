@@ -275,14 +275,14 @@ pub fn decode_frame(bytes: &[u8]) -> Result<Frame, WireError> {
     })
 }
 
-struct Writer(Vec<u8>);
+pub(crate) struct Writer(pub(crate) Vec<u8>);
 
 impl Writer {
-    fn byte(&mut self, b: u8) {
+    pub(crate) fn byte(&mut self, b: u8) {
         self.0.push(b);
     }
 
-    fn u(&mut self, mut x: u64) {
+    pub(crate) fn u(&mut self, mut x: u64) {
         loop {
             let b = (x & 0x7f) as u8;
             x >>= 7;
@@ -432,19 +432,28 @@ impl Writer {
     }
 }
 
-struct Reader<'a> {
+pub(crate) struct Reader<'a> {
     b: &'a [u8],
     at: usize,
 }
 
-impl Reader<'_> {
-    fn byte(&mut self) -> Result<u8, WireError> {
+impl<'a> Reader<'a> {
+    pub(crate) fn new(b: &'a [u8]) -> Self {
+        Reader { b, at: 0 }
+    }
+
+    /// What is left unread.
+    pub(crate) fn rest(&self) -> &'a [u8] {
+        &self.b[self.at..]
+    }
+
+    pub(crate) fn byte(&mut self) -> Result<u8, WireError> {
         let b = *self.b.get(self.at).ok_or(WireError::Truncated)?;
         self.at += 1;
         Ok(b)
     }
 
-    fn u(&mut self) -> Result<u64, WireError> {
+    pub(crate) fn u(&mut self) -> Result<u64, WireError> {
         let mut x = 0u64;
         for shift in (0..64).step_by(7) {
             let b = self.byte()?;

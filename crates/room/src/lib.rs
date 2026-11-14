@@ -34,6 +34,36 @@
 //! decided by the room; the room's side sans-IO (`live::LiveServer`, which
 //! the fake runs too) and the client's inside `OnlineAuthority`.
 
+/// A JSON envelope of the protocol's version and one message under
+/// `$field` (`{"v":2,"<field>":…}`): its `new`, its `text` and its `read`.
+/// Extra derives after the message's type (`Eq`).
+macro_rules! envelope {
+    ($name:ident, $field:ident, $msg:ty $(, $derive:ident)*) => {
+        #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize $(, $derive)*)]
+        pub struct $name {
+            pub v: u32,
+            pub $field: $msg,
+        }
+
+        impl $name {
+            pub fn new($field: $msg) -> Self {
+                Self {
+                    v: $crate::protocol::PROTOCOL_VERSION,
+                    $field,
+                }
+            }
+
+            pub fn text(msg: $msg) -> String {
+                serde_json::to_string(&Self::new(msg)).unwrap_or_default()
+            }
+
+            pub fn read(text: &str) -> Option<$msg> {
+                serde_json::from_str::<Self>(text).ok().map(|e| e.$field)
+            }
+        }
+    };
+}
+
 pub mod attacks;
 pub mod audience;
 pub mod authority;

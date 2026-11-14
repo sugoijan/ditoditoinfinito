@@ -163,13 +163,7 @@ impl AudienceLink {
                 self.news.push(AudienceNews::Count(count));
             }
             AudienceDown::Snapshot(snap) => {
-                let r = self
-                    .reader
-                    .get_or_insert_with(|| FrameReader::new(snap.stage));
-                if r.stage() != Some(snap.stage) {
-                    *r = FrameReader::new(snap.stage);
-                }
-                r.snapshot(&snap);
+                FrameReader::adopt(&mut self.reader, &snap);
                 self.news.push(AudienceNews::Snapshot(snap));
             }
             AudienceDown::Ended { end } => {
@@ -185,17 +179,7 @@ impl AudienceLink {
         };
         let f = a.frame;
         self.clock.sample(f.at, now);
-        if self
-            .reader
-            .as_ref()
-            .is_none_or(|r| r.stage().is_none_or(|s| s < f.stage))
-        {
-            let mut r = FrameReader::new(f.stage);
-            if f.n != 1 {
-                r.ask_resume();
-            }
-            self.reader = Some(r);
-        }
+        FrameReader::follow(&mut self.reader, f.stage, f.n != 1);
         let Some(r) = self.reader.as_mut() else {
             return;
         };

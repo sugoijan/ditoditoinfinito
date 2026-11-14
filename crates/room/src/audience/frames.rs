@@ -30,21 +30,12 @@ pub struct AudienceFrame {
 
 pub fn encode(f: &AudienceFrame) -> Vec<u8> {
     let body = wire::encode_frame(&f.frame);
-    let mut out = Vec::with_capacity(body.len() + 6);
-    out.push(AUDIENCE_FRAME_V0);
+    let mut w = wire::Writer(Vec::with_capacity(body.len() + 6));
+    w.byte(AUDIENCE_FRAME_V0);
     // The count plus one, zero for none: one varint.
-    let mut x = f.count.map_or(0, |c| u64::from(c) + 1);
-    loop {
-        let b = (x & 0x7f) as u8;
-        x >>= 7;
-        if x == 0 {
-            out.push(b);
-            break;
-        }
-        out.push(b | 0x80);
-    }
-    out.extend(body);
-    out
+    w.u(f.count.map_or(0, |c| u64::from(c) + 1));
+    w.0.extend(body);
+    w.0
 }
 
 pub fn decode(bytes: &[u8]) -> Result<AudienceFrame, WireError> {
@@ -53,26 +44,12 @@ pub fn decode(bytes: &[u8]) -> Result<AudienceFrame, WireError> {
         Some(&b) => return Err(WireError::Unknown(b)),
         None => return Err(WireError::Truncated),
     }
-    let mut at = 1;
-    let mut x = 0u64;
-    let mut shift = 0;
-    loop {
-        let b = *bytes.get(at).ok_or(WireError::Truncated)?;
-        at += 1;
-        if shift >= 35 {
-            return Err(WireError::Invalid);
-        }
-        x |= u64::from(b & 0x7f) << shift;
-        shift += 7;
-        if b & 0x80 == 0 {
-            break;
-        }
-    }
-    let count = match x {
+    let mut r = wire::Reader::new(&bytes[1..]);
+    let count = match r.u()? {
         0 => None,
         n => Some(u32::try_from(n - 1).map_err(|_| WireError::Invalid)?),
     };
-    let frame = wire::decode_frame(&bytes[at..])?;
+    let frame = wire::decode_frame(r.rest())?;
     Ok(AudienceFrame { count, frame })
 }
 
@@ -87,13 +64,7 @@ pub fn coalesce(stage: StageId, n: u32, at: Millis, frames: &[Frame]) -> Frame {
     let mut settling = None;
     for f in frames {
         for e in &f.entries {
-            let m = entries.entry(e.participant).or_insert_with(|| FrameEntry {
-                participant: e.participant,
-                seq: 0,
-                through_us: 0,
-                moments: Vec::new(),
-                end: None,
-            });
+            let m = entries.entry(e.participant).or_insert_with(|| FrameEntry::new(e.participant));
             m.seq = e.seq;
             m.through_us = e.through_us;
             m.moments.extend(e.moments.iter().copied());
@@ -435,6 +406,19 @@ mod tests {
     #[test]
     fn an_audience_frame_reads_back_and_never_as_a_members() {
         let frame = coalesce(StageId(2), 9, Millis(1234), &member_frames(6));
+        // Its bytes: the version, the count plus one as a varint, the
+        // members' frame.
+        let bytes = encode(&AudienceFrame {
+            count: Some(20_000),
+            frame: frame.clone(),
+        });
+        assert_eq!(bytes[..4], [AUDIENCE_FRAME_V0, 0xA1, 0x9C, 0x01]);
+        assert_eq!(bytes[4..], wire::encode_frame(&frame));
+        let none = encode(&AudienceFrame {
+            count: None,
+            frame: frame.clone(),
+        });
+        assert_eq!(none[..2], [AUDIENCE_FRAME_V0, 0]);
         for count in [None, Some(0), Some(20_000), Some(u32::MAX - 1)] {
             let f = AudienceFrame {
                 count,

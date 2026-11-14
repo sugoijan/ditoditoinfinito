@@ -39,7 +39,6 @@ pub mod public;
 pub mod relay;
 
 use crate::live::server::LiveSnapshot;
-use crate::protocol::PROTOCOL_VERSION;
 use crate::{Revision, StageId};
 use serde::{Deserialize, Serialize};
 
@@ -319,33 +318,6 @@ pub enum RelayDown {
     Ended {
         end: AudienceEnd,
     },
-}
-
-macro_rules! envelope {
-    ($name:ident, $field:ident, $msg:ty) => {
-        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-        pub struct $name {
-            pub v: u32,
-            pub $field: $msg,
-        }
-
-        impl $name {
-            pub fn new($field: $msg) -> Self {
-                Self {
-                    v: PROTOCOL_VERSION,
-                    $field,
-                }
-            }
-
-            pub fn text(msg: $msg) -> String {
-                serde_json::to_string(&Self::new(msg)).unwrap_or_default()
-            }
-
-            pub fn read(text: &str) -> Option<$msg> {
-                serde_json::from_str::<Self>(text).ok().map(|e| e.$field)
-            }
-        }
-    };
 }
 
 envelope!(AudienceUpEnvelope, audience, AudienceUp);

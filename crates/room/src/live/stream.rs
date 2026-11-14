@@ -358,6 +358,19 @@ pub struct FrameEntry {
     pub end: Option<StreamEnd>,
 }
 
+impl FrameEntry {
+    /// Nothing of `participant`'s yet.
+    pub fn new(participant: ParticipantId) -> Self {
+        Self {
+            participant,
+            seq: 0,
+            through_us: 0,
+            moments: Vec::new(),
+            end: None,
+        }
+    }
+}
+
 /// A checkpoint the room ran: its number and the ledger's record of it
 /// (everyone's power after it, what it changed).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -533,6 +546,32 @@ impl FrameReader {
         self.commitments.extend(frame.commitments.iter().copied());
         self.checkpoints.extend(frame.checkpoints.iter().cloned());
         true
+    }
+
+    /// `slot`'s reader follows `stage`: a new one where it has none or one
+    /// of an older stage, asking for a resume where `resume` (the stage
+    /// begun already: its first frames went by).
+    pub fn follow(slot: &mut Option<FrameReader>, stage: StageId, resume: bool) {
+        if slot
+            .as_ref()
+            .is_none_or(|r| r.stage().is_none_or(|s| s < stage))
+        {
+            let mut r = FrameReader::new(stage);
+            if resume {
+                r.ask_resume();
+            }
+            *slot = Some(r);
+        }
+    }
+
+    /// `slot`'s reader takes `snap`: a new reader where it has none or one
+    /// of another stage.
+    pub fn adopt(slot: &mut Option<FrameReader>, snap: &crate::live::server::LiveSnapshot) {
+        let r = slot.get_or_insert_with(|| FrameReader::new(snap.stage));
+        if r.stage() != Some(snap.stage) {
+            *r = FrameReader::new(snap.stage);
+        }
+        r.snapshot(snap);
     }
 
     /// A live snapshot came: the frames from `first` on follow it.

@@ -465,9 +465,7 @@ impl FakeServer {
     /// The count to every member's socket that said live hello, arriving
     /// with what was last on its way (no latency drawn).
     fn tell_members(&mut self, msg: ServerLive) {
-        let Ok(text) = serde_json::to_string(&ServerLiveEnvelope::new(msg)) else {
-            return;
-        };
+        let text = ServerLiveEnvelope::text(msg);
         let now = self.now();
         for c in self.conns.values_mut().filter(|c| c.open && c.live) {
             let at = now.max(c.last_down);

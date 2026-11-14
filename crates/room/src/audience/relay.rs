@@ -23,7 +23,7 @@ use crate::audience::{
     AudienceRules, AudienceUp, AudienceUpEnvelope, RelayDown, RelayDownEnvelope, RelayUp,
     RelayUpEnvelope, close,
 };
-use crate::ids::{Millis, StageId};
+use crate::ids::StageId;
 use crate::live::server::LiveSnapshot;
 use crate::live::stream::KeptFrames;
 use crate::online::Message;
@@ -312,12 +312,7 @@ impl Relay {
         // The room counts this relay afresh from its hello.
         self.said = None;
         let mut out = RelayOut::default();
-        out.upstream.push(RelayUpEnvelope::text(RelayUp::Hello {
-            relay: self.id,
-            version: AUDIENCE_VERSION,
-            view: self.view.as_ref().map(|v| v.revision),
-            after: self.last_frame(),
-        }));
+        out.upstream.push(self.hello());
         out
     }
 
@@ -328,6 +323,16 @@ impl Relay {
 
     pub fn upstream(&self) -> bool {
         self.up
+    }
+
+    /// Its hello to the room: what it has of the view and the frames.
+    fn hello(&self) -> String {
+        RelayUpEnvelope::text(RelayUp::Hello {
+            relay: self.id,
+            version: AUDIENCE_VERSION,
+            view: self.view.as_ref().map(|v| v.revision),
+            after: self.last_frame(),
+        })
     }
 
     /// The room's text.
@@ -397,16 +402,7 @@ impl Relay {
             self.stage = Some(f.stage);
             self.last_n = f.n.checked_sub(1);
             self.kept.clear();
-            self.fold = Some(LiveSnapshot {
-                stage: f.stage,
-                song_zero_at: Millis(0),
-                at: f.at,
-                first_frame: f.n,
-                competitors: Vec::new(),
-                commitments: Vec::new(),
-                plan: None,
-                settling: None,
-            });
+            self.fold = Some(LiveSnapshot::empty(f.stage, f.at, f.n));
         }
         let next = self.last_n.map_or(1, |l| l + 1);
         if f.n < next {
@@ -414,12 +410,7 @@ impl Relay {
         }
         if f.n > next {
             // Frames missed on the way up (never on one socket): ask again.
-            out.upstream.push(RelayUpEnvelope::text(RelayUp::Hello {
-                relay: self.id,
-                version: AUDIENCE_VERSION,
-                view: self.view.as_ref().map(|v| v.revision),
-                after: self.last_frame(),
-            }));
+            out.upstream.push(self.hello());
             return out;
         }
         if let Some(c) = a.count {
