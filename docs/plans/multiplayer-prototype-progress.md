@@ -7631,6 +7631,62 @@ Node (`wasm32-wasip1`), for frames of 3.5 KB (`live-v1`'s 250 ms ones;
 about 60 bytes encoded. Nothing of it spikes; the room's own tick
 (the server's) is 0.16–0.17 ms, 2.8–3.4 ms at most at a checkpoint.
 
+### After, and what the measurements point at
+
+Main thread after both fixes, 1280×720, mean / p95 / max: Firefox 72
+played 2.32–2.53 / 4 / 6–13, watched 1.65–1.81 / 3–4 / 6–18, eight
+played 2.02 / 4 / 5, solo 1.50 / 3 / 5; Chrome 72 played 2.25–2.42 /
+4.1–4.6 / 6–7, watched 1.23–1.67 / 2.2–3.9 / 4–9, solo 1.73–1.77 / 3.5 /
+6. At 2560×1440 the same within noise (Firefox 72 played 2.47 / 4 / 6,
+watched 1.65 / 3 / 4). The brief's aim, under 4 ms at the 95th
+percentile: Firefox is there to its clock's millisecond; Chrome's p95
+of 4.1–4.6 is the hand's (its preparation's p95 2.4–2.7 ms alone: its
+share is a quarter of the refresh, and headless Chrome refreshes at
+60 Hz; at 120 Hz it is half that). The worst steady frames are under
+8 ms in both; the spikes above remain.
+
+What a stage adds to a solo play is now about 0.8 ms of main thread in
+Firefox and 0.5 in Chrome, spread thin (the battle 0.16, the
+miniatures' frames 0.1, the overlay 0.17–0.25, the GL calls 0.25), and
+about 0.2 ms of GPU at 2560×1440. The GPU is the larger budget on a
+HiDPI screen, and most of it is a solo play's too: at the MacBook's
+3024×1964 (1512×982 at scale 2) Firefox's GPU took 4.5 ms a frame in a
+solo play and 4.8 (p95 6, max 13) with 72 CPUs, beside 2.5 ms of main
+thread: 7.3 of the 8.3 ms, so that any slower moment (a spike above, a
+busier backdrop, the compositor's own work, which headless does not
+show) misses the refresh. That is the most likely reading of "120 to
+about 50 sometimes": a frame near its budget at that size rather than
+anything a large room alone costs. At 1.5 pixels a point (2268×1473)
+the same stage's GPU took 3.4 ms.
+
+### Proposed, not built
+
+- **The canvas at a lower resolution on HiDPI screens in Firefox**
+  (visible: softer edges): at 1.5 rather than 2 pixels a point the
+  GPU's frame went from 4.8 to 3.4 ms at the MacBook's size. As an
+  option (Options → Display), or automatic when frames run late.
+- **The miniatures' bands and quads in the field's own passes** where
+  nothing overlaps (exact, not built): two passes and two of WebGL2's
+  six conversions fewer a stage frame (0.34 million pixels a frame at
+  1280×720, 1.3 at 2560×1440).
+- **The overlay's draws batched as the skins' are** (exact, not built):
+  20–27 draws a frame in a stage (each miniature's name, stars and
+  score alternate text and shapes), perhaps 0.1–0.2 ms of Firefox's GL
+  calls.
+- **The debug state only when read**: under automation it is built
+  every tenth frame (1 ms at 72 CPUs), on a player's page once a second
+  (one frame a second 1 ms longer).
+
+### What the maintainer can try
+
+`…/#/?mp=1&perf=1` (the Firefox they play in), a practice stage, then
+on the console `__DDI_PERF.save()` after the stage (or a quit): the
+file's rows say each frame's parts; the console line at the play's end
+says how many frames were late and when. A frame whose `total` is
+small while the frames come late is the GPU's or the browser's
+(compositor), one with a large `submit` is Firefox's WebGL. The same
+stage in a smaller window tells the GPU's share.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
