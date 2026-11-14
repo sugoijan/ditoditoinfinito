@@ -383,7 +383,9 @@ Rust and the browser are implementation details, not advertised features.
   screens with transitions, dialogs, messages to actors, the one-line text
   field (mirroring the web's hidden textarea, or editing itself on
   desktop), and a headless harness; the theme's screens
-  (`crates/ui/src/screens/`: start menu, song select, results, options, the pages for
+  (`crates/ui/src/screens/`: start menu, song select, results (a
+  finished play's built alike by both shells, `results_facts::plan`),
+  options, the pages for
   calibration's menu and the credits (`page.rs`: headings, text,
   links, buttons, rows of buttons, folds, fields, notes and zones a
   shell finds under a drop, `Zone.<id>`, lit by `PAGE_TARGET`), the
@@ -638,7 +640,9 @@ Rust and the browser are implementation details, not advertised features.
   `docs/plans/desktop.md` 7.1): the play (`play.rs`: the engine's
   `Player`, bindings, the quit gesture, autoplay and `auto=pad`, the
   fail's fade, a work's start and end fades, the facts a play is kept
-  with, a kept play replayed from its log), the event sounds (`sounds.rs`:
+  with, a kept play replayed from its log; what a play is for, decided
+  once for both shells, `play::Purpose`: kept, given the ghost and the
+  announcer's `Prior` or not), the event sounds (`sounds.rs`:
   the mine sound and the assist clap, made in code, the clap scheduled on
   the audio clock), calibration's modes, chart and click track, backgrounds' frame,
   the sides their images are kept at
@@ -905,7 +909,8 @@ Rust and the browser are implementation details, not advertised features.
   by the 2D pass, `ddi_render::lyrics`), pages as components of our own
   (`crates/web/src/component.rs`: messages handled in a microtask, each page's
   few DOM elements its own; no Yew; `#/video-check`, the crash page and
-  the no-GPU page are plain DOM), one wgpu canvas and
+  the no-GPU page are plain DOM; their host, `crate::ui_host`, the
+  developer page `#/ui-dev` apart in `components/ui_dev.rs`), one wgpu canvas and
   device for the whole app (`crates/web/src/web/screen.rs`: made at boot, moved
   into the page that draws, its last frame held over the next page until
   that page draws, a second at most, made again after a lost device), Web Audio
@@ -2074,7 +2079,7 @@ screen without them (`BarsOn`/`BarsOff`/`BarsStay`, played by the `Ui`).
 On the web each page has its own `Ui`: `Ui::set_bars_route` says which
 routes have bars (`router::has_bars`, Back by `router::back_target`) and
 `Ui::bars_kept`/`carry_bars` hand them to the next page's `Ui`
-(`ui_dev::theme_ui`). The chart editor fades as a whole and has none.
+(`ui_host::theme_ui`). The chart editor fades as a whole and has none.
 Web route ancestry and Options position live in history state; desktop uses
 the UI stack. The web's history entries for dialogs take one operation at
 a time (`ddi_ui::back_stack::Entries`): nothing is pushed or navigated
