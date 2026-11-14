@@ -208,7 +208,13 @@ impl Component for SelectPage {
             folder_input: NodeRef::default(),
             file_input: NodeRef::default(),
             music_input: NodeRef::default(),
-            place: RefCell::new(MenuPlace::load()),
+            // A room's song select has a place of its own
+            // (`ddi_ui::state::place::ROOM_KEY`).
+            place: RefCell::new(if ctx.props().room.is_some() {
+                MenuPlace::load_room()
+            } else {
+                MenuPlace::load()
+            }),
             of_share: shared,
             room: ctx.props().room.clone(),
             packs: RefCell::new(Vec::new()),
@@ -524,6 +530,8 @@ impl SelectPage {
             // context kept for the stage's prompt, so the room's start
             // plays without another press (`AGENTS.md`).
             Rc::new(move |song, chart, _env, cx| {
+                // Back from the stage, the song picked is selected.
+                ddi_ui::state::place::room_picked(&song.id, chart.index);
                 if let Some(audio) = crate::select_preview::hand_over(cx.in_gesture()) {
                     crate::web::audio::keep_for_play(&song.id, chart.index, audio);
                 }
@@ -851,11 +859,15 @@ fn shell_call(shared: &Rc<Shared>, call: SelectCall, cx: &mut ddi_ui::Cx) {
             });
             crate::select_preview::select(entry);
         }
-        // The room's song select moves no singleplayer place.
-        SelectCall::Place(_) if shared.room.is_some() => {}
         SelectCall::Place(p) => {
             let mut settings = Settings::cached();
-            ddi_ui::state::place::apply(&p, &mut shared.place.borrow_mut(), &mut settings);
+            if shared.room.is_some() {
+                // The room's song select keeps a place of its own, and
+                // moves no singleplayer place or style.
+                ddi_ui::state::place::apply_room(&p, &mut shared.place.borrow_mut());
+            } else {
+                ddi_ui::state::place::apply(&p, &mut shared.place.borrow_mut(), &mut settings);
+            }
             // The chart shown: its prompt's diagram's skin readied ahead
             // (the app's field preview, at the host's next frame).
             if let (Some(song), Some(chart)) = (&p.song, p.chart) {

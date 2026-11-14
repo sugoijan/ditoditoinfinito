@@ -113,6 +113,10 @@ const SIDE_PARTS: [&str; 6] = [
     "RoomPlayers",
 ];
 
+/// What `RoomMode::following` holds before anything was followed: never a
+/// chart's key.
+const UNFOLLOWED: &str = "\u{0}";
+
 /// The quiet line shown while the room is not known yet.
 const JOINING: &str = "RoomJoining";
 /// How long joining goes on before the line shows: a room that answers
@@ -176,7 +180,7 @@ impl SelectScreen {
             panel_first: 0,
             // Never a chart's key: the first update sets the follower's
             // song (none yet, or the host's), not their own list.
-            following: Some((String::from("\u{0}"), false)),
+            following: Some((String::from(UNFOLLOWED), false)),
             library: None,
             place: None,
             hovered: None,
@@ -212,6 +216,15 @@ impl SelectScreen {
         self.room
             .as_ref()
             .is_some_and(|rm| rm.side == Side::Joining)
+    }
+
+    /// A follower's screen whose data is still the player's own list: the
+    /// song followed comes at its first update (nothing of the list is
+    /// told meanwhile, so no preview of it starts).
+    pub(super) fn room_unfollowed(&self) -> bool {
+        self.room.as_ref().is_some_and(|rm| {
+            rm.side == Side::Follower && rm.following.as_ref().is_some_and(|(k, _)| k == UNFOLLOWED)
+        })
     }
 
     /// Whether this player may take the pick over now (an operator who
@@ -835,7 +848,7 @@ impl SelectScreen {
             return;
         };
         // Followed again from scratch should the pick go.
-        rm.following = Some((String::from("\u{0}"), false));
+        rm.following = Some((String::from(UNFOLLOWED), false));
         // The song shown is told the room again: its spotlight went with
         // the last picker.
         rm.hovered = None;

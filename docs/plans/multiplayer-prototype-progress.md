@@ -8181,6 +8181,138 @@ Pictures: `target/scratch/e1-shots/` (desktop offscreen with 12, 24,
 every measured run).
 
 
+## Feedback round E2: the room's song select comes back where it was (2026-11-14)
+
+The maintainer: "The state of the song select seems strange, it doesn't
+seem to go back consistently like on singleplayer." No more was said, so
+every way back was compared with singleplayer's first, on both shells,
+in practice and in an online room over `FakeServer` (the UI harness,
+desktop's real library host, headless Chrome and Firefox).
+
+### What came back where (before)
+
+The place is the song selected, its chart and style, the open pack (the
+others closed), the search's filter, and the wheel's scroll, which in
+song select always follows the selected song (it sits on the wheel's
+line; `MenuPlace::scroll` is the old DOM page's and read by nothing, in
+singleplayer too). Singleplayer keeps it all in `MenuPlace` (the
+session's, browsing also between runs) and builds song select from it
+on every visit.
+
+| After | Singleplayer | Room, desktop (before) | Room, web (before) |
+| --- | --- | --- | --- |
+| A stage: pick, Ready, play, results, Back to room (with or without the standings pop-up) | the song played, its chart, style, pack and search; the preview from its start; the screen's entrance (web: a new page, the bars kept) | as singleplayer: the screen waits under the play host and comes back as it was; the standings over it, Continue to the list | **singleplayer's last place** (or the library's first song): `#/room` is a new page built from `MenuPlace::load()`, and the room's song select never kept a place |
+| The stage's prompt left (the picker's Back; a follower's) | n/a (Back from a prompt: song select as it was) | as it was (the prompt is over it) | **singleplayer's place** (back to `#/room`, a new page) |
+| Rules (Cancel, Apply, Apply and restart), Players, Host options, More | n/a (singleplayer's More, Options pop-ups: as it was) | as it was, both shells: overlays; the focus back on the list (More's: on More, as singleplayer's) | same |
+| The pick taken and handed back (Pick songs, T, another operator taking it, the picker leaving) | n/a | the picker's own list as they left it (song, chart, style, open pack, search: `RoomMode::library`, `Place`); the follower has no list | same in one page; **across a page change while following** (a stage between) their own list came back at singleplayer's place |
+| A follower's screen built in a known room (the web's page after a stage) | n/a | its first frame **told its own first song** to the shell (a preview of it asked for, then stopped) before the picker's song replaced it | same |
+| The last stage of a match, the next match's first pick | n/a | as it was (the match's results pop up, Continue) | as the stage row |
+| Options, Calibrate (the footer's links), the announcer studio (through Options) | Options and Calibrate open and come back to song select as it was | **did nothing** (the room's song select had no Options or Calibrate of the shell's) | open on their routes; back on `#/room` at **singleplayer's place** |
+| Leaving the room and coming back (practice: a room made again; online: joined again) | Back to the start menu and in again: as it was | **singleplayer's place**; the room's last place lost | **singleplayer's place** |
+| A reload on the room's route | the session's place | n/a | **singleplayer's place** (a new practice room, as before) |
+| The browser's Back (leaves the room, asked where it costs) and Forward | Back to the start menu; Forward: as it was | n/a | Forward: **singleplayer's place** |
+| A change of language or of size (rebuilt in place) | as it was | as it was | as it was |
+
+Measured in headless Chrome on the build before the fix (the bundled
+songs, a practice room, Down twice and another chart): "Some Things Must
+(OutFox Edit)", Easy 9, came back as "Beatucada", Hard 11 (the first
+song) after the prompt's Back, a reload, the browser's Forward and a
+stage (`target/scratch/mp/fbe2/shots/before-chrome-*.png`).
+
+
+### The fix: a place of the room's own
+
+- **The room's song select has a place of its own**
+  (`ddi_ui::state::place::ROOM_KEY`, `MenuPlace::load_room`,
+  `apply_room`): the picker's committed place, kept for the session
+  only (the web's `sessionStorage`, desktop's run), never singleplayer's
+  place and never the settings' style. Both shells build the room's song
+  select from it (the web's room page, `select_page.rs`; desktop's
+  `room::select` through `Songs::data_at`) and keep its reports in it.
+  Decided: the first room of a session starts at singleplayer's place,
+  as before; a later room (practice made again, an online room joined
+  again) where the last one was, as singleplayer's song select does
+  after the start menu; the session only, since a room's place across
+  runs would start the next day's room somewhere singleplayer is not.
+- **A pick stays selected after its stage**: the pick keeps its song and
+  chart as the room's place in its press (`place::room_picked`, from the
+  room's play function on both shells, as singleplayer's play saves the
+  song played), whatever the screen had reported before.
+- **Only the picker's own list is a place**: a follower's song select
+  reports none (`SelectScreen::tell`), so the song followed never
+  becomes anyone's place, and their own list comes back where they left
+  it after a page change too.
+- **A follower's first frame tells nothing of their own list**
+  (`SelectScreen::room_unfollowed`): no preview of their own song is
+  asked for and stopped before the picker's song comes.
+- **Options and Calibrate in a room on desktop**: the footer's links
+  now open them over the room (`songs::open_fn`, `calibrate::menu`),
+  back on it as it was; the web's already went to their routes.
+- The prompt diagram's skin is readied for the chart the room's song
+  select shows, as singleplayer's (`Songs::warm_shown`; the web's
+  `shared.warm`).
+
+### What a room does now, row by row
+
+Every row of the table comes back as singleplayer's: the song, its
+chart, style, open pack and search, the scroll with the selected song,
+the list focused; the preview from its start; a page's entrance on the
+web with the bars kept, the screen as it was on desktop. A follower's
+view comes back to the picker's resting song and the room's panel,
+without their own list showing or sounding. Left as it is: the mods'
+pills are not shown in a room (Rules and Players have their place), so
+the footer's Options is the way there; the stage prompt's own options
+are in place, as before.
+
+Singleplayer, written down and not changed: `MenuPlace::scroll` is read
+by nothing (the wheel's scroll follows the selection); a pack header
+selected keeps the last song of the open pack as the place; a committed
+style in singleplayer becomes the settings' style (a room's never
+does).
+
+### Also
+
+- **The step-down test no longer depends on the machine's speed**: the
+  dancing hand's work budget was measured on real time while the test's
+  play runs a quarter second of song a frame, so a loaded machine
+  starved its planner ("the hand stopped at frame 68"). The play host
+  takes a clock for that budget in tests (`Host::test_seconds`, the
+  desktop view's `set_test_seconds`: half a microsecond a reading, as
+  the shell's hand tests); the game uses real time as before.
+- **`#/mp?mpcpus=16` in Firefox**: checked, see "Tested" below.
+
+### Tested
+
+- `ddi-ui`: `state::place`'s `a_rooms_place_is_its_own_for_the_session`;
+  `screens::room_place_tests` (practice: Rules closed and applied,
+  Players, More, a phone's size and back, a rebuild, a search, a stage
+  picked, its standings and Continue, the place the same after each;
+  online over the fake room: the picker's song, chart, style Double and
+  open pack back after a hand-over and T, nothing told while following,
+  no list after a rebuild; a follower built in a known room never shows
+  or tells their own list). 566 passed, 2 ignored in its library.
+- Desktop: `tests/room_place.rs` (the real library host: a room left
+  and made again comes back where it was, then at the song picked;
+  Options and Calibrate open over it and come back; singleplayer's
+  place unmoved); `room_entry_offscreen` (no flicker on entering, as
+  round D left it), `room_picker_offscreen`, `room_stage_flow`,
+  `step_down_offscreen` pass.
+- Browsers, headless Chrome and Firefox (`target/scratch/mp/fbe2/place.mjs`,
+  1280×720, the bundled songs): a song further down and another chart,
+  then the prompt's Back, a reload, the browser's Back and Forward, a
+  stage quit and its results' Back to room: the same song and chart
+  each time, the list focused (`shots/after-*`; before, the first song:
+  `shots/before-chrome-*`). The smoke check passes in both.
+- `#/mp?mpcpus=16` in Firefox (`target/scratch/mp/fbe2/mpcpus.mjs`, and
+  in Chrome again): CPU practice reached by keys has 16 CPUs, and its
+  stage shows 16 opponents, each in a field of its own, no console
+  errors. Seen on the way: in headless Firefox a click on CPU practice
+  0.8 s after the home appears is lost, while one 3 s after works (in
+  Chrome 0.8 s works); headless Firefox's frames are slower, so the
+  home's entrance is likely still running then. Not changed; worth a
+  look by hand in Firefox.
+
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

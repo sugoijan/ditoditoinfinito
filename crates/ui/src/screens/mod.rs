@@ -92,6 +92,8 @@ pub mod room_dialogs;
 #[cfg(test)]
 mod room_tests;
 #[cfg(test)]
+mod room_place_tests;
+#[cfg(test)]
 mod results_stage_tests;
 pub mod sample;
 pub mod select;

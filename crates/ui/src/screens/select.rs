@@ -2646,8 +2646,9 @@ impl SelectScreen {
         if self.shell.is_none() || !cx.is_current_screen() {
             return;
         }
-        // A room not known yet shows no song: none is told (no preview).
-        if self.room_joining() {
+        // A room not known yet shows no song: none is told (no preview);
+        // nor a follower's own list before the song followed replaced it.
+        if self.room_joining() || self.room_unfollowed() {
             return;
         }
         let song = match self.shown {
@@ -2666,6 +2667,11 @@ impl SelectScreen {
             self.call(SelectCall::Shown(true), cx);
             // 5.1's `ScreenSelectMusic::BeginScreen`: at every showing.
             cx.request(UiRequest::Announce(Line::SelectMusicIntro));
+        }
+        // A room's place is the picker's own list's: the song followed is
+        // nobody's place (`select_room.rs`, `state::place::apply_room`).
+        if self.room.is_some() && self.room_host() != Some(true) {
+            return;
         }
         let (charts, pick) = self.charts();
         if self.resume.is_some() || self.resume_pack.is_some() {

@@ -432,6 +432,12 @@ impl Songs {
 
     /// Song select's data now.
     pub fn data(&self) -> SelectData {
+        self.data_at(&self.place.borrow())
+    }
+
+    /// [`Songs::data`] at `place` (a room's song select has its own,
+    /// `ddi_ui::state::place::ROOM_KEY`).
+    pub fn data_at(&self, place: &MenuPlace) -> SelectData {
         let settings = Settings::load();
         let empty = ddi_ui::state::history::History::default();
         let history = self.plays.as_ref().map(|p| p.history());
@@ -448,7 +454,7 @@ impl Songs {
                 &|pack| rereadable.contains(&pack.to_lowercase()),
                 &settings,
                 history.as_deref().unwrap_or(&empty),
-                &self.place.borrow(),
+                place,
             )
         });
         data.loading =
@@ -457,6 +463,25 @@ impl Songs {
         #[cfg(danoni_importer)]
         self.imports.borrow().view(&mut data.import);
         data
+    }
+
+    /// The chart `place` shows: its prompt's diagram's skin readied ahead
+    /// (the shell's field preview, `Field::warm`).
+    pub fn warm_shown(&self, place: &ddi_ui::screens::select::SelectPlace, settings: &Settings) {
+        let (Some(song), Some(chart)) = (&place.song, place.chart) else {
+            return;
+        };
+        let library = self.library.borrow();
+        let entry = library
+            .as_ref()
+            .and_then(|l| l.songs.iter().find(|s| s.entry.id == *song))
+            .map(|s| &s.entry)
+            .or_else(|| self.bundled.iter().find(|e| e.id == *song));
+        if let Some(c) = entry
+            .and_then(|e| ddi_ui::screens::prompt_controls::Controls::for_chart(e, chart, settings))
+        {
+            *self.warm.borrow_mut() = Some(Rc::new(c));
+        }
     }
 
     /// Hands song select the list now.
@@ -887,21 +912,7 @@ impl Songs {
             SelectCall::Place(p) => {
                 let mut settings = Settings::cached();
                 ddi_ui::state::place::apply(&p, &mut self.place.borrow_mut(), &mut settings);
-                // The chart shown: its prompt's diagram's skin readied
-                // ahead (the shell's field preview, `Field::warm`).
-                if let (Some(song), Some(chart)) = (&p.song, p.chart) {
-                    let library = self.library.borrow();
-                    let entry = library
-                        .as_ref()
-                        .and_then(|l| l.songs.iter().find(|s| s.entry.id == *song))
-                        .map(|s| &s.entry)
-                        .or_else(|| self.bundled.iter().find(|e| e.id == *song));
-                    if let Some(c) = entry.and_then(|e| {
-                        ddi_ui::screens::prompt_controls::Controls::for_chart(e, chart, &settings)
-                    }) {
-                        *self.warm.borrow_mut() = Some(Rc::new(c));
-                    }
-                }
+                self.warm_shown(&p, &settings);
             }
             // A kept play (`docs/plans/play-history.md`, Replays): its
             // replay or its results through the play's host; forgotten.
@@ -985,7 +996,7 @@ fn play_fn(songs: &Rc<Songs>) -> PlayFn {
 }
 
 /// Song select's Options: the options on the settings, over it.
-fn open_fn(songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> OpenFn {
+pub(crate) fn open_fn(songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> OpenFn {
     let songs = songs.clone();
     Rc::new(move |env: &Env, cx: &mut Cx| {
         let (screen, shared) = crate::options::screen(env, sound.clone(), Some(songs.clone()));

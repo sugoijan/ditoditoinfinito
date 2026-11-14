@@ -1397,7 +1397,13 @@ Rust and the browser are implementation details, not advertised features.
   button where the picker's search is, the room's More, T): the pick
   taken at once, their own list back with their place and search
   (`RoomMode::library`, `Place`); the status line names who chooses and
-  the players' rows mark them. The screen is built as one side at a time
+  the players' rows mark them. The picker's list has a place of its own
+  for the session, never singleplayer's (`state::place::ROOM_KEY`,
+  `load_room`, `apply_room`, `room_picked`: the first room starts at
+  singleplayer's, a pick stays selected after its stage; the shells build
+  the room's song select from it; a follower tells none;
+  `docs/plans/song-navigation.md`, "In a room"); its footer's Options and
+  Calibrate open over it on both shells. The screen is built as one side at a time
   (`select_room::Side`: nothing of a view until the room says who the
   player is, an online room's first answer coming after the screen is
   built, only the bars and a quiet line; then the picker's or the

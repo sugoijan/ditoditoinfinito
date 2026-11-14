@@ -26,6 +26,8 @@ use ddi_ui::screens::online::{OnlineCall, OnlinePage, OnlineScreen};
 use ddi_ui::screens::room::{RoomCall, RoomShell};
 use ddi_ui::screens::select::{SelectCall, SelectScreen};
 use ddi_ui::state::online::Redirect;
+use ddi_ui::state::place::MenuPlace;
+use ddi_ui::state::settings::Settings;
 use ddi_ui::state::room::{
     Inbox, LivePrep, LoadJob, LoadProblem, RoomClient, SharedRoom, ShellNews, UploadJob, picked_of,
     prepare_chart, prepare_stage,
@@ -646,9 +648,20 @@ fn select(
     let Some(songs) = songs else {
         return ddi_ui::screens::sample::room_screen(env, room.clone()).with_room(room, shell);
     };
-    let data = songs.data();
+    // The room's song select has a place of its own, for the run
+    // (`ddi_ui::state::place::ROOM_KEY`): a new room starts where the last
+    // one was, the first where singleplayer's is.
+    let place = Rc::new(RefCell::new(MenuPlace::load_room()));
+    let data = songs.data_at(&place.borrow());
+    // Options and Calibrate (the footer's links) over the room, as from
+    // singleplayer's song select: back on it where it was.
+    let open = crate::songs::open_fn(songs, sound.clone());
     let songs = songs.clone();
+    let shown = env.clone();
     let calls: ddi_ui::screens::select::ShellFn = Rc::new(move |call, cx| match call {
+        SelectCall::Open(what) if what == "calibrate" => {
+            cx.push(crate::calibrate::menu(&shown, &songs, sound.clone()));
+        }
         SelectCall::Leave => {
             if let Some(sound) = &sound {
                 sound.borrow_mut().pause();
@@ -658,15 +671,20 @@ fn select(
         call @ (SelectCall::Selected { .. } | SelectCall::Volume(_) | SelectCall::Shown(_)) => {
             songs.call(call, sound.as_ref(), cx)
         }
+        // Moving no singleplayer place or style.
+        SelectCall::Place(p) => {
+            ddi_ui::state::place::apply_room(&p, &mut place.borrow_mut());
+            songs.warm_shown(&p, &Settings::cached());
+        }
         _ => {}
     });
-    // The pick is the room's; the press needs nothing more here.
+    // The pick is the room's: the room's place keeps it selected.
     SelectScreen::new(
         env.clone(),
         data,
         None,
-        Rc::new(|_, _, _, _| {}),
-        Rc::new(|_, _| {}),
+        Rc::new(|song, chart, _, _| ddi_ui::state::place::room_picked(&song.id, chart.index)),
+        open,
     )
     .with_shell(calls, Default::default())
     .with_room(room, shell)

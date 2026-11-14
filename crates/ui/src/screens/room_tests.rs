@@ -2311,16 +2311,16 @@ fn points_show_as_decimals() {
 
 /// An online room over the fake room with alice (its owner), bob and
 /// carol in it, each with a client; bob a co-host where `co_host`.
-struct Three {
-    clock: ddi_room::ManualClock,
-    server: ddi_room::fake::SharedFake,
-    alice: SharedRoom,
-    bob: SharedRoom,
-    carol: SharedRoom,
+pub(super) struct Three {
+    pub(super) clock: ddi_room::ManualClock,
+    pub(super) server: ddi_room::fake::SharedFake,
+    pub(super) alice: SharedRoom,
+    pub(super) bob: SharedRoom,
+    pub(super) carol: SharedRoom,
 }
 
 impl Three {
-    fn new(co_host: bool) -> Three {
+    pub(super) fn new(co_host: bool) -> Three {
         Three::over(|_| {}, co_host)
     }
 
@@ -2380,7 +2380,7 @@ impl Three {
     }
 
     /// Time passes for the three clients.
-    fn step(&self, ms: u64) {
+    pub(super) fn step(&self, ms: u64) {
         crate::state::online::tests::room::tick(
             &self.clock,
             &mut [
@@ -2393,7 +2393,7 @@ impl Three {
     }
 
     /// Time passes and every screen runs.
-    fn settle(&self, ms: u64, screens: &mut [&mut Harness]) {
+    pub(super) fn settle(&self, ms: u64, screens: &mut [&mut Harness]) {
         self.step(ms);
         for h in screens.iter_mut() {
             h.run(0.3);

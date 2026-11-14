@@ -10,6 +10,12 @@ use serde::{Deserialize, Serialize};
 /// Where the place is kept.
 pub const KEY: &str = "ddi.menu.v1";
 
+/// Where a multiplayer room's song select was (the picker's own list,
+/// `docs/plans/song-navigation.md`, "In a room"): its own place, kept for
+/// the session only (the web's `sessionStorage`, surviving a stage's
+/// routes and a reload; desktop's run), never singleplayer's.
+pub const ROOM_KEY: &str = "ddi.room.menu.v1";
+
 /// Where the song list was.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -82,6 +88,39 @@ impl MenuPlace {
             let _ = storage::save(Area::Local, KEY, self);
         }
     }
+
+    /// A room's song select's place: where the last room's was this
+    /// session, else where singleplayer's is (the first room starts there).
+    pub fn load_room() -> MenuPlace {
+        storage::load(Area::Session, ROOM_KEY).unwrap_or_else(MenuPlace::load)
+    }
+
+    /// Keeps a room's place for the session ([`ROOM_KEY`]).
+    pub fn save_room(&self) {
+        let _ = storage::save(Area::Session, ROOM_KEY, self);
+    }
+}
+
+/// A room's song select's committed `report` (the picker's own list):
+/// remembered in `place` and kept as the room's, never singleplayer's place
+/// or the settings' style.
+pub fn apply_room(report: &crate::screens::select::SelectPlace, place: &mut MenuPlace) {
+    let before = place.clone();
+    place.remember(report);
+    if *place != before {
+        place.save_room();
+    }
+}
+
+/// A room's pick (`song`'s chart `chart`): the room's place keeps it
+/// selected, as singleplayer's play keeps the song played, whatever the
+/// screen had told before the press.
+pub fn room_picked(song: &str, chart: usize) {
+    let mut place = MenuPlace::load_room();
+    place.known = true;
+    place.song = Some(song.to_string());
+    place.chart = Some((song.to_string(), chart));
+    place.save_room();
 }
 
 /// Song select's committed `report` in either shell: remembered in `place`,
@@ -190,6 +229,47 @@ mod tests {
             &mut settings,
         );
         assert_eq!(settings.style, "dance-double");
+    }
+
+    /// A room's song select has a place of its own for the session: the
+    /// first room starts at singleplayer's, a room's moves and picks never
+    /// move singleplayer's or the settings' style, and the next room (the
+    /// web's room page after a stage, a reload) starts where it was.
+    #[test]
+    fn a_rooms_place_is_its_own_for_the_session() {
+        use crate::state::settings::{KEY as SETTINGS, Settings};
+        storage::install(Rc::new(storage::MemoryStore::default()));
+        let (mut solo, mut settings) = (MenuPlace::default(), Settings::default());
+        let report = crate::screens::select::SelectPlace {
+            song: Some("solo".into()),
+            chart: Some(1),
+            style: "dance-double".into(),
+            open: Some(pack_key(Some("Solo Pack"))),
+            ..Default::default()
+        };
+        apply(&report, &mut solo, &mut settings);
+        storage::remove(Area::Local, SETTINGS);
+        // The first room: singleplayer's place.
+        let mut room = MenuPlace::load_room();
+        assert_eq!(room, solo);
+        let moved = crate::screens::select::SelectPlace {
+            song: Some("room-song".into()),
+            chart: Some(2),
+            style: "dance-single".into(),
+            open: Some(pack_key(Some("Room Pack"))),
+            search: "room".into(),
+            closed: vec![None],
+        };
+        apply_room(&moved, &mut room);
+        room_picked("picked", 3);
+        assert_eq!(MenuPlace::load(), solo, "singleplayer's stays");
+        assert!(storage::get(Area::Local, SETTINGS).is_none(), "the style too");
+        assert!(storage::get(Area::Local, ROOM_KEY).is_none(), "the session's");
+        let again = MenuPlace::load_room();
+        assert_eq!(again.song.as_deref(), Some("picked"));
+        assert_eq!(again.chart, Some(("picked".into(), 3)));
+        assert_eq!(again.open.as_deref(), Some("pack:room pack"));
+        assert_eq!((again.search.as_str(), again.style.as_deref()), ("room", Some("dance-single")));
     }
 
     #[test]

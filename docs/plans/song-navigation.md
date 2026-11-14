@@ -138,6 +138,40 @@ the shell stops/cancels preview playback. The desktop header and compact
 Back control lead to Start. Options and Credits return to their caller.
 See [the start-menu contract](start-menu.md).
 
+## In a room (2026-11-14)
+
+A multiplayer room's song select (`select_room.rs`) comes back where
+the picker left it, as singleplayer's does, with a place of its own:
+`ddi_ui::state::place::ROOM_KEY`, kept for the session only (the web's
+`sessionStorage`, so a stage's routes, a reload and the browser's Back
+and Forward find it; desktop's run). The first room of a session starts
+at singleplayer's place; every later one (a practice room made again,
+an online room joined again) where the last room was. The room never
+moves singleplayer's place or the settings' style (practice plays
+Single alone; a room's style is its own).
+
+- Only the picker's own list is a place (`SelectScreen::tell` reports
+  none while following or joining): the song followed is nobody's.
+- A pick keeps its song and chart as the place
+  (`state::place::room_picked`, as singleplayer's play does), so the
+  list comes back on the song picked after the stage, the next pick
+  usually being near it.
+- The picker's own list is kept through a change of hands
+  (`RoomMode::library`, `Place`: the song, the chart, the style, the
+  open pack, the search); the wheel's scroll follows the selected song,
+  as everywhere in song select.
+- A follower's screen tells nothing of its own list before the song
+  followed replaced it (`SelectScreen::room_unfollowed`): no preview of
+  their own song starts for a frame.
+- The footer's Options and Calibrate open over the room and come back
+  to it as it was, on both shells (desktop's did nothing in a room
+  before); the announcer studio is reached through Options as ever. The
+  header has the room's Rules and Players in the mods' place, so the
+  mods' pills are not a way to Options in a room.
+
+The table of what came back where before this, row by row:
+`docs/plans/multiplayer-prototype-progress.md`, "Feedback round E2".
+
 ## Verification
 
 Pure recognizer/motion tests cover singles, isolated and opposite pairs,
