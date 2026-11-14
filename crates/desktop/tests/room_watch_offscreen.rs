@@ -12,134 +12,67 @@
 //!   the play (Escape twice) forfeits, watches on and skips (a press on
 //!   the plate); each ranked as before.
 //!
-//! Skipped where there is no GPU adapter (CI). `DDI_ROOM_SHOTS=<dir>`
+//! Skipped where there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>`
 //! keeps pictures (PPM).
 
 mod common;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
-use ddi_desktop::gpu::{self, Gpu};
-use ddi_desktop::play::host::{Device, Host};
-use ddi_desktop::play::view::Formats;
+use ddi_desktop::gpu::{self};
+use ddi_desktop::play::host::Host;
 use ddi_platform::history::MemoryPlayStore;
-use ddi_platform::{DeviceId, HostTime, RawInput};
+use ddi_platform::DeviceId;
 use ddi_room::{Finish, Phase};
-use ddi_ui::event::{KeyEvent, UiEvent};
-use ddi_ui::screens::data::{ChartEntry, Difficulty, SongEntry};
+use ddi_ui::screens::data::{Difficulty, SongEntry};
 use ddi_ui::state::history::Plays;
 use ddi_ui::state::room::SharedRoom;
+use common::ui::key;
+use common::ui::top;
 
 const SIZE: [u32; 2] = [1280, 720];
 /// Beatucada's Medium chart: long enough for attacks.
 const CHART: usize = 4;
 
-fn top(ui: &ddi_ui::Ui) -> String {
-    ui.layers()
-        .last()
-        .map(|l| l.name.clone())
-        .unwrap_or_default()
-}
-
-fn key(ui: &mut ddi_ui::Ui, code: &str, k: &str) {
-    ui.handle(UiEvent::Key(KeyEvent::down(code, k)));
-    ui.handle(UiEvent::Key(KeyEvent::up(code, k)));
-}
-
 fn ppm(name: &str, pixels: &[u8]) {
-    let Some(dir) = std::env::var_os("DDI_ROOM_SHOTS") else {
-        return;
-    };
-    let mut out = format!("P6\n{} {}\n255\n", SIZE[0], SIZE[1]).into_bytes();
-    out.extend(
-        pixels
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .flat_map(|p| [p[0], p[1], p[2]]),
-    );
-    std::fs::write(std::path::Path::new(&dir).join(format!("{name}.ppm")), out).unwrap();
+    common::shot(&format!("{name}.ppm"), pixels, SIZE);
 }
 
-/// The window's parts a test drives: the UI over the room's song select,
-/// the play host on a fake clock, the picture it draws into.
+/// The window's parts a test drives (the UI over the room's song select,
+/// the play host on a fake clock, the picture it draws into), and the
+/// room, its song and the plays kept.
 struct Rig {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    _ui_gpu: Gpu,
-    ui: ddi_ui::Ui,
-    env: ddi_ui::screens::Env,
-    host: Host,
-    clock: Arc<AtomicU64>,
-    texture: wgpu::Texture,
-    formats: Formats,
+    window: common::rig::Rig,
     room: SharedRoom,
     entry: SongEntry,
     store: Rc<MemoryPlayStore>,
 }
 
+impl std::ops::Deref for Rig {
+    type Target = common::rig::Rig;
+    fn deref(&self) -> &common::rig::Rig {
+        &self.window
+    }
+}
+
+impl std::ops::DerefMut for Rig {
+    fn deref_mut(&mut self) -> &mut common::rig::Rig {
+        &mut self.window
+    }
+}
+
 impl Rig {
     fn new() -> Option<Rig> {
         common::indexes();
-        let instance = gpu::instance();
-        let Some(adapter) = gpu::adapter(&instance, None) else {
-            eprintln!("no GPU adapter: skipped");
-            return None;
-        };
-        let (device, queue) = gpu::device(&adapter).unwrap();
-        let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
-        let ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
-        let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
-        let (mut ui, env, _) = ddi_desktop::shell::theme_ui("start", fold);
-        env.reduced_motion.set(true);
-        ui.handle(UiEvent::Resize {
-            size: [SIZE[0] as f32, SIZE[1] as f32],
-            ratio: 1.0,
-        });
+        let adapter = common::gpu::adapter_or_skip()?;
+        let (ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
         let store = Rc::new(MemoryPlayStore::default());
         let plays = Plays::new(store.clone());
-        let mut host = Host::new(Rc::default(), Some(plays));
-        let clock = Arc::new(AtomicU64::new(1_000_000_000));
-        let c = clock.clone();
-        host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
-        let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width: SIZE[0],
-                height: SIZE[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-        });
-        let room = ddi_desktop::room::current();
-        room.borrow_mut().set_rules_seen(true);
-        ui.push(ddi_desktop::room::room_screen_with(
-            &env,
-            None,
-            None,
-            Some(host.requested.clone()),
-        ));
-        ui.update(0.5);
-        let song = ddi_desktop::play::load::read_chart("beatucada").unwrap();
-        let entry = SongEntry {
-            id: "beatucada".into(),
-            title: "Beatucada".into(),
-            charts: vec![ChartEntry {
-                style: "dance-single".into(),
-                difficulty: Difficulty::Medium,
-                index: CHART,
-                digest: Some(song.chart_digest(CHART)),
-                ..ChartEntry::default()
-            }],
-            ..SongEntry::default()
-        };
+        let host = Host::new(Rc::default(), Some(plays));
+        let mut window = common::rig::Rig::new(&adapter, SIZE, ui, env, host).with_ui_gpu(&adapter);
+        let w = &mut window;
+        let room = common::practice::open(&mut w.ui, &w.env, &w.host);
+        let entry =
+            common::practice::song_entry("beatucada", "Beatucada", CHART, Difficulty::Medium);
         {
             let mut r = room.borrow_mut();
             let rules = ddi_room::MatchRules {
@@ -149,28 +82,11 @@ impl Rig {
             r.save_rules(rules).unwrap();
         }
         Some(Rig {
-            device,
-            queue,
-            _ui_gpu: ui_gpu,
-            ui,
-            env,
-            host,
-            clock,
-            texture,
-            formats,
+            window,
             room,
             entry,
             store,
         })
-    }
-
-    fn poll(&mut self) {
-        let dev = Device {
-            device: &self.device,
-            queue: &self.queue,
-            formats: self.formats,
-        };
-        self.host.poll(&mut self.ui, &self.env, Some(dev), 48_000);
     }
 
     /// The pick, its prompt readied (`auto`: the player's play is
@@ -190,17 +106,7 @@ impl Rig {
         let stage = request.stage.as_ref().expect("a stage").stage;
         request.auto = auto;
         *self.host.requested.borrow_mut() = Some(request);
-        let mut waited = 0;
-        loop {
-            self.poll();
-            self.ui.update(0.05);
-            if self.host.prompt_ready() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            waited += 1;
-            assert!(waited < 1000, "the song was never read");
-        }
+        self.wait_prompt();
         self.ui.update(0.5);
         assert_eq!(top(&self.ui), "play-prompt");
         stage
@@ -209,43 +115,15 @@ impl Rig {
     /// The room's countdown passed: the stage starts, the prompt pressing
     /// Start for the host.
     fn start(&mut self) {
-        {
-            let mut r = self.room.borrow_mut();
-            let later = r.now_ms() + 3_000;
-            r.tick(later);
-        }
-        self.ui.update(0.05);
-        self.poll();
+        let room = self.room.clone();
+        self.countdown(&room);
         assert!(self.host.playing(), "{:?}", self.ui.layers());
     }
 
     /// One frame of the play, a quarter of a second on; the host second
     /// it was drawn at.
     fn frame(&mut self) -> f64 {
-        let now = self.clock.fetch_add(1_000_000_000 / 4, Ordering::SeqCst) + 1_000_000_000 / 4;
-        let srgb = self.texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-            ..Default::default()
-        });
-        let plain = self.texture.create_view(&Default::default());
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        let dev = Device {
-            device: &self.device,
-            queue: &self.queue,
-            formats: self.formats,
-        };
-        self.host.draw_play(
-            &dev,
-            &mut encoder,
-            &srgb,
-            Some(&plain),
-            SIZE,
-            HostTime(now as f64 / 1e9),
-            &mut self.ui,
-            &self.env,
-        );
-        self.queue.submit(Some(encoder.finish()));
-        now as f64 / 1e9
+        self.window.frame(1_000_000_000 / 4)
     }
 
     fn shot(&mut self, name: &str) {
@@ -254,30 +132,13 @@ impl Rig {
             std::thread::sleep(std::time::Duration::from_millis(20));
             self.frame();
         }
-        ppm(name, &gpu::read_rgba(&self.device, &self.queue, &self.texture));
+        ppm(name, &gpu::read_rgba(&self.device, &self.queue, &self.target.texture));
     }
 
     /// The frame drawn last, as it is (a moment that would pass in
     /// [`Rig::shot`]'s frames: an attack's line lasts 1.5 s).
     fn shot_now(&mut self, name: &str) {
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        ppm(name, &gpu::read_rgba(&self.device, &self.queue, &self.texture));
-    }
-
-    fn edge(&mut self, device: DeviceId, control: &str, pressed: bool) {
-        let at = self.clock.load(Ordering::SeqCst) as f64 / 1e9 - 0.1;
-        self.host.feed.borrow_mut().edges.push(RawInput {
-            device,
-            control: control.into(),
-            pressed,
-            host_time: HostTime(at),
-            slot: 0,
-        });
-    }
-
-    fn press(&mut self, code: &str) {
-        self.edge(DeviceId::Keyboard, code, true);
-        self.edge(DeviceId::Keyboard, code, false);
+        ppm(name, &self.read());
     }
 
     /// The play's frames to its end; the results' screen is up.
@@ -286,12 +147,12 @@ impl Rig {
         while self.host.playing() {
             self.frame();
             if frames % 16 == 0 {
-                let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+                self.wait_gpu();
             }
             frames += 1;
             assert!(frames < 4 * 400, "the play never ended");
         }
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        self.wait_gpu();
         self.ui.update(0.05);
         assert_eq!(top(&self.ui), "results");
         self.ui.update(3.0);
@@ -486,9 +347,7 @@ fn a_practice_stage_is_watched_from_the_grid_and_a_seat_to_its_results() {
     assert!(rig.ui.actor("ScoreBox").is_none(), "no grade of their own");
     assert!(rig.ui.bounds("Tab.Standings").is_some() && rig.ui.bounds("Tab.Graphs").is_none());
     assert!(rig.ui.bounds("Retry").is_none());
-    let pixels = rig
-        ._ui_gpu
-        .draw_offscreen(&mut rig.ui, SIZE, wgpu::TextureFormat::Rgba8Unorm);
+    let pixels = rig.ui_picture();
     ppm("watch-results", &pixels);
     rig.back_to_room();
     assert!(matches!(

@@ -1,10 +1,20 @@
 //! What the desktop's tests share: the bundled songs' and noteskins'
 //! indexes (`target/songs/index.json`, `target/noteskins/index.json`),
 //! which Trunk's builds and `just test` write, written here when a fresh
-//! checkout has none; a song played offscreen ([`offscreen_play`]).
+//! checkout has none; the GPU or a skip and the picture drawn into
+//! ([`gpu`]); the theme's UI and a person's keys and taps ([`ui`]); the
+//! play host offscreen on a fake clock ([`rig`]); the practice room
+//! ([`practice`]); an online room over the fake room ([`online`]); a song
+//! played offscreen ([`offscreen_play`]); and the pictures kept
+//! ([`shot`]).
+#![allow(dead_code)]
 
-#[allow(dead_code)]
+pub mod gpu;
 pub mod offscreen_play;
+pub mod online;
+pub mod practice;
+pub mod rig;
+pub mod ui;
 
 use std::path::Path;
 use std::sync::Once;
@@ -12,7 +22,6 @@ use std::sync::Once;
 /// Writes the indexes the bundled songs and noteskins are listed from,
 /// when they are missing (`cargo run -p xtask -- gen-songs`,
 /// `gen-noteskins`), once a test binary.
-#[allow(dead_code)]
 pub fn indexes() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
@@ -34,4 +43,42 @@ pub fn indexes() {
             assert!(ok, "`cargo run -p xtask -- {task}` failed");
         }
     });
+}
+
+/// Where the tests keep their pictures: the folder `DDI_OFFSCREEN_PPM`
+/// names, else one the older names give (each test's own once).
+const PICTURES: [&str; 9] = [
+    "DDI_OFFSCREEN_PPM",
+    "DDI_ROOM_SHOTS",
+    "DDI_AV2_SHOTS",
+    "DDI_FIELDS_SHOTS",
+    "DDI_POLICY_SHOTS",
+    "DDI_MENU_PPM",
+    "DDI_PROMPT_PPM",
+    "DDI_HUD_SNAPSHOTS",
+    "DDI_CONTROLLER_PROOFS",
+];
+
+/// A picture (RGBA rows of `size`) kept as `name` in the pictures'
+/// folder ([`PICTURES`]) where one is named: a PNG where `name` ends in
+/// `.png`, else a PPM (P6, the alpha left out).
+pub fn shot(name: &str, rgba: &[u8], size: [u32; 2]) {
+    let Some(dir) = PICTURES.iter().find_map(std::env::var_os) else {
+        return;
+    };
+    let dir = Path::new(&dir);
+    std::fs::create_dir_all(dir).expect("the pictures' folder");
+    let path = dir.join(name);
+    if name.ends_with(".png") {
+        image::save_buffer(path, rgba, size[0], size[1], image::ColorType::Rgba8).expect("png");
+        return;
+    }
+    let mut ppm = format!("P6\n{} {}\n255\n", size[0], size[1]).into_bytes();
+    ppm.extend(
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
+            .flat_map(|p| [p[0], p[1], p[2]]),
+    );
+    std::fs::write(path, ppm).expect("ppm");
 }

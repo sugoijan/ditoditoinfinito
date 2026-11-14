@@ -1,7 +1,7 @@
 //! A room's host on its screens
 //! (`docs/plans/multiplayer-prototype-progress.md`, "A room's host"),
 //! drawn offscreen on this machine's GPU in the game's theme, over the
-//! room model's fake room (`room_fake`: no network, no sign-in). Skipped
+//! room model's fake room (`common::online`: no network, no sign-in). Skipped
 //! where there is no GPU adapter (CI).
 //!
 //! The room has its owner (alice), a co-host (bob) and a member (carol).
@@ -16,14 +16,14 @@
 //! the owner's) and the question before a co-host replaces the invite.
 //! `DDI_OFFSCREEN_PPM=<dir>` keeps them.
 
-mod room_fake;
-
+mod common;
 use std::rc::Rc;
 
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::fake::FakeServer;
 use ddi_room::{Command, Identity, Intent, ManualClock, ParticipantId, RoomPolicy};
-use room_fake::{ROOM, Scene, Songs, drawn, keep, key, library, person, tap};
+use common::online::{ROOM, Scene, Songs, drawn, keep, library, person};
+use common::ui::{key_frames as key, tap};
 
 /// Opens the Players pop-up on `ui`: its button in the header, or More's
 /// item where the header has no room for it (a phone).
@@ -38,9 +38,7 @@ fn open_players(ui: &mut ddi_ui::Ui) {
 
 #[test]
 fn the_hosts_pop_ups_and_a_room_handed_over() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");

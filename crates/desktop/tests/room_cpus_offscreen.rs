@@ -1,6 +1,6 @@
 //! CPUs in an online room (`ddi_room::live::cpus`, `online-cpus-v0`,
 //! 2026-11-13) on its screens, drawn offscreen on this machine's GPU in
-//! the game's theme over the room model's fake room (`room_fake`: no
+//! the game's theme over the room model's fake room (`common::online`: no
 //! network, no sign-in). Skipped where there is no GPU adapter (CI).
 //!
 //! The pictures: the owner's Rules pop-up in a room that plays live with
@@ -9,14 +9,14 @@
 //! with the CPUs among the players (stars, never Bot), wide and on a
 //! phone, in English and Japanese. `DDI_OFFSCREEN_PPM=<dir>` keeps them.
 
-mod room_fake;
-
+mod common;
 use std::rc::Rc;
 
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::fake::FakeServer;
 use ddi_room::{Identity, Intent, ManualClock, RoomPolicy};
-use room_fake::{ROOM, Scene, Songs, drawn, keep, library, person, tap};
+use common::online::{ROOM, Scene, Songs, drawn, keep, library, person};
+use common::ui::tap;
 
 /// Opens the Rules pop-up on `ui`: its link in the footer, or More's
 /// item where the footer has no room for it (a phone).
@@ -31,9 +31,7 @@ fn open_rules(ui: &mut ddi_ui::Ui) {
 
 #[test]
 fn an_online_rooms_cpus_on_its_rules_and_its_players() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");

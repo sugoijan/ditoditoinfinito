@@ -12,8 +12,7 @@
 //! nothing of joining, a slow one does. Skipped where there is no GPU
 //! adapter (CI).
 
-mod room_fake;
-
+mod common;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -28,7 +27,7 @@ use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
 use ddi_ui::state::online::{Http, Online, OnlineConfig, Platform, SharedOnline};
 use ddi_ui::state::room::{RoomClient, SharedRoom};
 use ddi_ui::{Ui, UiEvent, UiRequest};
-use room_fake::{ROOM, keep, library};
+use common::online::{ROOM, keep, library};
 
 /// The fake room's HTTP for its owner, each answer `lag` ms after its
 /// request on the scene's clock.
@@ -101,9 +100,7 @@ enum Shell {
 
 #[test]
 fn from_the_home_into_a_private_room_frame_by_frame() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
@@ -211,7 +208,7 @@ fn from_the_home_into_a_private_room_frame_by_frame() {
             }
             assert!(online.borrow().me().is_some(), "signed in");
             let before = ui.bounds("Choice.find").expect("the column");
-            room_fake::tap(&mut ui, "Choice.private", 0.0);
+            common::ui::tap(&mut ui, "Choice.private", 0.0);
             let motion = if reduced { "reduced" } else { "full" };
             let what = format!("{shell:?} {motion} lag {lag}");
             let mut room_ui: Option<Ui> = None;
@@ -279,11 +276,11 @@ fn from_the_home_into_a_private_room_frame_by_frame() {
                 // The bars every frame: the header's wordmark, the
                 // footer's hints.
                 assert!(
-                    room_fake::drawn(&pixels, size, [0.0, 0.0, 0.3, 0.06]),
+                    common::online::drawn(&pixels, size, [0.0, 0.0, 0.3, 0.06]),
                     "{what} frame {frame}: no header"
                 );
                 assert!(
-                    room_fake::drawn(&pixels, size, [0.0, 0.955, 0.3, 1.0]),
+                    common::online::drawn(&pixels, size, [0.0, 0.955, 0.3, 1.0]),
                     "{what} frame {frame}: an empty footer"
                 );
                 keep(

@@ -7,8 +7,7 @@
 //! there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>` keeps the
 //! pictures (`standings-stepped-<w>x<h>-<lang>.ppm`).
 
-mod room_fake;
-
+mod common;
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::{Finish, Finisher, OpponentSpec, ParticipantId, RunDetail};
 use ddi_ui::Ui;
@@ -17,7 +16,7 @@ use ddi_ui::screens::data::{ChartEntry, Difficulty, ResultsKind, SongEntry};
 use ddi_ui::screens::results::{ResultsActions, ResultsScreen};
 use ddi_ui::screens::{Env, sample};
 use ddi_ui::state::room::{RoomClient, StageOrder};
-use room_fake::{drawn, keep};
+use common::online::{drawn, keep};
 
 fn song() -> SongEntry {
     SongEntry {
@@ -113,9 +112,7 @@ fn stage() -> (ddi_ui::state::room::SharedRoom, StageOrder) {
 
 #[test]
 fn the_standings_give_each_name_its_room_beside_the_mark_of_a_step() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");

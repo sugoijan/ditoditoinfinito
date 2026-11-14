@@ -12,20 +12,17 @@
 //! view without it, then both sides after the co-host took the pick.
 //! `DDI_OFFSCREEN_PPM=<dir>` keeps them (`<scene>-<w>x<h>-<lang>.ppm`).
 
-mod room_fake;
-
+mod common;
 use std::rc::Rc;
 
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::fake::{FakeServer, Fault};
 use ddi_room::{Command, Identity, Intent, ManualClock, ParticipantId, RoomPolicy};
-use room_fake::{ROOM, Scene, Songs, drawn, keep, library, person};
+use common::online::{ROOM, Scene, Songs, drawn, keep, library, person};
 
 #[test]
 fn the_rooms_song_select_changes_hands() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
