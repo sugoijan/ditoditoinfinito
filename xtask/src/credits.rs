@@ -271,20 +271,7 @@ fn collect(root: &Path) -> Result<CreditsJson> {
             source_path: prov.source.path.clone(),
             source_commit: prov.source.commit.clone(),
             retrieved: prov.source.retrieved.clone(),
-            parts: prov
-                .licenses
-                .iter()
-                .map(|l| PartCredit {
-                    part: l.part.clone(),
-                    spdx: l.spdx.clone(),
-                    holders: l.holders.clone(),
-                    url: if l.url.is_empty() {
-                        license_url(&l.spdx)
-                    } else {
-                        l.url.clone()
-                    },
-                })
-                .collect(),
+            parts: parts(&prov.licenses),
             chart_authors,
             excluded: prov.excluded.clone(),
             modifications: prov.modifications.clone(),
@@ -301,20 +288,7 @@ fn collect(root: &Path) -> Result<CreditsJson> {
             source_path: prov.source.path,
             source_commit: prov.source.commit,
             retrieved: prov.source.retrieved,
-            parts: prov
-                .licenses
-                .iter()
-                .map(|l| PartCredit {
-                    part: l.part.clone(),
-                    spdx: l.spdx.clone(),
-                    holders: l.holders.clone(),
-                    url: if l.url.is_empty() {
-                        license_url(&l.spdx)
-                    } else {
-                        l.url.clone()
-                    },
-                })
-                .collect(),
+            parts: parts(&prov.licenses),
             excluded: prov.excluded,
             modifications: prov.modifications,
         })
@@ -330,20 +304,7 @@ fn collect(root: &Path) -> Result<CreditsJson> {
             model_url: prov.kokoro.model,
             revision: prov.kokoro.revision,
             made: prov.made,
-            parts: prov
-                .licenses
-                .iter()
-                .map(|l| PartCredit {
-                    part: l.part.clone(),
-                    spdx: l.spdx.clone(),
-                    holders: l.holders.clone(),
-                    url: if l.url.is_empty() {
-                        license_url(&l.spdx)
-                    } else {
-                        l.url.clone()
-                    },
-                })
-                .collect(),
+            parts: parts(&prov.licenses),
             trained_on: prov
                 .trained_on
                 .into_iter()
@@ -421,16 +382,7 @@ fn render_markdown(c: &CreditsJson) -> String {
             "Source: [{}]({}) at commit `{}`, folder `{}` (retrieved {}).\n",
             s.source_url, s.source_url, s.source_commit, s.source_path, s.retrieved
         );
-        for p in &s.parts {
-            let _ = writeln!(
-                md,
-                "- **{}**: {} — [{}]({})",
-                p.part,
-                p.holders.join(", "),
-                license_name(&p.spdx),
-                p.url
-            );
-        }
+        write_parts(&mut md, &s.parts);
         if !s.chart_authors.is_empty() {
             md.push_str("- **chart authors** (from the simfile's `#CREDIT` tags):\n");
             for (author, charts) in &s.chart_authors {
@@ -456,16 +408,7 @@ fn render_markdown(c: &CreditsJson) -> String {
                 "Source: [{}]({}) at commit `{}`, folder `{}` (retrieved {}).\n",
                 k.source_url, k.source_url, k.source_commit, k.source_path, k.retrieved
             );
-            for p in &k.parts {
-                let _ = writeln!(
-                    md,
-                    "- **{}**: {} — [{}]({})",
-                    p.part,
-                    p.holders.join(", "),
-                    license_name(&p.spdx),
-                    p.url
-                );
-            }
+            write_parts(&mut md, &k.parts);
             if !k.excluded.is_empty() {
                 let _ = writeln!(md, "- Not included: {}", k.excluded.join("; "));
             }
@@ -487,16 +430,7 @@ fn render_markdown(c: &CreditsJson) -> String {
                 "{}. Made with {}: [{}]({}) at revision `{}` (made {}).\n",
                 a.language, a.made_with, a.model_url, a.model_url, a.revision, a.made
             );
-            for p in &a.parts {
-                let _ = writeln!(
-                    md,
-                    "- **{}**: {} — [{}]({})",
-                    p.part,
-                    p.holders.join(", "),
-                    license_name(&p.spdx),
-                    p.url
-                );
-            }
+            write_parts(&mut md, &a.parts);
             for t in &a.trained_on {
                 let _ = writeln!(
                     md,
@@ -675,6 +609,38 @@ fn render_rust_markdown(r: &crate::rust_credits::RustCredits) -> String {
         );
     }
     md
+}
+
+/// What each part of a bundled work is licensed under, as its
+/// provenance says (a licence's own page where none is named).
+fn parts(licenses: &[crate::songs::LicenseEntry]) -> Vec<PartCredit> {
+    licenses
+        .iter()
+        .map(|l| PartCredit {
+            part: l.part.clone(),
+            spdx: l.spdx.clone(),
+            holders: l.holders.clone(),
+            url: if l.url.is_empty() {
+                license_url(&l.spdx)
+            } else {
+                l.url.clone()
+            },
+        })
+        .collect()
+}
+
+/// A line each part: `- **part**: holders — [licence](url)`.
+fn write_parts(md: &mut String, parts: &[PartCredit]) {
+    for p in parts {
+        let _ = writeln!(
+            md,
+            "- **{}**: {} — [{}]({})",
+            p.part,
+            p.holders.join(", "),
+            license_name(&p.spdx),
+            p.url
+        );
+    }
 }
 
 pub(crate) fn gen_credits(check: bool) -> Result<()> {
