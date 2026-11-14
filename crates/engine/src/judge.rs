@@ -330,10 +330,18 @@ impl Judge {
 
     /// `notes` with their seconds and judgeability on `timing`, pending.
     fn judged(notes: &[Note], timing: &TimingMap) -> Vec<JudgedNote> {
+        // Sorted by tick (as they are given), one walk up the map gives
+        // each head's second exactly as `seconds_at` would alone.
+        let sorted = notes.windows(2).all(|w| w[0].tick <= w[1].tick);
+        let mut walk = timing.walk();
         notes
             .iter()
             .map(|n| {
-                let seconds = timing.seconds_at(n.tick);
+                let seconds = if sorted {
+                    walk.seconds(n.tick.beat())
+                } else {
+                    timing.seconds_at(n.tick)
+                };
                 let end_seconds = match n.kind.hold_end() {
                     Some(end) => timing.seconds_at(end).max(seconds),
                     None => seconds,
@@ -511,6 +519,15 @@ impl Judge {
         &self.table
     }
 
+    /// Each lane's key, lock and ignored release carried over from `old`
+    /// (a judge of fewer lanes or as many: the first of this one's).
+    fn carry_lanes(&mut self, old: &Judge) {
+        self.down[..old.down.len()].copy_from_slice(&old.down);
+        self.locked_until[..old.locked_until.len()].copy_from_slice(&old.locked_until);
+        self.release_ignored[..old.release_ignored.len()].copy_from_slice(&old.release_ignored);
+        self.locks[..old.locks.len()].copy_from_slice(&old.locks);
+    }
+
     /// Extends a streaming validation window of the hand's physical contacts
     /// (taps, holds, rolls, mines, shocks, lifts) without replaying its past.
     /// Resolved notes are dropped; active hold life/release budgets, buttons
@@ -600,10 +617,7 @@ impl Judge {
             next.next_head = next.heads.partition_point(|&i| next.notes[i].seconds <= t);
         }
         next.last_time = self.last_time;
-        next.down[..self.down.len()].copy_from_slice(&self.down);
-        next.locked_until[..self.locked_until.len()].copy_from_slice(&self.locked_until);
-        next.release_ignored[..self.release_ignored.len()].copy_from_slice(&self.release_ignored);
-        next.locks[..self.locks.len()].copy_from_slice(&self.locks);
+        next.carry_lanes(self);
         next.first_note = self.first_note.or(next.first_note);
         *self = next;
         Ok(())
@@ -677,12 +691,7 @@ impl Judge {
         notes.extend(Self::judged(incoming, timing));
         let lanes = self.down.len();
         let mut next = Self::assemble(notes, timing, self.table.clone()).with_lanes(lanes);
-        let width = next.down.len();
-        next.down[..lanes].copy_from_slice(&self.down);
-        next.locked_until[..lanes].copy_from_slice(&self.locked_until);
-        next.release_ignored[..lanes].copy_from_slice(&self.release_ignored);
-        next.locks[..lanes].copy_from_slice(&self.locks);
-        debug_assert!(width >= lanes);
+        next.carry_lanes(self);
         next.last_time = self.last_time;
         next.first_note = self.first_note.or(next.first_note);
         // Each lane from its first note still to judge.
@@ -1509,16 +1518,7 @@ impl Judge {
             }
         }
         self.advance_span(song_time, out);
-        out[first..].sort_by(|a, b| {
-            a.song_time
-                .total_cmp(&b.song_time)
-                .then(a.lane.cmp(&b.lane))
-                .then(
-                    a.note_index
-                        .unwrap_or(usize::MAX)
-                        .cmp(&b.note_index.unwrap_or(usize::MAX)),
-                )
-        });
+        out[first..].sort_by(event_order);
     }
 
     /// The first mine (by time, then lane) in a lane held down whose
@@ -1546,7 +1546,6 @@ impl Judge {
     fn advance_span(&mut self, song_time: f64, out: &mut Vec<JudgeEvent>) {
         let prev = self.last_time.unwrap_or(f64::NEG_INFINITY);
         self.last_time = Some(song_time);
-        let first = out.len();
         let max_ahead = self.lookahead();
         self.cross_heads(song_time, out);
         self.checkpoints_until(song_time, out);
@@ -1588,17 +1587,20 @@ impl Judge {
             }
             self.advance_cursor(lane);
         }
-        out[first..].sort_by(|a, b| {
-            a.song_time
-                .total_cmp(&b.song_time)
-                .then(a.lane.cmp(&b.lane))
-                .then(
-                    a.note_index
-                        .unwrap_or(usize::MAX)
-                        .cmp(&b.note_index.unwrap_or(usize::MAX)),
-                )
-        });
     }
+}
+
+/// The order an update's events come in: by time, then lane, then note
+/// (a stable sort: events alike keep the order they were made in).
+fn event_order(a: &JudgeEvent, b: &JudgeEvent) -> std::cmp::Ordering {
+    a.song_time
+        .total_cmp(&b.song_time)
+        .then(a.lane.cmp(&b.lane))
+        .then(
+            a.note_index
+                .unwrap_or(usize::MAX)
+                .cmp(&b.note_index.unwrap_or(usize::MAX)),
+        )
 }
 
 /// The checkpoint rows of a chart's holds and rolls: rows on the tick
