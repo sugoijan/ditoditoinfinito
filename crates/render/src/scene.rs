@@ -1316,9 +1316,8 @@ pub struct Miniature {
     /// In the target's pixels; its field's top is its band's.
     pub geometry: FieldGeometry,
     /// Its band, `[left, top, right, bottom]` in the target's pixels.
+    /// (Out of the stage, `frame.failed`: no combo.)
     pub panel: [f32; 4],
-    /// Out of the stage: no combo.
-    pub out: bool,
     /// Its combo drawn (a large field's smallest leave it out:
     /// `ddi_shell::opponents::Carry`).
     pub combo: bool,
@@ -1702,7 +1701,6 @@ pub(crate) mod tests {
             frame: mini,
             geometry: mini_geo,
             panel: [850.0, 200.0, 930.0, 320.0],
-            out: false,
             combo: true,
             plain: false,
             fit_combo: false,

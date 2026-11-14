@@ -504,7 +504,7 @@ impl Hud {
             let frame = &m.frame;
             let now = opts.hud_time.unwrap_or(frame.song_time);
             let life = frame.life.clamp(0.0, 1.0);
-            let combo = if m.out || !m.combo { 0 } else { frame.combo };
+            let combo = if frame.failed || !m.combo { 0 } else { frame.combo };
             if self.minis.motions.len() <= i {
                 self.minis
                     .motions
@@ -652,7 +652,7 @@ fn mini_globals(
 ) -> Globals {
     let (geo, frame) = (&m.geometry, &m.frame);
     let life = frame.life.clamp(0.0, 1.0);
-    let combo = if m.out || !m.combo { 0 } else { frame.combo };
+    let combo = if frame.failed || !m.combo { 0 } else { frame.combo };
     let s = scale(geo);
     let [top, bottom] = [m.panel[1], m.panel[3]];
     let center = geo.center_x(span);
@@ -662,7 +662,7 @@ fn mini_globals(
     let width = (c.count * 32.0 + 32.0) * cs;
     let bar = mini_life_rect(geo, top, span);
     let (power_rect, power, power_style) =
-        power_globals(bar, m.battle.filter(|_| !m.out), now, opts.reduced_motion);
+        power_globals(bar, m.battle.filter(|_| !frame.failed), now, opts.reduced_motion);
     Globals {
         screen: [screen[0], screen[1], f32::from(linear), 1.0],
         bar,
@@ -957,11 +957,11 @@ mod tests {
                     f.life = (0.9 - 0.4 * ((step % 40) as f32 / 40.0) + 0.1 * k as f32).min(1.0);
                     f.combo = if step % 37 == 36 { 0 } else { 95 + step as u32 * 3 };
                     f.danger = step % 50 == 7;
+                    f.failed = out;
                     let m = crate::scene::Miniature {
                         frame: f.clone(),
                         geometry: mini_geo,
                         panel: [850.0, 200.0, 930.0, 320.0],
-                        out,
                         combo,
                         plain: false,
                         fit_combo: fit,

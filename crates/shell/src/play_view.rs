@@ -1420,7 +1420,6 @@ impl<H: PlayHost> PlayView<H> {
                 }
                 let followed = large.is_some_and(|l| l.seat == slot.seat);
                 minis.push(ddi_render::scene::Miniature {
-                    out: mini.failed,
                     combo: fields.as_ref().is_none_or(|f| f.carry.combo) || followed,
                     plain: !followed && fields.as_ref().is_some_and(|f| !f.carry.skin_notes),
                     fit_combo: !followed && fields.as_ref().is_some_and(|f| f.dense),
