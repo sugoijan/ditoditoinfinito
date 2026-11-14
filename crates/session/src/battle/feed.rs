@@ -465,8 +465,16 @@ impl FieldFeed {
     /// its last such moment's.)
     pub fn locks(&self, lanes: u8, t: f64) -> Vec<Option<f32>> {
         let mut out = vec![None; usize::from(lanes)];
+        self.locks_into(t, &mut out);
+        out
+    }
+
+    /// [`FieldFeed::locks`] into `out`, a lane each, every lane's set
+    /// (a miniature's room kept from frame to frame).
+    pub fn locks_into(&self, t: f64, out: &mut [Option<f32>]) {
+        out.fill(None);
         let Some(lock) = self.lock else {
-            return out;
+            return;
         };
         let v = self.view_time(t);
         for m in self.shown_moments(t).iter().rev() {
@@ -481,7 +489,6 @@ impl FieldFeed {
                 *l = Some((since / lock).clamp(0.0, 1.0) as f32);
             }
         }
-        out
     }
 
     pub fn delay(&self) -> f64 {
@@ -612,11 +619,42 @@ impl FieldFeed {
     /// notes, as a play's field goes blank. All of it the delay behind
     /// the song (its frame's time is the field's own).
     pub fn frame(&self, track: &TapTrack, scroll: ScrollOptions, t: f64, range: f32) -> Frame {
+        self.fill(Vec::new(), Vec::new(), track, scroll, t, range)
+    }
+
+    /// [`FieldFeed::frame`] into `frame`, its receptors' and notes' room
+    /// reused (a miniature's, drawn again every frame): the same frame.
+    pub fn frame_into(
+        &self,
+        frame: &mut Frame,
+        track: &TapTrack,
+        scroll: ScrollOptions,
+        t: f64,
+        range: f32,
+    ) {
+        let receptors = std::mem::take(&mut frame.receptors);
+        let notes = std::mem::take(&mut frame.notes);
+        *frame = self.fill(receptors, notes, track, scroll, t, range);
+    }
+
+    /// [`FieldFeed::frame`] made in `receptors`' and `notes`' room (their
+    /// contents replaced).
+    fn fill(
+        &self,
+        mut receptors: Vec<ReceptorState>,
+        mut notes: Vec<NoteSprite>,
+        track: &TapTrack,
+        scroll: ScrollOptions,
+        t: f64,
+        range: f32,
+    ) -> Frame {
         let v = self.view_time(t);
         let state = ScrollState::at(scroll, &track.timing, v);
         let shown = self.shown_moments(t);
         let out = self.out_at <= v;
-        let mut receptors = vec![ReceptorState::default(); usize::from(track.lanes)];
+        receptors.clear();
+        receptors.resize(usize::from(track.lanes), ReceptorState::default());
+        notes.clear();
         for m in shown.iter().rev() {
             let age = (v - m.at) as f32;
             if age > FLASH_SECONDS {
@@ -633,7 +671,6 @@ impl FieldFeed {
                 _ => {}
             }
         }
-        let mut notes = Vec::new();
         if !out {
             // From a second back (a missed note still in sight; a hold
             // still being held, however long) to the first one past the
@@ -913,6 +950,32 @@ mod tests {
         let late = feed.frame_large(&track, scroll, at + f64::from(WORD_SECONDS) + 0.01, 8.5);
         assert!(late.judgement.is_none());
         assert_eq!(late.score.percent, Some(0.5), "the score stays");
+    }
+
+    /// A miniature's frame made again in the room of the last one is the
+    /// frame made afresh, whatever the last one held (another field's,
+    /// another time's), its lanes' locks too.
+    #[test]
+    fn a_frame_made_in_the_last_ones_room_is_the_same_frame() {
+        let song = song();
+        let track = TapTrack::new(&song, 1).unwrap();
+        let mut feed = FieldFeed::new(&track, 1.0, LOCAL_DELAY);
+        feed.set_lock(Some(0.5));
+        let scroll = ScrollOptions::default();
+        let m = moment(&track, 0, Judgement::W2, 0.01);
+        let at = m.at;
+        feed.push(&track, m);
+        let mut shock = moment(&track, 1, Judgement::W2, 0.0);
+        shock.kind = MomentKind::ShockHit;
+        feed.push(&track, shock);
+        let mut kept = feed.frame(&track, scroll, at + 3.0, 8.5);
+        let mut locks = vec![Some(0.25); usize::from(track.lanes)];
+        for t in [at - 1.0, at + 0.05, at + 0.2, at + 2.0] {
+            feed.frame_into(&mut kept, &track, scroll, t, 6.0);
+            assert_eq!(kept, feed.frame(&track, scroll, t, 6.0), "at {t}");
+            feed.locks_into(t, &mut locks);
+            assert_eq!(locks, feed.locks(track.lanes, t));
+        }
     }
 
     /// A field not drawn is asked its summary alone (life, combo, out),
