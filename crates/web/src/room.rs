@@ -79,23 +79,58 @@ thread_local! {
         const { RefCell::new(None) };
 }
 
+/// Which of a room's pages the address is ([`sync_unload_guard`] reads it
+/// each UI frame, parsing the address only when it changes).
+#[derive(Clone, Copy, PartialEq)]
+enum RoomPage {
+    /// The practice room's song select (`#/room`).
+    Practice,
+    /// An online room's song select.
+    Online,
+    /// A stage's prompt, play or results.
+    Stage,
+    /// Any other page.
+    Other,
+}
+
+thread_local! {
+    /// The address last read and which page it is.
+    static PAGE: RefCell<(String, RoomPage)> = const { RefCell::new((String::new(), RoomPage::Other)) };
+}
+
+/// Which room page the address is, parsed again only when it changed.
+fn room_page() -> RoomPage {
+    let hash = web_sys::window()
+        .and_then(|w| w.location().hash().ok())
+        .unwrap_or_default();
+    PAGE.with_borrow_mut(|(seen, page)| {
+        if *seen != hash {
+            *page = match Route::parse(&hash) {
+                Route::Room => RoomPage::Practice,
+                Route::MpRoom { .. } => RoomPage::Online,
+                Route::Play(p) if p.stage.is_some() => RoomPage::Stage,
+                _ => RoomPage::Other,
+            };
+            *seen = hash;
+        }
+        *page
+    })
+}
+
 /// Whether the page is a room's (its song select, or a stage's prompt,
 /// play or results) and leaving that room would cost something now
 /// (`RoomClient::leave_cost`: the cases its screens ask before leaving
 /// in).
-fn leaving_costs() -> bool {
-    let hash = web_sys::window()
-        .and_then(|w| w.location().hash().ok())
-        .unwrap_or_default();
-    let room = match Route::parse(&hash) {
-        Route::Room => ROOM.with(|r| r.borrow().clone()),
-        Route::MpRoom { .. } => crate::online::kept_room(),
+fn leaving_costs(page: RoomPage) -> bool {
+    let room = match page {
+        RoomPage::Practice => ROOM.with(|r| r.borrow().clone()),
+        RoomPage::Online => crate::online::kept_room(),
         // The stage handed to the play route, or (on its results) the
         // one handed over last.
-        Route::Play(p) if p.stage.is_some() => PLAYING
+        RoomPage::Stage => PLAYING
             .with(|p| p.borrow().as_ref().map(|p| p.room.clone()))
             .or_else(|| LAST.with(|l| l.borrow().as_ref().map(|(_, room)| room.clone()))),
-        _ => None,
+        RoomPage::Other => None,
     };
     room.is_some_and(|r| r.try_borrow().is_ok_and(|r| r.leave_cost().is_some()))
 }
@@ -107,13 +142,8 @@ fn leaving_costs() -> bool {
 /// the session's practice has a match running, so the room and its
 /// unfinished match go; coming back to CPU practice makes a fresh room.
 /// Between matches the practice is kept for the session, as it was.
-fn forget_left_practice() {
-    let hash = web_sys::window()
-        .and_then(|w| w.location().hash().ok())
-        .unwrap_or_default();
-    if matches!(Route::parse(&hash), Route::Room)
-        || matches!(Route::parse(&hash), Route::Play(p) if p.stage.is_some())
-    {
+fn forget_left_practice(page: RoomPage) {
+    if matches!(page, RoomPage::Practice | RoomPage::Stage) {
         return;
     }
     let running = ROOM.with(|r| {
@@ -138,8 +168,9 @@ fn forget_left_practice() {
 /// socket closes with the page, and the room gives the player its
 /// reconnect grace before it counts them away.
 pub(crate) fn sync_unload_guard() {
-    forget_left_practice();
-    let want = leaving_costs();
+    let page = room_page();
+    forget_left_practice(page);
+    let want = leaving_costs(page);
     UNLOAD_GUARD.with_borrow_mut(|guard| {
         if !want {
             *guard = None;
