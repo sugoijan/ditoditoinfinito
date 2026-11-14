@@ -293,6 +293,9 @@ impl Preview {
     }
 
     pub fn prepare_ms(&self) -> f64 {
+        if self.failed_at.is_some() || self.rest_at.is_some() || self.load == HandStep::Gone {
+            return 0.;
+        }
         self.runtime.as_ref().map_or(0., |r| r.work_ms)
     }
     /// Numerical preparation runs before drawing, under a host clock shared

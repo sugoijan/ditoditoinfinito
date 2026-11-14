@@ -1421,11 +1421,12 @@ impl<H: PlayHost> PlayView<H> {
         }
         self.minis_drawn = minis.len();
         self.renderer.set_miniatures(minis);
-        host.lap(Lap::Scene);
+        // (Booked with the scene: the hand's lap stays its own.)
         if self.load_ms > 0.0 && started && !finished {
             let until = host.seconds() + self.load_ms / 1000.0;
             while host.seconds() < until {}
         }
+        host.lap(Lap::Scene);
         host.before_render(device, encoder);
         // Out of the stage or left it: the hand rests where the play
         // ended rather than dancing on behind the dimmed field.
