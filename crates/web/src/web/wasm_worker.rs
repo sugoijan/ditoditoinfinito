@@ -4,8 +4,8 @@
 //! starts the module the page sends, and that module fetched and
 //! compiled.
 
-use js_sys::{Uint8Array, WebAssembly};
-use wasm_bindgen::JsCast;
+use js_sys::{Object, Reflect, Uint8Array, WebAssembly};
+use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
 use super::js_err;
@@ -67,4 +67,35 @@ pub(crate) async fn compile(url: &str, what: &str) -> Result<WebAssembly::Module
     compiled
         .dyn_into()
         .map_err(|e| js_err(&format!("compiling {what}"), e))
+}
+
+/// Starts `worker` on its glue: the module sent over compiled, or, where
+/// a browser cannot send one, its address (the worker fetches it from
+/// the HTTP cache).
+pub(crate) fn post_start(
+    worker: &web_sys::Worker,
+    glue: &str,
+    wasm: &str,
+    module: &WebAssembly::Module,
+) -> Result<(), JsValue> {
+    let start = |with_module: bool| {
+        let msg = Object::new();
+        let _ = Reflect::set(&msg, &"glue".into(), &JsValue::from_str(glue));
+        if with_module {
+            let _ = Reflect::set(&msg, &"module".into(), module);
+        } else {
+            let _ = Reflect::set(&msg, &"wasm".into(), &JsValue::from_str(wasm));
+        }
+        worker.post_message(&msg)
+    };
+    start(true).or_else(|_| start(false))
+}
+
+/// What a worker's `error` event says went wrong.
+pub(crate) fn error_detail(event: &web_sys::Event) -> String {
+    Reflect::get(event, &JsValue::from_str("message"))
+        .ok()
+        .and_then(|m| m.as_string())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| "it could not be loaded or stopped".into())
 }

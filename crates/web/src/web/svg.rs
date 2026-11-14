@@ -359,29 +359,12 @@ fn start_worker() -> Result<(), String> {
     });
     let on_error = Closure::<dyn FnMut(Event)>::new(move |event: Event| {
         event.prevent_default();
-        let detail = Reflect::get(&event, &JsValue::from_str("message"))
-            .ok()
-            .and_then(|m| m.as_string())
-            .filter(|m| !m.is_empty())
-            .unwrap_or_else(|| "it could not be loaded or stopped".into());
+        let detail = super::wasm_worker::error_detail(&event);
         lost(n, &format!("the SVG worker failed: {detail}"));
     });
     worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
     worker.set_onerror(Some(on_error.as_ref().unchecked_ref()));
-    // The module goes over compiled; where a browser cannot send one, the
-    // worker fetches it itself (from the HTTP cache).
-    let start = |with_module: bool| {
-        let msg = Object::new();
-        let _ = Reflect::set(&msg, &"glue".into(), &JsValue::from_str(&glue));
-        if with_module {
-            let _ = Reflect::set(&msg, &"module".into(), &module);
-        } else {
-            let _ = Reflect::set(&msg, &"wasm".into(), &JsValue::from_str(&wasm));
-        }
-        worker.post_message(&msg)
-    };
-    start(true)
-        .or_else(|_| start(false))
+    super::wasm_worker::post_start(&worker, &glue, &wasm, &module)
         .map_err(|e| js_err("starting the SVG worker", e))?;
     POOL.with_borrow_mut(|p| {
         p.workers.insert(

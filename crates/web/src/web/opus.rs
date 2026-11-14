@@ -162,11 +162,7 @@ async fn in_worker(
         let state = Rc::clone(&state);
         Closure::<dyn FnMut(Event)>::new(move |event: Event| {
             event.prevent_default();
-            let detail = Reflect::get(&event, &JsValue::from_str("message"))
-                .ok()
-                .and_then(|m| m.as_string())
-                .filter(|m| !m.is_empty())
-                .unwrap_or_else(|| "it could not be loaded or stopped".into());
+            let detail = super::wasm_worker::error_detail(&event);
             *state.borrow_mut() = State::Done(Err(format!("the Opus decoder failed: {detail}")));
         })
     };
@@ -177,20 +173,7 @@ async fn in_worker(
         _on_message: on_message,
         _on_error: on_error,
     };
-    // The module goes over compiled; where a browser cannot send one, the
-    // worker fetches it itself (from the HTTP cache).
-    let start = |with_module: bool| {
-        let msg = Object::new();
-        let _ = Reflect::set(&msg, &"glue".into(), &JsValue::from_str(&glue));
-        if with_module {
-            let _ = Reflect::set(&msg, &"module".into(), &module);
-        } else {
-            let _ = Reflect::set(&msg, &"wasm".into(), &JsValue::from_str(&wasm));
-        }
-        running.worker.post_message(&msg)
-    };
-    start(true)
-        .or_else(|_| start(false))
+    super::wasm_worker::post_start(&running.worker, &glue, &wasm, &module)
         .map_err(|e| js_err("starting the Opus decoder", e))?;
     let began = js_sys::Date::now();
     let mut sent = false;
