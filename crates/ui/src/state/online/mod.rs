@@ -13,11 +13,14 @@
 //! ([`SharedOnline`]). CPU practice never needs any of it.
 
 pub mod api;
+pub mod kept;
 pub mod link;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+
+pub use kept::Kept;
 
 use api::{ApiRequest, ApiResponse, AttemptDoc, AttemptPoll, AttemptStatus, Me, Preview, Problem};
 

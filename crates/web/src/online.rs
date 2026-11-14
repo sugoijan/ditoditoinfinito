@@ -22,7 +22,9 @@ use std::rc::Rc;
 use ddi_platform::storage::{self, Area};
 use ddi_room::{ClientId, RoomId, Transport, TransportEvent};
 use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
-use ddi_ui::state::online::{Dest, Http, Online, OnlineConfig, Platform, SharedOnline, SignIn};
+use ddi_ui::state::online::{
+    Dest, Http, Kept, Online, OnlineConfig, Platform, SharedOnline, SignIn,
+};
 use ddi_ui::state::audience::{AudienceClient, SharedAudience};
 use ddi_ui::state::room::{RoomClient, SharedRoom, StageOrder};
 
@@ -34,11 +36,9 @@ use wasm_bindgen::closure::Closure;
 const AFTER: &str = "ddi.mp.after";
 
 thread_local! {
-    static ONLINE: RefCell<Option<SharedOnline>> = const { RefCell::new(None) };
-    /// The online room shown last (its id and client).
-    static ROOM: RefCell<Option<(String, SharedRoom)>> = const { RefCell::new(None) };
-    /// The room watched with its audience (its link and seat's client).
-    static AUDIENCE: RefCell<Option<(String, SharedAudience)>> = const { RefCell::new(None) };
+    /// The session's online state, the online room shown last and the
+    /// room watched with its audience.
+    static KEPT: Kept = const { Kept::new() };
     /// The first ticket a seat was given on the invite's page, for the
     /// audience's page to open its socket with (by link).
     static TICKET: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
@@ -65,45 +65,40 @@ pub(crate) fn seat_audience(link: &str, ticket: Option<String>) {
 /// The room watched by `link`'s client, made (its seat asked for) at
 /// first (`docs/plans/multiplayer-audience.md`).
 pub(crate) fn audience(link: &str) -> SharedAudience {
-    if let Some(a) =
-        AUDIENCE.with_borrow(|a| a.as_ref().filter(|(l, _)| l == link).map(|(_, a)| a.clone()))
-    {
-        return a;
-    }
-    discard_audience();
-    let ticket = TICKET.with_borrow_mut(|t| t.take_if(|(l, _)| l == link).map(|(_, t)| t));
-    // TESTING ONLY (`mpfakeseat=1`): a seat in a fake room's audience in
-    // the page (`crate::fake_seat`).
-    let client = if crate::fake_seat::on() {
-        crate::fake_seat::seat(link)
-    } else {
-        AudienceClient::new(
-            current(),
-            link,
-            Box::new(WebSocketTransport {
-                audience: true,
-                ..Default::default()
-            }),
-            ticket,
-            now_ms(),
-        )
-    };
-    let a = Rc::new(RefCell::new(client));
-    AUDIENCE.with_borrow_mut(|x| *x = Some((link.into(), a.clone())));
-    a
+    KEPT.with(|k| {
+        k.audience_or(link, || {
+            WATCHING.with_borrow_mut(|w| *w = None);
+            let ticket = TICKET.with_borrow_mut(|t| t.take_if(|(l, _)| l == link).map(|(_, t)| t));
+            // TESTING ONLY (`mpfakeseat=1`): a seat in a fake room's
+            // audience in the page (`crate::fake_seat`).
+            let client = if crate::fake_seat::on() {
+                crate::fake_seat::seat(link)
+            } else {
+                AudienceClient::new(
+                    current(),
+                    link,
+                    Box::new(WebSocketTransport {
+                        audience: true,
+                        ..Default::default()
+                    }),
+                    ticket,
+                    now_ms(),
+                )
+            };
+            Rc::new(RefCell::new(client))
+        })
+    })
 }
 
 /// The audience's seat kept for the session, if any.
 pub(crate) fn kept_audience() -> Option<SharedAudience> {
-    AUDIENCE.with_borrow(|a| a.as_ref().map(|(_, a)| a.clone()))
+    KEPT.with(|k| k.audience().map(|(_, a)| a))
 }
 
 /// Stop watching: the seat forgotten (its socket closed).
 pub(crate) fn discard_audience() {
     WATCHING.with_borrow_mut(|w| *w = None);
-    if let Some((_, a)) = AUDIENCE.with_borrow_mut(Option::take) {
-        a.borrow_mut().leave();
-    }
+    KEPT.with(Kept::discard_audience);
 }
 
 /// A stage of the room watched with its audience, handed over by its
@@ -113,7 +108,7 @@ pub(crate) fn discard_audience() {
 /// browser gives one without a press ([`stage_audio`]), and opened. A
 /// member's stage route is left as it is.
 pub(crate) fn watch_stage(order: StageOrder, cx: &mut ddi_ui::Cx) {
-    let Some((link, audience)) = AUDIENCE.with_borrow(|a| a.clone()) else {
+    let Some((link, audience)) = KEPT.with(Kept::audience) else {
         return;
     };
     if let Some(audio) = stage_audio(cx.in_gesture()) {
@@ -230,28 +225,22 @@ fn site() -> String {
 /// state exists and is signed in (never made for the asking): CPU
 /// practice's own row shows it with a "You" badge.
 pub(crate) fn signed_in_name() -> Option<String> {
-    ONLINE.with(|o| {
-        o.borrow()
-            .as_ref()
-            .and_then(|o| o.borrow().me().map(|me| me.display_name.clone()))
-    })
+    KEPT.with(Kept::signed_in_name)
 }
 
 /// The session's online state, made at first.
 pub(crate) fn current() -> SharedOnline {
-    ONLINE.with(|o| {
-        o.borrow_mut()
-            .get_or_insert_with(|| {
-                Online::new(
-                    Box::new(WebHttp::default()),
-                    OnlineConfig {
-                        platform: Platform::Web,
-                        site: site(),
-                    },
-                )
-                .shared()
-            })
-            .clone()
+    KEPT.with(|k| {
+        k.online_or(|| {
+            Online::new(
+                Box::new(WebHttp::default()),
+                OnlineConfig {
+                    platform: Platform::Web,
+                    site: site(),
+                },
+            )
+            .shared()
+        })
     })
 }
 
@@ -322,30 +311,31 @@ fn client_id() -> ClientId {
 
 /// Online room `id`'s client, made (and joined) at first.
 pub(crate) fn room(id: &str) -> SharedRoom {
-    if let Some(r) =
-        ROOM.with_borrow(|r| r.as_ref().filter(|(i, _)| i == id).map(|(_, r)| r.clone()))
-    {
-        return r;
-    }
-    let room = Rc::new(RefCell::new(RoomClient::online(
-        current(),
-        id,
-        Box::new(WebSocketTransport::default()),
-        client_id(),
-        now_ms(),
-    )));
-    ROOM.with_borrow_mut(|r| *r = Some((id.into(), room.clone())));
-    room
+    KEPT.with(|k| {
+        k.room_or(id, || {
+            Rc::new(RefCell::new(RoomClient::online(
+                current(),
+                id,
+                Box::new(WebSocketTransport::default()),
+                client_id(),
+                now_ms(),
+            )))
+        })
+    })
 }
 
 /// The online room kept for the session, if any.
 pub(crate) fn kept_room() -> Option<SharedRoom> {
-    ROOM.with_borrow(|r| r.as_ref().map(|(_, room)| room.clone()))
+    KEPT.with(Kept::room)
 }
 
-/// Leave room: forgotten (its socket closed once the room answered).
+/// Leave room: forgotten (its socket closed once the room answered), and
+/// with it the stage handed over from it (`crate::room::forget_playing`),
+/// so that nothing keeps its client alive.
 pub(crate) fn discard() {
-    ROOM.with_borrow_mut(|r| *r = None);
+    if let Some(room) = KEPT.with(Kept::discard_room) {
+        crate::room::forget_playing(&room);
+    }
 }
 
 /// The server over `fetch` (its cookie sent as the page's own origin's).

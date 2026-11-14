@@ -1326,7 +1326,9 @@ fn live_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
             })),
         });
     }
-    let room = crate::room::last_room();
+    let Some(room) = crate::room::kept_last_room() else {
+        return Value::Null;
+    };
     let Ok(r) = room.try_borrow() else {
         return Value::Null;
     };

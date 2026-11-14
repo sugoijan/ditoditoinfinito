@@ -24,15 +24,14 @@ use std::time::Duration;
 
 use ddi_room::{ClientId, RoomId, Transport, TransportEvent};
 use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
-use ddi_ui::state::online::{Http, Online, OnlineConfig, Platform, SharedOnline};
+use ddi_ui::state::online::{Http, Kept, Online, OnlineConfig, Platform, SharedOnline};
 use ddi_ui::state::audience::{AudienceClient, SharedAudience};
 use ddi_ui::state::room::{RoomClient, SharedRoom};
 
 thread_local! {
-    static ONLINE: RefCell<Option<SharedOnline>> = const { RefCell::new(None) };
-    static ROOM: RefCell<Option<(String, SharedRoom)>> = const { RefCell::new(None) };
-    /// The room watched with its audience: its link and seat's client.
-    static AUDIENCE: RefCell<Option<(String, SharedAudience)>> = const { RefCell::new(None) };
+    /// The run's online state, the online room shown last and the room
+    /// watched with its audience.
+    static KEPT: Kept = const { Kept::new() };
     /// `--join`'s invite, for the first screens.
     static JOIN: RefCell<Option<String>> = const { RefCell::new(None) };
 }
@@ -114,26 +113,20 @@ pub fn take_join() -> Option<String> {
 /// state exists and is signed in (never made for the asking): CPU
 /// practice's own row shows it with a "You" badge.
 pub fn signed_in_name() -> Option<String> {
-    ONLINE.with(|o| {
-        o.borrow()
-            .as_ref()
-            .and_then(|o| o.borrow().me().map(|me| me.display_name.clone()))
-    })
+    KEPT.with(Kept::signed_in_name)
 }
 
 /// The run's online state, made at first (the kept session with it).
 pub fn current() -> SharedOnline {
-    ONLINE.with(|o| {
-        o.borrow_mut()
-            .get_or_insert_with(|| {
-                session(
-                    crate::share::base(),
-                    site(),
-                    load_token(),
-                    Rc::new(save_token),
-                )
-            })
-            .clone()
+    KEPT.with(|k| {
+        k.online_or(|| {
+            session(
+                crate::share::base(),
+                site(),
+                load_token(),
+                Rc::new(save_token),
+            )
+        })
     })
 }
 
@@ -168,28 +161,26 @@ fn client_id() -> ClientId {
 
 /// Online room `id`'s client, made (and joined) at first.
 pub fn room(id: &str) -> SharedRoom {
-    if let Some(r) =
-        ROOM.with_borrow(|r| r.as_ref().filter(|(i, _)| i == id).map(|(_, r)| r.clone()))
-    {
-        return r;
-    }
-    let room = Rc::new(RefCell::new(RoomClient::online(
-        current(),
-        id,
-        Box::new(SocketTransport::default()),
-        client_id(),
-        crate::clock::now_ms(),
-    )));
-    // Its uploads' and downloads' threads report here.
-    room.borrow_mut().set_inbox(crate::room::inbox());
-    ROOM.with_borrow_mut(|r| *r = Some((id.into(), room.clone())));
-    room
+    KEPT.with(|k| {
+        k.room_or(id, || {
+            let room = Rc::new(RefCell::new(RoomClient::online(
+                current(),
+                id,
+                Box::new(SocketTransport::default()),
+                client_id(),
+                crate::clock::now_ms(),
+            )));
+            // Its uploads' and downloads' threads report here.
+            room.borrow_mut().set_inbox(crate::room::inbox());
+            room
+        })
+    })
 }
 
 /// Leave room: forgotten (and with it the stage the play host was
 /// handed from it, `crate::room::forget_playing`).
 pub fn discard() {
-    if let Some((_, room)) = ROOM.with_borrow_mut(Option::take) {
+    if let Some(room) = KEPT.with(Kept::discard_room) {
         crate::room::forget_playing(&room);
     }
 }
@@ -199,29 +190,24 @@ pub fn discard() {
 /// first with the invite page's `ticket` (else asked for), its stages'
 /// songs read from the room's share on threads (`crate::room::prepare_audience`).
 pub fn audience(link: &str, ticket: Option<String>) -> SharedAudience {
-    if let Some(a) =
-        AUDIENCE.with_borrow(|a| a.as_ref().filter(|(l, _)| l == link).map(|(_, a)| a.clone()))
-    {
-        return a;
-    }
-    discard_audience();
-    let a = Rc::new(RefCell::new(AudienceClient::new(
-        current(),
-        link,
-        Box::new(SocketTransport::audience(None)),
-        ticket,
-        crate::clock::now_ms(),
-    )));
-    a.borrow_mut().set_inbox(crate::room::audience_inbox());
-    AUDIENCE.with_borrow_mut(|x| *x = Some((link.into(), a.clone())));
-    a
+    KEPT.with(|k| {
+        k.audience_or(link, || {
+            let a = Rc::new(RefCell::new(AudienceClient::new(
+                current(),
+                link,
+                Box::new(SocketTransport::audience(None)),
+                ticket,
+                crate::clock::now_ms(),
+            )));
+            a.borrow_mut().set_inbox(crate::room::audience_inbox());
+            a
+        })
+    })
 }
 
 /// Stop watching: the seat forgotten (its socket closed).
 pub fn discard_audience() {
-    if let Some((_, a)) = AUDIENCE.with_borrow_mut(Option::take) {
-        a.borrow_mut().leave();
-    }
+    KEPT.with(Kept::discard_audience);
 }
 
 /// HTTP on a thread a request; answers through a channel.
@@ -514,7 +500,7 @@ mod tests {
         // A practice room's client stands in for an online one: what is
         // kept of it is the same.
         let room = RoomClient::shared(1, 1);
-        ROOM.with_borrow_mut(|r| *r = Some(("room".into(), room.clone())));
+        KEPT.with(|k| k.room_or("room", || room.clone()));
         crate::room::set_live_for_tests(room.clone(), Rc::new(|| 0));
         let kept = Rc::downgrade(&room);
         drop(room);

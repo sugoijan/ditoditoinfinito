@@ -290,6 +290,23 @@ pub(crate) fn discard() {
     PLAYING.with(|p| p.borrow_mut().take());
 }
 
+/// A room left (an online one, `crate::online::discard`): where the stage
+/// handed over last was of it, that is forgotten too (the stage being
+/// played and the room its results go back to), so that its client does
+/// not live on.
+pub(crate) fn forget_playing(room: &SharedRoom) {
+    PLAYING.with_borrow_mut(|p| {
+        if p.as_ref().is_some_and(|p| Rc::ptr_eq(&p.room, room)) {
+            *p = None;
+        }
+    });
+    LAST.with_borrow_mut(|l| {
+        if l.as_ref().is_some_and(|(_, r)| Rc::ptr_eq(r, room)) {
+            *l = None;
+        }
+    });
+}
+
 /// Prepares a stage's song on this device for `room`: its chart read (as a
 /// play reads it) and checked (`ddi_ui::state::room::prepare_stage`: the
 /// chart chosen, the CPUs' plan in practice); an online member's from the
@@ -473,8 +490,13 @@ pub(crate) fn results_shell() -> ddi_ui::screens::room::RoomShell {
 /// The room the last stage handed over is of (its results ask it how the
 /// stage went).
 pub(crate) fn last_room() -> SharedRoom {
+    kept_last_room().unwrap_or_else(current)
+}
+
+/// [`last_room`] while it is kept (never the practice room made for the
+/// asking: the debug state's).
+pub(crate) fn kept_last_room() -> Option<SharedRoom> {
     LAST.with(|l| l.borrow().as_ref().map(|(_, r)| r.clone()))
-        .unwrap_or_else(current)
 }
 
 /// The room of the stage being played (the practice room otherwise).
