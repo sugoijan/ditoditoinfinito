@@ -196,6 +196,16 @@ pub enum AudienceRefusal {
 }
 
 impl AudienceRefusal {
+    /// Every refusal (a code read back to its refusal).
+    pub const ALL: [AudienceRefusal; 6] = [
+        Self::Full,
+        Self::Closed,
+        Self::RoomClosed,
+        Self::TooManySeats,
+        Self::BadLink,
+        Self::NoAudience,
+    ];
+
     /// The error code the server answers with.
     pub fn code(self) -> &'static str {
         match self {

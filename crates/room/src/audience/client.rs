@@ -308,3 +308,36 @@ impl<T: Transport, C: Clock> Audience<T, C> {
         self.link.take_news()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ids::StageId;
+
+    fn snapshot(stage: u64) -> String {
+        AudienceDownEnvelope::text(AudienceDown::Snapshot(Box::new(LiveSnapshot {
+            stage: StageId(stage),
+            song_zero_at: Millis(1_000),
+            at: Millis(2_000),
+            first_frame: 1,
+            competitors: Vec::new(),
+            commitments: Vec::new(),
+            plan: None,
+            settling: None,
+        })))
+    }
+
+    /// A snapshot of an earlier stage than the one followed (a late one,
+    /// the next stage begun) is passed over, as a member's link passes it
+    /// over: the stage followed stays.
+    #[test]
+    fn a_late_snapshot_of_an_earlier_stage_is_passed_over() {
+        let mut link = AudienceLink::new(AUDIENCE_V0);
+        link.text(&snapshot(2), 0);
+        assert_eq!(link.reader().and_then(FrameReader::stage), Some(StageId(2)));
+        link.text(&snapshot(1), 0);
+        assert_eq!(link.reader().and_then(FrameReader::stage), Some(StageId(2)));
+        link.text(&snapshot(3), 0);
+        assert_eq!(link.reader().and_then(FrameReader::stage), Some(StageId(3)));
+    }
+}

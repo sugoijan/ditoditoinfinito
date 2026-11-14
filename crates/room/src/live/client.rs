@@ -353,13 +353,7 @@ impl LiveLink {
             ServerLive::Refused { refusal } => self.news.push(LiveNews::Refused(refusal)),
             ServerLive::Audience { count, open } => self.audience = Some((count, open)),
             ServerLive::Snapshot(snap) => {
-                if self
-                    .reader
-                    .as_ref()
-                    .is_none_or(|r| r.stage().is_none_or(|s| s <= snap.stage))
-                {
-                    FrameReader::adopt(&mut self.reader, &snap);
-                }
+                FrameReader::adopt(&mut self.reader, &snap);
                 if let Some(me) = self.me
                     && let Some(c) = snap.competitors.iter().find(|c| c.participant == me)
                     && let Some(o) = self.outboxes.get_mut(&snap.stage)

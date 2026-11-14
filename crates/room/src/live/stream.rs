@@ -565,8 +565,16 @@ impl FrameReader {
     }
 
     /// `slot`'s reader takes `snap`: a new reader where it has none or one
-    /// of another stage.
+    /// of an earlier stage; a snapshot of an earlier stage than its own
+    /// (a late one, the next stage begun) is passed over.
     pub fn adopt(slot: &mut Option<FrameReader>, snap: &crate::live::server::LiveSnapshot) {
+        if slot
+            .as_ref()
+            .and_then(FrameReader::stage)
+            .is_some_and(|s| s > snap.stage)
+        {
+            return;
+        }
         let r = slot.get_or_insert_with(|| FrameReader::new(snap.stage));
         if r.stage() != Some(snap.stage) {
             *r = FrameReader::new(snap.stage);

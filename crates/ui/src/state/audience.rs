@@ -221,17 +221,10 @@ pub enum Refused {
 
 impl Refused {
     pub fn of(p: &Problem) -> Refused {
-        [
-            AudienceRefusal::Full,
-            AudienceRefusal::Closed,
-            AudienceRefusal::RoomClosed,
-            AudienceRefusal::TooManySeats,
-            AudienceRefusal::BadLink,
-            AudienceRefusal::NoAudience,
-        ]
-        .into_iter()
-        .find(|r| r.code() == p.code)
-        .map_or_else(|| Refused::Other(p.code.clone()), Refused::Audience)
+        AudienceRefusal::ALL
+            .into_iter()
+            .find(|r| r.code() == p.code)
+            .map_or_else(|| Refused::Other(p.code.clone()), Refused::Audience)
     }
 }
 
@@ -757,7 +750,7 @@ impl AudienceClient {
             of: u16::try_from(v.stages.len()).unwrap_or(u16::MAX),
             song: prepared.picked.song,
             chart: prepared.picked.chart,
-            battle: crate::state::room::battle_with(attacks),
+            battle: ddi_room::BattlePreset::with_attacks(attacks),
             attacks_offered: true,
             rules: self.stage_rules_of(Some(stage)),
             me: AUDIENCE_ME,

@@ -63,6 +63,15 @@ impl BattlePreset {
     pub fn attacks(self) -> bool {
         matches!(self, Self::GaugeAttacksV0)
     }
+
+    /// The battle played with attacks (`on`) or without: survival alone.
+    pub fn with_attacks(on: bool) -> Self {
+        if on {
+            Self::GaugeAttacksV0
+        } else {
+            Self::GaugeSurvivalV0
+        }
+    }
 }
 
 /// How one starter's stage went, as judged.

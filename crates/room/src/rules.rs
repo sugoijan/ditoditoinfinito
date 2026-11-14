@@ -781,11 +781,7 @@ impl MatchRules {
 
     /// Sets the Attacks rule: the battle with attacks, or survival alone.
     pub fn set_attacks(&mut self, on: bool) {
-        let preset = if on {
-            crate::battle::BattlePreset::GaugeAttacksV0
-        } else {
-            crate::battle::BattlePreset::GaugeSurvivalV0
-        };
+        let preset = crate::battle::BattlePreset::with_attacks(on);
         self.battle = preset.id().into();
     }
 
