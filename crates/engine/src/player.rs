@@ -324,6 +324,9 @@ pub struct Player {
     /// A battle's shocks, judged apart from the chart
     /// ([`Player::add_hazards`]).
     hazards: Option<HazardJudge>,
+    /// Each shock's displayed beat (`timing.displayed_beat`), as
+    /// `displayed` keeps the notes': its frames read it.
+    hazard_beats: Vec<f64>,
     /// The easier charts it may step down to (`crate::ladder`), the next
     /// first, and the rule ([`Player::add_rung`]); empty in every play
     /// without a ladder.
@@ -536,6 +539,7 @@ impl Player {
             cover_changed: None,
             shown_cover: options.cover,
             hazards: None,
+            hazard_beats: Vec::new(),
             ladder: Vec::new(),
             above: Vec::new(),
             home: None,
@@ -886,6 +890,12 @@ impl Player {
             .hazards
             .get_or_insert_with(|| HazardJudge::new(window, lanes));
         hazards.add(&mines, judged)?;
+        let added = &hazards.mines()[self.hazard_beats.len()..];
+        self.hazard_beats.extend(
+            added
+                .iter()
+                .map(|m| self.timing.displayed_beat(m.tick.beat())),
+        );
         self.log.hazards.extend(cells.iter().map(|c| LoggedHazard {
             tick: c.tick.0,
             lane: c.lane,
@@ -1032,31 +1042,40 @@ impl Player {
             return;
         };
         // The breather: the step down's own lead past the horizon.
-        let rule = crate::ladder::AdaptiveRule {
-            lead: self.rule.down_lead,
-            ..self.rule
-        };
-        let (tick, boundary) = crate::ladder::boundary(&rule, &self.timing, at, self.horizon);
+        let (tick, boundary) = self.rule.boundary(true, &self.timing, at, self.horizon);
         let incoming: Vec<Note> = next.notes.iter().filter(|n| n.tick >= tick).cloned().collect();
         let rows = self.row_progress();
         self.judge.step_down(at, taken, &incoming, &self.timing);
-        self.after_step(rows);
-        self.meter = next.meter;
         self.ran_out.push(from);
         self.pending_up = None;
+        // Closed by this time its life ran out there.
+        let ran_out = self.ran_out.iter().filter(|&&p| p == from).count();
+        let closes = self.rule.closed_after > 0 && ran_out == self.rule.closed_after as usize;
+        self.finish_step(rows, &next, (from, to), (at, boundary, tick), closes);
+    }
+
+    /// What a step down and a step up end alike with: the play's tables
+    /// made again, the rung's meter, the level, and the step kept.
+    fn finish_step(
+        &mut self,
+        rows: std::collections::BTreeMap<ddi_chart::Tick, (RowAcc, u32)>,
+        next: &Rung,
+        (from, to): (i8, i8),
+        (at, boundary, tick): (f64, f64, ddi_chart::Tick),
+        closes: bool,
+    ) {
+        self.after_step(rows);
+        self.meter = next.meter;
         self.level = to;
         self.clean_from = None;
         let below = self.ladder.len();
-        let closes = self.closed(from)
-            && self.ran_out.iter().filter(|&&p| p == from).count()
-                == self.rule.closed_after as usize;
         self.steps.push(Step {
             at,
             boundary,
             tick,
             rung: crate::ladder::rung_of(below, to),
             chart: next.chart,
-            up: false,
+            up: to > from,
             from: crate::ladder::rung_of(below, from),
             closes,
         });
@@ -1073,7 +1092,7 @@ impl Player {
         let Some(next) = self.rung_at(to).cloned() else {
             return;
         };
-        let (tick, boundary) = crate::ladder::boundary(&self.rule, &self.timing, at, self.horizon);
+        let (tick, boundary) = self.rule.boundary(false, &self.timing, at, self.horizon);
         // The old chart's holds that cross the boundary: their lanes are
         // theirs to their ends.
         let mut busy = vec![ddi_chart::Tick(i64::MIN); usize::from(self.lanes)];
@@ -1095,22 +1114,8 @@ impl Player {
             .collect();
         let rows = self.row_progress();
         self.judge.step_up(tick, &incoming, &self.timing);
-        self.after_step(rows);
-        self.meter = next.meter;
         self.pending_up = Some((from, boundary));
-        self.level = to;
-        self.clean_from = None;
-        let below = self.ladder.len();
-        self.steps.push(Step {
-            at,
-            boundary,
-            tick,
-            rung: crate::ladder::rung_of(below, to),
-            chart: next.chart,
-            up: true,
-            from: crate::ladder::rung_of(below, from),
-            closes: false,
-        });
+        self.finish_step(rows, &next, (from, to), (at, boundary, tick), false);
     }
 
     /// Each row's progress by its tick, before the judge's notes change.
@@ -1380,22 +1385,10 @@ impl Player {
     /// first at the same instant), as events of their own
     /// ([`HAZARD_INDEX_BASE`]).
     fn merge_hazards(&self, events: &mut Vec<JudgeEvent>, hits: Vec<HazardHit>) {
-        let Some(h) = self.hazards.as_ref() else {
-            return;
-        };
-        if hits.is_empty() {
+        if self.hazards.is_none() || hits.is_empty() {
             return;
         }
-        events.extend(hits.into_iter().map(|hit| {
-            let m = h.mines()[hit.index];
-            JudgeEvent {
-                note_index: Some(HAZARD_INDEX_BASE + hit.index),
-                lane: m.lane,
-                tick: m.tick,
-                kind: JudgeEventKind::HitMine,
-                song_time: hit.at,
-            }
-        }));
+        events.extend(hits.into_iter().filter_map(|hit| self.hazard_judge_event(hit)));
         events.sort_by(|a, b| a.song_time.total_cmp(&b.song_time));
     }
 
@@ -1468,7 +1461,14 @@ impl Player {
         // Nor under DDI's rules a press near any of them.
         let near_shock = match (self.ruleset.judge.empty_press, self.hazards.as_ref()) {
             (EmptyPress::Guarded { near_mine, .. }, Some(h)) if pressed => {
-                h.mines().iter().any(|m| (m.seconds - t).abs() <= near_mine)
+                // The shocks are in time order: those a second clear of
+                // the guard either way are passed over.
+                let mines = h.mines();
+                let from = mines.partition_point(|m| m.seconds < t - near_mine - 1.0);
+                mines[from..]
+                    .iter()
+                    .take_while(|m| m.seconds <= t + near_mine + 1.0)
+                    .any(|m| (m.seconds - t).abs() <= near_mine)
             }
             _ => false,
         };
@@ -2268,8 +2268,7 @@ impl Player {
                 {
                     continue;
                 }
-                let beat = self.timing.displayed_beat(m.tick.beat());
-                let y = scroll.y_displayed(beat, m.seconds);
+                let y = scroll.y_displayed(self.hazard_beats[i], m.seconds);
                 if !(-2.0..=visible_range).contains(&y) {
                     continue;
                 }

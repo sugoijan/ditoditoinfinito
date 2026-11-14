@@ -713,26 +713,19 @@ impl HazardJudge {
             if m.seconds - t > self.window {
                 break;
             }
-            if m.state != HazardState::Pending {
-                continue;
-            }
-            if self.down[usize::from(m.lane)] && prev <= m.seconds && m.seconds < t {
+            if m.state == HazardState::Pending
+                && self.down[usize::from(m.lane)]
+                && prev <= m.seconds
+                && m.seconds < t
+            {
                 self.mines[i].state = HazardState::Hit;
                 out.push(HazardHit {
                     index: i,
                     at: m.seconds,
                 });
-            } else if t > m.seconds + self.window {
-                self.mines[i].state = HazardState::Avoided;
             }
         }
-        while self
-            .mines
-            .get(self.first_open)
-            .is_some_and(|m| m.state != HazardState::Pending)
-        {
-            self.first_open += 1;
-        }
+        self.retire(t);
         out.sort_by(|a, b| a.at.total_cmp(&b.at).then(a.index.cmp(&b.index)));
     }
 
@@ -745,19 +738,7 @@ impl HazardJudge {
         };
         self.advance(t, &mut out);
         self.down[l] = true;
-        let nearest = (self.first_open..self.mines.len())
-            .filter(|&i| {
-                let m = &self.mines[i];
-                m.state == HazardState::Pending
-                    && usize::from(m.lane) == l
-                    && (t - m.seconds).abs() <= self.window
-            })
-            .min_by(|&a, &b| {
-                (t - self.mines[a].seconds)
-                    .abs()
-                    .total_cmp(&(t - self.mines[b].seconds).abs())
-            });
-        if let Some(i) = nearest {
+        if let Some((i, _)) = self.nearest(lane, t) {
             self.mines[i].state = HazardState::Hit;
             out.push(HazardHit { index: i, at: t });
         }
@@ -813,6 +794,12 @@ impl HazardJudge {
             return;
         }
         self.last = Some(t);
+        self.retire(t);
+    }
+
+    /// The shocks passed by their window unstepped at `t` avoided, and
+    /// the first still open moved on past those judged.
+    fn retire(&mut self, t: f64) {
         for m in &mut self.mines[self.first_open..] {
             if m.seconds - t > self.window {
                 break;

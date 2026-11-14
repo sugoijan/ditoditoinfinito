@@ -56,10 +56,6 @@ pub struct AdaptiveRule {
     /// competitor for the rest of the stage (never stepped up to again,
     /// nor past it); 0 never closes one.
     pub closed_after: u32,
-    /// What a stretch played on a rung counts for in a stage's score,
-    /// by its place against the stage's chart (negative easier): 1 on
-    /// every rung (no balancing; the place for it, [`rung_score_factor`]).
-    pub score_factor: f64,
     /// The least share of the taps judged in the bars that earn a step up
     /// (first time or back) that must be in the ruleset's two best
     /// judgments (W0 or W1 under DDI; W1 or W2 where a ruleset has no
@@ -86,7 +82,6 @@ pub const ADAPTIVE_V0: AdaptiveRule = AdaptiveRule {
     up_bars: 4,
     return_bars: 8,
     closed_after: 0,
-    score_factor: 1.0,
     accuracy: 0.0,
     down_lead: 1.0,
 };
@@ -123,15 +118,6 @@ pub const ADAPTIVE_ACCURACY_V2: f64 = 0.95;
 
 /// The rule a stage plays ([`ADAPTIVE_V2`]).
 pub const ADAPTIVE: AdaptiveRule = ADAPTIVE_V2;
-
-/// What a stretch on the rung `level` places from the stage's chart
-/// (negative easier, 0 the stage's) counts for in a stage's score under
-/// `rule`: [`AdaptiveRule::score_factor`] on every rung but the stage's.
-/// 1 under [`ADAPTIVE_V0`]: nothing is balanced until the maintainer has
-/// felt the rule.
-pub fn rung_score_factor(rule: &AdaptiveRule, level: i8) -> f64 {
-    if level == 0 { 1.0 } else { rule.score_factor }
-}
 
 /// One step of a play from a rung to the next ([`crate::Results::steps`]).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -262,18 +248,7 @@ pub fn same_timing(a: &TimingMap, b: &TimingMap) -> bool {
 ///
 /// Empty where the song has no easier chart.
 pub fn below(song: &Song, chart: usize) -> Vec<usize> {
-    let Some(stage) = song.charts.get(chart) else {
-        return Vec::new();
-    };
-    let mut rungs: Vec<(u8, u32, usize)> = fitting(song, chart)
-        .filter_map(|(i, c)| {
-            let s = slot(c.difficulty)?;
-            is_easier((stage.difficulty, stage.meter), (c.difficulty, c.meter))
-                .then_some((s, c.meter, i))
-        })
-        .collect();
-    rungs.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
-    rungs.into_iter().map(|r| r.2).collect()
+    rungs(song, chart, false)
 }
 
 /// The rungs above a stage on chart `chart` of `song`: the song's other
@@ -288,17 +263,33 @@ pub fn below(song: &Song, chart: usize) -> Vec<usize> {
 ///
 /// Empty where the song has no harder chart.
 pub fn above(song: &Song, chart: usize) -> Vec<usize> {
+    rungs(song, chart, true)
+}
+
+/// [`above`] (`harder`) or [`below`]: the fitting charts harder or
+/// easier than the stage's, the nearest slot first, a slot's charts by
+/// meter from the nearest, then by their place in the song.
+fn rungs(song: &Song, chart: usize, harder: bool) -> Vec<usize> {
     let Some(stage) = song.charts.get(chart) else {
         return Vec::new();
+    };
+    let want = if harder {
+        std::cmp::Ordering::Greater
+    } else {
+        std::cmp::Ordering::Less
     };
     let mut rungs: Vec<(u8, u32, usize)> = fitting(song, chart)
         .filter_map(|(i, c)| {
             let s = slot(c.difficulty)?;
-            is_harder((stage.difficulty, stage.meter), (c.difficulty, c.meter))
+            (compare((stage.difficulty, stage.meter), (c.difficulty, c.meter)) == Some(want))
                 .then_some((s, c.meter, i))
         })
         .collect();
-    rungs.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+    if harder {
+        rungs.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+    } else {
+        rungs.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
+    }
     rungs.into_iter().map(|r| r.2).collect()
 }
 
@@ -321,26 +312,25 @@ fn fitting(song: &Song, chart: usize) -> impl Iterator<Item = (usize, &Chart)> {
 /// stage's (`stage`) as [`below`] has it: a lower slot below a slotted
 /// chart; a slotted chart of a lower meter below an Edit; never an Edit.
 pub fn is_easier(stage: (Difficulty, u32), other: (Difficulty, u32)) -> bool {
-    let Some(s) = slot(other.0) else {
-        return false;
-    };
-    match slot(stage.0) {
-        Some(top) => s < top,
-        None => other.1 < stage.1,
-    }
+    compare(stage, other) == Some(std::cmp::Ordering::Less)
 }
 
 /// Whether a chart of difficulty and meter `other` is harder than the
 /// stage's as [`above`] has it: a higher slot above a slotted chart; a
 /// slotted chart of a higher meter above an Edit; never an Edit.
 pub fn is_harder(stage: (Difficulty, u32), other: (Difficulty, u32)) -> bool {
-    let Some(s) = slot(other.0) else {
-        return false;
-    };
-    match slot(stage.0) {
-        Some(top) => s > top,
-        None => other.1 > stage.1,
-    }
+    compare(stage, other) == Some(std::cmp::Ordering::Greater)
+}
+
+/// How a chart of difficulty and meter `other` is placed against the
+/// stage's: by slot against a slotted chart, by meter (a slotted one)
+/// against an Edit; none for an Edit.
+fn compare(stage: (Difficulty, u32), other: (Difficulty, u32)) -> Option<std::cmp::Ordering> {
+    let s = slot(other.0)?;
+    Some(match slot(stage.0) {
+        Some(top) => s.cmp(&top),
+        None => other.1.cmp(&stage.1),
+    })
 }
 
 /// A rung's name as the song list shows it: a named Edit's name, else
@@ -353,12 +343,22 @@ pub fn rung_name(chart: &Chart) -> String {
     }
 }
 
-/// The boundary of a step at judged song second `at` for a player who
-/// reads `horizon` seconds ahead: the first bar line at least `horizon`
-/// plus the rule's lead past `at`, on `timing`: its tick and its second.
-pub fn boundary(rule: &AdaptiveRule, timing: &TimingMap, at: f64, horizon: f64) -> (Tick, f64) {
-    let target = at + horizon.max(0.0) + rule.lead;
-    let bar = i64::from(rule.bar_beats.max(1)) * TICKS_PER_BEAT;
+impl AdaptiveRule {
+    /// The boundary of a step (`down`, or up) at judged song second `at`
+    /// for a player who reads `horizon` seconds ahead: the first bar line
+    /// at least `horizon` plus the step's lead ([`AdaptiveRule::down_lead`]
+    /// down, [`AdaptiveRule::lead`] up) past `at`, on `timing`: its tick
+    /// and its second.
+    pub fn boundary(&self, down: bool, timing: &TimingMap, at: f64, horizon: f64) -> (Tick, f64) {
+        let lead = if down { self.down_lead } else { self.lead };
+        boundary(self.bar_beats, lead, timing, at, horizon)
+    }
+}
+
+/// [`AdaptiveRule::boundary`] by bars of `bar_beats` and `lead`.
+fn boundary(bar_beats: u32, lead: f64, timing: &TimingMap, at: f64, horizon: f64) -> (Tick, f64) {
+    let target = at + horizon.max(0.0) + lead;
+    let bar = i64::from(bar_beats.max(1)) * TICKS_PER_BEAT;
     let beat = timing.beat_at(target);
     let mut tick = if beat.is_finite() {
         Tick(((beat * TICKS_PER_BEAT as f64).ceil() as i64 + bar - 1).div_euclid(bar) * bar)
@@ -433,12 +433,12 @@ mod tests {
     fn the_boundary_is_a_bar_line_past_the_horizon_and_a_second() {
         // 120 BPM: a beat is half a second, a bar two seconds.
         let timing = TimingMap::constant(120.0, 0.0);
-        let (tick, at) = boundary(&ADAPTIVE_V0, &timing, 10.0, 2.5);
+        let (tick, at) = ADAPTIVE_V0.boundary(false, &timing, 10.0, 2.5);
         // 13.5 s is beat 27: the next bar line is beat 28, 14 s.
         assert_eq!(tick, Tick(28 * TICKS_PER_BEAT));
         assert!((at - 14.0).abs() < 1e-9);
         // Exactly on a bar line: that one.
-        let (_, at) = boundary(&ADAPTIVE_V0, &timing, 11.0, 0.0);
+        let (_, at) = ADAPTIVE_V0.boundary(false, &timing, 11.0, 0.0);
         assert!((at - 12.0).abs() < 1e-9);
     }
 
@@ -448,16 +448,12 @@ mod tests {
     #[test]
     fn a_v2_step_downs_breather_has_no_extra_second() {
         let timing = TimingMap::constant(120.0, 0.0);
-        let down = AdaptiveRule {
-            lead: ADAPTIVE_V2.down_lead,
-            ..ADAPTIVE_V2
-        };
         assert_eq!(ADAPTIVE_V2.down_lead, 0.0);
         assert_eq!(ADAPTIVE_V2.lead, ADAPTIVE_V1.lead);
         // 11.5 s: beat 23, the bar line at 12 s; with the second, 14 s.
-        let (_, at) = boundary(&down, &timing, 10.0, 1.5);
+        let (_, at) = ADAPTIVE_V2.boundary(true, &timing, 10.0, 1.5);
         assert!((at - 12.0).abs() < 1e-9);
-        let (_, at) = boundary(&ADAPTIVE_V1, &timing, 10.0, 1.5);
+        let (_, at) = ADAPTIVE_V1.boundary(false, &timing, 10.0, 1.5);
         assert!((at - 14.0).abs() < 1e-9);
         assert_eq!(ADAPTIVE, ADAPTIVE_V2);
         assert_eq!((ADAPTIVE_V2.accuracy, ADAPTIVE_V1.accuracy), (0.95, 0.0));
