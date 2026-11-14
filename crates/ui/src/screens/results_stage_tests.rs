@@ -653,7 +653,10 @@ fn an_online_stages_lines_fill_in_as_the_reports_come() {
     let v = view(&env);
     assert!(!v.confirmed);
     assert_eq!(v.rows.len(), 2);
-    assert_eq!(said(&h, "Stand0", "Name"), "You");
+    // The player's own line: their signed-in name and the "You" badge.
+    assert_eq!(said(&h, "Stand0", "Name"), "alice");
+    assert_eq!(said(&h, "Stand0", "Name.BadgeText"), "You");
+    assert!(v.rows[0].badge && !v.rows[1].badge);
     assert_eq!(
         said(&h, "Stand0", "Place"),
         "",
@@ -682,7 +685,7 @@ fn an_online_stages_lines_fill_in_as_the_reports_come() {
     assert_eq!(said(&h, "Stand1", "Waiting"), "");
     assert_eq!(said(&h, "Stand1", "Life"), "Out 0:45");
     assert_eq!(said(&h, "Stand1", "Grade"), "", "he said nothing more");
-    assert_eq!(v.winners, ["You"], "one stage: the match's result too");
+    assert_eq!(v.winners, ["alice"], "one stage: the match's result too (her own name)");
     assert_eq!(room_unseen(&alice), None, "seen on the results");
     // Bob, who never opened the standings (the graphs): his song select
     // still pops them up.

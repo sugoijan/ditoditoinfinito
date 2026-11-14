@@ -874,6 +874,10 @@ pub struct RoomClient {
     spotlight_asked: Option<ContentId>,
     /// The Rules pop-up opened by itself on entering (M7b).
     rules_seen: bool,
+    /// Practice's: the player's signed-in display name, where they are
+    /// signed in (the shell's, [`RoomClient::set_own_name`]); an online
+    /// room's is its member's own.
+    own_name: Option<String>,
     /// The last results the player was shown: the match and its confirmed
     /// stages (the match's results counted as one more).
     results_seen: (Option<MatchId>, usize),
@@ -1338,6 +1342,7 @@ impl RoomClient {
             spotlight_loaded: None,
             spotlight_asked: None,
             rules_seen: false,
+            own_name: None,
             results_seen: (None, 0),
             details: BTreeMap::new(),
             summaries: BTreeMap::new(),
@@ -1467,6 +1472,7 @@ impl RoomClient {
             spotlight_loaded: None,
             spotlight_asked: None,
             rules_seen: false,
+            own_name: None,
             results_seen: (None, 0),
             details: BTreeMap::new(),
             summaries: BTreeMap::new(),
@@ -1938,6 +1944,29 @@ impl RoomClient {
     /// The local player.
     pub fn me(&self) -> ParticipantId {
         self.me
+    }
+
+    /// The local player's own name where one is known (round D, item 5):
+    /// an online room's member's (their signed-in display name), or
+    /// practice's as the shell set it while signed in. The lists show it
+    /// with a "You" badge; where none is known, "You" alone.
+    pub fn own_name(&self) -> Option<String> {
+        if self.is_online() {
+            return match &self.state().member(self.me)?.kind {
+                MemberKind::Human { name, .. } if !name.is_empty() => Some(name.clone()),
+                _ => None,
+            };
+        }
+        self.own_name.clone().filter(|n| !n.is_empty())
+    }
+
+    /// Practice's: the player's signed-in display name (none signed out),
+    /// set by the shell whenever it hands the room over.
+    pub fn set_own_name(&mut self, name: Option<String>) {
+        if self.own_name != name {
+            self.own_name = name;
+            self.version += 1;
+        }
     }
 
     pub fn version(&self) -> u64 {

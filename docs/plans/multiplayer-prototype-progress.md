@@ -7871,6 +7871,44 @@ The maintainer: "I think we can also make Adaptive the default."
   Adaptive and its Reset; the session's stage tests that are about the
   picked chart set As picked themselves.
 
+### The player's own row: their name and a "You" badge
+
+The maintainer: "is あなた the best 'equivalent' for 'You' in games? would
+it make more sense to show your own logged in name and a badge instead
+when available?"
+
+- Where the room's screens listed the local player as "You" (the players
+  panel and a phone's panel, the Players pop-up, the stage prompt's
+  players, a stage's Standings, the match's standings pop-up), the row
+  shows **their signed-in display name with a quiet "You" chip after
+  it** when a name is known (`RoomClient::own_name`: an online room's
+  member's own name; CPU practice's, set by the shells while signed in,
+  `RoomClient::set_own_name`, `online::signed_in_name`), and "You" alone
+  as before when it is not (`room::own_label`). The chip
+  (`room::name_and_badge`, `<name>.Badge`): a faint rounded plate of the
+  text's color with the word muted, never a tier's or a role's color.
+- **Narrow widths**: the name is never cut while the badge shows; where
+  the two do not fit, the badge goes first (the row stays marked by its
+  plate), and only then is the name cut. A phone's one-line strip of
+  initials shows the own name whole without the chip.
+- Not changed: the miniature of the player's own field (watching on
+  after going out) keeps "You", the field's label being smaller than any
+  name and chip; a winners' line names the player by their name.
+- **Japanese**: the row's label and the chip are 自分 (あなた addresses
+  someone); the sentences that addressed the player drop the pronoun
+  where Japanese would (the leaving question's lines: このルームのホストです,
+  選曲を担当しています, 共同ホストを務めています, 対戦は退出後も続きます;
+  ルームにはほかに誰もいません), the studio's 自分の録音; あなた stays in
+  room-make-host-body, where it tells the player apart from the person
+  named. The rule is in `locales/ja/GLOSSARY.md`. Unverified drafts; the
+  faces cut again for 務 and 誰.
+- Sorting and the own row's plate unchanged. Tests: the rows' names and
+  badges in an online room for each member (`the_panels_lines_say_what_each_player_is_doing`),
+  the Standings' own line (`an_online_stages_lines_fill_in_as_the_reports_come`),
+  the narrow-width rule (`the_you_badge_goes_before_the_name_is_cut`),
+  the `qps-ploc` walk; pictures of the panel with the chip at 1280×720 and
+  844×390, English and Japanese (`room_picker_offscreen`).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

@@ -28,7 +28,7 @@ room-players = プレイヤー
 
 room-players-count = { $players } / { $cap }
 
-room-you = あなた
+room-you = 自分
 
 room-cpu-name = CPU { $number }
 
@@ -278,23 +278,23 @@ room-leave-stay = 残る
 
 room-leave-confirm = 出る
 
-room-leave-host-pass = あなたはホストです。{ $name }がホストになります。
+room-leave-host-pass = このルームのホストです。{ $name }がホストになります。
 
-room-leave-host-pass-match = あなたはホストです。{ $name }がホストになり、対戦はあなた抜きで続きます。
+room-leave-host-pass-match = このルームのホストです。{ $name }がホストになり、対戦は退出後も続きます。
 
-room-leave-host-close = あなたはホストです。ルームは全員に対して閉じられます。
+room-leave-host-close = このルームのホストです。ルームは全員に対して閉じられます。
 
-room-leave-host-close-match = あなたはホストです。ルームは全員に対して閉じられ、進行中の対戦は終了します。
+room-leave-host-close-match = このルームのホストです。ルームは全員に対して閉じられ、進行中の対戦は終了します。
 
-room-leave-host-alone = ここにはあなたしかいません。ルームは閉じられます。
+room-leave-host-alone = ルームにはほかに誰もいません。ルームは閉じられます。
 
-room-leave-host-stays = あなたはホストです。ルームはホストがいないまま開いた状態になり、リンクから戻れます。
+room-leave-host-stays = このルームのホストです。ルームはホストがいないまま開いた状態になり、リンクから戻れます。
 
-room-leave-playing = 進行中の対戦に参加しています。対戦はあなた抜きで続き、参加しなかったステージは0点になります。
+room-leave-playing = 進行中の対戦に参加しています。対戦は退出後も続き、参加しなかったステージは0点になります。
 
-room-leave-picking = あなたが選曲しています。代わりにホストが選曲し、対戦はあなた抜きで続きます。
+room-leave-picking = 選曲を担当しています。代わりにホストが選曲し、対戦は退出後も続きます。
 
-room-leave-co-host = あなたは共同ホストです。進行中の対戦はあなた抜きで続きます。
+room-leave-co-host = 共同ホストを務めています。進行中の対戦は退出後も続きます。
 
 ## A stage's prompt, results and the room between stages.
 

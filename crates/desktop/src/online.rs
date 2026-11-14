@@ -110,6 +110,17 @@ pub fn take_join() -> Option<String> {
     JOIN.with_borrow_mut(Option::take)
 }
 
+/// The signed-in player's display name, where this session's online
+/// state exists and is signed in (never made for the asking): CPU
+/// practice's own row shows it with a "You" badge.
+pub fn signed_in_name() -> Option<String> {
+    ONLINE.with(|o| {
+        o.borrow()
+            .as_ref()
+            .and_then(|o| o.borrow().me().map(|me| me.display_name.clone()))
+    })
+}
+
 /// The run's online state, made at first (the kept session with it).
 pub fn current() -> SharedOnline {
     ONLINE.with(|o| {

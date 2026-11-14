@@ -569,7 +569,13 @@ const MORE_TAKE_PICK: &str = "takepick";
 /// prompt show it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlayerRow {
+    /// The name shown: the local player's own signed-in name where one is
+    /// known ([`RoomClient::own_name`], with [`PlayerRow::badge`]), else
+    /// "You"; anyone else's as the room has it.
     pub name: String,
+    /// The local player's row shows a "You" badge after their own name
+    /// ([`name_and_badge`]).
+    pub badge: bool,
     /// Under the name: a role, a CPU's personality (after its level's
     /// stars), the points.
     pub sub: String,
@@ -600,6 +606,74 @@ pub struct PlayerRow {
     /// Host options (the row is drawn on a faint plate named
     /// [`person_row_name`]). Set by the pop-up, never by the rows' maker.
     pub manage: bool,
+}
+
+/// The local player's own name as the lists show it (round D, item 5):
+/// their signed-in display name with a "You" badge where one is known
+/// ([`RoomClient::own_name`]), else "You" alone. `(name, badge)`.
+pub fn own_label(r: &RoomClient) -> (String, bool) {
+    match r.own_name() {
+        Some(own) => (UiText::data(&own).into(), true),
+        None => (m::you().into(), false),
+    }
+}
+
+/// The "You" badge's width at a name of `size` pixels, with the gap
+/// before it.
+pub fn badge_width(size: f32) -> f32 {
+    let t: String = m::you().into();
+    let text = (size - 3.0).max(9.0);
+    BADGE_GAP + look::mono_width(&t, text) + 2.0 * BADGE_PAD
+}
+
+const BADGE_GAP: f32 = 8.0;
+const BADGE_PAD: f32 = 6.0;
+
+/// A name (the actor `id`) at `[x, mid]` (its left edge, its middle) in
+/// `room` pixels, and, where `badge`, the quiet "You" chip after it
+/// (`<id>.Badge`: a
+/// faint rounded plate of the text's color, its word muted, never a color
+/// the tiers or the roles use). The rule at narrow widths: the name is
+/// never cut while the badge shows; where the two do not fit, the badge
+/// goes first, then the name is cut. The actors, and the width the name
+/// and the badge take.
+#[allow(clippy::too_many_arguments)]
+pub fn name_and_badge(
+    env: &Env,
+    id: &str,
+    name: &str,
+    badge: bool,
+    (size, weight, color): (f32, u16, &str),
+    [x, mid]: [f32; 2],
+    room: f32,
+) -> (Vec<Actor>, f32) {
+    let full = look::mono_width(name, size);
+    let chip = badge_width(size);
+    let with_badge = badge && full + chip <= room;
+    let name_w = full.min(room.max(24.0));
+    let mut n = env.text(id, name, size, weight, color);
+    look::ellipsized(&mut n, name_w);
+    let mut out = vec![left(n, x, mid)];
+    if !with_badge {
+        return (out, name_w);
+    }
+    let word: String = m::you().into();
+    let text = (size - 3.0).max(9.0);
+    let w = chip - BADGE_GAP;
+    let h = text + 6.0;
+    let cx = x + full + BADGE_GAP + w / 2.0;
+    let mut plate = look::quad_at(
+        &format!("{id}.Badge"),
+        [w, h],
+        look::with_alpha(env.color("Text"), 0.10),
+        [cx, mid],
+    );
+    look::call(&mut plate, "cornerradius", &[h / 2.0]);
+    out.push(plate);
+    let mut t = env.text(&format!("{id}.BadgeText"), &word, text, 600, "Muted");
+    look::call(&mut t, "xy", &[cx, mid]);
+    out.push(t);
+    (out, full + chip)
 }
 
 /// The name of a person's row in the host's Players pop-up.
@@ -775,10 +849,12 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
         match &member.kind {
             MemberKind::Human { .. } => {
                 let me = member.id == r.me();
-                let name: String = if me {
-                    m::you().into()
-                } else {
-                    person_name(member)
+                let own = if me { r.own_name() } else { None };
+                let badge = own.is_some();
+                let name: String = match (me, own) {
+                    (true, Some(own)) => UiText::data(&own).into(),
+                    (true, None) => m::you().into(),
+                    _ => person_name(member),
                 };
                 let prep = upcoming.map(|st| st.prep(member.id));
                 let part = s.participation(member.id);
@@ -809,6 +885,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                 let standing = standing(member.id);
                 rows.push(PlayerRow {
                     name,
+                    badge,
                     sub,
                     level: None,
                     state,
@@ -829,6 +906,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                 let standing = standing(member.id);
                 rows.push(PlayerRow {
                     name: cpu_name(opponent, *ordinal),
+                    badge: false,
                     sub: cpu_sub(opponent),
                     level: Some(cpu_level(opponent)),
                     state: points(member.id).unwrap_or_default(),
@@ -854,6 +932,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
         for (n, spec) in roster.iter().enumerate() {
             rows.push(PlayerRow {
                 name: cpu_name(spec, u16::try_from(n + 1).unwrap_or(u16::MAX)),
+                badge: false,
                 sub: cpu_sub(spec),
                 level: Some(cpu_level(spec)),
                 state: m::cpu_at_start().into(),
@@ -1631,9 +1710,16 @@ pub fn panel(
                 }
                 let color = if p.me { "Text" } else { "Secondary" };
                 let state_w = look::mono_width(&p.state, 13.0).min(w * 0.45);
-                let mut name = env.text(&format!("Panel{k}.Name"), &p.name, 15.0, 600, color);
-                look::ellipsized(&mut name, (w - state_w - 12.0).max(40.0));
-                children.push(left(name, x, ry + 13.0));
+                let (parts, _) = name_and_badge(
+                    env,
+                    &format!("Panel{k}.Name"),
+                    &p.name,
+                    p.badge,
+                    (15.0, 600, color),
+                    [x, ry + 13.0],
+                    (w - state_w - 12.0).max(40.0),
+                );
+                children.extend(parts);
                 if let Some(level) = p.level {
                     // A CPU: its level's stars, then its personality.
                     level_line(
@@ -1822,10 +1908,16 @@ pub fn players_panel(env: &Env, r: &RoomClient, [x, y, w, h]: [f32; 4]) -> Actor
             None if p.role.is_empty() => 0.0,
             None => look::mono_width(&p.role, 12.0) + 10.0,
         };
-        let name_w = look::mono_width(&p.name, 15.0).min((room - after).max(40.0));
-        let mut name = env.text(&format!("{id}.Name"), &p.name, 15.0, 600, color);
-        look::ellipsized(&mut name, name_w);
-        c.push(left(name, name_x, mid));
+        let (parts, name_w) = name_and_badge(
+            env,
+            &format!("{id}.Name"),
+            &p.name,
+            p.badge,
+            (15.0, 600, color),
+            [name_x, mid],
+            (room - after).max(40.0),
+        );
+        c.extend(parts);
         let ax = name_x + name_w + 10.0;
         if let Some(level) = p.level {
             level_line(

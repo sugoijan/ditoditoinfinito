@@ -246,7 +246,7 @@ fn now_ms() -> u64 {
 
 /// The session's practice room, made at first.
 pub(crate) fn current() -> SharedRoom {
-    ROOM.with(|r| {
+    let room = ROOM.with(|r| {
         r.borrow_mut()
             .get_or_insert_with(|| {
                 let now = now_ms();
@@ -258,7 +258,13 @@ pub(crate) fn current() -> SharedRoom {
                 }
             })
             .clone()
-    })
+    });
+    // The player's own row: their signed-in name where they are (not
+    // while the room is borrowed: the next hand-over sets it).
+    if let Ok(mut r) = room.try_borrow_mut() {
+        r.set_own_name(crate::online::signed_in_name());
+    }
+    room
 }
 
 /// DEVELOPMENT ONLY: practice against `cpus` CPUs, beyond the cap, from

@@ -226,6 +226,17 @@ fn site() -> String {
         .unwrap_or_else(|| "https://sugoijan.dev/ditoditoinfinito/".into())
 }
 
+/// The signed-in player's display name, where this session's online
+/// state exists and is signed in (never made for the asking): CPU
+/// practice's own row shows it with a "You" badge.
+pub(crate) fn signed_in_name() -> Option<String> {
+    ONLINE.with(|o| {
+        o.borrow()
+            .as_ref()
+            .and_then(|o| o.borrow().me().map(|me| me.display_name.clone()))
+    })
+}
+
 /// The session's online state, made at first.
 pub(crate) fn current() -> SharedOnline {
     ONLINE.with(|o| {

@@ -203,3 +203,18 @@ would follow.
   calibration's list), as against 既定値; one not measured is 未測定. The
   action stays 調整 and the start prompt's hint タイミング未調整, which
   sits beside that button.
+
+## The player themselves: 自分, and dropping あなた (2026-11-14)
+
+- A list's own row ("You": the players panel, the Players pop-up, the
+  stage's prompt, the Standings) and the badge after the player's own
+  signed-in name are 自分, as Japanese game UIs label one's own row;
+  あなた addresses someone and reads as a stranger's label there. The
+  same for a label of one's own thing (自分の録音).
+- Sentences that address the player drop the pronoun where Japanese
+  naturally would (このルームのホストです, 選曲を担当しています, 対戦は退出後も
+  続きます) rather than translate "you" each time. あなた stays only where
+  the sentence needs it to tell the player apart from someone else named
+  in it (room-make-host-body: "{ $name }がルームを管理し、あなたは共同ホスト
+  になります").
+

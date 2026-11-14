@@ -334,9 +334,16 @@ impl PromptScreen {
                 p.state.clone()
             };
             let sw = look::mono_width(&state, 12.0).min(w * 0.5);
-            let mut n = env.text(&format!("Room.Player{k}"), &p.name, 13.0, 600, color);
-            look::ellipsized(&mut n, (w - sw - 8.0).max(30.0));
-            out.push(left(n, x, mid));
+            let (parts, _) = room::name_and_badge(
+                env,
+                &format!("Room.Player{k}"),
+                &p.name,
+                p.badge,
+                (13.0, 600, color),
+                [x, mid],
+                (w - sw - 8.0).max(30.0),
+            );
+            out.extend(parts);
             let state_color = if p.ready && !p.cpu { "Accent" } else { "Muted" };
             let mut s = env.text(
                 &format!("Room.Player{k}.State"),

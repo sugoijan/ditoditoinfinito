@@ -2101,7 +2101,10 @@ fn the_panels_lines_say_what_each_player_is_doing() {
         (host.role.as_str(), host.status.as_str()),
         ("Host · Picking", "")
     );
-    assert!(row(&alice, "You").me);
+    // Alice's own row: her signed-in name with the "You" badge.
+    let mine = row(&alice, "alice");
+    assert!(mine.me && mine.badge);
+    assert!(!row(&bob, "alice").badge);
     assert_eq!(says(&alice, "dave"), ("Watching".into(), Tone::Plain));
     assert_eq!(row(&alice, "bob").place, None);
     // The pick: its song shared, then everyone prepares it.
@@ -2146,21 +2149,19 @@ fn the_panels_lines_say_what_each_player_is_doing() {
     );
     ha.run(0.4);
     hb.run(0.4);
-    for (h, me, other, state) in [
-        (&ha, "You", "bob", "Loading"),
-        (&hb, "alice", "You", "Ready"),
+    // Each one's own row: their name with the "You" badge (alice's the
+    // first line, bob's the second).
+    for (h, first, other, state, at, own) in [
+        (&ha, "alice", "bob", "Loading", 1, 0),
+        (&hb, "alice", "bob", "Ready", 0, 1),
     ] {
         assert_eq!(said(h, "Players.Count"), "4 / 73");
-        assert_eq!(said(h, "Players0.Name"), me);
+        assert_eq!(said(h, "Players0.Name"), first);
         assert_eq!(said(h, "Players0.Role"), "Host · Picking");
         assert_eq!(said(h, "Players1.Name"), other);
-        assert_eq!(
-            said(
-                h,
-                &format!("Players{}.State", if me == "You" { 1 } else { 0 })
-            ),
-            state
-        );
+        assert_eq!(said(h, &format!("Players{at}.State")), state);
+        assert_eq!(said(h, &format!("Players{own}.Name.BadgeText")), "You");
+        assert!(!there(h, &format!("Players{}.Name.Badge", 1 - own)));
         assert_eq!(said(h, "Players2.State"), "Download failed");
         assert_eq!(said(h, "Players3.State"), "Watching");
         assert_eq!(ha.ui.bounds("RoomPlayers"), h.ui.bounds("RoomPlayers"));
@@ -4850,4 +4851,34 @@ fn the_rules_pop_up_scrolls_its_rows_with_its_title_and_buttons_on_view() {
         assert_eq!(view(&env).draft[1], 0);
         assert!(!has(&h, "A CPU's stars show its level: its strength relative to the chart, not a skill rating."));
     }
+}
+
+/// The player's own name and its "You" badge at narrow widths: both where
+/// both fit; the badge dropped first, the name whole; only then the name
+/// cut (round D, item 5).
+#[test]
+fn the_you_badge_goes_before_the_name_is_cut() {
+    let env = env();
+    let name = "alice_the_long";
+    let full = crate::look::mono_width(name, 15.0);
+    let chip = super::room::badge_width(15.0);
+    let named = |room: f32| {
+        let (parts, w) =
+            super::room::name_and_badge(&env, "N", name, true, (15.0, 600, "Text"), [0.0, 0.0], room);
+        let names: Vec<String> = parts.iter().map(|a| a.name.clone()).collect();
+        (names, w)
+    };
+    let (both, w) = named(full + chip + 1.0);
+    assert_eq!(both, ["N", "N.Badge", "N.BadgeText"]);
+    assert!((w - (full + chip)).abs() < 0.01);
+    let (dropped, w) = named(full + chip - 1.0);
+    assert_eq!(dropped, ["N"], "the badge goes first");
+    assert!((w - full).abs() < 0.01, "the name whole");
+    let (cut, w) = named(full - 20.0);
+    assert_eq!(cut, ["N"]);
+    assert!(w < full, "then the name is cut");
+    // Nobody else's row has one.
+    let (none, _) =
+        super::room::name_and_badge(&env, "N", name, false, (15.0, 600, "Text"), [0.0, 0.0], 999.0);
+    assert_eq!(none.len(), 1);
 }

@@ -3031,7 +3031,7 @@ impl Screen for StandingsDialog {
             None => m::results_stopped().into(),
         };
         let name = |id| match s.member(id) {
-            Some(mb) if mb.id == r.me() => String::from(m::you()),
+            Some(mb) if mb.id == r.me() => super::room::own_label(&r).0,
             Some(mb) => match &mb.kind {
                 MemberKind::Cpu { ordinal, opponent } => cpu_name(opponent, *ordinal),
                 MemberKind::Human { .. } => super::room::person_name(mb),
@@ -3151,7 +3151,6 @@ impl Screen for StandingsDialog {
                 x0,
                 cy,
             ));
-            let mut n = env.text(&format!("Name{k}"), &name(st.participant), 14.0, 600, color);
             let room = inner
                 - 36.0
                 - total_w
@@ -3160,8 +3159,16 @@ impl Screen for StandingsDialog {
                 } else {
                     0.0
                 };
-            look::ellipsized(&mut n, room.max(40.0));
-            c.push(left(n, x0 + 36.0, cy));
+            let (parts, _) = super::room::name_and_badge(
+                &env,
+                &format!("Name{k}"),
+                &name(st.participant),
+                me && r.own_name().is_some(),
+                (14.0, 600, color),
+                [x0 + 36.0, cy],
+                room.max(40.0),
+            );
+            c.extend(parts);
             c.push(right(
                 env.numbers(
                     &format!("Total{k}"),

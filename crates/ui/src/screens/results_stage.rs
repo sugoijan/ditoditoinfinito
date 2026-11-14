@@ -143,6 +143,9 @@ pub struct StageRowView {
     pub id: u64,
     pub name: String,
     pub me: bool,
+    /// The local player's own name shows, with its "You" badge
+    /// (`room::name_and_badge`).
+    pub badge: bool,
     /// A CPU's level, from 1.
     pub level: Option<u8>,
     pub place: Option<u16>,
@@ -350,7 +353,7 @@ fn summary_flow(lines: &[String], w: f32) -> Vec<String> {
 /// CPU's own) and a CPU's level.
 fn name_of(r: &RoomClient, id: ParticipantId) -> (String, Option<u8>) {
     match r.member_of(id) {
-        Some(_) if id == r.me() => (m::you().into(), None),
+        Some(_) if id == r.me() => (crate::screens::room::own_label(r).0, None),
         Some(mb) => match &mb.kind {
             ddi_room::MemberKind::Cpu { ordinal, opponent } => {
                 (cpu_name(opponent, *ordinal), Some(cpu_level(opponent)))
@@ -436,6 +439,7 @@ fn row_view(r: &RoomClient, table: &StageTable, row: &StageRow, percent: bool) -
         id: row.participant.0,
         name,
         me: row.participant == r.me(),
+        badge: row.participant == r.me() && r.own_name().is_some(),
         level,
         place: row.placement.map(|p| p.place),
         award: row
@@ -814,9 +818,23 @@ pub(super) fn standings(
         } else {
             full.min((name_room - after - arrow_w).max(40.0))
         };
-        let mut name = env.text("Name", &row.name, 14.0, 600, color);
-        look::ellipsized(&mut name, name_w);
-        c.push(left(name, name_x, name_y));
+        // The local player's own name with its badge where both fit
+        // (the badge goes first where they do not).
+        let room_for = if row.badge {
+            (name_room - arrow_w).max(40.0)
+        } else {
+            name_w
+        };
+        let (parts, name_w) = crate::screens::room::name_and_badge(
+            env,
+            "Name",
+            &row.name,
+            row.badge,
+            (14.0, 600, color),
+            [name_x, name_y],
+            room_for,
+        );
+        c.extend(parts);
         if let Some(level) = row.level {
             let at = if stars_below {
                 Some([name_x + mark_w, mark_y + 1.0])

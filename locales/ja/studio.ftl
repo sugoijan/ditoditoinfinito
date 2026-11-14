@@ -351,7 +351,7 @@ studio-stage-kicker = ゲーム内
 
 studio-stage-line = 「{ $line }」
 
-studio-stage-voice-recording = あなたの録音
+studio-stage-voice-recording = 自分の録音
 
 studio-stage-voice-example = { $pack }の例
 
