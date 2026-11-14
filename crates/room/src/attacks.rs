@@ -319,17 +319,27 @@ pub const POWER_CLASSES_V0: PowerClasses = PowerClasses {
 impl PowerClasses {
     /// The power a judgment of `tier` earns under `ruleset`.
     pub fn earned(&self, ruleset: &str, tier: u8) -> u32 {
+        earned(&self.row(ruleset), tier)
+    }
+
+    /// What each tier earns under `ruleset` (nothing where it is not
+    /// listed).
+    pub fn row(&self, ruleset: &str) -> [u8; 6] {
         self.table
             .iter()
             .find(|(id, _)| *id == ruleset)
-            .and_then(|(_, t)| t.get(usize::from(tier)))
-            .map_or(0, |&p| u32::from(p))
+            .map_or([0; 6], |(_, t)| *t)
     }
 
     /// The rulesets it lists.
     pub fn rulesets(&self) -> impl Iterator<Item = &'static str> {
         self.table.iter().map(|(id, _)| *id)
     }
+}
+
+/// What a judgment of `tier` earns by a ruleset's `row`.
+fn earned(row: &[u8; 6], tier: u8) -> u32 {
+    row.get(usize::from(tier)).map_or(0, |&p| u32::from(p))
 }
 
 /// How a competitor picks whom to attack (D8; the policy, never a target
@@ -606,8 +616,9 @@ pub struct CheckpointRecord {
 #[derive(Clone, Debug)]
 pub struct StageBattle {
     rules: AttackRules,
-    classes: PowerClasses,
-    ruleset: String,
+    /// What each tier earns under the match's ruleset (its row of the
+    /// power classes, found once).
+    earns: [u8; 6],
     checkpoints_us: Vec<i64>,
     schedule: Schedule,
     seed: u64,
@@ -647,8 +658,7 @@ impl StageBattle {
         }
         StageBattle {
             rules,
-            classes,
-            ruleset: ruleset.into(),
+            earns: classes.row(ruleset),
             checkpoints_us: rising,
             schedule,
             seed: roster.seed,
@@ -742,7 +752,7 @@ impl StageBattle {
                 .judged
                 .iter()
                 .filter(|j| j.at_us < at)
-                .map(|j| self.classes.earned(&self.ruleset, j.tier))
+                .map(|j| earned(&self.earns, j.tier))
                 .sum();
             seat.earned = seat.earned.saturating_add(u64::from(earned));
             let was = seat.power;
@@ -764,13 +774,17 @@ impl StageBattle {
             if a.state != AttackState::Cleared {
                 continue;
             }
-            let after = reports
-                .iter()
-                .filter(|r| r.participant == a.recipient)
-                .flat_map(|r| r.judged.iter())
-                .filter(|j| j.at_us > a.clear_us && j.at_us < at)
-                .count();
-            a.after_clear = a.after_clear.saturating_add(after as u32);
+            // Counted only where recovery waits for judgments (before
+            // `attacks-v1`): otherwise the count decides nothing.
+            if self.rules.recover_judgments > 0 {
+                let after = reports
+                    .iter()
+                    .filter(|r| r.participant == a.recipient)
+                    .flat_map(|r| r.judged.iter())
+                    .filter(|j| j.at_us > a.clear_us && j.at_us < at)
+                    .count();
+                a.after_clear = a.after_clear.saturating_add(after as u32);
+            }
             if a.after_clear >= self.rules.recover_judgments && at >= a.recover_after_us {
                 a.state = AttackState::Recovered;
                 events.push(AttackEvent::Recovered { attack: a.id });
@@ -865,9 +879,10 @@ impl StageBattle {
                 )
             };
             match seat.targeting {
-                Targeting::Spread => choices.sort_by_key(spread_key),
+                // Each key once (its hashes), the order as stable as before.
+                Targeting::Spread => choices.sort_by_cached_key(spread_key),
                 Targeting::Retaliate => {
-                    choices.sort_by_key(spread_key);
+                    choices.sort_by_cached_key(spread_key);
                     if let Some(i) = seat
                         .last_sender
                         .and_then(|l| choices.iter().position(|p| *p == l))
@@ -876,7 +891,7 @@ impl StageBattle {
                         choices.insert(0, l);
                     }
                 }
-                Targeting::Leader => choices.sort_by_key(|p| {
+                Targeting::Leader => choices.sort_by_cached_key(|p| {
                     (
                         std::cmp::Reverse(before[p].life_ppm),
                         std::cmp::Reverse(before[p].earned),
