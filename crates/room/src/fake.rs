@@ -32,7 +32,7 @@
 use crate::authority::{Clock, LocalAuthority, ManualClock, RoomAuthority};
 use crate::command::{Command, Event, Rejection};
 use crate::ids::{ClientId, Identity, Millis, ParticipantId, RoomId};
-use crate::live::server::{LiveOut, LiveReply, LiveServer};
+use crate::live::server::{BuiltFrame, LiveOut, LiveReply, LiveServer};
 use crate::live::{ClientLive, ServerLiveEnvelope};
 use crate::member::{Connection, Intent};
 use crate::online::{Transport, TransportEvent, close};
@@ -702,8 +702,13 @@ impl FakeServer {
                 }
             }
         }
-        for b in broadcast {
-            self.audience_member_frame(&b);
+        for BuiltFrame { frame, bytes: b } in broadcast {
+            // The frame handed over is the one its bytes read back as.
+            debug_assert_eq!(
+                crate::live::wire::decode_frame(&b).as_ref(),
+                Ok(&frame)
+            );
+            self.audience_member_frame(frame);
             let live: Vec<u64> = self
                 .conns
                 .iter()

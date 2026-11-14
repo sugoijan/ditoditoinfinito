@@ -554,9 +554,9 @@ impl FakeServer {
     }
 
     /// A frame the room's live side broadcast to its members.
-    pub(super) fn audience_member_frame(&mut self, bytes: &[u8]) {
+    pub(super) fn audience_member_frame(&mut self, frame: crate::live::stream::Frame) {
         if let Some(a) = self.audience.as_mut() {
-            a.hub.member_frame(bytes);
+            a.hub.member_frame_built(frame);
         }
     }
 }

@@ -1643,10 +1643,10 @@ fn what_a_tick_costs_with_seventy_three_competitors() {
         tick_ns += took;
         max_tick_ns = max_tick_ns.max(took);
         ticks += 1;
-        frame_bytes += out.broadcast.iter().map(Vec::len).sum::<usize>();
-        for bytes in &out.broadcast {
+        frame_bytes += out.broadcast.iter().map(|b| b.bytes.len()).sum::<usize>();
+        for built in &out.broadcast {
             let begun = Instant::now();
-            if let Ok(wire::Binary::Frame(f)) = wire::decode(bytes) {
+            if let Ok(wire::Binary::Frame(f)) = wire::decode(&built.bytes) {
                 reader.take(&f, now.0);
                 frames += 1;
             }

@@ -753,12 +753,14 @@ fn the_view_changes_only_with_what_it_shows() {
     })
     .unwrap();
     s.join(Identity::new("p:3"), "P3", Intent::Watch).unwrap();
-    let after = PublicView::of(s.state(), "R");
-    assert_ne!(before.revision, after.revision);
-    assert!(before.same_as(&after));
+    let mut after = PublicView::of(s.state(), "R");
+    let revision = after.revision;
+    assert_ne!(before.revision, revision);
+    assert!(before.same_as(&mut after));
+    assert_eq!(after.revision, revision, "the view compared is put back");
     // A player joining does change it.
     s.join(Identity::new("p:4"), "P4", Intent::Play).unwrap();
-    assert!(!after.same_as(&PublicView::of(s.state(), "R")));
+    assert!(!after.same_as(&mut PublicView::of(s.state(), "R")));
 }
 
 #[test]

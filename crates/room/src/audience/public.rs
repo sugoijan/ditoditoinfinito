@@ -324,11 +324,13 @@ impl PublicView {
     /// The same view but for its revision: what the audience would see is
     /// unchanged (a member's connection, readiness or intent to watch
     /// moved the room on, nothing shown).
-    pub fn same_as(&self, other: &PublicView) -> bool {
-        PublicView {
-            revision: other.revision,
-            ..self.clone()
-        } == *other
+    /// `other` is borrowed mutably only to compare it under this view's
+    /// revision without a copy: it is put back as it was.
+    pub fn same_as(&self, other: &mut PublicView) -> bool {
+        let theirs = std::mem::replace(&mut other.revision, self.revision);
+        let same = *self == *other;
+        other.revision = theirs;
+        same
     }
 }
 

@@ -47,13 +47,22 @@ pub struct LiveOut {
     /// For the sender's socket alone, in order.
     pub reply: Vec<LiveReply>,
     /// Frames for every socket that said [`ClientLive::Hello`], in order:
-    /// the same bytes for all.
-    pub broadcast: Vec<Vec<u8>>,
+    /// the same bytes for all, each beside the frame it encodes (for an
+    /// audience hub, `AudienceHub::member_frame_built`, which then need not
+    /// read the bytes again).
+    pub broadcast: Vec<BuiltFrame>,
     /// The authority's commands for the reducer, in order.
     pub commands: Vec<Command>,
     /// What the host should log (English): a CPU's reports that two
     /// devices computed differently (`crate::live::cpus`).
     pub notes: Vec<String>,
+}
+
+/// A frame built for the members: the frame and its bytes as sent.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuiltFrame {
+    pub frame: Frame,
+    pub bytes: Vec<u8>,
 }
 
 impl LiveOut {
@@ -455,6 +464,14 @@ struct Comp {
     steps: u8,
 }
 
+/// The earlier of two times, either of which may be unknown.
+fn earliest(a: Option<i64>, b: Option<i64>) -> Option<i64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
+
 impl Comp {
     fn out_at_us(&self) -> Option<i64> {
         match self.end {
@@ -468,21 +485,18 @@ impl Comp {
     /// ones from before, the ledger counting their judgments now), or
     /// none sent (late, or ended): nothing judged, its life as last known.
     fn report_for(&mut self, k: u32, participant: ParticipantId) -> Report {
-        let keys: Vec<u32> = self.reports.range(..=k).map(|(k, _)| *k).collect();
+        let rest = match k.checked_add(1) {
+            Some(after) => self.reports.split_off(&after),
+            None => BTreeMap::new(),
+        };
         let mut merged: Option<LiveReport> = None;
-        for key in keys {
-            let Some(r) = self.reports.remove(&key) else {
-                continue;
-            };
+        for r in std::mem::replace(&mut self.reports, rest).into_values() {
             merged = Some(match merged {
                 None => r,
                 Some(mut m) => {
                     m.judged.extend(r.judged);
                     m.life_ppm = r.life_ppm;
-                    m.out_at_us = match (m.out_at_us, r.out_at_us) {
-                        (Some(a), Some(b)) => Some(a.min(b)),
-                        (a, b) => a.or(b),
-                    };
+                    m.out_at_us = earliest(m.out_at_us, r.out_at_us);
                     m.targeting = r.targeting.or(m.targeting);
                     m.k = r.k;
                     m
@@ -500,10 +514,7 @@ impl Comp {
                 targeting: None,
             },
         };
-        report.out_at_us = match (report.out_at_us, ended) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        };
+        report.out_at_us = earliest(report.out_at_us, ended);
         self.life_ppm = report.life_ppm;
         report
     }
@@ -941,18 +952,15 @@ impl LiveStage {
         self.next_tick = if self.next_tick.0 == 0 {
             Millis(now.0 + step)
         } else {
-            let mut t = self.next_tick.0;
-            while t <= now.0 {
-                t += step;
-            }
-            Millis(t)
+            // The first tick after `now` on the ticks' grid.
+            Millis(now.0 + step - (now.0 - self.next_tick.0) % step)
         };
         self.room_ends(room, now);
         self.run_checkpoints(now);
         self.decide(room, out);
         self.song_end(room, out);
-        if let Some(bytes) = self.build_frame(now) {
-            out.broadcast.push(bytes);
+        if let Some(built) = self.build_frame(now) {
+            out.broadcast.push(built);
         }
     }
 
@@ -961,7 +969,9 @@ impl LiveStage {
     fn room_ends(&mut self, room: &RoomState, now: Millis) {
         let no_show = room_instant(self.song_zero_at, self.rules.late_join_ms as i64 * 1_000)
             .after(self.rules.report_deadline_ms);
-        let computes = crate::live::cpus::anyone_computes(room);
+        // Only a CPU's stream asks who computes it (a scan of the members).
+        let computes = self.comps.values().any(|c| c.cpu && c.end.is_none())
+            && crate::live::cpus::anyone_computes(room);
         let ids: Vec<ParticipantId> = self.comps.keys().copied().collect();
         for p in ids {
             let c = &self.comps[&p];
@@ -1176,7 +1186,7 @@ impl LiveStage {
         self.song_end_sent = true;
     }
 
-    fn build_frame(&mut self, now: Millis) -> Option<Vec<u8>> {
+    fn build_frame(&mut self, now: Millis) -> Option<BuiltFrame> {
         if self.pending.is_empty()
             && self.pending_commitments.is_empty()
             && self.pending_checkpoints.is_empty()
@@ -1204,7 +1214,7 @@ impl LiveStage {
             self.kept.pop_front();
         }
         self.next_n += 1;
-        Some(bytes)
+        Some(BuiltFrame { frame, bytes })
     }
 
     /// The frames after `after` where they are all kept; otherwise a

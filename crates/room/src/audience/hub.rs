@@ -23,6 +23,7 @@ use crate::audience::{
 use crate::ids::{Millis, ParticipantId, Revision, StageId};
 use crate::live::ServerLive;
 use crate::live::server::{LiveServer, LiveStage};
+use crate::live::stream::Frame;
 use crate::member::{Capability, can};
 use crate::state::RoomState;
 use serde::{Deserialize, Serialize};
@@ -174,6 +175,12 @@ impl AudienceHub {
     /// as sent).
     pub fn member_frame(&mut self, bytes: &[u8]) {
         self.coalescer.member_frame(bytes);
+    }
+
+    /// The same, as the live side built it (`LiveOut::broadcast`): nothing
+    /// read again.
+    pub fn member_frame_built(&mut self, frame: Frame) {
+        self.coalescer.take(frame);
     }
 
     /// A relay's socket said `text`: `from` the relay that socket said
@@ -347,8 +354,8 @@ impl AudienceHub {
         // The view, when what it shows changed.
         if self.derived_at != Some(room.revision) {
             self.derived_at = Some(room.revision);
-            let v = PublicView::of(room, name);
-            let changed = self.view.as_ref().is_none_or(|old| !old.same_as(&v));
+            let mut v = PublicView::of(room, name);
+            let changed = self.view.as_ref().is_none_or(|old| !old.same_as(&mut v));
             if changed {
                 self.view_due = Some(v);
             }
