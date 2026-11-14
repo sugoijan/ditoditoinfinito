@@ -246,35 +246,19 @@ impl AudienceHub {
         let Some(stage) = self.coalescer.stage() else {
             return;
         };
-        let kept: Vec<&(u32, Vec<u8>)> = self.coalescer.kept().collect();
-        let last = self.coalescer.last();
-        if let Some((s, a)) = after
-            && s == stage
-            && a <= last
-            && kept.first().map_or(a == last, |(n, _)| *n <= a + 1)
+        // Another stage's frames are no use to it: a snapshot.
+        let after = after.filter(|(s, _)| *s == stage).map(|(_, a)| a);
+        let (snapshot, frames) =
+            self.coalescer
+                .kept()
+                .resume(after, self.coalescer.last(), self.rules.snapshot_frames);
+        if let Some(first) = snapshot
+            && let Some(s) = stage_of(live, stage)
         {
-            for (n, b) in &kept {
-                if *n > a {
-                    out.to_relay.push((relay, Message::Binary(b.clone())));
-                }
-            }
-            return;
+            out.one(relay, RelayDown::Snapshot(Box::new(s.snapshot(first, now))));
         }
-        let first = kept
-            .first()
-            .map_or(last + 1, |(n, _)| *n)
-            .max((last + 1).saturating_sub(self.rules.snapshot_frames));
-        if let Some(snap) = stage_of(live, stage).map(|s| {
-            let mut snap = s.snapshot(first, now);
-            snap.first_frame = first;
-            snap
-        }) {
-            out.one(relay, RelayDown::Snapshot(Box::new(snap)));
-        }
-        for (n, b) in &kept {
-            if *n >= first {
-                out.to_relay.push((relay, Message::Binary(b.clone())));
-            }
+        for b in frames {
+            out.to_relay.push((relay, Message::Binary(b.clone())));
         }
     }
 
@@ -382,9 +366,7 @@ impl AudienceHub {
             match c {
                 Coalesced::Stage(stage) => {
                     if let Some(s) = stage_of(live, stage) {
-                        let mut snap = s.snapshot(1, now);
-                        snap.first_frame = 1;
-                        out.all(RelayDown::Snapshot(Box::new(snap)));
+                        out.all(RelayDown::Snapshot(Box::new(s.snapshot(1, now))));
                     }
                 }
                 Coalesced::Frame(_, bytes) => out.to_relays.push(Message::Binary(bytes)),

@@ -21,7 +21,7 @@ use crate::command::Command;
 use crate::ids::{Millis, ParticipantId, StageId};
 use crate::live::plan::{BattlePlan, PlanDigest};
 use crate::live::stream::{
-    Batch, CheckpointNews, Commitment, Frame, FrameEntry, LiveReport, Moment, MomentKind,
+    Batch, CheckpointNews, Commitment, Frame, FrameEntry, KeptFrames, LiveReport, Moment, MomentKind,
     StreamEnd,
 };
 use crate::live::wire;
@@ -30,7 +30,7 @@ use crate::member::{Capability, Connection, can};
 use crate::phase::Phase;
 use crate::state::{RoomState, StagePlay};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 
 /// What goes out on the sender's socket alone.
 #[derive(Clone, Debug, PartialEq)]
@@ -541,7 +541,7 @@ pub struct LiveStage {
     pending_commitments: Vec<Commitment>,
     pending_checkpoints: Vec<CheckpointNews>,
     next_n: u32,
-    kept: VecDeque<(u32, Vec<u8>)>,
+    kept: KeptFrames,
     next_tick: Millis,
     /// When the room moved on from it.
     left_at: Option<Millis>,
@@ -661,7 +661,7 @@ impl LiveStage {
             pending_commitments: Vec::new(),
             pending_checkpoints: Vec::new(),
             next_n: 1,
-            kept: VecDeque::new(),
+            kept: KeptFrames::new(rules.resync_window as usize),
             next_tick: Millis(0),
             left_at: None,
             cpu_reports: BTreeMap::new(),
@@ -1209,10 +1209,7 @@ impl LiveStage {
         };
         self.settling_sent = self.settling;
         let bytes = wire::encode_frame(&frame);
-        self.kept.push_back((self.next_n, bytes.clone()));
-        while self.kept.len() > self.rules.resync_window as usize {
-            self.kept.pop_front();
-        }
+        self.kept.push(self.next_n, bytes.clone());
         self.next_n += 1;
         Some(BuiltFrame { frame, bytes })
     }
@@ -1220,32 +1217,14 @@ impl LiveStage {
     /// The frames after `after` where they are all kept; otherwise a
     /// snapshot and the last few frames.
     pub fn resume(&self, after: Option<u32>, now: Millis) -> Vec<LiveReply> {
-        let last = self.next_n - 1;
-        if let Some(a) = after
-            && a <= last
-            && self.kept.front().map_or(a == last, |(n, _)| *n <= a + 1)
-        {
-            return self
-                .kept
-                .iter()
-                .filter(|(n, _)| *n > a)
-                .map(|(_, b)| LiveReply::Frame(b.clone()))
-                .collect();
-        }
-        let first = self
-            .kept
-            .front()
-            .map_or(self.next_n, |(n, _)| *n)
-            .max(self.next_n.saturating_sub(self.rules.snapshot_frames));
-        let mut out = vec![LiveReply::Message(ServerLive::Snapshot(Box::new(
-            self.snapshot(first, now),
-        )))];
-        out.extend(
+        let (snapshot, frames) =
             self.kept
-                .iter()
-                .filter(|(n, _)| *n >= first)
-                .map(|(_, b)| LiveReply::Frame(b.clone())),
-        );
+                .resume(after, self.next_n - 1, self.rules.snapshot_frames);
+        let mut out: Vec<LiveReply> = snapshot
+            .map(|first| LiveReply::Message(ServerLive::Snapshot(Box::new(self.snapshot(first, now)))))
+            .into_iter()
+            .collect();
+        out.extend(frames.map(|b| LiveReply::Frame(b.clone())));
         out
     }
 

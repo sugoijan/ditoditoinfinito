@@ -395,6 +395,72 @@ impl Frame {
     }
 }
 
+/// The newest frames sent (number, bytes), kept for a reconnect's resume:
+/// the live stage's, the audience hub's and a relay's.
+#[derive(Clone, Debug, Default)]
+pub struct KeptFrames {
+    cap: usize,
+    frames: VecDeque<(u32, Vec<u8>)>,
+}
+
+impl KeptFrames {
+    /// Keeping the newest `cap`.
+    pub fn new(cap: usize) -> Self {
+        Self {
+            cap,
+            frames: VecDeque::new(),
+        }
+    }
+
+    pub fn push(&mut self, n: u32, bytes: Vec<u8>) {
+        self.frames.push_back((n, bytes));
+        while self.frames.len() > self.cap {
+            self.frames.pop_front();
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.frames.clear();
+    }
+
+    /// The frames kept, oldest first.
+    pub fn iter(&self) -> impl Iterator<Item = &(u32, Vec<u8>)> {
+        self.frames.iter()
+    }
+
+    /// What a reader who has every frame through `after` lacks, `last`
+    /// being the last frame sent: the frames after `after` where they are
+    /// all kept (`None` and those frames); otherwise a snapshot's first
+    /// frame (`Some(first)`: at most `snapshot_frames` before the next,
+    /// never before the oldest kept) and the frames from it.
+    pub fn resume(
+        &self,
+        after: Option<u32>,
+        last: u32,
+        snapshot_frames: u32,
+    ) -> (Option<u32>, impl Iterator<Item = &Vec<u8>>) {
+        let from = match after {
+            Some(a) if a <= last && self.frames.front().map_or(a == last, |(n, _)| *n <= a + 1) => {
+                Err(a)
+            }
+            _ => Ok(self
+                .frames
+                .front()
+                .map_or(last + 1, |(n, _)| *n)
+                .max((last + 1).saturating_sub(snapshot_frames))),
+        };
+        let frames = self
+            .frames
+            .iter()
+            .filter(move |(n, _)| match from {
+                Err(a) => *n > a,
+                Ok(first) => *n >= first,
+            })
+            .map(|(_, b)| b);
+        (from.ok(), frames)
+    }
+}
+
 /// What a recipient makes of the frames: taken in order once each, a gap
 /// asking for the frames again ([`FrameReader::wants_resume`]).
 #[derive(Clone, Debug, Default)]
@@ -530,6 +596,33 @@ impl FrameReader {
 mod tests {
     use super::*;
     use crate::live::LIVE_V1;
+
+    #[test]
+    fn kept_frames_resume_from_frames_or_a_snapshot() {
+        let mut k = KeptFrames::new(3);
+        for n in 1..=5 {
+            k.push(n, vec![n as u8]);
+        }
+        let got = |after, snap| {
+            let (s, f) = k.resume(after, 5, snap);
+            (s, f.map(|b| b[0]).collect::<Vec<_>>())
+        };
+        // Every frame after 2 is kept (3, 4, 5): no snapshot.
+        assert_eq!(got(Some(2), 2), (None, vec![3, 4, 5]));
+        assert_eq!(got(Some(5), 2), (None, vec![]));
+        // Frame 2 is gone, or nothing was had: a snapshot and the last two.
+        assert_eq!(got(Some(1), 2), (Some(4), vec![4, 5]));
+        assert_eq!(got(None, 2), (Some(4), vec![4, 5]));
+        // Never before the oldest kept; a frame from the future is no help.
+        assert_eq!(got(None, 9), (Some(3), vec![3, 4, 5]));
+        assert_eq!(got(Some(6), 2), (Some(4), vec![4, 5]));
+        // Nothing kept: a snapshot from the next frame.
+        let none = KeptFrames::new(3);
+        let (s, f) = none.resume(Some(5), 5, 2);
+        assert_eq!((s, f.count()), (None, 0));
+        let (s, f) = none.resume(Some(4), 5, 2);
+        assert_eq!((s, f.count()), (Some(6), 0));
+    }
 
     fn tap(at_ms: i32, lane: u8) -> Moment {
         Moment {

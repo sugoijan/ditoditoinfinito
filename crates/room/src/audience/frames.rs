@@ -13,7 +13,7 @@
 
 use crate::ids::{Millis, ParticipantId, StageId};
 use crate::live::server::{CompetitorStatus, LiveSnapshot};
-use crate::live::stream::{Frame, FrameEntry};
+use crate::live::stream::{Frame, FrameEntry, KeptFrames};
 use crate::live::wire::{self, WireError};
 use std::collections::{BTreeMap, VecDeque};
 
@@ -183,12 +183,11 @@ pub fn fold(snap: &mut LiveSnapshot, f: &Frame) {
 #[derive(Clone, Debug)]
 pub struct Coalescer {
     frame_ms: u64,
-    keep: usize,
     stage: Option<StageId>,
     next_n: u32,
     pending: Vec<Frame>,
     last_at: Option<Millis>,
-    kept: VecDeque<(u32, Vec<u8>)>,
+    kept: KeptFrames,
 }
 
 /// What [`Coalescer::tick`] made.
@@ -205,12 +204,11 @@ impl Coalescer {
     pub fn new(frame_ms: u64, keep: usize) -> Self {
         Self {
             frame_ms,
-            keep,
             stage: None,
             next_n: 1,
             pending: Vec::new(),
             last_at: None,
-            kept: VecDeque::new(),
+            kept: KeptFrames::new(keep),
         }
     }
 
@@ -224,9 +222,9 @@ impl Coalescer {
         self.next_n - 1
     }
 
-    /// The frames kept (number, bytes), oldest first.
-    pub fn kept(&self) -> impl Iterator<Item = &(u32, Vec<u8>)> {
-        self.kept.iter()
+    /// The frames kept for the relays' resumes.
+    pub fn kept(&self) -> &KeptFrames {
+        &self.kept
     }
 
     /// A frame the room broadcast to its members (its bytes, as sent).
@@ -283,10 +281,7 @@ impl Coalescer {
             let n = self.next_n;
             let frame = coalesce(stage, n, now, &pending[i..j]);
             let bytes = encode(&AudienceFrame { count, frame });
-            self.kept.push_back((n, bytes.clone()));
-            while self.kept.len() > self.keep {
-                self.kept.pop_front();
-            }
+            self.kept.push(n, bytes.clone());
             self.next_n += 1;
             out.push(Coalesced::Frame(n, bytes));
             i = j;

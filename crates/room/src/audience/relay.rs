@@ -25,8 +25,9 @@ use crate::audience::{
 };
 use crate::ids::{Millis, StageId};
 use crate::live::server::LiveSnapshot;
+use crate::live::stream::KeptFrames;
 use crate::online::Message;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 
 /// A seat on a relay (the relay's own number, kept in its socket's
 /// attachment).
@@ -101,7 +102,7 @@ pub struct Relay {
     count: Option<u32>,
     stage: Option<StageId>,
     fold: Option<LiveSnapshot>,
-    kept: VecDeque<(u32, Vec<u8>)>,
+    kept: KeptFrames,
     last_n: Option<u32>,
     up: bool,
     ended: Option<AudienceEnd>,
@@ -126,7 +127,7 @@ impl Relay {
             count: None,
             stage: None,
             fold: None,
-            kept: VecDeque::new(),
+            kept: KeptFrames::new(rules.keep_frames as usize),
             last_n: None,
             up: false,
             ended: None,
@@ -285,29 +286,14 @@ impl Relay {
             return;
         };
         let to = Target::Seat(seat);
-        if let Some(a) = after
-            && a <= last
-            && self.kept.front().map_or(a == last, |(n, _)| *n <= a + 1)
-        {
-            for (n, b) in &self.kept {
-                if *n > a {
-                    out.to_seats.push((to, Message::Binary(b.clone())));
-                }
-            }
-            return;
+        let (snapshot, frames) = self.kept.resume(after, last, self.rules.snapshot_frames);
+        if let Some(first) = snapshot {
+            let mut snap = fold.clone();
+            snap.first_frame = first;
+            out.text(to, AudienceDown::Snapshot(Box::new(snap)));
         }
-        let first = self
-            .kept
-            .front()
-            .map_or(last + 1, |(n, _)| *n)
-            .max((last + 1).saturating_sub(self.rules.snapshot_frames));
-        let mut snap = fold.clone();
-        snap.first_frame = first;
-        out.text(to, AudienceDown::Snapshot(Box::new(snap)));
-        for (n, b) in &self.kept {
-            if *n >= first {
-                out.to_seats.push((to, Message::Binary(b.clone())));
-            }
+        for b in frames {
+            out.to_seats.push((to, Message::Binary(b.clone())));
         }
     }
 
@@ -449,10 +435,7 @@ impl Relay {
             fold(snap, &f);
         }
         self.last_n = Some(f.n);
-        self.kept.push_back((f.n, bytes.to_vec()));
-        while self.kept.len() > self.rules.keep_frames as usize {
-            self.kept.pop_front();
-        }
+        self.kept.push(f.n, bytes.to_vec());
         out.to_seats
             .push((Target::All, Message::Binary(bytes.to_vec())));
         out
