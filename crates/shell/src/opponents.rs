@@ -428,22 +428,26 @@ fn lane_for_height(limit: f32, height: f32, rows: f32, dense: bool) -> f32 {
         if hi < lo || tall(lo) > height {
             continue;
         }
-        let (mut a, mut b) = (lo, hi);
-        if tall(b) <= height {
-            best = best.max(b);
-            continue;
-        }
-        for _ in 0..24 {
-            let mid = (a + b) / 2.0;
-            if tall(mid) <= height {
-                a = mid;
-            } else {
-                b = mid;
-            }
-        }
-        best = best.max(a);
+        best = best.max(largest(lo, hi, |lane| tall(lane) <= height));
     }
     best
+}
+
+/// The largest of `lo..=hi` that `fits` (`hi`, else found by 24 halvings
+/// from `lo`, which is taken to fit).
+fn largest(mut lo: f32, mut hi: f32, fits: impl Fn(f32) -> bool) -> f32 {
+    if fits(hi) {
+        return hi;
+    }
+    for _ in 0..24 {
+        let mid = (lo + hi) / 2.0;
+        if fits(mid) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
 }
 
 /// [`lane_for_height`] where a slot carries everything.
@@ -456,19 +460,63 @@ fn lane_for_height_full(limit: f32, height: f32, rows: f32) -> f32 {
             return lane;
         }
     }
-    let (mut lo, mut hi) = (0.0_f32, limit.min(beside - 0.001).max(0.0));
-    if tall(hi) <= height {
-        return hi;
+    let hi = limit.min(beside - 0.001).max(0.0);
+    largest(0.0, hi, |lane| tall(lane) <= height)
+}
+
+/// `k` slots between the sides that hold `holds` of them: as even as
+/// those allow, the left's the larger half.
+fn split_by_holds(k: usize, holds: [usize; 2]) -> [usize; 2] {
+    let left = k.div_ceil(2).max(k - holds[1].min(k)).min(holds[0]);
+    [left, k - left]
+}
+
+/// `keep_out`'s boxes in logical pixels (`ratio` target pixels to one).
+fn logical(keep_out: &[[f32; 4]], ratio: f32) -> Vec<[f32; 4]> {
+    keep_out.iter().map(|k| k.map(|v| v / ratio)).collect()
+}
+
+/// A slot for `seat` at `[x, y]` (its name line's top left, logical
+/// pixels), `size` in all, its field's lanes `lane` wide under a label
+/// `top` tall, receptors at its end under `reverse`; its places in the
+/// target's pixels (`ratio` to one); on the field's `left`.
+#[allow(clippy::too_many_arguments)]
+fn slot_at(
+    seat: usize,
+    [x, y]: [f32; 2],
+    size: [f32; 2],
+    lane: f32,
+    top: f32,
+    reverse: bool,
+    ratio: f32,
+    left: bool,
+) -> Slot {
+    let px = |v: f32| v * ratio;
+    let [sw, sh] = size;
+    let (ft, fb) = (y + top, y + sh);
+    // Its lanes inside its band.
+    let lanes = x + BAND_MORE / 2.0 * lane;
+    let receptor = if reverse {
+        fb - MINI_RECEPTOR * lane
+    } else {
+        ft + MINI_RECEPTOR * lane
+    };
+    Slot {
+        seat,
+        rect: [px(x), px(y), px(sw), px(sh)],
+        // Its camera on its own middle.
+        field: FieldGeometry {
+            arrow: px(lane),
+            left: px(lanes),
+            receptor_y: px(receptor),
+            direction: if reverse { -1.0 } else { 1.0 },
+            width: px(2.0 * (lanes + 2.0 * lane)),
+            height: px(ft + fb),
+        },
+        panel: [px(x), px(ft), px(x + sw), px(fb)],
+        left,
+        dim: 0.0,
     }
-    for _ in 0..24 {
-        let mid = (lo + hi) / 2.0;
-        if tall(mid) <= height {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    lo
 }
 
 /// One way to put a side's slots in a region: so many columns and rows,
@@ -662,7 +710,7 @@ pub fn arrange_up_to(
         geo.left.min(mid - band / 2.0) / ratio,
         (geo.left + geo.arrow * span).max(mid + band / 2.0) / ratio,
     ];
-    let keep: Vec<[f32; 4]> = keep_out.iter().map(|k| k.map(|v| v / ratio)).collect();
+    let keep = logical(keep_out, ratio);
     // Which side the status line goes under, given the sides' counts, and
     // whether that side has the width for its words.
     let raw = [field[0], w - field[1]];
@@ -759,8 +807,7 @@ pub fn arrange_up_to(
         ];
         let mut k = want.min(holds[0] + holds[1]);
         while k > ROOM_OPPONENTS {
-            let left = k.div_ceil(2).max(k - holds[1].min(k)).min(holds[0]);
-            let c = [left, k - left];
+            let c = split_by_holds(k, holds);
             let lane = lane_for(c, rows_play, true);
             if lane >= MINI_LANE_ALL {
                 return Some((c, lane, rows_play));
@@ -801,11 +848,7 @@ pub fn arrange_up_to(
                 if shown == 0 {
                     return None;
                 }
-                let left = shown
-                    .div_ceil(2)
-                    .max(shown - holds[1].min(shown))
-                    .min(holds[0]);
-                counts = [left, shown - left];
+                counts = split_by_holds(shown, holds);
                 lane = lane_for(counts, rows_play, false).max(least);
             }
             (counts, lane, rows_play, false)
@@ -866,32 +909,8 @@ pub fn arrange_up_to(
         }
         for i in 0..k {
             let (row, col) = ((i / g.cols) as f32, (i % g.cols) as f32);
-            let x = x0 + col * (sw + gap);
-            let y = y0 + row * (sh + gap);
-            let (ft, fb) = (y + top, y + sh);
-            // Its lanes inside its band.
-            let lanes = x + BAND_MORE / 2.0 * lane;
-            let receptor = if reverse {
-                fb - MINI_RECEPTOR * lane
-            } else {
-                ft + MINI_RECEPTOR * lane
-            };
-            slots.push(Slot {
-                seat,
-                rect: [px(x), px(y), px(sw), px(sh)],
-                // Its camera on its own middle.
-                field: FieldGeometry {
-                    arrow: px(lane),
-                    left: px(lanes),
-                    receptor_y: px(receptor),
-                    direction: if reverse { -1.0 } else { 1.0 },
-                    width: px(2.0 * (lanes + 2.0 * lane)),
-                    height: px(ft + fb),
-                },
-                panel: [px(x), px(ft), px(x + sw), px(fb)],
-                left: s == 0,
-                dim: 0.0,
-            });
+            let at = [x0 + col * (sw + gap), y0 + row * (sh + gap)];
+            slots.push(slot_at(seat, at, [sw, sh], lane, top, reverse, ratio, s == 0));
             seat += 1;
         }
     }
@@ -1021,7 +1040,7 @@ pub fn arrange_grid(
     let total = n;
     let n = n.min(ddi_session::play::GRID_PAGE);
     let (w, h) = (geo.width / ratio, geo.height / ratio);
-    let keep: Vec<[f32; 4]> = keep_out.iter().map(|k| k.map(|v| v / ratio)).collect();
+    let keep = logical(keep_out, ratio);
     let edge = part(EDGE, w);
     let gap = part(GRID_GAP, w);
     let whole_room = [edge, edge, w - edge, h - edge - STATUS - 4.0];
@@ -1089,28 +1108,8 @@ pub fn arrange_grid(
         };
         let x = row_left(in_line) + col as f32 * (sw + cue + gap);
         let y = y0 + line as f32 * (sh + gap);
-        let (ft, fb) = (y + label(lane, false), y + sh);
-        let lanes = x + BAND_MORE / 2.0 * lane;
-        let receptor = if reverse {
-            fb - MINI_RECEPTOR * lane
-        } else {
-            ft + MINI_RECEPTOR * lane
-        };
-        slots.push(Slot {
-            seat: i,
-            rect: [px(x), px(y), px(sw), px(sh)],
-            field: FieldGeometry {
-                arrow: px(lane),
-                left: px(lanes),
-                receptor_y: px(receptor),
-                direction: if reverse { -1.0 } else { 1.0 },
-                width: px(2.0 * (lanes + 2.0 * lane)),
-                height: px(ft + fb),
-            },
-            panel: [px(x), px(ft), px(x + sw), px(fb)],
-            left: false,
-            dim: 0.0,
-        });
+        let top = label(lane, false);
+        slots.push(slot_at(i, [x, y], [sw, sh], lane, top, reverse, ratio, false));
     }
     let used = line_width(cols.min(shown)).max(320.0_f32.min(room[2] - room[0]));
     let sx = (w / 2.0 - used / 2.0).clamp(room[0], (room[2] - used).max(room[0]));
@@ -1145,8 +1144,8 @@ pub fn arrange_grid(
 /// that what a miniature has over its field (its lanes a shock locked,
 /// its judgments' glow, Out) is drawn on it the same way.
 pub fn large_slot(seat: usize, geo: &FieldGeometry, span: f32) -> Slot {
-    let [mid, band] = ddi_render::scene::filter_band(geo, span);
-    let panel = [mid - band / 2.0, 0.0, mid + band / 2.0, geo.height];
+    let [_, band] = ddi_render::scene::filter_band(geo, span);
+    let panel = ddi_render::scene::band_box(geo, span);
     Slot {
         seat,
         rect: [panel[0], 0.0, band, geo.height],

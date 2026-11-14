@@ -296,8 +296,8 @@ fn warning_ends(cue: [f32; 4], step: f32) -> [([f32; 2], [f32; 2]); 3] {
 impl Layout<'_> {
     /// The band's left and right edges.
     fn band(&self) -> [f32; 2] {
-        let [mid, band] = ddi_render::scene::filter_band(self.geo, self.span);
-        [mid - band / 2.0, mid + band / 2.0]
+        let [l, _, r, _] = ddi_render::scene::band_box(self.geo, self.span);
+        [l, r]
     }
 
     /// What a line stays out of, each grown by `by`: the field's band

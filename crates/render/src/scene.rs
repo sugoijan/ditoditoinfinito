@@ -699,6 +699,13 @@ pub fn filter_band(geo: &FieldGeometry, span: f32) -> [f32; 2] {
     [geo.left + a * span / 2.0, a * (span + 0.3)]
 }
 
+/// The field filter's band ([`filter_band`]) as a box down the whole
+/// target: `[left, top, right, bottom]`, pixels.
+pub fn band_box(geo: &FieldGeometry, span: f32) -> [f32; 4] {
+    let [mid, band] = filter_band(geo, span);
+    [mid - band / 2.0, 0.0, mid + band / 2.0, geo.height]
+}
+
 /// The lane covers' panel, the line along its edge and its heights'
 /// text (the theme's dark violet and lavender).
 const COVER: [f32; 4] = [0.075, 0.055, 0.13, 1.0];

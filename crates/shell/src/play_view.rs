@@ -1561,10 +1561,7 @@ impl<H: PlayHost> PlayView<H> {
         // someone watching, between the competitors' fields (a grid's,
         // or the miniatures beside a player's own dimmed field), or the
         // followed competitor's as a player's own.
-        let band_box = {
-            let [mid, band] = ddi_render::scene::filter_band(&geo, span);
-            [mid - band / 2.0, 0.0, mid + band / 2.0, geo.height]
-        };
+        let band_box = ddi_render::scene::band_box(&geo, span);
         let links = match (session.battle(), &fields) {
             (Some(b), Some(f)) if watch.is_some() => {
                 let seen = b.seen_links();
