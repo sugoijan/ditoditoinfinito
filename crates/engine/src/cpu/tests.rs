@@ -773,8 +773,22 @@ fn planning_cost() {
     let v0_weak = script(LevelScale::RelativeV0.strength(2).unwrap());
     let v1_strong = script(LevelScale::AbsoluteV1.strength(7).unwrap());
     let v1_weak = script(LevelScale::AbsoluteV1.strength(2).unwrap());
+    // The chart itself (`cpu-play-v1`): its holds, rolls, lifts and mines.
+    let full = |level: usize| {
+        let strength = LevelScale::AbsoluteV1.strength(level).unwrap();
+        let avoidance = MINE_RESPONSE_V0.avoidance(level);
+        time(&mut || {
+            for p in &plans {
+                std::hint::black_box(
+                    p.script_play(strength, 7, Skills::default(), avoidance, CpuPlay::FullV1)
+                        .unwrap(),
+                );
+            }
+        })
+    };
+    let (full_strong, full_weak) = (full(7), full(2));
     println!(
-        "{} charts, {rows} rows on average: a plan {plan:.0} us; presses v0 level 8 {v0_frozen:.0} us, v0 level 3 {v0_weak:.0} us, v1 level 8 {v1_strong:.0} us, v1 level 3 {v1_weak:.0} us (a chart)",
+        "{} charts, {rows} rows on average: a plan {plan:.0} us; presses v0 level 8 {v0_frozen:.0} us, v0 level 3 {v0_weak:.0} us, v1 level 8 {v1_strong:.0} us, v1 level 3 {v1_weak:.0} us; the full chart (cpu-play-v1) level 8 {full_strong:.0} us, level 3 {full_weak:.0} us (a chart)",
         charts.len()
     );
 }

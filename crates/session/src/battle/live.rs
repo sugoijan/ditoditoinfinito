@@ -393,8 +393,6 @@ pub(crate) struct Live {
     /// whether it is above the stage's), where the charts adapt, and the
     /// local play's steps streamed so far.
     rungs: Vec<(feed::TapTrack, bool)>,
-    /// What the CPUs computed here have their scores put on.
-    scales: crate::battle::Scales,
     steps_sent: usize,
     /// The checkpoints whose news came in a snapshot (it carries their
     /// commitments, not their records): those whose deadline had passed
@@ -599,7 +597,6 @@ impl Live {
             said_off: false,
             seat_end: None,
             rungs: Vec::new(),
-            scales: Default::default(),
             steps_sent: 0,
             snapshot_known: 0,
             cpu_lead_us,
@@ -705,12 +702,6 @@ impl Live {
     /// others' percents are worked out from their sums against it.
     pub(crate) fn set_most(&mut self, most: Option<i64>) {
         self.most = most;
-    }
-
-    /// What the CPUs computed here have their scores put on
-    /// (`crate::battle::Scales`).
-    pub(crate) fn set_scales(&mut self, scales: crate::battle::Scales) {
-        self.scales = scales;
     }
 
     /// The view at song second `t` (after this frame's news): the delay
@@ -1296,7 +1287,6 @@ pub struct LivePlay {
     /// (`crate::battle::cpus`): a bot reports for them as a person's
     /// device does.
     cpus: Vec<BotCpu>,
-    scales: crate::battle::Scales,
 }
 
 /// A CPU of the stage as a bot's play computes it.
@@ -1372,7 +1362,6 @@ impl LivePlay {
             track,
             log,
             cpus,
-            scales: crate::battle::Scales::of(song, chart, &ruleset, &ladder)?,
         }))
     }
 
@@ -1411,7 +1400,8 @@ impl LivePlay {
             if end.is_some() && !c.run_sent {
                 c.run_sent = true;
                 let player = c.opponent.player();
-                let score = crate::battle::cpu_score(&c.opponent.score(), self.scales.most_for(player));
+                // Its own score: it plays the whole chart.
+                let score = c.opponent.score();
                 let run = crate::battle::run_of(
                     c.opponent.out_at(),
                     c.opponent.life(),

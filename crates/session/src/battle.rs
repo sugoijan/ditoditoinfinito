@@ -5,8 +5,10 @@
 //! shell keeps a copy.
 //!
 //! What a room shows of a competitor's score and ranks by after life is
-//! DDI's score, the sum (round 3b); a CPU's is put on the chart's own
-//! scale first ([`cpu_score`], `CPU_SCORE_V0`).
+//! DDI's score, the sum (round 3b): a CPU's is its own, since it plays the
+//! chart a person is given (`cpu-play-v1`, `ddi_engine::cpu::CPU_PLAY`;
+//! before it, a tap-only copy's score was put on the chart's scale,
+//! `CPU_SCORE_V0`, retired).
 //!
 //! The battle is [`BattlePreset::GaugeSurvivalV0`] or, where the match's
 //! Attacks rule is On, [`BattlePreset::GaugeAttacksV0`] (PROVISIONAL, named
@@ -15,8 +17,9 @@
 //! [`stage_ruleset`]); an empty gauge is out of the stage. The stage is decided once at most
 //! one competitor is still in; a local winner then plays on to the song's
 //! end with its fail turned off (nothing after changes the result). The
-//! CPUs ([`ddi_engine::cpu::Opponent`]) play a tap-only copy of the chart
-//! at a level relative to it; battle shocks put into their plays (M8b) are
+//! CPUs ([`ddi_engine::cpu::Opponent`]) play the chart itself (holds kept,
+//! rolls re-tapped, lifts and its mines; `cpu-play-v1`) at an absolute
+//! level; battle shocks put into their plays (M8b) are
 //! judged by their own players and responded to by level alone
 //! (`ddi_engine::cpu::MINE_RESPONSE_V0`); their life is their
 //! engine-judged gauge, nothing else.
@@ -34,7 +37,8 @@
 //! (`crate::announcer::battle`).
 //!
 //! Each CPU's judged moments feed its miniature field ([`feed`], M6): the
-//! tap-only copy they play, shown on this play's song clock.
+//! chart they play (the chart itself: holds as held or let go, rolls,
+//! lifts and its mines), shown on this play's song clock.
 
 pub mod attacks;
 pub mod cpus;
@@ -236,8 +240,8 @@ pub struct OpponentView {
     /// Its gauge emptied: out of the stage.
     pub out: bool,
     /// Its score as a fraction of the best its notes give (the percent),
-    /// and as the room shows it and ranks by it under DDI: the sum, a
-    /// CPU's on the chart's own scale ([`cpu_score`]); none under another
+    /// and as the room shows it and ranks by it under DDI: the sum (a
+    /// CPU's its own: it plays the whole chart); none under another
     /// ruleset. Then its combo.
     pub score: f64,
     pub sum: Option<i64>,
@@ -471,23 +475,21 @@ impl Seat {
 pub struct Battle {
     setup: StageSetup,
     seats: Vec<Seat>,
-    /// The chart as the fields of people draw it: the tap-only copy in
-    /// practice, the chart itself where others play it (their streams).
+    /// The chart as the fields of people draw it: the chart itself (their
+    /// streams, the local player's own field).
     track: feed::TapTrack,
-    /// The chart's tap-only copy the CPUs play, as their fields draw it,
-    /// and its ladder's (a step down's).
+    /// The chart as the CPUs play it, as their fields draw it (the chart
+    /// itself, `cpu-play-v1`), and its ladder's (a step's).
     cpu_track: feed::TapTrack,
     cpu_rungs: Vec<feed::TapTrack>,
-    /// What each CPU's score is put on ([`Scales`]).
-    scales: Scales,
     /// The stage's chart's name as the song list names it (data).
     stage_name: String,
     /// An online room's CPUs' battle plan where this device has none of
     /// its own (one watching the stage): made from the chart and the
     /// stage's seed (`LiveOrder::seed`), what puts the room's shocks in.
     cpu_plan: Option<ddi_room::live::plan::BattlePlan>,
-    /// The most the whole chart gives (DDI): the scale the CPUs' scores
-    /// are put on ([`cpu_score`]).
+    /// The most the whole chart gives (DDI): what a person's stream's
+    /// score is read against.
     most: Option<i64>,
     /// The attack ledger, where the battle has attacks (a practice's
     /// only: an online stage's would be the room's).
@@ -569,72 +571,6 @@ pub struct Rung {
     pub up: bool,
 }
 
-/// What a CPU's score is put on (`CPU_SCORE_V0`, PROVISIONAL), by rung
-/// (numbered as `Ladder::rungs`, 0 the stage's chart): each chart's most
-/// whole (`chart_most`) and how many notes its tap-only copy has. A CPU
-/// that never stepped is put on the stage chart's most, as ever; one
-/// that stepped, on the charts it played stretch by stretch: each chart's
-/// most in the share of its copy's notes it was shown (`adaptive-v0`:
-/// never on the stage chart's scale, the density played is what counts).
-#[derive(Clone, Debug, Default)]
-pub struct Scales {
-    rungs: Vec<(Option<i64>, usize)>,
-}
-
-impl Scales {
-    /// The scales of a stage on chart `chart` of `song` under `ruleset`
-    /// with `ladder` (its CPUs' rungs).
-    pub fn of(
-        song: &Song,
-        chart: usize,
-        ruleset: &Ruleset,
-        ladder: &[ddi_engine::cpu::PlannedRung],
-    ) -> Result<Scales, String> {
-        let mut rungs = vec![(chart_most(song, chart, ruleset), feed::TapTrack::new(song, chart)?.len())];
-        for r in ladder {
-            rungs.push((chart_most(song, r.chart, ruleset), feed::TapTrack::new(song, r.chart)?.len()));
-        }
-        Ok(Scales { rungs })
-    }
-
-    /// The most `player` (a CPU's) is put on (`None`: its own).
-    pub fn most_for(&self, player: &Player) -> Option<i64> {
-        let steps = player.steps();
-        let stage = self.rungs.first().and_then(|r| r.0);
-        if steps.is_empty() {
-            return stage;
-        }
-        let mut shown = vec![0usize; self.rungs.len()];
-        for n in player.judge().notes() {
-            if !n.judgeable || n.state == ddi_engine::judge::NoteState::Removed {
-                continue;
-            }
-            // The chart a note is of: the last step whose boundary it is
-            // at or past (a step up a step down overtook had its notes
-            // taken away), else the stage's.
-            let rung = steps
-                .iter()
-                .rev()
-                .find(|st| n.note.tick >= st.tick)
-                .map_or(0, |st| usize::from(st.rung));
-            if let Some(k) = shown.get_mut(rung) {
-                *k += 1;
-            }
-        }
-        let mut most = 0.0;
-        for (k, &(full, taps)) in shown.iter().zip(&self.rungs) {
-            if *k == 0 {
-                continue;
-            }
-            let (Some(full), true) = (full, taps > 0) else {
-                return stage;
-            };
-            most += full as f64 * *k as f64 / taps as f64;
-        }
-        Some(most.round() as i64)
-    }
-}
-
 /// The ladder a stage on chart `chart` of `song` steps on where its
 /// rules say so (`StageRules::adaptive`; `ddi_engine::ladder`): the
 /// song's easier charts in its style, the next first, then its harder
@@ -656,25 +592,21 @@ pub fn stage_ladder(song: &Song, chart: usize, setup: &StageSetup) -> Vec<ddi_en
 
 /// The most points chart `chart` of `song`, whole, gives under `ruleset`
 /// (DDI's: 50 a tap-like note and a hold unit; none under another
-/// ruleset): the scale a CPU's score is put on ([`cpu_score`]).
+/// ruleset).
 pub fn chart_most(song: &Song, chart: usize, ruleset: &Ruleset) -> Option<i64> {
     song.charts.get(chart)?;
     let whole = ddi_engine::Player::new(song, chart, ruleset.fresh(), Default::default());
     whole.ruleset().score.view().ddi.map(|d| d.most)
 }
 
-/// A CPU's score as a room shows it and ranks by it
-/// (`ddi_engine::rules::ddi::CPU_SCORE_V0`, PROVISIONAL): its play of the
-/// tap-only copy put on the whole chart's scale (`chart_most`,
-/// [`chart_most`]), as if it had done on the holds as it did on the taps.
-/// Its percent is unchanged. Under another ruleset, or without the
-/// chart's most, the score as it is.
-pub fn cpu_score(view: &ScoreView, chart_most: Option<i64>) -> ScoreView {
-    let mut view = *view;
-    if let (Some(d), Some(most)) = (view.ddi.as_mut(), chart_most) {
-        *d = d.on_scale(most);
+/// Chart `chart` of `song` as the CPUs play it and their fields draw it:
+/// the chart itself where they play it whole (`cpu-play-v1`,
+/// [`ddi_engine::cpu::CPU_PLAY`]), its tap-only copy else.
+pub fn cpu_track(song: &Song, chart: usize) -> Result<feed::TapTrack, String> {
+    match ddi_engine::cpu::CPU_PLAY {
+        ddi_engine::cpu::CpuPlay::FullV1 => feed::TapTrack::full(song, chart),
+        ddi_engine::cpu::CpuPlay::TapsV0 => feed::TapTrack::new(song, chart),
     }
-    view
 }
 
 /// A score as a fraction of the chart's best: DDI's proportional part
@@ -716,38 +648,20 @@ impl Battle {
             .map(|r| {
                 Ok(Rung {
                     chart: r.chart,
-                    track: if setup.remote() {
-                        feed::TapTrack::full(song, r.chart)?
-                    } else {
-                        feed::TapTrack::new(song, r.chart)?
-                    },
+                    track: feed::TapTrack::full(song, r.chart)?,
                     name: ddi_engine::ladder::rung_name(&song.charts[r.chart]),
                     up: r.up,
                 })
             })
             .collect::<Result<Vec<Rung>, String>>()?;
-        // People play the chart itself; the CPUs a tap-only copy of it.
-        let cpu_track = feed::TapTrack::new(song, chart)?;
-        let track = if setup.remote() {
-            feed::TapTrack::full(song, chart)?
-        } else {
-            cpu_track.clone()
-        };
+        // People play the chart itself, and so do the CPUs
+        // (`cpu-play-v1`).
+        let track = feed::TapTrack::full(song, chart)?;
+        let cpu_track = cpu_track(song, chart)?;
         let cpu_rungs = ladder
             .iter()
-            .map(|r| feed::TapTrack::new(song, r.chart))
+            .map(|r| self::cpu_track(song, r.chart))
             .collect::<Result<Vec<_>, String>>()?;
-        let scales = Scales {
-            rungs: std::iter::once((chart_most(song, chart, ruleset), cpu_track.len()))
-                .chain(
-                    ladder
-                        .iter()
-                        .zip(&cpu_rungs)
-                        .map(|(r, t)| (chart_most(song, r.chart, ruleset), t.len())),
-                )
-                .collect(),
-        };
-        debug_assert_eq!(scales.rungs.len(), ladder.len() + 1);
         // An online room's CPUs are played alike on every device
         // (`cpus::Drive`, made with the stage's plan in `with_live`), from
         // one song time, under the match's rules alone.
@@ -847,7 +761,6 @@ impl Battle {
                 .map(ddi_engine::ladder::rung_name)
                 .unwrap_or_default(),
             most: chart_most(song, chart, ruleset),
-            scales,
             attacks,
             decided: None,
             drawn: false,
@@ -989,7 +902,6 @@ impl Battle {
         ));
         if let Some(l) = self.remote_live.as_mut() {
             l.set_most(most);
-            l.set_scales(self.scales.clone());
             l.set_rungs(self.rungs.iter().map(|r| (r.track.clone(), r.up)).collect());
             self.log.push(l.describe());
             if !self.seats.is_empty() {
@@ -1466,7 +1378,7 @@ impl Battle {
                     a.out_at(s.seat.participant, at);
                 }
             }
-            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, &self.scales, s, events);
+            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, s, events);
         }
     }
 
@@ -1475,14 +1387,13 @@ impl Battle {
     fn feed_cpu(
         track: &feed::TapTrack,
         rungs: &[feed::TapTrack],
-        scales: &Scales,
         s: &mut Seat,
         events: Vec<JudgeEvent>,
     ) {
         Self::feed_steps(track, rungs, &mut s.feed, s.opponent.player());
         let (life, combo, out_at) = (s.opponent.life(), s.opponent.combo(), s.out_at());
         // Its score as the room shows it, for its field shown large.
-        let score = cpu_score(&s.opponent.score(), scales.most_for(s.opponent.player()));
+        let score = s.opponent.score();
         let judge = &s.opponent.player().ruleset().judge;
         for e in events {
             // An online CPU plays on after its gauge emptied (alike on
@@ -1492,14 +1403,21 @@ impl Battle {
             }
             let kind = match e.kind {
                 JudgeEventKind::Tap(judgment, _) => feed::MomentKind::Tap(judgment),
-                // A battle shock stepped on (its copy has no mines of
-                // its own).
+                // Its holds' and rolls' ends (the chart itself,
+                // `cpu-play-v1`).
+                JudgeEventKind::Held => feed::MomentKind::HoldEnd(true),
+                JudgeEventKind::LetGo => feed::MomentKind::HoldEnd(false),
+                // A battle shock stepped on, or one of the chart's mines.
                 JudgeEventKind::HitMine
                     if e.note_index
                         .is_some_and(|n| n >= ddi_engine::battle::HAZARD_INDEX_BASE) =>
                 {
                     feed::MomentKind::ShockHit
                 }
+                JudgeEventKind::HitMine => feed::MomentKind::MineHit,
+                // A stray press that counted (it presses none: kept for
+                // what the judge may say).
+                JudgeEventKind::Boo => feed::MomentKind::Boo,
                 _ => continue,
             };
             // What a field shown large says of it: early or late, and the
@@ -1566,7 +1484,7 @@ impl Battle {
             let through = d.at_us();
             let participant = s.seat.participant;
             s.feed.set_delay(l.field_delay_s(participant));
-            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, &self.scales, s, events);
+            Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, s, events);
             if reports.is_empty() && end.is_none() {
                 continue;
             }
@@ -1591,7 +1509,7 @@ impl Battle {
         let run = run_of(
             s.out_at(),
             s.opponent.life(),
-            &cpu_score(&s.opponent.score(), self.scales.most_for(s.opponent.player())),
+            &s.opponent.score(),
             s.opponent.player().steps().len(),
         );
         let detail = self.cpu_detail(i);
@@ -2603,13 +2521,13 @@ impl Battle {
         self.decided_at
     }
 
-    /// The chart's tap-only copy the CPUs play, as their fields draw it.
+    /// The chart as people's fields draw it (the chart itself).
     pub fn track(&self) -> &feed::TapTrack {
         &self.track
     }
 
     /// The chart as seat `seat`'s field draws it ([`Battle::feeds`]'
-    /// order): a CPU's tap-only copy, or the chart people play.
+    /// order): as a CPU plays it ([`cpu_track`]), or the chart people play.
     pub fn track_of(&self, seat: usize) -> &feed::TapTrack {
         if seat < self.seats.len() {
             &self.cpu_track
@@ -2697,9 +2615,7 @@ impl Battle {
                     life: s.opponent.life(),
                     out: s.out_at().is_some(),
                     score: accuracy(&s.opponent.score()),
-                    sum: cpu_score(&s.opponent.score(), self.scales.most_for(s.opponent.player()))
-                        .ddi
-                        .map(|d| d.score),
+                    sum: s.opponent.score().ddi.map(|d| d.score),
                     combo: s.opponent.combo(),
                     power: self
                         .attacks
@@ -2886,9 +2802,8 @@ impl Battle {
     fn cpu_detail(&self, i: usize) -> RunDetail {
         let s = &self.seats[i];
         let player = s.opponent.player();
-        // Its score on the chart's scale (`CPU_SCORE_V0`).
-        let mut results = player.results_brief();
-        results.score = cpu_score(&results.score, self.scales.most_for(player));
+        // Its own score: it plays the whole chart.
+        let results = player.results_brief();
         let mut detail = run_detail(
             &results,
             player.ruleset(),
@@ -2970,7 +2885,7 @@ impl Battle {
             run: run_of(
                 s.out_at(),
                 s.opponent.life(),
-                &cpu_score(&s.opponent.score(), self.scales.most_for(s.opponent.player())),
+                &s.opponent.score(),
                 s.opponent.player().steps().len(),
             ),
         }));
@@ -3021,8 +2936,7 @@ pub fn forfeit(
 }
 
 /// A competitor's run as the room ranks it: out at `out_at`, else still
-/// in with `life` and `score` (a CPU's on the chart's scale,
-/// [`cpu_score`]): its proportional part and, under DDI, the score shown
+/// in with `life` and `score`: its proportional part and, under DDI, the score shown
 /// (the sum, what the room ranks by after life) with its absolute score
 /// and the most its scale gives.
 /// `steps`, the steps down it made (a match's "At zero life: Step down").

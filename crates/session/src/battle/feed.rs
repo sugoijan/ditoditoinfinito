@@ -16,12 +16,15 @@
 //! note reaches the receptors. A live stage's delay changes as its device
 //! measures the network (`ddi_room::live::delay`, [`FieldFeed::set_delay`]).
 //!
-//! The notes are those of the chart's tap-only copy the CPUs play
-//! (`ddi_engine::cpu::project`: holds and rolls as taps, mines, lifts
-//! and fakes left out), never the chart itself ([`TapTrack`]). A note
-//! leaves the field when a moment says it was hit; a missed one scrolls
-//! on past the receptors, as a play shows it. Nothing is inferred from
-//! a note reaching the receptors.
+//! The notes are those of the chart as its player plays it ([`TapTrack`]):
+//! the chart itself (`TapTrack::full`: taps, holds and rolls to their
+//! ends, lifts and mines; fakes left out), as people and, since
+//! `cpu-play-v1`, the CPUs play it; or the tap-only copy the CPUs played
+//! before (`TapTrack::new`, `ddi_engine::cpu::project`), kept for
+//! `cpu-play-v0`. A note leaves the field when a moment says it was hit;
+//! a missed one scrolls on past the receptors, as a play shows it; a
+//! hold's body shows as held or let go as its moments say. Nothing is
+//! inferred from a note reaching the receptors.
 //!
 //! A battle's shocks put into their play (M8b) come with the attack's
 //! commitment ([`FieldFeed::add_hazards`]) and are drawn as the skin's
@@ -135,8 +138,8 @@ struct TrackNote {
     shape: Shape,
 }
 
-/// The chart's tap-only copy, as the miniatures draw it: its notes in
-/// time order and its timing. One for all the opponents of a stage.
+/// A chart as the miniatures draw it: its notes in time order and its
+/// timing. One for all the opponents of a stage.
 #[derive(Clone, Debug)]
 pub struct TapTrack {
     timing: TimingMap,
@@ -145,17 +148,16 @@ pub struct TapTrack {
 }
 
 impl TapTrack {
-    /// The copy of chart `chart` of `song` that the CPUs play; refused
-    /// where they cannot play it.
+    /// The tap-only copy of chart `chart` of `song` (`cpu-play-v0`'s);
+    /// refused where a CPU cannot play it.
     pub fn new(song: &Song, chart: usize) -> Result<TapTrack, String> {
         let copy = ddi_engine::cpu::project(song, chart)?;
         Ok(Self::of(&copy, chart, |_| Some(Shape::Tap)))
     }
 
-    /// Chart `chart` of `song` itself, as a person plays it (an online
-    /// room's stage played live, `crate::battle::live`): its taps, holds
-    /// and rolls to their ends, lifts and mines, as a play's own field
-    /// draws them; fakes left out.
+    /// Chart `chart` of `song` itself, as a person and a CPU
+    /// (`cpu-play-v1`) play it: its taps, holds and rolls to their ends,
+    /// lifts and mines, as a play's own field draws them; fakes left out.
     pub fn full(song: &Song, chart: usize) -> Result<TapTrack, String> {
         let Some(c) = song.charts.get(chart) else {
             return Err(format!("no chart {chart}"));

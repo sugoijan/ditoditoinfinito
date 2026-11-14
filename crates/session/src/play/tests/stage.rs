@@ -717,15 +717,15 @@ fn an_online_stage_is_never_decided_here_and_reports_the_players_own_run() {
     drop(s);
 }
 
-/// Round 3b (`CPU_SCORE_V0`): a CPU plays a tap-only copy, so on a chart
-/// with holds the most its notes give is less than the chart's. Its
-/// score as the room shows it (the miniature, the standings) and ranks by
-/// it is put on the chart's own scale: the same share of the chart's
-/// most, its W0s as counted; its percent is its own. The player's is the
-/// sum as their HUD has it, and the stage ranks those still in by life,
-/// then that score.
+/// A CPU plays the chart a person is given (`cpu-play-v1`, since
+/// 2026-11-14; before it a tap-only copy whose score was put on the
+/// chart's scale, round 3b's `CPU_SCORE_V0`, retired): on a chart with
+/// holds the most its notes give is the chart's, and its score as the room
+/// shows it (the miniature, the standings) and ranks by it is its own, as
+/// the player's is the sum their HUD has. The stage ranks those still in
+/// by life, then that score.
 #[test]
-fn a_cpu_s_score_is_on_the_chart_s_scale_and_the_stage_ranks_by_life_then_the_score() {
+fn a_cpu_s_score_is_its_own_and_the_stage_ranks_by_life_then_the_score() {
     let song = bundled("beatucada");
     let settings = Settings::default();
     let rules = crate::battle::stage_ruleset(&Default::default());
@@ -767,12 +767,13 @@ fn a_cpu_s_score_is_on_the_chart_s_scale_and_the_stage_ranks_by_life_then_the_sc
         alone.start(0.0);
         alone.finish();
         let own = alone.score().ddi.expect("DDI");
-        assert!(own.most < most, "the tap-only copy gives less: {} {most}", own.most);
-        let w0 = own.absolute - 100 * own.points;
-        let equivalent = ((own.points as f64) * (most as f64) / (own.most as f64)).round() as i64;
-        let sum = own.ratio + 100 * equivalent + w0;
+        assert_eq!(own.most, most, "it plays the whole chart");
+        assert!(
+            alone.player().tally().held + alone.player().tally().let_go > 0,
+            "its holds played"
+        );
+        let sum = own.score;
         assert_eq!(view.sum, Some(sum));
-        assert!(sum > own.score, "more than its own copy's sum");
         // Its percent is its own play's.
         assert_eq!(view.score, own.ratio as f64 / 1_000_000.0);
         let d = detail(view.participant);

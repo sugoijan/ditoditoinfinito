@@ -20,6 +20,10 @@
 //!   `DDI_CPU_ABILITIES=<spread ms>:<notes a second>:<floor>[,…]`: v1
 //!   candidates instead.
 //! - `DDI_CPU_SAMPLE=<n>`: every n-th simfile alone (a quicker look).
+//! - `DDI_CPU_PLAY=v0|v1`: what the CPU plays at an absolute level: the
+//!   chart's tap-only copy (`cpu-play-v0`) or the chart itself
+//!   (`cpu-play-v1`; `ddi_engine::cpu::CPU_PLAY` by default); the holds
+//!   kept and let go and the chart's mines stepped on are counted.
 //! - `DDI_CPU_SEEDS=<n>` (3), `DDI_CPU_RULES=<id>[,…]` (`itg-fa+,ddi`;
 //!   `ddi-easy`, `ddi-normal` and `ddi-hard` are DDI at a difficulty, the
 //!   rooms' match rule).
@@ -39,8 +43,8 @@ use std::path::{Path, PathBuf};
 
 use ddi_chart::{Difficulty, Song};
 use ddi_engine::cpu::{
-    Ability, CPU_LEVELS_V0, CPU_LEVELS_V1, Level, LevelScale, MINE_RESPONSE_V0, Opponent, Plan,
-    Skills, Strength,
+    Ability, CPU_LEVELS_V0, CPU_LEVELS_V1, CPU_PLAY, CpuPlay, Level, LevelScale, MINE_RESPONSE_V0,
+    Opponent, Plan, Skills, Strength,
 };
 use ddi_engine::rules::presets::{self, HoldStyle};
 use ddi_engine::rules::{FailPolicy, Judgement};
@@ -74,6 +78,16 @@ struct Sum {
     /// percent across its seeds.
     charts: u32,
     spread: f64,
+    /// Holds and rolls kept and let go, the chart's mines stepped on and
+    /// passed.
+    held: u32,
+    let_go: u32,
+    mines_hit: u32,
+    mines: u32,
+    /// DDI's score shown (the sum) and the best the chart gives (every
+    /// note W0, every hold kept), thousands.
+    score: f64,
+    best: f64,
 }
 
 impl Sum {
@@ -85,6 +99,12 @@ impl Sum {
         self.missed += o.missed;
         self.charts += o.charts;
         self.spread += o.spread;
+        self.held += o.held;
+        self.let_go += o.let_go;
+        self.mines_hit += o.mines_hit;
+        self.mines += o.mines;
+        self.score += o.score;
+        self.best += o.best;
     }
 }
 
@@ -105,17 +125,40 @@ fn ruleset_of(rules: &str, song: &Song, chart: usize) -> ddi_engine::rules::Rule
     })
 }
 
-fn play(plan: &Plan, song: &Song, chart: usize, rules: &str, level: Strength, seed: u64) -> Sum {
+/// What the CPU plays at an absolute level (`DDI_CPU_PLAY`).
+fn cpu_play() -> CpuPlay {
+    match std::env::var("DDI_CPU_PLAY").as_deref() {
+        Ok("v0") => CpuPlay::TapsV0,
+        Ok("v1") => CpuPlay::FullV1,
+        _ => CPU_PLAY,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn play(
+    plan: &Plan,
+    song: &Song,
+    chart: usize,
+    rules: &str,
+    (index, level): (usize, Strength),
+    seed: u64,
+) -> Sum {
     let mut ruleset = ruleset_of(rules, song, chart);
     ruleset.fail = FailPolicy::Off;
-    let Ok(mut o) = Opponent::planned(
+    let how = match level {
+        Strength::Absolute(_) => cpu_play(),
+        Strength::Relative(_) => CpuPlay::TapsV0,
+    };
+    let avoidance = MINE_RESPONSE_V0.avoidance(index);
+    let Ok(mut o) = Opponent::planned_as(
         plan,
         song,
         chart,
         ruleset,
-        (level, 0.0),
+        (level, avoidance),
         seed,
         Skills::default(),
+        how,
     ) else {
         return Sum::default();
     };
@@ -136,6 +179,21 @@ fn play(plan: &Plan, song: &Song, chart: usize, rules: &str, level: Strength, se
         life: if out { 0.0 } else { f64::from(o.life()) },
         out: u32::from(out),
         missed: f64::from(tally.taps[Judgement::Miss as usize]) / f64::from(taps.max(1)),
+        held: tally.held,
+        let_go: tally.let_go,
+        mines_hit: tally.mine_hit,
+        mines: o.player().judge().mine_count(),
+        score: view.ddi.map_or(0.0, |d| d.score as f64 / 1e3),
+        best: view.ddi.map_or(0.0, |d| {
+            let notes = o
+                .player()
+                .judge()
+                .notes()
+                .iter()
+                .filter(|n| n.judgeable && n.note.kind.is_tap_like())
+                .count() as f64;
+            (1e6 + 100.0 * d.most as f64 + notes) / 1e3
+        }),
         ..Sum::default()
     }
 }
@@ -245,20 +303,29 @@ fn local_cpu_levels() {
                                 }
                             }
                             let nps = f64::from(notes) / (last - first).max(1.0);
+                            let holds = chart.notes.iter().filter(|n| n.kind.is_long()).count();
                             let groups = [
                                 "all".to_string(),
                                 slot(chart.difficulty).to_string(),
                                 meter_range(chart.meter).to_string(),
                                 nps_range(nps).to_string(),
+                                match holds {
+                                    0 => "holds 0",
+                                    1..=29 => "holds 1-29",
+                                    _ => "holds 30+",
+                                }
+                                .to_string(),
                             ];
                             for r in rules {
                                 let sums: Vec<Sum> = levels
                                     .iter()
-                                    .map(|&level| {
+                                    .enumerate()
+                                    .map(|(k, &level)| {
                                         let mut s = Sum::default();
                                         let mut each = Vec::new();
                                         for seed in 1..=seeds {
-                                            let one = play(&plan, &song, index, r, level, seed);
+                                            let one =
+                                                play(&plan, &song, index, r, (k, level), seed);
                                             each.push(one.percent);
                                             s.add(&one);
                                         }
@@ -306,8 +373,9 @@ fn local_cpu_levels() {
         }
     }
     println!(
-        "{} files, {unparsed} not read, {refused} charts the CPU cannot plan, {seeds} seeds",
-        files.len()
+        "{} files, {unparsed} not read, {refused} charts the CPU cannot plan, {seeds} seeds, {}",
+        files.len(),
+        cpu_play().id()
     );
     println!(
         "levels: {}",
@@ -337,6 +405,20 @@ fn local_cpu_levels() {
             "  seed sd  {}",
             row(&|s| 100.0 * s.spread / f64::from(s.charts.max(1)))
         );
+        println!(
+            "  let go % {}",
+            row(&|s| 100.0 * f64::from(s.let_go) / f64::from((s.held + s.let_go).max(1)))
+        );
+        println!(
+            "  mines %  {}",
+            row(&|s| 100.0 * f64::from(s.mines_hit) / f64::from(s.mines.max(1)))
+        );
+        println!(
+            "  holds/pl {}",
+            row(&|s| f64::from(s.held + s.let_go) / n(s))
+        );
+        println!("  score k  {}", row(&|s| s.score / n(s)));
+        println!("  best k   {}", row(&|s| s.best / n(s)));
     }
 }
 

@@ -350,3 +350,62 @@ fn extreme_charts_stay_valid() {
         }
     }
 }
+
+/// A battle's shocks are never put inside a hold's span in its lane
+/// (`placement-v2`); a CPU holding in one lane gets around shocks in the
+/// others as ever, its script valid; and a shock it crosses with a held
+/// key (put there by hand: placement never does) locks the lane, which
+/// lets the hold go as the judge says.
+#[test]
+fn shocks_keep_off_holds_and_a_lock_lets_a_held_key_go() {
+    use crate::battle::{Hazard, schedule};
+    let song = busy_holds(2);
+    let holds: Vec<(i64, i64)> = song.charts[1]
+        .notes
+        .iter()
+        .filter_map(|n| n.kind.hold_end().map(|e| (n.tick.0, e.0)))
+        .collect();
+    let sections: Vec<_> = schedule(&song, 1, &rules().judge, 11).into_iter().flatten().collect();
+    assert!(!sections.is_empty());
+    for s in &sections {
+        for c in &s.cells {
+            if c.lane == 0 {
+                assert!(
+                    !holds.iter().any(|&(a, b)| c.tick.0 >= a && c.tick.0 <= b),
+                    "{c:?} inside a hold"
+                );
+            }
+        }
+    }
+    let mut kept = 0;
+    for seed in 1..=8 {
+        let mut o = opponent(&song, 6, seed, Skills::default());
+        o.start(0.0);
+        for s in sections.iter().take(3) {
+            let _ = o.receive_hazards(&s.cells);
+        }
+        o.finish();
+        validate_full_script(o.presses()).unwrap();
+        kept += o.player().tally().held;
+    }
+    assert!(kept >= 8 * 10, "{kept}");
+    // A shock in the held lane, a beat into the first hold.
+    let mut o = opponent(&song, 9, 1, Skills::default());
+    o.start(0.0);
+    o.receive_hazards(&[Hazard {
+        tick: Tick(5 * BEAT),
+        lane: 0,
+    }])
+    .unwrap();
+    o.finish();
+    let p = o.player();
+    assert_eq!(p.hazards().unwrap().counts().0, 1, "crossed with the key down");
+    assert!(p.judge().locked_until(0).is_some());
+    let first = p
+        .judge()
+        .notes()
+        .iter()
+        .find(|n| n.note.lane == 0 && n.note.kind.is_long())
+        .unwrap();
+    assert_eq!(first.state, crate::judge::NoteState::LetGo, "{first:?}");
+}

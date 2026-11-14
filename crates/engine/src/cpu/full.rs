@@ -93,7 +93,7 @@ impl CpuPlay {
 
 /// What the CPUs at absolute levels play (2026-11-14, the maintainer:
 /// "CPUs should play the full charts").
-pub const CPU_PLAY: CpuPlay = CpuPlay::TapsV0;
+pub const CPU_PLAY: CpuPlay = CpuPlay::FullV1;
 
 /// How a CPU plays what a tap-only copy leaves out (`hold-model-v1`,
 /// PROVISIONAL: working values, measured over charts, never against

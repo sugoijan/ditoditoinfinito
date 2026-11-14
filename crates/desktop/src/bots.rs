@@ -12,8 +12,8 @@
 //! the stage's song read from the room's share (`crate::room`'s threads),
 //! Ready on the stage's prompt, the stage played and the run reported
 //! (`ReportOutcome`, self-reported as everyone's is). Its play is
-//! `ddi_engine::cpu`'s [`Opponent`] (the chart's tap-only copy, a level
-//! relative to the chart and a personality from the CPU roster or the
+//! `ddi_engine::cpu`'s [`Opponent`] (the chart itself, `cpu-play-v1`, at
+//! an absolute level and a personality from the CPU roster or the
 //! flags: `--level N` puts every bot at level N, `--level A-B` spreads
 //! them over that range, [`spread_levels`]) judged on a real-time song
 //! clock: never a skill-tuned player.
@@ -476,11 +476,9 @@ pub fn choose_chart(song: &SongEntry, chart: Option<usize>) -> Option<ChartEntry
 pub struct StagePlay {
     pub stage: StageId,
     pub number: u16,
+    /// Its play: the chart itself, as people play it (`cpu-play-v1`), so
+    /// its score is reported as it is.
     opponent: Opponent,
-    /// The most the whole chart gives (DDI): the scale its score is
-    /// reported on (`ddi_session::battle::cpu_score`, `CPU_SCORE_V0`: a
-    /// bot plays the CPU's tap-only copy beside people on the chart).
-    most: Option<i64>,
     started_ms: u64,
     /// The stage played live (`ddi_session::battle::live`): its stream to
     /// the room and the room's attacks into its CPU's play.
@@ -501,16 +499,10 @@ impl StagePlay {
     ) -> Result<StagePlay, String> {
         let mut opponent = cpu_for(song, chart, &order.rules, profile, seed)?;
         opponent.start(0.0);
-        let most = ddi_session::battle::chart_most(
-            song,
-            chart,
-            &ddi_session::battle::stage_ruleset(&order.rules),
-        );
         Ok(StagePlay {
             stage: order.stage,
             number: order.number,
             opponent,
-            most,
             started_ms: now_ms,
             live: None,
         })
@@ -575,7 +567,7 @@ impl StagePlay {
             ddi_session::battle::run_of(
                 None,
                 self.opponent.life(),
-                &ddi_session::battle::cpu_score(&self.opponent.score(), self.most),
+                &self.opponent.score(),
                 self.opponent.player().steps().len(),
             )
         })
@@ -587,8 +579,7 @@ impl StagePlay {
     /// its own play.
     pub fn detail(&self) -> ddi_room::RunDetail {
         let player = self.opponent.player();
-        let mut results = player.results_brief();
-        results.score = ddi_session::battle::cpu_score(&results.score, self.most);
+        let results = player.results_brief();
         ddi_ui::state::room::run_detail(&results, player.ruleset(), self.opponent.life(), None)
     }
 }

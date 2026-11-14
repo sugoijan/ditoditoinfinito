@@ -943,7 +943,9 @@ fn a_bots_cpu_play_streams_live_beside_a_person() {
             .iter()
             .filter(|x| x.1 == bot_id && x.2)
             .count();
-        if cpu.finished() && t > cpu.player().end_time() + 1.0 {
+        // Its chart played (its last hold kept to its end: the chart
+        // itself, `cpu-play-v1`).
+        if cpu.finished() {
             bot.end(StreamEnd::Finished, t);
             bot_done = true;
         }

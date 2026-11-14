@@ -57,8 +57,10 @@ pub fn supported(version: u32) -> bool {
 /// battle plan); 5 `cpu-levels-v1` (a CPU's level an ability the same on
 /// every chart: every device computes the same CPUs); 6 `adaptive-v1`
 /// (sixteen bars back up to a chart whose life ran out, a chart closed
-/// once life ran out on it twice: every device steps everyone alike). A
-/// client says
+/// once life ran out on it twice: every device steps everyone alike); 7
+/// `cpu-play-v1` (a CPU plays the chart a person is given, its holds,
+/// rolls, lifts and mines, its score its own: every device computes the
+/// same CPUs). A client says
 /// its revision where the authority first hears from it (`model` in the
 /// join's, the ticket's and the audience join's request bodies); an
 /// authority refuses a client whose revision is lower than its own
@@ -67,7 +69,7 @@ pub fn supported(version: u32) -> bool {
 /// now"). A client newer than its authority is never refused: it hides
 /// what the authority does not honor, as the policy flags have it. An
 /// authority that predates the revision ignores the field.
-pub const ROOM_MODEL_REVISION: u32 = 6;
+pub const ROOM_MODEL_REVISION: u32 = 7;
 
 /// The problem code an authority answers a client too old for it with
 /// (the HTTP body's `error`): a client that predates it shows it as a

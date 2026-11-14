@@ -2320,7 +2320,7 @@ mod tests {
         );
         assert_eq!(
             cpu_description_at(2, Some(2), 7, skills),
-            "CPU · Tap-only · No fail · Level 3 of 10 · Seed 7"
+            "CPU · No fail · Level 3 of 10 · Seed 7"
         );
         let mut info = PromptInfo::default();
         info.set_cpu_at(2, Some(9), 1, skills);
