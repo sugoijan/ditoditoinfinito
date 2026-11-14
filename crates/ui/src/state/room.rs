@@ -3063,6 +3063,17 @@ impl RoomClient {
         })
     }
 
+    /// Whether the room confirmed stage `stage`'s result (its table's
+    /// `confirmed`, without building the table).
+    pub fn stage_confirmed(&self, stage: StageId) -> bool {
+        self.match_of(stage).is_some_and(|(m, index, _)| {
+            m.stages[index]
+                .play
+                .as_ref()
+                .is_some_and(|p| p.result.is_some())
+        })
+    }
+
     /// Stage `stage`'s standings as its results show them
     /// ([`StageTable`]): every starter, what the room confirmed of them
     /// and how they performed, the match's totals after it, and the
@@ -3072,26 +3083,38 @@ impl RoomClient {
         let st = &m.stages[index];
         let play = st.play.as_ref()?;
         let local = self.details.get(&stage);
-        // The match's totals over its first `n` stages.
-        let totals = |n: usize| -> BTreeMap<ParticipantId, Points> {
-            m.roster
-                .keys()
-                .map(|&id| {
-                    let total = m.stages[..n]
-                        .iter()
-                        .filter_map(|sg| sg.play.as_ref()?.result.as_ref()?.placement(id))
-                        .map(|p| p.points)
-                        .sum();
-                    (id, total)
-                })
-                .collect()
+        // The match's totals before this stage and after it, in one pass
+        // over the stages' placements.
+        let mut before: BTreeMap<ParticipantId, Points> =
+            m.roster.keys().map(|&id| (id, Points::ZERO)).collect();
+        let add = |totals: &mut BTreeMap<ParticipantId, Points>, sg: &ddi_room::state::Stage| {
+            let placements = sg.play.as_ref().and_then(|p| p.result.as_ref());
+            for p in placements.into_iter().flat_map(|r| &r.placements) {
+                if let Some(t) = totals.get_mut(&p.participant) {
+                    *t = *t + p.points;
+                }
+            }
         };
-        let rank_in = |totals: &BTreeMap<ParticipantId, Points>, id: ParticipantId| {
+        for sg in &m.stages[..index] {
+            add(&mut before, sg);
+        }
+        let mut after = before.clone();
+        add(&mut after, st);
+        // A rank: one more than the totals above it, from the totals
+        // sorted once.
+        let sorted = |totals: &BTreeMap<ParticipantId, Points>| {
+            let mut v: Vec<Points> = totals.values().copied().collect();
+            v.sort_unstable();
+            v
+        };
+        let (before_sorted, after_sorted) = (sorted(&before), sorted(&after));
+        let rank_in = |totals: &BTreeMap<ParticipantId, Points>,
+                       sorted: &[Points],
+                       id: ParticipantId| {
             let mine = totals.get(&id)?;
-            let above = totals.values().filter(|t| *t > mine).count();
+            let above = sorted.len() - sorted.partition_point(|t| t <= mine);
             Some(u16::try_from(above + 1).unwrap_or(u16::MAX))
         };
-        let (before, after) = (totals(index), totals(index + 1));
         let confirmed = play.result.is_some();
         let row = |id: ParticipantId| {
             let detail = local
@@ -3105,9 +3128,9 @@ impl RoomClient {
                 run: play.reports.get(&id).map(|r| r.run()),
                 detail,
                 total: confirmed.then(|| after.get(&id).copied()).flatten(),
-                rank: confirmed.then(|| rank_in(&after, id)).flatten(),
+                rank: confirmed.then(|| rank_in(&after, &after_sorted, id)).flatten(),
                 rank_before: (confirmed && index > 0)
-                    .then(|| rank_in(&before, id))
+                    .then(|| rank_in(&before, &before_sorted, id))
                     .flatten(),
             }
         };
@@ -4284,6 +4307,81 @@ mod tests {
         assert_eq!(room.next_pick_number(), 1, "the next match's first");
         play(&mut room, true, true);
         assert_eq!(room.state().history.len(), 1);
+    }
+
+    /// Each stage's table of a three-stage match with ties: its totals and
+    /// ranks as the straightforward sums over the stages' placements say.
+    #[test]
+    fn stage_tables_total_and_rank_as_the_placements_sum() {
+        let mut room = RoomClient::new(0, 1);
+        let rules = MatchRules {
+            stages: 3,
+            ..room.rules().clone()
+        };
+        room.save_rules(rules).unwrap();
+        let s = song("a");
+        let mut now = 0;
+        let mut stages = Vec::new();
+        for round in 0..3usize {
+            room.pick(&s, &s.charts[0]).unwrap();
+            let order = room.take_stage_order().unwrap();
+            prepare(&mut room);
+            room.set_ready(true).unwrap();
+            now += 3_000;
+            room.tick(now);
+            let mut ids: Vec<ParticipantId> = order.cpus.iter().map(|c| c.participant).collect();
+            ids.insert(round % (ids.len() + 1), order.me);
+            ids.rotate_left(round);
+            // The first two tied in the second stage.
+            let mut ranking: Vec<Vec<Finisher>> = Vec::new();
+            for (k, p) in ids.into_iter().enumerate() {
+                let f = Finisher {
+                    participant: p,
+                    finish: Finish::Survived,
+                };
+                match ranking.last_mut() {
+                    Some(group) if round == 1 && k == 1 => group.push(f),
+                    _ => ranking.push(vec![f]),
+                }
+            }
+            room.report_stage(order.stage, ranking, true).unwrap();
+            room.results_shown();
+            stages.push(order.stage);
+        }
+        let m = room.state().current.clone().unwrap();
+        let totals = |n: usize| -> BTreeMap<ParticipantId, ddi_room::Points> {
+            m.roster
+                .keys()
+                .map(|&id| {
+                    let total = m.stages[..n]
+                        .iter()
+                        .filter_map(|sg| sg.play.as_ref()?.result.as_ref()?.placement(id))
+                        .map(|p| p.points)
+                        .sum();
+                    (id, total)
+                })
+                .collect()
+        };
+        let rank_in = |t: &BTreeMap<ParticipantId, ddi_room::Points>, id| {
+            let mine = t.get(&id)?;
+            Some(u16::try_from(t.values().filter(|x| *x > mine).count() + 1).unwrap())
+        };
+        let mut ranks_seen = Vec::new();
+        for (index, stage) in stages.iter().enumerate() {
+            let table = room.stage_table(*stage).unwrap();
+            assert!(room.stage_confirmed(*stage));
+            let (before, after) = (totals(index), totals(index + 1));
+            for row in &table.rows {
+                let id = row.participant;
+                assert_eq!(row.total, after.get(&id).copied());
+                assert_eq!(row.rank, rank_in(&after, id));
+                let expected_before = (index > 0).then(|| rank_in(&before, id)).flatten();
+                assert_eq!(row.rank_before, expected_before);
+                ranks_seen.push(row.rank.unwrap());
+            }
+        }
+        // Ties show: some rank is shared.
+        assert!(ranks_seen.len() > 3);
     }
 
     /// A change of a later stage's rules that names no Points (as an older

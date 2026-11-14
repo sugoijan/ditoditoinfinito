@@ -161,7 +161,14 @@ pub(super) struct RoomMode {
     /// The player left the room from this screen (asked or not): nothing
     /// guards it any more.
     left: bool,
+    /// What the debug view was last published for: published again only
+    /// when it changes ([`SelectScreen::room_publish`]).
+    published: std::cell::RefCell<Option<Published>>,
 }
+
+/// What the room's debug view shows depends on: the room's version, the
+/// seconds left, the last refusal, the view and the screen's controls.
+type Published = (u64, Option<u64>, Option<crate::state::room::Refusal>, &'static str, Vec<String>);
 
 impl SelectScreen {
     /// Song select as room `room`'s main view (M7b), its shell's calls
@@ -181,6 +188,7 @@ impl SelectScreen {
             // Never a chart's key: the first update sets the follower's
             // song (none yet, or the host's), not their own list.
             following: Some((String::from(UNFOLLOWED), false)),
+            published: std::cell::RefCell::new(None),
             library: None,
             place: None,
             hovered: None,
@@ -1128,14 +1136,31 @@ impl SelectScreen {
         )
     }
 
-    /// Says what the room shows (`ThemeState::room`).
+    /// Says what the room shows (`ThemeState::room`), when anything it
+    /// says changed since it was last said.
     pub(super) fn room_publish(&self, items: Vec<String>) {
         if let Some(rm) = &self.room {
-            let view = match rm.room.borrow().view() {
-                RoomView::Select => "select",
-                RoomView::Prompt(_) => "prompt",
+            let key = {
+                let r = rm.room.borrow();
+                let view = match r.view() {
+                    RoomView::Select => "select",
+                    RoomView::Prompt(_) => "prompt",
+                };
+                (r.version(), room::seconds_left(&r), r.refusal().cloned(), view, items)
             };
-            room::publish(&self.env, &rm.room, view, items);
+            if rm.published.borrow().as_ref() == Some(&key) {
+                return;
+            }
+            room::publish(&self.env, &rm.room, key.3, key.4.clone());
+            *rm.published.borrow_mut() = Some(key);
+        }
+    }
+
+    /// The room's debug view is said again at the next publish (another
+    /// screen said its own meanwhile).
+    pub(super) fn room_republish(&self) {
+        if let Some(rm) = &self.room {
+            *rm.published.borrow_mut() = None;
         }
     }
 }

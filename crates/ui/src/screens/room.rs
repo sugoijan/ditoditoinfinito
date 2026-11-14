@@ -2194,6 +2194,9 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         }
     }
     let spot = s.spotlight.as_ref();
+    let leave_cost = r.leave_cost();
+    let my_role = r.my_role();
+    let invite = r.invite_link();
     let view = RoomView {
         view: view.into(),
         phase: format!("{:?}", s.phase.kind()).to_lowercase(),
@@ -2251,21 +2254,18 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                 None => p.stage,
             })
             .collect(),
-        leave_cost: r.leave_cost().as_ref().map(snake),
-        leave_text: r.leave_cost().as_ref().map(|c| leave_text(c).into()),
+        leave_cost: leave_cost.as_ref().map(snake),
+        leave_text: leave_cost.as_ref().map(|c| leave_text(c).into()),
         manages_hosts: r.manages_hosts(),
         host_leaves: r.has_succession().then(|| snake(&r.if_host_leaves())),
         online: r.online_link().map(|l| RoomOnlineView {
             room_id: l.room_id().into(),
             name: l.name().map(str::to_string),
             link: snake(&l.state()),
-            role: r
-                .my_role()
-                .map(|(role, _)| snake(&role))
-                .unwrap_or_default(),
-            admin: r.my_role().is_some_and(|(_, a)| a),
-            invite: r.invite_link(),
-            can_invite: r.invite_link().is_some(),
+            role: my_role.map(|(role, _)| snake(&role)).unwrap_or_default(),
+            admin: my_role.is_some_and(|(_, a)| a),
+            can_invite: invite.is_some(),
+            invite: invite.clone(),
             can_rotate: r.may_replace_invite(),
         }),
         ..RoomView::default()

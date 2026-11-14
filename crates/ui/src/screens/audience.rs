@@ -319,6 +319,8 @@ pub struct AudienceScreen {
     feed: PageFeed,
     shell: AudienceShell,
     seen: u64,
+    /// What the debug view was last published for ([`Self::env_publish`]).
+    published: Option<(u64, u32, Option<u32>, u32, u64)>,
     time: f64,
     /// Watch was offered when last laid out (it is focused as it comes).
     offered: bool,
@@ -370,6 +372,7 @@ impl AudienceScreen {
             feed,
             shell,
             seen,
+            published: None,
             time: 0.0,
             offered: false,
         }
@@ -462,8 +465,24 @@ impl Screen for AudienceScreen {
 }
 
 impl AudienceScreen {
-    fn env_publish(&self) {
-        let view = debug_view(&self.audience.borrow());
+    /// Says what the seat shows (`ThemeState::audience`), when anything
+    /// it says changed: the client's version, or the counts that move
+    /// without it.
+    fn env_publish(&mut self) {
+        let a = self.audience.borrow();
+        let key = (
+            a.version(),
+            a.frames(),
+            a.count(),
+            a.sockets(),
+            a.next_music_delay_ms(),
+        );
+        if self.published == Some(key) {
+            return;
+        }
+        self.published = Some(key);
+        let view = debug_view(&a);
+        drop(a);
         self.env.state.borrow_mut().audience = Some(view);
     }
 }

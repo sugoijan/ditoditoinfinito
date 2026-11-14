@@ -3851,6 +3851,7 @@ impl Screen for SelectScreen {
         drop(st);
         if back_on_top {
             self.publish_dirty = true;
+            self.room_republish();
             // Options may have moved the volume meanwhile.
             if !self.layout.compact {
                 let gain = crate::state::settings::Settings::load().volume;

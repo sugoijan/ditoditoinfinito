@@ -1395,13 +1395,10 @@ impl ResultsScreen {
         let version = room.borrow().version();
         let changed = sm.seen.replace(version) != Some(version);
         let (tab, stage) = (sm.tab, sm.stage);
-        if tab == Tab::Standings
-            && room
-                .borrow()
-                .stage_table(stage)
-                .is_some_and(|t| t.confirmed)
-            && room.borrow().unseen_results().is_some()
-        {
+        if tab == Tab::Standings && {
+            let r = room.borrow();
+            r.unseen_results().is_some() && r.stage_confirmed(stage)
+        } {
             // Seen here: song select does not pop the standings up again.
             room.borrow_mut().results_shown();
         }
