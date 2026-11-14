@@ -968,6 +968,102 @@ fn a_bots_cpu_play_streams_live_beside_a_person() {
     assert!(seen > 100, "Alice saw the bot's taps: {seen}");
 }
 
+/// A bot reports its stage's CPUs' runs as a person's device does
+/// (`crate::battle::cpus::step`, `crate::battle::cpu_detail`): on charts
+/// that adapt, each CPU's detail names the chart it finished on where it
+/// stepped (the maintainer's decision, 2026-11-14: a bot's detail once
+/// left it out).
+#[test]
+fn a_bot_reports_its_cpus_runs_with_the_chart_each_finished_on() {
+    use crate::battle::live::LivePlay;
+    let song = bundled("beatucada");
+    const HARD: usize = 5;
+    // A watcher beside the bot, its device computing nothing (it plays
+    // no session): the CPUs' runs are the bot's reports alone.
+    let r = Room::new(&[("alice", Intent::Play), ("carol", Intent::Watch)], None);
+    r.run(1.0);
+    let mut rules = r.rooms[0].borrow().rules().clone();
+    rules.charts = ddi_room::Charts::Adaptive;
+    rules.seats = 5;
+    rules.cpu.mode = ddi_room::CpuMode::Roster;
+    rules.cpu.roster = (0..3u64)
+        .map(|i| ddi_room::OpponentSpec {
+            level: 0,
+            seed: 90 + i,
+            personality: None,
+            name: Some(format!("Weak{i}")),
+            targeting: None,
+        })
+        .collect();
+    r.rooms[0].borrow_mut().save_rules(rules).unwrap();
+    r.run(1.0);
+    let orders = pick_and_ready(&r, &song, true, HARD);
+    let order = orders[0].clone().unwrap();
+    assert!(order.rules.adaptive() && order.cpus.len() == 3);
+    let stage = order.stage;
+    for _ in 0..400 {
+        if r.rooms[0].borrow().stage_started(stage) {
+            break;
+        }
+        r.step(0.02, true);
+    }
+    let mut cpu = ddi_engine::cpu::Opponent::with_skills(
+        &song,
+        HARD,
+        crate::battle::stage_ruleset(&order.rules),
+        9,
+        3,
+        Default::default(),
+    )
+    .unwrap();
+    cpu.start(0.0);
+    let mut bot = LivePlay::new(r.handle(0), &order, &song, HARD).unwrap().expect("live");
+    let zero = r.rooms[0].borrow().song_zero_at(stage).unwrap();
+    let mut done = false;
+    let start = *r.host.borrow();
+    while !done && *r.host.borrow() - start < 200.0 {
+        r.step(1.0 / 60.0, true);
+        let t = (wall(*r.host.borrow()) as f64 - zero.0 as f64) / 1_000.0;
+        cpu.advance(t);
+        let judged = cpu.take_judged();
+        bot.send(t, cpu.player(), &judged);
+        let c = &mut cpu;
+        let mut deliver = |cells: &[ddi_engine::battle::Hazard]| c.receive_hazards(cells).is_ok();
+        let _ = bot.receive(t, &mut deliver);
+        if cpu.finished() {
+            bot.end(StreamEnd::Finished, t);
+            done = true;
+        }
+    }
+    assert!(done, "the bot's play ended");
+    let run = crate::battle::run_of(cpu.out_at(), cpu.life(), &cpu.score(), cpu.player().steps().len());
+    r.rooms[0].borrow_mut().report_run(stage, run, None).unwrap();
+    // The CPUs played on to their ends (the bot computes them as it
+    // reads the room's news, on the room's song clock as it keeps it).
+    for _ in 0..600 {
+        r.step(1.0 / 60.0, true);
+        let t = (wall(*r.host.borrow()) as f64 - zero.0 as f64) / 1_000.0;
+        bot.send(t, cpu.player(), &[]);
+        let _ = bot.receive(t, &mut |_| false);
+    }
+    let server = r.server.borrow();
+    let s = server.state();
+    let m = s.current.as_ref().or(s.history.last().map(|h| &h.played)).unwrap();
+    let play = m.stage(stage).unwrap().play.clone().unwrap();
+    let mut stepped = 0;
+    for c in &order.cpus {
+        let steps = match play.reports.get(&c.participant) {
+            Some(ddi_room::ReportedRun::Live { steps, .. }) => *steps,
+            other => panic!("{:?}: {other:?}", c.participant),
+        };
+        stepped += usize::from(steps > 0);
+        let detail = play.details.get(&c.participant).expect("its detail");
+        assert_eq!(detail.chart.is_some(), steps > 0, "{:?}: {detail:?}", c.participant);
+        assert!(detail.attacks.is_some(), "its attacks counted");
+    }
+    assert!(stepped > 0, "a CPU stepped: {:?}", play.reports);
+}
+
 /// What became of the attacks against one competitor of a stage.
 #[derive(Debug, Default)]
 struct Received {

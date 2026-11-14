@@ -27,7 +27,9 @@ use ddi_engine::judge::JudgeEvent;
 use ddi_room::attacks::Reporter;
 use ddi_room::live::cpus::OnlineCpuRules;
 use ddi_room::live::stream::{LiveReport, StreamEnd};
-use ddi_room::ParticipantId;
+use ddi_room::{ParticipantId, RunDetail, StageId};
+use ddi_ui::state::room::LiveRoom;
+use std::cell::RefCell;
 
 use super::attacks::{judged_taps, life_ppm, micros};
 
@@ -283,6 +285,56 @@ impl Drive {
     pub fn applied(&self) -> &[u32] {
         &self.applied
     }
+
+    /// When `opponent`, its play, went out of the stage: its gauge's
+    /// first emptying, never once it plays the song out as the decided
+    /// winner.
+    pub fn out_at(&self, opponent: &Opponent) -> Option<f64> {
+        opponent.out_at().filter(|_| !self.plays_on)
+    }
+}
+
+/// One online CPU's play (`drive`, `opponent`) judged on as far as
+/// `limit_us` and the news of the stage's first `known` checkpoints
+/// allow: its reports and its stream's end, as they come, to the room
+/// (`room`, stage `stage`). Its judgments (for its field), and whether
+/// its stream ended now (its run is reported then, [`report_run`]). A
+/// person's device and a bot alike.
+pub(crate) fn step(
+    drive: &mut Drive,
+    opponent: &mut Opponent,
+    room: &RefCell<dyn LiveRoom>,
+    stage: StageId,
+    (known, limit_us): (usize, i64),
+) -> (Vec<JudgeEvent>, bool) {
+    drive.known(known);
+    let events = drive.advance(opponent, limit_us);
+    let reports = drive.take_reports();
+    let end = drive.take_end();
+    if !reports.is_empty() || end.is_some() {
+        room.borrow_mut()
+            .cpu_news(stage, drive.participant(), drive.at_us(), reports, end);
+    }
+    (events, end.is_some())
+}
+
+/// An online CPU's run once its stream ended, as the room ranks it, and
+/// how it performed (`detail`), to the room.
+pub(crate) fn report_run(
+    room: &RefCell<dyn LiveRoom>,
+    stage: StageId,
+    drive: &Drive,
+    opponent: &Opponent,
+    detail: RunDetail,
+) {
+    let run = crate::battle::run_of(
+        drive.out_at(opponent),
+        opponent.life(),
+        &opponent.score(),
+        opponent.player().steps().len(),
+    );
+    room.borrow_mut()
+        .cpu_run(stage, drive.participant(), ddi_room::ReportedRun::of(run), Some(detail));
 }
 
 #[cfg(test)]

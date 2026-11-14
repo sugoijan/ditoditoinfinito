@@ -458,7 +458,6 @@ struct Seat {
     /// every device, its reports sent to the room ([`cpus::Drive`]); its
     /// run sent once its stream ended.
     drive: Option<cpus::Drive>,
-    run_sent: bool,
 }
 
 impl Seat {
@@ -593,6 +592,50 @@ pub fn stage_ladder(song: &Song, chart: usize, setup: &StageSetup) -> Vec<ddi_en
     ddi_engine::cpu::planned_ladder(song, chart)
 }
 
+/// The stage's ladder `ladder` of `song` as the battle shows it: each
+/// rung's chart, its copy as the fields draw it, its name and whether it
+/// is above the stage's chart.
+pub(crate) fn ladder_rungs(
+    song: &Song,
+    ladder: &[ddi_engine::cpu::PlannedRung],
+) -> Result<Vec<Rung>, String> {
+    ladder
+        .iter()
+        .map(|r| {
+            Ok(Rung {
+                chart: r.chart,
+                track: Rc::new(feed::TapTrack::full(song, r.chart)?),
+                name: ddi_engine::ladder::rung_name(&song.charts[r.chart]),
+                up: r.up,
+            })
+        })
+        .collect()
+}
+
+/// A run's detail's chart where `player` finished on another than the
+/// stage's (a rung of `rungs`, the stage's ladder): its name, and whether
+/// it is harder.
+fn finished_on(rungs: &[Rung], detail: &mut RunDetail, player: &Player) {
+    let rung = usize::from(player.rung())
+        .checked_sub(1)
+        .and_then(|i| rungs.get(i));
+    detail.chart = rung.map(|r| r.name.clone());
+    detail.harder = rung.is_some_and(|r| r.up);
+}
+
+/// How a CPU (`opponent`) performed, as judged by its own play (its own
+/// score: it plays the whole chart), with the attacks it `launched` and
+/// was sent where the stage has them, and the chart it finished on (a
+/// rung of `rungs`, the stage's ladder): what a practice's results and an
+/// online room's standings show of it, a person's device's and a bot's
+/// alike.
+pub(crate) fn cpu_detail(opponent: &Opponent, launched: Option<(u32, u32)>, rungs: &[Rung]) -> RunDetail {
+    let player = opponent.player();
+    let mut detail = run_detail(&player.results_brief(), player.ruleset(), opponent.life(), launched);
+    finished_on(rungs, &mut detail, player);
+    detail.bounded()
+}
+
 /// The most points chart `chart` of `song`, whole, gives under `ruleset`
 /// (DDI's: 50 a tap-like note and a hold unit; none under another
 /// ruleset).
@@ -669,17 +712,7 @@ impl Battle {
         ladder: &[ddi_engine::cpu::PlannedRung],
     ) -> Result<Battle, String> {
         let levels = ddi_engine::cpu::LEVELS;
-        let rungs = ladder
-            .iter()
-            .map(|r| {
-                Ok(Rung {
-                    chart: r.chart,
-                    track: Rc::new(feed::TapTrack::full(song, r.chart)?),
-                    name: ddi_engine::ladder::rung_name(&song.charts[r.chart]),
-                    up: r.up,
-                })
-            })
-            .collect::<Result<Vec<Rung>, String>>()?;
+        let rungs = ladder_rungs(song, ladder)?;
         // People play the chart itself, and so do the CPUs
         // (`cpu-play-v1`): one copy of each chart for both.
         let track = Rc::new(feed::TapTrack::full(song, chart)?);
@@ -727,7 +760,6 @@ impl Battle {
                     feed,
                     plays_on: false,
                     drive: None,
-                    run_sent: false,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -853,13 +885,6 @@ impl Battle {
             .is_some_and(|r| r.up)
     }
 
-    /// A detail's chart where `player` finished on another than the
-    /// stage's: its name, and whether it is harder.
-    fn finished_on(&self, detail: &mut RunDetail, player: &Player) {
-        let rung = player.rung();
-        detail.chart = self.rung_name(rung).map(str::to_string);
-        detail.harder = detail.chart.is_some() && self.rung_up(rung);
-    }
 
     /// A field's steps not put in yet, from `player`'s (its `field`'s):
     /// each its rung's chart (`stage`, the stage's chart's, for rung 0)
@@ -1448,46 +1473,21 @@ impl Battle {
         }
         let known = l.known_checkpoints();
         let stage = self.setup.stage;
+        let room = &l.handle().room;
         for i in 0..self.seats.len() {
             let s = &mut self.seats[i];
             let Some(d) = s.drive.as_mut() else { continue };
-            d.known(known);
-            let events = d.advance(&mut s.opponent, limit_us);
-            let reports = d.take_reports();
-            let end = d.take_end();
-            let through = d.at_us();
-            let participant = s.seat.participant;
-            s.feed.set_delay(l.field_delay_s(participant));
+            let (events, ended) = cpus::step(d, &mut s.opponent, room, stage, (known, limit_us));
+            s.feed.set_delay(l.field_delay_s(s.seat.participant));
             Self::feed_cpu(&self.cpu_track, &self.cpu_rungs, s, events);
-            if reports.is_empty() && end.is_none() {
-                continue;
-            }
-            l.handle()
-                .room
-                .borrow_mut()
-                .cpu_news(stage, participant, through, reports, end);
-            if end.is_some() && !self.seats[i].run_sent {
-                self.seats[i].run_sent = true;
-                let (run, detail) = self.cpu_run(i);
-                l.handle()
-                    .room
-                    .borrow_mut()
-                    .cpu_run(stage, participant, run, Some(detail));
+            if ended {
+                let detail = self.cpu_detail(i);
+                let s = &self.seats[i];
+                if let Some(d) = &s.drive {
+                    cpus::report_run(room, stage, d, &s.opponent, detail);
+                }
             }
         }
-    }
-
-    /// The `i`th CPU's run as the room ranks it and how it performed.
-    fn cpu_run(&self, i: usize) -> (ddi_room::ReportedRun, RunDetail) {
-        let s = &self.seats[i];
-        let run = run_of(
-            s.out_at(),
-            s.opponent.life(),
-            &s.opponent.score(),
-            s.opponent.player().steps().len(),
-        );
-        let detail = self.cpu_detail(i);
-        (ddi_room::ReportedRun::of(run), detail)
     }
 
     /// The attack checkpoints every competitor still in has been judged
@@ -2494,7 +2494,7 @@ impl Battle {
                 human.ruleset().gauge.life(),
                 self.launched(self.setup.me),
             );
-            self.finished_on(&mut detail, human);
+            finished_on(&self.rungs, &mut detail, human);
             details.push((self.setup.me, detail.bounded()));
         }
         details.extend(self.cpu_details());
@@ -2537,10 +2537,7 @@ impl Battle {
     /// where the battle has attacks.
     fn launched(&self, participant: ParticipantId) -> Option<(u32, u32)> {
         if let Some(l) = self.live_attacks() {
-            let all = &l.ledger.attacks;
-            let sent = all.iter().filter(|a| a.sender == participant).count();
-            let got = all.iter().filter(|a| a.recipient == participant).count();
-            return Some((sent as u32, got as u32));
+            return Some(l.ledger.launched(participant));
         }
         self.attacks.as_ref().map(|a| {
             let s = a.stats(participant);
@@ -2607,17 +2604,7 @@ impl Battle {
     /// How the `i`th CPU performed, as judged by its own play.
     fn cpu_detail(&self, i: usize) -> RunDetail {
         let s = &self.seats[i];
-        let player = s.opponent.player();
-        // Its own score: it plays the whole chart.
-        let results = player.results_brief();
-        let mut detail = run_detail(
-            &results,
-            player.ruleset(),
-            s.opponent.life(),
-            self.launched(s.seat.participant),
-        );
-        self.finished_on(&mut detail, player);
-        detail.bounded()
+        cpu_detail(&s.opponent, self.launched(s.seat.participant), &self.rungs)
     }
 
     /// The stage's end as the local player's results tell it, from its

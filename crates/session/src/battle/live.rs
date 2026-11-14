@@ -206,6 +206,13 @@ pub(crate) struct RemoteLedger {
 }
 
 impl RemoteLedger {
+    /// The attacks `p` launched and those sent against it.
+    pub fn launched(&self, p: ParticipantId) -> (u32, u32) {
+        let sent = self.attacks.iter().filter(|a| a.sender == p).count();
+        let got = self.attacks.iter().filter(|a| a.recipient == p).count();
+        (sent as u32, got as u32)
+    }
+
     pub fn power(&self, p: ParticipantId) -> u32 {
         self.power
             .iter()
@@ -1252,14 +1259,14 @@ pub struct LivePlay {
     /// (`crate::battle::cpus`): a bot reports for them as a person's
     /// device does.
     cpus: Vec<BotCpu>,
+    /// The stage's ladder (its rungs' names, for a CPU's run's chart).
+    rungs: Vec<crate::battle::Rung>,
 }
 
 /// A CPU of the stage as a bot's play computes it.
 struct BotCpu {
-    seat: ddi_ui::state::room::CpuSeat,
     opponent: ddi_engine::cpu::Opponent,
     drive: crate::battle::cpus::Drive,
-    run_sent: bool,
 }
 
 impl LivePlay {
@@ -1313,12 +1320,7 @@ impl LivePlay {
                     checkpoints.clone(),
                     &mut opponent,
                 );
-                Ok(BotCpu {
-                    seat: seat.clone(),
-                    opponent,
-                    drive,
-                    run_sent: false,
-                })
+                Ok(BotCpu { opponent, drive })
             })
             .collect::<Result<Vec<_>, String>>()?;
         if !cpus.is_empty() {
@@ -1329,6 +1331,7 @@ impl LivePlay {
             track,
             log,
             cpus,
+            rungs: crate::battle::ladder_rungs(song, &ladder)?,
         }))
     }
 
@@ -1340,56 +1343,22 @@ impl LivePlay {
             return;
         }
         for (cpu, k, attack, cells) in others {
-            if let Some(c) = self.cpus.iter_mut().find(|c| c.seat.participant == *cpu) {
+            if let Some(c) = self.cpus.iter_mut().find(|c| c.drive.participant() == *cpu) {
                 c.drive.commit(*k, *attack, cells.clone());
             }
         }
         let known = self.live.known_checkpoints();
         let limit = self.live.room_now_us(t);
         let stage = self.live.stage;
-        let launched = |p: ParticipantId, l: &Live| {
-            let all = &l.ledger.attacks;
-            (
-                all.iter().filter(|a| a.sender == p).count() as u32,
-                all.iter().filter(|a| a.recipient == p).count() as u32,
-            )
-        };
+        let room = &self.live.handle.room;
         for c in &mut self.cpus {
-            c.drive.known(known);
-            let _ = c.drive.advance(&mut c.opponent, limit);
-            let reports = c.drive.take_reports();
-            let end = c.drive.take_end();
-            if reports.is_empty() && end.is_none() {
-                continue;
-            }
-            let p = c.seat.participant;
-            self.live.handle.room.borrow_mut().cpu_news(stage, p, c.drive.at_us(), reports, end);
-            if end.is_some() && !c.run_sent {
-                c.run_sent = true;
-                let player = c.opponent.player();
-                // Its own score: it plays the whole chart.
-                let score = c.opponent.score();
-                let run = crate::battle::run_of(
-                    c.opponent.out_at(),
-                    c.opponent.life(),
-                    &score,
-                    player.steps().len(),
-                );
-                let mut results = player.results_brief();
-                results.score = score;
-                let detail = ddi_ui::state::room::run_detail(
-                    &results,
-                    player.ruleset(),
-                    c.opponent.life(),
-                    Some(launched(p, &self.live)),
-                )
-                .bounded();
-                self.live.handle.room.borrow_mut().cpu_run(
-                    stage,
-                    p,
-                    ddi_room::ReportedRun::of(run),
-                    Some(detail),
-                );
+            let (_, ended) = crate::battle::cpus::step(&mut c.drive, &mut c.opponent, room, stage, (known, limit));
+            if ended {
+                // As a person's device reports it: with the rung's chart
+                // it finished on.
+                let launched = self.live.ledger.launched(c.drive.participant());
+                let detail = crate::battle::cpu_detail(&c.opponent, Some(launched), &self.rungs);
+                crate::battle::cpus::report_run(room, stage, &c.drive, &c.opponent, detail);
             }
         }
     }
