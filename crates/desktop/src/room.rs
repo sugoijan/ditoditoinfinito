@@ -250,15 +250,14 @@ pub fn prepare_online_with(
 pub fn audience_stage(
     order: &ddi_ui::state::room::StageOrder,
 ) -> Option<ddi_ui::state::audience::SharedAudience> {
-    (order.me == ddi_ui::state::audience::AUDIENCE_ME && order.watching)
-        .then(|| {
-            WATCHING.with_borrow(|w| {
-                w.as_ref()
-                    .filter(|(s, _)| *s == order.stage)
-                    .map(|(_, a)| a.clone())
-            })
-        })
-        .flatten()
+    if !order.for_audience() {
+        return None;
+    }
+    WATCHING.with_borrow(|w| {
+        w.as_ref()
+            .filter(|(s, _)| *s == order.stage)
+            .map(|(_, a)| a.clone())
+    })
 }
 
 /// The room watched with its audience's inbox: its stages' songs read

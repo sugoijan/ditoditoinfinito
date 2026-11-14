@@ -620,6 +620,13 @@ impl StageOrder {
     pub fn attacks_rule(&self) -> Option<bool> {
         self.attacks_offered.then(|| self.battle.attacks())
     }
+
+    /// A stage handed over to watch with a room's audience
+    /// (`crate::state::audience`): its play is fed by the seat's client
+    /// and reports nothing.
+    pub fn for_audience(&self) -> bool {
+        self.me == crate::state::audience::AUDIENCE_ME && self.watching
+    }
 }
 
 /// The rules a match's stages are judged by, everyone's, the CPUs'

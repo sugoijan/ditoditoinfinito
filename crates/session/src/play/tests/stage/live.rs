@@ -1724,7 +1724,7 @@ fn the_audience_watches_a_live_stage_behind_the_room_with_the_members_fields() {
         }
     }
     let order = order.expect("the audience's stage");
-    assert!(order.watching && order.cpus.is_empty());
+    assert!(order.watching && order.cpus.is_empty() && order.for_audience());
     assert_eq!(order.live.as_ref().unwrap().people.len(), 2);
     assert!(!aud.borrow().plan_mismatch(order.stage), "the room's plan, here too");
     let delay = aud.borrow().music_delay_ms(order.stage) as f64 / 1_000.0;

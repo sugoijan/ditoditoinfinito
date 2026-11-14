@@ -156,7 +156,7 @@ pub(crate) fn stage_over() {
 /// the room's audience (its play is fed by it, reports nothing, and goes
 /// back to the audience's page).
 pub(crate) fn audience_stage(order: &StageOrder) -> Option<SharedAudience> {
-    if order.me != ddi_ui::state::audience::AUDIENCE_ME || !order.watching {
+    if !order.for_audience() {
         return None;
     }
     WATCHING.with_borrow(|w| {
