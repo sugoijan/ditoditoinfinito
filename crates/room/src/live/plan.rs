@@ -418,6 +418,21 @@ pub(crate) mod tests {
         assert_eq!(back.compute_digest(), named.digest);
     }
 
+    /// Digests and seeds are compared across devices and the room: fixed
+    /// values, so a change to how they are hashed is seen.
+    #[test]
+    fn the_digest_and_the_seed_are_these_values() {
+        let p = plan(5, 7, |j| j % 2 == 0);
+        assert_eq!(p.digest.0, "fnv1a64:73e9bb302e296a6d");
+        let all = p
+            .with_ladder(vec!["a".into(), "bc".into()])
+            .with_stage_rules(Some("hard/boos/out".into()))
+            .with_at_once(Some(2));
+        assert_eq!(all.digest.0, "fnv1a64:41ab95e4690782d2");
+        let seed = seed_for(&RoomId::new("Room000001"), StageId(3), &ChartKey::new("abc"));
+        assert_eq!(seed, 16_395_362_131_259_055_977);
+    }
+
     #[test]
     fn the_seed_is_everyone_s_and_differs_by_stage() {
         let room = RoomId::new("Room000001");

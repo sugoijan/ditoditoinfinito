@@ -237,6 +237,18 @@ mod tests {
     }
 
     #[test]
+    fn a_report_s_digest_is_this_value() {
+        let r = LiveReport {
+            k: 3,
+            judged: vec![Judged { at_us: 10, tier: 1 }, Judged { at_us: -4, tier: 0 }],
+            life_ppm: 500_000,
+            out_at_us: Some(77),
+            targeting: Some(Targeting::Leader),
+        };
+        assert_eq!(report_digest(&r), 16_792_303_767_027_228_990);
+    }
+
+    #[test]
     fn a_report_s_digest_tells_every_field() {
         let base = LiveReport {
             k: 3,

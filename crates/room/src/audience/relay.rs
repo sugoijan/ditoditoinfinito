@@ -498,3 +498,15 @@ impl Relay {
         [seats, count].into_iter().flatten().min()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A seat's mark is kept across a relay's restart: a fixed value.
+    #[test]
+    fn an_identity_s_mark_is_this_value() {
+        assert_eq!(identity_mark("twitch:12345"), 5_433_475_829_025_022_859);
+        assert_eq!(identity_mark(""), 0xcbf2_9ce4_8422_2325);
+    }
+}
