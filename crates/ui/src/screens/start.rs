@@ -11,7 +11,8 @@ use ddi_actor::{Actor, Kind};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
     Singleplayer,
-    /// Only with the prototype's switch on ([`StartScreen::with_multiplayer`]).
+    /// The multiplayer home (always, since 2026-11-14;
+    /// [`StartScreen::with_multiplayer`] turns it off for tests).
     Multiplayer,
     Options,
     Credits,
@@ -47,8 +48,8 @@ pub struct StartScreen {
     /// What the debug state was last told: the hints' keys (`None`: the
     /// keyboard's) and the compact layout.
     published: Option<(Option<[String; 2]>, bool)>,
-    /// The multiplayer prototype's hidden switch is on: Multiplayer opens
-    /// its menu. Off, it stays "Coming soon", focusable and inert.
+    /// Multiplayer opens its menu (always, since 2026-11-14; tests may turn
+    /// it off: then it says "Coming soon", focusable and inert, as before).
     multiplayer: bool,
 }
 
@@ -66,13 +67,13 @@ impl StartScreen {
             background_animating: false,
             in_place: false,
             published: None,
-            multiplayer: false,
+            multiplayer: true,
         }
     }
 
-    /// Multiplayer opens its menu ([`Choice::Multiplayer`]) when `on`:
-    /// the prototype's hidden switch (`Settings::multiplayer`). Off, the
-    /// menu is as it always was.
+    /// Multiplayer opens its menu ([`Choice::Multiplayer`]) when `on`, as
+    /// it does by default; off, it says "Coming soon" (once the hidden
+    /// switch's, `Settings::multiplayer`, which no longer gates anything).
     pub fn with_multiplayer(mut self, on: bool) -> Self {
         self.multiplayer = on;
         self
@@ -454,11 +455,15 @@ mod tests {
             let calls = Rc::new(RefCell::new(Vec::new()));
             let sink = calls.clone();
             let mut h = Harness::new(super::super::DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
-            h.push(StartScreen::new(
-                env(),
-                desktop,
-                Rc::new(move |choice, _| sink.borrow_mut().push(choice)),
-            ));
+            // Multiplayer turned off, as only a test does now: Coming soon.
+            h.push(
+                StartScreen::new(
+                    env(),
+                    desktop,
+                    Rc::new(move |choice, _| sink.borrow_mut().push(choice)),
+                )
+                .with_multiplayer(false),
+            );
             h.run(0.3);
             assert_eq!(h.ui.focused(), None);
             h.key("a", "a");

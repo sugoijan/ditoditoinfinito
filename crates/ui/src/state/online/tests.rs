@@ -768,7 +768,7 @@ pub(crate) mod room {
         alice.fetch_invite();
         tick(&clock, &mut [&mut alice], 400);
         let link = alice.watch_invite_link().expect("the watch-only link");
-        assert!(link.ends_with(&format!("#/mp/join/{WATCH_INVITE}?mp=1")));
+        assert!(link.ends_with(&format!("#/mp/join/{WATCH_INVITE}")));
         // Kept but hidden (round B1): its Copy only under the hidden
         // option.
         let items: Vec<String> = more_items(&alice, false).into_iter().map(|(id, _)| id).collect();
@@ -910,7 +910,7 @@ pub(crate) mod room {
         tick(&clock, &mut [&mut alice, &mut bob], 400);
         assert_eq!(
             alice.invite_link().as_deref(),
-            Some("http://localhost:8080/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01?mp=1")
+            Some("http://localhost:8080/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01")
         );
         assert_eq!(bob.invite_link(), None);
         // Moving through the list sends nothing; resting does.

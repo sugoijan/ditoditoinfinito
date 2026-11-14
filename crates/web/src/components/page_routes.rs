@@ -168,8 +168,6 @@ impl PagePage {
                     }),
                 )
                 .with_focus(crate::router::saved_focus())
-                // The multiplayer prototype's hidden switch (`#/?mp=1`).
-                .with_multiplayer(crate::settings::Settings::load().multiplayer)
                 // Under the loader, which shows the title already.
                 .in_place(crate::boot::shown()),
             );

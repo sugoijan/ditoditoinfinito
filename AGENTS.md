@@ -17,7 +17,10 @@ on formats, rules and the tech stack. Read those before changing the engine or
 the importers.
 
 Public copy (page title, descriptions, README lead, landing-page entry) says
-"dance rhythm game". Other games may be named to explain supported file
+"dance rhythm game"; the descriptions and the README's lead also say the
+multiplayer battle mode in plain words (everyone plays the same song at
+once and sends attacks until one player is left), naming no other game
+for it and claiming nothing more. Other games may be named to explain supported file
 formats, layouts, rulesets or accurate gameplay comparisons (StepMania
 simfiles, Pump It Up-style five-panel charts, the DDR A ruleset); do not
 imply official affiliation, bundled commercial song catalogs or exact
@@ -977,7 +980,7 @@ Rust and the browser are implementation details, not advertised features.
   `instance::utility`, which a new one joins) take none, may run beside
   an open app, and read the settings without ever writing them
   (`store::install_reading`; a saved switch given beside one,
-  `--sharing`, `--multiplayer`, `--mp-rules-first`, is not saved, and
+  `--sharing`, `--mp-rules-first`, `--mp-watch-link`, is not saved, and
   the run says so). A second app on one machine (a second player for a
   room) is `DDI_HOME=<another folder>`. Tested without a sound device
   on a fake clock and offscreen (`crates/desktop/tests/`; GPU tests skip without
@@ -1257,13 +1260,15 @@ Rust and the browser are implementation details, not advertised features.
   `restart_relay`); `tests/audience.rs`.
   Pure (serde and JSON), natively tested.
 - The multiplayer prototype's CPU practice (M2 and M3,
-  `docs/plans/multiplayer-prototype-progress.md`), behind a hidden switch
-  (`Settings::multiplayer`; desktop's `--multiplayer on|off`): off, the
-  start menu's Multiplayer stays "Coming soon"; on, it opens the
+  `docs/plans/multiplayer-prototype-progress.md`), behind no switch since
+  2026-11-14 (`Settings::multiplayer` gates nothing and is only read;
+  the web's `mp=1`/`mp=0` and desktop's `--multiplayer on|off` are taken
+  and do nothing): the start menu's Multiplayer opens the
   multiplayer home (`ddi_ui::screens::online::OnlineScreen`, the home
   itself `screens/online_home.rs`: the start menu's column and rain under
-  the bars; Find match and Browse rooms grayed "Coming soon", CPU
-  practice, Private room, Join by link (a page with the invite field);
+  the bars; Find match and Browse rooms grayed "Coming soon", Private
+  room, Join by link (a page with the invite field) and, last, CPU
+  practice, the first key focusing Private room, `Screen::first_focus`;
   the account at the footer's right, Sign in with Twitch or the name
   with Sign out; `SignInDialog` asks for a sign-in where one is needed
   and follows it through). `crates/ui/src/state/room.rs` is the room's
@@ -1490,18 +1495,17 @@ Rust and the browser are implementation details, not advertised features.
   watched through the play host (`room::audience_stage`, no results of
   their own); `tests/audience_offscreen.rs`.
   The web keeps it for the session (`crates/web/src/room.rs`, thread-local
-  as `crate::share` is): `#/?mp=1` (`mp=0`) sets the switch, `#/mp` is the
+  as `crate::share` is): `#/mp` is the
   home, `#/room` the practice room's song select
   (`select_page::Props::room`, `crate::room::RoomRoute`, its calls
   `crate::room::shell`; `#/room/pick` is `#/room` now), a stage's prompt
   and play at
   `#/play?song=…&chart=…&stage=<id>` (`game_canvas::Props::room_stage`, its
   outcome reported by the game loop, back to `#/room`; an address the room
-  did not hand over shows the room); with the switch off those routes show
-  the start menu. A reload starts a new practice. Online rooms (M5c,
+  did not hand over shows the room). A reload starts a new practice. Online rooms (M5c,
   `crates/web/src/online.rs`): `#/mp` is the online home
   (`ddi_ui::screens::online::OnlineScreen`), `#/mp/join/<invite>` an
-  invite's page (its link carries `mp=1`, the switch),
+  invite's page (links made before 2026-11-14 carry `mp=1`, still read),
   `#/mp/room/<id>` the online room's song select; signing in leaves the page for the
   server's `api/auth/twitch/login?return=<route>` and comes back to the
   route (`?signin=canceled` when canceled), what it was for kept in
@@ -1522,7 +1526,8 @@ Rust and the browser are implementation details, not advertised features.
   first, whose press starts the sound and hands the stage over as it
   stands, `AudienceClient::watch_now`, `AudienceCall::WatchPressed`);
   TESTING
-  ONLY, `#/?mp=1&mpfakeseat=1` (`mpfakeend=S`) makes the next seat one
+  ONLY, `mpfakeseat=1` (`mpfakeend=S`) in the address the page loads on
+  makes the next seat one
   in a fake room in the page (`crate::fake_seat`). `Trunk.toml` passes `/api/` (redirects untouched) and
   `/api/sockets/` (WebSockets) to `just dev` of `../ddi-server`.
 - `tools/danoni-importer/` the native helper, a root workspace member requiring
@@ -1645,11 +1650,12 @@ Rust and the browser are implementation details, not advertised features.
   `--replay PLAY_ID [--results] [--start]` (a kept play's replay, or its
   results),
   `--calibrate visual|audio|combined [--auto] [--bias MS] [--start]`,
-  `--shared LINK|ID`, `--sharing on|off`, `--multiplayer on|off` (the
-  multiplayer prototype's switch; `--screen multiplayer|room`; `--join
+  `--shared LINK|ID`, `--sharing on|off`, `--multiplayer on|off` (once
+  the multiplayer prototype's switch, taken and doing nothing now;
+  `--screen multiplayer|room`; `--join
   LINK|INVITE` an online room's invite; `--mp-rules-first on|off`, a
   hidden option, off by default: a room's Rules open by themselves on
-  entering, as the web's `mprules=1` (`mprules=0`) beside `mp=1`,
+  entering, as the web's `mprules=1` (`mprules=0`),
   `Settings::multiplayer_rules_first`; `--mp-watch-link on|off`, another,
   More's Copy watch-only link, as the web's `mpwatchlink=1`,
   `Settings::multiplayer_watch_link`; `--mp-attacks` and its old name
@@ -1657,8 +1663,8 @@ Rust and the browser are implementation details, not advertised features.
   Attacks rule is On by default (anyone turns it Off in Rules), as the
   web's `mpattacks=1`; the web's `mpattacks=0` starts a practice room
   with the rule Off, for tests and screenshots; development only, `--mp-dev-cpus
-  N`, practice against N CPUs beyond the cap, as the web's `mpcpus=N`
-  beside `mp=1`; `--mp-dev-mines BEAT`, a section of battle shocks in each stage's play
+  N`, practice against N CPUs beyond the cap, as the web's `mpcpus=N`;
+  `--mp-dev-mines BEAT`, a section of battle shocks in each stage's play
   from that beat, as `mpdevmines=BEAT`), `--share IDS|pack:NAME
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
   `--mp-bots [--host] [--join LINK] [--guests N] [--api URL] [--site URL]
@@ -1885,8 +1891,14 @@ gesture rule below, so it does not replace the maintainer's Safari check.
 The UI (song select, options, the pages, the start prompt and the results)
 is our theme's screens on the canvas, not DOM: drive them by keys, a fake
 pad (`window.__DDI_FAKE_PAD`) or taps at `window.__DDI_DEBUG.ui.rects`, and
-read their state from `__DDI_DEBUG.ui.theme`. The testing parameters `gfx`, `auto`, `bias` and
-`slow` stay for the session once given on `#/?…` or `#/play?…`. The skill
+read their state from `__DDI_DEBUG.ui.theme`. The testing parameters (`gfx`, `auto`, `bias`,
+`slow`, `perf`, `lang`, and the multiplayer ones, `mprules`,
+`mpwatchlink`, `mpattacks`, `mpcpus`, `mpdevmines`, `mpfakeseat`,
+`mpfakeend`) take effect given in the address the page loads on, on any
+route (`#/select?perf=1`, `#/mp?mpcpus=16`, `#/options?lang=ja`;
+`crate::router::Route::current`'s first read), and later on the routes
+each was always read on; `gfx`, `auto`, `bias` and `slow` stay for the
+session. The skill
 lists the routes and their parameters (`#/play`, replays, calibration,
 `#/video-check`, `#/skin-preview`, `#/ui-test`, `#/ui-dev`), what
 `__DDI_DEBUG` carries, and a recipe for each screen and feature; song

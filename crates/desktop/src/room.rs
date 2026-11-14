@@ -1,7 +1,6 @@
 //! The multiplayer prototype on desktop
-//! (`docs/plans/multiplayer-prototype-progress.md`, M2), behind its hidden
-//! switch (`--multiplayer on`, `Settings::multiplayer`): the multiplayer
-//! home, the practice room over it and song select choosing a stage's
+//! (`docs/plans/multiplayer-prototype-progress.md`, M2; behind no switch
+//! since 2026-11-14): the multiplayer home, the practice room over it and song select choosing a stage's
 //! song over the room, all on the UI's stack. The room lives here for the
 //! run, so leaving it and coming back finds it as it was; Leave room
 //! forgets it. The screens are the UI core's (`ddi_ui::screens::room`),

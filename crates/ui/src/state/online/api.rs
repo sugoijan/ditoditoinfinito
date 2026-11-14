@@ -461,8 +461,9 @@ pub fn room_of(invite: &str) -> Option<&str> {
 }
 
 /// The link that opens an invite in the game on the web: `site` (the
-/// game's page, ending in `/`) at `#/mp/join/<invite>`, with the
-/// prototype's switch (`mp=1`) so it opens where the switch was never set.
+/// game's page, ending in `/`) at `#/mp/join/<invite>`. (Links made
+/// before multiplayer came out from behind its switch carry `?mp=1`,
+/// which every build still reads, [`invite_in`].)
 pub fn invite_link(site: &str, invite: &str) -> String {
     let site = site.trim_end_matches('#');
     let site = if site.ends_with('/') {
@@ -470,11 +471,11 @@ pub fn invite_link(site: &str, invite: &str) -> String {
     } else {
         format!("{site}/")
     };
-    format!("{site}#/mp/join/{invite}?mp=1")
+    format!("{site}#/mp/join/{invite}")
 }
 
 /// The link that opens a room's audience link in the game on the web:
-/// `site` at `#/mp/audience/<link>`, with the prototype's switch.
+/// `site` at `#/mp/audience/<link>`.
 pub fn audience_link(site: &str, link: &str) -> String {
     invite_link(site, link).replace("#/mp/join/", "#/mp/audience/")
 }
@@ -492,9 +493,11 @@ mod tests {
         let link = invite_link("https://sugoijan.dev/ditoditoinfinito/", INVITE);
         assert_eq!(
             link,
-            "https://sugoijan.dev/ditoditoinfinito/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01?mp=1"
+            "https://sugoijan.dev/ditoditoinfinito/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01"
         );
         assert_eq!(invite_in(&link).as_deref(), Some(INVITE));
+        // A link made while multiplayer was behind its switch.
+        assert_eq!(invite_in(&format!("{link}?mp=1")).as_deref(), Some(INVITE));
         assert_eq!(invite_in(&format!("  {link}\n")).as_deref(), Some(INVITE));
         assert_eq!(invite_in("Room000001.short"), None);
         assert_eq!(invite_in("https://example.com/#/mp/join/x.y"), None);
@@ -502,12 +505,12 @@ mod tests {
         let aud = audience_link("https://sugoijan.dev/ditoditoinfinito/", INVITE);
         assert_eq!(
             aud,
-            "https://sugoijan.dev/ditoditoinfinito/#/mp/audience/Room000001.abcdefghijABCDEFGHIJ01?mp=1"
+            "https://sugoijan.dev/ditoditoinfinito/#/mp/audience/Room000001.abcdefghijABCDEFGHIJ01"
         );
         assert_eq!(invite_in(&aud).as_deref(), Some(INVITE));
         assert_eq!(
             invite_link("http://localhost:8080", INVITE),
-            "http://localhost:8080/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01?mp=1"
+            "http://localhost:8080/#/mp/join/Room000001.abcdefghijABCDEFGHIJ01"
         );
     }
 

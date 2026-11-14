@@ -1,9 +1,9 @@
 //! Hash routes. The site lives under a sub-path on GitHub Pages, so routing
 //! uses the fragment: `#/` (Start), `#/select` (Songs), `#/play?song=<id>&chart=<n>`, `#/options`,
 //! `#/calibrate`, `#/credits`, `#/results`, `#/edit?song=<id>&chart=<n>`,
-//! `#/video-check`, `#/skin-preview`, `#/ui-test`, `#/ui-dev`; behind the
-//! multiplayer prototype's switch (`#/?mp=1`), `#/mp`, `#/room` and
-//! `#/room/pick?stage=<id>&n=<number>`.
+//! `#/video-check`, `#/skin-preview`, `#/ui-test`, `#/ui-dev`; the
+//! multiplayer prototype's `#/mp…` and `#/room` (behind no switch since
+//! 2026-11-14).
 
 use ddi_library::share::percent_encode;
 use std::collections::BTreeMap;
@@ -461,9 +461,13 @@ impl Route {
         let hash = web_sys::window()
             .and_then(|w| w.location().hash().ok())
             .unwrap_or_default();
-        keep_testing(&hash);
+        // The page's first address: its testing parameters taken
+        // whatever its route (`perf`, `auto`, `mpcpus`…); later ones only
+        // where each has always been read.
+        let at_load = !LOADED.with(|l| l.replace(true));
+        keep_testing_at(&hash, at_load);
         share_switch(&hash);
-        multiplayer_switch(&hash);
+        multiplayer_params(&hash, at_load);
         lang_switch(&hash);
         Route::parse(&hash)
     }
@@ -496,15 +500,29 @@ thread_local! {
 /// it again (the switch rewrites that address when used,
 /// [`set_autoplay`]).
 pub(crate) fn keep_testing(hash: &str) {
+    keep_testing_at(hash, false);
+}
+
+/// [`keep_testing`]; `at_load`: the page's first address, whose testing
+/// parameters are taken on any route (`#/options?perf=1`,
+/// `#/mp?auto=1`), not only on the start route, song select's, a play's
+/// and calibration's.
+fn keep_testing_at(hash: &str, at_load: bool) {
     let (path, query) = hash
         .trim_start_matches('#')
         .split_once('?')
         .unwrap_or((hash.trim_start_matches('#'), ""));
     let path = path.trim_start_matches('/');
-    if !matches!(path, "" | "select" | "play" | "calibrate") {
+    if !at_load && !matches!(path, "" | "select" | "play" | "calibrate") {
         return;
     }
     crate::perf::note_address(query);
+    // Another route's at load: kept as the start route's are.
+    let path = if matches!(path, "" | "select" | "play" | "calibrate") {
+        path
+    } else {
+        ""
+    };
     // The chart editor's playtest, the announcer studio's scenes and a
     // practice room's stages say nothing about the session's plays
     // (their `auto` is their own).
@@ -584,117 +602,96 @@ fn share_switch(hash: &str) {
     }
 }
 
-/// The multiplayer prototype's hidden switch
-/// (`docs/plans/multiplayer-prototype-progress.md`): `#/?mp=1` on the start
-/// route (or on an invite's link, `#/mp/join/<invite>?mp=1`) sets
-/// `Settings::multiplayer`, `mp=0` clears it; never a row of Options
-/// (DEVELOPMENT ONLY: `mpcpus=N` beside `mp=1`, practice against N CPUs
-/// beyond the cap, `crate::room::develop`, and `mpdevmines=BEAT`, a
-/// section of battle shocks, M8a; a convenience, `mpattacks=0`: the next
+/// The multiplayer prototype's testing parameters
+/// (`docs/plans/multiplayer-prototype-progress.md`), read from the address
+/// the page loads on, whatever its route, and from the start route's or
+/// an invite's link later; never a row of Options. Multiplayer is no
+/// longer behind a switch (2026-11-14): `mp=1` and `mp=0` are still taken
+/// and do nothing. DEVELOPMENT ONLY: `mpcpus=N`, practice against N CPUs
+/// beyond the cap (`crate::room::develop`), and `mpdevmines=BEAT`, a
+/// section of battle shocks (M8a); a convenience, `mpattacks=0`: the next
 /// practice room starts with its Attacks rule Off, which anyone sets in
-/// Rules (`mpattacks=1`, On, is the default now); and a hidden
-/// option, `mprules=1`, a room's Rules opening by themselves on entering,
-/// `Settings::multiplayer_rules_first`; another, `mpwatchlink=1`, More's
-/// Copy watch-only link, `Settings::multiplayer_watch_link`). Off,
-/// the start menu's Multiplayer says "Coming soon" and the prototype's
-/// routes lead to the start menu.
-fn multiplayer_switch(hash: &str) {
+/// Rules (`mpattacks=1`, On, is the default); hidden options, `mprules=1`,
+/// a room's Rules opening by themselves on entering
+/// (`Settings::multiplayer_rules_first`), and `mpwatchlink=1`, More's Copy
+/// watch-only link (`Settings::multiplayer_watch_link`); TESTING ONLY,
+/// `mpfakeseat=1` (`mpfakeend=S`). Each address is read once.
+fn multiplayer_params(hash: &str, at_load: bool) {
     let Some((path, query)) = hash.trim_start_matches('#').split_once('?') else {
         return;
     };
     let path = path.trim_start_matches('/');
-    // The start route, or an invite's link (which carries the switch so it
-    // opens where it was never set).
-    if !path.is_empty() && !path.starts_with("mp/join/") && !path.starts_with("mp/audience/") {
+    // At load any route; later the start route, or an invite's link.
+    if !at_load
+        && !path.is_empty()
+        && !path.starts_with("mp/join/")
+        && !path.starts_with("mp/audience/")
+    {
         return;
     }
-    let Some(on) = query.split('&').find_map(|kv| match kv.split_once('=') {
-        Some(("mp", "1")) => Some(true),
-        Some(("mp", "0")) => Some(false),
-        _ => None,
-    }) else {
+    // Once an address: a route read again (a page built again) does not
+    // make its practice room again.
+    let seen = MULTIPLAYER_READ.with(|r| r.replace(hash.to_string()));
+    if seen == hash {
         return;
-    };
-    // DEVELOPMENT ONLY: `mpcpus=N` beside `mp=1` makes the next practice
-    // room one against N CPUs, beyond the cap (M6b's miniature fields).
-    if on
-        && let Some(n) = query.split('&').find_map(|kv| match kv.split_once('=') {
-            Some(("mpcpus", n)) => n.parse::<u16>().ok(),
+    }
+    let param = |key: &str| {
+        query.split('&').find_map(|kv| match kv.split_once('=') {
+            Some((k, v)) if k == key => Some(v.to_string()),
             _ => None,
         })
-    {
+    };
+    // DEVELOPMENT ONLY: `mpcpus=N` makes the next practice room one
+    // against N CPUs, beyond the cap (M6b's miniature fields).
+    if let Some(n) = param("mpcpus").and_then(|n| n.parse::<u16>().ok()) {
         crate::room::develop(n);
     }
     // `mpattacks=0`: a convenience for tests and screenshots, the next
-    // practice room starts with its Attacks rule Off (the rule is in
-    // Rules for anyone, On by default since 2026-11-12; `mpattacks=1`,
-    // once the way to start with it On, is still taken). DEVELOPMENT ONLY
+    // practice room starts with its Attacks rule Off. DEVELOPMENT ONLY
     // (M8a): `mpdevmines=BEAT` puts a section of battle shocks into each
     // stage's play from that beat (`ddi_ui::state::room::Development`).
-    if on {
-        let param = |key: &str| {
-            query.split('&').find_map(|kv| match kv.split_once('=') {
-                Some((k, v)) if k == key => Some(v.to_string()),
-                _ => None,
-            })
-        };
-        let attacks = param("mpattacks").map(|v| v == "1");
-        let mines = param("mpdevmines").map(|v| v.parse::<u32>().ok());
-        if attacks.is_some() || mines.is_some() {
-            let mut d = ddi_ui::state::room::development();
-            if let Some(a) = attacks {
-                d.attacks = Some(a);
-            }
-            if let Some(m) = mines {
-                d.mines_at_beat = m;
-            }
-            ddi_ui::state::room::set_development(d);
-            crate::room::discard();
+    let attacks = param("mpattacks").map(|v| v == "1");
+    let mines = param("mpdevmines").map(|v| v.parse::<u32>().ok());
+    if attacks.is_some() || mines.is_some() {
+        let mut d = ddi_ui::state::room::development();
+        if let Some(a) = attacks {
+            d.attacks = Some(a);
         }
+        if let Some(m) = mines {
+            d.mines_at_beat = m;
+        }
+        ddi_ui::state::room::set_development(d);
+        crate::room::discard();
     }
-    // TESTING ONLY: `mpfakeseat=1` beside `mp=1`, the next audience seat
-    // is one in a fake room's audience in the page (`crate::fake_seat`:
-    // the headless browsers' look at a watched stage without a server),
-    // `mpfakeend=S` closing that audience S seconds into its stage.
-    if on
-        && query
-            .split('&')
-            .any(|kv| kv == "mpfakeseat=1")
-    {
-        let end = query.split('&').find_map(|kv| match kv.split_once('=') {
-            Some(("mpfakeend", s)) => s.parse::<f64>().ok(),
-            _ => None,
-        });
-        crate::fake_seat::want(end);
+    // TESTING ONLY: `mpfakeseat=1`, the next audience seat is one in a
+    // fake room's audience in the page (`crate::fake_seat`: the headless
+    // browsers' look at a watched stage without a server), `mpfakeend=S`
+    // closing that audience S seconds into its stage.
+    if param("mpfakeseat").as_deref() == Some("1") {
+        crate::fake_seat::want(param("mpfakeend").and_then(|s| s.parse::<f64>().ok()));
     }
-    // `mprules=1` beside `mp=1`: a room's Rules open by themselves on
-    // entering, as M7b had it (`Settings::multiplayer_rules_first`, a
-    // hidden option, off by default); `mprules=0` turns it off again.
-    let rules_first = query.split('&').find_map(|kv| match kv.split_once('=') {
-        Some(("mprules", "1")) => Some(true),
-        Some(("mprules", "0")) => Some(false),
+    let flag = |key: &str| match param(key).as_deref() {
+        Some("1") => Some(true),
+        Some("0") => Some(false),
         _ => None,
-    });
-    // `mpwatchlink=1` beside `mp=1`: More offers Copy watch-only link
-    // (`Settings::multiplayer_watch_link`, a hidden option, off by
-    // default: the link is kept but hidden); `mpwatchlink=0` hides it.
-    let watch_link = query.split('&').find_map(|kv| match kv.split_once('=') {
-        Some(("mpwatchlink", "1")) => Some(true),
-        Some(("mpwatchlink", "0")) => Some(false),
-        _ => None,
-    });
+    };
     let mut settings = crate::settings::Settings::load();
-    let rules_first = rules_first.unwrap_or(settings.multiplayer_rules_first);
-    let watch_link = watch_link.unwrap_or(settings.multiplayer_watch_link);
-    if settings.multiplayer != on
-        || settings.multiplayer_rules_first != rules_first
+    let rules_first = flag("mprules").unwrap_or(settings.multiplayer_rules_first);
+    let watch_link = flag("mpwatchlink").unwrap_or(settings.multiplayer_watch_link);
+    if settings.multiplayer_rules_first != rules_first
         || settings.multiplayer_watch_link != watch_link
     {
-        settings.multiplayer = on;
         settings.multiplayer_rules_first = rules_first;
         settings.multiplayer_watch_link = watch_link;
         settings.save();
     }
+}
+
+thread_local! {
+    /// The last address [`multiplayer_params`] read.
+    static MULTIPLAYER_READ: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+    /// The page's first address has been read ([`Route::current`]).
+    static LOADED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// A parameter of the current address's query, if there.

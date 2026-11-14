@@ -236,9 +236,9 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// prints what each did when the play ends. `--shared LINK|ID` opens
 /// song select on a share's songs alone (`share`), `--sharing on|off`
 /// flips the hidden sharing switch (`Settings::sharing`), `--multiplayer
-/// on|off` the multiplayer prototype's (`Settings::multiplayer`; `--screen
-/// multiplayer|room` opens its home or its practice room; `--join
-/// LINK|INVITE` an online room's invite page), and `--share
+/// on|off` is still taken and does nothing (multiplayer is always there
+/// since 2026-11-14: `--screen multiplayer|room` opens its home or its
+/// practice room; `--join LINK|INVITE` an online room's invite page), and `--share
 /// ID[,ID…]|pack:NAME [--expires 1h|1d|1w|1m|never] [--pack NAME]`
 /// uploads the library's songs as a share without a window and prints
 /// its link (the token from the settings, or `DDI_SHARE_TOKEN`; the
@@ -311,7 +311,6 @@ pub fn run() {
             store::install_reading();
             for flag in [
                 "--sharing",
-                "--multiplayer",
                 "--mp-rules-first",
                 "--mp-watch-link",
             ] {
@@ -425,29 +424,22 @@ pub fn run() {
             let _ = ddi_platform::storage::flush();
         }
     }
-    // `--multiplayer on|off`: the multiplayer prototype's hidden switch,
-    // as the web's `#/?mp=1` (`docs/plans/multiplayer-prototype-progress.md`).
+    // `--multiplayer on|off`: once the multiplayer prototype's hidden
+    // switch; multiplayer is always there now (2026-11-14), so the flag
+    // is still taken and does nothing.
     if let Some(on) = args
         .iter()
         .position(|a| a == "--multiplayer")
         .and_then(|i| args.get(i + 1))
     {
-        let on = match on.as_str() {
-            "on" | "1" => true,
-            "off" | "0" => false,
-            _ => {
-                eprintln!("--multiplayer takes on or off");
-                std::process::exit(2);
-            }
-        };
-        let mut settings = ddi_ui::state::settings::Settings::load();
-        if settings.multiplayer != on {
-            settings.multiplayer = on;
-            settings.save();
+        if !matches!(on.as_str(), "on" | "1" | "off" | "0") {
+            eprintln!("--multiplayer takes on or off");
+            std::process::exit(2);
         }
+        eprintln!("--multiplayer does nothing now: multiplayer is always there");
     }
     // `--mp-rules-first on|off`: a hidden option, off by default, as the
-    // web's `mprules=1` beside `mp=1`: a room's Rules open by themselves
+    // web's `mprules=1`: a room's Rules open by themselves
     // on entering, as M7b had it (`Settings::multiplayer_rules_first`).
     if let Some(on) = args
         .iter()
@@ -469,7 +461,7 @@ pub fn run() {
         }
     }
     // `--mp-watch-link on|off`: a hidden option, off by default, as the
-    // web's `mpwatchlink=1` beside `mp=1`: More offers Copy watch-only
+    // web's `mpwatchlink=1`: More offers Copy watch-only
     // link in an online room (`Settings::multiplayer_watch_link`).
     if let Some(on) = args
         .iter()
@@ -531,12 +523,6 @@ pub fn run() {
             eprintln!("--join takes an invite link or an invite");
             std::process::exit(2);
         }
-    }
-    if matches!(screen.as_str(), "multiplayer" | "room")
-        && !ddi_ui::state::settings::Settings::load().multiplayer
-    {
-        eprintln!("--screen {screen} needs the multiplayer prototype: --multiplayer on");
-        std::process::exit(2);
     }
     // `--share ID[,ID…]|pack:NAME [--expires 1h|1d|1w|1m|never]`: the
     // library's songs uploaded as a share, the link printed (the token

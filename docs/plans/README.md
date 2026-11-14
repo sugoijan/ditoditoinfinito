@@ -53,8 +53,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
 - [Multiplayer prototype progress](multiplayer-prototype-progress.md)
   (2026-11-10): what the prototype has actually built and tested, kept apart
   from the design studies below. M1: the shared room, match and stage model
-  (`crates/room`). M2: the CPU-practice room on both shells behind a hidden
-  switch (`#/?mp=1`, `--multiplayer on`), bound to the model's local
+  (`crates/room`). M2: the CPU-practice room on both shells, behind a hidden
+  switch until 2026-11-14 (now reachable from the start menu by everyone;
+  feedback round D), bound to the model's local
   authority, songs from the library through song select's pick mode. M3:
   stages played against engine-judged CPU opponents (a taps-only copy,
   provisional gauge survival), the intermission, the match's results and

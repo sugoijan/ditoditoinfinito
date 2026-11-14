@@ -306,25 +306,6 @@ impl App {
             )),
             // Credits and calibration's menu, our theme's pages on the
             // canvas (step 6.4).
-            // The multiplayer prototype, behind its hidden switch: off,
-            // its routes are the start menu's.
-            Route::Multiplayer
-            | Route::Room
-            | Route::MpJoin { .. }
-            | Route::MpRoom { .. }
-            | Route::MpAudience { .. }
-            | Route::MpWatch { .. }
-            | Route::MpWatchStage { .. }
-                if !crate::settings::Settings::load().multiplayer =>
-            {
-                Box::new(mount::<PagePage>(
-                    root,
-                    "main",
-                    page_routes::Props {
-                        which: Which::Start,
-                    },
-                ))
-            }
             Route::Multiplayer => Box::new(mount::<PagePage>(
                 root,
                 "main",

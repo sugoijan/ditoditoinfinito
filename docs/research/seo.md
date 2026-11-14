@@ -172,8 +172,16 @@ with geography, time, category and term/topic choice. Sources:
   work is accurate explanatory copy. Google ignores `meta keywords`;
   structured-data genres are descriptions, not a promised ranking boost.
 
+- **Say the multiplayer battle in plain words (2026-11-14).** Once the
+  multiplayer mode is out from behind its switch, the description and the
+  README's lead add one clause: everyone plays the same song at once and
+  sends attacks until one player is left. No other game is named for it,
+  and nothing beyond it is claimed (no CPU opponents, sign-in, invites,
+  matchmaking, public rooms or rankings). The title stays the game's name
+  and genre.
+
 The short meta/Open Graph/Twitter description now emphasizes genre,
-controls, StepMania import and layouts. The structured description and the
+controls, the multiplayer battle, StepMania import and layouts. The structured description and the
 existing concise accessibility summary explain the DDR and Pump references.
 No extra hidden keyword paragraphs or new landing-page UI were added.
 After indexing, Search Console's query impressions, clicks and CTR will be

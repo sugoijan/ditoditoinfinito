@@ -265,11 +265,10 @@ pub struct Settings {
     /// The token the uploads carry (kept as the rest of the settings
     /// are: as private as the browser's profile).
     pub share_token: String,
-    /// The multiplayer prototype is on
-    /// (`docs/plans/multiplayer-prototype-progress.md`): a hidden switch
-    /// (`#/?mp=1`, desktop's `--multiplayer on`), never a row of Options;
-    /// with it the start menu's Multiplayer opens its menu instead of
-    /// saying "Coming soon".
+    /// Once the multiplayer prototype's hidden switch (`#/?mp=1`,
+    /// desktop's `--multiplayer on`). Multiplayer is always there since
+    /// 2026-11-14: this gates nothing and is kept only so stored settings
+    /// with either value read as before; nothing sets it any more.
     pub multiplayer: bool,
     /// Entering a multiplayer room opens its Rules pop-up by itself, in
     /// its first form (Reset and OK), as M7b had it. A hidden option, off

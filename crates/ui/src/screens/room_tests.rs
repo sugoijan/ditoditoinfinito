@@ -172,16 +172,18 @@ fn has(h: &Harness, text: &str) -> bool {
     h.texts().iter().any(|t| t == text)
 }
 
+/// Multiplayer is no longer behind a switch (2026-11-14): the start menu
+/// opens its home by default; turned off (only a test does) it says
+/// Coming soon as before.
 #[test]
-fn the_start_menu_opens_multiplayer_only_behind_the_switch() {
+fn the_start_menu_opens_multiplayer_by_default() {
     for on in [false, true] {
         let calls = Rc::new(RefCell::new(Vec::new()));
         let sink = calls.clone();
         let mut h = harness();
-        h.push(
-            StartScreen::new(env(), false, Rc::new(move |c, _| sink.borrow_mut().push(c)))
-                .with_multiplayer(on),
-        );
+        let start =
+            StartScreen::new(env(), false, Rc::new(move |c, _| sink.borrow_mut().push(c)));
+        h.push(if on { start } else { start.with_multiplayer(false) });
         h.run(0.3);
         h.key("a", "a");
         h.key("ArrowDown", "ArrowDown");

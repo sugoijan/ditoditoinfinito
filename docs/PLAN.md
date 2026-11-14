@@ -131,14 +131,16 @@ Goals, in priority order:
 3. Pluggable everything the brief names: input devices, song sources and formats, note skins and color schemes, background layers, and rulesets (judgement windows, scoring, combo, gauge, fail policy).
 4. Eventually the union of DDR, StepMania, DWI, FFR and Dancing☆Onigiri features: holds, rolls, mines, lifts, fakes, shock arrows, speed/scroll changes, warps, arbitrary lane layouts (4-panel, 6-panel solo, 5-key onigiri, 7-key, …), lyrics and background events.
 
-Non-goals for now: full multiplayer rollout, online scores, mobile as a sync-accurate target, keysounds, editor.
+Non-goals for now: public matchmaking and room browsing, online scores, mobile as a sync-accurate target, keysounds, editor.
 Focused CPU-practice and invite-only-room prototyping is authorized as of
 2026-11-10; see the [prototype handoff](plans/multiplayer-prototype-handoff.md).
 What it has built is in the [progress note](plans/multiplayer-prototype-progress.md):
-the shared room model, and a CPU-practice room on both shells behind a hidden
-switch, its stages played against engine-judged CPUs to the match's results,
-with battle attacks a match rule (On by default in practice since 2026-11-12)
-and each player's own targeting; the public start menu still says "Coming soon".
+the shared room model, CPU practice and invite-only private rooms (signed
+in with Twitch, played live against the server) on both shells, stages
+played to the match's results with battle attacks and adaptive charts as
+match rules and each player's own targeting. Since 2026-11-14 the
+prototype is reachable from the start menu by everyone (no hidden switch);
+inside it, Find match and Browse rooms still say "Coming soon".
 
 Multiplayer research began 2026-10-26 ([exploration](research/multiplayer.md));
 a [provisional battle design](plans/multiplayer.md) began 2026-11-08 while the

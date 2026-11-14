@@ -36,7 +36,7 @@ struct Playing {
 
 thread_local! {
     /// DEVELOPMENT ONLY: the CPUs of the next practice room beyond the cap
-    /// (0: an ordinary one), the web's `mpcpus=N` beside `mp=1`
+    /// (0: an ordinary one), the web's `mpcpus=N`
     /// (`docs/plans/multiplayer-prototype-progress.md`, M6b).
     static DEVELOPMENT_CPUS: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
     static ROOM: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };

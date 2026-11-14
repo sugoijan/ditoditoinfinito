@@ -2182,7 +2182,7 @@ fn title_screen(
             use theme_screens::start::Choice;
             sound.borrow_mut().pause();
             match choice {
-                // The multiplayer prototype, behind `--multiplayer on`.
+                // The multiplayer home.
                 Choice::Multiplayer => {
                     cx.push(crate::room::home(&e, songs.clone(), Some(sound.clone())));
                 }
@@ -2213,7 +2213,6 @@ fn title_screen(
             }
         }),
     )
-    .with_multiplayer(ddi_ui::state::settings::Settings::load().multiplayer)
 }
 
 /// Driving the shell with no window and no event loop, frame by frame on

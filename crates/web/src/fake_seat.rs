@@ -1,7 +1,7 @@
 //! TESTING ONLY: a room watched with its audience without a server, for
 //! the headless browsers (`docs/plans/multiplayer-prototype-progress.md`,
-//! "The web watches an audience's stage"). Asked for on the start route
-//! beside the prototype's switch (`#/?mp=1&mpfakeseat=1`, and
+//! "The web watches an audience's stage"). Asked for in the address the
+//! page loads on (`#/?mpfakeseat=1`, any route, and
 //! `mpfakeend=S` to close the audience S seconds into the stage), never
 //! from a menu: the next audience seat (`crate::online::audience`) is then
 //! a seat in the fake room's audience (`ddi_room::fake`, in the page),

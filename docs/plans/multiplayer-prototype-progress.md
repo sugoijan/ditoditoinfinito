@@ -7909,6 +7909,47 @@ when available?"
   the `qps-ploc` walk; pictures of the panel with the chip at 1280×720 and
   844×390, English and Japanese (`room_picker_offscreen`).
 
+### Multiplayer is no longer hidden
+
+The maintainer: "I think we can remove the dev flag for the Multiplayer
+mode."
+
+- **The start menu's Multiplayer opens the multiplayer home for everyone**
+  on both shells; its "Coming soon" is gone. In the home, **Find match and
+  Browse rooms stay "Coming soon"** (not built). `Settings::multiplayer`
+  gates nothing (kept so stored settings with either value load); the
+  web's `mp=1`/`mp=0` and desktop's `--multiplayer on|off` are still taken
+  and do nothing (desktop says so on stderr; it has no `--help` of its
+  own, its flags are documented in `run`'s comment and AGENTS.md);
+  `--screen multiplayer|room` and `--join` no longer need it; the routes
+  `#/mp…` and `#/room` always work. Invite and audience links no longer
+  carry `?mp=1` (links made before still open: the parameter is read and
+  ignored).
+- **The home's order** (the maintainer, 2026-11-14: "CPU practice could
+  be the last option"): Find match, Browse rooms (Coming soon), Private
+  room, Join by link, CPU practice; the first key focuses Private room,
+  the first entry that opens something (`Screen::first_focus`).
+- **The testing parameters on any route** (the maintainer: "arguments
+  might only be making effect on the home route"): read from the address
+  the page loads on whatever its route, at `Route::current`'s first read
+  (`gfx`, `auto`, `bias`, `slow`, `perf`; `lang` on any address as
+  before; the multiplayer ones, `mprules`, `mpwatchlink`, `mpattacks`,
+  `mpcpus`, `mpdevmines`, `mpfakeseat`, `mpfakeend`, now without `mp=1`),
+  and later on the routes each was always read on; `gfx` the boot reads
+  from the address itself. A route's own parameters (`#/play?song=…`)
+  keep their meaning; the multiplayer ones are read once an address, so a
+  page built again does not make its practice room again.
+- **What becomes public the moment `main` is pushed**: the Multiplayer
+  entry on the deployed site's start menu; CPU practice for everyone;
+  Private room and Join by link asking for a Twitch sign-in against the
+  deployed server; the page's description and the README's lead naming
+  the multiplayer battle.
+- **Public copy**: the title unchanged; the description, the structured
+  data's description and the README's lead add one clause, "with a
+  multiplayer battle: everyone plays the same song at once and sends
+  attacks until one player is left" (`site/seo/metadata.toml`, then
+  `xtask regen-seo`; `docs/research/seo.md`'s copy decision).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
