@@ -282,33 +282,28 @@ impl Automatic {
                 return None;
             }
             let f = (self.frequency[i] * scale).min(1.);
-            let mut q = [0.; 91];
-            for (j, p) in q[..90].iter_mut().enumerate() {
-                *p = ((1. - f) * self.good[j] + f * bad[j]) * 0.9999;
-            }
-            q[90] = 0.0001;
+            let q = mixture(&self.good, bad, f);
             Some(offset(&basis::EDGES, &q, u[0], u[1]))
         })
     }
 
-    fn skill_law(&self, row: usize, strength: f64, logs: &[f64; 7]) -> [f64; 91] {
-        let ability = strength
-            * self.demand[row]
-                .iter()
-                .zip(logs)
-                .map(|(d, s)| d * s)
-                .sum::<f64>()
-                .exp();
+    /// Row `row`'s law at `strength` bent by its skills (`logs`), and the
+    /// bend: its skills' share of its ability there.
+    fn skill_law(&self, row: usize, strength: f64, logs: &[f64; 7]) -> ([f64; 91], f64) {
+        let bend = self.demand[row]
+            .iter()
+            .zip(logs)
+            .map(|(d, s)| d * s)
+            .sum::<f64>()
+            .exp();
+        let ability = strength * bend;
         let frequency = (self.frequency[row] / ability.powi(2)).min(1.);
         let bad = gaussian((self.width / ability).clamp(9., 80.));
-        let mut q = [0.; 91];
-        for (i, p) in q[..90].iter_mut().enumerate() {
-            *p = ((1. - frequency) * self.good[i] + frequency * bad[i]) * 0.9999;
-        }
-        q[90] = 0.0001;
-        q
+        (mixture(&self.good, &bad, frequency), bend)
     }
 
+    /// A frozen strength with skills: [`Automatic::script_at`] without a
+    /// lapse (its omitted share then `OMITTED` exactly).
     fn script_with_skills(
         &self,
         level: usize,
@@ -316,21 +311,14 @@ impl Automatic {
         skills: Skills,
     ) -> Result<Vec<Press>, String> {
         let strength = *STRENGTHS.get(level).ok_or("CPU strength must be 0..4")?;
-        let logs = skills.log_values();
-        let mut current = None;
-        let mut q = [0.; 91];
-        motor(&self.rows, seed, |i, u| {
-            if u[2] < OMITTED {
-                return None;
-            }
-            // Compute a law once per row, not once per chord note. Memory stays
-            // bounded by the compact plan; no full-song probability matrix.
-            if current != Some(i) {
-                q = self.skill_law(i, strength, &logs);
-                current = Some(i);
-            }
-            Some(offset(&basis::EDGES, &q, u[0], u[1]))
-        })
+        self.script_at(
+            Level {
+                strength,
+                lapse: 0.0,
+            },
+            seed,
+            skills,
+        )
     }
 
     /// A level beyond the frozen strengths: the same law per row at its
@@ -345,15 +333,12 @@ impl Automatic {
         let mut q = [0.; 91];
         let mut omit = OMITTED;
         motor(&self.rows, seed, |i, u| {
+            // Compute a law once per row, not once per chord note. Memory
+            // stays bounded by the compact plan; no full-song probability
+            // matrix.
             if current != Some(i) {
-                q = self.skill_law(i, level.strength, &logs);
-                // Its skills' share of its ability at this row.
-                let bend = self.demand[i]
-                    .iter()
-                    .zip(&logs)
-                    .map(|(d, s)| d * s)
-                    .sum::<f64>()
-                    .exp();
+                let bend;
+                (q, bend) = self.skill_law(i, level.strength, &logs);
                 omit = OMITTED
                     + level.lapse * (self.frequency[i] / bend.powi(2)).min(1.) * (1. - OMITTED);
                 current = Some(i);
@@ -393,6 +378,17 @@ fn tail(x: f64) -> f64 {
         * (0.319381530
             + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
     (-0.5 * x * x).exp() * 0.3989422804014327 * polynomial
+}
+
+/// The timing law mixing `a` and `b` (`share` of `b`) on the grid, the
+/// omitted component last.
+pub(super) fn mixture(a: &[f64; 91], b: &[f64; 91], share: f64) -> [f64; 91] {
+    let mut q = [0.; 91];
+    for (i, p) in q[..90].iter_mut().enumerate() {
+        *p = ((1. - share) * a[i] + share * b[i]) * 0.9999;
+    }
+    q[90] = 0.0001;
+    q
 }
 
 pub(super) fn gaussian(width_ms: f64) -> [f64; 91] {

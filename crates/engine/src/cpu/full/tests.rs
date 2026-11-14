@@ -1,5 +1,5 @@
 use super::*;
-use crate::cpu::{LEVELS, Opponent, Plan};
+use crate::cpu::{LEVELS, Opponent, Plan, loads};
 use crate::rules::ddi::{self, DdiOptions};
 use crate::rules::{FailPolicy, Ruleset, Tally};
 use ddi_chart::{Note, TimingMap};

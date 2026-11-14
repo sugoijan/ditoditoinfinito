@@ -120,6 +120,14 @@ pub struct AbsoluteModel {
     pub held_load: f64,
 }
 
+impl AbsoluteModel {
+    /// The chance a note is left out `x` past the onset (unbounded): the
+    /// model's failure curve over the level's `floor`.
+    pub fn lapse_over(&self, floor: f64, x: f64) -> f64 {
+        floor + self.lapse_linear * x + self.lapse_square * x * x
+    }
+}
+
 /// `cpu-model-v1`'s shape (PROVISIONAL): the spread flat up to 0.85 of a
 /// limit, then 1.45 times as wide at the limit and 2.35 times at 1.3
 /// times it; a note left out with a chance of about 0.012 at the limit,
@@ -236,17 +244,23 @@ pub(super) fn row_demands(rows: &[Row], m: &AbsoluteModel) -> Vec<RowDemand> {
 }
 
 /// What a CPU of `a` with `skills` does at a row asking `d`: its spread
-/// (milliseconds) and the chance it leaves a note out.
-pub fn respond(a: &Ability, skills: &Skills, d: &RowDemand, m: &AbsoluteModel) -> (f64, f64) {
+/// (milliseconds), the chance it leaves a note out and the larger of its
+/// two loads ([`loads`]).
+pub fn respond(
+    a: &Ability,
+    skills: &Skills,
+    d: &RowDemand,
+    m: &AbsoluteModel,
+) -> (f64, f64, f64) {
     let v = skills.values();
     let (load, lanes) = loads(a, skills, d, m);
     let over = |x: f64| if x > 0.0 { x } else { 0.0 };
     let rhythm = 1.0 + m.technical * d.irregular / v[6];
     let spread =
         (a.spread_ms * (1.0 + m.widen * over(load - m.onset)) * rhythm).min(m.most_spread_ms);
-    let x = over(load.max(lanes) - m.onset);
-    let lapse = (a.floor + m.lapse_linear * x + m.lapse_square * x * x).min(m.most_lapse);
-    (spread, lapse)
+    let most = load.max(lanes);
+    let lapse = m.lapse_over(a.floor, over(most - m.onset)).min(m.most_lapse);
+    (spread, lapse, most)
 }
 
 /// What a row asking `d` is to a CPU of `a` with `skills`: its load
@@ -280,12 +294,7 @@ pub(super) fn law(tenths: u32, m: &AbsoluteModel) -> [f64; 91] {
     let width = f64::from(tenths) / 10.0;
     let near = super::automatic::gaussian(width);
     let far = super::automatic::gaussian(width * m.tail_width);
-    let mut q = [0.0; 91];
-    for (i, p) in q[..90].iter_mut().enumerate() {
-        *p = ((1.0 - m.tail_share) * near[i] + m.tail_share * far[i]) * 0.9999;
-    }
-    q[90] = 0.0001;
-    q
+    super::automatic::mixture(&near, &far, m.tail_share)
 }
 
 /// The presses of a CPU of `a` with `skills` and `seed` on `rows` (their
@@ -305,7 +314,7 @@ pub(super) fn script(
     let mut omit = OMITTED;
     motor(rows, seed, |i, u| {
         if current != Some(i) {
-            let (spread, lapse) = respond(&a, &skills, &demands[i], m);
+            let (spread, lapse, _) = respond(&a, &skills, &demands[i], m);
             let tenths = (spread * 10.0).round().max(10.0) as u32;
             q = *laws.entry(tenths).or_insert_with(|| law(tenths, m));
             omit = OMITTED + lapse * (1.0 - OMITTED);
@@ -382,7 +391,7 @@ mod tests {
         };
         let s = Skills::default();
         let at = |speed: f64| {
-            respond(
+            let (spread, lapse, _) = respond(
                 &a,
                 &s,
                 &RowDemand {
@@ -394,7 +403,8 @@ mod tests {
                     held: 0,
                 },
                 &m,
-            )
+            );
+            (spread, lapse)
         };
         // Comfortable: its spread and its floor.
         assert_eq!(at(3.0), (10.0, 0.001));

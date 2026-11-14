@@ -55,7 +55,7 @@
 //! level, seed, skills and shocks give the same presses at any frame rate,
 //! natively and in wasm.
 
-use super::absolute::{ABSOLUTE_V1, Ability, RowDemand, law, loads, respond, row_demands};
+use super::absolute::{ABSOLUTE_V1, Ability, RowDemand, law, respond, row_demands};
 use super::mines::{MINE_RESPONSE_V1, MineResponse, Purpose, draw};
 use super::{MAX_AUTOMATIC_ROWS, OMITTED, Press, Random, Row, Skills, basis, offset};
 use crate::{Judge, presets};
@@ -383,12 +383,11 @@ pub(super) fn script(
         .demands
         .iter()
         .map(|d| {
-            let (spread, lapse) = respond(&a, &skills, d, m);
-            let (load, lanes) = loads(&a, &skills, d, m);
+            let (spread, lapse, load) = respond(&a, &skills, d, m);
             RowPlay {
                 tenths: (spread * 10.0).round().max(10.0) as u32,
                 lapse,
-                load: load.max(lanes),
+                load,
             }
         })
         .collect();
@@ -420,8 +419,7 @@ pub(super) fn script(
                 1.0
             };
         let x = over(load - m.onset);
-        ((a.floor + m.lapse_linear * x + m.lapse_square * x * x) * h.drop_share / endurance)
-            .min(m.most_lapse)
+        (m.lapse_over(a.floor, x) * h.drop_share / endurance).min(m.most_lapse)
     };
     let mut rng = Random(seed);
     let mut out: Vec<Press> = Vec::with_capacity(plan.notes.len() + 16);
