@@ -370,7 +370,7 @@ fn a_practice_stage_is_watched_from_the_grid_and_a_seat_to_its_results() {
         .session
         .opponents()
         .iter()
-        .map(|o| o.name.clone())
+        .map(|o| o.name.to_string())
         .collect();
     assert_eq!(w.label, Some(format!("Watching {}", names[0])));
     // The large field is the play's own field's band.

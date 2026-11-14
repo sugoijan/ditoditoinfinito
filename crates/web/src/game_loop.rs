@@ -966,7 +966,7 @@ impl GameLoop {
                     // says it, `locked` its lanes a shock locked (DDI).
                     "opponents": s.opponents().iter().enumerate().map(|(i, o)| json!({
                         "id": o.participant.0,
-                        "name": o.name,
+                        "name": &*o.name,
                         "level": o.level,
                         "life": o.life,
                         "out": o.out,
