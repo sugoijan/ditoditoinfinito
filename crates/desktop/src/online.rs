@@ -1,6 +1,6 @@
 //! Invite-only online rooms on desktop
-//! (`docs/plans/multiplayer-prototype-progress.md`, M5c), behind the
-//! prototype's switch: the UI core's online state (`ddi_ui::state::online`)
+//! (`docs/plans/multiplayer-prototype-progress.md`, M5c), behind no
+//! switch since 2026-11-14: the UI core's online state (`ddi_ui::state::online`)
 //! kept for the run, its HTTP through ureq on a thread a request (as the
 //! share client does, `crate::share::agent`), a room's socket through
 //! tungstenite on a thread of its own, and the session kept beside the
@@ -169,9 +169,12 @@ pub fn room(id: &str) -> SharedRoom {
     room
 }
 
-/// Leave room: forgotten.
+/// Leave room: forgotten (and with it the stage the play host was
+/// handed from it, `crate::room::forget_playing`).
 pub fn discard() {
-    ROOM.with_borrow_mut(|r| *r = None);
+    if let Some((_, room)) = ROOM.with_borrow_mut(Option::take) {
+        crate::room::forget_playing(&room);
+    }
 }
 
 /// The room watched with its audience by `link`
@@ -495,5 +498,26 @@ fn run_socket(url: &str, out: &Receiver<Outgoing>, events: &Sender<TransportEven
                 return closed(1006);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An online room left is let go whole: the stage it handed to the
+    /// play host last no longer holds its client (and with it its
+    /// socket's thread), nor is it the stage's room any more.
+    #[test]
+    fn a_left_online_room_is_let_go() {
+        // A practice room's client stands in for an online one: what is
+        // kept of it is the same.
+        let room = RoomClient::shared(1, 1);
+        ROOM.with_borrow_mut(|r| *r = Some(("room".into(), room.clone())));
+        crate::room::set_live_for_tests(room.clone(), Rc::new(|| 0));
+        let kept = Rc::downgrade(&room);
+        drop(room);
+        discard();
+        assert!(kept.upgrade().is_none(), "the left room's client lives on");
     }
 }

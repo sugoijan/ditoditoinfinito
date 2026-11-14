@@ -386,7 +386,21 @@ pub fn develop(cpus: u16) {
 
 /// Leave room: forgotten; the next visit makes a new one.
 pub fn discard() {
-    ROOM.with(|r| r.borrow_mut().take());
+    if let Some(room) = ROOM.with(|r| r.borrow_mut().take()) {
+        forget_playing(&room);
+    }
+}
+
+/// A room left (practice's, or an online one, `crate::online::discard`):
+/// where its stage was the one handed to the play host last, that is
+/// forgotten too, so neither the room's client nor its socket's thread
+/// lives on.
+pub(crate) fn forget_playing(room: &SharedRoom) {
+    PLAYING.with_borrow_mut(|p| {
+        if p.as_ref().is_some_and(|r| Rc::ptr_eq(r, room)) {
+            *p = None;
+        }
+    });
 }
 
 /// The multiplayer home (`crate::online`): CPU practice opens the
