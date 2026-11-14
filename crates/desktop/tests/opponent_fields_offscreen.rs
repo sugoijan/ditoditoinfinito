@@ -25,6 +25,34 @@ use ddi_room::CpuMode;
 use ddi_ui::screens::data::Difficulty;
 use ddi_ui::state::settings::Settings;
 
+/// The allocations made, counted for a frame's cost.
+struct Counting;
+
+static ALLOCATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+// SAFETY: the system allocator's, counted.
+unsafe impl std::alloc::GlobalAlloc for Counting {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        // SAFETY: as the caller's.
+        unsafe { std::alloc::System.alloc(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        // SAFETY: as the caller's.
+        unsafe { std::alloc::System.dealloc(ptr, layout) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, size: usize) -> *mut u8 {
+        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        // SAFETY: as the caller's.
+        unsafe { std::alloc::System.realloc(ptr, layout, size) }
+    }
+}
+
+#[global_allocator]
+static GLOBAL: Counting = Counting;
+
 fn ppm(size: [u32; 2], name: &str, pixels: &[u8]) {
     common::shot(&format!("{name}.ppm"), pixels, size);
 }
@@ -65,6 +93,8 @@ struct Scenario {
 struct Cost {
     cpu: Vec<f64>,
     total: Vec<f64>,
+    /// The allocations made recording each (every thread's).
+    allocations: Vec<f64>,
 }
 
 impl Cost {
@@ -73,14 +103,16 @@ impl Cost {
             let mut v = v.to_vec();
             v.sort_by(f64::total_cmp);
             let mean = v.iter().sum::<f64>() / v.len().max(1) as f64;
+            let median = v.get(v.len() / 2).copied().unwrap_or(0.0);
             let p95 = v.get(v.len() * 95 / 100).copied().unwrap_or(0.0);
-            format!("mean {mean:.2} p95 {p95:.2}")
+            format!("mean {mean:.2} median {median:.2} p95 {p95:.2}")
         };
         format!(
-            "{} frames: record {}; with GPU {}",
+            "{} frames: record {}; with GPU {}; allocations {}",
             self.cpu.len(),
             stat(&self.cpu),
-            stat(&self.total)
+            stat(&self.total),
+            stat(&self.allocations)
         )
     }
 }
@@ -149,6 +181,9 @@ fn play(s: &Scenario) -> Option<Played> {
         rules.seats = rules.seats.max(s.cpus + 1);
         rules.cpu.mode = CpuMode::Fixed { count: s.cpus };
         rules.cpu.opponent.level = s.level;
+        // The same CPUs on every run (a practice room's seed is the time
+        // it was made): the same pictures.
+        rules.cpu.opponent.seed = 7;
         // Survival alone (the Attacks rule, On by default in practice,
         // turned off): the sizes these scenarios are about are the
         // miniatures' own, without the attack warning's place kept
@@ -207,7 +242,10 @@ fn play(s: &Scenario) -> Option<Played> {
     // The first hold a CPU let go, once seen: a picture a little after.
     let mut letgo: Option<f64> = None;
     let mut letgo_taken = !s.letgo_shot;
-    let measuring = 240;
+    let measuring = std::env::var("DDI_FIELDS_FRAMES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(240);
     let mut measured = 0;
     let mut frames = 0;
     let last = s
@@ -227,6 +265,7 @@ fn play(s: &Scenario) -> Option<Played> {
         let step = if near { 1e9 / 60.0 } else { 1e9 / 10.0 } as u64;
         let now = clock.fetch_add(step, Ordering::SeqCst) + step;
         let start = Instant::now();
+        let allocated = ALLOCATIONS.load(Ordering::Relaxed);
         let mut encoder = device.create_command_encoder(&Default::default());
         host.draw_play(
             &dev(),
@@ -239,6 +278,7 @@ fn play(s: &Scenario) -> Option<Played> {
             &env,
         );
         let recorded = start.elapsed().as_secs_f64() * 1000.0;
+        let allocations = ALLOCATIONS.load(Ordering::Relaxed) - allocated;
         queue.submit(Some(encoder.finish()));
         if in_measure {
             let _ = device.poll(wgpu::PollType::wait_indefinitely());
@@ -247,6 +287,7 @@ fn play(s: &Scenario) -> Option<Played> {
             if measured >= 20 {
                 played.cost.cpu.push(recorded);
                 played.cost.total.push(total);
+                played.cost.allocations.push(allocations as f64);
             }
             measured += 1;
         } else if frames % 16 == 0 {
@@ -313,6 +354,12 @@ fn play(s: &Scenario) -> Option<Played> {
                 s.name, drawn[1].1, drawn[0].1
             );
             let what = if letgo_due { "letgo" } else { "at" };
+            // Its digest, to compare a change's pictures with the code's
+            // before it on the same machine (FNV-1a, 64 bits).
+            let digest = drawn[1].0.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| {
+                (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+            });
+            eprintln!("{}-{what}-{t:.0}s: picture {digest:016x}", s.name);
             ppm(size, &format!("{}-{what}-{t:.0}s", s.name), &drawn[1].0);
             eprintln!(
                 "{} at {t:.0} s: {} slots, {} out",
@@ -471,6 +518,42 @@ fn lyrics_over_a_stage_keep_the_miniatures() {
     };
     assert_eq!(played.slots, 8);
     assert!(played.lyrics, "the lyrics were drawn with the miniatures");
+}
+
+/// Eight CPUs with attacks beside an autoplayed field drawn by an actor
+/// skin with Lua (Peters-DDR): the miniatures' receptors at rest while
+/// the play's own explode, their judgments, the shocks put into their
+/// plays and the lanes a shock locked, the same pixels batched or not.
+/// Each picture's digest is printed, to compare a change of the
+/// miniatures' drawing with the code before it on the same machine.
+/// Then the same with Infinito, whose miniatures draw their judgments'
+/// hit effects themselves (`NoteLayer::miniature_hits`).
+#[test]
+fn a_skins_miniatures_beside_its_own_explosions_and_attacks() {
+    for (name, skin) in [
+        ("eight-peters-attacks", Some(ddi_noteskin::bundled::PETERS_DDR)),
+        ("eight-infinito-attacks", None),
+    ] {
+        let Some(played) = play(&Scenario {
+            name,
+            size: [1280, 720],
+            cpus: 8,
+            level: 3,
+            skin,
+            lives: None,
+            hand: false,
+            chart: 0,
+            shots: &[12.0, 30.0, 45.0, 60.0],
+            measure: None,
+            lyrics: false,
+            attacks: true,
+            up_to_eight: false,
+            letgo_shot: false,
+        }) else {
+            return;
+        };
+        assert_eq!(played.slots, 8);
+    }
 }
 
 #[test]

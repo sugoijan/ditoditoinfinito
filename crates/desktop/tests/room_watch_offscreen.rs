@@ -75,10 +75,13 @@ impl Rig {
             common::practice::song_entry("beatucada", "Beatucada", CHART, Difficulty::Medium);
         {
             let mut r = room.borrow_mut();
-            let rules = ddi_room::MatchRules {
+            let mut rules = ddi_room::MatchRules {
                 stages: 3,
                 ..r.rules().clone()
             };
+            // The same CPUs on every run (a practice room's seed is the
+            // time it was made): the same pictures.
+            rules.cpu.opponent.seed = 7;
             r.save_rules(rules).unwrap();
         }
         Some(Rig {
