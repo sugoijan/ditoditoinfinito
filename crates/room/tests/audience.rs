@@ -6,7 +6,7 @@
 //! restart mid-stage; the members' own stream unchanged by an audience;
 //! what a tick costs at 1,000, 5,000 and 20,000 seats (`--ignored`).
 
-use ddi_room::attacks::{ATTACKS, Judged, POWER_CLASSES_V0, Reporter};
+use ddi_room::attacks::{ATTACKS, Judged, Reporter};
 use ddi_room::audience::frames::{self, Coalesced, Coalescer};
 use ddi_room::audience::hub::AudienceDurable;
 use ddi_room::audience::public::PublicView;
@@ -19,7 +19,7 @@ use ddi_room::fake::{
     FakeAudienceSocket, FakeServer, FakeSocket, Latency, OffsetClock, SharedFake,
 };
 use ddi_room::live::plan::BattlePlan;
-use ddi_room::live::stream::{Frame, FrameEntry, LiveReport, Moment, MomentKind, StreamEnd};
+use ddi_room::live::stream::{Frame, FrameEntry, LiveReport, StreamEnd};
 use ddi_room::live::{ClientLive, LiveNews, wire};
 use ddi_room::{
     ChartKey, ClientEnvelope, ClientId, Clock, Closure, Command, Connection, ContentCard,
@@ -28,6 +28,10 @@ use ddi_room::{
     RoomState, SongKey, StageId, TicketProblem,
 };
 use std::time::Instant;
+
+mod common;
+
+use common::{Script, plan_under};
 
 const ROOM: &str = "Room000001";
 const STAGE: StageId = StageId(1);
@@ -47,138 +51,12 @@ fn content() -> ContentId {
 /// A plan of `n` slots of 2 s, eight shocks in each where `room(j)`;
 /// checkpoints every 2 s.
 fn plan(n: usize, seed: u64, room: impl Fn(usize) -> bool) -> BattlePlan {
-    use ddi_room::attacks::{Cell, Schedule, Section, Slot};
-    const S: i64 = 1_000_000;
-    let slots = (0..n)
-        .map(|j| {
-            let start_us = j as i64 * 2 * S;
-            Slot {
-                start_us,
-                section: room(j).then(|| {
-                    let cells: Vec<Cell> = (0..8)
-                        .map(|i| Cell {
-                            tick: (j as i64 * 4 * 48) + i * 24,
-                            lane: (i % 4) as u8,
-                            at_us: start_us + i * S / 4,
-                        })
-                        .collect();
-                    let last = cells.last().unwrap().at_us;
-                    Section {
-                        clear_us: last + 100_000,
-                        recover_after_us: last + 100_000,
-                        cells,
-                    }
-                }),
-            }
-        })
-        .collect();
-    BattlePlan::new(
-        ATTACKS.id,
-        "placement-v2",
-        POWER_CLASSES_V0.id,
-        "ddi",
-        seed,
-        (1..=n as i64).map(|k| k * 2 * S).collect(),
-        Schedule { slots },
-    )
+    plan_under(ATTACKS.id, n, seed, room)
 }
 
-#[derive(Clone, Debug)]
-struct Script {
-    moments: Vec<Moment>,
-    out_ms: Option<i32>,
-    end_ms: i32,
-}
-
+/// A play of taps alone ([`common::script`]).
 fn script(seed: u64, gap_ms: i32, end_ms: i32, out_ms: Option<i32>) -> Script {
-    let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-    let mut next = move || {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        x
-    };
-    let (mut life, mut combo, mut score) = (1_000_000i64, 0u32, 0i64);
-    let mut moments = Vec::new();
-    let mut at = 1_000 + (seed % 7) as i32 * 13;
-    while at < out_ms.unwrap_or(end_ms).min(end_ms) {
-        let tier = match next() % 100 {
-            0..=79 => 0u8,
-            80..=93 => 1,
-            94..=97 => 2,
-            _ => 5,
-        };
-        if tier == 5 {
-            life -= 40_000;
-            combo = 0;
-        } else {
-            life += 2_000;
-            combo += 1;
-            score += 6_000 - i64::from(tier) * 1_000;
-        }
-        life = life.clamp(1, 1_000_000);
-        moments.push(Moment {
-            at_ms: at,
-            tick: i64::from(at) * 48 * 2 / 1_000,
-            lane: (next() % 4) as u8,
-            kind: MomentKind::Tap {
-                tier,
-                offset_ms: if tier == 5 {
-                    0
-                } else {
-                    (next() % 41) as i16 - 20
-                },
-                w0: tier == 0 && next() % 2 == 0,
-            },
-            life_ppm: life as u32,
-            combo,
-            score,
-        });
-        at += gap_ms;
-    }
-    if let Some(out) = out_ms {
-        moments.push(Moment {
-            at_ms: out,
-            tick: i64::from(out) * 48 * 2 / 1_000,
-            lane: 0,
-            kind: MomentKind::Tap {
-                tier: 5,
-                offset_ms: 0,
-                w0: false,
-            },
-            life_ppm: 0,
-            combo: 0,
-            score,
-        });
-    }
-    Script {
-        moments,
-        out_ms,
-        end_ms,
-    }
-}
-
-impl Script {
-    fn judged(&self) -> Vec<Judged> {
-        self.moments
-            .iter()
-            .filter_map(|m| match m.kind {
-                MomentKind::Tap { tier, .. } => Some(Judged {
-                    at_us: i64::from(m.at_ms) * 1_000,
-                    tier,
-                }),
-                _ => None,
-            })
-            .collect()
-    }
-
-    fn life(&self, at: i64) -> u32 {
-        self.moments
-            .iter()
-            .take_while(|m| i64::from(m.at_ms) * 1_000 < at)
-            .last()
-            .map_or(1_000_000, |m| m.life_ppm)
-    }
+    common::script(seed, gap_ms, end_ms, out_ms, false)
 }
 
 /// A member: the online authority on a fake socket, and the play it

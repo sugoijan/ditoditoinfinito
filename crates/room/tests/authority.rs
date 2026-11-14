@@ -1,14 +1,10 @@
 //! The envelope, the local authority and a client's mirror: what the
 //! shells and, later, the online adapter rely on.
 
-use ddi_room::*;
+mod common;
 
-fn song(n: u32) -> ContentId {
-    ContentId {
-        song: SongKey::new(format!("song-{n}")),
-        chart: ChartKey::new(format!("digest-{n}")),
-    }
-}
+use common::song;
+use ddi_room::*;
 
 fn opponent() -> OpponentSpec {
     OpponentSpec {

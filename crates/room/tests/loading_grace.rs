@@ -6,6 +6,9 @@
 //! window), which ends early once everyone who loaded is ready. Every
 //! revision's events are applied to a mirror, which must stay equal.
 
+mod common;
+
+use common::song;
 use ddi_room::*;
 
 const GRACE: u64 = ReadinessPolicy::LOADING_GRACE_V2_MS;
@@ -17,13 +20,6 @@ struct Room {
     mirror: RoomState,
     now: u64,
     host: ParticipantId,
-}
-
-fn song(n: u32) -> ContentId {
-    ContentId {
-        song: SongKey::new(format!("song-{n}")),
-        chart: ChartKey::new(format!("digest-{n}")),
-    }
 }
 
 impl Room {

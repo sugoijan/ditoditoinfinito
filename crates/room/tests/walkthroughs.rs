@@ -3,6 +3,9 @@
 //! reducer. Every accepted revision's events are also applied to a mirror,
 //! which must stay equal to the authority's state.
 
+mod common;
+
+use common::song;
 use ddi_room::*;
 
 struct Room {
@@ -10,13 +13,6 @@ struct Room {
     mirror: RoomState,
     now: u64,
     host: ParticipantId,
-}
-
-fn song(n: u32) -> ContentId {
-    ContentId {
-        song: SongKey::new(format!("song-{n}")),
-        chart: ChartKey::new(format!("digest-{n}")),
-    }
 }
 
 fn survived(groups: &[&[ParticipantId]]) -> Vec<Vec<Finisher>> {
