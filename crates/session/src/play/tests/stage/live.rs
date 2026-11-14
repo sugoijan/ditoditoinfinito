@@ -2603,10 +2603,10 @@ fn a_live_stage_shows_and_decides_as_pinned() {
 /// [`a_live_stage_shows_and_decides_as_pinned`]'s digests, recorded
 /// before the merge.
 const LIVE_PINNED: &[u64] = &[
-    0xda3deedeb4797263,
-    0xd7c46bad3323d37d,
-    0x84fab45a7e19aa05,
-    0x1af3b987e3ae5ab5,
-    0x250f8f53aeed8c03,
-    0x587abcff4b479208,
+    0x9f1fd9a23b01c43c,
+    0x7c09fbbb36265a36,
+    0x144a9b71bbc269a5,
+    0xfb5fef1a96a69f1c,
+    0x91684042c07e5087,
+    0x3e9a47ff54003d72,
 ];

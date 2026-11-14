@@ -54,6 +54,19 @@ pub(super) fn trace(out: &mut String, host: f64, s: &PlaySession<FakeAudio, Fake
         s.watch(host),
     );
     let _ = writeln!(out, "  views {:?}", b.views());
+    // Each field as drawn (a digest a field: its summary and its frame).
+    let t = s.frame(HostTime(host)).song_time;
+    let scroll = p.options().scroll;
+    let field = |f: &crate::battle::feed::FieldFeed, track| {
+        fnv(&format!("{:?} {:?}", f.shown(t), f.frame(track, scroll, t, 8.0)))
+    };
+    let fields: Vec<u64> = b
+        .feeds()
+        .enumerate()
+        .map(|(i, f)| field(f, b.track_of(i)))
+        .chain([field(b.own_feed(), b.track())])
+        .collect();
+    let _ = writeln!(out, "  fields {fields:x?}");
 }
 
 /// `s` run at 60 frames a second to its end (or host second `limit`),
@@ -199,46 +212,46 @@ fn a_practice_stage_shows_and_decides_as_pinned() {
 /// [`a_practice_stage_shows_and_decides_as_pinned`]'s digests, recorded
 /// before the merge.
 const PINNED: &[(&str, u64)] = &[
-    ("played", 0xfc92b677a5c106f9),
-    ("played hard", 0xecf76f3b7a10b7e6),
-    ("out, watched on", 0x012c7da398f4563d),
-    ("out, skipped", 0x05c7160256dad151),
-    ("quit", 0xb41a446e760d55fe),
-    ("watched", 0x61ee47b46d307ff3),
-    ("battery 1", 0xacd8241913fa0b64),
-    ("battery 1 out, watched on", 0x5c5ad43ca8f0026c),
-    ("battery 1 watched", 0xe5f814e802854f2e),
-    ("battery 2", 0xbe1f9919859d2d0f),
-    ("battery 2 out, quit", 0x5af3f765f69abc40),
-    ("battery 2 watched", 0x58f8c24e6f09ce1e),
-    ("battery 3", 0x5ecbca3a9cf1162c),
-    ("battery 3 out, skipped", 0x06e0f48144a2ea9d),
-    ("battery 3 watched", 0x8fe6f40aa6c8eb80),
-    ("battery 4", 0x1de806936dd37ddc),
-    ("battery 4 out, watched on", 0x083c1cb8e8eb7912),
-    ("battery 4 watched", 0x85a1d4e41f29d96c),
-    ("battery 5", 0x04bbcee6f3d6f58a),
-    ("battery 5 out, quit", 0x0edb1858196f398a),
-    ("battery 5 watched", 0xd14bf70ee96a2ea3),
-    ("battery 6", 0xd785e31fb67e36fe),
-    ("battery 6 out, skipped", 0x4dda4447f7cd49f9),
-    ("battery 6 watched", 0x7f861b0ca3202445),
-    ("battery 7", 0x6bbae991d937ef66),
-    ("battery 7 out, watched on", 0xfad5ef71ed65993c),
-    ("battery 7 watched", 0x6e3e900b6c42ef3a),
-    ("battery 8", 0xa6044237b1651c56),
-    ("battery 8 out, quit", 0x1e387575625b64b4),
-    ("battery 8 watched", 0xe550120a78e25abd),
-    ("battery 9", 0x6cce58d02a446687),
-    ("battery 9 out, skipped", 0xaad44c449ec83607),
-    ("battery 9 watched", 0xe0664ede04457124),
-    ("battery 10", 0xacd3bfc6062166b5),
-    ("battery 10 out, watched on", 0x09639523170d83cb),
-    ("battery 10 watched", 0xd29e8ab97cfaafe8),
-    ("battery 11", 0xe4729342144d0af1),
-    ("battery 11 out, quit", 0x1298338cb2304891),
-    ("battery 11 watched", 0x99689b77e53a70ec),
-    ("battery 12", 0xccdd3060efd5f724),
-    ("battery 12 out, skipped", 0xe7a596dd9322e498),
-    ("battery 12 watched", 0xa250e4f0a525e7dd),
+    ("played", 0x5ca2d062c8cf09ba),
+    ("played hard", 0x68a96dbe9e4ce38f),
+    ("out, watched on", 0x0522b1d5d564bdc5),
+    ("out, skipped", 0x7a300ac97dd857d3),
+    ("quit", 0x01be014131336056),
+    ("watched", 0x0683bbea5500fcb5),
+    ("battery 1", 0xf6b93659f4a510ce),
+    ("battery 1 out, watched on", 0xb152d7b317c05ea7),
+    ("battery 1 watched", 0x2149b277ca837c11),
+    ("battery 2", 0xf47c7ef3cdc65707),
+    ("battery 2 out, quit", 0xc16eca03be2fbb48),
+    ("battery 2 watched", 0xad1bc9d2e680e166),
+    ("battery 3", 0x0a88bfd7282ffbb9),
+    ("battery 3 out, skipped", 0x78e39ed0ad40da3a),
+    ("battery 3 watched", 0x7b2a9ac03f1a499a),
+    ("battery 4", 0xa5c93fbfd5acea28),
+    ("battery 4 out, watched on", 0x2ac08bde530e9ae8),
+    ("battery 4 watched", 0x5c931e357dc90267),
+    ("battery 5", 0xef993d3133aeaaa3),
+    ("battery 5 out, quit", 0x89635528496d0260),
+    ("battery 5 watched", 0xf919a32ac48ee804),
+    ("battery 6", 0x2050a5f4d9f3a04a),
+    ("battery 6 out, skipped", 0x834acde9a5a15d54),
+    ("battery 6 watched", 0xafdf2af437d54eaf),
+    ("battery 7", 0xe96c5f944eb29c59),
+    ("battery 7 out, watched on", 0x0449a9398de29e8b),
+    ("battery 7 watched", 0x4936fd4c8514a189),
+    ("battery 8", 0x0f13a680976cce27),
+    ("battery 8 out, quit", 0xc5cb8078e1290d49),
+    ("battery 8 watched", 0xd07db6fdbc5ccd36),
+    ("battery 9", 0x74a4c427adf1e755),
+    ("battery 9 out, skipped", 0xdf6845565f94ce99),
+    ("battery 9 watched", 0x832f4902d492fbe6),
+    ("battery 10", 0x4bde1442ccfc2d08),
+    ("battery 10 out, watched on", 0x830776a3542df3c2),
+    ("battery 10 watched", 0x5bc745522ede814e),
+    ("battery 11", 0x58cbf4452e5caee0),
+    ("battery 11 out, quit", 0x4b573c805732d7f7),
+    ("battery 11 watched", 0xab03707df495b8ac),
+    ("battery 12", 0x9df42fc88aa371f9),
+    ("battery 12 out, skipped", 0x4bb4bfd677084e57),
+    ("battery 12 watched", 0xefa5ee3646bf93c6),
 ];
