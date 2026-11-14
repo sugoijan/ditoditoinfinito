@@ -1244,10 +1244,13 @@ fn mark_short(mark: &StageMark) -> String {
 /// online room's invite, sign-in and sharing, and leaving.
 pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
     let mut items = Vec::new();
+    // Rules: a phone's here, a wide screen's a footer link. Players
+    // everywhere (a wide screen's button went: the panel beside the song,
+    // L, and here).
     if compact {
         items.push(("rules".to_string(), m::rules().into()));
-        items.push(("players".to_string(), m::players().into()));
     }
+    items.push(("players".to_string(), m::players().into()));
     // An operator who follows takes the pick over (a controller's way to
     // it on every layout; a phone has no room for its button).
     if r.may_take_pick() {

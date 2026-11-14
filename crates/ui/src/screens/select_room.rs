@@ -324,16 +324,6 @@ impl SelectScreen {
         }
     }
 
-    /// The header's room buttons' width (wide layouts): Rules and Players.
-    pub(super) fn room_buttons_width(&self) -> f32 {
-        if self.room.is_some() && !self.layout.compact {
-            let w = |t: &str| (look::mono_width(t, 15.0) + 24.0).max(72.0);
-            w(&ddi_l10n::msg::room::rules()) + w(&ddi_l10n::msg::room::players()) + 24.0
-        } else {
-            0.0
-        }
-    }
-
     /// The room's own parts (`RoomParts`): the header's Rules and Players,
     /// the status line, and the others' panel in the list's place.
     pub(super) fn room_parts(&mut self, cx: &mut Cx) -> Actor {
@@ -349,23 +339,10 @@ impl SelectScreen {
         let l = self.room_layout(self.layout);
         let r = rm.room.borrow();
         let mut children = Vec::new();
+        // The header is singleplayer's (follow-up round F): Rules are a
+        // footer link, the players beside the song (a tap opens them, as
+        // L and More do).
         if !l.compact {
-            // Left of the search, where the mods were.
-            let mut x = l.field[0] - 16.0;
-            for (name, label) in [
-                ("Room.Players", ddi_l10n::msg::room::players()),
-                ("Room.Rules", ddi_l10n::msg::room::rules()),
-            ] {
-                let w = (look::mono_width(&label, 15.0) + 24.0).max(72.0);
-                children.push(env.component(
-                    "Button",
-                    "Button",
-                    &Spec::new([w, 40.0], label.as_str()),
-                    name,
-                    [x - w / 2.0, 32.0],
-                ));
-                x -= w + 12.0;
-            }
             // An operator who follows: Pick songs, where the picker's
             // search is (a follower has none).
             if follower && r.may_take_pick() {
@@ -1042,6 +1019,16 @@ impl SelectScreen {
         } = input
             && self.room.is_some()
             && (t.within("RoomPlayers") || t.within(room::PLAYERS_STRIP))
+        {
+            self.open_players(cx);
+            return Some(Handled::Yes);
+        }
+        // L: the players (their button went; the panel beside the song and
+        // More open them too).
+        if let Input::Key(k) = input
+            && self.letter_shortcut(k)
+            && k.key.eq_ignore_ascii_case("l")
+            && self.room.as_ref().is_some_and(|rm| rm.side != Side::Joining)
         {
             self.open_players(cx);
             return Some(Handled::Yes);

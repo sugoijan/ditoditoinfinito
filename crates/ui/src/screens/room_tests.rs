@@ -147,6 +147,13 @@ fn press(h: &mut Harness, name: &str) {
     h.run(0.5);
 }
 
+/// The Players pop-up, by L (a wide screen has no button for it since
+/// follow-up round F: the panel beside the song, L and More open it).
+fn open_players(h: &mut Harness) {
+    h.key("KeyL", "l");
+    h.run(0.5);
+}
+
 /// Scrolls the Rules pop-up's rows by the wheel until `name` is shown
 /// whole (a row of the pop-up scrolled away).
 fn reveal(h: &mut Harness, name: &str) {
@@ -1757,7 +1764,7 @@ fn the_room_fits_a_phone_and_more_holds_rules_and_players() {
         let names: &[&str] = if compact {
             &["More", "Back"]
         } else {
-            &["Room.Rules", "Room.Players", "More", "Back"]
+            &["Room.Rules", "More", "Back"]
         };
         for name in names {
             let [x0, y0, x1, y1] = h.ui.bounds(name).unwrap_or_else(|| panic!("{name}"));
@@ -1782,13 +1789,13 @@ fn the_room_fits_a_phone_and_more_holds_rules_and_players() {
         assert_eq!(top(&h), "select");
         // The players' pop-up: the picks, then the players.
         if !compact {
-            press(&mut h, "Room.Players");
+            open_players(&mut h);
             assert_eq!(top(&h), "room-players");
             assert!(has(&h, "Picks") && has(&h, "You"), "{:?}", h.texts());
             h.key("Escape", "Escape");
             h.run(0.5);
             assert_eq!(top(&h), "select", "Back closes it");
-            press(&mut h, "Room.Players");
+            open_players(&mut h);
             h.key("Enter", "Enter");
             h.run(0.5);
             assert_eq!(top(&h), "select", "Enter closes it");
@@ -2035,7 +2042,7 @@ fn an_online_room_shows_the_host_and_the_follower_and_its_link() {
     step(100);
     hb.run(0.3);
     assert_eq!(view(&eb).status, "Connection lost. Reconnecting…");
-    press(&mut ha, "Room.Players");
+    open_players(&mut ha);
     assert!(has(&ha, "Reconnecting"), "{:?}", ha.texts());
     press(&mut ha, "Close");
     step(1_000);
@@ -2201,8 +2208,8 @@ fn the_panels_lines_say_what_each_player_is_doing() {
     assert!(has(&hb, "Picks"), "{:?}", hb.texts());
     assert_eq!(
         hb.texts().iter().filter(|t| *t == "Players").count(),
-        2,
-        "the header's button and the panel's heading: {:?}",
+        1,
+        "the panel's heading (no button since follow-up round F): {:?}",
         hb.texts()
     );
     // Bob's socket drops: reconnecting, his line dimmed.
@@ -3028,14 +3035,14 @@ fn the_host_makes_co_hosts_sets_what_leaving_does_and_hands_the_room_over() {
     let close = "If the host leaves, the room closes for everyone.";
     // A member's Players pop-up says what the room does, and has no
     // controls; a tap on someone's row does nothing.
-    press(&mut hb, "Room.Players");
+    open_players(&mut hb);
     assert_eq!(top(&hb), "room-players");
     assert!(has(&hb, pass) && !there(&hb, "HostOptions"));
     assert!(!there(&hb, "Person.1") && !there(&hb, "Person.3"));
     press(&mut hb, "Close");
     // The owner's: the others' rows to tap, never their own, and Host
     // options.
-    press(&mut ha, "Room.Players");
+    open_players(&mut ha);
     assert!(has(&ha, pass) && there(&ha, "HostOptions"));
     assert!(there(&ha, "Person.2") && there(&ha, "Person.3") && !there(&ha, "Person.1"));
     press(&mut ha, "HostOptions");
@@ -3065,7 +3072,7 @@ fn the_host_makes_co_hosts_sets_what_leaving_does_and_hands_the_room_over() {
     t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
     assert!(has(&ha, "Close the room") && has(&ha, close));
     assert_eq!(view(&ec).host_leaves.as_deref(), Some("close"));
-    press(&mut hc, "Room.Players");
+    open_players(&mut hc);
     assert!(has(&hc, close));
     press(&mut hc, "Close");
     press(&mut ha, "Dec.leaves");
@@ -3103,7 +3110,7 @@ fn the_host_makes_co_hosts_sets_what_leaving_does_and_hands_the_room_over() {
     assert!(!view(&ec).host && there(&hc, "Room.TakePick"));
     assert_eq!(view(&ec).status, "alice is choosing the first song.");
     // The new owner hands it back with the same controls.
-    press(&mut hc, "Room.Players");
+    open_players(&mut hc);
     press(&mut hc, "HostOptions");
     assert!(has(&hc, "Remove co-host"), "Alice, a co-host");
     press(&mut hc, "MakeHost.1");
@@ -3153,7 +3160,7 @@ fn host_options_work_by_keyboard_controller_and_a_tap_on_a_row() {
         panic!("never reached {name}: {:?}", h.ui.focused());
     };
     // A keyboard: Players, Left to Host options, Enter.
-    press(&mut ha, "Room.Players");
+    open_players(&mut ha);
     assert_eq!(ha.ui.focused(), Some("Close"));
     walk(&mut ha, "HostOptions", MenuAction::Left, false);
     step(&mut ha, MenuAction::Start, false);
@@ -3204,7 +3211,7 @@ fn host_options_work_by_keyboard_controller_and_a_tap_on_a_row() {
     assert_eq!(top(&ha), "select");
     // Touch: the new owner taps Carol's row in their Players pop-up, and
     // Host options opens on her.
-    press(&mut hb, "Room.Players");
+    open_players(&mut hb);
     hb.tap(PointerKind::Touch, "Person.3");
     hb.run(0.5);
     assert_eq!(top(&hb), "room-host");
@@ -3241,7 +3248,7 @@ fn host_options_leave_out_bots_the_away_and_what_an_older_room_cannot_do() {
         })
         .unwrap();
     t.settle(400, &mut [&mut ha, &mut hb]);
-    press(&mut ha, "Room.Players");
+    open_players(&mut ha);
     assert!(there(&ha, "Person.2") && there(&ha, "Person.3"));
     assert!(!there(&ha, "Person.4"), "a bot's row has no controls");
     press(&mut ha, "HostOptions");
@@ -3269,7 +3276,7 @@ fn host_options_leave_out_bots_the_away_and_what_an_older_room_cannot_do() {
     let v = view(&ea);
     assert!(v.manages_hosts);
     assert_eq!(v.host_leaves, None);
-    press(&mut ha, "Room.Players");
+    open_players(&mut ha);
     assert!(!has(
         &ha,
         "If the host leaves, a co-host becomes the host, or else the player who joined first."
@@ -3731,7 +3738,7 @@ fn a_player_chooses_to_watch_and_the_stage_starts_without_them() {
         .clone();
     assert_eq!(me, "watching");
     // The Players pop-up: their line says so, and its button plays again.
-    press(&mut h, "Room.Players");
+    open_players(&mut h);
     assert_eq!(top(&h), "room-players");
     assert!(has(&h, "Watching") && has(&h, "Play"), "{:?}", h.texts());
     // By keys: Left from Close reaches the button, Enter presses it.

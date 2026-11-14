@@ -8783,6 +8783,37 @@ field a watcher follows are unchanged. Pictures (desktop offscreen,
 `target/scratch/mp/fuf/shots/combo/`): 24, 36 and 72 fields at 1280×720
 (`combo-1280.png`), 72 at 1920×1080 and on a phone held sideways.
 
+### A room's song select header is singleplayer's; Rules in the footer
+
+The maintainer: "Maybe we should move Rules to the footer and have the
+header behave the same", and for Players: drop the button (the players
+are listed beside the song and a tap on the list opens the pop-up).
+
+- **The header** of a room's song select is singleplayer's: the search,
+  "Playing with" and the modifier pills (they open the same options as
+  singleplayer's), the music volume, More. An operator who follows keeps
+  Pick songs where the picker's search is.
+- **Rules** is a footer link, first of Rules, Options and Calibrate (the
+  footer's links have no key of their own; the controller reaches them
+  as the others, down the footer). The rules' summary words stay where
+  they were (the status line's change words, the players panel, the
+  prompt): beside the link there is no room on a 1280×720 footer.
+- **Players** has no button: the players panel beside the song opens
+  the pop-up with a tap, as before; **L** opens it (a footer hint on wide
+  screens, "L Players"), and More lists it on every layout. A phone keeps
+  Rules and Players in More, its strip of players opening the pop-up.
+- Singleplayer unchanged.
+- Tested: the UI harness (the room's tests open the players by L, the
+  `qps-ploc` walk by L and More's item; a wide room's header has no
+  Players and the footer has Rules; `room_place_tests` with Rules from
+  the footer and the players by L), desktop's `room_picker_offscreen`,
+  `room_entry_offscreen`, `room_place` and `room_stage_flow`. Pictures:
+  `target/scratch/mp/fuf/shots/room/` (the picker's and the follower's
+  views at 1280×720 and 844×390, English and Japanese; `o-en.png`,
+  `f-ja.png`, `o-phone.png`). Seen there: the header's pills are the
+  player's own options, the ruleset's pill included ("ITG" in the
+  pictures' data), though a room plays DDI (open question below).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

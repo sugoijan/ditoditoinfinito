@@ -1424,11 +1424,9 @@ impl SelectScreen {
             // the header's row and the mods leaves it.
             let [sw, _] = self.layout.screen;
             let margin = self.layout.margin;
-            let mods = if self.room.is_some() {
-                self.room_buttons_width()
-            } else {
-                self.mods_width()
-            };
+            // A room's header is singleplayer's (follow-up round F): its
+            // Rules are a footer link, its players beside the song.
+            let mods = self.mods_width();
             let room = sw - margin - env.metric("Header.TitleEnd", 460.0) - mods - 108.0;
             let w = env
                 .metric("Select.Search.Width", 560.0)
@@ -1561,9 +1559,7 @@ impl SelectScreen {
                 msg::title()
             };
             children.push(header(&env, cx, screen[0], &name));
-            if self.room.is_none() {
-                children.push(self.mods(l.field[0] - 16.0));
-            }
+            children.push(self.mods(l.field[0] - 16.0));
             children.push(super::more_button(
                 &env,
                 [screen[0] - l.margin - 32.0, 32.0],
@@ -2306,6 +2302,11 @@ impl SelectScreen {
         if !shared {
             links.push(("Link.Add", link_add.as_str()));
         }
+        // A room's Rules, beside Options and Calibrate.
+        let link_rules = ddi_l10n::msg::room::rules();
+        if self.room.is_some() && !self.room_joining() {
+            links.push(("Room.Rules", link_rules.as_str()));
+        }
         links.extend([
             ("Link.Options", link_options.as_str()),
             ("Link.Calibrate", link_calibrate.as_str()),
@@ -2379,6 +2380,11 @@ impl SelectScreen {
         // An operator who follows takes the pick over (T).
         if take && now != Hints::Typing {
             hints.push(h(&["T"], &take_pick));
+        }
+        // A room's players (L) on a wide screen, where they have no button.
+        let players = ddi_l10n::msg::room::players();
+        if self.room.is_some() && !self.layout.compact && now == Hints::Song {
+            hints.push(h(&["L"], &players));
         }
         // A room not known yet: the way back alone.
         let joining = self.room_joining();
@@ -3580,19 +3586,18 @@ impl Screen for SelectScreen {
             Vec::new()
         } else {
             let room: Vec<String> = if self.room.is_some() {
-                ["Room.Rules", "Room.Players"]
+                self.room_may_take()
+                    .then_some(super::room::TAKE_PICK)
                     .into_iter()
-                    .chain(self.room_may_take().then_some(super::room::TAKE_PICK))
                     .map(String::from)
                     .collect()
             } else {
                 Vec::new()
             };
-            let mods = if self.room.is_some() { 0 } else { n };
             room.into_iter()
                 .chain((!self.following()).then(|| self.search.name.clone()))
                 .chain(clear.then(|| "ClearSearch".to_string()))
-                .chain((0..mods).map(|i| format!("Mod{i}")))
+                .chain((0..n).map(|i| format!("Mod{i}")))
                 .chain(["Volume".to_string(), "More".to_string()])
                 .collect()
         };
@@ -3639,10 +3644,13 @@ impl Screen for SelectScreen {
                 "Back",
                 "Link.Manage",
                 "Link.Add",
+                "Room.Rules",
                 "Link.Options",
                 "Link.Calibrate",
             ] {
-                if shared && matches!(n, "Link.Manage" | "Link.Add") {
+                if (shared && matches!(n, "Link.Manage" | "Link.Add"))
+                    || (n == "Room.Rules" && self.room.is_none())
+                {
                     continue;
                 }
                 v.push(Focusable::new(n));
@@ -3664,12 +3672,8 @@ impl Screen for SelectScreen {
         v.extend((0..self.notices.len()).map(|i| Focusable::new(format!("Notice.Link{i}"))));
         v.extend((0..n).map(|i| along(&format!("Mod{i}"))));
         if !self.layout.compact {
-            if self.room.is_some() {
-                v.push(along("Room.Rules"));
-                v.push(along("Room.Players"));
-                if self.room_may_take() {
-                    v.push(along(super::room::TAKE_PICK));
-                }
+            if self.room_may_take() {
+                v.push(along(super::room::TAKE_PICK));
             }
             v.push(along("Volume"));
             v.push(along("More"));

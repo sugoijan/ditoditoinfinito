@@ -815,13 +815,18 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         }
         for (open, inner) in [
             ("Room.Rules", Some("AddCustom")),
-            ("Room.Players", None),
+            ("KeyL", None),
             ("More", None),
         ] {
-            if h.ui.bounds(open).is_none() {
+            if open == "KeyL" {
+                // The players (no button of theirs on a wide screen).
+                h.key("KeyL", "l");
+                h.run(0.3);
+            } else if h.ui.bounds(open).is_none() {
                 continue;
+            } else {
+                h.tap(PointerKind::Mouse, open);
             }
-            h.tap(PointerKind::Mouse, open);
             shown(h, found);
             if let Some(inner) = inner
                 && h.ui.bounds(inner).is_some()
@@ -1540,15 +1545,10 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     // the room is handed over. A member's Players pop-up says the
     // setting too.
     for h in [&mut ha, &mut hb] {
-        // Its button in the header, or More's item where there is no
-        // room for it.
-        if h.ui.actor("Room.Players").is_some() {
-            h.tap(PointerKind::Mouse, "Room.Players");
-        } else {
-            h.tap(PointerKind::Mouse, "More");
-            h.run(0.3);
-            h.tap(PointerKind::Mouse, "Item.players");
-        }
+        // More's item (a wide screen has no button for it).
+        h.tap(PointerKind::Mouse, "More");
+        h.run(0.3);
+        h.tap(PointerKind::Mouse, "Item.players");
         shown(h, found);
     }
     hb.tap(PointerKind::Mouse, "Close");
@@ -1856,13 +1856,9 @@ fn audience_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<
     let mut ha = harness();
     ha.push(sample::room_screen(env, alice.clone()));
     shown(&mut ha, found);
-    if ha.ui.actor("Room.Players").is_some() {
-        ha.tap(PointerKind::Mouse, "Room.Players");
-    } else {
-        ha.tap(PointerKind::Mouse, "More");
-        ha.run(0.3);
-        ha.tap(PointerKind::Mouse, "Item.players");
-    }
+    ha.tap(PointerKind::Mouse, "More");
+    ha.run(0.3);
+    ha.tap(PointerKind::Mouse, "Item.players");
     ha.run(0.3);
     ha.tap(PointerKind::Mouse, super::room_dialogs::HOST_OPTIONS);
     shown(&mut ha, found);
