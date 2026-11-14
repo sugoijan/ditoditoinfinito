@@ -946,14 +946,7 @@ fn window_fit() {
             let bpm = if secs > 0.0 { beats / secs * 60.0 } else { 0.0 };
             let band = if bpm < 120.0 { 0 } else if bpm <= 160.0 { 1 } else { 2 };
             let cps = ddi_ui::state::battle_plan::checkpoints(&song, c, &rules);
-            let schedule = ddi_ui::state::battle_plan::schedule_with(
-                &song,
-                c,
-                &judge,
-                1,
-                &ddi_engine::battle::PLACEMENT,
-                &rules,
-            );
+            let schedule = ddi_ui::state::battle_plan::schedule(&song, c, &judge, 1);
             let slots = &schedule.slots;
             let entry = fits
                 .entry((local, band))

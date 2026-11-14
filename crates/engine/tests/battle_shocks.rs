@@ -3,8 +3,8 @@
 //! nothing else (D1), the combo broken only where the ruleset's own mines
 //! break it (D3), drawn as mines, kept in the log (version 4) and judged
 //! alike again from it (under DDI a shock is a mine: `ddi_shocks.rs`);
-//! and where charts have room for them (`schedule`: `PLACEMENT_V1`'s
-//! margins, and `PLACEMENT_V0`'s clearances before them).
+//! and where charts have room for them (`schedule`: `placement-v2`,
+//! `placement-v1`'s margins kept exactly).
 //!
 //! Chart (60 BPM, so beat `b` is at `b` seconds), dance-single: taps at
 //! beats 0 (lane 0), 2 (lane 3), 8 (lane 0) and, in the twin chart, a tap
@@ -14,8 +14,8 @@
 
 use ddi_chart::{Chart, Difficulty, Note, NoteKind, Song, TICKS_PER_BEAT, Tick, TimingMap};
 use ddi_engine::battle::{
-    Clearance, HAZARD_INDEX_BASE, Hazard, HazardError, INJECTED_MINE_V0, PLACEMENT, PLACEMENT_V0,
-    PLACEMENT_V1, PLACEMENT_V2, beside_count, schedule, schedule_with,
+    Clearance, HAZARD_INDEX_BASE, Hazard, HazardError, INJECTED_MINE_V0, PLACEMENT, PLACEMENT_V2,
+    beside_count, schedule,
 };
 use ddi_engine::frame::SpriteKind;
 use ddi_engine::history::{PlayLog, replay_with};
@@ -288,7 +288,7 @@ fn shocks_show_as_the_skin_s_mines_until_stepped_on() {
     assert_eq!(p.hazards().unwrap().mines().len(), 3);
 }
 
-/// `placement-v1`'s margins, checked apart from the placement's own
+/// The placement's margins (`placement-v1`'s), checked apart from its own
 /// code: every shock of `section` is outside each step's span in its lane
 /// (W3 before a step to a quarter of a second after it; a hold or a roll
 /// from that long before its head to a quarter of a second past its end;
@@ -296,13 +296,10 @@ fn shocks_show_as_the_skin_s_mines_until_stepped_on() {
 fn assert_margins(song: &Song, chart: usize, table: &ddi_engine::rules::JudgeTable, cells: &[Hazard]) {
     let c = &song.charts[chart];
     let timing = c.timing(song);
-    let Clearance::Margins {
+    let Clearance {
         after_note,
         lift_ready,
-    } = PLACEMENT_V1.clear
-    else {
-        panic!("margins");
-    };
+    } = PLACEMENT.clear;
     assert_eq!((after_note, lift_ready), (0.25, 1.0));
     let w3 = table.window(Judgement::W3).unwrap().early;
     for h in cells {
@@ -366,7 +363,7 @@ fn busy_song() -> Song {
     )
 }
 
-/// `placement-v1` on a chart with a stream, a hold, a roll and lifts: no
+/// The placement on a chart with a stream, a hold, a roll and lifts: no
 /// shock in the stream's lanes while it runs (a step every quarter of a
 /// second leaves no room between a quarter of a second after one and W3
 /// before the next), none during the hold or the roll nor just after
@@ -386,7 +383,7 @@ fn placement_keeps_its_margins_about_streams_holds_rolls_and_lifts() {
             assert_eq!(s, schedule(&song, 0, &rules.judge, seed), "pure");
             assert!(s.iter().flatten().count() >= 2, "{difficulty:?} {seed}");
             for sec in s.iter().flatten() {
-                assert_eq!(sec.cells.len(), PLACEMENT_V1.mines);
+                assert_eq!(sec.cells.len(), PLACEMENT.mines);
                 assert_margins(&song, 0, &rules.judge, &sec.cells);
                 for h in &sec.cells {
                     let m = timing.seconds_at(h.tick);
@@ -412,12 +409,6 @@ fn placement_keeps_its_margins_about_streams_holds_rolls_and_lifts() {
             }
         }
     }
-    // The older placement asked for more room both ways of a step.
-    let rules = ddi_rules(D::Normal);
-    let v0 = schedule_with(&song, 0, &rules.judge, 7, &PLACEMENT_V0);
-    let v1 = schedule(&song, 0, &rules.judge, 7);
-    assert_eq!(v0.len(), v1.len());
-    assert!(v0.iter().flatten().count() <= v1.iter().flatten().count());
 }
 
 /// A chart at 140 BPM with room beside its notes: quarter steps turning
@@ -464,10 +455,11 @@ fn mixed_song() -> Song {
 /// `placement-v2` (the maintainer: "prioritize adding some of them to
 /// lanes which already have a note nearby"): v1's margins exactly, on a
 /// chart with steps, jumps, eighth runs, a hold, a roll and lifts; most
-/// of a section's shocks next to a note of their lane where v1 put few;
-/// never two in a row, at most two a beat, never two of a lane within
-/// the lock's second where the section has other room; no section v1
-/// has lost; the same shocks for the same chart, section and seed.
+/// of a section's shocks next to a note of their lane; never two in a
+/// row, at most two a beat, never two of a lane within the lock's second
+/// where the section has other room; the same shocks for the same chart,
+/// section and seed. (That it loses no section `placement-v1` had is
+/// pinned with its schedules, `bundled_schedules_are_pinned`.)
 #[test]
 fn placement_v2_aims_most_shocks_next_to_a_note_of_their_lane() {
     use ddi_engine::rules::ddi::Difficulty as D;
@@ -476,22 +468,15 @@ fn placement_v2_aims_most_shocks_next_to_a_note_of_their_lane() {
         let timing = c.timing(&song);
         for difficulty in D::ALL {
             let rules = ddi_rules(difficulty);
-            let (mut near_v2, mut near_v1, mut total, mut close) = (0, 0, 0, 0);
+            let (mut near_v2, mut total, mut close) = (0, 0, 0);
             // The sections wholly inside the chart's pattern (its last
             // bars are empty but for a far last step).
             let (mut near_in, mut total_in, mut least_in) = (0, 0, usize::MAX);
             for seed in 0..24 {
-                let v2 = schedule_with(&song, 0, &rules.judge, seed, &PLACEMENT_V2);
-                assert_eq!(v2, schedule_with(&song, 0, &rules.judge, seed, &PLACEMENT_V2), "pure");
-                assert_eq!(v2, schedule(&song, 0, &rules.judge, seed), "what attacks use");
-                let v1 = schedule_with(&song, 0, &rules.judge, seed, &PLACEMENT_V1);
-                assert_eq!(v1.len(), v2.len());
-                for (a, b) in v1.iter().zip(&v2) {
-                    assert!(a.is_none() || b.is_some(), "a section v1 has is lost");
-                    if let Some(a) = a {
-                        near_v1 += beside_count(&song, 0, &rules.judge, &a.cells, &PLACEMENT_V2);
-                    }
-                    let Some(sec) = b else { continue };
+                let v2 = schedule(&song, 0, &rules.judge, seed);
+                assert_eq!(v2, schedule(&song, 0, &rules.judge, seed), "pure");
+                assert_eq!(PLACEMENT, PLACEMENT_V2, "what attacks use");
+                for sec in v2.iter().flatten() {
                     assert_eq!(sec.cells.len(), PLACEMENT_V2.mines);
                     assert_margins(&song, 0, &rules.judge, &sec.cells);
                     let first = i64::from(sec.start_beat) * TICKS_PER_BEAT;
@@ -518,12 +503,11 @@ fn placement_v2_aims_most_shocks_next_to_a_note_of_their_lane() {
                 }
             }
             println!(
-                "{name} {difficulty:?}: next to a note v2 {near_v2} of {total} ({:.0}%), v1 {near_v1}; inside the pattern {near_in} of {total_in} ({:.0}%), the least in a section {least_in}; two of a lane within a second: {close}",
+                "{name} {difficulty:?}: next to a note {near_v2} of {total} ({:.0}%); inside the pattern {near_in} of {total_in} ({:.0}%), the least in a section {least_in}; two of a lane within a second: {close}",
                 100.0 * near_v2 as f64 / total.max(1) as f64,
                 100.0 * near_in as f64 / total_in.max(1) as f64
             );
             assert!(total > 0, "{name} {difficulty:?}");
-            assert!(near_v2 > near_v1, "{name} {difficulty:?}: {near_v2} {near_v1}");
             if name == "mixed" {
                 // Room beside its notes throughout its pattern: most of
                 // the eight (five of them and more on average), never
@@ -656,8 +640,7 @@ fn what_the_placement_places_an_exact_play_avoids() {
 /// Every bundled four-lane chart: the sections the schedule finds keep
 /// the placement's rules (eight shocks, each beat at most two, one a
 /// row; `placement-v1`'s margins, which `placement-v2` keeps, under DDI's
-/// three difficulties, most of v2's shocks next to a note of their lane,
-/// `placement-v0`'s clearances under the rulesets rooms played before),
+/// three difficulties, most of v2's shocks next to a note of their lane),
 /// the schedule is the same for the same seed, and each chart's share of
 /// sections is printed (`-- --nocapture`).
 #[test]
@@ -671,11 +654,11 @@ fn bundled_charts_have_safe_sections() {
         .collect();
     ids.sort_by_key(|e| e.file_name());
     let mut charts = 0;
-    let (mut found_v1, mut found_v0, mut slots) = (0, 0, 0);
-    // `placement-v2` against v1 under DDI Normal: the sections each
-    // finds, their shocks next to a note of their lane, and the pairs of
-    // one lane's shocks within the lock's second.
-    let (mut found_v2, mut near_v2, mut near_v1, mut close_v2, mut close_v1) = (0, 0, 0, 0, 0);
+    let mut slots = 0;
+    // Under DDI Normal: the sections it finds, their shocks next to a
+    // note of their lane, and the pairs of one lane's shocks within the
+    // lock's second.
+    let (mut found_v2, mut near_v2, mut close_v2) = (0, 0, 0);
     let close = |song: &Song, i: usize, cells: &[Hazard]| {
         let timing = song.charts[i].timing(song);
         let mut n = 0;
@@ -746,23 +729,9 @@ fn bundled_charts_have_safe_sections() {
                 if difficulty == D::Normal {
                     found_v2 += found;
                     slots += s.len();
-                    found_v0 += schedule_with(&song, i, &r.judge, 7, &PLACEMENT_V0)
-                        .iter()
-                        .flatten()
-                        .count();
-                    let v1 = schedule_with(&song, i, &r.judge, 7, &PLACEMENT_V1);
-                    found_v1 += v1.iter().flatten().count();
-                    for (a, b) in v1.iter().zip(&s) {
-                        assert!(a.is_none() || b.is_some(), "a section v1 has is lost");
-                        if let Some(a) = a {
-                            assert_margins(&song, i, &r.judge, &a.cells);
-                            near_v1 += beside_count(&song, i, &r.judge, &a.cells, &PLACEMENT_V2);
-                            close_v1 += close(&song, i, &a.cells);
-                        }
-                        if let Some(b) = b {
-                            near_v2 += beside_count(&song, i, &r.judge, &b.cells, &PLACEMENT_V2);
-                            close_v2 += close(&song, i, &b.cells);
-                        }
+                    for b in s.iter().flatten() {
+                        near_v2 += beside_count(&song, i, &r.judge, &b.cells, &PLACEMENT);
+                        close_v2 += close(&song, i, &b.cells);
                     }
                 }
                 line += &format!(
@@ -771,51 +740,20 @@ fn bundled_charts_have_safe_sections() {
                     100.0 * found as f64 / s.len().max(1) as f64
                 );
             }
-            // The older placement, under the rulesets rooms played before.
-            for id in ["itg-fa+", "ddr-a", "ffr"] {
-                let r = rules(id, &song);
-                let s = schedule_with(&song, i, &r.judge, 7, &PLACEMENT_V0);
-                let timing = c.timing(&song);
-                let window = INJECTED_MINE_V0.window(&r.judge);
-                let clear = window + r.judge.max_early().max(r.judge.miss_after());
-                for sec in s.iter().flatten() {
-                    shape(sec);
-                    for h in &sec.cells {
-                        let m = timing.seconds_at(h.tick);
-                        for n in c.notes.iter().filter(|n| n.lane == h.lane) {
-                            let at = timing.seconds_at(n.tick);
-                            match n.kind {
-                                NoteKind::Tap | NoteKind::Lift => assert!((at - m).abs() > clear),
-                                NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
-                                    let end = timing.seconds_at(end);
-                                    assert!((at - m).abs() > clear);
-                                    assert!(end < m - window || at > m + window, "a body across");
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-            }
             println!("SAFE {line}");
         }
     }
     println!(
-        "SAFE all: placement-v2 {found_v2}/{slots} ({:.1}%), placement-v1 {found_v1}/{slots}, placement-v0 under DDI Normal {found_v0}/{slots} ({:.1}%)",
+        "SAFE all: placement-v2 under DDI Normal {found_v2}/{slots} ({:.1}%)",
         100.0 * found_v2 as f64 / slots.max(1) as f64,
-        100.0 * found_v0 as f64 / slots.max(1) as f64
     );
     println!(
-        "NEAR all (DDI Normal): next to a note of their lane, placement-v2 {near_v2} of {} shocks ({:.1}%), placement-v1 {near_v1} of {} ({:.1}%); two of a lane within a second: v2 {close_v2}, v1 {close_v1}",
+        "NEAR all (DDI Normal): next to a note of their lane, {near_v2} of {} shocks ({:.1}%); two of a lane within a second: {close_v2}",
         found_v2 * 8,
         100.0 * near_v2 as f64 / (found_v2 * 8).max(1) as f64,
-        found_v1 * 8,
-        100.0 * near_v1 as f64 / (found_v1 * 8).max(1) as f64
     );
-    // Most of what v2 places on real charts is next to a note; v1 put
-    // few there.
+    // Most of what v2 places on real charts is next to a note.
     assert!(near_v2 * 2 > found_v2 * 8, "{near_v2} of {}", found_v2 * 8);
-    assert!(near_v2 > 2 * near_v1, "{near_v2} {near_v1}");
     assert!(charts > 10, "{charts}");
 }
 
@@ -827,11 +765,12 @@ fn judgement_order_is_the_engine_s() {
 }
 
 /// The schedules themselves, pinned: every bundled chart (every layout,
-/// generated versions too) by `placement-v0`, `v1` and `v2` under DDI
-/// Normal and ITG, two seeds, hashed (FNV-1a over each section's start
-/// and cells, `None` marked), all three together and `placement-v2`'s
-/// alone. A change to how placement is computed must leave every
-/// schedule as it was.
+/// generated versions too) by `placement-v2` under DDI Normal and ITG,
+/// two seeds, hashed (FNV-1a over each section's start and cells, `None`
+/// marked). A change to how placement is computed must leave every
+/// schedule as it was. (Pinned on 2026-11-14 beside `placement-v0` and
+/// `v1`'s, before they were retired, with the hash of all three
+/// unchanged.)
 #[test]
 fn bundled_schedules_are_pinned() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs");
@@ -842,15 +781,12 @@ fn bundled_schedules_are_pinned() {
         .collect();
     ids.sort_by_key(|e| e.file_name());
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    // `placement-v2`'s alone (what stages play), hashed the same way.
-    let mut hash_v2: u64 = 0xcbf2_9ce4_8422_2325;
-    let fnv = |h: &mut u64, x: i64| {
+    let mut eat = |x: i64| {
         for b in x.to_le_bytes() {
-            *h = (*h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+            hash = (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
         }
     };
     let mut sections = 0;
-    let mut sections_v2 = 0;
     for e in ids {
         let Some(path) = std::fs::read_dir(e.path())
             .unwrap()
@@ -872,25 +808,15 @@ fn bundled_schedules_are_pinned() {
                 rules("itg", &song).judge,
             ];
             for table in &tables {
-                for p in [&PLACEMENT_V0, &PLACEMENT_V1, &PLACEMENT_V2] {
-                    let v2 = p.id == PLACEMENT_V2.id;
-                    for seed in [7, 0x5eed_1234_abcd] {
-                        for s in schedule_with(&song, i, table, seed, p) {
-                            let mut eat = |x: i64| {
-                                fnv(&mut hash, x);
-                                if v2 {
-                                    fnv(&mut hash_v2, x);
-                                }
-                            };
-                            eat(-1);
-                            if let Some(s) = s {
-                                sections += 1;
-                                sections_v2 += usize::from(v2);
-                                eat(i64::from(s.start_beat));
-                                for h in s.cells {
-                                    eat(h.tick.0);
-                                    eat(i64::from(h.lane));
-                                }
+                for seed in [7, 0x5eed_1234_abcd] {
+                    for s in schedule(&song, i, table, seed) {
+                        eat(-1);
+                        if let Some(s) = s {
+                            sections += 1;
+                            eat(i64::from(s.start_beat));
+                            for h in s.cells {
+                                eat(h.tick.0);
+                                eat(i64::from(h.lane));
                             }
                         }
                     }
@@ -898,13 +824,9 @@ fn bundled_schedules_are_pinned() {
             }
         }
     }
-    println!("schedules: {sections} sections, hash {hash:016x}; placement-v2 {sections_v2}, {hash_v2:016x}");
+    println!("schedules: {sections} sections, hash {hash:016x}");
     assert_eq!(
         (sections, format!("{hash:016x}")),
-        (82482, "c1c6d1a9950600b3".to_string())
-    );
-    assert_eq!(
-        (sections_v2, format!("{hash_v2:016x}")),
         (27508, "9ead6c195d8505f3".to_string())
     );
 }

@@ -53,27 +53,21 @@ pub fn checkpoints(song: &Song, chart: usize, rules: &AttackRules) -> Vec<i64> {
 }
 
 /// The sections chart `chart` of `song` has room for shocks in under
-/// `judge` (`ddi_engine::battle::schedule_with` with `placement`, drawn
-/// from `seed`), as the ledger has them under `rules`: a slot every
-/// placement's beats from the chart's start, each section's shocks timed,
-/// when it clears (its last shock and its window) and when its recipient
-/// may first recover.
-pub fn schedule_with(
-    song: &Song,
-    chart: usize,
-    judge: &JudgeTable,
-    seed: u64,
-    placement: &ddi_engine::battle::Placement,
-    rules: &AttackRules,
-) -> Schedule {
+/// `judge` (`ddi_engine::battle::schedule`, the engine's placement, drawn
+/// from `seed`), as the ledger has them: a slot every placement's beats
+/// from the chart's start, each section's shocks timed, when it clears
+/// (its last shock and its window). Its recipient may recover once it
+/// clears (`Section::recover_after_us` is `clear_us`: there has been no
+/// recovery period since `attacks-v1`; the field stays in the plan and
+/// its digest).
+pub fn schedule(song: &Song, chart: usize, judge: &JudgeTable, seed: u64) -> Schedule {
     let Some(c) = song.charts.get(chart) else {
         return Schedule::default();
     };
     let timing = c.timing(song);
     let window = ddi_engine::battle::INJECTED_MINE_V0.window(judge);
-    let every = i64::from(placement.every_beats.max(1));
-    let recover = f64::from(rules.recover_beats);
-    let slots = ddi_engine::battle::schedule_with(song, chart, judge, seed, placement)
+    let every = i64::from(ddi_engine::battle::PLACEMENT.every_beats.max(1));
+    let slots = ddi_engine::battle::schedule(song, chart, judge, seed)
         .into_iter()
         .enumerate()
         .map(|(j, section)| Slot {
@@ -89,18 +83,11 @@ pub fn schedule_with(
                     })
                     .collect();
                 let last = cells.iter().map(|c| c.at_us).max().unwrap_or(0);
-                let clear = last as f64 / 1e6 + window;
-                // No recovery period (`attacks-v1`): over as it clears.
-                let after = if recover > 0.0 {
-                    let after = timing.beat_at(clear) + recover;
-                    timing.seconds_at(Tick((after * TICKS_PER_BEAT as f64).ceil() as i64))
-                } else {
-                    clear
-                };
+                let clear = micros(last as f64 / 1e6 + window);
                 Section {
                     cells,
-                    clear_us: micros(clear),
-                    recover_after_us: micros(after.max(clear)),
+                    clear_us: clear,
+                    recover_after_us: clear,
                 }
             }),
         })
@@ -144,7 +131,7 @@ pub fn plan(song: &Song, chart: usize, rules: &StageRules, seed: u64) -> BattleP
         &rules.ruleset,
         seed,
         checkpoints(song, chart, &ATTACKS),
-        schedule_with(over, chart, &judge, seed, &placement, &ATTACKS),
+        schedule(over, chart, &judge, seed),
     )
     .with_ladder(
         ladder

@@ -49,70 +49,15 @@ pub struct AttackRunner {
 
 pub(crate) use ddi_ui::state::battle_plan::micros;
 
-/// The placement a stage's sections are drawn by: the engine's. The
-/// attack-rate study (`battle/study.rs`, tests only) may ask for an older
-/// one to compare with (`DDI_ATTACK_PLACEMENT=v1` or `v0`).
-fn placement() -> ddi_engine::battle::Placement {
-    #[cfg(test)]
-    match std::env::var("DDI_ATTACK_PLACEMENT").as_deref() {
-        Ok("v1") => return ddi_engine::battle::PLACEMENT_V1,
-        Ok("v0") => return ddi_engine::battle::PLACEMENT_V0,
-        _ => {}
-    }
-    ddi_engine::battle::PLACEMENT
-}
-
 /// The rules a stage's attacks are played under: the room's
 /// ([`ATTACKS`], `attacks-v3`; a match's Attacks at once applied by
-/// [`AttackRunner::new`]). The attack-rate studies (tests only) may ask
-/// for others to compare with: `DDI_ATTACK_RULES=v0`, `v1` or `v2`, or
-/// `attacks-v2` with a limit (`v2-gap1`: a safe section left empty
-/// between chained attacks; `v2-cap2`: at most three placed against one
-/// recipient at once, the one passing and two behind it; `v2-gap1-cap2`:
-/// both; `v2-cool2`: a sender's cooldown of two checkpoints); or a study
-/// sets them itself ([`RULES_OVERRIDE`]).
+/// [`AttackRunner::new`]), or, in the attack-rate studies (tests only), a
+/// variant of them a study sets ([`RULES_OVERRIDE`]: another window, a
+/// gap between chained attacks, a cooldown).
 pub fn rules() -> ddi_room::attacks::AttackRules {
-    #[cfg(test)]
-    use ddi_room::attacks::ATTACKS_V2;
     #[cfg(test)]
     if let Some(r) = RULES_OVERRIDE.with(std::cell::Cell::get) {
         return r;
-    }
-    #[cfg(test)]
-    match std::env::var("DDI_ATTACK_RULES").as_deref() {
-        Ok("v0") => return ddi_room::attacks::ATTACKS_V0,
-        Ok("v1") => return ddi_room::attacks::ATTACKS_V1,
-        Ok("v2") => return ATTACKS_V2,
-        Ok("v2-gap1") => {
-            return ddi_room::attacks::AttackRules {
-                id: "attacks-v2-gap1",
-                chain_gap: 1,
-                ..ATTACKS_V2
-            };
-        }
-        Ok("v2-cap2") => {
-            return ddi_room::attacks::AttackRules {
-                id: "attacks-v2-cap2",
-                chain: 2,
-                ..ATTACKS_V2
-            };
-        }
-        Ok("v2-gap1-cap2") => {
-            return ddi_room::attacks::AttackRules {
-                id: "attacks-v2-gap1-cap2",
-                chain: 2,
-                chain_gap: 1,
-                ..ATTACKS_V2
-            };
-        }
-        Ok("v2-cool2") => {
-            return ddi_room::attacks::AttackRules {
-                id: "attacks-v2-cool2",
-                cooldown_checkpoints: 2,
-                ..ATTACKS_V2
-            };
-        }
-        _ => {}
     }
     ATTACKS
 }
@@ -129,11 +74,10 @@ thread_local! {
 /// `judge` (`ddi_engine::battle::schedule`, drawn from `seed`), as the
 /// ledger has them: a slot every [`ATTACKS`]'s checkpoint beats from
 /// the chart's start, each section's shocks timed, when it clears (its
-/// last shock and its window) and when its recipient may first recover
-/// (`ddi_ui::state::battle_plan`, which an online room's plan is made by
-/// too).
+/// last shock and its window) (`ddi_ui::state::battle_plan`, which an
+/// online room's plan is made by too).
 pub fn schedule(song: &Song, chart: usize, judge: &JudgeTable, seed: u64) -> Schedule {
-    ddi_ui::state::battle_plan::schedule_with(song, chart, judge, seed, &placement(), &rules())
+    ddi_ui::state::battle_plan::schedule(song, chart, judge, seed)
 }
 
 /// An attack's shocks as a play takes them.

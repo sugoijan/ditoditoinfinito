@@ -103,68 +103,36 @@ pub struct Near {
     pub lane_gap: f64,
 }
 
-/// How far a shock keeps from what the player must do in its lane.
+/// How far a shock keeps from what the player must do in its lane
+/// (`placement-v1`'s margins, which `placement-v2` keeps exactly;
+/// `docs/plans/ddi-ruleset.md`, "Decided after the re-review"): margins
+/// about each step of the lane, so that a shock is always avoidable. None
+/// within `after_note` seconds after a step (the key that pressed it may
+/// still be down: a held key steps on a mine) nor within the ruleset's
+/// third tier's early window before one (W3: a press that early still hits
+/// the note); none from a hold's or a roll's head, that long before it, to
+/// `after_note` past its end; none from `lift_ready` seconds before a lift
+/// (its key is pressed ahead to be let go on it) to `after_note` past it.
+/// (`placement-v0`'s clearances and the `placement-v1` constant were
+/// retired on 2026-11-14.)
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Clearance {
-    /// `placement-v0`: both ways of every step by the shock's window plus
-    /// the widest judged window plus `margin`; no hold or roll across its
-    /// window; none ending `after_tail` before it; no lift `before_lift`
-    /// after it.
-    Windows {
-        margin: f64,
-        after_tail: f64,
-        before_lift: f64,
-    },
-    /// `placement-v1` (`docs/plans/ddi-ruleset.md`, "Decided after the
-    /// re-review"): margins about each step of the lane, so that a shock
-    /// is always avoidable. None within `after_note` seconds after a step
-    /// (the key that pressed it may still be down: a held key steps on a
-    /// mine) nor within the ruleset's third tier's early window before
-    /// one (W3: a press that early still hits the note); none from a
-    /// hold's or a roll's head, that long before it, to `after_note` past
-    /// its end; none from `lift_ready` seconds before a lift (its key is
-    /// pressed ahead to be let go on it) to `after_note` past it.
-    Margins { after_note: f64, lift_ready: f64 },
+pub struct Clearance {
+    pub after_note: f64,
+    pub lift_ready: f64,
 }
 
-pub const PLACEMENT_V0: Placement = Placement {
-    id: "placement-v0",
-    section_beats: 8,
-    mines: 8,
-    every_beats: 4,
-    clear: Clearance::Windows {
-        margin: 0.050,
-        after_tail: 0.150,
-        before_lift: 0.5,
-    },
-    near: None,
-};
-
-/// `placement-v1` (PROVISIONAL; the values to tune): 0.25 s after a step,
-/// W3 before it, a lift's key ready a second ahead (DDI's
-/// `BOO_LIFT_READY`).
-pub const PLACEMENT_V1: Placement = Placement {
-    id: "placement-v1",
-    section_beats: 8,
-    mines: 8,
-    every_beats: 4,
-    clear: Clearance::Margins {
-        after_note: 0.25,
-        lift_ready: 1.0,
-    },
-    near: None,
-};
-
-/// `placement-v2` (PROVISIONAL; the values to tune): v1's margins exactly,
-/// six of the eight shocks next to a note of their lane where the section
-/// has such places (up to half a second after one, or up to twice W3
-/// before a step), a second between two shocks of a lane ([`Near`]).
+/// `placement-v2` (PROVISIONAL; the values to tune): `placement-v1`'s
+/// margins exactly (0.25 s after a step, W3 before it, a lift's key ready
+/// a second ahead: DDI's `BOO_LIFT_READY`), six of the eight shocks next
+/// to a note of their lane where the section has such places (up to half
+/// a second after one, or up to twice W3 before a step), a second between
+/// two shocks of a lane ([`Near`]).
 pub const PLACEMENT_V2: Placement = Placement {
     id: "placement-v2",
     section_beats: 8,
     mines: 8,
     every_beats: 4,
-    clear: Clearance::Margins {
+    clear: Clearance {
         after_note: 0.25,
         lift_ready: 1.0,
     },
@@ -196,7 +164,7 @@ pub struct Section {
 }
 
 /// A chart's notes by lane, each with its seconds computed once
-/// ([`schedule_with`]): what [`safe`] and [`beside`] read.
+/// ([`schedule`]): what [`safe`] and [`beside`] read.
 struct Lanes<'a> {
     timing: &'a TimingMap,
     /// Per lane, in the chart's order.
@@ -245,62 +213,32 @@ impl<'a> Lanes<'a> {
 }
 
 /// Whether a shock at `cell` is safe in the chart (`c`: the whole chart,
-/// as written: one schedule for everyone) under `table`, its window
-/// `window`, by `p`'s [`Clearance`].
-fn safe(cell: Hazard, c: &Lanes, table: &JudgeTable, window: f64, p: &Placement) -> bool {
+/// as written: one schedule for everyone) under `table`, by `p`'s
+/// [`Clearance`].
+fn safe(cell: Hazard, c: &Lanes, table: &JudgeTable, p: &Placement) -> bool {
     if !c.timing.judgeable(cell.tick) {
         return false;
     }
     let m = c.timing.seconds_at(cell.tick);
-    let mut lane = c.lane(cell.lane).iter();
-    match p.clear {
-        Clearance::Windows {
-            margin,
-            after_tail,
-            before_lift,
-        } => {
-            let clear = window + table.max_early().max(table.miss_after()) + margin;
-            lane.all(|n| {
-                let at = n.at;
-                match n.kind {
-                    NoteKind::Tap => (at - m).abs() > clear,
-                    NoteKind::Lift => {
-                        (at - m).abs() > clear && !(at > m && at - m <= before_lift)
-                    }
-                    NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } => {
-                        let end = n.end;
-                        (at - m).abs() > clear
-                            // No body across the shock's window.
-                            && (end < m - window || at > m + window)
-                            // No tail just before it.
-                            && !(end <= m && m - end <= after_tail)
-                    }
-                    NoteKind::Mine | NoteKind::Shock => n.tick != cell.tick,
-                    NoteKind::Fake | NoteKind::AutoKeysound | NoteKind::Dummy => true,
-                }
-            })
+    let Clearance {
+        after_note,
+        lift_ready,
+    } = p.clear;
+    let before = early_w3(table);
+    // Not from `from` to `after_note` past `to`.
+    let outside = |from: f64, to: f64| m < from || m > to + after_note;
+    c.lane(cell.lane).iter().all(|n| {
+        let at = n.at;
+        match n.kind {
+            NoteKind::Tap => outside(at - before, at),
+            NoteKind::Lift => outside(at - lift_ready.max(before), at),
+            NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } => {
+                outside(at - before, n.end.max(at))
+            }
+            NoteKind::Mine | NoteKind::Shock => n.tick != cell.tick,
+            NoteKind::Fake | NoteKind::AutoKeysound | NoteKind::Dummy => true,
         }
-        Clearance::Margins {
-            after_note,
-            lift_ready,
-        } => {
-            let before = early_w3(table);
-            // Not from `from` to `after_note` past `to`.
-            let outside = |from: f64, to: f64| m < from || m > to + after_note;
-            lane.all(|n| {
-                let at = n.at;
-                match n.kind {
-                    NoteKind::Tap => outside(at - before, at),
-                    NoteKind::Lift => outside(at - lift_ready.max(before), at),
-                    NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } => {
-                        outside(at - before, n.end.max(at))
-                    }
-                    NoteKind::Mine | NoteKind::Shock => n.tick != cell.tick,
-                    NoteKind::Fake | NoteKind::AutoKeysound | NoteKind::Dummy => true,
-                }
-            })
-        }
-    }
+    })
 }
 
 /// How early a press still hits a step: the third tier's early window
@@ -316,9 +254,7 @@ fn early_w3(table: &JudgeTable) -> f64 {
 /// shortly before its step.
 fn beside(cell: Hazard, c: &Lanes, table: &JudgeTable, p: &Placement) -> Option<usize> {
     let near = p.near?;
-    let Clearance::Margins { after_note, .. } = p.clear else {
-        return None;
-    };
+    let after_note = p.clear.after_note;
     let before = early_w3(table);
     let m = c.timing.seconds_at(cell.tick);
     c.lane(cell.lane)
@@ -379,7 +315,7 @@ fn free(pl: &Place, chosen: &[&Place], gap: Option<f64>) -> bool {
 /// The section from beat `start` of the chart (`c`, `lanes` lanes), if
 /// eight safe shocks fit (`p`), drawn from `seed`: by `placement-v2`
 /// ([`Near`]) the shocks next to a note first, then the rest as v1
-/// places them; where that does not fit (and by v1), the eighths, then
+/// places them; where that does not fit (and without [`Near`]), the eighths, then
 /// the sixteenths.
 fn section(
     c: &Lanes,
@@ -389,7 +325,6 @@ fn section(
     seed: u64,
     p: &Placement,
 ) -> Option<Section> {
-    let window = INJECTED_MINE_V0.window(table);
     let first = i64::from(start) * TICKS_PER_BEAT;
     let sixteenth = TICKS_PER_BEAT / 4;
     let eighth = TICKS_PER_BEAT / 2;
@@ -402,7 +337,7 @@ fn section(
                     tick: Tick(t),
                     lane,
                 };
-                if safe(cell, c, table, window, p) {
+                if safe(cell, c, table, p) {
                     places.push(Place {
                         cell,
                         beat: b,
@@ -508,18 +443,7 @@ fn section(
 /// with unsafe ones): pure in the chart, the table and `seed`, so everyone
 /// gets the same.
 pub fn schedule(song: &Song, chart: usize, table: &JudgeTable, seed: u64) -> Vec<Option<Section>> {
-    schedule_with(song, chart, table, seed, &PLACEMENT)
-}
-
-/// [`schedule`] by placement `p` (an older version's, to compare).
-pub fn schedule_with(
-    song: &Song,
-    chart: usize,
-    table: &JudgeTable,
-    seed: u64,
-    p: &Placement,
-) -> Vec<Option<Section>> {
-    let p = *p;
+    let p = PLACEMENT;
     let Some(c) = song.charts.get(chart) else {
         return Vec::new();
     };
