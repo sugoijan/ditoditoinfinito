@@ -53,17 +53,16 @@ impl RoomState {
     }
 
     /// Run what time decides: a readiness window's deadline, a committed
-    /// countdown's start.
+    /// countdown's start. In place: `tick` changes the state only through
+    /// `emit` and cannot fail halfway, so no copy is needed for atomicity.
     pub fn advance(&mut self, now: Millis) -> Vec<Event> {
-        if self.closed.is_some() {
-            return Vec::new();
-        }
-        let mut work = self.clone();
         let mut out = Vec::new();
-        work.tick(now, &mut out);
+        if self.closed.is_some() {
+            return out;
+        }
+        self.tick(now, &mut out);
         if !out.is_empty() {
-            work.revision = work.revision.next();
-            *self = work;
+            self.revision = self.revision.next();
         }
         out
     }
@@ -411,7 +410,7 @@ impl RoomState {
                 if s.content.is_none() {
                     return Err(Rejection::NoContent);
                 }
-                if s.prep(id).ready != *ready {
+                if s.prep_ref(id).ready != *ready {
                     self.emit(
                         out,
                         Event::ReadyChanged {
@@ -441,7 +440,7 @@ impl RoomState {
                 if s.content.is_none() {
                     return Err(Rejection::NoContent);
                 }
-                if s.prep(id).loading != *loading {
+                if s.prep_ref(id).loading != *loading {
                     self.emit(
                         out,
                         Event::LoadingChanged {
@@ -1127,7 +1126,7 @@ impl RoomState {
             .filter(|id| self.members.get(id).is_some_and(|m| !m.is_cpu()))
             .count();
         let p = &self.policy.readiness;
-        if humans < self.humans_needed() || candidates.len() < usize::from(p.min_competitors) {
+        if humans < self.humans_needed(&candidates) || candidates.len() < usize::from(p.min_competitors) {
             return Err(Rejection::NotEnoughReady {
                 ready_humans: u16::try_from(humans).unwrap_or(u16::MAX),
                 competitors: u16::try_from(candidates.len()).unwrap_or(u16::MAX),
@@ -1193,23 +1192,26 @@ impl RoomState {
         }
         // `hosted-deadline-v2`: everyone loaded, the Ready countdown
         // counts from now.
+        // The candidates once for the checks below (this runs after every
+        // accepted command).
+        let candidates = self.candidates();
         if w.loading() {
-            if self.still_loading(s) {
+            if self.still_loading(s, &candidates) {
                 return;
             }
             self.end_loading(stage, w, now, out);
         }
         let Some(s) = self.stage(stage) else { return };
         let grace = self.policy.readiness.grace().is_some();
-        let (lineup, sat_out) = self.lineup(s);
+        let (lineup, sat_out) = self.lineup(s, &candidates);
         // v2 waits for those who loaded to ready (the loading is past);
         // v1 for everyone connected who could still join.
         let waiting = sat_out.iter().any(|(id, r)| {
             r.may_still_join()
                 && *r != SitOutReason::NotConnected
-                && (!grace || s.prep(*id).loading == Loading::Loaded)
+                && (!grace || s.prep_ref(*id).loading == Loading::Loaded)
         });
-        if waiting || !self.enough(&lineup).0 {
+        if waiting || !self.enough(&lineup, &candidates).0 {
             return;
         }
         self.commit_start(stage, lineup, sat_out, now, out);
@@ -1237,15 +1239,15 @@ impl RoomState {
     /// Someone connected who could play `stage` has not loaded it yet
     /// (`hosted-deadline-v2`'s loading grace waits for them; a failed load
     /// waits for nothing).
-    fn still_loading(&self, stage: &Stage) -> bool {
-        self.candidates().into_iter().any(|id| {
+    fn still_loading(&self, stage: &Stage, candidates: &[ParticipantId]) -> bool {
+        candidates.iter().any(|&id| {
             self.members.get(&id).is_some_and(|m| {
                 !m.left
                     && !m.is_cpu()
                     && m.intent == Intent::Play
                     && m.connection == Connection::Connected
             }) && matches!(
-                stage.prep(id).loading,
+                stage.prep_ref(id).loading,
                 Loading::NotStarted | Loading::Loading { .. }
             )
         })
@@ -1418,11 +1420,16 @@ impl RoomState {
         }
     }
 
-    /// Who would start `stage` now, and who would sit out and why.
-    fn lineup(&self, stage: &Stage) -> (Vec<ParticipantId>, Vec<(ParticipantId, SitOutReason)>) {
+    /// Who of `candidates` (`RoomState::candidates`) would start `stage`
+    /// now, and who would sit out and why.
+    fn lineup(
+        &self,
+        stage: &Stage,
+        candidates: &[ParticipantId],
+    ) -> (Vec<ParticipantId>, Vec<(ParticipantId, SitOutReason)>) {
         let mut lineup = Vec::new();
         let mut sat_out = Vec::new();
-        for id in self.candidates() {
+        for &id in candidates {
             match self.sit_out_reason(stage, id) {
                 None => lineup.push(id),
                 Some(reason) => sat_out.push((id, reason)),
@@ -1431,13 +1438,13 @@ impl RoomState {
         (lineup, sat_out)
     }
 
-    fn enough(&self, lineup: &[ParticipantId]) -> (bool, u16, u16) {
+    fn enough(&self, lineup: &[ParticipantId], candidates: &[ParticipantId]) -> (bool, u16, u16) {
         let humans = lineup
             .iter()
             .filter(|id| !self.members[id].is_cpu())
             .count();
         let p = &self.policy.readiness;
-        let needed = self.humans_needed();
+        let needed = self.humans_needed(candidates);
         let all = u16::try_from(lineup.len()).unwrap_or(u16::MAX);
         (
             humans >= needed && all >= p.min_competitors,
@@ -1449,9 +1456,8 @@ impl RoomState {
     /// The ready people a start needs (`ReadinessPolicy::min_ready_humans`),
     /// never more than the people of the match who want to play
     /// (`watch-v0`): where every person watches, the CPUs start alone.
-    fn humans_needed(&self) -> usize {
-        let wanting = self
-            .candidates()
+    fn humans_needed(&self, candidates: &[ParticipantId]) -> usize {
+        let wanting = candidates
             .iter()
             .filter(|id| {
                 self.members
@@ -1476,8 +1482,9 @@ impl RoomState {
             });
         }
         self.content_ready(s)?;
-        let (lineup, sat_out) = self.lineup(s);
-        let (enough, ready_humans, competitors) = self.enough(&lineup);
+        let candidates = self.candidates();
+        let (lineup, sat_out) = self.lineup(s, &candidates);
+        let (enough, ready_humans, competitors) = self.enough(&lineup, &candidates);
         if !enough {
             return Err(Rejection::NotEnoughReady {
                 ready_humans,
@@ -1753,8 +1760,9 @@ impl RoomState {
                     self.cancel_start(stage, CancelReason::ContentUnavailable, out);
                     return;
                 }
-                let (lineup, sat_out) = self.lineup(s);
-                if self.enough(&lineup).0 {
+                let candidates = self.candidates();
+                let (lineup, sat_out) = self.lineup(s, &candidates);
+                if self.enough(&lineup, &candidates).0 {
                     self.commit_start(stage, lineup, sat_out, now, out);
                 } else {
                     self.cancel_start(stage, CancelReason::BelowMinimum, out);

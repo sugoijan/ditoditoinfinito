@@ -307,7 +307,16 @@ impl Stage {
     }
 
     pub fn prep(&self, id: ParticipantId) -> Prep {
-        self.prep.get(&id).cloned().unwrap_or_default()
+        self.prep_ref(id).clone()
+    }
+
+    /// The same, borrowed (no copy of a failure's code).
+    pub fn prep_ref(&self, id: ParticipantId) -> &Prep {
+        static NONE: Prep = Prep {
+            ready: false,
+            loading: Loading::NotStarted,
+        };
+        self.prep.get(&id).unwrap_or(&NONE)
     }
 }
 
@@ -618,10 +627,15 @@ impl Match {
                 .cmp(&a.total)
                 .then(a.participant.cmp(&b.participant))
         });
-        let totals: Vec<Points> = out.iter().map(|s| s.total).collect();
-        for s in &mut out {
-            let above = totals.iter().filter(|t| **t > s.total).count();
-            s.rank = u16::try_from(above + 1).unwrap_or(u16::MAX);
+        // Sorted by total, highest first: equal totals share the rank of
+        // the first of them (one more than the number above).
+        let mut last: Option<(Points, u16)> = None;
+        for (i, s) in out.iter_mut().enumerate() {
+            s.rank = match last {
+                Some((total, rank)) if total == s.total => rank,
+                _ => u16::try_from(i + 1).unwrap_or(u16::MAX),
+            };
+            last = Some((s.total, s.rank));
         }
         out
     }
@@ -1125,7 +1139,7 @@ impl RoomState {
         if m.connection != Connection::Connected {
             return Some(SitOutReason::NotConnected);
         }
-        let prep = stage.prep(id);
+        let prep = stage.prep_ref(id);
         match prep.loading {
             Loading::Failed { .. } => Some(SitOutReason::LoadFailed),
             _ if !prep.ready => Some(SitOutReason::NotReady),
@@ -1167,7 +1181,7 @@ impl RoomState {
             let Some(s) = self.stage(stage) else {
                 return Participation::Idle;
             };
-            let prep = s.prep(id);
+            let prep = s.prep_ref(id);
             match (prep.ready, &prep.loading) {
                 (_, Loading::Failed { .. }) => Participation::LoadFailed { stage },
                 (false, _) => Participation::NotReady { stage },
