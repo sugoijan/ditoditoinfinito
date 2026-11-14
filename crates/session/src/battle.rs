@@ -288,8 +288,8 @@ pub struct Incoming {
     pub committed: f64,
     pub first: f64,
     pub clear: f64,
-    /// How many more attacks are placed behind it (a chain; under
-    /// `attacks-v2` any number, under `attacks-v1` one at most).
+    /// How many more attacks are placed behind it (a chain, up to the
+    /// match's Attacks at once).
     pub behind: u16,
 }
 

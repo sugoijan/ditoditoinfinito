@@ -24,7 +24,8 @@ fn roster(seats: &[(ParticipantId, Targeting)], lead_us: i64, seed: u64) -> Stag
 
 /// A chart of `n` four-beat steps of 2 s (120 BPM): a slot every 2 s
 /// from 0, each with a section (eight shocks a quarter second apart)
-/// where `room(j)`; checkpoints every 2 s from 2 s.
+/// where `room(j)`, over as it clears (as the plan's maker has it:
+/// there is no recovery period); checkpoints every 2 s from 2 s.
 fn schedule(n: usize, room: impl Fn(usize) -> bool) -> Schedule {
     Schedule {
         slots: (0..n)
@@ -43,7 +44,7 @@ fn schedule(n: usize, room: impl Fn(usize) -> bool) -> Schedule {
                         let last = cells.last().unwrap().at_us;
                         Section {
                             clear_us: last + 100_000,
-                            recover_after_us: last + 100_000 + 2 * S,
+                            recover_after_us: last + 100_000,
                             cells,
                         }
                     }),
@@ -58,8 +59,12 @@ fn checkpoints(n: usize) -> Vec<i64> {
 }
 
 fn battle(seats: &[(ParticipantId, Targeting)], seed: u64) -> StageBattle {
+    battle_under(ATTACKS, seats, seed)
+}
+
+fn battle_under(rules: AttackRules, seats: &[(ParticipantId, Targeting)], seed: u64) -> StageBattle {
     StageBattle::new(
-        ATTACKS_V0,
+        rules,
         POWER_CLASSES_V0,
         "itg-fa+",
         checkpoints(40),
@@ -70,7 +75,7 @@ fn battle(seats: &[(ParticipantId, Targeting)], seed: u64) -> StageBattle {
 
 fn ledger() -> StageBattle {
     StageBattle::new(
-        ATTACKS_V0,
+        ATTACKS,
         POWER_CLASSES_V0,
         "itg-fa+",
         vec![2_000_000, 4_000_000, 6_000_000, 8_000_000],
@@ -94,7 +99,7 @@ fn report(p: ParticipantId, tiers: &[(i64, u8)]) -> Report {
 
 /// A report for checkpoint `k` (at `(k + 1) · 2 s`): `full`, fifty of the
 /// best in the interval before it (a full bar); else `steady` judgments of
-/// the worst (nothing earned, but judged: toward recovery).
+/// the worst (nothing earned, but judged).
 fn rep(p: ParticipantId, k: usize, full: bool, steady: usize) -> Report {
     let end = (k as i64 + 1) * 2 * S;
     let from = end - 2 * S;
@@ -211,7 +216,7 @@ fn those_out_earn_nothing_more() {
 #[test]
 fn checkpoints_only_rise() {
     let l = StageBattle::new(
-        ATTACKS_V0,
+        ATTACKS,
         POWER_CLASSES_V0,
         "itg",
         vec![1, 1, 3, 2, 4],
@@ -238,7 +243,7 @@ fn a_full_bar_is_spent_on_eight_shocks_from_the_target_s_lead() {
     assert_eq!(l.stats(B).received, 1);
     // A lead of nothing still waits for the next checkpoint (four beats).
     let mut quick = StageBattle::new(
-        ATTACKS_V0,
+        ATTACKS,
         POWER_CLASSES_V0,
         "itg-fa+",
         checkpoints(10),
@@ -249,51 +254,47 @@ fn a_full_bar_is_spent_on_eight_shocks_from_the_target_s_lead() {
     assert_eq!(quick.incoming(B).unwrap().slot, 2, "from 4 s");
 }
 
+/// Two attack each other at once, then again: the second attack against
+/// each is placed behind the first (a chain, Attacks at once three), in
+/// the first section from where the first clears; there is no recovery
+/// period: a checkpoint past an attack's last shock clears it and tells
+/// it recovered at once.
 #[test]
-fn a_duel_waits_for_recovery_before_the_next_attack() {
+fn a_duel_chains_and_an_attack_is_over_as_it_clears() {
     let mut l = battle(&[(A, Targeting::Spread), (B, Targeting::Spread)], 2);
     // Both full at once: each attacks the other.
     let e = l.checkpoint(0, &[rep(A, 0, true, 0), rep(B, 0, true, 0)]);
     let mut pairs = committed(&e);
     pairs.sort();
     assert_eq!(pairs, vec![(A, B), (B, A)]);
-    let clear = l.incoming(A).unwrap().clear_us;
-    // Full again at once: nobody to attack (each under one).
+    let first = l.incoming(A).unwrap().clone();
+    // At 2 s, a lead of 3 s: the slot at 6 s, clearing at 7.85 s.
+    assert_eq!((first.slot, first.clear_us), (3, 7_850_000));
+    // Full again at once: each attacks the other again, behind the first
+    // (the slot at 8 s).
     let e = l.checkpoint(1, &[rep(A, 1, true, 0), rep(B, 1, true, 0)]);
-    assert!(e.contains(&AttackEvent::Blocked {
-        sender: A,
-        reason: BlockReason::NoEligible
-    }));
-    assert_eq!(l.waiting(A), Some(BlockReason::NoEligible));
-    // Through the section (cleared), then judged on: recovered after
-    // eight judgments and four beats, then attacked again.
-    let mut k = 2;
-    let mut cleared = false;
-    let mut recovered_at = None;
-    let mut again = None;
-    while k < 20 && again.is_none() {
-        let e = l.checkpoint(k, &[rep(A, k, false, 3), rep(B, k, false, 3)]);
-        cleared |= e.iter().any(|e| matches!(e, AttackEvent::Cleared { .. }));
-        if recovered_at.is_none() && e.iter().any(|e| matches!(e, AttackEvent::Recovered { .. })) {
-            recovered_at = Some(k);
-        }
-        if !committed(&e).is_empty() {
-            again = Some(k);
-        }
-        k += 1;
-    }
-    assert!(cleared);
-    let r = recovered_at.expect("recovered");
-    assert!((r as i64 + 1) * 2 * S >= clear + 2 * S, "four beats after");
-    assert_eq!(again, recovered_at, "launched as soon as it can be");
-    assert!(l.stats(A).waited_no_eligible >= 2);
+    let mut pairs = committed(&e);
+    pairs.sort();
+    assert_eq!(pairs, vec![(A, B), (B, A)]);
+    let slots: Vec<usize> = l.incoming_all(A).map(|a| a.slot).collect();
+    assert_eq!(slots, vec![3, 4]);
+    assert_eq!(l.waiting(A), None);
+    // The checkpoint at 8 s, past the first's last shock: cleared and
+    // recovered at once.
+    l.checkpoint(2, &[rep(A, 2, false, 3), rep(B, 2, false, 3)]);
+    let e = l.checkpoint(3, &[rep(A, 3, false, 3), rep(B, 3, false, 3)]);
+    assert!(e.contains(&AttackEvent::Cleared { attack: first.id }));
+    assert!(e.contains(&AttackEvent::Recovered { attack: first.id }));
+    assert_eq!(l.attack(first.id).unwrap().state, AttackState::Recovered);
+    assert_eq!(l.incoming_all(A).count(), 1);
 }
 
+/// With Attacks at once one: A and C both go for the leader (B, most
+/// life): B gets one attack, the second sender the next leader.
 #[test]
 fn everyone_under_attack_once_and_leader_falls_back_to_the_next() {
-    // A and C both go for the leader (B, most life): B gets one attack,
-    // the second sender the next leader.
-    let mut l = battle(
+    let mut l = battle_under(
+        ATTACKS.with_at_once(Some(1)),
         &[
             (A, Targeting::Leader),
             (B, Targeting::Spread),
@@ -517,37 +518,6 @@ fn an_attack_against_someone_out_expires_unrefunded() {
 }
 
 #[test]
-fn no_safe_section_in_reach_waits() {
-    // Only one section, late: out of reach (16 beats past the lead) at
-    // first, taken once it is in reach.
-    let mut l = StageBattle::new(
-        ATTACKS_V0,
-        POWER_CLASSES_V0,
-        "itg-fa+",
-        checkpoints(30),
-        roster(&[(A, Targeting::Spread), (B, Targeting::Spread)], 0, 7),
-        schedule(30, |j| j == 12),
-    );
-    let e = l.checkpoint(0, &[rep(A, 0, true, 0)]);
-    assert_eq!(
-        e.last(),
-        Some(&AttackEvent::Blocked {
-            sender: A,
-            reason: BlockReason::NoSafeSection
-        })
-    );
-    let mut k = 1;
-    while l.incoming(B).is_none() {
-        l.checkpoint(k, &[]);
-        k += 1;
-        assert!(k < 12);
-    }
-    assert_eq!(l.incoming(B).unwrap().slot, 12);
-    assert_eq!(l.waiting(A), None);
-    assert!(l.stats(A).waited_no_safe_section >= 1);
-}
-
-#[test]
 fn a_hundred_and_twenty_eight_seats_stay_bounded() {
     let seats: Vec<(ParticipantId, Targeting)> = (1..=128)
         .map(|i| {
@@ -558,7 +528,7 @@ fn a_hundred_and_twenty_eight_seats_stay_bounded() {
         })
         .collect();
     let mut l = StageBattle::new(
-        ATTACKS_V0,
+        ATTACKS,
         POWER_CLASSES_V0,
         "itg-fa+",
         checkpoints(60),
@@ -573,23 +543,16 @@ fn a_hundred_and_twenty_eight_seats_stay_bounded() {
             .collect();
         let e = l.checkpoint(k, &reports);
         let pairs = committed(&e);
-        // No one attacked twice at once.
-        let mut r: Vec<_> = pairs.iter().map(|p| p.1).collect();
-        r.sort();
-        r.dedup();
-        assert_eq!(r.len(), pairs.len());
         assert!(pairs.len() <= 128);
         total += pairs.len();
-        let open: Vec<_> = l
-            .attacks()
-            .iter()
-            .filter(|a| matches!(a.state, AttackState::Active | AttackState::Cleared))
-            .map(|a| a.recipient)
-            .collect();
-        let mut uniq = open.clone();
-        uniq.sort();
-        uniq.dedup();
-        assert_eq!(uniq.len(), open.len(), "one attack a recipient");
+        // Never more placed against one than Attacks at once allows.
+        let mut open: BTreeMap<ParticipantId, u32> = BTreeMap::new();
+        for a in l.attacks() {
+            if matches!(a.state, AttackState::Active | AttackState::Cleared) {
+                *open.entry(a.recipient).or_default() += 1;
+            }
+        }
+        assert!(open.values().all(|&n| n <= AT_ONCE_DEFAULT), "{open:?}");
     }
     assert!(total > 128, "{total}");
     assert_eq!(l.record().len(), 60);
@@ -631,8 +594,7 @@ fn entrant(p: ParticipantId, run: Run) -> Entrant {
 
 #[test]
 fn settlement_waits_for_the_last_attack_and_a_knockout_by_it_is_drawn() {
-    let st = SETTLEMENT_V0;
-    assert_eq!(st.id, "settlement-v0");
+    let st = SETTLEMENT;
     let live = Run::Live {
         life: 0.5,
         accuracy: 0.9,
@@ -688,28 +650,16 @@ fn settlement_waits_for_the_last_attack_and_a_knockout_by_it_is_drawn() {
     assert_eq!(plain, crate::battle::rank(&fell, crate::rules::RankBy::Life));
 }
 
-// `attacks-v1` (round 3b): no recovery period, and one more attack may be
-// reserved behind the one on its way or passing.
+// Chains: no recovery period, and more attacks may be placed behind the
+// one on its way or passing, up to the match's Attacks at once.
 
 const D: ParticipantId = ParticipantId(4);
 
-/// [`schedule`] as `attacks-v1`'s maker has it: an attack is over as it
-/// clears.
-fn schedule_v1(n: usize) -> Schedule {
-    let mut s = schedule(n, |_| true);
-    for slot in &mut s.slots {
-        if let Some(sec) = slot.section.as_mut() {
-            sec.recover_after_us = sec.clear_us;
-        }
-    }
-    s
-}
-
 /// A, B and C, each aiming at the leader, and D, who never fills a bar
-/// and has the most life: under `attacks-v1`.
+/// and has the most life; Attacks at once two (one passing, one behind).
 fn chain_battle() -> StageBattle {
     StageBattle::new(
-        ATTACKS_V1,
+        ATTACKS.with_at_once(Some(2)),
         POWER_CLASSES_V0,
         "ddi",
         checkpoints(40),
@@ -723,7 +673,7 @@ fn chain_battle() -> StageBattle {
             3 * S,
             7,
         ),
-        schedule_v1(40),
+        schedule(40, |_| true),
     )
 }
 
@@ -735,16 +685,6 @@ fn half(mut r: Report) -> Report {
 
 fn states(b: &StageBattle) -> Vec<AttackState> {
     b.attacks().iter().map(|a| a.state).collect()
-}
-
-#[test]
-fn the_rules_are_named_and_v1_has_no_recovery_and_a_chain_of_one() {
-    assert_eq!(ATTACKS_V0.id, "attacks-v0");
-    assert_eq!((ATTACKS_V0.recover_judgments, ATTACKS_V0.recover_beats, ATTACKS_V0.chain), (8, 4, 0));
-    assert_eq!(ATTACKS_V1.id, "attacks-v1");
-    assert_eq!((ATTACKS_V1.recover_judgments, ATTACKS_V1.recover_beats, ATTACKS_V1.chain), (0, 0, 1));
-    assert_eq!((ATTACKS_V1.cap, ATTACKS_V1.cost), (ATTACKS_V0.cap, ATTACKS_V0.cost));
-    assert_eq!((ATTACKS_V1.chain_gap, ATTACKS_V1.cooldown_checkpoints, ATTACKS_V1.version), (0, 0, 1));
 }
 
 /// Three attackers against one target: the first two land back to back
@@ -842,7 +782,7 @@ fn a_chain_expires_whole_and_keeps_the_stage_from_settling() {
     assert_eq!(states(&b), vec![AttackState::Active; 2]);
     // Settlement: D alone in (A, B and C out) with attacks against it
     // outstanding, the waiting one among them: not decided.
-    let st = SETTLEMENT_V0;
+    let st = SETTLEMENT;
     let live = Run::Live {
         life: 1.0,
         accuracy: 0.9,
@@ -904,38 +844,20 @@ fn a_chain_expires_whole_and_keeps_the_stage_from_settling() {
     assert!(b.outstanding().next().is_none());
 }
 
-/// Under `attacks-v0` nothing changed: one attack at a time against
-/// anyone, until they have recovered.
-#[test]
-fn attacks_v0_never_chains() {
-    let mut b = StageBattle::new(
-        ATTACKS_V0,
-        POWER_CLASSES_V0,
-        "ddi",
-        checkpoints(40),
-        roster(&[(A, Targeting::Leader), (B, Targeting::Leader), (D, Targeting::Leader)], 3 * S, 7),
-        schedule(40, |_| true),
-    );
-    b.checkpoint(0, &[half(rep(A, 0, true, 0)), half(rep(B, 0, false, 4)), rep(D, 0, false, 4)]);
-    // B's full bar finds D under an attack: it goes to A instead.
-    let e = b.checkpoint(1, &[half(rep(A, 1, false, 4)), half(rep(B, 1, true, 0)), rep(D, 1, false, 4)]);
-    assert_eq!(committed(&e), vec![(B, A)]);
-}
-
-// `attacks-v2` (2026-11-13): an attack is over for the ledger once it is
-// placed; attacks against one recipient chain without limit, one section
-// after another; Spread prefers whoever has the fewest still to come.
+// An attack is over for the ledger once it is placed (since `attacks-v2`);
+// attacks against one recipient chain, one section after another; Spread
+// prefers whoever has the fewest still to come.
 
 const E: ParticipantId = ParticipantId(5);
 
-fn v2_battle(rules: AttackRules, seats: &[(ParticipantId, Targeting)], n: usize) -> StageBattle {
+fn ledger_of(rules: AttackRules, seats: &[(ParticipantId, Targeting)], n: usize) -> StageBattle {
     StageBattle::new(
         rules,
         POWER_CLASSES_V0,
         "ddi",
         checkpoints(n),
         roster(seats, 3 * S, 7),
-        schedule_v1(n),
+        schedule(n, |_| true),
     )
 }
 
@@ -950,37 +872,16 @@ fn round(k: usize, all: &[ParticipantId], full: &[ParticipantId], leader: Partic
         .collect()
 }
 
+/// Without a limit (Attacks at once: No limit), four attackers aiming at
+/// the leader fill their bars at once: all four are placed against them at
+/// that checkpoint, in four consecutive safe sections (never the same
+/// one), the first from their lead. Nobody is skipped for being under
+/// attack.
 #[test]
-fn the_rules_are_named_and_v2_chains_without_limit() {
-    assert_eq!(ATTACKS_V2.id, "attacks-v2");
-    assert_eq!(ATTACKS_V2.chain, CHAIN_UNLIMITED);
-    assert_eq!(
-        (ATTACKS_V2.chain_gap, ATTACKS_V2.cooldown_checkpoints, ATTACKS_V2.version),
-        (0, 0, 2),
-        "no gap, no cooldown"
-    );
-    assert_eq!(
-        (ATTACKS_V2.cap, ATTACKS_V2.cost, ATTACKS_V2.checkpoint_beats),
-        (ATTACKS_V1.cap, ATTACKS_V1.cost, ATTACKS_V1.checkpoint_beats)
-    );
-    assert_eq!((ATTACKS_V2.recover_judgments, ATTACKS_V2.recover_beats), (0, 0));
-    for r in ALL_ATTACKS {
-        assert_eq!(attack_rules(r.id), Some(r));
-    }
-    assert_eq!(attack_rules("attacks-v9"), None);
-    assert_eq!(SETTLEMENT, SETTLEMENT_V1);
-    assert_eq!(SETTLEMENT_V1.id, "settlement-v1");
-}
-
-/// Four attackers aiming at the leader fill their bars at once: all four
-/// are placed against them at that checkpoint, in four consecutive safe
-/// sections (never the same one), the first from their lead. Nobody is
-/// skipped for being under attack.
-#[test]
-fn v2_places_a_chain_of_any_length_one_section_after_another() {
+fn a_chain_without_limit_places_one_section_after_another() {
     let all = [A, B, C, D, E];
-    let mut b = v2_battle(
-        ATTACKS_V2,
+    let mut b = ledger_of(
+        ATTACKS.with_at_once(None),
         &[
             (A, Targeting::Leader),
             (B, Targeting::Leader),
@@ -1014,13 +915,13 @@ fn v2_places_a_chain_of_any_length_one_section_after_another() {
     assert_eq!(b.incoming_all(D).count(), 2);
 }
 
-/// Spread under `attacks-v2` prefers whoever has the fewest attacks still
-/// to come, so a batch of launches spreads over the field.
+/// Spread prefers whoever has the fewest attacks still to come, so a
+/// batch of launches spreads over the field.
 #[test]
-fn v2_spread_prefers_the_fewest_still_to_come() {
+fn spread_prefers_the_fewest_still_to_come() {
     let all = [A, B, C, D];
     let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Spread)).collect();
-    let mut b = v2_battle(ATTACKS_V2, &seats, 40);
+    let mut b = ledger_of(ATTACKS, &seats, 40);
     b.checkpoint(0, &round(0, &all, &all, D));
     let mut got: Vec<ParticipantId> = b.attacks().iter().map(|a| a.recipient).collect();
     got.sort();
@@ -1035,59 +936,61 @@ fn v2_spread_prefers_the_fewest_still_to_come() {
     assert_eq!(counts.iter().sum::<usize>(), 8);
 }
 
-/// No safe section left before the song's end: blocked, the power kept;
-/// the search reaches to the song's end, not 16 beats.
+/// No safe section left before the song's end: blocked, the power kept.
 #[test]
-fn v2_blocks_when_no_section_is_left_and_searches_to_the_end() {
-    let all = [A, B, C, D];
-    let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Leader)).collect();
-    // Sections only at 6 s, 8 s and at 40 s (far past 16 beats from 6 s).
+fn no_section_left_blocks_and_keeps_the_power() {
+    // One section only, at 6 s.
     let mut b = StageBattle::new(
-        ATTACKS_V2,
+        ATTACKS,
         POWER_CLASSES_V0,
         "ddi",
         checkpoints(30),
-        roster(&seats, 3 * S, 7),
-        {
-            let mut s = schedule_v1(30);
-            for (j, slot) in s.slots.iter_mut().enumerate() {
-                if !matches!(j, 3 | 4 | 20) {
-                    slot.section = None;
-                }
-            }
-            s
-        },
+        roster(&[(A, Targeting::Leader), (D, Targeting::Leader)], 3 * S, 7),
+        schedule(30, |j| j == 3),
     );
-    let e = b.checkpoint(0, &round(0, &all, &[A, B, C], D));
-    assert_eq!(committed(&e).len(), 3);
-    assert_eq!(b.attacks().iter().map(|a| a.slot).collect::<Vec<_>>(), vec![3, 4, 20]);
-    let e = b.checkpoint(1, &round(1, &all, &[A], D));
+    let e = b.checkpoint(0, &round(0, &[A, D], &[A], D));
+    assert_eq!(committed(&e), vec![(A, D)]);
+    assert_eq!(b.attacks()[0].slot, 3);
+    let e = b.checkpoint(1, &round(1, &[A, D], &[A], D));
     assert!(committed(&e).is_empty());
+    assert!(e.contains(&AttackEvent::Blocked {
+        sender: A,
+        reason: BlockReason::NoSafeSection
+    }));
     assert_eq!(b.waiting(A), Some(BlockReason::NoSafeSection));
     assert_eq!(b.power(A), 100, "kept");
 }
 
 /// The named places for a limit: a gap of one safe section between
-/// chained attacks, and a sender's cooldown. Neither is on by default.
+/// chained attacks, and a sender's cooldown. Neither is on in the rules
+/// stages play.
 #[test]
-fn v2_gap_and_cooldown_are_named_rules_off_by_default() {
+fn gap_and_cooldown_are_named_places_off_by_default() {
+    assert_eq!((ATTACKS.chain_gap, ATTACKS.cooldown_checkpoints), (0, 0));
     let all = [A, B, C, D];
     let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Leader)).collect();
+    let mut b = ledger_of(ATTACKS, &seats, 40);
+    b.checkpoint(0, &round(0, &all, &[A, B, C], D));
+    assert_eq!(b.attacks().iter().map(|a| a.slot).collect::<Vec<_>>(), vec![3, 4, 5], "no gap");
     let gap = AttackRules {
-        id: "attacks-v2-gap1-test",
+        id: "attacks-v3-gap1-test",
         chain_gap: 1,
-        ..ATTACKS_V2
+        ..ATTACKS
     };
-    let mut b = v2_battle(gap, &seats, 40);
+    let mut b = ledger_of(gap, &seats, 40);
     b.checkpoint(0, &round(0, &all, &[A, B, C], D));
     assert_eq!(b.attacks().iter().map(|a| a.slot).collect::<Vec<_>>(), vec![3, 5, 7]);
 
+    let mut b = ledger_of(ATTACKS, &seats, 40);
+    b.checkpoint(0, &round(0, &all, &[A], D));
+    let e = b.checkpoint(1, &round(1, &all, &[A], D));
+    assert_eq!(committed(&e), vec![(A, D)], "no cooldown");
     let cool = AttackRules {
-        id: "attacks-v2-cooldown-test",
+        id: "attacks-v3-cooldown-test",
         cooldown_checkpoints: 2,
-        ..ATTACKS_V2
+        ..ATTACKS
     };
-    let mut b = v2_battle(cool, &seats, 40);
+    let mut b = ledger_of(cool, &seats, 40);
     b.checkpoint(0, &round(0, &all, &[A], D));
     let e = b.checkpoint(1, &round(1, &all, &[A], D));
     assert!(committed(&e).is_empty(), "cooling down");
@@ -1104,7 +1007,7 @@ fn v2_gap_and_cooldown_are_named_rules_off_by_default() {
 fn settlement_v1_tells_last_standing_before_the_win() {
     let all = [A, B, C, D];
     let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Leader)).collect();
-    let mut b = v2_battle(ATTACKS_V2, &seats, 40);
+    let mut b = ledger_of(ATTACKS, &seats, 40);
     // A, B and C fill their bars at the checkpoint at 2 s and go out
     // after it (2.5 s, 3 s, 3.5 s): three attacks against D, placed.
     b.checkpoint(0, &round(0, &all, &[A, B, C], D));
@@ -1184,6 +1087,7 @@ const H: ParticipantId = ParticipantId(8);
 #[test]
 fn the_rules_are_named_and_v3_has_a_window_and_a_limit() {
     assert_eq!(ATTACKS, ATTACKS_V3, "what stages play");
+    assert_eq!((ATTACKS_V3.cap, ATTACKS_V3.cost, ATTACKS_V3.checkpoint_beats), (100, 100, 4));
     assert_eq!(ATTACKS_V3.id, "attacks-v3");
     assert_eq!(ATTACKS_V3.window_us, 15 * S);
     assert_eq!(ATTACK_WINDOW_V0_US, 15 * S);
@@ -1193,27 +1097,25 @@ fn the_rules_are_named_and_v3_has_a_window_and_a_limit() {
     assert_eq!(ATTACKS_V3.with_at_once(Some(2)).at_once(), Some(2));
     assert_eq!(ATTACKS_V3.with_at_once(None).chain, CHAIN_UNLIMITED);
     assert_eq!(ATTACKS_V3.with_at_once(None).id, "attacks-v3", "one name");
-    // Older rules never read it, and have no window.
-    for r in [ATTACKS_V0, ATTACKS_V1, ATTACKS_V2] {
-        assert_eq!(r.with_at_once(Some(1)), r);
-        assert_eq!(r.window_us, WINDOW_NONE);
-    }
-    assert_eq!(
-        (ATTACKS_V3.cap, ATTACKS_V3.cost, ATTACKS_V3.checkpoint_beats, ATTACKS_V3.chain_gap),
-        (ATTACKS_V2.cap, ATTACKS_V2.cost, ATTACKS_V2.checkpoint_beats, 0)
-    );
     assert_eq!(attack_rules("attacks-v3"), Some(ATTACKS_V3));
+    // The retired versions (and any other name) are unknown: a plan
+    // naming one is refused.
+    for id in ["attacks-v0", "attacks-v1", "attacks-v2", "attacks-v9"] {
+        assert_eq!(attack_rules(id), None, "{id}");
+    }
+    assert_eq!(SETTLEMENT, SETTLEMENT_V1);
+    assert_eq!(SETTLEMENT_V1.id, "settlement-v1");
 }
 
 /// Four attackers on Leader fill their bars at once: three are placed
 /// against the leader, one section after another (the limit), and the
 /// fourth goes to the next in standing, in its first section. With a
-/// limit of one, one; without a limit, all four (as `attacks-v2`).
+/// limit of one, one; without a limit, all four.
 #[test]
 fn v3_a_recipient_at_the_limit_is_skipped_and_leader_goes_to_the_next() {
     let all = [A, B, C, D, E];
     let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Leader)).collect();
-    let mut b = v2_battle(ATTACKS_V3, &seats, 40);
+    let mut b = ledger_of(ATTACKS_V3, &seats, 40);
     let e = b.checkpoint(0, &round(0, &all, &[A, B, C, E], D));
     let got = committed(&e);
     assert_eq!(got.len(), 4);
@@ -1225,7 +1127,7 @@ fn v3_a_recipient_at_the_limit_is_skipped_and_leader_goes_to_the_next() {
     assert_eq!(slots, vec![3, 4, 5, 3]);
     assert_eq!(b.incoming_all(D).count(), 3);
 
-    let mut one = v2_battle(ATTACKS_V3.with_at_once(Some(1)), &seats, 40);
+    let mut one = ledger_of(ATTACKS_V3.with_at_once(Some(1)), &seats, 40);
     let got = committed(&one.checkpoint(0, &round(0, &all, &[A, B, C, E], D)));
     assert_eq!(got.iter().filter(|(_, r)| *r == D).count(), 1, "{got:?}");
     assert_eq!(got.len(), 4, "the others spill over");
@@ -1233,7 +1135,7 @@ fn v3_a_recipient_at_the_limit_is_skipped_and_leader_goes_to_the_next() {
         assert!(one.incoming_all(p).count() <= 1);
     }
 
-    let mut none = v2_battle(ATTACKS_V3.with_at_once(None), &seats, 40);
+    let mut none = ledger_of(ATTACKS_V3.with_at_once(None), &seats, 40);
     let got = committed(&none.checkpoint(0, &round(0, &all, &[A, B, C, E], D)));
     assert!(got.iter().all(|(_, r)| *r == D), "{got:?}");
     assert_eq!(none.attacks().iter().map(|a| a.slot).collect::<Vec<_>>(), vec![3, 4, 5, 6]);
@@ -1246,7 +1148,7 @@ fn v3_a_recipient_at_the_limit_is_skipped_and_leader_goes_to_the_next() {
 fn v3_the_window_holds_six_sections_and_the_seventh_goes_elsewhere() {
     let all = [A, B, C, D, E, F, G, H];
     let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Leader)).collect();
-    let mut b = v2_battle(ATTACKS_V3.with_at_once(None), &seats, 40);
+    let mut b = ledger_of(ATTACKS_V3.with_at_once(None), &seats, 40);
     let full = [A, B, C, E, F, G, H];
     let got = committed(&b.checkpoint(0, &round(0, &all, &full, D)));
     assert_eq!(got.len(), 7);
@@ -1255,10 +1157,14 @@ fn v3_the_window_holds_six_sections_and_the_seventh_goes_elsewhere() {
     for a in b.attacks() {
         assert!(b.schedule().slots[a.slot].start_us <= 2 * S + ATTACK_WINDOW_V0_US);
     }
-    // Under `attacks-v2` the seventh would be the seventh against D.
-    let mut v2 = v2_battle(ATTACKS_V2, &seats, 40);
-    let got = committed(&v2.checkpoint(0, &round(0, &all, &full, D)));
-    assert!(got.iter().all(|(_, r)| *r == D));
+    // With a window wide enough, the seventh is the seventh against D.
+    let wide = AttackRules {
+        window_us: 30 * S,
+        ..ATTACKS.with_at_once(None)
+    };
+    let mut b = ledger_of(wide, &seats, 40);
+    let got = committed(&b.checkpoint(0, &round(0, &all, &full, D)));
+    assert!(got.iter().all(|(_, r)| *r == D), "{got:?}");
 }
 
 /// Nobody has a section starting within the window: the bars wait, the
@@ -1268,12 +1174,7 @@ fn v3_the_window_holds_six_sections_and_the_seventh_goes_elsewhere() {
 fn v3_no_room_within_the_window_waits_and_keeps_the_power() {
     let all = [A, B, C, D];
     let seats: Vec<_> = all.iter().map(|&p| (p, Targeting::Leader)).collect();
-    let mut s = schedule_v1(30);
-    for (j, slot) in s.slots.iter_mut().enumerate() {
-        if j != 12 {
-            slot.section = None;
-        }
-    }
+    let s = schedule(30, |j| j == 12);
     let mut b = StageBattle::new(
         ATTACKS_V3,
         POWER_CLASSES_V0,
@@ -1308,8 +1209,8 @@ fn v3_no_room_within_the_window_waits_and_keeps_the_power() {
 }
 
 /// Retaliate's last attacker at the limit: the launch goes by Spread's
-/// order instead (under `attacks-v2` it goes to its last attacker,
-/// whatever that one already has).
+/// order instead (without a limit it goes to its last attacker, whatever
+/// that one already has).
 #[test]
 fn v3_retaliate_goes_by_spread_where_its_attacker_has_no_room() {
     let all = [A, B, C, D];
@@ -1322,14 +1223,14 @@ fn v3_retaliate_goes_by_spread_where_its_attacker_has_no_room() {
     // A leads; B and C fill their bars: B attacks A, and C (A at the
     // limit) the next in standing, B. A fills its bar next: its last
     // attacker B has one placed already, so Spread's order: not B.
-    let mut b = v2_battle(ATTACKS_V3.with_at_once(Some(1)), &seats, 40);
+    let mut b = ledger_of(ATTACKS_V3.with_at_once(Some(1)), &seats, 40);
     let e = b.checkpoint(0, &round(0, &all, &[B, C], A));
     assert_eq!(committed(&e), vec![(B, A), (C, B)]);
     let got = committed(&b.checkpoint(1, &round(1, &all, &[A], A)));
     assert_eq!(got.len(), 1, "{got:?}");
     assert!(got[0].1 != B, "{got:?}");
-    // `attacks-v2`: both at A, and A answers its last attacker, C.
-    let mut b = v2_battle(ATTACKS_V2, &seats, 40);
+    // Without a limit: both at A, and A answers its last attacker, C.
+    let mut b = ledger_of(ATTACKS.with_at_once(None), &seats, 40);
     let e = b.checkpoint(0, &round(0, &all, &[B, C], A));
     assert_eq!(committed(&e), vec![(B, A), (C, A)]);
     let got = committed(&b.checkpoint(1, &round(1, &all, &[A], A)));

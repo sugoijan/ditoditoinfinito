@@ -1138,7 +1138,6 @@ impl Live {
             clear_us: section.clear_us,
             recover_after_us: section.recover_after_us,
             state: AttackState::Active,
-            after_clear: 0,
         });
         self.learned.push((c.attack, t.max(committed_us as f64 / 1e6)));
         let delivered;

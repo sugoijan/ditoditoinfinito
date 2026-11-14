@@ -779,45 +779,53 @@ fn one_attack_trace_gives_the_same_ledger_locally_and_through_the_room() {
     }
 }
 
-/// A stage begun under `attacks-v1` (its plan offered by a device of the
-/// build before `attacks-v2`, still playing when the server is deployed)
-/// finishes under the rules its plan names: the room's ledger is that of
-/// `attacks-v1`, the same as a device of that build computes, and it
-/// differs from `attacks-v2`'s on the same plays.
+/// The rules are in the plan's digest, and a plan naming rules this
+/// build does not play (the retired `attacks-v1` and `attacks-v2`, which
+/// only builds the room model's revision refuses offered) is refused as
+/// unknown, the stage keeping no plan; the rules stages play are taken.
 #[test]
-fn a_stage_runs_under_the_attack_rules_its_plan_names() {
-    let scripts: Vec<Script> = (1..=4)
-        .map(|i| script(10 + i, 95 + i as i32 * 7, 56_000, None))
-        .collect();
-    let ids: Vec<ParticipantId> = (1..=4).map(ParticipantId).collect();
+fn a_plan_naming_rules_this_build_does_not_play_is_refused() {
     let v1 = plan_under("attacks-v1", 30, 99, |j| j % 4 != 1);
-    let local = local_record(&scripts, &v1, &ids);
-    let mut r = attack_room(&scripts, &v1, Setup::new(4).latency);
-    r.run(66_000);
-    let server = r.server.borrow();
-    let stage = server.live().unwrap().stage_or_last().expect("the stage played");
-    let ledger = stage.ledger().expect("a ledger");
-    assert_eq!(ledger.rules().id, "attacks-v1");
-    assert_eq!(ledger.record(), &local[..]);
     let v2 = plan_under("attacks-v2", 30, 99, |j| j % 4 != 1);
-    assert_ne!(v1.digest, v2.digest, "the rules are in the plan's digest");
-    drop(server);
-    // The same across the deploy of `attacks-v3`: a stage begun under
-    // `attacks-v2` finishes under it, its plan naming no Attacks at once.
-    let local = local_record(&scripts, &v2, &ids);
-    let mut r = attack_room(&scripts, &v2, Setup::new(4).latency);
-    r.run(66_000);
-    let server = r.server.borrow();
-    let stage = server.live().unwrap().stage_or_last().expect("the stage played");
-    let ledger = stage.ledger().expect("a ledger");
-    assert_eq!(ledger.rules(), ddi_room::attacks::ATTACKS_V2);
-    assert_eq!(ledger.record(), &local[..]);
     let v3 = plan(30, 99, |j| j % 4 != 1);
+    assert_ne!(v1.digest, v2.digest, "the rules are in the plan's digest");
     assert_ne!(v2.digest, v3.digest);
     // Attacks at once is in the digest: a device of another limit
     // disagrees.
     assert_ne!(v3.digest, v3.clone().with_at_once(Some(1)).digest);
     assert_ne!(v3.digest, v3.clone().with_at_once(None).digest);
+    for old in [&v1, &v2] {
+        assert_eq!(old.rules(), None);
+        let mut setup = Setup::new(2);
+        setup.attacks = true;
+        let mut r = room(&setup);
+        r.players[0].link.live_mut().send(ClientLive::OfferPlan {
+            stage: STAGE,
+            plan: Box::new(old.clone()),
+        });
+        r.run(500);
+        assert!(r.players[0].news.iter().any(|n| matches!(
+            n,
+            LiveNews::Refused(LiveRefusal::BadPlan {
+                problem: ddi_room::live::PlanProblem::UnknownVersion,
+                ..
+            })
+        )));
+        assert_eq!(
+            r.state().stage(STAGE).unwrap().content.as_ref().unwrap().battle,
+            None
+        );
+        // The rules stages play are taken.
+        r.players[0].link.live_mut().send(ClientLive::OfferPlan {
+            stage: STAGE,
+            plan: Box::new(v3.clone()),
+        });
+        r.run(500);
+        assert_eq!(
+            r.state().stage(STAGE).unwrap().content.as_ref().unwrap().battle,
+            Some(v3.digest.clone())
+        );
+    }
 }
 
 #[test]

@@ -151,7 +151,7 @@ fn stage(
     stage_with(song, chart, difficulty, levels, seed, skills, Targeting::Spread, AttacksAtOnce::Three).0
 }
 
-/// What a stage's attacks came to as a whole (`attacks-v2`'s study).
+/// What a stage's attacks came to as a whole (the chaining studies).
 #[derive(Clone, Default)]
 struct Facts {
     attacks: u32,
@@ -568,14 +568,14 @@ fn attack_rates() {
     }
 }
 
-/// `attacks-v2`'s study (2026-11-13): what chaining without limit does in
-/// fields of 4, 9 and 33 CPUs of mixed levels under DDI Normal and Hard,
-/// every CPU on one targeting policy, over the same charts. Run it once a
-/// rules version (`DDI_ATTACK_RULES=v1`, none for `attacks-v2`,
-/// `v2-gap1` or `v2-cool2` for the limits proposed):
+/// What chaining does in fields of 4, 9 and 33 CPUs of mixed levels
+/// under DDI Normal and Hard, every CPU on one targeting policy, over the
+/// same charts, under the rules stages play with Attacks at once three
+/// (first made for `attacks-v2`'s chaining without limit, 2026-11-13;
+/// `attack_window` compares the limits):
 ///
-/// `DDI_ATTACK_RULES=v1 cargo test --release -p ddi-session --lib
-/// chain_pileups -- --ignored --nocapture`
+/// `cargo test --release -p ddi-session --lib chain_pileups -- --ignored
+/// --nocapture`
 ///
 /// `DDI_ATTACK_SEEDS` seeds a chart (2), `DDI_CHAIN_SIZES` the fields
 /// (`4,9,33`).
@@ -689,15 +689,17 @@ fn chain_pileups() {
 }
 
 /// One set of rules the window study compares: its name, the rules, and
-/// the match's Attacks at once.
+/// the match's Attacks at once (`attacks-v3` with each of them, and its
+/// window at 10 and 20 s; `attacks-v2`, compared on 2026-11-13, is
+/// retired).
 fn window_configs() -> Vec<(String, ddi_room::attacks::AttackRules, AttacksAtOnce)> {
-    use ddi_room::attacks::{ATTACKS_V2, ATTACKS_V3};
+    use ddi_room::attacks::ATTACKS_V3;
     let w = |s: i64, id: &'static str| ddi_room::attacks::AttackRules {
         id,
         window_us: s * 1_000_000,
         ..ATTACKS_V3
     };
-    let mut v = vec![("attacks-v2".to_string(), ATTACKS_V2, AttacksAtOnce::NoLimit)];
+    let mut v = Vec::new();
     for a in AttacksAtOnce::ALL {
         v.push((format!("v3 15 s, at once {a:?}"), ATTACKS_V3, a));
     }
@@ -717,12 +719,13 @@ fn spread_of(v: &mut [f64]) -> (f64, f64, f64) {
 }
 
 /// `attacks-v3`'s study (2026-11-13): `chain_pileups`' fields and charts
-/// under `attacks-v2` and under `attacks-v3` with Attacks at once at 1,
-/// 2, 3 and No limit (the 15 s window), and the window alone at 10 and
-/// 20 s: what each does to pile-ups, and how stale an attack is when it
-/// lands (its launch to its first and last shock; whether Leader's
-/// recipient is still the leader then, and whether Retaliate's answer
-/// still answers the last one to hit the sender).
+/// under `attacks-v3` with Attacks at once at 1, 2, 3 and No limit (the
+/// 15 s window), and the window alone at 10 and 20 s (the study compared
+/// `attacks-v2` too, retired since): what each does to pile-ups, and
+/// how stale an attack is when it lands (its launch to its first and last
+/// shock; whether Leader's recipient is still the leader then, and
+/// whether Retaliate's answer still answers the last one to hit the
+/// sender).
 ///
 /// `cargo test --release -p ddi-session --lib attack_window -- --ignored
 /// --nocapture`; `DDI_ATTACK_SEEDS` seeds a chart (2), `DDI_CHAIN_SIZES`
