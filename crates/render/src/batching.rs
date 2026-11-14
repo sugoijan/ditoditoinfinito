@@ -441,4 +441,42 @@ mod tests {
         assert!(interleave(&mut close, &parts, key, rect));
         assert!(keeps_overlapping_order(&before, &close));
     }
+
+    /// Interleaving pinned: pseudo-random miniatures, some near enough
+    /// to wait for each other, their order after it hashed.
+    #[test]
+    fn interleaving_is_pinned() {
+        let mut seed = 11u32;
+        let mut next = || {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            seed >> 8
+        };
+        let mut digests = Vec::new();
+        for round in 0..20 {
+            let fields = 2 + round * 3;
+            let mut quads = Vec::new();
+            let mut parts = Vec::new();
+            for i in 0..fields {
+                let (x, y) = (20.0 + 25.0 * (i % 10) as f32, 20.0 + 30.0 * (i / 10) as f32);
+                let start = quads.len() as u32;
+                for _ in 0..(2 + next() % 6) {
+                    let (dx, dy) = ((next() % 12) as f32, (next() % 16) as f32);
+                    quads.push(quad(x + dx, y + dy, next() % 4));
+                }
+                parts.push(start..quads.len() as u32);
+            }
+            assert!(interleave(&mut quads, &parts, key, rect));
+            let digest = quads.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, q| {
+                let Shape::Quad { transform: m, .. } = q.shape else {
+                    return h;
+                };
+                [m[4].to_bits(), m[5].to_bits(), q.texture]
+                    .into_iter()
+                    .fold(h, |h, v| (h ^ u64::from(v)).wrapping_mul(0x0100_0000_01b3))
+            });
+            digests.push(digest);
+        }
+        let all = digests.iter().fold(0u64, |h, d| h.rotate_left(5) ^ d);
+        assert_eq!(all, 0x6e2a_d62a_315b_6278, "{digests:x?}");
+    }
 }
