@@ -973,7 +973,8 @@ impl Player {
     }
 
     /// The ladder rule the play follows ([`crate::ladder::ADAPTIVE`];
-    /// tests and the studies may give another, as `adaptive-v0`).
+    /// tests and the studies may give a variant of it: shorter bars, no
+    /// accuracy asked).
     pub fn set_ladder_rule(&mut self, rule: AdaptiveRule) {
         self.rule = rule;
     }

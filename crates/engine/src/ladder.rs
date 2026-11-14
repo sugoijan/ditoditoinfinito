@@ -1,8 +1,8 @@
 //! Adaptive charts: stepping down and up a song's ladder (a multiplayer
 //! match's rule "Charts: Adaptive", `docs/plans/multiplayer-prototype-progress.md`,
 //! "Adaptive charts"). PROVISIONAL, named: [`ADAPTIVE_V2`] (what is
-//! played, [`ADAPTIVE`]), [`ADAPTIVE_V1`] and [`ADAPTIVE_V0`] kept for
-//! comparison.
+//! played, [`ADAPTIVE`]; `adaptive-v0` and `adaptive-v1` were retired on
+//! 2026-11-14).
 //!
 //! A stage's **ladder** is the other charts of its song in the stage
 //! chart's style, easier ([`below`]) and harder ([`above`]); everyone
@@ -67,49 +67,31 @@ pub struct AdaptiveRule {
     pub down_lead: f64,
 }
 
-/// The values chosen for the prototype (PROVISIONAL): half the life back
-/// (the start's) at a step down, the boundary the next bar line at least
-/// the reading horizon plus a second ahead, life kept at one point or
-/// more until then; a step up after four bars (16 beats) of full life
-/// without a miss or a shock stepped on, eight back up to a rung whose
-/// life ran out; every rung's score as earned.
-pub const ADAPTIVE_V0: AdaptiveRule = AdaptiveRule {
-    name: "adaptive-v0",
+/// `adaptive-v2` (PROVISIONAL; follow-up round F, the maintainer's of
+/// 2026-11-14): half the life back (the start's) at a step down, the
+/// boundary the next bar line at least the reading horizon ahead, life
+/// kept at one point or more until then; a step up after four bars (16
+/// beats) of full life without a miss or a shock stepped on, with
+/// [`ADAPTIVE_ACCURACY_V2`] of the taps in its bars in the two best
+/// judgments, from the next bar line at least the reading horizon and a
+/// second ahead; sixteen bars back up to a rung whose life ran out, and a
+/// rung closed once life ran out on it twice (`adaptive-v1`, the
+/// maintainer, 2026-11-14: "after stepping down from a chart the barrier
+/// to step up should be higher than it originally is, and if you manage
+/// to step up and end up stepping down, you can't step up again"): the
+/// worst a stage can bounce is down, up once after the higher barrier,
+/// down, and there they stay. Every rung's score as earned.
+pub const ADAPTIVE_V2: AdaptiveRule = AdaptiveRule {
+    name: "adaptive-v2",
     life: 0.5,
     lead: 1.0,
     bar_beats: 4,
     floor: 0.01,
     up_bars: 4,
-    return_bars: 8,
-    closed_after: 0,
-    accuracy: 0.0,
-    down_lead: 1.0,
-};
-
-/// `adaptive-v1` (the maintainer, 2026-11-14: "after stepping down from a
-/// chart the barrier to step up should be higher than it originally is,
-/// and if you manage to step up and end up stepping down, you can't step
-/// up again"): [`ADAPTIVE_V0`] with sixteen bars of full life, not eight,
-/// to step back up to a rung whose life ran out, and a rung closed once
-/// life ran out on it twice. The worst a stage can bounce: down, up once
-/// after the higher barrier, down, and there they stay. PROVISIONAL.
-pub const ADAPTIVE_V1: AdaptiveRule = AdaptiveRule {
-    name: "adaptive-v1",
     return_bars: 16,
     closed_after: 2,
-    ..ADAPTIVE_V0
-};
-
-/// `adaptive-v2` (follow-up round F, the maintainer's of 2026-11-14): a
-/// step up, first time or back, also needs [`ADAPTIVE_ACCURACY_V2`] of the
-/// taps in its bars in the two best judgments, and a step down's
-/// breather loses its extra second (the easier chart from the next bar
-/// line at least the reading horizon ahead). PROVISIONAL.
-pub const ADAPTIVE_V2: AdaptiveRule = AdaptiveRule {
-    name: "adaptive-v2",
     accuracy: ADAPTIVE_ACCURACY_V2,
     down_lead: 0.0,
-    ..ADAPTIVE_V1
 };
 
 /// PROVISIONAL (`adaptive-v2`): the share of a step up's taps in the two
@@ -421,16 +403,19 @@ mod tests {
         assert_eq!(m.charts[rungs[0]], song.charts[rungs[0]], "the rungs as they are");
     }
 
+    /// A step up's boundary: the next bar line at least the horizon and
+    /// a second ahead.
     #[test]
-    fn the_boundary_is_a_bar_line_past_the_horizon_and_a_second() {
+    fn a_step_ups_boundary_is_a_bar_line_past_the_horizon_and_a_second() {
         // 120 BPM: a beat is half a second, a bar two seconds.
         let timing = TimingMap::constant(120.0, 0.0);
-        let (tick, at) = ADAPTIVE_V0.boundary(false, &timing, 10.0, 2.5);
+        assert_eq!(ADAPTIVE.lead, 1.0);
+        let (tick, at) = ADAPTIVE.boundary(false, &timing, 10.0, 2.5);
         // 13.5 s is beat 27: the next bar line is beat 28, 14 s.
         assert_eq!(tick, Tick(28 * TICKS_PER_BEAT));
         assert!((at - 14.0).abs() < 1e-9);
         // Exactly on a bar line: that one.
-        let (_, at) = ADAPTIVE_V0.boundary(false, &timing, 11.0, 0.0);
+        let (_, at) = ADAPTIVE.boundary(false, &timing, 11.0, 0.0);
         assert!((at - 12.0).abs() < 1e-9);
     }
 
@@ -441,13 +426,21 @@ mod tests {
     fn a_v2_step_downs_breather_has_no_extra_second() {
         let timing = TimingMap::constant(120.0, 0.0);
         assert_eq!(ADAPTIVE_V2.down_lead, 0.0);
-        assert_eq!(ADAPTIVE_V2.lead, ADAPTIVE_V1.lead);
         // 11.5 s: beat 23, the bar line at 12 s; with the second, 14 s.
         let (_, at) = ADAPTIVE_V2.boundary(true, &timing, 10.0, 1.5);
         assert!((at - 12.0).abs() < 1e-9);
-        let (_, at) = ADAPTIVE_V1.boundary(false, &timing, 10.0, 1.5);
+        let (_, at) = ADAPTIVE_V2.boundary(false, &timing, 10.0, 1.5);
         assert!((at - 14.0).abs() < 1e-9);
         assert_eq!(ADAPTIVE, ADAPTIVE_V2);
-        assert_eq!((ADAPTIVE_V2.accuracy, ADAPTIVE_V1.accuracy), (0.95, 0.0));
+        assert_eq!(ADAPTIVE_V2.name, "adaptive-v2");
+        assert_eq!(
+            (ADAPTIVE_V2.life, ADAPTIVE_V2.floor, ADAPTIVE_V2.bar_beats),
+            (0.5, 0.01, 4)
+        );
+        assert_eq!(
+            (ADAPTIVE_V2.up_bars, ADAPTIVE_V2.return_bars, ADAPTIVE_V2.closed_after),
+            (4, 16, 2)
+        );
+        assert_eq!(ADAPTIVE_V2.accuracy, 0.95);
     }
 }

@@ -8,7 +8,7 @@ mod common;
 
 use ddi_chart::Song;
 use ddi_engine::judge::{JudgeEventKind, NoteState};
-use ddi_engine::ladder::{self, ADAPTIVE_V0, AdaptiveRule};
+use ddi_engine::ladder::{self, ADAPTIVE, AdaptiveRule};
 use ddi_engine::rules::ddi::{self, DdiOptions};
 use ddi_engine::{FailPolicy, PlayOptions, Player, Results, Ruleset};
 
@@ -169,7 +169,7 @@ fn nothing_is_judged_in_a_breather_and_life_is_given_back() {
             .iter()
             .find(|l| (f64::from(l[0]) - s.at).abs() < 1e-4)
             .unwrap();
-        assert!(r.life.iter().any(|l| (l[1] - ADAPTIVE_V0.life).abs() < 1e-6), "{at:?}");
+        assert!(r.life.iter().any(|l| (l[1] - ADAPTIVE.life).abs() < 1e-6), "{at:?}");
     }
     // On the lowest rung, out as ever.
     assert!(r.failed);
@@ -193,7 +193,7 @@ fn the_breather_keeps_life_above_its_floor() {
     let r = p.results();
     let s = r.steps[0];
     for l in r.life.iter().filter(|l| f64::from(l[0]) >= s.at && f64::from(l[0]) < s.boundary) {
-        assert!(l[1] >= ADAPTIVE_V0.floor - 1e-6, "{l:?}");
+        assert!(l[1] >= ADAPTIVE.floor - 1e-6, "{l:?}");
     }
 }
 
@@ -362,7 +362,7 @@ fn a_perfect_play_steps_up_once_after_four_bars_the_same_at_any_frame_rate() {
     let beat = p.timing().beat_at(s.at);
     assert!((beat / 4.0 - (beat / 4.0).round()).abs() < 1e-6, "{beat}");
     assert!(beat >= 16.0);
-    assert!(s.boundary >= s.at + ADAPTIVE_V0.lead);
+    assert!(s.boundary >= s.at + ADAPTIVE.lead);
     // Life untouched by the step, never out.
     assert!(!r.failed);
     // The old chart played up to the boundary, the new one from it.
@@ -402,7 +402,7 @@ fn up_down_up(rule: AdaptiveRule) -> (Player, Vec<ddi_engine::ladder::Step>) {
 fn a_play_steps_up_then_down_and_back_up_takes_sixteen_bars() {
     let (p, steps) = up_down_up(ladder::ADAPTIVE);
     assert_eq!(ladder::ADAPTIVE, ladder::ADAPTIVE_V2);
-    assert_eq!(ladder::ADAPTIVE.return_bars, ladder::ADAPTIVE_V1.return_bars);
+    assert_eq!(ladder::ADAPTIVE.return_bars, 16);
     assert!(steps.len() >= 3, "{steps:?}");
     assert!(steps[0].up);
     let down = steps[1];
@@ -416,9 +416,15 @@ fn a_play_steps_up_then_down_and_back_up_takes_sixteen_bars() {
     assert!(beats >= 64.0 - 1e-6, "{beats}");
 }
 
+/// The rule's bars back up are what it says (eight here) and a rule that
+/// closes nothing never closes a rung.
 #[test]
-fn adaptive_v0_takes_eight_bars_back_up_and_closes_nothing() {
-    let (p, steps) = up_down_up(ladder::ADAPTIVE_V0);
+fn a_rule_of_eight_bars_back_up_and_no_closing_takes_eight_and_closes_nothing() {
+    let (p, steps) = up_down_up(AdaptiveRule {
+        return_bars: 8,
+        closed_after: 0,
+        ..ADAPTIVE
+    });
     let (down, back) = (steps[1], steps[2]);
     assert!(back.up && back.rung == 2, "{steps:?}");
     let beats = p.timing().beat_at(back.at) - p.timing().beat_at(down.boundary);
@@ -428,7 +434,7 @@ fn adaptive_v0_takes_eight_bars_back_up_and_closes_nothing() {
 
 /// Life run out on Hard twice: Hard is closed for the rest of the stage,
 /// however well the rest is played; the step down that closed it says
-/// so. The same at 60 and 144 fps and from the log. (`adaptive-v1` with
+/// so. The same at 60 and 144 fps and from the log. (The rule with
 /// shorter bars, two up and four back up, so that the bundled song is
 /// long enough for both run-outs and the bars after.)
 #[test]
@@ -437,7 +443,7 @@ fn a_rung_whose_life_ran_out_twice_is_closed() {
     RULE.set(Some(AdaptiveRule {
         up_bars: 2,
         return_bars: 4,
-        ..ladder::ADAPTIVE_V1
+        ..ADAPTIVE
     }));
     let song = song();
     let medium = single(&song, Medium);
@@ -514,7 +520,7 @@ fn a_rule_without_steps_up_is_the_step_down_alone() {
     p.add_rung_up(&song, hard).unwrap();
     p.set_ladder_rule(AdaptiveRule {
         up_bars: 0,
-        ..ADAPTIVE_V0
+        ..ADAPTIVE
     });
     p.start(0.0, 0.0);
     let script = ddi_engine::autoplay::script(p.judge().notes(), 0.0);
@@ -536,9 +542,9 @@ fn a_rule_without_steps_up_is_the_step_down_alone() {
 
 /// `adaptive-v2`: four bars of full life with no miss are not enough
 /// where the taps were not in the two best judgments: a play 25 ms late
-/// on every note (DDI's W2, full life kept) steps up under `adaptive-v1`
-/// and never under `adaptive-v2`; on time it steps up under both. The
-/// same at 60 and 144 fps and from the log.
+/// on every note (DDI's W2, full life kept) never steps up, while the same
+/// rule asking no accuracy steps it up; on time it steps up. The same at
+/// 60 and 144 fps and from the log.
 #[test]
 fn a_step_up_needs_the_two_best_judgments_under_v2() {
     use ddi_chart::Difficulty::*;
@@ -554,9 +560,13 @@ fn a_step_up_needs_the_two_best_judgments_under_v2() {
         let r = p.results();
         (r.steps.clone(), r.tally.count(ddi_engine::Judgement::W2), r.failed)
     };
-    let (late_v1, w2, failed) = steps(ladder::ADAPTIVE_V1, 0.025);
+    let any = AdaptiveRule {
+        accuracy: 0.0,
+        ..ADAPTIVE
+    };
+    let (late_any, w2, failed) = steps(any, 0.025);
     assert!(w2 > 20 && !failed, "late: W2s ({w2}), full life");
-    assert_eq!(late_v1.len(), 1, "v1 steps up anyway: {late_v1:?}");
+    assert_eq!(late_any.len(), 1, "steps up where no accuracy is asked: {late_any:?}");
     let (late_v2, _, _) = steps(ladder::ADAPTIVE_V2, 0.025);
     assert!(late_v2.is_empty(), "v2 never: {late_v2:?}");
     let (on_time, _, _) = steps(ladder::ADAPTIVE_V2, 0.0);

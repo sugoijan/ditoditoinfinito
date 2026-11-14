@@ -728,7 +728,7 @@ impl Opponent {
     }
 
     /// The ladder rule its play steps by (`ladder::ADAPTIVE` unless set;
-    /// the studies compare `adaptive-v0`).
+    /// the studies may set a variant of it).
     pub fn set_ladder_rule(&mut self, rule: crate::ladder::AdaptiveRule) {
         self.player.set_ladder_rule(rule);
     }

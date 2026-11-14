@@ -368,10 +368,10 @@ fn fields_follow_steps_down_and_back_up() {
     assert!(both, "a three-star CPU up to Hard and back down");
 }
 
-/// A step down that closes the chart it left (`adaptive-v1`: life ran
-/// out there twice; here once, `closed_after: 1`, so that a stage of
-/// nothing pressed shows it) is told as staying on the chart below
-/// ("Staying on Medium"), not as a step down.
+/// A step down that closes the chart it left (the rule's: life ran out
+/// there twice; here once, `closed_after: 1`, so that a stage of nothing
+/// pressed shows it) is told as staying on the chart below ("Staying on
+/// Medium"), not as a step down.
 #[test]
 fn a_chart_closed_is_told_as_staying_on_the_one_below() {
     let song = bundled("beatucada");
@@ -381,7 +381,7 @@ fn a_chart_closed_is_told_as_staying_on_the_one_below() {
     let (mut s, clock) = stage_session(&song, &order, false, &[]);
     s.player.set_ladder_rule(ddi_engine::ladder::AdaptiveRule {
         closed_after: 1,
-        ..ddi_engine::ladder::ADAPTIVE_V1
+        ..ddi_engine::ladder::ADAPTIVE
     });
     let mut told = None;
     loop {
