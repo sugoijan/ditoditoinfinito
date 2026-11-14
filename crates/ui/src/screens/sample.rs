@@ -876,7 +876,7 @@ pub fn start_screen(env: &Env, desktop: bool) -> super::start::StartScreen {
 
 /// The multiplayer home over a fresh practice room on the sample songs
 /// (developer routes, headless tests), signed out of a sample server.
-pub fn multiplayer_screen(env: &Env) -> super::online::OnlineScreen {
+pub fn multiplayer_screen(env: &Env) -> super::online_home::Home {
     multiplayer_home(env, crate::state::room::RoomClient::shared(0, 1))
 }
 
@@ -923,13 +923,12 @@ pub fn online(platform: crate::state::online::Platform) -> crate::state::online:
 pub fn multiplayer_home(
     env: &Env,
     room: crate::state::room::SharedRoom,
-) -> super::online::OnlineScreen {
-    use super::online::{OnlineCall, OnlinePage, OnlineScreen};
+) -> super::online_home::Home {
+    use super::online::OnlineCall;
     let e = env.clone();
-    OnlineScreen::new(
+    super::online_home::Home::new(
         env.clone(),
         online(crate::state::online::Platform::Web),
-        OnlinePage::Home,
         Rc::new(move |call, cx| match call {
             OnlineCall::Practice => cx.push(room_screen(&e, room.clone())),
             OnlineCall::Leave => cx.close(true),

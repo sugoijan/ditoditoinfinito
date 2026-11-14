@@ -173,10 +173,19 @@ impl PagePage {
             );
         } else if which == Which::Multiplayer {
             multiplayer_arrived();
-            ui.push(online_screen(&env, OnlinePage::Home));
+            ui.push(ddi_ui::screens::online_home::Home::new(
+                env.clone(),
+                crate::online::current(),
+                online_shell(),
+            ));
         } else if let Which::Invite(invite) = &which {
             multiplayer_arrived();
-            ui.push(online_screen(&env, OnlinePage::Invite(invite.clone())));
+            ui.push(OnlineScreen::new(
+                env.clone(),
+                crate::online::current(),
+                OnlinePage::Invite(invite.clone()),
+                online_shell(),
+            ));
         } else if let Which::Audience(link) = &which {
             multiplayer_arrived();
             ui.push(audience_screen(&env, link));
@@ -195,7 +204,7 @@ impl PagePage {
     }
 }
 
-use ddi_ui::screens::online::{OnlineCall, OnlinePage, OnlineScreen};
+use ddi_ui::screens::online::{OnlineCall, OnlinePage, OnlineScreen, OnlineShell};
 use ddi_ui::state::online::Redirect;
 
 /// A multiplayer route opened: a sign-in's return taken from its
@@ -214,34 +223,29 @@ pub(crate) fn redirect(r: Redirect) {
     }
 }
 
-/// The multiplayer home or an invite's page (`crate::online`).
-fn online_screen(env: &ddi_ui::screens::Env, which: OnlinePage) -> OnlineScreen {
-    OnlineScreen::new(
-        env.clone(),
-        crate::online::current(),
-        which,
-        Rc::new(|call, cx| match call {
-            OnlineCall::Practice => cx.request(UiRequest::Navigate(Route::Room.to_hash())),
-            OnlineCall::EnterRoom(id) => {
-                cx.request(UiRequest::Navigate(Route::MpRoom { id }.to_hash()))
+/// The multiplayer pages' calls (`crate::online`).
+fn online_shell() -> OnlineShell {
+    Rc::new(|call, cx| match call {
+        OnlineCall::Practice => cx.request(UiRequest::Navigate(Route::Room.to_hash())),
+        OnlineCall::EnterRoom(id) => {
+            cx.request(UiRequest::Navigate(Route::MpRoom { id }.to_hash()))
+        }
+        OnlineCall::OpenInvite(invite) => {
+            cx.request(UiRequest::Navigate(Route::MpJoin { invite }.to_hash()))
+        }
+        OnlineCall::Watch { link, ticket } => {
+            crate::online::seat_audience(&link, Some(ticket));
+            cx.request(UiRequest::Navigate(Route::MpWatch { link }.to_hash()))
+        }
+        // In the press: the context the watched stages' music plays on.
+        OnlineCall::WatchPressed => {
+            if cx.in_gesture() {
+                crate::online::audience_gesture();
             }
-            OnlineCall::OpenInvite(invite) => {
-                cx.request(UiRequest::Navigate(Route::MpJoin { invite }.to_hash()))
-            }
-            OnlineCall::Watch { link, ticket } => {
-                crate::online::seat_audience(&link, Some(ticket));
-                cx.request(UiRequest::Navigate(Route::MpWatch { link }.to_hash()))
-            }
-            // In the press: the context the watched stages' music plays on.
-            OnlineCall::WatchPressed => {
-                if cx.in_gesture() {
-                    crate::online::audience_gesture();
-                }
-            }
-            OnlineCall::Redirect(r) => redirect(r),
-            OnlineCall::Leave => cx.request(UiRequest::Back),
-        }),
-    )
+        }
+        OnlineCall::Redirect(r) => redirect(r),
+        OnlineCall::Leave => cx.request(UiRequest::Back),
+    })
 }
 
 /// A room watched with its audience (`crate::online::audience`): its page

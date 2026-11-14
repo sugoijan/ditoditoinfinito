@@ -1340,6 +1340,7 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
 /// member, its connection's states, the development stop and More.
 fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<String>) {
     use super::online::{OnlinePage, OnlineScreen};
+    use super::online_home::Home;
     use crate::state::online::tests::{INVITE, ME, err, ok, rig};
     use crate::state::online::{Dest, Platform};
     let quiet = || -> super::online::OnlineShell { Rc::new(|_, _| {}) };
@@ -1347,12 +1348,7 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     for platform in [Platform::Web, Platform::Desktop] {
         let r = rig(platform, Box::new(|_| err(401, "signed_out")));
         let mut h = harness();
-        h.push(OnlineScreen::new(
-            env.clone(),
-            r.online.clone(),
-            OnlinePage::Home,
-            quiet(),
-        ));
+        h.push(Home::new(env.clone(), r.online.clone(), quiet()));
         shown(&mut h, found);
     }
     let attempt = r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"u","expires_at_ms":9}"#;
@@ -1365,12 +1361,7 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         }),
     );
     let mut h = harness();
-    h.push(OnlineScreen::new(
-        env.clone(),
-        r.online.clone(),
-        OnlinePage::Home,
-        quiet(),
-    ));
+    h.push(Home::new(env.clone(), r.online.clone(), quiet()));
     r.online.borrow_mut().sign_in(Dest::Create);
     shown(&mut h, found);
     r.online.borrow_mut().cancel_sign_in();
@@ -1384,12 +1375,7 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         }),
     );
     let mut h = harness();
-    h.push(OnlineScreen::new(
-        env.clone(),
-        r.online.clone(),
-        OnlinePage::Home,
-        quiet(),
-    ));
+    h.push(Home::new(env.clone(), r.online.clone(), quiet()));
     shown(&mut h, found);
     r.online.borrow_mut().private_room();
     shown(&mut h, found);
@@ -1405,12 +1391,7 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     ));
     shown(&mut h, found);
     let mut h = harness();
-    h.push(OnlineScreen::new(
-        env.clone(),
-        r.online.clone(),
-        OnlinePage::Home,
-        quiet(),
-    ));
+    h.push(Home::new(env.clone(), r.online.clone(), quiet()));
     h.run(0.5);
     h.tap(crate::PointerKind::Mouse, super::online_home::ACCOUNT);
     shown(&mut h, found);

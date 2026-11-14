@@ -20,7 +20,8 @@ use std::rc::Rc;
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::fake::{FakeServer, FakeSocket, Fault, SharedFake};
 use ddi_room::{ClientId, Clock, Identity, ManualClock, ParticipantId, RoomPolicy};
-use ddi_ui::screens::online::{OnlineCall, OnlinePage, OnlineScreen};
+use ddi_ui::screens::online::OnlineCall;
+use ddi_ui::screens::online_home::Home;
 use ddi_ui::screens::room::{RoomCall, RoomShell};
 use ddi_ui::screens::{Env, sample};
 use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
@@ -187,12 +188,7 @@ fn from_the_home_into_a_private_room_frame_by_frame() {
                     }
                 })
             };
-            ui.push(OnlineScreen::new(
-                env.clone(),
-                online.clone(),
-                OnlinePage::Home,
-                home_shell,
-            ));
+            ui.push(Home::new(env.clone(), online.clone(), home_shell));
             ui.handle(UiEvent::Resize {
                 size: css,
                 ratio: 1.0,

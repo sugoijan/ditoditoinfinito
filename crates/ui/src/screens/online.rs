@@ -22,7 +22,7 @@ use super::Env;
 use super::page::{
     Action, Block, FedPage, PageCall, PageDoc, PageFeed, PageModel, PageScreen, PageTitle,
 };
-use crate::screen::{Cx, Handled, Input, Screen};
+use crate::screen::Cx;
 use crate::state::online::api::{self, Admission, Preview, Problem};
 use crate::state::online::{Account, Dest, Online, Redirect, SharedOnline, SignIn};
 
@@ -331,7 +331,7 @@ fn invite_doc(online: &Online) -> PageDoc {
 
 /// Join by link or an invite's page, over the online state: what the page
 /// follows and hands on to the shell.
-struct OnlinePageModel {
+pub struct OnlinePageModel {
     online: SharedOnline,
     which: OnlinePage,
     draft: Rc<RefCell<Draft>>,
@@ -493,76 +493,15 @@ impl PageModel for OnlinePageModel {
     }
 }
 
-/// The multiplayer home ([`super::online_home::Home`]), Join by link or an
-/// invite's page, over the online state.
-pub struct OnlineScreen {
-    inner: Box<dyn Screen>,
-}
+/// Join by link or an invite's page, over the online state: a page fed
+/// by it ([`FedPage`]). The multiplayer home is a screen of its own
+/// ([`super::online_home::Home`]).
+pub type OnlineScreen = FedPage<OnlinePageModel>;
 
 impl OnlineScreen {
+    /// The page `which` (Join by link or an invite's; the home's own
+    /// screen is [`super::online_home::Home`]) as `online` stands.
     pub fn new(env: Env, online: SharedOnline, which: OnlinePage, shell: OnlineShell) -> Self {
-        let inner: Box<dyn Screen> = match which {
-            OnlinePage::Home => Box::new(super::online_home::Home::new(env, online, shell)),
-            which => Box::new(OnlinePageModel::page(env, online, which, shell)),
-        };
-        OnlineScreen { inner }
-    }
-}
-
-impl Screen for OnlineScreen {
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-
-    fn build(&mut self, cx: &mut Cx) -> ddi_actor::Actor {
-        self.inner.build(cx)
-    }
-
-    fn input(&mut self, input: &Input, root: &mut ddi_actor::Actor, cx: &mut Cx) -> Handled {
-        self.inner.input(input, root, cx)
-    }
-
-    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
-        self.inner.presentation()
-    }
-
-    fn active_element(&self, focused: Option<&str>) -> Option<String> {
-        self.inner.active_element(focused)
-    }
-
-    fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
-        self.inner.cursor(target)
-    }
-
-    fn animating(&self) -> bool {
-        self.inner.animating()
-    }
-
-    fn wake_at(&self) -> Option<f64> {
-        self.inner.wake_at()
-    }
-
-    fn defer_initial_focus(&self) -> bool {
-        self.inner.defer_initial_focus()
-    }
-
-    fn first_focus(&self) -> Option<String> {
-        self.inner.first_focus()
-    }
-
-    fn shared_bars(&self) -> bool {
-        self.inner.shared_bars()
-    }
-
-    fn focusables(&self) -> Vec<crate::nav::Focusable> {
-        self.inner.focusables()
-    }
-
-    fn message(&mut self, msg: &crate::Message, root: &mut ddi_actor::Actor, cx: &mut Cx) {
-        self.inner.message(msg, root, cx);
-    }
-
-    fn update(&mut self, dt: f32, root: &mut ddi_actor::Actor, cx: &mut Cx) {
-        self.inner.update(dt, root, cx);
+        OnlinePageModel::page(env, online, which, shell)
     }
 }

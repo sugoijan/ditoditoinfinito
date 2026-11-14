@@ -21,7 +21,8 @@ use std::sync::mpsc::{Sender, channel};
 use ddi_room::StageId;
 use ddi_ui::Cx;
 use ddi_ui::screens::Env;
-use ddi_ui::screens::online::{OnlineCall, OnlinePage, OnlineScreen};
+use ddi_ui::screens::online::{OnlineCall, OnlinePage, OnlineScreen, OnlineShell};
+use ddi_ui::screens::online_home::Home;
 use ddi_ui::screens::room::{RoomCall, RoomShell};
 use ddi_ui::screens::select::{SelectCall, SelectScreen};
 use ddi_ui::state::online::Redirect;
@@ -335,8 +336,12 @@ pub(crate) fn forget_playing(room: &SharedRoom) {
 /// practice room; Private room signs in (the system browser) and makes an
 /// online room; the invite field opens an invite's page. Its songs come
 /// from `songs` (the library), else from the sample songs.
-pub fn home(env: &Env, songs: Option<Rc<Songs>>, sound: Option<SharedPlayer>) -> OnlineScreen {
-    online_page(env, OnlinePage::Home, songs, sound)
+pub fn home(env: &Env, songs: Option<Rc<Songs>>, sound: Option<SharedPlayer>) -> Home {
+    Home::new(
+        env.clone(),
+        crate::online::current(),
+        online_shell(env, false, songs, sound),
+    )
 }
 
 /// An invite's page (`--join`, or the home's invite field).
@@ -346,47 +351,46 @@ pub fn invite(
     songs: Option<Rc<Songs>>,
     sound: Option<SharedPlayer>,
 ) -> OnlineScreen {
-    online_page(env, OnlinePage::Invite(invite), songs, sound)
-}
-
-fn online_page(
-    env: &Env,
-    which: OnlinePage,
-    songs: Option<Rc<Songs>>,
-    sound: Option<SharedPlayer>,
-) -> OnlineScreen {
-    let e = env.clone();
-    let invite_page = matches!(which, OnlinePage::Invite(_));
     OnlineScreen::new(
         env.clone(),
         crate::online::current(),
-        which,
-        Rc::new(move |call, cx| match call {
-            OnlineCall::Practice => cx.push(room_screen(&e, songs.clone(), sound.clone())),
-            OnlineCall::EnterRoom(id) => {
-                // A joined invite's page gives its place to the room.
-                if invite_page {
-                    cx.close(false);
-                }
-                cx.push(online_room_screen(&e, &id, songs.clone(), sound.clone()));
-            }
-            OnlineCall::OpenInvite(token) => {
-                cx.push(invite(&e, token, songs.clone(), sound.clone()))
-            }
-            OnlineCall::Watch { link, ticket } => {
-                // The invite's page gives its place to the audience's.
-                if invite_page {
-                    cx.close(false);
-                }
-                let play = songs.as_ref().map(|s| s.play.clone());
-                cx.push(audience_screen(&e, &link, Some(ticket), play));
-            }
-            // Desktop's sound needs no gesture.
-            OnlineCall::WatchPressed => {}
-            OnlineCall::Redirect(r) => redirect(&r),
-            OnlineCall::Leave => cx.close(true),
-        }),
+        OnlinePage::Invite(invite),
+        online_shell(env, true, songs, sound),
     )
+}
+
+/// The multiplayer pages' calls (`invite_page`: an invite's, which gives
+/// its place to the room or the audience it opens).
+fn online_shell(
+    env: &Env,
+    invite_page: bool,
+    songs: Option<Rc<Songs>>,
+    sound: Option<SharedPlayer>,
+) -> OnlineShell {
+    let e = env.clone();
+    Rc::new(move |call, cx| match call {
+        OnlineCall::Practice => cx.push(room_screen(&e, songs.clone(), sound.clone())),
+        OnlineCall::EnterRoom(id) => {
+            // A joined invite's page gives its place to the room.
+            if invite_page {
+                cx.close(false);
+            }
+            cx.push(online_room_screen(&e, &id, songs.clone(), sound.clone()));
+        }
+        OnlineCall::OpenInvite(token) => cx.push(invite(&e, token, songs.clone(), sound.clone())),
+        OnlineCall::Watch { link, ticket } => {
+            // The invite's page gives its place to the audience's.
+            if invite_page {
+                cx.close(false);
+            }
+            let play = songs.as_ref().map(|s| s.play.clone());
+            cx.push(audience_screen(&e, &link, Some(ticket), play));
+        }
+        // Desktop's sound needs no gesture.
+        OnlineCall::WatchPressed => {}
+        OnlineCall::Redirect(r) => redirect(&r),
+        OnlineCall::Leave => cx.close(true),
+    })
 }
 
 /// A room watched with its audience (`docs/plans/multiplayer-audience.md`):
