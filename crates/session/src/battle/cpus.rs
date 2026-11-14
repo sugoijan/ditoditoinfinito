@@ -22,7 +22,7 @@
 //! with its recorded fixture).
 
 use ddi_engine::battle::Hazard;
-use ddi_engine::cpu::Opponent;
+use ddi_engine::cpu::{Opponent, PlannedRung};
 use ddi_engine::judge::JudgeEvent;
 use ddi_engine::JudgeEventKind;
 use ddi_room::attacks::{Judged, Reporter};
@@ -32,18 +32,18 @@ use ddi_room::ParticipantId;
 
 use super::attacks::micros;
 
-/// CPU `seat` on chart `chart` of `song` (as played) under `ruleset` (the
-/// match's, built from the stage's rules: nothing of a device's own),
-/// with its ladder where zero life steps down: what practice plays and
-/// what every device of an online room plays alike (not started yet).
-/// Refused, with the engine's reason, where the CPUs cannot plan the
-/// chart.
+/// CPU `seat` on the stage's chart (`home`: the song as played and the
+/// chart, planned once for every CPU of the stage, [`home`]) under
+/// `ruleset` (the match's, built from the stage's rules: nothing of a
+/// device's own), with its ladder where zero life steps down: what
+/// practice plays and what every device of an online room plays alike
+/// (not started yet). Refused, with the engine's reason, where the CPUs
+/// cannot play the chart.
 pub fn opponent(
-    song: &ddi_chart::Song,
-    chart: usize,
+    home: &PlannedRung,
     ruleset: &ddi_engine::rules::Ruleset,
     seat: &ddi_ui::state::room::CpuSeat,
-    ladder: &[ddi_engine::cpu::PlannedRung],
+    ladder: &[PlannedRung],
 ) -> Result<Opponent, String> {
     let mut rules = ruleset.fresh();
     rules.fail = ddi_engine::FailPolicy::Immediate;
@@ -54,9 +54,24 @@ pub fn opponent(
         .as_deref()
         .and_then(|v| ddi_engine::cpu::Skills::parse(v).ok())
         .unwrap_or_default();
-    let mut opponent = Opponent::with_skills(song, chart, rules, level, seat.seed, skills)?;
+    let mut opponent = Opponent::on_rung(home, rules, level, seat.seed, skills)?;
     opponent.add_rungs(ladder)?;
     Ok(opponent)
+}
+
+/// Chart `chart` of `song` (as played) planned for the stage's CPUs, made
+/// at the first of them (`home`: none yet), so that a stage without CPUs
+/// plans nothing. Refused, with the engine's reason, where the CPUs
+/// cannot plan the chart.
+pub fn home<'a>(
+    home: &'a mut Option<PlannedRung>,
+    song: &ddi_chart::Song,
+    chart: usize,
+) -> Result<&'a PlannedRung, String> {
+    match home {
+        Some(h) => Ok(h),
+        None => Ok(home.insert(PlannedRung::new(song, chart)?)),
+    }
 }
 
 /// A commitment against the CPU not put in yet.

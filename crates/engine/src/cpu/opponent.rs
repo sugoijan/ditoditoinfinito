@@ -25,7 +25,7 @@ use super::mines::{MINE_RESPONSE_V1, MineResponse, Purpose, draw};
 use super::*;
 use crate::battle::{Hazard, HazardError};
 use crate::player::Player;
-use crate::rules::{Ruleset, ScoreView};
+use crate::rules::{JudgeTable, Ruleset, ScoreView};
 
 /// Of a shock's window, how far a CPU's step on it lands from its middle,
 /// either way.
@@ -94,13 +94,11 @@ impl PlannedRung {
     pub fn with_play(song: &Song, chart: usize, play: CpuPlay) -> Result<PlannedRung, String> {
         let plan = Plan::automatic(song, chart)?;
         let projected = plan.check_song_for(song, chart, play)?;
-        let rung = Player::new(
-            &projected,
-            chart,
-            crate::rules::presets::ddi(),
-            crate::player::PlayOptions::default(),
-        );
-        let notes = tap_like(&rung);
+        // As a play judges them (seconds and judgeability are the
+        // timing's alone, whatever the table).
+        let c = &projected.charts[chart];
+        let judge = crate::Judge::new(&c.notes, c.timing(&projected), JudgeTable::DANCE);
+        let notes = tap_like(judge.notes());
         Ok(PlannedRung {
             chart,
             plan,
@@ -112,12 +110,10 @@ impl PlannedRung {
     }
 }
 
-/// The tap-like notes `player` judges, `(seconds, lane)` in time order
-/// (a tap-only copy's every note).
-fn tap_like(player: &Player) -> Vec<(f64, u8)> {
-    let mut notes: Vec<(f64, u8)> = player
-        .judge()
-        .notes()
+/// The tap-like notes of `judged` (a play's judge's), `(seconds, lane)`
+/// in time order (a tap-only copy's every note).
+fn tap_like(judged: &[crate::JudgedNote]) -> Vec<(f64, u8)> {
+    let mut notes: Vec<(f64, u8)> = judged
         .iter()
         .filter(|n| n.judgeable && n.seconds.is_finite() && n.note.kind.is_tap_like())
         .map(|n| (n.seconds, n.note.lane))
@@ -161,6 +157,8 @@ pub struct Opponent {
     /// The battle's shocks received so far (its response to them is made
     /// again on a new rung's presses).
     received: Vec<Hazard>,
+    /// The edges [`Opponent::advance`] feeds, kept between calls.
+    due: Vec<(f64, u8, bool)>,
 }
 
 impl Opponent {
@@ -207,7 +205,8 @@ impl Opponent {
         skills: Skills,
     ) -> Result<Opponent, String> {
         let at = scale.strength(level).ok_or("CPU level must be 0..9")?;
-        Self::at(
+        Self::planned(
+            &Plan::automatic(song, chart)?,
             song,
             chart,
             ruleset,
@@ -217,29 +216,42 @@ impl Opponent {
         )
     }
 
-    /// [`Opponent::with_skills`] at a strength of its own and an avoidance
-    /// (`0..=1`): the ten levels' ([`CPU_LEVELS_V1`], [`CPU_LEVELS_V0`],
-    /// [`MINE_RESPONSE_V0`]), or a study's candidates.
-    pub fn at(
-        song: &Song,
-        chart: usize,
+    /// [`Opponent::with_skills`] on the stage's chart planned once for
+    /// every CPU of the stage (`home`, [`PlannedRung::new`] of the same
+    /// song and chart): the same plan, presses and notes.
+    pub fn on_rung(
+        home: &PlannedRung,
         ruleset: Ruleset,
-        (level, avoidance): (impl Into<Strength>, f64),
+        level: usize,
         seed: u64,
         skills: Skills,
     ) -> Result<Opponent, String> {
-        Self::planned(
-            &Plan::automatic(song, chart)?,
-            song,
-            chart,
-            ruleset,
-            (level, avoidance),
+        let at = CPU_LEVELS.strength(level).ok_or("CPU level must be 0..9")?;
+        if CpuPlay::of(&at) != home.play {
+            return Err("A rung is played otherwise than its CPU".into());
+        }
+        let presses = home.plan.script_play(
+            at,
             seed,
             skills,
-        )
+            MINE_RESPONSE_V0.avoidance(level),
+            home.play,
+        )?;
+        Ok(Self::readied(
+            &home.projected,
+            home.chart,
+            ruleset,
+            (at, MINE_RESPONSE_V0.avoidance(level)),
+            seed,
+            skills,
+            home.play,
+            presses,
+        ))
     }
 
-    /// [`Opponent::at`] on a plan already made for the chart (a study
+    /// A strength of its own and an avoidance (`0..=1`: the ten levels',
+    /// [`CPU_LEVELS_V1`], [`CPU_LEVELS_V0`], [`MINE_RESPONSE_V0`], or a
+    /// study's candidates) on a plan already made for the chart (a study
     /// playing one chart many times).
     pub fn planned(
         plan: &Plan,
@@ -272,16 +284,41 @@ impl Opponent {
         let level: Strength = level.into();
         let projected = plan.check_song_for(song, chart, play)?;
         let presses = plan.script_play(level, seed, skills, avoidance, play)?;
+        Ok(Self::readied(
+            &projected,
+            chart,
+            ruleset,
+            (level, avoidance),
+            seed,
+            skills,
+            play,
+            presses,
+        ))
+    }
+
+    /// Its player readied on chart `chart` of `projected` (as it plays it)
+    /// with `presses`.
+    #[allow(clippy::too_many_arguments)]
+    fn readied(
+        projected: &Song,
+        chart: usize,
+        ruleset: Ruleset,
+        (level, avoidance): (Strength, f64),
+        seed: u64,
+        skills: Skills,
+        play: CpuPlay,
+        presses: Vec<Press>,
+    ) -> Opponent {
         let judge_offset = ruleset.judge.judge_offset;
         let mut player = Player::new(
-            &projected,
+            projected,
             chart,
             ruleset,
             crate::player::PlayOptions::default(),
         );
         player.set_autoplay(true);
-        let notes = tap_like(&player);
-        Ok(Opponent {
+        let notes = tap_like(player.judge().notes());
+        Opponent {
             play,
             player,
             presses,
@@ -299,7 +336,8 @@ impl Opponent {
             rungs: Vec::new(),
             home: None,
             received: Vec::new(),
-        })
+            due: Vec::new(),
+        }
     }
 
     /// Its ladder (`crate::ladder`, a match's "At zero life: Step
@@ -575,7 +613,7 @@ impl Opponent {
         if self.has_ladder() {
             return self.advance_on_ladder(t);
         }
-        let mut due = Vec::new();
+        let mut due = std::mem::take(&mut self.due);
         while let Some(p) = self
             .presses
             .get(self.next)
@@ -595,10 +633,12 @@ impl Opponent {
             }
         });
         due.sort_by(|a, b| a.0.total_cmp(&b.0));
-        for (at, lane, pressed) in due {
+        for &(at, lane, pressed) in &due {
             let events = self.player.input_at(lane, pressed, at - self.judge_offset);
             self.judged.extend(events);
         }
+        due.clear();
+        self.due = due;
         let events = self.player.update_at(t);
         self.judged.extend(events);
     }

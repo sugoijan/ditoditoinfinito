@@ -1335,11 +1335,13 @@ impl LivePlay {
             .as_ref()
             .filter(|_| order.battle.attacks())
             .map(|p| p.checkpoints_us.clone());
+        let mut home = None;
         let cpus = order
             .cpus
             .iter()
             .map(|seat| {
-                let mut opponent = crate::battle::cpus::opponent(song, chart, &ruleset, seat, &ladder)?;
+                let home = crate::battle::cpus::home(&mut home, song, chart)?;
+                let mut opponent = crate::battle::cpus::opponent(home, &ruleset, seat, &ladder)?;
                 let drive = crate::battle::cpus::Drive::new(
                     ddi_room::live::cpus::ONLINE_CPUS_V0,
                     seat.participant,

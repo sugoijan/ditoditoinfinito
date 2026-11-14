@@ -96,9 +96,10 @@ fn play(song: &ddi_chart::Song, chart: usize, rules: &StageRules, cpus: &[CpuSea
         Vec::new()
     };
     let o = ONLINE_CPUS_V0;
+    let home = PlannedRung::new(song, chart).expect("plans");
     let mut opps: Vec<Opponent> = cpus
         .iter()
-        .map(|c| opponent(song, chart, &ruleset, c, &ladder).expect("plans"))
+        .map(|c| opponent(&home, &ruleset, c, &ladder).expect("plans"))
         .collect();
     let mut drives: Vec<Drive> = cpus
         .iter()
@@ -340,7 +341,7 @@ fn a_report_s_digest_is_its_contents() {
     let (rules, cpus) = scenarios().remove(0);
     let ruleset = crate::battle::stage_ruleset(&rules);
     let plan = ddi_ui::state::battle_plan::plan(&song, 4, &rules, 9);
-    let mut opp = opponent(&song, 4, &ruleset, &cpus[0], &[]).unwrap();
+    let mut opp = opponent(&PlannedRung::new(&song, 4).unwrap(), &ruleset, &cpus[0], &[]).unwrap();
     let mut d = Drive::new(ONLINE_CPUS_V0, cpus[0].participant, Some(plan.checkpoints_us.clone()), &mut opp);
     // No checkpoint heard of: it waits at the first one's shocks' time.
     let gate = ONLINE_CPUS_V0.apply_at_us(plan.checkpoints_us[0]) - 1;
@@ -366,7 +367,7 @@ fn the_same_chart_in_two_stages_is_played_two_ways() {
     let presses = |number: u16| {
         let mut seat = cpus[0].clone();
         seat.seed = ddi_room::OpponentSpec::stage_seed(cpus[0].seed, number);
-        opponent(&song, 4, &ruleset, &seat, &[]).unwrap().presses().to_vec()
+        opponent(&PlannedRung::new(&song, 4).unwrap(), &ruleset, &seat, &[]).unwrap().presses().to_vec()
     };
     let (one, two) = (presses(1), presses(2));
     assert!(!one.is_empty());
@@ -402,7 +403,7 @@ fn what_computing_the_cpus_costs_a_frame() {
         let mut cpus: Vec<(Opponent, Drive)> = seats
             .iter()
             .map(|s| {
-                let mut o = opponent(&song, 4, &ruleset, s, &[]).unwrap();
+                let mut o = opponent(&PlannedRung::new(&song, 4).unwrap(), &ruleset, s, &[]).unwrap();
                 let mut d = Drive::new(ONLINE_CPUS_V0, s.participant, Some(plan.checkpoints_us.clone()), &mut o);
                 d.known(plan.checkpoints_us.len());
                 (o, d)

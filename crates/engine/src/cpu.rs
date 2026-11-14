@@ -19,7 +19,7 @@ mod opponent;
 mod personality;
 pub use absolute::{ABSOLUTE_V1, Ability, AbsoluteModel, RowDemand, loads};
 pub use automatic::{Automatic, Plan};
-pub use full::{CPU_PLAY, CpuPlay, FullPlan, HOLD_MODEL_V1, HoldModel, validate_full_script};
+pub use full::{CPU_PLAY, CpuPlay, FullPlan, HOLD_MODEL_V1, HoldModel};
 pub use levels::{
     AbilityTable, CPU_LEVELS, CPU_LEVELS_V0, CPU_LEVELS_V1, LEVELS, Level, LevelScale, LevelTable,
     Strength,
@@ -45,17 +45,41 @@ const OMITTED: f64 = 0.0001;
 
 /// Check bounded, legal, chronological physical presses before a session starts.
 pub fn validate_script(presses: &[Press]) -> Result<(), String> {
-    if presses.len() > MAX_AUTOMATIC_ROWS * 4 {
+    validate(presses, false)
+}
+
+/// Check a full play's presses: bounded, legal, in time order, every key
+/// held at least 12 ms, no two presses of one lane overlapping.
+pub fn validate_full_script(presses: &[Press]) -> Result<(), String> {
+    validate(presses, true)
+}
+
+/// Check a CPU's presses, whichever its play (a tap-only copy's keys,
+/// each held 12 ms, pass the full play's test too).
+pub fn validate_any_script(presses: &[Press]) -> Result<(), String> {
+    validate(presses, true)
+}
+
+/// A tap-only copy's presses (`full` false: each key held exactly 12 ms)
+/// or the chart's own (at least 12 ms, released within a day).
+fn validate(presses: &[Press], full: bool) -> Result<(), String> {
+    let most = if full { 64 } else { 4 };
+    if presses.len() > MAX_AUTOMATIC_ROWS * most {
         return Err("CPU script exceeds the note limit".into());
     }
     let mut last = f64::NEG_INFINITY;
     let mut released = [f64::NEG_INFINITY; 4];
     for p in presses {
+        let held = if full {
+            p.release.abs() > 86401. || p.release - p.press < 0.012 - 1e-8
+        } else {
+            (p.release - p.press - 0.012).abs() > 1e-8
+        };
         if p.lane >= 4
             || !p.press.is_finite()
             || !p.release.is_finite()
             || p.press.abs() > 86401.
-            || (p.release - p.press - 0.012).abs() > 1e-8
+            || held
             || p.press < last
             || p.press < released[p.lane as usize] + 0.0001 - 1e-9
         {
@@ -86,8 +110,9 @@ pub struct Profile {
     pub laws: Vec<Vec<Vec<f64>>>,
 }
 
-/// Same note projection as the research pipeline; source song stays intact.
-pub fn project(song: &Song, index: usize) -> Result<Song, String> {
+/// Chart `index` of `song`, where a CPU can play its layout (one player,
+/// four lanes).
+fn check_layout(song: &Song, index: usize) -> Result<&ddi_chart::Chart, String> {
     let chart = song.charts.get(index).ok_or("CPU chart missing")?;
     if !song
         .layout_of(chart)
@@ -95,6 +120,52 @@ pub fn project(song: &Song, index: usize) -> Result<Song, String> {
     {
         return Err("CPU supports single-player keyboard 4K charts only".into());
     }
+    Ok(chart)
+}
+
+/// Chart `index` of `song` judged as a CPU's plan reads it (its seconds
+/// and judgeability; ITG's table, which neither depends on).
+fn judge_for(song: &Song, index: usize) -> Judge {
+    let chart = &song.charts[index];
+    Judge::new(&chart.notes, chart.timing(song), presets::itg().judge)
+}
+
+/// A row of [`group_rows`]: its tick, the row and each lane's note.
+type Grouped<K> = (Tick, Row, [Option<K>; 4]);
+
+/// `notes`' judgeable ones grouped into rows by tick, in tick order: each
+/// row's mask and second, and what `accept` made of each lane's note
+/// (`Ok(None)`: not a row's; an error refuses the chart). Two notes of a
+/// lane at one row refuse it.
+fn group_rows<K: Copy>(
+    notes: &[JudgedNote],
+    mut accept: impl FnMut(&JudgedNote) -> Result<Option<K>, String>,
+) -> Result<Vec<Grouped<K>>, String> {
+    let mut by_tick: BTreeMap<Tick, (Row, [Option<K>; 4])> = BTreeMap::new();
+    for n in notes.iter().filter(|n| n.judgeable) {
+        let Some(kind) = accept(n)? else {
+            continue;
+        };
+        let row = by_tick.entry(n.note.tick).or_insert((
+            Row {
+                seconds: n.seconds,
+                mask: 0,
+            },
+            [None; 4],
+        ));
+        let bit = 1 << n.note.lane;
+        if row.0.mask & bit != 0 {
+            return Err("Duplicate CPU lane at one row".into());
+        }
+        row.0.mask |= bit;
+        row.1[usize::from(n.note.lane)] = Some(kind);
+    }
+    Ok(by_tick.into_iter().map(|(t, (r, k))| (t, r, k)).collect())
+}
+
+/// Same note projection as the research pipeline; source song stays intact.
+pub fn project(song: &Song, index: usize) -> Result<Song, String> {
+    check_layout(song, index)?;
     let mut song = song.clone();
     song.charts[index].notes.retain_mut(|n| match n.kind {
         NoteKind::Tap | NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } => {
@@ -107,22 +178,15 @@ pub fn project(song: &Song, index: usize) -> Result<Song, String> {
 }
 
 pub fn rows(notes: &[JudgedNote]) -> Result<Vec<Row>, String> {
-    let mut rows: BTreeMap<Tick, Row> = BTreeMap::new();
-    for n in notes.iter().filter(|n| n.judgeable) {
+    let rows: Vec<Row> = group_rows(notes, |n| {
         if n.note.kind != NoteKind::Tap || n.note.lane >= 4 || !n.seconds.is_finite() {
             return Err("CPU expects finite tap-only 4K notes".into());
         }
-        let r = rows.entry(n.note.tick).or_insert(Row {
-            seconds: n.seconds,
-            mask: 0,
-        });
-        let bit = 1 << n.note.lane;
-        if r.mask & bit != 0 {
-            return Err("Duplicate CPU lane at one row".into());
-        }
-        r.mask |= bit;
-    }
-    let rows: Vec<_> = rows.into_values().collect();
+        Ok(Some(()))
+    })?
+    .into_iter()
+    .map(|(_, r, _)| r)
+    .collect();
     if !(32..=MAX_ROWS).contains(&rows.len())
         || rows.windows(2).any(|r| r[0].seconds >= r[1].seconds)
     {
@@ -179,9 +243,7 @@ impl Profile {
             return Err("CPU profile belongs to a different chart; prepare it again".into());
         }
         let projected = project(song, index)?;
-        let chart = &projected.charts[index];
-        let judge = Judge::new(&chart.notes, chart.timing(&projected), presets::itg().judge);
-        let actual = rows(judge.notes())?;
+        let actual = rows(judge_for(&projected, index).notes())?;
         if actual.len() != self.rows.len()
             || actual
                 .iter()
@@ -340,12 +402,6 @@ pub fn solo_play(plan: &Plan, absolute: Option<usize>) -> CpuPlay {
         (Plan::Automatic(_), Some(_)) => CPU_PLAY,
         _ => CpuPlay::TapsV0,
     }
-}
-
-/// Check a CPU's presses, whichever its play ([`validate_script`] for a
-/// tap-only copy's, [`validate_full_script`] for the chart's own).
-pub fn validate_any_script(presses: &[Press]) -> Result<(), String> {
-    validate_script(presses).or_else(|_| validate_full_script(presses))
 }
 
 /// A web play's explicit, non-sticky CPU selection. `1` prepares an analytical

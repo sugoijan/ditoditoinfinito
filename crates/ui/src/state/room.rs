@@ -440,7 +440,15 @@ pub fn check_chart(
         .strength(DEFAULT_CPU_LEVEL.into())
         .ok_or(LoadProblem::CpuCannotPlay)?;
     plan.check_song(song, chart)
-        .and_then(|_| plan.script_strength(level, 0, ddi_engine::cpu::Skills::default()))
+        .and_then(|_| {
+            plan.script_play(
+                level,
+                0,
+                ddi_engine::cpu::Skills::default(),
+                0.0,
+                ddi_engine::cpu::CpuPlay::TapsV0,
+            )
+        })
         .map(|_| ())
         .map_err(|e| {
             log(&e);

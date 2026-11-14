@@ -2,7 +2,7 @@ use super::*;
 use crate::cpu::{LEVELS, Opponent, Plan, loads};
 use crate::rules::ddi::{self, DdiOptions};
 use crate::rules::{FailPolicy, Ruleset, Tally};
-use ddi_chart::{Note, TimingMap};
+use ddi_chart::{Note, Tick, TimingMap};
 
 const BEAT: i64 = 48;
 

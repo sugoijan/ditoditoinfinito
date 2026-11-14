@@ -666,12 +666,14 @@ impl Battle {
         // (`cpus::Drive`, made with the stage's plan in `with_live`), from
         // one song time, under the match's rules alone.
         let online = setup.live.is_some();
+        let mut home = None;
         let seats = setup
             .cpus
             .iter()
             .map(|seat| {
                 let level = usize::from(seat.level).min(levels - 1);
-                let mut opponent = cpus::opponent(song, chart, ruleset, seat, ladder)?;
+                let home = cpus::home(&mut home, song, chart)?;
+                let mut opponent = cpus::opponent(home, ruleset, seat, ladder)?;
                 if !online {
                     opponent.start(song_offset);
                 }

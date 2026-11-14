@@ -32,7 +32,8 @@ impl Plan {
         }
     }
 
-    pub fn script(&self, level: usize, seed: u64) -> Result<Vec<Press>, String> {
+    #[cfg(test)]
+    pub(crate) fn script(&self, level: usize, seed: u64) -> Result<Vec<Press>, String> {
         self.script_with_skills(level, seed, Skills::default())
     }
 
@@ -55,7 +56,12 @@ impl Plan {
     /// [`Plan::script_with_skills`] plans it, a weaker level by the
     /// analytical plan with its lapses (never a prepared profile, which
     /// has the five frozen laws alone).
-    pub fn script_at(&self, level: Level, seed: u64, skills: Skills) -> Result<Vec<Press>, String> {
+    pub(crate) fn script_at(
+        &self,
+        level: Level,
+        seed: u64,
+        skills: Skills,
+    ) -> Result<Vec<Press>, String> {
         if let Some(index) = level.frozen() {
             return self.script_with_skills(index, seed, skills);
         }
@@ -71,7 +77,7 @@ impl Plan {
     /// The presses of a play at `strength`: a relative level as
     /// [`Plan::script_at`] plans it, an absolute one by its abilities
     /// (`super::absolute`; never a prepared profile).
-    pub fn script_strength(
+    pub(crate) fn script_strength(
         &self,
         strength: Strength,
         seed: u64,
@@ -171,15 +177,13 @@ impl Plan {
 
 /// Rows, frequencies and seven causal demands per event, plus six small laws. No
 /// per-chart model, Python, teacher, network call, or dense rows×strengths×bins.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Automatic {
     digest: ChartDigest,
     rows: Vec<Row>,
-    frequency: Vec<f64>,
-    good: [f64; 91],
-    bad: [[f64; 91]; 5],
-    width: f64,
-    demand: Vec<[f64; 7]>,
+    /// The chart-relative laws (`cpu-levels-v0`), made from `rows` the
+    /// first time a relative script asks for them.
+    relative: std::sync::OnceLock<Relative>,
     /// Each row's demand in real units (`cpu-levels-v1`).
     absolute: Vec<RowDemand>,
     /// The chart itself as a CPU plays it (`cpu-play-v1`, `super::full`);
@@ -187,48 +191,30 @@ pub struct Automatic {
     full: Option<Box<FullPlan>>,
 }
 
-fn chart_rows(song: &Song, index: usize) -> Result<Vec<Row>, String> {
-    let chart = &song.charts[index];
-    if chart.notes.len() > MAX_AUTOMATIC_ROWS * 4 {
-        return Err("CPU chart exceeds the note limit".into());
+/// Two plans of one chart are equal: the relative laws are a function of
+/// the rows, made or not.
+impl PartialEq for Automatic {
+    fn eq(&self, other: &Self) -> bool {
+        self.digest == other.digest
+            && self.rows == other.rows
+            && self.absolute == other.absolute
+            && self.full == other.full
     }
-    let judge = Judge::new(&chart.notes, chart.timing(song), presets::itg().judge);
-    let mut by_tick: BTreeMap<Tick, Row> = BTreeMap::new();
-    for n in judge.notes().iter().filter(|n| n.judgeable) {
-        if n.note.kind != NoteKind::Tap
-            || n.note.lane >= 4
-            || !n.seconds.is_finite()
-            || n.seconds.abs() > 86400.
-        {
-            return Err("CPU expects finite tap-only 4K notes within one day".into());
-        }
-        let row = by_tick.entry(n.note.tick).or_insert(Row {
-            seconds: n.seconds,
-            mask: 0,
-        });
-        let bit = 1 << n.note.lane;
-        if row.mask & bit != 0 {
-            return Err("Duplicate CPU lane at one row".into());
-        }
-        row.mask |= bit;
-    }
-    if by_tick.is_empty() || by_tick.len() > MAX_AUTOMATIC_ROWS {
-        return Err(format!(
-            "CPU needs 1–{MAX_AUTOMATIC_ROWS} playable tap rows"
-        ));
-    }
-    let mut rows: Vec<_> = by_tick.into_values().collect();
-    // Playback follows judged seconds, including simultaneous rows after warps
-    // or source-specific timing; it need not follow increasing beat numbers.
-    rows.sort_by(|a, b| a.seconds.total_cmp(&b.seconds));
-    Ok(rows)
 }
 
-impl Automatic {
-    fn new(song: &Song, index: usize) -> Result<Self, String> {
-        let projected = project(song, index)?;
-        let rows = chart_rows(&projected, index)?;
-        let frequency = frequencies(&rows);
+/// The chart-relative laws of a plan's rows (`cpu-levels-v0`).
+#[derive(Clone, Debug)]
+struct Relative {
+    frequency: Vec<f64>,
+    good: [f64; 91],
+    bad: [[f64; 91]; 5],
+    width: f64,
+    demand: Vec<[f64; 7]>,
+}
+
+impl Relative {
+    fn new(rows: &[Row]) -> Relative {
+        let frequency = frequencies(rows);
         let count: u32 = rows.iter().map(|r| r.mask.count_ones()).sum();
         let mean = rows
             .iter()
@@ -258,31 +244,71 @@ impl Automatic {
         }
         let width = (lo + hi) * 0.5;
         let bad = STRENGTHS.map(|s| gaussian((width / s).clamp(9., 80.)));
-        let demand = personality::demands(&rows);
+        Relative {
+            frequency,
+            good,
+            bad,
+            width,
+            demand: personality::demands(rows),
+        }
+    }
+}
+
+fn chart_rows(song: &Song, index: usize) -> Result<Vec<Row>, String> {
+    if song.charts[index].notes.len() > MAX_AUTOMATIC_ROWS * 4 {
+        return Err("CPU chart exceeds the note limit".into());
+    }
+    let rows = group_rows(judge_for(song, index).notes(), |n| {
+        if n.note.kind != NoteKind::Tap
+            || n.note.lane >= 4
+            || !n.seconds.is_finite()
+            || n.seconds.abs() > 86400.
+        {
+            return Err("CPU expects finite tap-only 4K notes within one day".into());
+        }
+        Ok(Some(()))
+    })?;
+    if rows.is_empty() || rows.len() > MAX_AUTOMATIC_ROWS {
+        return Err(format!(
+            "CPU needs 1–{MAX_AUTOMATIC_ROWS} playable tap rows"
+        ));
+    }
+    let mut rows: Vec<Row> = rows.into_iter().map(|(_, r, _)| r).collect();
+    // Playback follows judged seconds, including simultaneous rows after warps
+    // or source-specific timing; it need not follow increasing beat numbers.
+    rows.sort_by(|a, b| a.seconds.total_cmp(&b.seconds));
+    Ok(rows)
+}
+
+impl Automatic {
+    fn new(song: &Song, index: usize) -> Result<Self, String> {
+        let projected = project(song, index)?;
+        let rows = chart_rows(&projected, index)?;
         let absolute = absolute::row_demands(&rows, &absolute::ABSOLUTE_V1);
         let full = FullPlan::new(song, index).ok().map(Box::new);
         Ok(Self {
             digest: song.chart_digest(index),
             rows,
-            frequency,
-            good,
-            bad,
-            width,
-            demand,
+            relative: std::sync::OnceLock::new(),
             absolute,
             full,
         })
     }
 
+    fn relative(&self) -> &Relative {
+        self.relative.get_or_init(|| Relative::new(&self.rows))
+    }
+
     fn script(&self, level: usize, seed: u64) -> Result<Vec<Press>, String> {
-        let bad = self.bad.get(level).ok_or("CPU strength must be 0..4")?;
+        let r = self.relative();
+        let bad = r.bad.get(level).ok_or("CPU strength must be 0..4")?;
         let scale = STRENGTHS[level].powi(-2);
         motor(&self.rows, seed, |i, u| {
             if u[2] < OMITTED {
                 return None;
             }
-            let f = (self.frequency[i] * scale).min(1.);
-            let q = mixture(&self.good, bad, f);
+            let f = (r.frequency[i] * scale).min(1.);
+            let q = mixture(&r.good, bad, f);
             Some(offset(&basis::EDGES, &q, u[0], u[1]))
         })
     }
@@ -290,16 +316,17 @@ impl Automatic {
     /// Row `row`'s law at `strength` bent by its skills (`logs`), and the
     /// bend: its skills' share of its ability there.
     fn skill_law(&self, row: usize, strength: f64, logs: &[f64; 7]) -> ([f64; 91], f64) {
-        let bend = self.demand[row]
+        let r = self.relative();
+        let bend = r.demand[row]
             .iter()
             .zip(logs)
             .map(|(d, s)| d * s)
             .sum::<f64>()
             .exp();
         let ability = strength * bend;
-        let frequency = (self.frequency[row] / ability.powi(2)).min(1.);
-        let bad = gaussian((self.width / ability).clamp(9., 80.));
-        (mixture(&self.good, &bad, frequency), bend)
+        let frequency = (r.frequency[row] / ability.powi(2)).min(1.);
+        let bad = gaussian((r.width / ability).clamp(9., 80.));
+        (mixture(&r.good, &bad, frequency), bend)
     }
 
     /// A frozen strength with skills: [`Automatic::script_at`] without a
@@ -340,7 +367,8 @@ impl Automatic {
                 let bend;
                 (q, bend) = self.skill_law(i, level.strength, &logs);
                 omit = OMITTED
-                    + level.lapse * (self.frequency[i] / bend.powi(2)).min(1.) * (1. - OMITTED);
+                    + level.lapse * (self.relative().frequency[i] / bend.powi(2)).min(1.)
+                        * (1. - OMITTED);
                 current = Some(i);
             }
             (u[2] >= omit).then(|| offset(&basis::EDGES, &q, u[0], u[1]))

@@ -57,9 +57,11 @@
 
 use super::absolute::{ABSOLUTE_V1, Ability, RowDemand, law, respond, row_demands};
 use super::mines::{MINE_RESPONSE_V1, MineResponse, Purpose, draw};
-use super::{MAX_AUTOMATIC_ROWS, OMITTED, Press, Random, Row, Skills, basis, offset};
-use crate::{Judge, presets};
-use ddi_chart::{NoteKind, Song, Tick};
+use super::{
+    MAX_AUTOMATIC_ROWS, OMITTED, Press, Random, Row, Skills, basis, check_layout, group_rows,
+    judge_for, offset, validate_full_script,
+};
+use ddi_chart::{NoteKind, Song};
 use std::collections::BTreeMap;
 
 /// What a CPU plays of a chart.
@@ -193,20 +195,12 @@ impl FullPlan {
     /// CPU cannot play it (not one-player four lanes, no tap-like notes,
     /// over the limits).
     pub fn new(song: &Song, index: usize) -> Result<FullPlan, String> {
-        let chart = song.charts.get(index).ok_or("CPU chart missing")?;
-        if !song
-            .layout_of(chart)
-            .is_some_and(|layout| layout.players == 1 && layout.lanes.len() == 4)
-        {
-            return Err("CPU supports single-player keyboard 4K charts only".into());
-        }
+        let chart = check_layout(song, index)?;
         if chart.notes.len() > MAX_AUTOMATIC_ROWS * 4 {
             return Err("CPU chart exceeds the note limit".into());
         }
-        let judge = Judge::new(&chart.notes, chart.timing(song), presets::itg().judge);
-        let mut by_tick: BTreeMap<Tick, (Row, [Option<Kind>; 4])> = BTreeMap::new();
         let mut mines = Vec::new();
-        for n in judge.notes().iter().filter(|n| n.judgeable) {
+        let mut rows = group_rows(judge_for(song, index).notes(), |n| {
             let kind = match n.note.kind {
                 NoteKind::Tap => Kind::Tap,
                 NoteKind::HoldHead { .. } => Kind::Hold {
@@ -224,9 +218,9 @@ impl FullPlan {
                             tick: n.note.tick.0,
                         });
                     }
-                    continue;
+                    return Ok(None);
                 }
-                _ => continue,
+                _ => return Ok(None),
             };
             if n.note.lane >= 4
                 || !n.seconds.is_finite()
@@ -235,27 +229,13 @@ impl FullPlan {
             {
                 return Err("CPU expects finite 4K notes within one day".into());
             }
-            let row = by_tick.entry(n.note.tick).or_insert((
-                Row {
-                    seconds: n.seconds,
-                    mask: 0,
-                },
-                [None; 4],
-            ));
-            let bit = 1 << n.note.lane;
-            if row.0.mask & bit != 0 {
-                return Err("Duplicate CPU lane at one row".into());
-            }
-            row.0.mask |= bit;
-            row.1[usize::from(n.note.lane)] = Some(kind);
-        }
-        if by_tick.is_empty() || by_tick.len() > MAX_AUTOMATIC_ROWS {
+            Ok(Some(kind))
+        })?;
+        if rows.is_empty() || rows.len() > MAX_AUTOMATIC_ROWS {
             return Err(format!(
                 "CPU needs 1–{MAX_AUTOMATIC_ROWS} playable tap rows"
             ));
         }
-        let mut rows: Vec<(Tick, Row, [Option<Kind>; 4])> =
-            by_tick.into_iter().map(|(t, (r, k))| (t, r, k)).collect();
         // Judged seconds, as the tap-only copy's rows are ordered.
         rows.sort_by(|a, b| a.1.seconds.total_cmp(&b.1.seconds));
         let mut notes = Vec::new();
@@ -327,32 +307,6 @@ impl FullPlan {
             .count();
         (holds, rolls, self.mines.len())
     }
-}
-
-/// Check a full play's presses: bounded, legal, in time order, every key
-/// held at least 12 ms, no two presses of one lane overlapping.
-pub fn validate_full_script(presses: &[Press]) -> Result<(), String> {
-    if presses.len() > MAX_AUTOMATIC_ROWS * 64 {
-        return Err("CPU script exceeds the note limit".into());
-    }
-    let mut last = f64::NEG_INFINITY;
-    let mut released = [f64::NEG_INFINITY; 4];
-    for p in presses {
-        if p.lane >= 4
-            || !p.press.is_finite()
-            || !p.release.is_finite()
-            || p.press.abs() > 86401.
-            || p.release.abs() > 86401.
-            || p.release - p.press < 0.012 - 1e-8
-            || p.press < last
-            || p.press < released[p.lane as usize] + 0.0001 - 1e-9
-        {
-            return Err("Invalid or overlapping CPU key events".into());
-        }
-        last = p.press;
-        released[p.lane as usize] = p.release;
-    }
-    Ok(())
 }
 
 /// What one row is to the CPU: its timing law's key, its lapse and its
