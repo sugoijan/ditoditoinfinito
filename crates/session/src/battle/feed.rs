@@ -45,7 +45,8 @@ use ddi_engine::frame::{
     Frame, HoldJudgements, HoldKind, NoteSprite, ReceptorState, SpriteKind,
 };
 use ddi_engine::frame::JudgementFlash;
-use ddi_engine::rules::{Judgement, ScoreView};
+use ddi_engine::judge::{JudgeEvent, JudgeEventKind};
+use ddi_engine::rules::{JudgeTable, Judgement, ScoreView};
 use ddi_engine::scroll::{ScrollOptions, ScrollState};
 
 /// A local opponent's presentation delay: none (its moments are judged
@@ -114,6 +115,51 @@ pub struct Moment {
     pub offset: f32,
     pub w0: Option<bool>,
     pub score: ScoreView,
+}
+
+impl Moment {
+    /// A play's judge event `e` as a moment of its field, judged by
+    /// `judge` (none: nothing a field shows): a tap with its early or
+    /// late and inner window, a hold's or roll's end, a battle shock or a
+    /// mine of the chart stepped on, a Boo; with the player's `life`,
+    /// `combo`, whether it was `out` and their `score` then. The local
+    /// player's own field's and a CPU's alike.
+    pub fn judged(
+        e: &JudgeEvent,
+        judge: &JudgeTable,
+        (life, combo, out): (f32, u32, bool),
+        score: ScoreView,
+    ) -> Option<Moment> {
+        let kind = match e.kind {
+            JudgeEventKind::Tap(j, _) => MomentKind::Tap(j),
+            JudgeEventKind::Held => MomentKind::HoldEnd(true),
+            JudgeEventKind::LetGo => MomentKind::HoldEnd(false),
+            JudgeEventKind::HitMine if e.note_index.is_some_and(|n| n >= HAZARD_INDEX_BASE) => {
+                MomentKind::ShockHit
+            }
+            JudgeEventKind::HitMine => MomentKind::MineHit,
+            // A stray press that counted (kept for what the judge may
+            // say).
+            JudgeEventKind::Boo => MomentKind::Boo,
+            _ => return None,
+        };
+        let (offset, w0) = match e.kind {
+            JudgeEventKind::Tap(j, delta) if !j.is_miss() => (delta as f32, judge.is_w0(j, delta)),
+            _ => (0.0, None),
+        };
+        Some(Moment {
+            at: e.song_time,
+            tick: e.tick,
+            lane: e.lane,
+            kind,
+            life,
+            combo,
+            out,
+            offset,
+            w0,
+            score,
+        })
+    }
 }
 
 /// What a note of the track is drawn as.

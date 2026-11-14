@@ -28,7 +28,7 @@ use ddi_engine::judge::{JudgeEvent, JudgeEventKind};
 use ddi_engine::player::Player;
 use ddi_engine::rules::{Judgement, ScoreView};
 use ddi_room::attacks::{
-    ATTACKS, Attack, AttackEvent, AttackState, BlockReason, CheckpointRecord, Judged, LEAD_V0,
+    ATTACKS, Attack, AttackEvent, AttackState, BlockReason, CheckpointRecord, LEAD_V0,
     Reporter, Settling, Targeting,
 };
 use ddi_room::live::plan::BattlePlan;
@@ -42,7 +42,7 @@ use std::cell::RefCell;
 use ddi_ui::state::room::LiveRoom;
 
 use super::feed;
-use super::attacks::micros;
+use super::attacks::{hazards, hazards_of, judged_taps, life_ppm, micros};
 
 /// What a play of a live stage needs of its shell: the room's client (its
 /// socket carries the stream; a member's `SharedRoom`, or an audience
@@ -147,8 +147,7 @@ pub(crate) struct RemoteSeat {
     pub feed: feed::FieldFeed,
     pub through_us: Option<i64>,
     pub end: Option<StreamEnd>,
-    pub life: f32,
-    pub combo: u32,
+    /// Its score as its stream last told it (DDI's sum).
     pub score: i64,
     /// The W0s its stream told so far (its taps' `w0`): with the sum and
     /// the chart's most, what its percent is worked out from
@@ -465,13 +464,9 @@ pub fn ddi_of_sum(sum: i64, w0s: u32, most: Option<i64>) -> Option<ddi_engine::r
     Some(ddi_engine::rules::ddi::DdiScoreView::of(points, most, w0s))
 }
 
-/// A remote moment as its field takes it (`ddi`: its score's view as
-/// worked out from the sum, where it can be).
-fn feed_moment(
-    m: &Moment,
-    out: bool,
-    ddi: Option<ddi_engine::rules::ddi::DdiScoreView>,
-) -> feed::Moment {
+/// A remote moment as its field takes it (`score`: its score's view,
+/// [`seat_view`]).
+fn feed_moment(m: &Moment, out: bool, score: ScoreView) -> feed::Moment {
     let kind = match m.kind {
         MomentKind::Tap { tier, .. } => {
             feed::MomentKind::Tap(Judgement::from_index(tier.into()).unwrap_or(Judgement::Miss))
@@ -497,13 +492,20 @@ fn feed_moment(
         out,
         offset,
         w0,
-        score: match ddi {
-            Some(d) => ScoreView {
-                ddi: Some(d),
-                ..ScoreView::default()
-            },
-            None => sum_view(m.score),
+        score,
+    }
+}
+
+/// A remote competitor's score view from its stream's `sum`, its W0s
+/// and the chart's `most`: worked out from the sum where it can be
+/// ([`ddi_of_sum`]), else the sum alone ([`sum_view`]).
+fn seat_view(sum: i64, w0s: u32, most: Option<i64>) -> ScoreView {
+    match ddi_of_sum(sum, w0s, most) {
+        Some(d) => ScoreView {
+            ddi: Some(d),
+            ..ScoreView::default()
         },
+        None => sum_view(sum),
     }
 }
 
@@ -555,8 +557,6 @@ impl Live {
                     feed,
                     through_us: None,
                     end: None,
-                    life: 1.0,
-                    combo: 0,
                     score: 0,
                     w0s: 0,
                     shift_us: 0,
@@ -810,7 +810,7 @@ impl Live {
             return;
         }
         let judge = &human.ruleset().judge;
-        let life = (f64::from(human.ruleset().gauge.life().clamp(0.0, 1.0)) * 1e6).round() as u32;
+        let life = life_ppm(human.ruleset().gauge.life());
         // Its sum as earned, whatever charts it stepped to (as the room
         // compares it under adaptive charts).
         let score = score_of(human);
@@ -827,8 +827,7 @@ impl Live {
                 tick: st.tick.0,
                 lane: 0,
                 kind: MomentKind::Step { rung: st.rung },
-                life_ppm: (f64::from(human.life_at(st.at + 1e-6).clamp(0.0, 1.0)) * 1e6).round()
-                    as u32,
+                life_ppm: life_ppm(human.life_at(st.at + 1e-6)),
                 combo,
                 score,
             })
@@ -856,13 +855,8 @@ impl Live {
         let t_us = micros(t);
         let mut reports = Vec::new();
         if let Some(r) = self.reporter.as_mut() {
-            for e in judged {
-                if let JudgeEventKind::Tap(j, _) = e.kind {
-                    r.judged(Judged {
-                        at_us: micros(e.song_time),
-                        tier: j.index() as u8,
-                    });
-                }
+            for j in judged_taps(judged) {
+                r.judged(j);
             }
             for (at, targeting) in self.retargets.drain(..) {
                 r.retarget(at, targeting);
@@ -870,9 +864,7 @@ impl Live {
             if let Some(at) = human.gauge_failed_at() {
                 r.out_at(micros(at));
             }
-            let life_at = |us: i64| {
-                (f64::from(human.life_at(us as f64 / 1e6).clamp(0.0, 1.0)) * 1e6).round() as u32
-            };
+            let life_at = |us: i64| life_ppm(human.life_at(us as f64 / 1e6));
             reports = r.due(t_us, &life_at);
         }
         let mut room = self.handle.room.borrow_mut();
@@ -935,8 +927,6 @@ impl Live {
                     for c in &s.competitors {
                         if let Some(seat) = self.seats.iter_mut().find(|x| x.participant == c.participant) {
                             seat.through_us = Some(c.through_us);
-                            seat.life = c.life_ppm as f32 / 1e6;
-                            seat.combo = c.combo;
                             seat.score = c.score;
                             if seat.end.is_none() && c.end.is_some() {
                                 seat.end = c.end;
@@ -1015,20 +1005,10 @@ impl Live {
                 if let MomentKind::Refused { attack } = m.kind {
                     // The views take its shocks off that field.
                     if let Some(a) = self.ledger.attacks.iter().find(|a| a.id == attack) {
-                        let cells: Vec<Hazard> = a
-                            .cells
-                            .iter()
-                            .map(|c| Hazard {
-                                tick: Tick(c.tick),
-                                lane: c.lane,
-                            })
-                            .collect();
-                        seat.feed.remove_hazards(&cells);
+                        seat.feed.remove_hazards(&hazards(a));
                     }
                     continue;
                 }
-                seat.life = m.life_ppm as f32 / 1e6;
-                seat.combo = m.combo;
                 seat.score = m.score;
                 if let MomentKind::Tap { w0: true, .. } = m.kind {
                     seat.w0s += 1;
@@ -1041,8 +1021,7 @@ impl Live {
                         i64::from(m.at_ms) * 1_000 - i64::from(offset_ms) * 1_000 - note_us,
                     );
                 }
-                let ddi = ddi_of_sum(m.score, seat.w0s, self.most);
-                let mut fm = feed_moment(m, false, ddi);
+                let mut fm = feed_moment(m, false, seat_view(m.score, seat.w0s, self.most));
                 // Back on its own song clock, where its notes are.
                 fm.at -= seat.shift_us as f64 / 1e6;
                 // A step: its field draws the rung's chart from the
@@ -1079,7 +1058,6 @@ impl Live {
                     _ => Some(seat.through_us.unwrap_or(0)),
                 };
                 if let Some(at_us) = at {
-                    seat.life = 0.0;
                     seat.feed.push(
                         track,
                         feed::Moment {
@@ -1092,13 +1070,7 @@ impl Live {
                         out: true,
                         offset: 0.0,
                         w0: None,
-                        score: match ddi_of_sum(seat.score, seat.w0s, self.most) {
-                            Some(d) => ScoreView {
-                                ddi: Some(d),
-                                ..ScoreView::default()
-                            },
-                            None => sum_view(seat.score),
-                        },
+                        score: seat_view(seat.score, seat.w0s, self.most),
                         },
                     );
                     got.outs.push(seat.participant);
@@ -1147,14 +1119,7 @@ impl Live {
             .get(c.checkpoint as usize)
             .copied()
             .unwrap_or(0);
-        let hazards: Vec<Hazard> = section
-            .cells
-            .iter()
-            .map(|x| Hazard {
-                tick: Tick(x.tick),
-                lane: x.lane,
-            })
-            .collect();
+        let hazards = hazards_of(&section.cells);
         let first_us = section.cells.first().map_or(section.clear_us, |x| x.at_us);
         self.ledger.attacks.push(Attack {
             id: c.attack,

@@ -140,14 +140,38 @@ pub fn schedule(song: &Song, chart: usize, judge: &JudgeTable, seed: u64) -> Sch
 
 /// An attack's shocks as a play takes them.
 pub fn hazards(attack: &Attack) -> Vec<ddi_engine::battle::Hazard> {
-    attack
-        .cells
+    hazards_of(&attack.cells)
+}
+
+/// A section's shocks (its cells) as a play takes them.
+pub fn hazards_of(cells: &[ddi_room::attacks::Cell]) -> Vec<ddi_engine::battle::Hazard> {
+    cells
         .iter()
         .map(|c| ddi_engine::battle::Hazard {
             tick: Tick(c.tick),
             lane: c.lane,
         })
         .collect()
+}
+
+/// The taps among a play's judge events as the ledger takes them: each
+/// note's timing (holds, mines and stray presses earn nothing; a battle
+/// shock's events, never a tap, carry no timing). Practice's, an online
+/// CPU's and a person's stream's alike.
+pub(crate) fn judged_taps(events: &[JudgeEvent]) -> impl Iterator<Item = Judged> + '_ {
+    events.iter().filter_map(|e| match e.kind {
+        JudgeEventKind::Tap(j, _) => Some(Judged {
+            at_us: micros(e.song_time),
+            tier: j.index() as u8,
+        }),
+        _ => None,
+    })
+}
+
+/// A life (`0..=1`, clamped) in millionths, as the ledger's reports and a
+/// stream's moments carry it.
+pub(crate) fn life_ppm(life: f32) -> u32 {
+    (f64::from(life.clamp(0.0, 1.0)) * 1e6).round() as u32
 }
 
 impl AttackRunner {
@@ -202,16 +226,7 @@ impl AttackRunner {
         let Some(pending) = self.pending.get_mut(&participant) else {
             return;
         };
-        for e in events {
-            // A tap of the chart (a battle shock's events, never one,
-            // carry no timing).
-            if let JudgeEventKind::Tap(j, _) = e.kind {
-                pending.push(Judged {
-                    at_us: micros(e.song_time),
-                    tier: j.index() as u8,
-                });
-            }
-        }
+        pending.extend(judged_taps(events));
     }
 
     /// `participant` went out at judged song second `at`.

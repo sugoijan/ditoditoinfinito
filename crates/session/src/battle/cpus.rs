@@ -24,13 +24,12 @@
 use ddi_engine::battle::Hazard;
 use ddi_engine::cpu::{Opponent, PlannedRung};
 use ddi_engine::judge::JudgeEvent;
-use ddi_engine::JudgeEventKind;
-use ddi_room::attacks::{Judged, Reporter};
+use ddi_room::attacks::Reporter;
 use ddi_room::live::cpus::OnlineCpuRules;
 use ddi_room::live::stream::{LiveReport, StreamEnd};
 use ddi_room::ParticipantId;
 
-use super::attacks::micros;
+use super::attacks::{judged_taps, life_ppm, micros};
 
 /// CPU `seat` on the stage's chart (`home`: the song as played and the
 /// chart, planned once for every CPU of the stage, [`home`]) under
@@ -239,21 +238,14 @@ impl Drive {
     fn report(&mut self, opponent: &Opponent, judged: &[JudgeEvent], g: i64) {
         let out = opponent.out_at();
         if let Some(r) = self.reporter.as_mut() {
-            for e in judged {
-                if let JudgeEventKind::Tap(j, _) = e.kind {
-                    r.judged(Judged {
-                        at_us: micros(e.song_time),
-                        tier: j.index() as u8,
-                    });
-                }
+            for j in judged_taps(judged) {
+                r.judged(j);
             }
             if let Some(at) = out.filter(|_| !self.plays_on) {
                 r.out_at(micros(at));
             }
             let player = opponent.player();
-            let life_at = |us: i64| {
-                (f64::from(player.life_at(us as f64 / 1e6).clamp(0.0, 1.0)) * 1e6).round() as u32
-            };
+            let life_at = |us: i64| life_ppm(player.life_at(us as f64 / 1e6));
             for (k, rep) in r.due(g, &life_at) {
                 self.reports.push(LiveReport::from_report(k, rep));
             }
