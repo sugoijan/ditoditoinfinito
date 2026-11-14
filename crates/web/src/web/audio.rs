@@ -341,7 +341,7 @@ impl WebAudio {
         let base_ms = (self.base_latency() * 1000.0).round() as u32;
         let out_ms = (self.output_latency() * 1000.0 / 5.0).round() as u32 * 5;
         ddi_platform::DeviceFingerprint::new(
-            format!("audio:{rate}:{base_ms}:{out_ms}"),
+            ddi_platform::devices::web_audio_id(rate, base_ms, out_ms),
             ddi_platform::DeviceFacts::Audio {
                 name: None,
                 rate,

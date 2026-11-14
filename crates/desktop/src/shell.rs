@@ -2086,12 +2086,7 @@ fn display_fingerprint(window: &Window) -> Option<ddi_platform::DeviceFingerprin
     let size = m.size();
     let scale = m.scale_factor();
     Some(ddi_platform::DeviceFingerprint::new(
-        format!(
-            "display:{}:{}x{}@{scale}",
-            name.as_deref().unwrap_or("display"),
-            size.width,
-            size.height
-        ),
+        ddi_platform::devices::desktop_display_id(name.as_deref(), size.width, size.height, scale),
         ddi_platform::DeviceFacts::Display {
             name,
             width: size.width,

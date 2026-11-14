@@ -79,6 +79,30 @@ impl From<String> for DeviceFacts {
     }
 }
 
+/// The web's audio path's fingerprint id: its rate, base latency and
+/// output latency (bucketed to 5 ms), `audio:<rate>:<base>:<out>`.
+pub fn web_audio_id(rate: u32, base_ms: u32, out_ms: u32) -> String {
+    format!("audio:{rate}:{base_ms}:{out_ms}")
+}
+
+/// Desktop's audio path's fingerprint id: its host, device, rate and
+/// latency's 5 ms bucket, `audio:<host>:<device>:<rate>:<bucket>`.
+pub fn desktop_audio_id(host: &str, device: &str, rate: u32, bucket: u32) -> String {
+    format!("audio:{host}:{device}:{rate}:{bucket}")
+}
+
+/// The web's display's fingerprint id, `display:<w>x<h>@<scale>` (its
+/// refresh rate left out: variable-rate panels change it).
+pub fn web_display_id(width: u32, height: u32, scale: f64) -> String {
+    format!("display:{width}x{height}@{scale}")
+}
+
+/// Desktop's display's fingerprint id, `display:<name>:<w>x<h>@<scale>`,
+/// a monitor the system names not `display`.
+pub fn desktop_display_id(name: Option<&str>, width: u32, height: u32, scale: f64) -> String {
+    format!("display:{}:{width}x{height}@{scale}", name.unwrap_or("display"))
+}
+
 impl DeviceFacts {
     /// What a fingerprint's id says of its device, for a profile kept
     /// before its facts were (`None` for an id of no shell's form): the
@@ -253,6 +277,32 @@ mod tests {
             "",
         ] {
             assert_eq!(DeviceFacts::from_id(other), None, "{other}");
+        }
+    }
+
+    /// The ids the shells write, as they always wrote them, and read back.
+    #[test]
+    fn the_shells_ids_are_written_as_before() {
+        assert_eq!(web_audio_id(48000, 5, 170), "audio:48000:5:170");
+        assert_eq!(
+            desktop_audio_id("CoreAudio", "Studio: Out 1", 44100, 15),
+            "audio:CoreAudio:Studio: Out 1:44100:15"
+        );
+        assert_eq!(web_display_id(1512, 982, 2.0), "display:1512x982@2");
+        assert_eq!(web_display_id(1512, 982, 1.25), "display:1512x982@1.25");
+        assert_eq!(
+            desktop_display_id(Some("Built-in Retina Display"), 3024, 1964, 1.25),
+            "display:Built-in Retina Display:3024x1964@1.25"
+        );
+        assert_eq!(desktop_display_id(None, 1920, 1080, 1.0), "display:display:1920x1080@1");
+        for id in [
+            web_audio_id(48000, 5, 170),
+            desktop_audio_id("CoreAudio", "Studio: Out 1", 44100, 15),
+            web_display_id(1512, 982, 2.0),
+            desktop_display_id(Some("Built-in Retina Display"), 3024, 1964, 1.25),
+            desktop_display_id(None, 1920, 1080, 1.0),
+        ] {
+            assert!(DeviceFacts::from_id(&id).is_some(), "{id}");
         }
     }
 

@@ -74,7 +74,7 @@ pub(crate) fn fingerprint(measured_hz: f64) -> DeviceFingerprint {
 }
 
 pub(crate) fn display_id(width: u32, height: u32, dpr: f64) -> String {
-    format!("display:{width}x{height}@{dpr}")
+    ddi_platform::devices::web_display_id(width, height, dpr)
 }
 
 /// Fires `on_change` when the device pixel ratio changes, which happens when
