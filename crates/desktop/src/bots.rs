@@ -688,6 +688,8 @@ fn sign_in(base: &str, token: &str, name: &str) -> Result<String, String> {
 /// The host's songs and where it is in them.
 struct Host {
     songs: Vec<(SongEntry, ChartEntry)>,
+    /// The songs checked for the CPU so far ([`host_plays`]), by id.
+    checked: std::collections::HashSet<String>,
     next: usize,
     resting: Option<u64>,
     rules: bool,
@@ -1259,7 +1261,18 @@ impl Bot {
             return;
         }
         host.waiting_said = false;
-        let (song, chart) = host.songs[host.next % host.songs.len()].clone();
+        let at = host.next % host.songs.len();
+        let (song, chart) = host.songs[at].clone();
+        // Each song checked for the CPU when the host first comes to it,
+        // not the whole library before the first bot signs in.
+        if host.checked.insert(song.id.clone()) && !host_plays(&song, &chart) {
+            say(format!("{}: no chart the CPU plays; passed over", song.title));
+            host.songs.remove(at);
+            if host.songs.is_empty() {
+                say("no song the CPU plays is left".into());
+            }
+            return;
+        }
         room.borrow_mut().hover(Some((&song, &chart)));
         let Some(since) = host.resting else {
             host.resting = Some(now);
@@ -1331,9 +1344,24 @@ fn song_check(profile: Profile, read: ReadSongs) -> crate::room::SongCheck {
     })
 }
 
+/// Whether the CPU plays chart `chart` of library song `song` (read as a
+/// play reads it).
+fn host_plays(song: &SongEntry, chart: &ChartEntry) -> bool {
+    let profile = Profile {
+        name: String::new(),
+        level: 7,
+        skills: "balanced".into(),
+    };
+    crate::play::load::read_chart(&song.id)
+        .map_err(|e| format!("{e:?}"))
+        .and_then(|s| cpu_plays(&s, chart.index, &profile))
+        .is_ok()
+}
+
 /// The host's songs: the fixed list, else every song of the library (or
-/// of `--songs`' folders alone) with a chart the CPU plays, in an order
-/// drawn from `seed`.
+/// of `--songs`' folders alone) with a chart one player plays on four
+/// lanes ([`choose_chart`]; the CPU's check waits until the host comes to
+/// it, [`host_plays`]), in an order drawn from `seed`.
 fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
     let songs = crate::songs::Songs::new(o.songs.clone());
     songs.start(std::sync::Arc::new(|| {}));
@@ -1365,17 +1393,6 @@ fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
                 .map(|l| l.entry.clone()),
         );
     }
-    let profile = Profile {
-        name: String::new(),
-        level: 7,
-        skills: "balanced".into(),
-    };
-    let playable = |song: &SongEntry, chart: &ChartEntry| {
-        crate::play::load::read_chart(&song.id)
-            .map_err(|e| format!("{e:?}"))
-            .and_then(|s| cpu_plays(&s, chart.index, &profile))
-            .is_ok()
-    };
     let entry = ddi_ui::state::select_view::plain_song_entry;
     if !o.picks.is_empty() {
         return o
@@ -1387,11 +1404,9 @@ fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
                     return None;
                 };
                 let song = entry(lib);
-                let chart = choose_chart(&song, *chart).filter(|c| playable(&song, c));
+                let chart = choose_chart(&song, *chart);
                 if chart.is_none() {
-                    eprintln!(
-                        "bots: song {id} has no chart the CPU plays (one player, four lanes)"
-                    );
+                    eprintln!("bots: song {id} has no chart one player plays on four lanes");
                 }
                 Some((song, chart?))
             })
@@ -1401,7 +1416,7 @@ fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
         .iter()
         .filter_map(|l| {
             let song = entry(l);
-            let chart = choose_chart(&song, None).filter(|c| playable(&song, c))?;
+            let chart = choose_chart(&song, None)?;
             Some((song, chart))
         })
         .collect();
@@ -1503,7 +1518,7 @@ pub fn run_with(o: Options, token: &str) -> i32 {
     let songs = if o.host {
         let songs = host_songs(&o, seed);
         if songs.is_empty() {
-            eprintln!("bots: the host has no song the CPU plays (one player, four lanes)");
+            eprintln!("bots: the host has no song one player plays on four lanes");
             return 1;
         }
         println!("{} bots: the host's songs: {}", clock_text(), songs.len());
@@ -1532,6 +1547,7 @@ pub fn run_with(o: Options, token: &str) -> i32 {
         let role = if o.host && n == 0 {
             Role::Host(Box::new(Host {
                 songs: songs.clone(),
+                checked: Default::default(),
                 next: 0,
                 resting: None,
                 rules: false,
