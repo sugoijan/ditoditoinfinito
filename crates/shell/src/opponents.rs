@@ -2882,4 +2882,231 @@ pub(crate) mod tests {
         }
         assert!(texts(&list).iter().any(|(s, _)| s.ends_with('…')));
     }
+
+    /// The play's overlay drawn from fixed inputs (the miniatures' words,
+    /// marks and flashes, a ladder, a player's own field out, who attacks
+    /// whom and the attack's parts), each draw list's commands as text,
+    /// hashed: a change meant to draw the same keeps every one. (The
+    /// desktop's offscreen pictures differ from run to run.)
+    #[test]
+    fn the_overlay_s_draw_lists_are_pinned() {
+        use crate::attack_links::{GridLayout, Layout, Phase};
+        use crate::rivals::{Ladder, Standing};
+        let names = [
+            "CPU 1",
+            "Ri\u{301}os N\u{303}andu\u{301} del Mar Bastante Largo",
+            "e\u{301}clair e\u{301}clair e\u{301}clair",
+            "\u{1f9d1}\u{200d}\u{1f680}\u{1f9d1}\u{200d}\u{1f680} astronauts all the way",
+            "Short",
+            "A very very long name indeed for a slot",
+            "\u{30ac}\u{30ad}\u{30f3}\u{3055}\u{3093}\u{30ac}\u{30ad}\u{30f3}\u{3055}\u{3093}",
+            "Zo",
+        ];
+        let view = |i: usize| OpponentView {
+            participant: ParticipantId(i as u64 + 2),
+            name: names[i % names.len()].to_string(),
+            level: (i % 3 != 2).then_some((i % 10) as u8 + 1),
+            life: (i as f32 * 0.137).fract(),
+            out: i % 7 == 3,
+            score: 0.5 + (i as f64 * 0.0123).fract() / 2.0,
+            sum: (i % 4 != 1).then_some(5_000_000 + i as i64 * 12_345),
+            combo: i as u32 * 7,
+            power: None,
+        };
+        let fnv = |text: &str| {
+            text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+                (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+            })
+        };
+        let mut got: Vec<(String, u64)> = Vec::new();
+        let link = |attack: u32, seat: usize, outgoing: bool, path: Vec<[f32; 2]>, from| {
+            crate::attack_links::Shown {
+                attack,
+                seat,
+                slot: 0,
+                outgoing,
+                chained: attack.is_multiple_of(2),
+                phase: Phase::Pulse,
+                line: 0.8,
+                pulse: Some(0.4),
+                outline: 0.9,
+                path,
+                from,
+            }
+        };
+        let cue = crate::battle_cue::Cue {
+            shocks: 8,
+            behind: 3,
+            dim: false,
+            scale: 0.75,
+        };
+        for &(n, w, h, ratio, grid) in &[
+            (8usize, 1280.0f32, 720.0f32, 1.0f32, false),
+            (3, 844.0, 390.0, 3.0, false),
+            (8, 390.0, 844.0, 3.0, false),
+            (24, 1280.0, 720.0, 1.0, false),
+            (72, 1920.0, 1080.0, 1.0, false),
+            (12, 1280.0, 720.0, 1.0, true),
+        ] {
+            let g = geo(w * ratio, h * ratio);
+            let keep_out = if grid {
+                keep_grid(&g, ratio)
+            } else {
+                keep(&g, ratio, true)
+            };
+            let mut fields = if grid {
+                arrange_grid(n, &g, false, ratio, &keep_out).unwrap()
+            } else {
+                arrange_up_to(n, usize::MAX, &g, 4.0, false, ratio, &keep_out).unwrap()
+            };
+            rotate(&mut fields, n, &[2], 9.9, ROTATION_V0, false);
+            let opponents: Vec<OpponentView> = (0..n).map(view).collect();
+            let standings: Vec<Standing> = opponents
+                .iter()
+                .map(|o| Standing {
+                    life: o.life,
+                    out: o.out,
+                    score: o.score,
+                })
+                .collect();
+            let shown = Shown {
+                opponents,
+                out: "Out".into(),
+                won: Some("Last standing".into()),
+                cue: Some(("Attack incoming from a rather long way off".into(), 0.6)),
+                score: if n.is_multiple_of(2) {
+                    ScoreShown::Sum
+                } else {
+                    ScoreShown::Percent
+                },
+                label: grid.then(|| "Watching Ri\u{301}os".into()),
+                large: None,
+                stale: vec![4],
+                ladder: Some((
+                    "17 of 73 \u{b7} 41 still in".into(),
+                    Ladder::of(&standings, Some(standings[0])),
+                )),
+                own: Some((5, "Left".into())),
+                named: vec![0, 6],
+            };
+            let flashes: Flashes = (0..fields.slots.len())
+                .map(|i| {
+                    (0..4)
+                        .map(|l| {
+                            ((i + l) % 3 == 0).then_some((
+                                ddi_engine::rules::Judgement::ALL[(i + l) % 5],
+                                0.05 * l as f32,
+                            ))
+                        })
+                        .collect()
+                })
+                .collect();
+            let locks: Vec<Vec<Option<f32>>> = (0..fields.slots.len())
+                .map(|i| (0..4).map(|l| (i % 5 == l).then_some(1.5)).collect())
+                .collect();
+            let mut list = DrawList::new();
+            let drew = draw_fields(
+                &mut list,
+                &shown,
+                &fields,
+                &flashes,
+                &locks,
+                ratio,
+                &mut FixedMeasure,
+            );
+            assert!(drew);
+            let own = OwnOut {
+                panel: [w * ratio * 0.4, 0.0, w * ratio * 0.6, h * ratio],
+                mark: "Left the stage and a few more words".into(),
+                skip: Some("Press Enter to skip to the results".into()),
+                dimmed: n.is_multiple_of(2),
+                veil: OUT_VEIL,
+            };
+            draw_own_out(&mut list, &own, ratio, &mut FixedMeasure);
+            let mut links = Vec::new();
+            if grid {
+                let layout = GridLayout {
+                    fields: &fields,
+                    size: [w * ratio, h * ratio],
+                    span: 4.0,
+                    ratio,
+                    keep_out: &keep_out,
+                };
+                for (k, (a, b)) in [(0, 5), (7, 2), (11, 3)].into_iter().enumerate() {
+                    let path = layout.path(&fields.slots[a], &fields.slots[b]);
+                    let mut l = link(k as u32 + 1, b, true, path, Some(a));
+                    l.slot = b;
+                    links.push(l);
+                }
+            } else {
+                let layout = Layout {
+                    geo: &g,
+                    span: 4.0,
+                    fields: &fields,
+                    ratio,
+                    keep_out: &keep_out[..keep_out.len() - 1],
+                };
+                for (k, slot) in [0, n / 2, n - 1].into_iter().enumerate() {
+                    for outgoing in [true, false] {
+                        let path = layout.path(&fields.slots[slot], outgoing);
+                        let mut l = link(
+                            k as u32 * 2 + u32::from(outgoing),
+                            slot,
+                            outgoing,
+                            path,
+                            None,
+                        );
+                        l.slot = slot;
+                        links.push(l);
+                    }
+                }
+            }
+            crate::attack_links::draw(&mut list, &links, &fields, ratio);
+            crate::battle_cue::draw(&mut list, &cue, &g, 4.0);
+            crate::battle_cue::draw(
+                &mut list,
+                &crate::battle_cue::Cue { behind: 9, ..cue },
+                &fields.slots[0].field,
+                4.0,
+            );
+            crate::battle_cue::draw_policy(
+                &mut list,
+                "Spread",
+                Some("Tab"),
+                &g,
+                4.0,
+                ratio,
+                &mut FixedMeasure,
+            );
+            crate::battle_cue::draw_policy(
+                &mut list,
+                "Retaliate",
+                Some("Back button long"),
+                &g,
+                4.0,
+                ratio,
+                &mut FixedMeasure,
+            );
+            crate::battle_cue::draw_waiting(
+                &mut list,
+                "Attack waiting",
+                &g,
+                4.0,
+                ratio,
+                &mut FixedMeasure,
+            );
+            let name = format!("{n}-{w}x{h}@{ratio}{}", if grid { "-grid" } else { "" });
+            got.push((name, fnv(&format!("{:?}", list.commands))));
+        }
+        let want: [(&str, u64); 6] = [
+            ("8-1280x720@1", 0xe7ec478624b17c80),
+            ("3-844x390@3", 0x8d83e90f88358db7),
+            ("8-390x844@3", 0x2851616828712729),
+            ("24-1280x720@1", 0xf691962c0270edc2),
+            ("72-1920x1080@1", 0xdd80157668870ddd),
+            ("12-1280x720@1-grid", 0x1b4ba3476b81d70b),
+        ];
+        let got_: Vec<(&str, u64)> = got.iter().map(|(n, h)| (n.as_str(), *h)).collect();
+        assert_eq!(got_, want, "{got_:#x?}");
+    }
 }
