@@ -461,6 +461,12 @@ options-show-deltas-description = Shows how many milliseconds early or late each
 options-dancing-hand = Dancing hand
 options-dancing-hand-description = A hand dances along to charts in Single, Solo, Pump single, Techno 8-panel, 5 keys, 7 keys and 9B keys (Oni on the center tile). Uses at most two simultaneous presses, including holds.
 
+# Under the dancing hand's row while it is on: whether the hand also
+# dances behind the field in a multiplayer stage. On or Off; Off by
+# default.
+options-dancing-hand-multiplayer = Dancing hand in multiplayer
+options-dancing-hand-multiplayer-description = Whether the hand also dances in a multiplayer stage, behind your field. Off saves the work of preparing it while the others' fields keep you busy.
+
 # Where the field and the dancing hand's view go together.
 options-hand-layout = Field + hand layout
 options-hand-layout-follow = Follow field

@@ -243,6 +243,12 @@ pub struct Settings {
     pub ghost: bool,
     /// Hand accompaniment; supported plays use at most two simultaneous presses.
     pub dancing_hand: bool,
+    /// Whether the dancing hand also plays in a multiplayer stage (Options
+    /// → Display, shown while the hand is on): the player's own choice,
+    /// never a match rule. Off by default, and where a stored setting
+    /// lacks it: a stage then prepares no hand at all
+    /// ([`Self::dancing_hand_in`]).
+    pub dancing_hand_multiplayer: bool,
     pub hand_layout: HandLayout,
     /// Percent of the play viewport, bottom-aligned.
     pub hand_frame_width: u8,
@@ -605,6 +611,7 @@ impl Default for Settings {
             show_deltas: false,
             ghost: false,
             dancing_hand: true,
+            dancing_hand_multiplayer: false,
             hand_layout: HandLayout::default(),
             hand_frame_width: 50,
             hand_frame_height: 100,
@@ -1002,6 +1009,13 @@ impl Settings {
     /// is on, and plays that layout ([`ddi_character::HAND_LAYOUTS`]).
     pub fn dancing_hand_for(&self, layout: &str) -> bool {
         self.dancing_hand && ddi_character::HAND_LAYOUTS.contains(&layout)
+    }
+
+    /// [`Self::dancing_hand_for`] for a play that is a multiplayer stage
+    /// (`stage`) or not: in a stage only where the player chose
+    /// [`Self::dancing_hand_multiplayer`].
+    pub fn dancing_hand_in(&self, layout: &str, stage: bool) -> bool {
+        self.dancing_hand_for(layout) && (!stage || self.dancing_hand_multiplayer)
     }
 
     /// Keeps the heights a play left the lane covers at, as DDR and
@@ -1789,6 +1803,26 @@ mod dancing_hand_tests {
         assert!(s.dancing_hand_for("danoni-9A"));
         assert!(s.dancing_hand_for("pump-double"));
         assert_eq!(s.transform, original);
+    }
+
+    /// The hand in a multiplayer stage is the player's own choice, Off
+    /// by default and where a stored setting predates it; a play that is
+    /// no stage is untouched by it.
+    #[test]
+    fn the_hand_in_multiplayer_is_off_unless_chosen() {
+        let stored: Settings = serde_json::from_str(r#"{"dancing_hand":true}"#).unwrap();
+        assert!(!stored.dancing_hand_multiplayer);
+        assert!(!Settings::default().dancing_hand_multiplayer);
+        assert!(stored.dancing_hand_in("dance-single", false));
+        assert!(!stored.dancing_hand_in("dance-single", true));
+        let mut on = stored.clone();
+        on.dancing_hand_multiplayer = true;
+        assert!(on.dancing_hand_in("dance-single", true));
+        let round: Settings = serde_json::from_str(&serde_json::to_string(&on).unwrap()).unwrap();
+        assert!(round.dancing_hand_multiplayer);
+        on.dancing_hand = false;
+        assert!(!on.dancing_hand_in("dance-single", true));
+        assert!(!on.dancing_hand_in("dance-single", false));
     }
 
     /// Kept until what is stored changes, and changing with it.

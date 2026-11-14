@@ -1071,10 +1071,7 @@ impl OptionsModel {
             pos(&REDUCED_MOTION, s.reduced_motion),
             m::reduced_motion_description(),
         );
-        section(
-            "Display",
-            m::section_display(),
-            vec![
+        let mut rows = vec![
                 choice(
                     "field_place",
                     m::field_place(),
@@ -1239,8 +1236,26 @@ impl OptionsModel {
                     m::debug_description(),
                 ),
                 demo,
-            ],
-        )
+        ];
+        // The hand in a multiplayer stage, under the hand's own row while
+        // the hand is on at all.
+        if s.dancing_hand {
+            let at = rows
+                .iter()
+                .position(|o| o.id == "dancing_hand")
+                .map_or(rows.len(), |i| i + 1);
+            rows.insert(
+                at,
+                choice(
+                    "dancing_hand_multiplayer",
+                    m::dancing_hand_multiplayer(),
+                    on_off(),
+                    s.dancing_hand_multiplayer as usize,
+                    m::dancing_hand_multiplayer_description(),
+                ),
+            );
+        }
+        section("Display", m::section_display(), rows)
     }
 
     fn arrows(&self) -> OptionSection {
@@ -1980,6 +1995,7 @@ impl OptionsModel {
             "show_deltas" => s.show_deltas = on,
             "ghost" => s.ghost = on,
             "dancing_hand" => s.dancing_hand = on,
+            "dancing_hand_multiplayer" => s.dancing_hand_multiplayer = on,
             "receptor_snap" => s.receptor_snap = on,
             "lyrics" => s.lyrics = on,
             "random_movies" => s.random_movies = on,
@@ -3114,8 +3130,33 @@ mod tests {
         );
     }
 
+    /// The hand in multiplayer is a row under the hand's, while it is on.
     #[test]
+    fn the_hand_in_multiplayer_shows_under_the_hand_while_it_is_on() {
+        let mut m = model();
+        let ids = |m: &OptionsModel| -> Vec<String> {
+            m.data()
+                .sections
+                .iter()
+                .flat_map(|s| s.options.iter().map(|o| o.id.clone()))
+                .collect()
+        };
+        let shown = ids(&m);
+        let at = shown.iter().position(|i| i == "dancing_hand").unwrap();
+        assert_eq!(shown[at + 1], "dancing_hand_multiplayer");
+        assert_eq!(find(&m.data(), "dancing_hand_multiplayer").value(), "Off");
+        m.change("dancing_hand_multiplayer", 1);
+        assert!(m.settings.dancing_hand_multiplayer);
+        assert!(Settings::load().dancing_hand_multiplayer);
+        m.change("dancing_hand", 0);
+        assert!(!ids(&m).iter().any(|i| i == "dancing_hand_multiplayer"));
+        // Kept for when the hand is on again.
+        assert!(m.settings.dancing_hand_multiplayer);
+        m.change("dancing_hand", 1);
+        assert_eq!(find(&m.data(), "dancing_hand_multiplayer").value(), "On");
+    }
 
+    #[test]
     fn dancing_hand_option_defaults_on_and_saved_off_persists() {
         let mut m = model();
         assert_eq!(find(&m.data(), "dancing_hand").value(), "On");
@@ -3500,7 +3541,12 @@ mod tests {
                 let again = m.data();
                 assert_eq!(find(&again, &o.id).index, i, "{}", o.id);
             }
+            // (The hand's rows under it show while it is on.)
+            if o.id == "dancing_hand" {
+                m.change("dancing_hand", 1);
+            }
         }
+        m.change("dancing_hand", 0);
         // Saved as changed.
         m.change("reverse", 1);
         m.change("speed", 11);

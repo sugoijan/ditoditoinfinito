@@ -141,13 +141,16 @@ impl Preview {
     /// Prepare the same effective Player as the eventual session, without audio
     /// scheduling or input capture. Presentation changes reuse the motion buffer.
     /// The hand plays where `settings` accompany the chart's layout
-    /// ([`Settings::dancing_hand_for`]), never in calibration nor in a
-    /// stage the player watches; `song` is
+    /// ([`Settings::dancing_hand_for`]), in a multiplayer stage only where
+    /// the player chose it there ([`Settings::dancing_hand_in`]: else
+    /// nothing of it is made, no planner, no preparation, no gate), never
+    /// in calibration nor in a stage the player watches; `song` is
     /// shifted by the song offset `shift` only then. Shells call it when the
     /// song is read, when the play's options change and while
     /// [`Preview::needs_preload`].
     ///
     /// [`Settings::dancing_hand_for`]: ddi_ui::state::settings::Settings::dancing_hand_for
+    /// [`Settings::dancing_hand_in`]: ddi_ui::state::settings::Settings::dancing_hand_in
     pub fn preload(
         &mut self,
         song: &Song,
@@ -164,7 +167,7 @@ impl Preview {
             && song
                 .charts
                 .get(chart)
-                .is_some_and(|c| settings.dancing_hand_for(&c.layout));
+                .is_some_and(|c| settings.dancing_hand_in(&c.layout, config.opponents.is_some()));
         if !enabled {
             self.reset_preload();
             self.preload_ready = true;
@@ -749,6 +752,47 @@ mod preload_tests {
         config.calibrate(ddi_session::calibration::CalMode::Visual);
         p.preload(&song, 0., 0, &settings, &config);
         assert!(!p.preload_pending() && p.runtime_error.is_none());
+    }
+
+    /// A multiplayer stage prepares no hand at all unless the player chose
+    /// it there (Off by default): no runtime, nothing pending for the
+    /// prompt to wait on; chosen, as before. A solo play is unchanged.
+    #[test]
+    fn a_stage_prepares_no_hand_unless_chosen_for_multiplayer() {
+        let song = ddi_chart::formats::sm::parse_sm(
+            "#BPMS:0=120;#NOTES:dance-single::Easy:2:0,0,0,0,0:\n1000\n0100\n0010\n0001;",
+        )
+        .unwrap();
+        let settings = ddi_ui::state::settings::Settings::default();
+        assert!(settings.dancing_hand && !settings.dancing_hand_multiplayer);
+        let mut config = ddi_session::play::SessionConfig::from_settings(&settings, true, None);
+        let mut p = Preview::default();
+        p.preload(&song, 0., 0, &settings, &config);
+        assert!(p.runtime.is_some() && p.preload_pending());
+        config.opponents = Some(ddi_session::battle::StageSetup {
+            stage: ddi_room::StageId(1),
+            number: 1,
+            of: 1,
+            battle: ddi_room::BattlePreset::GaugeAttacksV0,
+            rules: Default::default(),
+            me: ddi_room::ParticipantId(1),
+            targeting: ddi_session::battle::Targeting::Spread,
+            cpus: Vec::new(),
+            dev_mines_at_beat: None,
+            others: 0,
+            watching: false,
+            live: None,
+        });
+        p.preload(&song, 0., 0, &settings, &config);
+        assert!(p.runtime.is_none(), "a stage made a hand");
+        assert!(!p.preload_pending() && !p.needs_preload() && !p.enabled);
+        assert!(p.runtime_error.is_none());
+        let chosen = ddi_ui::state::settings::Settings {
+            dancing_hand_multiplayer: true,
+            ..settings
+        };
+        p.preload(&song, 0., 0, &chosen, &config);
+        assert!(p.runtime.is_some() && p.preload_pending());
     }
 
     /// The settings offer the hand on the layouts its planner places on
