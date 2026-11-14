@@ -4912,3 +4912,105 @@ fn the_you_badge_goes_before_the_name_is_cut() {
         super::room::name_and_badge(&env, "N", name, false, (15.0, 600, "Text"), [0.0, 0.0], 999.0);
     assert_eq!(none.len(), 1);
 }
+
+/// A pick backed out of (follow-up round F, item 2): the picker's prompt
+/// left, the room back to choosing with stage 1 not played, the Rules
+/// pop-up's change lands on stage 1 (it said stage 2 before the fix), and
+/// stage 1's prompt then carries the changed rules; picked again, a
+/// change lands on stage 2 as before.
+#[test]
+fn a_pick_backed_out_of_leaves_the_rules_for_stage_one() {
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    let order1 = orders.borrow_mut().pop().expect("a prompt");
+    press(&mut h, "Room.Rules");
+    assert_eq!(view(&env).rules_from, Some(2), "picked: the stage after");
+    press(&mut h, "Cancel");
+    h.run(0.3);
+    // Backed out of the prompt: the match runs, stage 1 unplayed.
+    room.borrow_mut().leave_prompt(order1.stage);
+    h.run(0.3);
+    assert!(room.borrow().state().current.is_some());
+    press(&mut h, "Room.Rules");
+    assert_eq!(view(&env).rules_from, Some(1));
+    assert!(has(&h, "From stage 1"), "{:?}", h.texts());
+    press(&mut h, "Inc.difficulty");
+    press(&mut h, "Apply");
+    h.run(0.3);
+    let r = room.borrow();
+    let m = r.state().current.clone().unwrap();
+    assert_eq!(m.rules_for(order1.stage).difficulty, ddi_room::MatchDifficulty::Hard);
+    drop(r);
+    // Picked again: its prompt plays under them; a change lands on 2.
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    let again = orders.borrow_mut().pop().expect("a prompt again");
+    assert_eq!(again.stage, order1.stage);
+    assert_eq!(again.rules.difficulty, ddi_room::MatchDifficulty::Hard);
+    assert_eq!(room.borrow().rules_land_on().map(|(_, n)| n), Some(2));
+}
+
+/// The same online (over the fake server): stage 1 picked, its share up,
+/// a member loaded and ready for it, then the picker backed out and
+/// another song rests under the spotlight, shared: a co-host's Rules say
+/// From stage 1, and the change lands there for everyone.
+#[test]
+fn an_online_pick_backed_out_of_leaves_the_rules_for_stage_one() {
+    use ddi_room::{
+        Actor, ChartKey, Command, ContentId, ContentStatus, Loading, Millis, ParticipantId,
+        SongKey,
+    };
+    let content = |n: u32| ContentId {
+        song: SongKey::new(format!("song-{n}")),
+        chart: ChartKey::new(format!("digest-{n}")),
+    };
+    let t = Three::new(true);
+    let (ea, eb, ec) = (env(), env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    t.server.borrow_mut().rewrite(move |s| {
+        let by = |s: &mut ddi_room::RoomState, who: u64, cmd: Command| {
+            let rev = s.revision;
+            s.apply(Actor::Member(ParticipantId(who)), Some(rev), &cmd, Millis(1_000))
+                .unwrap();
+        };
+        by(s, 1, Command::Pick { content: content(1), card: None });
+        let stage = s.upcoming_stage().unwrap();
+        s.apply(
+            Actor::Authority,
+            None,
+            &Command::SetContentStatus {
+                stage,
+                status: ContentStatus::Available,
+                share: Some("share-1".into()),
+            },
+            Millis(1_000),
+        )
+        .unwrap();
+        let rev = s.stage(stage).unwrap().readiness_rev;
+        by(s, 3, Command::ReportLoading { stage, readiness_rev: rev, loading: Loading::Loaded });
+        by(s, 3, Command::SetReady { stage, readiness_rev: rev, ready: true });
+        by(s, 1, Command::CancelStart { stage });
+        by(s, 1, Command::Spotlight { content: Some(content(2)), card: None });
+    });
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    press(&mut hb, "Room.Rules");
+    assert_eq!(view(&eb).rules_destination.as_deref(), Some("stage"));
+    assert_eq!(view(&eb).rules_from, Some(1));
+    press(&mut hb, "Inc.boos");
+    press(&mut hb, "Apply");
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    let server = t.server.borrow().state().clone();
+    let m = server.current.as_ref().unwrap();
+    assert!(m.rules_for(m.stages[0].id).boos, "stage 1 under them");
+}

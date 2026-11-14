@@ -4568,10 +4568,12 @@ server's deploy offers it online).
   for it). Open question below. Never: the stage count, the seats and
   the practice roster, the ruleset.
 - **When it lands** (`RoomState::rules_land_on`): on the next stage
-  nobody has begun: not one whose readiness window is open (a pick opens
-  it with the song), whose countdown or play has begun, or that anyone
-  readied or loaded for. So a change saved in the intermission before the
-  next song is picked lands on that next stage; once it is picked (or
+  not yet picked: not one whose readiness window is open (a pick opens
+  it with the song), whose countdown or play has begun. (Until follow-up
+  round F also not one that anyone readied or loaded for, which made a
+  pick backed out of count as begun: see "A rule change lands on a stage
+  only once picked" below.) So a change saved in the intermission before
+  the next song is picked lands on that next stage; once it is picked (or
   counting down, or playing) it lands on the stage after. The pop-up says
   which before Apply ("From stage 3"), and follows the room while open.
   With no stage left (the last stage gathering or playing) the pop-up
@@ -8572,6 +8574,40 @@ as fit. Left as it is: a room of 9 to 24 at a large window at scale 1
 (lanes of 24 px or more) still draws the skin's holds, about +1.5 ms of
 GPU natively for 24 fields on the mine chart.
 
+### A rule change lands on a stage only once picked (a bug, found and fixed)
+
+The maintainer: changing rules "From stage N" during a running match
+applied them "from Stage 2 when Stage 1 wasn't even played yet", and
+clarified: "There's a difference between the song being selected and it
+being picked, there is always going to be a song selected and that's
+when the rule change I observed was being pushed to a stage later; if
+the song was picked (one step after selected) the host can't even see
+the Rules button."
+
+- **The cause**: `Match::begun`, which `RoomState::rules_land_on` asks,
+  counted a stage as begun where anyone had readied or reported loading
+  for it. A pick backed out of (the picker's Back from the prompt,
+  `RoomClient::leave_prompt` sending `CancelStart`: the window closed,
+  the room back to choosing) left the follower's Ready and everyone's
+  load recorded against stage 1, so stage 1 still counted as begun and
+  the change went to stage 2. (A song merely resting under the spotlight
+  is never recorded against a stage: the bug needs a pick first, which
+  the maintainer's "always a song selected" view hides, since the
+  selected song after the back-out is the same one.)
+- **The fix, in the model**: a stage counts as begun only once its song
+  is picked (its readiness window open), counting down or playing; what
+  was readied or loaded for it does not count. The pop-up says "From
+  stage 1" there; the picked case is as decided before (the stage after,
+  named).
+- **Tested**: the reducer (`rules_land_on_a_stage_selected_but_not_picked`:
+  picked lands on 2; backed out with a member loaded and ready, and with
+  another song shared under the spotlight, lands on 1 and stage 1 plays
+  under the change; picked again lands on 2); the UI in practice
+  (`a_pick_backed_out_of_leaves_the_rules_for_stage_one`: the pop-up says
+  2, then after the back-out 1, and stage 1's prompt carries the rules)
+  and online over `FakeServer`
+  (`an_online_pick_backed_out_of_leaves_the_rules_for_stage_one`).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -8583,7 +8619,7 @@ GPU natively for 24 fields on the mine chart.
 | Opponents' fields default "As many as fit" | `Settings::opponent_fields` | About +0.85 ms main thread (Firefox) and +0.8 ms GPU at 2560×1440 with 72 | Whether the default should follow the room's size or the measured frame time |
 | Dancing hand in multiplayer Off by default | `Settings::dancing_hand_multiplayer` | No hand in a stage unless turned on | None (the maintainer's request) |
 | `online-cpus-v0` (2026-11-13): an online room's CPUs computed alike on every device (50 ms steps from −2 s, a shock put in 1.25 s after its checkpoint, a 2 s horizon's lead); every connected player's device reports for them, the room taking the first and counting a different one; nobody left to compute ends them as forfeits | `ddi_room::live::cpus`, `ddi_session::battle::cpus` | The host adds CPUs online as in practice; a wrong report that reached the room first stands | First or majority; the bytes (every device sends every CPU); the horizon |
-| Rules from the next stage (2026-11-13): a change lands on the next stage nobody has readied, loaded or started (once picked, the one after); Points changeable from a stage on too (the maintainer, answered); Apply and restart takes the per-stage rows as shown | `RoomState::rules_land_on`, `room_dialogs::RulesDialog` | A host's change of timing, Boos, attacks, zero life or (since the follow-up) Points applies from the stage the pop-up names, said on everyone's status line | Whether a change should land on a picked stage nobody has readied yet |
+| Rules from the next stage (2026-11-13): a change lands on the next stage not yet picked (once picked, the one after; since follow-up round F a stage readied or loaded for but backed out of, or a song merely resting under the spotlight, does not count as begun); Points changeable from a stage on too (the maintainer, answered); Apply and restart takes the per-stage rows as shown | `RoomState::rules_land_on`, `room_dialogs::RulesDialog` | A host's change of timing, Boos, attacks, zero life or (since the follow-up) Points applies from the stage the pop-up names, said on everyone's status line | Answered (2026-11-14): once picked, the stage after; merely selected, that stage |
 | `adaptive-v1` (2026-11-14, the maintainer's "we can do better" on bouncing): `adaptive-v0` with sixteen bars, not eight, of full life with no miss, no hold let go and no shock stepped on to step back up to a rung whose life ran out (first-time steps up stay at four), and a rung closed for the rest of the stage once life ran out on it twice (never stepped up to again, nor past it); "Staying on Hard" said once, quietly, when a rung closes; no quality condition | `ddi_engine::ladder::ADAPTIVE_V1` (`ADAPTIVE`), `AdaptiveRule::closed_after`, `Step::closes`, `StageCue::Stay` | The worst a stage can bounce: down, up once after the higher barrier, down, and there they stay | Sixteen and two; whether a share of the two best judgments should also be asked (measured: it separates CPUs that hold a rung from those that fall back) |
 | `adaptive-v0` (2026-11-13, replaces `step-down-v0`): down at zero life with a rung below, life back to half, the old chart taken away, the boundary the first bar line (four beats) at least the reading horizon plus 1 s ahead, a breather until it (nothing of a chart judged, stray presses free, life kept at one point or more); up after four bars (16 beats) of full life with no miss, no hold let go and no shock stepped on, counted from the last step's boundary, at the next such boundary, the old chart played to it, life unchanged; eight bars to go back up to a rung whose life ran out; every rung's score factor 1 | `ddi_engine::ladder::ADAPTIVE_V0` | A player out of life plays on an easier chart after a few seconds' rest; one who plays cleanly moves up, above the picked chart too | The four bars; the eight; the life given back; whether a player may hold their rung; a per-rung score factor once the rule is felt |
 | The ladder: the style's original charts on the same timing, lower slots below (nearest first, by meter from the highest), higher slots above (nearest first, by meter from the lowest); never an Edit above or below a slotted chart (an Edit's rungs are the slotted charts of a lower or higher meter); each way cut at the first rung the CPUs cannot plan | `ddi_engine::ladder::{below, above, Ladder}`, `cpu::planned_ladder` | From Hard: Medium, Easy, Beginner below; Challenge above | How Edits and split-timing charts should take part |
@@ -9136,10 +9172,12 @@ GPU natively for 24 fields on the mine chart.
 - Rules from the next stage (2026-11-13): whether Points may change
   from a stage on. ANSWERED by the maintainer the same day: yes, with the
   host aware of it ("Points from a later stage", below).
-- Rules from the next stage: a change never lands on a stage once picked
+- ~~Rules from the next stage: a change never lands on a stage once picked
   (its window open), even if nobody has readied or loaded yet. Should a
-  picked stage whose readiness has not begun take it (sooner, but its
-  song's prompt may already be on someone's screen)?
+  picked stage whose readiness has not begun take it?~~ Answered
+  (2026-11-14, the maintainer): a stage counts as begun once its song is
+  picked, never when merely selected ("if the song was picked [...] the
+  host can't even see the Rules button"); follow-up round F.
 - Rules from the next stage: an older client in a newer room plays a
   changed stage under the match's own timing and Boos where the stage
   has no attacks (no plan to disagree on). Acceptable for the gated

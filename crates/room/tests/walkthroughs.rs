@@ -4279,3 +4279,83 @@ fn a_changes_points_bias_is_additive_and_honored_only_where_the_policy_says() {
         Err(Rejection::InvalidRules(RulesProblem::PointsNotHonored))
     );
 }
+
+/// A stage counts as begun only once its song is picked (follow-up round
+/// F, 2026-11-14: "There's a difference between the song being selected
+/// and it being picked"): a change of rules during a running match lands
+/// on stage 1 after the picker backed out of its prompt (what was loaded
+/// and readied for it left as it was) and while a song merely rests under
+/// the spotlight, shared and loaded ahead; once picked it lands on the
+/// stage after, as before.
+#[test]
+fn rules_land_on_a_stage_selected_but_not_picked() {
+    let rules = {
+        let mut r = MatchRules::hosted();
+        r.stages = 3;
+        r
+    };
+    let mut r = Room::new(rules, ContentSource::Shared);
+    let host = r.host;
+    let ana = r.join("ana", Intent::Play);
+    let hard = PlayRules {
+        difficulty: MatchDifficulty::Hard,
+        ..MatchRules::hosted().play_rules()
+    };
+    // Picked: the match runs, stage 1's window is open; its share comes,
+    // ana loads it and readies.
+    r.pick(1).unwrap();
+    let stages: Vec<StageId> =
+        r.s.current
+            .as_ref()
+            .unwrap()
+            .stages
+            .iter()
+            .map(|s| s.id)
+            .collect();
+    r.sys(Command::SetContentStatus {
+        stage: stages[0],
+        status: ContentStatus::Available,
+        share: Some("share-1".into()),
+    })
+    .unwrap();
+    r.ready(ana);
+    assert_eq!(r.s.rules_land_on(), Some(stages[1]), "picked: the stage after");
+    // The picker backs out of the prompt: the window closes; ana's load
+    // and Ready stay recorded against stage 1.
+    r.by(host, Command::CancelStart { stage: stages[0] })
+        .unwrap();
+    assert!(matches!(r.s.phase, Phase::Preparing { window: None, .. }));
+    let prep = r.s.stage(stages[0]).unwrap().prep(ana);
+    assert_eq!(prep.loading, Loading::Loaded);
+    assert_eq!(r.s.rules_land_on(), Some(stages[0]), "backed out: stage 1");
+    // A song resting under the spotlight, shared ahead: still stage 1.
+    r.by(
+        host,
+        Command::Spotlight {
+            content: Some(song(2)),
+            card: Some(Box::new(card(2))),
+        },
+    )
+    .unwrap();
+    r.sys(Command::SetSpotlightShare {
+        chart: song(2).chart,
+        share: "share-2".into(),
+    })
+    .unwrap();
+    assert_eq!(r.s.rules_land_on(), Some(stages[0]), "selected: stage 1");
+    r.by(
+        host,
+        Command::ChangeStageRules {
+            from: stages[0],
+            rules: hard.clone(),
+        },
+    )
+    .unwrap();
+    let m = r.s.current.as_ref().unwrap();
+    assert_eq!(m.rules_for(stages[0]).play_rules(), hard);
+    // Picked again: stage 1 plays under them, and a change now lands on
+    // stage 2.
+    r.pick(2).unwrap();
+    assert_eq!(r.upcoming(), stages[0]);
+    assert_eq!(r.s.rules_land_on(), Some(stages[1]));
+}

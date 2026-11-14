@@ -557,19 +557,20 @@ impl Match {
         self.changes.last().map_or(Revision(0), |c| c.saved_at)
     }
 
-    /// Whether stage `index` has begun for anyone: its start committed,
-    /// its readiness window open (`window`; a pick opens it with the
-    /// song), or someone readied or loading for it. A change of rules never lands on such a stage: its
-    /// prompt told them its rules.
+    /// Whether stage `index` has begun: its song picked (its readiness
+    /// window open, `window`: a pick opens it with the song), its start
+    /// committed or played. A change of rules never lands on such a
+    /// stage: its prompt told them its rules. A song merely selected (the
+    /// picker's resting song, shared and prepared ahead by the others) or
+    /// a pick backed out of (its window closed, what was readied or
+    /// loaded for it left as it was) has not begun it (follow-up round F,
+    /// 2026-11-14: "There's a difference between the song being selected
+    /// and it being picked").
     fn begun(&self, index: usize, window: bool) -> bool {
         let Some(s) = self.stages.get(index) else {
             return true;
         };
-        window
-            || s.play.is_some()
-            || s.prep
-                .values()
-                .any(|p| p.ready || p.loading != Loading::NotStarted)
+        window || s.play.is_some()
     }
 
     /// Stage awards summed per competitor (equal stage weights; a missed or
@@ -693,10 +694,10 @@ impl RoomState {
 
     /// The stage a change of the running match's per-stage rules saved now
     /// would land on (`crate::Command::ChangeStageRules`): the next stage
-    /// where nothing has begun, else the one after it; never a stage whose
-    /// readiness window, countdown or play has begun, or that anyone
-    /// readied or loaded for (its prompt told them its rules). `None`
-    /// outside a running match or when no such stage is left.
+    /// not yet picked, else the one after it; never a stage whose
+    /// readiness window, countdown or play has begun (its prompt told
+    /// them its rules). `None` outside a running match or when no such
+    /// stage is left.
     pub fn rules_land_on(&self) -> Option<StageId> {
         let m = self.current.as_ref()?;
         let (stage, window) = match self.phase {
