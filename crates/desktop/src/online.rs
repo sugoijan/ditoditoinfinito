@@ -361,30 +361,14 @@ impl SocketTransport {
             socket: None,
         }
     }
-
-    fn url(&self, room: &RoomId, ticket: &str) -> String {
-        let base = self.base.clone().unwrap_or_else(crate::share::base);
-        let base = base.trim_end_matches('/');
-        let base = if let Some(rest) = base.strip_prefix("https://") {
-            format!("wss://{rest}")
-        } else if let Some(rest) = base.strip_prefix("http://") {
-            format!("ws://{rest}")
-        } else {
-            base.to_string()
-        };
-        let path = if self.audience {
-            ddi_ui::state::online::api::audience_socket_path(room.as_str(), ticket)
-        } else {
-            ddi_ui::state::online::api::socket_path(room.as_str(), ticket)
-        };
-        format!("{base}{path}")
-    }
 }
 
 impl Transport for SocketTransport {
     fn open(&mut self, room: &RoomId, ticket: &str) {
         self.close();
-        let url = self.url(room, ticket);
+        let base = self.base.clone().unwrap_or_else(crate::share::base);
+        let url =
+            ddi_ui::state::online::api::socket_url(&base, room.as_str(), ticket, self.audience);
         let (out_tx, out_rx) = channel();
         let (ev_tx, ev_rx) = channel();
         std::thread::Builder::new()

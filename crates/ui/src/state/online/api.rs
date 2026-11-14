@@ -420,6 +420,27 @@ pub fn audience_socket_path(room: &str, ticket: &str) -> String {
     format!("/sockets/{room}/audience/ws?ticket={}", percent_encode(ticket))
 }
 
+/// A room's socket's address on the server at `base` (`…/api`, a
+/// trailing `/` dropped; `http:` and `https:` become `ws:` and `wss:`)
+/// for a ticket: a member's ([`socket_path`]) or an audience seat's
+/// ([`audience_socket_path`]).
+pub fn socket_url(base: &str, room: &str, ticket: &str, audience: bool) -> String {
+    let base = base.trim_end_matches('/');
+    let base = if let Some(rest) = base.strip_prefix("https://") {
+        format!("wss://{rest}")
+    } else if let Some(rest) = base.strip_prefix("http://") {
+        format!("ws://{rest}")
+    } else {
+        base.to_string()
+    };
+    let path = if audience {
+        audience_socket_path(room, ticket)
+    } else {
+        socket_path(room, ticket)
+    };
+    format!("{base}{path}")
+}
+
 /// A room id: 10 characters of `[0-9A-Za-z]`.
 pub fn valid_room_id(id: &str) -> bool {
     id.len() == 10 && id.bytes().all(|b| b.is_ascii_alphanumeric())
@@ -495,6 +516,18 @@ mod tests {
             "/sockets/R1/audience/ws?ticket=%C3%A9%E2%98%86%00"
         );
         assert_eq!(preview("a/b c").path, "/invites/a%2Fb%20c");
+        assert_eq!(
+            socket_url("https://example.test/api/", "R1", "a+b", false),
+            "wss://example.test/api/sockets/R1/ws?ticket=a%2Bb"
+        );
+        assert_eq!(
+            socket_url("http://127.0.0.1:8787/api", "R1", "t", true),
+            "ws://127.0.0.1:8787/api/sockets/R1/audience/ws?ticket=t"
+        );
+        assert_eq!(
+            socket_url("ws://x/api", "R1", "t", false),
+            "ws://x/api/sockets/R1/ws?ticket=t"
+        );
     }
 
     #[test]

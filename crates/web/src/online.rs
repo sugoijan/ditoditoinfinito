@@ -431,31 +431,17 @@ impl Drop for Socket {
     }
 }
 
-impl WebSocketTransport {
-    fn url(&self, room: &RoomId, ticket: &str) -> String {
-        let base = crate::share::base();
-        let base = if let Some(rest) = base.strip_prefix("https://") {
-            format!("wss://{rest}")
-        } else if let Some(rest) = base.strip_prefix("http://") {
-            format!("ws://{rest}")
-        } else {
-            base
-        };
-        let path = if self.audience {
-            ddi_ui::state::online::api::audience_socket_path(room.as_str(), ticket)
-        } else {
-            ddi_ui::state::online::api::socket_path(room.as_str(), ticket)
-        };
-        format!("{base}{path}")
-    }
-}
-
 impl Transport for WebSocketTransport {
     fn open(&mut self, room: &RoomId, ticket: &str) {
         self.socket = None;
         *self.generation.borrow_mut() += 1;
         let generation = *self.generation.borrow();
-        let ws = match web_sys::WebSocket::new(&self.url(room, ticket)) {
+        let ws = match web_sys::WebSocket::new(&ddi_ui::state::online::api::socket_url(
+            &crate::share::base(),
+            room.as_str(),
+            ticket,
+            self.audience,
+        )) {
             Ok(ws) => ws,
             Err(_) => {
                 self.events
