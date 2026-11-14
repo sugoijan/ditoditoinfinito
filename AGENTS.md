@@ -826,7 +826,8 @@ Rust and the browser are implementation details, not advertised features.
   their holds, rolls and mines plainly, as the built-in skin does, in the
   sprites' one run, `Miniature::plain`, `plain-notes-v0`),
   each one's life gauge and combo by the play's HUD shader placed as the
-  play's (`hud::Hud::prepare_minis`), names and Out by the 2D pass, with
+  play's (`hud::Hud::prepare_minis`, each gauge's motion its seat's),
+  names (cut between graphemes) and Out by the 2D pass, with
   each one's score small under its gauge (`opponents::ScoreShown`: DDI's
   score, the sum, or the percent, as the player's Score display has
   their own; never the proportional part alone; a CPU's its own, since
