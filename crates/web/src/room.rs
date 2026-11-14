@@ -491,51 +491,26 @@ fn playing_room() -> SharedRoom {
         .unwrap_or_else(current)
 }
 
-/// A stage's outcome (`ddi_session::battle`), reported to its room: in
-/// practice as its authority (its ranking confirmed, the song ended); in
-/// an online room the player's own run, which the room ranks with the
-/// others'. How the match ended for the player, where that was its last
-/// stage (an online room's is not known yet: `None`).
+/// A stage's outcome (`ddi_session::battle`), reported to the room that
+/// handed it over (`ddi_session::battle::report_outcome`: the policy the
+/// play left the player with kept for the next stage wherever the stage
+/// had attacks, online too). How the match ended for the player, where
+/// that was its last stage (an online room's is not known yet: `None`).
 pub(crate) fn report(
     outcome: ddi_session::battle::StageOutcome,
 ) -> Option<ddi_ui::state::room::MatchEnd> {
+    let handed = PLAYING.with(|p| p.borrow_mut().take_if(|p| p.order.stage == outcome.stage));
     // A stage watched with a room's audience reports nothing (the seat is
     // no member).
-    let ours = PLAYING.with(|p| {
-        p.borrow()
-            .as_ref()
-            .is_some_and(|p| p.order.stage == outcome.stage)
-    });
-    if !ours && crate::online::watching_stage() == Some(outcome.stage) {
+    if handed.is_none() && crate::online::watching_stage() == Some(outcome.stage) {
         return None;
     }
-    let room = playing_room();
-    let has_attacks = PLAYING.with(|p| {
-        p.borrow()
-            .as_ref()
-            .is_some_and(|p| p.order.stage == outcome.stage && p.order.battle.attacks())
-    });
-    PLAYING.with(|p| {
-        p.borrow_mut().take_if(|p| p.order.stage == outcome.stage);
-    });
-    room.borrow_mut()
-        .set_stage_summary(outcome.stage, outcome.summary);
-    let reported = room.borrow_mut().report_played(
-        outcome.stage,
-        outcome.mine,
-        outcome.ranking,
-        outcome.confirmed_early,
-        outcome.details,
-    );
-    if let Err(why) = reported {
+    let room = handed.map_or_else(playing_room, |p| p.room);
+    let reported = ddi_session::battle::report_outcome(&mut room.borrow_mut(), outcome);
+    if let Err(why) = reported.taken {
         web_sys::console::warn_1(&format!("room: the stage's outcome was refused: {why:?}").into());
     }
-    // The policy the play left them with is theirs for the next stage
-    // (where the stage had attacks: an online room's has none yet).
-    if has_attacks {
-        room.borrow_mut().played_targeting(outcome.targeting);
-    }
-    room.borrow().match_end()
+    reported.ending
 }
 
 /// A stage left before its play began (its prompt's Back): a forfeit, the

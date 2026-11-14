@@ -621,35 +621,21 @@ pub fn room_screen_with(
     select(env, current(), songs.as_ref(), sound, shell)
 }
 
-/// A stage's outcome (`ddi_session::battle`), reported to its room: in
-/// practice as its authority (its ranking confirmed, the song ended); in
-/// an online room the player's own run, which the room ranks with the
-/// others'. How the match ended for the player, where that was its last
-/// stage (an online room's is not known yet: `None`).
+/// A stage's outcome (`ddi_session::battle`), reported to the room that
+/// handed it over (`ddi_session::battle::report_outcome`: the policy the
+/// play left the player with kept for the next stage wherever the stage
+/// had attacks, online too). How the match ended for the player, where
+/// that was its last stage (an online room's is not known yet: `None`).
 pub fn report(outcome: ddi_session::battle::StageOutcome) -> Option<ddi_ui::state::room::MatchEnd> {
     // Watched with the audience: nothing is reported (it is no member).
     if WATCHING.with_borrow(|w| w.as_ref().is_some_and(|(s, _)| *s == outcome.stage)) {
         return None;
     }
-    let room = stage_room();
-    room.borrow_mut()
-        .set_stage_summary(outcome.stage, outcome.summary);
-    let reported = room.borrow_mut().report_played(
-        outcome.stage,
-        outcome.mine,
-        outcome.ranking,
-        outcome.confirmed_early,
-        outcome.details,
-    );
-    if let Err(why) = reported {
+    let reported = ddi_session::battle::report_outcome(&mut stage_room().borrow_mut(), outcome);
+    if let Err(why) = reported.taken {
         eprintln!("room: the stage's outcome was refused: {why:?}");
     }
-    // The policy the play left them with is theirs for the next stage
-    // (where the match has attacks: an online room's has none yet).
-    if room.borrow().attacks_on() && !room.borrow().is_online() {
-        room.borrow_mut().played_targeting(outcome.targeting);
-    }
-    room.borrow().match_end()
+    reported.ending
 }
 
 /// Prepares a stage's song from the library (practice's, and an online

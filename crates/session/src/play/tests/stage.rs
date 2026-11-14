@@ -2914,3 +2914,44 @@ fn leaving_from_outside_the_play_forfeits_and_ends_an_online_stage_at_once() {
     assert_eq!(s.watch(9.0).map(|w| w.why), Some(Watching::Left));
     assert!(s.battle().unwrap().forfeited());
 }
+
+/// The shells' one report of a stage's outcome
+/// (`crate::battle::report_outcome`): the room takes it, and the policy
+/// the play left the player with is theirs for the next stage wherever
+/// the stage had attacks, and only there.
+#[test]
+fn a_reported_stage_keeps_the_played_policy_where_it_had_attacks() {
+    use crate::battle::{Targeting, report_outcome};
+    let song = bundled("beatucada");
+    let settings = Settings::default();
+    for attacks in [true, false] {
+        let mut practice = if attacks {
+            attacks_room(2, 2)
+        } else {
+            room(1, 2, 2)
+        };
+        let mut now = 0;
+        let order = begin(&song, &mut practice, &mut now);
+        assert_eq!(order.battle.attacks(), attacks);
+        assert_eq!(practice.my_targeting(), Targeting::Spread);
+        // Left at its prompt, its policy changed meanwhile (as a play
+        // changes it): the cheapest outcome of the stage.
+        let mut outcome = crate::battle::forfeit(
+            StageSetup::of(&order),
+            &song,
+            CHART,
+            &rules_of(&settings, &order, &song),
+        )
+        .unwrap();
+        outcome.targeting = Targeting::Leader;
+        let reported = report_outcome(&mut practice, outcome);
+        assert!(reported.taken.is_ok());
+        assert!(reported.ending.is_some(), "a match of one stage ended");
+        let kept = if attacks {
+            Targeting::Leader
+        } else {
+            Targeting::Spread
+        };
+        assert_eq!(practice.my_targeting(), kept, "attacks: {attacks}");
+    }
+}

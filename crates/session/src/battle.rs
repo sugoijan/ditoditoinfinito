@@ -60,7 +60,9 @@ use ddi_room::battle::decided;
 use ddi_room::{Absolute, BattlePreset, Entrant, Finisher, ParticipantId, Run, RunDetail, StageId};
 pub use ddi_ui::state::room::StageRules;
 pub use ddi_ui::state::room::AttackSummary;
-use ddi_ui::state::room::{CpuSeat, LiveOrder, StageOrder, run_detail};
+use ddi_ui::state::room::{
+    CpuSeat, LiveOrder, MatchEnd, Refusal, RoomClient, StageOrder, run_detail,
+};
 
 /// What a session needs to play a stage: which, under what battle, who
 /// the local player is and the CPUs committed to it.
@@ -261,7 +263,8 @@ pub struct StageOutcome {
     /// its report to an online room, a practice's stay with its client.
     pub details: Vec<(ParticipantId, RunDetail)>,
     /// The local player's attack policy as the play left it (changed in
-    /// play or not): what the room keeps as theirs for the next stage.
+    /// play or not): what the room keeps as theirs for the next stage
+    /// where it had attacks ([`report_outcome`]).
     pub targeting: Targeting,
     /// The local player's attacks of the stage, where it had them: whom
     /// they sent how many, who sent them how many, the shocks they
@@ -2680,6 +2683,45 @@ impl Battle {
         }));
         out
     }
+}
+
+/// A stage's outcome reported to `room`, the room that handed the stage
+/// over: in practice as its authority (its ranking confirmed, the song
+/// ended), in an online room the player's own run, which the room ranks
+/// with the others'; the shells' one report. The policy the play left
+/// the player with is theirs for the next stage wherever the stage had
+/// attacks, practice or online. Whether the room took it (a refusal is
+/// the shell's to log), and how the match ended for the player where
+/// that was its last stage (an online room's is not known yet: `None`).
+pub fn report_outcome(room: &mut RoomClient, outcome: StageOutcome) -> Reported {
+    // Its battle as the room handed it over (`StageOrder::battle`).
+    let attacks = room
+        .rules_for_stage(outcome.stage)
+        .is_some_and(|r| room.attacks_played(&r));
+    room.set_stage_summary(outcome.stage, outcome.summary);
+    let taken = room.report_played(
+        outcome.stage,
+        outcome.mine,
+        outcome.ranking,
+        outcome.confirmed_early,
+        outcome.details,
+    );
+    if attacks {
+        room.played_targeting(outcome.targeting);
+    }
+    Reported {
+        taken,
+        ending: room.match_end(),
+    }
+}
+
+/// What [`report_outcome`] came to.
+#[derive(Debug)]
+pub struct Reported {
+    /// The room took the outcome, or why not.
+    pub taken: Result<(), Refusal>,
+    /// How the match ended for the player, where this was its last stage.
+    pub ending: Option<MatchEnd>,
 }
 
 /// A stage left before its play began (its prompt's Back): the local
