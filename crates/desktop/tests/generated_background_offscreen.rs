@@ -11,7 +11,6 @@
 
 use std::path::Path;
 
-use ddi_desktop::gpu;
 use ddi_ui::state::settings::{BackgroundFrame, GeneratedBackground, Settings};
 
 mod common;
@@ -85,14 +84,7 @@ fn mean(pixels: &[u8]) -> [f64; 3] {
 }
 
 fn keep(pixels: &[u8], name: &str) {
-    let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") else {
-        return;
-    };
-    let mut out = format!("P6\n{W} {H}\n255\n").into_bytes();
-    for px in pixels.chunks(4) {
-        out.extend_from_slice(&px[..3]);
-    }
-    let _ = std::fs::write(Path::new(&dir).join(format!("generated-{name}.ppm")), out);
+    common::shot(&format!("generated-{name}.ppm"), pixels, [W, H]);
 }
 
 /// Inside the filter's band beside the lanes (a 640 × 360 target: the
@@ -153,9 +145,7 @@ fn settings(look: GeneratedBackground) -> Settings {
 
 #[test]
 fn a_song_without_a_background_gets_one_drawn_from_its_music() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let dir = std::env::temp_dir().join(format!("ddi-generated-{}", std::process::id()));

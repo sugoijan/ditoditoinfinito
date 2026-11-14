@@ -217,10 +217,8 @@ fn layer_pack(dir: &std::path::Path) -> PathBuf {
 #[test]
 fn a_works_layers_show_in_play() {
     common::indexes();
-    use ddi_desktop::play::view::{Formats, View};
-    let instance = ddi_desktop::gpu::instance();
-    let Some(adapter) = ddi_desktop::gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    use ddi_desktop::play::view::View;
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = ddi_desktop::gpu::device(&adapter).unwrap();
@@ -247,7 +245,7 @@ fn a_works_layers_show_in_play() {
     let mut view = View::new(
         &device,
         &queue,
-        Formats::of(wgpu::TextureFormat::Rgba8Unorm, true),
+        common::gpu::formats(),
     );
     view.set_song(&loaded, &settings);
     view.set_noteskin(
@@ -273,25 +271,7 @@ fn a_works_layers_show_in_play() {
     )));
     view.wait_for_fonts();
     view.start();
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: SIZE[0],
-            height: SIZE[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-    });
-    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-        ..Default::default()
-    });
-    let plain = texture.create_view(&Default::default());
+    let target = common::gpu::Target::new(&device, SIZE);
     let clock = Arc::new(AtomicU64::new(1_000_000_000));
     let c = clock.clone();
     let audio = Audio::headless(1.0, Some(Arc::new(move || c.load(Ordering::SeqCst))));
@@ -317,8 +297,8 @@ fn a_works_layers_show_in_play() {
             &device,
             &queue,
             &mut encoder,
-            &srgb,
-            Some(&plain),
+            &target.srgb,
+            Some(&target.plain),
             SIZE,
             &play,
             render,
@@ -332,7 +312,7 @@ fn a_works_layers_show_in_play() {
                 mapped_at_creation: false,
             });
             encoder.copy_texture_to_buffer(
-                texture.as_image_copy(),
+                target.texture.as_image_copy(),
                 wgpu::TexelCopyBufferInfo {
                     buffer: &buffer,
                     layout: wgpu::TexelCopyBufferLayout {
@@ -341,7 +321,7 @@ fn a_works_layers_show_in_play() {
                         rows_per_image: Some(SIZE[1]),
                     },
                 },
-                texture.size(),
+                target.texture.size(),
             );
             queue.submit(Some(encoder.finish()));
             let slice = buffer.slice(..);
@@ -354,13 +334,7 @@ fn a_works_layers_show_in_play() {
     assert_eq!(view.stage_drawn(), (2, 1), "back: image and text; mask");
     // The lyrics over the field, in the system's Japanese face.
     assert_eq!(view.lyrics_shown(), ["歌詞のテスト"]);
-    if let Some(out) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-        let mut ppm = format!("P6\n{} {}\n255\n", SIZE[0], SIZE[1]).into_bytes();
-        for p in pixels.chunks(4) {
-            ppm.extend_from_slice(&p[..3]);
-        }
-        std::fs::write(std::path::Path::new(&out).join("works-layers.ppm"), ppm).unwrap();
-    }
+    common::shot("works-layers.ppm", &pixels, SIZE);
     let at = |x: u32, y: u32| {
         let i = ((y * SIZE[0] + x) * 4) as usize;
         [pixels[i], pixels[i + 1], pixels[i + 2]]

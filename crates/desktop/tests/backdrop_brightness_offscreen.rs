@@ -6,6 +6,8 @@
 //! (the play's backdrop shaders, the prompt's dark quad) alike. Skipped
 //! where there is no GPU adapter (CI).
 
+mod common;
+
 use ddi_desktop::gpu;
 use ddi_render::background::{Backdrop, BackgroundPipeline};
 use ddi_render::draw2d::DrawList;
@@ -194,9 +196,7 @@ fn prompt(
 
 #[test]
 fn the_prompts_picture_is_as_bright_as_the_plays() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");

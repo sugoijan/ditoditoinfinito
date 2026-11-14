@@ -1,4 +1,6 @@
 //! Continuity between the menu's cached Gaussian and the live play base.
+
+mod common;
 use ddi_actor::background::{GROUND, Reveal};
 use ddi_desktop::gpu;
 use ddi_render::background::{Backdrop, BackgroundPipeline};
@@ -156,8 +158,7 @@ fn menu(device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u8> {
 }
 #[test]
 fn base_matches_menu_and_tracks_changes_without_reblurring_static_frames() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");

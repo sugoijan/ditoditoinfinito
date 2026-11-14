@@ -8,7 +8,6 @@
 
 use std::path::Path;
 
-use ddi_desktop::gpu;
 use ddi_ui::state::settings::{BackgroundFrame, Settings};
 
 mod common;
@@ -162,9 +161,7 @@ const WHITE: [u8; 3] = [255, 255, 255];
 fn scripts_draw_behind_the_field_and_over_it() {
     let dir = std::env::temp_dir().join(format!("ddi-play-scripts-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let plain = dir.join("plain");
@@ -254,9 +251,7 @@ fn old_song(dir: &Path) -> Option<()> {
 fn stepmania_3_9_animations_draw_natively() {
     let dir = std::env::temp_dir().join(format!("ddi-play-old-bgas-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     old_song(&dir).expect("the song folder");
@@ -309,9 +304,7 @@ fn target_script(alpha: bool) -> String {
 fn render_targets_draw_into_their_textures() {
     let dir = std::env::temp_dir().join(format!("ddi-play-targets-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let song = dir.join("Pack/Targets");
@@ -423,9 +416,7 @@ const MOVIE_SCRIPT: &str = "return Def.ActorFrame {\n\
 fn script_movies_play_in_their_sprites() {
     let dir = std::env::temp_dir().join(format!("ddi-play-script-movies-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     if ddi_desktop::video::helper_path().is_none() {

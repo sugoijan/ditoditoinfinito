@@ -9,7 +9,6 @@
 
 use std::path::Path;
 
-use ddi_desktop::gpu;
 use ddi_ui::state::settings::{BackgroundFrame, Settings, VideoMode};
 
 mod common;
@@ -196,9 +195,7 @@ fn expected(t: f64) -> Option<[u8; 3]> {
 fn the_second_layer_draws_over_the_first() {
     let dir = std::env::temp_dir().join(format!("ddi-play-layers-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let images = dir.join("images");

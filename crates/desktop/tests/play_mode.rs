@@ -17,7 +17,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use ddi_desktop::gpu;
 use ddi_desktop::play::Request;
 use ddi_desktop::play::host::Device;
-use ddi_desktop::play::view::Formats;
 use ddi_platform::HostTime;
 use ddi_ui::UiRequest;
 use ddi_ui::event::{KeyEvent, Modifiers, PointerEvent, PointerKind, PointerPhase, UiEvent};
@@ -32,9 +31,7 @@ fn play_mode_ends_with_the_play() {
     let home = std::env::temp_dir().join(format!("ddi-play-mode-{}", std::process::id()));
     // SAFETY: set before any thread of this test reads the environment.
     unsafe { std::env::set_var("DDI_HOME", &home) };
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
@@ -51,31 +48,13 @@ fn play_mode_ends_with_the_play() {
     let clock = Arc::new(AtomicU64::new(1_000_000_000));
     let c = clock.clone();
     shell.play.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
-    let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
+    let formats = common::gpu::formats();
     let dev = || Device {
         device: &device,
         queue: &queue,
         formats,
     };
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: SIZE[0],
-            height: SIZE[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-    });
-    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-        ..Default::default()
-    });
-    let plain = texture.create_view(&Default::default());
+    let target = common::gpu::Target::new(&device, SIZE);
     let now = || HostTime(clock.load(Ordering::SeqCst) as f64 / 1e9);
 
     let mut logs = Vec::new();
@@ -173,8 +152,8 @@ fn play_mode_ends_with_the_play() {
             shell.play.draw_play(
                 &dev(),
                 &mut encoder,
-                &srgb,
-                Some(&plain),
+                &target.srgb,
+                Some(&target.plain),
                 SIZE,
                 now(),
                 &mut shell.ui,

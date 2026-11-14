@@ -5,16 +5,15 @@
 //! pass. Read back from the GPU. Skipped where there is no GPU adapter
 //! (CI).
 
+mod common;
+
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_engine::frame::{Frame, JudgementFlash, ReceptorState};
 use ddi_engine::rules::{Judgement, ddi, presets};
 use ddi_render::scene::{W1_OUTSIDE_W0, judgement_color};
 use ddi_render::{RenderOptions, Renderer, SkinBlending};
-use ddi_ui::UiEvent;
-use ddi_ui::dev_widgets::FoldFn;
 
 const FONT: &[u8] = include_bytes!("../../../assets/fonts/IosevkaCustom-ExtraBold-latin.ttf");
 const SIZE: [u32; 2] = [256, 480];
@@ -72,9 +71,7 @@ fn bytes(c: [f32; 4]) -> [u8; 3] {
 
 #[test]
 fn hud_and_menu_colors_draw_as_written() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
@@ -192,13 +189,7 @@ fn hud_and_menu_colors_draw_as_written() {
     // The theme's accent on song select's 2D pass (the selected chart's
     // frame, the style tab).
     let mut gpu = Gpu::new(device, queue, wgpu::TextureFormat::Rgba8Unorm);
-    let fold: FoldFn = Rc::new(|s: &str| s.to_string());
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("select", fold);
-    env.reduced_motion.set(true);
-    ui.handle(UiEvent::Resize {
-        size: [1280.0, 720.0],
-        ratio: 1.0,
-    });
+    let (mut ui, _env) = common::ui::theme("select", common::ui::identity(), [1280, 720], true);
     for _ in 0..60 {
         ui.update(1.0 / 60.0);
     }

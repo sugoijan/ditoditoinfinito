@@ -3,6 +3,8 @@
 //! placements, tints, the additive blend and a wipe, read back as pixels
 //! on a plain and an sRGB target. Skipped without a GPU.
 
+mod common;
+
 use ddi_actor::background::Reveal;
 use ddi_desktop::gpu;
 use ddi_library::backgrounds::{BgDraw, LayerDraws, Place};
@@ -151,8 +153,7 @@ fn near(a: [u8; 3], b: [u8; 3]) -> bool {
 
 #[test]
 fn effects_place_tint_add_and_wipe_backgrounds() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");

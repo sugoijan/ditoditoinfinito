@@ -13,7 +13,6 @@
 
 use std::path::Path;
 
-use ddi_desktop::gpu;
 use ddi_ui::state::settings::{BackgroundFrame, GeneratedBackground, Settings};
 
 mod common;
@@ -67,14 +66,7 @@ const OUTSIDE: [(u32, u32); 2] = [(20, 300), (600, 200)];
 const INSIDE: [(u32, u32); 2] = [(243, 300), (394, 200)];
 
 fn keep(pixels: &[u8], name: &str) {
-    let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") else {
-        return;
-    };
-    let mut out = format!("P6\n{W} {H}\n255\n").into_bytes();
-    for px in pixels.chunks(4) {
-        out.extend_from_slice(&px[..3]);
-    }
-    let _ = std::fs::write(Path::new(&dir).join(format!("ground-{name}.ppm")), out);
+    common::shot(&format!("ground-{name}.ppm"), pixels, [W, H]);
 }
 
 /// A frame's time and its pixels beside the field and inside its band.
@@ -119,9 +111,7 @@ fn play(
 
 #[test]
 fn a_song_without_a_background_plays_on_one_ground() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let dir = std::env::temp_dir().join(format!("ddi-no-background-{}", std::process::id()));

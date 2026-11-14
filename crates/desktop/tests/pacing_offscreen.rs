@@ -21,7 +21,7 @@ use ddi_desktop::audio::Audio;
 use ddi_desktop::gpu;
 use ddi_desktop::pacing::sim::{Display, Surface};
 use ddi_desktop::pacing::{Mode, Next, Pacer, Report};
-use ddi_desktop::play::view::{Formats, Rgba, View};
+use ddi_desktop::play::view::{Rgba, View};
 use ddi_desktop::play::{Feed, Play, Request, host, load};
 use ddi_platform::HostTime;
 use ddi_ui::state::settings::Settings;
@@ -71,16 +71,14 @@ fn differing(a: &[u8], b: &[u8]) -> usize {
 #[test]
 fn a_play_paced_late_draws_for_the_refresh_it_is_shown_at() {
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
     let settings = Settings::default();
     let loaded = Rc::new(load::load("beatucada", 48_000).unwrap());
     let chart = 0;
-    let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
+    let formats = common::gpu::formats();
     let mut view = View::new(&device, &queue, formats);
     view.set_song(&loaded, &settings);
     view.set_noteskin(&device, &queue, host::noteskin(&loaded, chart, &settings));

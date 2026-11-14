@@ -71,17 +71,7 @@ fn read(g: &Gpu, texture: &wgpu::Texture, mut encoder: wgpu::CommandEncoder) -> 
 }
 
 fn keep(pixels: &[u8], name: &str) {
-    let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") else {
-        return;
-    };
-    let mut out = format!("P6\n{} {}\n255\n", SIZE[0], SIZE[1]).into_bytes();
-    for px in pixels.chunks(4) {
-        out.extend_from_slice(&px[..3]);
-    }
-    let _ = std::fs::write(
-        std::path::Path::new(&dir).join(format!("play-{name}.ppm")),
-        out,
-    );
+    common::shot(&format!("play-{name}.ppm"), pixels, SIZE);
 }
 
 fn px(p: &[u8], x: u32, y: u32) -> [u8; 3] {
@@ -181,9 +171,7 @@ fn frames(
 #[test]
 fn a_play_draws_its_field_skin_and_background() {
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
@@ -234,9 +222,7 @@ fn a_play_draws_its_field_skin_and_background() {
 #[test]
 fn a_plain_surface_draws_the_same_play() {
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
@@ -264,9 +250,7 @@ fn a_plain_surface_draws_the_same_play() {
 fn lane_covers_hide_the_notes_under_them() {
     use ddi_engine::cover::{CoverMode, LaneCover};
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();

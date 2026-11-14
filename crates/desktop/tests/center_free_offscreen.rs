@@ -7,8 +7,7 @@
 
 mod common;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 
 use ddi_actor::Drawn;
 use ddi_actor::text::FixedMeasure;
@@ -16,25 +15,12 @@ use ddi_chart::simplify::Derivation;
 use ddi_desktop::gpu;
 use ddi_desktop::play::Request;
 use ddi_desktop::play::host::{Device, Host};
-use ddi_desktop::play::view::Formats;
-use ddi_platform::HostTime;
 use ddi_platform::history::MemoryPlayStore;
-use ddi_ui::event::{KeyEvent, UiEvent};
 use ddi_ui::state::history::Plays;
+use common::ui::key;
+use common::ui::top;
 
 const SIZE: [u32; 2] = [960, 540];
-
-fn top(ui: &ddi_ui::Ui) -> String {
-    ui.layers()
-        .last()
-        .map(|l| l.name.clone())
-        .unwrap_or_default()
-}
-
-fn key(ui: &mut ddi_ui::Ui, code: &str, k: &str) {
-    ui.handle(UiEvent::Key(KeyEvent::down(code, k)));
-    ui.handle(UiEvent::Key(KeyEvent::up(code, k)));
-}
 
 #[test]
 fn a_center_free_pump_chart_autoplays_all_top_tier_and_assisted() {
@@ -73,64 +59,27 @@ fn a_center_free_pump_chart_autoplays_all_top_tier_and_assisted() {
             .any(|c| c.index == chart && c.derivation.is_some() && c.layout == "dance-single"),
         "the bundled list is stale: `cargo run -p xtask -- gen-songs`"
     );
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
-    let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("select", fold);
-    ui.handle(UiEvent::Resize {
-        size: [SIZE[0] as f32, SIZE[1] as f32],
-        ratio: 1.0,
-    });
+    let (mut ui, env) = common::ui::theme("select", common::ui::lowercase(), SIZE, false);
     ui.update(0.5);
     let store = Rc::new(MemoryPlayStore::default());
     let plays = Plays::new(store.clone());
     let mut host = Host::new(Rc::default(), Some(plays.clone()));
-    let clock = Arc::new(AtomicU64::new(1_000_000_000));
-    let c = clock.clone();
-    host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
-    let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
+    let clock = common::rig::fake_clock(&mut host);
+    let formats = common::gpu::formats();
     let dev = || Device {
         device: &device,
         queue: &queue,
         formats,
     };
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: SIZE[0],
-            height: SIZE[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-    });
-    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-        ..Default::default()
-    });
-    let plain = texture.create_view(&Default::default());
+    let target = common::gpu::Target::new(&device, SIZE);
 
     // Song select's call: the prompt, then "Press Start" once read.
     *host.requested.borrow_mut() = Some(Request::song("beatucada", chart, true));
-    let mut waited = 0;
-    loop {
-        host.poll(&mut ui, &env, Some(dev()), 48_000);
-        ui.update(0.05);
-        if host.prompt_ready() {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        waited += 1;
-        assert!(waited < 1000, "the song was never read");
-    }
+    common::rig::wait_prompt(&mut host, &mut ui, &env, dev);
     ui.update(0.5);
     assert_eq!(top(&ui), "play-prompt");
     // Enter starts it; the prompt goes.
@@ -141,18 +90,7 @@ fn a_center_free_pump_chart_autoplays_all_top_tier_and_assisted() {
     let mut frames = 0;
     while host.playing() {
         let now = clock.fetch_add(1_000_000_000 / 60, Ordering::SeqCst) + 1_000_000_000 / 60;
-        let mut encoder = device.create_command_encoder(&Default::default());
-        host.draw_play(
-            &dev(),
-            &mut encoder,
-            &srgb,
-            Some(&plain),
-            SIZE,
-            HostTime(now as f64 / 1e9),
-            &mut ui,
-            &env,
-        );
-        queue.submit(Some(encoder.finish()));
+        common::rig::draw(&mut host, &dev(), &target, &mut ui, &env, now);
         frames += 1;
         assert!(frames < 60 * 300, "the play never ended");
     }

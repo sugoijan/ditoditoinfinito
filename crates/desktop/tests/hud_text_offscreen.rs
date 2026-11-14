@@ -4,6 +4,8 @@
 //! exactly, and a pop shapes its sizes once, not each frame. Skipped
 //! where there is no GPU adapter (CI).
 
+mod common;
+
 use ddi_desktop::gpu;
 use ddi_render::scene::popped;
 use ddi_render::{Align, TextItem, TextPipeline};
@@ -113,9 +115,7 @@ fn ink(pixels: &[u8]) -> ([u32; 4], f32) {
 
 #[test]
 fn a_judgement_pop_looks_the_same_at_its_cached_sizes() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");

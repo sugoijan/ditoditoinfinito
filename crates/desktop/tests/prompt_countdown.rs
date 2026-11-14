@@ -14,34 +14,21 @@ use std::time::Duration;
 use ddi_desktop::gpu;
 use ddi_desktop::play::Request;
 use ddi_desktop::play::host::{Device, Host};
-use ddi_desktop::play::view::Formats;
-use ddi_ui::event::{KeyEvent, UiEvent};
+use common::ui::key;
 
 const SIZE: [u32; 2] = [960, 540];
-
-fn key(ui: &mut ddi_ui::Ui, code: &str, k: &str) {
-    ui.handle(UiEvent::Key(KeyEvent::down(code, k)));
-    ui.handle(UiEvent::Key(KeyEvent::up(code, k)));
-}
 
 #[test]
 fn song_selects_prompt_counts_down_to_start_and_a_key_stops_it() {
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
-    let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("select", fold);
-    ui.handle(UiEvent::Resize {
-        size: [SIZE[0] as f32, SIZE[1] as f32],
-        ratio: 1.0,
-    });
+    let (mut ui, env) = common::ui::theme("select", common::ui::lowercase(), SIZE, false);
     ui.update(0.5);
     let clock = Arc::new(AtomicU64::new(1_000_000_000));
-    let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
+    let formats = common::gpu::formats();
     let dev = || Device {
         device: &device,
         queue: &queue,

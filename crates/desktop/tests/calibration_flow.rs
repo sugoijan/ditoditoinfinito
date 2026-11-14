@@ -7,17 +7,16 @@
 //! and Escape there goes back to the menu. Skipped where there is no GPU
 //! adapter (CI).
 
+mod common;
+
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 
 use ddi_desktop::gpu;
 use ddi_desktop::play::host::{Device, Host};
-use ddi_desktop::play::view::Formats;
-use ddi_platform::HostTime;
-use ddi_ui::event::{KeyEvent, UiEvent};
 use ddi_ui::screens::Env;
 use ddi_ui::state::settings::Settings;
+use common::ui::key_step as key;
 
 const SIZE: [u32; 2] = [960, 540];
 
@@ -28,12 +27,6 @@ fn top(ui: &ddi_ui::Ui) -> String {
         .find(|l| !l.overlay)
         .map(|l| l.name.clone())
         .unwrap_or_default()
-}
-
-fn key(ui: &mut ddi_ui::Ui, code: &str, k: &str) {
-    ui.handle(UiEvent::Key(KeyEvent::down(code, k)));
-    ui.handle(UiEvent::Key(KeyEvent::up(code, k)));
-    ui.update(0.05);
 }
 
 /// Presses the screen's item `want` (a page's `button:<id>`, the
@@ -65,18 +58,11 @@ fn a_test_from_the_menu_to_its_result_and_the_next() {
     let home = std::env::temp_dir().join(format!("ddi-calibration-flow-{}", std::process::id()));
     // SAFETY: set before any thread of this test reads the environment.
     unsafe { std::env::set_var("DDI_HOME", &home) };
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
-    let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("select", fold);
-    ui.handle(UiEvent::Resize {
-        size: [SIZE[0] as f32, SIZE[1] as f32],
-        ratio: 1.0,
-    });
+    let (mut ui, env) = common::ui::theme("select", common::ui::lowercase(), SIZE, false);
     ui.update(0.5);
     let songs = ddi_desktop::songs::Songs::new(Vec::new());
     songs.testing.set((true, 0.030));
@@ -87,34 +73,14 @@ fn a_test_from_the_menu_to_its_result_and_the_next() {
             ui.push(ddi_desktop::calibrate::menu(env, &songs, None))
         }));
     }
-    let clock = Arc::new(AtomicU64::new(1_000_000_000));
-    let c = clock.clone();
-    host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
-    let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
+    let clock = common::rig::fake_clock(&mut host);
+    let formats = common::gpu::formats();
     let dev = || Device {
         device: &device,
         queue: &queue,
         formats,
     };
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: SIZE[0],
-            height: SIZE[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-    });
-    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-        ..Default::default()
-    });
-    let plain = texture.create_view(&Default::default());
+    let target = common::gpu::Target::new(&device, SIZE);
 
     // The menu; its first button starts the arrows-only test.
     ui.push(ddi_desktop::calibrate::menu(&env, &songs, None));
@@ -138,18 +104,7 @@ fn a_test_from_the_menu_to_its_result_and_the_next() {
     let mut frames = 0;
     while host.playing() {
         let now = clock.fetch_add(1_000_000_000 / 60, Ordering::SeqCst) + 1_000_000_000 / 60;
-        let mut encoder = device.create_command_encoder(&Default::default());
-        host.draw_play(
-            &dev(),
-            &mut encoder,
-            &srgb,
-            Some(&plain),
-            SIZE,
-            HostTime(now as f64 / 1e9),
-            &mut ui,
-            &env,
-        );
-        queue.submit(Some(encoder.finish()));
+        common::rig::draw(&mut host, &dev(), &target, &mut ui, &env, now);
         frames += 1;
         assert!(frames < 60 * 120, "the test never ended");
     }

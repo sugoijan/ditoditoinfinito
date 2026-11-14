@@ -1,5 +1,7 @@
 //! Actual GPU HUD: interrupted life changes, transparent combo gaps, and
 //! plain/sRGB/encoded targets. Optional PNGs for inspecting the same frames.
+
+mod common;
 use ddi_desktop::gpu;
 use ddi_engine::frame::{Frame, ReceptorState};
 use ddi_render::{RenderOptions, Renderer, SkinBlending};
@@ -117,25 +119,12 @@ fn pixel(image: &[u8], x: u32, y: u32) -> [u8; 3] {
 }
 
 fn snapshot(name: &str, size: [u32; 2], pixels: &[u8]) {
-    if let Some(path) = std::env::var_os("DDI_HUD_SNAPSHOTS") {
-        let path = std::path::Path::new(&path);
-        std::fs::create_dir_all(path).unwrap();
-        image::save_buffer(
-            path.join(format!("{name}.png")),
-            pixels,
-            size[0],
-            size[1],
-            image::ColorType::Rgba8,
-        )
-        .unwrap();
-    }
+    common::shot(&format!("{name}.png"), pixels, size);
 }
 
 #[test]
 fn accepted_hud_draws_through_all_color_paths() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();

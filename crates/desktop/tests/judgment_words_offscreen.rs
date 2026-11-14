@@ -4,6 +4,8 @@
 //! face has no glyph, in the tier's color, and what that costs a frame
 //! against English. Read back from the GPU; skipped without an adapter.
 
+mod common;
+
 use ddi_desktop::gpu;
 use ddi_engine::frame::{Frame, JudgementFlash, ReceptorState};
 use ddi_engine::rules::{Judgement, ddi};
@@ -78,9 +80,7 @@ fn read(device: &wgpu::Device, queue: &wgpu::Queue, tex: &wgpu::Texture) -> Vec<
 
 #[test]
 fn a_japanese_judgment_word_is_drawn_in_its_tier_s_color() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");

@@ -11,15 +11,12 @@
 mod common;
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_desktop::play::Request;
 use ddi_desktop::play::host::{Device, Host};
 use ddi_desktop::play::view::Formats;
 use ddi_platform::storage::{self, MemoryStore};
-use ddi_ui::event::UiEvent;
 use ddi_ui::state::settings::{GeneratedBackground, Settings};
 
 const SIZE: [u32; 2] = [960, 540];
@@ -67,19 +64,10 @@ fn prompt(
     }
     .save();
     let format = wgpu::TextureFormat::Rgba8Unorm;
-    let fold: ddi_ui::dev_widgets::FoldFn =
-        Rc::new(|s: &str| ddi_library::search::Fold::nfkd(&ddi_desktop::Nfkd, s));
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("select", fold);
-    env.reduced_motion.set(true);
-    ui.handle(UiEvent::Resize {
-        size: [SIZE[0] as f32, SIZE[1] as f32],
-        ratio: 1.0,
-    });
+    let (mut ui, env) = common::ui::theme("select", common::ui::nfkd(), SIZE, true);
     ui.update(0.5);
     let mut host = Host::new(Rc::default(), None);
-    let clock = Arc::new(AtomicU64::new(1_000_000_000));
-    let c = clock.clone();
-    host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
+    common::rig::fake_clock(&mut host);
     *host.requested.borrow_mut() = Some(Request::song(id, 0, true));
     let mut waited = 0;
     loop {
@@ -107,17 +95,7 @@ fn prompt(
         ui.update(1.0 / 60.0);
         pixels = gpu.draw_offscreen(&mut ui, SIZE, format);
     }
-    if let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-        let mut ppm = format!("P6\n{} {}\n255\n", SIZE[0], SIZE[1]).into_bytes();
-        ppm.extend(
-            pixels
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .flat_map(|p| [p[0], p[1], p[2]]),
-        );
-        let _ = std::fs::write(Path::new(&dir).join(format!("prompt-{name}.ppm")), ppm);
-    }
+    common::shot(&format!("prompt-{name}.ppm"), &pixels, SIZE);
     let backdrop = env.state.borrow().backdrop.clone();
     (backdrop, pixels)
 }
@@ -146,9 +124,7 @@ fn left_edge(pixels: &[u8]) -> (f64, [f64; 3]) {
 #[test]
 fn the_prompt_shows_the_generated_backgrounds_first_frame() {
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     storage::install(Rc::new(MemoryStore::default()));
