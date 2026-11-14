@@ -101,6 +101,13 @@ fn rig_with(
         return None;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
+    // The dancing hand beside the stage (a player's choice for
+    // multiplayer, Off by default): what follows checks it plays on.
+    ddi_ui::state::settings::Settings {
+        dancing_hand_multiplayer: true,
+        ..Default::default()
+    }
+    .save();
     let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
     let ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
     let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
