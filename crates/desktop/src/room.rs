@@ -18,8 +18,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc::{Sender, channel};
 
-use ddi_library::manifest::ManifestEntry;
-use ddi_library::share::ShareError;
 use ddi_room::StageId;
 use ddi_ui::Cx;
 use ddi_ui::screens::Env;
@@ -30,8 +28,7 @@ use ddi_ui::state::online::Redirect;
 use ddi_ui::state::place::MenuPlace;
 use ddi_ui::state::settings::Settings;
 use ddi_ui::state::room::{
-    Inbox, LivePrep, LoadJob, LoadProblem, SharedRoom, ShellNews, UploadJob, picked_of,
-    prepare_stage,
+    Inbox, LoadJob, LoadProblem, SharedFound, SharedRoom, ShellNews, UploadJob, prepare_stage,
 };
 
 use crate::preview::SharedPlayer;
@@ -42,7 +39,7 @@ thread_local! {
     /// The room of the stage handed to the play host last.
     static PLAYING: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
     /// Where the online room's threads send their news ([`inbox`]).
-    static NEWS: RefCell<Option<Sender<News>>> = const { RefCell::new(None) };
+    static NEWS: RefCell<Option<Sender<ShellNews>>> = const { RefCell::new(None) };
     /// The stage handed to the play host to watch with the room's
     /// audience, and its seat's client ([`audience_stage`]).
     static WATCHING: RefCell<Option<(StageId, ddi_ui::state::audience::SharedAudience)>> =
@@ -75,39 +72,10 @@ pub fn set_audience_for_tests(
     TEST_WALL.with_borrow_mut(|w| *w = Some(wall_ms));
 }
 
-/// A thread's news for the online room (`Send`; turned into the room
-/// client's [`ShellNews`] on the UI's thread).
-enum News {
-    Progress {
-        stage: StageId,
-        done: f64,
-        total: f64,
-    },
-    Uploaded {
-        stage: StageId,
-        result: Result<String, ShareError>,
-    },
-    PreparedShared {
-        job: Box<LoadJob>,
-        result: Result<Box<SharedSong>, LoadProblem>,
-    },
-}
-
-/// A stage's song read from the room's share: its entry, the chart's index,
-/// its pack and its banner's source.
-struct SharedSong {
-    entry: ManifestEntry,
-    index: usize,
-    pack: String,
-    banner: Option<String>,
-    /// What live play needs of its chart (`prepare_stage`).
-    live: Option<LivePrep>,
-}
-
 /// Where an online room's threads send their news: one room client's
 /// [`Inbox`] (the run's room's, [`inbox`], or a bot's, `crate::bots`).
 #[derive(Clone)]
-pub struct NewsTx(Sender<News>);
+pub struct NewsTx(Sender<ShellNews>);
 
 /// The online room client's inbox: what this module's threads report.
 pub fn inbox() -> Inbox {
@@ -119,27 +87,8 @@ pub fn inbox() -> Inbox {
 /// A room client's inbox of its own, and where its threads' news goes
 /// ([`upload_with`], [`prepare_online_with`]).
 pub fn news_inbox() -> (NewsTx, Inbox) {
-    let (tx, rx) = channel::<News>();
-    let inbox: Inbox = Box::new(move || {
-        rx.try_iter()
-            .map(|n| match n {
-                News::Progress { stage, done, total } => ShellNews::Progress { stage, done, total },
-                News::Uploaded { stage, result } => ShellNews::Uploaded { stage, result },
-                News::PreparedShared { job, result } => {
-                    let live = result.as_ref().ok().and_then(|f| f.live.clone());
-                    ShellNews::PreparedShared {
-                        result: result.and_then(|found| {
-                            picked_of(&found.entry, found.index, &found.pack, found.banner)
-                                .map(Box::new)
-                                .ok_or(LoadProblem::Changed)
-                        }),
-                        job,
-                        live,
-                    }
-                }
-            })
-            .collect()
-    });
+    let (tx, rx) = channel::<ShellNews>();
+    let inbox: Inbox = Box::new(move || rx.try_iter().collect());
     (NewsTx(tx), inbox)
 }
 
@@ -167,13 +116,13 @@ pub fn upload_with(tx: &NewsTx, job: UploadJob) {
         .spawn(move || {
             let progress_tx = tx.clone();
             let mut progress = move |done: f64, total: f64| {
-                let _ = progress_tx.send(News::Progress { stage, done, total });
+                let _ = progress_tx.send(ShellNews::Progress { stage, done, total });
             };
             let result = crate::share::upload_room(&song, &grant, &mut progress);
             if let Err(e) = &result {
                 eprintln!("room: sharing stage {stage}: {e}");
             }
-            let _ = tx.send(News::Uploaded { stage, result });
+            let _ = tx.send(ShellNews::Uploaded { stage, result });
         });
     if let Err(e) = spawned {
         eprintln!("room: sharing stage {stage}: {e}");
@@ -227,7 +176,7 @@ pub fn prepare_online_with(
                     check(&job, song, prepared.index)?;
                 }
                 let first = loaded.songs.first().ok_or(LoadProblem::Download)?;
-                Ok(Box::new(SharedSong {
+                Ok(Box::new(SharedFound {
                     entry: first.entry.clone(),
                     index: prepared.index,
                     pack: first.pack.clone(),
@@ -235,7 +184,7 @@ pub fn prepare_online_with(
                     live: prepared.live,
                 }))
             })();
-            let _ = tx.send(News::PreparedShared {
+            let _ = tx.send(ShellNews::PreparedShared {
                 job: Box::new(job),
                 result,
             });
@@ -263,19 +212,9 @@ pub fn audience_stage(
 /// The room watched with its audience's inbox: its stages' songs read
 /// from the room's share on threads ([`prepare_audience`]).
 pub fn audience_inbox() -> ddi_ui::state::audience::AudienceInbox {
-    let (tx, mut inbox) = news_inbox();
+    let (tx, inbox) = news_inbox();
     AUDIENCE_NEWS.with_borrow_mut(|n| *n = Some(tx));
-    Box::new(move || {
-        inbox()
-            .into_iter()
-            .filter_map(|n| match n {
-                ShellNews::PreparedShared { job, result, live } => {
-                    Some((*job, result.map(|p| (*p, live))))
-                }
-                _ => None,
-            })
-            .collect()
-    })
+    inbox
 }
 
 /// A stage's song of the room watched with its audience, read from the

@@ -21,8 +21,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_ui::state::room::{
-    LivePrep, LoadJob, LoadProblem, Picked, SharedRoom, StageOrder, UploadJob, picked_of,
-    prepare_stage,
+    LoadJob, LoadProblem, SharedFound, SharedRoom, StageOrder, UploadJob, prepare_stage,
 };
 
 use crate::router::Route;
@@ -303,7 +302,7 @@ pub(crate) fn prepare_for(room: SharedRoom, job: LoadJob) {
         };
         if job.share.is_some() {
             let result = read_shared(&job).await;
-            room.borrow_mut().finish_shared_load_live(&job, result);
+            room.borrow_mut().finish_shared_found(&job, result);
             return;
         }
         let result = match crate::songs::load_chart(&job.song).await {
@@ -319,7 +318,7 @@ pub(crate) fn prepare_for(room: SharedRoom, job: LoadJob) {
 
 /// A stage's song read from the room's share `job` names, its chart found
 /// by the digest chosen, with what live play needs of it.
-async fn read_shared(job: &LoadJob) -> Result<(Picked, Option<LivePrep>), LoadProblem> {
+async fn read_shared(job: &LoadJob) -> Result<SharedFound, LoadProblem> {
     let warn =
         |e: &str| web_sys::console::warn_1(&format!("room: stage song {}: {e}", job.song).into());
     let share = job.share.as_deref().ok_or(LoadProblem::Download)?;
@@ -334,13 +333,16 @@ async fn read_shared(job: &LoadJob) -> Result<(Picked, Option<LivePrep>), LoadPr
     let p = prepare_stage(job, &song, &mut |e| warn(e))?;
     let record = &loaded.songs.first().ok_or(LoadProblem::Download)?.record;
     let entry = &record.entry;
-    let banner = entry
-        .banner
-        .as_ref()
-        .and_then(|b| crate::share::file_url(&entry.id, b.as_str()));
-    picked_of(entry, p.index, &record.pack, banner)
-        .map(|picked| (picked, p.live))
-        .ok_or(LoadProblem::Changed)
+    Ok(SharedFound {
+        banner: entry
+            .banner
+            .as_ref()
+            .and_then(|b| crate::share::file_url(&entry.id, b.as_str())),
+        entry: entry.clone(),
+        index: p.index,
+        pack: record.pack.clone(),
+        live: p.live,
+    })
 }
 
 /// A stage's song of the room watched with its audience
@@ -353,7 +355,7 @@ pub(crate) fn prepare_audience(job: LoadJob) {
     wasm_bindgen_futures::spawn_local(async move {
         let result = read_shared(&job).await;
         if let Some(a) = crate::online::kept_audience() {
-            a.borrow_mut().finish_load(&job, result);
+            a.borrow_mut().finish_found(&job, result);
         }
     });
 }

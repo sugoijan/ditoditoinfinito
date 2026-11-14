@@ -267,9 +267,10 @@ pub struct AudienceClient {
     inbox: Option<AudienceInbox>,
 }
 
-/// A shell's threads' prepared songs since the last call (desktop's
-/// share downloads), drained each tick ([`AudienceClient::set_inbox`]).
-pub type AudienceInbox = Box<dyn FnMut() -> Vec<(LoadJob, LoadResult)>>;
+/// A shell's threads' news since the last call (desktop's share
+/// downloads), drained each tick ([`AudienceClient::set_inbox`]): the
+/// room client's kind, of which a seat reads its prepared songs.
+pub type AudienceInbox = crate::state::room::Inbox;
 
 /// A watched stage's song as prepared, or why not.
 pub type LoadResult = Result<(Picked, Option<LivePrep>), LoadProblem>;
@@ -412,8 +413,10 @@ impl AudienceClient {
     /// where the socket was lost, the socket read and written.
     pub fn tick(&mut self, now_ms: u64) {
         if let Some(inbox) = self.inbox.as_mut() {
-            for (job, result) in inbox() {
-                self.finish_load(&job, result);
+            for news in inbox() {
+                if let crate::state::room::ShellNews::PreparedShared { job, result } = news {
+                    self.finish_found(&job, result.map(|f| *f));
+                }
             }
         }
         self.clock.set(now_ms.max(self.clock.now().0));
@@ -630,6 +633,16 @@ impl AudienceClient {
             }
         }
         self.version += 1;
+    }
+
+    /// [`Self::finish_load`] from the song as the shell read it from the
+    /// room's share (`crate::state::room::SharedFound`).
+    pub fn finish_found(
+        &mut self,
+        job: &LoadJob,
+        result: Result<crate::state::room::SharedFound, LoadProblem>,
+    ) {
+        self.finish_load(job, result.and_then(crate::state::room::SharedFound::picked));
     }
 
     /// Why the stage's song could not be prepared, if it could not.

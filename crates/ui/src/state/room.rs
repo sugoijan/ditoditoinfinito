@@ -404,15 +404,36 @@ pub enum ShellNews {
     },
     PreparedShared {
         job: Box<LoadJob>,
-        result: Result<Box<Picked>, LoadProblem>,
-        /// What live play needs of the chart, where the job asked
-        /// ([`prepare_stage`]).
-        live: Option<LivePrep>,
+        result: Result<Box<SharedFound>, LoadProblem>,
     },
 }
 
 /// A shell's news since the last call.
 pub type Inbox = Box<dyn FnMut() -> Vec<ShellNews>>;
+
+/// A stage's song read from the room's share (on a shell's thread, so
+/// plain data): its entry, its chart's index, the pack its record names,
+/// its banner as the shell's texture source and what live play needs of
+/// the chart where the job asked ([`prepare_stage`]). The room's client
+/// makes what it shows and plays of it ([`SharedFound::picked`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SharedFound {
+    pub entry: ddi_library::manifest::ManifestEntry,
+    pub index: usize,
+    pub pack: String,
+    pub banner: Option<String>,
+    pub live: Option<LivePrep>,
+}
+
+impl SharedFound {
+    /// The song and chart as the room shows and plays them ([`picked_of`]),
+    /// with what live play needs; the chart no longer there: changed.
+    pub fn picked(self) -> Result<(Picked, Option<LivePrep>), LoadProblem> {
+        picked_of(&self.entry, self.index, &self.pack, self.banner)
+            .map(|picked| (picked, self.live))
+            .ok_or(LoadProblem::Changed)
+    }
+}
 
 /// Chart `chart` of `song` (as read) checked for a stage: the one chosen
 /// (`digest`) and, with `cpus`, one the CPUs can plan
@@ -2842,6 +2863,12 @@ impl RoomClient {
         }
     }
 
+    /// [`Self::finish_shared_load_live`] from the song as the shell read
+    /// it from the share ([`SharedFound`]).
+    pub fn finish_shared_found(&mut self, job: &LoadJob, result: Result<SharedFound, LoadProblem>) {
+        self.finish_shared_load_live(job, result.and_then(SharedFound::picked));
+    }
+
     /// What a stage's preparation should work out for live play here
     /// (none: the room does not play live).
     fn live_ask(&self, stage: StageId, content: &ContentId) -> Option<LiveAsk> {
@@ -2997,8 +3024,8 @@ impl RoomClient {
                 }
                 ShellNews::Uploaded { stage, result } => self.upload_finished(stage, result),
                 ShellNews::Prepared { job, result } => self.finish_load(&job, result),
-                ShellNews::PreparedShared { job, result, live } => {
-                    self.finish_shared_load_live(&job, result.map(|p| (*p, live)))
+                ShellNews::PreparedShared { job, result } => {
+                    self.finish_shared_found(&job, result.map(|f| *f))
                 }
             }
         }
