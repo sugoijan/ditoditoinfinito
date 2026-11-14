@@ -8010,11 +8010,184 @@ haven't tested the anchors too much but they seem good."
 - Tested: the engine (`the_solo_cpu_plays_the_absolute_levels_by_default`),
   desktop's flags and a full CPU song at each named strength on its new
   level (`cpu_play.rs`), the bots' test.
+## Feedback round E1: every opponent's field, and the hand off in multiplayer (2026-11-14)
+
+The maintainer (2026-11-14): "I think we're showing less miniatures than
+we can fit [...] at some point we could fit all 73 (the max) by showing
+9x4 grids on either side", and "we should have a local option of
+whether to show the dancing hand in multiplayer, by default only on
+singleplayer".
+
+### The dancing hand in multiplayer: a local choice, Off by default
+
+- Options → Display, under the Dancing hand's row while the hand is on:
+  **Dancing hand in multiplayer**, Off (the default) or On
+  (`Settings::dancing_hand_multiplayer`; a stored setting without it
+  reads Off; never a match rule). `Settings::dancing_hand_in(layout,
+  stage)` is what both shells ask, through `dance::Preview::preload`.
+- Off: a stage's play (played, or watched on after going out) prepares
+  no hand at all: no `RuntimePreview`, no planner, no pose preparation,
+  nothing pending for the prompt to wait on, nothing drawn
+  (`a_stage_prepares_no_hand_unless_chosen_for_multiplayer`). On: as
+  before, behind the field. A solo play is untouched either way.
+- En and ja (ja an unverified draft; 忙 and 軽 cut into the faces).
+
+### The layout: every opponent where they fit (`fields-all-v0`, PROVISIONAL)
+
+Rooms of eight or fewer opponents are exactly as before (their sizes,
+grids and gaps; `arrange` gives the same as "Up to eight" for 1 to 8,
+tested). Past eight (`ddi_shell::opponents::arrange_up_to`):
+
+- **Every opponent a field of its own** wherever all fit at
+  `MINI_LANE_ALL`, **10 logical pixels** (chosen by looking: at 11, 72
+  fields read as fields, their names at 9 px; under 10 the notes are
+  specks). The same grids as a room's (each side as many columns and
+  rows as give the largest lane, the first half of the seats on the
+  left), the gaps between columns narrowing past two columns down to 3
+  px (`DENSE_GAP`). Fields keep the play's proportion; only where that
+  alone stops everyone fitting may they be cut shorter, a lane at a
+  time, down to 8 lanes tall (`DENSE_ROWS_MIN`, six and a half of
+  look-ahead): it happens on a phone (36 held sideways: 9 lanes).
+- **Stable places**: by seat, the room's order, never reshuffled as
+  standings change (calmer than ordering by strength, which would move
+  fields during the stage, or fix an order from the first seconds that
+  means nothing by the end).
+- **When they do not all fit** (a phone, a small window): as many as fit
+  at 10 (never fewer than the eight a room of nine has), chosen as the
+  eight were: those attacking the player or attacked by them, then the
+  nearest by standing, slots changing hands rarely (`crate::rivals`,
+  `RIVALS_V0`, its tests now with 24 slots too). The ladder under the
+  left side keeps its line; its strip of everyone's life only where not
+  everyone is shown (the fields are the strip).
+- A watcher's focus view follows the same grid for its side fields (it
+  calls `arrange` too); the spectator's grid and its pages are as before.
+
+The layout's table (attacks on, as practice plays: the right side keeps
+the attack warning's place clear), the lane in logical pixels and the
+left side's columns × rows (`the_large_fields_table`):
+
+| Opponents | 1280×720 | 1920×1080 | 2560×1440 (scale 1) | 844×390 (phone, scale 3) |
+| --- | --- | --- | --- | --- |
+| 8 (as before) | 25, 2×2 | 40, 2×2 | 56, 2×2 | 16, 4×1 |
+| 9 | 25, 3×2 | 41, 3×2 | 56, 3×2 | 13.3, 5×1 |
+| 16 | 23, 4×2 | 37, 4×2 | 52, 4×2 | 12.3, 4×2 |
+| 24 | 16, 4×3 | 26, 4×3 | 35, 4×3 | 11, 6×2 |
+| 36 | 15, 6×3 | 24, 6×3 | 33, 6×3 | 10.3, 6×3 on fields 9 lanes tall |
+| 48 | 12, 6×4 | 19, 6×4 | 26, 6×4 | 24 shown, 11 |
+| 72 | 11, 9×4 | 17, 9×4 | 23, 9×4 | 24 shown, 11 |
+
+2560×1440 at scale 2 (a HiDPI 1280×720) is 1280×720's column. A phone
+held upright (390×844) shows 11 of 72 at 10, 9 to 16 all.
+
+### What a small field carries (`carry-v0`, PROVISIONAL)
+
+As a large field's miniatures shrink, what no longer reads goes, in this
+order (`opponents::Carry`, lanes in logical pixels): the score under 16
+(`CARRY_SCORE`), the level's stars under 13, the name under 11, the
+combo under 9 (below the 10 minimum: in practice the combo always
+stays; at these sizes it is the largest thing on a field and reads
+well). The life gauge, the power bar, Out and a shock's locked lanes
+stay at every size. A room of eight or fewer carries everything at
+every size, as before (a phone's eight keep their names). So 72 at
+1280×720 have names but no stars and no score; at 1920×1080 everything.
+
+Who a tiny field belongs to, when it matters: a field attacking the
+player or attacked by them keeps its outline and its attack line (in a
+large field's grid a line may cross other fields on its way: the gaps
+leave no way between them, and a route around 72 boxes, worked out each
+frame while the line shows, would cost far more than the line), and where the field carries no name,
+its name shows on a small dark plate just above it (below it in the top
+row) for the outline's time (`Shown::named`).
+
+### Cost, measured
+
+The recorder (`perf=1`) over 10 s of a CPU-practice stage from its third
+second, autoplayed, Beatucada's Challenge, Infinito, attacks on, a
+release build served locally, headless Chrome (WebGPU, 60 Hz) and
+Playwright's Firefox (WebGL2, 120 Hz), one browser at a time
+(`target/scratch/e1/perf/`). The same build both ways: "Up to eight" is
+the stored setting `opponent_fields: UpToEight`, the hand's On
+`dancing_hand_multiplayer: true`, each pair run back to back. **The
+machine was not quiet** (another agent building, the maintainer
+playing): 1-minute load average 5.6 to 14.5 over the runs (43 at the
+very first runs before the coordinator's request; not used below), so
+the absolute numbers are under contention; the differences between
+pairs taken together are what to read. Main-thread ms a frame, mean,
+each repetition (r2 of Firefox's 72 at 1280×720 was disturbed in both
+its runs, means 3.21 and 2.56, and is left out):
+
+| Scene | Every one shown | Up to eight | Difference |
+| --- | --- | --- | --- |
+| Firefox, 8 CPUs | 1.38 | (the same) | |
+| Firefox, 16 | 1.96 | 1.65 | +0.3 |
+| Firefox, 24 | 2.05 | 1.40 | +0.65 |
+| Firefox, 36 | 2.15, 2.40, 2.32 | 1.53, 1.43, 1.53 | +0.8 |
+| Firefox, 72 | 2.42, 2.40 | 1.57, 1.53 | +0.85 |
+| Firefox, 72, Adaptive charts | 2.34, 2.48, 2.26 | 1.63, 1.55, 1.50 | +0.8 |
+| Firefox, 72, 2560×1440 | 2.42, 2.48, 2.60 | 1.63, 1.71, 1.82 | +0.8 |
+| Chrome, 8 | 0.82 | (the same) | |
+| Chrome, 16 / 24 / 36 | 1.12 / 1.23 / 1.51 | 0.96 / 0.97 / 1.03 | +0.15 / +0.25 / +0.5 |
+| Chrome, 72 | 1.74, 1.74, 2.17 | 1.06, 1.07, 1.32 | +0.7 |
+| Chrome, 72, Adaptive / 2560×1440 | 1.77 / 1.76 | 1.10 / 1.10 | +0.65 |
+
+Where it goes (Firefox, 72): the renderer's part (`render`: the
+miniatures' skin quads built, ordered and uploaded) 0.9 against 0.3,
+the GL calls (`submit`) 0.75 against 0.55, the overlay the same
+(0.15). The skins' quads drew in 55 to 60 batches a frame on average
+(p95 about 200, the frames where neighbors' explosions overlap and the
+interleave falls back) against 23 for eight.
+
+Firefox's GPU at 2560×1440 (the `readPixels` wait, as the frame-cost
+round): every one shown 3.87, 3.74, 4.02 ms; up to eight 3.19, 2.61,
+3.42: about +0.8 (+0.6 to +1.1 pair by pair).
+
+The first build cost far more (Firefox 72: 4.03 against 1.67, Chrome
+2.47 against 1.21): the cheap wins taken were the miniatures' quads
+interleaved into one field's batches (300 batches a frame to about 100,
+`ddi_render::batching::interleave`, exact: each quad waits while a quad
+of an earlier miniature it may touch is still to be drawn; desktop's
+`opponent_fields_offscreen` compares the frame drawn with and without
+it, pixel for pixel), the general reordering skipped after a successful
+interleave (its look-back over 1,100 quads cost more than it merged),
+and attack lines not routed around 72 fields. Not tried: leaving out
+hit effects and receptor flashes on small fields (at 11 px they still
+read in the pictures), drawing the miniatures every other frame (it
+would show as stutter on a 120 Hz screen).
+
+Native (desktop offscreen, debug build at opt-level 1, so the share
+rather than the size matters; 72 CPUs, 1280×720): a frame recorded in
+0.96 ms (p95 1.42) every one shown against 0.53 (0.96) up to eight;
+with the GPU's work 3.41 against 2.45.
+
+**The Display choice.** The costs are under the brief's bars (about
+0.85 ms of Firefox's main thread against 1.5; about 0.8 ms of GPU at
+2560×1440 against 1), the GPU's close to its bar. Options → Display has
+**Opponents' fields: As many as fit (default) / Up to eight**
+(`Settings::opponent_fields`), the default every one because that is
+what the maintainer asked for and it stays inside both bars; Up to
+eight is the way back to the eight slots of before on a machine that
+needs the frame time (and was the measurements' comparison).
+
+**The hand (part 1).** With the hand Off (the default) its column is
+0.00 in every stage run above. Turned On, 72 CPUs at 1280×720: Firefox
+2.96, 3.32, 3.23 against 2.42, 2.40 Off (its column 0.58 to 0.65 ms);
+Chrome 2.56, 2.53, 2.83 against 1.74, 1.74, 2.17 (column 0.80 to 0.92);
+Firefox's GPU at 2560×1440 4.14, 4.15, 4.15 On against 3.91, 3.72,
+3.77 Off (+0.25 to +0.45).
+
+Pictures: `target/scratch/e1-shots/` (desktop offscreen with 12, 24,
+36 and 72 at 1280×720, 1920×1080 and 844×390; the browsers' frames of
+every measured run).
+
 
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| Every opponent shown past eight where all fit at a lane of 10 px, fields cut to 8 lanes only where that makes all fit, a 3 px gap at nine columns (`fields-all-v0`: `MINI_LANE_ALL`, `DENSE_ROWS_MIN`, `DENSE_GAP`) | `ddi_shell::opponents` | 72 at 1280×720 are 9×4 a side at 11 px; smaller windows show as many as fit, the rest by rivals | Whether 10 px is the least the maintainer reads; whether shorter fields are wanted beyond the phone |
+| What a small field carries (`carry-v0`: score from 16 px, stars from 13, name from 11, combo from 9) | `ddi_shell::opponents::Carry` | 36 at 1280×720 lose the score, 72 also the stars | The steps, by looking |
+| Opponents' fields default "As many as fit" | `Settings::opponent_fields` | About +0.85 ms main thread (Firefox) and +0.8 ms GPU at 2560×1440 with 72 | Whether the default should follow the room's size or the measured frame time |
+| Dancing hand in multiplayer Off by default | `Settings::dancing_hand_multiplayer` | No hand in a stage unless turned on | None (the maintainer's request) |
 | `online-cpus-v0` (2026-11-13): an online room's CPUs computed alike on every device (50 ms steps from −2 s, a shock put in 1.25 s after its checkpoint, a 2 s horizon's lead); every connected player's device reports for them, the room taking the first and counting a different one; nobody left to compute ends them as forfeits | `ddi_room::live::cpus`, `ddi_session::battle::cpus` | The host adds CPUs online as in practice; a wrong report that reached the room first stands | First or majority; the bytes (every device sends every CPU); the horizon |
 | Rules from the next stage (2026-11-13): a change lands on the next stage nobody has readied, loaded or started (once picked, the one after); Points changeable from a stage on too (the maintainer, answered); Apply and restart takes the per-stage rows as shown | `RoomState::rules_land_on`, `room_dialogs::RulesDialog` | A host's change of timing, Boos, attacks, zero life or (since the follow-up) Points applies from the stage the pop-up names, said on everyone's status line | Whether a change should land on a picked stage nobody has readied yet |
 | `adaptive-v1` (2026-11-14, the maintainer's "we can do better" on bouncing): `adaptive-v0` with sixteen bars, not eight, of full life with no miss, no hold let go and no shock stepped on to step back up to a rung whose life ran out (first-time steps up stay at four), and a rung closed for the rest of the stage once life ran out on it twice (never stepped up to again, nor past it); "Staying on Hard" said once, quietly, when a rung closes; no quality condition | `ddi_engine::ladder::ADAPTIVE_V1` (`ADAPTIVE`), `AdaptiveRule::closed_after`, `Step::closes`, `StageCue::Stay` | The worst a stage can bounce: down, up once after the higher barrier, down, and there they stay | Sixteen and two; whether a share of the two best judgments should also be asked (measured: it separates CPUs that hold a rung from those that fall back) |

@@ -167,7 +167,10 @@ Rust and the browser are implementation details, not advertised features.
   nominal candidate span is 4.7–68 mm; actual pose/contact bounds are unchanged.
 - `crates/character/`, `crates/hand-plan/` and `crates/hand-pose/` supply the
   dancing hand (`docs/plans/dancing-hand.md`). Both default builds include it;
-  settings retain saved Off choices. Shared At once Two trims excess simultaneous
+  settings retain saved Off choices. In a multiplayer stage it plays only
+  where Options → Display's "Dancing hand in multiplayer" is On (Off by
+  default, `Settings::dancing_hand_in`): Off, a stage prepares no hand at
+  all (`dance::Preview::preload`). Shared At once Two trims excess simultaneous
   lifts after taps/new hold heads, preserving retained timing and metadata;
   One retains its legacy lift protection. The hand is an autoplay beside the play: it
   plays its own copy of the judged notes, at most two at once (`At once: up to
@@ -823,12 +826,23 @@ Rust and the browser are implementation details, not advertised features.
   `priority_seats` never rotating away (`opponents::rotate`): whoever
   attacks the player and whom the player attacked last, while those
   attacks last and a turn after; there is no list of opponents any
-  more; past eight opponents, a large field of up to 72, the eight slots
-  a room of nine has, those that matter to the player now in them,
-  attackers first, then the nearest rivals by standing, changing hands
-  rarely, and under the left side's the ladder: the player's place and a
-  strip of everyone's life, `crate::rivals`; a spectator's grid past
-  twelve in pages, `ddi_session::play::GRID_PAGE`).
+  more; past eight opponents, a large field of up to 72 (feedback round
+  E1): every opponent a field of its own in seat order where all fit at
+  `MINI_LANE_ALL` (72 at 1280×720 nine columns by four rows a side,
+  lanes of 11; fields cut shorter, to `DENSE_ROWS_MIN`, only where that
+  lets all fit), carrying what reads at their lane (`opponents::Carry`:
+  the score, then the stars, then the name, then the combo go; a name
+  beside a field attacking or attacked by the player), the miniatures'
+  quads interleaved into one field's batches (`ddi_render::batching::
+  interleave`); where they do not all fit, as many as do (never fewer
+  than eight), those that matter to the player now in them, attackers
+  first, then the nearest rivals by standing, changing hands rarely
+  (`crate::rivals`); under the left side's the ladder: the player's
+  place and, where not everyone is shown, a strip of everyone's life;
+  Options → Display's "Opponents' fields: Up to eight"
+  (`Settings::opponent_fields`, `RenderOptions::opponents_up_to_eight`)
+  keeps the eight slots; a spectator's grid past twelve in pages,
+  `ddi_session::play::GRID_PAGE`).
   Platform-free (native and wasm), natively tested.
 - `crates/app/` the game (`ddi`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell
