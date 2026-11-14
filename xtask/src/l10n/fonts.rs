@@ -18,7 +18,7 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use sha2::Digest;
 
-use super::{LanguageEntry, catalog, listed};
+use super::{LanguageEntry, Languages, catalog, listed};
 
 /// The theme's text face (`crates/theme/src/infinito.toml`'s `fonts.text`,
 /// first in every stack): what it draws, no language's face needs to.
@@ -163,8 +163,12 @@ fn hex(bytes: &[u8]) -> String {
 /// What is wrong with the faces: a message (or a language's name) writing
 /// a character neither the theme's face nor its language's faces draw
 /// (every weight), a face's file missing, not credited or not served.
-pub(super) fn check(root: &Path) -> Result<Vec<String>> {
-    let listed = listed(root)?;
+/// `chars`: each listed language's characters ([`super::Catalog::chars`]).
+pub(super) fn check(
+    root: &Path,
+    listed: &Languages,
+    chars: &BTreeMap<String, BTreeMap<char, String>>,
+) -> Result<Vec<String>> {
     let theme = coverage(&root.join(THEME_FACE))?;
     let mut problems = Vec::new();
     let provenance = fs::read_to_string(root.join("assets/fonts/PROVENANCE.toml"))?;
@@ -199,7 +203,7 @@ pub(super) fn check(root: &Path) -> Result<Vec<String>> {
         faces.insert(&face.family, files);
     }
     for l in &listed.language {
-        let mut chars = catalog(root, &l.tag)?.chars;
+        let mut chars = chars.get(&l.tag).cloned().unwrap_or_default();
         for ch in l.name.chars() {
             chars.entry(ch).or_insert("its name".into());
         }

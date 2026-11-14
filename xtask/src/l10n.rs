@@ -153,10 +153,6 @@ fn listed(root: &Path) -> Result<Languages> {
     toml::from_str::<Languages>(&text).with_context(|| path.display().to_string())
 }
 
-fn languages(root: &Path) -> Result<Vec<LanguageEntry>> {
-    Ok(listed(root)?.language)
-}
-
 fn catalog(root: &Path, tag: &str) -> Result<Catalog> {
     let dir = root.join("locales").join(tag);
     let files = ftl_files(&dir).with_context(|| dir.display().to_string())?;
@@ -341,13 +337,16 @@ fn check(root: &Path) -> Result<()> {
 /// Every language checked (an error listing what is wrong), with its
 /// review states, English first.
 fn checked(root: &Path) -> Result<Vec<Row>> {
-    let languages = languages(root)?;
+    let listed = listed(root)?;
     let en = catalog(root, "en")?;
+    // Each language's characters, for the faces' check: every catalog
+    // read once.
+    let mut chars: BTreeMap<String, BTreeMap<char, String>> = BTreeMap::new();
     let mut problems = en.problems.clone();
     problems.extend(collisions("en", &en));
     problems.extend(boot_problems(&en));
     let mut rows = Vec::new();
-    for l in &languages {
+    for l in &listed.language {
         if l.tag == "en" {
             rows.push(Row {
                 tag: l.tag.clone(),
@@ -434,9 +433,11 @@ fn checked(root: &Path) -> Result<Vec<Row>> {
             messages: en.messages.len(),
             counts,
         });
+        chars.insert(tag.clone(), it.chars);
     }
+    chars.insert("en".into(), en.chars);
     problems.extend(lint(root)?);
-    problems.extend(fonts::check(root)?);
+    problems.extend(fonts::check(root, &listed, &chars)?);
     if !problems.is_empty() {
         bail!(
             "the UI's languages (locales/, docs/plans/localization.md):\n  {}",
@@ -540,28 +541,41 @@ pub(crate) fn boot_lines(pseudo: bool) -> Result<serde_json::Value> {
         .iter()
         .filter(|id| en.messages[*id].area == "boot")
         .collect();
-    let mut lines = serde_json::Map::new();
-    let mut shipped = Vec::new();
+    let languages: Vec<&'static ddi_l10n::Language> = ddi_l10n::all()
+        .filter(|l| pseudo || l.status != ddi_l10n::Status::Pseudo)
+        .collect();
+    let shipped: Vec<&str> = languages
+        .iter()
+        .filter(|l| l.status == ddi_l10n::Status::Shipped)
+        .map(|l| l.tag)
+        .collect();
+    let keys: Vec<(&str, &str)> = ids
+        .iter()
+        .map(|id| (id.trim_start_matches("boot-"), id.as_str()))
+        .collect();
+    let lines = formatted(&languages, &keys);
+    Ok(serde_json::json!({ "shipped": shipped, "lines": lines }))
+}
+
+/// `{tag: {key: message}}`: each of `languages` with each `(key, id)`'s
+/// message formatted in it as the game formats it; the thread's language
+/// put back after.
+fn formatted(
+    languages: &[&ddi_l10n::Language],
+    keys: &[(&str, &str)],
+) -> serde_json::Map<String, serde_json::Value> {
     let was = ddi_l10n::current().tag;
-    for l in ddi_l10n::all() {
-        if l.status == ddi_l10n::Status::Pseudo && !pseudo {
-            continue;
-        }
-        if l.status == ddi_l10n::Status::Shipped {
-            shipped.push(l.tag);
-        }
+    let mut out = serde_json::Map::new();
+    for l in languages {
         ddi_l10n::set_language(l.tag);
-        let table: serde_json::Map<String, serde_json::Value> = ids
+        let table: serde_json::Map<String, serde_json::Value> = keys
             .iter()
-            .map(|id| {
-                let key = id.trim_start_matches("boot-").to_string();
-                (key, ddi_l10n::format(id, &[]).as_str().into())
-            })
+            .map(|(key, id)| ((*key).to_string(), ddi_l10n::format(id, &[]).as_str().into()))
             .collect();
-        lines.insert(l.tag.to_string(), table.into());
+        out.insert(l.tag.to_string(), table.into());
     }
     ddi_l10n::set_language(was);
-    Ok(serde_json::json!({ "shipped": shipped, "lines": lines }))
+    out
 }
 
 /// The Linux desktop entry's keys and the messages giving them.
@@ -579,28 +593,13 @@ fn package(previews: bool) -> Result<()> {
 }
 
 fn package_json(previews: bool) -> serde_json::Value {
-    let was = ddi_l10n::current().tag;
     let languages: Vec<&'static ddi_l10n::Language> = ddi_l10n::all()
         .filter(|l| {
             l.status == ddi_l10n::Status::Shipped
                 || (previews && l.status == ddi_l10n::Status::Preview)
         })
         .collect();
-    let mut entry = serde_json::Map::new();
-    for l in &languages {
-        ddi_l10n::set_language(l.tag);
-        let keys: serde_json::Map<String, serde_json::Value> = ENTRY
-            .iter()
-            .map(|(key, id)| {
-                (
-                    (*key).to_string(),
-                    ddi_l10n::format(id, &[]).as_str().into(),
-                )
-            })
-            .collect();
-        entry.insert(l.tag.to_string(), keys.into());
-    }
-    ddi_l10n::set_language(was);
+    let entry = formatted(&languages, &ENTRY);
     serde_json::json!({
         "languages": languages.iter().map(|l| l.tag).collect::<Vec<_>>(),
         "entry": entry,
@@ -617,9 +616,6 @@ fn collisions(tag: &str, c: &Catalog) -> Vec<String> {
         .collect()
 }
 
-/// String literals handed to `UiText::data`, which are almost always
-/// English slipping past the messages (symbols are fine); tests are left
-/// alone.
 /// Calls whose text a player reads, and what the check calls them: a
 /// literal (or a `format!` of one) with letters in it is text written in
 /// code. The screens' text is the coverage walk's (`l10n_tests.rs`);
