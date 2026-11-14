@@ -487,7 +487,12 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
     let no_numbers = |h: &Harness| {
         h.texts()
             .iter()
-            .all(|t| !t.contains(" of ") && !t.contains("Lv") && !t.contains("Level "))
+            // ("2 of 10"; the Charts rule's sentence has words "of" too)
+            .all(|t| {
+                !(t.contains(" of ") && t.chars().any(|c| c.is_ascii_digit()))
+                    && !t.contains("Lv")
+                    && !t.contains("Level ")
+            })
     };
     assert!(no_numbers(&h), "{:?}", h.texts());
     // Add custom: two at level 10, then one by name. The level starts at
@@ -688,29 +693,22 @@ fn the_points_row_chooses_the_bias_where_the_room_offers_it() {
     settings.save();
 }
 
-/// The Charts row ("Adaptive", `adaptive-v0`): As picked first, each
-/// choice with its sentence; applied, it is the match's and the summary
-/// names it (As picked is never named); Reset gives As picked; a room
-/// whose authority cannot honor it, or an online room, shows it fixed at
-/// As picked.
+/// The Charts row: Adaptive by default since 2026-11-14 (a new practice
+/// room's, Reset's), each choice with its sentence; As picked applied is
+/// the match's and the summary names it (Adaptive, the usual, is never
+/// named); a room whose authority cannot honor Adaptive shows the row
+/// fixed at As picked and its summary says nothing of it.
 #[test]
 fn the_charts_row_chooses_adaptive_where_the_room_offers_it() {
     let env = env();
     let room = RoomClient::shared(0, 1);
+    assert_eq!(room.borrow().rules().charts, ddi_room::Charts::Adaptive);
     room.borrow_mut().set_rules_seen(true);
     let orders = Orders::default();
     let mut h = harness();
     h.push(room_select(&env, room.clone(), "dance-single", &orders));
     h.run(0.5);
     press(&mut h, "Room.Rules");
-    assert_eq!(said(&h, "Rule.charts.Value"), "As picked");
-    assert_eq!(view(&env).draft_charts.as_deref(), Some("as_picked"));
-    assert!(
-        h.texts().iter().any(|t| t.starts_with("Everyone plays the chart picked")),
-        "{:?}",
-        h.texts()
-    );
-    press(&mut h, "Inc.charts");
     assert_eq!(said(&h, "Rule.charts.Value"), "Adaptive");
     assert_eq!(view(&env).draft_charts.as_deref(), Some("adaptive"));
     assert!(
@@ -718,26 +716,45 @@ fn the_charts_row_chooses_adaptive_where_the_room_offers_it() {
         "{:?}",
         h.texts()
     );
+    press(&mut h, "Dec.charts");
+    assert_eq!(said(&h, "Rule.charts.Value"), "As picked");
+    assert_eq!(view(&env).draft_charts.as_deref(), Some("as_picked"));
+    assert!(
+        h.texts().iter().any(|t| t.starts_with("Everyone plays the chart picked")),
+        "{:?}",
+        h.texts()
+    );
     press(&mut h, "Apply");
-    assert_eq!(room.borrow().rules().charts, ddi_room::Charts::Adaptive);
+    assert_eq!(room.borrow().rules().charts, ddi_room::Charts::AsPicked);
     let words = |r: &ddi_room::MatchRules| {
         String::from(super::room::rules_words(
             &crate::state::room::StageRules::of(r),
             None,
         ))
     };
-    assert_eq!(words(room.borrow().rules()), "DDI · Adaptive charts");
-    assert_eq!(words(&ddi_room::MatchRules::hosted()), "DDI");
-    // Reset's default is As picked.
+    assert_eq!(words(room.borrow().rules()), "DDI · Charts as picked");
+    let mut adaptive = room.borrow().rules().clone();
+    adaptive.charts = ddi_room::Charts::Adaptive;
+    assert_eq!(words(&adaptive), "DDI");
+    // Where Adaptive is not offered, As picked is no choice: unsaid.
+    assert_eq!(
+        String::from(super::room::rules_words_in(
+            &crate::state::room::StageRules::of(room.borrow().rules()),
+            None,
+            false,
+        )),
+        "DDI"
+    );
+    // Reset's default is Adaptive.
     let mut settings = crate::state::settings::Settings::load();
     settings.multiplayer_rules_first = true;
     settings.save();
     room.borrow_mut().set_rules_seen(false);
     h.run(0.5);
     press(&mut h, "Reset");
-    assert_eq!(view(&env).draft_charts.as_deref(), Some("as_picked"));
+    assert_eq!(view(&env).draft_charts.as_deref(), Some("adaptive"));
     press(&mut h, "Ok");
-    assert_eq!(room.borrow().rules().charts, ddi_room::Charts::AsPicked);
+    assert_eq!(room.borrow().rules().charts, ddi_room::Charts::Adaptive);
     settings.multiplayer_rules_first = false;
     settings.save();
     // An authority that cannot honor it: fixed at As picked, nothing
@@ -804,7 +821,7 @@ fn the_attacks_at_once_row_shows_under_attacks_and_three_is_the_default() {
     };
     assert_eq!(words(room.borrow().rules(), Some(true)), "DDI · One attack at once");
     assert_eq!(words(room.borrow().rules(), Some(false)), "DDI · No attacks");
-    assert_eq!(words(&ddi_room::MatchRules::hosted(), Some(true)), "DDI");
+    assert_eq!(words(&ddi_room::MatchRules::hosted_for(&ddi_room::RoomPolicy::default().with_live()), Some(true)), "DDI");
     // Its stage rules' plan names the limit.
     assert_eq!(
         crate::state::room::StageRules::of(room.borrow().rules()).attack_rules().at_once(),
@@ -871,7 +888,11 @@ fn a_room_on_an_older_server_shows_points_fixed() {
 #[test]
 fn the_rules_summary_says_no_attacks_only_where_they_are_turned_off() {
     use super::room::rules_words;
-    let rules = crate::state::room::StageRules::default();
+    // The usual rules: Adaptive charts, a new room's.
+    let rules = crate::state::room::StageRules {
+        charts: ddi_room::Charts::Adaptive,
+        ..Default::default()
+    };
     let words = |r: &crate::state::room::StageRules, attacks| String::from(rules_words(r, attacks));
     assert_eq!(words(&rules, Some(true)), "DDI");
     assert_eq!(words(&rules, Some(false)), "DDI · No attacks");
@@ -879,7 +900,7 @@ fn the_rules_summary_says_no_attacks_only_where_they_are_turned_off() {
     let hard = crate::state::room::StageRules {
         difficulty: ddi_room::MatchDifficulty::Hard,
         boos: true,
-        ..Default::default()
+        ..rules.clone()
     };
     assert_eq!(
         words(&hard, Some(false)),

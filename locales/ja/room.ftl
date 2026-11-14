@@ -323,8 +323,8 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [mild] {" "}· 得点 弱め
    *[strong] {""}
 }{ $charts ->
-    [adaptive] {" "}· 譜面 適応
-   *[as_picked] {""}
+    [as_picked] {" "}· 譜面 選んだまま
+   *[adaptive] {""}
 }{ $at_once ->
     [one] {" "}· 同時攻撃 1
     [two] {" "}· 同時攻撃 2

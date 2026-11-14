@@ -1524,21 +1524,32 @@ fn a_watch_only_join_is_held_alike_everywhere_until_the_owner_lets_them_play() {
     assert_eq!(server.borrow().state().member(id).unwrap().intent, Intent::Play);
 }
 
-/// A hosted room's default Attacks rule follows what it really plays: On
-/// where the room plays live (as practice's), Off where it does not; the
-/// fake server makes its rooms as the server does.
+/// A hosted room's default Attacks and Charts rules follow what it really
+/// plays: Attacks On and Charts Adaptive where the room plays live (as
+/// practice's; Adaptive only where its authority honors it), Off and As
+/// picked where it does not; the fake server makes its rooms as the
+/// server does.
 #[test]
 fn a_hosted_rooms_attacks_are_on_by_default_only_where_it_plays_live() {
     let live = RoomPolicy::default().with_live();
     assert!(MatchRules::hosted_for(&live).attacks());
+    assert_eq!(MatchRules::hosted_for(&live).charts, ddi_room::Charts::Adaptive);
     assert!(!MatchRules::hosted_for(&RoomPolicy::default()).attacks());
     assert_eq!(
         MatchRules::hosted_for(&RoomPolicy::default()),
         MatchRules::hosted()
     );
+    assert_eq!(MatchRules::hosted().charts, ddi_room::Charts::AsPicked);
     let mut on = MatchRules::hosted();
     on.set_attacks(true);
+    on.charts = ddi_room::Charts::Adaptive;
     assert_eq!(MatchRules::hosted_for(&live), on, "nothing else differs");
+    // An authority that does not honor Adaptive: As picked.
+    let older = RoomPolicy {
+        adaptive: false,
+        ..live.clone()
+    };
+    assert_eq!(MatchRules::hosted_for(&older).charts, ddi_room::Charts::AsPicked);
     let clock = ManualClock::new(1_000);
     for (policy, attacks) in [(live, true), (RoomPolicy::default(), false)] {
         let server = FakeServer::hosted(
@@ -1549,6 +1560,12 @@ fn a_hosted_rooms_attacks_are_on_by_default_only_where_it_plays_live() {
             clock.clone(),
         );
         assert_eq!(server.state().next.rules.attacks(), attacks);
+        let charts = if attacks {
+            ddi_room::Charts::Adaptive
+        } else {
+            ddi_room::Charts::AsPicked
+        };
+        assert_eq!(server.state().next.rules.charts, charts);
     }
 }
 

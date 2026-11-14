@@ -797,9 +797,10 @@ impl Screen for RulesDialog {
                 m::rules_locked_line(
                     l.stages,
                     cpu_roster::roster_of(l, humans).len(),
-                    super::room::rules_words(
+                    super::room::rules_words_in(
                         &crate::state::room::StageRules::of(l),
                         self.attacks_offered().then(|| l.attacks()),
+                        self.adaptive_offered(),
                     ),
                 )
                 .into()
@@ -973,9 +974,10 @@ impl Screen for RulesDialog {
             let line = m::rules_locked_line(
                 rules.stages,
                 cpu_roster::roster_of(rules, humans).len(),
-                super::room::rules_words(
+                super::room::rules_words_in(
                     &crate::state::room::StageRules::of(rules),
                     self.attacks_offered().then(|| rules.attacks()),
+                    self.adaptive_offered(),
                 ),
             );
             let mut t = env.text("Locked.Line", &line, 14.0, 400, "Secondary");
@@ -3065,9 +3067,10 @@ impl Screen for StandingsDialog {
                 lines.push((
                     m::results_rules_changed(
                         i + 1,
-                        super::room::rules_words(
+                        super::room::rules_words_in(
                             &crate::state::room::StageRules::of(&rules),
                             super::room::attacks_offered(&r).then(|| rules.attacks()),
+                            r.adaptive_offered(),
                         ),
                     )
                     .into(),

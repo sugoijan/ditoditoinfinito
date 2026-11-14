@@ -1178,7 +1178,9 @@ Rust and the browser are implementation details, not advertised features.
   and the countdown. The phase machine is multiplayer-ui.md's State model;
   participation is derived (`RoomState::participation`), never stored.
   The match's Charts rule (`MatchRules::charts`, `Charts`: As picked or
-  Adaptive, read from the "At zero life" rule before it, `at_zero`;
+  Adaptive, a new room's default where it honors it since 2026-11-14,
+  `MatchRules::practice`, `hosted_for`, the field still read as As picked
+  where missing; read from the "At zero life" rule before it, `at_zero`;
   `RoomPolicy::adaptive`; a stage under Adaptive ranks those still in by
   the score as earned, life the tie-break, `RankBy::Score`,
   `Charts::rank_by`, `battle::rank`'s argument, never by steps,

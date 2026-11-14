@@ -2330,19 +2330,37 @@ pub fn attacks_offered(room: &crate::state::room::RoomClient) -> bool {
 /// The match's rules in a few words, where they are summarized (the Rules
 /// pop-up's locked line, a stage's prompt): the ruleset's name, then what
 /// differs from the usual: its difficulty where it is not Normal, Boos
-/// where they are on, and "No attacks" where the match has none though
+/// where they are on, "No attacks" where the match has none though
 /// the room offers them (`attacks`: the rule where attacks are offered,
 /// which is On by default; none where they are not, and nothing is
-/// said).
+/// said), and "Charts as picked" where the charts do not adapt (Adaptive
+/// is the default since 2026-11-14; [`rules_words_in`] for a room that
+/// does not offer it, where nothing is said).
 pub fn rules_words(rules: &crate::state::room::StageRules, attacks: Option<bool>) -> UiText {
+    rules_words_in(rules, attacks, true)
+}
+
+/// [`rules_words`] in a room that offers Adaptive charts or not
+/// (`RoomClient::adaptive_offered`): where it does not, As picked is no
+/// choice and is not said.
+pub fn rules_words_in(
+    rules: &crate::state::room::StageRules,
+    attacks: Option<bool>,
+    adaptive_offered: bool,
+) -> UiText {
     let on = |b: bool| if b { "on" } else { "off" };
+    let charts = if adaptive_offered {
+        rules.charts
+    } else {
+        ddi_room::Charts::Adaptive
+    };
     m::rules_words(
         ruleset_name(&rules.ruleset),
         difficulty_id(rules.difficulty),
         on(rules.boos),
         on(attacks.unwrap_or(true)),
         rules.points.id(),
-        rules.charts.id(),
+        charts.id(),
         // Only where the stage has attacks.
         if attacks.unwrap_or(true) { at_once_id(rules.at_once) } else { "three" },
     )

@@ -38,6 +38,10 @@ fn room_seeded(_song: &Song, stages: u16, cpus: u16, level: u8, seed: u64) -> Ro
     // turned off): what these stages' tests are about; `attacks_room`
     // turns it on again.
     rules.set_attacks(false);
+    // The picked chart alone (Adaptive is a new room's default since
+    // 2026-11-14): what these stages' tests are about; the step-down
+    // tests choose Adaptive themselves.
+    rules.charts = ddi_room::Charts::AsPicked;
     room.save_rules(rules).unwrap();
     room
 }

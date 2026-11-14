@@ -7840,6 +7840,37 @@ following steps down and back up moved to two-star CPUs from a Medium
 pick (from Hard the song is too short for anyone to come back up under
 v1). The room: the revision's test (6).
 
+### Adaptive is the default
+
+The maintainer: "I think we can also make Adaptive the default."
+
+- A new room's match rules start with **Charts: Adaptive** where the room
+  honors it: CPU practice (`MatchRules::practice`), and an online room
+  that plays live and whose authority says `adaptive`
+  (`MatchRules::hosted_for`, which the server makes its rooms with and
+  Rules' Reset restores). Elsewhere As picked as before, the row fixed
+  as before. `MatchRules::hosted()`, the base, stays As picked.
+- **Stored and received rules keep their meaning**, without a version:
+  the field's serde default stays As picked and As picked is still left
+  out of the JSON, so rules written before (which name no chart rule)
+  read as As picked as they always did, and Adaptive, written out
+  (`"charts": "adaptive"`), reads as Adaptive by every build. A room
+  stored on the server before its deploy keeps its rules; only rooms
+  made after it start Adaptive. Chosen over writing the field always:
+  nothing on the wire or in storage changes form, and an authority one
+  build behind reads the new default as it is.
+- **The summaries** name the rule where it is As picked now ("DDI ·
+  Charts as picked", ja 「譜面 選んだまま」), what differs from the usual,
+  and say nothing of Adaptive; in a room that does not offer Adaptive,
+  As picked is no choice and is not said (`room::rules_words_in`).
+- The remembered practice roster is untouched (not a rule).
+- Tests: the room's defaults in practice and over `FakeServer` (live:
+  Adaptive; not live, or an authority without `adaptive`: As picked),
+  the JSON both ways (the default written, a stored rule without the
+  field read as As picked), the summaries, the Rules pop-up starting at
+  Adaptive and its Reset; the session's stage tests that are about the
+  picked chart set As picked themselves.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

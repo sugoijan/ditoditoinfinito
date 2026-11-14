@@ -439,15 +439,20 @@ pub struct MatchRules {
     /// by its own rule (`RoomPolicy::points_bias` says which).
     #[serde(default, skip_serializing_if = "PointsBias::is_strong")]
     pub points: PointsBias,
-    /// The charts a stage is played on (As picked by default): the
-    /// picked chart alone, zero life out of the stage; or Adaptive, each
-    /// competitor stepping down the song's ladder at zero life and up it
-    /// after full bars (`ddi_engine::ladder`, PROVISIONAL `adaptive-v0`),
-    /// a stage then ranked by the score as earned ([`RankBy::Score`]).
-    /// ADDITIVE, as `difficulty`: left out while As picked, read as As
-    /// picked where missing; the "At zero life" rule it replaces
-    /// (`at_zero`, "out" and "step_down") is read as it (Step down as
-    /// Adaptive). Offered where [`RoomPolicy::adaptive`] says so.
+    /// The charts a stage is played on: the picked chart alone, zero life
+    /// out of the stage (As picked); or Adaptive, each competitor stepping
+    /// down the song's ladder at zero life and up it after full bars
+    /// (`ddi_engine::ladder`, PROVISIONAL `adaptive-v1`), a stage then
+    /// ranked by the score as earned ([`RankBy::Score`]). A new room's
+    /// rules start Adaptive where the room honors it (the maintainer,
+    /// 2026-11-14: [`MatchRules::practice`], [`MatchRules::hosted_for`]);
+    /// [`MatchRules::hosted`] alone, the base, is As picked. ADDITIVE, as
+    /// `difficulty`: left out while As picked, read as As picked where
+    /// missing, so rules stored or sent before Adaptive became the
+    /// default keep their meaning (they named Adaptive when it was
+    /// chosen); the "At zero life" rule it replaces (`at_zero`, "out" and
+    /// "step_down") is read as it (Step down as Adaptive). Offered where
+    /// [`RoomPolicy::adaptive`] says so.
     #[serde(
         default,
         alias = "at_zero",
@@ -749,7 +754,7 @@ impl MatchRules {
     /// Local CPU practice: one player and three CPUs, four stages, the
     /// battle the practice stages are played under (PROVISIONAL:
     /// `BattlePreset::GaugeAttacksV0`, the Attacks rule On: anyone turns
-    /// it Off in Rules, [`MatchRules::set_attacks`]).
+    /// it Off in Rules, [`MatchRules::set_attacks`]), Charts Adaptive.
     pub fn practice(opponent: OpponentSpec) -> Self {
         Self {
             stages: 4,
@@ -760,6 +765,7 @@ impl MatchRules {
                 roster: Vec::new(),
             },
             battle: crate::battle::BattlePreset::GAUGE_ATTACKS_V0.into(),
+            charts: Charts::Adaptive,
             ..Self::hosted()
         }
     }
@@ -798,16 +804,21 @@ impl MatchRules {
     /// Reset restores there: [`MatchRules::hosted`], with the Attacks rule
     /// On where the room plays live (`RoomPolicy::live`: its authority
     /// runs the attack ledger), as practice has it (the maintainer,
-    /// 2026-11-13: "Attacks should be on by default on private rooms").
-    /// Off where it does not, which plays none whatever the rule says.
-    /// Only a new room starts so: a room's stored rules stay as its host
-    /// left them.
+    /// 2026-11-13: "Attacks should be on by default on private rooms"),
+    /// and Charts Adaptive where the room plays live and honors it
+    /// (`RoomPolicy::adaptive`; the maintainer, 2026-11-14: "I think we
+    /// can also make Adaptive the default"). Off and As picked where it
+    /// does not, which plays neither whatever the rules say. Only a new
+    /// room starts so: a room's stored rules stay as its host left them.
     pub fn hosted_for(policy: &RoomPolicy) -> Self {
         let mut rules = Self::hosted();
         // An authority one build behind seats fewer (nine).
         rules.seats = rules.seats.min(policy.max_competitors);
         if policy.live.is_some() {
             rules.set_attacks(true);
+            if policy.adaptive {
+                rules.charts = Charts::Adaptive;
+            }
         }
         rules
     }
@@ -961,6 +972,37 @@ pub enum RulesProblem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Adaptive by default (2026-11-14) where the room honors it, and
+    /// stored or received rules keep their meaning: rules that name no
+    /// chart rule were As picked and still read so; Adaptive is written
+    /// out, so a new room's rules read as Adaptive by every build.
+    #[test]
+    fn adaptive_is_a_new_rooms_default_and_old_rules_keep_their_meaning() {
+        let practice = MatchRules::practice(OpponentSpec {
+            level: 4,
+            seed: 1,
+            personality: None,
+            name: None,
+            targeting: None,
+        });
+        assert_eq!(practice.charts, Charts::Adaptive);
+        let json = serde_json::to_value(&practice).unwrap();
+        assert_eq!(json["charts"], "adaptive");
+        assert_eq!(serde_json::from_value::<MatchRules>(json.clone()).unwrap(), practice);
+        // Stored before (no chart rule named): As picked, as it was.
+        let mut stored = json;
+        stored.as_object_mut().unwrap().remove("charts");
+        let read: MatchRules = serde_json::from_value(stored).unwrap();
+        assert_eq!(read.charts, Charts::AsPicked);
+        // As picked chosen now is written as it always was (left out) and
+        // read back as As picked.
+        let mut picked = practice.clone();
+        picked.charts = Charts::AsPicked;
+        let json = serde_json::to_value(&picked).unwrap();
+        assert!(json.get("charts").is_none());
+        assert_eq!(serde_json::from_value::<MatchRules>(json).unwrap(), picked);
+    }
 
     #[test]
     fn charts_is_an_additive_match_rule_read_from_the_step_down_before_it() {

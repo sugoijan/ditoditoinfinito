@@ -804,7 +804,7 @@ room-prompt-ruleset = Rules: { $rules }
 #   $boos (String) - "on" or "off"
 #   $attacks (String) - "off" when the match's attacks are turned off, else "on"
 #   $points (String) - "strong", "medium" or "mild"
-#   $charts (String) - "adaptive" when the charts adapt to each player (down at zero life, up after full life), else "as_picked"
+#   $charts (String) - "as_picked" when everyone plays the chart picked (the charts not adapting to each player, which is the usual), else "adaptive"
 #   $at_once (String) - "one", "two" or "no_limit" when attacks are on and that is how many may be on their way to one player at once, else "three"
 room-rules-words = { $ruleset }{ $difficulty ->
     [easy] {" "}· Easy timing
@@ -821,8 +821,8 @@ room-rules-words = { $ruleset }{ $difficulty ->
     [mild] {" "}· Mild points
    *[strong] {""}
 }{ $charts ->
-    [adaptive] {" "}· Adaptive charts
-   *[as_picked] {""}
+    [as_picked] {" "}· Charts as picked
+   *[adaptive] {""}
 }{ $at_once ->
     [one] {" "}· One attack at once
     [two] {" "}· Two attacks at once
