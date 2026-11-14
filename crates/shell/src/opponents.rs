@@ -357,6 +357,20 @@ pub struct Slot {
     pub dim: f32,
 }
 
+impl Slot {
+    /// The whole slot with its field's band, `[left, top, right,
+    /// bottom]`: its name line and its field.
+    pub fn bounds(&self) -> [f32; 4] {
+        let (r, p) = (self.rect, self.panel);
+        [
+            r[0].min(p[0]),
+            r[1].min(p[1]),
+            (r[0] + r[2]).max(p[2]),
+            (r[1] + r[3]).max(p[3]),
+        ]
+    }
+}
+
 /// The opponents' miniatures' places ([`arrange`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fields {
@@ -1838,7 +1852,7 @@ pub(crate) mod tests {
         FieldGeometry::placed(w, h, 4.0, false, Default::default())
     }
 
-    fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {
+    pub(crate) fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {
         a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
     }
 

@@ -254,7 +254,12 @@ fn route(
         pts.push([xs[(at / 2) % nx], ys[(at / 2) / nx]]);
     }
     pts.reverse();
-    let mut out: Vec<[f32; 2]> = Vec::new();
+    Some(merge_collinear(pts))
+}
+
+/// `pts` with every corner between two legs in one line left out.
+fn merge_collinear(pts: Vec<[f32; 2]>) -> Vec<[f32; 2]> {
+    let mut out: Vec<[f32; 2]> = Vec::with_capacity(pts.len());
     for p in pts {
         if let [.., a, b] = out[..]
             && (((a[0] - b[0]).abs() < 0.01 && (b[0] - p[0]).abs() < 0.01)
@@ -264,7 +269,28 @@ fn route(
         }
         out.push(p);
     }
-    Some(out)
+    out
+}
+
+/// A way's cost as [`route`] counts it, `corner` more for each corner
+/// (its ends too).
+fn way_cost(way: &[[f32; 2]], corner: f32) -> f32 {
+    way.windows(2)
+        .map(|w| (w[1][0] - w[0][0]).abs() + (w[1][1] - w[0][1]).abs())
+        .sum::<f32>()
+        + corner * way.len() as f32
+}
+
+/// The three ends of a line onto the warning in `cue` (`[left, top,
+/// right, bottom]`): its top, its bottom and its outer side, each with
+/// the place `step` off it the way leaves from.
+fn warning_ends(cue: [f32; 4], step: f32) -> [([f32; 2], [f32; 2]); 3] {
+    let (cx, cy) = ((cue[0] + cue[2]) / 2.0, (cue[1] + cue[3]) / 2.0);
+    [
+        ([cx, cue[1]], [cx, cue[1] - step]),
+        ([cx, cue[3]], [cx, cue[3] + step]),
+        ([cue[2], cy], [cue[2] + step, cy]),
+    ]
 }
 
 impl Layout<'_> {
@@ -289,14 +315,7 @@ impl Layout<'_> {
         } else {
             &self.fields.slots[..]
         };
-        out.extend(slots.iter().map(|s| {
-            [
-                s.rect[0].min(s.panel[0]),
-                s.rect[1].min(s.panel[1]),
-                (s.rect[0] + s.rect[2]).max(s.panel[2]),
-                (s.rect[1] + s.rect[3]).max(s.panel[3]),
-            ]
-        }));
+        out.extend(slots.iter().map(Slot::bounds));
         out.extend(self.keep_out.iter().copied());
         let [x, y, w, h] = self.fields.status;
         if w > 0.0 && h > 0.0 {
@@ -361,44 +380,25 @@ impl Layout<'_> {
         } else {
             // To the warning: onto its top, its bottom or its outer
             // side, whichever is nearest.
-            let (cx, cy) = ((cue[0] + cue[2]) / 2.0, (cue[1] + cue[3]) / 2.0);
             let blocked = self.blocked(grow, true);
-            [
-                ([cx, cue[1]], [cx, cue[1] - step]),
-                ([cx, cue[3]], [cx, cue[3] + step]),
-                ([cue[2], cy], [cue[2] + step, cy]),
-            ]
-            .into_iter()
-            .filter_map(|(on, off)| {
-                let mut way = route(off_mini, off, &blocked, bounds, corner)?;
-                way.insert(0, at_mini);
-                way.push(on);
-                Some(way)
-            })
-            .collect()
+            warning_ends(cue, step)
+                .into_iter()
+                .filter_map(|(on, off)| {
+                    let mut way = route(off_mini, off, &blocked, bounds, corner)?;
+                    way.insert(0, at_mini);
+                    way.push(on);
+                    Some(way)
+                })
+                .collect()
         };
-        let cost = |way: &Vec<[f32; 2]>| {
-            way.windows(2)
-                .map(|w| (w[1][0] - w[0][0]).abs() + (w[1][1] - w[0][1]).abs())
-                .sum::<f32>()
-                + corner * way.len() as f32
-        };
+        let cost = |way: &Vec<[f32; 2]>| way_cost(way, corner);
         let mut pts = ways
             .into_iter()
             .min_by(|a, b| cost(a).total_cmp(&cost(b)))
             .unwrap_or_default();
         pts.dedup_by(|a, b| (a[0] - b[0]).abs() < 0.25 && (a[1] - b[1]).abs() < 0.25);
         // A stub and the leg after it in one line are one leg.
-        let mut out: Vec<[f32; 2]> = Vec::new();
-        for p in pts {
-            if let [.., a, b] = out[..]
-                && (((a[0] - b[0]).abs() < 0.01 && (b[0] - p[0]).abs() < 0.01)
-                    || ((a[1] - b[1]).abs() < 0.01 && (b[1] - p[1]).abs() < 0.01))
-            {
-                out.pop();
-            }
-            out.push(p);
-        }
+        let out = merge_collinear(pts);
         if out.len() < 2 {
             return Vec::new();
         }
@@ -473,19 +473,7 @@ impl GridLayout<'_> {
         let r = self.ratio;
         let grow = 1.5 * r;
         let step = grow + 0.5;
-        let mut blocked: Vec<[f32; 4]> = self
-            .fields
-            .slots
-            .iter()
-            .map(|s| {
-                [
-                    s.rect[0].min(s.panel[0]),
-                    s.rect[1].min(s.panel[1]),
-                    (s.rect[0] + s.rect[2]).max(s.panel[2]),
-                    (s.rect[1] + s.rect[3]).max(s.panel[3]),
-                ]
-            })
-            .collect();
+        let mut blocked: Vec<[f32; 4]> = self.fields.slots.iter().map(Slot::bounds).collect();
         blocked.extend(self.keep_out.iter().copied());
         let [x, y, w, h] = self.fields.status;
         if w > 0.0 && h > 0.0 {
@@ -502,21 +490,10 @@ impl GridLayout<'_> {
             ([from.panel[0], y_m], [from.panel[0] - step, y_m]),
             ([from.panel[2], y_m], [from.panel[2] + step, y_m]),
         ];
-        let cue = crate::battle_cue::place(&to.field, self.span);
-        let (cx, cy) = ((cue[0] + cue[2]) / 2.0, (cue[1] + cue[3]) / 2.0);
-        let ends = [
-            ([cx, cue[1]], [cx, cue[1] - step]),
-            ([cx, cue[3]], [cx, cue[3] + step]),
-            ([cue[2], cy], [cue[2] + step, cy]),
-        ];
+        let ends = warning_ends(crate::battle_cue::place(&to.field, self.span), step);
         let bounds = [r, r, self.size[0] - r, self.size[1] - r];
         let corner = 24.0 * r;
-        let cost = |way: &Vec<[f32; 2]>| {
-            way.windows(2)
-                .map(|w| (w[1][0] - w[0][0]).abs() + (w[1][1] - w[0][1]).abs())
-                .sum::<f32>()
-                + corner * way.len() as f32
-        };
+        let cost = |way: &Vec<[f32; 2]>| way_cost(way, corner);
         let mut best: Option<Vec<[f32; 2]>> = None;
         for (at, off) in starts {
             for (on, before) in ends {
@@ -533,16 +510,7 @@ impl GridLayout<'_> {
         let mut pts = best.unwrap_or_default();
         pts.dedup_by(|a, b| (a[0] - b[0]).abs() < 0.25 && (a[1] - b[1]).abs() < 0.25);
         // A stub and the leg after it in one line are one leg.
-        let mut out: Vec<[f32; 2]> = Vec::new();
-        for p in pts {
-            if let [.., a, b] = out[..]
-                && (((a[0] - b[0]).abs() < 0.01 && (b[0] - p[0]).abs() < 0.01)
-                    || ((a[1] - b[1]).abs() < 0.01 && (b[1] - p[1]).abs() < 0.01))
-            {
-                out.pop();
-            }
-            out.push(p);
-        }
+        let out = merge_collinear(pts);
         if out.len() < 2 {
             return Vec::new();
         }
@@ -777,11 +745,7 @@ pub fn debug(shown: &[Shown]) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::opponents::tests::{SIZES, keep};
-
-    fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {
-        a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
-    }
+    use crate::opponents::tests::{SIZES, keep, overlaps};
 
     /// The box of the leg from `p` to `q`, a hair wide.
     fn leg(p: [f32; 2], q: [f32; 2]) -> [f32; 4] {
