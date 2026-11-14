@@ -7,6 +7,8 @@
 //! without a GPU adapter, the `ffmpeg` command or the helper.
 #![cfg(feature = "video")]
 
+mod common;
+
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
@@ -17,7 +19,7 @@ use ddi_desktop::audio::Audio;
 use ddi_desktop::gpu;
 use ddi_desktop::library::files::{DirReader, walk};
 use ddi_desktop::play::load::{Files, Loaded};
-use ddi_desktop::play::view::{Formats, View};
+use ddi_desktop::play::view::View;
 use ddi_desktop::play::{Feed, Play, Request};
 use ddi_platform::HostTime;
 use ddi_platform::decode_all::Range;
@@ -82,9 +84,7 @@ fn song(dir: &Path, codec: &str, extension: &str) -> Option<()> {
 
 #[test]
 fn a_movie_plays_behind_the_field() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     if ddi_desktop::video::helper_path().is_none() {
@@ -220,7 +220,7 @@ fn play_loaded(
     let mut view = View::new(
         &device,
         &queue,
-        Formats::of(wgpu::TextureFormat::Rgba8Unorm, true),
+        common::gpu::formats(),
     );
     view.set_song(&loaded, &settings);
     view.start();
@@ -333,9 +333,7 @@ fn play_loaded(
 /// `RandomMovies` folder, its frames shown from the start.
 #[test]
 fn a_random_movie_plays_behind_a_song_without_changes() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     if ddi_desktop::video::helper_path().is_none() {
@@ -420,13 +418,7 @@ fn a_local_songs_movie_plays() {
     let instance = gpu::instance();
     let adapter = gpu::adapter(&instance, None).expect("a GPU");
     let (stats, shown, trouble, pixels) = play_movies(&adapter, &root, seconds);
-    if let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-        let mut out = b"P6\n640 360\n255\n".to_vec();
-        for px in pixels.chunks(4) {
-            out.extend_from_slice(&px[..3]);
-        }
-        std::fs::write(Path::new(&dir).join("play-movie.ppm"), out).unwrap();
-    }
+    common::shot("play-movie.ppm", &pixels, [640, 360]);
     assert!(shown, "no movie frame shown: {stats:?}");
     assert!(trouble.is_none(), "{trouble:?}");
     assert!(stats.shown as f64 > seconds * 10.0, "{stats:?}");

@@ -72,9 +72,7 @@ fn the_preview_movie_plays_in_the_banners_place() {
     // SAFETY: set before any thread of this test reads the environment.
     unsafe { std::env::set_var("DDI_HOME", &home) };
     ddi_desktop::audio::set_headless(true);
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     if ddi_desktop::video::helper_path().is_none() {
@@ -134,17 +132,7 @@ fn the_preview_movie_plays_in_the_banners_place() {
         ratio: 1.0,
     });
     let keep = |name: &str, pixels: &[u8]| {
-        if let Some(dir) = std::env::var_os("DDI_OFFSCREEN_PPM") {
-            let mut ppm = b"P6\n1280 720\n255\n".to_vec();
-            ppm.extend(
-                pixels
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .flat_map(|p| [p[0], p[1], p[2]]),
-            );
-            std::fs::write(Path::new(&dir).join(name), ppm).expect("ppm");
-        }
+        common::shot(name, pixels, [1280, 720]);
     };
     let banner_source = |ui: &ddi_ui::Ui| {
         let mut info = ui.actor("Info")?.clone();
