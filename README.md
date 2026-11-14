@@ -10,7 +10,7 @@
 
 > Song: Beatucada by Kurio Prokos · Chart: by Timo Kitsune · Background: by Jose Varela.
 
-A dance rhythm game that works on the web, with a multiplayer battle: everyone plays the same song at once and sends attacks until one player is left. Alternative to StepMania, ITGmania, Etterna and others.
+A dance rhythm game with a battle mode where everyone plays the same song at once and attacks each other until one is left. It works on the web. Alternative to StepMania, ITGmania, Etterna and others.
 
 ## Develop and build
 

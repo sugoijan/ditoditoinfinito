@@ -178,11 +178,17 @@ with geography, time, category and term/topic choice. Sources:
   sends attacks until one player is left. No other game is named for it,
   and nothing beyond it is claimed (no CPU opponents, sign-in, invites,
   matchmaking, public rooms or rankings). The title stays the game's name
-  and genre.
+  and genre. The maintainer then chose the shortest wording for the short
+  description and the README's lead (2026-11-14: "I want to keep the
+  description simple"): "A dance rhythm game with a battle mode where
+  everyone plays the same song at once and attacks each other until one
+  is left." The controls, the StepMania import and the layouts left the
+  short description; they stay in the structured description and the
+  accessibility summary.
 
-The short meta/Open Graph/Twitter description now emphasizes genre,
-controls, the multiplayer battle, StepMania import and layouts. The structured description and the
-existing concise accessibility summary explain the DDR and Pump references.
+The short meta/Open Graph/Twitter description now says the genre and the
+battle mode alone. The structured description and the
+existing concise accessibility summary explain the controls, StepMania import, the layouts and the DDR and Pump references.
 No extra hidden keyword paragraphs or new landing-page UI were added.
 After indexing, Search Console's query impressions, clicks and CTR will be
 the evidence for this site's actual discovery; Trends cannot predict the
