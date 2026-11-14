@@ -280,18 +280,8 @@ struct Lane {
     shock: Option<Element>,
     hold: HoldParts,
     roll: HoldParts,
-    holding: Option<HoldKind>,
-    /// Since when (song seconds) it is held, and its last judgments: an
-    /// explosion component's instances (`docs/plans/noteskin-scene.md`).
-    holding_since: Option<f64>,
-    /// The last hold's instance after it ended (its name, start and end,
-    /// song seconds), drawn on for its component's `Duration`.
-    ended: Option<(&'static str, f64, f64)>,
-    hits: std::collections::VecDeque<Hit>,
-    /// What the lane's last press did, for its receptor component (`W1`
-    /// … `W5`, `None` for nothing hit, `HitMine`), as StepMania's
-    /// receptor commands are played.
-    step: Option<Hit>,
+    /// What the play's presses and judgments lit in it.
+    lit: Lit,
     /// Base orientation before lending the explosion tree to Lua.
     explosion_rotation: f32,
     /// The layout's scroll sign for the lane (-1: a lower-row lane).
@@ -379,12 +369,9 @@ pub struct NoteskinPlay {
     /// second: what miniatures draw of a receptor an actor draws (its
     /// state is what the play's own presses' commands made it).
     rest_receptors: Option<Vec<Element>>,
-    /// How opaque explosion components' instances are drawn: 1 on the
-    /// play's field, [`MINIATURE_HIT_ALPHA`] on a miniature's.
-    explosion_alpha: f32,
-    /// A plain miniature's mines are the built-in skin's
-    /// ([`NoteLayer::miniature`]): [`NoteLayer::notes`] leaves them out.
-    no_mines: bool,
+    /// What a miniature's lanes light, made for each one's draw, its room
+    /// kept ([`NoteLayer::miniature`]).
+    mini_lit: Vec<Lit>,
     /// Built-in substitutions and command errors, for the import report
     /// and the console.
     pub notes: Vec<String>,
@@ -426,6 +413,81 @@ struct Hit {
     bright: bool,
     /// Drawn at [`DIM_HIT`] of its strength (`SkinEvent::dim`).
     dim: bool,
+}
+
+/// What a lane's presses and judgments light: its explosion component's
+/// instances (`docs/plans/noteskin-scene.md`) and its receptor
+/// component's `hit` clock. The play's field's are its lanes'
+/// ([`Lane::lit`]); a miniature's are made for its draw
+/// ([`NoteLayer::miniature`]).
+#[derive(Clone, Debug, Default)]
+struct Lit {
+    holding: Option<HoldKind>,
+    /// Since when (song seconds) it is held.
+    holding_since: Option<f64>,
+    /// The last hold's instance after it ended (its name, start and end,
+    /// song seconds), drawn on for its component's `Duration`.
+    ended: Option<(&'static str, f64, f64)>,
+    /// Its last judgments.
+    hits: std::collections::VecDeque<Hit>,
+    /// What the lane's last press did, for its receptor component (`W1`
+    /// … `W5`, `None` for nothing hit, `HitMine`), as StepMania's
+    /// receptor commands are played.
+    step: Option<Hit>,
+}
+
+/// A lane with nothing lit.
+static UNLIT: Lit = Lit {
+    holding: None,
+    holding_since: None,
+    ended: None,
+    hits: std::collections::VecDeque::new(),
+    step: None,
+};
+
+/// One field's drawing as the shared drawing functions read it besides
+/// its frame and place: the play's own ([`FieldDraw::PLAY`]) or an
+/// opponent's miniature ([`NoteLayer::miniature`]). Nothing of the play's
+/// field changes for a miniature's.
+#[derive(Clone, Copy)]
+struct FieldDraw<'a> {
+    /// Each lane's lit state; `None`, the lanes' own (the play's).
+    lit: Option<&'a [Lit]>,
+    /// Receptors an actor draws as they rest between the play's presses
+    /// (`NoteskinPlay::rest_receptors`, where kept), not as the play's
+    /// presses' commands left them.
+    rest: bool,
+    /// The components' `press` and `release` clocks read the play's
+    /// presses (else none).
+    presses: bool,
+    /// How opaque explosion components' instances are drawn.
+    hit_alpha: f32,
+    /// The skin draws its mines (else the built-in skin does:
+    /// [`crate::scene::Miniature::plain`]).
+    mines: bool,
+    /// The notes' drawn positions are kept (the play's, for its hit
+    /// messages' `HitX` and `HitY`).
+    positions: bool,
+}
+
+impl FieldDraw<'_> {
+    /// The play's own field.
+    const PLAY: FieldDraw<'static> = FieldDraw {
+        lit: None,
+        rest: false,
+        presses: true,
+        hit_alpha: 1.0,
+        mines: true,
+        positions: true,
+    };
+
+    /// What lane `i`, `lane`, has lit in this field.
+    fn lit<'b>(&'b self, i: usize, lane: &'b Lane) -> &'b Lit {
+        match self.lit {
+            None => &lane.lit,
+            Some(lit) => lit.get(i).unwrap_or(&UNLIT),
+        }
+    }
 }
 
 /// How strong an explosion component's instance of a dim hit is drawn
@@ -604,11 +666,7 @@ impl Lane {
             shock: None,
             hold,
             roll,
-            holding: None,
-            holding_since: None,
-            ended: None,
-            hits: std::collections::VecDeque::new(),
-            step: None,
+            lit: Lit::default(),
             explosion_rotation: 0.0,
             scroll_sign,
             colors: Vec::new(),
@@ -1182,8 +1240,7 @@ impl NoteskinPlay {
             last_song_time: None,
             timer: 0.0,
             rest_receptors: None,
-            explosion_alpha: 1.0,
-            no_mines: false,
+            mini_lit: Vec::new(),
             notes,
             problems: Problems::default(),
             srgb,
@@ -1623,9 +1680,9 @@ impl NoteskinPlay {
         {
             self.presses.clear();
             for lane in &mut self.lanes {
-                lane.hits.clear();
-                lane.ended = None;
-                lane.step = None;
+                lane.lit.hits.clear();
+                lane.lit.ended = None;
+                lane.lit.step = None;
             }
             self.last_note_positions.clear();
         }
@@ -1770,10 +1827,10 @@ impl NoteskinPlay {
                                cmd: &mut Commands,
                                p: &mut Problems| {
                 // An explosion component's instance, by its score's name.
-                if lane.hits.len() == MAX_HITS {
-                    lane.hits.pop_front();
+                if lane.lit.hits.len() == MAX_HITS {
+                    lane.lit.hits.pop_front();
                 }
-                lane.hits.push_back(Hit {
+                lane.lit.hits.push_back(Hit {
                     at: e.song_time,
                     name: names[2],
                     bright: b,
@@ -1836,7 +1893,7 @@ impl NoteskinPlay {
                         SkinEventKind::Step(None) => "None",
                         _ => "HitMine",
                     };
-                    lane.step = Some(Hit {
+                    lane.lit.step = Some(Hit {
                         at: e.song_time,
                         name,
                         bright: false,
@@ -1882,8 +1939,8 @@ impl NoteskinPlay {
         // `GhostArrowRow::Update`: HoldingOn/Off and RollOn/Off on change.
         for (i, lane) in lanes.iter_mut().enumerate() {
             let now = frame.receptors.get(i).and_then(|r| r.holding);
-            if now != lane.holding {
-                match lane.holding {
+            if now != lane.lit.holding {
+                match lane.lit.holding {
                     Some(HoldKind::Hold) => cmd.play(&mut lane.explosion, "HoldingOff", &[], p),
                     Some(HoldKind::Roll) => cmd.play(&mut lane.explosion, "RollOff", &[], p),
                     None => {}
@@ -1893,12 +1950,12 @@ impl NoteskinPlay {
                     Some(HoldKind::Roll) => cmd.play(&mut lane.explosion, "RollOn", &[], p),
                     None => {}
                 }
-                if let Some(since) = lane.holding_since {
-                    let name = held_name(lane.holding);
-                    lane.ended = name.map(|name| (name, since, frame.song_time));
+                if let Some(since) = lane.lit.holding_since {
+                    let name = held_name(lane.lit.holding);
+                    lane.lit.ended = name.map(|name| (name, since, frame.song_time));
                 }
-                lane.holding = now;
-                lane.holding_since = now.map(|_| frame.song_time);
+                lane.lit.holding = now;
+                lane.lit.holding_since = now.map(|_| frame.song_time);
             }
         }
         let dt = match self.last_song_time {
@@ -2369,8 +2426,9 @@ impl NoteLayer for NoteskinPlay {
     /// played: an actor's receptor is drawn as it rested in the play's
     /// field (`rest_receptors`; as the play's own until
     /// then), and actors' explosions are not drawn here. The Lua is not
-    /// run. The play's field's presses, judgments,
-    /// held notes, drawn positions and camera are put back after.
+    /// run. Drawn as a field of its own ([`FieldDraw`]): nothing of the
+    /// play's field (its presses, judgments, held notes and drawn
+    /// positions) is read or changed.
     fn miniature(
         &mut self,
         frame: &Frame,
@@ -2380,79 +2438,55 @@ impl NoteLayer for NoteskinPlay {
         out: &mut Vec<TexQuad>,
     ) {
         let now = self.frame_time.0;
-        let camera = self.camera;
-        let positions = self.last_note_positions.len();
-        let presses = std::mem::take(&mut self.presses);
-        let kept: Vec<_> = self
-            .lanes
-            .iter_mut()
-            .enumerate()
-            .map(|(i, lane)| {
-                let r = frame.receptors.get(i);
-                let hit = r
-                    .and_then(|r| r.flash)
-                    .filter(|(j, _)| !j.is_miss())
-                    .map(|(j, age)| (age, score_name(j)));
-                // A battle shock stepped on: the skin's mine explosion,
-                // where it is the latest.
-                let mine = r.and_then(|r| r.mine).map(|age| (age, "HitMine"));
-                let hit = match (hit, mine) {
-                    (Some(h), Some(m)) => Some(if m.0 <= h.0 { m } else { h }),
-                    (h, m) => h.or(m),
-                }
-                .map(|(age, name)| Hit {
-                    at: now - f64::from(age),
-                    name,
-                    bright: false,
-                    dim: false,
-                });
-                (
-                    std::mem::replace(&mut lane.step, hit),
-                    std::mem::replace(&mut lane.hits, hit.into_iter().collect()),
-                    lane.holding.take(),
-                    lane.holding_since.take(),
-                    lane.ended.take(),
-                )
-            })
-            .collect();
-        // Receptors at rest, not as the play's presses left them.
-        let mut rest = self.rest_receptors.take();
-        let swap = |lanes: &mut [Lane], rest: &mut Option<Vec<Element>>| {
-            for (l, r) in lanes.iter_mut().zip(rest.iter_mut().flatten()) {
-                std::mem::swap(&mut l.receptor, r);
+        let mut lit = std::mem::take(&mut self.mini_lit);
+        lit.resize_with(self.lanes.len(), Lit::default);
+        for (i, l) in lit.iter_mut().enumerate() {
+            let r = frame.receptors.get(i);
+            let hit = r
+                .and_then(|r| r.flash)
+                .filter(|(j, _)| !j.is_miss())
+                .map(|(j, age)| (age, score_name(j)));
+            // A battle shock stepped on: the skin's mine explosion,
+            // where it is the latest.
+            let mine = r.and_then(|r| r.mine).map(|age| (age, "HitMine"));
+            let hit = match (hit, mine) {
+                (Some(h), Some(m)) => Some(if m.0 <= h.0 { m } else { h }),
+                (h, m) => h.or(m),
             }
-        };
-        swap(&mut self.lanes, &mut rest);
-        self.camera = Camera::of(geo);
-        self.column_actors(layout, geo, out, |l| &mut l.receptor);
-        swap(&mut self.lanes, &mut rest);
-        self.rest_receptors = rest;
-        // Its holds and rolls first, as a field's (a person's stream draws
-        // them: `TapTrack::full`), then its notes.
-        // Drawn plainly, its holds and mines are the built-in skin's.
-        if !plain {
-            self.holds(frame, layout, geo, out);
+            .map(|(age, name)| Hit {
+                at: now - f64::from(age),
+                name,
+                bright: false,
+                dim: false,
+            });
+            l.step = hit;
+            l.hits.clear();
+            l.hits.extend(hit);
         }
-        self.no_mines = plain;
-        self.notes(frame, layout, geo, out);
-        self.no_mines = false;
-        if self.miniature_hits() {
+        let field = FieldDraw {
+            lit: Some(&lit),
+            rest: true,
+            presses: false,
             // A small field's hit effect at full strength reads as a blot
             // over its receptor (Infinito's white W1 burst): fainter.
-            self.explosion_alpha = MINIATURE_HIT_ALPHA;
-            self.explosion_instances(layout, geo, out);
-            self.explosion_alpha = 1.0;
+            hit_alpha: MINIATURE_HIT_ALPHA,
+            // Drawn plainly, its holds and mines are the built-in skin's.
+            mines: !plain,
+            positions: false,
+        };
+        // Receptors at rest, not as the play's presses left them.
+        self.camera = Camera::of(geo);
+        self.column_actors(layout, geo, out, |l| &mut l.receptor, &field);
+        // Its holds and rolls first, as a field's (a person's stream draws
+        // them: `TapTrack::full`), then its notes.
+        if !plain {
+            self.draw_holds(frame, layout, geo, out, &field);
         }
-        for (lane, (step, hits, holding, since, ended)) in self.lanes.iter_mut().zip(kept) {
-            lane.step = step;
-            lane.hits = hits;
-            lane.holding = holding;
-            lane.holding_since = since;
-            lane.ended = ended;
+        self.draw_notes(frame, layout, geo, out, &field);
+        if self.miniature_hits() {
+            self.explosion_instances(layout, geo, out, &field);
         }
-        self.presses = presses;
-        self.last_note_positions.truncate(positions);
-        self.camera = camera;
+        self.mini_lit = lit;
     }
 
     fn miniature_hits(&self) -> bool {
@@ -2498,7 +2532,7 @@ impl NoteLayer for NoteskinPlay {
         self.quads.set(0);
         self.triangles.set(0);
         self.camera = Camera::of(geo);
-        self.column_actors(layout, geo, out, |l| &mut l.receptor);
+        self.column_actors(layout, geo, out, |l| &mut l.receptor, &FieldDraw::PLAY);
     }
 
     fn explosions(
@@ -2509,18 +2543,41 @@ impl NoteLayer for NoteskinPlay {
         out: &mut Vec<TexQuad>,
     ) {
         self.camera = Camera::of(geo);
-        self.column_actors(layout, geo, out, |l| &mut l.explosion);
-        self.explosion_instances(layout, geo, out);
+        self.column_actors(layout, geo, out, |l| &mut l.explosion, &FieldDraw::PLAY);
+        self.explosion_instances(layout, geo, out, &FieldDraw::PLAY);
     }
 
-    /// `NoteDisplay::DrawHold`: top cap, body, bottom cap, then the tail and
-    /// the head, holds in row order.
     fn holds(
         &mut self,
         frame: &Frame,
         layout: &Layout,
         geo: &FieldGeometry,
         out: &mut Vec<TexQuad>,
+    ) {
+        self.draw_holds(frame, layout, geo, out, &FieldDraw::PLAY);
+    }
+
+    fn notes(
+        &mut self,
+        frame: &Frame,
+        layout: &Layout,
+        geo: &FieldGeometry,
+        out: &mut Vec<TexQuad>,
+    ) {
+        self.draw_notes(frame, layout, geo, out, &FieldDraw::PLAY);
+    }
+}
+
+impl NoteskinPlay {
+    /// `NoteDisplay::DrawHold`: top cap, body, bottom cap, then the tail and
+    /// the head, holds in row order, of `field`.
+    fn draw_holds(
+        &mut self,
+        frame: &Frame,
+        layout: &Layout,
+        geo: &FieldGeometry,
+        out: &mut Vec<TexQuad>,
+        field: &FieldDraw<'_>,
     ) {
         self.camera = Camera::of(geo);
         let k = geo.arrow / 64.0;
@@ -2557,7 +2614,9 @@ impl NoteLayer for NoteskinPlay {
             // The hold in its head's color (the copies swapped back below).
             let note_type = note_type(note.beat);
             lane.swap_hold_colors(note_type, roll);
-            self.last_note_positions.push((note.note_index, note.y));
+            if field.positions {
+                self.last_note_positions.push((note.note_index, note.y));
+            }
             let m = &lane.metrics;
             // The Active sprites while the button is held (always inside a
             // roll; `Player.cpp:1381-1386`, `1414-1424`).
@@ -2585,7 +2644,7 @@ impl NoteLayer for NoteskinPlay {
             // A `Def.LongNote` draws the whole long note.
             let parts = if roll { &lane.roll } else { &lane.hold };
             if let Element::LongNote(ln) = &parts.body[state] {
-                let clocks = self.note_clocks(i, note.beat, frame);
+                let clocks = self.note_clocks(i, note.beat, frame, field);
                 let seed = note_seed(note.note_index);
                 let fill = ln
                     .fill
@@ -2725,19 +2784,21 @@ impl NoteLayer for NoteskinPlay {
     }
 
     /// Taps, lifts, fakes and mines in row order, the later on top
-    /// (`NoteDisplay.cpp:628-637`, `RenderEarlierNotesOnTop` off).
-    fn notes(
+    /// (`NoteDisplay.cpp:628-637`, `RenderEarlierNotesOnTop` off), of
+    /// `field`.
+    fn draw_notes(
         &mut self,
         frame: &Frame,
         layout: &Layout,
         geo: &FieldGeometry,
         out: &mut Vec<TexQuad>,
+        field: &FieldDraw<'_>,
     ) {
         self.camera = Camera::of(geo);
         let k = geo.arrow / 64.0;
         let mut lanes = std::mem::take(&mut self.lanes);
         let mut electricity = Vec::new();
-        let no_mines = self.no_mines;
+        let no_mines = !field.mines;
         let joined = if no_mines {
             Default::default()
         } else {
@@ -2770,13 +2831,15 @@ impl NoteLayer for NoteskinPlay {
             let mut e = std::mem::replace(lane.note_slot(slot, note_type), Element::Blank);
             if let Element::Lift(lift) = &e {
                 let dir = geo.lane_direction(l.scroll_sign);
-                self.component_lift(lift, i, note, frame, at, k, dir, out);
+                self.component_lift(lift, i, note, frame, at, k, dir, field, out);
                 *lane.note_slot(slot, note_type) = e;
-                self.last_note_positions.push((note.note_index, note.y));
+                if field.positions {
+                    self.last_note_positions.push((note.note_index, note.y));
+                }
                 continue;
             }
             if let Element::Component(c) = &e {
-                let clocks = self.note_clocks(i, note.beat, frame);
+                let clocks = self.note_clocks(i, note.beat, frame, field);
                 self.draw_component(
                     c,
                     at,
@@ -2788,7 +2851,9 @@ impl NoteLayer for NoteskinPlay {
                     out,
                 );
                 *lane.note_slot(slot, note_type) = e;
-                self.last_note_positions.push((note.note_index, note.y));
+                if field.positions {
+                    self.last_note_positions.push((note.note_index, note.y));
+                }
                 continue;
             }
             let mine = matches!(slot, Slot::Mine | Slot::Shock);
@@ -2840,7 +2905,9 @@ impl NoteLayer for NoteskinPlay {
                 restore_mine_layers(&mut e, visibility);
             }
             *lane.note_slot(slot, note_type) = e;
-            self.last_note_positions.push((note.note_index, note.y));
+            if field.positions {
+                self.last_note_positions.push((note.note_index, note.y));
+            }
         }
         out.extend(electricity);
         self.note_order = order;
@@ -3077,24 +3144,37 @@ struct HoldDraw {
 }
 
 impl NoteskinPlay {
-    /// One actor per column at its receptor (receptors, explosions).
+    /// One actor per column at its receptor (receptors, explosions), of
+    /// `field`.
     fn column_actors(
         &mut self,
         layout: &Layout,
         geo: &FieldGeometry,
         out: &mut Vec<TexQuad>,
         pick: impl Fn(&mut Lane) -> &mut Element,
+        field: &FieldDraw<'_>,
     ) {
         let k = geo.arrow / 64.0;
         let mut lanes = std::mem::take(&mut self.lanes);
+        // Receptors at rest, where the field draws them so (kept).
+        let mut rest = if field.rest {
+            self.rest_receptors.take()
+        } else {
+            None
+        };
         for (i, lane) in lanes.iter_mut().enumerate() {
             let Some(l) = layout.lanes.get(i) else {
                 continue;
             };
             let at = [geo.lane_x(l.column), geo.lane_receptor_y(l.scroll_sign)];
             let explosion = std::ptr::eq(pick(lane), &lane.explosion);
-            let step = lane.step.filter(|h| h.at <= self.frame_time.0);
-            match pick(lane) {
+            let step = field.lit(i, lane).step.filter(|h| h.at <= self.frame_time.0);
+            let at_rest = rest.as_mut().and_then(|r| r.get_mut(i)).filter(|_| !explosion);
+            let element = match at_rest {
+                Some(e) => e,
+                None => pick(lane),
+            };
+            match element {
                 Element::Actor(a) => self.emit(a, [k, 0.0, 0.0, k, at[0], at[1]], [0.0; 2], out),
                 // An explosion's component draws an instance a judgment
                 // ([`NoteskinPlay::explosion_instances`]).
@@ -3104,7 +3184,7 @@ impl NoteskinPlay {
                     // what the lane's last press did.
                     let clocks = ddi_noteskin::component::Clocks {
                         hit: step.map(|h| (self.frame_time.0 - h.at) as f32),
-                        ..self.clocks(i)
+                        ..self.clocks(i, field)
                     };
                     let shows = move |p: &ddi_noteskin::component::Part| {
                         let shown = p.when.is_empty()
@@ -3125,36 +3205,41 @@ impl NoteskinPlay {
                 _ => {}
             }
         }
+        if field.rest {
+            self.rest_receptors = rest;
+        }
         self.lanes = lanes;
     }
 
     /// Each lane's explosion component, once for each of its judgments
     /// still showing (its parts as `When` and `Bright` choose, its `hit`
     /// clock the time since), and while a long note is held (`Holding`,
-    /// `Rolling`).
+    /// `Rolling`), of `field`.
     fn explosion_instances(
         &mut self,
         layout: &Layout,
         geo: &FieldGeometry,
         out: &mut Vec<TexQuad>,
+        field: &FieldDraw<'_>,
     ) {
         let k = geo.arrow / 64.0;
         let now = self.frame_time.0;
         let lanes = std::mem::take(&mut self.lanes);
-        let links = self.judgment_links(&lanes, layout, geo);
+        let links = self.judgment_links(&lanes, layout, geo, field);
         for (i, lane) in lanes.iter().enumerate() {
             let (Some(l), Element::Component(c)) = (layout.lanes.get(i), &lane.explosion) else {
                 continue;
             };
             let at = [geo.lane_x(l.column), geo.lane_receptor_y(l.scroll_sign)];
-            let held = held_name(lane.holding)
-                .zip(lane.holding_since)
+            let lit = field.lit(i, lane);
+            let held = held_name(lit.holding)
+                .zip(lit.holding_since)
                 .map(|(name, t)| (name, t, false, None));
-            let tail = lane
+            let tail = lit
                 .ended
                 .filter(|(_, _, end)| now - end <= f64::from(c.duration))
                 .map(|(name, t, end)| (name, t, false, Some(end)));
-            let instances = lane
+            let instances = lit
                 .hits
                 .iter()
                 .map(|h| (h.name, h.at, h.bright, None, h.dim))
@@ -3169,13 +3254,13 @@ impl NoteskinPlay {
                 let clocks = ddi_noteskin::component::Clocks {
                     hit: Some(age as f32),
                     ended: ended.map(|end: f64| (end - at_time) as f32),
-                    ..self.clocks(i)
+                    ..self.clocks(i, field)
                 };
                 self.draw_component(
                     c,
                     at,
                     k,
-                    (self.explosion_alpha * if dim { DIM_HIT } else { 1.0 }, 1.0),
+                    (field.hit_alpha * if dim { DIM_HIT } else { 1.0 }, 1.0),
                     hit_seed(i, at_time),
                     &clocks,
                     &|p| {
@@ -3187,14 +3272,18 @@ impl NoteskinPlay {
                 );
             }
         }
-        self.draw_judgment_links(&lanes, &links, geo, out);
+        self.draw_judgment_links(&lanes, &links, geo, out, field);
         self.lanes = lanes;
     }
 
     /// What lane `lane`'s components read now, with no note drawn
-    /// (`ddi_noteskin::component::Clocks`).
-    fn clocks(&self, lane: usize) -> ddi_noteskin::component::Clocks {
-        let p = self.presses.get(lane).copied().unwrap_or_default();
+    /// (`ddi_noteskin::component::Clocks`), in `field`.
+    fn clocks(&self, lane: usize, field: &FieldDraw<'_>) -> ddi_noteskin::component::Clocks {
+        let p = if field.presses {
+            self.presses.get(lane).copied().unwrap_or_default()
+        } else {
+            LanePresses::default()
+        };
         let since = |t: Option<f64>| t.map(|t| (self.frame_time.0 - t) as f32);
         ddi_noteskin::component::Clocks {
             beat: self.frame_time.1 as f32,
@@ -3217,11 +3306,12 @@ impl NoteskinPlay {
         lane: usize,
         note: f32,
         frame: &Frame,
+        field: &FieldDraw<'_>,
     ) -> ddi_noteskin::component::Clocks {
         ddi_noteskin::component::Clocks {
             beat: frame.beat as f32,
             note: Some(note),
-            ..self.clocks(lane)
+            ..self.clocks(lane, field)
         }
     }
 
@@ -3736,9 +3826,9 @@ mod tests {
             bright: false,
             dim: false,
         };
-        play.lanes[0].hits.push_back(hit(0.0, "HitMine"));
+        play.lanes[0].lit.hits.push_back(hit(0.0, "HitMine"));
         // A slightly later neighbor still joins; the bridge uses the weaker fade.
-        play.lanes[1].hits.push_back(hit(0.1, "HitMine"));
+        play.lanes[1].lit.hits.push_back(hit(0.1, "HitMine"));
         let mut layout = Layout::dance_single();
         let mut geo = FieldGeometry {
             arrow: 64.0,
@@ -3750,7 +3840,7 @@ mod tests {
         };
         let draw = |play: &mut NoteskinPlay, layout: &Layout, geo: &FieldGeometry| {
             let mut out = Vec::new();
-            play.explosion_instances(layout, geo, &mut out);
+            play.explosion_instances(layout, geo, &mut out, &FieldDraw::PLAY);
             out
         };
         let drawn = draw(&mut play, &layout, &geo);
@@ -3762,7 +3852,7 @@ mod tests {
         assert!((bridge.color[3] - left.color[3]).abs() < 1e-6);
         // Repeated hits do not emit duplicate bridges; only the linked
         // instance gives its rim up, the older one keeps both.
-        play.lanes[0].hits.push_back(hit(0.15, "HitMine"));
+        play.lanes[0].lit.hits.push_back(hit(0.15, "HitMine"));
         let repeated = draw(&mut play, &layout, &geo);
         assert_eq!(repeated.iter().filter(|q| q.texture == 73).count(), 1);
         assert_eq!(repeated.iter().filter(|q| q.texture == 71).count(), 2);
@@ -3788,20 +3878,20 @@ mod tests {
                 .any(|q| q.texture == 73)
         );
         layout.lanes[1].scroll_sign = 1;
-        play.lanes[2].hits = std::mem::take(&mut play.lanes[1].hits);
+        play.lanes[2].lit.hits = std::mem::take(&mut play.lanes[1].lit.hits);
         assert!(
             !draw(&mut play, &layout, &geo)
                 .iter()
                 .any(|q| q.texture == 73)
         );
-        play.lanes[1].hits = std::mem::take(&mut play.lanes[2].hits);
-        play.lanes[1].hits.back_mut().unwrap().name = "W1";
+        play.lanes[1].lit.hits = std::mem::take(&mut play.lanes[2].lit.hits);
+        play.lanes[1].lit.hits.back_mut().unwrap().name = "W1";
         assert!(
             !draw(&mut play, &layout, &geo)
                 .iter()
                 .any(|q| q.texture == 73)
         );
-        play.lanes[1].hits.back_mut().unwrap().name = "HitMine";
+        play.lanes[1].lit.hits.back_mut().unwrap().name = "HitMine";
         // The neighbor is transparent before its component lifetime expires.
         play.frame_time.0 = 0.55;
         let expired = draw(&mut play, &layout, &geo);
@@ -3811,8 +3901,8 @@ mod tests {
         // Two scroll rows can share columns without interrupting each other's links.
         play.frame_time.0 = 0.2;
         for lane in &mut play.lanes {
-            lane.hits.clear();
-            lane.hits.push_back(hit(0.0, "HitMine"));
+            lane.lit.hits.clear();
+            lane.lit.hits.push_back(hit(0.0, "HitMine"));
         }
         let chain = draw(&mut play, &layout, &geo);
         assert_eq!(chain.iter().filter(|q| q.texture == 73).count(), 3);
@@ -3869,7 +3959,7 @@ mod tests {
         play.texture_ids = vec![Some(70)];
         play.frame_time = (0.2, 0.4, 0.35);
         // The play's own field: a hit on lane 0, a press, a note drawn.
-        play.lanes[0].hits.push_back(Hit {
+        play.lanes[0].lit.hits.push_back(Hit {
             at: 0.1,
             name: "W1",
             bright: false,
@@ -3905,8 +3995,8 @@ mod tests {
         assert_eq!(bursts.len(), 1, "{bursts:?}");
         assert!((bursts[0] - geo.lane_x(2.0)).abs() < 1.0, "{bursts:?}");
         // The play's field as it was.
-        assert_eq!(play.lanes[0].hits.len(), 1);
-        assert!(play.lanes[2].hits.is_empty() && play.lanes[2].step.is_none());
+        assert_eq!(play.lanes[0].lit.hits.len(), 1);
+        assert!(play.lanes[2].lit.hits.is_empty() && play.lanes[2].lit.step.is_none());
         assert_eq!(play.presses[0].pressed, Some(0.1));
         assert_eq!(play.last_note_positions, vec![(7, 1.5)]);
     }
@@ -3939,10 +4029,10 @@ mod tests {
         }));
         play.texture_ids[0] = Some(7);
         play.frame_time = (0.1, 0.2, 0.35);
-        play.lanes[0].holding = Some(HoldKind::Hold);
-        play.lanes[0].holding_since = Some(0.005);
+        play.lanes[0].lit.holding = Some(HoldKind::Hold);
+        play.lanes[0].lit.holding_since = Some(0.005);
         for n in 1..=MAX_HITS {
-            play.lanes[0].hits.push_back(Hit {
+            play.lanes[0].lit.hits.push_back(Hit {
                 at: n as f64 * 0.01,
                 name: "W1",
                 bright: false,
@@ -3959,15 +4049,15 @@ mod tests {
         };
         let draw = |play: &mut NoteskinPlay| {
             let mut out = Vec::new();
-            play.explosion_instances(&Layout::dance_single(), &geo, &mut out);
+            play.explosion_instances(&Layout::dance_single(), &geo, &mut out, &FieldDraw::PLAY);
             out.into_iter()
                 .map(|q| q.material.unwrap().seed)
                 .collect::<Vec<_>>()
         };
         let before = draw(&mut play);
         assert_eq!(before.len(), MAX_HITS + 1);
-        play.lanes[0].hits.pop_front();
-        play.lanes[0].hits.push_back(Hit {
+        play.lanes[0].lit.hits.pop_front();
+        play.lanes[0].lit.hits.push_back(Hit {
             at: 0.09,
             name: "W1",
             bright: false,
@@ -4040,7 +4130,7 @@ mod tests {
         let drawn = |play: &mut NoteskinPlay, at: f64, holding| {
             play.update(&frame(at, holding), [].iter(), false);
             let mut out = Vec::new();
-            play.explosion_instances(&Layout::dance_single(), &geo, &mut out);
+            play.explosion_instances(&Layout::dance_single(), &geo, &mut out, &FieldDraw::PLAY);
             out.into_iter()
                 .filter(|q| q.color[3] > 0.0)
                 .map(|q| q.material.unwrap().seed)
@@ -4057,10 +4147,10 @@ mod tests {
         assert!(drawn(&mut play, 0.55, None).is_empty());
         // Its third would show from 0.6; the hold is over, so it does not.
         assert!(drawn(&mut play, 0.65, None).is_empty(), "no new one");
-        assert!(play.lanes[0].ended.is_some());
+        assert!(play.lanes[0].lit.ended.is_some());
         // A seek back forgets it.
         drawn(&mut play, 0.1, None);
-        assert!(play.lanes[0].ended.is_none());
+        assert!(play.lanes[0].lit.ended.is_none());
     }
 
     #[test]
@@ -4110,7 +4200,7 @@ mod tests {
         };
         let drawn = |play: &mut NoteskinPlay| {
             let mut out = Vec::new();
-            play.explosion_instances(&Layout::dance_single(), &geo, &mut out);
+            play.explosion_instances(&Layout::dance_single(), &geo, &mut out, &FieldDraw::PLAY);
             let mut seeds: Vec<_> = out
                 .into_iter()
                 .map(|q| {

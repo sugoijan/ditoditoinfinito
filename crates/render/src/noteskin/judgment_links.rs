@@ -38,11 +38,11 @@ impl JudgmentLinks {
     }
 }
 
-fn clocks(play: &NoteskinPlay, lane: usize, hit: Hit) -> ComponentClocks {
+fn clocks(play: &NoteskinPlay, lane: usize, hit: Hit, field: &FieldDraw<'_>) -> ComponentClocks {
     ComponentClocks {
         hit: Some((play.frame_time.0 - hit.at) as f32),
         seed: hit_seed(lane, hit.at),
-        ..play.clocks(lane)
+        ..play.clocks(lane, field)
     }
 }
 
@@ -62,6 +62,7 @@ impl NoteskinPlay {
         lanes: &[Lane],
         layout: &Layout,
         geo: &FieldGeometry,
+        field: &FieldDraw<'_>,
     ) -> JudgmentLinks {
         let mut nodes = Vec::new();
         for (i, lane) in lanes.iter().enumerate() {
@@ -80,12 +81,12 @@ impl NoteskinPlay {
                 continue;
             }
             // One bridge per lane pair, even when repeated hits overlap.
-            for &hit in lane.hits.iter().rev() {
+            for &hit in field.lit(i, lane).hits.iter().rev() {
                 let age = self.frame_time.0 - hit.at;
                 if age < 0.0 || age > f64::from(c.duration) {
                     continue;
                 }
-                let strength = link_strength(c, hit, &clocks(self, i, hit));
+                let strength = link_strength(c, hit, &clocks(self, i, hit, field));
                 if strength > 0.0 {
                     nodes.push(Endpoint {
                         lane: i,
@@ -115,6 +116,7 @@ impl NoteskinPlay {
         links: &JudgmentLinks,
         geo: &FieldGeometry,
         out: &mut Vec<TexQuad>,
+        field: &FieldDraw<'_>,
     ) {
         for [left, right] in &links.pairs {
             let Element::Component(c) = &lanes[left.lane].explosion else {
@@ -127,7 +129,7 @@ impl NoteskinPlay {
                 [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                 bridge(left.at, right.at, geo.arrow),
                 ((right.strength / left.strength).min(1.0), 1.0),
-                &clocks(self, left.lane, left.hit),
+                &clocks(self, left.lane, left.hit, field),
                 &|p| {
                     (p.role.as_deref() == Some("link")
                         && p.shows_for(left.hit.name, left.hit.bright))
