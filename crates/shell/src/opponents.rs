@@ -1348,7 +1348,72 @@ fn fitted(
 /// to flash on its receptors, where the play's noteskin does not draw
 /// their hit effects (empty where it does), a slot's lanes'
 /// `(judgment, seconds since)`.
-pub type Flashes = Vec<Vec<Option<(ddi_engine::rules::Judgement, f32)>>>;
+pub type Flashes = LaneValues<Option<(ddi_engine::rules::Judgement, f32)>>;
+
+/// Each lane's locks of a frame's miniatures: how far into its lock, as
+/// [`ddi_session::battle::feed::FieldFeed::locks`].
+pub type Locks = LaneValues<Option<f32>>;
+
+/// A value a lane for each of a frame's miniatures in their order (a
+/// row a field), flat, so that its room is kept from frame to frame.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LaneValues<T> {
+    /// Where each row starts in `values`.
+    starts: Vec<usize>,
+    values: Vec<T>,
+}
+
+impl<T> Default for LaneValues<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> LaneValues<T> {
+    /// No rows.
+    pub const fn new() -> Self {
+        LaneValues {
+            starts: Vec::new(),
+            values: Vec::new(),
+        }
+    }
+
+    /// No rows, the room kept.
+    pub fn clear(&mut self) {
+        self.starts.clear();
+        self.values.clear();
+    }
+
+    /// Row `i` (none past the last).
+    pub fn row(&self, i: usize) -> &[T] {
+        let Some(&start) = self.starts.get(i) else {
+            return &[];
+        };
+        let end = self.starts.get(i + 1).copied().unwrap_or(self.values.len());
+        &self.values[start..end]
+    }
+}
+
+impl<T: Clone> LaneValues<T> {
+    /// A row of `lanes` values `fill` after the others, to set.
+    pub fn push(&mut self, lanes: usize, fill: T) -> &mut [T] {
+        let start = self.values.len();
+        self.starts.push(start);
+        self.values.resize(start + lanes, fill);
+        &mut self.values[start..]
+    }
+}
+
+impl<T> FromIterator<Vec<T>> for LaneValues<T> {
+    fn from_iter<I: IntoIterator<Item = Vec<T>>>(rows: I) -> Self {
+        let mut out = LaneValues::new();
+        for row in rows {
+            out.starts.push(out.values.len());
+            out.values.extend(row);
+        }
+        out
+    }
+}
 
 /// What [`draw_fields`] keeps from frame to frame, by seat: each name
 /// as cut to its room and each score as worded, made again only when
@@ -1441,8 +1506,8 @@ pub fn draw_fields(
     list: &mut DrawList,
     shown: &Shown,
     fields: &Fields,
-    flashes: &[Vec<Option<(ddi_engine::rules::Judgement, f32)>>],
-    locks: &[Vec<Option<f32>>],
+    flashes: &Flashes,
+    locks: &Locks,
     ratio: f32,
     measure: &mut dyn TextMeasure,
     memo: &mut Memo,
@@ -1544,7 +1609,7 @@ pub fn draw_fields(
         let geo = &slot.field;
         // Its lanes a shock locked (DDI): the lane darkened to its end,
         // its receptor's place tinted, for the lock's time.
-        for (lane, lock) in locks.get(i).into_iter().flatten().enumerate() {
+        for (lane, lock) in locks.row(i).iter().enumerate() {
             if lock.is_none() || o.out {
                 continue;
             }
@@ -1573,7 +1638,7 @@ pub fn draw_fields(
             list.text(text, st, right - tw, t + SCORE_TOP * s, fade(MUTED));
         }
         // The judgments' flashes where the skin draws no hit effect.
-        for (lane, flash) in flashes.get(i).into_iter().flatten().enumerate() {
+        for (lane, flash) in flashes.row(i).iter().enumerate() {
             let Some((j, age)) = *flash else {
                 continue;
             };
@@ -2147,7 +2212,7 @@ pub(crate) mod tests {
         shown.label = Some("Watching Followed".into());
         let mut list = DrawList::new();
         let mut measure = FixedMeasure;
-        draw_fields(&mut list, &shown, &f, &[], &[], 1.0, &mut measure, &mut Memo::default());
+        draw_fields(&mut list, &shown, &f, &Flashes::new(), &Locks::new(), 1.0, &mut measure, &mut Memo::default());
         let texts = texts(&list);
         let words: Vec<&str> = texts.iter().map(|(t, _)| t.as_str()).collect();
         assert!(words.contains(&"Watching Followed"), "{words:?}");
@@ -2400,7 +2465,7 @@ pub(crate) mod tests {
         let f = arrange(3, &g, 4.0, false, 1.0, &keep(&g, 1.0, false)).unwrap();
         let c = shown(3);
         let mut list = DrawList::new();
-        let flashes = vec![
+        let flashes: Flashes = [
             vec![None; 4],
             vec![
                 Some((ddi_engine::rules::Judgement::W1, 0.1)),
@@ -2409,13 +2474,15 @@ pub(crate) mod tests {
                 None,
             ],
             vec![None; 4],
-        ];
+        ]
+        .into_iter()
+        .collect();
         assert!(!draw_fields(
             &mut list,
             &c,
             &f,
             &flashes,
-            &[],
+            &Locks::new(),
             1.0,
             &mut FixedMeasure,
             &mut Memo::default()
@@ -2448,7 +2515,7 @@ pub(crate) mod tests {
         c.cue = Some(("Final stage".into(), 1.0));
         c.won = Some("Stage won".into());
         let mut list = DrawList::new();
-        assert!(draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure, &mut Memo::default()));
+        assert!(draw_fields(&mut list, &c, &f, &Flashes::new(), &Locks::new(), 1.0, &mut FixedMeasure, &mut Memo::default()));
         let t = texts(&list);
         assert!(t.iter().any(|(s, _)| s == "Final stage"));
         assert!(t.iter().any(|(s, _)| s == "Stage won"));
@@ -2481,7 +2548,7 @@ pub(crate) mod tests {
             let f = arrange(n, &g, 4.0, false, 1.0, &keep(&g, 1.0, false)).unwrap();
             let mut c = shown(n);
             let mut list = DrawList::new();
-            draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure, &mut Memo::default());
+            draw_fields(&mut list, &c, &f, &Flashes::new(), &Locks::new(), 1.0, &mut FixedMeasure, &mut Memo::default());
             let scores: Vec<_> = texts(&list)
                 .into_iter()
                 .filter(|(s, _)| s == "5900000")
@@ -2507,7 +2574,7 @@ pub(crate) mod tests {
             }
             c.score = ScoreShown::Percent;
             let mut list = DrawList::new();
-            draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure, &mut Memo::default());
+            draw_fields(&mut list, &c, &f, &Flashes::new(), &Locks::new(), 1.0, &mut FixedMeasure, &mut Memo::default());
             assert_eq!(
                 texts(&list).iter().filter(|(s, _)| s == "90.00%").count(),
                 f.slots.len()
@@ -2517,8 +2584,9 @@ pub(crate) mod tests {
             let mut locks = vec![vec![None; 4]; f.slots.len()];
             locks[0][2] = Some(0.3);
             locks[1][0] = Some(0.5);
+            let locks: Locks = locks.into_iter().collect();
             let mut list = DrawList::new();
-            draw_fields(&mut list, &c, &f, &[], &locks, 1.0, &mut FixedMeasure, &mut Memo::default());
+            draw_fields(&mut list, &c, &f, &Flashes::new(), &locks, 1.0, &mut FixedMeasure, &mut Memo::default());
             let of = |color: [f32; 4]| -> Vec<[f32; 4]> {
                 list.commands
                     .iter()
@@ -2793,7 +2861,7 @@ pub(crate) mod tests {
             ),
         ));
         let mut list = DrawList::new();
-        draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure, &mut Memo::default());
+        draw_fields(&mut list, &c, &f, &Flashes::new(), &Locks::new(), 1.0, &mut FixedMeasure, &mut Memo::default());
         let t = texts(&list);
         assert!(t.iter().all(|(s, _)| s != "5900000"), "no score");
         assert_eq!(t.iter().filter(|(s, _)| s.starts_with("CPU")).count(), 72);
@@ -2815,7 +2883,7 @@ pub(crate) mod tests {
         let mut c = shown(12);
         c.named = vec![3];
         let mut list = DrawList::new();
-        draw_fields(&mut list, &c, &f, &[], &[], 3.0, &mut FixedMeasure, &mut Memo::default());
+        draw_fields(&mut list, &c, &f, &Flashes::new(), &Locks::new(), 3.0, &mut FixedMeasure, &mut Memo::default());
         let t = texts(&list);
         let names: Vec<_> = t.iter().filter(|(s, _)| s.starts_with("CPU")).collect();
         assert_eq!(names.len(), 1, "{names:?}");
@@ -2914,7 +2982,7 @@ pub(crate) mod tests {
             let mut one = shown(n);
             one.opponents.truncate(1);
             let mut list = DrawList::new();
-            draw_fields(&mut list, &one, &f, &[], &[], ratio, &mut FixedMeasure, &mut Memo::default());
+            draw_fields(&mut list, &one, &f, &Flashes::new(), &Locks::new(), ratio, &mut FixedMeasure, &mut Memo::default());
             let slot = f.slots[0];
             match stars_bounds(&list) {
                 Some(b) => {
@@ -2938,7 +3006,7 @@ pub(crate) mod tests {
             o.level = None;
         }
         let mut list = DrawList::new();
-        draw_fields(&mut list, &people, &f, &[], &[], 1.0, &mut FixedMeasure, &mut Memo::default());
+        draw_fields(&mut list, &people, &f, &Flashes::new(), &Locks::new(), 1.0, &mut FixedMeasure, &mut Memo::default());
         assert!(stars_bounds(&list).is_none());
     }
 
@@ -2950,7 +3018,7 @@ pub(crate) mod tests {
         let mut c = shown(8);
         c.opponents[0].name = "Velvet Metronome".into();
         let mut list = DrawList::new();
-        draw_fields(&mut list, &c, &f, &[], &[], ratio, &mut FixedMeasure, &mut Memo::default());
+        draw_fields(&mut list, &c, &f, &Flashes::new(), &Locks::new(), ratio, &mut FixedMeasure, &mut Memo::default());
         // Every text inside its slot's width.
         for cmd in &list.commands {
             if let Command::Text(t) = cmd {
@@ -3107,7 +3175,7 @@ pub(crate) mod tests {
                         .collect()
                 })
                 .collect();
-            let locks: Vec<Vec<Option<f32>>> = (0..fields.slots.len())
+            let locks: Locks = (0..fields.slots.len())
                 .map(|i| (0..4).map(|l| (i % 5 == l).then_some(1.5)).collect())
                 .collect();
             let mut list = DrawList::new();

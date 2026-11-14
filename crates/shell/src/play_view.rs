@@ -398,6 +398,10 @@ pub struct PlayView<H: PlayHost> {
     routes: crate::attack_links::Routes,
     /// The miniatures' names and scores as last worded.
     memo: crate::opponents::Memo,
+    /// The miniatures' judgments' flashes and lanes' locks of this frame,
+    /// their room kept from frame to frame.
+    mini_flashes: crate::opponents::Flashes,
+    mini_locks: crate::opponents::Locks,
     /// A large field's slots: the opponents that matter to the player
     /// now (`crate::rivals`), kept from frame to frame; and its ladder.
     rivals: crate::rivals::Rivals,
@@ -467,6 +471,8 @@ impl<H: PlayHost> PlayView<H> {
             fields_for: None,
             routes: Default::default(),
             memo: Default::default(),
+            mini_flashes: Default::default(),
+            mini_locks: Default::default(),
             rivals: crate::rivals::Rivals::default(),
             ladder: None,
             ladder_page: None,
@@ -1374,12 +1380,16 @@ impl<H: PlayHost> PlayView<H> {
                 .filter(|_| spectator.is_none() && !following)
                 .and_then(|b| bar(b.my_power(&session.player))),
         );
+        // The last frame's miniatures, each frame's room reused by the
+        // one drawn in its place.
         let mut minis = self.renderer.take_miniatures();
-        minis.clear();
-        let mut flashes = crate::opponents::Flashes::new();
+        let mut drawn = 0;
+        let flashes = &mut self.mini_flashes;
+        flashes.clear();
         // Each slot's lanes a shock locked (DDI's lane lock), as its
         // stream says.
-        let mut locks: Vec<Vec<Option<f32>>> = Vec::new();
+        let locks = &mut self.mini_locks;
+        locks.clear();
         // The attack warnings on a grid's fields (each recipient's).
         let mut warnings: Vec<(usize, ddi_render::FieldGeometry, crate::battle_cue::Cue)> =
             Vec::new();
@@ -1399,10 +1409,38 @@ impl<H: PlayHost> PlayView<H> {
                 let Some(feed) = feeds.get(slot.seat) else {
                     continue;
                 };
-                locks.push(feed.locks(b.track_of(slot.seat).lanes(), t));
-                let mini = feed.frame(b.track_of(slot.seat), scroll, t, range);
+                let track = b.track_of(slot.seat);
+                feed.locks_into(t, locks.push(usize::from(track.lanes()), None));
+                let followed = large.is_some_and(|l| l.seat == slot.seat);
+                let combo = fields.as_ref().is_none_or(|f| f.carry.combo) || followed;
+                let plain = !followed && fields.as_ref().is_some_and(|f| !f.carry.skin_notes);
+                let fit_combo = !followed && fields.as_ref().is_some_and(|f| f.dense);
+                let battle = bar(view_of(slot.seat).and_then(|v| v.power));
+                if let Some(m) = minis.get_mut(drawn) {
+                    feed.frame_into(&mut m.frame, track, scroll, t, range);
+                    m.geometry = slot.field;
+                    m.panel = slot.panel;
+                    m.seat = slot.seat;
+                    (m.combo, m.plain, m.fit_combo, m.battle) = (combo, plain, fit_combo, battle);
+                } else {
+                    minis.push(ddi_render::scene::Miniature {
+                        combo,
+                        plain,
+                        fit_combo,
+                        frame: feed.frame(track, scroll, t, range),
+                        geometry: slot.field,
+                        panel: slot.panel,
+                        seat: slot.seat,
+                        battle,
+                    });
+                }
+                let mini = &minis[drawn].frame;
+                drawn += 1;
                 if !hits {
-                    flashes.push(mini.receptors.iter().map(|r| r.flash).collect());
+                    let row = flashes.push(mini.receptors.len(), None);
+                    for (f, r) in row.iter_mut().zip(&mini.receptors) {
+                        *f = r.flash;
+                    }
                 }
                 if grid {
                     let in_sight = mini.notes.iter().any(|n| {
@@ -1417,19 +1455,9 @@ impl<H: PlayHost> PlayView<H> {
                         warnings.push((slot.seat, slot.field, cue));
                     }
                 }
-                let followed = large.is_some_and(|l| l.seat == slot.seat);
-                minis.push(ddi_render::scene::Miniature {
-                    combo: fields.as_ref().is_none_or(|f| f.carry.combo) || followed,
-                    plain: !followed && fields.as_ref().is_some_and(|f| !f.carry.skin_notes),
-                    fit_combo: !followed && fields.as_ref().is_some_and(|f| f.dense),
-                    frame: mini,
-                    geometry: slot.field,
-                    panel: slot.panel,
-                    seat: slot.seat,
-                    battle: bar(view_of(slot.seat).and_then(|v| v.power)),
-                });
             }
         }
+        minis.truncate(drawn);
         self.minis_drawn = minis.len();
         self.renderer.set_miniatures(minis);
         // (Booked with the scene: the hand's lap stays its own.)
@@ -1764,8 +1792,6 @@ impl<H: PlayHost> PlayView<H> {
                     },
                 },
                 fields,
-                flashes,
-                locks,
             }
         });
         self.links_drawn = links;
@@ -1904,20 +1930,14 @@ impl<H: PlayHost> PlayView<H> {
             self.fields_drawn = None;
             self.ladder_drawn = None;
             self.standing_drawn = None;
-            if let Some(Overlay {
-                shown,
-                fields,
-                flashes,
-                locks,
-            }) = shown
-            {
+            if let Some(Overlay { shown, fields }) = shown {
                 self.fields_score = shown.score;
                 self.fields_cue = crate::opponents::draw_fields(
                     list,
                     &shown,
                     &fields,
-                    &flashes,
-                    &locks,
+                    &self.mini_flashes,
+                    &self.mini_locks,
                     ratio,
                     &mut measure,
                     &mut self.memo,
@@ -2069,8 +2089,6 @@ struct Attack {
 struct Overlay {
     shown: crate::opponents::Shown,
     fields: crate::opponents::Fields,
-    flashes: crate::opponents::Flashes,
-    locks: Vec<Vec<Option<f32>>>,
 }
 
 /// Where the dancing hand goes behind the field `geo` (`span` lanes wide)
