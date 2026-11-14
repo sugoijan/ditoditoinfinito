@@ -89,11 +89,7 @@ impl FakeServer {
 
     /// People present (not left), as the server counts members.
     fn present_humans(&self) -> usize {
-        self.state()
-            .members
-            .values()
-            .filter(|m| !m.left && matches!(m.kind, MemberKind::Human { .. }))
-            .count()
+        self.state().present_people()
     }
 
     /// Whether a newcomer could enter now, as the preview says it.

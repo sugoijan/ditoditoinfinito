@@ -306,7 +306,7 @@ impl LiveServer {
         let may = room.chooses(from)
             || room
                 .member(from)
-                .filter(|m| !m.left && !m.is_cpu())
+                .filter(|m| m.present_person())
                 .is_some_and(|m| {
                     can(
                         m.role,
@@ -705,7 +705,7 @@ impl LiveStage {
         let rules = crate::live::cpus::ONLINE_CPUS_V0;
         if !room
             .member(from)
-            .is_some_and(|m| !m.left && !m.is_cpu())
+            .is_some_and(|m| m.present_person())
         {
             return Err(LiveRefusal::NotInLineup { stage });
         }
@@ -793,7 +793,7 @@ impl LiveStage {
         detail: Option<crate::battle::RunDetail>,
         out: &mut LiveOut,
     ) {
-        if !room.member(from).is_some_and(|m| !m.left && !m.is_cpu())
+        if !room.member(from).is_some_and(|m| m.present_person())
             || !self.comps.get(&cpu).is_some_and(|c| c.cpu && c.live)
         {
             out.refuse(LiveRefusal::NotInLineup { stage: self.id });

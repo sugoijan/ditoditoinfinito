@@ -75,12 +75,7 @@ impl<C: Clock> LocalAuthority<C> {
 
     /// Run `state`. The first poll carries its snapshot.
     pub fn new(state: RoomState, clock: C) -> Self {
-        let outbox = vec![ServerEnvelope::new(
-            state.revision,
-            ServerMessage::Snapshot {
-                room: Box::new(state.clone()),
-            },
-        )];
+        let outbox = vec![ServerEnvelope::snapshot(&state)];
         Self {
             state,
             clock,
@@ -230,12 +225,7 @@ impl<C: Clock> LocalAuthority<C> {
     }
 
     fn snapshot(&mut self) {
-        self.outbox.push(ServerEnvelope::new(
-            self.state.revision,
-            ServerMessage::Snapshot {
-                room: Box::new(self.state.clone()),
-            },
-        ));
+        self.outbox.push(ServerEnvelope::snapshot(&self.state));
     }
 }
 

@@ -8,7 +8,7 @@ use crate::awards::{Finish, Finisher, StageResult};
 use crate::battle::{ReportedRun, RunDetail};
 use crate::command::{Actor, CancelReason, Command, Event, RankingProblem, Rejection};
 use crate::ids::{Millis, ParticipantId, Revision, StageId};
-use crate::member::{Capability, Connection, Intent, Member, MemberKind, Role, can};
+use crate::member::{Capability, Connection, Intent, Member, Role, can};
 use crate::phase::{Phase, ReadinessWindow};
 use crate::rules::{Access, Admission, ContentSource};
 use crate::state::{
@@ -185,7 +185,7 @@ impl RoomState {
         }
         if self.picking.as_ref().is_some_and(|p| p.picker.is_none())
             && let Some(owner) = self.owner().filter(|o| {
-                !o.left && !o.is_cpu() && o.connection != Connection::Disconnected
+                o.present_person() && o.connection != Connection::Disconnected
             })
         {
             let picker = Some(owner.id);
@@ -849,11 +849,7 @@ impl RoomState {
                 if self.access.admission == Admission::Closed && !admin {
                     return Err(Rejection::AdmissionClosed);
                 }
-                let present = self
-                    .members
-                    .values()
-                    .filter(|m| !m.left && !m.is_cpu())
-                    .count();
+                let present = self.present_people();
                 let limit = usize::from(self.policy.max_members)
                     + if *admin {
                         usize::from(self.policy.admin_reserve)
@@ -869,20 +865,14 @@ impl RoomState {
                 self.emit(
                     out,
                     Event::MemberJoined {
-                        member: Member {
+                        member: Member::person(
                             id,
-                            kind: MemberKind::Human {
-                                identity: identity.clone(),
-                                name: name.clone(),
-                            },
-                            role: Role::Member,
-                            admin: *admin,
-                            intent: *intent,
-                            connection: Connection::Connected,
-                            left: false,
-                            targeting: Default::default(),
-                            watch_only: false,
-                        },
+                            identity.clone(),
+                            name.clone(),
+                            Role::Member,
+                            *admin,
+                            *intent,
+                        ),
                     },
                 );
                 Ok(())
@@ -1242,9 +1232,7 @@ impl RoomState {
     fn still_loading(&self, stage: &Stage, candidates: &[ParticipantId]) -> bool {
         candidates.iter().any(|&id| {
             self.members.get(&id).is_some_and(|m| {
-                !m.left
-                    && !m.is_cpu()
-                    && m.intent == Intent::Play
+                m.wants_to_play()
                     && m.connection == Connection::Connected
             }) && matches!(
                 stage.prep_ref(id).loading,
@@ -1313,7 +1301,7 @@ impl RoomState {
         let humans: Vec<ParticipantId> = self
             .members
             .values()
-            .filter(|m| !m.left && !m.is_cpu() && m.intent == Intent::Play)
+            .filter(|m| m.wants_to_play())
             .map(|m| m.id)
             .collect();
         // Nobody wants to play: a match of the CPUs alone, watched
@@ -1325,20 +1313,7 @@ impl RoomState {
             .map(|n| {
                 let ordinal = u16::try_from(n).unwrap_or(u16::MAX);
                 let id = ParticipantId(self.counters.participant + n as u64 - 1);
-                Member {
-                    id,
-                    kind: MemberKind::Cpu {
-                        ordinal,
-                        opponent: rules.cpu_for_seat(ordinal),
-                    },
-                    role: Role::Member,
-                    admin: false,
-                    intent: Intent::Play,
-                    connection: Connection::Connected,
-                    left: false,
-                    targeting: Default::default(),
-                    watch_only: false,
-                }
+                Member::cpu(id, ordinal, rules.cpu_for_seat(ordinal))
             })
             .collect();
         let playlist = (0..rules.stages).map(|_| self.fresh_stage()).collect();
@@ -1380,9 +1355,7 @@ impl RoomState {
                 .members
                 .values()
                 .filter(|p| {
-                    !p.left
-                        && !p.is_cpu()
-                        && p.intent == Intent::Play
+                    p.wants_to_play()
                         && !m.roster.contains_key(&p.id)
                 })
                 .map(|p| p.id)
@@ -1462,7 +1435,7 @@ impl RoomState {
             .filter(|id| {
                 self.members
                     .get(id)
-                    .is_some_and(|m| !m.is_cpu() && !m.left && m.intent == Intent::Play)
+                    .is_some_and(|m| m.wants_to_play())
             })
             .count();
         usize::from(self.policy.readiness.min_ready_humans).min(wanting)

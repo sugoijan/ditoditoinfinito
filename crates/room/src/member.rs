@@ -63,8 +63,56 @@ pub enum MemberKind {
 }
 
 impl Member {
+    /// A person who just came in: connected, attacking by Spread, not held
+    /// to watching.
+    pub fn person(
+        id: ParticipantId,
+        identity: Identity,
+        name: String,
+        role: Role,
+        admin: bool,
+        intent: Intent,
+    ) -> Self {
+        Self::seated(id, MemberKind::Human { identity, name }, role, admin, intent)
+    }
+
+    /// A match's CPU in seat `ordinal`, playing as `opponent` says.
+    pub fn cpu(id: ParticipantId, ordinal: u16, opponent: OpponentSpec) -> Self {
+        Self::seated(
+            id,
+            MemberKind::Cpu { ordinal, opponent },
+            Role::Member,
+            false,
+            Intent::Play,
+        )
+    }
+
+    fn seated(id: ParticipantId, kind: MemberKind, role: Role, admin: bool, intent: Intent) -> Self {
+        Self {
+            id,
+            kind,
+            role,
+            admin,
+            intent,
+            connection: Connection::Connected,
+            left: false,
+            targeting: Targeting::default(),
+            watch_only: false,
+        }
+    }
+
     pub fn is_cpu(&self) -> bool {
         matches!(self.kind, MemberKind::Cpu { .. })
+    }
+
+    /// A person still in the room (not a CPU, not left).
+    pub fn present_person(&self) -> bool {
+        !self.left && !self.is_cpu()
+    }
+
+    /// A person still in the room who wants to play.
+    pub fn wants_to_play(&self) -> bool {
+        self.present_person() && self.intent == Intent::Play
     }
 
     /// A bot (M7d): a person's seat played by a simulated player, its

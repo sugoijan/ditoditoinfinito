@@ -175,6 +175,16 @@ impl ServerEnvelope {
             msg,
         }
     }
+
+    /// The whole room at its revision.
+    pub fn snapshot(room: &RoomState) -> Self {
+        Self::new(
+            room.revision,
+            ServerMessage::Snapshot {
+                room: Box::new(room.clone()),
+            },
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

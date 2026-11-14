@@ -274,8 +274,7 @@ impl AudienceHub {
     pub fn set_open(&mut self, room: &RoomState, from: ParticipantId, open: bool) -> HubOut {
         let mut out = HubOut::default();
         let may = room.member(from).is_some_and(|m| {
-            !m.left
-                && !m.is_cpu()
+            m.present_person()
                 && can(m.role, m.admin, Capability::CloseAudience, room.phase.kind())
         });
         if !may || open == self.open || self.ended {

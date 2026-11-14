@@ -24,7 +24,7 @@ use crate::awards::StageResult;
 use crate::battle::RunDetail;
 use crate::ids::{ChartKey, Millis, ParticipantId, Revision, RoomId, StageId};
 use crate::live::PlanDigest;
-use crate::member::{Intent, MemberKind};
+use crate::member::MemberKind;
 use crate::phase::Phase;
 use crate::rules::{MatchDifficulty, MatchRules};
 use crate::state::{ContentCard, ContentStatus, RoomState, Stage, Standing};
@@ -253,7 +253,7 @@ impl PublicView {
         ids.extend(
             room.members
                 .values()
-                .filter(|m| !m.left && !m.is_cpu() && m.intent == Intent::Play)
+                .filter(|m| m.wants_to_play())
                 .map(|m| m.id),
         );
         ids.sort();

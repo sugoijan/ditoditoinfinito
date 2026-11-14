@@ -186,7 +186,7 @@ pub fn sends_for_cpus(room: &RoomState, stage: StageId, me: ParticipantId) -> bo
     };
     let person_on = |id: &ParticipantId| {
         room.member(*id).is_some_and(|m| {
-            !m.left && !m.is_cpu() && m.connection == Connection::Connected
+            m.present_person() && m.connection == Connection::Connected
         })
     };
     if play.lineup.contains(&me) {
@@ -199,8 +199,7 @@ pub fn sends_for_cpus(room: &RoomState, stage: StageId, me: ParticipantId) -> bo
         .members
         .values()
         .filter(|m| {
-            !m.left
-                && !m.is_cpu()
+            m.present_person()
                 && m.connection == Connection::Connected
                 && !play.lineup.contains(&m.id)
         })
@@ -220,7 +219,7 @@ pub fn sends_for_cpus(room: &RoomState, stage: StageId, me: ParticipantId) -> bo
 pub fn anyone_computes(room: &RoomState) -> bool {
     room.members
         .values()
-        .any(|m| !m.left && !m.is_cpu() && m.connection != Connection::Disconnected)
+        .any(|m| m.present_person() && m.connection != Connection::Disconnected)
 }
 
 #[cfg(test)]

@@ -762,20 +762,7 @@ impl RoomState {
         let mut members = BTreeMap::new();
         members.insert(
             owner_id,
-            Member {
-                id: owner_id,
-                kind: MemberKind::Human {
-                    identity: owner,
-                    name: owner_name,
-                },
-                role: Role::Owner,
-                admin: false,
-                intent: Intent::Play,
-                connection: Connection::Connected,
-                left: false,
-                targeting: Default::default(),
-                watch_only: false,
-            },
+            Member::person(owner_id, owner, owner_name, Role::Owner, false, Intent::Play),
         );
         Self {
             room,
@@ -842,7 +829,7 @@ impl RoomState {
     pub fn succession(&self, from: ParticipantId, away_too: bool) -> Succession {
         let pool = || {
             self.members.values().filter(move |m| {
-                m.id != from && !m.left && !m.is_cpu() && !m.is_bot() && !self.observes(m)
+                m.id != from && m.present_person() && !m.is_bot() && !self.observes(m)
             })
         };
         let co_host = |m: &&Member| m.role == Role::CoHost;
@@ -950,7 +937,7 @@ impl RoomState {
     /// others, picks them): the picker; in a room from before the picker,
     /// every operator.
     pub fn chooses(&self, id: ParticipantId) -> bool {
-        let Some(m) = self.members.get(&id).filter(|m| !m.left && !m.is_cpu()) else {
+        let Some(m) = self.members.get(&id).filter(|m| m.present_person()) else {
             return false;
         };
         match &self.picking {
@@ -972,7 +959,7 @@ impl RoomState {
             && self
                 .members
                 .get(&id)
-                .filter(|m| !m.left && !m.is_cpu())
+                .filter(|m| m.present_person())
                 .is_some_and(|m| can(m.role, m.admin, Capability::TakePick, self.phase.kind()))
     }
 
@@ -1101,10 +1088,15 @@ impl RoomState {
 
     /// People present who want a competitive seat: the human seats the next
     /// match must hold.
+    /// The people present (not left), the count a join is limited on.
+    pub fn present_people(&self) -> usize {
+        self.members.values().filter(|m| m.present_person()).count()
+    }
+
     pub fn reserved_humans(&self) -> usize {
         self.members
             .values()
-            .filter(|m| !m.left && !m.is_cpu() && m.intent == Intent::Play)
+            .filter(|m| m.wants_to_play())
             .count()
     }
 

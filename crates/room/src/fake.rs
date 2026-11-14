@@ -472,12 +472,7 @@ impl FakeServer {
         let state = self.authority.state_mut();
         f(state);
         state.revision = state.revision.next();
-        let snapshot = ServerEnvelope::new(
-            self.state().revision,
-            ServerMessage::Snapshot {
-                room: Box::new(self.state().clone()),
-            },
-        );
+        let snapshot = ServerEnvelope::snapshot(self.state());
         let open: Vec<u64> = self
             .conns
             .iter()
@@ -563,12 +558,7 @@ impl FakeServer {
         });
         self.route(None);
         self.conns.insert(conn, c);
-        let snapshot = ServerEnvelope::new(
-            self.state().revision,
-            ServerMessage::Snapshot {
-                room: Box::new(self.state().clone()),
-            },
-        );
+        let snapshot = ServerEnvelope::snapshot(self.state());
         self.push(conn, &snapshot);
         Some(conn)
     }
@@ -759,12 +749,7 @@ impl FakeServer {
         match frame {
             ClientFrame::Live(env) => self.live_text(conn, participant, env.live),
             ClientFrame::Resync(_) => {
-                let snapshot = ServerEnvelope::new(
-                    self.state().revision,
-                    ServerMessage::Snapshot {
-                        room: Box::new(self.state().clone()),
-                    },
-                );
+                let snapshot = ServerEnvelope::snapshot(self.state());
                 self.push(conn, &snapshot);
             }
             ClientFrame::Command(envelope) => {
