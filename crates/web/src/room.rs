@@ -468,8 +468,6 @@ pub(crate) fn back_route() -> Route {
         .unwrap_or(Route::Room)
 }
 
-/// The room the last stage handed over is of (its results ask it how the
-/// stage went).
 /// The room's calls from a stage's results the player reached by the
 /// browser's Back during its play (`ResultsScreen::after_back`): the
 /// room's question's Leave leaves the room (an online one told and
@@ -491,6 +489,8 @@ pub(crate) fn results_shell() -> ddi_ui::screens::room::RoomShell {
     })
 }
 
+/// The room the last stage handed over is of (its results ask it how the
+/// stage went).
 pub(crate) fn last_room() -> SharedRoom {
     LAST.with(|l| l.borrow().as_ref().map(|(_, r)| r.clone()))
         .unwrap_or_else(current)

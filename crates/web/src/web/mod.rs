@@ -42,6 +42,29 @@ pub(crate) fn json(value: &impl serde::Serialize) -> JsValue {
         .unwrap_or(JsValue::NULL)
 }
 
+/// Runs `f` in a task of its own, after the one running now (and its
+/// microtasks): out of a handler, or once whoever borrows what it needs
+/// has returned.
+pub(crate) fn next_task(f: impl FnOnce() + 'static) {
+    gloo::timers::callback::Timeout::new(0, f).forget();
+}
+
+/// A testing switch's value as a test set it on the page
+/// (`window.__DDI_…`; a worker's own global in a worker).
+pub(crate) fn testing(name: &str) -> Option<JsValue> {
+    js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str(name)).ok()
+}
+
+/// Whether testing switch `name` is set (truthy).
+pub(crate) fn testing_flag(name: &str) -> bool {
+    testing(name).is_some_and(|v| v.is_truthy())
+}
+
+/// Testing switch `name`'s number, where it is one.
+pub(crate) fn testing_number(name: &str) -> Option<f64> {
+    testing(name)?.as_f64()
+}
+
 thread_local! {
     static AUTOMATED: std::cell::OnceCell<bool> = const { std::cell::OnceCell::new() };
 }

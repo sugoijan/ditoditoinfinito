@@ -521,7 +521,7 @@ impl Component for SelectPage {
 impl SelectPage {
     /// The screen, once the library is there.
     fn start(&mut self, ctx: &Context<Self>) {
-        let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
+        let theme = ui_dev::theme_host();
         let env = theme.env().clone();
         let place = self.shared.place.borrow().clone();
         let data = self.data(&place);

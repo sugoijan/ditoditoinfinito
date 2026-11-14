@@ -1762,7 +1762,6 @@ impl GameCanvas {
     }
 }
 
-/// Empties `cell` now, or right after whoever borrows it returns.
 /// [`GameCanvas::play_settings`] for `replay`.
 fn play_settings(replay: Option<&crate::replay::ReplayProp>) -> Settings {
     match replay {
@@ -1771,17 +1770,17 @@ fn play_settings(replay: Option<&crate::replay::ReplayProp>) -> Settings {
     }
 }
 
+/// Empties `cell` now, or right after whoever borrows it returns.
 fn take_later<T: 'static>(cell: &Rc<RefCell<Option<T>>>) {
     match cell.try_borrow_mut() {
         Ok(mut c) => drop(c.take()),
         Err(_) => {
             let cell = cell.clone();
-            gloo::timers::callback::Timeout::new(0, move || {
+            crate::web::next_task(move || {
                 if let Ok(mut c) = cell.try_borrow_mut() {
                     drop(c.take());
                 }
-            })
-            .forget();
+            });
         }
     }
 }
@@ -2055,17 +2054,29 @@ impl GameCanvas {
         true
     }
 
+    /// Seconds the notes are moved later for this play
+    /// (`ddi_session::play::song_shift`): a replay's as it was played,
+    /// else the song's offset; none for a calibration test.
+    fn shift(&self, ctx: &Context<Self>) -> f64 {
+        match &ctx.props().source {
+            SongSource::Song { id, .. } => {
+                ddi_session::play::song_shift(&self.settings, id, self.kept(), false)
+            }
+            SongSource::Calibration(_) => 0.0,
+        }
+    }
+
     /// Readies the chart's skin again with the play's settings (a load
     /// of its own: an earlier one's answer is not taken).
     fn restart_skin(&mut self, ctx: &Context<Self>) {
-        let (Status::Ready(song), SongSource::Song { id, chart }) =
+        let (Status::Ready(song), SongSource::Song { chart, .. }) =
             (&self.song, &ctx.props().source)
         else {
             return;
         };
         self.skin_load += 1;
         let load = self.skin_load;
-        let shift = ddi_session::play::song_shift(&self.settings, id, self.kept(), false);
+        let shift = self.shift(ctx);
         let stage = stage_shocks(ctx.props());
         match noteskin_ready(&self.settings, &song.song, *chart, shift, stage) {
             Some(skin) => {
@@ -2338,12 +2349,7 @@ impl GameCanvas {
             return;
         }
         let (config, chart) = self.session_config(ctx);
-        let shift = match &ctx.props().source {
-            SongSource::Song { id, .. } => {
-                ddi_session::play::song_shift(&self.settings, id, self.kept(), false)
-            }
-            SongSource::Calibration(_) => 0.,
-        };
+        let shift = self.shift(ctx);
         if let Some(game) = self.game.borrow_mut().as_mut() {
             game.dance
                 .preload(&song.song, shift, chart, &self.settings, &config.session);
@@ -2401,12 +2407,7 @@ impl GameCanvas {
         };
         let (mut config, chart) = self.session_config(ctx);
         config.session.restart = restart;
-        let shift = match &ctx.props().source {
-            SongSource::Song { id, .. } => {
-                ddi_session::play::song_shift(&self.settings, id, self.kept(), false)
-            }
-            SongSource::Calibration(_) => 0.0,
-        };
+        let shift = self.shift(ctx);
         // The best play's ghost beside it, lined up by the song offsets.
         if self.settings.ghost
             && self.replay.is_none()
@@ -2454,10 +2455,8 @@ impl GameCanvas {
                 press.press += shift;
                 press.release += shift;
             }
+            // Its seed, transforms and rate as `session_config` set them.
             config.session.cpu = Some(script);
-            config.session.seed = cpu.seed;
-            config.session.options.transform = Default::default();
-            config.session.options.clock.rate = 1.;
             config.session.ghost = None;
         }
         self.played_offset = shift;
@@ -2926,7 +2925,7 @@ impl GameCanvas {
         };
         let shell = self.shell.clone();
         let act: PromptFn = Rc::new(move |choice, cx| shell.choose(choice, cx));
-        let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
+        let theme = crate::components::ui_dev::theme_host();
         let env = theme.env().clone();
         let mut ui = crate::components::ui_dev::theme_ui();
         if let Some(frame) = self.scene_frame(&env, false) {
@@ -2968,8 +2967,7 @@ impl GameCanvas {
         let sc = self.scene.as_ref()?;
         let link = self.shell.link.clone();
         let back: ddi_ui::screens::stage::BackFn = Rc::new(move |_| {
-            let link = link.clone();
-            spawn_local(async move { link.send_message(Msg::BackRequested) });
+            link.send_message(Msg::BackRequested);
         });
         let caption = match sc.staged.as_ref() {
             Some(Some(p)) => p.caption.text().to_string(),
@@ -3072,10 +3070,7 @@ fn prompt_debug(obj: &js_sys::Object, st: &PromptState) {
     set(obj, "prompt_backdrop", backdrop.into());
 }
 
-/// A setting's name as stored (`"quantized"`).
 impl GameCanvas {
-    /// Keeps the play just ended in the history (`crate::history`): what
-    /// it was of, every parameter it ran with, its log and its timing.
     /// The play ended, to its end or quit: kept (a song's, not a
     /// replay's; a failed one already when it failed), its results shown
     /// once it is.
@@ -3174,6 +3169,8 @@ impl GameCanvas {
         true
     }
 
+    /// Keeps the play just ended in the history (`crate::history`): what
+    /// it was of, every parameter it ran with, its log and its timing.
     fn record_play(
         &mut self,
         ctx: &Context<Self>,
@@ -3428,8 +3425,7 @@ impl GameCanvas {
                     audio.resume_now();
                     crate::web::audio::keep_for_play(&song, chart, audio);
                 }
-                let link = link.clone();
-                spawn_local(async move { link.send_message(Msg::Retry) });
+                link.send_message(Msg::Retry);
             })
         };
         // The song list, or the editor a playtest came from; a scene's
@@ -3438,8 +3434,7 @@ impl GameCanvas {
         let song_list: ActionFn = if self.scene.is_some() {
             let link = ctx.link().clone();
             Rc::new(move |_, _| {
-                let link = link.clone();
-                spawn_local(async move { link.send_message(Msg::BackRequested) });
+                link.send_message(Msg::BackRequested);
             })
         } else {
             Rc::new(move |_, _| {
@@ -3454,7 +3449,7 @@ impl GameCanvas {
         };
         let offset = (ctx.props().cpu.is_none() && stage.is_none())
             .then(|| ddi_ui::screens::play::song_offset_saver(id));
-        let theme = crate::components::ui_dev::theme_host(Rc::new(crate::components::ui_dev::nfkd));
+        let theme = crate::components::ui_dev::theme_host();
         let env = theme.env().clone();
         let mut ui = crate::components::ui_dev::theme_ui();
         if let Some(frame) = self.scene_frame(&env, true) {
@@ -4291,9 +4286,7 @@ fn stage_shocks(props: &Props) -> Option<bool> {
 /// background (`docs/plans/start-prompt.md`; desktop's
 /// `DDI_SKIN_DELAY_MS`).
 fn test_skin_delay() -> Option<u32> {
-    let w = web_sys::window()?;
-    let v = js_sys::Reflect::get(&w, &"__DDI_SKIN_DELAY_MS".into()).ok()?;
-    v.as_f64()
+    crate::web::testing_number("__DDI_SKIN_DELAY_MS")
         .filter(|ms| ms.is_finite() && *ms > 0.0)
         .map(|ms| ms.min(60_000.0) as u32)
 }

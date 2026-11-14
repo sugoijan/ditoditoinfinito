@@ -105,15 +105,7 @@ impl PlayHost for Browser {
     }
 
     fn lap(&mut self, lap: ddi_shell::play_view::Lap) {
-        use ddi_shell::play_view::Lap as Shared;
-        perf::lap(match lap {
-            Shared::Upload => Lap::Upload,
-            Shared::Movies => Lap::Movies,
-            Shared::Scene => Lap::Scene,
-            Shared::Hand => Lap::Hand,
-            Shared::Render => Lap::Render,
-            Shared::Overlay => Lap::Overlay,
-        });
+        perf::lap(lap.into());
     }
 }
 
@@ -311,13 +303,13 @@ impl GameLoop {
         self.view.movies.off()
     }
 
-    /// What kept movies from playing this play, for the results.
     /// The dancing hand was turned off for the rest of the play: frames
     /// were dropped with it on (`ddi_session::hand_load`).
     pub(crate) fn hand_gone(&self) -> bool {
         self.view.hand_load().step() == ddi_session::hand_load::HandStep::Gone
     }
 
+    /// What kept movies from playing this play, for the results.
     pub(crate) fn video_trouble(&self) -> Option<ddi_platform::video::VideoTrouble> {
         self.view.movies.trouble()
     }
@@ -487,7 +479,6 @@ impl GameLoop {
         })
     }
 
-    /// The play taken back (a restart's sound and music).
     /// The player leaves the play from outside it (the browser's Back
     /// during a stage's play): its quit made whole (`PlaySession::leave`:
     /// a stage's is a forfeit, watched on where others play on).
@@ -497,6 +488,7 @@ impl GameLoop {
         }
     }
 
+    /// The play taken back (a restart's sound and music).
     pub(crate) fn take_session(&mut self) -> Option<PlaySession> {
         self.session.take()
     }
@@ -559,12 +551,12 @@ impl GameLoop {
             if let Some(failed) = session.take_fail_report() {
                 self.on_event.emit(failed);
             }
-            // A practice stage's outcome, to the room as the play ends
-            // (before its results ask the room how it went).
             // Each attack's commitment, to the console (M8b, development).
             for line in session.take_battle_log() {
                 web_sys::console::debug_1(&line.into());
             }
+            // A stage's outcome, to the room as the play ends (before its
+            // results ask the room how it went).
             if let Some(o) = session.take_stage_outcome() {
                 let ending = crate::room::report(o);
                 // The results' battle line, now the room has confirmed it.
@@ -1304,14 +1296,6 @@ pub(crate) fn upload_noteskin(
     ddi_shell::stage::upload_noteskin(renderer, device, queue, play, images);
 }
 
-/// `__DDI_DEBUG.announcer`: the lines spoken (folders) and when (context
-/// seconds), how many its gate dropped, those due but not decoded yet,
-/// and those not in the pack (`docs/plans/announcers.md`).
-/// A stage's attacks for `__DDI_DEBUG.battle.attacks` (M8a, M8b): each
-/// seat's power and attacks (launched, received, checkpoints waited by
-/// reason, incoming and outgoing), the checkpoints run, the warning and
-/// waiting line as drawn (`drawn`), a final attack's draw, the last
-/// events.
 /// A live stage's part of the debug state (`"live"`).
 fn live_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
     s: &ddi_session::play::PlaySession<A, I>,
@@ -1416,6 +1400,11 @@ fn live_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
     })
 }
 
+/// A stage's attacks for `__DDI_DEBUG.battle.attacks` (M8a, M8b): each
+/// seat's power and attacks (launched, received, checkpoints waited by
+/// reason, incoming and outgoing), the checkpoints run, the warning and
+/// waiting line as drawn (`drawn`), a final attack's draw, the last
+/// events.
 fn attacks_debug(
     s: &PlaySession,
     drawn: (Option<ddi_shell::battle_cue::Cue>, bool),
@@ -1507,6 +1496,13 @@ fn attacks_debug(
     }))
 }
 
+/// Seats and their rects as `__DDI_DEBUG.watch` lists them.
+fn seats<S: serde::Serialize>(list: &[(S, [f32; 4])]) -> Vec<Value> {
+    list.iter()
+        .map(|(seat, rect)| json!({ "seat": seat, "rect": rect }))
+        .collect()
+}
+
 /// `__DDI_DEBUG.watch`: a watched stage as the last frame drew it
 /// (`ddi_shell::play_view::WatchDrawn`), and where its presses land.
 fn watch_debug(watch: Option<&ddi_shell::play_view::WatchDrawn>) -> Value {
@@ -1514,20 +1510,12 @@ fn watch_debug(watch: Option<&ddi_shell::play_view::WatchDrawn>) -> Value {
         return Value::Null;
     };
     let (fields_at, skip_at) = crate::web::touch::watch_at();
-    let fields = |list: &[(usize, [f32; 4])]| -> Vec<Value> {
-        list.iter()
-            .map(|(seat, rect)| json!({ "seat": seat, "rect": rect }))
-            .collect()
-    };
-    let presses: Vec<Value> = fields_at
-        .iter()
-        .map(|(seat, rect)| json!({ "seat": seat, "rect": rect }))
-        .collect();
+    let presses = seats(&fields_at);
     json!({
         "view": w.view,
         "focus": w.focus,
         "lane": w.lane,
-        "fields": fields(&w.fields),
+        "fields": seats(&w.fields),
         "label": w.label,
         "cue": w.cue,
         "warned": w.warned,
@@ -1541,6 +1529,9 @@ fn watch_debug(watch: Option<&ddi_shell::play_view::WatchDrawn>) -> Value {
     })
 }
 
+/// `__DDI_DEBUG.announcer`: the lines spoken (folders) and when (context
+/// seconds), how many its gate dropped, those due but not decoded yet,
+/// and those not in the pack (`docs/plans/announcers.md`).
 fn announcer_debug(a: &ddi_session::announcer::Report) -> Value {
     json!({
         "spoken": a.spoken.iter().map(|(f, _)| f).collect::<Vec<_>>(),

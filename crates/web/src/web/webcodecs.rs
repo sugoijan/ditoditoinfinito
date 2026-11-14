@@ -220,7 +220,7 @@ impl Drop for DirectFrame {
 /// as RGB, as Firefox on macOS gives them, so the switch to the direct
 /// path can be checked in Chrome.
 fn fake_rgb() -> bool {
-    Reflect::get(&js_sys::global(), &"__DDI_FAKE_RGB".into()).is_ok_and(|v| v.is_truthy())
+    super::testing_flag("__DDI_FAKE_RGB")
 }
 
 /// Whether this browser has WebCodecs video decoding (and the headless
@@ -231,9 +231,7 @@ pub(crate) fn available() -> bool {
         return false;
     }
     let global = js_sys::global();
-    let forced = Reflect::get(&global, &"__DDI_VIDEO_DECODER".into())
-        .ok()
-        .and_then(|v| v.as_string());
+    let forced = super::testing("__DDI_VIDEO_DECODER").and_then(|v| v.as_string());
     forced.as_deref() != Some("module")
         && Reflect::has(&global, &"VideoDecoder".into()).unwrap_or(false)
         && Reflect::has(&global, &"EncodedVideoChunk".into()).unwrap_or(false)

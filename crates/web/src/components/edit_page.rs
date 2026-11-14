@@ -111,7 +111,7 @@ impl Component for EditPage {
 impl EditPage {
     fn start(&mut self, ctx: &Context<Self>, editor: Rc<RefCell<Editor>>) {
         let id = ctx.props().song.clone();
-        let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
+        let theme = ui_dev::theme_host();
         // The music decoded now, for the first press to play it.
         let listen = Rc::new(RefCell::new(crate::editor::Listen::default()));
         crate::editor::Listen::read(&listen, &id, editor.borrow().chart_index(), None);

@@ -256,8 +256,7 @@ pub(crate) async fn decode(
 /// `channels` at `rate` Hz as an Ogg Opus file: by the browser's encoder,
 /// else by ours in a worker.
 pub(crate) async fn encode(channels: &[Vec<f32>], rate: u32) -> Result<Vec<u8>, String> {
-    let forced = Reflect::get(&js_sys::global(), &"__DDI_FORCE_WASM_ENCODE".into())
-        .is_ok_and(|v| v.is_truthy());
+    let forced = super::testing_flag("__DDI_FORCE_WASM_ENCODE");
     if !forced {
         match by_the_browser(channels, rate).await {
             Ok(Some(file)) => {

@@ -57,6 +57,20 @@ pub(crate) enum Lap {
     Present,
 }
 
+impl From<ddi_shell::play_view::Lap> for Lap {
+    fn from(lap: ddi_shell::play_view::Lap) -> Lap {
+        use ddi_shell::play_view::Lap as Shared;
+        match lap {
+            Shared::Upload => Lap::Upload,
+            Shared::Movies => Lap::Movies,
+            Shared::Scene => Lap::Scene,
+            Shared::Hand => Lap::Hand,
+            Shared::Render => Lap::Render,
+            Shared::Overlay => Lap::Overlay,
+        }
+    }
+}
+
 const LAPS: usize = 10;
 /// A frame's row after the time it was asked for.
 const COLUMNS: [&str; 27] = [

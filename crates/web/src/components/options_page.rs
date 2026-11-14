@@ -397,7 +397,7 @@ impl Component for OptionsPage {
 impl OptionsPage {
     fn start(&mut self, ctx: &Context<Self>) {
         self._listeners = import_listeners(ctx.root(), &self.shared, ctx);
-        let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
+        let theme = ui_dev::theme_host();
         let env = theme.env().clone();
         *self.shared.env.borrow_mut() = Some(env.clone());
         let shell = options_shell::shell(

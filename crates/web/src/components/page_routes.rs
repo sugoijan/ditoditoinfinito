@@ -111,7 +111,7 @@ impl Component for PagePage {
 
 impl PagePage {
     fn start(&mut self, ctx: &Context<Self>) {
-        let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
+        let theme = ui_dev::theme_host();
         let env = theme.env().clone();
         let which = ctx.props().which.clone();
         let (name, doc) = match &which {

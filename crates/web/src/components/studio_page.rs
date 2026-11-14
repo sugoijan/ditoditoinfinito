@@ -1150,7 +1150,7 @@ impl Studio {
             ui_dev::wake(&host);
             return;
         }
-        Timeout::new(0, move || {
+        crate::web::next_task(move || {
             if let Some(host) = weak.upgrade()
                 && let Ok(mut h) = host.try_borrow_mut()
             {
@@ -1158,8 +1158,7 @@ impl Studio {
                 drop(h);
                 ui_dev::wake(&host);
             }
-        })
-        .forget();
+        });
     }
 
     /// Our pack of `set` as a voice for `lines` (each as the first of its
@@ -1670,7 +1669,7 @@ impl Component for StudioPage {
 impl StudioPage {
     fn start(&mut self, ctx: &Context<Self>) {
         let studio = self.studio.clone();
-        let theme = ui_dev::theme_host(Rc::new(ui_dev::nfkd));
+        let theme = ui_dev::theme_host();
         let env = theme.env().clone();
         *studio.env.borrow_mut() = Some(env.clone());
         let shell: PageShell = {

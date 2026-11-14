@@ -658,10 +658,7 @@ fn start(
 
 /// The beat a test asked for (`window.__DDI_PREVIEW_BEAT`).
 fn asked_beat() -> Option<f64> {
-    let w = web_sys::window()?;
-    js_sys::Reflect::get(&w, &"__DDI_PREVIEW_BEAT".into())
-        .ok()?
-        .as_f64()
+    crate::web::testing_number("__DDI_PREVIEW_BEAT")
 }
 
 /// The tap notes of the lanes shown, on their receptors at `beat`.

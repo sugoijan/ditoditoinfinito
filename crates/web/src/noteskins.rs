@@ -944,9 +944,7 @@ fn publish_report(name: &str, report: &ImageReport) {
 /// Tests set `window.__DDI_SVG_BROWSER` to draw skins' SVGs with the
 /// browser, as before the SVG worker, to compare the two.
 fn browser_svg() -> bool {
-    web_sys::window()
-        .and_then(|w| js_sys::Reflect::get(&w, &JsValue::from_str("__DDI_SVG_BROWSER")).ok())
-        .is_some_and(|v| v.is_truthy())
+    crate::web::testing_flag("__DDI_SVG_BROWSER")
 }
 
 /// An SVG's drawing asked for: by the SVG workers, or a copy of the one

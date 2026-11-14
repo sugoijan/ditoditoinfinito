@@ -885,10 +885,7 @@ fn looks_silent(buffer: &AudioBuffer) -> bool {
 
 /// Whether `window.__DDI_FORCE_WASM_DECODE === true` (debug hook).
 fn force_wasm_decode() -> bool {
-    web_sys::window()
-        .and_then(|w| Reflect::get(&w, &JsValue::from_str("__DDI_FORCE_WASM_DECODE")).ok())
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
+    super::testing("__DDI_FORCE_WASM_DECODE").and_then(|v| v.as_bool()) == Some(true)
 }
 
 impl AudioBackend for WebAudio {

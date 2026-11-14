@@ -1,9 +1,9 @@
 //! Invite-only online rooms on the web (`docs/plans/multiplayer-prototype-progress.md`,
-//! M5c), behind the prototype's switch: the UI core's online state
-//! (`ddi_ui::state::online`) kept for the session, its HTTP through
-//! `fetch` to the private server (`crate::share::base`, `api` beside the
-//! page; the session is the server's HttpOnly cookie, never read here) and
-//! a room's socket through the browser's `WebSocket`.
+//! M5c): the UI core's online state (`ddi_ui::state::online`) kept for
+//! the session, its HTTP through `fetch` to the private server
+//! (`crate::share::base`, `api` beside the page; the session is the
+//! server's HttpOnly cookie, never read here) and a room's socket
+//! through the browser's `WebSocket`.
 //!
 //! Signing in leaves the page for the server's sign-in (Twitch), which
 //! comes back to `#/mp`, `#/mp/join/<invite>` or `#/mp/room/<id>`

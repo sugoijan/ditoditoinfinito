@@ -657,14 +657,13 @@ pub(crate) fn broadcast_soon(host: Weak<RefCell<Host>>, name: &'static str) {
 
 /// [`broadcast_soon`] with a message's parameters.
 pub(crate) fn broadcast_message_soon(host: Weak<RefCell<Host>>, message: Message) {
-    gloo::timers::callback::Timeout::new(0, move || {
+    crate::web::next_task(move || {
         let Some(h) = host.upgrade() else { return };
         if let Ok(mut hm) = h.try_borrow_mut() {
             hm.ui.broadcast(message);
         }
         wake(&h);
-    })
-    .forget();
+    });
 }
 
 /// Draws a frame soon (the UI changed outside its events: a message
@@ -681,7 +680,7 @@ fn start(el: &HtmlElement, first: &str) -> Result<Started, String> {
     let fold: FoldFn = Rc::new(nfkd);
     let mut theme = None;
     let ui = if theme_screen(first) {
-        let t = theme_host(fold.clone());
+        let t = theme_host_with(fold.clone());
         let env = &t.env;
         let mut ui = crate::components::ui_dev::theme_ui();
         ui.push(sample::start_screen(env, false));
@@ -822,9 +821,15 @@ fn host_inputs(el: &HtmlElement) -> Result<(HtmlTextAreaElement, HtmlInputElemen
     Ok((textarea, files))
 }
 
+/// The theme for a page: [`theme_host_with`] the library's search fold,
+/// [`nfkd`].
+pub(crate) fn theme_host() -> ThemeHost {
+    theme_host_with(Rc::new(nfkd))
+}
+
 /// The theme, motion as the settings and the system say (its faces are
-/// asked for at start, `crate::start`).
-pub(crate) fn theme_host(fold: FoldFn) -> ThemeHost {
+/// asked for at start, `crate::start`), searches folded by `fold`.
+pub(crate) fn theme_host_with(fold: FoldFn) -> ThemeHost {
     let settings = crate::settings::Settings::load();
     let look = Rc::new(ddi_theme::Infinito::new());
     let env = ThemeEnv::new(look.clone(), fold);
@@ -1368,7 +1373,7 @@ fn listen(
                 // And once the key's default action has moved the caret
                 // (Chrome fires no `selectionchange` on arrows).
                 let weak = weak.clone();
-                gloo::timers::callback::Timeout::new(0, move || sync_text(&weak)).forget();
+                crate::web::next_task(move || sync_text(&weak));
             },
         ));
     }
@@ -2051,14 +2056,13 @@ impl Host {
             return;
         }
         if let Some(route) = self.navigate_after_pops.take() {
-            gloo::timers::callback::Timeout::new(0, move || {
+            crate::web::next_task(move || {
                 if route == "back" {
                     crate::router::back();
                 } else {
                     crate::router::navigate(&route);
                 }
-            })
-            .forget();
+            });
         }
     }
 

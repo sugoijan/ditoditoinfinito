@@ -124,10 +124,7 @@ async fn decode(key: &TextureKey, limit: u32) -> Result<web_sys::ImageBitmap, St
 }
 
 fn delay_ms() -> Option<u32> {
-    let w = web_sys::window()?;
-    js_sys::Reflect::get(&w, &"__DDI_TEXTURE_DELAY_MS".into())
-        .ok()?
-        .as_f64()
+    super::testing_number("__DDI_TEXTURE_DELAY_MS")
         .filter(|ms| *ms > 0.0)
         .map(|ms| ms.min(60_000.0) as u32)
 }
