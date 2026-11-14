@@ -1520,7 +1520,7 @@ detail (round 3). The dancing hand is not fed shocks (D7).
   (`CPU_HORIZON`, `local-player-horizon-v0`): its miniature is drawn
   under the player's scroll, so its shocks come in from the far end. A
   stage with attacks raises an extreme slow speed until the player's
-  lead fits under the cap (`ddi_session::battle::raised_speed`), and its
+  lead fits under the cap (`ddi_ui::state::battle_plan::raised_speed`), and its
   prompt says "Speed raised so attacks can warn in time".
 - **Delivery**: `Battle::advance` runs the due checkpoints after every
   competitor is judged to the frame's time and delivers each commitment:
@@ -8954,7 +8954,7 @@ the launched line said where a voice has it, never shown in words).
 | A chart is playable by the CPUs when its style is a built-in one-player layout with four lanes; song-declared layouts are refused | `state::room::eligible` | Solo, Double, Pump, techno and DanOni 5–9 charts, and a song's own four-lane layout, are refused with a reason | Whether to accept song-declared four-lane layouts before M3's load check |
 | Chosen local content counts as loaded at once | `PracticeRoom::sync_loading` | Ready alone makes the player eligible | Replaced in M3 by the real load and plan check |
 | Attacks `attacks-v0`: a commitment looks 16 beats past its earliest start; recovery after eight of the recipient's judgments past the attack's last shock and four beats | `ddi_room::attacks::ATTACKS_V0` | How long a full bar waits for a place, how soon someone can be attacked again | The numbers, once played |
-| Lead `lead-v0`: the target's reading horizon + 1.5 s warning + 0.1 s, at least the next checkpoint (four beats), at most 10 s; slower settings raised on a stage | `ddi_room::attacks::LEAD_V0`, `ddi_session::battle::raised_speed` | An attack's shocks never appear before the warning has shown 1.5 s; a very slow player plays a stage faster (said on the prompt) | Whether online adds a network budget (D5 says synchronized starts instead) |
+| Lead `lead-v0`: the target's reading horizon + 1.5 s warning + 0.1 s, at least the next checkpoint (four beats), at most 10 s; slower settings raised on a stage | `ddi_room::attacks::LEAD_V0`, `ddi_ui::state::battle_plan::raised_speed` | An attack's shocks never appear before the warning has shown 1.5 s; a very slow player plays a stage faster (said on the prompt) | Whether online adds a network budget (D5 says synchronized starts instead) |
 | A CPU's lead from the local player's horizon (`local-player-horizon-v0`) | `ddi_session::battle::CPU_HORIZON` | Shocks on a miniature come in from its far end | Whether CPUs should have a horizon of their own |
 | Targeting ties: seeded by stage, checkpoint, sender and candidate; Leader's tie-break the timing points earned (cap aside) standing in for score | `StageBattle::launch` | Who gets attacked when several are equal | Whether Leader should use the real score at the checkpoint |
 | Launch order turns each checkpoint (`k mod n` in participant order) | `StageBattle::launch` | With several full bars at once, who picks first | None unless play shows a bias |
