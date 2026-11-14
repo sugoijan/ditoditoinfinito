@@ -300,6 +300,13 @@ pub(crate) struct Host {
     /// whether it wanted frames to go on at the last frame.
     frame_hook: Option<FrameHook>,
     hook_busy: bool,
+    /// When the debug state was last published (ms on the performance
+    /// timeline), the layers it named, whether it has missed a change
+    /// since, and the timer that publishes that change ([`publish`]).
+    debug_at: std::cell::Cell<f64>,
+    debug_layers: RefCell<Vec<String>>,
+    debug_stale: std::cell::Cell<bool>,
+    debug_flush: Option<gloo::timers::callback::Timeout>,
 }
 
 /// A page's drawing in each frame, before the 2D pass (song select's
@@ -905,6 +912,10 @@ fn new_host(
         field_size: [0, 0],
         frame_hook: None,
         hook_busy: false,
+        debug_at: std::cell::Cell::new(f64::NEG_INFINITY),
+        debug_layers: RefCell::default(),
+        debug_stale: std::cell::Cell::new(false),
+        debug_flush: None,
     }));
     // A pointer a host before this one hid (a key's press on the start
     // prompt) stays hidden until the mouse moves.
@@ -1798,6 +1809,7 @@ fn schedule(rc: &Rc<RefCell<Host>>) {
             })
         });
         if !h.ui.needs_redraw() {
+            flush_debug_later(rc, &mut h);
             return;
         }
     }
@@ -2386,7 +2398,62 @@ fn load_library(weak: Weak<RefCell<Host>>) {
     });
 }
 
+/// How often the debug state is published where nothing reads it as it
+/// changes (ms): a person's console sees it this stale at most.
+const DEBUG_PERIOD_MS: f64 = 1000.0;
+
+/// Publishes `__DDI_DEBUG.ui` where it is due: every frame and after every
+/// event where a test drives the page (`crate::web::automated`) or on the
+/// developer screen, else at most once a [`DEBUG_PERIOD_MS`] and at once
+/// whenever a screen or dialog comes or goes; a change missed meanwhile
+/// is published once the period is over ([`schedule`]'s flush).
 fn publish(h: &Host) {
+    let now = crate::web::clock::PerformanceClock::now_ms();
+    if !crate::web::automated() && h.theme.is_some() {
+        let layers = h.ui.layers();
+        let same = {
+            let kept = h.debug_layers.borrow();
+            let kept = kept.iter().map(String::as_str);
+            layers.iter().map(|l| l.name.as_str()).eq(kept)
+        };
+        if same && now - h.debug_at.get() < DEBUG_PERIOD_MS {
+            h.debug_stale.set(true);
+            return;
+        }
+        if !same {
+            *h.debug_layers.borrow_mut() = layers.into_iter().map(|l| l.name).collect();
+        }
+    }
+    h.debug_at.set(now);
+    h.debug_stale.set(false);
+    publish_now(h);
+}
+
+/// A change [`publish`] held back, published once its period is over:
+/// where frames stop, nothing else would.
+fn flush_debug_later(rc: &Rc<RefCell<Host>>, h: &mut Host) {
+    if !h.debug_stale.get() || h.debug_flush.is_some() {
+        return;
+    }
+    let now = crate::web::clock::PerformanceClock::now_ms();
+    let ms = (DEBUG_PERIOD_MS - (now - h.debug_at.get())).clamp(0.0, DEBUG_PERIOD_MS);
+    let weak = Rc::downgrade(rc);
+    h.debug_flush = Some(gloo::timers::callback::Timeout::new(
+        ms.ceil() as u32 + 1,
+        move || {
+            if let Some(rc) = weak.upgrade()
+                && let Ok(mut h) = rc.try_borrow_mut()
+            {
+                h.debug_flush = None;
+                if h.debug_stale.get() {
+                    publish(&h);
+                }
+            }
+        },
+    ));
+}
+
+fn publish_now(h: &Host) {
     let Some(window) = web_sys::window() else {
         return;
     };

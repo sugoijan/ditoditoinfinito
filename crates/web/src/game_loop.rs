@@ -238,10 +238,7 @@ impl GameLoop {
             sound_buffers: Default::default(),
             sounds_played: 0,
             slow: false,
-            automated: web_sys::window().is_some_and(|w| {
-                js_sys::Reflect::get(&w.navigator(), &"webdriver".into())
-                    .is_ok_and(|v| v.is_truthy())
-            }),
+            automated: crate::web::automated(),
             debug_at: f64::NEG_INFINITY,
             end_perf_after: false,
             next_noteskin: None,

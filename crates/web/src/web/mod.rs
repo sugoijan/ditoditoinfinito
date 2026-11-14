@@ -42,6 +42,23 @@ pub(crate) fn json(value: &impl serde::Serialize) -> JsValue {
         .unwrap_or(JsValue::NULL)
 }
 
+thread_local! {
+    static AUTOMATED: std::cell::OnceCell<bool> = const { std::cell::OnceCell::new() };
+}
+
+/// A test drives the page (`navigator.webdriver`, read once): the debug
+/// state is published as often as tests read it.
+pub(crate) fn automated() -> bool {
+    AUTOMATED.with(|a| {
+        *a.get_or_init(|| {
+            web_sys::window().is_some_and(|w| {
+                js_sys::Reflect::get(&w.navigator(), &"webdriver".into())
+                    .is_ok_and(|v| v.is_truthy())
+            })
+        })
+    })
+}
+
 /// `window.__DDI_DEBUG`, what tests read, made when missing; `None`
 /// without a window.
 pub(crate) fn debug_object() -> Option<js_sys::Object> {
