@@ -1621,18 +1621,41 @@ impl SelectScreen {
         root
     }
 
+    /// The header's pills: the player's own modifiers, then their
+    /// ruleset's options, or in a room the match's rules in a few words
+    /// (`super::room::rules_words_in`: a room's stages are DDI under the
+    /// match's rules, whatever the player's own ruleset).
+    fn pills(&self) -> Vec<String> {
+        let mut out = self.data.mods.clone();
+        match &self.room {
+            Some(rm) => {
+                let r = rm.room.borrow();
+                let rules = r.rules();
+                out.push(
+                    super::room::rules_words_in(
+                        &crate::state::room::StageRules::of(rules),
+                        super::room::attacks_offered(&r).then(|| rules.attacks()),
+                        r.adaptive_offered(),
+                    )
+                    .into(),
+                );
+            }
+            None => out.extend(self.data.rules.iter().cloned()),
+        }
+        out
+    }
+
     /// About what [`SelectScreen::mods`] takes across.
     fn mods_width(&self) -> f32 {
-        if self.data.mods.is_empty() {
+        let pills = self.pills();
+        if pills.is_empty() {
             return 0.0;
         }
-        let pills: f32 = self
-            .data
-            .mods
+        let width: f32 = pills
             .iter()
             .map(|m| look::mono_width(m, 14.0) + 28.0)
             .sum();
-        pills + look::mono_width(&msg::playing_with(), 13.0) + 8.0
+        width + look::mono_width(&msg::playing_with(), 13.0) + 8.0
     }
 
     /// "Playing with" and the pills, ending at `end`.
@@ -1640,7 +1663,8 @@ impl SelectScreen {
         let env = &self.env;
         let mut x = end;
         let mut children = Vec::new();
-        for (i, m) in self.data.mods.iter().enumerate().rev() {
+        let pills = self.pills();
+        for (i, m) in pills.iter().enumerate().rev() {
             let w = look::mono_width(m, 14.0) + 20.0;
             let mut pill =
                 look::component_or(&*env.look, "Pill", "Button", &Spec::new([w, 26.0], m));
@@ -1650,7 +1674,7 @@ impl SelectScreen {
             x -= w + 8.0;
             children.push(pill);
         }
-        if !self.data.mods.is_empty() {
+        if !pills.is_empty() {
             children.push(right(
                 env.text("PlayingWith", &msg::playing_with(), 13.0, 400, "Muted"),
                 x,
@@ -3580,7 +3604,7 @@ impl Screen for SelectScreen {
         // The header's row in order, explicitly (the wheel below lies
         // nearer than the next thing to the right): the search, its Clear
         // while it shows, the mods.
-        let n = self.data.mods.len();
+        let n = self.pills().len();
         let clear = self.typing || !self.search.text.is_empty();
         let row: Vec<String> = if self.layout.compact {
             Vec::new()

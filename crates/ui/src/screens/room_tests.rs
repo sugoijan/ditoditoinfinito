@@ -1556,6 +1556,65 @@ fn there(h: &Harness, name: &str) -> bool {
     h.ui.actor(name).is_some()
 }
 
+/// The texts in the header's pills, in order.
+fn pills(h: &Harness) -> Vec<String> {
+    fn texts(a: &ddi_actor::Actor, out: &mut Vec<String>) {
+        match &a.kind {
+            ddi_actor::Kind::Text(t) => out.push(t.text().to_string()),
+            ddi_actor::Kind::Frame(children) => children.iter().for_each(|c| texts(c, out)),
+            _ => {}
+        }
+    }
+    (0..)
+        .map_while(|i| h.ui.actor(&format!("Mod{i}")))
+        .map(|pill| {
+            let mut out = Vec::new();
+            texts(pill, &mut out);
+            out.join(" ")
+        })
+        .collect()
+}
+
+/// A room's header has singleplayer's pills (the player's own speed and
+/// modifiers apply in a stage), but where singleplayer shows the player's
+/// ruleset's options it shows the match's rules in their few words:
+/// a room plays DDI under the match's rules, whatever the player's own.
+#[test]
+fn a_rooms_header_shows_the_matchs_rules_in_place_of_the_players_ruleset() {
+    let env = env();
+    let mut data = library("dance-single");
+    data.mods = vec!["×2.5".into(), "Reverse".into()];
+    data.rules = vec!["ITG".into(), "Fail off".into()];
+    // Singleplayer: the player's own.
+    let mut h = harness();
+    h.push(super::select::SelectScreen::new(
+        env.clone(),
+        data.clone(),
+        None,
+        Rc::new(|_, _, _, _| {}),
+        Rc::new(|_, _| {}),
+    ));
+    h.run(0.5);
+    assert_eq!(pills(&h), ["×2.5", "Reverse", "ITG", "Fail off"]);
+    // A room: the match's rules (the usual ones: "DDI"), then Hard
+    // timing and Boos where the match has them.
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(sample::room_select(&env, room.clone(), data.clone()).with_room(room.clone(), shell(&room, &orders)));
+    h.run(0.5);
+    assert_eq!(pills(&h), ["×2.5", "Reverse", "DDI"]);
+    let mut rules = room.borrow().rules().clone();
+    rules.difficulty = ddi_room::MatchDifficulty::Hard;
+    rules.boos = true;
+    room.borrow_mut().save_rules(rules).unwrap();
+    let mut h = harness();
+    h.push(sample::room_select(&env, room.clone(), data).with_room(room.clone(), shell(&room, &orders)));
+    h.run(0.5);
+    assert_eq!(pills(&h), ["×2.5", "Reverse", "DDI · Hard timing · Boos"]);
+}
+
 /// Feedback round B: the players are always on the room's song select.
 /// The wide layout has the song's side short (a row of chart buttons, no
 /// ladder, the style button only where there is a style to change to) and

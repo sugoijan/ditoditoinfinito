@@ -522,8 +522,13 @@ pub struct SelectData {
     pub styles: Vec<StyleDef>,
     /// In list order, grouped by pack.
     pub songs: Vec<SongEntry>,
-    /// What is in effect, for the header ("×2.5", "Reverse", "ITG").
+    /// What is in effect, for the header ("×2.5", "Reverse"): the
+    /// player's own modifiers, which apply in a room's stages too ...
     pub mods: Vec<String>,
+    /// ... and their ruleset's options ("Fail off", "J5"), which a room's
+    /// stages do not play (song select in a room shows the match's rules
+    /// in their place).
+    pub rules: Vec<String>,
     /// The difficulty picked at first (the player's last; Hard when
     /// none).
     pub preferred: Option<Difficulty>,

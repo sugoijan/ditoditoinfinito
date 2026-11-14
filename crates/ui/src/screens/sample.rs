@@ -321,12 +321,9 @@ pub fn select() -> SelectData {
     SelectData {
         styles,
         songs,
-        // A speed, a mod and a ruleset by its name.
-        mods: vec![
-            "×2.5".into(),
-            ddi_l10n::msg::mods::reverse().into(),
-            ddi_l10n::UiText::data(SAMPLE_RULESET).into(),
-        ],
+        // A speed and a mod, and a ruleset by its name.
+        mods: vec!["×2.5".into(), ddi_l10n::msg::mods::reverse().into()],
+        rules: vec![ddi_l10n::UiText::data(SAMPLE_RULESET).into()],
         preferred: Some(Difficulty::Hard),
         ..Default::default()
     }
