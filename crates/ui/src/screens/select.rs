@@ -1628,12 +1628,7 @@ impl SelectScreen {
                 let r = rm.room.borrow();
                 let rules = r.rules();
                 out.push(
-                    super::room::rules_words_in(
-                        &crate::state::room::StageRules::of(rules),
-                        r.attacks_offered().then(|| rules.attacks()),
-                        r.adaptive_offered(),
-                    )
-                    .into(),
+                    super::room::match_rules_words(&r, rules).into(),
                 );
             }
             None => out.extend(self.data.rules.iter().cloned()),

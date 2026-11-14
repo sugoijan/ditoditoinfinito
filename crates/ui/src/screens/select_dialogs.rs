@@ -1555,14 +1555,7 @@ impl Screen for NoticesDialog {
             ));
             by += 48.0;
         }
-        children.push(button(
-            &env,
-            "Close",
-            &common::close(),
-            [x + w - 24.0 - 70.0, y + h - 36.0],
-            140.0,
-            "Button",
-        ));
+        children.push(super::dialog::foot_button(&env, "Close", &common::close(), [x, y, w, h]));
         dialog_root(children)
     }
 

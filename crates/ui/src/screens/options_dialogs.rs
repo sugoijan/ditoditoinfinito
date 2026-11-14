@@ -14,7 +14,7 @@ use ddi_platform::DeviceId;
 
 use super::data::SharesState;
 use super::dialog::{
-    button, button_rows, dialog_body, dialog_root, fitted_dialog, shell, wrap_lines,
+    button_rows, dialog_body, dialog_root, fitted_dialog, shell, wrap_lines,
 };
 use super::options_shell::{SHARES_CHANGED, SharesFeed};
 use super::select_dialogs::{PAGED_ROW, Paged, PagedRows, button_lines, place_button_lines};
@@ -913,14 +913,7 @@ impl KeyDialog {
             crate::look::ellipsized(&mut a, w - 48.0);
             c.push(left(a, x + 24.0, y + 90.0));
         }
-        c.push(button(
-            &env,
-            "Cancel",
-            &common::cancel(),
-            [x + w - 24.0 - 70.0, y + h - 36.0],
-            140.0,
-            "Button",
-        ));
+        c.push(super::dialog::foot_button(&env, "Cancel", &common::cancel(), [x, y, w, h]));
         dialog_root(c)
     }
 }

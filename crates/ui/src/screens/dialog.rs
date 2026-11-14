@@ -60,6 +60,12 @@ pub(crate) fn button_rows(
     out
 }
 
+/// A dialog's foot button `name` (Close, Cancel, Continue) at its
+/// bottom right, in the dialog `[x, y, w, h]`.
+pub(crate) fn foot_button(env: &Env, name: &str, label: &str, [x, y, w, h]: [f32; 4]) -> Actor {
+    button(env, name, label, [x + w - 24.0 - 70.0, y + h - 36.0], 140.0, "Button")
+}
+
 /// A row's value between the two buttons that change it (`Dec.<id>`
 /// and `Inc.<id>`, labeled `less` and `more`; `lo` and `hi`, whether
 /// there is a value that way), centered at `dec_x`, `value_x` and `inc_x`

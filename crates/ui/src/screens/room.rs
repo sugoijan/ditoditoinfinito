@@ -2504,6 +2504,27 @@ pub fn rules_words(rules: &crate::state::room::StageRules, attacks: Option<bool>
     rules_words_in(rules, attacks, true)
 }
 
+/// The people an operator manages in the Players pop-up and Host
+/// options: everyone else for the owner; for a co-host, only those held
+/// to watching (whom they may let play).
+pub(crate) fn manageable(r: &RoomClient) -> Vec<&ddi_room::Member> {
+    let owner = r.manages_hosts();
+    r.other_people()
+        .into_iter()
+        .filter(|mb| owner || (mb.watch_only && mb.role != ddi_room::Role::Owner))
+        .collect()
+}
+
+/// Match rules `rules` in a few words as room `r` plays them: attacks and
+/// Adaptive charts said only where it offers them ([`rules_words_in`]).
+pub fn match_rules_words(r: &RoomClient, rules: &ddi_room::MatchRules) -> UiText {
+    rules_words_in(
+        &crate::state::room::StageRules::of(rules),
+        r.attacks_offered().then(|| rules.attacks()),
+        r.adaptive_offered(),
+    )
+}
+
 /// [`rules_words`] in a room that offers Adaptive charts or not
 /// (`RoomClient::adaptive_offered`): where it does not, As picked is no
 /// choice and is not said.

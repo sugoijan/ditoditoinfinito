@@ -91,14 +91,7 @@ impl Screen for NoticeDialog {
         let h = 150.0 + body.len() as f32 * 18.0;
         let (mut c, [x, y]) = shell(&env, screen, [w, h], &self.title);
         super::dialog::dialog_body(&env, &mut c, &body, [x, y], w, |_| "Secondary");
-        c.push(button(
-            &env,
-            "Close",
-            &common::close(),
-            [x + w - 24.0 - 70.0, y + h - 36.0],
-            140.0,
-            "Button",
-        ));
+        c.push(super::dialog::foot_button(&env, "Close", &common::close(), [x, y, w, h]));
         self.env.state.borrow_mut().page_items = vec!["Close".into()];
         fitted_dialog(c, screen, h, scale)
     }
@@ -791,11 +784,7 @@ impl Screen for RulesDialog {
                 m::rules_locked_line(
                     l.stages,
                     cpu_roster::roster_of(l, humans).len(),
-                    super::room::rules_words_in(
-                        &crate::state::room::StageRules::of(l),
-                        self.attacks_offered().then(|| l.attacks()),
-                        self.adaptive_offered(),
-                    ),
+                    super::room::match_rules_words(&self.room.borrow(), l),
                 )
                 .into()
             });
@@ -968,11 +957,7 @@ impl Screen for RulesDialog {
             let line = m::rules_locked_line(
                 rules.stages,
                 cpu_roster::roster_of(rules, humans).len(),
-                super::room::rules_words_in(
-                    &crate::state::room::StageRules::of(rules),
-                    self.attacks_offered().then(|| rules.attacks()),
-                    self.adaptive_offered(),
-                ),
+                super::room::match_rules_words(&self.room.borrow(), rules),
             );
             let mut t = env.text("Locked.Line", &line, 14.0, 400, "Secondary");
             look::ellipsized(&mut t, inner);
@@ -1970,14 +1955,7 @@ impl Screen for AddCpuDialog {
                 [x0 + inner / 2.0, ry + 10.0],
             ));
         }
-        c.push(button(
-            &env,
-            "Close",
-            &common::close(),
-            [x + w - 24.0 - 70.0, y + h - 36.0],
-            140.0,
-            "Button",
-        ));
+        c.push(super::dialog::foot_button(&env, "Close", &common::close(), [x, y, w, h]));
         let items: Vec<String> = self.focusables().into_iter().map(|f| f.name).collect();
         self.env.state.borrow_mut().page_items = items;
         publish_dialog(&env, |v| v.add_open = true);
@@ -2182,11 +2160,8 @@ impl Screen for PlayersDialog {
         self.manages = r.may_host_options();
         self.chooses = r.may_choose_intent();
         if self.manages {
-            let owner = r.manages_hosts();
-            let others: Vec<u64> = r
-                .other_people()
+            let others: Vec<u64> = super::room::manageable(&r)
                 .iter()
-                .filter(|mb| owner || (mb.watch_only && mb.role != Role::Owner))
                 .map(|mb| mb.id.0)
                 .collect();
             for row in &mut rows {
@@ -2230,14 +2205,7 @@ impl Screen for PlayersDialog {
         );
         self.first = first;
         c.push(p);
-        c.push(button(
-            &env,
-            "Close",
-            &common::close(),
-            [x + w - 24.0 - 70.0, y + h - 36.0],
-            140.0,
-            "Button",
-        ));
+        c.push(super::dialog::foot_button(&env, "Close", &common::close(), [x, y, w, h]));
         // The foot's buttons from the left: Play or Watch (the player's
         // own), then the host's Host options.
         let mut bx = x + 24.0;
@@ -2447,11 +2415,8 @@ impl HostDialog {
     fn people(&self) -> Vec<Person> {
         let r = self.room.borrow();
         // A co-host's: only those they may let play.
-        let owner = r.manages_hosts();
-        let mut people = r
-            .other_people()
+        let mut people = super::room::manageable(&r)
             .into_iter()
-            .filter(|mb| owner || (mb.watch_only && mb.role != Role::Owner))
             .map(|mb| {
                 let role: Option<String> = match (mb.role, mb.admin) {
                     (Role::CoHost, _) => Some(m::role_co_host().into()),
@@ -2729,14 +2694,7 @@ impl Screen for HostDialog {
                 [x0 + inner / 2.0, ry + MARK / 2.0],
             ));
         }
-        c.push(button(
-            &env,
-            "Close",
-            &common::close(),
-            [x + w - 24.0 - 70.0, y + h - 36.0],
-            140.0,
-            "Button",
-        ));
+        c.push(super::dialog::foot_button(&env, "Close", &common::close(), [x, y, w, h]));
         self.env.state.borrow_mut().page_items =
             self.focusables().into_iter().map(|f| f.name).collect();
         publish_dialog(&env, |v| v.host_open = true);
@@ -2995,11 +2953,7 @@ impl Screen for StandingsDialog {
                 lines.push((
                     m::results_rules_changed(
                         i + 1,
-                        super::room::rules_words_in(
-                            &crate::state::room::StageRules::of(&rules),
-                            r.attacks_offered().then(|| rules.attacks()),
-                            r.adaptive_offered(),
-                        ),
+                        super::room::match_rules_words(&r, &rules),
                     )
                     .into(),
                     "Gold",
@@ -3132,14 +3086,7 @@ impl Screen for StandingsDialog {
             ));
         }
         drop(r);
-        c.push(button(
-            &env,
-            "Continue",
-            &m::standings_continue(),
-            [x + w - 24.0 - 70.0, y + h - 36.0],
-            140.0,
-            "Button",
-        ));
+        c.push(super::dialog::foot_button(&env, "Continue", &m::standings_continue(), [x, y, w, h]));
         self.env.state.borrow_mut().page_items = vec!["Continue".into()];
         publish_dialog(&env, |v| v.standings_open = true);
         fitted_dialog(c, screen, h, scale)
