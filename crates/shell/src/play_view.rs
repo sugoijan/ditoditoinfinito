@@ -396,6 +396,8 @@ pub struct PlayView<H: PlayHost> {
     /// (`crate::attack_links::Routes`).
     fields_for: Option<(FieldsKey, Vec<[f32; 4]>, Option<crate::opponents::Fields>)>,
     routes: crate::attack_links::Routes,
+    /// The miniatures' names and scores as last worded.
+    memo: crate::opponents::Memo,
     /// A large field's slots: the opponents that matter to the player
     /// now (`crate::rivals`), kept from frame to frame; and its ladder.
     rivals: crate::rivals::Rivals,
@@ -464,6 +466,7 @@ impl<H: PlayHost> PlayView<H> {
             shown_words: None,
             fields_for: None,
             routes: Default::default(),
+            memo: Default::default(),
             rivals: crate::rivals::Rivals::default(),
             ladder: None,
             ladder_page: None,
@@ -1931,6 +1934,7 @@ impl<H: PlayHost> PlayView<H> {
                     &locks,
                     ratio,
                     &mut measure,
+                    &mut self.memo,
                 );
                 self.standing_drawn = shown.won;
                 self.ladder_drawn = shown.ladder.filter(|_| fields.ladder.is_some());

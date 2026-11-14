@@ -1335,13 +1335,93 @@ fn fitted(measure: &mut dyn TextMeasure, s: &str, style: &TextStyle, room: f32) 
 /// `(judgment, seconds since)`.
 pub type Flashes = Vec<Vec<Option<(ddi_engine::rules::Judgement, f32)>>>;
 
+/// What [`draw_fields`] keeps from frame to frame, by seat: each name
+/// as cut to its room and each score as worded, made again only when
+/// what they come from changes (a name never does during a stage; a
+/// score a few times a second).
+#[derive(Clone, Debug, Default)]
+pub struct Memo {
+    names: Vec<Option<NameCut>>,
+    scores: Vec<Option<ScoreWords>>,
+}
+
+#[derive(Clone, Debug)]
+struct NameCut {
+    name: String,
+    room: f32,
+    size: f32,
+    cut: std::sync::Arc<str>,
+}
+
+#[derive(Clone, Debug)]
+struct ScoreWords {
+    shown: ScoreShown,
+    sum: Option<i64>,
+    score: f64,
+    text: std::sync::Arc<str>,
+}
+
+/// `memo`'s place for `seat`, made where it has none yet.
+fn memo_at<T>(memo: &mut Vec<Option<T>>, seat: usize) -> &mut Option<T> {
+    if memo.len() <= seat {
+        memo.resize_with(seat + 1, || None);
+    }
+    &mut memo[seat]
+}
+
+impl Memo {
+    /// `o`'s name cut to `room` pixels in `style`.
+    fn name(
+        &mut self,
+        seat: usize,
+        o: &OpponentView,
+        style: &TextStyle,
+        room: f32,
+        measure: &mut dyn TextMeasure,
+    ) -> std::sync::Arc<str> {
+        let at = memo_at(&mut self.names, seat);
+        match at {
+            Some(c) if c.name == o.name && c.room == room && c.size == style.size() => {}
+            _ => {
+                *at = Some(NameCut {
+                    name: o.name.clone(),
+                    room,
+                    size: style.size(),
+                    cut: fitted(measure, &o.name, style, room).into(),
+                });
+            }
+        }
+        at.as_ref().map_or_else(|| "".into(), |c| c.cut.clone())
+    }
+
+    /// `o`'s score as `shown` says it ([`ScoreShown::text`]).
+    fn score(&mut self, seat: usize, o: &OpponentView, shown: ScoreShown) -> std::sync::Arc<str> {
+        let at = memo_at(&mut self.scores, seat);
+        match at {
+            Some(w)
+                if w.shown == shown && w.sum == o.sum && w.score.to_bits() == o.score.to_bits() => {}
+            _ => {
+                *at = Some(ScoreWords {
+                    shown,
+                    sum: o.sum,
+                    score: o.score,
+                    text: shown.text(o).into(),
+                });
+            }
+        }
+        at.as_ref().map_or_else(|| "".into(), |w| w.text.clone())
+    }
+}
+
 /// Draws what the miniatures in `fields` show around and over their
 /// fields (drawn by the renderer before this, their life gauges and
 /// combos by the play's HUD): each one's name and level above its field,
 /// the flashes of its judgments where the skin does not draw them
 /// (`flashes`, in `0..`[`FLASH`] seconds), its Out, a slot darkening as
 /// its seat changes; in the status line, "Stage won" and a battle's moment
-/// no line said. Whether a moment's cue was drawn.
+/// no line said. Whether a moment's cue was drawn. Names and scores are
+/// kept in `memo` from frame to frame.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_fields(
     list: &mut DrawList,
     shown: &Shown,
@@ -1350,6 +1430,7 @@ pub fn draw_fields(
     locks: &[Vec<Option<f32>>],
     ratio: f32,
     measure: &mut dyn TextMeasure,
+    memo: &mut Memo,
 ) -> bool {
     let face: std::sync::Arc<str> = ddi_l10n::font_stack(FACE).into();
     let style = |size: f32, weight: u16| {
@@ -1440,7 +1521,7 @@ pub fn draw_fields(
             _ => w,
         };
         if !large && fields.carry.name {
-            let name = fitted(measure, &o.name, &name_style, room.max(0.0));
+            let name = memo.name(slot.seat, o, &name_style, room.max(0.0), measure);
             list.text(name, &name_style, x, y, fade(TEXT));
         } else if !large && shown.named.contains(&slot.seat) {
             named(list, &o.name, slot, &name_style, ratio, measure);
@@ -1461,7 +1542,7 @@ pub fn draw_fields(
         // Its score, small, under its life gauge's right end.
         if !large && fields.carry.score {
             let s = geo.arrow / 72.0;
-            let text = shown.score.text(o);
+            let text = memo.score(slot.seat, o, shown.score);
             let mut tw = measure.measure(&text, &score_style).advance;
             // A long score on a narrow field (a phone's): smaller, so that
             // it stays within its field's four lanes.
@@ -2039,7 +2120,7 @@ pub(crate) mod tests {
         shown.label = Some("Watching Followed".into());
         let mut list = DrawList::new();
         let mut measure = FixedMeasure;
-        draw_fields(&mut list, &shown, &f, &[], &[], 1.0, &mut measure);
+        draw_fields(&mut list, &shown, &f, &[], &[], 1.0, &mut measure, &mut Memo::default());
         let texts = texts(&list);
         let words: Vec<&str> = texts.iter().map(|(t, _)| t.as_str()).collect();
         assert!(words.contains(&"Watching Followed"), "{words:?}");
@@ -2309,7 +2390,8 @@ pub(crate) mod tests {
             &flashes,
             &[],
             1.0,
-            &mut FixedMeasure
+            &mut FixedMeasure,
+            &mut Memo::default()
         ));
         let t = texts(&list);
         // The second is out: its field says so; no level is ever text.
@@ -2339,7 +2421,7 @@ pub(crate) mod tests {
         c.cue = Some(("Final stage".into(), 1.0));
         c.won = Some("Stage won".into());
         let mut list = DrawList::new();
-        assert!(draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure));
+        assert!(draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure, &mut Memo::default()));
         let t = texts(&list);
         assert!(t.iter().any(|(s, _)| s == "Final stage"));
         assert!(t.iter().any(|(s, _)| s == "Stage won"));
@@ -2372,7 +2454,7 @@ pub(crate) mod tests {
             let f = arrange(n, &g, 4.0, false, 1.0, &keep(&g, 1.0, false)).unwrap();
             let mut c = shown(n);
             let mut list = DrawList::new();
-            draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure);
+            draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure, &mut Memo::default());
             let scores: Vec<_> = texts(&list)
                 .into_iter()
                 .filter(|(s, _)| s == "5900000")
@@ -2398,7 +2480,7 @@ pub(crate) mod tests {
             }
             c.score = ScoreShown::Percent;
             let mut list = DrawList::new();
-            draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure);
+            draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure, &mut Memo::default());
             assert_eq!(
                 texts(&list).iter().filter(|(s, _)| s == "90.00%").count(),
                 f.slots.len()
@@ -2409,7 +2491,7 @@ pub(crate) mod tests {
             locks[0][2] = Some(0.3);
             locks[1][0] = Some(0.5);
             let mut list = DrawList::new();
-            draw_fields(&mut list, &c, &f, &[], &locks, 1.0, &mut FixedMeasure);
+            draw_fields(&mut list, &c, &f, &[], &locks, 1.0, &mut FixedMeasure, &mut Memo::default());
             let of = |color: [f32; 4]| -> Vec<[f32; 4]> {
                 list.commands
                     .iter()
@@ -2684,7 +2766,7 @@ pub(crate) mod tests {
             ),
         ));
         let mut list = DrawList::new();
-        draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure);
+        draw_fields(&mut list, &c, &f, &[], &[], 1.0, &mut FixedMeasure, &mut Memo::default());
         let t = texts(&list);
         assert!(t.iter().all(|(s, _)| s != "5900000"), "no score");
         assert_eq!(t.iter().filter(|(s, _)| s.starts_with("CPU")).count(), 72);
@@ -2706,7 +2788,7 @@ pub(crate) mod tests {
         let mut c = shown(12);
         c.named = vec![3];
         let mut list = DrawList::new();
-        draw_fields(&mut list, &c, &f, &[], &[], 3.0, &mut FixedMeasure);
+        draw_fields(&mut list, &c, &f, &[], &[], 3.0, &mut FixedMeasure, &mut Memo::default());
         let t = texts(&list);
         let names: Vec<_> = t.iter().filter(|(s, _)| s.starts_with("CPU")).collect();
         assert_eq!(names.len(), 1, "{names:?}");
@@ -2805,7 +2887,7 @@ pub(crate) mod tests {
             let mut one = shown(n);
             one.opponents.truncate(1);
             let mut list = DrawList::new();
-            draw_fields(&mut list, &one, &f, &[], &[], ratio, &mut FixedMeasure);
+            draw_fields(&mut list, &one, &f, &[], &[], ratio, &mut FixedMeasure, &mut Memo::default());
             let slot = f.slots[0];
             match stars_bounds(&list) {
                 Some(b) => {
@@ -2829,7 +2911,7 @@ pub(crate) mod tests {
             o.level = None;
         }
         let mut list = DrawList::new();
-        draw_fields(&mut list, &people, &f, &[], &[], 1.0, &mut FixedMeasure);
+        draw_fields(&mut list, &people, &f, &[], &[], 1.0, &mut FixedMeasure, &mut Memo::default());
         assert!(stars_bounds(&list).is_none());
     }
 
@@ -2841,7 +2923,7 @@ pub(crate) mod tests {
         let mut c = shown(8);
         c.opponents[0].name = "Velvet Metronome".into();
         let mut list = DrawList::new();
-        draw_fields(&mut list, &c, &f, &[], &[], ratio, &mut FixedMeasure);
+        draw_fields(&mut list, &c, &f, &[], &[], ratio, &mut FixedMeasure, &mut Memo::default());
         // Every text inside its slot's width.
         for cmd in &list.commands {
             if let Command::Text(t) = cmd {
@@ -2981,6 +3063,7 @@ pub(crate) mod tests {
                 .map(|i| (0..4).map(|l| (i % 5 == l).then_some(1.5)).collect())
                 .collect();
             let mut list = DrawList::new();
+            let mut memo = Memo::default();
             let drew = draw_fields(
                 &mut list,
                 &shown,
@@ -2989,8 +3072,14 @@ pub(crate) mod tests {
                 &locks,
                 ratio,
                 &mut FixedMeasure,
+                &mut memo,
             );
             assert!(drew);
+            // Drawn again from what it kept: the same.
+            let mut again = DrawList::new();
+            let m = &mut FixedMeasure;
+            draw_fields(&mut again, &shown, &fields, &flashes, &locks, ratio, m, &mut memo);
+            assert_eq!(again, list);
             let own = OwnOut {
                 panel: [w * ratio * 0.4, 0.0, w * ratio * 0.6, h * ratio],
                 mark: "Left the stage and a few more words".into(),
