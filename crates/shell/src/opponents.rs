@@ -1227,6 +1227,94 @@ pub fn rotate(
     }
 }
 
+/// What chooses the seats a frame's miniatures show ([`choose`]).
+#[derive(Clone, Copy, Debug)]
+pub struct Choosing<'a> {
+    /// The seats shown as miniatures, in their order: every competitor's
+    /// but the one followed (whose field is the large one), then the
+    /// player's own where they follow someone. The slots were arranged
+    /// for as many.
+    pub shown: &'a [usize],
+    /// A spectator's grid over the whole screen, and its page (from 0).
+    pub grid: bool,
+    pub page: usize,
+    /// The seats the stage keeps in view
+    /// (`ddi_session::battle::Battle::kept_seats`).
+    pub pinned: &'a [usize],
+    /// The song second, and whether motion is reduced.
+    pub time: f64,
+    pub reduced: bool,
+}
+
+/// The seats `fields`' slots show this frame, among `choosing.shown`: a
+/// spectator's grid past a page, the page's by standing; a large field
+/// shown whole, each in its own place; a large field that does not fit,
+/// those that matter to the player now (`rivals`, kept from frame to
+/// frame); else in turns ([`rotate`]), those the stage keeps in view
+/// staying. `standings` are those shown but the player's own, and whom
+/// the slots gather around ([`crate::rivals::Standing`]), asked only where
+/// a choice reads them. The ladder for the whole field, where one shows,
+/// and a paged grid's page and pages.
+pub fn choose(
+    fields: &mut Fields,
+    choosing: &Choosing<'_>,
+    rivals: &mut crate::rivals::Rivals,
+    standings: impl FnOnce() -> (
+        Vec<crate::rivals::Standing>,
+        Option<crate::rivals::Standing>,
+    ),
+) -> (Option<crate::rivals::Ladder>, Option<(usize, usize)>) {
+    use crate::rivals::{Ladder, RIVALS_V0};
+    let c = choosing;
+    let n = c.shown.len();
+    // The pinned seats as positions among those shown.
+    let pinned: Vec<usize> = c
+        .pinned
+        .iter()
+        .filter_map(|p| c.shown.iter().position(|s| s == p))
+        .collect();
+    let page_size = ddi_session::play::GRID_PAGE;
+    let chosen = if c.grid && n > page_size {
+        // A spectator's grid past a page: the page's fields by
+        // standing, the ladder for the whole field.
+        let (standings, _) = standings();
+        let ranked = crate::rivals::order(&standings);
+        let from = c.page * page_size;
+        for (i, slot) in fields.slots.iter_mut().enumerate() {
+            slot.seat = ranked.get(from + i).copied().unwrap_or(usize::MAX);
+            slot.dim = 0.0;
+        }
+        (
+            Some(Ladder::of(&standings, None)),
+            Some((c.page, n.div_ceil(page_size))),
+        )
+    } else if n > ROOM_OPPONENTS && !c.grid && !fields.rotating {
+        // A large field shown whole (the feedback round E1): each in its
+        // own place for the stage, the ladder's words for the whole
+        // field (the fields are its strip).
+        let (standings, me) = standings();
+        (fields.ladder.is_some().then(|| Ladder::of(&standings, me)), None)
+    } else if n > ROOM_OPPONENTS && !c.grid {
+        // A large field: those that matter to the player now in the
+        // slots (around the competitor followed, for a spectator), the
+        // ladder for the whole field.
+        let (standings, me) = standings();
+        rivals.update(fields.slots.len(), &standings, me, &pinned, c.time, RIVALS_V0);
+        rivals.apply(fields, c.time, RIVALS_V0, c.reduced);
+        (fields.ladder.is_some().then(|| Ladder::of(&standings, me)), None)
+    } else {
+        // Too few slots: the opponents take turns in them, those the
+        // stage keeps in view staying.
+        rotate(fields, n, &pinned, c.time, ROTATION_V0, c.reduced);
+        (None, None)
+    };
+    // Positions to seats, in one place.
+    for slot in &mut fields.slots {
+        slot.seat = c.shown.get(slot.seat).copied().unwrap_or(usize::MAX);
+    }
+    chosen
+}
+
 /// The seats of `pinned` that are among `n` opponents, each once, as
 /// many as `slots` hold, in their order.
 pub(crate) fn pins(pinned: &[usize], n: usize, slots: usize) -> Vec<usize> {
@@ -2888,6 +2976,55 @@ pub(crate) mod tests {
         let names: Vec<_> = t.iter().filter(|(s, _)| s.starts_with("CPU")).collect();
         assert_eq!(names.len(), 1, "{names:?}");
         assert!(names[0].0.starts_with("CPU 4"));
+    }
+
+    /// The slots are chosen by position among the seats shown and say
+    /// seats: around a followed competitor (not shown) and the player's
+    /// own last, a field shown whole in seat order, the kept seats first
+    /// where those that matter take the slots.
+    #[test]
+    fn the_slots_choose_among_the_seats_shown_and_say_seats() {
+        let g = geo(1280.0, 720.0);
+        let k = keep(&g, 1.0, false);
+        let standing = |i: usize| crate::rivals::Standing {
+            life: 1.0 - i as f32 / 200.0,
+            out: false,
+            score: 0.0,
+        };
+        // Twelve shown whole: everyone but the followed seat 5, then the
+        // player's own (seat 12).
+        let shown: Vec<usize> = (0..12).filter(|&s| s != 5).chain([12]).collect();
+        let mut f = arrange(shown.len(), &g, 4.0, false, 1.0, &k).unwrap();
+        assert!(!f.rotating);
+        let mut rivals = crate::rivals::Rivals::default();
+        let choosing = Choosing {
+            shown: &shown,
+            grid: false,
+            page: 0,
+            pinned: &[],
+            time: 3.0,
+            reduced: false,
+        };
+        choose(&mut f, &choosing, &mut rivals, || {
+            ((0..11).map(standing).collect(), Some(standing(5)))
+        });
+        let seats: Vec<usize> = f.slots.iter().map(|s| s.seat).collect();
+        assert_eq!(seats, shown);
+        // 128 that do not fit, seat 40 followed: the kept seats 41 and 7
+        // in the first slots, as seats.
+        let shown: Vec<usize> = (0..129).filter(|&s| s != 40).collect();
+        let mut f = arrange(shown.len(), &g, 4.0, false, 1.0, &k).unwrap();
+        assert!(f.rotating);
+        let choosing = Choosing {
+            shown: &shown,
+            pinned: &[41, 7],
+            ..choosing
+        };
+        choose(&mut f, &choosing, &mut rivals, || {
+            ((0..128).map(standing).collect(), Some(standing(40)))
+        });
+        assert_eq!((f.slots[0].seat, f.slots[1].seat), (41, 7));
+        assert!(f.slots.iter().all(|s| s.seat != 40 && s.seat <= 128));
     }
 
     #[test]

@@ -1231,11 +1231,18 @@ impl<H: PlayHost> PlayView<H> {
         let own_view = battle
             .zip(own_seat)
             .map(|(b, _)| b.own_view(&session.player, ddi_l10n::msg::room::you().into()));
+        // The seats shown as miniatures, in their order: everyone's but
+        // the competitor followed (whose field is the large one), then
+        // the player's own where they follow someone (`own_seat`). The
+        // slots are placed and chosen by position in it.
+        let shown_seats: Vec<usize> = battle.map_or_else(Vec::new, |b| {
+            (0..b.feeds().count())
+                .filter(|&s| Some(s) != focus)
+                .chain(own_seat)
+                .collect()
+        });
         let fields = battle.and_then(|b| {
-            // Everyone but the competitor followed, whose field is the
-            // large one.
-            let n = b.feeds().count() + usize::from(own_seat.is_some())
-                - usize::from(focus.is_some());
+            let n = shown_seats.len();
             let key = FieldsKey {
                 n,
                 geo,
@@ -1283,87 +1290,22 @@ impl<H: PlayHost> PlayView<H> {
             // attacks last and a turn after.
             let every = f64::from(crate::opponents::ROTATION_V0.every);
             let pinned = b.kept_seats(&session.player, every);
-            let paged = grid && n > ddi_session::play::GRID_PAGE;
-            if paged {
-                // A spectator's grid past a page: the page's fields by
-                // standing, the ladder for the whole field.
-                let (standings, _) =
-                    large_standings(b, &views_now, &frame, None, frame.song_time);
-                let ranked = crate::rivals::order(&standings);
-                let page = spectator.map_or(0, |w| w.page);
-                let from = page * ddi_session::play::GRID_PAGE;
-                for (i, slot) in f.slots.iter_mut().enumerate() {
-                    slot.seat = ranked.get(from + i).copied().unwrap_or(usize::MAX);
-                    slot.dim = 0.0;
-                }
-                self.ladder = Some(crate::rivals::Ladder::of(&standings, None));
-                self.ladder_page = Some((page, n.div_ceil(ddi_session::play::GRID_PAGE)));
-            } else if n > crate::opponents::ROOM_OPPONENTS && !grid && !f.rotating {
-                // A large field shown whole (the feedback round E1): each
-                // in its own place for the stage, the ladder's words for
-                // the whole field (the fields are its strip).
-                let (standings, me) =
-                    large_standings(b, &views_now, &frame, focus, frame.song_time);
-                self.ladder = f
-                    .ladder
-                    .is_some()
-                    .then(|| crate::rivals::Ladder::of(&standings, me));
-                self.ladder_page = None;
-            } else if n > crate::opponents::ROOM_OPPONENTS && !grid {
-                // A large field: those that matter to the player now in
-                // the slots (around the competitor followed, for a
-                // spectator), the ladder for the whole field.
-                let (standings, me) =
-                    large_standings(b, &views_now, &frame, focus, frame.song_time);
-                // The pinned seats as the slots count them (past a
-                // followed competitor's).
-                let pinned: Vec<usize> = pinned
-                    .iter()
-                    .filter(|&&p| Some(p) != focus)
-                    .map(|&p| if focus.is_some_and(|f| p > f) { p - 1 } else { p })
-                    .collect();
-                self.rivals.update(
-                    f.slots.len(),
-                    &standings,
-                    me,
-                    &pinned,
-                    frame.song_time,
-                    crate::rivals::RIVALS_V0,
-                );
-                self.rivals.apply(
-                    &mut f,
-                    frame.song_time,
-                    crate::rivals::RIVALS_V0,
-                    render.reduced_motion,
-                );
-                self.ladder = f
-                    .ladder
-                    .is_some()
-                    .then(|| crate::rivals::Ladder::of(&standings, me));
-                self.ladder_page = None;
-            } else {
-                self.ladder = None;
-                self.ladder_page = None;
-                // Too few slots: the opponents take turns in them, those
-                // the stage keeps in view staying.
-                crate::opponents::rotate(
-                    &mut f,
-                    n,
-                    &pinned,
-                    frame.song_time,
-                    crate::opponents::ROTATION_V0,
-                    render.reduced_motion,
-                );
-            }
-            // The slots beside a followed competitor's field show the
-            // others, each in the place its order gives it.
-            if let Some(focus) = focus {
-                for s in &mut f.slots {
-                    if s.seat >= focus && s.seat != usize::MAX {
-                        s.seat += 1;
-                    }
-                }
-            }
+            let page = spectator.map_or(0, |w| w.page);
+            let (ladder, ladder_page) = crate::opponents::choose(
+                &mut f,
+                &crate::opponents::Choosing {
+                    shown: &shown_seats,
+                    grid,
+                    page,
+                    pinned: &pinned,
+                    time: frame.song_time,
+                    reduced: render.reduced_motion,
+                },
+                &mut self.rivals,
+                || large_standings(b, &views_now, &frame, focus, frame.song_time),
+            );
+            self.ladder = ladder;
+            self.ladder_page = ladder_page;
             Some(f)
         });
         // The followed competitor's field, in the play's field's place.
