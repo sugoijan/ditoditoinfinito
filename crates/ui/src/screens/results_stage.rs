@@ -1240,6 +1240,7 @@ impl ResultsScreen {
         let panel = self.panel("Standings", &title, &note, [x, y, w, h], content);
         self.stage_shown
             .set((drawn.first, drawn.shown, table.rows.len(), w - 2.0 * pad));
+        *self.stage_lines.borrow_mut() = table.rows.iter().map(|row| row.participant).collect();
         (panel, h)
     }
 
@@ -1470,11 +1471,7 @@ impl ResultsScreen {
                         .iter()
                         .find_map(|n| n.strip_prefix("Stand")?.parse::<usize>().ok())
                 });
-                let pointed = row.and_then(|k| {
-                    let sm = self.stage.as_ref()?;
-                    let table = sm.room.borrow().stage_table(sm.stage)?;
-                    table.rows.get(k).map(|row| row.participant)
-                });
+                let pointed = row.and_then(|k| self.stage_lines.borrow().get(k).copied());
                 if let Some(sm) = &mut self.stage
                     && sm.pointed != pointed
                 {

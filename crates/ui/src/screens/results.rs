@@ -114,6 +114,9 @@ pub struct ResultsScreen {
     /// The standings as last drawn: the first line, how many, of how
     /// many, and the table's width.
     stage_shown: std::cell::Cell<(usize, usize, usize, f32)>,
+    /// Who each of the standings' lines is, as last drawn (`Stand<k>`):
+    /// what the pointer is over.
+    stage_lines: std::cell::RefCell<Vec<ddi_room::ParticipantId>>,
 }
 
 impl ResultsScreen {
@@ -133,6 +136,7 @@ impl ResultsScreen {
             banner: None,
             stage: None,
             stage_shown: Default::default(),
+            stage_lines: Default::default(),
         }
     }
 
