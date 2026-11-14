@@ -122,6 +122,15 @@ fn rig_with(
     let clock = Arc::new(AtomicU64::new(1_000_000_000));
     let c = clock.clone();
     host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
+    // The hand's work budget on a clock of its own (half a microsecond a
+    // reading, as the shell's hand tests): the play's frames run faster
+    // than real time, and a loaded machine must not starve its planner.
+    let ticks = std::cell::Cell::new(0.0);
+    host.test_seconds = Some(Rc::new(move || {
+        let t = ticks.get();
+        ticks.set(t + 0.000_000_5);
+        t
+    }));
     let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: None,

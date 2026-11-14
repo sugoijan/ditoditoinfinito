@@ -94,6 +94,10 @@ pub struct Desktop {
     fonts_asked: bool,
     /// What the hand's budget is measured from.
     origin: Instant,
+    /// The hand's (and the scripts') work budget measured on this clock
+    /// instead (tests: a play's frames faster than real time, the same
+    /// whatever the machine's load; `Host::test_seconds`).
+    seconds: Option<std::rc::Rc<dyn Fn() -> f64>>,
 }
 
 impl Desktop {
@@ -103,6 +107,7 @@ impl Desktop {
             font: None,
             fonts_asked: false,
             origin: Instant::now(),
+            seconds: None,
         }
     }
 
@@ -157,7 +162,10 @@ impl PlayHost for Desktop {
     }
 
     fn seconds(&self) -> f64 {
-        self.origin.elapsed().as_secs_f64()
+        match &self.seconds {
+            Some(clock) => clock(),
+            None => self.origin.elapsed().as_secs_f64(),
+        }
     }
 
     fn before_render(&mut self, device: &wgpu::Device, encoder: &wgpu::CommandEncoder) {
@@ -216,6 +224,11 @@ impl DerefMut for View {
 }
 
 impl View {
+    /// The hand's work budget measured on `clock` (tests), else real time.
+    pub fn set_test_seconds(&mut self, clock: Option<std::rc::Rc<dyn Fn() -> f64>>) {
+        self.view.host.seconds = clock;
+    }
+
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, formats: Formats) -> View {
         let renderer = Renderer::new(
             device,

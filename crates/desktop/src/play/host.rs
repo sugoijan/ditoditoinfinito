@@ -348,6 +348,11 @@ pub struct Host {
     /// Plays on no device with this clock (tests): `None` opens the
     /// output (or none under `--silent`).
     pub test_clock: Option<crate::audio::HostClock>,
+    /// The dancing hand's work budget measured on this clock (tests: the
+    /// play's frames faster than real time, the same whatever the
+    /// machine's load, as the shell's hand tests run it); `None`: real
+    /// time.
+    pub test_seconds: Option<Rc<dyn Fn() -> f64>>,
     /// The master volume over the music's (`--volume`): 1 unless given.
     pub master: Option<f32>,
     /// Start the next prompt by itself once the song is read (`--start`).
@@ -386,6 +391,7 @@ impl Default for Host {
             graphics: String::new(),
             present_at: None,
             test_clock: None,
+            test_seconds: None,
             master: None,
             start_when_ready: false,
             scale: 1.0,
@@ -1304,6 +1310,7 @@ impl Host {
             .set_bindings(layout.as_ref(), &settings);
         if r.view.is_none() {
             let mut view = View::new(dev.device, dev.queue, formats);
+            view.set_test_seconds(self.test_seconds.clone());
             view.set_song(&loaded, &settings);
             let calibration = r.request.calibration.is_some();
             view.set_generated(&loaded, &settings, calibration);
