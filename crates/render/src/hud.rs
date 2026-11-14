@@ -574,6 +574,71 @@ impl Hud {
     }
 }
 
+/// A combo as the shader shows it: its digits, how many, its tier (one a
+/// hundred, ten at most) and its pulse's growth.
+struct Combo {
+    digits: [[f32; 4]; 3],
+    count: f32,
+    tier: u32,
+    pulse: f32,
+}
+
+impl Combo {
+    /// `combo` at `now`, pulsing since its gauge's `m`otion's last step.
+    fn of(combo: u32, now: f64, m: &Motion) -> Combo {
+        let tier = (combo / 100).min(10);
+        let pulse = 1.0 + 0.07 * (1.0 - ((now - m.pulse_at) / 0.280).clamp(0.0, 1.0)) as f32;
+        let count = combo.checked_ilog10().unwrap_or(0) + 1;
+        let mut digits = [[0.0; 4]; 3];
+        let mut value = combo;
+        for d in (0..count as usize).rev() {
+            digits[d / 4][d % 4] = (value % 10) as f32;
+            value /= 10;
+        }
+        Combo {
+            digits,
+            count: count as f32,
+            tier,
+            pulse,
+        }
+    }
+
+    /// The globals' `combo`: the digits shown (none under four), the
+    /// tier, the scale `cs` and the outline's.
+    fn globals(&self, combo: u32, cs: f32) -> [f32; 4] {
+        [
+            if combo >= 4 { self.count } else { 0.0 },
+            self.tier as f32,
+            cs,
+            (3.5 + self.tier.saturating_sub(1).min(8) as f32 * 0.08) * tier_grow(self.tier),
+        ]
+    }
+}
+
+impl Motion {
+    /// The globals' `life`: the fill, the life, the trail and its
+    /// opacity.
+    fn life(&self, life: f32) -> [f32; 4] {
+        [shown(self.fill), shown(life), shown(self.trail), self.trail_alpha]
+    }
+
+    /// The globals' `motion`: the evolution and the phase (still under
+    /// `reduced` motion), full, and the `danger` warning.
+    fn shown(&self, danger: bool, reduced: bool) -> [f32; 4] {
+        [
+            if reduced { 4.0 } else { self.evolution as f32 },
+            if reduced { 0.626 } else { self.phase as f32 },
+            self.full,
+            f32::from(danger),
+        ]
+    }
+}
+
+/// How much larger a combo of the tenth tier is.
+fn tier_grow(tier: u32) -> f32 {
+    if tier == 10 { 1.2 } else { 1.0 }
+}
+
 /// A miniature's globals: `m` on a `screen` (`[width, height]`), its
 /// field `span` lanes wide, its gauge's `motion` updated to `now`.
 fn mini_globals(
@@ -591,20 +656,10 @@ fn mini_globals(
     let s = scale(geo);
     let [top, bottom] = [m.panel[1], m.panel[3]];
     let center = geo.center_x(span);
-    let tier = (combo / 100).min(10);
-    let pulse =
-        1.0 + 0.07 * (1.0 - ((now - motion.pulse_at) / 0.280).clamp(0.0, 1.0)) as f32;
-    let count = combo.checked_ilog10().unwrap_or(0) + 1;
-    let mut digits = [[0.0; 4]; 3];
-    let mut value = combo;
-    for d in (0..count as usize).rev() {
-        digits[d / 4][d % 4] = (value % 10) as f32;
-        value /= 10;
-    }
-    let count = count as f32;
+    let c = Combo::of(combo, now, motion);
     let least = if m.fit_combo { 0.0 } else { MINI_COMBO_MIN_SCALE };
-    let cs = s.max(least) * if tier == 10 { 1.2 } else { 1.0 } * pulse;
-    let width = (count * 32.0 + 32.0) * cs;
+    let cs = s.max(least) * tier_grow(c.tier) * c.pulse;
+    let width = (c.count * 32.0 + 32.0) * cs;
     let bar = mini_life_rect(geo, top, span);
     let (power_rect, power, power_style) =
         power_globals(bar, m.battle.filter(|_| !m.out), now, opts.reduced_motion);
@@ -618,34 +673,10 @@ fn mini_globals(
             96.0 * cs,
         ],
         mark: [0.0; 4],
-        life: [
-            shown(motion.fill),
-            shown(life),
-            shown(motion.trail),
-            motion.trail_alpha,
-        ],
-        motion: [
-            if opts.reduced_motion {
-                4.0
-            } else {
-                motion.evolution as f32
-            },
-            if opts.reduced_motion {
-                0.626
-            } else {
-                motion.phase as f32
-            },
-            motion.full,
-            f32::from(frame.danger || life <= 0.25),
-        ],
-        combo: [
-            if combo >= 4 { count } else { 0.0 },
-            tier as f32,
-            cs,
-            (3.5 + tier.saturating_sub(1).min(8) as f32 * 0.08)
-                * if tier == 10 { 1.2 } else { 1.0 },
-        ],
-        digits,
+        life: motion.life(life),
+        motion: motion.shown(frame.danger || life <= 0.25, opts.reduced_motion),
+        combo: c.globals(combo, cs),
+        digits: c.digits,
         power_rect,
         power,
         power_style,
@@ -668,20 +699,11 @@ fn own_globals(
     opts: &RenderOptions,
 ) -> Globals {
     let life = frame.life.clamp(0.0, 1.0);
-    let tier = (frame.combo / 100).min(10);
+    let c = Combo::of(frame.combo, now, m);
     let s = scale(geo);
-    let pulse = 1.0 + 0.07 * (1.0 - ((now - m.pulse_at) / 0.280).clamp(0.0, 1.0)) as f32;
-    let count = frame.combo.checked_ilog10().unwrap_or(0) + 1;
-    let mut digits = [[0.0; 4]; 3];
-    let mut value = frame.combo;
-    for i in (0..count as usize).rev() {
-        digits[i / 4][i % 4] = (value % 10) as f32;
-        value /= 10;
-    }
-    let count = count as f32;
-    let cs = s * if tier == 10 { 1.2 } else { 1.0 } * pulse;
-    let cs = cs.min((geo.width - 16.0 * s).max(1.0) / (count * 32.0 + 32.0));
-    let width = (count * 32.0 + 32.0) * cs;
+    let cs = s * tier_grow(c.tier) * c.pulse;
+    let cs = cs.min((geo.width - 16.0 * s).max(1.0) / (c.count * 32.0 + 32.0));
+    let width = (c.count * 32.0 + 32.0) * cs;
     let mut mark = mark_rect(geo);
     let overlaps = |r: [f32; 4]| {
         mark[0] < r[2] && mark[0] + mark[2] > r[0] && mark[1] < r[3] && mark[1] + mark[3] > r[1]
@@ -703,30 +725,11 @@ fn own_globals(
             96.0 * cs,
         ],
         mark,
-        life: [shown(m.fill), shown(life), shown(m.trail), m.trail_alpha],
-        motion: [
-            if opts.reduced_motion {
-                4.0
-            } else {
-                m.evolution as f32
-            },
-            if opts.reduced_motion {
-                0.626
-            } else {
-                m.phase as f32
-            },
-            m.full,
-            // The selected 25% warning, or an earlier ruleset warning.
-            f32::from(frame.danger || life <= 0.25),
-        ],
-        combo: [
-            if frame.combo >= 4 { count } else { 0.0 },
-            tier as f32,
-            cs,
-            (3.5 + tier.saturating_sub(1).min(8) as f32 * 0.08)
-                * if tier == 10 { 1.2 } else { 1.0 },
-        ],
-        digits,
+        life: m.life(life),
+        // The selected 25% warning, or an earlier ruleset warning.
+        motion: m.shown(frame.danger || life <= 0.25, opts.reduced_motion),
+        combo: c.globals(frame.combo, cs),
+        digits: c.digits,
         power_rect,
         power,
         power_style,
