@@ -1,5 +1,5 @@
-//! Opt-in study: the match rule "Charts: Adaptive" (`adaptive-v1`, with
-//! `adaptive-v0` beside it, `ddi_engine::ladder`;
+//! Opt-in study: the match rule "Charts: Adaptive" (`adaptive-v2`, with
+//! `adaptive-v1` beside it, `ddi_engine::ladder`;
 //! `docs/plans/multiplayer-prototype-progress.md`, "Adaptive charts" and
 //! "Feedback round D").
 //!
@@ -17,8 +17,8 @@
 //!    rung (`placement-v2`);
 //! 3. stages of ten CPUs, one at each level, attacks on, from every Medium
 //!    and Hard pick with a ladder (every `DDI_STEP_EVERY`th, 1), under DDI
-//!    Normal and Hard, each As picked, Adaptive under `adaptive-v0` and
-//!    under `adaptive-v1`, seeded (`DDI_STEP_SEEDS`, 2): by level, where
+//!    Normal and Hard, each As picked, Adaptive under `adaptive-v1` and
+//!    under `adaptive-v2`, seeded (`DDI_STEP_SEEDS`, 2): by level, where
 //!    it finished (its rung from the pick), its steps up and down, how
 //!    often it goes out and bounces (down from a rung, up to it again,
 //!    down again; and that twice), its place and its score, against As
@@ -197,15 +197,15 @@ struct Seated {
     ups: Vec<(f64, bool)>,
 }
 
-/// The rules compared: As picked, Adaptive under `adaptive-v0`, under
-/// `adaptive-v1`.
+/// The rules compared: As picked, Adaptive under `adaptive-v1`, under
+/// `adaptive-v2` (`adaptive-v0` was compared in feedback round D).
 const RULES: usize = 3;
 
 fn rule_of(r: usize) -> (Charts, ddi_engine::ladder::AdaptiveRule) {
     match r {
         0 => (Charts::AsPicked, ddi_engine::ladder::ADAPTIVE),
-        1 => (Charts::Adaptive, ddi_engine::ladder::ADAPTIVE_V0),
-        _ => (Charts::Adaptive, ddi_engine::ladder::ADAPTIVE_V1),
+        1 => (Charts::Adaptive, ddi_engine::ladder::ADAPTIVE_V1),
+        _ => (Charts::Adaptive, ddi_engine::ladder::ADAPTIVE_V2),
     }
 }
 
@@ -531,14 +531,14 @@ fn report(name: &str, t: &Tally, started: std::time::Instant) {
         for (d, name) in ["Normal", "Hard"].iter().enumerate() {
             let pairs = |r: usize| 100.0 * t.pairs[p][d][r].1 as f64 / t.pairs[p][d][r].0.max(1) as f64;
             println!(
-                "picked {pick}, DDI {name}, ten CPUs (one a level), attacks on: {} stages a rule; stronger above weaker: as picked {:.1}%, adaptive-v0 {:.1}%, adaptive-v1 {:.1}%",
+                "picked {pick}, DDI {name}, ten CPUs (one a level), attacks on: {} stages a rule; stronger above weaker: as picked {:.1}%, adaptive-v1 {:.1}%, adaptive-v2 {:.1}%",
                 t.stages[p][d],
                 pairs(0),
                 pairs(1),
                 pairs(2),
             );
             println!(
-                "  level | as picked: out%  place  score     | v0: out%  place  ups  downs  bounce% twice% | v1: out%  place  score     ups  downs  bounce% twice% | v1 finished -4..+4 %"
+                "  level | as picked: out%  place  score     | v1: out%  place  ups  downs  bounce% twice% | v2: out%  place  score     ups  downs  bounce% twice% | v2 finished -4..+4 %"
             );
             for l in 0..10 {
                 let (o, v0, s) = (t.levels[p][d][0][l], t.levels[p][d][1][l], t.levels[p][d][2][l]);

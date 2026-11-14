@@ -240,7 +240,7 @@ room-rules-charts-adaptive = Adaptive
 
 # A line under the Charts row saying what the chosen value does.
 room-rules-charts-as-picked-about = Everyone plays the chart picked; a player whose life runs out is out until the next stage.
-room-rules-charts-adaptive-about = A player whose life runs out gets half of it back and plays the song's next easier chart from a bar ahead; one who keeps full life for four bars without a miss moves up to the next harder chart, above the one picked too (back to a chart where their life ran out takes sixteen bars, and never after it ran out there twice). Those still in place by their score: harder charts earn more. On the easiest chart zero life is out.
+room-rules-charts-adaptive-about = A player whose life runs out gets half of it back and plays the song's next easier chart from a bar ahead; one who keeps full life for four bars without a miss, nearly every step in the two best judgments, moves up to the next harder chart, above the one picked too (back to a chart where their life ran out takes sixteen bars, and never after it ran out there twice). Those still in place by their score: harder charts earn more. On the easiest chart zero life is out.
 
 # Added after that line where the song picked for the stage has no other
 # chart in its style to move to.

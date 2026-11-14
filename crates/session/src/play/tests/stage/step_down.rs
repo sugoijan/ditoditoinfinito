@@ -119,7 +119,7 @@ fn a_field_draws_the_chart_its_player_is_on() {
     // a chart's; from the boundary the rung's.
     assert_eq!(own.rung_at(at - 0.5), 0);
     assert_eq!(own.rung_at(at + 0.5), rung);
-    let breather = own.frame(&track, scroll, (at + boundary) / 2.0 - 2.0, 1.0);
+    let breather = own.frame(&track, scroll, (at + boundary) / 2.0 - 0.5, 1.0);
     assert!(
         breather
             .notes
@@ -334,14 +334,20 @@ fn the_player_and_strong_cpus_step_up_alike_at_any_frame_rate() {
     );
 }
 
-/// Two-star CPUs on Medium (they climb to Hard now and then, and fall
-/// back; from Hard under `adaptive-v1` the song is too short for any to
-/// come back up): their fields and their plays agree on every step, both
-/// ways, at any frame rate.
+/// The CPUs' level (from 0) whose plays climb from Medium to Hard and
+/// fall back on this song: three stars (`adaptive-v2`'s accuracy keeps
+/// two-star CPUs from climbing at all).
+const LEVEL_UP_DOWN: u8 = 2;
+
+/// Three-star CPUs on Medium (they climb to Hard now and then, and fall
+/// back; from Hard the song is too short for any to come back up): their
+/// fields and their plays agree on every step, both ways, at any frame
+/// rate.
+
 #[test]
 fn fields_follow_steps_down_and_back_up() {
     let song = bundled("beatucada");
-    let mut practice = step_room(&song, 7, 1, ddi_room::Charts::Adaptive);
+    let mut practice = step_room(&song, 7, LEVEL_UP_DOWN, ddi_room::Charts::Adaptive);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, medium(&song));
     let (a, _, _) = idle(&song, &order, 60.0);
@@ -359,7 +365,7 @@ fn fields_follow_steps_down_and_back_up() {
         s.battle().unwrap().feeds().map(|f| f.steps().collect()).collect()
     };
     assert_eq!(fields(&a), fields(&b));
-    assert!(both, "a two-star CPU up to Hard and back down");
+    assert!(both, "a three-star CPU up to Hard and back down");
 }
 
 /// A step down that closes the chart it left (`adaptive-v1`: life ran

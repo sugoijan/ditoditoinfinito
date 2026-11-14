@@ -357,6 +357,9 @@ pub struct Player {
     /// Since when (judged seconds) its life has been full with no miss
     /// and no shock stepped on; `None` while it is not.
     clean_from: Option<f64>,
+    /// The taps judged since the last step up's bars began, and whether
+    /// each was in the two best judgments (`adaptive-v2`).
+    best_taps: Vec<(f64, bool)>,
     /// The next bar line a step up is decided at, once a ladder is set.
     next_bar: Option<ddi_chart::Tick>,
 }
@@ -545,6 +548,7 @@ impl Player {
             pending_up: None,
             ran_out: Vec::new(),
             clean_from: None,
+            best_taps: Vec::new(),
             next_bar: None,
             judge,
             ruleset,
@@ -1027,7 +1031,12 @@ impl Player {
         let Some(next) = self.rung_at(to).cloned() else {
             return;
         };
-        let (tick, boundary) = crate::ladder::boundary(&self.rule, &self.timing, at, self.horizon);
+        // The breather: the step down's own lead past the horizon.
+        let rule = crate::ladder::AdaptiveRule {
+            lead: self.rule.down_lead,
+            ..self.rule
+        };
+        let (tick, boundary) = crate::ladder::boundary(&rule, &self.timing, at, self.horizon);
         let incoming: Vec<Note> = next.notes.iter().filter(|n| n.tick >= tick).cloned().collect();
         let rows = self.row_progress();
         self.judge.step_down(at, taken, &incoming, &self.timing);
@@ -1221,7 +1230,17 @@ impl Player {
         if self.steps.last().is_some_and(|s| start < s.boundary) {
             return;
         }
-        if self.clean_from.is_some_and(|c| c <= start) {
+        // `adaptive-v2`: the taps of those bars, nearly all in the two
+        // best judgments.
+        let (best, all) = self
+            .best_taps
+            .iter()
+            .filter(|&&(t, _)| t >= start && t <= b)
+            .fold((0usize, 0usize), |(n, a), &(_, good)| (n + usize::from(good), a + 1));
+        self.best_taps.retain(|&(t, _)| t >= start);
+        let accurate =
+            self.rule.accuracy <= 0.0 || all == 0 || best as f64 >= self.rule.accuracy * all as f64;
+        if accurate && self.clean_from.is_some_and(|c| c <= start) {
             self.step_up(b);
         }
     }
@@ -1251,6 +1270,18 @@ impl Player {
             self.clean_from = None;
         } else if self.clean_from.is_none() {
             self.clean_from = Some(ev.song_time);
+        }
+        // Each tap, and whether it was in the two best judgments (W0 or
+        // W1 where the ruleset has a W0, else W1 or W2), for
+        // `adaptive-v2`'s accuracy.
+        if self.rule.accuracy > 0.0
+            && let JudgeEventKind::Tap(j, delta) = ev.kind
+        {
+            let best = match self.ruleset.judge.is_w0(j, delta) {
+                Some(_) => j == Judgement::W1,
+                None => matches!(j, Judgement::W1 | Judgement::W2),
+            };
+            self.best_taps.push((ev.song_time, best));
         }
     }
 

@@ -143,8 +143,9 @@ fn a_play_steps_down_twice_the_same_at_any_frame_rate_and_from_its_log() {
     for (i, s) in ra.steps.iter().enumerate() {
         assert_eq!(usize::from(s.rung), i + 1);
         assert_eq!(s.chart, two[i]);
-        // The boundary: a bar line at least the horizon and a second on.
-        assert!(s.boundary >= s.at + ADAPTIVE_V0.lead, "{s:?}");
+        // The boundary: a bar line at least the horizon on (and a
+        // second, before `adaptive-v2`).
+        assert!(s.boundary >= s.at + ladder::ADAPTIVE.down_lead, "{s:?}");
         let beat = a.timing().beat_at(s.boundary);
         assert!((beat / 4.0 - (beat / 4.0).round()).abs() < 1e-6, "{beat}");
     }
@@ -229,6 +230,8 @@ thread_local! {
     /// The ladder rule [`play_on`] and [`replayed_on`] give their plays
     /// (none: the one a stage plays, `ladder::ADAPTIVE`).
     static RULE: std::cell::Cell<Option<AdaptiveRule>> = const { std::cell::Cell::new(None) };
+    /// How late [`play_on`]'s presses are, seconds (0: on time).
+    static LATE: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
 }
 
 /// A player who plays whatever chart it is on perfectly (on time, every
@@ -261,7 +264,7 @@ fn play_on(
         t += step;
         let mut due: Vec<(f64, u8, bool)> = Vec::new();
         let notes: Vec<_> = p.judge().notes().to_vec();
-        for press in ddi_engine::autoplay::script(&notes, 0.0) {
+        for press in ddi_engine::autoplay::script(&notes, LATE.get()) {
             if press.press > fed && press.press <= t {
                 if gaps.iter().any(|g| press.press >= g.0 && press.press < g.1) {
                     continue;
@@ -403,7 +406,8 @@ fn up_down_up(rule: AdaptiveRule) -> (Player, Vec<ddi_engine::ladder::Step>) {
 #[test]
 fn a_play_steps_up_then_down_and_back_up_takes_sixteen_bars() {
     let (p, steps) = up_down_up(ladder::ADAPTIVE);
-    assert_eq!(ladder::ADAPTIVE, ladder::ADAPTIVE_V1);
+    assert_eq!(ladder::ADAPTIVE, ladder::ADAPTIVE_V2);
+    assert_eq!(ladder::ADAPTIVE.return_bars, ladder::ADAPTIVE_V1.return_bars);
     assert!(steps.len() >= 3, "{steps:?}");
     assert!(steps[0].up);
     let down = steps[1];
@@ -533,4 +537,34 @@ fn a_rule_without_steps_up_is_the_step_down_alone() {
         p.update_at(t);
     }
     assert!(p.results().steps.is_empty());
+}
+
+/// `adaptive-v2`: four bars of full life with no miss are not enough
+/// where the taps were not in the two best judgments: a play 25 ms late
+/// on every note (DDI's W2, full life kept) steps up under `adaptive-v1`
+/// and never under `adaptive-v2`; on time it steps up under both. The
+/// same at 60 and 144 fps and from the log.
+#[test]
+fn a_step_up_needs_the_two_best_judgments_under_v2() {
+    use ddi_chart::Difficulty::*;
+    let song = song();
+    let medium = single(&song, Medium);
+    let hard = single(&song, Hard);
+    let steps = |rule: AdaptiveRule, late: f64| {
+        RULE.set(Some(rule));
+        LATE.set(late);
+        let p = alike(&song, medium, &[], &[hard], &[]);
+        RULE.set(None);
+        LATE.set(0.0);
+        let r = p.results();
+        (r.steps.clone(), r.tally.count(ddi_engine::Judgement::W2), r.failed)
+    };
+    let (late_v1, w2, failed) = steps(ladder::ADAPTIVE_V1, 0.025);
+    assert!(w2 > 20 && !failed, "late: W2s ({w2}), full life");
+    assert_eq!(late_v1.len(), 1, "v1 steps up anyway: {late_v1:?}");
+    let (late_v2, _, _) = steps(ladder::ADAPTIVE_V2, 0.025);
+    assert!(late_v2.is_empty(), "v2 never: {late_v2:?}");
+    let (on_time, _, _) = steps(ladder::ADAPTIVE_V2, 0.0);
+    assert_eq!(on_time.len(), 1, "{on_time:?}");
+    assert!(on_time[0].up);
 }

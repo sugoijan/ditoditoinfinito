@@ -699,6 +699,17 @@ miniatures costs GPU time (72 of them on a chart of 34 holds: about 4.5
 ms a frame more natively): `docs/plans/multiplayer-prototype-progress.md`,
 "CPUs play the full chart", "Cost".
 
+### Adaptive charts under `adaptive-v2`
+
+A CPU steps by the stage's rule, as a person does (its play is a
+`Player`): since follow-up round F (`ddi_engine::ladder::ADAPTIVE_V2`) a
+step up also needs 95% of the taps of its bars in the two best
+judgments, which the weak levels' spread rarely gives (levels 1 to 3
+practically never climb from a Medium pick; the middle ones climb about
+half as often as under `adaptive-v1`), and a step down's breather is a
+second shorter. The tables: `docs/plans/multiplayer-prototype-progress.md`,
+"Adaptive charts: a step up needs accuracy".
+
 ## Evasion: a CPU against a battle's shocks
 
 The eighth skill axis (the maintainer's M8 decision D8; round 4 of

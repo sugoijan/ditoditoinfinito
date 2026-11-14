@@ -1,7 +1,8 @@
 //! Adaptive charts: stepping down and up a song's ladder (a multiplayer
 //! match's rule "Charts: Adaptive", `docs/plans/multiplayer-prototype-progress.md`,
-//! "Adaptive charts"). PROVISIONAL, named: [`ADAPTIVE_V1`] (what is
-//! played, [`ADAPTIVE`]), [`ADAPTIVE_V0`] kept for comparison.
+//! "Adaptive charts"). PROVISIONAL, named: [`ADAPTIVE_V2`] (what is
+//! played, [`ADAPTIVE`]), [`ADAPTIVE_V1`] and [`ADAPTIVE_V0`] kept for
+//! comparison.
 //!
 //! A stage's **ladder** is the other charts of its song in the stage
 //! chart's style, easier ([`below`]) and harder ([`above`]); everyone
@@ -59,6 +60,15 @@ pub struct AdaptiveRule {
     /// by its place against the stage's chart (negative easier): 1 on
     /// every rung (no balancing; the place for it, [`rung_score_factor`]).
     pub score_factor: f64,
+    /// The least share of the taps judged in the bars that earn a step up
+    /// (first time or back) that must be in the ruleset's two best
+    /// judgments (W0 or W1 under DDI; W1 or W2 where a ruleset has no
+    /// W0); 0 asks nothing of them. Bars without a tap ask nothing.
+    pub accuracy: f64,
+    /// The seconds past the reading horizon a step down's boundary is at
+    /// least (the breather: life held at [`AdaptiveRule::floor`] until
+    /// then); a step up's is [`AdaptiveRule::lead`].
+    pub down_lead: f64,
 }
 
 /// The values chosen for the prototype (PROVISIONAL): half the life back
@@ -77,6 +87,8 @@ pub const ADAPTIVE_V0: AdaptiveRule = AdaptiveRule {
     return_bars: 8,
     closed_after: 0,
     score_factor: 1.0,
+    accuracy: 0.0,
+    down_lead: 1.0,
 };
 
 /// `adaptive-v1` (the maintainer, 2026-11-14: "after stepping down from a
@@ -93,8 +105,24 @@ pub const ADAPTIVE_V1: AdaptiveRule = AdaptiveRule {
     ..ADAPTIVE_V0
 };
 
-/// The rule a stage plays ([`ADAPTIVE_V1`]).
-pub const ADAPTIVE: AdaptiveRule = ADAPTIVE_V1;
+/// `adaptive-v2` (follow-up round F, the maintainer's of 2026-11-14): a
+/// step up, first time or back, also needs [`ADAPTIVE_ACCURACY_V2`] of the
+/// taps in its bars in the two best judgments, and a step down's
+/// breather loses its extra second (the easier chart from the next bar
+/// line at least the reading horizon ahead). PROVISIONAL.
+pub const ADAPTIVE_V2: AdaptiveRule = AdaptiveRule {
+    name: "adaptive-v2",
+    accuracy: ADAPTIVE_ACCURACY_V2,
+    down_lead: 0.0,
+    ..ADAPTIVE_V1
+};
+
+/// PROVISIONAL (`adaptive-v2`): the share of a step up's taps in the two
+/// best judgments, 95%.
+pub const ADAPTIVE_ACCURACY_V2: f64 = 0.95;
+
+/// The rule a stage plays ([`ADAPTIVE_V2`]).
+pub const ADAPTIVE: AdaptiveRule = ADAPTIVE_V2;
 
 /// What a stretch on the rung `level` places from the stage's chart
 /// (negative easier, 0 the stage's) counts for in a stage's score under
@@ -412,5 +440,26 @@ mod tests {
         // Exactly on a bar line: that one.
         let (_, at) = boundary(&ADAPTIVE_V0, &timing, 11.0, 0.0);
         assert!((at - 12.0).abs() < 1e-9);
+    }
+
+    /// `adaptive-v2`'s step down: the next bar line at least the horizon
+    /// ahead, without the extra second (a bar sooner here); its step up
+    /// keeps the second.
+    #[test]
+    fn a_v2_step_downs_breather_has_no_extra_second() {
+        let timing = TimingMap::constant(120.0, 0.0);
+        let down = AdaptiveRule {
+            lead: ADAPTIVE_V2.down_lead,
+            ..ADAPTIVE_V2
+        };
+        assert_eq!(ADAPTIVE_V2.down_lead, 0.0);
+        assert_eq!(ADAPTIVE_V2.lead, ADAPTIVE_V1.lead);
+        // 11.5 s: beat 23, the bar line at 12 s; with the second, 14 s.
+        let (_, at) = boundary(&down, &timing, 10.0, 1.5);
+        assert!((at - 12.0).abs() < 1e-9);
+        let (_, at) = boundary(&ADAPTIVE_V1, &timing, 10.0, 1.5);
+        assert!((at - 14.0).abs() < 1e-9);
+        assert_eq!(ADAPTIVE, ADAPTIVE_V2);
+        assert_eq!((ADAPTIVE_V2.accuracy, ADAPTIVE_V1.accuracy), (0.95, 0.0));
     }
 }

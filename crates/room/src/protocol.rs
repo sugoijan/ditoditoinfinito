@@ -61,7 +61,9 @@ pub fn supported(version: u32) -> bool {
 /// `cpu-play-v1` (a CPU plays the chart a person is given, its holds,
 /// rolls, lifts and mines, its score its own: every device computes the
 /// same CPUs); 8 `hosted-deadline-v2` (a loading grace before the Ready
-/// countdown, in every mirror's window). A client says
+/// countdown, in every mirror's window) and `adaptive-v2` (a step up that
+/// also needs the two best judgments, a step down's breather without its
+/// extra second: every device steps everyone alike). A client says
 /// its revision where the authority first hears from it (`model` in the
 /// join's, the ticket's and the audience join's request bodies); an
 /// authority refuses a client whose revision is lower than its own
