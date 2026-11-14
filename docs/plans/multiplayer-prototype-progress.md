@@ -7732,6 +7732,45 @@ values and measurements, in `docs/plans/dancing-hand.md`, "Under load":
   often; whether the hand, once gone, should come back for the next song
   only (it does: every play starts fresh).
 
+### The miniatures' per-frame bookkeeping (2026-11-14, later)
+
+What each opponent's miniature still cost a frame besides its quads, gone,
+the same pixels:
+
+- **Frames kept** (`FieldFeed::frame_into`, `locks_into`): each
+  miniature's frame is made in the room of the one drawn in its place the
+  frame before (the shell keeps them by slot, truncating, never
+  clearing); the judgments' flashes and the lanes' locks are one flat
+  list each (`opponents::LaneValues`), kept.
+- **A miniature drawn as a field of its own** (`ddi_render::noteskin`'s
+  `FieldDraw`): the skin's shared drawing reads a field's lit lanes, its
+  presses, its hit effects' strength, its mines and whether it keeps the
+  drawn positions from a context, so nothing of the play's field is
+  swapped out and put back around each miniature.
+- **Seats chosen in one place** (`opponents::choose`): the seats shown
+  as miniatures listed once a frame, the paged grid, a field shown whole,
+  the rivals and the turns choosing positions in it, positions turned to
+  seats once. (A small window's turns beside a followed competitor now
+  keep the right seats in view: the kept seats were read as positions
+  there.)
+- **Not done**: the miniatures' HUDs in a few instanced draws (a uniform
+  array of 64 globals a draw) drew 1–4 pixels one level apart on Metal in
+  the adaptive charts' pictures (`step_down_offscreen`), so it was left
+  out.
+
+Measured on a busy machine (other builds running; headless numbers are
+comparisons, not the maintainer's 120 Hz):
+
+| 72 CPUs, 1280×720 | Before | After | Load average |
+| --- | --- | --- | --- |
+| Desktop offscreen (`all-72-cpus-1280x720`, 400 frames, two runs): the shell's frame recorded, median / p95 ms | 0.68 / 0.97, 0.70 / 1.04 | 0.80 / 1.17, 0.68 / 1.07 | 13–15 before, 28–31 after |
+| Desktop offscreen: allocations a frame, median / p95 | 611 / 844 | 220 / 382 | |
+| Chrome (WebGPU), played, 20 s: total mean / p95, `scene` mean, `render` mean ms | 1.76 / 3.0, 0.13, 1.08 | 1.59 / 2.6, 0.11, 0.98 | 22 → 9 |
+| Firefox (WebGL2), played, 20 s: total mean / p95, `scene` mean, `render` mean ms | 2.29 / 4.0, 0.15, 0.91 | 2.27 / 4.0, 0.12, 0.91 | 15 → 9 |
+
+Draws and batches are the same (`quad_batches` about 61 a frame, `passes`
+5 in Chrome and 6 in Firefox).
+
 ## Feedback round D (the maintainer's test of 2026-11-14)
 
 Seven items, done in the maintainer's order (2, 3, 4, 5, 6, then 1, then
