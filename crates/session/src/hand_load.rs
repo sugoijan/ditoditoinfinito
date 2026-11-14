@@ -80,8 +80,10 @@ pub struct HandLoad {
     /// Late seconds in a row, and seconds still to settle after a step.
     run: u32,
     settle: u32,
-    /// The refresh rate measured before the play started.
-    refresh_at_start: f64,
+    /// The fastest refresh rate measured since the play started (the
+    /// meter's own estimate follows the frames down once they have been
+    /// slow for a few seconds; the display has not slowed).
+    refresh: f64,
     /// Each step taken, and when (ms of host time).
     taken: Vec<(HandStep, f64)>,
     /// The seconds judged, and of them the late ones.
@@ -94,7 +96,7 @@ impl HandLoad {
     /// the hand as always.
     pub fn start(&mut self, refresh: f64) {
         *self = HandLoad {
-            refresh_at_start: refresh,
+            refresh,
             ..HandLoad::default()
         };
     }
@@ -121,12 +123,15 @@ impl HandLoad {
         refresh: f64,
         watching: bool,
     ) -> Option<HandStep> {
+        if refresh.is_finite() {
+            self.refresh = self.refresh.max(refresh);
+        }
         if !watching || self.step == HandStep::Gone {
             self.since = None;
             self.run = 0;
             return None;
         }
-        let refresh = self.refresh_at_start.max(refresh);
+        let refresh = self.refresh;
         let since = *self.since.get_or_insert(now_ms);
         let s = second?;
         if s.worst_ms > HITCH_MS {
@@ -268,8 +273,8 @@ mod tests {
         rule.start(120.0);
         assert_eq!(rule.step(), HandStep::Full);
         assert_eq!(rule.taken(), []);
-        // The refresh measured before the play holds when the frames
-        // themselves fall to 60 (the meter's estimate following them).
+        // The fastest refresh measured holds when the frames themselves
+        // fall to 60 (the meter's estimate following them).
         let mut late = 0;
         for i in 0..600 {
             t += 1000.0 / 60.0;

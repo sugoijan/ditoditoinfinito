@@ -277,6 +277,7 @@ impl GameLoop {
         // A retry plays the noteskin's commands from the start again,
         // and the song's scripts.
         self.view.start();
+        self.view.set_load_ms(perf::load_ms());
         self.session = Some(session);
         self.done = false;
     }
@@ -314,6 +315,12 @@ impl GameLoop {
     }
 
     /// What kept movies from playing this play, for the results.
+    /// The dancing hand was turned off for the rest of the play: frames
+    /// were dropped with it on (`ddi_session::hand_load`).
+    pub(crate) fn hand_gone(&self) -> bool {
+        self.view.hand_load().step() == ddi_session::hand_load::HandStep::Gone
+    }
+
     pub(crate) fn video_trouble(&self) -> Option<ddi_platform::video::VideoTrouble> {
         self.view.movies.trouble()
     }
@@ -576,7 +583,7 @@ impl GameLoop {
             self.gfx.set_mode(crate::web::gfx::SurfaceMode::Plain);
         }
         let Some(surface) = self.gfx.frame() else {
-            perf::frame_end(f64::NAN, 0.0, None, None);
+            perf::frame_end(f64::NAN, 0.0, 0, None, None);
             return;
         };
         perf::lap(Lap::Surface);
@@ -745,6 +752,7 @@ impl GameLoop {
         perf::frame_end(
             song_second,
             self.view.dance.prepare_ms(),
+            self.view.dance.load() as u8,
             perf::recording()
                 .then(|| self.view.overlay_stats())
                 .flatten(),
@@ -776,6 +784,8 @@ impl GameLoop {
                 "canvas": [w, h],
                 "skin": self.view.noteskin_key(),
                 "hand_preparing": self.dance.prepare_ms() > 0.0 || self.dance.preload_pending(),
+                "hand_load": self.view.hand_load().debug(),
+                "load_ms": perf::load_ms(),
             })
             .to_string();
             // The object's members, for the file's own.
@@ -863,6 +873,7 @@ impl GameLoop {
         let mut debug = json!({
             "frames": self.frames,
             "dance": self.dance.debug(),
+            "hand_load": self.view.hand_load().debug(),
             // The lyrics drawn over the play (their texts).
             "lyrics": self.view.lyrics_shown(),
             "backdrop": self.backdrop_debug(),

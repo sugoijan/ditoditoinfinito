@@ -233,7 +233,9 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// flight (by default late with two where a display link runs, macOS,
 /// else block with one); `--pacing-report` alternates
 /// block and late with one and two in flight, four seconds each, and
-/// prints what each did when the play ends. `--shared LINK|ID` opens
+/// prints what each did when the play ends. `--load-ms N` (a testing
+/// aid) makes each play frame burn N ms of the main thread, for the
+/// dancing hand's rule under load (`ddi_session::hand_load`). `--shared LINK|ID` opens
 /// song select on a share's songs alone (`share`), `--sharing on|off`
 /// flips the hidden sharing switch (`Settings::sharing`), `--multiplayer
 /// on|off` is still taken and does nothing (multiplayer is always there
@@ -688,6 +690,16 @@ pub fn run() {
     // printed when the play ends.
     shell.pacing_flag = pacing;
     shell.in_flight_flag = in_flight;
+    // `--load-ms N`, a testing aid: each play frame burns N ms of the
+    // main thread, as a busy machine would take it (the dancing hand's
+    // rule under load, `ddi_session::hand_load`).
+    if let Some(ms) = args
+        .iter()
+        .position(|a| a == "--load-ms")
+        .and_then(|i| args.get(i + 1)?.parse::<f64>().ok())
+    {
+        shell.play.load_ms = ms.clamp(0.0, 50.0);
+    }
     if args.iter().any(|a| a == "--pacing-report") {
         shell.pacing_report = Some(pacing::Report::alternating(4.0, &pacing::COLUMNS));
     }

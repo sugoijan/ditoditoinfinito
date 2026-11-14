@@ -67,6 +67,8 @@ results-note-not-failed-off = ライフは{ $at }に尽きました。失敗で�
 
 results-note-video-dropped-frames = フレーム落ちしていたため、この曲の動画をオフにしました（オプション）。
 
+results-note-hand-dropped-frames = フレーム落ちしていたため、この曲の踊る手をオフにしました（オプション）。
+
 results-note-video-decoder-behind = デコーダーが追いつかなかったため、この曲の動画をオフにしました（オプション）。
 
 results-note-video-trouble = 動画「{ $name }」を再生できませんでした：{ $problem }。曲の背景を表示しました。

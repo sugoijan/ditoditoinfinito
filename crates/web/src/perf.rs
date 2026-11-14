@@ -59,7 +59,7 @@ pub(crate) enum Lap {
 
 const LAPS: usize = 10;
 /// A frame's row after the time it was asked for.
-const COLUMNS: [&str; 26] = [
+const COLUMNS: [&str; 27] = [
     "song_s",
     "late_start",
     "upload",
@@ -86,6 +86,7 @@ const COLUMNS: [&str; 26] = [
     "converted_mpx",
     "instances",
     "quad_batches",
+    "hand_step",
 ];
 const SONG: usize = 0;
 const LATE_START: usize = 1;
@@ -104,6 +105,7 @@ const CONVERSIONS: usize = TOTAL + 10;
 const CONVERTED_MPX: usize = TOTAL + 11;
 const INSTANCES: usize = TOTAL + 12;
 const QUAD_BATCHES: usize = TOTAL + 13;
+const HAND_STEP: usize = TOTAL + 14;
 
 type Row = [f32; COLUMNS.len()];
 
@@ -206,19 +208,46 @@ fn storage() -> Option<web_sys::Storage> {
     web_sys::window()?.session_storage().ok()?
 }
 
-/// An address's `perf` parameter, kept for the tab.
+/// The tab's injected load ([`load_ms`]), read when a play begins.
+const LOAD_KEY: &str = "ddi.load";
+/// The most a frame may be made to burn, ms.
+const MOST_LOAD_MS: f64 = 50.0;
+
+/// An address's `perf` parameter, and the testing aid `load=MS` (each
+/// play frame burns that much main thread, `load=0` none), kept for the
+/// tab.
 pub(crate) fn note_address(query: &str) {
     for kv in query.split('&') {
-        if let Some(("perf", value)) = kv.split_once('=')
-            && let Some(s) = storage()
-        {
-            let _ = if value == "1" {
-                s.set_item(STORAGE_KEY, "1")
-            } else {
-                s.remove_item(STORAGE_KEY)
-            };
+        let Some(s) = storage() else {
+            return;
+        };
+        match kv.split_once('=') {
+            Some(("perf", value)) => {
+                let _ = if value == "1" {
+                    s.set_item(STORAGE_KEY, "1")
+                } else {
+                    s.remove_item(STORAGE_KEY)
+                };
+            }
+            Some(("load", value)) => {
+                let _ = match value.parse::<f64>() {
+                    Ok(ms) if ms > 0.0 => s.set_item(LOAD_KEY, &ms.min(MOST_LOAD_MS).to_string()),
+                    _ => s.remove_item(LOAD_KEY),
+                };
+            }
+            _ => {}
         }
     }
+}
+
+/// A TESTING AID: the main-thread time each play frame burns on purpose
+/// (`load=MS`, `ddi_shell::play_view::PlayView::set_load_ms`), as a busy
+/// machine would take it; 0 without it.
+pub(crate) fn load_ms() -> f64 {
+    storage()
+        .and_then(|s| s.get_item(LOAD_KEY).ok().flatten())
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.0)
 }
 
 /// A play starts: records it if the tab asked to. What was recording ends
@@ -299,12 +328,14 @@ pub(crate) fn submitted(queue: &wgpu::Queue, webgpu: bool) {
 }
 
 /// The frame ended, showing song second `song`, the hand having prepared
-/// for `hand_prepare_ms`; `overlay` the 2D pass over the play as it stands
+/// for `hand_prepare_ms` at step `hand_step` of its rule under load (0 as
+/// always, 1 lighter, 2 resting, 3 gone; `ddi_session::hand_load`); `overlay` the 2D pass over the play as it stands
 /// (its text's runs drawn and uploaded so far, the frame's draws), `scene`
 /// what the field's scene took on the GPU's side.
 pub(crate) fn frame_end(
     song: f64,
     hand_prepare_ms: f64,
+    hand_step: u8,
     overlay: Option<ddi_render::PainterStats>,
     scene: Option<ddi_render::FrameStats>,
 ) {
@@ -329,6 +360,7 @@ pub(crate) fn frame_end(
         }
         r.row[TOTAL] = (now - r.began) as f32;
         r.row[HAND_PREPARE] = hand_prepare_ms as f32;
+        r.row[HAND_STEP] = f32::from(hand_step);
         r.row[PADS] = std::mem::take(&mut r.pads_ms);
         r.row[PAD_POLLS] = std::mem::take(&mut r.pad_polls);
         r.at.push(r.asked);

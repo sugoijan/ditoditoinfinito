@@ -149,6 +149,11 @@ results-note-video-dropped-frames = Video was turned off for this song: frames w
 # The same, because the video decoder could not keep up.
 results-note-video-decoder-behind = Video was turned off for this song: the decoder could not keep up (Options).
 
+# The game turned the dancing hand (the 3D hand that plays the chart beside
+# the field) off for the rest of the song because the play was dropping
+# frames with it on; Options has the hand's setting.
+results-note-hand-dropped-frames = The dancing hand was turned off for this song: frames were being dropped (Options).
+
 # A background video could not play; the song's picture showed instead.
 # Variables:
 #   $name (String) - the video's file name

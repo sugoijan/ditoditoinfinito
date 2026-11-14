@@ -3333,6 +3333,14 @@ impl GameCanvas {
             self.kept(),
         );
         video_notes.extend(scripts_note);
+        if self
+            .game
+            .borrow()
+            .as_ref()
+            .is_some_and(|g| g.hand_gone())
+        {
+            video_notes.push(ddi_ui::screens::play::hand_off_note());
+        }
         if let Some(cpu) = &ctx.props().cpu {
             video_notes.push(ddi_ui::screens::prompt::cpu_description_at(
                 cpu.level,

@@ -353,6 +353,9 @@ pub struct Host {
     /// machine's load, as the shell's hand tests run it); `None`: real
     /// time.
     pub test_seconds: Option<Rc<dyn Fn() -> f64>>,
+    /// A TESTING AID: the main-thread time each play frame burns on
+    /// purpose, ms (`--load-ms`; `PlayView::set_load_ms`).
+    pub load_ms: f64,
     /// The master volume over the music's (`--volume`): 1 unless given.
     pub master: Option<f32>,
     /// Start the next prompt by itself once the song is read (`--start`).
@@ -392,6 +395,7 @@ impl Default for Host {
             present_at: None,
             test_clock: None,
             test_seconds: None,
+            load_ms: 0.0,
             master: None,
             start_when_ready: false,
             scale: 1.0,
@@ -672,6 +676,14 @@ impl Host {
             return None;
         };
         r.view.as_ref().map(|v| v.dance.debug())
+    }
+
+    /// The dancing hand's rule under load (`hand-load-v0`) during a play.
+    pub fn hand_load_debug(&self) -> Option<serde_json::Value> {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return None;
+        };
+        r.view.as_ref().map(|v| v.hand_load().debug())
     }
 
     /// The prompt is up.
@@ -1311,6 +1323,7 @@ impl Host {
         if r.view.is_none() {
             let mut view = View::new(dev.device, dev.queue, formats);
             view.set_test_seconds(self.test_seconds.clone());
+            view.set_load_ms(self.load_ms);
             view.set_song(&loaded, &settings);
             let calibration = r.request.calibration.is_some();
             view.set_generated(&loaded, &settings, calibration);
@@ -2077,6 +2090,11 @@ impl Host {
             check.as_ref(),
             replay.as_deref(),
         ));
+        if r.view.as_ref().is_some_and(|v| {
+            v.hand_load().step() == ddi_session::hand_load::HandStep::Gone
+        }) {
+            notes.push(ddi_ui::screens::play::hand_off_note());
+        }
         if let Some(cpu) = &play.request.cpu {
             notes.push(ddi_ui::screens::prompt::cpu_description_at(
                 cpu.level,

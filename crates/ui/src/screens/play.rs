@@ -665,6 +665,13 @@ pub fn results_notes(
     notes
 }
 
+/// The note under a play's results when the dancing hand was turned off
+/// for the rest of it because frames were being dropped with it on
+/// (`ddi_session::hand_load`), as the video's note says of a movie.
+pub fn hand_off_note() -> String {
+    rm::note_hand_dropped_frames().into()
+}
+
 /// The results' song offset editor's action: song `id`'s offset saved
 /// in the settings.
 pub fn song_offset_saver(id: String) -> super::results::OffsetFn {
