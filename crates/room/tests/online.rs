@@ -132,6 +132,21 @@ enum Step {
     Advance(u64),
 }
 
+/// The picker's pick of song `n`.
+fn pick(n: u8) -> Command {
+    Command::Pick {
+        content: content(n),
+        card: None,
+    }
+}
+
+/// The next match's rules with Boos on (another draft).
+fn boos() -> Command {
+    let mut rules = MatchRules::hosted();
+    rules.boos = true;
+    Command::SaveNextRules { rules }
+}
+
 fn script() -> Vec<Step> {
     let stage = StageId(1);
     let mut s = vec![
@@ -162,18 +177,14 @@ fn script() -> Vec<Step> {
                 connection: Connection::Disconnected,
             },
         ),
-        Step::Cmd(
-            "dev:alice",
-            Command::ChooseContent {
-                stage,
-                content: Some(content(1)),
-            },
-        ),
+        // The pick starts the match; the next match's rules saved, an
+        // edit made against the view before them is stale.
+        Step::Cmd("dev:alice", pick(1)),
+        Step::Cmd("dev:alice", boos()),
         Step::Stale(
             "dev:alice",
-            Command::ChooseContent {
-                stage,
-                content: Some(content(2)),
+            Command::SaveNextRules {
+                rules: MatchRules::hosted(),
             },
         ),
         Step::Authority(Command::SetContentStatus {
@@ -181,7 +192,6 @@ fn script() -> Vec<Step> {
             status: ContentStatus::Available,
             share: Some("abc12345".into()),
         }),
-        Step::Cmd("dev:alice", Command::StartMatch),
     ];
     for who in ["dev:alice", "dev:bob"] {
         s.push(Step::Cmd(
@@ -204,14 +214,7 @@ fn script() -> Vec<Step> {
         ));
     }
     // Carol, admitted but never connected, unready: the readiness window
-    // opens, then closes on time without her.
-    s.push(Step::Cmd(
-        "dev:alice",
-        Command::StartStage {
-            stage,
-            readiness_rev: 1,
-        },
-    ));
+    // closes on time without her.
     s.push(Step::Advance(5_000));
     s.push(Step::Advance(15_000));
     s.push(Step::Advance(4_000));
@@ -432,7 +435,7 @@ fn the_online_adapter_keeps_the_local_authoritys_contract() {
         Some(Rejection::Unauthorized { .. })
     ));
     assert_eq!(local_answers[2], Some(Rejection::AuthorityOnly));
-    assert!(matches!(local_answers[4], Some(Rejection::Stale { .. })));
+    assert!(matches!(local_answers[5], Some(Rejection::Stale { .. })));
     assert_eq!(local.phase.kind(), PhaseKind::Stage);
     let play = local.current.as_ref().unwrap().stages[0]
         .play
@@ -545,10 +548,11 @@ fn a_members_attack_policy_is_kept_alike_by_both_authorities_and_every_mirror() 
         ),
     ];
     steps.splice(4..4, early);
-    // Both ready, the window not opened yet: Alice changes hers again.
+    // Both ready, the window open (Carol never readies): Alice changes
+    // hers again.
     let start = steps
         .iter()
-        .position(|s| matches!(s, Step::Cmd(_, Command::StartStage { .. })))
+        .position(|s| matches!(s, Step::Advance(_)))
         .unwrap();
     steps.insert(
         start,
@@ -605,8 +609,8 @@ fn a_members_attack_policy_is_kept_alike_by_both_authorities_and_every_mirror() 
 /// Watching (2026-11-12, `watch-v0`): a member's Play or Watch is kept
 /// alike by the local authority, the online one and every mirror. The
 /// host watches and still starts the match; their Ready is refused (a
-/// watcher has none); with Carol away, Bob alone is too few to start, and
-/// both authorities say so alike.
+/// watcher has none); with Carol away, Bob alone is too few to start: the
+/// window closes on nothing, alike.
 #[test]
 fn a_members_watching_is_kept_alike_by_both_authorities_and_every_mirror() {
     let mut steps = script();
@@ -620,6 +624,8 @@ fn a_members_watching_is_kept_alike_by_both_authorities_and_every_mirror() {
             },
         ),
     );
+    // Past the window's deadline.
+    steps.push(Step::Advance(20_000));
     let (local, local_answers) = run_local(&steps);
     let (server, online_answers, mirrors) = run_online(&steps, &[]);
     assert_eq!(local_answers, online_answers);
@@ -630,14 +636,15 @@ fn a_members_watching_is_kept_alike_by_both_authorities_and_every_mirror() {
     assert_eq!(local_answers[0], None);
     // Alice's Ready was refused: a watcher has none.
     assert!(local_answers.contains(&Some(Rejection::NotPlaying)));
-    // One player ready, one away: too few to start, said alike.
+    // One player ready, one away: too few to start.
     assert_eq!(
-        local_answers.last().unwrap(),
-        &Some(Rejection::NotEnoughReady {
-            ready_humans: 1,
-            competitors: 1
-        })
+        local.phase,
+        ddi_room::Phase::Preparing {
+            stage: StageId(1),
+            window: None
+        }
     );
+    assert!(local.current.as_ref().unwrap().stages[0].play.is_none());
     let alice = ParticipantId(1);
     assert_eq!(local.member(alice).unwrap().intent, Intent::Watch);
     assert_eq!(
@@ -693,8 +700,7 @@ fn the_match_rules_of_ddi_are_kept_alike_by_both_authorities_and_every_mirror() 
         if let Step::Cmd(
             _,
             Command::ReportLoading { readiness_rev, .. }
-            | Command::SetReady { readiness_rev, .. }
-            | Command::StartStage { readiness_rev, .. },
+            | Command::SetReady { readiness_rev, .. },
         ) = step
         {
             *readiness_rev = 2;
@@ -804,10 +810,7 @@ fn a_reconnect_after_missed_revisions_gets_the_room_again_and_sends_what_waited(
         Connection::Reconnecting
     );
     // While he is away: the room moves on, and he asks for something.
-    alice.send(Command::ChooseContent {
-        stage: StageId(1),
-        content: Some(content(1)),
-    });
+    alice.send(pick(1));
     pump_all(&mut [&mut alice]);
     let ready = bob.send(Command::ReportLoading {
         stage: StageId(1),
@@ -869,10 +872,7 @@ fn a_command_resent_after_its_answer_was_lost_is_not_applied_twice() {
 fn a_stale_edit_is_refused_and_the_room_sent_again() {
     let clock = ManualClock::new(1_000);
     let (server, mut alice, mut bob) = two(&clock);
-    alice.send(Command::ChooseContent {
-        stage: StageId(1),
-        content: Some(content(1)),
-    });
+    alice.send(boos());
     pump_all(&mut [&mut alice, &mut bob]);
     let snaps = alice.snapshots;
     alice.seq += 1;
@@ -880,9 +880,8 @@ fn a_stale_edit_is_refused_and_the_room_sent_again() {
         alice.client.clone(),
         alice.seq,
         Some(Revision(1)),
-        Command::ChooseContent {
-            stage: StageId(1),
-            content: Some(content(2)),
+        Command::SaveNextRules {
+            rules: MatchRules::hosted(),
         },
     ));
     pump_all(&mut [&mut alice, &mut bob]);
@@ -891,19 +890,7 @@ fn a_stale_edit_is_refused_and_the_room_sent_again() {
         Some(Some(Rejection::Stale { .. }))
     ));
     assert_eq!(alice.snapshots, snaps + 1);
-    assert_eq!(
-        server
-            .borrow()
-            .state()
-            .stage(StageId(1))
-            .unwrap()
-            .content
-            .as_ref()
-            .unwrap()
-            .id,
-        content(1),
-        "never a silent overwrite"
-    );
+    assert!(server.borrow().state().next.rules.boos, "never a silent overwrite");
 }
 
 #[test]
@@ -914,9 +901,9 @@ fn a_gap_asks_for_the_room_once_and_mends() {
     server.borrow_mut().fault(bob_id, Fault::Drop);
     let snaps = bob.snapshots;
     for n in 1..=3 {
-        alice.send(Command::ChooseContent {
-            stage: StageId(u64::from(n)),
+        alice.send(Command::Spotlight {
             content: Some(content(n)),
+            card: None,
         });
         pump_all(&mut [&mut alice]);
     }

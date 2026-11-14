@@ -370,9 +370,9 @@ fn room(competitors: usize, watchers: usize, policy: RoomPolicy, attacks: bool) 
     rules.set_attacks(attacks);
     r.players[0].send(Command::SaveNextRules { rules });
     r.run(500);
-    r.players[0].send(Command::ChooseContent {
-        stage: STAGE,
-        content: Some(content()),
+    r.players[0].send(Command::Pick {
+        content: content(),
+        card: None,
     });
     r.run(500);
     r.server
@@ -413,12 +413,8 @@ fn start(r: &mut Room, plan: Option<&BattlePlan>, competitors: usize, scripts: &
             ready: true,
         });
     }
-    r.run(1_000);
-    r.players[0].send(Command::StartStage {
-        stage: STAGE,
-        readiness_rev: rev,
-    });
-    r.run(500);
+    // Everyone ready: the stage starts at once.
+    r.run(1_500);
     let s = r.state();
     assert!(
         matches!(s.phase, Phase::Countdown { .. } | Phase::Stage { .. }),

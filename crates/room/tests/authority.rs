@@ -72,6 +72,14 @@ impl Client {
     }
 }
 
+/// The picker's pick of song `n`.
+fn pick(n: u32) -> Command {
+    Command::Pick {
+        content: song(n),
+        card: None,
+    }
+}
+
 fn ack(msg: &ServerMessage) -> bool {
     matches!(msg, ServerMessage::Ack { .. })
 }
@@ -86,13 +94,7 @@ fn a_practice_match_runs_through_envelopes_and_the_mirror_keeps_up() {
     me.sync(&mut authority);
     let player = authority.participant(&id).unwrap();
     let stage = me.state().upcoming_stage().unwrap();
-    assert!(ack(&me.send(
-        &mut authority,
-        Command::ChooseContent {
-            stage,
-            content: Some(song(1)),
-        },
-    )));
+    assert!(ack(&me.send(&mut authority, pick(1))));
     let rev = me.state().stage(stage).unwrap().readiness_rev;
     for cmd in [
         Command::ReportLoading {
@@ -104,11 +106,6 @@ fn a_practice_match_runs_through_envelopes_and_the_mirror_keeps_up() {
             stage,
             readiness_rev: rev,
             ready: true,
-        },
-        Command::StartMatch,
-        Command::StartStage {
-            stage,
-            readiness_rev: rev,
         },
     ] {
         let reply = me.send(&mut authority, cmd.clone());
@@ -163,12 +160,8 @@ fn retries_are_idempotent_and_old_or_foreign_envelopes_are_refused() {
         LocalAuthority::practice("Me".into(), MatchRules::practice(opponent()), clock);
     let mut me = Client::new(id.clone());
     me.sync(&mut authority);
-    let stage = me.state().upcoming_stage().unwrap();
     let base = Some(me.state().revision);
-    let choose = Command::ChooseContent {
-        stage,
-        content: Some(song(1)),
-    };
+    let choose = pick(1);
     authority.submit(ClientEnvelope::new(id.clone(), 5, base, choose.clone()));
     let first = authority.poll();
     let rev = authority.state().revision;
@@ -247,7 +240,7 @@ fn a_stale_edit_is_refused_with_the_room_as_it_is() {
             Identity::new("twitch:co"),
             "Co".into(),
             false,
-            Intent::Watch,
+            Intent::Play,
         )
         .unwrap();
     let mut host = Client::new(host_client);
@@ -263,33 +256,25 @@ fn a_stale_edit_is_refused_with_the_room_as_it_is() {
     // The co-host's mirror starts from a snapshot of its own.
     cohost.mirror = host.mirror.clone();
     let stage = host.state().upcoming_stage().unwrap();
-    // Both choose a song for the same stage from the same view: the
-    // host, who picks, and the co-host, who takes the pick over and
-    // chooses without having seen the host's choice.
+    // Both edit the next match's rules from the same view: the host first,
+    // then the co-host, who has not seen the host's.
     let view = host.state().revision;
+    let rules = |stages| {
+        let mut r = MatchRules::hosted();
+        r.stages = stages;
+        r
+    };
     authority.submit(ClientEnvelope::new(
         ClientId::new("host"),
         10,
         Some(view),
-        Command::ChooseContent {
-            stage,
-            content: Some(song(1)),
-        },
+        Command::SaveNextRules { rules: rules(1) },
     ));
     authority.submit(ClientEnvelope::new(
         ClientId::new("co"),
         1,
         Some(view),
-        Command::TakePick,
-    ));
-    authority.submit(ClientEnvelope::new(
-        ClientId::new("co"),
-        2,
-        Some(view),
-        Command::ChooseContent {
-            stage,
-            content: Some(song(2)),
-        },
+        Command::SaveNextRules { rules: rules(2) },
     ));
     let messages = authority.poll();
     let reject = messages
@@ -304,21 +289,17 @@ fn a_stale_edit_is_refused_with_the_room_as_it_is() {
         cohost.mirror.receive(m).unwrap();
     }
     assert_eq!(
-        cohost
-            .state()
-            .stage(stage)
-            .unwrap()
-            .content
-            .as_ref()
-            .unwrap()
-            .id,
-        song(1),
+        cohost.state().next.rules,
+        rules(1),
         "the first edit stands, unseen edits are never overwritten"
     );
     // Shared content is pending until the authority confirms the share.
+    host.mirror = cohost.mirror.clone();
+    host.seq = 10;
+    let reply = host.send(&mut authority, pick(1));
+    assert!(ack(&reply), "{reply:?}");
     assert_eq!(
-        cohost
-            .state()
+        host.state()
             .stage(stage)
             .unwrap()
             .content
@@ -337,25 +318,17 @@ fn a_mirror_detects_a_missed_revision_and_a_snapshot_repairs_it() {
     let mut mirror = Mirror::new();
     let snapshot = authority.poll();
     mirror.receive(&snapshot[0]).unwrap();
-    let stage = authority.state().upcoming_stage().unwrap();
     let base = Some(authority.state().revision);
-    authority.submit(ClientEnvelope::new(
-        id.clone(),
-        1,
-        base,
-        Command::ChooseContent {
-            stage,
-            content: Some(song(1)),
-        },
-    ));
+    let rest = |n| Command::Spotlight {
+        content: Some(song(n)),
+        card: None,
+    };
+    authority.submit(ClientEnvelope::new(id.clone(), 1, base, rest(1)));
     authority.submit(ClientEnvelope::new(
         id.clone(),
         2,
         Some(authority.state().revision),
-        Command::ChooseContent {
-            stage,
-            content: Some(song(2)),
-        },
+        rest(2),
     ));
     let events: Vec<ServerEnvelope> = authority
         .poll()
@@ -463,15 +436,7 @@ fn every_message_kind_survives_the_wire() {
             loading: Loading::Failed { code: "x".into() },
         },
         Command::Leave,
-        Command::ChooseContent {
-            stage: StageId(3),
-            content: Some(song(1)),
-        },
-        Command::StartMatch,
-        Command::StartStage {
-            stage: StageId(3),
-            readiness_rev: 0,
-        },
+        pick(1),
         Command::SetAccess {
             admission: Admission::Closed,
             rotate_invite: true,
@@ -549,13 +514,7 @@ fn every_message_kind_survives_the_wire() {
         let base = Some(a.state().revision);
         a.submit(ClientEnvelope::new(id.clone(), seq, base, cmd));
     };
-    send(
-        &mut authority,
-        Command::ChooseContent {
-            stage,
-            content: Some(song(1)),
-        },
-    );
+    send(&mut authority, pick(1));
     send(
         &mut authority,
         Command::ReportLoading {
@@ -570,14 +529,6 @@ fn every_message_kind_survives_the_wire() {
             stage,
             readiness_rev: 1,
             ready: true,
-        },
-    );
-    send(&mut authority, Command::StartMatch);
-    send(
-        &mut authority,
-        Command::StartStage {
-            stage,
-            readiness_rev: 1,
         },
     );
     clock.advance(3_000);

@@ -4200,22 +4200,30 @@ fn the_rules_pop_up_during_a_match_says_so_and_restarts_it_on_request() {
     assert_eq!(r.state().history.len(), 1, "the stopped match recorded");
 }
 
+/// The match started on stage 1 with nothing gathering yet: the
+/// picker's pick, its window then canceled (the picker backed out of
+/// its prompt), as a state rewrite.
+fn start_match(s: &mut ddi_room::RoomState) {
+    use ddi_room::{Actor, Command, Millis, ParticipantId, StageId};
+    let me = Actor::Member(ParticipantId(1));
+    let rev = s.revision;
+    let content = ddi_room::ContentId {
+        song: ddi_room::SongKey::new("song-1"),
+        chart: ddi_room::ChartKey::new("digest-1"),
+    };
+    s.apply(me, Some(rev), &Command::Pick { content, card: None }, Millis(1_000))
+        .unwrap();
+    let rev = s.revision;
+    s.apply(me, Some(rev), &Command::CancelStart { stage: StageId(1) }, Millis(1_000))
+        .unwrap();
+}
+
 /// An online room during a match: a member sees the same statement with
 /// the rows read only and no restart; a co-host restarts it for
 /// everyone.
 #[test]
 fn an_online_rooms_restart_is_for_its_operators() {
-    use ddi_room::{Actor, Command, Millis, ParticipantId};
-    let start = |s: &mut ddi_room::RoomState| {
-        let rev = s.revision;
-        s.apply(
-            Actor::Member(ParticipantId(1)),
-            Some(rev),
-            &Command::StartMatch,
-            Millis(1_000),
-        )
-        .unwrap();
-    };
+    let start = start_match;
     let t = Three::new(true);
     let (ea, eb, ec) = (env(), env(), env());
     let orders = Orders::default();
@@ -4426,17 +4434,7 @@ fn the_rules_pop_up_changes_rules_from_the_next_stage_next_match_or_by_restart()
 /// status line says it; a member is never offered it.
 #[test]
 fn an_online_rooms_operator_changes_rules_from_the_next_stage_for_everyone() {
-    use ddi_room::{Actor, Command, Millis, ParticipantId};
-    let start = |s: &mut ddi_room::RoomState| {
-        let rev = s.revision;
-        s.apply(
-            Actor::Member(ParticipantId(1)),
-            Some(rev),
-            &Command::StartMatch,
-            Millis(1_000),
-        )
-        .unwrap();
-    };
+    let start = start_match;
     let t = Three::new(true);
     let (ea, eb, ec) = (env(), env(), env());
     let orders = Orders::default();
@@ -4691,17 +4689,8 @@ fn a_rows_new_sentence_is_scrolled_into_view() {
 /// every mirror and every status line.
 #[test]
 fn an_online_rooms_points_change_from_a_later_stage() {
-    use ddi_room::{Actor, Command, Millis, ParticipantId, PointsBias};
-    let start = |s: &mut ddi_room::RoomState| {
-        let rev = s.revision;
-        s.apply(
-            Actor::Member(ParticipantId(1)),
-            Some(rev),
-            &Command::StartMatch,
-            Millis(1_000),
-        )
-        .unwrap();
-    };
+    use ddi_room::PointsBias;
+    let start = start_match;
     let orders = Orders::default();
     // The co-host's Mild from stage 1 reaches everyone.
     let t = Three::new(true);

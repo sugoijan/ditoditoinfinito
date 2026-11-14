@@ -26,7 +26,7 @@
 //! offered where [`RoomClient::may_take_pick`]), and everyone else follows.
 //!
 //! M5d, online rooms: the picker's pick is the room's commit
-//! (`ChooseContent`, pending); this client then asks the room for the
+//! (`Pick`, pending); this client then asks the room for the
 //! stage's upload grant and hands the shell an [`UploadJob`] (its song
 //! uploaded as the room's share with the shell's own sharing code), whose
 //! progress and end the shell reports ([`RoomClient::upload_progress`],

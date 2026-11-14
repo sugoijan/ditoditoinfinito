@@ -498,9 +498,9 @@ fn room(setup: &Setup) -> Room {
     }
     r.players[0].send(Command::SaveNextRules { rules });
     r.run(500);
-    r.players[0].send(Command::ChooseContent {
-        stage: STAGE,
-        content: Some(content()),
+    r.players[0].send(Command::Pick {
+        content: content(),
+        card: None,
     });
     r.run(500);
     r.server
@@ -516,7 +516,7 @@ fn room(setup: &Setup) -> Room {
 }
 
 /// Everyone prepared (with `digest` where the stage has a plan), loaded
-/// and ready; the owner starts; the countdown runs to the song's zero.
+/// and ready, which starts the stage; the countdown runs to the song's zero.
 fn start(r: &mut Room, digest: Option<PlanDigest>, competitors: usize) {
     let rev = r.state().stage(STAGE).unwrap().readiness_rev;
     for p in r.players.iter_mut().take(competitors) {
@@ -536,12 +536,8 @@ fn start(r: &mut Room, digest: Option<PlanDigest>, competitors: usize) {
             ready: true,
         });
     }
-    r.run(1_000);
-    r.players[0].send(Command::StartStage {
-        stage: STAGE,
-        readiness_rev: rev,
-    });
-    r.run(500);
+    // Everyone ready: the stage starts at once.
+    r.run(1_500);
 }
 
 fn started(r: &Room) {

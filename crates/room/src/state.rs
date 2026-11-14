@@ -124,8 +124,8 @@ pub enum HostDeparture {
 
 /// Who chooses the room's songs now (2026-11-12): one picker at a time.
 /// Only the picker rests on songs for the others to see
-/// ([`crate::Command::Spotlight`]) and picks ([`crate::Command::Pick`],
-/// [`crate::Command::ChooseContent`]); everyone else follows, co-hosts
+/// ([`crate::Command::Spotlight`]) and picks ([`crate::Command::Pick`]);
+/// everyone else follows, co-hosts
 /// and the owner included when they are not the picker. A room starts
 /// with its owner; an operator takes the pick at once
 /// ([`crate::Command::TakePick`]) and it stays with whoever has it, across

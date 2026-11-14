@@ -73,13 +73,7 @@ pub enum Command {
     },
 
     // The picker (`crate::state::Picking`: who chooses the room's songs
-    // now; in a room from before the picker, every operator). Edits carry
-    // the envelope's base.
-    /// Choose (or clear) an unstarted stage's song and chart.
-    ChooseContent {
-        stage: StageId,
-        content: Option<ContentId>,
-    },
+    // now). Edits carry the envelope's base.
     /// The maintainer's match flow (M7b): the operator's song select's Start
     /// on a song. It becomes the song of the stage the room plays next and
     /// the match starts (from the lobby, or after a match's results: the
@@ -87,8 +81,8 @@ pub enum Command {
     /// window opens at once, its deadline counting from when the song is
     /// available to everyone, and the stage starts as soon as everyone who
     /// could still join is ready and loaded. One change, refused whole. In
-    /// the lobby and after a match it needs the envelope's base, as
-    /// `StartMatch` does.
+    /// the lobby and after a match it needs the envelope's base (the next
+    /// match's rules as the picker saw them).
     Pick {
         content: ContentId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -113,22 +107,6 @@ pub enum Command {
     /// Save the next match's rules. Never touches a running match's rules.
     SaveNextRules {
         rules: MatchRules,
-    },
-    /// Lock the next match's rules and roster and start preparing stage 1.
-    /// (Protocol 1 still takes it; a client starts a match with
-    /// `StartStage` from the lobby, which cannot leave a match locked that
-    /// its first stage refused.)
-    StartMatch,
-    /// From the intermission to the next stage's preparation.
-    PrepareNextStage,
-    /// Start the stage: at once when everyone eligible is ready and loaded,
-    /// else open the readiness window. In the lobby, for the playlist's
-    /// first stage, it starts the match too (its rules and roster locked),
-    /// as one change: refused whole, nothing locked, when the stage cannot
-    /// start (it needs the envelope's base, as `StartMatch` does).
-    StartStage {
-        stage: StageId,
-        readiness_rev: u32,
     },
     /// Close the readiness window or cancel the committed countdown.
     CancelStart {

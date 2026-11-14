@@ -140,17 +140,6 @@ impl Room {
         self.s.stage(stage).unwrap().readiness_rev
     }
 
-    fn choose(&mut self, stage: StageId, n: u32) {
-        self.by(
-            self.host,
-            Command::ChooseContent {
-                stage,
-                content: Some(song(n)),
-            },
-        )
-        .unwrap();
-    }
-
     fn load(&mut self, who: ParticipantId, loading: Loading) {
         let stage = self.upcoming();
         self.by(
@@ -179,21 +168,6 @@ impl Room {
     fn ready(&mut self, who: ParticipantId) {
         self.load(who, Loading::Loaded);
         self.set_ready(who, true).unwrap();
-    }
-
-    fn start_match(&mut self) {
-        self.by(self.host, Command::StartMatch).unwrap();
-    }
-
-    fn start_stage(&mut self) -> Result<Vec<Event>, Rejection> {
-        let stage = self.upcoming();
-        self.by(
-            self.host,
-            Command::StartStage {
-                stage,
-                readiness_rev: self.rev(stage),
-            },
-        )
     }
 
     /// Count down into the song.
@@ -234,15 +208,12 @@ fn a_new_arrival_during_a_match_waits_for_the_next_match() {
     let mut r = Room::hosted(1);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
-    let first = r.upcoming();
-    r.choose(first, 1);
-    r.start_match();
+    r.pick(1).unwrap();
     let bob = r.join("bob", Intent::Play);
     assert_eq!(r.part(bob), Participation::WaitingNextMatch);
     assert_eq!(r.set_ready(bob, true), Err(Rejection::NotInMatch));
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let stage = r.play();
     // Never admitted into a running song.
     assert_eq!(r.part(bob), Participation::WaitingNextMatch);
@@ -264,8 +235,7 @@ fn a_new_arrival_during_a_match_waits_for_the_next_match() {
     r.by(host, Command::OpenNextMatch).unwrap();
     let next = r.upcoming();
     assert_eq!(r.part(bob), Participation::NotReady { stage: next });
-    r.choose(next, 2);
-    r.start_match();
+    r.pick(2).unwrap();
     assert!(r.s.current.as_ref().unwrap().roster.contains_key(&bob));
 }
 
@@ -275,24 +245,19 @@ fn a_missed_stage_keeps_earlier_points_and_a_later_stage_can_be_readied() {
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     let cara = r.join("cara", Intent::Play);
-    r.start_match();
-    let s1 = r.upcoming();
-    r.choose(s1, 1);
+    r.pick(1).unwrap();
     for p in [host, ana, cara] {
         r.ready(p);
     }
-    r.start_stage().unwrap();
     let s1 = r.play();
     r.end(s1, &[&[cara], &[host], &[ana]]);
     let cara_after_one = r.total(cara);
     assert_eq!(cara_after_one, Points::whole(12)); // three: 12, 5, 1
     // Intermission: cara reads her results and does not ready. That blocks
     // nothing: the host's Start opens the window and the deadline commits.
-    let s2 = r.upcoming();
-    r.choose(s2, 2);
+    r.pick(2).unwrap();
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let Phase::Preparing {
         window: Some(window),
         ..
@@ -326,11 +291,10 @@ fn a_missed_stage_keeps_earlier_points_and_a_later_stage_can_be_readied() {
     );
     // And she readies for stage 3 with her own record.
     let s3 = r.upcoming();
-    r.choose(s3, 3);
+    r.pick(3).unwrap();
     for p in [host, ana, cara] {
         r.ready(p);
     }
-    r.start_stage().unwrap();
     assert!(matches!(r.s.phase, Phase::Countdown { .. }));
     assert_eq!(r.part(cara), Participation::Committed { stage: s3 });
 }
@@ -342,19 +306,17 @@ fn no_ready_humans_cannot_start_and_a_deadline_without_them_cancels() {
     let mut r = Room::new(rules, ContentSource::LocalLibrary);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
-    r.start_match();
     let s = r.upcoming();
-    r.choose(s, 1);
-    // CPUs alone are no reason to start: at least one ready person.
-    assert_eq!(
-        r.start_stage(),
-        Err(Rejection::NotEnoughReady {
-            ready_humans: 0,
-            competitors: 2
-        })
-    );
+    r.pick(1).unwrap();
+    // CPUs alone are no reason to start: at least one ready person. With
+    // nobody ready at the deadline, nothing starts.
+    let events = r.wait(r.s.policy.readiness.window_ms);
+    assert!(events.contains(&Event::StartCanceled {
+        stage: s,
+        reason: CancelReason::BelowMinimum
+    }));
+    r.pick(1).unwrap();
     r.ready(host);
-    r.start_stage().unwrap();
     assert_eq!(r.part(ana), Participation::NotReady { stage: s });
     // The only ready person withdraws during the window: at the deadline
     // nothing starts, and the room says why.
@@ -379,24 +341,19 @@ fn one_forgotten_ready_sits_out_while_the_rest_start() {
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     let dan = r.join("dan", Intent::Play);
-    r.start_match();
-    let s = r.upcoming();
-    r.choose(s, 1);
+    r.pick(1).unwrap();
     r.ready(host);
     r.ready(ana);
     r.load(dan, Loading::Loaded); // loaded, never pressed Ready
-    let events = r.start_stage().unwrap();
-    assert!(events.iter().any(|e| matches!(
-        e,
-        Event::PhaseChanged {
-            phase: Phase::Preparing {
-                window: Some(_),
-                ..
-            }
+    assert!(matches!(
+        r.s.phase,
+        Phase::Preparing {
+            window: Some(_),
+            ..
         }
-    )));
-    // A second Start cannot stack another window.
-    assert_eq!(r.start_stage(), Err(Rejection::WindowOpen));
+    ));
+    // A second pick cannot stack another window.
+    assert_eq!(r.pick(2), Err(Rejection::WindowOpen));
     let events = r.wait(r.s.policy.readiness.window_ms);
     let committed = events
         .iter()
@@ -419,26 +376,33 @@ fn a_required_loading_failure_sits_out_and_unavailable_content_blocks_the_start(
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     let eve = r.join("eve", Intent::Play);
-    r.start_match();
     let s = r.upcoming();
-    r.choose(s, 1);
-    // Shared content is pending until the authority confirms it.
-    assert_eq!(r.start_stage(), Err(Rejection::ContentPending));
-    r.sys(Command::SetContentStatus {
+    r.pick(1).unwrap();
+    // Shared content is pending until the authority confirms it: the
+    // window has no deadline meanwhile.
+    assert_eq!(r.s.next_deadline(), None);
+    // Its upload failed: the window is canceled, distinctly.
+    let events = r
+        .sys(Command::SetContentStatus {
+            stage: s,
+            status: ContentStatus::Unavailable {
+                code: "upload_failed".into(),
+            },
+            share: None,
+        })
+        .unwrap();
+    assert!(events.contains(&Event::StartCanceled {
         stage: s,
-        status: ContentStatus::Unavailable {
-            code: "upload_failed".into(),
-        },
-        share: None,
-    })
-    .unwrap();
-    assert_eq!(r.start_stage(), Err(Rejection::ContentUnavailable));
+        reason: CancelReason::ContentUnavailable
+    }));
     r.sys(Command::SetContentStatus {
         stage: s,
         status: ContentStatus::Available,
         share: None,
     })
     .unwrap();
+    // Picked again, available: its window opens.
+    r.pick(1).unwrap();
     r.ready(host);
     r.ready(ana);
     // Eve readies while loading (intent), then her load fails.
@@ -451,7 +415,6 @@ fn a_required_loading_failure_sits_out_and_unavailable_content_blocks_the_start(
         },
     );
     assert_eq!(r.part(eve), Participation::LoadFailed { stage: s });
-    r.start_stage().unwrap();
     // The content becomes unusable during the window: canceled, distinctly.
     let events = r
         .sys(Command::SetContentStatus {
@@ -472,7 +435,7 @@ fn a_required_loading_failure_sits_out_and_unavailable_content_blocks_the_start(
         share: None,
     })
     .unwrap();
-    r.start_stage().unwrap();
+    r.pick(1).unwrap();
     let events = r.wait(r.s.policy.readiness.window_ms);
     assert!(events.iter().any(|e| matches!(
         e,
@@ -485,12 +448,10 @@ fn a_canceled_start_returns_to_preparation_keeping_readiness() {
     let mut r = Room::hosted(1);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
-    r.start_match();
     let s = r.upcoming();
-    r.choose(s, 1);
+    r.pick(1).unwrap();
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     // The countdown is frozen: no readiness changes, no song change.
     assert_eq!(
         r.by(
@@ -503,16 +464,7 @@ fn a_canceled_start_returns_to_preparation_keeping_readiness() {
         ),
         Err(Rejection::StartCommitted)
     );
-    assert_eq!(
-        r.by(
-            host,
-            Command::ChooseContent {
-                stage: s,
-                content: Some(song(2))
-            }
-        ),
-        Err(Rejection::StartCommitted)
-    );
+    assert_eq!(r.pick(2), Err(Rejection::StartCommitted));
     let events = r.by(host, Command::CancelStart { stage: s }).unwrap();
     assert_eq!(
         events[0],
@@ -536,39 +488,27 @@ fn a_canceled_start_returns_to_preparation_keeping_readiness() {
     );
 }
 
+/// The song replaced during preparation (its window canceled, another
+/// picked): everyone's readiness is cleared, and a Ready sent for the old
+/// song is never applied to the new one.
 #[test]
-fn replacing_the_song_during_preparation_cancels_the_window_and_clears_readiness() {
+fn replacing_the_song_during_preparation_clears_readiness() {
     let mut r = Room::hosted(1);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     let dan = r.join("dan", Intent::Play);
-    r.start_match();
     let s = r.upcoming();
-    r.choose(s, 1);
+    r.pick(1).unwrap();
     r.ready(host);
     r.ready(ana);
     let old_rev = r.rev(s);
-    r.start_stage().unwrap();
-    let events = r
-        .by(
-            host,
-            Command::ChooseContent {
-                stage: s,
-                content: Some(song(2)),
-            },
-        )
-        .unwrap();
-    assert!(events.contains(&Event::StartCanceled {
-        stage: s,
-        reason: CancelReason::ContentReplaced
-    }));
-    assert_eq!(
-        r.s.phase,
-        Phase::Preparing {
-            stage: s,
-            window: None
-        }
-    );
+    // An open window takes no other song: it is canceled first.
+    assert_eq!(r.pick(2), Err(Rejection::WindowOpen));
+    r.by(host, Command::CancelStart { stage: s }).unwrap();
+    r.wait(1_000);
+    let events = r.pick(2).unwrap();
+    assert!(events.iter().any(|e| matches!(e, Event::ContentChosen { .. })));
+    assert_eq!(r.window().deadline, Millis(r.now + r.s.policy.readiness.window_ms));
     assert_eq!(r.rev(s), old_rev + 1);
     for p in [host, ana, dan] {
         assert_eq!(r.part(p), Participation::NotReady { stage: s });
@@ -587,8 +527,6 @@ fn replacing_the_song_during_preparation_cancels_the_window_and_clears_readiness
             current: old_rev + 1
         })
     );
-    // Nothing passes the deadline the canceled window had.
-    assert!(r.wait(r.s.policy.readiness.window_ms).is_empty());
 }
 
 #[test]
@@ -597,7 +535,7 @@ fn access_changes_keep_present_members_and_readiness() {
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     let s = r.upcoming();
-    r.choose(s, 1);
+    r.pick(1).unwrap();
     r.ready(ana);
     let members = r.s.members.clone();
     r.by(
@@ -628,8 +566,7 @@ fn current_rules_cannot_change_mid_match_and_saved_drafts_wait_for_the_boundary(
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     let s = r.upcoming();
-    r.choose(s, 1);
-    r.start_match();
+    r.pick(1).unwrap();
     let locked = r.s.current.as_ref().unwrap().rules.clone();
     r.ready(host);
     r.ready(ana);
@@ -645,10 +582,9 @@ fn current_rules_cannot_change_mid_match_and_saved_drafts_wait_for_the_boundary(
     .unwrap();
     assert_eq!(r.s.current.as_ref().unwrap().rules, locked);
     assert_eq!(r.s.next.rules, draft);
-    // The running stage's readiness is untouched by a next-match draft.
-    assert_eq!(r.part(ana), Participation::ReadyLoaded { stage: s });
+    // The running stage's start is untouched by a next-match draft.
+    assert_eq!(r.part(ana), Participation::Committed { stage: s });
     assert_eq!(r.s.playlist.len(), 3);
-    r.start_stage().unwrap();
     let s = r.play();
     r.end(s, &[&[host], &[ana]]);
     r.by(host, Command::OpenNextMatch).unwrap();
@@ -656,7 +592,7 @@ fn current_rules_cannot_change_mid_match_and_saved_drafts_wait_for_the_boundary(
     assert_eq!(r.s.next.review, None);
     assert_eq!(r.s.history.len(), 1);
     assert_eq!(r.s.history[0].played.rules, locked);
-    r.start_match();
+    r.pick(2).unwrap();
     assert_eq!(r.s.current.as_ref().unwrap().rules, draft);
     assert_eq!(r.s.current.as_ref().unwrap().stages.len(), 3);
 }
@@ -666,8 +602,6 @@ fn a_stage_count_change_keeps_the_first_playlist_slots() {
     let mut r = Room::hosted(4);
     let host = r.host;
     let ids: Vec<StageId> = r.s.playlist.iter().map(|s| s.id).collect();
-    r.choose(ids[0], 1);
-    r.choose(ids[1], 2);
     let mut rules = MatchRules::hosted();
     rules.stages = 2;
     r.by(
@@ -681,7 +615,6 @@ fn a_stage_count_change_keeps_the_first_playlist_slots() {
         r.s.playlist.iter().map(|s| s.id).collect::<Vec<_>>(),
         ids[..2]
     );
-    assert_eq!(r.s.playlist[1].content.as_ref().unwrap().id, song(2));
     rules.stages = 3;
     r.by(host, Command::SaveNextRules { rules }).unwrap();
     assert_eq!(r.s.playlist.len(), 3);
@@ -697,7 +630,7 @@ fn newly_reserved_seats_put_a_saved_draft_under_review_at_the_boundary() {
     let mut r = Room::hosted(1);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
-    r.start_match();
+    r.pick(1).unwrap();
     let mut draft = MatchRules::hosted();
     draft.stages = 1;
     draft.seats = 3;
@@ -705,11 +638,8 @@ fn newly_reserved_seats_put_a_saved_draft_under_review_at_the_boundary() {
     // Two more arrive during the match and reserve seats for the next.
     let bob = r.join("bob", Intent::Play);
     let _cy = r.join("cy", Intent::Play);
-    let s = r.upcoming();
-    r.choose(s, 1);
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let s = r.play();
     r.end(s, &[&[ana], &[host]]);
     // The live roster was never changed by the reservations.
@@ -723,25 +653,26 @@ fn newly_reserved_seats_put_a_saved_draft_under_review_at_the_boundary() {
         review: Some(problem)
     }));
     assert_eq!(r.s.next.review, Some(problem));
-    assert_eq!(
-        r.by(host, Command::StartMatch),
-        Err(Rejection::RulesNeedReview(problem))
-    );
+    assert_eq!(r.pick(2), Err(Rejection::RulesNeedReview(problem)));
     // One leaves: still under review until an operator saves rules.
     r.by(bob, Command::Leave).unwrap();
     let mut fixed = r.s.next.rules.clone();
     fixed.seats = 4;
     r.by(host, Command::SaveNextRules { rules: fixed }).unwrap();
     assert_eq!(r.s.next.review, None);
-    r.start_match();
 }
 
 #[test]
 fn an_edit_start_race_is_resolved_by_revision() {
-    // A co-host saves while the host starts from the same view: whichever
-    // lands second is stale.
+    // A co-host saves while the host picks (starting the match) from the
+    // same view: whichever lands second is stale.
+    let pick = Command::Pick {
+        content: song(1),
+        card: None,
+    };
     let mut r = Room::hosted(1);
     let host = r.host;
+    r.join("ana", Intent::Play);
     let co = r.join("co", Intent::Watch);
     r.by(
         host,
@@ -764,7 +695,7 @@ fn an_edit_start_race_is_resolved_by_revision() {
     .unwrap();
     let saved_at = r.s.next.saved_at;
     assert_eq!(
-        r.based(host, Some(view), Command::StartMatch),
+        r.based(host, Some(view), pick.clone()),
         Err(Rejection::Stale {
             base: view,
             changed_at: saved_at
@@ -775,6 +706,7 @@ fn an_edit_start_race_is_resolved_by_revision() {
     // stale and never reaches the locked match.
     let mut r = Room::hosted(1);
     let host = r.host;
+    r.join("ana", Intent::Play);
     let co = r.join("co", Intent::Watch);
     r.by(
         host,
@@ -785,7 +717,7 @@ fn an_edit_start_race_is_resolved_by_revision() {
     )
     .unwrap();
     let view = r.s.revision;
-    r.based(host, Some(view), Command::StartMatch).unwrap();
+    r.based(host, Some(view), pick).unwrap();
     let locked = r.s.current.as_ref().unwrap().rules.clone();
     assert!(matches!(
         r.based(
@@ -829,10 +761,9 @@ fn host_cohost_admin_observer_and_member_permissions_stay_distinct() {
         },
     )
     .unwrap();
-    let s = r.upcoming();
-    let choose = |n| Command::ChooseContent {
-        stage: s,
+    let choose = |n| Command::Spotlight {
         content: Some(song(n)),
+        card: None,
     };
     assert_eq!(
         r.by(mem, choose(1)),
@@ -910,19 +841,19 @@ fn host_cohost_admin_observer_and_member_permissions_stay_distinct() {
         ),
         Err(Rejection::AuthorityOnly)
     );
-    r.start_match();
+    // The picker's pick starts the match.
+    r.by(
+        admin,
+        Command::Pick {
+            content: song(3),
+            card: None,
+        },
+    )
+    .unwrap();
     assert!(!r.s.current.as_ref().unwrap().roster.contains_key(&admin));
     for p in [host, co, mem] {
         r.ready(p);
     }
-    r.by(
-        co,
-        Command::StartStage {
-            stage: s,
-            readiness_rev: r.rev(s),
-        },
-    )
-    .unwrap();
     let s = r.play();
     assert_eq!(
         r.by(
@@ -955,13 +886,10 @@ fn reconnecting_restores_the_same_row_and_points_without_a_respawn() {
     let mut r = Room::new(rules, ContentSource::LocalLibrary);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
-    r.start_match();
+    r.pick(1).unwrap();
     let cpus = r.s.members.values().filter(|m| m.is_cpu()).count();
-    let s = r.upcoming();
-    r.choose(s, 1);
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let s1 = r.play();
     let cpu =
         *r.s.members
@@ -975,11 +903,9 @@ fn reconnecting_restores_the_same_row_and_points_without_a_respawn() {
 
     // Stage 2: Ana's connection drops mid-song. No forfeit is inferred, no
     // CPU takes her seat, and she comes back to the same row.
-    let s = r.upcoming();
-    r.choose(s, 2);
+    r.pick(2).unwrap();
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let s2 = r.play();
     r.sys(Command::SetConnection {
         participant: ana,
@@ -1022,7 +948,7 @@ fn reconnecting_restores_the_same_row_and_points_without_a_respawn() {
 
     // In the intermission: readied, disconnected, back. Ready starts off.
     let s3 = r.upcoming();
-    r.choose(s3, 3);
+    r.pick(3).unwrap();
     r.ready(ana);
     r.sys(Command::SetConnection {
         participant: ana,
@@ -1039,13 +965,11 @@ fn a_committed_starter_leaving_cancels_the_countdown() {
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     let bo = r.join("bo", Intent::Play);
-    r.start_match();
     let s = r.upcoming();
-    r.choose(s, 1);
+    r.pick(1).unwrap();
     for p in [host, ana, bo] {
         r.ready(p);
     }
-    r.start_stage().unwrap();
     let events = r.by(bo, Command::Leave).unwrap();
     assert!(events.contains(&Event::StartCanceled {
         stage: s,
@@ -1055,7 +979,7 @@ fn a_committed_starter_leaving_cancels_the_countdown() {
     assert_eq!(r.s.stage(s).unwrap().prep(bo), Prep::default());
     // Ana's connection drops before the next start: canceled the same way,
     // and her Ready is gone when she is back.
-    r.start_stage().unwrap();
+    r.pick(1).unwrap();
     let events = r
         .sys(Command::SetConnection {
             participant: ana,
@@ -1071,9 +995,9 @@ fn a_committed_starter_leaving_cancels_the_countdown() {
     );
     assert_eq!(r.join("ana", Intent::Play), ana);
     assert_eq!(r.part(ana), Participation::NotReady { stage: s });
-    r.ready(ana);
     // The rest start; the leaver sits out with zero, results kept.
-    r.start_stage().unwrap();
+    r.pick(1).unwrap();
+    r.ready(ana);
     let s = r.play();
     assert_eq!(
         r.s.stage(s).unwrap().play.as_ref().unwrap().sat_out[&bo],
@@ -1086,12 +1010,9 @@ fn the_winner_finishes_the_song_without_more_points() {
     let mut r = Room::hosted(2);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
-    r.start_match();
-    let s = r.upcoming();
-    r.choose(s, 1);
+    r.pick(1).unwrap();
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let s = r.play();
     r.sys(Command::ConfirmStage {
         stage: s,
@@ -1135,7 +1056,7 @@ fn the_winner_finishes_the_song_without_more_points() {
     );
     // Nobody advances past the song before its natural end.
     assert_eq!(
-        r.by(host, Command::PrepareNextStage),
+        r.pick(2),
         Err(Rejection::Unauthorized {
             capability: Capability::Advance
         })
@@ -1154,19 +1075,14 @@ fn an_interrupted_stage_awards_nothing_and_earlier_stages_stay_as_partial_result
     let mut r = Room::hosted(3);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
-    r.start_match();
-    let s = r.upcoming();
-    r.choose(s, 1);
+    r.pick(1).unwrap();
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let s1 = r.play();
     r.end(s1, &[&[host], &[ana]]);
-    let s = r.upcoming();
-    r.choose(s, 2);
+    r.pick(2).unwrap();
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let s2 = r.play();
     r.sys(Command::Interrupt {
         reason: Interruption::AuthorityFailed,
@@ -1338,9 +1254,7 @@ fn practice_plays_a_match_with_cpus_and_starts_another_with_fresh_readiness() {
     rules.stages = 2;
     let mut r = Room::new(rules, ContentSource::LocalLibrary);
     let me = r.host;
-    for s in r.s.playlist.iter().map(|s| s.id).collect::<Vec<_>>() {
-        r.choose(s, s.0 as u32);
-    }
+    r.pick(1).unwrap();
     // Readiness is never automatic, not even alone with CPUs.
     assert_eq!(
         r.part(me),
@@ -1349,7 +1263,6 @@ fn practice_plays_a_match_with_cpus_and_starts_another_with_fresh_readiness() {
         }
     );
     r.ready(me);
-    r.start_match();
     let cpus: Vec<ParticipantId> =
         r.s.members
             .values()
@@ -1358,8 +1271,7 @@ fn practice_plays_a_match_with_cpus_and_starts_another_with_fresh_readiness() {
             .collect();
     assert_eq!(cpus.len(), 3);
     assert_eq!(r.s.opponent(cpus[0]).unwrap().level, 0);
-    // Ready from the lobby carries into stage 1: everyone eligible at once.
-    r.start_stage().unwrap();
+    // Ready: everyone eligible, the stage starts at once.
     let s1 = r.play();
     r.end(s1, &[&[me], &[cpus[0]], &[cpus[1], cpus[2]]]);
     let result = r.s.stage(s1).unwrap().play.clone().unwrap().result.unwrap();
@@ -1370,6 +1282,7 @@ fn practice_plays_a_match_with_cpus_and_starts_another_with_fresh_readiness() {
         Points::whole(2)
     );
     // Intermission: nothing carries over; the player readies again.
+    r.pick(2).unwrap();
     assert_eq!(
         r.part(me),
         Participation::NotReady {
@@ -1377,7 +1290,6 @@ fn practice_plays_a_match_with_cpus_and_starts_another_with_fresh_readiness() {
         }
     );
     r.ready(me);
-    r.start_stage().unwrap();
     let s2 = r.play();
     r.end(s2, &[&[cpus[0]], &[me], &[cpus[1]], &[cpus[2]]]);
     assert_eq!(r.s.phase, Phase::MatchResults);
@@ -1393,9 +1305,8 @@ fn practice_plays_a_match_with_cpus_and_starts_another_with_fresh_readiness() {
     assert_eq!(r.s.history[0].cpus.len(), 3);
     let next = r.upcoming();
     assert_eq!(r.part(me), Participation::NotReady { stage: next });
-    r.choose(next, 9);
+    r.pick(9).unwrap();
     r.ready(me);
-    r.start_match();
     let new_cpus: Vec<ParticipantId> =
         r.s.members
             .values()
@@ -1416,13 +1327,10 @@ fn persistent_elimination_ends_the_match_for_the_eliminated_and_the_absent() {
     let ana = r.join("ana", Intent::Play);
     let bo = r.join("bo", Intent::Play);
     let cy = r.join("cy", Intent::Play);
-    r.start_match();
-    let s = r.upcoming();
-    r.choose(s, 1);
+    r.pick(1).unwrap();
     for p in [host, ana, bo] {
         r.ready(p);
     }
-    r.start_stage().unwrap();
     r.wait(r.s.policy.readiness.window_ms);
     let s1 = r.play();
     assert_eq!(r.part(cy), Participation::OutForMatch, "missed a stage");
@@ -1456,19 +1364,16 @@ fn a_late_entrant_joins_at_a_stage_boundary_with_zero_for_missed_stages() {
     let mut r = Room::new(rules, ContentSource::LocalLibrary);
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
-    r.start_match();
-    let s = r.upcoming();
-    r.choose(s, 1);
+    r.pick(1).unwrap();
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let s1 = r.play();
     let late = r.join("late", Intent::Play);
     assert_eq!(r.part(late), Participation::WaitingNextMatch);
     r.end(s1, &[&[host], &[ana]]);
     // Still waiting through the intermission until the boundary.
     assert_eq!(r.part(late), Participation::WaitingNextMatch);
-    r.by(host, Command::PrepareNextStage).unwrap();
+    r.pick(2).unwrap();
     let s2 = r.upcoming();
     assert_eq!(r.part(late), Participation::NotReady { stage: s2 });
     let row =
@@ -1481,60 +1386,47 @@ fn a_late_entrant_joins_at_a_stage_boundary_with_zero_for_missed_stages() {
     assert_eq!(row.stages[0], StageStanding::NotPlayed);
 }
 
-/// M5c's open question, fixed at the model: Start in the lobby starts the
-/// match and its first stage as one change. A start its first stage
+/// M5c's open question, fixed at the model: the pick in the lobby starts
+/// the match and its first stage as one change. A pick its first stage
 /// refuses leaves the lobby as it was (no match locked, a newcomer still
-/// joins to play); one it accepts locks the match and counts down.
+/// joins to play); one it accepts locks the match and opens the stage's
+/// window, which counts down at its deadline.
 #[test]
-fn start_in_the_lobby_starts_the_match_with_its_first_stage_or_nothing() {
+fn a_pick_in_the_lobby_starts_the_match_with_its_first_stage_or_nothing() {
     let mut r = Room::hosted(2);
     let host = r.host;
-    let ana = r.join("ana", Intent::Play);
     let s = r.upcoming();
-    r.choose(s, 1);
-    r.ready(host);
-    // Too few ready: refused whole; still the lobby, nothing locked.
+    // Too few to ever start: refused whole; still the lobby, nothing
+    // locked.
     let before = r.s.clone();
-    assert!(matches!(
-        r.start_stage(),
-        Err(Rejection::NotEnoughReady { .. })
-    ));
+    assert!(matches!(r.pick(1), Err(Rejection::NotEnoughReady { .. })));
     assert_eq!(r.s, before);
     assert_eq!(r.s.phase, Phase::Lobby);
     assert!(r.s.current.is_none());
-    let late = r.join("late", Intent::Play);
+    let ana = r.join("ana", Intent::Play);
     assert_eq!(
-        r.s.participation(late),
+        r.s.participation(ana),
         Some(Participation::NotReady { stage: s })
     );
-    // Without the view it was made against, refused as StartMatch is.
+    // Without the view it was made against, refused.
     assert_eq!(
         r.based(
             host,
             None,
-            Command::StartStage {
-                stage: s,
-                readiness_rev: r.rev(s),
+            Command::Pick {
+                content: song(1),
+                card: None,
             }
         ),
         Err(Rejection::MissingBase)
     );
-    // Only the playlist's first stage starts a match.
-    let second = r.s.playlist[1].id;
-    assert!(
-        r.by(
-            host,
-            Command::StartStage {
-                stage: second,
-                readiness_rev: 0,
-            }
-        )
-        .is_err()
-    );
-    r.ready(ana);
-    // Late is unready: the match starts with a window on its first stage.
-    let events = r.start_stage().unwrap();
+    let late = r.join("late", Intent::Play);
+    let events = r.pick(1).unwrap();
     assert!(matches!(events[0], Event::MatchStarted { .. }));
+    assert_eq!(r.upcoming(), s, "the playlist's first stage");
+    r.ready(host);
+    r.ready(ana);
+    // Late is unready: the window waits for them until its deadline.
     assert!(matches!(
         r.s.phase,
         Phase::Preparing {
@@ -1542,13 +1434,9 @@ fn start_in_the_lobby_starts_the_match_with_its_first_stage_or_nothing() {
             ..
         }
     ));
+    assert_eq!(r.part(late), Participation::NotReady { stage: s });
     r.wait(r.s.policy.readiness.window_ms);
     assert!(matches!(r.s.phase, Phase::Countdown { .. }));
-    // StartMatch alone (protocol 1's two-step start) still works.
-    let mut old = Room::hosted(1);
-    old.join("bo", Intent::Play);
-    old.start_match();
-    assert!(matches!(old.s.phase, Phase::Preparing { .. }));
 }
 
 fn report(
@@ -1638,7 +1526,7 @@ fn a_reports_detail_is_additive_on_the_wire() {
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     let s = r.upcoming();
-    r.choose(s, 1);
+    r.pick(1).unwrap();
     r.sys(Command::SetContentStatus {
         stage: s,
         status: ContentStatus::Available,
@@ -1647,7 +1535,6 @@ fn a_reports_detail_is_additive_on_the_wire() {
     .unwrap();
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let stage = r.play();
     let play = |r: &Room| {
         r.s.current
@@ -1710,7 +1597,7 @@ fn an_online_stage_settles_on_its_starters_reports() {
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     let s = r.upcoming();
-    r.choose(s, 1);
+    r.pick(1).unwrap();
     assert_eq!(
         r.s.stage(s).unwrap().content.as_ref().unwrap().status,
         ContentStatus::Pending
@@ -1733,7 +1620,6 @@ fn an_online_stage_settles_on_its_starters_reports() {
     );
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let stage = r.play();
     // Not before the stage, not from someone not in it.
     let eve = r.join("eve", Intent::Play);
@@ -1770,14 +1656,7 @@ fn an_online_stage_settles_on_its_starters_reports() {
     // The second stage: the host finishes the song and Ana never reports;
     // the room waits its deadline after the song's end, then ranks her a
     // forfeit.
-    r.by(
-        host,
-        Command::ChooseContent {
-            stage: next,
-            content: Some(song(2)),
-        },
-    )
-    .unwrap();
+    r.pick(2).unwrap();
     r.sys(Command::SetContentStatus {
         stage: next,
         status: ContentStatus::Available,
@@ -1786,7 +1665,6 @@ fn an_online_stage_settles_on_its_starters_reports() {
     .unwrap();
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let stage = r.play();
     let start = r.now;
     assert_eq!(
@@ -1822,7 +1700,7 @@ fn self_reported_stages_have_a_cap_and_cpu_stages_take_no_reports() {
     let host = r.host;
     let ana = r.join("ana", Intent::Play);
     let s = r.upcoming();
-    r.choose(s, 1);
+    r.pick(1).unwrap();
     r.sys(Command::SetContentStatus {
         stage: s,
         status: ContentStatus::Available,
@@ -1831,7 +1709,6 @@ fn self_reported_stages_have_a_cap_and_cpu_stages_take_no_reports() {
     .unwrap();
     r.ready(host);
     r.ready(ana);
-    r.start_stage().unwrap();
     let stage = r.play();
     report(&mut r, ana, stage, Run::Out { at: 3.0 }).unwrap();
     r.wait(r.s.policy.outcomes.stage_cap_ms);
@@ -1854,10 +1731,8 @@ fn self_reported_stages_have_a_cap_and_cpu_stages_take_no_reports() {
         ContentSource::LocalLibrary,
     );
     let me = p.host;
-    let s = p.upcoming();
-    p.choose(s, 1);
+    p.pick(1).unwrap();
     p.ready(me);
-    p.start_stage().unwrap();
     let stage = p.play();
     assert_eq!(
         report(&mut p, me, stage, Run::Forfeit),
@@ -2235,9 +2110,6 @@ fn a_member_sets_their_own_attack_policy_outside_a_stage() {
     rules.stages = 2;
     let mut r = Room::new(rules, ContentSource::LocalLibrary);
     let me = r.host;
-    for s in r.s.playlist.iter().map(|s| s.id).collect::<Vec<_>>() {
-        r.choose(s, s.0 as u32);
-    }
     assert_eq!(r.s.member(me).unwrap().targeting(), Targeting::Spread);
     let set = |targeting| Command::SetTargeting { targeting };
     // In the lobby; the same again changes nothing.
@@ -2250,18 +2122,17 @@ fn a_member_sets_their_own_attack_policy_outside_a_stage() {
         }]
     );
     assert_eq!(r.by(me, set(Targeting::Retaliate)).unwrap(), vec![]);
-    // Ready, then changed: still ready (it is nobody else's rule).
-    r.ready(me);
-    r.by(me, set(Targeting::Leader)).unwrap();
-    assert_eq!(
-        r.part(me),
-        Participation::ReadyLoaded {
-            stage: r.upcoming()
-        }
-    );
     // Never the authority's to set, nor anyone's but one's own.
     assert_eq!(r.sys(set(Targeting::Spread)), Err(Rejection::NotAMember));
-    r.start_match();
+    // Ready, the countdown on, then changed: still counting down (it is
+    // nobody else's rule).
+    r.pick(1).unwrap();
+    r.ready(me);
+    let Phase::Countdown { stage: s1, .. } = r.s.phase else {
+        panic!("{:?}", r.s.phase)
+    };
+    r.by(me, set(Targeting::Leader)).unwrap();
+    assert_eq!(r.part(me), Participation::Committed { stage: s1 });
     let cpus: Vec<ParticipantId> =
         r.s.members
             .values()
@@ -2275,7 +2146,6 @@ fn a_member_sets_their_own_attack_policy_outside_a_stage() {
     // The CPUs' policies are their opponents'.
     assert_eq!(r.s.member(cpus[0]).unwrap().targeting(), Targeting::Leader);
     assert_eq!(r.s.member(cpus[1]).unwrap().targeting(), Targeting::Spread);
-    r.start_stage().unwrap();
     // The stage in play: refused, nothing changed.
     let s1 = r.play();
     assert_eq!(
@@ -2378,17 +2248,6 @@ fn a_co_host_takes_the_pick_over_and_the_owner_takes_it_back() {
     );
     assert_eq!(
         r.by(host, pick_cmd(1)),
-        Err(Rejection::NotPicker { picker: Some(co) })
-    );
-    let s1 = r.upcoming();
-    assert_eq!(
-        r.by(
-            host,
-            Command::ChooseContent {
-                stage: s1,
-                content: Some(song(1)),
-            }
-        ),
         Err(Rejection::NotPicker { picker: Some(co) })
     );
     // The co-host rests on their song and picks it: the match starts.
@@ -3627,14 +3486,11 @@ fn restarting_a_match_saves_the_rules_and_stops_it_as_one_change() {
         })
     );
     assert_ne!(r.s.next.rules, draft);
-    r.start_match();
+    r.pick(1).unwrap();
     let locked = r.s.current.as_ref().unwrap().rules.clone();
-    let s = r.upcoming();
-    r.choose(s, 1);
     for p in [host, ana, co] {
         r.ready(p);
     }
-    r.start_stage().unwrap();
     let s1 = r.play();
     r.end(s1, &[&[ana], &[host], &[co]]);
     assert!(matches!(r.s.phase, Phase::Intermission { .. }));
@@ -3705,17 +3561,14 @@ fn restarting_a_match_saves_the_rules_and_stops_it_as_one_change() {
             reason: Interruption::Stopped
         }
     );
-    r.start_match();
+    // During a stage's play, as Stop match.
+    r.pick(2).unwrap();
     let m = r.s.current.as_ref().unwrap();
     assert_eq!(m.rules, draft);
     assert_eq!(m.stages.len(), 2);
-    // During a stage's play, as Stop match.
-    let s = r.upcoming();
-    r.choose(s, 2);
     for p in [host, ana, co] {
         r.ready(p);
     }
-    r.start_stage().unwrap();
     r.play();
     let mut again = draft.clone();
     again.boos = false;

@@ -472,63 +472,6 @@ impl RoomState {
                 Self::authority_only(actor)?;
                 self.take_report(*stage, *participant, true, run, detail, now, out)
             }
-            Command::ChooseContent { stage, content } => {
-                self.require_picker(actor)?;
-                let s = self.stage(*stage).ok_or(Rejection::UnknownStage)?;
-                Self::check_base(base, s.content_changed_at)?;
-                if s.play.is_some() {
-                    return Err(match self.phase {
-                        Phase::Countdown { stage: c, .. } if c == *stage => {
-                            Rejection::StartCommitted
-                        }
-                        _ => Rejection::StageStarted,
-                    });
-                }
-                if s.content.as_ref().map(|c| &c.id) == content.as_ref() {
-                    return Ok(());
-                }
-                let status = match self.source {
-                    ContentSource::LocalLibrary => ContentStatus::Available,
-                    ContentSource::Shared => ContentStatus::Pending,
-                };
-                if let Phase::Preparing {
-                    stage: p,
-                    window: Some(_),
-                } = self.phase
-                    && p == *stage
-                {
-                    self.emit(
-                        out,
-                        Event::StartCanceled {
-                            stage: p,
-                            reason: CancelReason::ContentReplaced,
-                        },
-                    );
-                    self.emit(
-                        out,
-                        Event::PhaseChanged {
-                            phase: Phase::Preparing {
-                                stage: p,
-                                window: None,
-                            },
-                        },
-                    );
-                }
-                self.emit(
-                    out,
-                    Event::ContentChosen {
-                        stage: *stage,
-                        content: content.clone().map(|id| StageContent {
-                            id,
-                            status,
-                            share: None,
-                            card: None,
-                            battle: None,
-                        }),
-                    },
-                );
-                Ok(())
-            }
             Command::SaveNextRules { rules } => {
                 self.require(actor, Capability::EditNextRules)?;
                 self.save_next_rules(base, rules, out)
@@ -565,49 +508,6 @@ impl RoomState {
                     self.emit(out, Event::StageRulesChanged { from: *from, rules });
                 }
                 Ok(())
-            }
-            Command::StartMatch => {
-                self.require(actor, Capability::Advance)?;
-                if self.phase != Phase::Lobby {
-                    return Err(self.wrong_phase());
-                }
-                Self::check_base(base, self.next.saved_at)?;
-                self.start_match(out)
-            }
-            Command::PrepareNextStage => {
-                self.require(actor, Capability::Advance)?;
-                let Phase::Intermission { next } = self.phase else {
-                    return Err(self.wrong_phase());
-                };
-                self.prepare(next, out);
-                Ok(())
-            }
-            Command::StartStage {
-                stage,
-                readiness_rev,
-            } => {
-                self.require(actor, Capability::Advance)?;
-                match self.phase {
-                    // The match and its first stage, as one change.
-                    Phase::Lobby if self.playlist.first().is_some_and(|s| s.id == *stage) => {
-                        Self::check_base(base, self.next.saved_at)?;
-                        self.start_match(out)?;
-                    }
-                    Phase::Intermission { next } if next == *stage => self.prepare(next, out),
-                    Phase::Preparing { stage: p, window } if p == *stage => {
-                        if window.is_some() {
-                            return Err(Rejection::WindowOpen);
-                        }
-                    }
-                    Phase::Countdown { stage: c, .. } if c == *stage => {
-                        return Err(Rejection::StartCommitted);
-                    }
-                    Phase::Preparing { .. } | Phase::Intermission { .. } => {
-                        return Err(Rejection::NotUpcoming);
-                    }
-                    _ => return Err(self.wrong_phase()),
-                }
-                self.start_stage(*stage, *readiness_rev, now, out)
             }
             Command::CancelStart { stage } => {
                 self.require(actor, Capability::Advance)?;
@@ -1429,48 +1329,6 @@ impl RoomState {
             })
             .count();
         usize::from(self.policy.readiness.min_ready_humans).min(wanting)
-    }
-
-    fn start_stage(
-        &mut self,
-        stage: StageId,
-        readiness_rev: u32,
-        now: Millis,
-        out: &mut Vec<Event>,
-    ) -> Decided {
-        let s = self.stage(stage).ok_or(Rejection::UnknownStage)?;
-        if s.readiness_rev != readiness_rev {
-            return Err(Rejection::StaleReadiness {
-                current: s.readiness_rev,
-            });
-        }
-        self.content_ready(s)?;
-        let candidates = self.candidates();
-        let (lineup, sat_out) = self.lineup(s, &candidates);
-        let (enough, ready_humans, competitors) = self.enough(&lineup, &candidates);
-        if !enough {
-            return Err(Rejection::NotEnoughReady {
-                ready_humans,
-                competitors,
-            });
-        }
-        // Wait only for those who could still become eligible; a departed
-        // or watching competitor is recorded as sitting out, not waited for.
-        if !sat_out.iter().any(|(_, reason)| reason.may_still_join()) {
-            self.commit_start(stage, lineup, sat_out, now, out);
-        } else {
-            let window = self.window_from(now, readiness_rev);
-            self.emit(
-                out,
-                Event::PhaseChanged {
-                    phase: Phase::Preparing {
-                        stage,
-                        window: Some(window),
-                    },
-                },
-            );
-        }
-        Ok(())
     }
 
     fn commit_start(
