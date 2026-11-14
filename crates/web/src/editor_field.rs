@@ -18,7 +18,7 @@ use ddi_shell::field_preview::SkinSlot;
 use ddi_ui::screens::editor_field::FieldPicture;
 use ddi_ui::state::editor::Editor;
 
-use crate::components::ui_dev::FrameHook;
+use crate::ui_host::FrameHook;
 use crate::field_preview::Load;
 use crate::settings::Settings;
 use crate::web::gfx::Gfx;

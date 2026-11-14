@@ -148,7 +148,7 @@ pub(crate) fn ready() {
         .clamp(0.0, 2000.0);
     gloo::timers::callback::Timeout::new(fill as u32, || {
         REVEALED.with(|r| r.set(true));
-        crate::components::ui_dev::wake_all();
+        crate::ui_host::wake_all();
     })
     .forget();
 }
@@ -178,7 +178,7 @@ pub(crate) async fn entrance_over() {
     let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
 }
 
-/// The first screens' entrance is over (`ui_dev`'s frame, once
+/// The first screens' entrance is over (`ui_host`'s frame, once
 /// [`revealed`] and its screen is at rest): [`entrance_over`] resolves.
 pub(crate) fn entrance_done() {
     if ENTRANCE_OVER.with(|o| o.replace(true)) {
@@ -214,7 +214,7 @@ pub(crate) fn ready_when_settled(base: f64) {
     if READY_SENT.with(Cell::get) {
         return;
     }
-    if crate::components::ui_dev::hosts() == 0 && !EXPECTED.with(Cell::get) {
+    if crate::ui_host::hosts() == 0 && !EXPECTED.with(Cell::get) {
         ready();
         return;
     }
@@ -248,7 +248,7 @@ pub(crate) fn settling(settled: bool) -> bool {
 }
 
 /// Whether [`ready_when_settled`] waits for a settled screen
-/// (`ui_dev`'s frame calls [`ready`] then).
+/// (`ui_host`'s frame calls [`ready`] then).
 pub(crate) fn waiting() -> bool {
     WAITING.with(Cell::get)
 }

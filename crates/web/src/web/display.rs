@@ -7,6 +7,8 @@ use ddi_platform::DeviceFingerprint;
 use gloo::events::EventListener;
 use web_sys::MediaQueryList;
 
+use super::document;
+
 /// Common panel refresh rates; a measured rate snaps to the nearest.
 const RATES: [f64; 10] = [
     30.0, 48.0, 50.0, 60.0, 72.0, 75.0, 90.0, 120.0, 144.0, 165.0,
@@ -90,4 +92,52 @@ pub(crate) fn dpr_change_listener(
         .ok()??;
     let listener = EventListener::new(&query, "change", move |_| on_change());
     Some((query, listener))
+}
+
+/// The system's `prefers-reduced-motion`, and its query to listen to.
+pub(crate) fn reduced_motion_query() -> Option<web_sys::MediaQueryList> {
+    web_sys::window()?
+        .match_media("(prefers-reduced-motion: reduce)")
+        .ok()
+        .flatten()
+}
+
+/// Whether the system prefers reduced motion now.
+pub(crate) fn system_reduced() -> bool {
+    reduced_motion_query().is_some_and(|q| q.matches())
+}
+
+/// The safe-area insets (top, right, bottom, left), CSS pixels.
+pub(crate) fn safe_insets() -> [f64; 4] {
+    let doc = document();
+    let Some(body) = doc.body() else {
+        return [0.0; 4];
+    };
+    let Ok(probe) = doc.create_element("div") else {
+        return [0.0; 4];
+    };
+    let _ = probe.set_attribute(
+        "style",
+        "position:fixed;visibility:hidden;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)",
+    );
+    let _ = body.append_child(&probe);
+    let out = web_sys::window()
+        .and_then(|w| w.get_computed_style(&probe).ok().flatten())
+        .map(|s| {
+            let px = |k: &str| {
+                s.get_property_value(k)
+                    .ok()
+                    .and_then(|v| v.trim_end_matches("px").parse().ok())
+                    .unwrap_or(0.0)
+            };
+            [
+                px("padding-top"),
+                px("padding-right"),
+                px("padding-bottom"),
+                px("padding-left"),
+            ]
+        })
+        .unwrap_or([0.0; 4]);
+    probe.remove();
+    out
 }

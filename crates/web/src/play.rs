@@ -47,7 +47,7 @@ impl SessionConfig {
             render: RenderOptions {
                 reduced_motion: settings
                     .reduced_motion
-                    .reduced(crate::components::ui_dev::system_reduced()),
+                    .reduced(crate::web::display::system_reduced()),
                 ..ddi_shell::render_options(settings)
             },
             gamepads: None,

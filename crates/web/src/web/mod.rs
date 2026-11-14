@@ -30,6 +30,13 @@ pub(crate) mod webcodecs;
 
 use wasm_bindgen::JsValue;
 
+/// The page's document.
+pub(crate) fn document() -> web_sys::Document {
+    web_sys::window()
+        .and_then(|w| w.document())
+        .expect("document")
+}
+
 pub(crate) fn js_err(context: &str, err: JsValue) -> String {
     format!("{context}: {err:?}")
 }

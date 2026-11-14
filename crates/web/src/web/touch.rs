@@ -87,7 +87,7 @@ pub(crate) fn mouse_moved(now_ms: f64) {
     MOUSE_AT.with(|m| m.set(now_ms));
     // A pointer the prompt's screen hid (a key pressed on it) shows again
     // as the mouse moves, as it would over the menus
-    // (`crate::components::ui_dev`), which hold the canvas no more while
+    // (`crate::ui_host`), which hold the canvas no more while
     // the play runs.
     if PLAYING.with(|p| p.get()) {
         super::screen::mouse_moved();
@@ -116,7 +116,7 @@ pub(crate) fn safe_insets(css: (f64, f64)) -> [f32; 4] {
     INSETS.with(|c| match c.get() {
         Some((k, v)) if k == key => v,
         _ => {
-            let v = crate::components::ui_dev::safe_insets().map(|v| v as f32);
+            let v = crate::web::display::safe_insets().map(|v| v as f32);
             c.set(Some((key, v)));
             v
         }

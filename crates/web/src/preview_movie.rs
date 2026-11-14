@@ -10,7 +10,7 @@
 //! select whose movie shows (its feed).
 //!
 //! Song select's page installs it as its host's frame hook
-//! (`ui_dev::set_frame_hook`): it runs in each frame before the 2D pass
+//! (`ui_host::set_frame_hook`): it runs in each frame before the 2D pass
 //! and keeps frames coming while a movie settles or plays. The page going
 //! takes it away ([`PreviewMovieHost::release`]).
 

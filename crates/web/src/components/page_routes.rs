@@ -19,7 +19,7 @@ use ddi_ui::screens::calibration::{self, CalAct};
 use ddi_ui::screens::page::{PAGE_CHANGED, PageCall, PageDoc, PageFeed, PageScreen, PageShell};
 use ddi_ui::{Cx, UiRequest};
 
-use crate::components::ui_dev::{self, Host, UiPage};
+use crate::ui_host::{self, Host, UiPage};
 use crate::router::Route;
 
 /// Which page.
@@ -111,7 +111,7 @@ impl Component for PagePage {
 
 impl PagePage {
     fn start(&mut self, ctx: &Context<Self>) {
-        let theme = ui_dev::theme_host();
+        let theme = ui_host::theme_host();
         let env = theme.env().clone();
         let which = ctx.props().which.clone();
         let (name, doc) = match &which {
@@ -143,7 +143,7 @@ impl PagePage {
             })
         };
         let screen = PageScreen::new(env.clone(), name, doc).with_shell(shell, self.feed.clone());
-        let mut ui = crate::components::ui_dev::theme_ui();
+        let mut ui = crate::ui_host::theme_ui();
         if which == Which::Start {
             ui.push(
                 ddi_ui::screens::start::StartScreen::new(
@@ -282,7 +282,7 @@ fn send(feed: &PageFeed, host: &Rc<RefCell<Option<std::rc::Weak<RefCell<Host>>>>
     let Some(weak) = host.borrow().clone() else {
         return;
     };
-    ui_dev::broadcast_soon(weak, PAGE_CHANGED);
+    ui_host::broadcast_soon(weak, PAGE_CHANGED);
 }
 
 /// The page for a shared link that is gone: its one line and a button

@@ -85,7 +85,7 @@ pub(crate) struct Framed {
 impl Framed {
     pub(crate) fn new(spec: FrameSpec) -> Framed {
         use ddi_ui::screens::stage::{Picture, StageFrame};
-        let theme = crate::components::ui_dev::theme_host();
+        let theme = crate::ui_host::theme_host();
         let mut ui = ddi_ui::Ui::new(ddi_ui::screens::DESIGN, ddi_ui::TextMode::Mirror, false);
         ui.set_focus_ring(false);
         let spots = ddi_ui::screens::stage::SharedSpots::default();

@@ -45,7 +45,7 @@ use ddi_ui::state::editor::{Editor, export};
 use ddi_ui::{Cx, UiRequest};
 use wasm_bindgen::JsValue;
 
-use crate::components::ui_dev;
+use crate::ui_host;
 use crate::router::{PlayRoute, Route};
 use crate::web::audio::{AudioDecoder, WebAudio};
 use crate::web::idb::{self, Db, Write};
@@ -163,7 +163,7 @@ pub(crate) fn place(id: &str) -> EditorPlace {
 /// The editor's calls on the web; `ui` is the page's UI host once it runs.
 pub(crate) struct WebEditorHost {
     pub(crate) id: String,
-    pub(crate) ui: Rc<RefCell<Option<Weak<RefCell<ui_dev::Host>>>>>,
+    pub(crate) ui: Rc<RefCell<Option<Weak<RefCell<ui_host::Host>>>>>,
     pub(crate) listen: Rc<RefCell<Listen>>,
 }
 
@@ -312,7 +312,7 @@ impl EditorHost for WebEditorHost {
                         Err(e) => save_failed(e),
                     };
                     if let Some(host) = ui.borrow().clone() {
-                        ui_dev::broadcast_message_soon(host, m);
+                        ui_host::broadcast_message_soon(host, m);
                     }
                 });
             }
@@ -580,7 +580,7 @@ pub(crate) async fn analyze_buffer<A: BufferAnalysis>(
 /// The page's debug state: what the cues scheduled, as
 /// `window.__DDI_DEBUG.editorCues` (`accents`, `beats`, `claps`, and the
 /// last one's `kind`, `song` second and context time `at`).
-pub(crate) fn debug(listen: &Rc<RefCell<Listen>>) -> ui_dev::DebugFn {
+pub(crate) fn debug(listen: &Rc<RefCell<Listen>>) -> ui_host::DebugFn {
     let listen = Rc::downgrade(listen);
     Box::new(move |obj| {
         let Some(listen) = listen.upgrade() else {

@@ -70,7 +70,7 @@ use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{AudioBuffer, Blob, DragEvent, HtmlInputElement};
 
 use crate::component::{Component, Context};
-use crate::components::ui_dev::{self, Host, UiPage};
+use crate::ui_host::{self, Host, UiPage};
 use crate::songs::ManifestEntry;
 use crate::web::audio::{AudioDecoder, WebAudio};
 use crate::web::files::{self, PickedFile, carries_files};
@@ -237,7 +237,7 @@ impl Studio {
     fn send(&self) {
         *self.feed.borrow_mut() = Some(self.doc());
         if let Some(weak) = self.weak_host() {
-            ui_dev::broadcast_soon(weak, PAGE_CHANGED);
+            ui_host::broadcast_soon(weak, PAGE_CHANGED);
         }
         self.publish();
     }
@@ -277,7 +277,7 @@ impl Studio {
     }
 
     /// `__DDI_DEBUG.studio` (the host writes its debug object anew each
-    /// frame; this goes in each time, [`ui_dev::DebugFn`]), made again
+    /// frame; this goes in each time, [`ui_host::DebugFn`]), made again
     /// only after the studio changed.
     fn debug_into(&self, debug: &js_sys::Object) {
         let built = self
@@ -966,7 +966,7 @@ impl Studio {
     /// The zone under a point of the window: a line's, or the unsorted.
     fn zone_at(&self, client: [f64; 2]) -> Option<String> {
         let host = self.weak_host()?.upgrade()?;
-        let p = ui_dev::virtual_point(&host, client);
+        let p = ui_host::virtual_point(&host, client);
         let h = host.borrow();
         let mut ids = vec!["unsorted".to_string()];
         ids.extend(self.draft.borrow().lines().iter().map(|l| l.folder()));
@@ -983,7 +983,7 @@ impl Studio {
         }
         *self.target.borrow_mut() = zone.clone();
         if let Some(weak) = self.weak_host() {
-            ui_dev::broadcast_message_soon(
+            ui_host::broadcast_message_soon(
                 weak,
                 Message::new(PAGE_TARGET).with("Zone", Param::Str(zone.unwrap_or_default())),
             );
@@ -1147,7 +1147,7 @@ impl Studio {
         if let Ok(mut h) = host.try_borrow_mut() {
             f(&mut h.ui);
             drop(h);
-            ui_dev::wake(&host);
+            ui_host::wake(&host);
             return;
         }
         crate::web::next_task(move || {
@@ -1156,7 +1156,7 @@ impl Studio {
             {
                 f(&mut h.ui);
                 drop(h);
-                ui_dev::wake(&host);
+                ui_host::wake(&host);
             }
         });
     }
@@ -1483,7 +1483,7 @@ impl SceneHost for WebScenes {
         };
         f(&mut h.ui);
         drop(h);
-        ui_dev::wake(&host);
+        ui_host::wake(&host);
         true
     }
 
@@ -1492,7 +1492,7 @@ impl SceneHost for WebScenes {
             return;
         };
         for down in [true, false] {
-            ui_dev::dispatch(
+            ui_host::dispatch(
                 &host,
                 UiEvent::Menu(MenuEvent {
                     action,
@@ -1669,7 +1669,7 @@ impl Component for StudioPage {
 impl StudioPage {
     fn start(&mut self, ctx: &Context<Self>) {
         let studio = self.studio.clone();
-        let theme = ui_dev::theme_host();
+        let theme = ui_host::theme_host();
         let env = theme.env().clone();
         *studio.env.borrow_mut() = Some(env.clone());
         let shell: PageShell = {
@@ -1679,7 +1679,7 @@ impl StudioPage {
         let screen = PageScreen::new(env, studio::NAME, studio.doc())
             .with_shell(shell, studio.feed.clone())
             .with_place(studio.place.clone());
-        let mut ui = ui_dev::theme_ui();
+        let mut ui = ui_host::theme_ui();
         ui.push(screen);
         let mut listeners = Vec::new();
         // The pickers: files (a zip too), and a folder.
@@ -1776,7 +1776,7 @@ impl StudioPage {
                 },
             ));
         }
-        let extra: ui_dev::DebugFn = {
+        let extra: ui_host::DebugFn = {
             let weak = Rc::downgrade(&studio);
             Box::new(move |obj| {
                 if let Some(s) = weak.upgrade() {

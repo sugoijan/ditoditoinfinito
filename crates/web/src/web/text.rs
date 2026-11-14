@@ -430,3 +430,12 @@ impl Drop for CanvasRasterizer {
         self.canvas.set_height(0);
     }
 }
+
+/// The browser's NFKD (`String.prototype.normalize`), which the search
+/// folds with on the web.
+pub(crate) fn nfkd(text: &str) -> String {
+    js_sys::JsString::from(text)
+        .normalize("NFKD")
+        .as_string()
+        .unwrap_or_else(|| text.to_string())
+}

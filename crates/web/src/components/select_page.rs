@@ -35,7 +35,7 @@ use gloo::timers::callback::{Interval, Timeout};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{DragEvent, HtmlInputElement};
 
-use crate::components::ui_dev::{self, Host, UiPage};
+use crate::ui_host::{self, Host, UiPage};
 use crate::import;
 use crate::router::{PlayRoute, Route};
 use crate::select_data;
@@ -84,9 +84,9 @@ struct Shared {
     feed: SharedFeed,
     host: RefCell<Option<Weak<RefCell<Host>>>>,
     /// Where the chart shown goes for its prompt's diagram's skin to be
-    /// readied ahead (the host's, `ui_dev::use_warm_cell`; the screen's
+    /// readied ahead (the host's, `ui_host::use_warm_cell`; the screen's
     /// first place report comes before the host is handed out).
-    warm: ui_dev::WarmCell,
+    warm: ui_host::WarmCell,
     folder_input: NodeRef,
     file_input: NodeRef,
     music_input: NodeRef,
@@ -521,7 +521,7 @@ impl Component for SelectPage {
 impl SelectPage {
     /// The screen, once the library is there.
     fn start(&mut self, ctx: &Context<Self>) {
-        let theme = ui_dev::theme_host();
+        let theme = ui_host::theme_host();
         let env = theme.env().clone();
         let place = self.shared.place.borrow().clone();
         let data = self.data(&place);
@@ -583,9 +583,9 @@ impl SelectPage {
                 crate::history::plays(),
                 Rc::new(crate::history::tz_minutes),
             ));
-        let mut ui = crate::components::ui_dev::theme_ui();
+        let mut ui = crate::ui_host::theme_ui();
         ui.push(screen);
-        let extra: ui_dev::DebugFn = {
+        let extra: ui_host::DebugFn = {
             let shared = self.shared.clone();
             Box::new(move |obj: &js_sys::Object| debug_into(&shared, obj))
         };
@@ -596,8 +596,8 @@ impl SelectPage {
             return;
         };
         *self.shared.host.borrow_mut() = Some(Rc::downgrade(&started.0));
-        ui_dev::use_warm_cell(&started.0, self.shared.warm.clone());
-        ui_dev::set_frame_hook(&started.0, Some(movie_hook(&self.shared, env)));
+        ui_host::use_warm_cell(&started.0, self.shared.warm.clone());
+        ui_host::set_frame_hook(&started.0, Some(movie_hook(&self.shared, env)));
         self.history_seen = crate::history::plays().generation();
         self.send_import();
         self.send_notices();
@@ -760,7 +760,7 @@ impl SelectPage {
 /// Tells the screen the feed has something, as soon as the host is free.
 fn broadcast(shared: &Rc<Shared>) {
     if let Some(weak) = shared.host.borrow().clone() {
-        ui_dev::broadcast_soon(weak, FEED);
+        ui_host::broadcast_soon(weak, FEED);
     }
 }
 
@@ -790,7 +790,7 @@ fn replay_hash(id: &str, results: bool) -> String {
 /// Song select's preview movie in each frame (`crate::preview_movie`):
 /// the song the screen shows (its published state) followed, song select
 /// told whose movie shows.
-fn movie_hook(shared: &Rc<Shared>, env: ddi_ui::screens::Env) -> ui_dev::FrameHook {
+fn movie_hook(shared: &Rc<Shared>, env: ddi_ui::screens::Env) -> ui_host::FrameHook {
     let shared = shared.clone();
     Box::new(move |gfx, encoder, _ui, now_ms| {
         let song = env.state.borrow().song_id.clone();

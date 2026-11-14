@@ -45,6 +45,7 @@ mod songs;
 mod stage;
 mod stills;
 mod studio_scene;
+mod ui_host;
 mod web;
 
 /// Starts the app in the page (`#app-root`).

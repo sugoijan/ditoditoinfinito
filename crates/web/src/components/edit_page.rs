@@ -12,7 +12,7 @@ use ddi_ui::screens::editor::EditorScreen;
 use ddi_ui::state::editor::Editor;
 
 use crate::component::{Component, Context};
-use crate::components::ui_dev::{self, Host, UiPage};
+use crate::ui_host::{self, Host, UiPage};
 use crate::editor::WebEditorHost;
 
 #[derive(Clone, PartialEq)]
@@ -111,7 +111,7 @@ impl Component for EditPage {
 impl EditPage {
     fn start(&mut self, ctx: &Context<Self>, editor: Rc<RefCell<Editor>>) {
         let id = ctx.props().song.clone();
-        let theme = ui_dev::theme_host();
+        let theme = ui_host::theme_host();
         // The music decoded now, for the first press to play it.
         let listen = Rc::new(RefCell::new(crate::editor::Listen::default()));
         crate::editor::Listen::read(&listen, &id, editor.borrow().chart_index(), None);
@@ -131,7 +131,7 @@ impl EditPage {
         let screen = EditorScreen::shared(theme.env().clone(), editor, crate::editor::place(&id))
             .with_host(host)
             .with_status(&status);
-        let mut ui = crate::components::ui_dev::theme_ui();
+        let mut ui = crate::ui_host::theme_ui();
         ui.push(screen);
         let Some(started) = self
             .ui
@@ -142,7 +142,7 @@ impl EditPage {
         *self.host.borrow_mut() = Some(Rc::downgrade(&started.0));
         // The field in the player's skin and the audio view's picture,
         // before the 2D pass.
-        ui_dev::set_frame_hook(
+        ui_host::set_frame_hook(
             &started.0,
             Some(crate::editor_audio::hook(crate::editor_field::hook())),
         );

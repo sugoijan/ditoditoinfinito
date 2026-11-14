@@ -375,7 +375,7 @@ pub(crate) struct GameCanvas {
     skin_none: bool,
     /// The start prompt on the canvas while the play has not started (or
     /// was interrupted), what it shows, and what its choices reach.
-    prompt: Option<crate::components::ui_dev::Embedded>,
+    prompt: Option<crate::ui_host::Embedded>,
     prompt_state: SharedPrompt,
     shell: Rc<PromptShell>,
     /// The theme's results could not start: a card says the score.
@@ -408,10 +408,10 @@ pub(crate) struct GameCanvas {
     _video_tick: gloo::timers::callback::Interval,
     _keys: Option<EventListener>,
     /// A song's results, the theme's screen on the canvas (step 6.1).
-    results: Option<crate::components::ui_dev::Embedded>,
+    results: Option<crate::ui_host::Embedded>,
     /// While a screen of the page's shows on the canvas (the prompt, the
     /// results): its host, which takes the keys and the pads.
-    results_host: Rc<RefCell<Option<Weak<RefCell<crate::components::ui_dev::Host>>>>>,
+    results_host: Rc<RefCell<Option<Weak<RefCell<crate::ui_host::Host>>>>>,
     /// The ruleset played by and the music's length, for the results.
     rules: Option<ddi_engine::Ruleset>,
     song_length: f64,
@@ -736,7 +736,7 @@ impl Component for GameCanvas {
                 });
             }
         }
-        let results_host: Rc<RefCell<Option<Weak<RefCell<crate::components::ui_dev::Host>>>>> =
+        let results_host: Rc<RefCell<Option<Weak<RefCell<crate::ui_host::Host>>>>> =
             Rc::default();
         let keys = web_sys::window().map(|w| {
             let link = ctx.link().clone();
@@ -752,7 +752,7 @@ impl Component for GameCanvas {
                     // The hints after the play follow what it was played
                     // with.
                     if !e.repeat() {
-                        crate::components::ui_dev::keep_source(
+                        crate::ui_host::keep_source(
                             ddi_ui::controller_hints::Source::Keyboard,
                         );
                     }
@@ -776,7 +776,7 @@ impl Component for GameCanvas {
             g.set_listener(Some(Box::new(move |news| {
                 // The prompt and the results take the pads while they show.
                 if let Some(host) = results.borrow().as_ref() {
-                    crate::components::ui_dev::pad_news(host, news);
+                    crate::ui_host::pad_news(host, news);
                     return;
                 }
                 if let PadNews::Edge(edge) = news
@@ -785,7 +785,7 @@ impl Component for GameCanvas {
                 {
                     // The hints after the play follow what it was played
                     // with.
-                    crate::components::ui_dev::keep_source(ddi_ui::controller_hints::Source::Pad {
+                    crate::ui_host::keep_source(ddi_ui::controller_hints::Source::Pad {
                         slot: edge.slot,
                         id: id.clone(),
                     });
@@ -2302,7 +2302,7 @@ impl GameCanvas {
                     .with("Text", ddi_ui::Param::Str(caption)),
             );
             drop(h);
-            crate::components::ui_dev::wake(&prompt.host);
+            crate::ui_host::wake(&prompt.host);
         }
     }
 
@@ -2523,7 +2523,7 @@ impl GameCanvas {
                         entrance,
                         self.settings
                             .reduced_motion
-                            .reduced(crate::components::ui_dev::system_reduced()),
+                            .reduced(crate::web::display::system_reduced()),
                     );
                 }
                 self.stage = Stage::Playing;
@@ -2674,9 +2674,9 @@ impl GameCanvas {
                 // A still prompt (reduced motion) draws no frame for what
                 // it does not show: one is asked for, so that what the
                 // play waits for is published as it changes.
-                crate::components::ui_dev::broadcast_soon(Rc::downgrade(&p.host), "Prompt.Waiting");
+                crate::ui_host::broadcast_soon(Rc::downgrade(&p.host), "Prompt.Waiting");
             }
-            crate::components::ui_dev::wake(&p.host);
+            crate::ui_host::wake(&p.host);
         }
     }
 
@@ -2881,7 +2881,7 @@ impl GameCanvas {
                 let reduced = self
                     .settings
                     .reduced_motion
-                    .reduced(crate::components::ui_dev::system_reduced());
+                    .reduced(crate::web::display::system_reduced());
                 self.game.try_borrow().ok().and_then(|g| {
                     g.as_ref()?.generated_still(
                         (backgrounds::PLAY_START, song.first_beat),
@@ -2919,9 +2919,9 @@ impl GameCanvas {
         };
         let shell = self.shell.clone();
         let act: PromptFn = Rc::new(move |choice, cx| shell.choose(choice, cx));
-        let theme = crate::components::ui_dev::theme_host();
+        let theme = crate::ui_host::theme_host();
         let env = theme.env().clone();
-        let mut ui = crate::components::ui_dev::theme_ui();
+        let mut ui = crate::ui_host::theme_ui();
         if let Some(frame) = self.scene_frame(&env, false) {
             ui.push_chrome(frame);
         }
@@ -2937,11 +2937,11 @@ impl GameCanvas {
         let extra = Box::new(move |obj: &js_sys::Object| prompt_debug(obj, &state.borrow()));
         // The play's frames stop; the screen draws, the loop idles.
         self.raf = None;
-        match crate::components::ui_dev::embed(&container, ui, theme, extra) {
+        match crate::ui_host::embed(&container, ui, theme, extra) {
             Ok(e) => {
                 *self.results_host.borrow_mut() = Some(Rc::downgrade(&e.host));
                 let pads = self.gamepads.as_ref().map(Gamepads::connected);
-                crate::components::ui_dev::hand_over(&e.host, pads.unwrap_or_default());
+                crate::ui_host::hand_over(&e.host, pads.unwrap_or_default());
                 self.prompt = Some(e);
                 self.raf = Some(schedule(self.game.clone(), GameLoop::idle));
             }
@@ -3411,9 +3411,9 @@ impl GameCanvas {
         } else {
             retry
         };
-        let theme = crate::components::ui_dev::theme_host();
+        let theme = crate::ui_host::theme_host();
         let env = theme.env().clone();
-        let mut ui = crate::components::ui_dev::theme_ui();
+        let mut ui = crate::ui_host::theme_ui();
         if let Some(frame) = self.scene_frame(&env, true) {
             ui.push_chrome(frame);
             // Back to the studio once their line (and its cheer) is said.
@@ -3455,11 +3455,11 @@ impl GameCanvas {
         });
         // The play's frames stop; the screen draws.
         self.raf = None;
-        match crate::components::ui_dev::embed(&container, ui, theme, extra) {
+        match crate::ui_host::embed(&container, ui, theme, extra) {
             Ok(e) => {
                 *self.results_host.borrow_mut() = Some(Rc::downgrade(&e.host));
                 let pads = self.gamepads.as_ref().map(Gamepads::connected);
-                crate::components::ui_dev::hand_over(&e.host, pads.unwrap_or_default());
+                crate::ui_host::hand_over(&e.host, pads.unwrap_or_default());
                 self.results = Some(e);
             }
             Err(e) => {

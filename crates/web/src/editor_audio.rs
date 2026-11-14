@@ -11,7 +11,7 @@ use std::rc::Rc;
 use ddi_render::editor_audio::AudioTexture;
 use ddi_ui::screens::editor::audio::AudioPicture;
 
-use crate::components::ui_dev::FrameHook;
+use crate::ui_host::FrameHook;
 
 thread_local! {
     static SHOWN: RefCell<Option<AudioPicture>> = const { RefCell::new(None) };

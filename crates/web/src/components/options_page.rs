@@ -39,7 +39,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use web_sys::{AudioBuffer, HtmlElement, HtmlInputElement};
 
-use crate::components::ui_dev::{self, Host, UiPage};
+use crate::ui_host::{self, Host, UiPage};
 use crate::import;
 use crate::preview::Preview;
 use crate::router::{PlayRoute, Route};
@@ -397,7 +397,7 @@ impl Component for OptionsPage {
 impl OptionsPage {
     fn start(&mut self, ctx: &Context<Self>) {
         self._listeners = import_listeners(ctx.root(), &self.shared, ctx);
-        let theme = ui_dev::theme_host();
+        let theme = ui_host::theme_host();
         let env = theme.env().clone();
         *self.shared.env.borrow_mut() = Some(env.clone());
         let shell = options_shell::shell(
@@ -410,9 +410,9 @@ impl OptionsPage {
         let screen = OptionsScreen::new(env, data, None)
             .with_position(crate::router::saved_options())
             .with_shell(shell, self.shared.feed.clone());
-        let mut ui = crate::components::ui_dev::theme_ui();
+        let mut ui = crate::ui_host::theme_ui();
         ui.push(screen);
-        let extra: ui_dev::DebugFn = {
+        let extra: ui_host::DebugFn = {
             let shared = self.shared.clone();
             Box::new(move |obj: &js_sys::Object| debug_into(&shared, obj))
         };
@@ -424,7 +424,7 @@ impl OptionsPage {
         };
         *self.shared.host.borrow_mut() = Some(Rc::downgrade(&started.0));
         *self.shared.pads.borrow_mut() = started.2.clone();
-        let field = ui_dev::field_settings(&started.0);
+        let field = ui_host::field_settings(&started.0);
         *field.borrow_mut() = Some(self.shared.model.borrow().preview_settings());
         *self.shared.field.borrow_mut() = Some(field);
         self.shared.model.borrow_mut().world.pads_supported = started.2.is_some();
@@ -507,7 +507,7 @@ fn import_listeners(
 fn send(shared: &Rc<Shared>) {
     *shared.feed.borrow_mut() = Some(shared.model.borrow().data());
     if let Some(weak) = shared.host.borrow().clone() {
-        ui_dev::broadcast_soon(weak, OPTIONS_CHANGED);
+        ui_host::broadcast_soon(weak, OPTIONS_CHANGED);
     }
 }
 
@@ -608,7 +608,7 @@ impl OptionsPlatform for Web {
             };
             *into.borrow_mut() = view;
             if let Some(h) = host {
-                ui_dev::broadcast_soon(h, SHARES_CHANGED);
+                ui_host::broadcast_soon(h, SHARES_CHANGED);
             }
         });
     }
@@ -635,7 +635,7 @@ impl OptionsPlatform for Web {
                 Err(e) => ddi_ui::screens::data::SharesView::failed(e),
             };
             if let Some(h) = host {
-                ui_dev::broadcast_soon(h, SHARES_CHANGED);
+                ui_host::broadcast_soon(h, SHARES_CHANGED);
             }
         });
     }
@@ -730,7 +730,7 @@ fn follow_motion(shared: &Rc<Shared>) {
         return;
     };
     let setting = shared.model.borrow().settings.reduced_motion;
-    env.follow_motion(setting, ui_dev::system_reduced());
+    env.follow_motion(setting, crate::web::display::system_reduced());
 }
 
 /// `__DDI_DEBUG.options`.
