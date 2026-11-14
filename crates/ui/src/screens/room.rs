@@ -674,6 +674,24 @@ pub fn own_label(r: &RoomClient) -> (String, bool) {
     }
 }
 
+/// A participant's name as the lists show it (You, a bot labeled, a
+/// CPU's own) and a CPU's level, from `member` (none: an empty name).
+pub(crate) fn participant_label(
+    r: &RoomClient,
+    member: Option<&ddi_room::Member>,
+) -> (String, Option<u8>) {
+    match member {
+        Some(mb) if mb.id == r.me() => (own_label(r).0, None),
+        Some(mb) => match &mb.kind {
+            MemberKind::Cpu { ordinal, opponent } => {
+                (cpu_name(opponent, *ordinal), Some(cpu_level(opponent)))
+            }
+            MemberKind::Human { .. } => (person_name(mb), None),
+        },
+        None => (String::new(), None),
+    }
+}
+
 /// The "You" badge's width at a name of `size` pixels, with the gap
 /// before it.
 pub fn badge_width(size: f32) -> f32 {
@@ -848,10 +866,15 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
     let s = r.state();
     let standings = s.standings().unwrap_or_default();
     let in_match = s.current.is_some() && s.phase != Phase::Lobby;
+    // Each one's standing by participant, the first where one is listed
+    // twice (as a search from the top finds it).
+    let mut by_id = std::collections::BTreeMap::new();
+    for st in &standings {
+        by_id.entry(st.participant).or_insert(st);
+    }
     let points = |id| {
-        standings
-            .iter()
-            .find(|st| st.participant == id)
+        by_id
+            .get(&id)
             .filter(|_| in_match)
             .map(|st| m::rank_points(st.rank, points_text(st.total)).into())
     };
@@ -863,9 +886,8 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                 .any(|sg| matches!(sg, StageStanding::Placed(_)))
         });
     let standing = |id| {
-        standings
-            .iter()
-            .find(|st| st.participant == id)
+        by_id
+            .get(&id)
             .filter(|_| placed)
             .map(|st| (st.rank, String::from(points_text(st.total))))
     };
@@ -1640,36 +1662,31 @@ pub enum PanelRow {
     Player(PlayerRow),
 }
 
-/// The panel's rows for the room now.
-pub fn panel_rows(r: &RoomClient) -> Vec<PanelRow> {
-    let picks = pick_rows(r);
-    let players = player_rows(r);
-    let mut rows = Vec::new();
-    let picked = picks.iter().filter(|p| p.title.is_some()).count();
-    rows.push(PanelRow::Heading(
-        m::picks_heading().into(),
-        m::picks_count(picked, picks.len()).into(),
-    ));
-    rows.extend(picks.into_iter().map(PanelRow::Pick));
-    let cap = r.state().policy.max_competitors;
-    rows.push(PanelRow::Heading(
-        m::players().into(),
-        m::players_count(players.len(), cap).into(),
-    ));
-    rows.extend(players.into_iter().map(PanelRow::Player));
+/// The panel's rows for the room now, its `players` ([`player_rows`]):
+/// the picks, then the players.
+pub fn panel_rows(r: &RoomClient, players: Vec<PlayerRow>) -> Vec<PanelRow> {
+    let mut rows = pick_panel_rows(r);
+    rows.extend(players_section(r, players));
     rows
 }
 
 /// [`panel_rows`] with the players before the picks: the Players
 /// pop-up's order (its rows are what the host acts on).
 pub fn players_first_rows(r: &RoomClient) -> Vec<PanelRow> {
-    let rows = panel_rows(r);
-    let at = rows
-        .iter()
-        .rposition(|row| matches!(row, PanelRow::Heading(..)))
-        .unwrap_or(0);
-    let (picks, players) = rows.split_at(at);
-    players.iter().chain(picks).cloned().collect()
+    let mut rows = players_section(r, player_rows(r));
+    rows.extend(pick_panel_rows(r));
+    rows
+}
+
+/// The players under their heading (how many of the room's cap).
+fn players_section(r: &RoomClient, players: Vec<PlayerRow>) -> Vec<PanelRow> {
+    let cap = r.state().policy.max_competitors;
+    let mut rows = vec![PanelRow::Heading(
+        m::players().into(),
+        m::players_count(players.len(), cap).into(),
+    )];
+    rows.extend(players.into_iter().map(PanelRow::Player));
+    rows
 }
 
 /// A row's height in the panel.
@@ -1717,11 +1734,11 @@ pub fn panel(
         last_first -= 1;
     }
     let first = first.min(last_first);
-    let room = if first > 0 || last_first > 0 {
-        height - 24.0
-    } else {
-        height
-    };
+    // A mark's room for each that shows: above where the rows begin past
+    // the first, below where they end before the last (`first` short of
+    // `last_first`, or everything not fitting from the top).
+    let marks = usize::from(first > 0 || last_first > 0) + usize::from(first > 0 && first < last_first);
+    let room = height - 24.0 * marks as f32;
     let n = panel_fit(rows, first, room);
     let mut ry = y + if first > 0 { 24.0 } else { 0.0 };
     if first > 0 {
@@ -2054,9 +2071,14 @@ fn initials(name: &str) -> String {
 /// A phone's players: one line (`Players.Strip`, a tap opens the full
 /// list) of everyone's initials (You whole), each colored by what they
 /// are doing as the panel's statuses are, then how many they are; those
-/// that do not fit are counted.
-pub fn players_strip(env: &Env, r: &RoomClient, [x, y, w, h]: [f32; 4]) -> Actor {
-    let rows = panel_order(player_rows(r));
+/// that do not fit are counted. `players`: [`player_rows`].
+pub fn players_strip(
+    env: &Env,
+    r: &RoomClient,
+    players: Vec<PlayerRow>,
+    [x, y, w, h]: [f32; 4],
+) -> Actor {
+    let rows = panel_order(players);
     let cap = r.state().policy.max_competitors;
     let mid = y + h / 2.0;
     let count: String = m::players_count(rows.len(), cap).into();

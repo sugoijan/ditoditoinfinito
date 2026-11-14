@@ -42,7 +42,7 @@ use serde::Serialize;
 
 use super::*;
 use crate::screens::play::Tier;
-use crate::screens::room::{cpu_level, cpu_name, person_name, points_text};
+use crate::screens::room::points_text;
 use crate::state::history::list_grade;
 use crate::state::room::{RoomClient, SharedRoom, StageRow, StageTable};
 use crate::state::settings::Settings;
@@ -352,16 +352,7 @@ fn summary_flow(lines: &[String], w: f32) -> Vec<String> {
 /// A participant's name as the lists show it (You, a bot labeled, a
 /// CPU's own) and a CPU's level.
 fn name_of(r: &RoomClient, id: ParticipantId) -> (String, Option<u8>) {
-    match r.member_of(id) {
-        Some(_) if id == r.me() => (crate::screens::room::own_label(r).0, None),
-        Some(mb) => match &mb.kind {
-            ddi_room::MemberKind::Cpu { ordinal, opponent } => {
-                (cpu_name(opponent, *ordinal), Some(cpu_level(opponent)))
-            }
-            ddi_room::MemberKind::Human { .. } => (person_name(mb), None),
-        },
-        None => (String::new(), None),
-    }
+    crate::screens::room::participant_label(r, r.member_of(id))
 }
 
 /// A percent in hundredths as shown ("99.50%").

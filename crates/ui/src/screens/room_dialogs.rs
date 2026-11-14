@@ -16,8 +16,8 @@ use ddi_actor::Actor;
 use ddi_l10n::UiText;
 use ddi_l10n::msg::{common, room as m};
 use ddi_room::{
-    Capability, HostLeaves, MatchDifficulty, MatchRules, MemberKind, OpponentSpec, ParticipantId,
-    Phase, PointsBias, Role, StageStanding,
+    Capability, HostLeaves, MatchDifficulty, MatchRules, OpponentSpec, ParticipantId, Phase,
+    PointsBias, Role, StageStanding,
 };
 
 use super::dialog::{button, fitted_dialog, shell, stepper};
@@ -2916,14 +2916,7 @@ impl Screen for StandingsDialog {
             None if completed => m::results_title().into(),
             None => m::results_stopped().into(),
         };
-        let name = |id| match s.member(id) {
-            Some(mb) if mb.id == r.me() => super::room::own_label(&r).0,
-            Some(mb) => match &mb.kind {
-                MemberKind::Cpu { ordinal, opponent } => cpu_name(opponent, *ordinal),
-                MemberKind::Human { .. } => super::room::person_name(mb),
-            },
-            None => String::new(),
-        };
+        let name = |id| super::room::participant_label(&r, s.member(id)).0;
         let mut lines: Vec<(String, &str)> = Vec::new();
         if let Some(mark) = &mark {
             lines.push((mark.clone(), "Secondary"));

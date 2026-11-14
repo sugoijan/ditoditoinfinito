@@ -377,16 +377,29 @@ impl SelectScreen {
         look::ellipsized(&mut status, sw);
         let strip = self.strip_height(&l);
         children.push(left(status, sx, wy - strip - STATUS_H / 2.0));
+        let following = self.following();
+        // The players are beside the song where the layout has room for
+        // them; a phone's are here, under the picks. Their rows built
+        // once for the strip and that panel.
+        let in_panel = following && l.players.is_none();
+        let mut players = if strip > 0.0 || in_panel {
+            room::player_rows(&r)
+        } else {
+            Vec::new()
+        };
         if strip > 0.0 {
-            children.push(room::players_strip(&env, &r, [sx, wy - strip, sw, STRIP_H]));
-        }
-        if self.following() {
-            // The players are beside the song where the layout has room
-            // for them; a phone's are here, under the picks.
-            let rows = if l.players.is_some() {
-                room::pick_panel_rows(&r)
+            let rows = if in_panel {
+                players.clone()
             } else {
-                room::panel_rows(&r)
+                std::mem::take(&mut players)
+            };
+            children.push(room::players_strip(&env, &r, rows, [sx, wy - strip, sw, STRIP_H]));
+        }
+        if following {
+            let rows = if in_panel {
+                room::panel_rows(&r, players)
+            } else {
+                room::pick_panel_rows(&r)
             };
             drop(r);
             let (p, first) = room::panel(

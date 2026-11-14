@@ -1300,10 +1300,36 @@ fn the_players_rows_say_each_policy_where_the_match_has_attacks() {
     };
     let t = texts(&panel);
     assert!(t.contains(&"Retaliate".to_string()) && t.contains(&"Leader".to_string()), "{t:?}");
-    let rows = super::room::panel_rows(&room.borrow());
+    let rows = {
+        let r = room.borrow();
+        super::room::panel_rows(&r, super::room::player_rows(&r))
+    };
     let (popup, _) = super::room::panel(&e, &rows, 0, [0.0, 0.0, 420.0, 600.0]);
     let t = texts(&popup);
     assert!(t.contains(&"Retaliate".to_string()) && t.contains(&"Leader".to_string()), "{t:?}");
+}
+
+/// Scrolled into the middle of a long list, the panel's rows end above
+/// its "N more below" mark: both marks have their room.
+#[test]
+fn the_panels_rows_stay_clear_of_both_marks() {
+    use super::room::PanelRow;
+    let e = env();
+    let rows: Vec<PanelRow> = (0..20)
+        .map(|k| PanelRow::Heading(format!("Row {k}"), String::new()))
+        .collect();
+    let height = 204.0;
+    let (panel, first) = super::room::panel(&e, &rows, 5, [0.0, 0.0, 300.0, height]);
+    assert_eq!(first, 5);
+    let drawn: Vec<usize> = (0..rows.len())
+        .filter(|k| crate::hit::find(&panel, &format!("Panel{k}.Heading")).is_some())
+        .collect();
+    assert!(crate::hit::find(&panel, "Panel.Up").is_some());
+    assert!(crate::hit::find(&panel, "Panel.Down").is_some());
+    // Rows of 30 from under the top mark (24), the bottom mark's 24 kept.
+    let end = 24.0 + drawn.len() as f32 * 30.0;
+    assert!(end <= height - 24.0, "{drawn:?} end at {end}");
+    assert_eq!(drawn.first(), Some(&5));
 }
 
 /// One not ready at the deadline sits the stage out: the prompt says so
