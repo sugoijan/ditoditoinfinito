@@ -354,7 +354,9 @@ impl LiveServer {
         room: &RoomState,
         from: ParticipantId,
         bytes: &[u8],
-        now: Millis,
+        // Nothing a batch does depends on the time it came (kept for the
+        // hosts' calls).
+        _now: Millis,
     ) -> LiveOut {
         let mut out = LiveOut::default();
         let stage = self.stage.as_ref().map_or(StageId(0), |s| s.id);
@@ -362,7 +364,7 @@ impl LiveServer {
             Ok(wire::Binary::Batch(b)) => match self.stage.as_mut() {
                 Some(s) if s.id == b.stage => {
                     let ends = b.end.is_some();
-                    match s.accept(from, b, now) {
+                    match s.accept(from, b) {
                         // A stream's end may decide the stage: at once, so
                         // the decision comes before the run the same
                         // device reports next.
@@ -863,7 +865,6 @@ impl LiveStage {
         &mut self,
         from: ParticipantId,
         b: Batch,
-        _now: Millis,
     ) -> Result<(), LiveRefusal> {
         let stage = self.id;
         let rules = self.rules;
@@ -1167,15 +1168,7 @@ impl LiveStage {
             // no ranking (one would be refused, the song left waiting).
             Phase::Stage { stage } if stage == self.id && self.decided => None,
             Phase::Stage { stage } if stage == self.id => {
-                let entrants: Vec<Entrant> = play
-                    .lineup
-                    .iter()
-                    .map(|p| Entrant {
-                        participant: *p,
-                        run: play.reports.get(p).map_or(Run::Forfeit, |r| r.run()),
-                    })
-                    .collect();
-                Some(crate::battle::rank(&entrants, room.rank_by_for(self.id)))
+                Some(crate::battle::rank(&play.entrants(), room.rank_by_for(self.id)))
             }
             _ => return,
         };

@@ -30,10 +30,10 @@ pub enum BattlePreset {
     /// the result); otherwise at the song's end. Ranked by [`rank`].
     GaugeSurvivalV0,
     /// PROVISIONAL: [`BattlePreset::GaugeSurvivalV0`] with attacks
-    /// (`crate::attacks`, [`crate::attacks::ATTACKS_V0`]): each competitor
+    /// (`crate::attacks`, [`crate::attacks::ATTACKS`]): each competitor
     /// earns power by timing, shown as a bar above life; a full bar is
     /// spent on eight shocks in someone's play; settled by
-    /// [`crate::attacks::SETTLEMENT_V0`], ranked by [`rank`] as survival.
+    /// [`crate::attacks::SETTLEMENT`], ranked by [`rank`] as survival.
     /// The match's Attacks rule (`MatchRules::attacks`: On by default in
     /// CPU practice, where attacks are offered) chooses it.
     GaugeAttacksV0,
@@ -62,11 +62,6 @@ impl BattlePreset {
     /// Its competitors earn attack power (`crate::attacks`).
     pub fn attacks(self) -> bool {
         matches!(self, Self::GaugeAttacksV0)
-    }
-
-    /// Not a decided design: what shows it says so.
-    pub fn provisional(self) -> bool {
-        true
     }
 }
 
@@ -325,8 +320,8 @@ pub fn rank(entrants: &[Entrant], by: crate::rules::RankBy) -> Vec<Vec<Finisher>
         Run::Live { score, .. } => score.is_some(),
         _ => true,
     });
-    let mut live: Vec<(u8, f64, f64, Option<Absolute>, ParticipantId)> = Vec::new();
-    let mut by_score: Vec<(u8, f64, i64, ParticipantId)> = Vec::new();
+    let mut live: Vec<(f64, f64, Option<Absolute>, ParticipantId)> = Vec::new();
+    let mut by_score: Vec<(f64, i64, ParticipantId)> = Vec::new();
     let mut out: Vec<(f64, ParticipantId)> = Vec::new();
     let mut forfeit: Vec<ParticipantId> = Vec::new();
     for e in entrants {
@@ -335,22 +330,21 @@ pub fn rank(entrants: &[Entrant], by: crate::rules::RankBy) -> Vec<Vec<Finisher>
                 life,
                 score: Some(score),
                 ..
-            } if scored => by_score.push((0, life, score, e.participant)),
+            } if scored => by_score.push((life, score, e.participant)),
             Run::Live {
                 life,
                 accuracy,
                 absolute,
                 ..
-            } => live.push((0, life, accuracy, absolute, e.participant)),
+            } => live.push((life, accuracy, absolute, e.participant)),
             Run::Out { at } => out.push((at, e.participant)),
             Run::Forfeit => forfeit.push(e.participant),
         }
     }
     live.sort_by(|a, b| {
-        a.0.cmp(&b.0)
+        b.0.total_cmp(&a.0)
             .then(b.1.total_cmp(&a.1))
-            .then(b.2.total_cmp(&a.2))
-            .then(a.4.cmp(&b.4))
+            .then(a.3.cmp(&b.3))
     });
     out.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
     forfeit.sort();
@@ -362,21 +356,21 @@ pub fn rank(entrants: &[Entrant], by: crate::rules::RankBy) -> Vec<Vec<Finisher>
     // Life, then the score (or the score, then life): equal ones share
     // a place.
     by_score.sort_by(|a, b| {
-        let (life, score) = (b.1.total_cmp(&a.1), b.2.cmp(&a.2));
+        let (life, score) = (b.0.total_cmp(&a.0), b.1.cmp(&a.1));
         match by {
             crate::rules::RankBy::Life => life.then(score),
             crate::rules::RankBy::Score => score.then(life),
         }
-        .then(a.3.cmp(&b.3))
+        .then(a.2.cmp(&b.2))
     });
-    let mut last: Option<(u8, f64, i64)> = None;
-    for (steps, life, score, id) in by_score {
+    let mut last: Option<(f64, i64)> = None;
+    for (life, score, id) in by_score {
         let f = finisher(id, Finish::Survived);
         match ranking.last_mut() {
-            Some(group) if last == Some((steps, life, score)) => group.push(f),
+            Some(group) if last == Some((life, score)) => group.push(f),
             _ => ranking.push(vec![f]),
         }
-        last = Some((steps, life, score));
+        last = Some((life, score));
     }
     // Without everyone's score: each run of equal life and accuracy,
     // split by the absolute score.
@@ -384,18 +378,18 @@ pub fn rank(entrants: &[Entrant], by: crate::rules::RankBy) -> Vec<Vec<Finisher>
     while i < live.len() {
         let same = live[i..]
             .iter()
-            .take_while(|l| l.0 == live[i].0 && l.1 == live[i].1 && l.2 == live[i].2)
+            .take_while(|l| l.0 == live[i].0 && l.1 == live[i].1)
             .count();
         // Per set of the same notes (none known: a set of its own), the
         // distinct scores from the best: a competitor's level is its
         // score's place among them.
-        let level = |l: &(u8, f64, f64, Option<Absolute>, ParticipantId)| -> usize {
-            let Some(mine) = l.3 else {
+        let level = |l: &(f64, f64, Option<Absolute>, ParticipantId)| -> usize {
+            let Some(mine) = l.2 else {
                 return 0;
             };
             let mut better: Vec<i64> = live[i..i + same]
                 .iter()
-                .filter_map(|o| o.3)
+                .filter_map(|o| o.2)
                 .filter(|o| o.most == mine.most && o.score > mine.score)
                 .map(|o| o.score)
                 .collect();
@@ -404,7 +398,7 @@ pub fn rank(entrants: &[Entrant], by: crate::rules::RankBy) -> Vec<Vec<Finisher>
             better.len()
         };
         let mut levels: Vec<(usize, ParticipantId)> =
-            live[i..i + same].iter().map(|l| (level(l), l.4)).collect();
+            live[i..i + same].iter().map(|l| (level(l), l.3)).collect();
         levels.sort();
         let mut last: Option<usize> = None;
         for (level, id) in levels {
@@ -662,15 +656,14 @@ mod tests {
     }
 
     #[test]
-    fn the_preset_is_named_versioned_and_provisional() {
+    fn the_preset_is_named_and_versioned() {
         let a = BattlePreset::GaugeAttacksV0;
         assert_eq!(BattlePreset::parse(a.id()), Some(a));
-        assert!(a.attacks() && a.provisional());
+        assert!(a.attacks());
         let p = BattlePreset::GaugeSurvivalV0;
         assert!(!p.attacks());
         assert_eq!(BattlePreset::parse(p.id()), Some(p));
         assert_eq!(BattlePreset::parse("provisional-standard"), None);
-        assert!(p.provisional());
     }
 
     #[test]

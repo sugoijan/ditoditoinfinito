@@ -17,7 +17,8 @@
 //!   stalls the others; the chart's safe sections come with the pick
 //!   ([`plan`]: the room cannot read charts), checked by digest.
 //! - **Settlement by the room**: the stage confirmed once it is decided
-//!   (`SETTLEMENT_V0`), from the streams' outs and the ledger.
+//!   (`crate::attacks::SETTLEMENT`), from the streams' outs and the
+//!   ledger.
 //!
 //! [`server::LiveServer`] is the room's side, sans-IO (the server's room
 //! and [`crate::fake::FakeServer`] run it); [`client::LiveLink`] the

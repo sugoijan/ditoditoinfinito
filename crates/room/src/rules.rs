@@ -322,7 +322,6 @@ fn is_zero(v: &u64) -> bool {
 }
 
 impl ReadinessPolicy {
-    pub const HOSTED_DEADLINE_V0: &'static str = "hosted-deadline-v0";
     pub const HOSTED_DEADLINE_V1: &'static str = "hosted-deadline-v1";
     pub const HOSTED_DEADLINE_V2: &'static str = "hosted-deadline-v2";
     /// PROVISIONAL (`hosted-deadline-v2`, the maintainer's choice): the

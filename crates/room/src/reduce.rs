@@ -5,7 +5,7 @@
 //! client mirror applying the events holds the same state.
 
 use crate::awards::{Finish, Finisher, StageResult};
-use crate::battle::{BattlePreset, Entrant, ReportedRun, Run, RunDetail};
+use crate::battle::{ReportedRun, RunDetail};
 use crate::command::{Actor, CancelReason, Command, Event, RankingProblem, Rejection};
 use crate::ids::{Millis, ParticipantId, Revision, StageId};
 use crate::member::{Capability, Connection, Intent, Member, MemberKind, Role, can};
@@ -1621,30 +1621,12 @@ impl RoomState {
     /// who never reported are forfeits), ranked by the match's battle as
     /// practice ranks it (`battle::rank`), then the song's end.
     fn settle(&mut self, stage: StageId, out: &mut Vec<Event>) {
-        let Some((entrants, preset, standing)) = self.current.as_ref().and_then(|m| {
+        // Every preset ranks alike, an unknown one as survival does.
+        let Some(ranking) = self.current.as_ref().and_then(|m| {
             let play = m.stage(stage)?.play.as_ref()?;
-            let entrants: Vec<Entrant> = play
-                .lineup
-                .iter()
-                .map(|id| Entrant {
-                    participant: *id,
-                    run: play
-                        .reports
-                        .get(id)
-                        .map_or(Run::Forfeit, |r: &ReportedRun| r.run()),
-                })
-                .collect();
-            let rules = m.rules_for(stage);
-            Some((entrants, BattlePreset::parse(&rules.battle), rules.charts.rank_by()))
+            Some(crate::battle::rank(&play.entrants(), m.rules_for(stage).charts.rank_by()))
         }) else {
             return;
-        };
-        // Both presets rank alike; an unknown id ranks as survival does
-        // (`BattlePreset::GaugeSurvivalV0`).
-        let ranking = match preset.unwrap_or(BattlePreset::GaugeSurvivalV0) {
-            BattlePreset::GaugeSurvivalV0 | BattlePreset::GaugeAttacksV0 => {
-                crate::battle::rank(&entrants, standing)
-            }
         };
         if self.confirm(stage, &ranking, out).is_ok() {
             self.end_song(stage, out);

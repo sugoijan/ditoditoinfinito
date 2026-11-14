@@ -11,10 +11,10 @@
 //! next-match draft (`rules`), ordered stages and their content, each
 //! participant's participation per match and stage, loading and readiness,
 //! and connection. Provisional choices sit behind named, versioned types:
-//! `rules::ReadinessPolicy::HOSTED_DEADLINE_V0`,
+//! `rules::ReadinessPolicy` (`hosted-deadline-v2`),
 //! `battle::BattlePreset::GaugeSurvivalV0`; attack power's ledger,
-//! `attacks::StageBattle` under `attacks::ATTACKS_V0` and
-//! `attacks::POWER_CLASSES_V0`.
+//! `attacks::StageBattle` under `attacks::ATTACKS` (`attacks-v3`) and
+//! `attacks::POWER_CLASSES_V0`, settled by `attacks::SETTLEMENT`.
 //!
 //! Commands and events travel in a versioned envelope (`protocol`); the
 //! shells talk to a `RoomAuthority`: the deterministic `LocalAuthority`

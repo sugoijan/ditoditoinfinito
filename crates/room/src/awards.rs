@@ -214,21 +214,6 @@ impl AwardRule {
         }
     }
 
-    /// Not a decided design: the retired rules and development's. Every
-    /// rule this build awards in a real room is the maintainer's (the
-    /// eight-player table, read up and down the field); the screens no
-    /// longer mark any result.
-    pub fn experimental(self) -> bool {
-        !matches!(
-            self,
-            Self::EightPlayerV1
-                | Self::EightPlayerScaledV1
-                | Self::TopBiasedStrongV1
-                | Self::TopBiasedMediumV1
-                | Self::TopBiasedMildV1
-        )
-    }
-
     /// The award for each occupied position of a `field`-starter stage, best
     /// first, or `None` where this rule does not apply.
     pub fn awards(self, field: usize) -> Option<Vec<u64>> {
@@ -571,7 +556,6 @@ mod tests {
         let scheme = AwardScheme::PlacementPointsV1;
         let rule = scheme.rule_for(8, PointsBias::Strong).unwrap();
         assert_eq!(rule, AwardRule::EightPlayerV1);
-        assert!(!rule.experimental());
         let ranking = vec![
             group(&[1, 2]),
             group(&[3]),
@@ -608,7 +592,6 @@ mod tests {
             // The bias changes nothing at eight or fewer.
             for bias in PointsBias::ALL {
                 let rule = AwardScheme::PlacementPointsV1.rule_for(n, bias).unwrap();
-                assert!(!rule.experimental(), "{n}");
                 assert_eq!(rule.awards(n), Some(table.clone()), "{n}");
             }
         }
@@ -685,7 +668,6 @@ mod tests {
         // Development practice awards any field, linearly.
         let dev = AwardScheme::DevelopmentV0.rule_for(129, s).unwrap();
         assert_eq!(dev, AwardRule::DevelopmentLinearV0);
-        assert!(dev.experimental());
         assert_eq!(dev.awards(129).unwrap()[..2], [129, 128]);
     }
 
@@ -704,7 +686,6 @@ mod tests {
         let table = |bias, n| {
             let rule = AwardScheme::PlacementPointsV1.rule_for(n, bias).unwrap();
             assert_eq!(rule, AwardRule::top_biased(bias));
-            assert!(!rule.experimental());
             rule.awards(n).unwrap()
         };
         let strong = PointsBias::Strong;
@@ -824,7 +805,6 @@ mod tests {
         // An authority one build behind awarded nine so; it is still read.
         let old: AwardRule = serde_json::from_str(r#""experimental_nine_v0""#).unwrap();
         assert_eq!(old, AwardRule::ExperimentalNineV0);
-        assert!(old.experimental());
         assert_eq!(old.awards(9).unwrap()[8], 0);
         // ...and never chosen by this build.
         for bias in PointsBias::ALL {

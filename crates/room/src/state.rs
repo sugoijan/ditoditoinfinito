@@ -4,7 +4,7 @@
 //! holds the same state.
 
 use crate::awards::{Finish, Placement, StageResult};
-use crate::battle::{ReportedRun, RunDetail};
+use crate::battle::{Entrant, ReportedRun, Run, RunDetail};
 use crate::ids::{
     ChartKey, ContentId, Identity, MatchId, Millis, ParticipantId, Revision, RoomId, StageId,
 };
@@ -406,6 +406,18 @@ pub struct StagePlay {
 }
 
 impl StagePlay {
+    /// The starters as the battle ranks them: each its own report's run,
+    /// a forfeit where none came.
+    pub fn entrants(&self) -> Vec<Entrant> {
+        self.lineup
+            .iter()
+            .map(|id| Entrant {
+                participant: *id,
+                run: self.reports.get(id).map_or(Run::Forfeit, |r| r.run()),
+            })
+            .collect()
+    }
+
     /// Its lineup has no CPU: its result comes from its starters' reports.
     pub fn self_reported(&self, members: &BTreeMap<ParticipantId, Member>) -> bool {
         !self

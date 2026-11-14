@@ -45,25 +45,25 @@ pub fn supported(version: u32) -> bool {
     (OLDEST_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&version)
 }
 
-/// The room model's revision (round B1, 2026-11-13): raised whenever a
-/// round changes what peers must agree on (awards, roles, capabilities,
-/// seeds, the live contract). 1 holds round B1's changes; 2 the attack
-/// rules' second version (`attacks-v2`, `settlement-v1`: the ledger every
-/// device and the room run must be the same); 3 adaptive charts
-/// (`adaptive-v0`: the Charts rule, a ladder with rungs above the
-/// stage's chart in every device's battle plan, a stage ranked by the
-/// score under it); 4 `attacks-v3` (a launch placed only within its
-/// window of song time, the match's Attacks at once in every device's
-/// battle plan); 5 `cpu-levels-v1` (a CPU's level an ability the same on
-/// every chart: every device computes the same CPUs); 6 `adaptive-v1`
-/// (sixteen bars back up to a chart whose life ran out, a chart closed
-/// once life ran out on it twice: every device steps everyone alike); 7
-/// `cpu-play-v1` (a CPU plays the chart a person is given, its holds,
-/// rolls, lifts and mines, its score its own: every device computes the
-/// same CPUs); 8 `hosted-deadline-v2` (a loading grace before the Ready
-/// countdown, in every mirror's window) and `adaptive-v2` (a step up that
-/// also needs the two best judgments, a step down's breather without its
-/// extra second: every device steps everyone alike). A client says
+/// The room model's revision: raised whenever a round changes what peers
+/// must agree on (awards, roles, capabilities, seeds, the live contract):
+///
+/// 1. round B1 (2026-11-13);
+/// 2. `attacks-v2`, `settlement-v1` (the ledger every device and the room
+///    run);
+/// 3. `adaptive-v0` (the Charts rule's ladder in every battle plan, a
+///    stage ranked by the score under it);
+/// 4. `attacks-v3` (a launch only within its window, the match's Attacks
+///    at once in every battle plan);
+/// 5. `cpu-levels-v1` (a CPU's level the same ability on every chart);
+/// 6. `adaptive-v1` (sixteen bars back up, a chart closed after two
+///    empty lives);
+/// 7. `cpu-play-v1` (a CPU plays the chart a person is given, its score
+///    its own);
+/// 8. `hosted-deadline-v2` (the loading grace) and `adaptive-v2` (a step
+///    up needs the two best judgments, a step down's breather shorter).
+///
+/// A client says
 /// its revision where the authority first hears from it (`model` in the
 /// join's, the ticket's and the audience join's request bodies); an
 /// authority refuses a client whose revision is lower than its own
