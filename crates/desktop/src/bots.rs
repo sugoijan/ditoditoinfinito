@@ -764,7 +764,7 @@ impl Bot {
             if job.stage != SPOTLIGHT {
                 self.say(format!("loading stage {}", stage_number(&room, job.stage)));
             }
-            crate::room::prepare_online_with(self.news.as_ref(), &room, job);
+            crate::room::prepare_online_with(self.news.as_ref(), &room, job, None);
         }
         let uploads = room.borrow_mut().take_upload_jobs();
         for job in uploads {

@@ -15,6 +15,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::mpsc::{Sender, channel};
 
 use ddi_library::manifest::ManifestEntry;
@@ -30,7 +31,7 @@ use ddi_ui::state::place::MenuPlace;
 use ddi_ui::state::settings::Settings;
 use ddi_ui::state::room::{
     Inbox, LivePrep, LoadJob, LoadProblem, RoomClient, SharedRoom, ShellNews, UploadJob, picked_of,
-    prepare_chart, prepare_stage,
+    prepare_stage,
 };
 
 use crate::preview::SharedPlayer;
@@ -183,29 +184,30 @@ pub fn upload_with(tx: &NewsTx, job: UploadJob) {
     }
 }
 
+/// A check of a stage's song as its preparation read it (a bot's: its
+/// CPU plans the chart), on the thread that read it: the job, the song
+/// and its chart's index. Refused, the stage fails to load.
+pub type SongCheck =
+    Arc<dyn Fn(&LoadJob, ddi_chart::Song, usize) -> Result<(), LoadProblem> + Send + Sync>;
+
 /// An online room's stage song prepared on this device: the host's from
 /// the library at once; a member's from the room's share, read into the
 /// cache on a thread and found by the digest chosen (its news to the
 /// online room's [`inbox`]).
 pub fn prepare_online(room: &SharedRoom, job: LoadJob) {
-    prepare_online_with(news().as_ref(), room, job);
+    prepare_online_with(news().as_ref(), room, job, None);
 }
 
-/// [`prepare_online`], a share's news to `tx`.
-pub fn prepare_online_with(tx: Option<&NewsTx>, room: &SharedRoom, job: LoadJob) {
+/// [`prepare_online`], a share's news to `tx`, the song as read checked
+/// by `check` where there is one.
+pub fn prepare_online_with(
+    tx: Option<&NewsTx>,
+    room: &SharedRoom,
+    job: LoadJob,
+    check: Option<SongCheck>,
+) {
     let Some(share) = job.share.clone() else {
-        let result = crate::play::load::read_chart(&job.song)
-            .map_err(|e| {
-                eprintln!("room: stage song {} unreadable: {e:?}", job.song);
-                LoadProblem::Unreadable
-            })
-            .and_then(|song| {
-                prepare_stage(&job, &song, &mut |e| {
-                    eprintln!("room: stage song {}: {e}", job.song)
-                })
-            });
-        room.borrow_mut()
-            .finish_load_live(&job, result.map(|p| p.live));
+        prepare_library(room, &job, true, check.as_ref());
         return;
     };
     let Some(tx) = tx.map(|t| t.0.clone()) else {
@@ -225,6 +227,9 @@ pub fn prepare_online_with(tx: Option<&NewsTx>, room: &SharedRoom, job: LoadJob)
                     LoadProblem::Unreadable
                 })?;
                 let prepared = prepare_stage(&job, &song, &mut |e| eprintln!("room: {e}"))?;
+                if let Some(check) = &check {
+                    check(&job, song, prepared.index)?;
+                }
                 let first = loaded.songs.first().ok_or(LoadProblem::Download)?;
                 Ok(Box::new(SharedSong {
                     entry: first.entry.clone(),
@@ -286,7 +291,7 @@ pub fn prepare_audience(job: LoadJob) {
     }
     let tx = AUDIENCE_NEWS.with_borrow(Clone::clone);
     // A share's preparation never touches the room it is given.
-    prepare_online_with(tx.as_ref(), &current(), job);
+    prepare_online_with(tx.as_ref(), &current(), job, None);
 }
 
 /// The room of the stage played last (the practice room otherwise): its
@@ -527,7 +532,7 @@ fn room_shell(
         RoomCall::Discard => close(true, cx),
         RoomCall::Redirect(r) => redirect(&r),
         RoomCall::Prepare(job) if room.borrow().is_online() => prepare_online(&room, job),
-        RoomCall::Prepare(job) => prepare(&room, &job, library),
+        RoomCall::Prepare(job) => prepare_library(&room, &job, library, None),
         RoomCall::Upload(job) => upload(*job),
         // Its prompt over the room (`crate::play::host`): Ready, the
         // play, its results; its outcome reported before them. The sample
@@ -630,23 +635,31 @@ pub fn report(outcome: ddi_session::battle::StageOutcome) -> Option<ddi_ui::stat
     room.borrow().match_end()
 }
 
-/// Prepares a stage's song: its chart read from the library (as a play
-/// reads it) and the CPUs' plan checked; the room told it loaded or why
-/// not. The sample songs (no library) have no chart: prepared at once.
-fn prepare(room: &SharedRoom, job: &ddi_ui::state::room::LoadJob, library: bool) {
+/// Prepares a stage's song from the library (practice's, and an online
+/// room's without a share): its chart read (as a play reads it), the
+/// CPUs' plan checked and what live play needs where the room plays live,
+/// then `check` (a bot's); the room told it loaded or why not. Without a
+/// library (`library`: the sample songs) a song not found has no chart:
+/// prepared at once.
+fn prepare_library(room: &SharedRoom, job: &LoadJob, library: bool, check: Option<&SongCheck>) {
     let result = match crate::play::load::read_chart(&job.song) {
-        Ok(song) => prepare_chart(job, &song, &mut |e| {
+        Ok(song) => prepare_stage(job, &song, &mut |e| {
             eprintln!("room: stage song {}: {e}", job.song)
         })
-        .map(|_| ()),
+        .and_then(|prepared| {
+            if let Some(check) = check {
+                check(job, song, prepared.index)?;
+            }
+            Ok(prepared.live)
+        }),
         // A sample song (no library): nothing to read.
-        Err(ddi_ui::screens::failures::LoadFailure::NoSong) if !library => Ok(()),
+        Err(ddi_ui::screens::failures::LoadFailure::NoSong) if !library => Ok(None),
         Err(e) => {
             eprintln!("room: stage song {} unreadable: {e:?}", job.song);
             Err(LoadProblem::Unreadable)
         }
     };
-    room.borrow_mut().finish_load(job, result);
+    room.borrow_mut().finish_load_live(job, result);
 }
 
 /// The room's song select over the library (`songs`; the sample songs
