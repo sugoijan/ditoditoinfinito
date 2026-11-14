@@ -23,8 +23,10 @@ use ddi_room::audience::public::{PublicContent, PublicKind, PublicView};
 use serde::Serialize;
 
 use super::Env;
-use super::page::{Action, Block, PAGE_CHANGED, PageCall, PageDoc, PageFeed, PageScreen, PageTitle};
-use crate::screen::{Cx, Handled, Input, Screen};
+use super::page::{
+    Action, Block, FedPage, PageCall, PageDoc, PageFeed, PageModel, PageScreen, PageTitle,
+};
+use crate::screen::Cx;
 use crate::state::audience::{AudienceClient, Refused, SeatState, SharedAudience};
 use crate::state::online::Redirect;
 use crate::state::room::{LoadJob, StageOrder};
@@ -312,18 +314,21 @@ pub fn doc(a: &AudienceClient) -> PageDoc {
 pub const WATCH: &str = "watch";
 
 /// The audience's page over its client.
-pub struct AudienceScreen {
+pub type AudienceScreen = FedPage<AudiencePage>;
+
+/// What the audience's page follows: the seat's client, and what it hands
+/// on to the shell.
+pub struct AudiencePage {
     env: Env,
-    page: PageScreen,
     audience: SharedAudience,
-    feed: PageFeed,
     shell: AudienceShell,
-    seen: u64,
     /// What the debug view was last published for ([`Self::env_publish`]).
     published: Option<(u64, u32, Option<u32>, u32, u64)>,
-    time: f64,
     /// Watch was offered when last laid out (it is focused as it comes).
     offered: bool,
+    /// A stage handed over this frame, given to the shell once the page
+    /// followed.
+    order: Option<StageOrder>,
 }
 
 impl AudienceScreen {
@@ -364,70 +369,29 @@ impl AudienceScreen {
         };
         let page =
             PageScreen::new(env.clone(), "audience", first).with_shell(page_shell, feed.clone());
-        let seen = audience.borrow().version();
-        AudienceScreen {
+        let model = AudiencePage {
             env,
-            page,
             audience,
-            feed,
             shell,
-            seen,
             published: None,
-            time: 0.0,
             offered: false,
-        }
+            order: None,
+        };
+        FedPage::fed(page, feed, model)
     }
 }
 
-impl Screen for AudienceScreen {
-    fn shared_bars(&self) -> bool {
-        true
+impl PageModel for AudiencePage {
+    fn version(&self) -> u64 {
+        self.audience.borrow().version()
     }
 
-    fn name(&self) -> &str {
-        self.page.name()
+    fn doc(&self) -> PageDoc {
+        doc(&self.audience.borrow())
     }
 
-    fn build(&mut self, cx: &mut Cx) -> ddi_actor::Actor {
-        self.page.build(cx)
-    }
-
-    fn input(&mut self, input: &Input, root: &mut ddi_actor::Actor, cx: &mut Cx) -> Handled {
-        self.page.input(input, root, cx)
-    }
-
-    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
-        self.page.presentation()
-    }
-
-    fn active_element(&self, focused: Option<&str>) -> Option<String> {
-        self.page.active_element(focused)
-    }
-
-    fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
-        self.page.cursor(target)
-    }
-
-    fn animating(&self) -> bool {
-        self.page.animating()
-    }
-
-    fn wake_at(&self) -> Option<f64> {
+    fn tick(&mut self, cx: &mut Cx) {
         // The seat's socket and the room's view come while nothing moves.
-        Some(self.time + 0.1)
-    }
-
-    fn focusables(&self) -> Vec<crate::nav::Focusable> {
-        self.page.focusables()
-    }
-
-    fn message(&mut self, msg: &crate::Message, root: &mut ddi_actor::Actor, cx: &mut Cx) {
-        self.page.message(msg, root, cx);
-    }
-
-    fn update(&mut self, dt: f32, root: &mut ddi_actor::Actor, cx: &mut Cx) {
-        self.time = cx.time();
-        self.page.update(dt, root, cx);
         let now = (cx.clock() * 1000.0).max(0.0) as u64;
         let (jobs, order, redirect) = {
             let mut a = self.audience.borrow_mut();
@@ -441,30 +405,27 @@ impl Screen for AudienceScreen {
         if let Some(r) = redirect {
             (self.shell)(AudienceCall::Redirect(r), cx);
         }
-        let version = self.audience.borrow().version();
+        self.order = order;
         self.env_publish();
-        if version != self.seen {
-            self.seen = version;
-            let d = doc(&self.audience.borrow());
-            *self.feed.borrow_mut() = Some(d);
-            self.page.message(&crate::Message::new(PAGE_CHANGED), root, cx);
-        }
+    }
+
+    fn after(&mut self, page: &mut PageScreen, root: &mut ddi_actor::Actor, cx: &mut Cx) {
         // Watch focused first as it comes (Enter or Start presses it).
         let offered = self.audience.borrow().watchable().is_some();
         if offered && !self.offered {
-            if self.page.focus_button(WATCH, root, cx) {
+            if page.focus_button(WATCH, root, cx) {
                 self.offered = true;
             }
         } else if !offered {
             self.offered = false;
         }
-        if let Some(order) = order {
+        if let Some(order) = self.order.take() {
             (self.shell)(AudienceCall::Watch(Box::new(order)), cx);
         }
     }
 }
 
-impl AudienceScreen {
+impl AudiencePage {
     /// Says what the seat shows (`ThemeState::audience`), when anything
     /// it says changed: the client's version, or the counts that move
     /// without it.

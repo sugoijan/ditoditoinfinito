@@ -1705,3 +1705,102 @@ impl Screen for PageScreen {
         }
     }
 }
+
+/// What a page fed by a model shows and does between its frames
+/// ([`FedPage`]): the multiplayer's pages over their clients.
+pub trait PageModel {
+    /// Moves whenever what the page shows may have changed.
+    fn version(&self) -> u64;
+    /// The page as the model has it now.
+    fn doc(&self) -> PageDoc;
+    /// Each frame, before the page follows the model: its polls, and what
+    /// it hands on to the shell.
+    fn tick(&mut self, cx: &mut Cx);
+    /// Each frame, after the page followed the model.
+    fn after(&mut self, _page: &mut PageScreen, _root: &mut Actor, _cx: &mut Cx) {}
+}
+
+/// A page fed by a versioned model: its document again (through its
+/// feed) whenever the version moved, the model looked at ten times a
+/// second while nothing moves.
+pub struct FedPage<M> {
+    page: PageScreen,
+    feed: PageFeed,
+    model: M,
+    seen: u64,
+    time: f64,
+}
+
+impl<M: PageModel> FedPage<M> {
+    /// `page` fed through `feed` by `model`, shown as it is now.
+    pub(crate) fn fed(page: PageScreen, feed: PageFeed, model: M) -> FedPage<M> {
+        let seen = model.version();
+        FedPage {
+            page,
+            feed,
+            model,
+            seen,
+            time: 0.0,
+        }
+    }
+}
+
+impl<M: PageModel> Screen for FedPage<M> {
+    fn shared_bars(&self) -> bool {
+        true
+    }
+
+    fn name(&self) -> &str {
+        self.page.name()
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        self.page.build(cx)
+    }
+
+    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        self.page.input(input, root, cx)
+    }
+
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        self.page.presentation()
+    }
+
+    fn active_element(&self, focused: Option<&str>) -> Option<String> {
+        self.page.active_element(focused)
+    }
+
+    fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
+        self.page.cursor(target)
+    }
+
+    fn animating(&self) -> bool {
+        self.page.animating()
+    }
+
+    fn wake_at(&self) -> Option<f64> {
+        // Answers come while nothing moves: looked for ten times a second.
+        Some(self.time + 0.1)
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        self.page.focusables()
+    }
+
+    fn message(&mut self, msg: &Message, root: &mut Actor, cx: &mut Cx) {
+        self.page.message(msg, root, cx);
+    }
+
+    fn update(&mut self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+        self.time = cx.time();
+        self.page.update(dt, root, cx);
+        self.model.tick(cx);
+        let version = self.model.version();
+        if version != self.seen {
+            self.seen = version;
+            *self.feed.borrow_mut() = Some(self.model.doc());
+            self.page.message(&Message::new(PAGE_CHANGED), root, cx);
+        }
+        self.model.after(&mut self.page, root, cx);
+    }
+}

@@ -20,7 +20,7 @@ use ddi_l10n::msg::room as m;
 
 use super::Env;
 use super::page::{
-    Action, Block, PAGE_CHANGED, PageCall, PageDoc, PageFeed, PageScreen, PageTitle,
+    Action, Block, FedPage, PageCall, PageDoc, PageFeed, PageModel, PageScreen, PageTitle,
 };
 use crate::screen::{Cx, Handled, Input, Screen};
 use crate::state::online::api::{self, Admission, Preview, Problem};
@@ -329,20 +329,23 @@ fn invite_doc(online: &Online) -> PageDoc {
     }
 }
 
-/// Join by link or an invite's page, over the online state.
-struct OnlinePageScreen {
-    page: PageScreen,
+/// Join by link or an invite's page, over the online state: what the page
+/// follows and hands on to the shell.
+struct OnlinePageModel {
     online: SharedOnline,
     which: OnlinePage,
-    feed: PageFeed,
     draft: Rc<RefCell<Draft>>,
     shell: OnlineShell,
-    seen: u64,
-    time: f64,
 }
 
-impl OnlinePageScreen {
-    fn new(env: Env, online: SharedOnline, which: OnlinePage, shell: OnlineShell) -> Self {
+impl OnlinePageModel {
+    /// Its page ([`FedPage`]).
+    fn page(
+        env: Env,
+        online: SharedOnline,
+        which: OnlinePage,
+        shell: OnlineShell,
+    ) -> FedPage<OnlinePageModel> {
         {
             let mut o = online.borrow_mut();
             match &which {
@@ -446,69 +449,26 @@ impl OnlinePageScreen {
             })
         };
         let page = PageScreen::new(env, name, first).with_shell(page_shell, feed.clone());
-        let seen = online.borrow().version();
-        OnlinePageScreen {
-            page,
+        let model = OnlinePageModel {
             online,
             which,
-            feed,
             draft,
             shell,
-            seen,
-            time: 0.0,
-        }
+        };
+        FedPage::fed(page, feed, model)
     }
 }
 
-impl Screen for OnlinePageScreen {
-    fn shared_bars(&self) -> bool {
-        true
+impl PageModel for OnlinePageModel {
+    fn version(&self) -> u64 {
+        self.online.borrow().version()
     }
 
-    fn name(&self) -> &str {
-        self.page.name()
+    fn doc(&self) -> PageDoc {
+        doc(&self.which, &self.online.borrow(), &self.draft.borrow())
     }
 
-    fn build(&mut self, cx: &mut Cx) -> ddi_actor::Actor {
-        self.page.build(cx)
-    }
-
-    fn input(&mut self, input: &Input, root: &mut ddi_actor::Actor, cx: &mut Cx) -> Handled {
-        self.page.input(input, root, cx)
-    }
-
-    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
-        self.page.presentation()
-    }
-
-    fn active_element(&self, focused: Option<&str>) -> Option<String> {
-        self.page.active_element(focused)
-    }
-
-    fn cursor(&self, target: &crate::hit::Target) -> Option<crate::request::Cursor> {
-        self.page.cursor(target)
-    }
-
-    fn animating(&self) -> bool {
-        self.page.animating()
-    }
-
-    fn wake_at(&self) -> Option<f64> {
-        // Answers come while nothing moves: looked for ten times a second.
-        Some(self.time + 0.1)
-    }
-
-    fn focusables(&self) -> Vec<crate::nav::Focusable> {
-        self.page.focusables()
-    }
-
-    fn message(&mut self, msg: &crate::Message, root: &mut ddi_actor::Actor, cx: &mut Cx) {
-        self.page.message(msg, root, cx);
-    }
-
-    fn update(&mut self, dt: f32, root: &mut ddi_actor::Actor, cx: &mut Cx) {
-        self.time = cx.time();
-        self.page.update(dt, root, cx);
+    fn tick(&mut self, cx: &mut Cx) {
         let now = (cx.clock() * 1000.0).max(0.0) as u64;
         let (redirect, entered, seated) = {
             let mut o = self.online.borrow_mut();
@@ -530,14 +490,6 @@ impl Screen for OnlinePageScreen {
         if let Some(room) = entered {
             (self.shell)(OnlineCall::EnterRoom(room), cx);
         }
-        let version = self.online.borrow().version();
-        if version != self.seen {
-            self.seen = version;
-            let d = doc(&self.which, &self.online.borrow(), &self.draft.borrow());
-            *self.feed.borrow_mut() = Some(d);
-            self.page
-                .message(&crate::Message::new(PAGE_CHANGED), root, cx);
-        }
     }
 }
 
@@ -551,7 +503,7 @@ impl OnlineScreen {
     pub fn new(env: Env, online: SharedOnline, which: OnlinePage, shell: OnlineShell) -> Self {
         let inner: Box<dyn Screen> = match which {
             OnlinePage::Home => Box::new(super::online_home::Home::new(env, online, shell)),
-            which => Box::new(OnlinePageScreen::new(env, online, which, shell)),
+            which => Box::new(OnlinePageModel::page(env, online, which, shell)),
         };
         OnlineScreen { inner }
     }
