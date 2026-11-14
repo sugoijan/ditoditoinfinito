@@ -710,8 +710,7 @@ impl Shell {
     pub fn close_requested(&mut self) {
         if !self.quitting
             && !self.close_after_play
-            && self.play.stage_playing()
-            && crate::room::stage_room().borrow().leave_cost().is_some()
+            && self.play.stage_leave_costs()
             && self.play.leave_stage_play()
         {
             self.close_after_play = true;

@@ -18,7 +18,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc::{Sender, channel};
 
-use ddi_room::StageId;
 use ddi_ui::Cx;
 use ddi_ui::screens::Env;
 use ddi_ui::screens::online::{OnlineCall, OnlinePage, OnlineScreen, OnlineShell};
@@ -37,40 +36,161 @@ use crate::songs::Songs;
 
 thread_local! {
     static ROOM: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
-    /// The room of the stage handed to the play host last.
-    static PLAYING: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
     /// Where the online room's threads send their news ([`inbox`]).
     static NEWS: RefCell<Option<Sender<ShellNews>>> = const { RefCell::new(None) };
-    /// The stage handed to the play host to watch with the room's
-    /// audience, and its seat's client ([`audience_stage`]).
-    static WATCHING: RefCell<Option<(StageId, ddi_ui::state::audience::SharedAudience)>> =
-        const { RefCell::new(None) };
     /// Where the audience's threads send theirs ([`audience_inbox`]).
     static AUDIENCE_NEWS: RefCell<Option<NewsTx>> = const { RefCell::new(None) };
-    /// TESTS ONLY: the wall clock a live stage's play reads the room's
-    /// clock through ([`live_handle`]), where a test runs on a fake one.
-    static TEST_WALL: RefCell<Option<Rc<dyn Fn() -> u64>>> = const { RefCell::new(None) };
 }
 
-/// TESTS ONLY (an offscreen live stage on a fake clock): the wall clock
-/// (ms since the epoch) a live stage's play reads, and the room its stage
-/// is played in (as a pick's prompt hands it over), in place of the
-/// system's and the room screen's.
-pub fn set_live_for_tests(room: SharedRoom, wall_ms: Rc<dyn Fn() -> u64>) {
-    PLAYING.with_borrow_mut(|p| *p = Some(room));
-    TEST_WALL.with_borrow_mut(|w| *w = Some(wall_ms));
+/// The room a stage handed to the play host is of (`crate::play::Request`
+/// carries it): a member's client, or a seat's in the room's audience, and
+/// the wall clock (ms since the epoch) a live stage's play reads the
+/// room's clock through (the system's; a test's fake one).
+#[derive(Clone)]
+pub struct StageRoom {
+    pub client: StageClient,
+    pub wall_ms: Rc<dyn Fn() -> u64>,
 }
 
-/// TESTS ONLY (an offscreen audience's stage on a fake clock): stage
-/// `stage` watched with the room's audience through `audience`, the wall
-/// clock its play reads `wall_ms` (as the audience's page hands it over).
-pub fn set_audience_for_tests(
-    stage: StageId,
-    audience: ddi_ui::state::audience::SharedAudience,
-    wall_ms: Rc<dyn Fn() -> u64>,
-) {
-    WATCHING.with_borrow_mut(|w| *w = Some((stage, audience)));
-    TEST_WALL.with_borrow_mut(|w| *w = Some(wall_ms));
+/// Whose client a stage's room is.
+#[derive(Clone)]
+pub enum StageClient {
+    /// A member's (practice's or an online room's): the stage is theirs to
+    /// play, report or leave.
+    Member(SharedRoom),
+    /// A seat's in the room's audience: its play is fed by it and reports
+    /// nothing.
+    Audience(ddi_ui::state::audience::SharedAudience),
+}
+
+impl StageRoom {
+    /// Member `room`'s, on the system's wall clock.
+    pub fn member(room: SharedRoom) -> StageRoom {
+        StageRoom {
+            client: StageClient::Member(room),
+            wall_ms: Rc::new(crate::clock::now_ms),
+        }
+    }
+
+    /// Watched with the room's audience through `seat`, on the system's
+    /// wall clock.
+    pub fn audience(seat: ddi_ui::state::audience::SharedAudience) -> StageRoom {
+        StageRoom {
+            client: StageClient::Audience(seat),
+            wall_ms: Rc::new(crate::clock::now_ms),
+        }
+    }
+
+    /// The member's room, where the stage is theirs.
+    pub fn room(&self) -> Option<&SharedRoom> {
+        match &self.client {
+            StageClient::Member(r) => Some(r),
+            StageClient::Audience(_) => None,
+        }
+    }
+
+    /// Watched with the room's audience.
+    pub fn is_audience(&self) -> bool {
+        matches!(self.client, StageClient::Audience(_))
+    }
+
+    /// The local player's attack policy as stage `order`'s play starts: the
+    /// one they have in its room now where it is the room's stage (it may
+    /// have changed on the stage's prompt), else the order's own.
+    pub fn targeting(
+        &self,
+        order: &ddi_ui::state::room::StageOrder,
+    ) -> ddi_room::attacks::Targeting {
+        let Some(room) = self.room() else {
+            return order.targeting;
+        };
+        let r = room.borrow();
+        if r.me() == order.me && r.stage_started(order.stage) {
+            r.my_targeting()
+        } else {
+            order.targeting
+        }
+    }
+
+    /// Stage `order`'s room client for its play, where the room plays it
+    /// live (`ddi_session::battle::live`): the play starts at the room's
+    /// instant and streams through it (watched with the room's audience,
+    /// its seat's client feeds it).
+    pub fn live_handle(
+        &self,
+        order: &ddi_ui::state::room::StageOrder,
+    ) -> Option<ddi_session::battle::live::LiveHandle> {
+        order.live.as_ref()?;
+        let room: Rc<RefCell<dyn ddi_ui::state::room::LiveRoom>> = match &self.client {
+            StageClient::Member(r) => r.clone(),
+            StageClient::Audience(a) => a.clone(),
+        };
+        Some(ddi_session::battle::live::LiveHandle {
+            room,
+            wall_ms: self.wall_ms.clone(),
+        })
+    }
+
+    /// A stage's outcome (`ddi_session::battle`), reported to the room that
+    /// handed it over (`ddi_session::battle::report_outcome`: the policy the
+    /// play left the player with kept for the next stage wherever the stage
+    /// had attacks, online too). How the match ended for the player, where
+    /// that was its last stage (an online room's is not known yet: `None`).
+    /// Watched with the audience: nothing is reported (it is no member).
+    pub fn report(
+        &self,
+        outcome: ddi_session::battle::StageOutcome,
+    ) -> Option<ddi_ui::state::room::MatchEnd> {
+        let room = self.room()?;
+        let reported = ddi_session::battle::report_outcome(&mut room.borrow_mut(), outcome);
+        if let Err(why) = reported.taken {
+            eprintln!("room: the stage's outcome was refused: {why:?}");
+        }
+        reported.ending
+    }
+
+    /// A stage's prompt left (its Back, M7b;
+    /// `ddi_session::battle::leave_prompt`): before the room started it,
+    /// the player withdraws; once on, a forfeit, an online room's as the
+    /// player's own report, a practice's CPUs played to their end on
+    /// `song` (as read) and the stage reported; without a song to play
+    /// them on, the match stops. Watched with the room's audience: nothing
+    /// to leave (it is no member).
+    pub fn leave_prompt(
+        &self,
+        order: &ddi_ui::state::room::StageOrder,
+        song: Option<&ddi_chart::Song>,
+    ) {
+        use ddi_session::battle::LeftPrompt;
+        let Some(room) = self.room() else {
+            return;
+        };
+        match ddi_session::battle::leave_prompt(&mut room.borrow_mut(), order, song) {
+            LeftPrompt::Forfeited(Err(why)) => eprintln!("room: the forfeit was refused: {why:?}"),
+            LeftPrompt::Lost(Some(e)) => eprintln!("room: stage {}: {e}", order.number),
+            _ => {}
+        }
+    }
+}
+
+impl std::fmt::Debug for StageRoom {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.is_audience() {
+            "StageRoom(audience)"
+        } else {
+            "StageRoom(member)"
+        })
+    }
+}
+
+impl PartialEq for StageRoom {
+    fn eq(&self, other: &StageRoom) -> bool {
+        match (&self.client, &other.client) {
+            (StageClient::Member(a), StageClient::Member(b)) => Rc::ptr_eq(a, b),
+            (StageClient::Audience(a), StageClient::Audience(b)) => Rc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
 }
 
 /// Where an online room's threads send their news: one room client's
@@ -195,21 +315,6 @@ pub fn prepare_online_with(
     }
 }
 
-/// The audience's client watching `order`, where it was handed over to
-/// watch with the room's audience ([`audience_screen`]).
-pub fn audience_stage(
-    order: &ddi_ui::state::room::StageOrder,
-) -> Option<ddi_ui::state::audience::SharedAudience> {
-    if !order.for_audience() {
-        return None;
-    }
-    WATCHING.with_borrow(|w| {
-        w.as_ref()
-            .filter(|(s, _)| *s == order.stage)
-            .map(|(_, a)| a.clone())
-    })
-}
-
 /// The room watched with its audience's inbox: its stages' songs read
 /// from the room's share on threads ([`prepare_audience`]).
 pub fn audience_inbox() -> ddi_ui::state::audience::AudienceInbox {
@@ -227,64 +332,6 @@ pub fn prepare_audience(job: LoadJob) {
     let tx = AUDIENCE_NEWS.with_borrow(Clone::clone);
     // A share's preparation never touches the room it is given.
     prepare_online_with(tx.as_ref(), &current(), job, None);
-}
-
-/// The room of the stage played last (the practice room otherwise): its
-/// outcome goes there, its results ask it how the stage went.
-pub fn stage_room() -> SharedRoom {
-    PLAYING.with_borrow(Clone::clone).unwrap_or_else(current)
-}
-
-/// The local player's attack policy as stage `order`'s play starts: the
-/// one they have in its room now where it is the room's stage (it may
-/// have changed on the stage's prompt), else the order's own.
-pub fn stage_targeting(order: &ddi_ui::state::room::StageOrder) -> ddi_room::attacks::Targeting {
-    let room = stage_room();
-    let r = room.borrow();
-    if r.me() == order.me && r.stage_started(order.stage) {
-        r.my_targeting()
-    } else {
-        order.targeting
-    }
-}
-
-/// Stage `order`'s room client for its play, where the room plays it live
-/// (`ddi_session::battle::live`): the play starts at the room's instant
-/// and streams through it.
-pub fn live_handle(
-    order: &ddi_ui::state::room::StageOrder,
-) -> Option<ddi_session::battle::live::LiveHandle> {
-    order.live.as_ref()?;
-    let wall_ms = TEST_WALL
-        .with_borrow(Clone::clone)
-        .unwrap_or_else(|| Rc::new(crate::clock::now_ms));
-    // Watched with the room's audience: its seat's client feeds it.
-    if let Some(a) = audience_stage(order) {
-        return Some(ddi_session::battle::live::LiveHandle { room: a, wall_ms });
-    }
-    Some(ddi_session::battle::live::LiveHandle {
-        room: stage_room(),
-        wall_ms,
-    })
-}
-
-/// A stage's prompt left (its Back, M7b;
-/// `ddi_session::battle::leave_prompt`): before the room started it, the
-/// player withdraws; once on, a forfeit, an online room's as the player's
-/// own report, a practice's CPUs played to their end on `song` (as read)
-/// and the stage reported; without a song to play them on, the match
-/// stops. A stage watched with the room's audience leaves nothing (it is
-/// no member).
-pub fn leave_prompt(order: &ddi_ui::state::room::StageOrder, song: Option<&ddi_chart::Song>) {
-    use ddi_session::battle::LeftPrompt;
-    if WATCHING.with_borrow(|w| w.as_ref().is_some_and(|(s, _)| *s == order.stage)) {
-        return;
-    }
-    match ddi_session::battle::leave_prompt(&mut stage_room().borrow_mut(), order, song) {
-        LeftPrompt::Forfeited(Err(why)) => eprintln!("room: the forfeit was refused: {why:?}"),
-        LeftPrompt::Lost(Some(e)) => eprintln!("room: stage {}: {e}", order.number),
-        _ => {}
-    }
 }
 
 /// The run's practice room, made at first.
@@ -315,21 +362,7 @@ pub fn develop(cpus: u16) {
 
 /// Leave room: forgotten; the next visit makes a new one.
 pub fn discard() {
-    if let Some(room) = ROOM.with(|r| r.borrow_mut().take()) {
-        forget_playing(&room);
-    }
-}
-
-/// A room left (practice's, or an online one, `crate::online::discard`):
-/// where its stage was the one handed to the play host last, that is
-/// forgotten too, so neither the room's client nor its socket's thread
-/// lives on.
-pub(crate) fn forget_playing(room: &SharedRoom) {
-    PLAYING.with_borrow_mut(|p| {
-        if p.as_ref().is_some_and(|r| Rc::ptr_eq(r, room)) {
-            *p = None;
-        }
-    });
+    ROOM.with(|r| r.borrow_mut().take());
 }
 
 /// The multiplayer home (`crate::online`): CPU practice opens the
@@ -413,10 +446,7 @@ pub fn audience_screen(
             // prompt counting down, the spectator view, then back to the
             // page (no results of its own: the page shows the stage's).
             AudienceCall::Watch(order) => {
-                let stage = order.stage;
-                if hand_to_play(&play, *order, "audience") {
-                    WATCHING.with_borrow_mut(|w| *w = Some((stage, a.clone())));
-                }
+                hand_to_play(&play, *order, StageRoom::audience(a.clone()), "audience");
             }
             // Desktop's sound needs no press.
             AudienceCall::WatchPressed => {}
@@ -464,30 +494,23 @@ fn room_shell(
         // play, its results; its outcome reported before them. The sample
         // songs (no library) have no play.
         RoomCall::PlayStage(order) => {
-            if hand_to_play(&play, *order, "room") {
-                PLAYING.with_borrow_mut(|p| *p = Some(room.clone()));
-            }
+            hand_to_play(&play, *order, StageRoom::member(room.clone()), "room");
         }
     })
 }
 
-/// Stage `order` handed to the play host through `play` (its prompt over
-/// the screens), where there is a library to play it from; whether it
-/// was (`what` names the caller in the log).
+/// Stage `order` of `room` handed to the play host through `play` (its
+/// prompt over the screens), where there is a library to play it from
+/// (`what` names the caller in the log).
 fn hand_to_play(
     play: &Option<Rc<RefCell<Option<crate::play::Request>>>>,
     order: ddi_ui::state::room::StageOrder,
+    room: StageRoom,
     what: &str,
-) -> bool {
+) {
     match play {
-        Some(slot) => {
-            *slot.borrow_mut() = Some(crate::play::Request::stage(order));
-            true
-        }
-        None => {
-            eprintln!("{what}: stage {}: no library to play it from", order.number);
-            false
-        }
+        Some(slot) => *slot.borrow_mut() = Some(crate::play::Request::stage(order, room)),
+        None => eprintln!("{what}: stage {}: no library to play it from", order.number),
     }
 }
 
@@ -546,23 +569,6 @@ pub fn room_screen_with(
     });
     let shell = room_shell(current(), songs.is_some(), play, close);
     select(env, current(), songs.as_ref(), sound, shell)
-}
-
-/// A stage's outcome (`ddi_session::battle`), reported to the room that
-/// handed it over (`ddi_session::battle::report_outcome`: the policy the
-/// play left the player with kept for the next stage wherever the stage
-/// had attacks, online too). How the match ended for the player, where
-/// that was its last stage (an online room's is not known yet: `None`).
-pub fn report(outcome: ddi_session::battle::StageOutcome) -> Option<ddi_ui::state::room::MatchEnd> {
-    // Watched with the audience: nothing is reported (it is no member).
-    if WATCHING.with_borrow(|w| w.as_ref().is_some_and(|(s, _)| *s == outcome.stage)) {
-        return None;
-    }
-    let reported = ddi_session::battle::report_outcome(&mut stage_room().borrow_mut(), outcome);
-    if let Err(why) = reported.taken {
-        eprintln!("room: the stage's outcome was refused: {why:?}");
-    }
-    reported.ending
 }
 
 /// Prepares a stage's song from the library (practice's, and an online

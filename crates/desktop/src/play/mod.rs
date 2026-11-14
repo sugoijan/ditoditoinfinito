@@ -91,6 +91,9 @@ pub struct Request {
     /// its CPUs, never kept, its outcome reported to the room before its
     /// results, which go back to the room.
     pub stage: Option<Rc<ddi_ui::state::room::StageOrder>>,
+    /// The room the stage is of, with it: a member's, whose outcome it is
+    /// given, or a seat's in the room's audience, which feeds its play.
+    pub stage_room: Option<crate::room::StageRoom>,
 }
 
 /// A line's scene in play, from the announcer studio
@@ -146,15 +149,17 @@ impl Request {
             scene: None,
             staging: None,
             stage: None,
+            stage_room: None,
         }
     }
 
-    /// Stage `order` of the practice room: its prompt without a countdown
-    /// or play options, the play against its CPUs.
-    pub fn stage(order: ddi_ui::state::room::StageOrder) -> Request {
+    /// Stage `order` of `room`: its prompt without play options, the play
+    /// against its CPUs (and an online room's people).
+    pub fn stage(order: ddi_ui::state::room::StageOrder, room: crate::room::StageRoom) -> Request {
         Request {
             backdrop: order.song.background.clone(),
             stage: Some(Rc::new(order.clone())),
+            stage_room: Some(room),
             // Its prompt counts down to Ready, as song select's to Start.
             countdown: true,
             ..Request::song(&order.song.id, order.chart.index, false)
@@ -215,10 +220,12 @@ impl Request {
             let mut setup = ddi_session::battle::StageSetup::of(order);
             // The policy the player has as the play starts (it may have
             // changed on the stage's prompt since the order was made).
-            setup.targeting = crate::room::stage_targeting(order);
+            if let Some(room) = &self.stage_room {
+                setup.targeting = room.targeting(order);
+                // An online room's stage played live: its room's client.
+                config.live = room.live_handle(order);
+            }
             config.opponents = Some(setup);
-            // An online room's stage played live: its room's client.
-            config.live = crate::room::live_handle(order);
         }
         // A replay: its log on the lanes, its options and rules, the
         // offsets this device needs.

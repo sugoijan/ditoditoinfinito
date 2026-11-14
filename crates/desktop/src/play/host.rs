@@ -620,9 +620,18 @@ impl Host {
     }
 
     /// A room's stage is being played (not a solo play, a replay or a
-    /// test).
-    pub fn stage_playing(&self) -> bool {
-        matches!(&self.stage, Stage::Playing(r, ..) if r.request.stage.is_some())
+    /// test) whose room leaving costs something now
+    /// (`RoomClient::leave_cost`: an online room's).
+    pub fn stage_leave_costs(&self) -> bool {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return false;
+        };
+        r.request.stage.is_some()
+            && r.request
+                .stage_room
+                .as_ref()
+                .and_then(|s| s.room())
+                .is_some_and(|room| room.borrow().leave_cost().is_some())
     }
 
     /// The player leaves the stage's play from outside it (the window
@@ -828,11 +837,10 @@ impl Host {
         // A room's stage (M7b): its prompt is the readiness check (a
         // stage watched with the audience has none: it counts down).
         if let Some(order) = &r.request.stage
-            && crate::room::audience_stage(order).is_none()
+            && let Some(room) = r.request.stage_room.as_ref().and_then(|s| s.room())
         {
-            let room = crate::room::stage_room();
-            let shell = crate::room::prompt_shell(&room);
-            prompt = prompt.with_room(room, order.stage, shell);
+            let shell = crate::room::prompt_shell(room);
+            prompt = prompt.with_room(room.clone(), order.stage, shell);
         }
         ui.push(prompt);
     }
@@ -1772,7 +1780,7 @@ impl Host {
         // interruption: a forfeit).
         if let Some(o) = play.session.take_stage_outcome() {
             self.log.push(format!("stage outcome: {:?}", o.ranking));
-            let ending = crate::room::report(o);
+            let ending = r.request.stage_room.as_ref().and_then(|s| s.report(o));
             // The results' battle line, now the room has confirmed it.
             play.session.stage_reported(ending);
         }
@@ -1896,9 +1904,9 @@ impl Host {
                     // shows the stage's result.
                     _ if play
                         .request
-                        .stage
-                        .as_deref()
-                        .is_some_and(|o| crate::room::audience_stage(o).is_some()) =>
+                        .stage_room
+                        .as_ref()
+                        .is_some_and(|s| s.is_audience()) =>
                     {
                         Stage::Idle
                     }
@@ -1921,9 +1929,9 @@ impl Host {
                     .is_some_and(|rp| rp.quit_by_viewer(&results));
                 let audience = play
                     .request
-                    .stage
-                    .as_deref()
-                    .is_some_and(|o| crate::room::audience_stage(o).is_some());
+                    .stage_room
+                    .as_ref()
+                    .is_some_and(|s| s.is_audience());
                 if audience {
                     Stage::Idle
                 } else if play.request.calibration.is_some() || viewer_quit {
@@ -2105,7 +2113,8 @@ impl Host {
         }
         // A stage's: how it went for the player, as the room confirmed it.
         if let Some(order) = &play.request.stage
-            && let Some(mark) = crate::room::stage_room().borrow().mark_of(order.stage)
+            && let Some(room) = play.request.stage_room.as_ref().and_then(|s| s.room())
+            && let Some(mark) = room.borrow().mark_of(order.stage)
         {
             notes.insert(0, ddi_ui::screens::room::mark_text(&mark));
         }
@@ -2175,13 +2184,14 @@ impl Host {
             },
         );
         // A stage's: its room's standings where the graphs are.
-        ui.push(match &play.request.stage {
+        let room = play.request.stage_room.as_ref().and_then(|s| s.room());
+        ui.push(match (&play.request.stage, room) {
             // A stage the player watched: no play of their own.
-            Some(order) if order.watching => results
-                .with_room(crate::room::stage_room(), order.stage)
-                .watched(),
-            Some(order) => results.with_room(crate::room::stage_room(), order.stage),
-            None => results,
+            (Some(order), Some(room)) if order.watching => {
+                results.with_room(room.clone(), order.stage).watched()
+            }
+            (Some(order), Some(room)) => results.with_room(room.clone(), order.stage),
+            _ => results,
         });
     }
 
@@ -2470,13 +2480,13 @@ fn read_images(
     rx
 }
 
-/// A stage left from its prompt (`crate::room::leave_prompt`): withdrawn
+/// A stage left from its prompt (`crate::room::StageRoom::leave_prompt`): withdrawn
 /// before its start; once on, a forfeit reported to the room, the CPUs
 /// played to their end; where its song could not be read, the match
 /// stopped instead.
 fn leave_stage(r: &Readied) {
-    if let Some(order) = &r.request.stage {
-        crate::room::leave_prompt(order, r.loaded.as_ref().map(|l| &l.song));
+    if let (Some(order), Some(room)) = (&r.request.stage, &r.request.stage_room) {
+        room.leave_prompt(order, r.loaded.as_ref().map(|l| &l.song));
     }
 }
 

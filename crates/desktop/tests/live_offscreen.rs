@@ -263,8 +263,9 @@ fn a_live_stage_draws_a_persons_holds_mines_a_locked_lane_and_the_adaptive_delay
     let stage = orders[0].stage;
     // Alice's play through the window's play host: its prompt (Ready),
     // the room's start, autoplayed.
-    ddi_desktop::room::set_live_for_tests(rooms[0].clone(), wall.clone());
-    let mut request = ddi_desktop::play::Request::stage(orders[0].clone());
+    let mut stage_room = ddi_desktop::room::StageRoom::member(rooms[0].clone());
+    stage_room.wall_ms = wall.clone();
+    let mut request = ddi_desktop::play::Request::stage(orders[0].clone(), stage_room);
     request.auto = true;
     *host.requested.borrow_mut() = Some(request);
     fn dev<'a>(device: &'a wgpu::Device, queue: &'a wgpu::Queue, formats: Formats) -> Device<'a> {
@@ -573,8 +574,9 @@ fn a_live_stage_with_cpus_draws_their_fields_from_this_devices_computation() {
     let orders: Vec<_> = orders.into_iter().map(|o| o.expect("a stage order")).collect();
     let stage = orders[0].stage;
     assert_eq!(orders[0].cpus.len(), 2, "the roster seated");
-    ddi_desktop::room::set_live_for_tests(rooms[0].clone(), wall.clone());
-    let mut request = ddi_desktop::play::Request::stage(orders[0].clone());
+    let mut stage_room = ddi_desktop::room::StageRoom::member(rooms[0].clone());
+    stage_room.wall_ms = wall.clone();
+    let mut request = ddi_desktop::play::Request::stage(orders[0].clone(), stage_room);
     request.auto = true;
     *host.requested.borrow_mut() = Some(request);
     fn dev<'a>(device: &'a wgpu::Device, queue: &'a wgpu::Queue, formats: Formats) -> Device<'a> {

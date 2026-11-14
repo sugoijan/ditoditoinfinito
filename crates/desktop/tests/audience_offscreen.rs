@@ -400,8 +400,9 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
         assert_eq!(audience.borrow_mut().watch_now().map(|o| o.stage), Some(stage));
     }
     // Handed to the play host as the audience's page hands it.
-    ddi_desktop::room::set_audience_for_tests(stage, audience.clone(), wall.clone());
-    *host.requested.borrow_mut() = Some(ddi_desktop::play::Request::stage(order));
+    let mut seat = ddi_desktop::room::StageRoom::audience(audience.clone());
+    seat.wall_ms = wall.clone();
+    *host.requested.borrow_mut() = Some(ddi_desktop::play::Request::stage(order, seat));
     fn dev<'a>(device: &'a wgpu::Device, queue: &'a wgpu::Queue, formats: Formats) -> Device<'a> {
         Device {
             device,

@@ -177,12 +177,9 @@ pub fn room(id: &str) -> SharedRoom {
     })
 }
 
-/// Leave room: forgotten (and with it the stage the play host was
-/// handed from it, `crate::room::forget_playing`).
+/// Leave room: forgotten.
 pub fn discard() {
-    if let Some(room) = KEPT.with(Kept::discard_room) {
-        crate::room::forget_playing(&room);
-    }
+    KEPT.with(Kept::discard_room);
 }
 
 /// The room watched with its audience by `link`
@@ -501,7 +498,6 @@ mod tests {
         // kept of it is the same.
         let room = RoomClient::shared(1, 1);
         KEPT.with(|k| k.room_or("room", || room.clone()));
-        crate::room::set_live_for_tests(room.clone(), Rc::new(|| 0));
         let kept = Rc::downgrade(&room);
         drop(room);
         discard();
