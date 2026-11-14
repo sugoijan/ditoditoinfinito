@@ -1,4 +1,4 @@
-//! `attacks-v2` and `settlement-v1` as the desktop window draws them
+//! `attacks-v3` and `settlement-v1` as the desktop window draws them
 //! (`docs/plans/multiplayer-prototype-progress.md`, "Attacks, version
 //! 2"), on this machine's GPU offscreen and a fake clock with no sound
 //! device: a CPU-practice stage whose strong CPUs all aim at the leader
