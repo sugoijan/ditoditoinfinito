@@ -48,6 +48,8 @@ pub struct Preview {
     /// or because its motion ran out (it fell behind its bound).
     load: HandStep,
     rest_at: Option<f64>,
+    /// Why it rests, when it fell behind (for the debug state).
+    rest_reason: Option<String>,
     /// Lighter: this frame keeps the last picture.
     skip_picture: bool,
 }
@@ -308,13 +310,25 @@ impl Preview {
             let time = song_time - self.origin;
             r.prepare(time, clock);
             self.ever_available |= r.available;
-            if let Some(e) = r.failure() {
+            // It fell behind its bound (its motion ran out, or a deadline
+            // of its planner's or its motion's passed while the machine
+            // was busy): it rests where it stood, its last pose kept,
+            // never taking the frame to catch up. Other failures stop it
+            // as before.
+            let behind = r.failure().map_or(r.starved_frames > 0, fell_behind);
+            if behind && self.ever_available {
+                self.rest_at = Some(song_time);
+                self.rest_reason = Some(
+                    r.failure()
+                        .unwrap_or("dancing hand motion buffer exhausted")
+                        .to_string(),
+                );
+            } else if let Some(e) = r.failure() {
                 self.runtime_error = Some(e.to_string());
                 self.failed_at = Some(time);
-            } else if r.starved_frames > 0 && self.ever_available {
-                // It fell behind its bound: it rests where it stood (its
-                // last pose kept), never taking the frame to catch up.
-                self.rest_at = Some(song_time);
+            } else if r.starved_frames > 0 {
+                self.runtime_error = Some("dancing hand motion buffer exhausted".into());
+                self.failed_at = Some(time);
             }
         }
     }
@@ -334,6 +348,7 @@ impl Preview {
         match step {
             HandStep::Full => {
                 self.rest_at = None;
+                self.rest_reason = None;
                 self.skip_picture = false;
             }
             HandStep::Lighter => {}
@@ -623,7 +638,7 @@ impl Preview {
         "origin":self.origin,"duration":self.duration,"character":character,
         "runtime":self.runtime.as_ref().map_or(Value::Null, |r| r.debug()),
         "runtime_error":self.runtime_error,"preloaded":self.preload_ready,"preload_pending":self.preload_pending(),
-        "load":self.load.name(),"rest_at":self.rest_at,
+        "load":self.load.name(),"rest_at":self.rest_at,"rest_reason":self.rest_reason,
         "status":if self.failed_at.is_some() {
             "stopped"
         } else if self.load == HandStep::Gone {
@@ -640,6 +655,18 @@ impl Preview {
             "warming"
         }})
     }
+}
+
+/// Whether a failure of the hand's preparation is its falling behind
+/// time (a deadline its planner's search or its motion's preparation
+/// missed, its motion running out) rather than a chart it cannot play:
+/// on a busy machine it rests rather than stops.
+fn fell_behind(failure: &str) -> bool {
+    failure.starts_with("ContactTimeout")
+        || matches!(
+            failure,
+            "runtime_stream_starved" | "runtime_publication_deadline" | "runtime_unprepared_window"
+        )
 }
 
 /// The most the hand behind the field is larger than its picture would
@@ -960,6 +987,20 @@ mod preload_tests {
         assert!(starved, "{}", p.debug());
         assert_eq!(p.debug()["status"], "resting");
         assert!(p.playing() && p.runtime_error.is_none() && p.failed_at.is_none());
+    }
+
+    /// What counts as falling behind (it rests) and what as a chart the
+    /// hand cannot play (it stops, as before).
+    #[test]
+    fn falling_behind_is_time_not_a_chart() {
+        assert!(fell_behind("ContactTimeout: search budget"));
+        assert!(fell_behind("runtime_stream_starved"));
+        assert!(fell_behind("runtime_publication_deadline"));
+        assert!(fell_behind("runtime_unprepared_window"));
+        assert!(!fell_behind("ContactFailure: no accepted boundary continuation"));
+        assert!(!fell_behind("runtime_lift_release"));
+        assert!(!fell_behind("initial hand motion missed its first contact deadline"));
+        assert!(!fell_behind("restart play after a seek in rolling contact preview"));
     }
 
     /// The settings offer the hand on the layouts its planner places on

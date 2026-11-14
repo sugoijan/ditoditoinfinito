@@ -37,6 +37,9 @@ const FIRST_COST: f64 = 0.000_005;
 const LEARN: f64 = 0.05;
 /// The expected cost of a checkpoint stays within these, seconds.
 const COST_RANGE: [f64; 2] = [0.000_000_2, 0.002];
+/// A clock that has never been seen to move by less than this (seconds)
+/// is too coarse to keep the bound by: the work counted keeps it.
+const COARSE_CLOCK: f64 = 0.000_25;
 
 /// What a checkpoint of each stage of the planner and the motion's
 /// preparation is expected to cost (seconds), learnt from what whole
@@ -122,8 +125,10 @@ pub struct RuntimePreview {
     pub peak_work_ms: f64,
     pub starved_frames: usize,
     pub resets: usize,
-    /// What each stage's checkpoint is expected to cost ([`Costs`]).
+    /// What each stage's checkpoint is expected to cost ([`Costs`]), and
+    /// the smallest step the clock was seen to take (seconds).
     costs: Costs,
+    resolution: f64,
     /// The share of a frame it may take, of its usual
     /// ([`RuntimePreview::set_share`]).
     share: f64,
@@ -240,6 +245,7 @@ impl RuntimePreview {
             starved_frames: 0,
             resets: 0,
             costs: Costs::default(),
+            resolution: f64::INFINITY,
             share: 1.,
             bound_ms: 0.,
             expected_ms: 0.,
@@ -450,9 +456,11 @@ impl RuntimePreview {
             self.request_motion(now);
 
             // One read a pass: each checkpoint begins when the last one
-            // ended, and only where the clock and the work counted both
-            // leave room for it (the first always: the hand moves on).
+            // ended, and only where the clock leaves room for it, and on
+            // a coarse clock the work counted too (the first always: the
+            // hand moves on).
             let mut at = clock();
+            let coarse = self.resolution > COARSE_CLOCK;
             let mut expected = 0f64;
             let mut counts: Vec<(&'static str, u32)> = Vec::new();
             for _ in 0..100000 {
@@ -462,12 +470,15 @@ impl RuntimePreview {
                 }
                 let stage = self.stage_now();
                 let cost = self.costs.of(stage);
-                if !counts.is_empty() && expected.max(elapsed) + cost > budget {
+                if coarse && !counts.is_empty() && expected.max(elapsed) + cost > budget {
                     break;
                 }
                 let Some(ended) = self.step(now, at, clock) else {
                     break;
                 };
+                if ended > at {
+                    self.resolution = self.resolution.min(ended - at);
+                }
                 expected += cost;
                 match counts.iter_mut().find(|(s, _)| *s == stage) {
                     Some((_, n)) => *n += 1,
@@ -539,7 +550,7 @@ impl RuntimePreview {
         let p = &self.planner.report;
         let planning_report=p.last.as_ref().map(|r|serde_json::json!({"status":r.status,"search_seconds":r.search_seconds,"checkpoints":r.checkpoints,"reason":r.reason,"judge":r.judge,"attempts":r.attempts}));
         serde_json::json!({"target_policy":"tile-centers-with-shared-slots","origin":self.origin,"duration":self.duration,"source_notes":self.source.len(),"window":self.window,"stage":if self.planner.stage()=="idle" {self.runtime.as_ref().map_or("idle",|r|r.stage())}else{self.planner.stage()},"available":self.available,
-            "headroom":report.covered_until-self.last_time.unwrap_or(0.).max(0.),"work_ms":self.work_ms,"peak_work_ms":self.peak_work_ms,"starved_frames":self.starved_frames,"bound":{"share":self.share,"bound_ms":self.bound_ms,"expected_ms":self.expected_ms,"frames_over":self.frames_over,"most_over_ms":self.most_over_ms,"costs_us":self.costs.stages.iter().map(|(s,c)|(s.to_string(),c*1e6)).collect::<std::collections::BTreeMap<_,_>>()},"presentation_revisions":self.presentation_revisions,"resets":self.resets,"report":report,"error":self.error,
+            "headroom":report.covered_until-self.last_time.unwrap_or(0.).max(0.),"work_ms":self.work_ms,"peak_work_ms":self.peak_work_ms,"starved_frames":self.starved_frames,"bound":{"share":self.share,"clock_resolution_ms":self.resolution*1000.,"bound_ms":self.bound_ms,"expected_ms":self.expected_ms,"frames_over":self.frames_over,"most_over_ms":self.most_over_ms,"costs_us":self.costs.stages.iter().map(|(s,c)|(s.to_string(),c*1e6)).collect::<std::collections::BTreeMap<_,_>>()},"presentation_revisions":self.presentation_revisions,"resets":self.resets,"report":report,"error":self.error,
             "planner":{"source":"chart","mode":"rolling","window":self.window,"stage":self.planner.stage(),"known_until":p.known_until,"certified_until":p.certified_until,
                 "publications":p.publications,"checkpoints":p.checkpoints,"peak_retained":p.peak_retained,"removed_notes":p.removed,"received_notes":p.received,
                 "events":p.committed_heads,"holds":p.committed_holds,"active_ms":self.planning_ms,"peak_checkpoint_ms":self.planning_peak_ms,"report":planning_report,"at_once":"two","failure":p.failure}})
@@ -1243,5 +1254,111 @@ mod tests {
             assert_eq!(Some(r.source.len()), given);
             assert!(player.gauge_failed_at().is_some());
         }
+    }
+
+    /// The hand's preparation on the real clock as a play paces it: a
+    /// frame every 1/120 s of real time (slept to), the song's time the
+    /// real time, Beatucada's Challenge for 40 s; `DDI_HAND_THREADS=N`
+    /// busy threads compete for the CPU meanwhile. Run by hand, release
+    /// (`--ignored --nocapture`): what a frame's preparation took (p50,
+    /// p95, p99, most), how many frames it took past 2 ms and 4.17 ms (a
+    /// quarter and a half of the refresh), and whether the hand kept up.
+    #[test]
+    #[ignore = "a measurement on the real clock"]
+    fn measure_the_hand_paced_in_real_time() {
+        let threads: usize = std::env::var("DDI_HAND_THREADS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs/beatucada");
+        let path = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|e| e == "ssc"))
+            .unwrap();
+        let song = ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc")
+            .unwrap();
+        let chart = song
+            .charts
+            .iter()
+            .position(|c| {
+                c.layout == "dance-single"
+                    && c.difficulty == ddi_chart::Difficulty::Challenge
+                    && c.derivation.is_none()
+            })
+            .unwrap();
+        let player = ddi_engine::player::Player::new(
+            &song,
+            chart,
+            ddi_engine::rules::ddi::ruleset(&ddi_engine::rules::ddi::DdiOptions::default()),
+            Default::default(),
+        );
+        let mut r = RuntimePreview::for_player(&player, "dance-single").unwrap();
+        let real = std::time::Instant::now();
+        let clock = || real.elapsed().as_secs_f64();
+        for _ in 0..200_000 {
+            r.prepare(-1., &clock);
+            if r.available || r.failure().is_some() {
+                break;
+            }
+        }
+        assert!(r.available);
+        r.start_preloaded();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let busy: Vec<_> = (0..threads)
+            .map(|_| {
+                let stop = stop.clone();
+                std::thread::spawn(move || {
+                    let mut x = 0u64;
+                    while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                        x = x.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    }
+                    x
+                })
+            })
+            .collect();
+        let start = clock();
+        let mut work = Vec::new();
+        let mut late = 0;
+        let mut frame = 0u32;
+        let mut failed = None;
+        while clock() - start < 40. {
+            frame += 1;
+            let due = start + f64::from(frame) / 120.;
+            let now = clock();
+            if now < due {
+                std::thread::sleep(std::time::Duration::from_secs_f64(due - now));
+            } else if now - due > 1. / 120. {
+                late += 1;
+            }
+            let t = clock() - start;
+            let before = clock();
+            r.prepare(t - r.origin, &clock);
+            work.push((clock() - before) * 1000.);
+            if failed.is_none() && (r.failure().is_some() || !r.available) {
+                failed = Some((t, r.failure().map(str::to_string), r.starved_frames));
+            }
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        for b in busy {
+            let _ = b.join();
+        }
+        let n = work.len();
+        let mut sorted = work.clone();
+        sorted.sort_by(f64::total_cmp);
+        let p = |q: f64| sorted[((n - 1) as f64 * q) as usize];
+        println!(
+            "threads {threads}: frames {n}, late starts {late}; prepare ms p50 {:.3} p95 {:.3} p99 {:.3} max {:.3}; over 2 ms {}, over 4.17 ms {}; starved {}; stopped {:?}",
+            p(0.5),
+            p(0.95),
+            p(0.99),
+            p(1.),
+            work.iter().filter(|w| **w > 2.).count(),
+            work.iter().filter(|w| **w > 4.17).count(),
+            r.starved_frames,
+            failed
+        );
     }
 }
