@@ -493,8 +493,9 @@ async fn put(url: &str, auth: &str, grant: bool, blob: &web_sys::Blob) -> Result
     checked(r, grant).await.map(|_| ())
 }
 
-/// A response that is not a success, as an error (a grant's refusals
-/// with their code, `ddi_library::share::grant_refusal`).
+/// A response that is not a success, as an error with the server's body
+/// (a grant's refusals with their code,
+/// `ddi_library::share::grant_refusal`), as desktop reads it.
 async fn checked(
     r: gloo::net::http::Response,
     grant: bool,
@@ -503,12 +504,12 @@ async fn checked(
         return Ok(r);
     }
     let status = r.status();
-    if grant {
-        let body = r.text().await.ok();
-        Err(ddi_library::share::grant_refusal(status, body.as_deref()))
+    let body = r.text().await.ok();
+    Err(if grant {
+        ddi_library::share::grant_refusal(status, body.as_deref())
     } else {
-        Err(ddi_library::share::refusal(status, None))
-    }
+        ddi_library::share::refusal(status, body.as_deref())
+    })
 }
 
 /// The shares the token may see (`GET <base>/s`), each with its link.
