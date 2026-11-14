@@ -47,8 +47,10 @@ use ddi_room::{
     StageId,
 };
 use ddi_session::battle::{Rung, StageRules, StageSetup};
+
+use crate::clock::now_ms;
 use ddi_ui::screens::data::{ChartEntry, SongEntry};
-use ddi_ui::state::online::{Account, Online, OnlineConfig, Platform, SharedOnline};
+use ddi_ui::state::online::{Account, SharedOnline};
 use ddi_ui::state::room::{
     CpuSeat, LoadProblem, RoomClient, RoomView, SPOTLIGHT, SharedRoom, StageOrder, eligible,
 };
@@ -377,12 +379,7 @@ fn parse_levels(v: &str) -> Result<(u8, u8), String> {
 pub fn spread_levels(lo: u8, hi: u8, count: usize, seed: u64) -> Vec<u8> {
     let span = usize::from(hi - lo) + 1;
     let mut x = mix(seed, 0x6c65_7665_6c73) | 1;
-    let mut next = || {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        x
-    };
+    let mut next = || xorshift(&mut x);
     let mut levels: Vec<u8> = if count >= span {
         (0..count).map(|n| lo + (n % span) as u8).collect()
     } else {
@@ -397,6 +394,15 @@ pub fn spread_levels(lo: u8, hi: u8, count: usize, seed: u64) -> Vec<u8> {
     levels
 }
 
+/// A step of a small seeded shuffle's xorshift: `x` moved on, and its
+/// new value.
+fn xorshift(x: &mut u64) -> u64 {
+    *x ^= *x << 13;
+    *x ^= *x >> 7;
+    *x ^= *x << 17;
+    *x
+}
+
 /// The run's bots' profiles: the names given, else the CPU roster's in an
 /// order drawn from `seed`; each its roster level and personality unless
 /// the options set them (a named bot not on the roster: level 8,
@@ -407,10 +413,7 @@ pub fn profiles(o: &Options, count: usize, seed: u64) -> Vec<Profile> {
     // A small seeded shuffle: the same seed, the same bots.
     let mut x = seed | 1;
     for i in (1..order.len()).rev() {
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        order.swap(i, (x % (i as u64 + 1)) as usize);
+        order.swap(i, (xorshift(&mut x) % (i as u64 + 1)) as usize);
     }
     let levels = o
         .level
@@ -528,7 +531,7 @@ impl StagePlay {
     ) -> Result<(), String> {
         let handle = ddi_session::battle::live::LiveHandle {
             room: room.clone(),
-            wall_ms: Rc::new(now_ms_fn),
+            wall_ms: Rc::new(crate::clock::now_ms),
         };
         self.live =
             ddi_session::battle::live::LivePlay::new(handle, order, song, order.chart.index)?;
@@ -646,12 +649,10 @@ fn mix(a: u64, b: u64) -> u64 {
     x ^ (x >> 29)
 }
 
-fn now_ms() -> u64 {
-    crate::clock::epoch_ms().max(0.0) as u64
-}
 
-fn now_ms_fn() -> u64 {
-    now_ms()
+/// A line of the log: the time, the bot's name, what it says.
+fn say(name: &str, text: &str) {
+    println!("{} {name:<18} {text}", clock_text());
 }
 
 fn clock_text() -> String {
@@ -743,12 +744,7 @@ struct Bot {
 
 impl Bot {
     fn say(&self, text: impl AsRef<str>) {
-        println!(
-            "{} {:<18} {}",
-            clock_text(),
-            self.profile.name,
-            text.as_ref()
-        );
+        say(&self.profile.name, text.as_ref());
     }
 
     fn host_invite(&self) -> Option<String> {
@@ -823,9 +819,8 @@ impl Bot {
                 host,
                 &room,
                 now,
-                &self.profile,
                 self.order.is_some(),
-                &mut |t| println!("{} {:<18} {t}", clock_text(), self.profile.name),
+                &mut |t| say(&self.profile.name, &t),
             );
         }
     }
@@ -1125,7 +1120,6 @@ impl Bot {
         host: &mut Host,
         room: &SharedRoom,
         now: u64,
-        _profile: &Profile,
         busy: bool,
         say: &mut dyn FnMut(String),
     ) {
@@ -1535,15 +1529,12 @@ pub fn run_with(o: Options, token: &str) -> i32 {
                 return 1;
             }
         };
-        let online = Online::new(
-            Box::new(crate::online::ThreadHttp::with_base(base.clone())),
-            OnlineConfig {
-                platform: Platform::Desktop,
-                site: site.clone(),
-            },
-        )
-        .with_token(Some(session), Rc::new(|_: Option<&str>| {}))
-        .shared();
+        let online = crate::online::session(
+            base.clone(),
+            site.clone(),
+            Some(session),
+            Rc::new(|_: Option<&str>| {}),
+        );
         let role = if o.host && n == 0 {
             Role::Host(Box::new(Host {
                 songs: songs.clone(),
@@ -2031,15 +2022,12 @@ fn run_audience(o: &Options, token: &str) -> i32 {
                 return 1;
             }
         };
-        let online = Online::new(
-            Box::new(crate::online::ThreadHttp::with_base(base.clone())),
-            OnlineConfig {
-                platform: Platform::Desktop,
-                site: site.clone(),
-            },
-        )
-        .with_token(Some(session), Rc::new(|_: Option<&str>| {}))
-        .shared();
+        let online = crate::online::session(
+            base.clone(),
+            site.clone(),
+            Some(session),
+            Rc::new(|_: Option<&str>| {}),
+        );
         online.borrow_mut().check();
         for _ in 0..2.min(o.audience - seats.len()) {
             seats.push((

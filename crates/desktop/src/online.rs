@@ -126,18 +126,35 @@ pub fn current() -> SharedOnline {
     ONLINE.with(|o| {
         o.borrow_mut()
             .get_or_insert_with(|| {
-                Online::new(
-                    Box::new(ThreadHttp::new()),
-                    OnlineConfig {
-                        platform: Platform::Desktop,
-                        site: site(),
-                    },
+                session(
+                    crate::share::base(),
+                    site(),
+                    load_token(),
+                    Rc::new(save_token),
                 )
-                .with_token(load_token(), Rc::new(save_token))
-                .shared()
             })
             .clone()
     })
+}
+
+/// An online state against the server at `base`, invite links on
+/// `site`, with session `token`, a refreshed one handed to `save` (the
+/// run's, and each bot's, `crate::bots`).
+pub fn session(
+    base: String,
+    site: String,
+    token: Option<String>,
+    save: ddi_ui::state::online::SaveToken,
+) -> SharedOnline {
+    Online::new(
+        Box::new(ThreadHttp::with_base(base)),
+        OnlineConfig {
+            platform: Platform::Desktop,
+            site,
+        },
+    )
+    .with_token(token, save)
+    .shared()
 }
 
 /// A fresh client id for this run (the server keeps each one's last
@@ -161,7 +178,7 @@ pub fn room(id: &str) -> SharedRoom {
         id,
         Box::new(SocketTransport::default()),
         client_id(),
-        crate::clock::epoch_ms().max(0.0) as u64,
+        crate::clock::now_ms(),
     )));
     // Its uploads' and downloads' threads report here.
     room.borrow_mut().set_inbox(crate::room::inbox());
@@ -193,7 +210,7 @@ pub fn audience(link: &str, ticket: Option<String>) -> SharedAudience {
         link,
         Box::new(SocketTransport::audience(None)),
         ticket,
-        crate::clock::epoch_ms().max(0.0) as u64,
+        crate::clock::now_ms(),
     )));
     a.borrow_mut().set_inbox(crate::room::audience_inbox());
     AUDIENCE.with_borrow_mut(|x| *x = Some((link.into(), a.clone())));

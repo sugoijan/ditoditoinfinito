@@ -322,7 +322,7 @@ pub fn live_handle(
     order.live.as_ref()?;
     let wall_ms = TEST_WALL
         .with_borrow(Clone::clone)
-        .unwrap_or_else(|| Rc::new(|| crate::clock::epoch_ms().max(0.0) as u64));
+        .unwrap_or_else(|| Rc::new(crate::clock::now_ms));
     // Watched with the room's audience: its seat's client feeds it.
     if let Some(a) = audience_stage(order) {
         return Some(ddi_session::battle::live::LiveHandle { room: a, wall_ms });
@@ -363,7 +363,7 @@ pub fn current() -> SharedRoom {
     let room = ROOM.with(|r| {
         r.borrow_mut()
             .get_or_insert_with(|| {
-                let now = crate::clock::epoch_ms().max(0.0) as u64;
+                let now = crate::clock::now_ms();
                 match DEVELOPMENT_CPUS.get() {
                     0 => RoomClient::shared(now, now),
                     cpus => std::rc::Rc::new(std::cell::RefCell::new(RoomClient::development(

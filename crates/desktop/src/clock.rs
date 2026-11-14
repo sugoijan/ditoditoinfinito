@@ -22,6 +22,12 @@ pub fn epoch_ms() -> f64 {
         .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
 }
 
+/// Whole milliseconds since the Unix epoch (0 before it): the rooms'
+/// wall clock.
+pub fn now_ms() -> u64 {
+    epoch_ms().max(0.0) as u64
+}
+
 /// Nanoseconds since the epoch, now.
 pub fn now_ns() -> u64 {
     nanos_since(Instant::now())
