@@ -12,6 +12,7 @@ use ddi_ui::state::room::{RoomClient, StageOrder, check_chart};
 const CHART: usize = 1;
 
 mod live;
+mod pinned;
 mod rule_changes;
 mod step_down;
 

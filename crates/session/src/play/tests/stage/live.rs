@@ -2520,3 +2520,93 @@ fn a_live_stage_with_cpus_plays_them_alike_on_every_device() {
         assert!(play.details.contains_key(id), "{id:?}'s detail");
     }
 }
+
+/// A live stage's battle as every device reads it frame by frame
+/// (`super::pinned::trace`: links, warnings, bars, views, the room's
+/// decision as told), pinned by digests recorded before the battle's
+/// parallel copies were merged: two people and a watcher, with CPUs and
+/// without (the room deciding the stage early), a person late on every
+/// note going out and watching on.
+#[test]
+fn a_live_stage_shows_and_decides_as_pinned() {
+    let song = bundled("beatucada");
+    let mut digests = Vec::new();
+    for cpus in [true, false] {
+        let r = Room::new(
+            &[
+                ("alice", Intent::Play),
+                ("bob", Intent::Play),
+                ("carol", Intent::Watch),
+            ],
+            Some(Latency {
+                down_ms: 30,
+                down_jitter_ms: 60,
+                up_ms: 30,
+                up_jitter_ms: 60,
+                seed: 13,
+            }),
+        );
+        for _ in 0..10 {
+            r.run(0.5);
+            if r.rooms.iter().all(|x| x.borrow().room_now().is_some()) {
+                break;
+            }
+        }
+        if cpus {
+            let mut rules = r.rooms[0].borrow().rules().clone();
+            rules.seats = 5;
+            rules.difficulty = ddi_room::MatchDifficulty::Hard;
+            rules.cpu.mode = ddi_room::CpuMode::Roster;
+            rules.cpu.roster = [(0u8, Some("reckless")), (0, None), (1, None)]
+                .into_iter()
+                .enumerate()
+                .map(|(i, (level, p))| ddi_room::OpponentSpec {
+                    level,
+                    seed: 70 + i as u64,
+                    personality: p.map(str::to_string),
+                    name: Some(format!("Robo{i}")),
+                    targeting: None,
+                })
+                .collect();
+            r.rooms[0].borrow_mut().save_rules(rules).unwrap();
+            r.run(1.0);
+        }
+        let orders = pick_and_ready(&r, &song, true, if cpus { LONG } else { CHART });
+        // Bob far late on every note: he misses all, goes out and
+        // watches on.
+        let mut plays = sessions(&r, &song, &orders, &[0.0, 5.0, 0.0]);
+        let mut traces = vec![String::new(); plays.len()];
+        let mut frame = 0u64;
+        let mut ended = play_out(&r, &mut plays, 240.0, |t, plays| {
+            frame += 1;
+            if frame.is_multiple_of(6) {
+                for (out, p) in traces.iter_mut().zip(plays.iter()) {
+                    super::pinned::trace(out, t, p);
+                }
+            }
+        });
+        for ((out, e), p) in traces.iter_mut().zip(ended.iter_mut()).zip(&plays) {
+            let (_, outcome) = e.take().expect("ended");
+            out.push_str(&format!("outcome {outcome:?}\ntold {:?}\n", p.battle_told()));
+        }
+        if let Ok(dir) = std::env::var("DDI_PIN_DUMP") {
+            for (i, t) in traces.iter().enumerate() {
+                let _ = std::fs::write(format!("{dir}/live {cpus} {i}.txt"), t);
+            }
+        }
+        digests.extend(traces.iter().map(|t| super::pinned::fnv(t)));
+    }
+    eprintln!("{digests:#x?}");
+    assert_eq!(digests, LIVE_PINNED);
+}
+
+/// [`a_live_stage_shows_and_decides_as_pinned`]'s digests, recorded
+/// before the merge.
+const LIVE_PINNED: &[u64] = &[
+    0xda3deedeb4797263,
+    0xd7c46bad3323d37d,
+    0x84fab45a7e19aa05,
+    0x1af3b987e3ae5ab5,
+    0x250f8f53aeed8c03,
+    0x587abcff4b479208,
+];
