@@ -80,8 +80,9 @@ pub enum Run {
     /// proportional part, points over the most their notes give), where
     /// the ruleset counts one (DDI) their absolute score, and the score
     /// as the room shows it and ranks by it ([`rank`]): under DDI the
-    /// sum (the proportional part plus the absolute score), a CPU's put
-    /// on the chart's own scale by whoever judged it.
+    /// sum (the proportional part plus the absolute score); a CPU's its
+    /// own (it plays the whole chart; before `cpu-play-v1`, put on the
+    /// chart's scale by whoever judged it).
     Live {
         life: f64,
         accuracy: f64,
@@ -217,9 +218,8 @@ impl ReportedRun {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RunDetail {
     /// The ruleset's score where it counts one, as shown (money; DDI's
-    /// score, the sum of its proportional part and its absolute score, a
-    /// CPU's put on the chart's own scale: `ddi_engine`'s
-    /// `CPU_SCORE_V0`).
+    /// score, the sum of its proportional part and its absolute score; a
+    /// CPU's its own, since it plays the whole chart, `cpu-play-v1`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub score: Option<i64>,
     /// Its percent in hundredths of a percent (`9950` is 99.50 %; DDI's
@@ -590,7 +590,7 @@ mod tests {
     }
 
     /// Round 3b: life, then the score (the sum), whatever notes each
-    /// played (a CPU's is on the chart's scale); equal ones tied; those
+    /// played (a CPU's its own); equal ones tied; those
     /// out and forfeits after, as ever.
     #[test]
     fn those_still_in_rank_by_life_then_the_score() {

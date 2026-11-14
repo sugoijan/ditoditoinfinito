@@ -950,8 +950,8 @@ impl GameLoop {
                     "mine_sounds": mines,
                     // A practice stage's CPUs as the play shows them:
                     // `score` a fraction of the best its notes give (the
-                    // percent), `sum` DDI's score on the chart's scale
-                    // (`CPU_SCORE_V0`), `score_shown` as its miniature
+                    // percent), `sum` DDI's score (its own: it plays the
+                    // whole chart), `score_shown` as its miniature
                     // says it, `locked` its lanes a shock locked (DDI).
                     "opponents": s.opponents().iter().enumerate().map(|(i, o)| json!({
                         "id": o.participant.0,

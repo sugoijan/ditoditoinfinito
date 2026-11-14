@@ -760,8 +760,8 @@ pub fn run_detail(
     let out = results.gauge_failed_at;
     RunDetail {
         // DDI's score as shown everywhere: the sum of the proportional
-        // part and the absolute score (a CPU's put on the chart's scale
-        // before it comes here, `ddi_session::battle::cpu_score`).
+        // part and the absolute score (a CPU's its own: it plays the
+        // whole chart, `cpu-play-v1`).
         score: match &score.ddi {
             Some(d) => Some(d.score),
             None => score.money.and_then(|m| i64::try_from(m).ok()),

@@ -91,8 +91,8 @@ pub struct Shown {
 /// What a miniature says of its opponent's score, as the local player's
 /// Score display has their own: under DDI the score (the sum of the
 /// proportional part and the absolute score, `OpponentView::sum`: a CPU's
-/// on the chart's own scale, so it compares with the player's HUD beside
-/// it) or the percent; under another ruleset the percent. Never the
+/// its own, on the whole chart as the player's, so it compares with the
+/// player's HUD beside it) or the percent; under another ruleset the percent. Never the
 /// proportional part alone.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ScoreShown {

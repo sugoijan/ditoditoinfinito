@@ -107,8 +107,8 @@ pub struct Moment {
     /// was (press − note, seconds: the judgment's early or late word; 0
     /// for a miss and a shock), whether a top hit was inside the
     /// ruleset's inner window (`JudgeTable::is_w0`; none where it has
-    /// none), and their score after it as the room shows it (a CPU's on
-    /// the chart's own scale).
+    /// none), and their score after it as the room shows it (a CPU's its
+    /// own: it plays the whole chart).
     pub offset: f32,
     pub w0: Option<bool>,
     pub score: ScoreView,

@@ -238,7 +238,7 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
         for row in &view.rows {
             assert!(row.place.is_some() && row.award.is_some(), "{row:?}");
             // DDI's score as shown everywhere: the sum (round 3b), a
-            // CPU's on the chart's own scale.
+            // CPU's its own.
             assert!(row.score.parse::<i64>().is_ok(), "{row:?}");
             assert!(!row.grade.is_empty() && !row.life.is_empty(), "{row:?}");
             assert!(row.tiers.iter().sum::<u32>() > 0, "{row:?}");

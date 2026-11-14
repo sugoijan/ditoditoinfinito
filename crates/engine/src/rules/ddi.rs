@@ -255,33 +255,6 @@ impl DdiScoreView {
         }
     }
 
-    /// This score on the scale of a chart whose notes give `most`
-    /// ([`CPU_SCORE_V0`]): the points taken as the same share of `most`
-    /// as they are of this view's own, rounded, the W0s as counted, the
-    /// proportional part and the percent unchanged; the score is then
-    /// their sum, as if the notes left out had gone as the notes played.
-    /// A view already on that scale, or with no most, is itself.
-    pub fn on_scale(&self, most: i64) -> DdiScoreView {
-        if most <= 0 || self.most <= 0 || most == self.most {
-            return *self;
-        }
-        let w0 = self.absolute - 100 * self.points;
-        let (n, d) = (
-            i128::from(self.points) * i128::from(most),
-            i128::from(self.most),
-        );
-        let points = (2 * n + d).div_euclid(2 * d) as i64;
-        let absolute = 100 * points + w0;
-        DdiScoreView {
-            points,
-            most,
-            ratio: self.ratio,
-            percent: self.percent,
-            absolute,
-            score: self.ratio + absolute,
-        }
-    }
-
     /// How two plays' scores compare for a best: the higher score (the
     /// sum, which carries the absolute score's W0s as its tie-break),
     /// then the absolute score (the best lamp is kept apart, [`Lamp`]'s
@@ -303,17 +276,14 @@ impl DdiScoreView {
     }
 }
 
-/// How a CPU's score is put beside a person's in a multiplayer stage
-/// (PROVISIONAL, `docs/plans/multiplayer-prototype-progress.md`, round
-/// 3b). A CPU plays a tap-only copy of the stage's chart (holds and rolls
-/// as taps), so the most its notes give, and with it its absolute score
-/// and the score shown, are smaller than the whole chart's wherever the
-/// chart has holds. Its score is put on the chart's own scale
-/// ([`DdiScoreView::on_scale`]): `equivalent points = round(its points ×
-/// the chart's most ÷ its own most)`, the score `its proportional part +
-/// 100 × equivalent points + its W0s`: what it would have come to had it
-/// done on the holds as it did on the taps. People play the same chart,
-/// so their scores compare as they are.
+/// How a CPU's score was put beside a person's in a multiplayer stage
+/// (round 3b, RETIRED 2026-11-14: `docs/plans/multiplayer-prototype-progress.md`,
+/// "CPUs play the full chart"). A CPU played a tap-only copy of the
+/// stage's chart, so its score was put on the chart's own scale (its
+/// points as the same share of the chart's most, its W0s as counted).
+/// Since `cpu-play-v1` a CPU plays the chart a person is given, its
+/// score is its own, and nothing puts a score on another chart's scale:
+/// the name is kept so that it is not used again for something else.
 pub const CPU_SCORE_V0: &str = "cpu-score-v0";
 
 /// DDI's point count ([`DdiScoreView`]).
@@ -735,35 +705,6 @@ mod tests {
         let v = DdiScoreView::of(-1, 3, 0);
         assert_eq!((v.ratio, v.percent, v.score), (-333_334, -3334, -333_434));
         assert_eq!(v.percent_text(), "-33.34");
-    }
-
-    /// `CPU_SCORE_V0`: a tap-only copy's score on the whole chart's scale.
-    #[test]
-    fn a_score_is_put_on_another_chart_s_scale_by_its_share_of_the_most() {
-        // 100 taps played (most 5,000), 4,000 points, 30 W0s; the whole
-        // chart has 20 hold units more (most 6,000).
-        let cpu = DdiScoreView::of(4_000, 5_000, 30);
-        assert_eq!((cpu.ratio, cpu.absolute, cpu.score), (800_000, 400_030, 1_200_030));
-        let v = cpu.on_scale(6_000);
-        // The same share of the most, the W0s as counted.
-        assert_eq!((v.points, v.most), (4_800, 6_000));
-        assert_eq!((v.ratio, v.percent), (cpu.ratio, cpu.percent));
-        assert_eq!(v.absolute, 480_030);
-        assert_eq!(v.score, 800_000 + 480_030);
-        // A perfect copy with every tap a W0 is the perfect chart less the
-        // hold units' share of nothing: the chart's own best but the W0s
-        // it cannot have.
-        let best = DdiScoreView::of(5_000, 5_000, 100).on_scale(6_000);
-        assert_eq!(best.score, 1_000_000 + 600_000 + 100);
-        assert_eq!(DdiScoreView::of(6_000, 6_000, 100).score, best.score);
-        // Rounded to the nearer point; negative points too.
-        assert_eq!(DdiScoreView::of(1, 3, 0).on_scale(4).points, 1);
-        assert_eq!(DdiScoreView::of(2, 3, 0).on_scale(4).points, 3);
-        assert_eq!(DdiScoreView::of(-10, 100, 0).on_scale(150).points, -15);
-        // The same scale, or none: as it is.
-        assert_eq!(cpu.on_scale(5_000), cpu);
-        assert_eq!(cpu.on_scale(0), cpu);
-        assert_eq!(DdiScoreView::default().on_scale(6_000), DdiScoreView::default());
     }
 
     /// A perfect 1,000-note chart with every tap a W0: the whole

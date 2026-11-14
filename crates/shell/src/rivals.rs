@@ -28,7 +28,7 @@ pub struct Standing {
     /// Out of the stage.
     pub out: bool,
     /// What it ranks by after life: the room's score (DDI's sum, a CPU's
-    /// on the chart's scale) or the percent where there is none.
+    /// its own) or the percent where there is none.
     pub score: f64,
 }
 

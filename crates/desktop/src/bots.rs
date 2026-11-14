@@ -1828,9 +1828,9 @@ mod tests {
             } => {
                 assert!((0.0..=1.0).contains(&life) && life > 0.0);
                 assert!(accuracy > 0.5 && accuracy <= 1.0, "{accuracy}");
-                // Under DDI its report carries the score, the sum on the
-                // chart's own scale (`CPU_SCORE_V0`), and its absolute
-                // part with that scale's most.
+                // Under DDI its report carries the score, the sum (its
+                // own: it plays the whole chart), and its absolute part
+                // with the chart's most.
                 let a = absolute.expect("DDI");
                 assert!(a.most > 0);
                 let ratio = (accuracy * 1_000_000.0).round() as i64;

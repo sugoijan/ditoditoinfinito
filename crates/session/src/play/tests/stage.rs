@@ -2472,7 +2472,7 @@ fn a_watched_stage_runs_its_cpus_to_its_settlement_at_any_frame_rate() {
         assert_eq!(
             large.score.ddi.map(|d| d.score),
             s.opponents()[0].sum,
-            "on the chart's scale"
+            "its score, as its miniature says it"
         );
         // Tab again: the second; Escape once: every field, the stage on.
         assert!(run_until(&mut s, &clock, fps, 15.0).is_none());
