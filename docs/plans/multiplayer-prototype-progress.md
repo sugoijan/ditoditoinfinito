@@ -9420,3 +9420,20 @@ the launched line said where a voice has it, never shown in words).
 - CPUs online: a CPU's reading horizon is 2 s for every CPU (practice
   reckons it from the local player's own). Keep it fixed, or take the
   stage's slowest player's?
+- Follow-up round F (2026-11-14): the plain drawing's size (24 px
+  lanes, `plain-notes-v0`): right by eye? Rooms of 9 to 24 on a large
+  window at scale 1 still draw the skin's stencil holds (about +1.5 ms of
+  GPU natively for 24 fields on a mine chart): worth the exact batching
+  of stencil holds across fields?
+- `hosted-deadline-v2`: 45 s of loading grace; should a player still
+  loading hold the Ready countdown's early end (today it ends once
+  everyone who loaded is ready)? The shells report a load started and
+  finished but no share of it, so the rows say "Loading" without a
+  percent: worth reporting the download's progress?
+- `adaptive-v2`: the weak CPU levels (1 to 3) practically never climb
+  any more, the middle ones half as often: intended, or 95% too strict
+  for them (a person's spread is not the CPUs')?
+- A room's header is singleplayer's, so its pills show the player's own
+  options, the ruleset's pill included, though a room plays DDI: hide
+  the ruleset's pill in a room, or show the match's?
+
