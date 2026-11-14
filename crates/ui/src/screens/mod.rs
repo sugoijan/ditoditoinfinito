@@ -1018,11 +1018,18 @@ pub(crate) fn relaid(fresh: &mut Actor, left: f32, cx: &crate::Cx) {
     fresh.play("On", &mut problems);
     let total = fresh.tween_time_left();
     // Longer tweens than an entrance (a backdrop fading, rows gliding)
-    // are not one.
-    if left <= 0.0 || left > total {
+    // are not one: a screen at rest stands as it is. A screen whose
+    // entrance is still playing goes on coming in even beside such a
+    // tween (song select's backdrop outlasts its parts' entrance): from
+    // as far as it had come where that can be told, else from its start.
+    if left <= 0.0 || (left > total && !cx.entering()) {
         finish_all(fresh);
     } else {
-        fresh.update(total - left, &ddi_actor::Clocks::default(), &mut problems);
+        fresh.update(
+            (total - left).max(0.0),
+            &ddi_actor::Clocks::default(),
+            &mut problems,
+        );
     }
 }
 
