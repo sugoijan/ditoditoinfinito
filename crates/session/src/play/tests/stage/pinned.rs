@@ -255,3 +255,92 @@ const PINNED: &[(&str, u64)] = &[
     ("battery 12 out, skipped", 0x4bb4bfd677084e57),
     ("battery 12 watched", 0xefa5ee3646bf93c6),
 ];
+
+/// The player's own links ([`crate::battle::Battle::links`]) and
+/// everyone's as a watcher sees them ([`crate::battle::Battle::seen_links`])
+/// agree on who is out (the reviewers' question, 2026-11-14): the
+/// player's attack against a competitor gone out is drawn by neither,
+/// each one still on its way by both (from the player's field); a
+/// watcher's never point at an out competitor nor at the player; out,
+/// the player has no links of their own; a CPU's field takes no moment
+/// after it went out, practice's as an online room's.
+#[test]
+fn the_player_s_links_and_the_watchers_agree_on_who_is_out() {
+    let song = bundled("beatucada");
+    let mut settings = Settings::default();
+    settings.stepmania.life_type = ddi_engine::rules::LifeType::Battery;
+    let (mut outgoing, mut watched, mut outs) = (0, 0, 0);
+    for (seed, auto) in [(3u64, true), (7, true), (9, true), (4, false), (11, false)] {
+        settings.stepmania.lives = 1 + (seed % 5) as u8;
+        let mut room = room_seeded(&song, 1, 3 + (seed % 5) as u16, 2 + (seed % 3) as u8, seed);
+        let rules = MatchRules {
+            battle: ddi_room::BattlePreset::GAUGE_ATTACKS_V0.into(),
+            ..room.rules().clone()
+        };
+        room.save_rules(rules).unwrap();
+        let mut now = 0;
+        let order = begin_at(&song, &mut room, &mut now, LONG);
+        let clock: Clock = Rc::new(RefCell::new(0.0));
+        let mut config = SessionConfig::from_settings(&settings, auto, None);
+        config.opponents = Some(StageSetup::of(&order));
+        config.stage_rules = Some(rules_of(&settings, &order, &song));
+        let mut s = PlaySession::start(
+            &song,
+            order.chart.index,
+            &settings,
+            config,
+            FakeAudio::new(&clock, 0.0),
+            110.0,
+            FakeInputs::new(&clock),
+        )
+        .unwrap();
+        // Each CPU's field as shown when it went out.
+        let mut out_shown: Vec<Option<(f32, u32)>> = vec![None; order.cpus.len()];
+        loop {
+            *clock.borrow_mut() += 1.0 / 60.0;
+            let host = *clock.borrow();
+            let (_, event) = s.tick(HostTime(host));
+            if event.is_some() || host > 300.0 {
+                break;
+            }
+            let b = s.battle().unwrap();
+            let views = b.views();
+            let own = b.own_seat().expect("the player competes");
+            let mine = b.links(&s.player);
+            let seen = b.seen_links();
+            for l in &mine {
+                if l.outgoing {
+                    assert!(!views[l.seat].out, "{l:?}");
+                    outgoing += 1;
+                    if !b.decided() {
+                        assert!(
+                            seen.iter().any(|x| x.attack == l.attack && x.from == own && x.to == l.seat),
+                            "{l:?} {seen:?}"
+                        );
+                    }
+                }
+            }
+            for x in &seen {
+                assert_ne!(x.to, own, "{x:?}");
+                assert!(!views[x.to].out, "{x:?}");
+                watched += 1;
+            }
+            if s.player.gauge_failed_at().is_some() {
+                assert!(mine.is_empty(), "out: no links of their own");
+            }
+            let t = s.frame(HostTime(host)).song_time;
+            for (i, f) in b.feeds().enumerate().take(order.cpus.len()) {
+                let shown = f.shown(t);
+                match out_shown[i] {
+                    None if shown.out => {
+                        out_shown[i] = Some((shown.life, shown.combo));
+                        outs += 1;
+                    }
+                    Some(was) => assert_eq!((shown.life, shown.combo), was, "seat {i} after its out"),
+                    None => {}
+                }
+            }
+        }
+    }
+    assert!(outgoing > 0 && watched > 0 && outs > 0, "{outgoing} {watched} {outs}");
+}

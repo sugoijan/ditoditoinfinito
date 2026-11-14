@@ -1429,9 +1429,10 @@ impl Battle {
         let score = s.opponent.score();
         let judge = &s.opponent.player().ruleset().judge;
         for e in events {
-            // An online CPU plays on after its gauge emptied (alike on
-            // every device): its field shows it out from then.
-            if out_at.is_some_and(|o| e.song_time > o + 1e-6) && s.drive.is_some() {
+            // Nothing after it went out: an online CPU plays on after its
+            // gauge emptied (alike on every device), a practice's stops
+            // there; either way its field shows it out from then.
+            if out_at.is_some_and(|o| e.song_time > o + 1e-6) {
                 continue;
             }
             let out = out_at.is_some_and(|o| o <= e.song_time);
