@@ -81,7 +81,14 @@ Rust and the browser are implementation details, not advertised features.
   limits its spread widens and it leaves notes out, `ABSOLUTE_V1`, the
   shape checked against one player's local play history, not included;
   `Plan::script_strength`, `Strength`, `Opponent::with_skills` and
-  `on_scale`; the earlier `cpu-levels-v0`, `CPU_LEVELS_V0`, kept for the
+  `on_scale`; what it plays, `cpu/full.rs`, `CPU_PLAY`: at an absolute
+  level the chart a person is given, `cpu-play-v1`, `FullPlan`,
+  `Plan::script_play`, `Opponent::planned_as`: holds kept down and let
+  go early under load, `HOLD_MODEL_V1`, rolls re-tapped, lifts released,
+  the chart's mines avoided as shocks are, what is held counted in a
+  row's demand, `RowDemand::held`; the tap-only copy, `cpu-play-v0`,
+  `cpu::project`, kept for prepared profiles, `cpu-levels-v0` and
+  comparison, `DDI_CPU_PLAY=v0|v1`; the earlier `cpu-levels-v0`, `CPU_LEVELS_V0`, kept for the
   solo CPU and comparison: levels 6 to 10 its five frozen strengths,
   pressing exactly as before, 1 to 5 weaker by a lower strength and a
   lapse; `Plan::script_at`, `Opponent::at`; measured
@@ -703,7 +710,9 @@ Rust and the browser are implementation details, not advertised features.
   or a shock stepped on, life, combo, out), the shocks put into its play
   drawn from their commitment as the skin's mines (`FieldFeed::add_hazards`),
   a lane a shock locked for the lock's time (`FieldFeed::locks`),
-  the tap-only copy it plays, `TapTrack`, and a presentation delay, 0
+  the chart as it plays it, `TapTrack::full` (`battle::cpu_track`:
+  holds as held or let go, rolls, lifts and mines; `TapTrack::new` the
+  tap-only copy `cpu-play-v0` played), and a presentation delay, 0
   for local CPUs, so a network stream can feed the same view later;
   an online room's CPUs played alike on every device, `battle/cpus.rs`
   (`Drive`: in fixed steps, the room's shocks put in at a song time
@@ -804,9 +813,9 @@ Rust and the browser are implementation details, not advertised features.
   play's (`hud::Hud::prepare_minis`), names and Out by the 2D pass, with
   each one's score small under its gauge (`opponents::ScoreShown`: DDI's
   score, the sum, or the percent, as the player's Score display has
-  their own; never the proportional part alone; a CPU's sum put on the
-  chart's own scale, `ddi_session::battle::cpu_score`, the engine's
-  `CPU_SCORE_V0`) and a lane a shock
+  their own; never the proportional part alone; a CPU's its own, since
+  it plays the whole chart, `cpu-play-v1`; `CPU_SCORE_V0`, the rescaling
+  of a tap-only copy's sum, retired) and a lane a shock
   locked darkened with its receptor's place tinted for the lock's time;
   a watched stage (`PlayView::watch_drawn`): a spectator's grid,
   everyone's fields over the whole screen in the play's proportion, up
@@ -1061,8 +1070,8 @@ Rust and the browser are implementation details, not advertised features.
   (`battle.rs`: `BattlePreset::GaugeSurvivalV0`, provisional: each
   competitor's gauge as life, empty is out of the stage; `rank`,
   `decided`: those still in by life, then the score, DDI's sum,
-  `Run::Live`'s `score`, a CPU's or a bot's put on the chart's own scale
-  by whoever judged it; where someone still in reported none, as before
+  `Run::Live`'s `score`, a CPU's or a bot's its own (it plays the whole
+  chart); where someone still in reported none, as before
   round 3b by the proportional part and then, among those who played the
   same notes, DDI's absolute score, `Absolute`; both additive on
   `Run::Live` and `ReportedRun::Live`;
@@ -2064,11 +2073,10 @@ The multiplayer prototype's rooms play DDI alone (round 3,
 rules, never the player's own `Settings::ddi`, and never Practice; the
 player's Score display still chooses what their own HUD shows, and what
 the miniatures and the stage's Standings show of the others: the score
-(the sum) or the percent (round 3b). A CPU plays a tap-only copy, so
-its sum is put on the chart's own scale first (`CPU_SCORE_V0`,
-`DdiScoreView::on_scale`, `ddi_session::battle::cpu_score`: its points
-as the same share of the chart's most, its W0s as counted); a stage
-ranks those still in by life, then that score.
+(the sum) or the percent (round 3b). A CPU plays the chart a person is
+given (`cpu-play-v1`), so its sum is its own and compares directly
+(`CPU_SCORE_V0`, which put a tap-only copy's sum on the chart's scale,
+is retired); a stage ranks those still in by life, then that score.
 Judgment and grade words are English data (`UiText::data`), the labels
 around them messages, except DDI's judgment words, shown in the player's
 language by default (`Settings::judgment_words`, `ddi_l10n::judgments`,

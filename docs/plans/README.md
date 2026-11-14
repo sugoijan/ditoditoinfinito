@@ -18,7 +18,10 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   Absolute levels (`cpu-levels-v1`, 2026-11-13): abilities in real units,
   a row's demand from the chart, the ten levels rungs anchored by
   measurement; every multiplayer CPU plays them, the solo CPU at one with
-  `--cpu-level`/`level=`; provisional.
+  `--cpu-level`/`level=`; provisional. The full chart (`cpu-play-v1`,
+  2026-11-14): at a level a CPU plays holds, rolls, lifts and the chart's
+  mines, its field drawn whole and its score its own; the levels' anchors
+  unmoved; the hold model provisional.
 
 ## Multiplayer design
 

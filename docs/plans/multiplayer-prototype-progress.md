@@ -8313,10 +8313,172 @@ does).
   look by hand in Firefox.
 
 
+## CPUs play the full chart (`cpu-play-v1`, 2026-11-14)
+
+The maintainer, in CPU practice: "during sections with holds I couldn't
+see any holds on the other miniatures": a CPU played a tap-only copy of
+the chart (each hold its head as a tap; no mines, lifts or tails), and
+its field drew that copy. Asked whether CPUs should play the whole chart
+now that their ability is absolute: "CPUs should play the full charts."
+
+### What is built
+
+- **A CPU plays the chart a person is given** (`ddi_engine::cpu::full`,
+  `CPU_PLAY` = `CpuPlay::FullV1`; `docs/plans/cpu-player.md`, "What a CPU
+  plays"), through the production judge under the stage's rules: holds
+  kept down to their end (`hold-model-v1`: let go early with a chance on
+  the level's lapse curve over the load of each row while the hold lasts,
+  more where the row asks something of the held lane's hand, Stamina and
+  Technical dividing it), rolls re-tapped every 0.12 s with the timing
+  law (a tap left out with the row's lapse; two in a row drop it), lifts
+  pressed 80 ms early and released on time, the chart's own mines met as
+  battle shocks are (`MINE_RESPONSE_V1`, Evasion: none where no note of
+  its lane is near, the level's chance beside one; a mine inside a hold
+  stepped on with that chance, else let go around), fakes not played, a
+  lane busy while held, no two presses of a lane overlapping. What is held
+  counts in a row's demand (`RowDemand::held`, 0.25 a lane on the speed
+  demand).
+- **`cpu-play-v0`**, the tap-only copy, is kept by name: the prepared
+  profiles and `cpu-levels-v0`'s relative strengths play it with their
+  fixtures exactly; the studies compare it (`DDI_CPU_PLAY=v0`,
+  `Opponent::planned_as`).
+- **Where it applies**: every multiplayer CPU (practice, the online CPUs
+  every device computes, the bots' CPUs and the bots' own plays, the
+  audience's local computation, the studies) and the solo CPU at its
+  levels (the default level 5, `--cpu-level`, `level=`; the named
+  strengths too, which are levels 6 to 10). The solo prompt no longer
+  says "Tap-only" at a level (en, ja; a prepared profile's still does).
+- **The fields**: a CPU's miniature, its field in the spectator's grid
+  and the followed one draw the chart itself (`TapTrack::full`,
+  `ddi_session::battle::cpu_track`), its holds' bodies as held or let go,
+  rolls, lifts and the chart's mines, as a remote person's field does;
+  its moments say hold ends and mines stepped on (`MomentKind::HoldEnd`,
+  `MineHit`). A ladder's rungs are drawn whole too. The local player's own
+  field (shown once they are out) draws the whole chart in practice as it
+  already did online.
+- **The score**: a CPU's score is its own, on the chart's own scale with
+  nothing put on another (`CPU_SCORE_V0`, `ddi_session::battle::cpu_score`
+  and `Scales`, `DdiScoreView::on_scale`: retired, the name kept). The
+  miniatures, the Standings, the ladder, the room's ranking and the
+  online reports (`ReportFor`, the bots' runs) all take the CPU's own
+  score now.
+- **Adaptive charts**: a CPU's hold crossing a step's boundary is played
+  to its end as the old chart's (the new rung's presses in that lane wait
+  for the key), as a person's.
+- **Attacks**: shocks are never placed inside a hold's span in its lane
+  (`placement-v2`, tested on a chart of holds under a stream); a CPU
+  holding in one lane gets around shocks in others with its script valid;
+  a shock crossed with a held key (only by hand: placement never does)
+  locks the lane and lets the hold go, as the judge says.
+- **Deterministic**: per chart, level, seed, skills and the shocks
+  committed against it, at any frame rate, natively and in wasm32-wasip1:
+  `the_cpus_play_alike`'s fixture recorded again (its CPUs now keep 22 to
+  29 holds of 29, step on a mine or eight, and still go out and attack).
+- **`ROOM_MODEL_REVISION` is 7**: every device of a room must compute the
+  same CPUs, so a client of revision 6 is told to reload. The server needs
+  no code change (it reads the constant from the crate).
+
+### Measured: the levels on the full chart
+
+`docs/plans/cpu-player.md`, "Measured (`cpu-play-v1`)" (the thirteen
+arcade mixes, 4,542 charts, eight seeds, DDI Easy, Normal and Hard, v0
+beside v1; the stream packs; the bundled songs). In short: **the anchors
+did not move, and the levels are not re-anchored**: at home (DDI Normal)
+level 1 on Beginner 87.4% and 1.4% out (86.9, 1.5 on the copy), 3 on
+Easy 90.9 and 3.1, 5 on Medium 89.9 and 6.9, 7 on Hard 89.7 and 13.9, 9
+on Challenge 90.4 and 17.9, 10 on Challenge 96.4 and 2.2. Every cell
+moved by 2.3 points of percent or less (kept holds are easy points for
+the weak levels) and its out rate by 2.1 points or less, but on DDI
+Hard's Challenge charts (up to 4.7: level 7 57.7 → 62.4% out). Holds let
+go (of those whose head was hit): 2.3% at level 1 down to 0.0 at level
+10 over all charts, 4.1 to 0.1 on Challenge; the chart's mines stepped on
+15.9% at level 1 to 1.2% at level 10. On the charts with 30 holds or
+more a level-10 CPU scores 97.8% of the best the chart gives (3,312
+thousand of 3,385), level 7 84.5%, level 5 64.9%: scores a person's
+compare with directly.
+
+### Measured: the battle, adaptive charts and Evasion again
+
+The machine was shared throughout (load 6 to 23).
+
+- **Attack rates** (`attack_rates`, the six bundled charts, four seeds):
+  as before to the noise. DDI Normal, eight CPUs at one level: attacks
+  launched a seat 0.53 / 1.35 / 2.95 / 4.31 / 7.16 at levels 1 / 3 / 5 /
+  7 / 10 (0.54 / 1.36 / 2.95 / 4.31 / 7.16 on the copy); a received
+  attack cost 34.4 / 26.1 / 22.1 / 18.9 / 2.6 life (34.2 / 25.3 / 22.1 /
+  18.8 / 2.6); bars a minute a few hundredths lower (a hold's units are
+  points but not the judged tiers a bar is credited from). DDI Hard's
+  level 1 now launches 0.10 a seat (0.07) and is knocked out by 63% of
+  the few attacks it receives (36%): it goes out sooner on its own.
+- **The placement window, chained pile-ups and the window's fit**
+  (`attack_window`, `chain_pileups`, `window_fit`): the same attacks a
+  stage, runs, most at once and recipients to the tenth; the life an
+  attack costs a seat moves by a few points either way.
+- **Adaptive charts** (`adaptive_study` over the arcade mixes, 2,080
+  stages a rule, `adaptive-v1`): where each level finishes and how much
+  it bounces are as before (picked Medium, DDI Normal: level 1 finishes
+  one rung down in 54% and two down in 32%, level 10 one or two up; a
+  bounce under `adaptive-v1` 1.5% at most), stronger above weaker in
+  98.7% of stages; the scores are higher (kept holds' units, and nothing
+  put on a scale: level 10 3,090,852 as it earned it).
+- **Evasion** (`local_cpu_shocks` over the arcade mixes, four seeds, up
+  to four attacks a chart): the shocks stepped on are the same to the
+  hundredth at every level and Evasion (the response is the level's);
+  knocked out by them a point or less fewer (level 1 at Evasion 1 82.6%
+  against 83.4%, level 5 25.4% against 26.4%): kept holds give life back.
+
+### Cost
+
+- **Native** (`planning_cost`, `adaptive_cost_of_72_cpus`,
+  `what_computing_the_cpus_costs_a_frame`, release): a plan 195 µs (141:
+  it now makes the full chart's rows and demands beside the copy's); the
+  full chart's presses 59 µs at level 8, 75 µs at level 3 (the copy's 58
+  and 93); 72 CPUs loaded in 31 ms as picked, 100 ms with a full ladder,
+  played out in 77 and 179 ms (30 / 116 / 72 / 201 before); a frame of
+  72 online CPUs 0.014 ms mean, 1.09 ms at most (0.013, 1.02).
+- **wasm32** (`planning_cost` in wasm32-wasip1): a plan 261 µs (223), the
+  full chart's presses 80 and 96 µs.
+- **Drawing holds on 72 miniatures costs GPU time** (the finding of this
+  round to weigh). Desktop offscreen (`opponent_fields_offscreen`'s
+  `all-72-cpus-…` scenarios, a debug build at opt-level 1, 1280×720,
+  this Mac, the load 4 to 8; `CPU_PLAY` switched to the copy for the
+  comparison, locally only): on Beatucada's Easy (34 holds, no mines) a
+  frame recorded in 0.77 ms against 0.53 on the copy, and with the GPU's
+  work 6.35 ms against 1.87; on its Challenge (20 holds, 132 mines) 1.15
+  against 0.74 recorded and 9.9 against 2.4 with the GPU. The holds'
+  bodies are Infinito's material (`Def.LongNote`, its wave paint) on
+  every miniature, and the mines carry their electricity; the recording
+  side grows by about half a millisecond. In the browsers (`perf=1`, the
+  practice room's default chart, Beatucada's Hard: 5 holds, no mines;
+  release build, one browser at a time, load 5 to 12) the main thread
+  of a 72-CPU stage at 1280×720 is 1.95 to 2.29 ms in Chrome and 2.55
+  to 2.58 ms in Firefox (round E1's 1.74 to 2.17 and 2.40 to 2.42 on the
+  copy, under another load), 8 CPUs 1.06 to 1.17 and 1.73 to 1.99. The
+  browsers' GPU on a chart with many holds was not measured this round
+  (the measuring script could not move the room's song select to another
+  chart): to be measured before the default "As many as fit" is kept,
+  and the obvious lever, if needed, is a plain body for holds on small
+  miniatures (an open question below).
+
+### Pictures
+
+Desktop offscreen (`opponent_fields_offscreen`'s
+`miniature_scenarios_pictures_and_costs`, its new `holds-` scenarios;
+`DDI_FIELDS_SHOTS`, `target/scratch/mp/cpufull/shots/`): eight CPUs on
+Beatucada's Easy (34 holds) with their holds' bodies down the
+miniatures as they keep them, beside a player's field doing the same,
+their scores now beside the player's on one scale (180,641 to 185,277
+against the player's 185,278 at 18 s); on its Challenge (holds and 132
+mines); and a CPU (level 2 on the Medium chart) letting a hold go, its
+body dimmed on its miniature while the others' stay lit. The scenario
+takes its picture just after the first hold any CPU lets go
+(`letgo_shot`).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `cpu-play-v1` (2026-11-14): a CPU at a level plays the chart a person is given; `hold-model-v1`: a hold let go early with half the level's lapse chance over each row's load while it lasts (1.25 times where the row uses the held lane's hand; the floor a second; Stamina and Technical dividing it by the square root of their product), rolls re-tapped every 0.12 s, lifts pressed 80 ms early, a chart's mine beside a note of its lane stepped on with the level's shock response, one inside a hold kept held over with that chance else let go around (30 ms before, 100 ms after); what is held adds 0.25 a lane to a row's speed demand | `ddi_engine::cpu::full` (`HOLD_MODEL_V1`, `CPU_PLAY`), `AbsoluteModel::held_load` | CPUs' fields show their holds, rolls, lifts and mines; their scores are their own and compare with a person's; holds let go 0 to 5% by level and chart | The values (never checked against people this round); whether weak levels should let go more |
 | Every opponent shown past eight where all fit at a lane of 10 px, fields cut to 8 lanes only where that makes all fit, a 3 px gap at nine columns (`fields-all-v0`: `MINI_LANE_ALL`, `DENSE_ROWS_MIN`, `DENSE_GAP`) | `ddi_shell::opponents` | 72 at 1280×720 are 9×4 a side at 11 px; smaller windows show as many as fit, the rest by rivals | Whether 10 px is the least the maintainer reads; whether shorter fields are wanted beyond the phone |
 | What a small field carries (`carry-v0`: score from 16 px, stars from 13, name from 11, combo from 9) | `ddi_shell::opponents::Carry` | 36 at 1280×720 lose the score, 72 also the stars | The steps, by looking |
 | Opponents' fields default "As many as fit" | `Settings::opponent_fields` | About +0.85 ms main thread (Firefox) and +0.8 ms GPU at 2560×1440 with 72 | Whether the default should follow the room's size or the measured frame time |
@@ -8326,7 +8488,7 @@ does).
 | `adaptive-v1` (2026-11-14, the maintainer's "we can do better" on bouncing): `adaptive-v0` with sixteen bars, not eight, of full life with no miss, no hold let go and no shock stepped on to step back up to a rung whose life ran out (first-time steps up stay at four), and a rung closed for the rest of the stage once life ran out on it twice (never stepped up to again, nor past it); "Staying on Hard" said once, quietly, when a rung closes; no quality condition | `ddi_engine::ladder::ADAPTIVE_V1` (`ADAPTIVE`), `AdaptiveRule::closed_after`, `Step::closes`, `StageCue::Stay` | The worst a stage can bounce: down, up once after the higher barrier, down, and there they stay | Sixteen and two; whether a share of the two best judgments should also be asked (measured: it separates CPUs that hold a rung from those that fall back) |
 | `adaptive-v0` (2026-11-13, replaces `step-down-v0`): down at zero life with a rung below, life back to half, the old chart taken away, the boundary the first bar line (four beats) at least the reading horizon plus 1 s ahead, a breather until it (nothing of a chart judged, stray presses free, life kept at one point or more); up after four bars (16 beats) of full life with no miss, no hold let go and no shock stepped on, counted from the last step's boundary, at the next such boundary, the old chart played to it, life unchanged; eight bars to go back up to a rung whose life ran out; every rung's score factor 1 | `ddi_engine::ladder::ADAPTIVE_V0` | A player out of life plays on an easier chart after a few seconds' rest; one who plays cleanly moves up, above the picked chart too | The four bars; the eight; the life given back; whether a player may hold their rung; a per-rung score factor once the rule is felt |
 | The ladder: the style's original charts on the same timing, lower slots below (nearest first, by meter from the highest), higher slots above (nearest first, by meter from the lowest); never an Edit above or below a slotted chart (an Edit's rungs are the slotted charts of a lower or higher meter); each way cut at the first rung the CPUs cannot plan | `ddi_engine::ladder::{below, above, Ladder}`, `cpu::planned_ladder` | From Hard: Medium, Easy, Beginner below; Challenge above | How Edits and split-timing charts should take part |
-| Standing under Adaptive: those still in by the score as earned (each stretch against what it showed, the absolute score growing with the notes played), life only breaking a tie, steps never counted; a CPU's score put on the charts it played stretch by stretch (`CPU_SCORE_V0`'s way: each chart's whole most in the share of its tap-only copy's notes it was shown), never on the stage chart's scale | `ddi_room::RankBy::Score`, `battle::rank`, `ddi_session::battle::Scales` | A player who climbs to denser charts earns more; one who stepped down is not ranked below for it | Life as the tie-break; whether a balancing factor is wanted after playing it |
+| Standing under Adaptive: those still in by the score as earned (each stretch against what it showed, the absolute score growing with the notes played), life only breaking a tie, steps never counted; a CPU's score its own (since `cpu-play-v1` it plays each chart whole, as a person; before, its tap-only copy's score was put on the charts it played stretch by stretch, `Scales`, retired) | `ddi_room::RankBy::Score`, `battle::rank` | A player who climbs to denser charts earns more; one who stepped down is not ranked below for it | Life as the tie-break; whether a balancing factor is wanted after playing it |
 | The battle plan placed over every rung at once, below and above | `ddi_engine::ladder::merged`, `ddi_ui::state::battle_plan::plan` | See "Adaptive charts", measured | Whether to place sections per rung instead (the room then needs each competitor's rung) |
 | A step down on the live wire as a flagged refusal (`STEP_DOWN_ATTACK`) | `ddi_room::live::wire` | Older readers ignore it | Whether to version the wire instead when it next changes |
 | `audience-view-v0` (2026-11-13): an audience device plays the music and draws the fields 0.8 s behind the room's song time (fixed for a stage), the fields a little more where frames come later, within the audience's 2 s ceiling | `ddi_ui::state::audience::MUSIC_DELAY_V0` | A seat sees the stage about a second behind the players | The delay; whether to raise it after a stage that lagged |
@@ -8459,6 +8621,16 @@ does).
 | The standings' attack columns take the combo's place; the summary flows under the lines | `screens::results_stage` (`columns`, `summary_lines`) | With attacks the stage's standings have no max combo | Which column should give way (the combo, the place in the match, the judgments' strip) |
 
 ## Open questions
+
+- CPUs play the full chart (`cpu-play-v1`, 2026-11-14): the holds'
+  bodies on many miniatures cost GPU time (natively about +4.5 ms with
+  72 on a chart of 34 holds, +7.5 with holds and 132 mines; "Cost",
+  above). Should small miniatures draw holds and mines plainly (no
+  material, no electricity), or should "As many as fit" step down on a
+  chart with many holds? And the hold model's values: weak levels let go
+  of 2 to 5% of the holds they start on hard charts; whether that is
+  too forgiving (the maintainer's history could tune it; it was not used
+  this round).
 
 - Watching (2026-11-13): a watching member's music is delayed to match
   the fields (`watch-music-v0`). The maintainer wants to explore later

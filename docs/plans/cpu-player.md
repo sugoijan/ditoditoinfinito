@@ -44,8 +44,12 @@ keeps them; returning to song select does not leave CPU mode enabled.
 The play is marked CPU, with no personal history, bests or calibration. Human
 lane input, ghosts, per-play transforms and rate changes are disabled; cancel
 and retry still work. Fail is off, but matching, timing windows and scoring
-remain those of the selected ruleset. Holds/rolls become tap heads; mines,
-lifts, fakes and tails are omitted. Source charts are unchanged.
+remain those of the selected ruleset. At a level (the default) the CPU plays
+the chart a person is given (`cpu-play-v1`, below: holds kept down, rolls
+re-tapped, lifts released, the chart's mines avoided; fakes are not played);
+from a prepared profile it plays the tap-only copy as before (`cpu-play-v0`:
+holds and rolls become tap heads; mines, lifts, fakes and tails are
+omitted). Source charts are unchanged.
 
 ## Skill personality
 
@@ -528,6 +532,173 @@ What the tables say:
   Normal, out of the stage on a fifth of the charts at level 1 and never
   from level 5 on; never out under Easy; Hard about where ITG FA+ was.
 
+## What a CPU plays: the full chart (`cpu-play-v1`)
+
+Since 2026-11-14 (the maintainer, who saw no holds on the CPUs'
+miniatures: "CPUs should play the full charts") a CPU at an absolute
+level plays the chart a person is given, through the production judge
+under the stage's rules, with the same notes counted: its life, its
+judgments and its score are on the chart's own scale, with nothing put on
+another scale (`CPU_SCORE_V0` retired). `ddi_engine::cpu::CPU_PLAY` names
+what the absolute levels play (`CpuPlay::FullV1`, `cpu/full.rs`); the
+tap-only copy (`CpuPlay::TapsV0`, `cpu-play-v0`) is kept by name for the
+prepared profiles, the chart-relative levels (`cpu-levels-v0`) with their
+fixtures exactly, and the studies' comparison (`Opponent::planned_as`,
+`DDI_CPU_PLAY=v0|v1` in `local_cpu`). Every multiplayer CPU plays it
+(practice, the online CPUs every device computes, the bots' CPUs and the
+bots' own plays, the audience's local computation, the studies), and so
+does the solo CPU at its levels; the room model's revision is 7 for it.
+
+What a CPU does with each note (`hold-model-v1`, `HOLD_MODEL_V1`,
+PROVISIONAL):
+
+- **Every note's timing** is the absolute model's: the motor's three
+  draws a note in rows of the chart's taps, hold and roll heads and lifts
+  (they count in a row's demand as notes, as before), each row's spread and
+  chance of being left out from its demand. A head left out is the hold
+  never pressed: its Miss alone under DDI.
+- **What is held counts in a row's demand** (`RowDemand::held`, the lanes
+  held down by holds and rolls begun before the row and lasting past it):
+  the row's speed demand times `1 + 0.25` for each lane held
+  (`AbsoluteModel::held_load`). A tap-only copy holds nothing, so the
+  term is zero there and `cpu-play-v0` presses exactly as before.
+- **A hold**: the head pressed as a tap is, the key kept down to the
+  hold's end and let go 12 ms after it (or 50 ms before the lane's next
+  note, which the hold's grace covers). **Letting go early** is a failure
+  of its own: at each row while the hold lasts (in other lanes) with half
+  the chance of leaving a note out that the level's curve gives that
+  row's load (`drop_share` 0.5), the load counted 1.25 times where the row
+  asks something of the held lane's hand (lanes 0 and 1, 2 and 3), and at
+  each whole second of the hold with the level's floor; Stamina and
+  Technical divide those chances by the square root of their product. A
+  hold under a busy stream is where it goes; one with nothing else to do
+  is nearly always kept. Let go, the key stays up: under DDI the hold is
+  Off when its grace runs out, its units stop and its life follows the
+  ruleset.
+- **A roll**: the head pressed, then re-tapped every 0.12 s (inside every
+  ruleset's roll window, so one tap left out is survived and two in a row
+  are not under DDI Normal and Hard) with the timing law of the row before each tap, each
+  tap left out with that row's lapse; it is let go early as a hold is (its
+  taps stop), and its taps keep 0.09 s from a mine of its lane, a tap
+  either side of one instead.
+- **A lift**: the key pressed 80 ms before its release, the release on the
+  lift's time with the timing law.
+- **The chart's own mines**, as a battle's shocks are
+  (`MINE_RESPONSE_V1`, Evasion): one with no note of its lane within half
+  a second costs nothing; one beside a note of its lane is stepped on (a
+  press in its window, up to 45 ms either side) with the level's chance,
+  bent by Evasion where it is hard to get around; and a press of the
+  timing law that the judge finds nearer a mine than its note steps on
+  it, as a person's would. A mine **inside a hold** in the held lane
+  (charts do this): kept held over, so stepped on, with that same chance
+  (as a mine beside a note), else the key is let go 30 ms before it and
+  taken again 100 ms after it (past every mine window), which the hold's
+  grace covers. The simplest honest rule: what a level does about a mine
+  beside a note, it does about one under its held key.
+- **Fakes** are not played. Warps, stops and delays are the judge's: the
+  CPU presses on the judged timeline as before.
+- **The motor**: a lane is busy while a hold or roll is in it; a tap's key
+  is held 12 ms; no two presses of one lane overlap (a press due while its
+  lane is busy waits for it). Four lanes are four keys, so a four-lane
+  chart never asks for more than four at once.
+- **Deterministic**: every draw beyond the motor's is keyed by the seed,
+  the note (its tick and lane) and what it is for, so the same chart,
+  level, seed, skills and shocks give the same presses at any frame rate,
+  natively and in wasm (the online CPUs' proof, `the_cpus_play_alike`,
+  its fixture recorded again and checked in wasm32-wasip1).
+- **Battle shocks**: placement keeps them out of a hold's span in its lane
+  (`placement-v2`); a shock's response moves a hold's press with its key
+  kept as long; a shock crossed with a held key (placement never puts one
+  there) locks the lane and lets the hold go, as the judge says.
+- **Adaptive charts**: a CPU's hold crossing a step's boundary is played
+  to its end as the old chart's (the new rung's presses in that lane wait
+  for the key to be up), as a person's is.
+
+### Measured (`cpu-play-v1`)
+
+`DDI_CPU_PLAY=v0|v1 DDI_CPU_CORPUS=… DDI_CPU_RULES=ddi-easy,ddi-normal,ddi-hard
+cargo test --release -p ddi-engine --test local_cpu -- --nocapture`, the
+same thirteen arcade mixes as the levels' study (1,094 simfiles, 4,542
+dance-single charts, read in place, eight seeds; aggregates only),
+2026-11-14, the machine shared (load 9 to 19). Besides the percent and
+the out rate the study now counts the holds and rolls kept and let go
+(of those whose head was hit: a head missed is its Miss alone), the
+chart's mines stepped on (of every mine of the chart), and DDI's score
+against the best the chart gives.
+
+**The anchors did not move**, so the levels are not re-anchored. At home
+(DDI Normal, percent and out %), `cpu-play-v0` → `cpu-play-v1`:
+
+| Level | At home on | v0 | v1 |
+| --- | --- | --- | --- |
+| 1 | Beginner | 86.9, 1.5 | 87.4, 1.4 |
+| 3 | Easy | 90.3, 3.2 | 90.9, 3.1 |
+| 5 | Medium | 89.4, 7.0 | 89.9, 6.9 |
+| 7 | Hard | 89.4, 14.0 | 89.7, 13.9 |
+| 9 | Challenge | 90.4, 17.8 | 90.4, 17.9 |
+| 10 | Challenge | 96.4, 2.2 | 96.4, 2.2 |
+
+Every cell of every slot under DDI Easy, Normal and Hard moved by 2.3
+points of percent or less (the most at the weakest levels: kept holds
+are easy points) and by 4.7 points of out rate or less (the most on DDI
+Hard's Challenge charts, where the mines and dropped holds put a few more
+out: level 5 88.1 → 91.4%, level 7 57.7 → 62.4%; elsewhere 2.1 points or
+less).
+
+DDI Normal, `cpu-play-v1`, by slot:
+
+| | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| All (4542): percent | 49.8 | 61.8 | 71.8 | 79.0 | 85.1 | 90.4 | 93.9 | 96.2 | 97.6 | 98.8 |
+| All: out % | 53.8 | 42.6 | 32.9 | 24.1 | 16.5 | 10.4 | 6.7 | 3.5 | 1.7 | 0.2 |
+| All: holds let go % | 2.3 | 1.6 | 1.2 | 0.8 | 0.5 | 0.3 | 0.2 | 0.1 | 0.0 | 0.0 |
+| All: mines stepped on % | 15.9 | 14.4 | 12.7 | 11.2 | 9.6 | 8.0 | 7.9 | 3.6 | 3.5 | 1.2 |
+| Easy (1068): holds let go % | 0.9 | 0.5 | 0.2 | 0.1 | 0.1 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| Medium (1068): holds let go % | 2.3 | 1.4 | 0.9 | 0.5 | 0.3 | 0.1 | 0.1 | 0.0 | 0.0 | 0.0 |
+| Medium: mines stepped on % | 11.4 | 10.2 | 9.1 | 8.0 | 7.0 | 5.7 | 5.7 | 2.7 | 2.7 | 0.7 |
+| Hard (1068): holds let go % | 4.5 | 3.2 | 2.2 | 1.4 | 0.9 | 0.5 | 0.2 | 0.1 | 0.1 | 0.0 |
+| Hard: holds played a chart | 8.0 | 10.4 | 12.4 | 14.0 | 15.3 | 16.4 | 17.1 | 17.4 | 17.6 | 17.7 |
+| Challenge (327): holds let go % | 4.1 | 3.3 | 2.6 | 2.0 | 1.5 | 0.9 | 0.5 | 0.3 | 0.2 | 0.1 |
+| Challenge: mines stepped on % | 16.5 | 14.9 | 13.2 | 11.6 | 9.8 | 8.3 | 8.2 | 3.7 | 3.7 | 1.2 |
+
+(The arcade Beginner and Easy charts have no mines. The mines' rows move
+in steps where `MINE_RESPONSE_V0`'s levels share an avoidance: 6 and 7,
+8 and 9. "Holds played" falls at the weak levels because a head they miss
+is no hold kept or let go.) DDI Easy and Hard let go about as often
+(Hard: 5.2% at level 1 on Hard charts, 0.0 at level 10; Easy 3.2%).
+
+**A person's score and a CPU's now compare directly.** On the 617 arcade
+charts with 30 holds or more (DDI Normal), a level-10 CPU scores 3,312
+thousand on average against the 3,385 thousand the charts give at best
+(every note W0, every hold kept): 97.8% of the best, 98.3% of the points;
+level 7 2,862 thousand (84.5%), level 5 2,199 (64.9%), out on 39% of them.
+Before, the copy's score was put on the chart's scale as if the holds had
+gone as its taps did; now a kept hold is the points a person's kept hold
+is, and one let go costs it as it costs them.
+
+The stream packs (DDI Normal, 1,622 charts, eight seeds) and the bundled
+songs (19 charts, sixteen seeds) move the same way, by a point or two of
+percent at the weakest levels and less than a point of out rate at
+every level (the packs' Challenge charts: level 10 88.1 → 88.4%, out
+29.6 → 29.3%; the bundled songs all: 52.9 / 73.1 / 85.7 / 94.6 / 97.9 /
+99.1 → 54.6 / 73.9 / 86.1 / 94.6 / 98.0 / 99.1% at levels 1 / 3 / 5 / 7
+/ 9 / 10).
+
+**Cost** (`planning_cost`, the 31 bundled single charts, release,
+natively; the machine shared): a plan 195 µs (141 before: the full
+chart's rows, notes and demands are made with it, beside the tap-only
+copy's), a CPU's presses on the full chart 59 µs at level 8 and 75 µs at
+level 3 (the tap-only copy's 58 and 93). 72 CPUs a stage
+(`adaptive_cost_of_72_cpus`, Beatucada's Medium): loaded in 31 ms as
+picked and 100 ms with a full ladder (30 and 116 before), played out in
+77 and 179 ms (72 and 201); a frame of 72 online CPUs 0.014 ms mean,
+1.09 ms at most (0.013 and 1.02 before). In wasm32 (wasm32-wasip1 under a
+WASI runner): a plan 261 µs (223 before), the full chart's presses 80 and
+96 µs (the copy's 79 and 115). Drawing the CPUs' holds on their
+miniatures costs GPU time (72 of them on a chart of 34 holds: about 4.5
+ms a frame more natively): `docs/plans/multiplayer-prototype-progress.md`,
+"CPUs play the full chart", "Cost".
+
 ## Evasion: a CPU against a battle's shocks
 
 The eighth skill axis (the maintainer's M8 decision D8; round 4 of
@@ -705,7 +876,18 @@ the seven pattern axes bends the limit its pattern meets (strong does
 better than balanced, weak worse, on synthetic streams, jumpstreams,
 handstreams, a long stream, jacks, chordjacks and an irregular rhythm);
 extreme rows (a millisecond apart, rows at one time) stay valid; the solo
-CPU's `level=` presses as the opponent at that level does. Personality checks compare
+CPU's `level=` presses as the opponent at that level does. The full chart
+(`cpu-play-v1`, `cpu/full/tests.rs`): holds kept where nothing is hard
+and let go more the weaker the level under a busy stream (none on the
+tap-only copy), a row asking more while a hold is down, rolls kept by
+re-tapping, lifts released on time, a mine with no note of its lane near
+costing nothing and one beside a note stepped on more by weaker levels
+and less with Evasion, a mine inside a hold let go around or stepped on,
+the same presses at any frame rate and from the same seed, extreme charts
+(rows at one time, a hold of no length and one over everything, mines
+everywhere) valid, shocks kept off holds and a lock letting a held key
+go; the online CPUs' fixture recorded again and checked in wasm32;
+`cpu-play-v0`'s fixtures unchanged. Personality checks compare
 matched demanding/easier patterns, exercise all seven axes through judged
 inputs across 32 seeds, and reject invalid vectors/prepared-profile modifiers:
 
