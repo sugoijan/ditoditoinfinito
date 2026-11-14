@@ -1405,6 +1405,7 @@ dependencies = [
  "ddi-theme",
  "ddi-ui",
  "serde_json",
+ "unicode-segmentation",
  "wgpu",
 ]
 

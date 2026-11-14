@@ -24,6 +24,7 @@ ddi-render.workspace = true
 ddi-session.workspace = true
 ddi-theme.workspace = true
 ddi-ui.workspace = true
+unicode-segmentation.workspace = true
 wgpu.workspace = true
 
 [dev-dependencies]

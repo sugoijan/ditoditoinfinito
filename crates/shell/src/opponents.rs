@@ -39,7 +39,7 @@
 //! for those a stage keeps in view (`ddi_session::battle::Battle::kept_seats`:
 //! none until attacks exist).
 
-use ddi_actor::text::{TextMeasure, TextStyle};
+use ddi_actor::text::{RunMetrics, TextMeasure, TextStyle};
 use ddi_render::FieldGeometry;
 use ddi_render::draw2d::{Affine, Blend, DrawList, Quad, Shape};
 use ddi_session::battle::OpponentView;
@@ -1265,8 +1265,8 @@ pub fn draw_ladder(
     let [x, y, w, h] = place;
     let mut st = TextStyle::new(ddi_l10n::font_stack(FACE), 12.0 * ratio);
     st.weight = 600;
-    let t = fitted(measure, words, &st, if strip { w * 0.6 } else { w });
-    let advance = measure.measure(&t, &st).advance;
+    let (t, m) = fitted(measure, words, &st, if strip { w * 0.6 } else { w });
+    let advance = m.advance;
     list.text(t, &st, x, y + (h - 12.0 * 1.2 * ratio) / 2.0, MUTED);
     if !strip {
         return;
@@ -1305,25 +1305,43 @@ pub fn draw_ladder(
     }
 }
 
-/// Cuts `s` to `room` pixels, an ellipsis at its end.
-fn fitted(measure: &mut dyn TextMeasure, s: &str, style: &TextStyle, room: f32) -> String {
-    let mut s = s.to_string();
-    while !s.is_empty() && measure.measure(&s, style).advance > room {
-        s.pop();
-        while s.ends_with(' ') {
-            s.pop();
-        }
-        if s.is_empty() {
-            break;
-        }
-        s.pop();
-        // No space before the ellipsis.
-        while s.ends_with(' ') {
-            s.pop();
-        }
-        s.push('…');
+/// `s` cut to `room` pixels, an ellipsis at its end, and its metrics: as
+/// the actor's text with an ellipsis is cut (`ddi_actor::Text::measure`),
+/// the longest start that fits with "…", by halves, cut between
+/// graphemes (an accent stays on its letter, an emoji whole), the spaces
+/// before the ellipsis left out; "…" alone where no start fits.
+fn fitted(
+    measure: &mut dyn TextMeasure,
+    s: &str,
+    style: &TextStyle,
+    room: f32,
+) -> (String, RunMetrics) {
+    let m = measure.measure(s, style);
+    if m.advance <= room {
+        return (s.to_string(), m);
     }
-    s
+    let ends: Vec<usize> = unicode_segmentation::UnicodeSegmentation::grapheme_indices(s, true)
+        .map(|(i, _)| i)
+        .skip(1)
+        .collect();
+    let (mut lo, mut hi) = (0usize, ends.len());
+    let mut best: Option<(String, RunMetrics)> = None;
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        let cut = format!("{}…", s[..ends[mid]].trim_end());
+        let mm = measure.measure(&cut, style);
+        if mm.advance <= room {
+            best = Some((cut, mm));
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    best.unwrap_or_else(|| {
+        let cut = "…".to_string();
+        let mm = measure.measure(&cut, style);
+        (cut, mm)
+    })
 }
 
 /// What [`draw_fields`] adds to [`Shown`]: each miniature's judgments
@@ -1384,7 +1402,7 @@ impl Memo {
                     name: o.name.clone(),
                     room,
                     size: style.size(),
-                    cut: fitted(measure, &o.name, style, room).into(),
+                    cut: fitted(measure, &o.name, style, room).0.into(),
                 });
             }
         }
@@ -1440,21 +1458,21 @@ pub fn draw_fields(
     let mut x = sx;
     if let Some(label) = &shown.label {
         let st = style(14.0, 600);
-        let t = fitted(measure, label, &st, sw);
-        x += measure.measure(&t, &st).advance + 12.0 * ratio;
+        let (t, m) = fitted(measure, label, &st, sw);
+        x += m.advance + 12.0 * ratio;
         list.text(t, &st, sx, sy, MUTED);
     }
     if let Some(won) = &shown.won {
         let st = style(14.0, 700);
-        let t = fitted(measure, won, &st, (sx + sw - x).max(0.0));
+        let (t, m) = fitted(measure, won, &st, (sx + sw - x).max(0.0));
         let at = x;
-        x += measure.measure(&t, &st).advance + 12.0 * ratio;
+        x += m.advance + 12.0 * ratio;
         list.text(t, &st, at, sy, WON);
     }
     let cue = shown.cue.as_ref().filter(|(_, a)| *a > 0.0);
     if let Some((cue, alpha)) = cue {
         let st = style(14.0, 600);
-        let t = fitted(measure, cue, &st, (sx + sw - x).max(0.0));
+        let (t, _) = fitted(measure, cue, &st, (sx + sw - x).max(0.0));
         let mut c = TEXT;
         c[3] *= alpha.clamp(0.0, 1.0);
         list.text(t, &st, x, sy, c);
@@ -1592,8 +1610,8 @@ pub fn draw_fields(
                 .as_ref()
                 .filter(|(seat, _)| *seat == slot.seat)
                 .map_or(&shown.out, |(_, w)| w);
-            let word = fitted(measure, said, &st, r - l);
-            let ww = measure.measure(&word, &st).advance;
+            let (word, m) = fitted(measure, said, &st, r - l);
+            let ww = m.advance;
             let wy = (t + b) / 2.0 - size.min(13.0) * 0.6 * ratio;
             list.text(word, &st, (l + r - ww) / 2.0, wy, MUTED);
         }
@@ -1620,8 +1638,8 @@ fn named(
     let [l, t, r, b] = slot.panel;
     let size = style.size();
     let room = (r - l) * NAMED_WIDTH;
-    let text = fitted(measure, name, style, room);
-    let tw = measure.measure(&text, style).advance;
+    let (text, m) = fitted(measure, name, style, room);
+    let tw = m.advance;
     let pad = 2.0 * ratio;
     let tall = size * 1.2;
     let x = ((l + r) / 2.0 - tw / 2.0).max(pad);
@@ -1704,8 +1722,8 @@ pub fn draw_own_out(list: &mut DrawList, own: &OwnOut, ratio: f32, measure: &mut
         list.rect([l, t, r, b], [0.0, 0.0, 0.0, own.veil]);
         let cy = (t + b) / 2.0;
         let st = style(24.0, 700);
-        let mark = fitted(measure, &own.mark, &st, r - l - 8.0 * ratio);
-        let w = measure.measure(&mark, &st).advance;
+        let (mark, m) = fitted(measure, &own.mark, &st, r - l - 8.0 * ratio);
+        let w = m.advance;
         list.text(mark, &st, cx - w / 2.0, cy - 24.0 * ratio, TEXT);
     }
     if let Some(skip) = &own.skip {
@@ -1717,8 +1735,8 @@ pub fn draw_own_out(list: &mut DrawList, own: &OwnOut, ratio: f32, measure: &mut
         };
         list.quad(plate);
         let st = style(13.0, 600);
-        let text = fitted(measure, skip, &st, pr - pl - 12.0 * ratio);
-        let w = measure.measure(&text, &st).advance;
+        let (text, m) = fitted(measure, skip, &st, pr - pl - 12.0 * ratio);
+        let w = m.advance;
         let ty = (pt + pb) / 2.0 - 13.0 * 0.6 * ratio;
         list.text(text, &st, cx - w / 2.0, ty, MUTED);
     }
@@ -2950,6 +2968,27 @@ pub(crate) mod tests {
         assert!(texts(&list).iter().any(|(s, _)| s.ends_with('…')));
     }
 
+    /// A name too long for its room is cut between graphemes, never
+    /// inside one: an accent stays on its letter, an emoji whole; the
+    /// longest start that fits, "…" alone where none does.
+    #[test]
+    fn names_are_cut_between_graphemes() {
+        let st = TextStyle::new("x", 10.0);
+        // FixedMeasure: five pixels a char.
+        let cut = |s: &str, room: f32| fitted(&mut FixedMeasure, s, &st, room).0;
+        assert_eq!(cut("Short", 25.0), "Short");
+        assert_eq!(cut("e\u{301}clair e\u{301}clair", 45.0), "e\u{301}clair…");
+        assert_eq!(cut("e\u{301}clair", 15.0), "e\u{301}…");
+        assert_eq!(cut("e\u{301}clair", 10.0), "…");
+        let astronaut = "\u{1f9d1}\u{200d}\u{1f680}";
+        let crew = format!("{astronaut}{astronaut} crew");
+        assert_eq!(cut(&crew, 25.0), format!("{astronaut}…"));
+        // The spaces before the ellipsis left out.
+        assert_eq!(cut("Ab  cdefgh", 25.0), "Ab…");
+        let (text, m) = fitted(&mut FixedMeasure, "A long name", &st, 30.0);
+        assert_eq!(m.advance, FixedMeasure.measure(&text, &st).advance);
+    }
+
     /// The play's overlay drawn from fixed inputs (the miniatures' words,
     /// marks and flashes, a ladder, a player's own field out, who attacks
     /// whom and the attack's parts), each draw list's commands as text,
@@ -3174,7 +3213,7 @@ pub(crate) mod tests {
         }
         let want: [(&str, u64); 6] = [
             ("8-1280x720@1", 0xe7ec478624b17c80),
-            ("3-844x390@3", 0x8d83e90f88358db7),
+            ("3-844x390@3", 0xdd8990b4a4c8b3be),
             ("8-390x844@3", 0x2851616828712729),
             ("24-1280x720@1", 0xf691962c0270edc2),
             ("72-1920x1080@1", 0xdd80157668870ddd),
