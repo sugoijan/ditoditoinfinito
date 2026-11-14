@@ -1544,12 +1544,6 @@ fn a_hosted_rooms_attacks_are_on_by_default_only_where_it_plays_live() {
     on.set_attacks(true);
     on.charts = ddi_room::Charts::Adaptive;
     assert_eq!(MatchRules::hosted_for(&live), on, "nothing else differs");
-    // An authority that does not honor Adaptive: As picked.
-    let older = RoomPolicy {
-        adaptive: false,
-        ..live.clone()
-    };
-    assert_eq!(MatchRules::hosted_for(&older).charts, ddi_room::Charts::AsPicked);
     let clock = ManualClock::new(1_000);
     for (policy, attacks) in [(live, true), (RoomPolicy::default(), false)] {
         let server = FakeServer::hosted(
@@ -1608,7 +1602,6 @@ fn a_restart_is_decided_alike_by_both_authorities_and_every_mirror() {
     );
     assert_eq!(local.phase.kind(), PhaseKind::Interrupted);
     assert_eq!(local.next.rules, rules);
-    assert!(local.policy.restart, "the room says it reads the command");
 }
 
 /// A running match's per-stage rules changed from a later stage on
@@ -1656,15 +1649,10 @@ fn a_per_stage_change_is_decided_alike_by_both_authorities_and_every_mirror() {
     let m = local.current.as_ref().unwrap();
     assert_eq!(m.rules_for(StageId(2)).play_rules(), hard);
     assert!(!m.stage_rules_changed(StageId(1)));
-    assert!(
-        local.policy.stage_rules,
-        "the room says it reads the command"
-    );
 }
 
 /// Points changed from a later stage (2026-11-13): both authorities keep
-/// the bias alike and every mirror reads it, the room's policy saying it
-/// honors one (`stage_points`).
+/// the bias alike and every mirror reads it.
 #[test]
 fn a_change_of_points_is_decided_alike_by_both_authorities_and_every_mirror() {
     let mut steps = script();
@@ -1691,5 +1679,4 @@ fn a_change_of_points_is_decided_alike_by_both_authorities_and_every_mirror() {
     assert_eq!(m.play_rules_for(StageId(2)), mild);
     assert_eq!(m.rules_for(StageId(2)).points, ddi_room::PointsBias::Mild);
     assert_eq!(m.rules_for(StageId(1)).points, ddi_room::PointsBias::Strong);
-    assert!(local.policy.stage_points, "the room says it honors a bias");
 }

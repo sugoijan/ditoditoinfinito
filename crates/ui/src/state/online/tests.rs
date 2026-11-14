@@ -1487,43 +1487,4 @@ pub(crate) mod room {
         step!(400);
         assert!(matches!(alice.state().phase, Phase::Preparing { .. }));
     }
-
-    /// A room whose authority predates the picker (its state has no
-    /// `picking`): this client lets every operator choose, as that room
-    /// does, and never offers or sends the take it could not read.
-    #[test]
-    fn a_room_from_before_the_picker_has_every_operator_choosing_and_no_take() {
-        let clock = ManualClock::new(1_000);
-        let mut state = ddi_room::RoomState::new(
-            ddi_room::RoomId::new("Room000001"),
-            Identity::new("dev:alice"),
-            "alice".into(),
-            RoomPolicy::default(),
-            ddi_room::MatchRules::hosted(),
-            ddi_room::ContentSource::Shared,
-        );
-        state.picking = None;
-        let server = FakeServer::with_state(state, clock.clone()).shared();
-        server
-            .borrow_mut()
-            .join(Identity::new("dev:bob"), "bob", Intent::Play)
-            .unwrap();
-        co_host(&server, 2);
-        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
-        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
-        tick(&clock, &mut [&mut alice, &mut bob], 400);
-        assert!(alice.chooses() && bob.chooses());
-        assert!(!alice.may_take_pick() && !bob.may_take_pick());
-        let revision = server.borrow().state().revision;
-        bob.take_pick().unwrap();
-        tick(&clock, &mut [&mut alice, &mut bob], 400);
-        assert_eq!(server.borrow().state().revision, revision, "nothing sent");
-        assert!(!server.borrow().state().one_picker());
-        // The co-host's resting song is the room's, as it was.
-        let s = song();
-        bob.hover(Some((&s, &s.charts[0])));
-        tick(&clock, &mut [&mut alice, &mut bob], 3_400);
-        tick(&clock, &mut [&mut alice, &mut bob], 400);
-        assert_eq!(alice.state().spotlight.as_ref().unwrap().by, bob.me());
-    }
 }

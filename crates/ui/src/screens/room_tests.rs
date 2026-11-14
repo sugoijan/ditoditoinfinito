@@ -632,7 +632,7 @@ fn the_rules_pop_up_edits_the_roster_within_the_cap() {
 /// The Points row (2026-11-13): how strongly a field of nine and more
 /// favors its top places, Strong first, each choice with its sentence;
 /// applied, it is the match's and the summary names it; Reset gives
-/// Strong; a room whose authority predates it shows the fixed row.
+/// Strong.
 #[test]
 fn the_points_row_chooses_the_bias_where_the_room_offers_it() {
     let env = env();
@@ -743,29 +743,12 @@ fn the_charts_row_chooses_adaptive_where_the_room_offers_it() {
     assert_eq!(room.borrow().rules().charts, ddi_room::Charts::Adaptive);
     settings.multiplayer_rules_first = false;
     settings.save();
-    // An authority that cannot honor it: fixed at As picked, nothing
-    // offered.
-    let older = ddi_room::RoomPolicy {
-        adaptive: false,
-        ..ddi_room::RoomPolicy::default()
-    };
-    let room = std::rc::Rc::new(std::cell::RefCell::new(RoomClient::practice_with_policy(
-        0, 1, older,
-    )));
-    room.borrow_mut().set_rules_seen(true);
-    let mut h = harness();
-    h.push(room_select(&env, room.clone(), "dance-single", &orders));
-    h.run(0.5);
-    press(&mut h, "Room.Rules");
-    assert!(!there(&h, "Inc.charts"));
-    assert_eq!(said(&h, "Rule.charts.Value"), "As picked · not in online rooms yet");
-    assert_eq!(view(&env).draft_charts, None);
 }
 
 /// Attacks at once (`attacks-v3`): under Attacks while they are On,
 /// three by default with its sentence; 1, 2, 3, No limit; applied, the
 /// summary names it where it is not three; Reset gives three; gone with
-/// Attacks Off or where the authority does not honor it.
+/// Attacks Off.
 #[test]
 fn the_attacks_at_once_row_shows_under_attacks_and_three_is_the_default() {
     let env = env();
@@ -825,46 +808,6 @@ fn the_attacks_at_once_row_shows_under_attacks_and_three_is_the_default() {
     assert_eq!(room.borrow().rules().at_once, ddi_room::AttacksAtOnce::Three);
     settings.multiplayer_rules_first = false;
     settings.save();
-    // An authority that predates it: no row.
-    let older = ddi_room::RoomPolicy {
-        at_once: false,
-        ..ddi_room::RoomPolicy::default()
-    };
-    let room = std::rc::Rc::new(std::cell::RefCell::new(RoomClient::practice_with_policy(
-        0, 1, older,
-    )));
-    room.borrow_mut().set_rules_seen(true);
-    let mut h = harness();
-    h.push(room_select(&env, room.clone(), "dance-single", &orders));
-    h.run(0.5);
-    press(&mut h, "Room.Rules");
-    assert!(!there(&h, "Inc.at_once"));
-    assert!(!there(&h, "Rule.at_once"));
-}
-
-/// An authority that predates the Points choice: the row is fixed, as it
-/// was, and nothing is offered it cannot honor.
-#[test]
-fn a_room_on_an_older_server_shows_points_fixed() {
-    let env = env();
-    let older = ddi_room::RoomPolicy {
-        points_bias: false,
-        ..ddi_room::RoomPolicy::default()
-    };
-    let room = std::rc::Rc::new(std::cell::RefCell::new(RoomClient::practice_with_policy(
-        0, 1, older,
-    )));
-    room.borrow_mut().set_rules_seen(true);
-    let orders = Orders::default();
-    let mut h = harness();
-    h.push(room_select(&env, room.clone(), "dance-single", &orders));
-    h.run(0.5);
-    press(&mut h, "Room.Rules");
-    assert!(!there(&h, "Inc.points"));
-    assert_eq!(said(&h, "Fixed.0.Value"), "By place");
-    assert_eq!(view(&env).draft_points, None);
-    // No mark and no note: every field reads the eight-player table.
-    assert!(!h.texts().iter().any(|t| t.contains("experimental")), "{:?}", h.texts());
 }
 
 /// The rules' summary says what differs from the usual: attacks are On by
@@ -2749,9 +2692,9 @@ fn a_pick_left_behind_goes_to_the_owner_or_is_there_to_take() {
     assert!(a.host && !b.host && !b.can_take_pick);
     assert!(list_shows(&ha) && !list_shows(&hb));
     assert!(has(&ha, "Alpha One") && !there(&hb, "Room.TakePick"));
-    // Nobody chooses (a room whose authority does not pass it on: its
-    // owner away past its patience, a co-host there): said to everyone,
-    // with how to take the pick to those who may.
+    // Nobody chooses (its owner away past its patience, a co-host there,
+    // before the room has passed on): said to everyone, with how to take
+    // the pick to those who may.
     let co_host = |on| {
         t.server
             .borrow_mut()
@@ -2763,9 +2706,8 @@ fn a_pick_left_behind_goes_to_the_owner_or_is_there_to_take() {
     };
     co_host(true);
     t.server.borrow_mut().rewrite(|s| {
-        s.hosting = None;
         s.members.get_mut(&ParticipantId(1)).unwrap().connection = Connection::Disconnected;
-        s.picking.as_mut().unwrap().picker = None;
+        s.picking.picker = None;
     });
     t.settle(400, &mut [&mut hb, &mut hc]);
     let (b, c) = (view(&eb), view(&ec));
@@ -2780,36 +2722,6 @@ fn a_pick_left_behind_goes_to_the_owner_or_is_there_to_take() {
     t.settle(400, &mut [&mut hb, &mut hc]);
     assert!(view(&eb).host && list_shows(&hb));
     assert_eq!(view(&ec).status, "bob is choosing the first song.");
-}
-
-/// A room whose authority predates the picker (no `picking` in its
-/// state): as it was. Every operator has their own list, nobody is offered
-/// the pick, and the others are told the host chooses.
-#[test]
-fn a_room_from_before_the_picker_shows_every_operator_their_list() {
-    let t = Three::over(|state| state.picking = None, true);
-    let (ea, eb, ec) = (env(), env(), env());
-    let orders = Orders::default();
-    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
-    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
-    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
-    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
-    let (a, b, c) = (view(&ea), view(&eb), view(&ec));
-    assert!(a.host && b.host && !c.host);
-    assert!(!a.can_take_pick && !b.can_take_pick && !c.can_take_pick);
-    assert!(list_shows(&ha) && list_shows(&hb) && !list_shows(&hc));
-    for h in [&ha, &hb, &hc] {
-        assert!(!there(h, "Room.TakePick") && !has(h, "Pick songs"));
-        assert!(!has(h, "Host · Picking"), "{:?}", h.texts());
-    }
-    assert_eq!(c.status, "The host is choosing the first song.");
-    hb.key("KeyT", "t");
-    hb.pad(crate::nav::MenuAction::More, true);
-    hb.pad(crate::nav::MenuAction::More, false);
-    hb.run(0.3);
-    assert!(!has(&hb, "Pick songs"), "{:?}", hb.texts());
-    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
-    assert!(!t.server.borrow().state().one_picker());
 }
 
 /// A part's alpha as drawn now (0 where it is not there, hidden, or a
@@ -3336,11 +3248,9 @@ fn host_options_work_by_keyboard_controller_and_a_tap_on_a_row() {
 }
 
 /// Who may be promoted and where: never a bot (its row has no controls),
-/// someone away cannot be handed the room, and a room whose authority
-/// does not pass rooms on offers co-hosts alone: no setting, no Make
-/// host, nothing sent that it could not read.
+/// and someone away cannot be handed the room.
 #[test]
-fn host_options_leave_out_bots_the_away_and_what_an_older_room_cannot_do() {
+fn host_options_leave_out_bots_and_the_away() {
     use ddi_room::{Command, Connection, Identity, Intent, ParticipantId};
     let t = Three::new(false);
     t.server
@@ -3375,37 +3285,6 @@ fn host_options_leave_out_bots_the_away_and_what_an_older_room_cannot_do() {
     assert_eq!(role_of(&view(&eb), 3), "co_host");
     press(&mut ha, "Close");
     press(&mut ha, "Close");
-
-    // A room from before the succession: co-hosts alone.
-    let t = Three::new(false);
-    let ea = env();
-    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
-    t.settle(400, &mut [&mut ha]);
-    // Everyone is connected; from here the room is as an older authority
-    // has it, and nothing is decided there that would say otherwise.
-    t.server.borrow_mut().rewrite(|s| s.hosting = None);
-    t.step(200);
-    ha.run(0.5);
-    let v = view(&ea);
-    assert!(v.manages_hosts);
-    assert_eq!(v.host_leaves, None);
-    open_players(&mut ha);
-    assert!(!has(
-        &ha,
-        "If the host leaves, a co-host becomes the host, or else the player who joined first."
-    ));
-    press(&mut ha, "HostOptions");
-    assert!(there(&ha, "CoHost.2") && !there(&ha, "MakeHost.2") && !there(&ha, "Dec.leaves"));
-    let before = t.server.borrow().state().revision;
-    assert!(t.alice.borrow_mut().make_host(ParticipantId(2)).is_ok());
-    assert!(
-        t.alice
-            .borrow_mut()
-            .set_host_leaves(ddi_room::HostLeaves::Close)
-            .is_ok()
-    );
-    t.step(200);
-    assert_eq!(t.server.borrow().state().revision, before, "nothing sent");
 }
 
 /// The succession on the screens: the owner leaves and the room passes
@@ -3603,17 +3482,6 @@ fn an_online_room_asks_its_host_always_and_the_others_during_a_match() {
         .borrow_mut()
         .set_host_leaves(ddi_room::HostLeaves::PassOn)
         .unwrap();
-    // A room whose authority does not pass on.
-    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
-    let hosting = t.server.borrow().state().hosting.clone();
-    t.server.borrow_mut().rewrite(|s| s.hosting = None);
-    t.step(200);
-    ha.run(0.3);
-    assert_eq!(
-        text(&ea),
-        "You are the host. The room stays open without a host, and you can come back by its link."
-    );
-    t.server.borrow_mut().rewrite(|s| s.hosting = hosting);
     t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
 
     // A match running (the host picked; the song is being shared).
@@ -4334,10 +4202,9 @@ fn the_rules_pop_up_during_a_match_says_so_and_restarts_it_on_request() {
 
 /// An online room during a match: a member sees the same statement with
 /// the rows read only and no restart; a co-host restarts it for
-/// everyone; a room whose authority predates the restart (no
-/// `RoomPolicy::restart`) never offers it, and its Apply still saves.
+/// everyone.
 #[test]
-fn an_online_rooms_restart_is_for_its_operators_and_never_sent_to_an_older_room() {
+fn an_online_rooms_restart_is_for_its_operators() {
     use ddi_room::{Actor, Command, Millis, ParticipantId};
     let start = |s: &mut ddi_room::RoomState| {
         let rev = s.revision;
@@ -4384,38 +4251,6 @@ fn an_online_rooms_restart_is_for_its_operators_and_never_sent_to_an_older_room(
         view(&ea).status,
         "Match stopped. Pick a song to start the next match under the new rules."
     );
-    // A room whose authority predates the restart.
-    // (It predates changes from a later stage too.)
-    let t = Three::over(
-        |s| {
-            s.policy.restart = false;
-            s.policy.stage_rules = false;
-        },
-        true,
-    );
-    let (ea, eb) = (env(), env());
-    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
-    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
-    t.settle(400, &mut [&mut ha, &mut hb]);
-    t.server.borrow_mut().rewrite(start);
-    t.settle(400, &mut [&mut ha, &mut hb]);
-    press(&mut hb, "Room.Rules");
-    let v = view(&eb);
-    assert!(v.rules_running && !v.restart_offered, "{v:?}");
-    assert!(!there(&hb, "Restart"));
-    // Nor a change from a later stage: today's form, nothing to send.
-    assert_eq!(v.rules_destination, None);
-    assert!(!there(&hb, "Inc.dest") && has(&hb, "Rules for the next match"));
-    assert!(!t.bob.borrow().may_change_stage_rules());
-    let rules = t.bob.borrow().rules().clone();
-    assert!(t.bob.borrow_mut().restart_match(rules).is_err(), "never sent");
-    t.bob.borrow_mut().clear_refusal();
-    press(&mut hb, "Inc.boos");
-    press(&mut hb, "Apply");
-    t.settle(400, &mut [&mut ha, &mut hb]);
-    let s = t.server.borrow().state().clone();
-    assert!(s.next.rules.boos, "saved for the next match");
-    assert_eq!(s.phase.kind(), ddi_room::PhaseKind::Preparing, "the match goes on");
 }
 
 /// The Rules pop-up during a match whose room takes changes from a later
@@ -4633,22 +4468,14 @@ fn an_online_rooms_operator_changes_rules_from_the_next_stage_for_everyone() {
 }
 
 /// CPUs in an online room (`ddi_room::live::cpus`, `online-cpus-v0`): the
-/// Rules pop-up offers the roster as practice's where the room plays live
-/// and its authority seats CPUs online; the roster saved keeps the room's
-/// seats for people still to come; an authority that predates it (or a
-/// room that does not play live) is offered none and sent none.
+/// Rules pop-up offers the roster as practice's where the room plays live;
+/// the roster saved keeps the room's seats for people still to come; a
+/// room that does not play live is offered none and sent none.
 #[test]
-fn an_online_rooms_rules_offer_the_roster_where_its_authority_seats_cpus() {
+fn an_online_rooms_rules_offer_the_roster_where_it_plays_live() {
     use ddi_room::RoomPolicy;
     for (policy, offered) in [
         (RoomPolicy::default().with_live(), true),
-        (
-            RoomPolicy {
-                cpus: false,
-                ..RoomPolicy::default().with_live()
-            },
-            false,
-        ),
         (RoomPolicy::default(), false),
     ] {
         let p = policy.clone();
@@ -4860,13 +4687,10 @@ fn a_rows_new_sentence_is_scrolled_into_view() {
     }
 }
 
-/// An online room whose authority predates Points from a later stage
-/// (`RoomPolicy::stage_points` missing): the From-stage mode keeps Points
-/// fixed with today's note, and a change sent there names no bias; where
-/// the authority honors it, a co-host's Points reach every mirror and
-/// every status line.
+/// An online room's Points from a later stage: a co-host's Points reach
+/// every mirror and every status line.
 #[test]
-fn an_online_rooms_points_change_from_a_later_stage_only_where_its_authority_honors_it() {
+fn an_online_rooms_points_change_from_a_later_stage() {
     use ddi_room::{Actor, Command, Millis, ParticipantId, PointsBias};
     let start = |s: &mut ddi_room::RoomState| {
         let rev = s.revision;
@@ -4879,39 +4703,7 @@ fn an_online_rooms_points_change_from_a_later_stage_only_where_its_authority_hon
         .unwrap();
     };
     let orders = Orders::default();
-    // Older: no Points row to edit, the note as before.
-    let t = Three::over(|s| s.policy.stage_points = false, true);
-    let (ea, eb) = (env(), env());
-    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
-    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
-    t.settle(400, &mut [&mut ha, &mut hb]);
-    t.server.borrow_mut().rewrite(start);
-    t.settle(400, &mut [&mut ha, &mut hb]);
-    press(&mut hb, "Room.Rules");
-    assert_eq!(view(&eb).rules_destination.as_deref(), Some("stage"));
-    assert!(!there(&hb, "Inc.points") && there(&hb, "Inc.boos"));
-    assert!(
-        hb.texts()
-            .iter()
-            .any(|t| t.starts_with("Stages, CPUs and Points can't change during a match")),
-        "{:?}",
-        hb.texts()
-    );
-    press(&mut hb, "Cancel");
-    // Even a client asked to send another bias sends none there.
-    let mut mild = t.bob.borrow().rules_ahead().unwrap();
-    mild.points = PointsBias::Mild;
-    mild.boos = true;
-    let (from, _) = t.bob.borrow().rules_land_on().unwrap();
-    t.bob.borrow_mut().change_stage_rules(from, &mild).unwrap();
-    t.settle(400, &mut [&mut ha, &mut hb]);
-    let server = t.server.borrow().state().clone();
-    let m = server.current.as_ref().unwrap();
-    assert_eq!(m.changes.len(), 1);
-    assert_eq!(m.changes[0].rules.points, None);
-    assert!(m.changes[0].rules.boos);
-
-    // Honored: the co-host's Mild from stage 1 reaches everyone.
+    // The co-host's Mild from stage 1 reaches everyone.
     let t = Three::new(true);
     let (ea, eb, ec) = (env(), env(), env());
     let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);

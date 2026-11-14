@@ -600,10 +600,9 @@ impl LiveStage {
                 None => true,
             })
         };
-        // A CPU plays live where the room seats CPUs online: the devices
-        // that compute it report for it (`crate::live::cpus`).
+        // A CPU plays live: the devices that compute it report for it
+        // (`crate::live::cpus`).
         let is_cpu = |p: &ParticipantId| room.member(*p).is_some_and(|m| m.is_cpu());
-        let cpus_live = room.policy.cpus;
         let comps: BTreeMap<ParticipantId, Comp> = play
             .lineup
             .iter()
@@ -612,11 +611,7 @@ impl LiveStage {
                     *p,
                     Comp {
                         cpu: is_cpu(p),
-                        live: if is_cpu(p) {
-                            cpus_live
-                        } else {
-                            prepared_ok(p).is_some()
-                        },
+                        live: is_cpu(p) || prepared_ok(p).is_some(),
                         seq: 0,
                         through_us: i64::MIN,
                         streamed: false,
@@ -638,7 +633,7 @@ impl LiveStage {
                     // A CPU's lead from the room's horizon for CPUs, the
                     // same on every device.
                     let horizon_us = if is_cpu(p) {
-                        cpus_live.then_some(crate::live::cpus::ONLINE_CPUS_V0.horizon_us)?
+                        crate::live::cpus::ONLINE_CPUS_V0.horizon_us
                     } else {
                         prepared_ok(p)?.horizon_us
                     };

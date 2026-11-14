@@ -42,23 +42,15 @@ pub struct RoomState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spotlight: Option<Spotlight>,
     /// One picker at a time ([`Picking`]): who chooses the room's songs
-    /// now. `None` is a room from before the picker (made by, or kept
-    /// on, an authority that predates it): every operator chooses there,
-    /// as it was, and its owner is named as the picker
-    /// ([`RoomState::picker`]). Additive to protocol 2: a client reads
-    /// from its absence that the pick cannot be taken there.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub picking: Option<Picking>,
-    /// What the room does when its host goes ([`Hosting`]). `None` is a
-    /// room whose authority predates the host's succession, or one it has
-    /// decided nothing for yet: this reducer reads it as Pass it on
-    /// ([`RoomState::if_host_leaves`]) and writes the setting with the
-    /// first change it makes there, so a client reads from its absence
-    /// that the authority may not know the commands that came with it
-    /// ([`crate::Command::SetHostLeaves`], [`crate::Command::MakeHost`])
-    /// and never sends them. Additive to protocol 2.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hosting: Option<Hosting>,
+    /// now. A room stored without it (from before the picker) reads as
+    /// one nobody's pick is held in, which its owner is given with the
+    /// next change while there ([`RoomState::apply`]'s settling).
+    #[serde(default)]
+    pub picking: Picking,
+    /// What the room does when its host goes ([`Hosting`]). A room stored
+    /// without it (from before the host's succession) reads as Pass it on.
+    #[serde(default)]
+    pub hosting: Hosting,
     /// The room ended ([`crate::Event::RoomClosed`]), and why: nothing is
     /// decided there any more (`Rejection::RoomClosed`), and its authority
     /// closes its sockets (4410). Additive to protocol 2.
@@ -427,15 +419,10 @@ impl StagePlay {
     }
 
     /// Its result comes from reports: self-reported, or a stage an online
-    /// room plays live whose authority seats CPUs (`RoomPolicy::cpus`):
-    /// its people report their own runs, the authority its CPUs' for the
-    /// devices that computed them (`crate::live::cpus`).
-    pub fn reported(
-        &self,
-        members: &BTreeMap<ParticipantId, Member>,
-        policy: &crate::rules::RoomPolicy,
-    ) -> bool {
-        self.self_reported(members) || (policy.cpus && self.song_zero_at.is_some())
+    /// room plays live: its people report their own runs, the authority
+    /// its CPUs' for the devices that computed them (`crate::live::cpus`).
+    pub fn reported(&self, members: &BTreeMap<ParticipantId, Member>) -> bool {
+        self.self_reported(members) || self.song_zero_at.is_some()
     }
 }
 
@@ -786,30 +773,18 @@ impl RoomState {
             phase: Phase::Lobby,
             history: Vec::new(),
             spotlight: None,
-            picking: Some(Picking {
+            picking: Picking {
                 picker: Some(owner_id),
                 shares: Vec::new(),
-            }),
-            hosting: Some(Hosting::default()),
+            },
+            hosting: Hosting::default(),
             closed: None,
         }
     }
 
-    /// What the room does when its host goes; a room that does not say
-    /// (from before the setting) passes it on.
+    /// What the room does when its host goes.
     pub fn if_host_leaves(&self) -> HostLeaves {
-        self.hosting
-            .as_ref()
-            .map(|h| h.if_host_leaves)
-            .unwrap_or_default()
-    }
-
-    /// Whether the room's authority runs the host's succession, as far as
-    /// this state says ([`RoomState::hosting`]): what a client checks
-    /// before it sends [`crate::Command::SetHostLeaves`] or
-    /// [`crate::Command::MakeHost`], or says what a host's leaving does.
-    pub fn has_succession(&self) -> bool {
-        self.hosting.is_some()
+        self.hosting.if_host_leaves
     }
 
     /// Who the room passes to when host `from` goes
@@ -894,19 +869,10 @@ impl RoomState {
         self.members.values().find(|m| m.role == Role::Owner)
     }
 
-    /// Whether the room has one picker at a time ([`Picking`]); a room
-    /// from before the picker has not, and every operator chooses there.
-    pub fn one_picker(&self) -> bool {
-        self.picking.is_some()
-    }
-
     /// Who chooses the room's songs now; none: nobody, until an operator
-    /// takes the pick. A room from before the picker names its owner.
+    /// takes the pick.
     pub fn picker(&self) -> Option<ParticipantId> {
-        match &self.picking {
-            Some(p) => p.picker,
-            None => self.owner().map(|m| m.id),
-        }
+        self.picking.picker
     }
 
     /// Whether a member's ticket (a socket opened again: a reconnect, a
@@ -934,28 +900,16 @@ impl RoomState {
     }
 
     /// Whether `id` chooses the room's songs now (rests on them for the
-    /// others, picks them): the picker; in a room from before the picker,
-    /// every operator.
+    /// others, picks them): the picker.
     pub fn chooses(&self, id: ParticipantId) -> bool {
-        let Some(m) = self.members.get(&id).filter(|m| m.present_person()) else {
-            return false;
-        };
-        match &self.picking {
-            Some(p) => p.picker == Some(id),
-            None => can(
-                m.role,
-                m.admin,
-                Capability::ChooseContent,
-                self.phase.kind(),
-            ),
-        }
+        self.picking.picker == Some(id)
+            && self.members.get(&id).is_some_and(|m| m.present_person())
     }
 
     /// Whether `id` may take the pick now ([`crate::Command::TakePick`]):
-    /// an operator who does not have it, in a room with one picker.
+    /// an operator who does not have it.
     pub fn may_take_pick(&self, id: ParticipantId) -> bool {
-        self.one_picker()
-            && self.picker() != Some(id)
+        self.picker() != Some(id)
             && self
                 .members
                 .get(&id)
@@ -1042,8 +996,9 @@ impl RoomState {
         }
         if let Some((_, share)) = self
             .picking
+            .shares
             .iter()
-            .flat_map(|p| p.shares.iter().rev())
+            .rev()
             .find(|(chart, _)| *chart == content.chart)
         {
             return Some(share.clone());
@@ -1068,7 +1023,7 @@ impl RoomState {
             || (play.song_zero_at.is_some()
                 && !play.song_ended
                 && matches!(self.phase, Phase::SongCompletion { stage: s } if s == stage));
-        if !play.reported(&self.members, &self.policy) || !waits {
+        if !play.reported(&self.members) || !waits {
             return None;
         }
         let p = &self.policy.outcomes;

@@ -108,9 +108,7 @@ pub enum Command {
     /// from now on, at once, with no request and no confirmation; whoever
     /// had it follows. Taken in any phase: during a stage's readiness,
     /// countdown or play it is the next choice that changes hands (the
-    /// stage's song stays). Additive to protocol 2: sent only to a room
-    /// that says it has one picker at a time (`RoomState::one_picker`), so
-    /// never to an authority that could not read it.
+    /// stage's song stays).
     TakePick,
     /// Save the next match's rules. Never touches a running match's rules.
     SaveNextRules {
@@ -143,9 +141,7 @@ pub enum Command {
     /// command can come between them; the next pick starts a new match
     /// under `rules`. Needs both capabilities (`EditNextRules`,
     /// `StopMatch`: an operator, while a match runs) and the envelope's
-    /// base, as `SaveNextRules` does; refused whole otherwise. Additive to
-    /// protocol 2: sent only to a room whose policy says its authority
-    /// reads it (`RoomPolicy::restart`), so never to one that could not.
+    /// base, as `SaveNextRules` does; refused whole otherwise.
     RestartMatch {
         rules: MatchRules,
     },
@@ -159,9 +155,8 @@ pub enum Command {
     /// never moved silently. Needs `EditNextRules` (the operator who may
     /// edit rules), a running match, and the envelope's base against the
     /// match's last change (`Match::changes_saved_at`). The stage count,
-    /// seats, CPUs, ruleset and award curve never change mid-match.
-    /// Additive to protocol 2: sent only to a room whose policy says its
-    /// authority reads it (`RoomPolicy::stage_rules`).
+    /// seats, CPUs and ruleset never change mid-match (the award curve's
+    /// bias does, [`PlayRules::points`]).
     ChangeStageRules {
         from: StageId,
         rules: PlayRules,
@@ -183,18 +178,14 @@ pub enum Command {
         rotate_invite: bool,
     },
     /// What the room does when its host goes (2026-11-12,
-    /// [`HostLeaves`]): a room setting, taken in every phase. Additive to
-    /// protocol 2: sent only to a room that says it has the setting
-    /// (`RoomState::has_succession`), so never to an authority that could
-    /// not read it.
+    /// [`HostLeaves`]): a room setting, taken in every phase.
     SetHostLeaves {
         policy: HostLeaves,
     },
     /// Hand the room over to `participant` (a person present and
     /// connected, never a bot): they are the owner at once, with
     /// everything an owner has, and the sender a co-host, who cannot take
-    /// it back by themselves. The pick stays with whoever has it. Additive
-    /// to protocol 2, sent as [`Command::SetHostLeaves`] is.
+    /// it back by themselves. The pick stays with whoever has it.
     MakeHost {
         participant: ParticipantId,
     },

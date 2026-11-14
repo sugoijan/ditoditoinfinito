@@ -131,8 +131,6 @@ room-rules-charts-no-ladder = 選ばれた曲にはこのスタイルの譜面�
 
 room-rules-charts-online = 選んだまま · オンラインルームではまだ使えません
 
-room-rules-points-value = 順位制
-
 room-rules-points-strong = 強め
 room-rules-points-medium = 中くらい
 room-rules-points-mild = 弱め
@@ -175,10 +173,6 @@ room-rules-title-from = ステージ{ $number }からのルール
 
 room-rules-running-stage = この対戦はステージ { $number } / { $stages } です。現在のルール：
 
-room-rules-running-from = { $marked ->
-    [yes] 以下のタイミング・Boo・ライフ0のとき・攻撃はステージ{ $number }から適用されます。●は変更した項目です。
-   *[no] 以下のタイミング・Boo・ライフ0のとき・攻撃はステージ{ $number }から適用されます。
-}
 room-rules-running-from-points = { $marked ->
     [yes] 以下のタイミング・Boo・ライフ0のとき・攻撃・得点はステージ{ $number }から適用されます。●は変更した項目です。
    *[no] 以下のタイミング・Boo・ライフ0のとき・攻撃・得点はステージ{ $number }から適用されます。
@@ -188,7 +182,6 @@ room-rules-destination = 変更の適用先
 room-rules-destination-stage = ステージ{ $number }から
 room-rules-destination-next = 次の対戦
 
-room-rules-stage-only-note = ステージ数・CPU・得点は対戦中には変更できません。変更するには「次の対戦」を選ぶか、「適用してやり直す」を使ってください。
 room-rules-stage-only-note-points = ステージ数・CPUは対戦中には変更できません。変更するには「次の対戦」を選ぶか、「適用してやり直す」を使ってください。
 room-rules-points-shift = ステージ{ $number }より前のステージは得点{ $before ->
     [medium] 中くらい
@@ -287,8 +280,6 @@ room-leave-host-close = このルームのホストです。ルームは全員�
 room-leave-host-close-match = このルームのホストです。ルームは全員に対して閉じられ、進行中の対戦は終了します。
 
 room-leave-host-alone = ルームにはほかに誰もいません。ルームは閉じられます。
-
-room-leave-host-stays = このルームのホストです。ルームはホストがいないまま開いた状態になり、リンクから戻れます。
 
 room-leave-playing = 進行中の対戦に参加しています。対戦は退出後も続き、参加しなかったステージは0点になります。
 
@@ -524,13 +515,9 @@ room-invite-replaced = 招待を差し替えました。古いリンクは使え
 room-invite-not-replaced = 招待を差し替えられませんでした。
 room-joined-to-watch = プレイヤーの席が埋まっているため、観戦しています。席が空いたら「プレイする」を選べます。
 
-room-status-host-chooses = ステージ{ $number }の曲はホストが選びます。
-
 ## The match flow (M7b).
 
 room-status-pick-first = 曲を選んで対戦を始めましょう。
-
-room-status-host-picks-first = ホストが最初の曲を選んでいます。
 
 room-status-pick-next = ステージ{ $number }の曲を選んでください。
 
@@ -545,8 +532,6 @@ room-status-pick-new-match = 対戦終了。曲を選んで次の対戦を始め
 room-status-stopped-pick = 対戦を中止しました。曲を選んで次の対戦を始めましょう。
 
 room-status-stopped-new-rules = 対戦を中止しました。曲を選んで、新しいルールで次の対戦を始めましょう。
-
-room-status-host-picks-new-match = 対戦終了。次の対戦の最初の曲はホストが選びます。
 
 ## One picker at a time.
 

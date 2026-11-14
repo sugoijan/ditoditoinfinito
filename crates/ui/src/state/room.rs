@@ -139,9 +139,6 @@ pub enum LeaveCost {
     HostClose { match_running: bool },
     /// An online room's host with nobody else in it: the room closes.
     HostAlone,
-    /// The host of a room whose authority does not pass rooms on: it
-    /// stays open without a host.
-    HostStays,
     /// In the running match (not the host): it goes on without them.
     Playing,
     /// Choosing the room's songs while a match runs (not the host, not
@@ -1601,13 +1598,6 @@ impl RoomClient {
         room
     }
 
-    /// A practice room under another `policy` (tests: an older
-    /// authority's, a larger cap).
-    #[cfg(test)]
-    pub fn practice_with_policy(now_ms: u64, seed: u64, policy: RoomPolicy) -> RoomClient {
-        Self::practice_under(now_ms, Self::starting_rules(seed), policy)
-    }
-
     /// A new practice room as the shells make it: [`RoomClient::new`]'s,
     /// its CPUs the roster the last practice room was left with where the
     /// settings keep one this build reads (`Settings::practice_roster`;
@@ -1812,9 +1802,7 @@ impl RoomClient {
     }
 
     /// Whether the local player may take the pick over now: an operator
-    /// who does not have it, in a room that has one picker at a time
-    /// (never one whose authority predates it, which could not read the
-    /// command), while connected.
+    /// who does not have it.
     pub fn may_take_pick(&self) -> bool {
         self.link_state() == LinkState::Connected && self.state().may_take_pick(self.me)
     }
@@ -1828,16 +1816,8 @@ impl RoomClient {
         self.send(Command::TakePick)
     }
 
-    /// Whether this online room's authority passes a room on when its
-    /// host goes (`ddi_room::Hosting`: the room says its setting). Not
-    /// where it predates that: its commands are never sent there, and a
-    /// host's leaving leaves the room without one. Practice: no.
-    pub fn has_succession(&self) -> bool {
-        self.is_online() && self.state().has_succession()
-    }
-
-    /// What the room does when its host goes (meaningful where
-    /// [`RoomClient::has_succession`]).
+    /// What the room does when its host goes (meaningful online:
+    /// practice is never passed on).
     pub fn if_host_leaves(&self) -> ddi_room::HostLeaves {
         self.state().if_host_leaves()
     }
@@ -1864,7 +1844,7 @@ impl RoomClient {
     /// The owner sets what the room does when its host goes. Nothing is
     /// sent where the room does not pass on or the player may not.
     pub fn set_host_leaves(&mut self, policy: ddi_room::HostLeaves) -> Result<(), Refusal> {
-        if !self.has_succession() || !self.manages_hosts() || self.if_host_leaves() == policy {
+        if !self.manages_hosts() || self.if_host_leaves() == policy {
             return Ok(());
         }
         self.send(Command::SetHostLeaves { policy })
@@ -1878,12 +1858,10 @@ impl RoomClient {
         self.send(Command::SetCoHost { participant, on })
     }
 
-    /// Whether the owner may hand the room to `participant` now: a room
-    /// that passes on, and someone there to run it (present, connected,
-    /// a person).
+    /// Whether the owner may hand the room to `participant` now: someone
+    /// there to run it (present, connected, a person).
     pub fn may_make_host(&self, participant: ParticipantId) -> bool {
-        self.has_succession()
-            && self.manages_hosts()
+        self.manages_hosts()
             && self.may(Capability::MakeHost)
             && self.state().member(participant).is_some_and(|m| {
                 m.id != self.me
@@ -2093,9 +2071,6 @@ impl RoomClient {
         }
         let me = s.member(self.me).filter(|m| !m.left)?;
         if me.role == Role::Owner {
-            if !s.has_succession() {
-                return Some(LeaveCost::HostStays);
-            }
             let others = s
                 .members
                 .values()
@@ -2123,7 +2098,7 @@ impl RoomClient {
                 .is_some_and(|seat| !seat.out_for_match);
         if playing {
             Some(LeaveCost::Playing)
-        } else if s.one_picker() && s.picker() == Some(self.me) {
+        } else if s.picker() == Some(self.me) {
             Some(LeaveCost::Picking)
         } else if me.role == Role::CoHost {
             Some(LeaveCost::CoHost)
@@ -2553,9 +2528,9 @@ impl RoomClient {
         rules.cpu_seats(self.state().reserved_humans()) > 0
     }
 
-    /// The room can seat CPUs: practice, or an online room whose authority
-    /// plays them online (`RoomPolicy::seats_cpus`: it plays live and
-    /// takes their reports from the devices).
+    /// The room can seat CPUs: practice, or an online room that plays
+    /// live (`RoomPolicy::seats_cpus`: its devices compute them alike and
+    /// report for them).
     pub fn cpus_offered(&self) -> bool {
         let s = self.state();
         s.policy.seats_cpus(s.source)
@@ -3605,29 +3580,11 @@ impl RoomClient {
         self.send(Command::StopMatch)
     }
 
-    /// The room's authority awards fields of nine and more by the
-    /// top-biased tables at the match's points bias (`RoomPolicy::points_bias`):
-    /// the Rules pop-up offers the choice only then (an older server
-    /// drops it and awards by its own rule).
-    pub fn points_offered(&self) -> bool {
-        self.state().policy.points_bias
-    }
-
     /// The match's Charts rule can be set here: CPU practice, where every
     /// play is judged on this device, and an online room that plays live
-    /// (its contract carries the ladder and the steps); never one whose
-    /// authority would drop the rule or rank by steps
-    /// (`RoomPolicy::adaptive`).
+    /// (its contract carries the ladder and the steps).
     pub fn adaptive_offered(&self) -> bool {
-        self.state().policy.adaptive && self.judged_here_or_live()
-    }
-
-    /// The match's Attacks at once can be set here: where attacks are
-    /// offered ([`Self::attacks_offered`]) and the room's authority
-    /// honors the limit (`RoomPolicy::at_once`; one that predates it
-    /// would place attacks without it).
-    pub fn at_once_offered(&self) -> bool {
-        self.state().policy.at_once && self.attacks_offered()
+        self.judged_here_or_live()
     }
 
     /// Whether the song the picker rests on (or picked last) has another
@@ -3666,32 +3623,18 @@ impl RoomClient {
     /// stop the running match as one change (the Rules pop-up's "Apply
     /// and restart"): an operator, while a match runs (Stop match's
     /// phases: a stage's readiness, countdown and play, its song's end,
-    /// the intermission), in a room whose authority reads
-    /// `Command::RestartMatch` (`RoomPolicy::restart`; never one that
-    /// predates it).
+    /// the intermission).
     pub fn may_restart(&self) -> bool {
-        self.state().policy.restart
-            && self.may(Capability::EditNextRules)
+        self.may(Capability::EditNextRules)
             && self.may(Capability::StopMatch)
     }
 
     /// Whether the running match's per-stage rules may be changed from a
-    /// later stage on here (the Rules pop-up's "From stage N"): the room's
-    /// authority reads the change (`RoomPolicy::stage_rules`), the player
-    /// may edit rules, and a stage is left for it to land on.
+    /// later stage on here (the Rules pop-up's "From stage N", Points
+    /// too, the maintainer, 2026-11-13): the player may edit rules, and a
+    /// stage is left for it to land on.
     pub fn may_change_stage_rules(&self) -> bool {
-        self.state().policy.stage_rules
-            && self.may(Capability::EditNextRules)
-            && self.rules_land_on().is_some()
-    }
-
-    /// Points may change from a later stage too (the maintainer,
-    /// 2026-11-13): where per-stage changes are taken here and the room's
-    /// authority awards each stage by the bias of its own rules
-    /// (`RoomPolicy::stage_points`; never one that would drop the bias).
-    pub fn stage_points_offered(&self) -> bool {
-        let p = &self.state().policy;
-        p.stage_points && p.points_bias && self.may_change_stage_rules()
+        self.may(Capability::EditNextRules) && self.rules_land_on().is_some()
     }
 
     /// The rules of the stage before the one a change saved now would
@@ -3738,16 +3681,10 @@ impl RoomClient {
     /// ([`RoomClient::rules_land_on`]). Refused with
     /// `Rejection::RulesLandLater` where the room has moved on since.
     pub fn change_stage_rules(&mut self, from: StageId, rules: &MatchRules) -> Result<(), Refusal> {
-        if !self.state().policy.stage_rules {
-            return self.refuse(Refusal::Room(Rejection::Unauthorized {
-                capability: Capability::EditNextRules,
-            }));
-        }
-        // The bias named only where it is not the match's own, and only to
-        // an authority that honors it: a match whose Points nobody changes
-        // sends what it did before.
+        // The bias named only where it is not the match's own: a match
+        // whose Points nobody changes sends what it did before.
         let play = match self.state().current.as_ref() {
-            Some(m) if self.state().policy.stage_points => {
+            Some(m) => {
                 // Named wherever it differs from the match's or from the
                 // stage's as it stands, so that a change back to the
                 // match's own is said (an authority reads a change naming
@@ -3767,11 +3704,6 @@ impl RoomClient {
     /// Save `rules` for the next match and stop the running match, as one
     /// change: the next pick starts a new match under them.
     pub fn restart_match(&mut self, rules: MatchRules) -> Result<(), Refusal> {
-        if !self.state().policy.restart {
-            return self.refuse(Refusal::Room(Rejection::Unauthorized {
-                capability: Capability::StopMatch,
-            }));
-        }
         self.send(Command::RestartMatch { rules })?;
         self.remember_roster();
         Ok(())

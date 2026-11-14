@@ -290,10 +290,9 @@ impl RulesDialog {
     }
 
     /// Row `id` is one of a stage's own rules: [`PER_STAGE`]'s, and Points
-    /// where the room awards each stage by its own bias
-    /// (`RoomClient::stage_points_offered`, the maintainer, 2026-11-13).
+    /// (the maintainer, 2026-11-13: each stage awarded by its own bias).
     fn per_stage(&self, id: &str) -> bool {
-        PER_STAGE.contains(&id) || (id == "points" && self.stage_points())
+        PER_STAGE.contains(&id) || id == "points"
     }
 
     /// Applying now would clear readiness: in the lobby, with someone
@@ -347,16 +346,11 @@ impl RulesDialog {
         to.clamp(0.0, self.max_scroll)
     }
 
-    /// Points may change from a later stage here.
-    fn stage_points(&self) -> bool {
-        self.room.borrow().stage_points_offered()
-    }
-
     /// Where Points from a later stage differs from the stage before it,
     /// that stage's bias: the stages before and after are awarded on
     /// different curves, which the host is told under the row.
     fn points_shift(&self) -> Option<PointsBias> {
-        if !(self.to_stage() && self.stage_points()) {
+        if !self.to_stage() {
             return None;
         }
         let before = self.room.borrow().rules_before_landing()?.points;
@@ -374,11 +368,6 @@ impl RulesDialog {
         self.room.borrow().cpus_offered()
     }
 
-    /// The Points row is a choice (`RoomClient::points_offered`).
-    fn points_offered(&self) -> bool {
-        self.room.borrow().points_offered()
-    }
-
     /// The Charts rule can be set here (`RoomClient::adaptive_offered`).
     fn adaptive_offered(&self) -> bool {
         self.room.borrow().adaptive_offered()
@@ -389,10 +378,10 @@ impl RulesDialog {
         self.room.borrow().attacks_offered()
     }
 
-    /// The Attacks at once row shows: offered (`RoomClient::at_once_offered`)
-    /// and the edited rules' Attacks On.
+    /// The Attacks at once row shows: attacks offered
+    /// (`RoomClient::attacks_offered`) and the edited rules' Attacks On.
     fn at_once_shown(&self) -> bool {
-        self.room.borrow().at_once_offered() && self.edited().borrow().attacks()
+        self.attacks_offered() && self.edited().borrow().attacks()
     }
 
     fn roster(&self) -> Vec<OpponentSpec> {
@@ -442,7 +431,7 @@ impl RulesDialog {
         let gates = RuleGates {
             charts: r.adaptive_offered(),
             attacks: r.attacks_offered(),
-            at_once: r.at_once_offered(),
+            at_once: r.attacks_offered(),
             ..RuleGates::default()
         };
         if self.to_stage() {
@@ -450,7 +439,7 @@ impl RulesDialog {
                 return Vec::new();
             };
             let gates = RuleGates {
-                points: r.stage_points_offered(),
+                points: true,
                 ..gates
             };
             return rules_diff(&ahead, &self.stage_draft.borrow(), gates);
@@ -461,7 +450,7 @@ impl RulesDialog {
         let gates = RuleGates {
             stages: true,
             cpus: r.cpus_offered().then(|| r.humans()),
-            points: r.points_offered(),
+            points: true,
             ..gates
         };
         rules_diff(locked, &self.draft.borrow(), gates)
@@ -515,7 +504,8 @@ impl RulesDialog {
                 d.charts.id().to_string(),
             )
         });
-        let stage_points = (self.to_stage() && self.stage_points())
+        let stage_points = self
+            .to_stage()
             .then(|| self.stage_draft.borrow().points.id().to_string());
         let points_shift = self.points_shift().map(|b| b.id().to_string());
         let draft = self.draft.borrow();
@@ -526,9 +516,7 @@ impl RulesDialog {
             draft.boos,
             draft.attacks(),
         );
-        let points = self
-            .points_offered()
-            .then(|| draft.points.id().to_string());
+        let points = Some(draft.points.id().to_string());
         let charts = self
             .adaptive_offered()
             .then(|| draft.charts.id().to_string());
@@ -567,9 +555,7 @@ impl RulesDialog {
         if self.to_stage() {
             let stage = self.stage_draft.borrow();
             let mut rules = draft.with_play(&stage.play_rules());
-            if self.stage_points() {
-                rules.points = stage.points;
-            }
+            rules.points = stage.points;
             rules
         } else {
             draft
@@ -653,7 +639,7 @@ impl RulesDialog {
             let ahead = self.room.borrow().rules_ahead();
             let differs = ahead.is_some_and(|a| {
                 a.play_rules() != stage.play_rules()
-                    || (self.stage_points() && a.points != stage.points)
+                    || a.points != stage.points
             });
             if differs && let Some((from, _)) = self.from {
                 saved = self.room.borrow_mut().change_stage_rules(from, &stage);
@@ -703,29 +689,19 @@ impl Screen for RulesDialog {
         let roster = self.roster();
         let cpus = self.cpus_shown();
         let mut notes: Vec<(String, &str)> = Vec::new();
-        let stage_points = self.stage_points();
         if to_stage {
-            notes.push((
-                if stage_points {
-                    m::rules_stage_only_note_points()
-                } else {
-                    m::rules_stage_only_note()
-                }
-                .into(),
-                "Muted",
-            ));
+            notes.push((m::rules_stage_only_note_points().into(), "Muted"));
         }
         // Each note only where it applies: the stars' with CPUs to show
         // them, Points' beside its row, what applying does where it would.
         if cpus && !roster.is_empty() {
             notes.push((m::rules_level_note().into(), "Muted"));
         }
-        let points = self.points_offered();
         let field = humans + roster.len();
         // Every field reads the eight-player table (the maintainer,
         // 2026-11-13): the only note left is that the choice changes
         // nothing at eight or fewer.
-        let points_note: Option<UiText> = (points && field <= 8).then(m::rules_points_bias_note);
+        let points_note: Option<UiText> = (field <= 8).then(m::rules_points_bias_note);
         notes.push((m::rules_ruleset_note().into(), "Muted"));
         notes.push((m::rules_battle_note().into(), "Muted"));
         let running = self.running();
@@ -780,10 +756,8 @@ impl Screen for RulesDialog {
             } else {
                 m::rules_running(n, stages)
             };
-            let next = if to_stage && stage_points {
+            let next = if to_stage {
                 m::rules_running_from_points(from_n, marked)
-            } else if to_stage {
-                m::rules_running_from(from_n, marked)
             } else {
                 m::rules_running_next(marked)
             };
@@ -821,7 +795,7 @@ impl Screen for RulesDialog {
         };
         // The Points choice's sentence, under its row; from a later stage,
         // where it differs from the stage before, that totals will shift.
-        let about = if points {
+        let about: Vec<String> = {
             // Each sentence wrapped on its own (never two messages run
             // together on a line).
             let mut texts: Vec<String> = vec![super::room::points_about(play.points).into()];
@@ -842,11 +816,6 @@ impl Screen for RulesDialog {
                 .iter()
                 .flat_map(|t| super::dialog::wrap_lines(t, inner, 12.0))
                 .collect()
-        } else {
-            points_note
-                .as_ref()
-                .map(|n| super::dialog::wrap_lines(&String::from(n.clone()), inner, 12.0))
-                .unwrap_or_default()
         };
         let about_h = about.len() as f32 * 17.0;
         // The Charts choice's sentence, under its row (and, where
@@ -975,7 +944,7 @@ impl Screen for RulesDialog {
         // whether there is a value that way); the value alone at the
         // row's end for someone who may not change it.
         let row_edit =
-            |id: &str| editable && (!to_stage || PER_STAGE.contains(&id) || (id == "points" && stage_points));
+            |id: &str| editable && (!to_stage || PER_STAGE.contains(&id) || id == "points");
         let stepper = |c: &mut Vec<Actor>,
                        id: &str,
                        label: &str,
@@ -1234,27 +1203,20 @@ impl Screen for RulesDialog {
             about_lines(&mut c, "at_once", &at_once_about, bright, &mut ry);
             said_to("at_once", ry);
         }
-        // Points: how strongly a large field favors its top places, where
-        // the room's authority awards so; else what it is, fixed.
-        if points {
-            mark(&mut c, "points", ry + ROW / 2.0);
-            stepper(
-                &mut c,
-                "points",
-                &m::rules_points(),
-                super::room::points_name(play.points).into(),
-                ends(PointsBias::ALL.len(), play.points.index()),
-                false,
-                ry + ROW / 2.0,
-            );
-            ry += ROW;
-            about_lines(&mut c, "points", &about, self.bright == Some("points"), &mut ry);
-            said_to("points", ry);
-        } else {
-            fixed_row(&mut c, "Fixed.0", &m::rules_points(), &m::rules_points_value(), ry);
-            ry += ROW;
-            about_lines(&mut c, "points", &about, false, &mut ry);
-        }
+        // Points: how strongly a large field favors its top places.
+        mark(&mut c, "points", ry + ROW / 2.0);
+        stepper(
+            &mut c,
+            "points",
+            &m::rules_points(),
+            super::room::points_name(play.points).into(),
+            ends(PointsBias::ALL.len(), play.points.index()),
+            false,
+            ry + ROW / 2.0,
+        );
+        ry += ROW;
+        about_lines(&mut c, "points", &about, self.bright == Some("points"), &mut ry);
+        said_to("points", ry);
         // The notes, and the room's answer, wrapped.
         let mut ny = ry + 12.0;
         let mut k = 0;
@@ -1351,7 +1313,7 @@ impl Screen for RulesDialog {
             if self.at_once_shown() {
                 rows.push(pair("at_once"));
             }
-            if self.points_offered() && self.row_editable("points") {
+            if self.row_editable("points") {
                 rows.push(pair("points"));
             }
         }
@@ -1432,7 +1394,7 @@ impl Screen for RulesDialog {
             .filter(|id| match *id {
                 "charts" => self.adaptive_offered(),
                 "at_once" => self.at_once_shown(),
-                _ => self.points_offered(),
+                _ => true,
             });
         if bright != self.bright {
             self.bright = bright;
@@ -1531,7 +1493,7 @@ impl Screen for RulesDialog {
                         rebuild(self, root, cx, name);
                     }
                     "Dec.points" | "Inc.points"
-                        if self.row_editable("points") && self.points_offered() =>
+                        if self.row_editable("points") =>
                     {
                         let edited = self.edited();
                         let mut d = edited.borrow_mut();
@@ -2064,8 +2026,8 @@ impl Screen for PlayersDialog {
         let mut rows = players_first_rows(&r);
         let status: String = super::room::status(&r).into();
         // What the room does when its host leaves, said to everyone
-        // (where the room says).
-        let about: Option<String> = r.has_succession().then(|| host_leaves_about(&r).into());
+        // (online: practice is never passed on).
+        let about: Option<String> = r.is_online().then(|| host_leaves_about(&r).into());
         // An operator's: Host options, and a tap on another person's row
         // (the owner's on anyone's; a co-host's on those they may let
         // play, round B1).
@@ -2389,7 +2351,7 @@ impl Screen for HostDialog {
         let (succession, owner, policy) = {
             let r = self.room.borrow();
             self.seen = r.version();
-            (r.has_succession(), r.manages_hosts(), r.if_host_leaves())
+            (r.is_online(), r.manages_hosts(), r.if_host_leaves())
         };
         // What the room does if its host leaves, and Make host: the
         // owner's alone.
@@ -2619,7 +2581,7 @@ impl Screen for HostDialog {
         let mut v = Vec::new();
         let succession = {
             let r = self.room.borrow();
-            r.has_succession() && r.manages_hosts()
+            r.is_online() && r.manages_hosts()
         };
         if succession {
             pair(&mut v, "Dec.leaves".into(), "Inc.leaves".into());

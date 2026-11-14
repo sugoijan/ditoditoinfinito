@@ -33,94 +33,20 @@ pub struct RoomPolicy {
     pub outcomes: OutcomePolicy,
     /// Live play (`crate::live`, `docs/plans/multiplayer-online-play.md`):
     /// a stage started at one instant on the room's clock, its competitors'
-    /// plays streamed, its attacks decided by the room. `None`: an authority
-    /// that predates it (or local practice, which judges every play on one
-    /// device). ADDITIVE to protocol 2: a client sends live frames only to a
-    /// room whose policy has it, so never to an authority that would close
-    /// the socket on a frame it cannot read.
+    /// plays streamed, its attacks decided by the room. `None`: local
+    /// practice, which judges every play on one device (a hosted room
+    /// always plays live: one stored before live play is given it when its
+    /// server loads it). Configuration, not a version: practice and a
+    /// hosted room differ by it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live: Option<LivePolicy>,
-    /// The authority reads `crate::Command::RestartMatch` (2026-11-13: the
-    /// next match's rules saved and the running match stopped as one
-    /// change). True for every room this build makes; false (left out of
-    /// the JSON) for a room whose authority predates it, or a room stored
-    /// before it. ADDITIVE to protocol 2: a client sends the command only
-    /// to a room whose policy says so, so never to an authority that would
-    /// close the socket on a command it cannot read.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub restart: bool,
-    /// The authority awards fields of nine and more by the top-biased
-    /// tables at the match's [`MatchRules::points`] (2026-11-13). True for
-    /// every room this build makes; false (left out of the JSON) for an
-    /// authority that predates it, which ignores the rule (it awards nine
-    /// by its own retired rule and seats no more), so the Points row is
-    /// offered only where this says so. ADDITIVE to protocol 2.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub points_bias: bool,
     /// An audience beyond the members (`crate::audience`,
     /// `docs/plans/multiplayer-audience.md`): people who watch, counted and
-    /// not listed, served by relays. `None`: the authority has none (one
-    /// that predates it, or local practice). ADDITIVE to protocol 2: a
-    /// client offers the audience's link, count and control only where it
-    /// is said.
+    /// not listed, served by relays. `None`: the room has none (local
+    /// practice). A client offers the audience's link, count and control
+    /// only where it is said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audience: Option<crate::audience::AudiencePolicy>,
-    /// The authority honored the match's "At zero life: Step down"
-    /// (`step-down-v0`, superseded by [`RoomPolicy::adaptive`]): still
-    /// set by every room this build makes, read by nobody. ADDITIVE to
-    /// protocol 2.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub step_down: bool,
-    /// The authority honors the match's "Charts: Adaptive"
-    /// ([`MatchRules::charts`]): it keeps the rule, reads plans whose
-    /// ladder has rungs above the stage's chart and ranks a stage under
-    /// it by the score ([`RankBy::Score`]). True for every room this
-    /// build makes; false (left out of the JSON) for an authority that
-    /// predates it, which would rank by steps (or drop the rule), so the
-    /// row is offered only where this says so. ADDITIVE to protocol 2.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub adaptive: bool,
-    /// The authority reads `crate::Command::ChangeStageRules` (2026-11-13:
-    /// a running match's per-stage rules, [`PlayRules`], changed from a
-    /// later stage on) and keeps the changes on the match
-    /// (`state::Match::changes`). True for every room this build makes;
-    /// false (left out of the JSON) for a room whose authority predates
-    /// it, where the Rules pop-up keeps its form of before and the command
-    /// is never sent. ADDITIVE to protocol 2.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub stage_rules: bool,
-    /// The authority reads a change's points bias ([`PlayRules::points`],
-    /// 2026-11-13: Points changeable from a later stage, the maintainer's
-    /// decision) and awards each stage by the bias of the rules it was
-    /// played under (`state::Match::rules_for`). True for every room this
-    /// build makes; false (left out of the JSON) for an authority that
-    /// predates it, which would drop the bias and award the stage by the
-    /// match's (an authority with `stage_rules` alone, built the same day,
-    /// does exactly that, so `stage_rules` cannot say it), so the Points
-    /// row is editable from a later stage only where this says so.
-    /// ADDITIVE to protocol 2.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub stage_points: bool,
-    /// The authority seats a match's CPUs in a room that plays live and
-    /// takes their reports from the devices that compute them
-    /// (`crate::live::cpus`, `online-cpus-v0`, 2026-11-13): its live side
-    /// keeps each CPU in the ledger and the ranking, the first report of
-    /// each checkpoint taken. True for every room this build makes (it
-    /// matters only with [`RoomPolicy::live`]: practice judges its CPUs
-    /// on its one device); false (left out of the JSON) for an authority
-    /// that predates it, which would never hear from a CPU, so a client
-    /// offers the roster online only where this says so. ADDITIVE to
-    /// protocol 2.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub cpus: bool,
-    /// The authority honors the match's "Attacks at once"
-    /// ([`MatchRules::at_once`], `attacks-v3`): its ledger runs a stage
-    /// under the limit the stage's battle plan names. True for every room
-    /// this build makes; false (left out of the JSON) for an authority
-    /// that predates it, which would place attacks without the limit, so
-    /// the row is offered only where this says so. ADDITIVE to protocol 2.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub at_once: bool,
 }
 
 /// What a room that plays live tells its clients of how
@@ -198,12 +124,12 @@ impl RoomPolicy {
 impl RoomPolicy {
     /// Whether a room under this policy whose content is `source` can
     /// seat CPUs: practice always (its one device judges them), an online
-    /// room where it plays live and its authority seats them
-    /// ([`RoomPolicy::cpus`]).
+    /// room where it plays live (its devices compute them alike,
+    /// `crate::live::cpus`).
     pub fn seats_cpus(&self, source: ContentSource) -> bool {
         match source {
             ContentSource::LocalLibrary => true,
-            ContentSource::Shared => self.cpus && self.live.is_some(),
+            ContentSource::Shared => self.live.is_some(),
         }
     }
 
@@ -261,15 +187,7 @@ impl Default for RoomPolicy {
             readiness: ReadinessPolicy::default(),
             outcomes: OutcomePolicy::default(),
             live: None,
-            restart: true,
-            points_bias: true,
             audience: None,
-            step_down: true,
-            adaptive: true,
-            stage_rules: true,
-            stage_points: true,
-            cpus: true,
-            at_once: true,
         }
     }
 }
@@ -538,9 +456,8 @@ pub struct PlayRules {
     /// `None` for the match's own: a change that names none keeps the
     /// match's. Kept `None` wherever it equals the match's
     /// (`state::Match::play_rules_of`), so a match whose Points nobody
-    /// changed sends and stores what it did before. ADDITIVE: left out of
-    /// the JSON while `None`; an authority that predates it drops it,
-    /// so it is sent only where [`RoomPolicy::stage_points`] says so.
+    /// changed sends and stores what it did before: left out of the JSON
+    /// while `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub points: Option<PointsBias>,
 }
@@ -552,21 +469,11 @@ impl PlayRules {
             .is_some_and(crate::battle::BattlePreset::attacks)
     }
 
-    /// Whether a room under `policy` can play them: a battle's id of a
-    /// sane length (the room keeps it opaque, as the match's), and Step
-    /// down only where its authority honors it.
-    pub fn check(&self, policy: &RoomPolicy) -> Result<(), RulesProblem> {
+    /// Whether a room can play them: a battle's id of a sane length (the
+    /// room keeps it opaque, as the match's).
+    pub fn check(&self) -> Result<(), RulesProblem> {
         if self.battle.is_empty() || self.battle.len() > 64 {
             return Err(RulesProblem::BattleId);
-        }
-        if self.charts == Charts::Adaptive && !policy.adaptive {
-            return Err(RulesProblem::AdaptiveNotHonored);
-        }
-        if self.points.is_some() && !(policy.stage_points && policy.points_bias) {
-            return Err(RulesProblem::PointsNotHonored);
-        }
-        if !self.at_once.is_default() && !policy.at_once {
-            return Err(RulesProblem::AtOnceNotHonored);
         }
         Ok(())
     }
@@ -839,10 +746,10 @@ impl MatchRules {
     /// On where the room plays live (`RoomPolicy::live`: its authority
     /// runs the attack ledger), as practice has it (the maintainer,
     /// 2026-11-13: "Attacks should be on by default on private rooms"),
-    /// and Charts Adaptive where the room plays live and honors it
-    /// (`RoomPolicy::adaptive`; the maintainer, 2026-11-14: "I think we
-    /// can also make Adaptive the default"). Off and As picked where it
-    /// does not, which plays neither whatever the rules say. Only a new
+    /// and Charts Adaptive where the room plays live (the maintainer,
+    /// 2026-11-14: "I think we can also make Adaptive the default"). Off
+    /// and As picked where it does not, which plays neither whatever the
+    /// rules say. Only a new
     /// room starts so: a room's stored rules stay as its host left them.
     pub fn hosted_for(policy: &RoomPolicy) -> Self {
         let mut rules = Self::hosted();
@@ -850,9 +757,7 @@ impl MatchRules {
         rules.seats = rules.seats.min(policy.max_competitors);
         if policy.live.is_some() {
             rules.set_attacks(true);
-            if policy.adaptive {
-                rules.charts = Charts::Adaptive;
-            }
+            rules.charts = Charts::Adaptive;
         }
         rules
     }
@@ -987,20 +892,14 @@ pub enum RulesProblem {
     UnknownRuleset,
     /// A stage's rules ([`PlayRules`]) name no battle, or one too long.
     BattleId,
-    /// Adaptive charts where the room's authority does not honor them
-    /// ([`RoomPolicy::adaptive`]; the "Step down" it replaces, read so).
-    #[serde(alias = "step_down_not_honored")]
-    AdaptiveNotHonored,
-    /// A stage's rules name a points bias where the room's authority does
-    /// not honor one from a later stage ([`RoomPolicy::stage_points`]).
-    PointsNotHonored,
-    /// Attacks at once other than three where the room's authority does
-    /// not honor the rule ([`RoomPolicy::at_once`]).
-    AtOnceNotHonored,
-    /// CPUs in a room whose authority cannot seat them: an online room
-    /// that does not play live, or whose authority predates CPUs online
-    /// ([`RoomPolicy::cpus`]).
+    /// CPUs in a room that cannot seat them: an online room that does not
+    /// play live ([`RoomPolicy::seats_cpus`]).
     CpusNotHonored,
+    /// A problem only an authority before revision 9 named (a rule its
+    /// policy said it did not honor), as a server's stored record of a
+    /// refusal may still hold it: read, never made.
+    #[serde(other)]
+    Retired,
 }
 
 #[cfg(test)]
@@ -1066,19 +965,18 @@ mod tests {
         assert_eq!(play.charts, Charts::Adaptive);
         assert_eq!(Charts::Adaptive.rank_by(), RankBy::Score);
         assert_eq!(Charts::AsPicked.rank_by(), RankBy::Life);
-        // This build's authority honors it; one that predates it says
-        // nothing, read as not, and refuses nothing it can play.
-        let policy = serde_json::to_value(RoomPolicy::default()).unwrap();
-        assert_eq!(policy["adaptive"], true);
-        let mut old = policy.clone();
-        old.as_object_mut().unwrap().remove("adaptive");
-        let old: RoomPolicy = serde_json::from_value(old).unwrap();
-        assert!(!old.adaptive);
-        assert_eq!(play.check(&old), Err(RulesProblem::AdaptiveNotHonored));
-        assert_eq!(play.check(&RoomPolicy::default()), Ok(()));
-        // A refusal from an authority before the rename reads.
-        let r: RulesProblem = serde_json::from_value("step_down_not_honored".into()).unwrap();
-        assert_eq!(r, RulesProblem::AdaptiveNotHonored);
+        assert_eq!(play.check(), Ok(()));
+        // A refusal only an authority before revision 9 made reads, as a
+        // server's stored record of it may hold it.
+        for retired in [
+            "step_down_not_honored",
+            "adaptive_not_honored",
+            "points_not_honored",
+            "at_once_not_honored",
+        ] {
+            let r: RulesProblem = serde_json::from_value(retired.into()).unwrap();
+            assert_eq!(r, RulesProblem::Retired, "{retired}");
+        }
     }
 
     #[test]
@@ -1105,16 +1003,7 @@ mod tests {
             assert_eq!(AttacksAtOnce::of_limit(a.limit()), a);
             assert_eq!(AttacksAtOnce::ALL[a.index()], a);
         }
-        // This build's authority honors it; one that predates it does
-        // not, and a limit other than three is refused there.
-        let policy = serde_json::to_value(RoomPolicy::default()).unwrap();
-        assert_eq!(policy["at_once"], true);
-        let mut old = policy.clone();
-        old.as_object_mut().unwrap().remove("at_once");
-        let old: RoomPolicy = serde_json::from_value(old).unwrap();
-        assert_eq!(play.check(&old), Err(RulesProblem::AtOnceNotHonored));
-        assert_eq!(rules.play_rules().check(&old), Ok(()));
-        assert_eq!(play.check(&RoomPolicy::default()), Ok(()));
+        assert_eq!(play.check(), Ok(()));
     }
 
     #[test]
@@ -1175,12 +1064,6 @@ mod tests {
         let json = serde_json::to_value(&set).unwrap();
         assert_eq!(json["points"], "mild");
         assert_eq!(serde_json::from_value::<MatchRules>(json).unwrap(), set);
-        // The policy says the authority reads it; an older one's does not.
-        let policy = serde_json::to_value(RoomPolicy::default()).unwrap();
-        assert_eq!(policy["points_bias"], true);
-        let mut old = policy.clone();
-        old.as_object_mut().unwrap().remove("points_bias");
-        assert!(!serde_json::from_value::<RoomPolicy>(old).unwrap().points_bias);
     }
 
     #[test]

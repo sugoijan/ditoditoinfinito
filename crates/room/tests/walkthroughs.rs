@@ -2483,7 +2483,6 @@ fn the_pick_goes_back_to_the_owner_when_its_holder_cannot_hold_it() {
     r.sys(gone(host, Connection::Disconnected)).unwrap();
     assert_eq!(r.s.owner().map(|m| m.id), Some(b));
     assert_eq!((r.s.picker(), r.s.spotlight.clone()), (Some(b), None));
-    assert!(r.s.one_picker());
     // The one before, back in the room, is a member (the room passed on
     // by itself: no role kept); the new owner may make them a co-host, and
     // the pick is then theirs to take, not theirs.
@@ -2581,62 +2580,44 @@ fn a_resting_songs_share_stays_known_when_the_pick_changes_hands() {
         let to = if n % 2 == 0 { host } else { co };
         room.commit(&[Event::PickerChanged { picker: Some(to) }]);
     }
-    let kept = &room.picking.as_ref().unwrap().shares;
+    let kept = &room.picking.shares;
     assert_eq!(kept.len(), Picking::KEPT_SHARES);
     assert_eq!(room.known_share(&song(29)).as_deref(), Some("Share029"));
     assert_eq!(room.known_share(&song(10)), None);
 }
 
-/// A room from before the picker (its state has no `picking`: an
-/// authority that predates it made it or still runs it) reads, names its
-/// owner as the picker, and plays as it did: every operator chooses, and
-/// nothing says the pick could be taken.
+/// A room stored before the picker (its state has no `picking`; since
+/// revision 9 nothing honors the every-operator choosing it had) reads
+/// with nobody's pick, and its owner, there, is given it with the next
+/// change: one picker at a time from then on.
 #[test]
-fn a_room_from_before_the_picker_reads_and_chooses_as_it_did() {
+fn a_room_stored_before_the_picker_reads_and_its_owner_gets_the_pick() {
     let mut r = Room::hosted(1);
     let host = r.host;
     let co = r.join("co", Intent::Play);
-    let mem = r.join("mem", Intent::Play);
     co_host(&mut r, co, true);
     // A room made now says who picks, on the wire.
     let mut json = serde_json::to_value(&r.s).unwrap();
     assert_eq!(json["picking"], serde_json::json!({ "picker": 1 }));
-    // The same room as an older authority has it: no such field (and one
-    // this build does not know, which it passes over).
+    // The same room as it was stored before: no such field (and one this
+    // build does not know, which it passes over).
     json.as_object_mut().unwrap().remove("picking");
     json["from_a_later_build"] = serde_json::json!({ "x": 1 });
     let old: RoomState = serde_json::from_value(json).unwrap();
-    assert!(!old.one_picker());
-    assert_eq!(old.picker(), Some(host), "the owner, as it always was");
-    assert!(old.chooses(host) && old.chooses(co) && !old.chooses(mem));
-    assert!(!old.may_take_pick(co) && !old.may_take_pick(host));
-    assert!(
-        serde_json::to_value(&old).unwrap().get("picking").is_none(),
-        "written back as it was read"
-    );
-    // Run by this build's reducer, it still lets every operator choose.
+    assert_eq!(old.picker(), None);
+    assert!(!old.chooses(host) && !old.chooses(co));
     r.s = old.clone();
     r.mirror = old;
-    r.by(co, rest(1)).unwrap();
-    r.by(host, rest(2)).unwrap();
-    assert_eq!(
-        r.by(mem, rest(3)),
-        Err(Rejection::Unauthorized {
-            capability: Capability::ChooseContent
-        })
-    );
-    // Leaving, a demotion and a lost connection move no pick there.
     r.sys(Command::SetConnection {
         participant: co,
-        connection: Connection::Disconnected,
+        connection: Connection::Reconnecting,
     })
     .unwrap();
-    assert!(!r.s.one_picker());
-    // Taking the pick is what turns one picker at a time on.
-    r.by(host, Command::TakePick).unwrap();
-    assert!(r.s.one_picker());
-    assert_eq!(r.s.picker(), Some(host));
-    assert_eq!(r.s.spotlight, None);
+    assert_eq!(r.s.picker(), Some(host), "the owner's with the next change");
+    assert_eq!(
+        r.by(co, rest(1)),
+        Err(Rejection::NotPicker { picker: Some(host) })
+    );
 }
 
 // ---- The host's succession (2026-11-12) ----
@@ -2688,7 +2669,6 @@ fn a_host_who_leaves_passes_the_room_to_a_co_host_then_to_whoever_joined_first()
     let mut r = Room::hosted(1);
     let host = r.host;
     assert_eq!(r.s.if_host_leaves(), HostLeaves::PassOn);
-    assert!(r.s.has_succession());
     let robot = bot(&mut r, "robot");
     let a = r.join("a", Intent::Play);
     let b = r.join("b", Intent::Watch);
@@ -3283,9 +3263,8 @@ fn the_owner_hands_the_room_over_and_becomes_a_co_host() {
     assert_eq!(owner(&r), a);
 }
 
-/// A room from before the setting (its state has no `hosting`) reads as
-/// Pass it on, says nothing of it until this reducer changes something
-/// there, and passes on as any room.
+/// A room stored before the setting (its state has no `hosting`) reads
+/// as Pass it on and passes on as any room.
 #[test]
 fn a_room_from_before_the_setting_reads_as_pass_it_on() {
     let mut r = Room::hosted(1);
@@ -3299,26 +3278,12 @@ fn a_room_from_before_the_setting_reads_as_pass_it_on() {
     assert!(json.get("closed").is_none());
     json.as_object_mut().unwrap().remove("hosting");
     let old: RoomState = serde_json::from_value(json).unwrap();
-    assert!(!old.has_succession());
     assert_eq!(old.if_host_leaves(), HostLeaves::PassOn);
-    assert!(
-        serde_json::to_value(&old).unwrap().get("hosting").is_none(),
-        "written back as it was read"
-    );
-    // A command that changes nothing leaves it as it was; the first
-    // change writes the setting, as one more event of its revision.
-    r.s = old.clone();
-    r.mirror = old.clone();
-    assert!(r.by(a, Command::SetIntent { intent: Intent::Play }).unwrap().is_empty());
-    assert!(!r.s.has_succession());
-    let events = r.by(a, Command::SetIntent { intent: Intent::Watch }).unwrap();
     assert_eq!(
-        events.last(),
-        Some(&Event::HostLeavesChanged {
-            policy: HostLeaves::PassOn
-        })
+        serde_json::to_value(&old).unwrap()["hosting"],
+        serde_json::json!({ "if_host_leaves": "pass_on" }),
+        "written back with the setting it is read as"
     );
-    assert!(r.s.has_succession());
     // Its host leaving passes it on, whichever comes first.
     r.s = old.clone();
     r.mirror = old;
@@ -3328,7 +3293,6 @@ fn a_room_from_before_the_setting_reads_as_pass_it_on() {
         role: Role::Owner
     }));
     assert_eq!(owner(&r), a);
-    assert!(r.s.has_succession());
 }
 
 // ---- Watching (2026-11-12, `watch-v0`): Play or Watch, each member's own ----
@@ -3760,23 +3724,6 @@ fn restarting_a_match_saves_the_rules_and_stops_it_as_one_change() {
     assert_eq!(r.s.next.rules, again);
 }
 
-/// A room's policy says whether its authority reads `RestartMatch`: every
-/// room this build makes does; a policy stored or sent by an authority
-/// that predates it (no field) does not, so a client never sends it
-/// there.
-#[test]
-fn a_policy_from_before_the_restart_says_so() {
-    assert!(RoomPolicy::default().restart);
-    let mut json = serde_json::to_value(RoomPolicy::default()).unwrap();
-    assert_eq!(json["restart"], serde_json::Value::Bool(true));
-    json.as_object_mut().unwrap().remove("restart");
-    let old: RoomPolicy = serde_json::from_value(json).unwrap();
-    assert!(!old.restart);
-    // Left out of the JSON where false, as it was.
-    let back = serde_json::to_value(&old).unwrap();
-    assert!(back.get("restart").is_none());
-}
-
 /// A change of the running match's per-stage rules (2026-11-13): Hard
 /// timing and Boos from stage 2, Attacks off from stage 3 made in the
 /// intermission after stage 2, each stage played under its own; what
@@ -4062,30 +4009,10 @@ fn a_per_stage_change_racing_a_pick_or_a_countdown_lands_a_stage_later_or_is_ref
     let m = r.s.current.as_ref().unwrap();
     assert_eq!(m.rules_for(stages[1]).difficulty, MatchDifficulty::Normal);
     assert_eq!(m.rules_for(stages[2]).difficulty, MatchDifficulty::Hard);
-    // Adaptive only where the authority honors it.
-    let mut old = r.s.clone();
-    old.policy.adaptive = false;
-    let stepping = PlayRules {
-        charts: Charts::Adaptive,
-        ..hard
-    };
-    let revision = old.revision;
-    assert_eq!(
-        old.apply(
-            Actor::Member(host),
-            Some(revision),
-            &Command::ChangeStageRules {
-                from: stages[2],
-                rules: stepping,
-            },
-            Millis(r.now)
-        ),
-        Err(Rejection::InvalidRules(RulesProblem::AdaptiveNotHonored))
-    );
 }
 
-/// The changes' JSON is additive: a match and a policy stored before them
-/// read back as having none, a match without changes writes none, and a
+/// The changes' JSON is additive: a match stored before them reads back
+/// as having none, a match without changes writes none, and a
 /// change's event and command round-trip.
 #[test]
 fn per_stage_changes_are_additive_to_the_rooms_json() {
@@ -4098,11 +4025,6 @@ fn per_stage_changes_are_additive_to_the_rooms_json() {
         "{}",
         json["current"]
     );
-    let mut policy = serde_json::to_value(&r.s.policy).unwrap();
-    assert_eq!(policy["stage_rules"], true);
-    policy.as_object_mut().unwrap().remove("stage_rules");
-    let old: RoomPolicy = serde_json::from_value(policy).unwrap();
-    assert!(!old.stage_rules, "an older authority's policy offers none");
     let from = r.s.rules_land_on().unwrap();
     let rules = PlayRules {
         boos: true,
@@ -4262,24 +4184,6 @@ fn a_changes_points_bias_is_additive_and_honored_only_where_the_policy_says() {
         panic!("{events:?}")
     };
     assert_eq!(rules.points, None);
-    // A policy from before it reads false and refuses a bias.
-    let mut policy = serde_json::to_value(&r.s.policy).unwrap();
-    assert_eq!(policy["stage_points"], true);
-    policy.as_object_mut().unwrap().remove("stage_points");
-    let old_policy: RoomPolicy = serde_json::from_value(policy).unwrap();
-    assert!(!old_policy.stage_points);
-    let mut old = r.s.clone();
-    old.policy = old_policy;
-    let revision = old.revision;
-    assert_eq!(
-        old.apply(
-            Actor::Member(host),
-            Some(revision),
-            &Command::ChangeStageRules { from, rules: mild },
-            Millis(r.now)
-        ),
-        Err(Rejection::InvalidRules(RulesProblem::PointsNotHonored))
-    );
 }
 
 /// A stage counts as begun only once its song is picked (follow-up round

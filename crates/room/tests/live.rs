@@ -2266,11 +2266,10 @@ fn a_device_leaving_mid_stage_changes_nothing_and_the_last_one_leaving_ends_the_
     }
 }
 
+/// An online room seats CPUs only where it plays live (its devices
+/// compute them alike); one that does not refuses a roster.
 #[test]
-fn an_authority_that_cannot_seat_cpus_online_refuses_a_roster() {
-    let mut setup = Setup::new(1);
-    setup.policy.cpus = false;
-    let mut r = room(&setup);
+fn an_online_room_that_does_not_play_live_refuses_a_roster() {
     let mut rules = MatchRules::hosted();
     rules.seats = 3;
     rules.cpu.mode = ddi_room::CpuMode::Roster;
@@ -2281,18 +2280,30 @@ fn an_authority_that_cannot_seat_cpus_online_refuses_a_roster() {
         name: None,
         targeting: None,
     }];
-    let before = r.state().next.rules.clone();
-    r.players[0].send(Command::SaveNextRules { rules });
-    r.run(500);
-    assert_eq!(r.state().next.rules, before, "refused");
-    // And the policy says so to every client: an authority that predates
-    // CPUs online leaves the field out.
-    let json = serde_json::to_value(&r.state().policy).unwrap();
-    assert!(json.get("cpus").is_none());
-    assert_eq!(
-        serde_json::to_value(RoomPolicy::default()).unwrap()["cpus"],
-        true
-    );
+    for (policy, seats) in [
+        (RoomPolicy::default(), false),
+        (RoomPolicy::default().with_live(), true),
+    ] {
+        assert_eq!(policy.seats_cpus(ddi_room::ContentSource::Shared), seats);
+        let mut state = RoomState::new(
+            RoomId::new("room"),
+            Identity::new("dev:alice"),
+            "Alice".into(),
+            policy,
+            MatchRules::hosted(),
+            ddi_room::ContentSource::Shared,
+        );
+        let base = state.revision;
+        let saved = state.apply(
+            ddi_room::Actor::Member(ParticipantId(1)),
+            Some(base),
+            &Command::SaveNextRules {
+                rules: rules.clone(),
+            },
+            Millis(0),
+        );
+        assert_eq!(saved.is_ok(), seats, "{saved:?}");
+    }
 }
 
 /// The room of 1+72 with 60 CPUs (13 people), settling; and what the CPUs

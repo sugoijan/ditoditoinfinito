@@ -675,3 +675,52 @@ fn an_older_room_model_is_refused_except_during_a_stage() {
     assert!(state.admits_model(Some(rev)).is_ok());
     assert!(state.admits_model(None).is_err());
 }
+
+/// A room stored before revision 9 still loads (round R2): the JSON a
+/// revision-8 build wrote (`room-revision-8.json`, made by that build's
+/// own walkthrough helpers: a hosted room of three stages, its policy as
+/// the server's, a co-host, stage 1 self-reported and settled, a per-stage
+/// change of rules and Points from stage 2, the host's setting Close)
+/// reads with what this revision retired passed over (the policy's
+/// version flags), plays on under this reducer, and writes back what it
+/// reads.
+#[test]
+fn a_room_stored_by_revision_8_loads_and_plays_on() {
+    let text = include_str!("room-revision-8.json");
+    let old: serde_json::Value = serde_json::from_str(text).unwrap();
+    for flag in ["restart", "points_bias", "step_down", "adaptive", "stage_rules", "stage_points", "cpus", "at_once"] {
+        assert_eq!(old["policy"][flag], true, "{flag}");
+    }
+    let mut state: RoomState = serde_json::from_str(text).unwrap();
+    let back = serde_json::to_value(&state).unwrap();
+    for flag in ["restart", "adaptive", "cpus"] {
+        assert!(back["policy"].get(flag).is_none(), "{flag} retired");
+    }
+    assert_eq!(serde_json::from_value::<RoomState>(back).unwrap(), state);
+    assert!(state.policy.live.is_some() && state.policy.audience.is_some());
+    assert_eq!(state.picker(), Some(ParticipantId(1)));
+    assert_eq!(state.if_host_leaves(), ddi_room::HostLeaves::Close);
+    let m = state.current.as_ref().unwrap();
+    assert!(m.stage_rules_changed(StageId(2)));
+    assert_eq!(m.rules_for(StageId(2)).points, ddi_room::PointsBias::Mild);
+    assert_eq!(state.phase, Phase::Intermission { next: StageId(2) });
+    // Its picker picks stage 2, as any room's.
+    let before = state.standings().unwrap();
+    let revision = state.revision;
+    state
+        .apply(
+            ddi_room::Actor::Member(ParticipantId(1)),
+            Some(revision),
+            &Command::Pick {
+                content: ContentId {
+                    song: SongKey::new("song-2"),
+                    chart: ChartKey::new("digest-2"),
+                },
+                card: None,
+            },
+            Millis(1_000_000),
+        )
+        .unwrap();
+    assert!(matches!(state.phase, Phase::Preparing { stage: StageId(2), .. }));
+    assert_eq!(state.standings().unwrap(), before, "stage 1's points kept");
+}

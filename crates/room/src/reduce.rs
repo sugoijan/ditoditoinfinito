@@ -39,12 +39,6 @@ impl RoomState {
         work.decide(actor, base, command, now, &mut out)?;
         work.settle_host(&mut out);
         work.maybe_commit(now, &mut out);
-        // A room from before the host's succession says its setting from
-        // the first change this reducer makes there.
-        if !out.is_empty() && work.hosting.is_none() && work.closed.is_none() {
-            let policy = work.if_host_leaves();
-            work.emit(&mut out, Event::HostLeavesChanged { policy });
-        }
         if !out.is_empty() {
             work.revision = work.revision.next();
             *self = work;
@@ -99,15 +93,13 @@ impl RoomState {
 
     /// Whether `actor` chooses the room's songs now: the picker
     /// (`Picking`), whatever their role; another operator is told who has
-    /// it. In a room from before the picker, every operator, as it was.
+    /// it.
     fn require_picker(&self, actor: Actor) -> Decided {
         let Actor::Member(id) = actor else {
             return Ok(());
         };
         let m = self.present_human(id)?;
-        let Some(picking) = &self.picking else {
-            return self.require(actor, Capability::ChooseContent);
-        };
+        let picking = &self.picking;
         if picking.picker == Some(id) {
             Ok(())
         } else if can(
@@ -133,7 +125,7 @@ impl RoomState {
     /// gone was the owner: call this after [`Self::settle_host`]), else
     /// nobody's until the owner is back or an operator takes it.
     fn release_pick(&mut self, from: ParticipantId, out: &mut Vec<Event>) {
-        if self.closed.is_some() || self.picking.as_ref().and_then(|p| p.picker) != Some(from) {
+        if self.closed.is_some() || self.picking.picker != Some(from) {
             return;
         }
         let picker = self
@@ -183,7 +175,7 @@ impl RoomState {
                 }
             }
         }
-        if self.picking.as_ref().is_some_and(|p| p.picker.is_none())
+        if self.picking.picker.is_none()
             && let Some(owner) = self.owner().filter(|o| {
                 o.present_person() && o.connection != Connection::Disconnected
             })
@@ -279,7 +271,7 @@ impl RoomState {
         if for_cpu != is_cpu {
             return Err(Rejection::NotInLineup);
         }
-        let reported = play.reported(&self.members, &self.policy);
+        let reported = play.reported(&self.members);
         if confirmed && (!reported || play.song_zero_at.is_none()) {
             return Err(Rejection::ResultAlreadyConfirmed);
         }
@@ -568,7 +560,7 @@ impl RoomState {
                 // none keeps the stage's as it stands (an earlier change's),
                 // never the match's by default.
                 let rules = m.play_rules_of(&m.rules_for(*from).with_play(rules));
-                rules.check(&self.policy).map_err(Rejection::InvalidRules)?;
+                rules.check().map_err(Rejection::InvalidRules)?;
                 if m.play_rules_for(*from) != rules {
                     self.emit(out, Event::StageRulesChanged { from: *from, rules });
                 }
@@ -657,9 +649,7 @@ impl RoomState {
             Command::TakePick => {
                 self.require(actor, Capability::TakePick)?;
                 let id = self.own(actor)?;
-                // In a room from before the picker this turns one picker
-                // at a time on.
-                if self.picking.as_ref().is_none_or(|p| p.picker != Some(id)) {
+                if self.picking.picker != Some(id) {
                     self.emit(out, Event::PickerChanged { picker: Some(id) });
                 }
                 Ok(())
@@ -802,7 +792,7 @@ impl RoomState {
             }
             Command::SetHostLeaves { policy } => {
                 self.require(actor, Capability::ChangeAccess)?;
-                if self.hosting.as_ref().map(|h| h.if_host_leaves) != Some(*policy) {
+                if self.hosting.if_host_leaves != *policy {
                     self.emit(out, Event::HostLeavesChanged { policy: *policy });
                 }
                 Ok(())
@@ -1824,14 +1814,14 @@ impl RoomState {
             }
             Event::AccessChanged { access } => self.access = *access,
             Event::HostLeavesChanged { policy } => {
-                self.hosting = Some(Hosting {
+                self.hosting = Hosting {
                     if_host_leaves: *policy,
-                });
+                };
             }
             Event::RoomClosed { reason } => self.closed = Some(*reason),
             Event::SpotlightChanged { spotlight } => self.spotlight = spotlight.clone(),
             Event::PickerChanged { picker } => {
-                let mut picking = self.picking.take().unwrap_or_default();
+                let mut picking = std::mem::take(&mut self.picking);
                 // The song the last picker rested on goes with them; the
                 // room's share of it stays known by its chart.
                 if let Some(s) = self.spotlight.take()
@@ -1840,7 +1830,7 @@ impl RoomState {
                     picking.keep_share(s.content.chart, share);
                 }
                 picking.picker = *picker;
-                self.picking = Some(picking);
+                self.picking = picking;
             }
             Event::ContentChosen { stage, content } => {
                 if let Some(s) = self.stage_mut(*stage) {

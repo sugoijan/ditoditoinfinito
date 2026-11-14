@@ -1290,12 +1290,9 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             m::results_rules_changed(2, "DDI").into(),
             m::rules_title_from(2).into(),
             m::rules_running_stage(1, 4).into(),
-            m::rules_running_from(2, "yes").into(),
-            m::rules_running_from(2, "no").into(),
             m::rules_destination().into(),
             m::rules_destination_stage(2).into(),
             m::rules_destination_next().into(),
-            m::rules_stage_only_note().into(),
             // Points from a later stage (2026-11-13).
             m::rules_stage_only_note_points().into(),
             m::rules_running_from_points(2, "yes").into(),
@@ -1579,7 +1576,6 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
                 close(false),
                 close(true),
                 LeaveCost::HostAlone,
-                LeaveCost::HostStays,
                 LeaveCost::Playing,
                 LeaveCost::Picking,
                 LeaveCost::CoHost,
@@ -1600,15 +1596,13 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     shown(&mut hb, found);
     alice.borrow_mut().take_pick().unwrap();
     step(400);
-    // Nobody choosing: a room whose authority does not pass it on, its
-    // owner away, said to one who may take the pick and to one who may
-    // not.
+    // Nobody choosing, its owner away, said to one who may take the pick
+    // and to one who may not.
     let older = |connection, role, picker| {
         server.borrow_mut().rewrite(|s| {
-            s.hosting = None;
             s.members.get_mut(&ParticipantId(1)).unwrap().connection = connection;
             s.members.get_mut(&ParticipantId(2)).unwrap().role = role;
-            s.picking.as_mut().unwrap().picker = picker;
+            s.picking.picker = picker;
         });
     };
     use ddi_room::{Connection, Role};

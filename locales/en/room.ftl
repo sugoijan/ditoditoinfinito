@@ -250,9 +250,6 @@ room-rules-charts-no-ladder = The song picked has no other chart in its style: i
 # room; about 32 letters).
 room-rules-charts-online = As picked · not in online rooms yet
 
-# How stage points are given: by place (about 24 letters).
-room-rules-points-value = By place
-
 # The Points row's choices where the room offers them: how strongly a
 # field of nine players or more favors its top places (one word each).
 room-rules-points-strong = Strong
@@ -345,15 +342,6 @@ room-rules-running-stage = This match is on stage { $number } of { $stages }, un
 # Variables:
 #   $number (Number) - the stage the changes apply from, from 1
 #   $marked (String) - "yes" when some row is marked, else "no"
-room-rules-running-from = { $marked ->
-    [yes] Timing, Boos, zero life and attacks below apply from stage { $number } on. ● marks what you changed.
-   *[no] Timing, Boos, zero life and attacks below apply from stage { $number } on.
-}
-
-# The same line where Points may change from a later stage too.
-# Variables:
-#   $number (Number) - the stage the changes apply from, from 1
-#   $marked (String) - "yes" when some row is marked, else "no"
 room-rules-running-from-points = { $marked ->
     [yes] Timing, Boos, zero life, attacks and Points below apply from stage { $number } on. ● marks what you changed.
    *[no] Timing, Boos, zero life, attacks and Points below apply from stage { $number } on.
@@ -371,9 +359,6 @@ room-rules-destination-next = Next match
 # A quiet note under the rows while the changes apply from a later stage:
 # the rows that never change during a match ("Apply and restart" is the
 # button of room-rules-apply-restart).
-room-rules-stage-only-note = Stages, CPUs and Points can't change during a match: choose Next match for them, or Apply and restart.
-
-# The same note where Points may change from a later stage too.
 room-rules-stage-only-note-points = Stages and CPUs can't change during a match: choose Next match for them, or Apply and restart.
 
 # A quiet sentence after the Points row's own (room-rules-points-*-about)
@@ -581,9 +566,6 @@ room-leave-host-close-match = You are the host. The room will close for everyone
 
 # To the room's host with nobody else in the room.
 room-leave-host-alone = You are the only one here. The room will close.
-
-# To the host of a room on a server that does not pass rooms on yet.
-room-leave-host-stays = You are the host. The room stays open without a host, and you can come back by its link.
 
 # To a player in the running match (not the host).
 room-leave-playing = You are in the match in progress. It goes on without you, and you score nothing for the stages you miss.
@@ -1131,20 +1113,12 @@ room-invite-not-replaced = Couldn't replace the invite.
 # control's name (room-intent-play).
 room-joined-to-watch = The room is full: you're watching. Choose Play when a place frees up.
 
-# The status line when the host chooses the stage's song (shown to the
-# others).
-# Variables:
-#   $number (Number) - the stage, from 1
-room-status-host-chooses = The host chooses stage { $number }'s song.
-
 ## The match flow (M7b): song select is the room. The host picks each
 ## stage's song there; the others follow the host's song.
 
 # The status line over the list (the host's) or at the top of the room's
 # panel (the others'): one line.
 room-status-pick-first = Pick a song to start the match.
-
-room-status-host-picks-first = The host is choosing the first song.
 
 # Variables:
 #   $number (Number) - the stage, from 1
@@ -1181,8 +1155,6 @@ room-status-stopped-pick = Match stopped. Pick a song to start the next match.
 # The same where the next match has other rules than the stopped one (as
 # after the Rules pop-up's Apply and restart).
 room-status-stopped-new-rules = Match stopped. Pick a song to start the next match under the new rules.
-
-room-status-host-picks-new-match = Match over. The host picks the next match's first song.
 
 ## One picker at a time: one player chooses the room's songs (its host at
 ## first). A host or co-host who follows can take the choosing over at

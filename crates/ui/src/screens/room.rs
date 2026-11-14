@@ -165,7 +165,7 @@ pub struct RoomView {
     pub players_open: bool,
     pub standings_open: bool,
     /// What leaving the room now would cost (`RoomClient::leave_cost`:
-    /// `host_pass`, `host_close`, `host_alone`, `host_stays`, `playing`,
+    /// `host_pass`, `host_close`, `host_alone`, `playing`,
     /// `picking`, `co_host`; none: nothing, Back leaves at once, as
     /// always in CPU practice), the sentence the question would say, and
     /// whether the question is open.
@@ -522,16 +522,14 @@ fn phase_status(r: &RoomClient) -> UiText {
     let s = r.state();
     let host = r.chooses();
     let seconds = seconds_left(r).unwrap_or(0);
-    // Who the others follow: named where the room has one picker at a
-    // time; nobody, said with how to take the pick where this player may;
-    // "the host" in a room from before the picker.
+    // Who the others follow: the picker, named; nobody, said with how to
+    // take the pick where this player may.
     let picker = follows(r);
     match &s.phase {
         Phase::Lobby => match picker {
             _ if host => m::status_pick_first(),
             Follows::Named(name) => m::status_picker_first(name),
             Follows::Nobody(text) => text,
-            Follows::Host => m::status_host_picks_first(),
         },
         Phase::Preparing {
             stage,
@@ -543,7 +541,6 @@ fn phase_status(r: &RoomClient) -> UiText {
                 _ if host => m::status_pick_next(n),
                 Follows::Named(name) => m::status_picker_next(name, n),
                 Follows::Nobody(text) => text,
-                Follows::Host => m::status_host_chooses(n),
             }
         }
         Phase::Preparing {
@@ -588,7 +585,6 @@ fn phase_status(r: &RoomClient) -> UiText {
         Phase::MatchResults | Phase::Interrupted { .. } => match picker {
             Follows::Named(name) => m::status_picker_new_match(name),
             Follows::Nobody(text) => text,
-            Follows::Host => m::status_host_picks_new_match(),
         },
     }
 }
@@ -601,15 +597,10 @@ enum Follows {
     /// Nobody chooses: the line saying so (and how to take the pick, for
     /// one who may).
     Nobody(UiText),
-    /// A room from before the picker: its operators choose, "the host".
-    Host,
 }
 
 fn follows(r: &RoomClient) -> Follows {
     let s = r.state();
-    if !s.one_picker() {
-        return Follows::Host;
-    }
     match s.picker().and_then(|id| s.member(id)) {
         Some(member) => Follows::Named(person_name(member)),
         None if r.may_take_pick() => Follows::Nobody(m::status_nobody_picks_take()),
@@ -1076,11 +1067,9 @@ fn person_role(s: &ddi_room::RoomState, member: &ddi_room::Member) -> Option<Str
 }
 
 /// Whether `member`'s rows mark them as the one choosing the room's
-/// songs: the picker of an online room with one picker at a time.
+/// songs: the picker of an online room.
 fn picks_shown(s: &ddi_room::RoomState, member: &ddi_room::Member) -> bool {
-    s.source == ddi_room::ContentSource::Shared
-        && s.one_picker()
-        && s.picker() == Some(member.id)
+    s.source == ddi_room::ContentSource::Shared && s.picker() == Some(member.id)
 }
 
 /// A person's status on the players panel's line: their connection's
@@ -1437,7 +1426,6 @@ pub fn leave_text(cost: &crate::state::room::LeaveCost) -> UiText {
             match_running: true,
         } => m::leave_host_close_match(),
         LeaveCost::HostAlone => m::leave_host_alone(),
-        LeaveCost::HostStays => m::leave_host_stays(),
         LeaveCost::Playing => m::leave_playing(),
         LeaveCost::Picking => m::leave_picking(),
         LeaveCost::CoHost => m::leave_co_host(),
@@ -2200,7 +2188,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
                 .unwrap_or_default(),
             at_start: false,
             targeting: snake(&mb.targeting()),
-            picker: s.one_picker() && s.picker() == Some(mb.id),
+            picker: s.picker() == Some(mb.id),
         })
         .collect();
     let roster = crate::state::cpu_roster::roster_of(&s.next.rules, r.humans());
@@ -2283,7 +2271,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         leave_cost: leave_cost.as_ref().map(snake),
         leave_text: leave_cost.as_ref().map(|c| leave_text(c).into()),
         manages_hosts: r.manages_hosts(),
-        host_leaves: r.has_succession().then(|| snake(&r.if_host_leaves())),
+        host_leaves: r.is_online().then(|| snake(&r.if_host_leaves())),
         online: r.online_link().map(|l| RoomOnlineView {
             room_id: l.room_id().into(),
             name: l.name().map(str::to_string),

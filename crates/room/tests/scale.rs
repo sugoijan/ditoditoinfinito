@@ -72,7 +72,6 @@ fn a_hosted_rooms_seats_follow_its_authoritys_cap() {
     // An authority one build behind seats nine: Reset there asks for nine.
     let older = RoomPolicy {
         max_competitors: 9,
-        points_bias: false,
         ..RoomPolicy::default()
     };
     let rules = MatchRules::hosted_for(&older);

@@ -2529,7 +2529,7 @@ fn a_live_stage_with_cpus_plays_them_alike_on_every_device() {
             break;
         }
     }
-    assert!(r.server.borrow().state().policy.cpus);
+    assert!(r.rooms[0].borrow().cpus_offered());
     let mut rules = r.rooms[0].borrow().rules().clone();
     rules.seats = 5;
     rules.difficulty = ddi_room::MatchDifficulty::Hard;
