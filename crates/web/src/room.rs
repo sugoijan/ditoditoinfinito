@@ -426,11 +426,20 @@ pub(crate) fn playing(id: u64) -> Option<Rc<StageOrder>> {
 
 /// Stage `order`'s room client for its play, where the room plays it live
 /// (`ddi_session::battle::live`): the play starts at the room's instant
-/// and streams through it.
-pub(crate) fn live_handle(order: &StageOrder) -> Option<ddi_session::battle::live::LiveHandle> {
-    order.live.as_ref()?;
+/// and streams through it. Watched with the room's audience (`watched`),
+/// its seat's client feeds it instead.
+pub(crate) fn live_handle(
+    order: &StageOrder,
+    watched: bool,
+) -> Option<ddi_session::battle::live::LiveHandle> {
+    let room: Rc<RefCell<dyn ddi_ui::state::room::LiveRoom>> = if watched {
+        crate::online::audience_stage(order)?
+    } else {
+        order.live.as_ref()?;
+        playing_room()
+    };
     Some(ddi_session::battle::live::LiveHandle {
-        room: playing_room(),
+        room,
         wall_ms: Rc::new(now_ms),
     })
 }

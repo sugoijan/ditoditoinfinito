@@ -2193,16 +2193,11 @@ impl GameCanvas {
         });
         // An online room's stage played live: its room's client; watched
         // with the audience, its seat's.
-        config.session.live = ctx.props().room_stage.as_deref().and_then(|order| {
-            if watched {
-                let seat = crate::online::audience_stage(order)?;
-                return Some(ddi_session::battle::live::LiveHandle {
-                    room: seat,
-                    wall_ms: Rc::new(|| js_sys::Date::now().max(0.0) as u64),
-                });
-            }
-            crate::room::live_handle(order)
-        });
+        config.session.live = ctx
+            .props()
+            .room_stage
+            .as_deref()
+            .and_then(|order| crate::room::live_handle(order, watched));
         config.session.auto_bias = ctx.props().auto_bias;
         config.session.auto_pad = ctx.props().auto_pad;
         // The editor's playtest from its cursor.
