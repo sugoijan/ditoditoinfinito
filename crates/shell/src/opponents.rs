@@ -41,12 +41,14 @@
 
 use ddi_actor::text::{TextMeasure, TextStyle};
 use ddi_render::FieldGeometry;
-use ddi_render::draw2d::{Affine, Blend, Command, DrawList, Mask, Quad, Shape, TextRun};
+use ddi_render::draw2d::{Affine, Blend, DrawList, Quad, Shape};
 use ddi_session::battle::OpponentView;
 
 /// The theme's text face (`crates/theme/src/infinito.toml`), with the
 /// language's faces after it ([`ddi_l10n::font_stack`]).
-const FACE: &str = "Iosevka Custom, Iosevka Term, monospace";
+/// The play overlay's face (the theme's numbers' face), its fallbacks after it
+/// by `ddi_l10n::font_stack`.
+pub(crate) const FACE: &str = "Iosevka Custom, Iosevka Term, monospace";
 
 const TEXT: [f32; 4] = [0.92, 0.92, 0.95, 1.0];
 const MUTED: [f32; 4] = [0.80, 0.80, 0.86, 1.0];
@@ -1264,12 +1266,11 @@ pub fn draw_ladder(
     measure: &mut dyn TextMeasure,
 ) {
     let [x, y, w, h] = place;
-    let face = ddi_l10n::font_stack(FACE);
-    let mut st = TextStyle::new(face.as_str(), 12.0 * ratio);
+    let mut st = TextStyle::new(ddi_l10n::font_stack(FACE), 12.0 * ratio);
     st.weight = 600;
     let t = fitted(measure, words, &st, if strip { w * 0.6 } else { w });
     let advance = measure.measure(&t, &st).advance;
-    list.push(run(t, &st, [x, y + (h - 12.0 * 1.2 * ratio) / 2.0], MUTED));
+    list.text(t, &st, x, y + (h - 12.0 * 1.2 * ratio) / 2.0, MUTED);
     if !strip {
         return;
     }
@@ -1328,20 +1329,6 @@ fn fitted(measure: &mut dyn TextMeasure, s: &str, style: &TextStyle, room: f32) 
     s
 }
 
-fn run(text: String, style: &TextStyle, at: [f32; 2], color: [f32; 4]) -> Command {
-    Command::Text(TextRun {
-        curve: None,
-        text: text.into(),
-        style: style.clone(),
-        transform: Affine::translate(at[0], at[1]),
-        color,
-        blend: Blend::Normal,
-        mask: Mask::None,
-        perspective: None,
-        blur: [0.0; 2],
-    })
-}
-
 /// What [`draw_fields`] adds to [`Shown`]: each miniature's judgments
 /// to flash on its receptors, where the play's noteskin does not draw
 /// their hit effects (empty where it does), a slot's lanes'
@@ -1364,9 +1351,9 @@ pub fn draw_fields(
     ratio: f32,
     measure: &mut dyn TextMeasure,
 ) -> bool {
-    let face = ddi_l10n::font_stack(FACE);
+    let face: std::sync::Arc<str> = ddi_l10n::font_stack(FACE).into();
     let style = |size: f32, weight: u16| {
-        let mut s = TextStyle::new(face.as_str(), size * ratio);
+        let mut s = TextStyle::new(face.clone(), size * ratio);
         s.weight = weight;
         s
     };
@@ -1377,14 +1364,14 @@ pub fn draw_fields(
         let st = style(14.0, 600);
         let t = fitted(measure, label, &st, sw);
         x += measure.measure(&t, &st).advance + 12.0 * ratio;
-        list.push(run(t, &st, [sx, sy], MUTED));
+        list.text(t, &st, sx, sy, MUTED);
     }
     if let Some(won) = &shown.won {
         let st = style(14.0, 700);
         let t = fitted(measure, won, &st, (sx + sw - x).max(0.0));
         let at = x;
         x += measure.measure(&t, &st).advance + 12.0 * ratio;
-        list.push(run(t, &st, [at, sy], WON));
+        list.text(t, &st, at, sy, WON);
     }
     let cue = shown.cue.as_ref().filter(|(_, a)| *a > 0.0);
     if let Some((cue, alpha)) = cue {
@@ -1392,12 +1379,18 @@ pub fn draw_fields(
         let t = fitted(measure, cue, &st, (sx + sw - x).max(0.0));
         let mut c = TEXT;
         c[3] *= alpha.clamp(0.0, 1.0);
-        list.push(run(t, &st, [x, sy], c));
+        list.text(t, &st, x, sy, c);
     }
     if let (Some((words, ladder)), Some(place)) = (&shown.ladder, fields.ladder) {
         // Everyone shown: the fields are the strip; the words alone.
         draw_ladder(list, words, ladder, place, fields.rotating, ratio, measure);
     }
+    // Every name line's size and style, and the score's (a long score
+    // on a narrow field shrinks its own).
+    let size = fields.name;
+    let name_style = style(size, 600);
+    let score_size = (size * SCORE_SIZE.0).clamp(SCORE_SIZE.1, SCORE_SIZE.2);
+    let score_style = style(score_size, 600);
     for (i, slot) in fields.slots.iter().enumerate() {
         let Some(o) = shown.opponents.get(slot.seat) else {
             continue;
@@ -1415,8 +1408,6 @@ pub fn draw_fields(
         // line's end where the slot is wide, on a short line of their own
         // under it where it is not, left out at the very smallest (a CPU's
         // level; a person has none). Out shows on the field.
-        let size = fields.name;
-        let name_style = style(size, 600);
         let large = shown.large == Some(i);
         let stars = o
             .level
@@ -1450,7 +1441,7 @@ pub fn draw_fields(
         };
         if !large && fields.carry.name {
             let name = fitted(measure, &o.name, &name_style, room.max(0.0));
-            list.push(run(name, &name_style, [x, y], fade(TEXT)));
+            list.text(name, &name_style, x, y, fade(TEXT));
         } else if !large && shown.named.contains(&slot.seat) {
             named(list, &o.name, slot, &name_style, ratio, measure);
         }
@@ -1470,25 +1461,20 @@ pub fn draw_fields(
         // Its score, small, under its life gauge's right end.
         if !large && fields.carry.score {
             let s = geo.arrow / 72.0;
-            let size = (size * SCORE_SIZE.0).clamp(SCORE_SIZE.1, SCORE_SIZE.2);
-            let mut st = style(size, 600);
             let text = shown.score.text(o);
-            let mut tw = measure.measure(&text, &st).advance;
+            let mut tw = measure.measure(&text, &score_style).advance;
             // A long score on a narrow field (a phone's): smaller, so that
             // it stays within its field's four lanes.
             let room = 4.0 * geo.arrow;
-            if tw > room && tw > 0.0 {
-                st = style((size * room / tw).max(SCORE_FLOOR), 600);
+            let shrunk = (tw > room && tw > 0.0).then(|| {
+                let st = style((score_size * room / tw).max(SCORE_FLOOR), 600);
                 tw = measure.measure(&text, &st).advance;
-            }
+                st
+            });
+            let st = shrunk.as_ref().unwrap_or(&score_style);
             let [l, t, r, _] = slot.panel;
             let right = (l + r) / 2.0 + 2.0 * geo.arrow;
-            list.push(run(
-                text,
-                &st,
-                [right - tw, t + SCORE_TOP * s],
-                fade(MUTED),
-            ));
+            list.text(text, st, right - tw, t + SCORE_TOP * s, fade(MUTED));
         }
         // The judgments' flashes where the skin draws no hit effect.
         for (lane, flash) in flashes.get(i).into_iter().flatten().enumerate() {
@@ -1516,7 +1502,7 @@ pub fn draw_fields(
                 ..Shape::NONE
             };
             q.blend = Blend::Add;
-            list.push(Command::Quad(q));
+            list.quad(q);
         }
         // Out: the field dimmed, in place, saying so.
         if o.out {
@@ -1530,15 +1516,8 @@ pub fn draw_fields(
                 .map_or(&shown.out, |(_, w)| w);
             let word = fitted(measure, said, &st, r - l);
             let ww = measure.measure(&word, &st).advance;
-            list.push(run(
-                word,
-                &st,
-                [
-                    (l + r - ww) / 2.0,
-                    (t + b) / 2.0 - size.min(13.0) * 0.6 * ratio,
-                ],
-                MUTED,
-            ));
+            let wy = (t + b) / 2.0 - size.min(13.0) * 0.6 * ratio;
+            list.text(word, &st, (l + r - ww) / 2.0, wy, MUTED);
         }
         // Its seat changing: the whole slot darkens through the change.
         if slot.dim > 0.0 {
@@ -1581,8 +1560,8 @@ fn named(
         radius: [2.0 * ratio; 2],
         ..Shape::NONE
     };
-    list.push(Command::Quad(plate));
-    list.push(run(text, style, [x, y], TEXT));
+    list.quad(plate);
+    list.text(text, style, x, y, TEXT);
 }
 
 /// A named field's plate ([`named`]) and how much wider than its field it
@@ -1635,9 +1614,9 @@ impl OwnOut {
 /// a miniature's (the same darkness), its mark in its middle and, under
 /// it, the skip's words on a quiet plate.
 pub fn draw_own_out(list: &mut DrawList, own: &OwnOut, ratio: f32, measure: &mut dyn TextMeasure) {
-    let face = ddi_l10n::font_stack(FACE);
+    let face: std::sync::Arc<str> = ddi_l10n::font_stack(FACE).into();
     let style = |size: f32, weight: u16| {
-        let mut s = TextStyle::new(face.as_str(), size * ratio);
+        let mut s = TextStyle::new(face.clone(), size * ratio);
         s.weight = weight;
         s
     };
@@ -1649,7 +1628,7 @@ pub fn draw_own_out(list: &mut DrawList, own: &OwnOut, ratio: f32, measure: &mut
         let st = style(24.0, 700);
         let mark = fitted(measure, &own.mark, &st, r - l - 8.0 * ratio);
         let w = measure.measure(&mark, &st).advance;
-        list.push(run(mark, &st, [cx - w / 2.0, cy - 24.0 * ratio], TEXT));
+        list.text(mark, &st, cx - w / 2.0, cy - 24.0 * ratio, TEXT);
     }
     if let Some(skip) = &own.skip {
         let [pl, pt, pr, pb] = own.skip_area(ratio);
@@ -1658,16 +1637,12 @@ pub fn draw_own_out(list: &mut DrawList, own: &OwnOut, ratio: f32, measure: &mut
             radius: [6.0 * ratio; 2],
             ..Shape::NONE
         };
-        list.push(Command::Quad(plate));
+        list.quad(plate);
         let st = style(13.0, 600);
         let text = fitted(measure, skip, &st, pr - pl - 12.0 * ratio);
         let w = measure.measure(&text, &st).advance;
-        list.push(run(
-            text,
-            &st,
-            [cx - w / 2.0, (pt + pb) / 2.0 - 13.0 * 0.6 * ratio],
-            MUTED,
-        ));
+        let ty = (pt + pb) / 2.0 - 13.0 * 0.6 * ratio;
+        list.text(text, &st, cx - w / 2.0, ty, MUTED);
     }
 }
 
@@ -1702,7 +1677,7 @@ pub fn draw_stars(list: &mut DrawList, level: u8, at: [f32; 2], tall: f32, alpha
                     radius: [thick / 2.0; 2],
                     ..Shape::NONE
                 };
-                list.push(Command::Quad(quad));
+                list.quad(quad);
             }
             continue;
         }
@@ -1718,7 +1693,7 @@ pub fn draw_stars(list: &mut DrawList, level: u8, at: [f32; 2], tall: f32, alpha
                 radius: [0.02; 2],
                 ..Shape::NONE
             };
-            list.push(Command::Quad(quad));
+            list.quad(quad);
         }
         let ([cx, cy], radius) = shape.disc;
         let mut disc = Quad::plain([cx - radius, cy - radius, cx + radius, cy + radius], color);
@@ -1726,7 +1701,7 @@ pub fn draw_stars(list: &mut DrawList, level: u8, at: [f32; 2], tall: f32, alpha
             radius: [radius; 2],
             ..Shape::NONE
         };
-        list.push(Command::Quad(disc));
+        list.quad(disc);
     }
 }
 
@@ -1737,6 +1712,7 @@ pub const FLASH: f32 = ddi_session::battle::feed::FLASH_SECONDS;
 pub(crate) mod tests {
     use super::*;
     use ddi_actor::text::FixedMeasure;
+    use ddi_render::draw2d::Command;
     use ddi_room::ParticipantId;
 
     fn shown(n: usize) -> Shown {

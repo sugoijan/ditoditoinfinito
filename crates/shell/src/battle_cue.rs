@@ -27,10 +27,10 @@
 
 use ddi_actor::text::{TextMeasure, TextStyle};
 use ddi_render::FieldGeometry;
-use ddi_render::draw2d::{Affine, Blend, Command, DrawList, Mask, Quad, Shape, TextRun};
+use ddi_render::draw2d::{Affine, Blend, DrawList, Quad, Shape};
 use ddi_session::battle::Incoming;
 
-const FACE: &str = "Iosevka Custom, Iosevka Term, monospace";
+use crate::opponents::FACE;
 /// The glyph: the power bar's electric violet, lighter.
 const BOLT: [f32; 4] = [0.84, 0.76, 1.0, 1.0];
 const GLOW: [f32; 4] = [0.55, 0.36, 1.0, 0.45];
@@ -119,7 +119,7 @@ pub fn draw(list: &mut DrawList, cue: &Cue, geo: &FieldGeometry, span: f32) {
         ..Shape::NONE
     };
     glow.blend = Blend::Add;
-    list.push(Command::Quad(glow));
+    list.quad(glow);
     // The bolt: down-left, across, down-left again.
     let thick = w * 0.13 * k;
     for (p, q) in [
@@ -127,7 +127,7 @@ pub fn draw(list: &mut DrawList, cue: &Cue, geo: &FieldGeometry, span: f32) {
         (at(0.30, 0.33), at(0.70, 0.33)),
         (at(0.66, 0.33), at(0.34, 0.66)),
     ] {
-        list.push(Command::Quad(segment(p, q, thick, fade(BOLT))));
+        list.quad(segment(p, q, thick, fade(BOLT)));
     }
     // Those placed behind it: small bolts in a column at its right, one
     // an attack up to three, else one and the count; never dimmed (they
@@ -143,28 +143,17 @@ pub fn draw(list: &mut DrawList, cue: &Cue, geo: &FieldGeometry, span: f32) {
             ((0.66, 0.33), (0.34, 0.66)),
         ] {
             let small = |(x, y): (f32, f32)| at(ox + x * s, oy + y * s);
-            list.push(Command::Quad(segment(small(p), small(q), thick, BOLT)));
+            list.quad(segment(small(p), small(q), thick, BOLT));
         }
     };
     for i in 0..glyphs {
         small_bolt(list, -0.04 + f32::from(i) * 0.24);
     }
     if cue.behind > BEHIND_GLYPHS {
-        let face = ddi_l10n::font_stack(FACE);
-        let mut style = TextStyle::new(face.as_str(), h * 0.24 * k);
+        let mut style = TextStyle::new(ddi_l10n::font_stack(FACE), h * 0.24 * k);
         style.weight = 700;
         let [x, y] = at(0.76, 0.22);
-        list.push(Command::Text(TextRun {
-            curve: None,
-            text: format!("×{}", cue.behind).into(),
-            style,
-            transform: Affine::translate(x, y),
-            color: BOLT,
-            blend: Blend::Normal,
-            mask: Mask::None,
-            perspective: None,
-            blur: [0.0; 2],
-        }));
+        list.text(format!("×{}", cue.behind), &style, x, y, BOLT);
     }
     // One dot a shock, in rows of four under it.
     let n = usize::from(cue.shocks).min(16);
@@ -183,7 +172,7 @@ pub fn draw(list: &mut DrawList, cue: &Cue, geo: &FieldGeometry, span: f32) {
             radius: [d / 2.0; 2],
             ..Shape::NONE
         };
-        list.push(Command::Quad(dot));
+        list.quad(dot);
     }
 }
 
@@ -199,24 +188,13 @@ pub fn draw_waiting(
     measure: &mut dyn TextMeasure,
 ) {
     let (power, life) = ddi_render::scene::power_and_life(geo, span);
-    let face = ddi_l10n::font_stack(FACE);
-    let mut style = TextStyle::new(face.as_str(), 12.0 * ratio);
+    let mut style = TextStyle::new(ddi_l10n::font_stack(FACE), 12.0 * ratio);
     style.weight = 500;
     let width = measure.measure(text, &style).advance;
     let right = power[0] + power[2];
     let x = (right - width).max(4.0 * ratio);
     let y = life[1] + life[3] + 3.0 * ratio;
-    list.push(Command::Text(TextRun {
-        curve: None,
-        text: text.into(),
-        style,
-        transform: Affine::translate(x, y),
-        color: MUTED,
-        blend: Blend::Normal,
-        mask: Mask::None,
-        perspective: None,
-        blur: [0.0; 2],
-    }));
+    list.text(text, &style, x, y, MUTED);
 }
 
 /// Where a tap or a click cycles the attack policy, `[left, top, right,
@@ -255,28 +233,16 @@ pub fn draw_policy(
     measure: &mut dyn TextMeasure,
 ) {
     let (power, life) = ddi_render::scene::power_and_life(geo, span);
-    let face = ddi_l10n::font_stack(FACE);
-    let mut style = TextStyle::new(face.as_str(), POLICY_SIZE * ratio);
+    let mut style = TextStyle::new(ddi_l10n::font_stack(FACE), POLICY_SIZE * ratio);
     style.weight = 500;
     let y = life[1] + life[3] + 3.0 * ratio;
     let width = key.map(|_| measure.measure(text, &style).advance);
-    list.push(Command::Text(TextRun {
-        curve: None,
-        text: text.into(),
-        style,
-        transform: Affine::translate(life[0], y),
-        color: MUTED,
-        blend: Blend::Normal,
-        mask: Mask::None,
-        perspective: None,
-        blur: [0.0; 2],
-    }));
+    list.text(text, &style, life[0], y, MUTED);
     let (Some(key), Some(width)) = (key, width) else {
         return;
     };
-    for c in policy_cap(key, life[0] + width, y, ratio, power[0] + power[2] * 0.45, measure) {
-        list.push(c);
-    }
+    let limit = power[0] + power[2] * 0.45;
+    policy_cap(list, key, life[0] + width, y, ratio, limit, measure);
 }
 
 /// The cap's legend size, logical pixels.
@@ -286,48 +252,35 @@ const CAP_SIZE: f32 = 9.0;
 /// an outline with the key's name in it, quieter than the label; nothing
 /// where it would reach past `limit`.
 fn policy_cap(
+    list: &mut DrawList,
     key: &str,
     x: f32,
     y: f32,
     ratio: f32,
     limit: f32,
     measure: &mut dyn TextMeasure,
-) -> Vec<Command> {
-    let face = ddi_l10n::font_stack(FACE);
-    let mut style = TextStyle::new(face.as_str(), CAP_SIZE * ratio);
+) {
+    let mut style = TextStyle::new(ddi_l10n::font_stack(FACE), CAP_SIZE * ratio);
     style.weight = 500;
     let legend = measure.measure(key, &style).advance;
     let (pad, h) = (4.0 * ratio, (POLICY_SIZE + 2.0) * ratio);
     let left = x + 6.0 * ratio;
     let w = legend + 2.0 * pad;
     if left + w > limit {
-        return Vec::new();
+        return;
     }
     let top = y + 0.5 * ratio;
     let color = [MUTED[0], MUTED[1], MUTED[2], MUTED[3] * 0.7];
     let outline = 1.0 * ratio;
-    vec![
-        Command::Quad({
-            let mut q = Quad::plain([left, top, left + w, top + h], color);
-            q.shape = Shape {
-                radius: [3.0 * ratio; 2],
-                outline: [outline; 2],
-                ..Shape::NONE
-            };
-            q
-        }),
-        Command::Text(TextRun {
-            curve: None,
-            text: key.into(),
-            style,
-            transform: Affine::translate(left + pad, top + (h - CAP_SIZE * ratio * 1.25) / 2.0),
-            color,
-            blend: Blend::Normal,
-            mask: Mask::None,
-            perspective: None,
-            blur: [0.0; 2],
-        }),
-    ]
+    let mut q = Quad::plain([left, top, left + w, top + h], color);
+    q.shape = Shape {
+        radius: [3.0 * ratio; 2],
+        outline: [outline; 2],
+        ..Shape::NONE
+    };
+    list.quad(q);
+    let ty = top + (h - CAP_SIZE * ratio * 1.25) / 2.0;
+    list.text(key, &style, left + pad, ty, color);
 }
 
 /// An attack policy's word, as the label and the rooms say it.
@@ -345,6 +298,7 @@ pub fn policy_word(t: ddi_session::battle::Targeting) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ddi_render::draw2d::Command;
 
     /// The policy label: under the life gauge's left end, inside the
     /// field's width at every size the miniatures' table uses, so the
