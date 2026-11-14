@@ -29,6 +29,56 @@ const AMPLE: f64 = 1.5;
 /// may: motion running out ends the hand for the play.
 const SHORT: f64 = 0.75;
 
+/// What a checkpoint of a stage is first expected to cost, seconds (about
+/// twice the mean of the slowest stage natively; learnt from the frames
+/// from then on, [`Costs`]).
+const FIRST_COST: f64 = 0.000_005;
+/// How far one frame moves the expected costs toward what it measured.
+const LEARN: f64 = 0.05;
+/// The expected cost of a checkpoint stays within these, seconds.
+const COST_RANGE: [f64; 2] = [0.000_000_2, 0.002];
+
+/// What a checkpoint of each stage of the planner and the motion's
+/// preparation is expected to cost (seconds), learnt from what whole
+/// frames of work measured: the bound is kept by work counted against
+/// these as well as by the clock, so that a clock as coarse as Firefox's
+/// millisecond (which reads 0 for most of a 2 ms share and then jumps)
+/// cannot let a frame run on past its share. A frame's measurement
+/// moves each stage's cost in proportion to its part of what was
+/// expected (`cost *= 1 + LEARN · (measured − expected) / expected`):
+/// linear in the measurement, so a coarse clock's readings average out
+/// over frames.
+#[derive(Clone, Debug, Default)]
+struct Costs {
+    stages: Vec<(&'static str, f64)>,
+}
+
+impl Costs {
+    fn of(&self, stage: &str) -> f64 {
+        self.stages
+            .iter()
+            .find(|(s, _)| *s == stage)
+            .map_or(FIRST_COST, |(_, c)| *c)
+    }
+
+    /// A frame did `counts` checkpoints of each stage and measured
+    /// `measured` seconds for all of its work.
+    fn learn(&mut self, counts: &[(&'static str, u32)], measured: f64) {
+        let expected: f64 = counts.iter().map(|(s, n)| self.of(s) * f64::from(*n)).sum();
+        if !(measured.is_finite() && measured >= 0. && expected > 0.) {
+            return;
+        }
+        let factor = (1. + LEARN * (measured - expected) / expected).clamp(0.5, 2.);
+        for (stage, _) in counts {
+            let cost = (self.of(stage) * factor).clamp(COST_RANGE[0], COST_RANGE[1]);
+            match self.stages.iter_mut().find(|(s, _)| s == stage) {
+                Some((_, c)) => *c = cost,
+                None => self.stages.push((stage, cost)),
+            }
+        }
+    }
+}
+
 /// How long a frame may prepare motion, for a display refreshing every
 /// `period` seconds and `ready` seconds of motion ready (none before the
 /// first is). It follows the refresh and not the frame just shown: time
@@ -72,6 +122,18 @@ pub struct RuntimePreview {
     pub peak_work_ms: f64,
     pub starved_frames: usize,
     pub resets: usize,
+    /// What each stage's checkpoint is expected to cost ([`Costs`]).
+    costs: Costs,
+    /// The share of a frame it may take, of its usual
+    /// ([`RuntimePreview::set_share`]).
+    share: f64,
+    /// The last frame's bound and the work expected in it (ms), and over
+    /// the play the frames that went past their bound and by how much at
+    /// most (ms), by the clock.
+    pub bound_ms: f64,
+    pub expected_ms: f64,
+    pub frames_over: usize,
+    pub most_over_ms: f64,
 }
 impl RuntimePreview {
     /// Bind the notes gameplay judges, after modifiers and song offsets,
@@ -177,7 +239,27 @@ impl RuntimePreview {
             peak_work_ms: 0.,
             starved_frames: 0,
             resets: 0,
+            costs: Costs::default(),
+            share: 1.,
+            bound_ms: 0.,
+            expected_ms: 0.,
+            frames_over: 0,
+            most_over_ms: 0.,
         })
+    }
+    /// The share of each frame's time the hand may prepare in, of its
+    /// usual (1; a play running late with the hand on gives it half,
+    /// `ddi_session::hand_load`). Only how fast it prepares changes,
+    /// never what.
+    pub fn set_share(&mut self, share: f64) {
+        self.share = share.clamp(0., 1.);
+    }
+    /// The stage whose checkpoint comes next.
+    fn stage_now(&self) -> &'static str {
+        match self.planner.stage() {
+            "idle" => self.runtime.as_ref().map_or("idle", |r| r.stage()),
+            stage => stage,
+        }
     }
     pub fn mat(&self) -> ddi_character::appearance::Geometry {
         self.mat
@@ -355,7 +437,9 @@ impl RuntimePreview {
             .filter(|r| r.report.ready)
             .map(|r| r.report.covered_until - now);
         let budget = (frame_budget(self.period, ahead) * if self.window < 3. { 2. } else { 1. })
-            .min(MOST_PER_FRAME);
+            .min(MOST_PER_FRAME)
+            * self.share;
+        self.bound_ms = budget * 1000.;
         let start = clock();
         if start.is_finite() {
             self.receive(now);
@@ -365,22 +449,42 @@ impl RuntimePreview {
             }
             self.request_motion(now);
 
-            // One read a pass: each checkpoint begins when the last one ended.
+            // One read a pass: each checkpoint begins when the last one
+            // ended, and only where the clock and the work counted both
+            // leave room for it (the first always: the hand moves on).
             let mut at = clock();
+            let mut expected = 0f64;
+            let mut counts: Vec<(&'static str, u32)> = Vec::new();
             for _ in 0..100000 {
                 let elapsed = at - start;
                 if !(elapsed >= 0. && elapsed < budget) {
                     break;
                 }
+                let stage = self.stage_now();
+                let cost = self.costs.of(stage);
+                if !counts.is_empty() && expected.max(elapsed) + cost > budget {
+                    break;
+                }
                 let Some(ended) = self.step(now, at, clock) else {
                     break;
                 };
+                expected += cost;
+                match counts.iter_mut().find(|(s, _)| *s == stage) {
+                    Some((_, n)) => *n += 1,
+                    None => counts.push((stage, 1)),
+                }
                 at = ended;
             }
             let elapsed = clock() - start;
             if elapsed.is_finite() {
+                self.costs.learn(&counts, elapsed);
+                self.expected_ms = expected * 1000.;
                 self.work_ms = elapsed.max(0.) * 1000.;
                 self.peak_work_ms = self.peak_work_ms.max(self.work_ms);
+                if budget > 0. && elapsed > budget {
+                    self.frames_over += 1;
+                    self.most_over_ms = self.most_over_ms.max((elapsed - budget) * 1000.);
+                }
             }
         }
 
@@ -435,7 +539,7 @@ impl RuntimePreview {
         let p = &self.planner.report;
         let planning_report=p.last.as_ref().map(|r|serde_json::json!({"status":r.status,"search_seconds":r.search_seconds,"checkpoints":r.checkpoints,"reason":r.reason,"judge":r.judge,"attempts":r.attempts}));
         serde_json::json!({"target_policy":"tile-centers-with-shared-slots","origin":self.origin,"duration":self.duration,"source_notes":self.source.len(),"window":self.window,"stage":if self.planner.stage()=="idle" {self.runtime.as_ref().map_or("idle",|r|r.stage())}else{self.planner.stage()},"available":self.available,
-            "headroom":report.covered_until-self.last_time.unwrap_or(0.).max(0.),"work_ms":self.work_ms,"peak_work_ms":self.peak_work_ms,"starved_frames":self.starved_frames,"presentation_revisions":self.presentation_revisions,"resets":self.resets,"report":report,"error":self.error,
+            "headroom":report.covered_until-self.last_time.unwrap_or(0.).max(0.),"work_ms":self.work_ms,"peak_work_ms":self.peak_work_ms,"starved_frames":self.starved_frames,"bound":{"share":self.share,"bound_ms":self.bound_ms,"expected_ms":self.expected_ms,"frames_over":self.frames_over,"most_over_ms":self.most_over_ms,"costs_us":self.costs.stages.iter().map(|(s,c)|(s.to_string(),c*1e6)).collect::<std::collections::BTreeMap<_,_>>()},"presentation_revisions":self.presentation_revisions,"resets":self.resets,"report":report,"error":self.error,
             "planner":{"source":"chart","mode":"rolling","window":self.window,"stage":self.planner.stage(),"known_until":p.known_until,"certified_until":p.certified_until,
                 "publications":p.publications,"checkpoints":p.checkpoints,"peak_retained":p.peak_retained,"removed_notes":p.removed,"received_notes":p.received,
                 "events":p.committed_heads,"holds":p.committed_holds,"active_ms":self.planning_ms,"peak_checkpoint_ms":self.planning_peak_ms,"report":planning_report,"at_once":"two","failure":p.failure}})
@@ -839,6 +943,61 @@ mod tests {
         assert_eq!(r.resets, 0);
     }
 
+    /// The bound is kept on a clock as coarse as Firefox's (whole
+    /// milliseconds): each checkpoint costs 4 µs of the test's own time,
+    /// the clock reads it floored to the millisecond, and from the first
+    /// few frames on no frame's work goes past its bound by more than a
+    /// checkpoint or two, where the clock alone let it run on to the next
+    /// millisecond (half again the share at 120 Hz). The hand keeps up
+    /// over the dense chart all the same, and at half its share too.
+    #[test]
+    fn the_bound_holds_on_a_millisecond_clock() {
+        for share in [1., 0.5] {
+            let (song, chart) = dense_chart();
+            let player = ddi_engine::player::Player::new(
+                &song,
+                chart,
+                ddi_engine::rules::ddi::ruleset(&ddi_engine::rules::ddi::DdiOptions::default()),
+                Default::default(),
+            );
+            let mut r = RuntimePreview::for_player(&player, "dance-single").unwrap();
+            let truth = Cell::new(0f64);
+            let clock = || {
+                let t = truth.get();
+                truth.set(t + 0.000_004);
+                (t * 1000.).floor() / 1000.
+            };
+            for _ in 0..20_000 {
+                r.prepare(-1., &clock);
+                if r.available || r.failure().is_some() {
+                    break;
+                }
+            }
+            assert!(r.available, "{}", r.debug());
+            r.start_preloaded();
+            r.set_share(share);
+            let mut worst = 0f64;
+            let mut over = 0;
+            let frames = (player.song_end_time() * 120.).ceil() as i32;
+            for frame in 0..=frames {
+                let before = truth.get();
+                r.prepare(f64::from(frame) / 120. - r.origin, &clock);
+                assert!(r.failure().is_none(), "{share} at {frame}: {}", r.debug());
+                assert!(r.available, "{share} at {frame}: {}", r.debug());
+                if frame >= 60 {
+                    let spent = truth.get() - before - r.bound_ms / 1000.;
+                    worst = worst.max(spent);
+                    over += usize::from(spent > 0.000_1);
+                }
+            }
+            assert_eq!(r.starved_frames, 0);
+            // A checkpoint's reads past the bound at most, and in few
+            // frames (the costs learnt from millisecond readings jitter).
+            assert!(worst < 0.000_25, "{share}: {} ms past", worst * 1000.);
+            assert!(over * 50 < frames as usize, "{share}: {over} of {frames}");
+        }
+    }
+
     /// A stage's play stepping down its ladder (a match's "At zero life:
     /// Step down"), nothing pressed, the hand beside it at 120 and at 8
     /// frames a second on a clock of the test's own: it plays out what it
@@ -857,6 +1016,148 @@ mod tests {
     #[ignore = "depends on the machine's speed: the real clock"]
     fn the_hand_plays_on_through_a_step_down_on_the_real_clock() {
         hand_through_a_step_down(&[(8., -1.)]);
+    }
+
+    /// What each slice of the hand's work costs on the real clock over
+    /// the densest bundled chart at 120 frames a second: run by hand
+    /// (`--ignored --nocapture`, release), for the bound's numbers.
+    #[test]
+    #[ignore = "a measurement on the real clock"]
+    fn measure_the_slices_of_the_hands_work() {
+        let (song, chart) = dense_chart();
+        let player = ddi_engine::player::Player::new(
+            &song,
+            chart,
+            ddi_engine::rules::ddi::ruleset(&ddi_engine::rules::ddi::DdiOptions::default()),
+            Default::default(),
+        );
+        let mut r = RuntimePreview::for_player(&player, "dance-single").unwrap();
+        let real = std::time::Instant::now();
+        let clock = || real.elapsed().as_secs_f64();
+        for _ in 0..200_000 {
+            r.prepare(-1., &clock);
+            if r.available || r.failure().is_some() {
+                break;
+            }
+        }
+        r.start_preloaded();
+        let mut steps: Vec<(f64, &'static str)> = Vec::new();
+        let mut frames: Vec<(f64, usize, f64)> = Vec::new();
+        let mut receives = Vec::new();
+        let mut presents = Vec::new();
+        let end = player.song_end_time();
+        for frame in 0..=(end * 120.).ceil() as i32 {
+            let time = f64::from(frame) / 120. - r.origin;
+            // The frame as `prepare` does it, each slice timed.
+            let ready = r.runtime.as_ref().is_some_and(|x| x.report.ready);
+            let now = if ready { time.clamp(0., r.duration) } else { 0. };
+            r.last_time = Some(time);
+            let ahead = r
+                .runtime
+                .as_ref()
+                .filter(|x| x.report.ready)
+                .map(|x| x.report.covered_until - now);
+            let budget = frame_budget(1. / 120., ahead);
+            let start = clock();
+            r.receive(now);
+            r.request_motion(now);
+            receives.push(clock() - start);
+            let mut at = clock();
+            let mut n = 0;
+            while at - start < budget {
+                let kind = if r.planner.stage() != "idle" {
+                    r.planner.stage()
+                } else {
+                    r.runtime.as_ref().map_or("idle", |x| x.stage())
+                };
+                let Some(ended) = r.step(now, at, &clock) else {
+                    break;
+                };
+                steps.push((ended - at, kind));
+                n += 1;
+                at = ended;
+            }
+            frames.push((clock() - start, n, budget));
+            let p = clock();
+            r.present(time, time.clamp(0., r.duration));
+            presents.push(clock() - p);
+            assert!(r.failure().is_none(), "{}", r.debug());
+        }
+        let pct = |v: &mut Vec<f64>, q: f64| {
+            v.sort_by(f64::total_cmp);
+            v[((v.len() - 1) as f64 * q) as usize] * 1000.
+        };
+        let mut top: Vec<(usize, &(f64, &str))> = steps.iter().enumerate().collect();
+        top.sort_by(|a, b| b.1.0.total_cmp(&a.1.0));
+        for (i, (cost, kind)) in top.iter().take(25) {
+            let before = steps[i.saturating_sub(1)].1;
+            let after = steps.get(i + 1).map_or("-", |s| s.1);
+            println!("big step {kind} {:.3} ms ({before} → · → {after})", cost * 1000.);
+        }
+        for over in [0.25e-3, 0.5e-3, 1e-3, 2e-3] {
+            println!(
+                "steps over {:.2} ms: {}",
+                over * 1000.,
+                steps.iter().filter(|s| s.0 > over).count()
+            );
+        }
+        let mut kinds: Vec<&str> = steps.iter().map(|s| s.1).collect();
+        kinds.sort();
+        kinds.dedup();
+        for k in kinds {
+            let mut v: Vec<f64> = steps.iter().filter(|s| s.1 == k).map(|s| s.0).collect();
+            let n = v.len();
+            let mean = v.iter().sum::<f64>() / n as f64 * 1000.;
+            println!(
+                "step {k}: {n} mean {mean:.3} p99 {:.3} max {:.3} ms",
+                pct(&mut v, 0.99),
+                pct(&mut v, 1.)
+            );
+        }
+        let mut work: Vec<f64> = frames.iter().map(|f| f.0).collect();
+        let over = frames.iter().filter(|f| f.0 > f.2).count();
+        let worst_over = frames.iter().map(|f| f.0 - f.2).fold(0., f64::max) * 1000.;
+        let counts: Vec<usize> = frames.iter().map(|f| f.1).collect();
+        println!(
+            "frames {}: work p50 {:.3} p95 {:.3} p99 {:.3} max {:.3} ms; over budget {over}, by {worst_over:.3} ms at most; steps a frame max {}",
+            frames.len(),
+            pct(&mut work, 0.5),
+            pct(&mut work, 0.95),
+            pct(&mut work, 0.99),
+            pct(&mut work, 1.),
+            counts.iter().max().unwrap()
+        );
+        println!(
+            "receive p99 {:.3} max {:.3}; present p99 {:.3} max {:.3} ms",
+            pct(&mut receives, 0.99),
+            pct(&mut receives, 1.),
+            pct(&mut presents, 0.99),
+            pct(&mut presents, 1.)
+        );
+    }
+
+    /// Beatucada's Challenge, the densest bundled single chart.
+    fn dense_chart() -> (ddi_chart::Song, usize) {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs/beatucada");
+        let path = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|e| e == "ssc"))
+            .unwrap();
+        let song = ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc")
+            .unwrap();
+        let chart = song
+            .charts
+            .iter()
+            .position(|c| {
+                c.layout == "dance-single"
+                    && c.difficulty == ddi_chart::Difficulty::Challenge
+                    && c.derivation.is_none()
+            })
+            .unwrap();
+        (song, chart)
     }
 
     /// Each case a frame rate and what a read of the clock costs in
