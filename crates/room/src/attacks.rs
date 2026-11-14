@@ -40,6 +40,8 @@
 use crate::awards::{Finish, Finisher};
 use crate::battle::{Entrant, Run};
 use crate::ids::ParticipantId;
+/// SplitMix64: the launch order's seeded ties.
+use crate::ids::splitmix64 as mix;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -626,14 +628,6 @@ pub struct StageBattle {
     seats: BTreeMap<ParticipantId, Seat>,
     attacks: Vec<Attack>,
     record: Vec<CheckpointRecord>,
-}
-
-/// SplitMix64.
-fn mix(mut x: u64) -> u64 {
-    x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    x ^ (x >> 31)
 }
 
 impl StageBattle {

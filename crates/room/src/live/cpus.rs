@@ -24,7 +24,7 @@
 //! PROVISIONAL: every number here is a working value, named and versioned.
 
 use crate::attacks::{Judged, Targeting};
-use crate::ids::{ParticipantId, StageId};
+use crate::ids::{Fnv64, ParticipantId, StageId};
 use crate::live::stream::{LiveReport, StreamEnd};
 use crate::member::Connection;
 use crate::state::RoomState;
@@ -130,7 +130,7 @@ impl CpuNews {
 /// the first report of a CPU's checkpoint, to tell a later one equal or
 /// not.
 pub fn report_digest(r: &LiveReport) -> u64 {
-    let mut h = Fnv::new();
+    let mut h = Fnv64::new();
     h.u64(u64::from(r.k));
     h.u64(r.judged.len() as u64);
     for Judged { at_us, tier } in &r.judged {
@@ -148,31 +148,6 @@ pub fn report_digest(r: &LiveReport) -> u64 {
     h.0
 }
 
-/// FNV-1a 64.
-pub struct Fnv(pub u64);
-
-impl Fnv {
-    pub fn new() -> Self {
-        Fnv(0xcbf2_9ce4_8422_2325)
-    }
-
-    pub fn bytes(&mut self, b: &[u8]) {
-        for x in b {
-            self.0 ^= u64::from(*x);
-            self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-    }
-
-    pub fn u64(&mut self, x: u64) {
-        self.bytes(&x.to_le_bytes());
-    }
-}
-
-impl Default for Fnv {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// Whether member `me`'s device sends the news of stage `stage`'s CPUs
 /// (`cpu-reporters-v0`): it is a person of the stage's lineup and

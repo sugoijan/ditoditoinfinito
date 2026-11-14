@@ -14,7 +14,7 @@
 //! self-reported anyway).
 
 use crate::attacks::{Schedule, Section};
-use crate::ids::{ChartKey, RoomId, StageId};
+use crate::ids::{ChartKey, Fnv64, RoomId, StageId};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 
@@ -156,7 +156,7 @@ impl BattlePlan {
 
     /// The digest of its contents (everything but the digest).
     pub fn compute_digest(&self) -> PlanDigest {
-        let mut h = Fnv::new();
+        let mut h = Fnv64::new();
         h.u64(u64::from(self.version));
         for s in [
             &self.attack_rules,
@@ -164,7 +164,7 @@ impl BattlePlan {
             &self.classes,
             &self.ruleset,
         ] {
-            h.bytes(s.as_bytes());
+            h.prefixed(s.as_bytes());
         }
         h.u64(self.seed);
         h.u64(self.checkpoints_us.len() as u64);
@@ -198,14 +198,14 @@ impl BattlePlan {
             h.u64(0x5354_4550);
             h.u64(self.ladder.len() as u64);
             for d in &self.ladder {
-                h.bytes(d.as_bytes());
+                h.prefixed(d.as_bytes());
             }
         }
         // The stage's changed rules only where there are some, as the
         // ladder.
         if let Some(r) = &self.stage_rules {
             h.u64(0x5255_4c45);
-            h.bytes(r.as_bytes());
+            h.prefixed(r.as_bytes());
         }
         // Attacks at once only where there is a limit, as the ladder.
         if let Some(n) = self.at_once {
@@ -272,39 +272,14 @@ impl BattlePlan {
 /// The seed of an online stage's battle: from the room, the stage and its
 /// chart, so every device knows it and nobody chooses it.
 pub fn seed_for(room: &RoomId, stage: StageId, chart: &ChartKey) -> u64 {
-    let mut h = Fnv::new();
-    h.bytes(b"ddi-stage-seed");
-    h.bytes(room.as_str().as_bytes());
+    let mut h = Fnv64::new();
+    h.prefixed(b"ddi-stage-seed");
+    h.prefixed(room.as_str().as_bytes());
     h.u64(stage.0);
-    h.bytes(chart.as_str().as_bytes());
+    h.prefixed(chart.as_str().as_bytes());
     h.0
 }
 
-struct Fnv(u64);
-
-impl Fnv {
-    fn new() -> Self {
-        Fnv(0xcbf2_9ce4_8422_2325)
-    }
-    fn byte(&mut self, b: u8) {
-        self.0 ^= u64::from(b);
-        self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    fn u64(&mut self, x: u64) {
-        for b in x.to_le_bytes() {
-            self.byte(b);
-        }
-    }
-    fn i64(&mut self, x: i64) {
-        self.u64(x as u64);
-    }
-    fn bytes(&mut self, b: &[u8]) {
-        self.u64(b.len() as u64);
-        for &x in b {
-            self.byte(x);
-        }
-    }
-}
 
 #[cfg(test)]
 pub(crate) mod tests {

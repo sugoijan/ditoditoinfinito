@@ -149,6 +149,57 @@ pub struct ContentId {
 /// Id-keyed maps travel as lists of `[key, value]` pairs: JSON object keys
 /// are strings, which buffered (tagged) messages cannot turn back into
 /// numeric ids.
+/// SplitMix64's step: `x` advanced by the golden gamma and mixed. The
+/// room's seeded draws (an attack's ties, a stage's CPU seed, the fake's
+/// jitter) all take it.
+pub fn splitmix64(x: u64) -> u64 {
+    let mut z = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// FNV-1a 64: the room's digests (a battle plan's, a CPU's report's), a
+/// stage's seed and an identity's mark. Their values are compared across
+/// devices and the room: each is pinned by a test.
+#[derive(Clone, Copy, Debug)]
+pub struct Fnv64(pub u64);
+
+impl Default for Fnv64 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Fnv64 {
+    pub fn new() -> Self {
+        Fnv64(0xcbf2_9ce4_8422_2325)
+    }
+
+    /// The bytes as they are.
+    pub fn raw(&mut self, b: &[u8]) {
+        for &x in b {
+            self.0 ^= u64::from(x);
+            self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+
+    /// The bytes after their length (so two texts never run together).
+    pub fn prefixed(&mut self, b: &[u8]) {
+        self.u64(b.len() as u64);
+        self.raw(b);
+    }
+
+    /// Little-endian.
+    pub fn u64(&mut self, x: u64) {
+        self.raw(&x.to_le_bytes());
+    }
+
+    pub fn i64(&mut self, x: i64) {
+        self.u64(x as u64);
+    }
+}
+
 pub(crate) mod pairs {
     use serde::de::Deserializer;
     use serde::ser::Serializer;
