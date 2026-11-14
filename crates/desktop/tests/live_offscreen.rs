@@ -10,14 +10,13 @@
 //! mine gone with its receptor flashing, the lane's lock) and the view's
 //! delay adapting below the live rules' second.
 //!
-//! Skipped where there is no GPU adapter (CI). `DDI_ROOM_SHOTS=<dir>`
+//! Skipped where there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>`
 //! keeps pictures (PPM) of the remote field at those moments.
 
 mod common;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 
 use ddi_chart::{NoteKind, Song};
 use ddi_desktop::gpu::{self, Gpu};
@@ -28,10 +27,8 @@ use ddi_platform::HostTime;
 use ddi_room::fake::{FakeServer, FakeSocket, Latency, SharedFake};
 use ddi_room::live::{Moment, MomentKind};
 use ddi_room::{Command, ContentStatus, Identity, Intent, ManualClock, RoomPolicy};
-use ddi_ui::event::UiEvent;
-use ddi_ui::screens::data::{ChartEntry, Difficulty, SongEntry};
-use ddi_ui::state::online::api::{ApiRequest, ApiResponse, Method};
-use ddi_ui::state::online::{Http, Online, OnlineConfig, Platform, SharedOnline};
+use ddi_ui::screens::data::{Difficulty, SongEntry};
+use ddi_ui::state::online::SharedOnline;
 use ddi_ui::state::room::{Picked, RoomClient, SharedRoom, prepare_stage};
 
 const SIZE: [u32; 2] = [1280, 720];
@@ -40,79 +37,10 @@ const WALL: u64 = 1_700_000_000_000;
 /// A frame of the test: 50 ms (the room's frames come every 100).
 const FRAME_NS: u64 = 50_000_000;
 
-/// HTTP answered at once from the fake room (who `who` is, the room's
-/// summary, its tickets and upload grants), as the session's live tests
-/// answer it.
-struct RoomHttp {
-    server: SharedFake,
-    who: &'static str,
-    out: Vec<(u64, ApiResponse)>,
-}
-
-fn ok(body: String) -> ApiResponse {
-    ApiResponse {
-        status: 200,
-        body,
-        session: None,
-    }
-}
-
-impl Http for RoomHttp {
-    fn start(&mut self, id: u64, req: ApiRequest) {
-        let identity = Identity::new(format!("dev:{}", self.who));
-        let answer = match (req.method, req.path.as_str()) {
-            (Method::Get, "/me") => ok(format!(
-                r#"{{"player_id":"dev:{0}","login":"{0}","display_name":"{0}","admin":false,"expires_at_ms":1}}"#,
-                self.who
-            )),
-            (Method::Get, "/rooms/Room000001") => ok(
-                r#"{"room_id":"Room000001","name":"Live","revision":1,"phase":"lobby","admission":"open","participant":1}"#
-                    .into(),
-            ),
-            (Method::Post, "/rooms/Room000001/ticket") => {
-                match self.server.borrow_mut().ticket(&identity) {
-                    Ok(t) => ok(format!(r#"{{"ticket":"{t}","expires_at_ms":9}}"#)),
-                    Err(_) => ApiResponse {
-                        status: 403,
-                        body: r#"{"error":"not_a_member"}"#.into(),
-                        session: None,
-                    },
-                }
-            }
-            (Method::Post, "/rooms/Room000001/grant") => ok(format!(
-                r#"{{"grant":"grant-{}","expires_at_ms":9,"max_bytes":100.0}}"#,
-                self.who
-            )),
-            _ => ApiResponse {
-                status: 403,
-                body: r#"{"error":"not_an_operator"}"#.into(),
-                session: None,
-            },
-        };
-        self.out.push((id, answer));
-    }
-
-    fn poll(&mut self) -> Vec<(u64, ApiResponse)> {
-        std::mem::take(&mut self.out)
-    }
-}
-
+/// A person signed in to the fake room's live HTTP (as the session's
+/// live tests answer it).
 fn person(server: &SharedFake, who: &'static str) -> SharedOnline {
-    let online = Online::new(
-        Box::new(RoomHttp {
-            server: server.clone(),
-            who,
-            out: Vec::new(),
-        }),
-        OnlineConfig {
-            platform: Platform::Web,
-            site: "http://localhost:8080/".into(),
-        },
-    )
-    .shared();
-    online.borrow_mut().check();
-    online.borrow_mut().poll(0);
-    online
+    common::online::signed_in(common::online::RoomHttp::live(server, who))
 }
 
 /// The chart of Beatucada's in single with the most of what a person's
@@ -198,57 +126,23 @@ fn script(song: &Song, chart: usize, shock_at: f64) -> (Vec<Moment>, [usize; 3])
 }
 
 fn ppm(name: &str, pixels: &[u8]) {
-    let Some(dir) = std::env::var_os("DDI_ROOM_SHOTS") else {
-        return;
-    };
-    let mut out = format!("P6\n{} {}\n255\n", SIZE[0], SIZE[1]).into_bytes();
-    out.extend(
-        pixels
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .flat_map(|p| [p[0], p[1], p[2]]),
-    );
-    std::fs::write(std::path::Path::new(&dir).join(format!("{name}.ppm")), out).unwrap();
+    common::shot(&format!("{name}.ppm"), pixels, SIZE);
 }
 
 #[test]
 fn a_live_stage_draws_a_persons_holds_mines_a_locked_lane_and_the_adaptive_delay() {
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
     let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
     let _ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
-    let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("start", fold);
-    env.reduced_motion.set(true);
-    ui.handle(UiEvent::Resize {
-        size: [SIZE[0] as f32, SIZE[1] as f32],
-        ratio: 1.0,
-    });
+    let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let mut host = Host::new(Rc::default(), None);
-    let clock = Arc::new(AtomicU64::new(1_000_000_000));
-    let c = clock.clone();
-    host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
-    let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: SIZE[0],
-            height: SIZE[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-    });
+    let clock = common::rig::fake_clock(&mut host);
+    let formats = common::gpu::formats();
+    let target = common::gpu::Target::new(&device, SIZE);
     // The wall clock runs with the fake one (ms since the epoch).
     let wall: Rc<dyn Fn() -> u64> = {
         let c = clock.clone();
@@ -320,18 +214,7 @@ fn a_live_stage_draws_a_persons_holds_mines_a_locked_lane_and_the_adaptive_delay
     rules.stages = 1;
     rooms[0].borrow_mut().save_rules(rules).unwrap();
     run(1.0);
-    let entry = SongEntry {
-        id: "beatucada".into(),
-        title: "Beatucada".into(),
-        charts: vec![ChartEntry {
-            style: "dance-single".into(),
-            difficulty: Difficulty::Hard,
-            index: chart,
-            digest: Some(song.chart_digest(chart)),
-            ..ChartEntry::default()
-        }],
-        ..SongEntry::default()
-    };
+    let entry = common::practice::song_entry("beatucada", "Beatucada", chart, Difficulty::Hard);
     rooms[0].borrow_mut().pick(&entry, &entry.charts[0]).unwrap();
     run(1.0);
     let uploads = rooms[0].borrow_mut().take_upload_jobs();
@@ -425,11 +308,6 @@ fn a_live_stage_draws_a_persons_holds_mines_a_locked_lane_and_the_adaptive_delay
     let mut sent = 0;
     // What to look at, at song seconds as the remote field shows them.
     let mut seen = Seen::default();
-    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-        ..Default::default()
-    });
-    let plain = texture.create_view(&Default::default());
     let mut frames = 0;
     let last = hold_end(held).max(note_s(dropped)).max(note_s(mine.min(held))).max(shock_at) + 4.0;
     loop {
@@ -450,19 +328,8 @@ fn a_live_stage_draws_a_persons_holds_mines_a_locked_lane_and_the_adaptive_delay
             }
         }
         let now = clock.load(Ordering::SeqCst);
-        let mut encoder = device.create_command_encoder(&Default::default());
         ui.set_clock(wall() as f64 / 1_000.0);
-        host.draw_play(
-            &dev(&device, &queue, formats),
-            &mut encoder,
-            &srgb,
-            Some(&plain),
-            SIZE,
-            HostTime(now as f64 / 1e9),
-            &mut ui,
-            &env,
-        );
-        queue.submit(Some(encoder.finish()));
+        common::rig::draw(&mut host, &dev(&device, &queue, formats), &target, &mut ui, &env, now);
         frames += 1;
         let play = host.running().expect("playing");
         let s = &play.session;
@@ -539,7 +406,7 @@ fn a_live_stage_draws_a_persons_holds_mines_a_locked_lane_and_the_adaptive_delay
             // The fields' fonts are read on a thread: a moment for them.
             std::thread::sleep(std::time::Duration::from_millis(30));
             let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            ppm(name, &gpu::read_rgba(&device, &queue, &texture));
+            ppm(name, &gpu::read_rgba(&device, &queue, &target.texture));
         }
         if v > last {
             break;
@@ -575,44 +442,21 @@ struct Seen {
 /// Bob's (three slots), their fields fed from the computation (their
 /// combos rising), their levels shown (stars, never Bot), and their
 /// reports sent to the room, which takes them (no mismatch). The
-/// pictures (`DDI_ROOM_SHOTS`): the play with the three miniatures.
+/// pictures (`DDI_OFFSCREEN_PPM`): the play with the three miniatures.
 #[test]
 fn a_live_stage_with_cpus_draws_their_fields_from_this_devices_computation() {
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
     let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
     let _ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
-    let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("start", fold);
-    env.reduced_motion.set(true);
-    ui.handle(UiEvent::Resize {
-        size: [SIZE[0] as f32, SIZE[1] as f32],
-        ratio: 1.0,
-    });
+    let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let mut host = Host::new(Rc::default(), None);
-    let clock = Arc::new(AtomicU64::new(1_000_000_000));
-    let c = clock.clone();
-    host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
-    let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: SIZE[0],
-            height: SIZE[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-    });
+    let clock = common::rig::fake_clock(&mut host);
+    let formats = common::gpu::formats();
+    let target = common::gpu::Target::new(&device, SIZE);
     let wall: Rc<dyn Fn() -> u64> = {
         let c = clock.clone();
         Rc::new(move || WALL + (c.load(Ordering::SeqCst) - 1_000_000_000) / 1_000_000)
@@ -681,18 +525,7 @@ fn a_live_stage_with_cpus_draws_their_fields_from_this_devices_computation() {
         .collect();
     rooms[0].borrow_mut().save_rules(rules).unwrap();
     run(1.0);
-    let entry = SongEntry {
-        id: "beatucada".into(),
-        title: "Beatucada".into(),
-        charts: vec![ChartEntry {
-            style: "dance-single".into(),
-            difficulty: Difficulty::Medium,
-            index: chart,
-            digest: Some(song.chart_digest(chart)),
-            ..ChartEntry::default()
-        }],
-        ..SongEntry::default()
-    };
+    let entry = common::practice::song_entry("beatucada", "Beatucada", chart, Difficulty::Medium);
     rooms[0].borrow_mut().pick(&entry, &entry.charts[0]).unwrap();
     run(1.0);
     let uploads = rooms[0].borrow_mut().take_upload_jobs();
@@ -776,11 +609,6 @@ fn a_live_stage_with_cpus_draws_their_fields_from_this_devices_computation() {
     let zero = rooms[1].borrow().song_zero_at(stage).unwrap();
     let (moments, _) = script(&song, chart, 30.0);
     let mut sent = 0;
-    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-        ..Default::default()
-    });
-    let plain = texture.create_view(&Default::default());
     let mut shot = false;
     let mut most_combo = [0u32; 2];
     for frame in 0..(20 * 40) {
@@ -800,19 +628,8 @@ fn a_live_stage_with_cpus_draws_their_fields_from_this_devices_computation() {
             }
         }
         let now = clock.load(Ordering::SeqCst);
-        let mut encoder = device.create_command_encoder(&Default::default());
         ui.set_clock(wall() as f64 / 1_000.0);
-        host.draw_play(
-            &dev(&device, &queue, formats),
-            &mut encoder,
-            &srgb,
-            Some(&plain),
-            SIZE,
-            HostTime(now as f64 / 1e9),
-            &mut ui,
-            &env,
-        );
-        queue.submit(Some(encoder.finish()));
+        common::rig::draw(&mut host, &dev(&device, &queue, formats), &target, &mut ui, &env, now);
         let play = host.running().expect("playing");
         let b = play.session.battle().expect("a stage");
         let views = b.views();
@@ -825,7 +642,7 @@ fn a_live_stage_with_cpus_draws_their_fields_from_this_devices_computation() {
             shot = true;
             std::thread::sleep(std::time::Duration::from_millis(30));
             let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            ppm("live-cpus", &gpu::read_rgba(&device, &queue, &texture));
+            ppm("live-cpus", &gpu::read_rgba(&device, &queue, &target.texture));
         }
     }
     assert_eq!(host.opponent_fields().unwrap().slots.len(), 3);

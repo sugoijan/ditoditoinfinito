@@ -4,32 +4,22 @@
 //! ("Changes apply: From stage 2"), a row changed and marked; then, the
 //! stages played (their results reported as a play reports them), the
 //! match's standings marking the stage played under other rules.
-//! Skipped where there is no GPU adapter (CI). `DDI_ROOM_SHOTS=<dir>`
+//! Skipped where there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>`
 //! keeps the pictures (PPM).
 
-use std::rc::Rc;
+mod common;
+
 
 use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::{Finish, Finisher, MatchDifficulty};
 use ddi_ui::UiEvent;
-use ddi_ui::screens::data::{ChartEntry, Difficulty, SongEntry};
+use ddi_ui::screens::data::Difficulty;
 use ddi_ui::screens::room_dialogs::{RulesDialog, StandingsDialog};
 
 const SIZE: [u32; 2] = [1280, 720];
 
 fn ppm(name: &str, pixels: &[u8]) {
-    let Some(dir) = std::env::var_os("DDI_ROOM_SHOTS") else {
-        return;
-    };
-    let mut out = format!("P6\n{} {}\n255\n", SIZE[0], SIZE[1]).into_bytes();
-    out.extend(
-        pixels
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .flat_map(|p| [p[0], p[1], p[2]]),
-    );
-    std::fs::write(std::path::Path::new(&dir).join(format!("{name}.ppm")), out).unwrap();
+    common::shot(&format!("{name}.ppm"), pixels, SIZE);
 }
 
 fn frames(ui: &mut ddi_ui::Ui, n: usize) {
@@ -40,21 +30,13 @@ fn frames(ui: &mut ddi_ui::Ui, n: usize) {
 
 #[test]
 fn the_rules_pop_up_mid_match_and_the_marked_standings_are_drawn() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
     let format = wgpu::TextureFormat::Rgba8Unorm;
     let mut gpu = Gpu::new(device, queue, format);
-    let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("room", fold);
-    env.reduced_motion.set(true);
-    ui.handle(UiEvent::Resize {
-        size: [SIZE[0] as f32, SIZE[1] as f32],
-        ratio: 1.0,
-    });
+    let (mut ui, env) = common::ui::theme("room", common::ui::lowercase(), SIZE, true);
     frames(&mut ui, 30);
     let room = ddi_desktop::room::current();
     room.borrow_mut().set_rules_seen(true);
@@ -66,20 +48,8 @@ fn the_rules_pop_up_mid_match_and_the_marked_standings_are_drawn() {
         };
         r.save_rules(rules).unwrap();
     }
-    let song = ddi_desktop::play::load::read_chart("beatucada").unwrap();
     let chart = 4;
-    let entry = SongEntry {
-        id: "beatucada".into(),
-        title: "Beatucada".into(),
-        charts: vec![ChartEntry {
-            style: "dance-single".into(),
-            difficulty: Difficulty::Medium,
-            index: chart,
-            digest: Some(song.chart_digest(chart)),
-            ..ChartEntry::default()
-        }],
-        ..SongEntry::default()
-    };
+    let entry = common::practice::song_entry("beatucada", "Beatucada", chart, Difficulty::Medium);
     // Stage 1 picked: its window open, a change lands on stage 2.
     room.borrow_mut().pick(&entry, &entry.charts[0]).unwrap();
     frames(&mut ui, 10);
@@ -169,12 +139,10 @@ fn the_rules_pop_up_mid_match_and_the_marked_standings_are_drawn() {
 /// The Rules pop-up fits (2026-11-13): drawn at 1280×720 and 844×390,
 /// in English and Japanese, with 3 and with 12 CPUs in the roster: its
 /// title and buttons on view, the rows scrolling between them.
-/// `DDI_ROOM_SHOTS=<dir>` keeps `rules-<cpus>cpus-<w>x<h>-<lang>.ppm`.
+/// `DDI_OFFSCREEN_PPM=<dir>` keeps `rules-<cpus>cpus-<w>x<h>-<lang>.ppm`.
 #[test]
 fn the_rules_pop_up_fits_with_few_and_many_cpus() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
@@ -184,13 +152,7 @@ fn the_rules_pop_up_fits_with_few_and_many_cpus() {
         for lang in ["en", "ja"] {
             for cpus in [3usize, 12] {
                 assert!(ddi_l10n::force(lang));
-                let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
-                let (mut ui, env, _) = ddi_desktop::shell::theme_ui("room", fold);
-                env.reduced_motion.set(true);
-                ui.handle(UiEvent::Resize {
-                    size: [size[0] as f32, size[1] as f32],
-                    ratio: 1.0,
-                });
+                let (mut ui, env) = common::ui::theme("room", common::ui::lowercase(), size, true);
                 frames(&mut ui, 30);
                 let room = ddi_desktop::room::current();
                 room.borrow_mut().set_rules_seen(true);
@@ -208,12 +170,11 @@ fn the_rules_pop_up_fits_with_few_and_many_cpus() {
                     assert!(b.is_some() && b == v, "{name} whole at {size:?} {lang} {cpus}");
                 }
                 let picture = gpu.draw_offscreen(&mut ui, size, format);
-                if let Some(dir) = std::env::var_os("DDI_ROOM_SHOTS") {
-                    let mut out = format!("P6\n{} {}\n255\n", size[0], size[1]).into_bytes();
-                    out.extend(picture.as_chunks::<4>().0.iter().flat_map(|p| [p[0], p[1], p[2]]));
-                    let name = format!("rules-{cpus}cpus-{}x{}-{lang}.ppm", size[0], size[1]);
-                    std::fs::write(std::path::Path::new(&dir).join(name), out).unwrap();
-                }
+                common::shot(
+                    &format!("rules-{cpus}cpus-{}x{}-{lang}.ppm", size[0], size[1]),
+                    &picture,
+                    size,
+                );
             }
         }
     }
@@ -224,13 +185,11 @@ fn the_rules_pop_up_fits_with_few_and_many_cpus() {
 /// Attacks at once (`attacks-v3`, 2026-11-13): the Rules pop-up's row
 /// under Attacks with its sentence, focused (scrolled into view), at
 /// 1280×720 and 844×390, in English and Japanese: the row and its value
-/// whole on view, its sentence under it. `DDI_ROOM_SHOTS=<dir>` keeps
+/// whole on view, its sentence under it. `DDI_OFFSCREEN_PPM=<dir>` keeps
 /// `at-once-<w>x<h>-<lang>.ppm`.
 #[test]
 fn the_attacks_at_once_row_is_drawn() {
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
         return;
     };
     let (device, queue) = gpu::device(&adapter).expect("device");
@@ -239,13 +198,7 @@ fn the_attacks_at_once_row_is_drawn() {
     for size in [[1280u32, 720u32], [844, 390]] {
         for lang in ["en", "ja"] {
             assert!(ddi_l10n::force(lang));
-            let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
-            let (mut ui, env, _) = ddi_desktop::shell::theme_ui("room", fold);
-            env.reduced_motion.set(true);
-            ui.handle(UiEvent::Resize {
-                size: [size[0] as f32, size[1] as f32],
-                ratio: 1.0,
-            });
+            let (mut ui, env) = common::ui::theme("room", common::ui::lowercase(), size, true);
             frames(&mut ui, 30);
             let room = ddi_desktop::room::current();
             room.borrow_mut().set_rules_seen(true);
@@ -281,12 +234,11 @@ fn the_attacks_at_once_row_is_drawn() {
                 assert!(b.is_some() && b == v, "{name} whole at {size:?} {lang}: {b:?} {v:?}");
             }
             let picture = gpu.draw_offscreen(&mut ui, size, format);
-            if let Some(dir) = std::env::var_os("DDI_ROOM_SHOTS") {
-                let mut out = format!("P6\n{} {}\n255\n", size[0], size[1]).into_bytes();
-                out.extend(picture.as_chunks::<4>().0.iter().flat_map(|p| [p[0], p[1], p[2]]));
-                let name = format!("at-once-{}x{}-{lang}.ppm", size[0], size[1]);
-                std::fs::write(std::path::Path::new(&dir).join(name), out).unwrap();
-            }
+            common::shot(
+                &format!("at-once-{}x{}-{lang}.ppm", size[0], size[1]),
+                &picture,
+                size,
+            );
         }
     }
     ddi_l10n::unforce();

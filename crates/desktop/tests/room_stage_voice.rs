@@ -11,26 +11,17 @@
 mod common;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 
 use ddi_desktop::gpu;
 use ddi_desktop::play::host::{Device, Host};
-use ddi_desktop::play::view::Formats;
-use ddi_platform::HostTime;
 use ddi_platform::history::MemoryPlayStore;
 use ddi_platform::storage::{self, MemoryStore};
-use ddi_ui::event::{KeyEvent, UiEvent};
-use ddi_ui::screens::data::{ChartEntry, Difficulty, SongEntry};
+use ddi_ui::screens::data::Difficulty;
 use ddi_ui::state::history::Plays;
 use ddi_ui::state::settings::Settings;
 
 const SIZE: [u32; 2] = [1280, 720];
-
-fn key(ui: &mut ddi_ui::Ui, code: &str, k: &str) {
-    ui.handle(UiEvent::Key(KeyEvent::down(code, k)));
-    ui.handle(UiEvent::Key(KeyEvent::up(code, k)));
-}
 
 /// What a stage said and showed.
 struct Heard {
@@ -62,66 +53,20 @@ fn stage_with(key_of: &str, folder: Option<PathBuf>) -> Option<Heard> {
         ddi_desktop::library::set_extra_folders(std::slice::from_ref(folder));
     }
     let (device, queue) = gpu::device(&adapter).unwrap();
-    let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("start", fold);
-    env.reduced_motion.set(true);
-    ui.handle(UiEvent::Resize {
-        size: [SIZE[0] as f32, SIZE[1] as f32],
-        ratio: 1.0,
-    });
+    let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let store = Rc::new(MemoryPlayStore::default());
     let mut host = Host::new(Rc::default(), Some(Plays::new(store)));
-    let clock = Arc::new(AtomicU64::new(1_000_000_000));
-    let c = clock.clone();
-    host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
-    let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
+    let clock = common::rig::fake_clock(&mut host);
+    let formats = common::gpu::formats();
     let dev = || Device {
         device: &device,
         queue: &queue,
         formats,
     };
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: SIZE[0],
-            height: SIZE[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-    });
-    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-        ..Default::default()
-    });
-    let plain = texture.create_view(&Default::default());
-    let room = ddi_desktop::room::current();
-    room.borrow_mut().set_rules_seen(true);
-    ui.push(ddi_desktop::room::room_screen_with(
-        &env,
-        None,
-        None,
-        Some(host.requested.clone()),
-    ));
-    ui.update(0.5);
+    let target = common::gpu::Target::new(&device, SIZE);
+    let room = common::practice::open(&mut ui, &env, &host);
     let chart = 4;
-    let song = ddi_desktop::play::load::read_chart("beatucada").unwrap();
-    let entry = SongEntry {
-        id: "beatucada".into(),
-        title: "Beatucada".into(),
-        charts: vec![ChartEntry {
-            style: "dance-single".into(),
-            difficulty: Difficulty::Medium,
-            index: chart,
-            digest: Some(song.chart_digest(chart)),
-            ..ChartEntry::default()
-        }],
-        ..SongEntry::default()
-    };
+    let entry = common::practice::song_entry("beatucada", "Beatucada", chart, Difficulty::Medium);
     {
         let mut r = room.borrow_mut();
         let rules = ddi_room::MatchRules {
@@ -145,32 +90,12 @@ fn stage_with(key_of: &str, folder: Option<PathBuf>) -> Option<Heard> {
         waited += 1;
         assert!(waited < 1000, "the song was never read");
     }
-    ui.update(0.5);
-    key(&mut ui, "Enter", "Enter");
-    ui.update(0.05);
-    {
-        let mut r = room.borrow_mut();
-        let later = r.now_ms() + 3_000;
-        r.tick(later);
-    }
-    ui.update(0.05);
-    host.poll(&mut ui, &env, Some(dev()), 48_000);
+    common::rig::ready_and_start(&mut host, &mut ui, &env, &room, dev);
     assert!(host.playing(), "{:?}", ui.layers());
     let mut frames = 0;
     while host.playing() {
         let now = clock.fetch_add(1_000_000_000 / 10, Ordering::SeqCst) + 1_000_000_000 / 10;
-        let mut encoder = device.create_command_encoder(&Default::default());
-        host.draw_play(
-            &dev(),
-            &mut encoder,
-            &srgb,
-            Some(&plain),
-            SIZE,
-            HostTime(now as f64 / 1e9),
-            &mut ui,
-            &env,
-        );
-        queue.submit(Some(encoder.finish()));
+        common::rig::draw(&mut host, &dev(), &target, &mut ui, &env, now);
         if frames % 16 == 0 {
             let _ = device.poll(wgpu::PollType::wait_indefinitely());
         }

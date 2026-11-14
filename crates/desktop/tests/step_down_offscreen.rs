@@ -10,7 +10,7 @@
 //! the boundary, a CPU two rungs up, the standings' ↑). The CPUs' seeds
 //! are fixed (a practice room's come from the time it was made: two runs
 //! of the same test were two different sets of CPUs). Skipped where there
-//! is no GPU adapter (CI). `DDI_ROOM_SHOTS=<dir>` keeps pictures (PPM).
+//! is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>` keeps pictures (PPM).
 
 mod common;
 use std::rc::Rc;
@@ -22,37 +22,14 @@ use ddi_desktop::play::host::{Device, Host};
 use ddi_desktop::play::view::Formats;
 use ddi_platform::HostTime;
 use ddi_platform::history::MemoryPlayStore;
-use ddi_ui::event::{KeyEvent, UiEvent};
-use ddi_ui::screens::data::{ChartEntry, Difficulty, SongEntry};
+use ddi_ui::screens::data::Difficulty;
 use ddi_ui::state::history::Plays;
+use common::ui::top;
 
 const SIZE: [u32; 2] = [1280, 720];
 
-fn top(ui: &ddi_ui::Ui) -> String {
-    ui.layers()
-        .last()
-        .map(|l| l.name.clone())
-        .unwrap_or_default()
-}
-
-fn key(ui: &mut ddi_ui::Ui, code: &str, k: &str) {
-    ui.handle(UiEvent::Key(KeyEvent::down(code, k)));
-    ui.handle(UiEvent::Key(KeyEvent::up(code, k)));
-}
-
 fn ppm(name: &str, pixels: &[u8]) {
-    let Some(dir) = std::env::var_os("DDI_ROOM_SHOTS") else {
-        return;
-    };
-    let mut out = format!("P6\n{} {}\n255\n", SIZE[0], SIZE[1]).into_bytes();
-    out.extend(
-        pixels
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .flat_map(|p| [p[0], p[1], p[2]]),
-    );
-    std::fs::write(std::path::Path::new(&dir).join(format!("{name}.ppm")), out).unwrap();
+    common::shot(&format!("{name}.ppm"), pixels, SIZE);
 }
 
 /// A practice stage's offscreen window: its GPU, its UI and its host on
@@ -67,9 +44,7 @@ struct Rig {
     store: Rc<MemoryPlayStore>,
     clock: Arc<AtomicU64>,
     formats: Formats,
-    texture: wgpu::Texture,
-    srgb: wgpu::TextureView,
-    plain: wgpu::TextureView,
+    target: common::gpu::Target,
 }
 
 /// The stage on Beatucada's chart `chart` (as `difficulty`) against
@@ -95,11 +70,7 @@ fn rig_with(
 ) -> Option<Rig> {
     let cpus = roster.map_or(cpus, |r| r.len() as u16);
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
-        return None;
-    };
+    let adapter = common::gpu::adapter_or_skip()?;
     let (device, queue) = gpu::device(&adapter).unwrap();
     // The dancing hand beside the stage (a player's choice for
     // multiplayer, Off by default): what follows checks it plays on.
@@ -110,18 +81,10 @@ fn rig_with(
     .save();
     let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
     let ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
-    let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("start", fold);
-    env.reduced_motion.set(true);
-    ui.handle(UiEvent::Resize {
-        size: [SIZE[0] as f32, SIZE[1] as f32],
-        ratio: 1.0,
-    });
+    let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let store = Rc::new(MemoryPlayStore::default());
     let mut host = Host::new(Rc::default(), Some(Plays::new(store.clone())));
-    let clock = Arc::new(AtomicU64::new(1_000_000_000));
-    let c = clock.clone();
-    host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
+    let clock = common::rig::fake_clock(&mut host);
     // The hand's work budget on a clock of its own (half a microsecond a
     // reading, as the shell's hand tests): the play's frames run faster
     // than real time, and a loaded machine must not starve its planner.
@@ -131,49 +94,12 @@ fn rig_with(
         ticks.set(t + 0.000_000_5);
         t
     }));
-    let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: SIZE[0],
-            height: SIZE[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-    });
-    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-        ..Default::default()
-    });
-    let plain = texture.create_view(&Default::default());
+    let formats = common::gpu::formats();
+    let target = common::gpu::Target::new(&device, SIZE);
     ddi_desktop::room::discard();
-    let room = ddi_desktop::room::current();
-    room.borrow_mut().set_rules_seen(true);
-    ui.push(ddi_desktop::room::room_screen_with(
-        &env,
-        None,
-        None,
-        Some(host.requested.clone()),
-    ));
-    ui.update(0.5);
+    let room = common::practice::open(&mut ui, &env, &host);
     let song = ddi_desktop::play::load::read_chart(id).unwrap();
-    let entry = SongEntry {
-        id: id.into(),
-        title: song.title.clone(),
-        charts: vec![ChartEntry {
-            style: "dance-single".into(),
-            difficulty,
-            index: chart,
-            digest: Some(song.chart_digest(chart)),
-            ..ChartEntry::default()
-        }],
-        ..SongEntry::default()
-    };
+    let entry = common::practice::song_entry(id, &song.title, chart, difficulty);
     {
         let mut r = room.borrow_mut();
         let mut rules = ddi_room::MatchRules {
@@ -224,9 +150,7 @@ fn rig_with(
         store,
         clock,
         formats,
-        texture,
-        srgb,
-        plain,
+        target,
     };
     let mut waited = 0;
     while !rig.host.prompt_ready() {
@@ -236,16 +160,12 @@ fn rig_with(
         waited += 1;
         assert!(waited < 1000, "the song was never read");
     }
-    rig.ui.update(0.5);
-    key(&mut rig.ui, "Enter", "Enter");
-    rig.ui.update(0.05);
-    {
-        let mut r = room.borrow_mut();
-        let later = r.now_ms() + 3_000;
-        r.tick(later);
-    }
-    rig.ui.update(0.05);
-    rig.poll();
+    let (device, queue, formats) = (&rig.device, &rig.queue, rig.formats);
+    common::rig::ready_and_start(&mut rig.host, &mut rig.ui, &rig.env, &room, || Device {
+        device,
+        queue,
+        formats,
+    });
     assert!(rig.host.playing(), "{:?}", rig.ui.layers());
     Some(rig)
 }
@@ -263,29 +183,17 @@ impl Rig {
     /// One frame at eight a second on the fake clock: its host second.
     fn frame(&mut self) -> f64 {
         let now = self.clock.fetch_add(1_000_000_000 / 8, Ordering::SeqCst) + 1_000_000_000 / 8;
-        let mut encoder = self.device.create_command_encoder(&Default::default());
         let dev = Device {
             device: &self.device,
             queue: &self.queue,
             formats: self.formats,
         };
-        self.host.draw_play(
-            &dev,
-            &mut encoder,
-            &self.srgb,
-            Some(&self.plain),
-            SIZE,
-            HostTime(now as f64 / 1e9),
-            &mut self.ui,
-            &self.env,
-        );
-        self.queue.submit(Some(encoder.finish()));
+        common::rig::draw(&mut self.host, &dev, &self.target, &mut self.ui, &self.env, now);
         now as f64 / 1e9
     }
 
     fn read(&self) -> Vec<u8> {
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        gpu::read_rgba(&self.device, &self.queue, &self.texture)
+        self.target.read(&self.device, &self.queue)
     }
 }
 

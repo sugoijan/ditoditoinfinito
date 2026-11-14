@@ -9,43 +9,24 @@
 //! `cargo test -p ddi-desktop --test opponent_fields_offscreen -- --ignored
 //! --nocapture` (under the watchdog, a scratch `DDI_HOME`) plays the
 //! look's scenarios instead, keeping their pictures in
-//! `DDI_FIELDS_SHOTS=<dir>` (PPM), and measures a frame's cost with the
+//! `DDI_OFFSCREEN_PPM=<dir>` (PPM), and measures a frame's cost with the
 //! CPUs in miniature, up to 128 CPUs in the development-only practice
 //! beyond the cap (`room::develop`).
 
 mod common;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use ddi_desktop::gpu;
 use ddi_desktop::play::host::{Device, Host};
-use ddi_desktop::play::view::Formats;
 use ddi_platform::HostTime;
 use ddi_room::CpuMode;
-use ddi_ui::event::{KeyEvent, UiEvent};
-use ddi_ui::screens::data::{ChartEntry, Difficulty, SongEntry};
+use ddi_ui::screens::data::Difficulty;
 use ddi_ui::state::settings::Settings;
 
-fn key(ui: &mut ddi_ui::Ui, code: &str, k: &str) {
-    ui.handle(UiEvent::Key(KeyEvent::down(code, k)));
-    ui.handle(UiEvent::Key(KeyEvent::up(code, k)));
-}
-
 fn ppm(size: [u32; 2], name: &str, pixels: &[u8]) {
-    let Some(dir) = std::env::var_os("DDI_FIELDS_SHOTS") else {
-        return;
-    };
-    let mut out = format!("P6\n{} {}\n255\n", size[0], size[1]).into_bytes();
-    out.extend(
-        pixels
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .flat_map(|p| [p[0], p[1], p[2]]),
-    );
-    std::fs::write(std::path::Path::new(&dir).join(format!("{name}.ppm")), out).unwrap();
+    common::shot(&format!("{name}.ppm"), pixels, size);
 }
 
 /// One play of a stage.
@@ -123,11 +104,7 @@ struct Played {
 
 fn play(s: &Scenario) -> Option<Played> {
     common::indexes();
-    let instance = gpu::instance();
-    let Some(adapter) = gpu::adapter(&instance, None) else {
-        eprintln!("no GPU adapter: skipped");
-        return None;
-    };
+    let adapter = common::gpu::adapter_or_skip()?;
     let size = s.size;
     let (device, queue) = gpu::device(&adapter).unwrap();
     let mut settings = Settings {
@@ -145,68 +122,24 @@ fn play(s: &Scenario) -> Option<Played> {
         settings.stepmania.lives = lives;
     }
     settings.save();
-    let fold: ddi_ui::dev_widgets::FoldFn = Rc::new(|s: &str| s.to_lowercase());
-    let (mut ui, env, _) = ddi_desktop::shell::theme_ui("start", fold);
-    env.reduced_motion.set(true);
-    ui.handle(UiEvent::Resize {
-        size: [size[0] as f32, size[1] as f32],
-        ratio: 1.0,
-    });
+    let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), size, true);
     let mut host = Host::new(Rc::default(), None);
-    let clock = Arc::new(AtomicU64::new(1_000_000_000));
-    let c = clock.clone();
-    host.test_clock = Some(Arc::new(move || c.load(Ordering::SeqCst)));
-    let formats = Formats::of(wgpu::TextureFormat::Rgba8Unorm, true);
+    let clock = common::rig::fake_clock(&mut host);
+    let formats = common::gpu::formats();
     let dev = || Device {
         device: &device,
         queue: &queue,
         formats,
     };
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: size[0],
-            height: size[1],
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
-    });
-    let srgb = texture.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
-        ..Default::default()
-    });
-    let plain = texture.create_view(&Default::default());
+    let target = common::gpu::Target::new(&device, size);
 
     // A fresh practice room each play: beyond the cap (73 since
     // 2026-11-13, 72 CPUs beside the player), the development-only one.
     ddi_desktop::room::develop(if s.cpus > 72 { s.cpus } else { 0 });
-    let room = ddi_desktop::room::current();
-    room.borrow_mut().set_rules_seen(true);
-    ui.push(ddi_desktop::room::room_screen_with(
-        &env,
-        None,
-        None,
-        Some(host.requested.clone()),
-    ));
-    ui.update(0.5);
+    let room = common::practice::open(&mut ui, &env, &host);
     let song = ddi_desktop::play::load::read_chart("beatucada").unwrap();
-    let entry = SongEntry {
-        id: "beatucada".into(),
-        title: "Beatucada".into(),
-        charts: vec![ChartEntry {
-            style: "dance-single".into(),
-            difficulty: Difficulty::Challenge,
-            index: s.chart,
-            digest: Some(song.chart_digest(s.chart)),
-            ..ChartEntry::default()
-        }],
-        ..SongEntry::default()
-    };
+    let entry =
+        common::practice::song_entry("beatucada", "Beatucada", s.chart, Difficulty::Challenge);
     {
         let mut r = room.borrow_mut();
         let mut rules = ddi_room::MatchRules {
@@ -248,17 +181,8 @@ fn play(s: &Scenario) -> Option<Played> {
         s.cpus,
         preparing.elapsed().as_secs_f64()
     );
-    ui.update(0.5);
     // Ready; the room counts down and starts the stage.
-    key(&mut ui, "Enter", "Enter");
-    ui.update(0.05);
-    {
-        let mut r = room.borrow_mut();
-        let later = r.now_ms() + 3_000;
-        r.tick(later);
-    }
-    ui.update(0.05);
-    host.poll(&mut ui, &env, Some(dev()), 48_000);
+    common::rig::ready_and_start(&mut host, &mut ui, &env, &room, dev);
     assert!(host.playing());
 
     let mut played = Played {
@@ -307,8 +231,8 @@ fn play(s: &Scenario) -> Option<Played> {
         host.draw_play(
             &dev(),
             &mut encoder,
-            &srgb,
-            Some(&plain),
+            &target.srgb,
+            Some(&target.plain),
             size,
             HostTime(now as f64 / 1e9),
             &mut ui,
@@ -370,21 +294,10 @@ fn play(s: &Scenario) -> Option<Played> {
             let mut drawn = Vec::new();
             for batching in [false, true, false] {
                 host.set_batching(batching);
-                let mut encoder = device.create_command_encoder(&Default::default());
-                host.draw_play(
-                    &dev(),
-                    &mut encoder,
-                    &srgb,
-                    Some(&plain),
-                    size,
-                    HostTime(now as f64 / 1e9),
-                    &mut ui,
-                    &env,
-                );
-                queue.submit(Some(encoder.finish()));
+                common::rig::draw(&mut host, &dev(), &target, &mut ui, &env, now);
                 let _ = device.poll(wgpu::PollType::wait_indefinitely());
                 let runs = host.frame_stats().map_or(0, |f| f.quad_batches);
-                drawn.push((gpu::read_rgba(&device, &queue, &texture), runs));
+                drawn.push((gpu::read_rgba(&device, &queue, &target.texture), runs));
             }
             host.set_batching(true);
             assert!(drawn[0].0 == drawn[2].0, "{}: the frame drawn twice alike", s.name);
