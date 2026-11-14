@@ -2360,7 +2360,9 @@ pub fn play_bindings(
 }
 
 mod cover;
+pub mod purpose;
 pub mod staging;
+pub use purpose::Purpose;
 pub mod watch;
 pub use staging::{How, Staging, Touch};
 pub use watch::{
