@@ -391,7 +391,11 @@ pub struct PlayView<H: PlayHost> {
     /// The miniatures' places as last arranged, and what they were
     /// arranged for (the slots never move: arranged again only when the
     /// field, the screen or what they keep clear of changes).
-    fields_for: Option<(FieldsKey, Option<crate::opponents::Fields>)>,
+    /// (What they keep clear of beside the key.) The lines of who attacks
+    /// whom between them, routed once while they stay
+    /// (`crate::attack_links::Routes`).
+    fields_for: Option<(FieldsKey, Vec<[f32; 4]>, Option<crate::opponents::Fields>)>,
+    routes: crate::attack_links::Routes,
     /// A large field's slots: the opponents that matter to the player
     /// now (`crate::rivals`), kept from frame to frame; and its ladder.
     rivals: crate::rivals::Rivals,
@@ -459,6 +463,7 @@ impl<H: PlayHost> PlayView<H> {
             overlay: None,
             shown_words: None,
             fields_for: None,
+            routes: Default::default(),
             rivals: crate::rivals::Rivals::default(),
             ladder: None,
             ladder_page: None,
@@ -1192,7 +1197,7 @@ impl<H: PlayHost> PlayView<H> {
         // What a line of who attacks whom keeps clear of besides the band
         // and the miniatures (`crate::attack_links`): the HUD and the
         // quit button's place (the warning's is where one ends).
-        let line_keep = keep_out.clone();
+        let line_keep = keep_out.len();
         // The attack warning's place, shown or not (the slots never move).
         let attacks = session.battle().is_some_and(|b| b.attacks().is_some());
         if attacks && !grid {
@@ -1205,15 +1210,18 @@ impl<H: PlayHost> PlayView<H> {
         // as large as fits the band past the receptors, with no fade
         // and no cut; its Off still turns it off. Elsewhere where the
         // settings put it.
-        let behind = session
-            .battle()
-            .map(|_| behind_field(&geo, span, render.reverse, screen.ratio));
+        let behind = battle.map(|_| behind_field(&geo, span, render.reverse, screen.ratio));
         self.dance.set_behind_field(behind);
         // The opponents as the play shows them, worked out once a frame
         // (the miniatures, the large field's standings, the status line
         // and the overlay read them).
         let views_now: Vec<ddi_session::battle::OpponentView> =
             battle.map(|b| b.views()).unwrap_or_default();
+        // The player's own as the last seat, where they follow someone
+        // else's.
+        let own_view = battle
+            .zip(own_seat)
+            .map(|(b, _)| b.own_view(&session.player, ddi_l10n::msg::room::you().into()));
         let fields = battle.and_then(|b| {
             // Everyone but the competitor followed, whose field is the
             // large one.
@@ -1225,11 +1233,14 @@ impl<H: PlayHost> PlayView<H> {
                 span,
                 reverse: render.reverse,
                 ratio: screen.ratio,
-                keep_out: keep_out.clone(),
                 grid,
                 most: render.opponents_up_to_eight,
             };
-            if self.fields_for.as_ref().is_none_or(|(k, _)| *k != key) {
+            if self
+                .fields_for
+                .as_ref()
+                .is_none_or(|(k, kept, _)| *k != key || *kept != keep_out)
+            {
                 let most = if render.opponents_up_to_eight {
                     crate::opponents::ROOM_OPPONENTS
                 } else {
@@ -1254,9 +1265,10 @@ impl<H: PlayHost> PlayView<H> {
                         &keep_out,
                     )
                 };
-                self.fields_for = Some((key, arranged));
+                self.fields_for = Some((key, keep_out.clone(), arranged));
+                self.routes.clear();
             }
-            let mut f = self.fields_for.as_ref()?.1.clone()?;
+            let mut f = self.fields_for.as_ref()?.2.clone()?;
             let pinned = crate::opponents::priority_seats(
                 b,
                 &session.player,
@@ -1373,12 +1385,9 @@ impl<H: PlayHost> PlayView<H> {
             let scroll = session.player.options().scroll;
             let hits = layer.as_ref().is_some_and(|l| l.miniature_hits()) || layer.is_none();
             let mut feeds: Vec<_> = b.feeds().collect();
-            // The player's own as the last seat, where they follow
-            // someone else's.
-            let own_view = own_seat.map(|_| {
+            if own_seat.is_some() {
                 feeds.push(b.own_feed());
-                b.own_view(&session.player, ddi_l10n::msg::room::you().into())
-            });
+            }
             let view_of = |seat: usize| views_now.get(seat).or(own_view.as_ref().filter(|_| seat == views_now.len()));
             let t = frame.song_time;
             // Each slot's field, then the large one's (its notes as far
@@ -1499,7 +1508,11 @@ impl<H: PlayHost> PlayView<H> {
         // Someone watching: the stage's moments, nobody's "you" (who
         // went out, who attacks whom, who won), before a battle's moment
         // no line said.
-        let names: Vec<String> = views_now.iter().map(|v| v.name.clone()).collect();
+        let names: Vec<&str> = if watch.is_some() {
+            views_now.iter().map(|v| v.name.as_str()).collect()
+        } else {
+            Vec::new()
+        };
         let cue = watch
             .and_then(|w| w.cue)
             .and_then(|(m, age)| {
@@ -1521,7 +1534,7 @@ impl<H: PlayHost> PlayView<H> {
             .and_then(|w| match w.focus {
                 Some(seat) => names
                     .get(seat)
-                    .map(|n| ddi_l10n::msg::room::watch_following(n.as_str()).into()),
+                    .map(|&n| ddi_l10n::msg::room::watch_following(n).into()),
                 None if w.age < ddi_session::play::WATCH_HINT_SECONDS && !w.over => {
                     let seats = session.battle().map_or(0, |b| b.feeds().count());
                     Some(if seats > ddi_session::play::GRID_PAGE {
@@ -1549,7 +1562,7 @@ impl<H: PlayHost> PlayView<H> {
             let [mid, band] = ddi_render::scene::filter_band(&geo, span);
             [mid - band / 2.0, 0.0, mid + band / 2.0, geo.height]
         };
-        let mut links = match (session.battle(), &fields) {
+        let links = match (session.battle(), &fields) {
             (Some(b), Some(f)) if watch.is_some() => {
                 let seen = b.seen_links();
                 match focus {
@@ -1560,15 +1573,16 @@ impl<H: PlayHost> PlayView<H> {
                             span,
                             fields: f,
                             ratio: screen.ratio,
-                            keep_out: &line_keep,
+                            keep_out: &keep_out[..line_keep],
                         },
+                        &mut self.routes,
                         frame.song_time,
                         render.reduced_motion,
                         crate::attack_links::ATTACK_LINKS_V0,
                     ),
                     None => {
                         // Around a player's own field, where there is one.
-                        let mut keep = line_keep.clone();
+                        let mut keep = keep_out[..line_keep].to_vec();
                         if !grid {
                             keep.push(band_box);
                         }
@@ -1581,6 +1595,7 @@ impl<H: PlayHost> PlayView<H> {
                                 ratio: screen.ratio,
                                 keep_out: &keep,
                             },
+                            &mut self.routes,
                             frame.song_time,
                             render.reduced_motion,
                             crate::attack_links::ATTACK_LINKS_V0,
@@ -1595,15 +1610,15 @@ impl<H: PlayHost> PlayView<H> {
                     span,
                     fields: f,
                     ratio: screen.ratio,
-                    keep_out: &line_keep,
+                    keep_out: &keep_out[..line_keep],
                 },
+                &mut self.routes,
                 frame.song_time,
                 render.reduced_motion,
                 crate::attack_links::ATTACK_LINKS_V0,
             ),
             _ => Vec::new(),
         };
-        self.links_drawn.clone_from(&links);
         // A stage's opponents beside the field: what their miniatures
         // show around them.
         // A stage watched after the player is out of it: the mark over
@@ -1650,13 +1665,42 @@ impl<H: PlayHost> PlayView<H> {
                     veil: crate::opponents::ENDED_VEIL,
                 })
             });
+        // What a tap follows, and where one skips.
+        let css = |r: [f32; 4]| r.map(|v| v / screen.ratio);
+        let mut watch_at: Vec<(Option<usize>, [f32; 4])> = Vec::new();
+        if watch.is_some()
+            && let Some(f) = &fields
+        {
+            // (An empty slot, a paged grid's last page's, follows nobody.)
+            watch_at.extend(f.slots.iter().filter(|s| s.seat != usize::MAX).map(|s| {
+                let [x, y, w, h] = s.rect;
+                (
+                    // (The player's own miniature: back to their field.)
+                    Some(s.seat).filter(|&seat| Some(seat) != own_seat),
+                    css([x.min(s.panel[0]), y, (x + w).max(s.panel[2]), y + h]),
+                )
+            }));
+            // The large field: back to every field.
+            watch_at.extend(large.iter().map(|s| (None, css(s.panel))));
+            // A paged grid's ladder: the next page.
+            if self.ladder_page.is_some()
+                && let Some(l) = f.ladder
+            {
+                let [x, y, w, h] = l;
+                watch_at.push((
+                    Some(ddi_session::play::TOUCH_PAGE_SEAT),
+                    css([x, y, x + w, y + h]),
+                ));
+            }
+        }
+        let lane = fields.as_ref().map_or(0.0, |f| f.lane);
         // The slots as drawn: the miniatures', then the large field's.
-        let all_fields = fields.clone().map(|mut f| {
-            f.slots.extend(large);
-            f
+        let mut fields = fields;
+        let large_at = fields.as_mut().zip(large).map(|(f, l)| {
+            f.slots.push(l);
+            f.slots.len() - 1
         });
-        let large_at = large.and(all_fields.as_ref().map(|f| f.slots.len() - 1));
-        let shown = session.battle().zip(all_fields).map(|(b, fields)| {
+        let shown = session.battle().zip(fields).map(|(b, fields)| {
             let words = self.shown_words.get_or_insert_with(|| {
                 use ddi_l10n::msg::room as m;
                 [
@@ -1665,10 +1709,10 @@ impl<H: PlayHost> PlayView<H> {
                     m::play_last_standing().into(),
                 ]
             });
-            let mut opponents = views_now.clone();
+            let mut opponents = views_now;
             let mut all: Vec<_> = b.feeds().collect();
-            if own_seat.is_some() {
-                opponents.push(b.own_view(&session.player, ddi_l10n::msg::room::you().into()));
+            if let Some(own) = own_view {
+                opponents.push(own);
                 all.push(b.own_feed());
             }
             // Life and out as their streams show them.
@@ -1699,7 +1743,7 @@ impl<H: PlayHost> PlayView<H> {
                         };
                         (seat, word)
                     }),
-                    ladder: self.ladder.clone().map(|l| {
+                    ladder: self.ladder.take().map(|l| {
                         use ddi_l10n::msg::room as m;
                         let words: String = match (l.place, self.ladder_page) {
                             (_, Some((page, pages))) => {
@@ -1733,6 +1777,7 @@ impl<H: PlayHost> PlayView<H> {
                 screen.ratio,
             )
         });
+        self.links_drawn = links;
         if lyrics.is_none() {
             self.lyrics_shown.clear();
         }
@@ -1769,7 +1814,6 @@ impl<H: PlayHost> PlayView<H> {
                 waiting,
                 policy: b.policy(&session.player),
                 policy_key,
-                links: std::mem::take(&mut links),
                 warnings: std::mem::take(&mut warnings),
                 own_out: own_out.clone(),
                 geo,
@@ -1777,34 +1821,6 @@ impl<H: PlayHost> PlayView<H> {
                 ratio: screen.ratio,
             }
         });
-        // What a tap follows, and where one skips.
-        let css = |r: [f32; 4]| r.map(|v| v / screen.ratio);
-        let mut watch_at: Vec<(Option<usize>, [f32; 4])> = Vec::new();
-        if watch.is_some()
-            && let Some(f) = &fields
-        {
-            // (An empty slot, a paged grid's last page's, follows nobody.)
-            watch_at.extend(f.slots.iter().filter(|s| s.seat != usize::MAX).map(|s| {
-                let [x, y, w, h] = s.rect;
-                (
-                    // (The player's own miniature: back to their field.)
-                    Some(s.seat).filter(|&seat| Some(seat) != own_seat),
-                    css([x.min(s.panel[0]), y, (x + w).max(s.panel[2]), y + h]),
-                )
-            }));
-            // The large field: back to every field.
-            watch_at.extend(large.iter().map(|s| (None, css(s.panel))));
-            // A paged grid's ladder: the next page.
-            if self.ladder_page.is_some()
-                && let Some(l) = f.ladder
-            {
-                let [x, y, w, h] = l;
-                watch_at.push((
-                    Some(ddi_session::play::TOUCH_PAGE_SEAT),
-                    css([x, y, x + w, y + h]),
-                ));
-            }
-        }
         let skip_at = own_out
             .as_ref()
             .and_then(|o| o.skip.as_ref().map(|_| css(o.skip_area(screen.ratio))));
@@ -1816,7 +1832,7 @@ impl<H: PlayHost> PlayView<H> {
                 (ddi_session::play::Watching::Left, _) => "left",
             },
             focus,
-            lane: fields.as_ref().map_or(0.0, |f| f.lane),
+            lane,
             fields: shown
                 .as_ref()
                 .map_or_else(Vec::new, |(_, f, ..)| {
@@ -1907,8 +1923,6 @@ impl<H: PlayHost> PlayView<H> {
             self.standing_drawn = None;
             if let Some((shown, fields, flashes, locks, ratio)) = shown {
                 self.fields_score = shown.score;
-                self.standing_drawn = shown.won.clone();
-                self.ladder_drawn = shown.ladder.clone().filter(|_| fields.ladder.is_some());
                 self.fields_cue = crate::opponents::draw_fields(
                     list,
                     &shown,
@@ -1918,6 +1932,8 @@ impl<H: PlayHost> PlayView<H> {
                     ratio,
                     &mut measure,
                 );
+                self.standing_drawn = shown.won;
+                self.ladder_drawn = shown.ladder.filter(|_| fields.ladder.is_some());
                 self.fields_drawn = Some(fields);
             }
             // A player out of the stage: their own field dimmed, saying
@@ -1928,7 +1944,7 @@ impl<H: PlayHost> PlayView<H> {
             }
             // Who attacks whom, over the miniatures.
             if let (Some(a), Some(fields)) = (&attack, &self.fields_drawn) {
-                crate::attack_links::draw(list, &a.links, fields, a.ratio);
+                crate::attack_links::draw(list, &self.links_drawn, fields, a.ratio);
             }
             if let Some(a) = &attack {
                 // A grid's warnings, each beside its recipient's field.
@@ -2036,14 +2052,13 @@ fn large_standings(
 }
 
 /// What a stage's miniatures were arranged for (`crate::opponents::arrange`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct FieldsKey {
     n: usize,
     geo: ddi_render::FieldGeometry,
     span: f32,
     reverse: bool,
     ratio: f32,
-    keep_out: Vec<[f32; 4]>,
     /// Over the whole screen (a watched stage's grid), not beside a
     /// field.
     grid: bool,
@@ -2059,8 +2074,6 @@ struct Attack {
     policy: Option<ddi_session::battle::Targeting>,
     /// What changes it, beside it (a key's or a pad control's name).
     policy_key: Option<String>,
-    /// Who attacks whom, for the player's own attacks.
-    links: Vec<crate::attack_links::Shown>,
     /// A watched grid's warnings: the recipient's seat, its field, the
     /// warning.
     warnings: Vec<(usize, ddi_render::FieldGeometry, crate::battle_cue::Cue)>,
@@ -2099,10 +2112,10 @@ pub fn behind_field(
 
 /// A watched stage's moment as the status line words it, `names` the
 /// competitors' by seat (`None`: a seat nobody has).
-fn watch_words(m: ddi_session::battle::WatchMoment, names: &[String]) -> Option<String> {
+fn watch_words(m: ddi_session::battle::WatchMoment, names: &[&str]) -> Option<String> {
     use ddi_l10n::msg::room as r;
     use ddi_session::battle::WatchMoment;
-    let name = |seat: usize| names.get(seat).map(String::as_str);
+    let name = |seat: usize| names.get(seat).copied();
     Some(
         match m {
             WatchMoment::Out { seat } => r::watch_cue_out(name(seat)?),

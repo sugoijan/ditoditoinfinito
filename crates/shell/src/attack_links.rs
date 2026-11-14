@@ -59,6 +59,34 @@ pub const ATTACK_LINKS_V0: Look = Look {
     quiet: 0.45,
 };
 
+/// The lines already routed for the slots as they are placed now: a
+/// line's way depends only on its ends' slots' places (and what it keeps
+/// clear of, which goes with them), never on the time or on whose seat a
+/// slot shows, so it is routed once and kept while the line shows. The
+/// caller keeps one and clears it whenever the slots are placed again.
+#[derive(Clone, Debug, Default)]
+pub struct Routes(std::collections::HashMap<Way, Vec<[f32; 2]>>);
+
+/// A line's ends: between the player and the miniature in a slot
+/// ([`Layout::path`]), or between two fields of a grid
+/// ([`GridLayout::path`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Way {
+    Own { slot: usize, outgoing: bool },
+    Between { from: usize, to: usize },
+}
+
+impl Routes {
+    /// Forgets every way: the slots were placed again.
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    fn get(&mut self, way: Way, route: impl FnOnce() -> Vec<[f32; 2]>) -> Vec<[f32; 2]> {
+        self.0.entry(way).or_insert_with(route).clone()
+    }
+}
+
 /// Where a link is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -381,15 +409,27 @@ impl Layout<'_> {
 /// The local player's `links` as the frame at judged song second `t`
 /// shows them over `layout`, under `look`; those whose opponent's
 /// miniature is not in view (taking turns beyond the cap, before
-/// [`crate::opponents::priority_seats`] brought it in) are left out.
-pub fn shown(links: &[Link], layout: &Layout, t: f64, reduced: bool, look: Look) -> Vec<Shown> {
+/// [`crate::opponents::priority_seats`] brought it in) are left out. The
+/// lines' ways are kept in `routes` for the slots as they are placed.
+pub fn shown(
+    links: &[Link],
+    layout: &Layout,
+    routes: &mut Routes,
+    t: f64,
+    reduced: bool,
+    look: Look,
+) -> Vec<Shown> {
     links
         .iter()
         .filter_map(|l| {
             let slot = layout.fields.slots.iter().position(|s| s.seat == l.seat)?;
             let (phase, line, pulse, outline) = timing(l, t, reduced, look);
             let path = if line > 0.0 {
-                layout.path(&layout.fields.slots[slot], l.outgoing)
+                let way = Way::Own {
+                    slot,
+                    outgoing: l.outgoing,
+                };
+                routes.get(way, || layout.path(&layout.fields.slots[slot], l.outgoing))
             } else {
                 Vec::new()
             };
@@ -515,10 +555,12 @@ impl GridLayout<'_> {
 /// at judged song second `t` shows it over `layout`, under `look`: its
 /// line from the sender's field to the warning beside the recipient's,
 /// the recipient's field outlined while the attack is on its way and
-/// passing. Those with an end not in view are left out.
+/// passing. Those with an end not in view are left out. The lines' ways
+/// are kept in `routes` for the fields as they are placed.
 pub fn shown_between(
     links: &[ddi_session::battle::SeenLink],
     layout: &GridLayout,
+    routes: &mut Routes,
     t: f64,
     reduced: bool,
     look: Look,
@@ -539,7 +581,9 @@ pub fn shown_between(
             };
             let (phase, line, pulse, outline) = timing(&own, t, reduced, look);
             let path = if line > 0.0 {
-                layout.path(&layout.fields.slots[from], &layout.fields.slots[to])
+                routes.get(Way::Between { from, to }, || {
+                    layout.path(&layout.fields.slots[from], &layout.fields.slots[to])
+                })
             } else {
                 Vec::new()
             };
@@ -880,7 +924,7 @@ mod tests {
             clear: 18.0,
             chained: false,
         }];
-        let at = |t: f64, reduced: bool| shown_between(&seen, &layout, t, reduced, ATTACK_LINKS_V0);
+        let at = |t: f64, reduced: bool| shown_between(&seen, &layout, &mut Routes::default(), t, reduced, ATTACK_LINKS_V0);
         let pulse = &at(10.3, false)[0];
         assert_eq!((pulse.from, pulse.seat, pulse.slot), (Some(3), 1, 1));
         assert_eq!(pulse.phase, Phase::Pulse);
@@ -906,7 +950,7 @@ mod tests {
             ddi_session::battle::SeenLink { from: 14, ..seen[0] },
             ddi_session::battle::SeenLink { to: 20, ..seen[0] },
         ];
-        assert!(shown_between(&off, &layout, 10.3, false, ATTACK_LINKS_V0).is_empty());
+        assert!(shown_between(&off, &layout, &mut Routes::default(), 10.3, false, ATTACK_LINKS_V0).is_empty());
     }
 
     /// At every size the miniatures' table uses, with and without
@@ -1064,6 +1108,29 @@ mod tests {
         assert!(lines > 400 && none * 20 < lines, "{lines} lines, {none} without a way");
     }
 
+    /// A line's way kept from frame to frame is the way routed afresh.
+    #[test]
+    fn a_kept_route_is_the_route() {
+        let g = FieldGeometry::placed(1280.0, 720.0, 4.0, false, Default::default());
+        let k = keep(&g, 1.0, true);
+        let f = crate::opponents::arrange(8, &g, 4.0, false, 1.0, &k).unwrap();
+        let layout = Layout {
+            geo: &g,
+            span: 4.0,
+            fields: &f,
+            ratio: 1.0,
+            keep_out: &k[..k.len() - 1],
+        };
+        let links: Vec<Link> = (0..8).map(|s| link(s, s % 2 == 0, false)).collect();
+        let mut routes = Routes::default();
+        for t in [10.0, 10.2, 10.9] {
+            let kept = shown(&links, &layout, &mut routes, t, false, ATTACK_LINKS_V0);
+            let fresh = shown(&links, &layout, &mut Routes::default(), t, false, ATTACK_LINKS_V0);
+            assert_eq!(kept, fresh);
+            assert!(kept.iter().all(|s| s.path == layout.path(&f.slots[s.slot], s.outgoing)));
+        }
+    }
+
     /// A link over time: the pulse runs for 0.6 s along a whole line,
     /// the line fades to nothing by 1.5 s, the outline stays until the
     /// attack has passed (the session drops the link then); a chained
@@ -1083,7 +1150,7 @@ mod tests {
         };
         let look = ATTACK_LINKS_V0;
         let at = |t: f64, reduced: bool, l: Link| {
-            shown(&[l], &layout, t, reduced, look).remove(0)
+            shown(&[l], &layout, &mut Routes::default(), t, reduced, look).remove(0)
         };
         let s = at(10.0, false, link(5, true, false));
         assert_eq!((s.phase, s.line, s.pulse), (Phase::Pulse, 1.0, Some(0.0)));
@@ -1110,7 +1177,7 @@ mod tests {
         let s = at(11.5, true, link(2, true, false));
         assert_eq!((s.phase, s.line, s.outline), (Phase::Outline, 0.0, 1.0));
         // A seat not in view has no link.
-        assert!(shown(&[link(9, true, false)], &layout, 10.0, false, look).is_empty());
+        assert!(shown(&[link(9, true, false)], &layout, &mut Routes::default(), 10.0, false, look).is_empty());
         // Drawn: an outline, the line's glow and stroke a leg, where it
         // lands, the pulse's two dots.
         let s = at(10.3, false, link(5, true, false));
