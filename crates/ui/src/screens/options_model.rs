@@ -30,7 +30,7 @@ use super::options::CALIBRATE;
 use crate::state::bind::Bound;
 use crate::state::settings::{
     BUNDLED, BackgroundFrame, CenterVersions, CursorStyle, FIELD_FILTERS, GeneratedBackground,
-    Graphics, INFINITO, PadBindings, Palette, ParamValue, ReducedMotion, START_COUNTDOWNS,
+    Graphics, INFINITO, OpponentFields, PadBindings, Palette, ParamValue, ReducedMotion, START_COUNTDOWNS,
     JudgmentWords, ScoreDisplay, Settings, VideoMode, slider_to_volume, volume_to_slider,
 };
 use ddi_l10n::UiText;
@@ -1087,6 +1087,13 @@ impl OptionsModel {
                     m::show_deltas_description(),
                 ),
                 choice(
+                    "opponent_fields",
+                    m::opponent_fields(),
+                    labels(&OPPONENT_FIELDS),
+                    pos(&OPPONENT_FIELDS, s.opponent_fields),
+                    m::opponent_fields_description(),
+                ),
+                choice(
                     "dancing_hand",
                     m::dancing_hand(),
                     on_off(),
@@ -1996,6 +2003,7 @@ impl OptionsModel {
             "ghost" => s.ghost = on,
             "dancing_hand" => s.dancing_hand = on,
             "dancing_hand_multiplayer" => s.dancing_hand_multiplayer = on,
+            "opponent_fields" => s.opponent_fields = at(&OPPONENT_FIELDS, i),
             "receptor_snap" => s.receptor_snap = on,
             "lyrics" => s.lyrics = on,
             "random_movies" => s.random_movies = on,
@@ -2974,6 +2982,10 @@ const CURSORS: [Labeled<CursorStyle>; 3] = [
     (CursorStyle::InfinitoArrow, m::cursor_infinito),
     (CursorStyle::PointerTip, m::cursor_pointer),
     (CursorStyle::System, m::cursor_system),
+];
+const OPPONENT_FIELDS: [Labeled<OpponentFields>; 2] = [
+    (OpponentFields::AsManyAsFit, m::opponent_fields_all),
+    (OpponentFields::UpToEight, m::opponent_fields_eight),
 ];
 const GRAPHICS: [Labeled<Graphics>; 2] = [
     (Graphics::Auto, m::graphics_auto),

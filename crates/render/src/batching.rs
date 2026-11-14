@@ -129,6 +129,8 @@ pub(crate) fn interleave(
         }
     }
     let r = |i: u32| rects[i as usize - from];
+    let keys: Vec<Key> = quads[from..to].iter().map(&key).collect();
+    let k_of = |i: u32| keys[i as usize - from];
     let boxes: Vec<Option<PageRect>> = parts
         .iter()
         .map(|p| (p.start..p.end).map(r).reduce(PageRect::union))
@@ -152,14 +154,15 @@ pub(crate) fn interleave(
         .iter()
         .zip(&at)
         .find(|(p, a)| **a < p.end)
-        .map(|(_, a)| key(&quads[*a as usize]))
+        .map(|(_, a)| k_of(*a))
     {
         for j in 0..parts.len() {
-            while at[j] < parts[j].end && key(&quads[at[j] as usize]) == k {
+            while at[j] < parts[j].end && k_of(at[j]) == k {
                 let x = r(at[j]);
-                let waits = near[j]
-                    .iter()
-                    .any(|&i| (at[i]..parts[i].end).any(|a| overlaps(r(a), x)));
+                let waits = near[j].iter().any(|&i| {
+                    boxes[i].is_some_and(|b| overlaps(b, x))
+                        && (at[i]..parts[i].end).any(|a| overlaps(r(a), x))
+                });
                 if waits {
                     break;
                 }

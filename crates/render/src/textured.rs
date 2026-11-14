@@ -1371,15 +1371,15 @@ impl TexturedPipeline {
         );
     }
 
-    /// [`TexturedPipeline::order_run`]'s first step for a run made of
-    /// miniatures' `parts` (`crate::batching::interleave`).
+    /// [`TexturedPipeline::order_run`] for a run made of miniatures'
+    /// `parts` (`crate::batching::interleave`): whether it did.
     pub(crate) fn interleave_run(
         &mut self,
         quads: &mut [TexQuad],
         parts: &[std::ops::Range<u32>],
         width: u32,
         height: u32,
-    ) {
+    ) -> bool {
         let atlas = &self.atlas;
         crate::batching::interleave(
             quads,
@@ -1395,7 +1395,7 @@ impl TexturedPipeline {
                 images: q.material.map_or([UNTEXTURED; 2], |m| m.images),
             },
             |q| crate::renderer::quad_rect(q, width, height),
-        );
+        )
     }
 
     /// What the last frame prepared drew.

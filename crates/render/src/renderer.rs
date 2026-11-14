@@ -825,7 +825,13 @@ impl Renderer {
                             .iter()
                             .map(|p| p.start - r.start..p.end - r.start)
                             .collect();
-                        self.textured.interleave_run(run, &rel, width, height);
+                        // (Interleaved, they are in about as few
+                        // batches as one miniature's; the general order's
+                        // look-back over a run this long costs more than
+                        // it merges.)
+                        if self.textured.interleave_run(run, &rel, width, height) {
+                            continue;
+                        }
                     }
                     self.textured.order_run(run, width, height);
                 }

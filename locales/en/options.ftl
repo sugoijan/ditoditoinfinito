@@ -467,6 +467,14 @@ options-dancing-hand-description = A hand dances along to charts in Single, Solo
 options-dancing-hand-multiplayer = Dancing hand in multiplayer
 options-dancing-hand-multiplayer-description = Whether the hand also dances in a multiplayer stage, behind your field. Off saves the work of preparing it while the others' fields keep you busy.
 
+# How many of the other players' small fields show beside your own in a
+# multiplayer stage: every one that fits at a readable size, or eight at
+# most (past eight, those that matter to you now in them).
+options-opponent-fields = Opponents' fields
+options-opponent-fields-all = As many as fit
+options-opponent-fields-eight = Up to eight
+options-opponent-fields-description = In a multiplayer stage, a small field for every opponent the screen has room for, or eight at most: those attacking you or attacked by you and your nearest rivals. Up to eight is lighter for the computer in a large room.
+
 # Where the field and the dancing hand's view go together.
 options-hand-layout = Field + hand layout
 options-hand-layout-follow = Follow field
