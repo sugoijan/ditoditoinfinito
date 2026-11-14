@@ -139,6 +139,9 @@ fn chained_attacks_then_last_standing_then_the_win() {
         rules.set_attacks(true);
         // Hard timing: CPUs go out.
         rules.difficulty = ddi_room::MatchDifficulty::Hard;
+        // The picked chart alone (Adaptive is a new room's default since
+        // 2026-11-14): the CPUs were chosen for this stage as picked.
+        rules.charts = ddi_room::Charts::AsPicked;
         rules.cpu.mode = ddi_room::CpuMode::Roster;
         rules.cpu.roster = ["Ember Ratchet", "Mossy Accordion", "Velvet Anvil"]
             .into_iter()
