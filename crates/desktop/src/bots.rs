@@ -34,20 +34,23 @@
 //! until stopped (`--matches N`, or Ctrl-C: each leaves the room).
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ddi_engine::cpu::{Opponent, Skills};
+use ddi_engine::cpu::{Opponent, PlannedRung, Skills};
 use ddi_room::{
-    Capability, ClientId, Connection, Intent, LinkState, Phase, PhaseKind, Run, StageId,
+    Capability, ClientId, Connection, Intent, LinkState, ParticipantId, Phase, PhaseKind, Run,
+    StageId,
 };
+use ddi_session::battle::{Rung, StageRules, StageSetup};
 use ddi_ui::screens::data::{ChartEntry, SongEntry};
 use ddi_ui::state::online::{Account, Online, OnlineConfig, Platform, SharedOnline};
 use ddi_ui::state::room::{
-    Inbox, LoadProblem, RoomClient, RoomView, SPOTLIGHT, SharedRoom, ShellNews, StageOrder,
-    eligible,
+    CpuSeat, LoadProblem, RoomClient, RoomView, SPOTLIGHT, SharedRoom, StageOrder, eligible,
 };
 
 /// Bots in one run at most: a room's whole field (the cap, 73; the
@@ -479,6 +482,9 @@ pub struct StagePlay {
     /// Its play: the chart itself, as people play it (`cpu-play-v1`), so
     /// its score is reported as it is.
     opponent: Opponent,
+    /// The stage's ladder, where its charts adapt: the chart it finished
+    /// on, for its detail.
+    rungs: Vec<Rung>,
     started_ms: u64,
     /// The stage played live (`ddi_session::battle::live`): its stream to
     /// the room and the room's attacks into its CPU's play.
@@ -497,12 +503,15 @@ impl StagePlay {
         seed: u64,
         now_ms: u64,
     ) -> Result<StagePlay, String> {
-        let mut opponent = cpu_for(song, chart, &order.rules, profile, seed)?;
+        // Its ladder where the stage's charts adapt, as everyone's CPUs.
+        let ladder = ddi_session::battle::stage_ladder(song, chart, &StageSetup::of(order));
+        let mut opponent = cpu_for(song, chart, &order.rules, &ladder, profile, seed)?;
         opponent.start(0.0);
         Ok(StagePlay {
             stage: order.stage,
             number: order.number,
             opponent,
+            rungs: ddi_session::battle::ladder_rungs(song, &ladder)?,
             started_ms: now_ms,
             live: None,
         })
@@ -576,29 +585,43 @@ impl StagePlay {
 
 impl StagePlay {
     /// How the bot performed so far (`ddi_room::RunDetail`), as judged by
-    /// its own play.
+    /// its own play: as a CPU's, the chart it finished on named where it
+    /// stepped.
     pub fn detail(&self) -> ddi_room::RunDetail {
-        let player = self.opponent.player();
-        let results = player.results_brief();
-        ddi_ui::state::room::run_detail(&results, player.ruleset(), self.opponent.life(), None)
+        ddi_session::battle::cpu_detail(&self.opponent, None, &self.rungs)
     }
 }
 
-/// `profile`'s CPU on chart `chart` of `song` under the match's rules
-/// `rules` (`ddi_session::battle::stage_ruleset`), or the engine's reason
-/// why it cannot play it.
+/// `profile`'s CPU on chart `chart` of `song` under the stage's rules
+/// `rules`, stepping on `ladder` (`ddi_session::battle::stage_ladder`)
+/// where zero life steps down: as a room's CPUs play
+/// (`ddi_session::battle::cpus::opponent`), or the engine's reason why it
+/// cannot play it.
 fn cpu_for(
     song: &ddi_chart::Song,
     chart: usize,
-    rules: &ddi_session::battle::StageRules,
+    rules: &StageRules,
+    ladder: &[PlannedRung],
     profile: &Profile,
     seed: u64,
 ) -> Result<Opponent, String> {
     song.charts.get(chart).ok_or("no such chart")?;
-    let rules = ddi_session::battle::stage_ruleset(rules);
-    let skills = Skills::parse(&profile.skills).unwrap_or_default();
-    let level = profile.level.min(ddi_engine::cpu::LEVELS - 1);
-    Opponent::with_skills(song, chart, rules, level, seed, skills)
+    let seat = CpuSeat {
+        participant: ParticipantId(0),
+        ordinal: 0,
+        level: u8::try_from(profile.level).unwrap_or(u8::MAX),
+        seed,
+        name: None,
+        skills: Some(profile.skills.clone()),
+        targeting: Default::default(),
+    };
+    let ruleset = ddi_session::battle::stage_ruleset(rules);
+    ddi_session::battle::cpus::opponent(&PlannedRung::new(song, chart)?, &ruleset, &seat, ladder)
+}
+
+/// Whether `profile`'s CPU can play chart `chart` of `song`, or why not.
+fn cpu_plays(song: &ddi_chart::Song, chart: usize, profile: &Profile) -> Result<(), String> {
+    cpu_for(song, chart, &Default::default(), &[], profile, 1).map(|_| ())
 }
 
 /// A run in a line of the log.
@@ -703,6 +726,10 @@ struct Bot {
     asked: bool,
     room: Option<SharedRoom>,
     news: Option<crate::room::NewsTx>,
+    /// Its stages' songs checked for its CPU as they are read
+    /// ([`song_check`]), and kept for their start.
+    check: crate::room::SongCheck,
+    read: ReadSongs,
     order: Option<StageOrder>,
     ready_at: u64,
     play: Option<StagePlay>,
@@ -764,7 +791,12 @@ impl Bot {
             if job.stage != SPOTLIGHT {
                 self.say(format!("loading stage {}", stage_number(&room, job.stage)));
             }
-            crate::room::prepare_online_with(self.news.as_ref(), &room, job, None);
+            crate::room::prepare_online_with(
+                self.news.as_ref(),
+                &room,
+                job,
+                Some(self.check.clone()),
+            );
         }
         let uploads = room.borrow_mut().take_upload_jobs();
         for job in uploads {
@@ -856,7 +888,7 @@ impl Bot {
             now,
         );
         let (tx, inbox) = crate::room::news_inbox();
-        room.set_inbox(checked(inbox, self.profile.clone()));
+        room.set_inbox(inbox);
         // The Rules pop-up is a screen's; a bot has read them.
         room.set_rules_seen(true);
         self.news = Some(tx);
@@ -1008,8 +1040,19 @@ impl Bot {
         let started = room.borrow().stage_started(order.stage);
         if started {
             let seed = mix(self.seed, order.stage.0 ^ (u64::from(self.matches) << 32));
-            let read = crate::play::load::read_chart(&order.song.id)
-                .map_err(|e| format!("{e:?}"))
+            // The song as its preparation read it (the others prepared
+            // before are not played any more).
+            let kept = self
+                .read
+                .lock()
+                .map(|mut r| std::mem::take(&mut *r))
+                .unwrap_or_default()
+                .remove(&order.stage);
+            let read = kept
+                .map_or_else(
+                    || crate::play::load::read_chart(&order.song.id).map_err(|e| format!("{e:?}")),
+                    Ok,
+                )
                 .and_then(|song| {
                     let mut play =
                         StagePlay::new(&order, &song, order.chart.index, &self.profile, seed, now)?;
@@ -1261,46 +1304,30 @@ fn stage_number(room: &SharedRoom, stage: StageId) -> usize {
         .map_or(0, |i| i + 1)
 }
 
-/// `inbox`, with each stage's shared song checked for the bot's CPU: a
+/// The songs of a bot's stages as their preparation read them, by stage.
+type ReadSongs = Arc<Mutex<HashMap<StageId, ddi_chart::Song>>>;
+
+/// Each stage's song checked for the bot's CPU on the thread that read
+/// it from the room's share (never on the loop that ticks every bot): a
 /// chart it cannot plan fails to load (the bot sits the stage out) rather
-/// than being readied for.
-fn checked(mut inbox: Inbox, profile: Profile) -> Inbox {
-    Box::new(move || {
-        inbox()
-            .into_iter()
-            .map(|news| match news {
-                ShellNews::PreparedShared {
-                    job,
-                    result: Ok(picked),
-                    live,
-                } if job.stage != SPOTLIGHT => {
-                    let playable = crate::play::load::read_chart(&picked.song.id)
-                        .map_err(|e| format!("{e:?}"))
-                        .and_then(|song| {
-                            cpu_for(
-                                &song,
-                                picked.chart.index,
-                                &Default::default(),
-                                &profile,
-                                1,
-                            )
-                            .map(|_| ())
-                        });
-                    ShellNews::PreparedShared {
-                        job,
-                        live,
-                        result: match playable {
-                            Ok(()) => Ok(picked),
-                            Err(e) => {
-                                eprintln!("bots: {}: the CPU cannot play it: {e}", profile.name);
-                                Err(LoadProblem::CpuCannotPlay)
-                            }
-                        },
-                    }
-                }
-                other => other,
-            })
-            .collect()
+/// than being readied for. The host's own pick (from its library, no
+/// share) was checked as it chose its songs. Each is kept in `read` for
+/// the stage's start, so the chart is read once a stage.
+fn song_check(profile: Profile, read: ReadSongs) -> crate::room::SongCheck {
+    Arc::new(move |job, song, chart| {
+        if job.stage == SPOTLIGHT {
+            return Ok(());
+        }
+        if job.share.is_some()
+            && let Err(e) = cpu_plays(&song, chart, &profile)
+        {
+            eprintln!("bots: {}: the CPU cannot play it: {e}", profile.name);
+            return Err(LoadProblem::CpuCannotPlay);
+        }
+        if let Ok(mut r) = read.lock() {
+            r.insert(job.stage, song);
+        }
+        Ok(())
     })
 }
 
@@ -1346,10 +1373,7 @@ fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
     let playable = |song: &SongEntry, chart: &ChartEntry| {
         crate::play::load::read_chart(&song.id)
             .map_err(|e| format!("{e:?}"))
-            .and_then(|s| {
-                cpu_for(&s, chart.index, &Default::default(), &profile, 1)
-                .map(|_| ())
-            })
+            .and_then(|s| cpu_plays(&s, chart.index, &profile))
             .is_ok()
     };
     let entry = ddi_ui::state::select_view::plain_song_entry;
@@ -1522,8 +1546,11 @@ pub fn run_with(o: Options, token: &str) -> i32 {
         } else {
             Role::Guest(o.join.clone())
         };
+        let read = ReadSongs::default();
         bots.push(Bot {
             seed: mix(seed, n as u64 + 1),
+            check: song_check(profile.clone(), read.clone()),
+            read,
             profile,
             role,
             online,
@@ -1761,7 +1788,7 @@ mod tests {
             level: 2,
             skills: "balanced".into(),
         };
-        let bot = cpu_for(&song, chart, &rules, &profile, 9).unwrap();
+        let bot = cpu_for(&song, chart, &rules, &[], &profile, 9).unwrap();
         let on = |scale| {
             let ruleset = ddi_session::battle::stage_ruleset(&rules);
             Opponent::on_scale(&song, chart, ruleset, scale, 2, 9, Skills::default())
@@ -1774,6 +1801,101 @@ mod tests {
         assert_eq!(ddi_engine::cpu::CPU_LEVELS, ddi_engine::cpu::LevelScale::AbsoluteV1);
     }
 
+    fn order(rules: ddi_session::battle::StageRules) -> StageOrder {
+        StageOrder {
+            stage: StageId(3),
+            number: 1,
+            of: 2,
+            song: SongEntry::default(),
+            chart: ChartEntry::default(),
+            battle: ddi_room::BattlePreset::GaugeSurvivalV0,
+            attacks_offered: false,
+            rules,
+            dev_mines_at_beat: None,
+            me: ddi_room::ParticipantId(2),
+            targeting: Default::default(),
+            cpus: Vec::new(),
+            others: 0,
+            watching: false,
+            live: None,
+        }
+    }
+
+    /// A bot's CPU is a room's (`ddi_session::battle::cpus::opponent`):
+    /// on a stage whose charts adapt it steps down its ladder at zero
+    /// life, as everyone's CPUs do, and its detail names the chart it
+    /// finished on.
+    #[test]
+    fn a_bots_cpu_steps_down_an_adaptive_stages_ladder() {
+        let song = beatucada();
+        let chart = (0..song.charts.len())
+            .filter(|&i| {
+                song.layout_of(&song.charts[i])
+                    .is_some_and(|l| l.lanes.len() == 4 && l.players == 1)
+            })
+            .max_by_key(|&i| song.charts[i].meter)
+            .unwrap();
+        let rules = ddi_session::battle::StageRules {
+            charts: ddi_room::Charts::Adaptive,
+            ..Default::default()
+        };
+        let profile = Profile {
+            name: "T".into(),
+            level: 0,
+            skills: "balanced".into(),
+        };
+        let mut play = StagePlay::new(&order(rules), &song, chart, &profile, 9, 0).unwrap();
+        let mut t = 0;
+        while play.advance(t).is_none() {
+            t += 50;
+            assert!(t < 1_000_000, "the song ends");
+        }
+        assert!(!play.opponent.player().steps().is_empty(), "it stepped down");
+        assert!(play.detail().chart.is_some(), "{:?}", play.detail());
+    }
+
+    /// A stage's song is checked for the bot's CPU where the share's
+    /// thread read it, and kept for the stage's start; a chart it cannot
+    /// plan fails to load; the resting song is neither checked nor kept.
+    #[test]
+    fn a_stages_song_is_checked_where_it_is_read_and_kept() {
+        let song = beatucada();
+        let chart = (0..song.charts.len())
+            .find(|&i| {
+                song.layout_of(&song.charts[i])
+                    .is_some_and(|l| l.lanes.len() == 4 && l.players == 1)
+            })
+            .unwrap();
+        let profile = Profile {
+            name: "T".into(),
+            level: 4,
+            skills: "balanced".into(),
+        };
+        let read = ReadSongs::default();
+        let check = song_check(profile, read.clone());
+        let job = |stage, share: Option<&str>| ddi_ui::state::room::LoadJob {
+            stage: StageId(stage),
+            readiness_rev: 1,
+            song: "s".into(),
+            chart,
+            digest: None,
+            share: share.map(String::from),
+            cpus: false,
+            live: None,
+        };
+        assert_eq!(check(&job(4, Some("x")), song.clone(), chart), Ok(()));
+        assert_eq!(check(&job(5, None), song.clone(), chart), Ok(()));
+        assert_eq!(
+            check(&job(6, Some("x")), song.clone(), 99),
+            Err(LoadProblem::CpuCannotPlay)
+        );
+        assert_eq!(check(&job(SPOTLIGHT.0, Some("x")), song.clone(), chart), Ok(()));
+        let kept = read.lock().unwrap();
+        let mut stages: Vec<_> = kept.keys().map(|s| s.0).collect();
+        stages.sort();
+        assert_eq!(stages, [4, 5]);
+    }
+
     #[test]
     fn a_stage_is_played_on_the_song_clock_and_reported_once_over() {
         let song = beatucada();
@@ -1784,21 +1906,8 @@ mod tests {
             })
             .unwrap();
         let order = StageOrder {
-            stage: StageId(3),
-            number: 1,
-            of: 2,
-            song: SongEntry::default(),
-            chart: ChartEntry::default(),
-            battle: ddi_room::BattlePreset::GaugeSurvivalV0,
-            attacks_offered: false,
-            rules: Default::default(),
-            dev_mines_at_beat: None,
-            me: ddi_room::ParticipantId(2),
-            targeting: Default::default(),
-            cpus: Vec::new(),
             others: 3,
-            watching: false,
-            live: None,
+            ..order(Default::default())
         };
         let profile = Profile {
             name: "T".into(),
@@ -1840,7 +1949,7 @@ mod tests {
             Run::Forfeit => panic!("never a forfeit"),
         }
         // A chart the CPU cannot plan is refused.
-        assert!(cpu_for(&song, 99, &Default::default(), &profile, 1).is_err());
+        assert!(cpu_for(&song, 99, &Default::default(), &[], &profile, 1).is_err());
     }
 
     #[test]

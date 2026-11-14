@@ -590,7 +590,7 @@ pub fn stage_ladder(song: &Song, chart: usize, setup: &StageSetup) -> Vec<ddi_en
 /// The stage's ladder `ladder` of `song` as the battle shows it: each
 /// rung's chart, its copy as the fields draw it, its name and whether it
 /// is above the stage's chart.
-pub(crate) fn ladder_rungs(
+pub fn ladder_rungs(
     song: &Song,
     ladder: &[ddi_engine::cpu::PlannedRung],
 ) -> Result<Vec<Rung>, String> {
@@ -624,7 +624,7 @@ fn finished_on(rungs: &[Rung], detail: &mut RunDetail, player: &Player) {
 /// rung of `rungs`, the stage's ladder): what a practice's results and an
 /// online room's standings show of it, a person's device's and a bot's
 /// alike.
-pub(crate) fn cpu_detail(opponent: &Opponent, launched: Option<(u32, u32)>, rungs: &[Rung]) -> RunDetail {
+pub fn cpu_detail(opponent: &Opponent, launched: Option<(u32, u32)>, rungs: &[Rung]) -> RunDetail {
     let player = opponent.player();
     let mut detail = run_detail(&player.results_brief(), player.ruleset(), opponent.life(), launched);
     finished_on(rungs, &mut detail, player);
