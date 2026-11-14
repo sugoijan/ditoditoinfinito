@@ -272,6 +272,11 @@ impl SplitMix64 {
         z ^ (z >> 31)
     }
 
+    /// A uniform draw in `0..1` ([`unit_of`] of the next value).
+    pub fn unit(&mut self) -> f64 {
+        unit_of(self.next_u64())
+    }
+
     /// A Fisher–Yates shuffle of `items`.
     pub fn shuffle<T>(&mut self, items: &mut [T]) {
         for i in (1..items.len()).rev() {
@@ -279,6 +284,17 @@ impl SplitMix64 {
             items.swap(i, j);
         }
     }
+}
+
+/// One SplitMix64 step from `x`: `SplitMix64(x).next_u64()`, a mix of
+/// its bits.
+pub(crate) fn mix(x: u64) -> u64 {
+    SplitMix64(x).next_u64()
+}
+
+/// `z`'s top 53 bits as a uniform value in `0..1`.
+pub(crate) fn unit_of(z: u64) -> f64 {
+    (z >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
 }
 
 /// StepMania `Little`: every note off the grid goes, whatever its kind.

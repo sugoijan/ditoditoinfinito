@@ -25,6 +25,7 @@
 use ddi_chart::{Note, NoteKind, Song, TICKS_PER_BEAT, Tick, TimingMap};
 
 use crate::rules::JudgeTable;
+use crate::transform::mix;
 
 /// Note indices of battle shocks' events and sprites start here, past any
 /// chart's notes: what tells them from the chart's.
@@ -192,14 +193,6 @@ pub struct Section {
     pub start_beat: u32,
     /// In time order.
     pub cells: Vec<Hazard>,
-}
-
-/// SplitMix64.
-fn mix(mut x: u64) -> u64 {
-    x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    x ^ (x >> 31)
 }
 
 /// A chart's notes by lane, each with its seconds computed once

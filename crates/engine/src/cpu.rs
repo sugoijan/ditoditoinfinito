@@ -2,6 +2,8 @@
 //! All preparation happens before gameplay; no inference or I/O in the input loop.
 //! Sampling is deterministic from an explicit seed; the normal judge owns scores.
 
+// SplitMix64, fixed algorithm on native and wasm; never global randomness.
+use crate::transform::SplitMix64 as Random;
 use crate::{Judge, JudgedNote, autoplay::Press, presets};
 use ddi_chart::{ChartDigest, NoteKind, Song, Tick};
 use serde::{Deserialize, Serialize};
@@ -260,18 +262,6 @@ fn offset(edges: &[f64], q: &[f64], u: f64, within: f64) -> f64 {
     }
 }
 
-/// SplitMix64, fixed algorithm on native and wasm; never global randomness.
-struct Random(u64);
-impl Random {
-    fn unit(&mut self) -> f64 {
-        self.0 = self.0.wrapping_add(0x9e3779b97f4a7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
-        z ^= z >> 31;
-        (z >> 11) as f64 * (1. / ((1u64 << 53) as f64))
-    }
-}
 
 /// The five frozen ability multipliers, accepted by both launch interfaces.
 pub fn strength(value: &str) -> Result<usize, String> {

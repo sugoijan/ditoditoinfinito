@@ -280,17 +280,12 @@ pub(super) enum Purpose {
 /// and lane), the purpose and `extra` (a press's own key): the same
 /// whatever else happened, so a response never depends on the frames.
 pub(super) fn draw(seed: u64, tick: i64, lane: u8, purpose: Purpose, extra: u64) -> f64 {
-    let mix = |mut x: u64| {
-        x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        x ^ (x >> 31)
-    };
+    use crate::transform::{mix, unit_of};
     let z = mix(seed
         ^ mix(tick as u64)
         ^ mix(u64::from(lane) << 40 | purpose as u64)
         ^ mix(extra.rotate_left(17)));
-    (z >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
+    unit_of(z)
 }
 
 #[cfg(test)]
