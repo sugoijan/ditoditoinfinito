@@ -49,7 +49,13 @@ mod tables {
 /// and the empty outline, as the tunables have them: what the play's
 /// miniatures draw them in (`ddi_shell::opponents`), outside the look.
 pub fn star_colors() -> [Rgba; 3] {
-    ["Star.Gold", "Star.Silver", "Star.Empty"].map(|name| {
+    tunable_colors(["Star.Gold", "Star.Silver", "Star.Empty"])
+}
+
+/// The tunables' colors of `names`, for what draws outside the look
+/// (magenta for a name the tunables lack).
+fn tunable_colors<const N: usize>(names: [&str; N]) -> [Rgba; N] {
+    names.map(|name| {
         tables::COLORS
             .iter()
             .find(|(k, _)| *k == name)
@@ -61,12 +67,7 @@ pub fn star_colors() -> [Rgba; 3] {
 /// tunables have them: the line and outline of who attacks whom, and the
 /// glow under the line (`ddi_shell::attack_links`), outside the look.
 pub fn attack_colors() -> [Rgba; 2] {
-    ["Attack.Line", "Attack.Glow"].map(|name| {
-        tables::COLORS
-            .iter()
-            .find(|(k, _)| *k == name)
-            .map_or([1.0, 0.0, 1.0, 1.0], |(_, c)| *c)
-    })
+    tunable_colors(["Attack.Line", "Attack.Glow"])
 }
 
 /// DDI's tier colors under the theme's names (`Judgement.Ddi.W0` …

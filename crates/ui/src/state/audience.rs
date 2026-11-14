@@ -28,7 +28,7 @@ use ddi_room::audience::public::{PublicContent, PublicKind, PublicView};
 use ddi_room::audience::{AUDIENCE_V0, Audience, AudienceEnd, AudienceNews, AudienceRefusal};
 use ddi_room::live::{LIVE_V1, LiveNews, LiveRules, VIEW_DELAY_V0, ViewDelay, ViewDelayRules};
 use ddi_room::{
-    BattlePreset, ChartKey, Clock, Finisher, ManualClock, Millis, ParticipantId, Phase, ReconnectPolicy,
+    ChartKey, Clock, Finisher, ManualClock, Millis, ParticipantId, Phase, ReconnectPolicy,
     RoomId, StageId, Transport,
 };
 
@@ -258,8 +258,7 @@ pub struct AudienceClient {
     refused: Option<Refused>,
     signed_out: bool,
     version: u64,
-    live_news: Vec<LiveNews>,
-    live_reader: bool,
+    live_news: crate::state::room::LiveNewsTap,
     jobs: Vec<LoadJob>,
     asked: BTreeSet<StageId>,
     prepared: BTreeMap<StageId, Prepared>,
@@ -334,8 +333,7 @@ impl AudienceClient {
             refused: None,
             signed_out: false,
             version: 0,
-            live_news: Vec::new(),
-            live_reader: false,
+            live_news: Default::default(),
             jobs: Vec::new(),
             asked: BTreeSet::new(),
             prepared: BTreeMap::new(),
@@ -451,7 +449,7 @@ impl AudienceClient {
                     self.seat.ticket(&t.ticket);
                 }
                 Err(p) if p.signed_out() => self.signed_out = true,
-                Err(p) if p.status == 0 || p.status >= 500 => {
+                Err(p) if p.transient() => {
                     self.attempt += 1;
                     self.retry_at =
                         now_ms + ReconnectPolicy::RECONNECT_BACKOFF_V0.wait_ms(self.attempt);
@@ -488,16 +486,8 @@ impl AudienceClient {
         }
         for n in news {
             match n {
-                AudienceNews::Frame(f) => {
-                    if self.live_reader {
-                        self.live_news.push(LiveNews::Frame(f));
-                    }
-                }
-                AudienceNews::Snapshot(s) => {
-                    if self.live_reader {
-                        self.live_news.push(LiveNews::Snapshot(s));
-                    }
-                }
+                AudienceNews::Frame(f) => self.live_news.extend([LiveNews::Frame(f)]),
+                AudienceNews::Snapshot(s) => self.live_news.extend([LiveNews::Snapshot(s)]),
                 AudienceNews::View(_) | AudienceNews::Count(_) | AudienceNews::Ended(_) => {
                     self.version += 1;
                 }
@@ -578,44 +568,16 @@ impl AudienceClient {
     /// Stage `stage`'s rules: the match's, or those the public view says
     /// it is played under where they were changed during the match.
     pub fn stage_rules_of(&self, stage: Option<StageId>) -> StageRules {
-        let Some(v) = self.view() else {
-            return StageRules::default();
-        };
-        let changed = stage
-            .and_then(|id| v.stages.iter().find(|s| s.id == id))
-            .and_then(|s| s.rules.as_ref());
-        let r = changed.unwrap_or(&v.rules);
-        StageRules {
-            ruleset: r.ruleset.clone(),
-            difficulty: r.difficulty,
-            boos: r.boos,
-            points: r.points,
-            charts: r.charts,
-            at_once: r.at_once,
-            changed: changed.is_some(),
-            play_changed: changed.is_some_and(|c| {
-                (c.difficulty, c.boos, c.attacks, c.charts, c.at_once)
-                    != (
-                        v.rules.difficulty,
-                        v.rules.boos,
-                        v.rules.attacks,
-                        v.rules.charts,
-                        v.rules.at_once,
-                    )
-            }),
-        }
+        self.view()
+            .map(|v| StageRules::of_public(v, stage))
+            .unwrap_or_default()
     }
 
     /// Attacks are played in stage `stage` (the room playing live).
     pub fn attacks_of(&self, stage: Option<StageId>) -> bool {
-        let Some(v) = self.view() else {
-            return false;
-        };
-        let r = stage
-            .and_then(|id| v.stages.iter().find(|s| s.id == id))
-            .and_then(|s| s.rules.as_ref())
-            .unwrap_or(&v.rules);
-        self.plays_live() && r.attacks
+        self.view().is_some_and(|v| {
+            self.plays_live() && crate::state::room::public_rules_of(v, stage).0.attacks
+        })
     }
 
     /// A player's name as the view shows it (a CPU's from its number).
@@ -766,19 +728,16 @@ impl AudienceClient {
                     seed,
                     personality,
                     targeting,
-                } => Some(CpuSeat {
-                    participant: *id,
-                    ordinal: *ordinal,
-                    level: *level,
-                    // As every member's device seeds it for this stage.
-                    seed: ddi_room::OpponentSpec::stage_seed(
-                        *seed,
-                        u16::try_from(index + 1).unwrap_or(u16::MAX),
-                    ),
-                    name: p.name.clone(),
-                    skills: personality.clone(),
-                    targeting: targeting.unwrap_or_default(),
-                }),
+                } => Some(CpuSeat::for_stage(
+                    *id,
+                    *ordinal,
+                    *level,
+                    *seed,
+                    index + 1,
+                    p.name.clone(),
+                    personality.clone(),
+                    *targeting,
+                )),
                 _ => None,
             })
         };
@@ -798,11 +757,7 @@ impl AudienceClient {
             of: u16::try_from(v.stages.len()).unwrap_or(u16::MAX),
             song: prepared.picked.song,
             chart: prepared.picked.chart,
-            battle: if attacks {
-                BattlePreset::GaugeAttacksV0
-            } else {
-                BattlePreset::GaugeSurvivalV0
-            },
+            battle: crate::state::room::battle_with(attacks),
             attacks_offered: true,
             rules: self.stage_rules_of(Some(stage)),
             me: AUDIENCE_ME,
@@ -878,10 +833,8 @@ impl LiveRoom for AudienceClient {
         Some(Millis(zero.0 + self.music_delay_ms(stage)))
     }
 
-    fn song_zero_in(&self, stage: StageId) -> Option<f64> {
-        let zero = LiveRoom::song_zero_at(self, stage)?;
-        let now = self.seat.link().room_ms(self.clock.now().0)?;
-        Some((zero.0 as f64 - now.0 as f64) / 1_000.0)
+    fn now_ms(&self) -> u64 {
+        self.clock.now().0
     }
 
     fn tick(&mut self, now_ms: u64) {
@@ -889,13 +842,11 @@ impl LiveRoom for AudienceClient {
     }
 
     fn take_live_news(&mut self) -> Vec<LiveNews> {
-        self.live_reader = true;
-        std::mem::take(&mut self.live_news)
+        self.live_news.take()
     }
 
     fn stop_live_news(&mut self) {
-        self.live_reader = false;
-        self.live_news.clear();
+        self.live_news.stop();
     }
 
     fn live_stream(&mut self, _stage: StageId) -> Option<&mut ddi_room::live::Outbox> {
@@ -905,12 +856,9 @@ impl LiveRoom for AudienceClient {
     fn forget_live(&mut self, _stage: StageId) {}
 
     fn decision(&self, stage: StageId) -> Option<(Vec<Vec<Finisher>>, bool)> {
-        let ranking = self.stage_ranking(stage)?;
-        let early = matches!(
-            self.view()?.phase,
-            Phase::SongCompletion { stage: s } if s == stage
-        );
-        Some((ranking, early))
+        let v = self.view()?;
+        let r = v.stages.iter().find(|s| s.id == stage)?.play.as_ref()?.result.as_ref()?;
+        Some(crate::state::room::decision_of(&v.phase, stage, &r.placements))
     }
 
     fn live_prep(&self, stage: StageId) -> Option<LivePrep> {

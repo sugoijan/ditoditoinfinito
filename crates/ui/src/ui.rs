@@ -1089,10 +1089,10 @@ impl Ui {
             self.menu(action, true, false);
         }
         let mut fired = Vec::new();
+        let mut g = Vec::new();
         for p in &mut self.pointers {
-            let mut g = Vec::new();
             p.tracker.tick(dt, &mut g);
-            for g in g {
+            for g in g.drain(..) {
                 fired.push((p.layer, p.target.clone(), g, p.pos, p.kind));
             }
         }
@@ -1108,10 +1108,16 @@ impl Ui {
         // nothing is ever drawn as built, before its screen filled it
         // (song select's footer, its search's Clear hidden).
         let mut ids = self.layer_ids();
-        let mut seen = ids.clone();
+        let mut seen = Vec::new();
         let mut dt = dt;
         for _pass in 0..4 {
+            let pushed = self.next_id;
             self.update_layers(&ids, dt, clocks);
+            // No layer made during the pass: none to update.
+            if self.next_id == pushed {
+                break;
+            }
+            seen.append(&mut ids);
             ids = self
                 .layer_ids()
                 .into_iter()
@@ -1120,7 +1126,6 @@ impl Ui {
             if ids.is_empty() {
                 break;
             }
-            seen.extend(&ids);
             dt = 0.0;
         }
         self.problems.messages.truncate(64);

@@ -132,26 +132,29 @@ impl OnlineLink {
 
     /// The invite link to share, for an operator, once read.
     pub fn invite_link(&self) -> Option<String> {
-        let site = self.online.borrow().config.site.clone();
-        self.invite.as_deref().map(|i| api::invite_link(&site, i))
+        let i = self.invite.as_deref()?;
+        Some(api::invite_link(&self.online.borrow().config.site, i))
+    }
+
+    /// The room's links as the server answered them.
+    fn take_invites(&mut self, i: InviteDoc) {
+        self.invite = Some(i.invite);
+        self.watch_invite = i.watch_invite;
+        self.audience_invite = i.audience_invite;
     }
 
     /// The watch-only link to share (joins to watch, held to it), for an
     /// operator, once read from a server that makes one.
     pub fn watch_invite_link(&self) -> Option<String> {
-        let site = self.online.borrow().config.site.clone();
-        self.watch_invite
-            .as_deref()
-            .map(|i| api::invite_link(&site, i))
+        let i = self.watch_invite.as_deref()?;
+        Some(api::invite_link(&self.online.borrow().config.site, i))
     }
 
     /// The audience link to share (`#/mp/audience/<link>`), for an
     /// operator, once read from a server whose room has an audience.
     pub fn audience_invite_link(&self) -> Option<String> {
-        let site = self.online.borrow().config.site.clone();
-        self.audience_invite
-            .as_deref()
-            .map(|i| api::audience_link(&site, i))
+        let i = self.audience_invite.as_deref()?;
+        Some(api::audience_link(&self.online.borrow().config.site, i))
     }
 
     pub fn notice(&self) -> Option<LinkNotice> {
@@ -255,9 +258,7 @@ impl OnlineLink {
         if let Some(r) = self.take(self.invite_req) {
             self.invite_req = None;
             if let Ok(i) = api::read::<InviteDoc>(&r) {
-                self.invite = Some(i.invite);
-                self.watch_invite = i.watch_invite;
-                self.audience_invite = i.audience_invite;
+                self.take_invites(i);
             }
             changed = true;
         }
@@ -265,9 +266,7 @@ impl OnlineLink {
             self.rotate_req = None;
             match api::read::<InviteDoc>(&r) {
                 Ok(i) => {
-                    self.invite = Some(i.invite);
-                    self.watch_invite = i.watch_invite;
-                    self.audience_invite = i.audience_invite;
+                    self.take_invites(i);
                     self.notice = Some(LinkNotice::InviteReplaced);
                 }
                 Err(_) => self.notice = Some(LinkNotice::InviteNotReplaced),

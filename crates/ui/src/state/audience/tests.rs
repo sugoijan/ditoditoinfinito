@@ -6,14 +6,12 @@
 //! ticket.
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::rc::Rc;
 
 use super::*;
 use crate::state::online::api::Method;
 use crate::state::online::tests::room::{client, person};
-use crate::state::online::tests::{FakeHttp, Handler, err, ok};
-use crate::state::online::{Online, OnlineConfig, Platform};
+use crate::state::online::tests::{Handler, err, me_of, ok, signed_in};
 use crate::state::room::RoomClient;
 use ddi_room::audience::AudienceRules;
 use ddi_room::fake::{FakeAudienceSocket, FakeServer, SharedFake};
@@ -21,12 +19,6 @@ use ddi_room::{Closure, Identity, Intent, RoomPolicy};
 
 /// The room's audience link (its key is the fake's own).
 pub(crate) const AUDIENCE_LINK: &str = "Room000001.audienceAUDIENCEaudien01";
-
-fn me_of(name: &str) -> String {
-    format!(
-        r#"{{"player_id":"dev:{name}","login":"{name}","display_name":"{name}","admin":false,"expires_at_ms":1}}"#
-    )
-}
 
 /// `who`'s online state, its HTTP the fake room's as the server answers
 /// it: an invite's preview (`FakeServer::invite_preview`: the link's
@@ -57,22 +49,7 @@ pub(crate) fn watcher(server: &SharedFake, who: &'static str) -> SharedOnline {
         }
         _ => panic!("unexpected {req:?}"),
     });
-    let http = FakeHttp {
-        handler: Rc::new(RefCell::new(handler)),
-        log: Rc::new(RefCell::new(Vec::new())),
-        out: VecDeque::new(),
-    };
-    let online = Online::new(
-        Box::new(http),
-        OnlineConfig {
-            platform: Platform::Web,
-            site: "http://localhost:8080/".into(),
-        },
-    )
-    .shared();
-    online.borrow_mut().check();
-    online.borrow_mut().poll(0);
-    online
+    signed_in(handler)
 }
 
 pub(crate) fn room(clock: &ManualClock, policy: RoomPolicy) -> SharedFake {

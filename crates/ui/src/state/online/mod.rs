@@ -147,6 +147,17 @@ pub struct InviteView {
 }
 
 impl InviteView {
+    /// Invite `invite` looked at, nothing read of it yet.
+    pub fn new(invite: &str) -> InviteView {
+        InviteView {
+            invite: invite.into(),
+            preview: None,
+            joining: false,
+            refused: None,
+            offered: false,
+        }
+    }
+
     /// The page offers the room's audience: an audience link, or the
     /// room's member bound reached (the preview's, or a join's refusal).
     pub fn audience(&self) -> bool {
@@ -471,13 +482,7 @@ impl Online {
 
     /// Look at an invite: its preview read (no sign-in needed).
     pub fn open_invite(&mut self, invite: &str) {
-        self.invite = Some(InviteView {
-            invite: invite.into(),
-            preview: None,
-            joining: false,
-            refused: None,
-            offered: false,
-        });
+        self.invite = Some(InviteView::new(invite));
         self.start(api::preview(invite), Want::Preview(invite.into()));
         self.check();
         self.changed();
@@ -516,25 +521,45 @@ impl Online {
     }
 
     fn join_audience(&mut self, link: &str) {
+        self.join_by(link, true);
+    }
+
+    fn join(&mut self, invite: &str) {
+        self.join_by(invite, false);
+    }
+
+    /// Join the room of `link`: to play (`api::join`), or with its
+    /// `audience`.
+    fn join_by(&mut self, link: &str, audience: bool) {
         let Some(room) = api::room_of(link) else {
             return;
         };
         if let Some(v) = &mut self.invite {
             v.joining = true;
         }
-        let request = api::audience_join(room, link);
-        self.start(request, Want::Audience(link.into()));
+        if audience {
+            self.start(api::audience_join(room, link), Want::Audience(link.into()));
+        } else {
+            self.start(api::join(room, Some(link)), Want::Join(link.into()));
+        }
     }
 
-    fn join(&mut self, invite: &str) {
-        let Some(room) = api::room_of(invite) else {
-            return;
-        };
-        if let Some(v) = &mut self.invite {
-            v.joining = true;
+    /// A problem answered: a session the server no longer knows is
+    /// forgotten, and the account signed out.
+    fn note_problem(&mut self, p: &Problem) {
+        if p.signed_out() {
+            self.forget_session();
+            self.account = Account::SignedOut;
         }
-        let request = api::join(room, Some(invite));
-        self.start(request, Want::Join(invite.into()));
+    }
+
+    /// Invite `invite` looked at (a new view unless it is the one shown),
+    /// its preview read again.
+    fn ensure_invite(&mut self, invite: &str) {
+        if self.invite.as_ref().is_none_or(|v| v.invite != invite) {
+            self.invite = Some(InviteView::new(invite));
+        }
+        self.start(api::preview(invite), Want::Preview(invite.into()));
     }
 
     /// Answers in, time passes (`now_ms`).
@@ -588,8 +613,7 @@ impl Online {
                         }
                     }
                     Err(p) if p.signed_out() => {
-                        self.forget_session();
-                        self.account = Account::SignedOut;
+                        self.note_problem(&p);
                         if let Some(dest) = dest {
                             self.sign_in = SignIn::Failed { dest, code: p.code };
                         }
@@ -656,7 +680,7 @@ impl Online {
                             }
                         }
                     },
-                    Err(p) if p.status == 0 || p.status >= 500 => {
+                    Err(p) if p.transient() => {
                         // The link or the server: polled again shortly.
                         self.poll_at = self.now + POLL_AGAIN_MS;
                         return;
@@ -669,10 +693,7 @@ impl Online {
                 match api::read::<api::Created>(&response) {
                     Ok(c) => self.entered = Some(c.room_id),
                     Err(p) => {
-                        if p.signed_out() {
-                            self.forget_session();
-                            self.account = Account::SignedOut;
-                        }
+                        self.note_problem(&p);
                         self.create_problem = Some(p);
                     }
                 }
@@ -693,10 +714,7 @@ impl Online {
                         });
                     }
                     Err(p) => {
-                        if p.signed_out() {
-                            self.forget_session();
-                            self.account = Account::SignedOut;
-                        }
+                        self.note_problem(&p);
                         if let Some(v) = self.invite.as_mut().filter(|v| v.invite == link) {
                             v.refused = Some(p);
                         }
@@ -730,10 +748,7 @@ impl Online {
                         self.entered = Some(j.room_id);
                     }
                     Err(p) => {
-                        if p.signed_out() {
-                            self.forget_session();
-                            self.account = Account::SignedOut;
-                        }
+                        self.note_problem(&p);
                         if let Some(v) = &mut self.invite {
                             v.refused = Some(p);
                             v.offered |= offered;
@@ -756,29 +771,11 @@ impl Online {
             Dest::Home => {}
             Dest::Create => self.create(),
             Dest::Join(invite) => {
-                if self.invite.as_ref().is_none_or(|v| v.invite != invite) {
-                    self.invite = Some(InviteView {
-                        invite: invite.clone(),
-                        preview: None,
-                        joining: false,
-                        refused: None,
-                        offered: false,
-                    });
-                }
-                self.start(api::preview(&invite), Want::Preview(invite.clone()));
+                self.ensure_invite(&invite);
                 self.join(&invite);
             }
             Dest::Audience(link) => {
-                if self.invite.as_ref().is_none_or(|v| v.invite != link) {
-                    self.invite = Some(InviteView {
-                        invite: link.clone(),
-                        preview: None,
-                        joining: false,
-                        refused: None,
-                        offered: false,
-                    });
-                }
-                self.start(api::preview(&link), Want::Preview(link.clone()));
+                self.ensure_invite(&link);
                 self.join_audience(&link);
             }
             Dest::Room(id) => self.entered = Some(id),

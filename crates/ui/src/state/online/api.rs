@@ -101,6 +101,12 @@ impl Problem {
     pub fn signed_out(&self) -> bool {
         self.status == 401
     }
+
+    /// The link or the server, not the request: worth asking again
+    /// shortly.
+    pub fn transient(&self) -> bool {
+        self.status == 0 || self.status >= 500
+    }
 }
 
 #[derive(Deserialize)]

@@ -47,6 +47,7 @@ use std::rc::Rc;
 use std::collections::BTreeSet;
 
 use ddi_library::share::ShareError;
+use ddi_room::audience::public::{PublicRules, PublicView};
 use ddi_room::attacks::Targeting;
 use ddi_room::{
     BattlePreset, Capability, ChartKey, ClientId, Command, ContentCard, ContentId, ContentSource,
@@ -192,6 +193,15 @@ pub enum LoadProblem {
 }
 
 impl LoadProblem {
+    /// Every problem (a match of `code` below names each).
+    pub const ALL: [LoadProblem; 5] = [
+        Self::Unreadable,
+        Self::Changed,
+        Self::CpuCannotPlay,
+        Self::Download,
+        Self::PlanMismatch,
+    ];
+
     /// Its code in the room's loading report.
     pub fn code(self) -> &'static str {
         match self {
@@ -204,15 +214,7 @@ impl LoadProblem {
     }
 
     pub fn from_code(code: &str) -> Option<LoadProblem> {
-        [
-            Self::Unreadable,
-            Self::Changed,
-            Self::CpuCannotPlay,
-            Self::Download,
-            Self::PlanMismatch,
-        ]
-        .into_iter()
-        .find(|p| p.code() == code)
+        Self::ALL.into_iter().find(|p| p.code() == code)
     }
 }
 
@@ -436,14 +438,23 @@ pub fn prepare_chart(
     }
     if job.cpus {
         check_chart(song, job.chart, job.digest, log)?;
-    } else if job.chart >= song.charts.len()
-        || job
-            .digest
-            .is_some_and(|d| song.chart_digest(job.chart) != d)
-    {
-        return Err(LoadProblem::Changed);
+    } else {
+        chart_matches(song, job.chart, job.digest)?;
     }
     Ok(job.chart)
+}
+
+/// Whether chart `chart` of `song` is there and is the one chosen
+/// (`digest`, where the library had one).
+fn chart_matches(
+    song: &ddi_chart::Song,
+    chart: usize,
+    digest: Option<ddi_chart::ChartDigest>,
+) -> Result<(), LoadProblem> {
+    if chart >= song.charts.len() || digest.is_some_and(|d| song.chart_digest(chart) != d) {
+        return Err(LoadProblem::Changed);
+    }
+    Ok(())
 }
 
 /// A shared song's entry as the room shows and plays it: song `entry`
@@ -474,9 +485,7 @@ pub fn check_chart(
     digest: Option<ddi_chart::ChartDigest>,
     log: &mut dyn FnMut(&str),
 ) -> Result<(), LoadProblem> {
-    if chart >= song.charts.len() || digest.is_some_and(|d| song.chart_digest(chart) != d) {
-        return Err(LoadProblem::Changed);
-    }
+    chart_matches(song, chart, digest)?;
     let plan = ddi_engine::cpu::Plan::automatic(song, chart).map_err(|e| {
         log(&e);
         LoadProblem::CpuCannotPlay
@@ -515,6 +524,45 @@ pub struct CpuSeat {
     /// Its attack policy: its roster entry's (`OpponentSpec::targeting`),
     /// Spread where it names none. Never shown as a skill.
     pub targeting: ddi_room::attacks::Targeting,
+}
+
+impl CpuSeat {
+    /// CPU `participant` seated in the stage numbered `number` (from 1):
+    /// its own seed for each stage (`cpu-stage-seed-v1`), as every
+    /// device seeds it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn for_stage(
+        participant: ParticipantId,
+        ordinal: u16,
+        level: u8,
+        base_seed: u64,
+        number: usize,
+        name: Option<String>,
+        skills: Option<String>,
+        targeting: Option<ddi_room::attacks::Targeting>,
+    ) -> CpuSeat {
+        CpuSeat {
+            participant,
+            ordinal,
+            level,
+            seed: ddi_room::OpponentSpec::stage_seed(
+                base_seed,
+                u16::try_from(number).unwrap_or(u16::MAX),
+            ),
+            name,
+            skills,
+            targeting: targeting.unwrap_or_default(),
+        }
+    }
+}
+
+/// The battle a stage is played under: with attacks or without.
+pub fn battle_with(attacks: bool) -> BattlePreset {
+    if attacks {
+        BattlePreset::GaugeAttacksV0
+    } else {
+        BattlePreset::GaugeSurvivalV0
+    }
 }
 
 /// A stage to play now, handed to the shell once its countdown is over
@@ -624,6 +672,50 @@ pub struct StageRules {
     pub play_changed: bool,
 }
 
+/// What of a stage's rules a play is judged by (all but Points): where a
+/// stage's differ from its match's, its battle plan says so
+/// ([`StageRules::play_changed`]). The one comparison a member's device
+/// and an audience's make.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PlayKey {
+    difficulty: ddi_room::MatchDifficulty,
+    boos: bool,
+    attacks: bool,
+    charts: ddi_room::Charts,
+    at_once: ddi_room::AttacksAtOnce,
+}
+
+impl PlayKey {
+    fn of(r: &MatchRules) -> PlayKey {
+        PlayKey {
+            difficulty: r.difficulty,
+            boos: r.boos,
+            attacks: r.attacks(),
+            charts: r.charts,
+            at_once: r.at_once,
+        }
+    }
+
+    fn of_public(r: &PublicRules) -> PlayKey {
+        PlayKey {
+            difficulty: r.difficulty,
+            boos: r.boos,
+            attacks: r.attacks,
+            charts: r.charts,
+            at_once: r.at_once,
+        }
+    }
+}
+
+/// The rules of stage `stage` in an audience's public view: its own where
+/// they were changed (and so), else the view's.
+pub fn public_rules_of(v: &PublicView, stage: Option<StageId>) -> (&PublicRules, bool) {
+    let changed = stage
+        .and_then(|id| v.stages.iter().find(|s| s.id == id))
+        .and_then(|s| s.rules.as_ref());
+    (changed.unwrap_or(&v.rules), changed.is_some())
+}
+
 impl StageRules {
     pub fn of(rules: &MatchRules) -> StageRules {
         StageRules {
@@ -643,13 +735,26 @@ impl StageRules {
     pub fn of_stage(m: &ddi_room::Match, stage: StageId) -> StageRules {
         StageRules {
             changed: m.stage_rules_changed(stage),
-            play_changed: m.change_for(stage).is_some_and(|c| {
-                ddi_room::PlayRules {
-                    points: None,
-                    ..c.rules.clone()
-                } != m.rules.play_rules()
-            }),
+            play_changed: m.change_for(stage).is_some()
+                && PlayKey::of(&m.rules_for(stage)) != PlayKey::of(&m.rules),
             ..StageRules::of(&m.rules_for(stage))
+        }
+    }
+
+    /// Stage `stage`'s rules as an audience's public view says them: the
+    /// view's, or the stage's own where they were changed (no stage: the
+    /// view's).
+    pub fn of_public(v: &PublicView, stage: Option<StageId>) -> StageRules {
+        let (r, changed) = public_rules_of(v, stage);
+        StageRules {
+            ruleset: r.ruleset.clone(),
+            difficulty: r.difficulty,
+            boos: r.boos,
+            points: r.points,
+            charts: r.charts,
+            at_once: r.at_once,
+            changed,
+            play_changed: changed && PlayKey::of_public(r) != PlayKey::of_public(&v.rules),
         }
     }
 
@@ -847,12 +952,21 @@ pub fn run_detail(
 /// slice; a song-declared layout the library does not know is refused
 /// here rather than guessed.
 pub fn eligible(chart: &ChartEntry) -> Result<(), Unsupported> {
-    match ddi_chart::Layout::builtin(&chart.style) {
-        Some(l) if l.players == 1 && l.lanes.len() == 4 => Ok(()),
-        _ => Err(Unsupported::Layout {
+    if cpu_style(&chart.style) {
+        Ok(())
+    } else {
+        Err(Unsupported::Layout {
             style: chart.style.clone(),
-        }),
+        })
     }
+}
+
+/// Whether the CPUs play charts of style `style`: one player, four lanes.
+fn cpu_style(style: &str) -> bool {
+    matches!(
+        ddi_chart::Layout::builtin(style),
+        Some(l) if l.players == 1 && l.lanes.len() == 4
+    )
 }
 
 /// What the room shows of `song`'s `chart` before anyone loads it.
@@ -946,8 +1060,7 @@ pub struct RoomClient {
     asking: Rc<std::cell::Cell<bool>>,
     /// The live side's news for the stage played live here, while one is
     /// ([`RoomClient::take_live_news`]).
-    live_news: Vec<ddi_room::live::LiveNews>,
-    live_reader: bool,
+    live_news: LiveNewsTap,
     /// Stages prepared for live play whose Loaded waits on the room's
     /// battle plan, with the readiness revision prepared for.
     preparing: BTreeMap<StageId, (u32, LivePrep)>,
@@ -1010,9 +1123,15 @@ pub trait LiveRoom {
     /// Stage `stage`'s song time zero as this device hears and draws it,
     /// on the room's clock.
     fn song_zero_at(&self, stage: StageId) -> Option<ddi_room::Millis>;
+    /// The shell's wall clock as of the last tick (ms).
+    fn now_ms(&self) -> u64;
     /// Seconds from now until [`LiveRoom::song_zero_at`] (negative once
     /// passed), on the clock of the last tick.
-    fn song_zero_in(&self, stage: StageId) -> Option<f64>;
+    fn song_zero_in(&self, stage: StageId) -> Option<f64> {
+        let zero = self.song_zero_at(stage)?;
+        let now = self.room_ms_at(self.now_ms())?;
+        Some((zero.0 as f64 - now.0 as f64) / 1_000.0)
+    }
     /// Time passes (the shell's wall ms): its socket read and written.
     fn tick(&mut self, now_ms: u64);
     /// The frames, snapshots and refusals since the last call (asking
@@ -1103,6 +1222,48 @@ pub enum SeatEnd {
 
 /// A stage's confirmed ranking from its placements (best first, groups
 /// tied by place).
+/// A stage's decision once its placements are confirmed: its ranking
+/// ([`ranking_of`]) and whether it came before the song's end (the room
+/// in `phase`).
+pub fn decision_of(
+    phase: &Phase,
+    stage: StageId,
+    placements: &[Placement],
+) -> (Vec<Vec<Finisher>>, bool) {
+    let early = matches!(phase, Phase::SongCompletion { stage: x } if *x == stage);
+    (ranking_of(placements), early)
+}
+
+/// What a live stage played here reads of the room's live side: kept
+/// only while one is read ([`LiveNewsTap::take`]), so that it never piles
+/// up.
+#[derive(Debug, Default)]
+pub struct LiveNewsTap {
+    news: Vec<ddi_room::live::LiveNews>,
+    reading: bool,
+}
+
+impl LiveNewsTap {
+    /// News come: kept where a stage reads them.
+    pub fn extend(&mut self, news: impl IntoIterator<Item = ddi_room::live::LiveNews>) {
+        if self.reading {
+            self.news.extend(news);
+        }
+    }
+
+    /// The news since the last call; asking keeps them coming.
+    pub fn take(&mut self) -> Vec<ddi_room::live::LiveNews> {
+        self.reading = true;
+        std::mem::take(&mut self.news)
+    }
+
+    /// The stage read is over: nothing is kept.
+    pub fn stop(&mut self) {
+        self.reading = false;
+        self.news.clear();
+    }
+}
+
 pub fn ranking_of(placements: &[Placement]) -> Vec<Vec<Finisher>> {
     let mut groups: Vec<Vec<Finisher>> = Vec::new();
     let mut last: Option<u16> = None;
@@ -1164,10 +1325,8 @@ impl LiveRoom for RoomClient {
         Some(ddi_room::Millis(zero.0 + self.watch_music_ms(stage)))
     }
 
-    fn song_zero_in(&self, stage: StageId) -> Option<f64> {
-        let zero = LiveRoom::song_zero_at(self, stage)?;
-        let now = self.room_now()?;
-        Some((zero.0 as f64 - now.0 as f64) / 1_000.0)
+    fn now_ms(&self) -> u64 {
+        RoomClient::now_ms(self)
     }
 
     /// Watching with the music delayed: what is left of the ceiling once
@@ -1222,8 +1381,7 @@ impl LiveRoom for RoomClient {
     fn decision(&self, stage: StageId) -> Option<(Vec<Vec<Finisher>>, bool)> {
         let s = self.state();
         let result = s.stage(stage)?.play.as_ref()?.result.as_ref()?;
-        let early = matches!(s.phase, Phase::SongCompletion { stage: x } if x == stage);
-        Some((ranking_of(&result.placements), early))
+        Some(decision_of(&s.phase, stage, &result.placements))
     }
 
     fn live_prep(&self, stage: StageId) -> Option<LivePrep> {
@@ -1384,8 +1542,7 @@ impl RoomClient {
             details: BTreeMap::new(),
             summaries: BTreeMap::new(),
             asking: Rc::default(),
-            live_news: Vec::new(),
-            live_reader: false,
+            live_news: LiveNewsTap::default(),
             preparing: BTreeMap::new(),
             offered: BTreeSet::new(),
             live_preps: BTreeMap::new(),
@@ -2053,19 +2210,22 @@ impl RoomClient {
         if !self.is_online() || self.link_state() != LinkState::Connected || !self.chooses() {
             return;
         }
-        let Some((id, card, since)) = self.resting.clone() else {
+        let Some((id, _, since)) = &self.resting else {
             return;
         };
-        let chart_has_digest = id.chart.as_str().parse::<ddi_chart::ChartDigest>().is_ok();
-        if self.now_ms() < since + SPOTLIGHT_REST_MS || !chart_has_digest {
+        if self.now_ms() < since + SPOTLIGHT_REST_MS
+            || id.chart.as_str().parse::<ddi_chart::ChartDigest>().is_err()
+        {
             return;
         }
         let shown = self.state().spotlight.as_ref();
-        if shown.is_some_and(|s| s.content == id && s.by == self.me) {
+        if shown.is_some_and(|s| s.content == *id && s.by == self.me) {
             return;
         }
         // Once per rest: a refusal is not asked again until it moves.
-        self.resting = None;
+        let Some((id, card, _)) = self.resting.take() else {
+            return;
+        };
         let _ = self.send(Command::Spotlight {
             content: Some(id),
             card: Some(Box::new(card)),
@@ -2260,19 +2420,15 @@ impl RoomClient {
     /// (or restarted) before any of its stages was finished has none: its
     /// table would be zeros.
     pub fn unseen_results(&self) -> Option<Option<u16>> {
-        let s = self.state();
-        let m = s.current.as_ref().filter(|_| s.phase != Phase::Lobby)?;
-        let confirmed = m
-            .stages
-            .iter()
-            .filter(|st| st.play.as_ref().is_some_and(|p| p.song_ended))
-            .count();
-        let over = matches!(s.phase, Phase::MatchResults | Phase::Interrupted { .. });
+        if self.state().phase == Phase::Lobby {
+            return None;
+        }
+        let (id, confirmed, over) = self.results_count()?;
         if over && confirmed == 0 {
             return None;
         }
         let seen = match self.results_seen {
-            (Some(id), n) if id == m.id => n,
+            (Some(seen), n) if seen == id => n,
             _ => 0,
         };
         let total = confirmed + usize::from(over);
@@ -2288,17 +2444,23 @@ impl RoomClient {
 
     /// The player was shown the results there are.
     pub fn results_shown(&mut self) {
+        if let Some((id, confirmed, over)) = self.results_count() {
+            self.results_seen = (Some(id), confirmed + usize::from(over));
+        }
+    }
+
+    /// The running (or last) match's results there are: its id, its
+    /// stages whose song ended, and whether it is over.
+    fn results_count(&self) -> Option<(ddi_room::MatchId, usize, bool)> {
         let s = self.state();
-        let Some(m) = s.current.as_ref() else {
-            return;
-        };
+        let m = s.current.as_ref()?;
         let confirmed = m
             .stages
             .iter()
             .filter(|st| st.play.as_ref().is_some_and(|p| p.song_ended))
             .count();
         let over = matches!(s.phase, Phase::MatchResults | Phase::Interrupted { .. });
-        self.results_seen = (Some(m.id), confirmed + usize::from(over));
+        Some((m.id, confirmed, over))
     }
 
     /// The people who want to play now (at least one: the player).
@@ -2373,11 +2535,7 @@ impl RoomClient {
     /// play one-player charts with four lanes ([`eligible`]); an online
     /// room without them plays any.
     pub fn style_playable(&self, style: &str) -> bool {
-        (self.is_online() && !self.has_cpus())
-            || matches!(
-                ddi_chart::Layout::builtin(style),
-                Some(l) if l.players == 1 && l.lanes.len() == 4
-            )
+        (self.is_online() && !self.has_cpus()) || cpu_style(style)
     }
 
     /// The picker's pick (M7b): `song`'s `chart` becomes the song of the
@@ -2713,16 +2871,14 @@ impl RoomClient {
         if self.preparing.is_empty() || self.link_state() != LinkState::Connected {
             return;
         }
-        let pending: Vec<(StageId, u32, LivePrep)> = self
-            .preparing
-            .iter()
-            .map(|(s, (rev, prep))| (*s, *rev, prep.clone()))
-            .collect();
-        for (stage, rev, prep) in pending {
+        // Each prep read in place, taken only once it is done with.
+        let pending: Vec<StageId> = self.preparing.keys().copied().collect();
+        for stage in pending {
             // Taken meanwhile (a command's answer ran this again).
-            if !self.preparing.contains_key(&stage) {
+            let Some((rev, prep)) = self.preparing.get(&stage) else {
                 continue;
-            }
+            };
+            let (rev, ours) = (*rev, prep.plan.as_ref().map(|p| p.digest.clone()));
             let Some(st) = self.state().stage(stage) else {
                 self.preparing.remove(&stage);
                 continue;
@@ -2732,31 +2888,34 @@ impl RoomClient {
                 continue;
             }
             let room_plan = st.content.as_ref().and_then(|c| c.battle.clone());
-            let digest = match (&prep.plan, room_plan) {
+            let digest = match (ours, room_plan) {
                 (None, _) => None,
-                (Some(plan), None) => {
+                (Some(_), None) => {
                     // The picker's device offers it, once; the others
                     // wait for the room to say which it took.
-                    if self.chooses() && self.offered.insert(stage)
-                        && let Some(link) = self.online_link_mut()
-                    {
-                        link.authority
-                            .live_mut()
-                            .send(ddi_room::live::ClientLive::OfferPlan {
-                                stage,
-                                plan: Box::new(plan.clone()),
-                            });
+                    if self.chooses() && self.offered.insert(stage) {
+                        let plan = self.preparing.get(&stage).and_then(|(_, p)| p.plan.clone());
+                        if let (Some(plan), Some(link)) = (plan, self.online_link_mut()) {
+                            link.authority
+                                .live_mut()
+                                .send(ddi_room::live::ClientLive::OfferPlan {
+                                    stage,
+                                    plan: Box::new(plan),
+                                });
+                        }
                     }
                     continue;
                 }
-                (Some(plan), Some(room)) if room == plan.digest => Some(room),
+                (Some(ours), Some(room)) if room == ours => Some(room),
                 (Some(_), Some(_)) => {
                     self.preparing.remove(&stage);
                     self.finish_mismatch(stage, rev);
                     continue;
                 }
             };
-            self.preparing.remove(&stage);
+            let Some((_, prep)) = self.preparing.remove(&stage) else {
+                continue;
+            };
             if let Some(link) = self.online_link_mut() {
                 link.authority
                     .live_mut()
@@ -2855,6 +3014,7 @@ impl RoomClient {
         if stage == SPOTLIGHT {
             if let Some((_, s @ Sharing::Uploading { .. })) = &mut self.spotlight_sharing {
                 *s = Sharing::Uploading { done, total };
+                self.version += 1;
             }
             return;
         }
@@ -3202,19 +3362,16 @@ impl RoomClient {
         let cpus = field
             .iter()
             .filter_map(|id| match &s.member(*id)?.kind {
-                MemberKind::Cpu { ordinal, opponent } => Some(CpuSeat {
-                    participant: *id,
-                    ordinal: *ordinal,
-                    level: opponent.level,
-                    // Its own seed for each stage (`cpu-stage-seed-v1`).
-                    seed: ddi_room::OpponentSpec::stage_seed(
-                        opponent.seed,
-                        u16::try_from(index + 1).unwrap_or(u16::MAX),
-                    ),
-                    name: opponent.name.clone(),
-                    skills: opponent.personality.clone(),
-                    targeting: opponent.targeting.unwrap_or_default(),
-                }),
+                MemberKind::Cpu { ordinal, opponent } => Some(CpuSeat::for_stage(
+                    *id,
+                    *ordinal,
+                    opponent.level,
+                    opponent.seed,
+                    index + 1,
+                    opponent.name.clone(),
+                    opponent.personality.clone(),
+                    opponent.targeting,
+                )),
                 MemberKind::Human { .. } => None,
             })
             .collect();
@@ -3226,11 +3383,7 @@ impl RoomClient {
             chart: picked.chart,
             // What is really played: attacks only where they are
             // offered (never a rule that silently does nothing).
-            battle: if self.attacks_played(&m.rules_for(stage)) {
-                BattlePreset::GaugeAttacksV0
-            } else {
-                BattlePreset::GaugeSurvivalV0
-            },
+            battle: battle_with(self.attacks_played(&m.rules_for(stage))),
             attacks_offered: self.attacks_offered(),
             rules: StageRules::of_stage(m, stage),
             dev_mines_at_beat: development().mines_at_beat,
@@ -3380,22 +3533,11 @@ impl RoomClient {
     pub fn last_mark(&self) -> Option<StageMark> {
         let s = self.state();
         let m = s.current.as_ref().filter(|_| s.phase != Phase::Lobby)?;
-        m.stages.iter().enumerate().rev().find_map(|(i, st)| {
-            let play = st.play.as_ref()?;
-            let result = play.result.as_ref()?;
-            Some(StageMark {
-                number: u16::try_from(i + 1).unwrap_or(u16::MAX),
-                placement: *result.placement(self.me)?,
-                field: u16::try_from(play.lineup.len()).unwrap_or(u16::MAX),
-            })
-        })
+        (0..m.stages.len()).rev().find_map(|i| self.mark_at(m, i))
     }
 
-    /// The local player's result of stage `stage`, once confirmed.
-    pub fn mark_of(&self, stage: StageId) -> Option<StageMark> {
-        let s = self.state();
-        let m = s.current.as_ref()?;
-        let i = m.stage_index(stage)?;
+    /// The local player's result of `m`'s stage at `i`, once confirmed.
+    fn mark_at(&self, m: &ddi_room::state::Match, i: usize) -> Option<StageMark> {
         let play = m.stages[i].play.as_ref()?;
         let result = play.result.as_ref()?;
         Some(StageMark {
@@ -3403,6 +3545,13 @@ impl RoomClient {
             placement: *result.placement(self.me)?,
             field: u16::try_from(play.lineup.len()).unwrap_or(u16::MAX),
         })
+    }
+
+    /// The local player's result of stage `stage`, once confirmed.
+    pub fn mark_of(&self, stage: StageId) -> Option<StageMark> {
+        let s = self.state();
+        let m = s.current.as_ref()?;
+        self.mark_at(m, m.stage_index(stage)?)
     }
 
     /// Cancel the readiness window or the countdown.
@@ -3746,9 +3895,7 @@ impl RoomClient {
                 _ => None,
             })
             .collect();
-        if self.live_reader {
-            self.live_news.extend(news);
-        }
+        self.live_news.extend(news);
         for stage in mismatched {
             let rev = self.readiness_rev(stage);
             if self.state().stage(stage).is_some_and(|s| s.play.is_none()) {
@@ -3761,8 +3908,7 @@ impl RoomClient {
     /// call, for the stage played live on this device; asking for it keeps
     /// it coming ([`Self::stop_live_news`] stops it).
     pub fn take_live_news(&mut self) -> Vec<ddi_room::live::LiveNews> {
-        self.live_reader = true;
-        std::mem::take(&mut self.live_news)
+        self.live_news.take()
     }
 
     /// The local play's stream of `stage`, where this room plays live
@@ -3787,8 +3933,7 @@ impl RoomClient {
 
     /// The stage played live here is over: its news is no longer kept.
     pub fn stop_live_news(&mut self) {
-        self.live_reader = false;
-        self.live_news.clear();
+        self.live_news.stop();
     }
 
     /// Practice's content is the device's own library: every unstarted
@@ -3835,7 +3980,7 @@ impl RoomClient {
     /// available at once; the others read the room's share of it, to show
     /// its banner and play its preview before anything is picked.
     fn sync_spotlight(&mut self) {
-        let Some(spot) = self.state().spotlight.clone() else {
+        let Some(spot) = self.state().spotlight.as_ref() else {
             // The spotlight went with its picker (the pick changed hands):
             // a song rested on again is asked for again, once, and the
             // room answers with the share it kept or made meanwhile.
@@ -3853,14 +3998,15 @@ impl RoomClient {
                 .as_ref()
                 .is_some_and(|(c, _)| *c == spot.content);
             if spot.share.is_none() && !asked && self.picks.contains_key(&spot.content) {
-                self.spotlight_sharing = Some((spot.content.clone(), Sharing::Asking));
+                let content = spot.content.clone();
+                self.spotlight_sharing = Some((content, Sharing::Asking));
                 if let Some(l) = self.online_link_mut() {
                     l.request_grant(SPOTLIGHT, Revision(0));
                 }
             }
             return;
         }
-        let Some(share) = spot.share else {
+        let Some(share) = &spot.share else {
             return;
         };
         if self.picks.contains_key(&spot.content)
@@ -3868,14 +4014,9 @@ impl RoomClient {
         {
             return;
         }
-        self.spotlight_asked = Some(spot.content.clone());
-        self.jobs.push(LoadJob::from_share(
-            SPOTLIGHT,
-            0,
-            share,
-            &spot.content.chart,
-            None,
-        ));
+        let (content, share) = (spot.content.clone(), share.clone());
+        self.jobs.push(LoadJob::from_share(SPOTLIGHT, 0, share, &content.chart, None));
+        self.spotlight_asked = Some(content);
     }
 
     /// An online room's content (M5d). The picker's own pick waiting for

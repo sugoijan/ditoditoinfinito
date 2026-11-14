@@ -325,6 +325,8 @@ struct State {
     /// The run's language whatever the settings say ([`force`]).
     forced: Option<&'static Language>,
     bundles: HashMap<&'static str, Rc<Bundle>>,
+    /// Each language's chain of fallbacks ([`chain`]), made once.
+    chains: HashMap<&'static str, Rc<[&'static Language]>>,
 }
 
 thread_local! {
@@ -333,6 +335,7 @@ thread_local! {
         system: Vec::new(),
         forced: None,
         bundles: HashMap::new(),
+        chains: HashMap::new(),
     });
     /// The language a number is being formatted for ([`number::format`]).
     static FORMATTING: Cell<&'static Language> = Cell::new(&LANGUAGES[0]);
@@ -540,7 +543,13 @@ pub fn format(id: &str, args: &[(&str, Arg)]) -> UiText {
             Arg::Str(s) => fluent.set(*name, FluentValue::from(*s)),
         }
     }
-    for l in chain(language) {
+    let chain = STATE.with_borrow_mut(|s| {
+        s.chains
+            .entry(language.tag)
+            .or_insert_with(|| chain(language).into())
+            .clone()
+    });
+    for &l in chain.iter() {
         let b = bundle(l);
         let Some(pattern) = b.get_message(id).and_then(|m| m.value()) else {
             continue;

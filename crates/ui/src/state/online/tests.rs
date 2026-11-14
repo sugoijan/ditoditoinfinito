@@ -57,6 +57,34 @@ pub(crate) const INVITE: &str = "Room000001.abcdefghijABCDEFGHIJ01";
 /// The same room's watch-only link's invite.
 pub(crate) const WATCH_INVITE: &str = "Room000001.watchwatchWATCHWATCH01";
 
+/// `/me`'s answer for `name` (`dev:<name>`).
+pub(crate) fn me_of(name: &str) -> String {
+    format!(
+        r#"{{"player_id":"dev:{name}","login":"{name}","display_name":"{name}","admin":false,"expires_at_ms":1}}"#
+    )
+}
+
+/// An online state on the web over `handler`, its session checked (signed
+/// in where the handler's `/me` says so).
+pub(crate) fn signed_in(handler: Handler) -> SharedOnline {
+    let http = FakeHttp {
+        handler: Rc::new(RefCell::new(handler)),
+        log: Rc::new(RefCell::new(Vec::new())),
+        out: VecDeque::new(),
+    };
+    let online = Online::new(
+        Box::new(http),
+        OnlineConfig {
+            platform: Platform::Web,
+            site: "http://localhost:8080/".into(),
+        },
+    )
+    .shared();
+    online.borrow_mut().check();
+    online.borrow_mut().poll(0);
+    online
+}
+
 pub(crate) struct Rig {
     pub(crate) online: SharedOnline,
     pub(crate) log: Rc<RefCell<Vec<ApiRequest>>>,
@@ -443,12 +471,6 @@ pub(crate) mod room {
         PhaseKind, Role, RoomPolicy, Run,
     };
 
-    fn me_of(name: &str) -> String {
-        format!(
-            r#"{{"player_id":"dev:{name}","login":"{name}","display_name":"{name}","admin":false,"expires_at_ms":1}}"#
-        )
-    }
-
     /// `who`'s online state, its HTTP the fake room's: tickets, the
     /// summary, the invite and stages' upload grants (for operators, as
     /// the server decides them; numbered `grant-<who>-<n>`).
@@ -537,22 +559,7 @@ pub(crate) mod room {
                 _ => panic!("unexpected {req:?}"),
             }
         });
-        let http = FakeHttp {
-            handler: Rc::new(RefCell::new(handler)),
-            log: Rc::new(RefCell::new(Vec::new())),
-            out: VecDeque::new(),
-        };
-        let online = Online::new(
-            Box::new(http),
-            OnlineConfig {
-                platform: Platform::Web,
-                site: "http://localhost:8080/".into(),
-            },
-        )
-        .shared();
-        online.borrow_mut().check();
-        online.borrow_mut().poll(0);
-        online
+        signed_in(handler)
     }
 
     pub(crate) fn client(
@@ -942,6 +949,10 @@ pub(crate) mod room {
                 share: "abc12345".into(),
             })
             .unwrap();
+        // Its progress is a change, as a stage's upload's is.
+        let before = alice.version();
+        alice.upload_progress(jobs[0].stage, 1.0, 2.0);
+        assert!(alice.version() > before);
         alice.upload_finished(jobs[0].stage, Ok("abc12345".into()));
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
         assert!(alice.take_upload_jobs().is_empty());
