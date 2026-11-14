@@ -263,6 +263,17 @@ pub(super) enum Purpose {
     HitPlace = 2,
     Slip = 3,
     Jitter = 4,
+    /// The full chart (`cpu-play-v1`, `super::full`): a hold let go at a
+    /// row or at a second of its length, a roll's tap placed or left out,
+    /// a chart's mine stepped on beside a note and where, one inside a
+    /// hold kept held over.
+    Drop = 5,
+    DropFloor = 6,
+    RollTap = 7,
+    RollSlip = 8,
+    ChartMine = 9,
+    ChartMinePlace = 10,
+    HoldMine = 11,
 }
 
 /// A uniform draw in `0..1` keyed by the CPU's seed, the shock (its tick

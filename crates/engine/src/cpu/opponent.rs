@@ -1,6 +1,8 @@
 //! A CPU opponent beside a play (`docs/plans/multiplayer-prototype-progress.md`,
-//! M3): its own [`Player`] on the chart's tap-only projection ([`project`]),
-//! fed the analytical plan's seeded presses ([`Plan::script_at`]) and judged by
+//! M3): its own [`Player`] on the chart a person is given (`cpu-play-v1`,
+//! `super::full`: holds, rolls, lifts and the chart's mines played), or on
+//! its tap-only projection ([`project`], `cpu-play-v0`, at the
+//! chart-relative levels), fed the analytical plan's seeded presses ([`Plan::script_at`]) and judged by
 //! the normal judge, advanced to a judged song time as the play goes, as the
 //! best play's ghost is. Deterministic per chart, level and seed: the same
 //! three give the same presses and the same judgments at any frame rate.
@@ -10,9 +12,10 @@
 //! every chart (`cpu-levels-v1`, `super::absolute`), or the earlier
 //! strength relative to the chart with, for the weaker five, a chance of
 //! leaving notes out where the chart is demanding (`cpu-levels-v0`;
-//! `docs/plans/cpu-player.md`); it plays a
-//! tap-only copy (holds and rolls as taps, mines, lifts and fakes left
-//! out). A battle's shocks put into its play (M8b,
+//! `docs/plans/cpu-player.md`); at an absolute level it plays the
+//! chart itself ([`CpuPlay::FullV1`]), at a relative one a tap-only copy
+//! (holds and rolls as taps, mines, lifts and fakes left out). A battle's
+//! shocks put into its play (M8b,
 //! [`Opponent::receive_hazards`]) are judged by its own player as anyone's
 //! are; its script of presses still to come responds to them by its level
 //! and its skills' Evasion (`super::mines`, [`super::MINE_RESPONSE_V1`]). Its life is its
@@ -32,13 +35,16 @@ const HIT_SPREAD: f64 = 0.6;
 type RungPlan = (Vec<Press>, Vec<(f64, u8)>);
 
 /// A rung of a stage's ladder as the CPUs play it (`crate::ladder`): its
-/// plan, its tap-only copy and its notes, made once for every CPU of the
-/// stage ([`Opponent::add_rungs`]).
+/// plan, the chart as they play it ([`CpuPlay`]) and its notes, made once
+/// for every CPU of the stage ([`Opponent::add_rungs`]).
 pub struct PlannedRung {
     pub chart: usize,
     pub plan: Plan,
+    /// What the CPUs play of it, and that chart (the song itself where
+    /// they play it whole, its tap-only copy else).
+    pub play: CpuPlay,
     pub projected: Song,
-    /// Its copy's notes, `(seconds, lane)` in time order.
+    /// Its tap-like notes as played, `(seconds, lane)` in time order.
     pub notes: Vec<(f64, u8)>,
     /// A rung above the stage's chart (harder); below it otherwise.
     pub up: bool,
@@ -50,12 +56,17 @@ pub struct PlannedRung {
 /// then the harder ones (numbered so from 1, as `Ladder::rungs`); the
 /// same on every device.
 pub fn planned_ladder(song: &Song, chart: usize) -> Vec<PlannedRung> {
+    planned_ladder_for(song, chart, CPU_PLAY)
+}
+
+/// [`planned_ladder`] played as `play` (the studies' comparison).
+pub fn planned_ladder_for(song: &Song, chart: usize, play: CpuPlay) -> Vec<PlannedRung> {
     let below = crate::ladder::below(song, chart)
         .into_iter()
-        .map_while(|r| PlannedRung::new(song, r).ok());
+        .map_while(|r| PlannedRung::with_play(song, r, play).ok());
     let above = crate::ladder::above(song, chart)
         .into_iter()
-        .map_while(|r| PlannedRung::new(song, r).ok())
+        .map_while(|r| PlannedRung::with_play(song, r, play).ok())
         .map(|mut r| {
             r.up = true;
             r
@@ -76,25 +87,24 @@ impl PlannedRung {
     /// Chart `chart` of `song` planned; refused where the CPU cannot
     /// plan it.
     pub fn new(song: &Song, chart: usize) -> Result<PlannedRung, String> {
+        Self::with_play(song, chart, CPU_PLAY)
+    }
+
+    /// [`PlannedRung::new`] played as `play`.
+    pub fn with_play(song: &Song, chart: usize, play: CpuPlay) -> Result<PlannedRung, String> {
         let plan = Plan::automatic(song, chart)?;
-        let projected = plan.check_song(song, chart)?;
+        let projected = plan.check_song_for(song, chart, play)?;
         let rung = Player::new(
             &projected,
             chart,
             crate::rules::presets::ddi(),
             crate::player::PlayOptions::default(),
         );
-        let mut notes: Vec<(f64, u8)> = rung
-            .judge()
-            .notes()
-            .iter()
-            .filter(|n| n.judgeable && n.seconds.is_finite())
-            .map(|n| (n.seconds, n.note.lane))
-            .collect();
-        notes.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        let notes = tap_like(&rung);
         Ok(PlannedRung {
             chart,
             plan,
+            play,
             projected,
             notes,
             up: false,
@@ -102,8 +112,24 @@ impl PlannedRung {
     }
 }
 
+/// The tap-like notes `player` judges, `(seconds, lane)` in time order
+/// (a tap-only copy's every note).
+fn tap_like(player: &Player) -> Vec<(f64, u8)> {
+    let mut notes: Vec<(f64, u8)> = player
+        .judge()
+        .notes()
+        .iter()
+        .filter(|n| n.judgeable && n.seconds.is_finite() && n.note.kind.is_tap_like())
+        .map(|n| (n.seconds, n.note.lane))
+        .collect();
+    notes.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    notes
+}
+
 /// A CPU's play: the plan's presses on its own player.
 pub struct Opponent {
+    /// What it plays of the chart.
+    play: CpuPlay,
     player: Player,
     presses: Vec<Press>,
     next: usize,
@@ -225,8 +251,27 @@ impl Opponent {
         skills: Skills,
     ) -> Result<Opponent, String> {
         let level: Strength = level.into();
-        let projected = plan.check_song(song, chart)?;
-        let presses = plan.script_strength(level, seed, skills)?;
+        let play = CpuPlay::of(&level);
+        Self::planned_as(plan, song, chart, ruleset, (level, avoidance), seed, skills, play)
+    }
+
+    /// [`Opponent::planned`] playing `play` of the chart (the studies'
+    /// comparison of `cpu-play-v0` and `cpu-play-v1` at one level; the
+    /// full chart at an absolute level alone).
+    #[allow(clippy::too_many_arguments)]
+    pub fn planned_as(
+        plan: &Plan,
+        song: &Song,
+        chart: usize,
+        ruleset: Ruleset,
+        (level, avoidance): (impl Into<Strength>, f64),
+        seed: u64,
+        skills: Skills,
+        play: CpuPlay,
+    ) -> Result<Opponent, String> {
+        let level: Strength = level.into();
+        let projected = plan.check_song_for(song, chart, play)?;
+        let presses = plan.script_play(level, seed, skills, avoidance, play)?;
         let judge_offset = ruleset.judge.judge_offset;
         let mut player = Player::new(
             &projected,
@@ -235,15 +280,9 @@ impl Opponent {
             crate::player::PlayOptions::default(),
         );
         player.set_autoplay(true);
-        let mut notes: Vec<(f64, u8)> = player
-            .judge()
-            .notes()
-            .iter()
-            .filter(|n| n.judgeable && n.seconds.is_finite())
-            .map(|n| (n.seconds, n.note.lane))
-            .collect();
-        notes.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        let notes = tap_like(&player);
         Ok(Opponent {
+            play,
             player,
             presses,
             next: 0,
@@ -274,7 +313,12 @@ impl Opponent {
             self.home = Some((self.presses.clone(), self.notes.clone()));
         }
         for r in rungs {
-            let presses = r.plan.script_strength(self.level, self.seed, self.skills)?;
+            if r.play != self.play {
+                return Err("A rung is played otherwise than its CPU".into());
+            }
+            let presses =
+                r.plan
+                    .script_play(self.level, self.seed, self.skills, self.avoidance, self.play)?;
             if r.up {
                 self.player.add_rung_up(&r.projected, r.chart)?;
             } else {
@@ -324,9 +368,28 @@ impl Opponent {
             self.next
         };
         let mut script = self.presses[..keep].to_vec();
-        let last = script.last().map_or(f64::NEG_INFINITY, |p| p.release);
-        script.extend(presses.into_iter().filter(|p| p.press >= from && p.press > last));
-        if validate_script(&script).is_ok() {
+        if self.play == CpuPlay::TapsV0 {
+            let last = script.last().map_or(f64::NEG_INFINITY, |p| p.release);
+            script.extend(presses.into_iter().filter(|p| p.press >= from && p.press > last));
+        } else {
+            // Each lane after its last key is up (a hold of the old chart
+            // crossing the boundary is played to its end).
+            let mut up = [f64::NEG_INFINITY; 4];
+            for p in &script {
+                let r = &mut up[usize::from(p.lane) % 4];
+                *r = r.max(p.release);
+            }
+            let mut last = script.last().map_or(f64::NEG_INFINITY, |p| p.press);
+            for p in presses {
+                let r = &mut up[usize::from(p.lane) % 4];
+                if p.press >= from && p.press > *r + 0.0001 && p.press >= last {
+                    *r = p.release;
+                    last = p.press;
+                    script.push(p);
+                }
+            }
+        }
+        if self.valid(&script) {
             self.presses = script;
         } else {
             self.presses.truncate(keep);
@@ -415,6 +478,7 @@ impl Opponent {
             )
             + self.judge_offset.max(0.0);
         let jitter = mines.iter().map(|m| m.2.jitter).fold(r.jitter, f64::max);
+        let full = self.play != CpuPlay::TapsV0;
         let floor = now + jitter + 0.001;
         let keep = keep.clamp(self.next, self.presses.len());
         let mut changed: Vec<Press> = Vec::with_capacity(self.presses.len() - keep + 8);
@@ -435,7 +499,12 @@ impl Opponent {
             let press = (p.press + (2.0 * u - 1.0) * r.jitter).max(floor).max(hits_from);
             changed.push(Press {
                 press,
-                release: press + 0.012,
+                // A hold's key kept down as long (the full chart).
+                release: if full {
+                    press + (p.release - p.press)
+                } else {
+                    press + 0.012
+                },
                 lane: p.lane,
             });
         }
@@ -474,9 +543,22 @@ impl Opponent {
         });
         let mut script = self.presses[..keep].to_vec();
         script.extend(changed);
-        if validate_script(&script).is_ok() {
+        if self.valid(&script) {
             self.presses = script;
         }
+    }
+
+    /// Whether `script` is a valid script for its play.
+    fn valid(&self, script: &[Press]) -> bool {
+        match self.play {
+            CpuPlay::TapsV0 => validate_script(script).is_ok(),
+            CpuPlay::FullV1 => super::validate_full_script(script).is_ok(),
+        }
+    }
+
+    /// What it plays of the chart.
+    pub fn play(&self) -> CpuPlay {
+        self.play
     }
 
     /// Starts it with the play, from song second `song_offset` (presses
@@ -589,8 +671,9 @@ impl Opponent {
     pub fn finish(&mut self) {
         let end = self
             .presses
-            .last()
-            .map_or(f64::NEG_INFINITY, |p| p.release - self.judge_offset)
+            .iter()
+            .map(|p| p.release - self.judge_offset)
+            .fold(f64::NEG_INFINITY, f64::max)
             .max(self.player.end_time())
             + 1.0;
         self.advance(end);
@@ -738,7 +821,7 @@ mod tests {
             assert_eq!(a.player().tally(), b.player().tally(), "{level}");
             assert_eq!(a.life(), b.life(), "{level}");
             assert_eq!(a.out_at(), b.out_at(), "{level}");
-            validate_script(a.presses()).unwrap();
+            validate_any_script(a.presses()).unwrap();
         }
     }
 
@@ -790,7 +873,7 @@ mod tests {
             "{counts:?}"
         );
         assert!(counts.0 + counts.1 > 8, "{counts:?}");
-        validate_script(a.presses()).unwrap();
+        validate_any_script(a.presses()).unwrap();
         // The control: nothing changes but the shocks being there.
         let mut off = Opponent::new(&song, 1, rules(), 5, 3).unwrap();
         off.set_mine_response(MineResponse::OFF);
@@ -819,7 +902,7 @@ mod tests {
                     for s in sections(&song).iter().take(4) {
                         o.receive_hazards(&s.cells).unwrap();
                     }
-                    validate_script(o.presses()).unwrap();
+                    validate_any_script(o.presses()).unwrap();
                     o.finish();
                     o.player().hazards().unwrap().counts().0
                 })
@@ -976,7 +1059,7 @@ mod tests {
             assert_eq!(ra.tally, rb.tally, "{seed}");
             assert_eq!(ra.life, rb.life, "{seed}");
             assert_eq!(a.presses(), b.presses(), "{seed}");
-            validate_script(a.presses()).unwrap();
+            validate_any_script(a.presses()).unwrap();
             stepped += ra.steps.len();
             // Without its ladder: out where it was, as before.
             let plain = play(seed, 1.0 / 60.0, false);
@@ -1029,7 +1112,7 @@ mod tests {
             assert_eq!(ra.tally, rb.tally, "{seed}");
             assert_eq!(ra.life, rb.life, "{seed}");
             assert_eq!(a.presses(), b.presses(), "{seed}");
-            validate_script(a.presses()).unwrap();
+            validate_any_script(a.presses()).unwrap();
             for s in ra.steps.iter().filter(|s| s.up) {
                 assert_eq!(ladder.chart(s.rung), Some(s.chart));
                 assert!(ladder.level(s.rung) > ladder.level(s.from));

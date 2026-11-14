@@ -113,6 +113,11 @@ pub struct AbsoluteModel {
     /// as wide (a press now and then far off, as people's are).
     pub tail_share: f64,
     pub tail_width: f64,
+    /// What a row played while holds or rolls are down asks more
+    /// (`cpu-play-v1`, the full chart): its speed demand times `1 +
+    /// held_load` for each lane held ([`RowDemand::held`]). A tap-only
+    /// copy (`cpu-play-v0`) holds nothing, so it never counts there.
+    pub held_load: f64,
 }
 
 /// `cpu-model-v1`'s shape (PROVISIONAL): the spread flat up to 0.85 of a
@@ -139,6 +144,7 @@ pub const ABSOLUTE_V1: AbsoluteModel = AbsoluteModel {
     most_lapse: 0.95,
     tail_share: 0.12,
     tail_width: 2.5,
+    held_load: 0.25,
 };
 
 /// What a row asks of a CPU, read from the chart in real units.
@@ -158,6 +164,10 @@ pub struct RowDemand {
     pub irregular: f64,
     /// Its notes.
     pub count: u8,
+    /// The lanes held down (holds and rolls begun before it and lasting
+    /// past it) while it is played: 0 on a tap-only copy
+    /// (`cpu-play-v0`), counted on the full chart (`cpu-play-v1`).
+    pub held: u8,
 }
 
 /// Each row's demand (`rows` in time order).
@@ -216,6 +226,7 @@ pub(super) fn row_demands(rows: &[Row], m: &AbsoluteModel) -> Vec<RowDemand> {
             lane,
             irregular,
             count: row.mask.count_ones() as u8,
+            held: 0,
         });
         near += row.mask.count_ones();
         long += row.mask.count_ones();
@@ -228,6 +239,22 @@ pub(super) fn row_demands(rows: &[Row], m: &AbsoluteModel) -> Vec<RowDemand> {
 /// (milliseconds) and the chance it leaves a note out.
 pub fn respond(a: &Ability, skills: &Skills, d: &RowDemand, m: &AbsoluteModel) -> (f64, f64) {
     let v = skills.values();
+    let (load, lanes) = loads(a, skills, d, m);
+    let over = |x: f64| if x > 0.0 { x } else { 0.0 };
+    let rhythm = 1.0 + m.technical * d.irregular / v[6];
+    let spread =
+        (a.spread_ms * (1.0 + m.widen * over(load - m.onset)) * rhythm).min(m.most_spread_ms);
+    let x = over(load.max(lanes) - m.onset);
+    let lapse = (a.floor + m.lapse_linear * x + m.lapse_square * x * x).min(m.most_lapse);
+    (spread, lapse)
+}
+
+/// What a row asking `d` is to a CPU of `a` with `skills`: its load
+/// (its speed demand over its speed limit, more where holds are down,
+/// plus its fatigue past its sustained limit) and its lane load (its
+/// busiest lane over its lane limit); from 0.85 of either it degrades.
+pub fn loads(a: &Ability, skills: &Skills, d: &RowDemand, m: &AbsoluteModel) -> (f64, f64) {
+    let v = skills.values();
     let axis = match d.count {
         0 | 1 => v[0],
         2 => v[1],
@@ -237,19 +264,19 @@ pub fn respond(a: &Ability, skills: &Skills, d: &RowDemand, m: &AbsoluteModel) -
     let stamina = a.speed * m.stamina_share * v[3];
     let jack = a.speed * m.jack_share * if d.count <= 1 { v[4] } else { v[5] };
     let over = |x: f64| if x > 0.0 { x } else { 0.0 };
-    let load = d.speed / speed + m.fatigue * over(d.sustain / stamina - 1.0);
-    let lanes = d.lane / jack;
-    let rhythm = 1.0 + m.technical * d.irregular / v[6];
-    let spread =
-        (a.spread_ms * (1.0 + m.widen * over(load - m.onset)) * rhythm).min(m.most_spread_ms);
-    let x = over(load.max(lanes) - m.onset);
-    let lapse = (a.floor + m.lapse_linear * x + m.lapse_square * x * x).min(m.most_lapse);
-    (spread, lapse)
+    // Nothing held (every tap-only copy's row): the speed as it was.
+    let asked = if d.held == 0 {
+        d.speed
+    } else {
+        d.speed * (1.0 + m.held_load * f64::from(d.held))
+    };
+    let load = asked / speed + m.fatigue * over(d.sustain / stamina - 1.0);
+    (load, d.lane / jack)
 }
 
 /// The timing law at a spread of `tenths` tenths of a millisecond: the
 /// model's mixture on the plan's grid, the omitted component last.
-fn law(tenths: u32, m: &AbsoluteModel) -> [f64; 91] {
+pub(super) fn law(tenths: u32, m: &AbsoluteModel) -> [f64; 91] {
     let width = f64::from(tenths) / 10.0;
     let near = super::automatic::gaussian(width);
     let far = super::automatic::gaussian(width * m.tail_width);
@@ -364,6 +391,7 @@ mod tests {
                     lane: 0.0,
                     irregular: 0.0,
                     count: 1,
+                    held: 0,
                 },
                 &m,
             )
@@ -388,6 +416,7 @@ mod tests {
             lane: 0.0,
             irregular: 0.0,
             count: 1,
+            held: 0,
         };
         assert!(respond(&a, &streamer, &d, &m).1 < respond(&a, &s, &d, &m).1);
         // A jack over its lane limit misses where the speed alone would not.
@@ -397,6 +426,7 @@ mod tests {
             lane: 6.0,
             irregular: 0.0,
             count: 1,
+            held: 0,
         };
         assert!(respond(&a, &s, &jack, &m).1 > 0.01);
         let jacker = Skills::new([1.0, 1.0, 1.0, 1.0, 2.0, 1.0, 1.0]).unwrap();

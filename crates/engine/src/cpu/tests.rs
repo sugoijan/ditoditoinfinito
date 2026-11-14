@@ -562,24 +562,43 @@ fn absolute_levels_are_monotone_in_level_and_in_the_chart() {
             }
         }
         for (k, pair) in table.windows(2).enumerate() {
-            // Charts of one meter may be close either way.
+            // Charts of one meter may be close either way, and so may a
+            // harder chart with more holds: kept, they are easy points
+            // (DDI's hold units), a tap-only copy has none
+            // (`cpu-play-v1`: Beatucada's Easy, 34 holds, plays a little
+            // above its Beginner, none, at the weakest levels).
             let (a, b) = (&song.charts[singles[k]], &song.charts[singles[k + 1]]);
-            let tolerance = if a.meter == b.meter { 6.0 } else { 2.0 };
+            let holds = |i: usize| {
+                Plan::automatic(&song, i)
+                    .ok()
+                    .and_then(|p| p.full().map(|f| f.counts().0 + f.counts().1))
+                    .unwrap_or(0)
+            };
+            let tolerance = if a.meter == b.meter || holds(singles[k + 1]) > holds(singles[k]) {
+                6.0
+            } else {
+                2.0
+            };
             for l in 0..LEVELS {
                 assert!(
                     pair[1][l] <= pair[0][l] + tolerance,
-                    "level {}: a harder chart {} above {}",
+                    "{}: level {}: a harder chart ({:?} {}) {} above {} ({:?} {})",
+                    song.title,
                     l + 1,
+                    b.difficulty,
+                    b.meter,
                     pair[1][l],
-                    pair[0][l]
+                    pair[0][l],
+                    a.difficulty,
+                    a.meter,
                 );
             }
         }
         // The song's easiest and hardest: level 5 at home on the easiest,
         // level 1 far below level 10 on the hardest.
         let (easy, hard) = (&table[0], &table[table.len() - 1]);
-        assert!(easy[4] > 95.0, "{easy:?}");
-        assert!(hard[9] - hard[0] > 40.0, "{hard:?}");
+        assert!(easy[4] > 95.0, "{}: {easy:?}", song.title);
+        assert!(hard[9] - hard[0] > 40.0, "{}: {hard:?}", song.title);
     }
     assert!(charts >= 12, "{charts}");
 }

@@ -706,14 +706,12 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 || layout.lanes.len() != 4
                 || config.options.transform != Default::default()
                 || config.options.clock.rate != 1.0
-                || chart
-                    .notes
-                    .iter()
-                    .any(|n| n.kind != ddi_chart::NoteKind::Tap)
             {
-                return Err("CPU requires an untransformed tap-only 4K chart at 1×".into());
+                return Err("CPU requires an untransformed 4K chart at 1×".into());
             }
-            ddi_engine::cpu::validate_script(config.cpu.as_ref().unwrap())?;
+            // A tap-only copy's presses (`cpu-play-v0`), or the chart's
+            // own (`cpu-play-v1`: holds kept, rolls re-tapped, lifts).
+            ddi_engine::cpu::validate_any_script(config.cpu.as_ref().unwrap())?;
         }
         let staging = config.staging.clone().filter(|_| config.replay.is_none());
         // (A watched stage has no play of the viewer's own to autoplay.)

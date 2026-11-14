@@ -503,7 +503,13 @@ impl Play {
                 automatic = ddi_engine::cpu::Plan::automatic(&loaded.song, request.chart)?;
                 &automatic
             };
-            let mut projected = profile.check_song(&loaded.song, request.chart)?;
+            // The chart itself at a level, its tap-only copy at a named
+            // strength or from a prepared profile.
+            let mut projected = profile.check_song_for(
+                &loaded.song,
+                request.chart,
+                ddi_engine::cpu::solo_play(profile, cpu.absolute),
+            )?;
             let mut script =
                 ddi_engine::cpu::solo_script(profile, cpu.level, cpu.absolute, cpu.seed, cpu.skills)?;
             for p in &mut script {

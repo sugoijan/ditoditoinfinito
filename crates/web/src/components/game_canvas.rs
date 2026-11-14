@@ -3881,8 +3881,10 @@ fn load(ctx: &Context<GameCanvas>, id: String, chart: usize, settings: Settings)
                     ddi_engine::cpu::Plan::automatic(&loaded.song, chart)
                         .map_err(LoadError::from)?
                 };
+                // The chart itself at a level, its tap-only copy at a
+                // named strength or from a prepared profile.
                 loaded.song = profile
-                    .check_song(&loaded.song, chart)
+                    .check_song_for(&loaded.song, chart, cpu.play(&profile))
                     .map_err(LoadError::from)?;
                 Some(Rc::new(profile))
             } else {

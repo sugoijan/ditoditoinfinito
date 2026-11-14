@@ -10,12 +10,14 @@ use std::collections::BTreeMap;
 mod absolute;
 mod automatic;
 mod basis;
+mod full;
 mod levels;
 mod mines;
 mod opponent;
 mod personality;
-pub use absolute::{ABSOLUTE_V1, Ability, AbsoluteModel, RowDemand};
+pub use absolute::{ABSOLUTE_V1, Ability, AbsoluteModel, RowDemand, loads};
 pub use automatic::{Automatic, Plan};
+pub use full::{CPU_PLAY, CpuPlay, FullPlan, HOLD_MODEL_V1, HoldModel, validate_full_script};
 pub use levels::{
     AbilityTable, CPU_LEVELS, CPU_LEVELS_V0, CPU_LEVELS_V1, LEVELS, Level, LevelScale, LevelTable,
     Strength,
@@ -23,7 +25,7 @@ pub use levels::{
 pub use mines::{
     MINE_RESPONSE_V0, MINE_RESPONSE_V1, MineModel, MineResponse, MineResponseTable, ShockContext,
 };
-pub use opponent::{Opponent, PlannedRung, planned_charts, planned_ladder};
+pub use opponent::{Opponent, PlannedRung, planned_charts, planned_ladder, planned_ladder_for};
 pub use personality::{PATTERN_AXES, PRESET_NAMES, SKILL_NAMES, Skills};
 
 pub const MAX_ROWS: usize = 4096;
@@ -329,9 +331,31 @@ pub fn solo_script(
             let at = CPU_LEVELS_V1
                 .level(level)
                 .ok_or_else(|| format!("CPU level: 1 to {LEVELS}"))?;
-            plan.script_strength(Strength::Absolute(at), seed, skills)
+            plan.script_play(
+                Strength::Absolute(at),
+                seed,
+                skills,
+                MINE_RESPONSE_V0.avoidance(level),
+                solo_play(plan, absolute),
+            )
         }
     }
+}
+
+/// What the solo CPU plays: at a level of the absolute scale on an
+/// automatic plan, the chart itself ([`CPU_PLAY`]); at a named strength
+/// or from a prepared profile, the tap-only copy, as before.
+pub fn solo_play(plan: &Plan, absolute: Option<usize>) -> CpuPlay {
+    match (plan, absolute) {
+        (Plan::Automatic(_), Some(_)) => CPU_PLAY,
+        _ => CpuPlay::TapsV0,
+    }
+}
+
+/// Check a CPU's presses, whichever its play ([`validate_script`] for a
+/// tap-only copy's, [`validate_full_script`] for the chart's own).
+pub fn validate_any_script(presses: &[Press]) -> Result<(), String> {
+    validate_script(presses).or_else(|_| validate_full_script(presses))
 }
 
 /// A web play's explicit, non-sticky CPU selection. `1` prepares an analytical
@@ -402,6 +426,11 @@ impl Selection {
     /// Its presses on `plan` ([`solo_script`]).
     pub fn script(&self, plan: &Plan) -> Result<Vec<Press>, String> {
         solo_script(plan, self.level, self.absolute, self.seed, self.skills)
+    }
+
+    /// What it plays of the chart ([`solo_play`]).
+    pub fn play(&self, plan: &Plan) -> CpuPlay {
+        solo_play(plan, self.absolute)
     }
 
     pub fn with_skills(mut self, value: &str) -> Result<Self, String> {

@@ -2,6 +2,7 @@
 //! the learned MSD-conditioned checkpoints. The frequency recipe, timing grid,
 //! 9–80 ms width bounds and input motor come from the research baseline.
 use super::absolute::{self, RowDemand};
+use super::full::{self, CpuPlay, FullPlan};
 use super::*;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -87,6 +88,70 @@ impl Plan {
         }
     }
 
+    /// Chart `index` of `song` as a CPU playing `play` is given it: the
+    /// tap-only copy ([`Plan::check_song`]) or the chart itself, checked
+    /// to be this plan's (an automatic plan's alone).
+    pub fn check_song_for(&self, song: &Song, index: usize, play: CpuPlay) -> Result<Song, String> {
+        match play {
+            CpuPlay::TapsV0 => self.check_song(song, index),
+            CpuPlay::FullV1 => {
+                let Self::Automatic(p) = self else {
+                    return Err("The full chart needs an automatic CPU plan".into());
+                };
+                if index >= song.charts.len() || song.chart_digest(index) != p.digest {
+                    return Err("CPU plan belongs to a different chart".into());
+                }
+                if p.full.is_none() {
+                    return Err("CPU cannot play this chart whole".into());
+                }
+                Ok(song.clone())
+            }
+        }
+    }
+
+    /// The presses of a play at `strength` of `play`: the tap-only copy
+    /// as [`Plan::script_strength`] plans it, or the chart itself
+    /// (`cpu-play-v1`, an absolute level's alone), its mines met with
+    /// the response of `avoidance` (`0..=1`, the level's,
+    /// [`MINE_RESPONSE_V0`]`.avoidance`).
+    pub fn script_play(
+        &self,
+        strength: Strength,
+        seed: u64,
+        skills: Skills,
+        avoidance: f64,
+        play: CpuPlay,
+    ) -> Result<Vec<Press>, String> {
+        match (play, strength) {
+            (CpuPlay::TapsV0, _) => self.script_strength(strength, seed, skills),
+            (CpuPlay::FullV1, Strength::Absolute(ability)) => match self {
+                Self::Automatic(p) => {
+                    let plan = p.full.as_deref().ok_or("CPU cannot play this chart whole")?;
+                    full::script(
+                        plan,
+                        ability,
+                        seed,
+                        skills,
+                        MINE_RESPONSE_V1.table.response(avoidance),
+                    )
+                }
+                Self::Prepared(_) => Err("The full chart needs an automatic CPU plan".into()),
+            },
+            (CpuPlay::FullV1, Strength::Relative(_)) => {
+                Err("The full chart is played at an absolute level".into())
+            }
+        }
+    }
+
+    /// The chart itself as a CPU plays it (an automatic plan's), for
+    /// studies.
+    pub fn full(&self) -> Option<&FullPlan> {
+        match self {
+            Self::Prepared(_) => None,
+            Self::Automatic(p) => p.full.as_deref(),
+        }
+    }
+
     /// Each row's demand in real units (an automatic plan's; none for a
     /// prepared profile), for studies.
     pub fn demands(&self) -> &[RowDemand] {
@@ -117,6 +182,9 @@ pub struct Automatic {
     demand: Vec<[f64; 7]>,
     /// Each row's demand in real units (`cpu-levels-v1`).
     absolute: Vec<RowDemand>,
+    /// The chart itself as a CPU plays it (`cpu-play-v1`, `super::full`);
+    /// none where it cannot be played whole.
+    full: Option<Box<FullPlan>>,
 }
 
 fn chart_rows(song: &Song, index: usize) -> Result<Vec<Row>, String> {
@@ -192,6 +260,7 @@ impl Automatic {
         let bad = STRENGTHS.map(|s| gaussian((width / s).clamp(9., 80.)));
         let demand = personality::demands(&rows);
         let absolute = absolute::row_demands(&rows, &absolute::ABSOLUTE_V1);
+        let full = FullPlan::new(song, index).ok().map(Box::new);
         Ok(Self {
             digest: song.chart_digest(index),
             rows,
@@ -201,6 +270,7 @@ impl Automatic {
             width,
             demand,
             absolute,
+            full,
         })
     }
 
