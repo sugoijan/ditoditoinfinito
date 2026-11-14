@@ -1421,11 +1421,21 @@ pub struct Development {
     /// stage from this beat on (desktop's `--mp-dev-mines BEAT`, the
     /// web's `mpdevmines=BEAT`; `ddi_engine::battle`).
     pub mines_at_beat: Option<u32>,
+    /// DEVELOPMENT ONLY: the CPUs of the next practice room beyond the
+    /// cap (0: an ordinary one; desktop's `--mp-dev-cpus N`, the web's
+    /// `mpcpus=N`; [`practice_room`], `RoomClient::development`;
+    /// `docs/plans/multiplayer-prototype-progress.md`, M6b).
+    pub cpus: u16,
 }
 
 thread_local! {
-    static DEVELOPMENT: std::cell::Cell<Development> =
-        const { std::cell::Cell::new(Development { attacks: None, mines_at_beat: None }) };
+    static DEVELOPMENT: std::cell::Cell<Development> = const {
+        std::cell::Cell::new(Development {
+            attacks: None,
+            mines_at_beat: None,
+            cpus: 0,
+        })
+    };
 }
 
 /// Sets the practice rooms' switches (the next practice room on; a
@@ -1437,6 +1447,17 @@ pub fn set_development(d: Development) {
 /// The development switches set ([`set_development`]).
 pub fn development() -> Development {
     DEVELOPMENT.get()
+}
+
+/// A new practice room as the shells make it, at `now_ms` (ms since the
+/// epoch, its seed too): [`RoomClient::shared`]'s, or where the
+/// development switch asks for CPUs beyond the cap
+/// ([`Development::cpus`]) [`RoomClient::development`]'s.
+pub fn practice_room(now_ms: u64) -> SharedRoom {
+    match development().cpus {
+        0 => RoomClient::shared(now_ms, now_ms),
+        cpus => Rc::new(RefCell::new(RoomClient::development(now_ms, now_ms, cpus))),
+    }
 }
 
 /// Practice's rules for a common CPU profile `opponent`: `MatchRules::practice`
@@ -4123,6 +4144,19 @@ mod tests {
         // Never beyond the development cap.
         let most = RoomClient::development(0, 7, 1000);
         assert_eq!(cpus(&most), 128);
+        // The shells' maker: an ordinary practice room, or the development
+        // switch's beyond the cap (the thread's switches put back after).
+        let before = development();
+        set_development(Development { cpus: 0, ..before });
+        assert_eq!(practice_room(5).borrow().max_cpus(), 72);
+        set_development(Development { cpus: 64, ..before });
+        let dev = practice_room(5);
+        assert_eq!(cpus(&dev.borrow()), 64);
+        assert_eq!(
+            dev.borrow().rules().awards,
+            ddi_room::AwardScheme::DevelopmentV0
+        );
+        set_development(before);
     }
 
     /// Every song asked for prepared, as a shell does.

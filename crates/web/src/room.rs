@@ -21,8 +21,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_ui::state::room::{
-    LivePrep, LoadJob, LoadProblem, Picked, RoomClient, SharedRoom, StageOrder, UploadJob,
-    picked_of, prepare_stage,
+    LivePrep, LoadJob, LoadProblem, Picked, SharedRoom, StageOrder, UploadJob, picked_of,
+    prepare_stage,
 };
 
 use crate::router::Route;
@@ -35,10 +35,6 @@ struct Playing {
 }
 
 thread_local! {
-    /// DEVELOPMENT ONLY: the CPUs of the next practice room beyond the cap
-    /// (0: an ordinary one), the web's `mpcpus=N`
-    /// (`docs/plans/multiplayer-prototype-progress.md`, M6b).
-    static DEVELOPMENT_CPUS: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
     static ROOM: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
     /// The stage handed to the play route.
     static PLAYING: RefCell<Option<Playing>> = const { RefCell::new(None) };
@@ -279,15 +275,7 @@ fn now_ms() -> u64 {
 pub(crate) fn current() -> SharedRoom {
     let room = ROOM.with(|r| {
         r.borrow_mut()
-            .get_or_insert_with(|| {
-                let now = now_ms();
-                match DEVELOPMENT_CPUS.get() {
-                    0 => RoomClient::shared(now, now),
-                    cpus => std::rc::Rc::new(std::cell::RefCell::new(RoomClient::development(
-                        now, now, cpus,
-                    ))),
-                }
-            })
+            .get_or_insert_with(|| ddi_ui::state::room::practice_room(now_ms()))
             .clone()
     });
     // The player's own row: their signed-in name where they are (not
@@ -302,7 +290,10 @@ pub(crate) fn current() -> SharedRoom {
 /// the next practice room on (the one there is left): for trying the
 /// miniature fields with far more opponents. Never from a menu.
 pub(crate) fn develop(cpus: u16) {
-    DEVELOPMENT_CPUS.set(cpus);
+    ddi_ui::state::room::set_development(ddi_ui::state::room::Development {
+        cpus,
+        ..ddi_ui::state::room::development()
+    });
     discard();
 }
 

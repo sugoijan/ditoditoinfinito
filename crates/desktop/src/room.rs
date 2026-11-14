@@ -30,7 +30,7 @@ use ddi_ui::state::online::Redirect;
 use ddi_ui::state::place::MenuPlace;
 use ddi_ui::state::settings::Settings;
 use ddi_ui::state::room::{
-    Inbox, LivePrep, LoadJob, LoadProblem, RoomClient, SharedRoom, ShellNews, UploadJob, picked_of,
+    Inbox, LivePrep, LoadJob, LoadProblem, SharedRoom, ShellNews, UploadJob, picked_of,
     prepare_stage,
 };
 
@@ -38,10 +38,6 @@ use crate::preview::SharedPlayer;
 use crate::songs::Songs;
 
 thread_local! {
-    /// DEVELOPMENT ONLY: the CPUs of the next practice room beyond the cap
-    /// (0: an ordinary one), desktop's `--mp-dev-cpus N`
-    /// (`docs/plans/multiplayer-prototype-progress.md`, M6b).
-    static DEVELOPMENT_CPUS: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
     static ROOM: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
     /// The room of the stage handed to the play host last.
     static PLAYING: RefCell<Option<SharedRoom>> = const { RefCell::new(None) };
@@ -362,15 +358,7 @@ pub fn left_stage(stage: StageId) -> bool {
 pub fn current() -> SharedRoom {
     let room = ROOM.with(|r| {
         r.borrow_mut()
-            .get_or_insert_with(|| {
-                let now = crate::clock::now_ms();
-                match DEVELOPMENT_CPUS.get() {
-                    0 => RoomClient::shared(now, now),
-                    cpus => std::rc::Rc::new(std::cell::RefCell::new(RoomClient::development(
-                        now, now, cpus,
-                    ))),
-                }
-            })
+            .get_or_insert_with(|| ddi_ui::state::room::practice_room(crate::clock::now_ms()))
             .clone()
     });
     // The player's own row: their signed-in name where they are (not
@@ -385,7 +373,10 @@ pub fn current() -> SharedRoom {
 /// the next practice room on (the one there is left): for trying the
 /// miniature fields with far more opponents. Never from a menu.
 pub fn develop(cpus: u16) {
-    DEVELOPMENT_CPUS.set(cpus);
+    ddi_ui::state::room::set_development(ddi_ui::state::room::Development {
+        cpus,
+        ..ddi_ui::state::room::development()
+    });
     discard();
 }
 
