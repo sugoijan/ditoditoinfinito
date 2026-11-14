@@ -77,6 +77,8 @@ pub(super) struct PromptRoom {
     gone: Cell<Option<f32>>,
     /// The players' column's first row.
     first: Cell<usize>,
+    /// Its rows and those shown when last laid out.
+    rows_shown: Cell<(usize, usize)>,
     /// The UI's clock at the last update.
     time: Cell<f64>,
     /// The game is quitting once the room has answered the player's
@@ -98,6 +100,7 @@ impl PromptScreen {
             seen: Cell::new(None),
             gone: Cell::new(None),
             first: Cell::new(0),
+            rows_shown: Cell::new((0, 0)),
             time: Cell::new(0.0),
             quit_at: Cell::new(None),
         });
@@ -266,15 +269,16 @@ impl PromptScreen {
     }
 
     /// The players beside the diagram, from `[x, y]`, `w` wide, at most
-    /// `h` tall (at least four rows): name and readiness, the local
-    /// player's first; marks for the rows hidden above and below.
+    /// `h` tall (at least four rows): name and readiness, in the room's
+    /// order (`room::panel_order`), the local player's line always in
+    /// view (`room::window_keeping`, as the Standings pop-up has it);
+    /// marks for the rows hidden above and below.
     pub(super) fn room_list(&self, [x, y, w, h]: [f32; 4]) -> (Vec<Actor>, f32) {
         let Some(rm) = &self.room else {
             return (Vec::new(), 0.0);
         };
         let env = &self.env;
-        let mut rows = room::player_rows(&rm.room.borrow());
-        rows.sort_by_key(|p| !p.me);
+        let rows = room::panel_order(room::player_rows(&rm.room.borrow()));
         let fit = ((h.max(4.0 * LIST_ROW + 18.0) - 18.0) / LIST_ROW)
             .floor()
             .max(1.0) as usize;
@@ -286,6 +290,9 @@ impl PromptScreen {
         };
         let first = rm.first.get().min(rows.len().saturating_sub(shown));
         rm.first.set(first);
+        rm.rows_shown.set((rows.len(), shown));
+        let me_at = rows.iter().position(|p| p.me);
+        let window = room::window_keeping(rows.len(), first, shown, me_at);
         let mut out = Vec::new();
         let head = look::tracked(
             env.text("Room.Players", &msg::room::players(), 11.0, 600, "Faint"),
@@ -306,7 +313,8 @@ impl PromptScreen {
             y + 6.0,
         ));
         let mut ry = y + 18.0;
-        for (k, p) in rows.iter().enumerate().skip(first).take(shown) {
+        for &k in &window {
+            let p = &rows[k];
             let mid = ry + LIST_ROW / 2.0;
             let color = if p.me { "Text" } else { "Secondary" };
             // A CPU: its level's stars in the state's place.
@@ -512,9 +520,9 @@ impl PromptScreen {
         let Some(rm) = &self.room else {
             return false;
         };
-        let n = room::player_rows(&rm.room.borrow()).len();
-        let first = (rm.first.get() as i64 + i64::from(by)).clamp(0, n as i64) as usize;
-        rm.first.set(first);
+        // Within the column as last laid out (its rows counted then).
+        let (n, shown) = rm.rows_shown.get();
+        rm.first.set(crate::screens::scrolled(rm.first.get(), by, n, shown));
         self.rebuild(root, cx);
         true
     }

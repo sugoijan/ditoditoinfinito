@@ -1543,6 +1543,69 @@ fn a_room_of_seventy_three_keeps_the_player_in_view_in_its_lists() {
     assert_eq!(said(&h, &format!("Name{mine}")), "You");
 }
 
+/// The prompt's players are in the room's order (by place once a stage
+/// is confirmed), as the panel and the Standings have them, the local
+/// player's line kept in view however far the column is scrolled
+/// (2026-11-14: one ordering everywhere, never the player moved first).
+#[test]
+fn the_prompts_players_keep_the_rooms_order_and_the_player_in_view() {
+    use ddi_room::{Finish, Finisher};
+    let prompt = |room: &SharedRoom, h: &mut Harness| {
+        let s = &library("dance-single").songs[0];
+        room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+        let order = room.borrow_mut().take_stage_order().unwrap();
+        let state = Rc::new(RefCell::new(PromptState::default()));
+        h.push(
+            PromptScreen::new(env(), state, Rc::new(|_, _| {}))
+                .with_room(room.clone(), order.stage, shell(room, &Orders::default())),
+        );
+        h.run(0.5);
+        order
+    };
+    // A room of four, the player last of stage 1: last in stage 2's list.
+    let room: SharedRoom = Rc::new(RefCell::new(RoomClient::new(0, 1)));
+    let rules = ddi_room::MatchRules {
+        stages: 2,
+        ..room.borrow().rules().clone()
+    };
+    room.borrow_mut().save_rules(rules).unwrap();
+    let mut h = harness();
+    let order = prompt(&room, &mut h);
+    room.borrow_mut().set_ready(true).unwrap();
+    room.borrow_mut().tick(4_000);
+    let mut ids: Vec<_> = order.cpus.iter().map(|c| c.participant).collect();
+    ids.push(order.me);
+    let ranking = ids
+        .into_iter()
+        .map(|participant| vec![Finisher { participant, finish: Finish::Survived }])
+        .collect();
+    room.borrow_mut().report_stage(order.stage, ranking, true).unwrap();
+    let mut h = harness();
+    prompt(&room, &mut h);
+    assert_eq!(said(&h, "Room.Player3"), "You", "{:?}", h.texts());
+    let first = order.cpus[0].name.clone().unwrap();
+    assert_eq!(said(&h, "Room.Player0"), first);
+    // A room of 21, scrolled to its end: the player's line still shown.
+    let room: SharedRoom = Rc::new(RefCell::new(RoomClient::new(0, 1)));
+    let roster = crate::state::cpu_roster::at_level(&[], 4, 20, 3);
+    let rules = crate::state::cpu_roster::with_roster(room.borrow().rules().clone(), roster, 1);
+    room.borrow_mut().save_rules(rules).unwrap();
+    let mut h = harness();
+    prompt(&room, &mut h);
+    let shown = |h: &Harness| (0..21).filter(|k| there(h, &format!("Room.Player{k}"))).count();
+    let before = shown(&h);
+    assert!(before < 21, "{before}");
+    for _ in 0..30 {
+        let at = h.centre("Room.Players");
+        h.wheel(at, [0.0, 40.0], crate::event::WheelSource::Pixels);
+        h.run(0.05);
+    }
+    assert!(there(&h, "Room.Player20"), "scrolled to the end");
+    assert_eq!(shown(&h), before);
+    let mine = (0..21).find(|k| there(&h, &format!("Room.Player{k}"))).unwrap();
+    assert_eq!(said(&h, &format!("Room.Player{mine}")), "You");
+}
+
 /// What the text actor named `name` says.
 fn said(h: &Harness, name: &str) -> String {
     match &h.actor(name).kind {
