@@ -2099,11 +2099,7 @@ impl GameCanvas {
         else {
             return;
         };
-        if !self.settings.ghost
-            || self.replay.is_some()
-            || ctx.props().edit
-            || ctx.props().cpu.is_some()
-        {
+        if !self.settings.ghost || !self.purpose(ctx).has_ghost() {
             return;
         }
         let best =
@@ -2115,6 +2111,19 @@ impl GameCanvas {
             crate::history::entry(&b.score_play, move |e| {
                 link.send_message(Msg::GhostLoaded(e))
             });
+        }
+    }
+
+    /// What the play is for: what it keeps, ghosts and tells.
+    fn purpose(&self, ctx: &Context<Self>) -> ddi_session::play::Purpose {
+        let props = ctx.props();
+        ddi_session::play::Purpose {
+            replay: self.replay.is_some(),
+            calibration: matches!(props.source, SongSource::Calibration(_)),
+            playtest: props.edit,
+            scene: self.scene.is_some(),
+            cpu: props.cpu.is_some(),
+            stage: props.room_stage.is_some(),
         }
     }
 
@@ -2182,9 +2191,7 @@ impl GameCanvas {
         };
         config.session.seed = self.play_seed;
         if let Some(cpu) = &ctx.props().cpu {
-            config.session.seed = cpu.seed;
-            config.session.options.transform = Default::default();
-            config.session.options.clock.rate = 1.;
+            config.session.for_cpu(cpu.seed);
         }
         let watched = ctx.props().watch.is_some();
         config.session.opponents = ctx.props().room_stage.as_deref().map(|order| {
@@ -2404,12 +2411,8 @@ impl GameCanvas {
         config.session.restart = restart;
         let shift = self.shift(ctx);
         // The best play's ghost beside it, lined up by the song offsets.
-        if self.settings.ghost
-            && self.replay.is_none()
-            && self.scene.is_none()
-            && ctx.props().cpu.is_none()
-            && ctx.props().room_stage.is_none()
-        {
+        let purpose = self.purpose(ctx);
+        if self.settings.ghost && purpose.has_ghost() {
             config.session.ghost = self.ghost.clone().map(|g| {
                 g.for_play(shift)
                     .showing_percent(self.settings.ddi_percent())
@@ -2418,11 +2421,7 @@ impl GameCanvas {
         // What the history says of the chart before this play, for the
         // announcer's first clear and new record (a play that is kept).
         if let SongSource::Song { chart, .. } = &ctx.props().source
-            && self.replay.is_none()
-            && !ctx.props().edit
-            && self.scene.is_none()
-            && ctx.props().cpu.is_none()
-            && ctx.props().room_stage.is_none()
+            && purpose.has_prior()
         {
             config.session.prior = Some(ddi_session::announcer::Prior::before(
                 &crate::history::plays().history(),
@@ -2450,9 +2449,9 @@ impl GameCanvas {
                 press.press += shift;
                 press.release += shift;
             }
-            // Its seed, transforms and rate as `session_config` set them.
+            // Its seed, transforms and rate as `session_config` set them;
+            // no ghost (`Purpose::has_ghost`).
             config.session.cpu = Some(script);
-            config.session.ghost = None;
         }
         self.played_offset = shift;
         let play_song = song.song.shifted(shift);
@@ -3192,8 +3191,9 @@ impl GameCanvas {
         }
         use ddi_ui::state::history::Autoplay;
         // The editor's playtests are tests, not plays; nor are the
-        // announcer studio's scenes, nor a practice room's stages.
-        if ctx.props().edit || self.scene.is_some() || ctx.props().room_stage.is_some() {
+        // announcer studio's scenes, nor a practice room's stages
+        // (`Purpose::keeps`).
+        if !self.purpose(ctx).keeps() {
             return;
         }
         let Status::Ready(song) = &self.song else {

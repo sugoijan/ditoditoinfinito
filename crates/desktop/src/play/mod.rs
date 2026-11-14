@@ -184,6 +184,18 @@ impl Request {
         }
     }
 
+    /// What the play is for: what it keeps, ghosts and tells.
+    pub fn purpose(&self) -> ddi_session::play::Purpose {
+        ddi_session::play::Purpose {
+            replay: self.replay.is_some(),
+            calibration: self.calibration.is_some(),
+            playtest: self.edited.is_some(),
+            scene: self.scene.is_some(),
+            cpu: self.cpu.is_some(),
+            stage: self.stage.is_some(),
+        }
+    }
+
     /// The settings the play runs with: the stored ones, or a replay's
     /// over them (`Replay::settings`).
     pub fn settings(&self) -> Settings {
@@ -209,9 +221,7 @@ impl Request {
         config.restart = self.restart;
         config.staging = self.staging.clone();
         if let Some(cpu) = &self.cpu {
-            config.seed = cpu.seed;
-            config.options.transform = Default::default();
-            config.options.clock.rate = 1.;
+            config.for_cpu(cpu.seed);
         }
         if let Some(mode) = self.calibration {
             config.calibrate(mode);
@@ -488,7 +498,7 @@ impl Play {
         config.ghost = request
             .ghost
             .as_deref()
-            .filter(|_| request.replay.is_none() && request.calibration.is_none())
+            .filter(|_| request.purpose().has_ghost())
             .map(|g| {
                 g.clone()
                     .for_play(shift)
@@ -523,11 +533,9 @@ impl Play {
                 p.press += shift;
                 p.release += shift;
             }
+            // Its seed, transforms and rate as `session_config` set them;
+            // no ghost (`Purpose::has_ghost`).
             config.cpu = Some(script);
-            config.seed = cpu.seed;
-            config.options.transform = Default::default();
-            config.options.clock.rate = 1.;
-            config.ghost = None;
             projected.shift_notes(shift);
             std::borrow::Cow::Owned(projected)
         } else {
@@ -634,15 +642,8 @@ impl Play {
     /// Keeps the play in the history, once.
     fn record(&mut self, results: &Results, facts: &PlayFacts, plays: Option<&Rc<Plays>>) {
         // A calibration test is not a play, nor a replay, nor the
-        // editor's playtest.
-        if std::mem::replace(&mut self.recorded, true)
-            || self.request.calibration.is_some()
-            || self.request.replay.is_some()
-            || self.request.edited.is_some()
-            || self.request.scene.is_some()
-            || self.request.cpu.is_some()
-            || self.request.stage.is_some()
-        {
+        // editor's playtest (`Purpose::keeps`).
+        if std::mem::replace(&mut self.recorded, true) || !self.request.purpose().keeps() {
             return;
         }
         let Some(plays) = plays else {

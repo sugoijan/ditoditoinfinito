@@ -282,6 +282,14 @@ impl SessionConfig {
         }
     }
 
+    /// The solo CPU's play (`docs/plans/cpu-player.md`): its own seed,
+    /// the chart as it is (no turn or removed notes) at its own rate.
+    pub fn for_cpu(&mut self, seed: u64) {
+        self.seed = seed;
+        self.options.transform = Default::default();
+        self.options.clock.rate = 1.;
+    }
+
     /// Replays the kept play `r`: its log on the lanes, its options and
     /// rules, the offsets this device needs ([`Replay::replaying`]).
     /// Never autoplayed.

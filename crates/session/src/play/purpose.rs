@@ -36,9 +36,10 @@ impl Purpose {
     }
 
     /// Given the chart's best play's ghost where the settings ask
-    /// (`Settings::ghost`).
+    /// (`Settings::ghost`): a play for itself only (a playtest "has no
+    /// ghost", `docs/plans/editor.md`).
     pub fn has_ghost(self) -> bool {
-        !(self.replay || self.calibration || self.scene || self.cpu || self.stage)
+        self.ordinary()
     }
 
     /// Given what the history says of the chart before it, for the
@@ -53,7 +54,9 @@ mod tests {
     use super::Purpose;
 
     /// Every purpose against every predicate, as desktop decided them
-    /// (`play::host::begin`, `Play::record`).
+    /// (`play::host::begin`, `Play::record`), but for the playtest's
+    /// ghost, which the web never gave and `docs/plans/editor.md` says it
+    /// has not.
     #[test]
     fn each_purpose_keeps_ghosts_and_tells_as_the_shells_decided() {
         let p = Purpose::default();
@@ -62,7 +65,7 @@ mod tests {
             ("a song", p, true, true, true),
             ("a replay", Purpose { replay: true, ..p }, false, false, false),
             ("calibration", Purpose { calibration: true, ..p }, false, false, false),
-            ("a playtest", Purpose { playtest: true, ..p }, false, true, false),
+            ("a playtest", Purpose { playtest: true, ..p }, false, false, false),
             ("a scene", Purpose { scene: true, ..p }, false, false, false),
             ("the solo CPU", Purpose { cpu: true, ..p }, false, false, false),
             ("a stage", Purpose { stage: true, ..p }, false, false, false),

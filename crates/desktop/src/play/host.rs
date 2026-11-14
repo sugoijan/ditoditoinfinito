@@ -1597,24 +1597,13 @@ impl Host {
             .unwrap_or(60.0);
         let mut request = r.request.clone();
         request.restart = std::mem::take(&mut self.restarting);
-        if settings.ghost
-            && request.replay.is_none()
-            && request.calibration.is_none()
-            && request.scene.is_none()
-            && request.cpu.is_none()
-            && request.stage.is_none()
-        {
+        let purpose = request.purpose();
+        if settings.ghost && purpose.has_ghost() {
             request.ghost = self.ghost(&loaded, &request, settings).map(Rc::new);
         }
         // What the history says of the chart before this play, for the
         // results' first clear and new record (a play that is kept).
-        if request.replay.is_none()
-            && request.calibration.is_none()
-            && request.edited.is_none()
-            && request.scene.is_none()
-            && request.cpu.is_none()
-            && request.stage.is_none()
-        {
+        if purpose.has_prior() {
             request.prior = Some(self.plays.as_ref().map_or_else(Default::default, |p| {
                 ddi_session::announcer::Prior::before(
                     &p.history(),
