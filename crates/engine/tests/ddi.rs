@@ -148,7 +148,7 @@ fn words_say_early_or_late_and_counts_leave_w0_out() {
     assert_eq!(names.sides(Judgement::W3), ("Nice", "Great"));
     assert_eq!(
         (names.held.as_str(), names.let_go.as_str()),
-        ("Held", "Off")
+        ("Held", "Dropped")
     );
     // Every late word has a G, no early one does.
     for j in &Judgement::ALL[..4] {

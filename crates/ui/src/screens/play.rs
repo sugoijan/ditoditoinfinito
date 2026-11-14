@@ -1078,7 +1078,7 @@ mod tests {
                 .find(|(l, _)| l == label)
                 .map(|(_, v)| v.clone())
         };
-        assert_eq!(stat(&d, "Held / Off").as_deref(), Some("3 / 1"));
+        assert_eq!(stat(&d, "Held / Dropped").as_deref(), Some("3 / 1"));
         assert_eq!(stat(&d, "Early / late").as_deref(), Some("6 / 11"));
         assert_eq!(stat(&d, "Fast / slow"), None);
         // Boos off: not counted, not shown, no row.
@@ -1128,7 +1128,7 @@ mod tests {
         ddi_l10n::unforce();
         ddi_l10n::choose(Some("en"));
         assert_eq!(ja.judgements.last().unwrap().name, "ブー");
-        assert!(ja.stats.iter().any(|(l, v)| l == "キープ / オフ" && v == "3 / 1"), "{:?}", ja.stats);
+        assert!(ja.stats.iter().any(|(l, v)| l == "キープ / ドロップ" && v == "3 / 1"), "{:?}", ja.stats);
         assert!(d.mods.ends_with("hard timing · Boos · practice"), "{}", d.mods);
         assert_eq!(
             d.notes,

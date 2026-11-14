@@ -13,4 +13,4 @@ judgments-miss = ミス
 judgments-boo = ブー
 judgments-boos = ブー
 judgments-held = キープ
-judgments-dropped = オフ
+judgments-dropped = ドロップ

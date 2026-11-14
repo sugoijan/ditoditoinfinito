@@ -31,8 +31,8 @@ pub enum Word {
     Boos,
     /// A hold or roll held to its end.
     Held,
-    /// A hold or roll let go before its end ("Off": one message, so that
-    /// a rename is one line).
+    /// A hold or roll let go before its end ("Dropped", since 2026-11-14;
+    /// "Off" before: one message, so that a rename is one line).
     Dropped,
 }
 
@@ -166,7 +166,7 @@ mod tests {
                 [
                     "Absolute", "Awesome", "Amazing", "Fantastic", "Glorious", "Nice", "Great",
                     "OK", "Good", "Too early", "Too late", "Miss", "Boo", "Boos", "Held",
-                    "Off"
+                    "Dropped"
                 ]
             );
         });

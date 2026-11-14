@@ -230,7 +230,8 @@ presets count no stray press at all, as StepMania.
   survives for the grace (38 grid units: 316.7 ms on Normal; rolls 42
   units, 350 ms, between taps) and is dropped past it. Re-pressing
   within the grace keeps it as if never released.
-- Outcomes: **Held** and **Off**.
+- Outcomes: **Held** and **Dropped** ("Off" until 2026-11-14, the
+  maintainer's rename; ja ドロップ).
 - **Partial credit by whole seconds.** A hold of length L earns
   `ceil(L)` *units*, L measured in the chart's seconds at 1× rate (the
   chart's timing, so a slower or faster music rate never changes it; a
@@ -364,7 +365,7 @@ their judgments) are judged again by themselves and show the new
 letters.
 
 **Floors:** no single note costs more grades than tiers it fell. A
-note's distance from W0 is its tier (W1 1 … W5 5; Miss, Off and a mine
+note's distance from W0 is its tier (W1 1 … W5 5; Miss, Dropped and a mine
 stepped on 6); the play's grade is at least Absolute Dito minus the
 sum of distances (never below D, never above SSS). One W1 is SSS
 whatever the chart's size; one W2 at least SS; one Miss at least C. On
@@ -535,7 +536,7 @@ score, grade and save exactly as before.
   from the score for bests); `Results.tally.hold_units`;
   `Judge::locked_until(lane)` for the receptor's lock effect.
 - **Choices the plan left open:**
-  - *Units reach the score at the hold's outcome* (its Held or Off),
+  - *Units reach the score at the hold's outcome* (its Held or Dropped),
     not at each checkpoint: no new judge event kind (which every
     record's timing format and screen would have had to learn). The
     count is the same; the score jumps at the hold's end.
@@ -601,7 +602,7 @@ rulesets look, judge and save as before.
   is a replay of a record kept as autoplayed (`Player::set_bot`,
   `Replaying::autoplayed`).
 - **Results.** W0 by its word, then each tier by both words with its
-  early and late counts ("Awesome / Amazing … 4 / 6"), Miss; Held / Off,
+  early and late counts ("Awesome / Amazing … 4 / 6"), Miss; Held / Dropped,
   mines, Boos (counted whenever they are on), Early / late in the place
   of Fast / slow, and beside the big number (the score, or the percent)
   the other of the two (the absolute score's line went when the Score

@@ -8753,6 +8753,21 @@ before; bouncing is gone (0.2% at most), and the stage's order is a
 point less sorted where the middle levels used to climb past the weak
 ones. The breather's second less changes none of this measurably.
 
+### "Off" becomes "Dropped"
+
+DDI's word for a hold or roll let go is **Dropped** (ja **ドロップ**, an
+unverified draft; the glossary's table and its rule follow), one message
+(`judgments-dropped`) and DDI's English data word (`ddi::DROPPED_WORD`)
+where localized words are off: the HUD's flash on the receptor, the
+results' row ("Held / Dropped", ja 「キープ / ドロップ」), Options' preview
+(it draws the same flash), `docs/plans/ddi-ruleset.md`. The Standings
+never said it. Other rulesets keep their own words exactly (StepMania's
+"Let Go" and the rest).
+Tested: the engine (`words_say_early_or_late_and_counts_leave_w0_out`),
+the language's words (`english_is_the_ruleset_s_own_words`), the
+results' rows in English and Japanese, `xtask l10n check` (ドロップ's
+kana are in the faces).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

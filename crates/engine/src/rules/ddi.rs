@@ -107,7 +107,7 @@ pub const BOOS_WORD: &str = "Boos";
 /// ([`JudgeNames::boo`]).
 pub const BOO_WORD: &str = "Boo";
 pub const HELD_WORD: &str = "Held";
-pub const DROPPED_WORD: &str = "Off";
+pub const DROPPED_WORD: &str = "Dropped";
 
 /// Easy, Normal or Hard: the grid every window is on and the life
 /// losses' factor.

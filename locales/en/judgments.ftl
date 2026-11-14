@@ -41,8 +41,8 @@ judgments-boo = Boo
 # a number.
 judgments-boos = Boos
 # A hold or roll held to its end, shown by its receptor during a play (one
-# short word) and in the results' "Held / Off" row.
+# short word) and in the results' "Held / Dropped" row.
 judgments-held = Held
 # A hold or roll let go before its end (dropped), shown as the one above.
 # Short: a word, the opposite of the one above.
-judgments-dropped = Off
+judgments-dropped = Dropped
