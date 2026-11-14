@@ -80,8 +80,8 @@ Rust and the browser are implementation details, not advertised features.
   real units, `RowDemand`, never normalized by the chart; past its
   limits its spread widens and it leaves notes out, `ABSOLUTE_V1`, the
   shape checked against one player's local play history, not included;
-  `Plan::script_strength`, `Strength`, `Opponent::with_skills` and
-  `on_scale`; what it plays, `cpu/full.rs`, `CPU_PLAY`: at an absolute
+  `Strength`, `Opponent::with_skills` and `on_scale`, a stage's CPUs
+  on its chart planned once, `Opponent::on_rung`; what it plays, `cpu/full.rs`, `CPU_PLAY`: at an absolute
   level the chart a person is given, `cpu-play-v1`, `FullPlan`,
   `Plan::script_play`, `Opponent::planned_as`: holds kept down and let
   go early under load, `HOLD_MODEL_V1`, rolls re-tapped, lifts released,
@@ -91,7 +91,7 @@ Rust and the browser are implementation details, not advertised features.
   comparison, `DDI_CPU_PLAY=v0|v1`; the earlier `cpu-levels-v0`, `CPU_LEVELS_V0`, kept for the
   solo CPU and comparison: levels 6 to 10 its five frozen strengths,
   pressing exactly as before, 1 to 5 weaker by a lower strength and a
-  lapse; `Plan::script_at`, `Opponent::at`; measured
+  lapse; `Plan::script_at`, `Opponent::planned`; measured
   over local packs, `crates/engine/tests/local_cpu.rs`,
   `DDI_CPU_CORPUS`, under the rulesets `DDI_CPU_RULES` names: a preset's
   id, or `ddi-easy`, `ddi-normal`, `ddi-hard`, the rooms' match rule) and its response to shocks put into its play
@@ -282,7 +282,9 @@ Rust and the browser are implementation details, not advertised features.
   (MIT, CC0, CC BY 4.0) and what its studies only compared against; keep it
   current with the files.
 - `crates/platform/` traits and plain data the shells implement (audio clock, input,
-  device fingerprints), plus the Ogg Vorbis and MP3 fallback decoder behind
+  device fingerprints, their ids written beside their reader,
+  `devices.rs`), WAV files written and read (`wav.rs`: 16-bit PCM and
+  32-bit float), plus the Ogg Vorbis and MP3 fallback decoder behind
   the `decode` feature (Symphonia, MPL-2.0; MP3 as StepMania decodes it,
   `crates/platform/src/mp3.rs`), Ogg Opus through `rusty-opus` (BSD-3-Clause)
   behind `opus` (`crates/platform/src/opus.rs`: the web's Opus worker and
@@ -350,7 +352,7 @@ Rust and the browser are implementation details, not advertised features.
   which the library's `build.rs` makes a table, the game carrying no
   TOML parser; `docs/plans/announcer-studio.md`), zips
   of stored entries written (`zip::write_stored`) and 16-bit WAVs
-  (`wav.rs`), and what the shells and the
+  (`wav.rs`, the platform's writer), and what the shells and the
   private shared-songs Worker agree on without the web's record types
   (`share.rs`: `ddi_share_protocol` re-exported, the time left, the
   refusals worded, a grant's refusals kept; `docs/plans/shared-songs.md`), the music's analysis a generated
