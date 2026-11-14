@@ -1202,11 +1202,11 @@ impl<H: PlayHost> PlayView<H> {
         // quit button's place (the warning's is where one ends).
         let line_keep = keep_out.len();
         // The attack warning's place, shown or not (the slots never move).
-        let attacks = session.battle().is_some_and(|b| b.attacks().is_some());
+        let battle = session.battle();
+        let attacks = battle.is_some_and(|b| b.attacks().is_some());
         if attacks && !grid {
             keep_out.push(crate::battle_cue::place(&geo, span));
         }
-        let battle = session.battle();
         // In a stage the dancing hand goes behind the field, out of the
         // miniatures' way (the play study's "Hand behind field"): the
         // whole of it as a solo play shows it, its arm's end included,
@@ -1370,8 +1370,7 @@ impl<H: PlayHost> PlayView<H> {
             p.map(|(power, charged)| ddi_render::BattleBar { power, charged })
         };
         self.renderer.set_battle_bar(
-            session
-                .battle()
+            battle
                 .filter(|_| spectator.is_none() && !following)
                 .and_then(|b| bar(b.my_power(&session.player))),
         );
@@ -1496,13 +1495,8 @@ impl<H: PlayHost> PlayView<H> {
         // (`ddi_session::announcer::battle`).
         let cue = session.stage_cue(moment.now.0).and_then(|(cue, age)| {
             let policy = session.battle_policy()?;
-            let number = session.battle().map_or(1, |b| b.setup().number);
-            let rung = |r: u8| {
-                session
-                    .battle()?
-                    .chart_name(r)
-                    .map(str::to_string)
-            };
+            let number = battle.map_or(1, |b| b.setup().number);
+            let rung = |r: u8| battle?.chart_name(r).map(str::to_string);
             Some((
                 cue_words(cue, number, rung)?,
                 policy.cue_alpha(age, render.reduced_motion),
@@ -1539,7 +1533,7 @@ impl<H: PlayHost> PlayView<H> {
                     .get(seat)
                     .map(|&n| ddi_l10n::msg::room::watch_following(n).into()),
                 None if w.age < ddi_session::play::WATCH_HINT_SECONDS && !w.over => {
-                    let seats = session.battle().map_or(0, |b| b.feeds().count());
+                    let seats = battle.map_or(0, |b| b.feeds().count());
                     Some(if seats > ddi_session::play::GRID_PAGE {
                         ddi_l10n::msg::room::watch_hint_pages().into()
                     } else {
@@ -1551,8 +1545,7 @@ impl<H: PlayHost> PlayView<H> {
             // A live stage the room lost (it restarted): the play goes on,
             // reported at its end.
             .or_else(|| {
-                session
-                    .battle()
+                battle
                     .filter(|b| b.live_lost())
                     .map(|_| ddi_l10n::msg::room::live_lost().into())
             });
@@ -1562,7 +1555,7 @@ impl<H: PlayHost> PlayView<H> {
         // or the miniatures beside a player's own dimmed field), or the
         // followed competitor's as a player's own.
         let band_box = ddi_render::scene::band_box(&geo, span);
-        let links = match (session.battle(), &fields) {
+        let links = match (battle, &fields) {
             (Some(b), Some(f)) if watch.is_some() => {
                 let seen = b.seen_links();
                 match focus {
@@ -1623,14 +1616,20 @@ impl<H: PlayHost> PlayView<H> {
         // show around them.
         // A stage watched after the player is out of it: the mark over
         // their own dimmed field and the skip's words.
-        let own_out = watch
+        // The mark of the player's own field out of the stage: they left
+        // it, or are out.
+        let own_word = watch
             .filter(|w| w.why != ddi_session::play::Watching::Spectator)
-            .map(|w| {
+            .map(|w| -> String {
+                match w.why {
+                    ddi_session::play::Watching::Left => ddi_l10n::msg::room::play_forfeit().into(),
+                    _ => ddi_l10n::msg::room::play_out().into(),
+                }
+            });
+        let own_out = watch
+            .zip(own_word.clone())
+            .map(|(w, mark)| {
                 use ddi_l10n::msg::room as m;
-                let mark: String = match w.why {
-                    ddi_session::play::Watching::Left => m::play_forfeit().into(),
-                    _ => m::play_out().into(),
-                };
                 let skip: Option<String> = (!w.over).then(|| {
                     if screen.touch {
                         m::play_skip_tap().into()
@@ -1650,7 +1649,7 @@ impl<H: PlayHost> PlayView<H> {
             // stopped, why said over all of it, and the way back.
             .or_else(|| {
                 let w = watch.filter(|w| w.ended)?;
-                let why = session.battle()?.seat_end()?;
+                let why = battle?.seat_end()?;
                 use ddi_l10n::msg::room as m;
                 let skip: String = if screen.touch {
                     m::audience_ended_back_tap().into()
@@ -1700,7 +1699,7 @@ impl<H: PlayHost> PlayView<H> {
             f.slots.push(l);
             f.slots.len() - 1
         });
-        let shown = session.battle().zip(fields).map(|(b, fields)| {
+        let shown = battle.zip(fields).map(|(b, fields)| {
             let words = self.shown_words.get_or_insert_with(|| {
                 use ddi_l10n::msg::room as m;
                 [
@@ -1721,8 +1720,8 @@ impl<H: PlayHost> PlayView<H> {
                 o.life = shown.life;
                 o.out = shown.out;
             }
-            (
-                crate::opponents::Shown {
+            Overlay {
+                shown: crate::opponents::Shown {
                     opponents,
                     out: words[0].clone(),
                     // "Stage won", or before it "Last standing" while
@@ -1735,14 +1734,7 @@ impl<H: PlayHost> PlayView<H> {
                     label,
                     large: large_at,
                     stale: b.stale_seats(),
-                    own: own_seat.zip(watch).map(|(seat, w)| {
-                        use ddi_l10n::msg::room as m;
-                        let word: String = match w.why {
-                            ddi_session::play::Watching::Left => m::play_forfeit().into(),
-                            _ => m::play_out().into(),
-                        };
-                        (seat, word)
-                    }),
+                    own: own_seat.zip(own_word),
                     ladder: self.ladder.take().map(|l| {
                         use ddi_l10n::msg::room as m;
                         let words: String = match (l.place, self.ladder_page) {
@@ -1774,8 +1766,7 @@ impl<H: PlayHost> PlayView<H> {
                 fields,
                 flashes,
                 locks,
-                screen.ratio,
-            )
+            }
         });
         self.links_drawn = links;
         if lyrics.is_none() {
@@ -1783,7 +1774,7 @@ impl<H: PlayHost> PlayView<H> {
         }
         // An attack against the player (its warning by the receptors) and
         // a full bar waiting (its line under the bar).
-        let attack = session.battle().map(|b| {
+        let attack = battle.map(|b| {
             let t = frame.song_time;
             let in_sight = frame.notes.iter().any(|n| {
                 n.note_index >= ddi_engine::battle::HAZARD_INDEX_BASE
@@ -1816,9 +1807,6 @@ impl<H: PlayHost> PlayView<H> {
                 policy_key,
                 warnings: std::mem::take(&mut warnings),
                 own_out: own_out.clone(),
-                geo,
-                span,
-                ratio: screen.ratio,
             }
         });
         let skip_at = own_out
@@ -1833,19 +1821,18 @@ impl<H: PlayHost> PlayView<H> {
             },
             focus,
             lane,
-            fields: shown
-                .as_ref()
-                .map_or_else(Vec::new, |(_, f, ..)| {
-                    f.slots
-                        .iter()
-                        .filter(|s| s.seat != usize::MAX)
-                        .map(|s| (s.seat, css(s.panel)))
-                        .collect()
-                }),
-            label: shown.as_ref().and_then(|(s, ..)| s.label.clone()),
+            fields: shown.as_ref().map_or_else(Vec::new, |o| {
+                o.fields
+                    .slots
+                    .iter()
+                    .filter(|s| s.seat != usize::MAX)
+                    .map(|s| (s.seat, css(s.panel)))
+                    .collect()
+            }),
+            label: shown.as_ref().and_then(|o| o.shown.label.clone()),
             cue: shown
                 .as_ref()
-                .and_then(|(s, ..)| s.cue.as_ref().map(|(c, _)| c.clone())),
+                .and_then(|o| o.shown.cue.as_ref().map(|(c, _)| c.clone())),
             warned: attack
                 .as_ref()
                 .map_or_else(Vec::new, |a| a.warnings.iter().map(|(s, ..)| *s).collect()),
@@ -1859,7 +1846,7 @@ impl<H: PlayHost> PlayView<H> {
         self.policy_drawn = attack.as_ref().and_then(|a| {
             Some((
                 a.policy?,
-                crate::battle_cue::policy_area(&a.geo, a.span, a.ratio),
+                crate::battle_cue::policy_area(&geo, span, screen.ratio),
             ))
         });
         let policy_at = self.policy_drawn.map(|(_, r)| r.map(|v| v / screen.ratio));
@@ -1868,7 +1855,8 @@ impl<H: PlayHost> PlayView<H> {
             a.cue.is_some() || a.waiting.is_some() || a.policy.is_some() || a.own_out.is_some()
         });
         if lyrics.is_some() || shown.is_some() || attack_shown {
-            self.draw_overlay((device, queue, encoder), target, lyrics, shown, attack);
+            let place = (&geo, span, screen.ratio);
+            self.draw_overlay((device, queue, encoder), target, place, lyrics, shown, attack);
         } else {
             self.fields_drawn = None;
         }
@@ -1885,23 +1873,18 @@ impl<H: PlayHost> PlayView<H> {
     /// Draws the lyrics' `lines` and what a stage's opponents' miniatures
     /// show around them through the 2D pass over the frame just encoded: through the target's plain
     /// view where it has one (blended encoded, as the menus), else through
-    /// the view itself.
-    #[allow(clippy::type_complexity)]
+    /// the view itself. The play's field is `geo`, `span` lanes wide,
+    /// `ratio` target pixels a logical one.
     fn draw_overlay(
         &mut self,
         (device, queue, encoder): (&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder),
         target: &Target<'_>,
+        (geo, span, ratio): (&ddi_render::FieldGeometry, f32, f32),
         lyrics: Option<(
             Vec<ddi_engine::lyrics::LyricLine>,
             ddi_render::lyrics::Place,
         )>,
-        shown: Option<(
-            crate::opponents::Shown,
-            crate::opponents::Fields,
-            crate::opponents::Flashes,
-            Vec<Vec<Option<f32>>>,
-            f32,
-        )>,
+        shown: Option<Overlay>,
         attack: Option<Attack>,
     ) {
         if !self.ensure_overlay(device, queue, target.format) {
@@ -1921,7 +1904,13 @@ impl<H: PlayHost> PlayView<H> {
             self.fields_drawn = None;
             self.ladder_drawn = None;
             self.standing_drawn = None;
-            if let Some((shown, fields, flashes, locks, ratio)) = shown {
+            if let Some(Overlay {
+                shown,
+                fields,
+                flashes,
+                locks,
+            }) = shown
+            {
                 self.fields_score = shown.score;
                 self.fields_cue = crate::opponents::draw_fields(
                     list,
@@ -1940,41 +1929,33 @@ impl<H: PlayHost> PlayView<H> {
             // A player out of the stage: their own field dimmed, saying
             // why, and how to skip to the results.
             if let Some(o) = attack.as_ref().and_then(|a| a.own_out.as_ref()) {
-                let ratio = attack.as_ref().map_or(1.0, |a| a.ratio);
                 crate::opponents::draw_own_out(list, o, ratio, &mut measure);
             }
             // Who attacks whom, over the miniatures.
-            if let (Some(a), Some(fields)) = (&attack, &self.fields_drawn) {
-                crate::attack_links::draw(list, &self.links_drawn, fields, a.ratio);
+            if let (Some(_), Some(fields)) = (&attack, &self.fields_drawn) {
+                crate::attack_links::draw(list, &self.links_drawn, fields, ratio);
             }
             if let Some(a) = &attack {
                 // A grid's warnings, each beside its recipient's field.
                 for (_, field, cue) in &a.warnings {
-                    crate::battle_cue::draw(list, cue, field, a.span);
+                    crate::battle_cue::draw(list, cue, field, span);
                 }
                 if let Some(cue) = &a.cue {
-                    crate::battle_cue::draw(list, cue, &a.geo, a.span);
+                    crate::battle_cue::draw(list, cue, geo, span);
                 }
                 if let Some(policy) = a.policy {
                     crate::battle_cue::draw_policy(
                         list,
                         &crate::battle_cue::policy_word(policy),
                         a.policy_key.as_deref(),
-                        &a.geo,
-                        a.span,
-                        a.ratio,
+                        geo,
+                        span,
+                        ratio,
                         &mut measure,
                     );
                 }
                 if let Some(text) = &a.waiting {
-                    crate::battle_cue::draw_waiting(
-                        list,
-                        text,
-                        &a.geo,
-                        a.span,
-                        a.ratio,
-                        &mut measure,
-                    );
+                    crate::battle_cue::draw_waiting(list, text, geo, span, ratio, &mut measure);
                 }
             }
         }
@@ -2080,9 +2061,16 @@ struct Attack {
     warnings: Vec<(usize, ddi_render::FieldGeometry, crate::battle_cue::Cue)>,
     /// The player's own field after they are out of the stage.
     own_out: Option<crate::opponents::OwnOut>,
-    geo: ddi_render::FieldGeometry,
-    span: f32,
-    ratio: f32,
+}
+
+/// What a stage's miniatures show over the play in a frame
+/// (`crate::opponents::draw_fields`): around them, their places, their
+/// judgments' flashes and their lanes a shock locked.
+struct Overlay {
+    shown: crate::opponents::Shown,
+    fields: crate::opponents::Fields,
+    flashes: crate::opponents::Flashes,
+    locks: Vec<Vec<Option<f32>>>,
 }
 
 /// Where the dancing hand goes behind the field `geo` (`span` lanes wide)
