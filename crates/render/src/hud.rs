@@ -329,7 +329,12 @@ struct Minis {
     /// The buffer, its group and how many it holds.
     buffer: Option<(wgpu::Buffer, wgpu::BindGroup, usize)>,
     stride: u64,
-    motions: Vec<Motion>,
+    /// Each seat's gauge motion, kept by seat (not by slot: a slot that
+    /// changes hands starts its newcomer's gauge from the newcomer's
+    /// own life), for the seats the last frame showed.
+    motions: std::collections::HashMap<usize, Motion>,
+    /// The frame's globals, their room kept.
+    bytes: Vec<u8>,
     count: usize,
 }
 
@@ -405,7 +410,8 @@ impl Hud {
             bgl: mini_bgl,
             buffer: None,
             stride: size.div_ceil(align) * align,
-            motions: Vec::new(),
+            motions: Default::default(),
+            bytes: Vec::new(),
             count: 0,
         };
         Self {
@@ -499,27 +505,23 @@ impl Hud {
             });
             self.minis.buffer = Some((buffer, group, capacity));
         }
-        let mut bytes = vec![0u8; stride as usize * n];
+        let bytes = &mut self.minis.bytes;
+        bytes.clear();
+        bytes.resize(stride as usize * n, 0);
         for (i, m) in minis.iter().enumerate() {
-            let frame = &m.frame;
-            let now = opts.hud_time.unwrap_or(frame.song_time);
-            let life = frame.life.clamp(0.0, 1.0);
-            let combo = if frame.failed || !m.combo { 0 } else { frame.combo };
-            if self.minis.motions.len() <= i {
-                self.minis
-                    .motions
-                    .push(Motion::new(now, frame.song_time, life, combo));
-            }
-            let motion = &mut self.minis.motions[i];
-            motion.update(now, frame.song_time, life, combo, opts.reduced_motion);
+            let now = opts.hud_time.unwrap_or(m.frame.song_time);
+            let motion = seat_motion(&mut self.minis.motions, m, now, opts.reduced_motion);
             let globals = mini_globals(m, motion, now, screen, span, self.linear, opts);
             let at = i * stride as usize;
             let g = bytemuck::bytes_of(&globals);
             bytes[at..at + g.len()].copy_from_slice(g);
         }
-        self.minis.motions.truncate(n);
+        // The seats no longer shown forgotten.
+        self.minis
+            .motions
+            .retain(|seat, _| minis.iter().any(|m| m.seat == *seat));
         if let Some((buffer, _, _)) = &self.minis.buffer {
-            queue.write_buffer(buffer, 0, &bytes);
+            queue.write_buffer(buffer, 0, &self.minis.bytes);
         }
     }
 
@@ -637,6 +639,24 @@ impl Motion {
 /// How much larger a combo of the tenth tier is.
 fn tier_grow(tier: u32) -> f32 {
     if tier == 10 { 1.2 } else { 1.0 }
+}
+
+/// `m`'s seat's gauge motion in `kept`, stepped to `now` (begun at its
+/// own life and combo where its seat has none yet).
+fn seat_motion<'a>(
+    kept: &'a mut std::collections::HashMap<usize, Motion>,
+    m: &crate::scene::Miniature,
+    now: f64,
+    reduced: bool,
+) -> &'a Motion {
+    let frame = &m.frame;
+    let life = frame.life.clamp(0.0, 1.0);
+    let combo = if frame.failed || !m.combo { 0 } else { frame.combo };
+    let motion = kept
+        .entry(m.seat)
+        .or_insert_with(|| Motion::new(now, frame.song_time, life, combo));
+    motion.update(now, frame.song_time, life, combo, reduced);
+    motion
 }
 
 /// A miniature's globals: `m` on a `screen` (`[width, height]`), its
@@ -921,6 +941,40 @@ mod tests {
         assert_eq!(m.fill, 0.95);
     }
 
+    /// A slot that changes hands (the opponents taking turns) shows the
+    /// newcomer's gauge from the newcomer's own life: no trail from the
+    /// last opponent's, whose gauge goes on where it was.
+    #[test]
+    fn a_miniature_s_gauge_is_its_seat_s() {
+        let mini = |seat: usize, life: f32, t: f64| {
+            let mut f = crate::scene::tests::frame(Vec::new(), Default::default());
+            f.song_time = t;
+            f.life = life;
+            crate::scene::Miniature {
+                frame: f,
+                geometry: FieldGeometry::new(80.0, 120.0, 4.0, false),
+                panel: [0.0, 0.0, 80.0, 120.0],
+                seat,
+                combo: true,
+                plain: false,
+                fit_combo: false,
+                battle: None,
+            }
+        };
+        let mut kept = std::collections::HashMap::new();
+        // The slot shows seat 3, full, for a second.
+        for step in 0..30 {
+            let t = 10.0 + step as f64 / 30.0;
+            seat_motion(&mut kept, &mini(3, 1.0, t), t, false);
+        }
+        // Then seat 5, low: its own gauge, no trail.
+        let m = seat_motion(&mut kept, &mini(5, 0.2, 11.0), 11.0, false);
+        assert_eq!((m.fill, m.trail, m.trail_alpha), (0.2, 0.2, 0.0));
+        // Seat 3 back: still full.
+        let m = seat_motion(&mut kept, &mini(3, 1.0, 19.0), 19.0, false);
+        assert_eq!((m.fill, m.trail_alpha), (1.0, 0.0));
+    }
+
     /// The globals the HUD's shader is given, pinned: a miniature's and
     /// the play's own over a few seconds of life and combo, hashed.
     #[test]
@@ -965,6 +1019,7 @@ mod tests {
                         combo,
                         plain: false,
                         fit_combo: fit,
+                        seat: k,
                         battle: (step % 3 != 0).then_some(BattleBar {
                             power: step as f32 / 90.0,
                             charged: step % 9 == 0,

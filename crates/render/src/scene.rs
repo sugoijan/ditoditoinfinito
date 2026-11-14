@@ -1318,6 +1318,9 @@ pub struct Miniature {
     /// Its band, `[left, top, right, bottom]` in the target's pixels.
     /// (Out of the stage, `frame.failed`: no combo.)
     pub panel: [f32; 4],
+    /// The seat it shows: its gauge's motion is its own
+    /// (`crate::hud`), whichever slot it is in.
+    pub seat: usize,
     /// Its combo drawn (a large field's smallest leave it out:
     /// `ddi_shell::opponents::Carry`).
     pub combo: bool,
@@ -1705,6 +1708,7 @@ pub(crate) mod tests {
             plain: false,
             fit_combo: false,
             battle: None,
+            seat: 0,
         }];
         add_miniatures(
             &mut out,

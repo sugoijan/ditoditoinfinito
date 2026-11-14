@@ -1426,6 +1426,7 @@ impl<H: PlayHost> PlayView<H> {
                     frame: mini,
                     geometry: slot.field,
                     panel: slot.panel,
+                    seat: slot.seat,
                     battle: bar(view_of(slot.seat).and_then(|v| v.power)),
                 });
             }
