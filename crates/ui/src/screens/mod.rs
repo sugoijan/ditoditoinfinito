@@ -87,6 +87,7 @@ pub mod prompt;
 pub mod prompt_controls;
 pub mod prompt_options;
 pub mod results;
+pub mod results_facts;
 pub mod room;
 pub mod room_dialogs;
 #[cfg(test)]

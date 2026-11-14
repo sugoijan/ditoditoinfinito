@@ -19,13 +19,13 @@ use ddi_session::announcer::scene::in_play::{self, PlayScene};
 use ddi_ui::Ui;
 use ddi_ui::screens::Env;
 use ddi_ui::screens::data::SongEntry;
-use ddi_ui::screens::play::{PlayInfo, results_data};
 use ddi_ui::screens::prompt::{
     Badge, PromptChart, PromptChoice, PromptFn, PromptInfo, PromptScreen, PromptState, PromptStep,
     SharedPrompt, chart_line,
 };
 use ddi_ui::screens::prompt_options::{PlayOptions, PlayOverrides};
 use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen};
+use ddi_ui::screens::results_facts::{self, CpuShown, Finished, ReplayShown, StageShown};
 use ddi_ui::screens::stage::{self, Picture as PictureScreen, StageFrame};
 use ddi_ui::state::history::Plays;
 use ddi_ui::state::settings::Settings;
@@ -2038,14 +2038,13 @@ impl Host {
             background: e.background.as_deref().map(|b| loaded.files.source(b)),
             ..SongEntry::default()
         };
-        let mut notes = Vec::new();
+        // The sound's dropouts: desktop's own note, first.
         let xruns = play.xruns();
-        if xruns > 0 {
-            notes.push(ddi_l10n::msg::results::note_sound_dropped(xruns).into());
-        }
-        if let Some(why) = r.view.as_ref().and_then(|v| v.scripts_stopped()) {
-            notes.push(ddi_session::scripted::stop_note(why));
-        }
+        let own_notes = if xruns > 0 {
+            vec![ddi_l10n::msg::results::note_sound_dropped(xruns).into()]
+        } else {
+            Vec::new()
+        };
         #[cfg(feature = "video")]
         let (video_off, video_trouble) = r
             .view
@@ -2080,68 +2079,51 @@ impl Host {
             Some(Err(e)) => Some(e.clone()),
             _ => None,
         };
-        notes.extend(ddi_ui::screens::play::results_notes(
-            video_off,
-            video_trouble.as_ref(),
-            save_error.as_deref(),
-            check.as_ref(),
-            replay.as_deref(),
-        ));
-        if r.view.as_ref().is_some_and(|v| {
-            v.hand_load().step() == ddi_session::hand_load::HandStep::Gone
-        }) {
-            notes.push(ddi_ui::screens::play::hand_off_note());
-        }
-        if let Some(cpu) = &play.request.cpu {
-            notes.push(ddi_ui::screens::prompt::cpu_description_at(
-                cpu.level,
-                cpu.absolute,
-                cpu.seed,
-                cpu.skills,
-            ));
-        }
-        // A stage's: how it went for the player, as the room confirmed it.
-        if let Some(order) = &play.request.stage
-            && let Some(room) = play.request.stage_room.as_ref().and_then(|s| s.room())
-            && let Some(mark) = room.borrow().mark_of(order.stage)
-        {
-            notes.insert(0, ddi_ui::screens::room::mark_text(&mark));
-        }
-        let mut data = results_data(&PlayInfo {
+        let room = play.request.stage_room.as_ref().and_then(|s| s.room());
+        let plan = results_facts::plan(Finished {
             results,
             ruleset: &session.rules,
             layout: &session.layout,
             song,
             chart: r.prompt.borrow().info.chart.clone(),
-            mods: Vec::new(),
+            song_id: id.clone(),
+            song_offset: (play.played_offset, settings.song_offset(&id)),
             device_changed,
-            video_notes: notes,
-            offset: (play.request.cpu.is_none() && play.request.stage.is_none())
-                .then(|| (play.played_offset, settings.song_offset(&id))),
-            autoplay: match &replay {
-                Some(rp) => rp.record.autoplay.is_some(),
-                None => play.request.auto,
-            },
+            auto: play.request.auto,
+            own_notes,
+            scripts_stopped: r
+                .view
+                .as_ref()
+                .and_then(|v| v.scripts_stopped())
+                .map(ddi_session::scripted::stop_note),
+            video_off,
+            video_trouble: video_trouble.as_ref(),
+            save_error: save_error.as_deref(),
+            hand_gone: r.view.as_ref().is_some_and(|v| {
+                v.hand_load().step() == ddi_session::hand_load::HandStep::Gone
+            }),
+            replay: replay.as_deref().map(|rp| ReplayShown {
+                replay: rp,
+                kind: ddi_ui::screens::data::ResultsKind::Replay,
+                when: rp.when_line(&super::replays::tz_minutes),
+                check: check.as_ref(),
+            }),
+            cpu: play.request.cpu.as_ref().map(|cpu| CpuShown {
+                level: cpu.level,
+                absolute: cpu.absolute,
+                seed: cpu.seed,
+                skills: cpu.skills,
+            }),
+            // A stage's: how it went for the player, as the room
+            // confirmed it.
+            stage: play.request.stage.as_ref().map(|order| StageShown {
+                mark: room.as_ref().and_then(|room| room.borrow().mark_of(order.stage)),
+                drawn_by_final_attack: play
+                    .session
+                    .battle()
+                    .is_some_and(|b| b.drawn_by_final_attack()),
+            }),
         });
-        if let Some(rp) = &replay {
-            ddi_ui::screens::play::mark_replay(
-                &mut data,
-                ddi_ui::screens::data::ResultsKind::Replay,
-                &rp.when_line(&super::replays::tz_minutes),
-            );
-        }
-        if play.request.stage.is_some() {
-            data.kind = ddi_ui::screens::data::ResultsKind::Stage;
-            // A final attack's knockout drew it (`SETTLEMENT_V1`).
-            if play
-                .session
-                .battle()
-                .is_some_and(|b| b.drawn_by_final_attack())
-            {
-                data.notes
-                    .insert(0, ddi_l10n::msg::room::results_drawn_final_attack().into());
-            }
-        }
         // The play just kept: its replay.
         let watch: Option<ActionFn> = play
             .play_id
@@ -2158,30 +2140,19 @@ impl Host {
             results_action(&self.after, || After::Retry, false)
         };
         let song_list = results_action(&self.after, || After::Leave, true);
-        let stage = play.request.stage.is_some();
-        let offset = (play.request.cpu.is_none() && !stage)
-            .then(|| ddi_ui::screens::play::song_offset_saver(id));
         let results = ResultsScreen::new(
             env.clone(),
-            data,
+            plan.data,
             ResultsActions {
-                // A stage is played once.
-                retry: (!stage).then_some(retry),
+                retry: plan.retry.then_some(retry),
                 song_list: Some(song_list),
-                offset,
+                offset: plan.offset,
                 replay: watch,
             },
         );
         // A stage's: its room's standings where the graphs are.
-        let room = play.request.stage_room.as_ref().and_then(|s| s.room());
-        ui.push(match (&play.request.stage, room) {
-            // A stage the player watched: no play of their own.
-            (Some(order), Some(room)) if order.watching => {
-                results.with_room(room.clone(), order.stage).watched()
-            }
-            (Some(order), Some(room)) => results.with_room(room.clone(), order.stage),
-            _ => results,
-        });
+        let stage = play.request.stage.as_deref().zip(room.cloned());
+        ui.push(results_facts::in_room(results, stage));
     }
 
     /// The chart's best play's ghost under the rules it is played by
@@ -2259,7 +2230,8 @@ impl Host {
                 .map(|(b, f)| f.source(b)),
             ..SongEntry::default()
         };
-        let mut data = results_data(&PlayInfo {
+        // Its notes are its replay's (judged again, by an older version).
+        let plan = results_facts::plan(Finished {
             results: &results,
             ruleset: &rules,
             layout: &layout,
@@ -2269,21 +2241,25 @@ impl Host {
                 c.meter,
                 &ddi_ui::screens::data::style_name(&layout.id, &layout.name),
             ),
-            mods: Vec::new(),
+            song_id: r.request.song.clone(),
+            song_offset: (0.0, 0.0),
             device_changed: false,
-            video_notes: rp
-                .rejudged_note()
-                .into_iter()
-                .chain(rp.older_judge_note())
-                .collect(),
-            offset: None,
-            autoplay: rp.record.autoplay.is_some(),
+            auto: false,
+            own_notes: Vec::new(),
+            scripts_stopped: None,
+            video_off: None,
+            video_trouble: None,
+            save_error: None,
+            hand_gone: false,
+            replay: Some(ReplayShown {
+                replay: &rp,
+                kind: ddi_ui::screens::data::ResultsKind::Kept,
+                when: rp.when_line(&super::replays::tz_minutes),
+                check: None,
+            }),
+            cpu: None,
+            stage: None,
         });
-        ddi_ui::screens::play::mark_replay(
-            &mut data,
-            ddi_ui::screens::data::ResultsKind::Kept,
-            &rp.when_line(&super::replays::tz_minutes),
-        );
         self.log.push(format!(
             "kept play {}: {:?} · {}",
             rp.id,
@@ -2295,11 +2271,11 @@ impl Host {
         let watch = results_action(&self.after, move || After::Watch(id.clone()), true);
         ui.push(ResultsScreen::new(
             env.clone(),
-            data,
+            plan.data,
             ResultsActions {
-                retry: None,
+                retry: plan.retry.then_some(song_list.clone()),
                 song_list: Some(song_list),
-                offset: None,
+                offset: plan.offset,
                 replay: Some(watch),
             },
         ));

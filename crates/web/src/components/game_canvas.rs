@@ -3259,8 +3259,10 @@ impl GameCanvas {
     /// takes the canvas, the keys and the pads until Retry or Song list.
     fn show_results(&mut self, ctx: &Context<Self>) {
         use ddi_ui::screens::data::SongEntry;
-        use ddi_ui::screens::play::{PlayInfo, results_data};
         use ddi_ui::screens::results::{ActionFn, ResultsActions, ResultsScreen};
+        use ddi_ui::screens::results_facts::{
+            self, CpuShown, Finished, ReplayShown, StageShown,
+        };
 
         let Stage::Finished {
             results,
@@ -3307,87 +3309,54 @@ impl GameCanvas {
             Save::Done(Some(e)) => Some(e.as_str()),
             _ => None,
         };
-        let scripts_note = self
-            .game
-            .borrow()
-            .as_ref()
-            .and_then(|g| g.scripts_stopped().map(ddi_session::scripted::stop_note));
-        let mut video_notes = ddi_ui::screens::play::results_notes(
-            *video_stopped,
-            video_trouble.as_ref(),
-            save_error,
-            self.replay_check.as_ref(),
-            self.kept(),
-        );
-        video_notes.extend(scripts_note);
-        if self
-            .game
-            .borrow()
-            .as_ref()
-            .is_some_and(|g| g.hand_gone())
-        {
-            video_notes.push(ddi_ui::screens::play::hand_off_note());
-        }
-        if let Some(cpu) = &ctx.props().cpu {
-            video_notes.push(ddi_ui::screens::prompt::cpu_description_at(
-                cpu.level,
-                cpu.absolute,
-                cpu.seed,
-                cpu.skills,
-            ));
-        }
-        // A stage's: how it went for the player, as the room confirmed it.
-        let stage = ctx.props().room_stage.clone();
-        if let Some(mark) = stage
-            .as_ref()
-            .and_then(|o| crate::room::last_room().borrow().mark_of(o.stage))
-        {
-            video_notes.insert(0, ddi_ui::screens::room::mark_text(&mark));
-        }
+        // A replay's, or a kept play's: marked, when it was played.
+        let view_results = self.replay.as_ref().is_some_and(|r| r.view_results);
         let kept = self.kept().cloned();
-        let mut data = results_data(&PlayInfo {
+        let stage = ctx.props().room_stage.clone();
+        let game_loop = self.game.borrow();
+        let game = game_loop.as_ref();
+        let plan = results_facts::plan(Finished {
             results,
             ruleset: rules,
             layout,
             song: song_entry,
             chart: chart_line,
-            mods: Vec::new(),
+            song_id: id.clone(),
+            song_offset: (self.played_offset, settings.song_offset(&id)),
             device_changed: *device_changed,
-            video_notes,
-            offset: (ctx.props().cpu.is_none() && stage.is_none())
-                .then(|| (self.played_offset, settings.song_offset(&id))),
-            autoplay: match &kept {
-                Some(r) => r.record.autoplay.is_some(),
-                None => ctx.props().auto,
-            },
+            auto: ctx.props().auto,
+            own_notes: Vec::new(),
+            scripts_stopped: game
+                .and_then(|g| g.scripts_stopped().map(ddi_session::scripted::stop_note)),
+            video_off: *video_stopped,
+            video_trouble: video_trouble.as_ref(),
+            save_error,
+            hand_gone: game.is_some_and(|g| g.hand_gone()),
+            replay: kept.as_ref().map(|r| ReplayShown {
+                replay: r,
+                kind: if view_results {
+                    ddi_ui::screens::data::ResultsKind::Kept
+                } else {
+                    ddi_ui::screens::data::ResultsKind::Replay
+                },
+                when: r.when_line(&crate::history::tz_minutes),
+                check: self.replay_check.as_ref(),
+            }),
+            cpu: ctx.props().cpu.as_ref().map(|cpu| CpuShown {
+                level: cpu.level,
+                absolute: cpu.absolute,
+                seed: cpu.seed,
+                skills: cpu.skills,
+            }),
+            // A stage's: how it went for the player, as the room
+            // confirmed it.
+            stage: stage.as_ref().map(|o| StageShown {
+                mark: crate::room::last_room().borrow().mark_of(o.stage),
+                drawn_by_final_attack: game.is_some_and(|g| g.drawn_by_final_attack()),
+            }),
         });
-        // A replay's, or a kept play's: marked, when it was played.
-        let view_results = self.replay.as_ref().is_some_and(|r| r.view_results);
-        if let Some(r) = &kept {
-            let kind = if view_results {
-                ddi_ui::screens::data::ResultsKind::Kept
-            } else {
-                ddi_ui::screens::data::ResultsKind::Replay
-            };
-            ddi_ui::screens::play::mark_replay(
-                &mut data,
-                kind,
-                &r.when_line(&crate::history::tz_minutes),
-            );
-        }
-        if stage.is_some() {
-            data.kind = ddi_ui::screens::data::ResultsKind::Stage;
-            // A final attack's knockout drew it (`SETTLEMENT_V1`).
-            if self
-                .game
-                .borrow()
-                .as_ref()
-                .is_some_and(|g| g.drawn_by_final_attack())
-            {
-                data.notes
-                    .insert(0, ddi_l10n::msg::room::results_drawn_final_attack().into());
-            }
-        }
+        drop(game_loop);
+        let data = plan.data;
         // Its replay: the play just kept's, or the kept play's.
         let replay_id = match &kept {
             Some(r) if view_results => Some(r.id.clone()),
@@ -3442,8 +3411,6 @@ impl GameCanvas {
         } else {
             retry
         };
-        let offset = (ctx.props().cpu.is_none() && stage.is_none())
-            .then(|| ddi_ui::screens::play::song_offset_saver(id));
         let theme = crate::components::ui_dev::theme_host();
         let env = theme.env().clone();
         let mut ui = crate::components::ui_dev::theme_ui();
@@ -3463,24 +3430,23 @@ impl GameCanvas {
             env.clone(),
             data.clone(),
             ResultsActions {
-                // A stage is played once.
-                retry: (!view_results && stage.is_none()).then_some(retry),
+                retry: plan.retry.then_some(retry),
                 song_list: Some(song_list),
-                offset,
+                offset: plan.offset,
                 replay,
             },
         );
-        // A stage's: its room's standings where the graphs are.
+        // A stage's: its room's standings where the graphs are; the web's
+        // own, a stage left by Back has its results say so.
+        let results = results_facts::in_room(
+            results,
+            stage.as_deref().map(|o| (o, crate::room::last_room())),
+        );
         ui.push(match &stage {
-            // A stage the player watched: no play of their own.
-            Some(order) if order.watching => results
-                .with_room(crate::room::last_room(), order.stage)
-                .watched(),
-            Some(order) if self.left_by_back => results
-                .with_room(crate::room::last_room(), order.stage)
-                .after_back(crate::room::results_shell()),
-            Some(order) => results.with_room(crate::room::last_room(), order.stage),
-            None => results,
+            Some(order) if self.left_by_back && !order.watching => {
+                results.after_back(crate::room::results_shell())
+            }
+            _ => results,
         });
         // What tests read: `__DDI_DEBUG.results`.
         let extra = Box::new(move |obj: &js_sys::Object| {
