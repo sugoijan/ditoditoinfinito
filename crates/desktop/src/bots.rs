@@ -916,6 +916,9 @@ impl Bot {
             }
             LinkState::Joining => {}
             LinkState::Reconnecting { attempt } => self.say(format!("reconnecting ({attempt})")),
+            LinkState::ServerBehind { attempt } => {
+                self.say(format!("the server is being updated; trying again ({attempt})"))
+            }
             LinkState::SignInAgain => {
                 self.say("the session ended; leaving");
                 self.done = true;

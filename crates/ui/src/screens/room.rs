@@ -495,6 +495,8 @@ fn phase_status(r: &RoomClient) -> UiText {
             // the web), or a newer desktop build.
             LinkState::UpdateRequired if r.on_web() => return m::update_reload(),
             LinkState::UpdateRequired => return m::update_required(),
+            // The room's authority is older: asked again by itself.
+            LinkState::ServerBehind { .. } => return m::server_updating(),
             LinkState::Connected => {}
         }
     }

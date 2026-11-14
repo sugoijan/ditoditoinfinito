@@ -707,7 +707,7 @@ impl Online {
                 }
             }
             Want::Audience(link) => {
-                let result = api::read::<api::AudienceTicketDoc>(&response);
+                let result = api::read_current::<api::AudienceTicketDoc>(&response);
                 match result {
                     Ok(t) => {
                         self.seated = Some(Seated {
@@ -729,7 +729,7 @@ impl Online {
             }
             Want::Join(invite) => {
                 let offered = api::offers_audience(&response);
-                let result = api::read::<api::Joined>(&response);
+                let result = api::read_current::<api::Joined>(&response);
                 if self.invite.as_ref().is_none_or(|v| v.invite != invite) {
                     return;
                 }

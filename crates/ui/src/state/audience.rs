@@ -431,7 +431,7 @@ impl AudienceClient {
             && let Some(r) = self.online.borrow_mut().take_answer(id)
         {
             self.ticket_req = None;
-            match api::read::<AudienceTicketDoc>(&r) {
+            match api::read_current::<AudienceTicketDoc>(&r) {
                 Ok(t) => {
                     self.seat.ticket(&t.ticket);
                 }

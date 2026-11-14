@@ -69,10 +69,28 @@ pub fn supported(version: u32) -> bool {
 /// authority refuses a client whose revision is lower than its own
 /// ([`check_model`], [`UPDATE_REQUIRED`]: "reload to update", the
 /// maintainer: "I'd rather not focus on keeping compatibility right
-/// now"). A client newer than its authority is never refused: it hides
-/// what the authority does not honor, as the policy flags have it. An
-/// authority that predates the revision ignores the field.
-pub const ROOM_MODEL_REVISION: u32 = 8;
+/// now"). The check goes both ways since revision 9: the authority says
+/// its own revision in the same answers (`model`), and a client refuses
+/// an authority whose revision is older than its own, or that says none
+/// ([`check_authority`], [`SERVER_BEHIND`]: "the server is being
+/// updated"), opening no socket. Server and game deploy together, the
+/// server first.
+///
+/// 9. the check both ways (and what only peers one build apart needed
+///    retired with it).
+pub const ROOM_MODEL_REVISION: u32 = 9;
+
+/// What a client makes of an authority older than itself (never sent by
+/// an authority): the code its screens word as "the server is being
+/// updated, try again in a moment".
+pub const SERVER_BEHIND: &str = "server_behind";
+
+/// Whether an authority that said room model revision `authority` (none:
+/// one that predates revision 9, which said none) runs this client's
+/// room model or a newer one; an older one is refused by the client.
+pub fn check_authority(authority: Option<u32>) -> bool {
+    authority.is_some_and(|r| r >= ROOM_MODEL_REVISION)
+}
 
 /// The problem code an authority answers a client too old for it with
 /// (the HTTP body's `error`): a client that predates it shows it as a

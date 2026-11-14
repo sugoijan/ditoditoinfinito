@@ -177,6 +177,7 @@ impl FakeServer {
                         "ticket": ticket,
                         "relay": relay,
                         "expires_at_ms": self.now() + 60_000,
+                        "model": self.model,
                     })
                     .to_string(),
                 )
@@ -245,6 +246,8 @@ mod tests {
                 let b = json(&body);
                 assert!(b["ticket"].as_str().unwrap().starts_with("aud-"));
                 assert!(b["relay"].as_u64().is_some() && b["expires_at_ms"].as_i64().is_some());
+                // The server's room model, for the client's check.
+                assert_eq!(b["model"].as_u64(), Some(u64::from(crate::ROOM_MODEL_REVISION)));
             } else {
                 // Two seats an identity: the third is refused.
                 assert_eq!((status, json(&body)["error"].clone()), (409, "too_many_seats".into()));

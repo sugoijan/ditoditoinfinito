@@ -138,6 +138,13 @@ pub enum LinkState {
     /// ([`crate::UPDATE_REQUIRED`], a ticket refused): only a newer game
     /// mends it (a reload on the web).
     UpdateRequired,
+    /// The room's authority is older than this client's room model, or
+    /// says none ([`crate::SERVER_BEHIND`], a ticket's answer): no socket
+    /// is opened, and a ticket asked again after a wait (the `attempt`th
+    /// time) while the server is being updated.
+    ServerBehind {
+        attempt: u32,
+    },
 }
 
 impl LinkState {
@@ -163,6 +170,9 @@ pub enum TicketProblem {
     /// `403 update_required`: this client's room model is older than the
     /// authority's ([`crate::check_model`]).
     UpdateRequired,
+    /// A ticket whose answer says an older room model than this client's,
+    /// or none ([`crate::check_authority`]): asked again after a wait.
+    ServerBehind,
     /// No answer, or another failure: retried.
     Unreachable,
 }
@@ -349,6 +359,9 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
         }
         match answer {
             Ok(ticket) => {
+                if matches!(self.link, LinkState::ServerBehind { .. }) {
+                    self.link = LinkState::Joining;
+                }
                 self.ticket = Ticket::Used;
                 self.synced = false;
                 self.transport.open(&self.room, &ticket);
@@ -357,6 +370,16 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
             Err(TicketProblem::NotAMember) => self.end(LinkState::Left),
             Err(TicketProblem::RoomClosed) => self.end(LinkState::Closed),
             Err(TicketProblem::UpdateRequired) => self.end(LinkState::UpdateRequired),
+            Err(TicketProblem::ServerBehind) => {
+                let attempt = match self.link {
+                    LinkState::ServerBehind { attempt } => attempt + 1,
+                    _ => 1,
+                };
+                self.link = LinkState::ServerBehind { attempt };
+                self.ticket = Ticket::Wanted {
+                    at: self.clock.now().0 + self.policy.wait_ms(attempt),
+                };
+            }
             Err(TicketProblem::Unreachable) => self.retry_later(),
         }
     }
@@ -538,7 +561,9 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
         match self.link {
             LinkState::Joining => Connection::Joining,
             LinkState::Connected => Connection::Connected,
-            LinkState::Reconnecting { .. } => Connection::Reconnecting,
+            LinkState::Reconnecting { .. } | LinkState::ServerBehind { .. } => {
+                Connection::Reconnecting
+            }
             LinkState::SignInAgain
             | LinkState::Closed
             | LinkState::Left

@@ -59,12 +59,12 @@ impl Http for LaggyHttp {
                 r#"{{"room_id":"{ROOM}","name":"After Hours","revision":1,"phase":"lobby","admission":"open","participant":1}}"#
             )),
             (Method::Post, p) if p == format!("{room}/ticket") => {
-                let t = self
+                let body = self
                     .server
                     .borrow_mut()
-                    .ticket(&Identity::new("dev:alice"))
+                    .ticket_answer(&Identity::new("dev:alice"))
                     .expect("a ticket");
-                ok(format!(r#"{{"ticket":"{t}","expires_at_ms":9}}"#))
+                ok(body)
             }
             (_, p) if p == format!("{room}/invite") => ok(format!(
                 r#"{{"invite":"{ROOM}.invite","watch_invite":"{ROOM}.watch","expires_at_ms":9,"admission":"open"}}"#

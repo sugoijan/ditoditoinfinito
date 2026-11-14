@@ -172,6 +172,9 @@ pub fn invite_problem(p: &Problem) -> UiText {
         "no_audience" => m::audience_none(),
         // The room's authority is newer than this game (round B1).
         ddi_room::UPDATE_REQUIRED => m::update_required(),
+        // The room's authority is older than this game, or says no
+        // revision (round R2): the server is being updated.
+        ddi_room::SERVER_BEHIND => m::server_updating(),
         code => m::invite_refused(UiText::data(code)),
     }
 }

@@ -145,8 +145,8 @@ pub struct FakeServer {
     next_conn: u64,
     next_ticket: u64,
     /// The room model revision this fake authority runs
-    /// ([`crate::ROOM_MODEL_REVISION`] unless a test sets one ahead,
-    /// [`FakeServer::set_model`]).
+    /// ([`crate::ROOM_MODEL_REVISION`] unless a test sets one ahead or
+    /// behind, [`FakeServer::set_model`]).
     model: u32,
     tickets: BTreeMap<String, ParticipantId>,
     /// Faults for the next socket a person opens, by participant.
@@ -408,9 +408,16 @@ impl FakeServer {
     /// (`Rejection::RoomClosed` for a room that ended: the server's `410
     /// room_closed`).
     /// Run as an authority of room model revision `model` (a server
-    /// deployed ahead of this build, for "reload to update").
+    /// deployed ahead of this build, for "reload to update", or behind
+    /// it, for "the server is being updated").
     pub fn set_model(&mut self, model: u32) {
         self.model = model;
+    }
+
+    /// The room model revision its answers say (`model` in the join's,
+    /// the ticket's and the audience join's answers, as the server's).
+    pub fn model(&self) -> u32 {
+        self.model
     }
 
     /// The server's check of a join's or an audience join's `model`
@@ -425,6 +432,18 @@ impl FakeServer {
     /// where too old, except while a stage is under way.
     pub fn admit_ticket(&self, model: Option<u32>) -> Result<(), crate::UpdateRequired> {
         self.state().admits_model_against(model, self.model)
+    }
+
+    /// `POST /rooms/<id>/ticket` for `identity` answered as the server's
+    /// body (`{ticket, expires_at_ms, model}`), or why not.
+    pub fn ticket_answer(&mut self, identity: &Identity) -> Result<String, Rejection> {
+        let ticket = self.ticket(identity)?;
+        Ok(serde_json::json!({
+            "ticket": ticket,
+            "expires_at_ms": self.now() + 60_000,
+            "model": self.model,
+        })
+        .to_string())
     }
 
     pub fn ticket(&mut self, identity: &Identity) -> Result<String, Rejection> {

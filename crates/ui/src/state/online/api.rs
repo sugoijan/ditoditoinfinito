@@ -135,6 +135,45 @@ pub fn read<T: serde::de::DeserializeOwned>(r: &ApiResponse) -> Result<T, Proble
     })
 }
 
+/// An answer that says its authority's room model revision.
+pub trait Revised {
+    fn model(&self) -> Option<u32>;
+}
+
+impl Revised for Joined {
+    fn model(&self) -> Option<u32> {
+        self.model
+    }
+}
+
+impl Revised for AudienceTicketDoc {
+    fn model(&self) -> Option<u32> {
+        self.model
+    }
+}
+
+impl Revised for TicketDoc {
+    fn model(&self) -> Option<u32> {
+        self.model
+    }
+}
+
+/// [`read`] of an answer from a room's authority, refused as
+/// [`ddi_room::SERVER_BEHIND`] where that authority's room model is older
+/// than this client's or unsaid (round R2: the check both ways; "the
+/// server is being updated").
+pub fn read_current<T: serde::de::DeserializeOwned + Revised>(r: &ApiResponse) -> Result<T, Problem> {
+    let t = read::<T>(r)?;
+    if ddi_room::check_authority(t.model()) {
+        Ok(t)
+    } else {
+        Err(Problem {
+            status: r.status,
+            code: ddi_room::SERVER_BEHIND.into(),
+        })
+    }
+}
+
 /// A success with no body to read.
 pub fn done(r: &ApiResponse) -> Result<(), Problem> {
     match read::<serde_json::Value>(r) {
@@ -247,7 +286,11 @@ pub struct AudienceTicketDoc {
     #[serde(default)]
     pub relay: u32,
     #[serde(default)]
-    pub expires_at_ms: i64,
+    pub expires_at_ms: i64,    /// The authority's room model revision (none from a server before
+    /// revision 9): one older than this client's is refused here
+    /// ([`ddi_room::check_authority`]).
+    #[serde(default)]
+    pub model: Option<u32>,
 }
 
 /// A join's answer (`POST /rooms/<id>/join`).
@@ -258,7 +301,11 @@ pub struct Joined {
     pub intent: Intent,
     pub participation: Participation,
     #[serde(default)]
-    pub already: bool,
+    pub already: bool,    /// The authority's room model revision (none from a server before
+    /// revision 9): one older than this client's is refused here
+    /// ([`ddi_room::check_authority`]).
+    #[serde(default)]
+    pub model: Option<u32>,
 }
 
 /// A room's summary for a member (`GET /rooms/<id>`).
@@ -273,7 +320,11 @@ pub struct Summary {
 /// A socket's ticket (`POST /rooms/<id>/ticket`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct TicketDoc {
-    pub ticket: String,
+    pub ticket: String,    /// The authority's room model revision (none from a server before
+    /// revision 9): one older than this client's is refused here
+    /// ([`ddi_room::check_authority`]).
+    #[serde(default)]
+    pub model: Option<u32>,
 }
 
 /// The room's invite for its operators (`GET` or `POST

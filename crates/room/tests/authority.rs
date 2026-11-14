@@ -630,13 +630,20 @@ fn every_message_kind_survives_the_wire() {
 /// The room model's revision (round B1): a client says its own; an
 /// authority refuses one older than itself (or one that says none) at a
 /// join, and at a ticket except while a stage is under way; a newer
-/// client is never refused.
+/// client is never refused by the authority (it refuses an older
+/// authority itself, round R2).
 #[test]
 fn an_older_room_model_is_refused_except_during_a_stage() {
     use ddi_room::{ROOM_MODEL_REVISION, UPDATE_REQUIRED, UpdateRequired, check_model_against};
     let rev = ROOM_MODEL_REVISION;
-    assert_eq!(rev, 8, "8: hosted-deadline-v2 and adaptive-v2");
+    assert_eq!(rev, 9, "9: the check both ways, compatibility retired");
     assert_eq!(UPDATE_REQUIRED, "update_required");
+    // The other way (round R2): a client refuses an authority older than
+    // itself, or one that says no revision.
+    assert!(ddi_room::check_authority(Some(rev)));
+    assert!(ddi_room::check_authority(Some(rev + 1)), "a newer authority");
+    assert!(!ddi_room::check_authority(Some(rev - 1)));
+    assert!(!ddi_room::check_authority(None));
     assert!(ddi_room::check_model(Some(rev)).is_ok());
     assert!(ddi_room::check_model(Some(rev + 1)).is_ok(), "a newer client");
     assert_eq!(

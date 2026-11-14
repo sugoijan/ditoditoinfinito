@@ -333,7 +333,7 @@ fn the_web_leaves_for_the_servers_page_and_resumes_the_join_on_return() {
             (Method::Post, "/rooms/Room000001/join") => {
                 assert!(req.body.as_deref().unwrap().contains(INVITE));
                 ok(
-                    r#"{"room_id":"Room000001","participant":3,"intent":"play","participation":{"not_ready":{"stage":1}},"already":false}"#,
+                    r#"{"room_id":"Room000001","participant":3,"intent":"play","participation":{"not_ready":{"stage":1}},"already":false,"model":9}"#,
                 )
             }
             _ => panic!("unexpected {req:?}"),
@@ -475,6 +475,11 @@ pub(crate) mod room {
     /// summary, the invite and stages' upload grants (for operators, as
     /// the server decides them; numbered `grant-<who>-<n>`).
     pub(crate) fn person(server: &SharedFake, who: &'static str) -> SharedOnline {
+        signed_in(handler_of(server, who))
+    }
+
+    /// [`person`]'s HTTP.
+    fn handler_of(server: &SharedFake, who: &'static str) -> Handler {
         let mut grants = 0;
         let s = server.clone();
         let handler: Handler = Box::new(move |req| {
@@ -501,8 +506,8 @@ pub(crate) mod room {
                     r#"{"room_id":"Room000001","name":"After Hours","revision":1,"phase":"lobby","admission":"open","participant":1}"#,
                 ),
                 (Method::Post, "/rooms/Room000001/ticket") => {
-                    match s.borrow_mut().ticket(&identity) {
-                        Ok(t) => ok(&format!(r#"{{"ticket":"{t}","expires_at_ms":9}}"#)),
+                    match s.borrow_mut().ticket_answer(&identity) {
+                        Ok(body) => ok(&body),
                         Err(_) => err(403, "not_a_member"),
                     }
                 }
@@ -534,8 +539,9 @@ pub(crate) mod room {
                         Intent::Watch => "watch",
                     };
                     ok(&format!(
-                        r#"{{"room_id":"Room000001","participant":{},"intent":"{intent}","participation":"watching","already":{already}}}"#,
-                        id.0
+                        r#"{{"room_id":"Room000001","participant":{},"intent":"{intent}","participation":"watching","already":{already},"model":{}}}"#,
+                        id.0,
+                        s.borrow().model()
                     ))
                 }
                 (Method::Get, "/rooms/Room000001/invite") if who == "alice" => ok(&format!(
@@ -559,7 +565,7 @@ pub(crate) mod room {
                 _ => panic!("unexpected {req:?}"),
             }
         });
-        signed_in(handler)
+        handler
     }
 
     pub(crate) fn client(
@@ -881,6 +887,93 @@ pub(crate) mod room {
         server.borrow_mut().set_model(ddi_room::ROOM_MODEL_REVISION);
         assert!(server.borrow().admit_join(Some(ddi_room::ROOM_MODEL_REVISION)).is_ok());
         assert!(server.borrow().admit_join(None).is_err(), "one that says none is too old");
+    }
+
+    /// The check both ways (round R2): a server whose answers say an
+    /// older room model than this client's, or none (a server from
+    /// before revision 9), is refused by the client: the invite's page
+    /// says the server is being updated with Join there to try again,
+    /// and a member's link opens no socket, saying the same on the room's
+    /// status line while it asks again after a wait; a server of this
+    /// client's revision lets both in.
+    #[test]
+    fn a_server_behind_this_client_is_refused_and_opens_no_socket() {
+        use crate::screens::room::status;
+        use ddi_l10n::msg::room as m;
+        let rev = ddi_room::ROOM_MODEL_REVISION;
+        for said in [Some(rev - 1), None, Some(rev)] {
+            let clock = ManualClock::new(1_000);
+            let server = room_of(&clock, &["bob"]);
+            if let Some(model) = said {
+                server.borrow_mut().set_model(model);
+            }
+            // The server's answers as a server of `said` makes them (none:
+            // without the field).
+            let answered = |who| -> SharedOnline {
+                let mut inner = handler_of(&server, who);
+                signed_in(Box::new(move |req| {
+                    let mut r = inner(req)?;
+                    if said.is_none()
+                        && let Ok(serde_json::Value::Object(mut doc)) =
+                            serde_json::from_str::<serde_json::Value>(&r.body)
+                    {
+                        doc.remove("model");
+                        r.body = serde_json::Value::Object(doc).to_string();
+                    }
+                    Some(r)
+                }))
+            };
+            let current = said == Some(rev);
+            // A newcomer's join.
+            let carol = answered("carol");
+            carol.borrow_mut().open_invite(INVITE);
+            carol.borrow_mut().poll(1);
+            carol.borrow_mut().join_invite();
+            carol.borrow_mut().poll(2);
+            let entered = carol.borrow_mut().take_entered();
+            let page = crate::screens::online::invite_page(&carol.borrow());
+            let updating = String::from(m::server_updating());
+            if current {
+                assert_eq!(entered.as_deref(), Some("Room000001"), "{said:?}");
+                assert!(!page.0.contains(&updating), "{page:?}");
+            } else {
+                assert_eq!(entered, None, "{said:?}");
+                assert!(page.0.contains(&updating), "{said:?}: {page:?}");
+                assert!(page.1.iter().any(|a| a == "join"), "Join again: {page:?}");
+            }
+            // A member's link.
+            let mut bob = client(&server, answered("bob"), "bob", 1_000);
+            tick(&clock, &mut [&mut bob], 400);
+            if current {
+                assert_eq!(bob.link_state(), LinkState::Connected, "{said:?}");
+            } else {
+                assert!(
+                    matches!(bob.link_state(), LinkState::ServerBehind { .. }),
+                    "{said:?}: {:?}",
+                    bob.link_state()
+                );
+                assert_eq!(String::from(status(&bob)), updating);
+                assert_eq!(server.borrow().sockets(), 0, "no socket");
+                // Asked again after a wait, in once the server is current.
+                let asked = |bob: &RoomClient| {
+                    let LinkState::ServerBehind { attempt } = bob.link_state() else {
+                        return 0;
+                    };
+                    attempt
+                };
+                let before = asked(&bob);
+                tick(&clock, &mut [&mut bob], 4_000);
+                assert!(asked(&bob) > before, "asked again");
+                server.borrow_mut().set_model(rev);
+                if said.is_none() {
+                    // The handler strips what the server says: a fresh
+                    // one for the server brought up to date.
+                    bob = client(&server, person(&server, "bob"), "bob", 1_000);
+                }
+                tick(&clock, &mut [&mut bob], 20_000);
+                assert_eq!(bob.link_state(), LinkState::Connected, "{said:?}");
+            }
+        }
     }
 
     fn shared_pick(s: &crate::screens::data::SongEntry) -> Picked {

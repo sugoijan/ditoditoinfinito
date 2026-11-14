@@ -1039,6 +1039,10 @@ room-update-required = This room needs a newer version of the game.
 room-update-reload = The game was updated. Reload to play in this room.
 # The button that reloads the page (the web; about 12 letters).
 room-update-reload-button = Reload
+# Said (on an invite's page, the audience's page, or on the room's status
+# line) where the room's server is older than this game: it is being
+# updated, and the game tries again by itself on the room's line.
+room-server-updating = The server is being updated. Try again in a moment.
 
 # The status line after leaving.
 room-link-left = You left this room.

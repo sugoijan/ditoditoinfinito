@@ -479,6 +479,7 @@ room-link-closed = このルームは閉じられました。
 room-update-required = このルームには新しいバージョンのゲームが必要です。
 room-update-reload = ゲームが更新されました。このルームで遊ぶには再読み込みしてください。
 room-update-reload-button = 再読み込み
+room-server-updating = サーバーを更新しています。しばらくしてからもう一度お試しください。
 
 room-link-left = このルームから退出しました。
 

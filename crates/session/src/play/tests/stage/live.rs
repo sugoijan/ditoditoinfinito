@@ -49,8 +49,8 @@ impl Http for RoomHttp {
                     .into(),
             ),
             (Method::Post, "/rooms/Room000001/ticket") => {
-                match self.server.borrow_mut().ticket(&identity) {
-                    Ok(t) => ok(format!(r#"{{"ticket":"{t}","expires_at_ms":9}}"#)),
+                match self.server.borrow_mut().ticket_answer(&identity) {
+                    Ok(body) => ok(body),
                     Err(_) => ApiResponse {
                         status: 403,
                         body: r#"{"error":"not_a_member"}"#.into(),

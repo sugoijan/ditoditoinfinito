@@ -88,8 +88,8 @@ impl Http for RoomHttp {
                 r#"{{"room_id":"{ROOM}","name":"{name}","revision":1,"phase":"lobby","admission":"open","participant":1}}"#
             )),
             (Method::Post, p) if p == format!("{room}/ticket") => {
-                match self.server.borrow_mut().ticket(&identity) {
-                    Ok(t) => ok(format!(r#"{{"ticket":"{t}","expires_at_ms":9}}"#)),
+                match self.server.borrow_mut().ticket_answer(&identity) {
+                    Ok(body) => ok(body),
                     Err(_) => no(403, "not_a_member"),
                 }
             }

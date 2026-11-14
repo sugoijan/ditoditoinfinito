@@ -221,6 +221,19 @@ fn every_refusal_is_said_and_the_room_without_an_audience_offers_none() {
         String::from(crate::screens::online::invite_problem(&full)),
         "The room's audience is full."
     );
+    // A server older than this client (round R2): refused here, no seat.
+    let clock = ManualClock::new(5_000);
+    let behind = room(&clock, live_audience());
+    behind
+        .borrow_mut()
+        .set_model(ddi_room::ROOM_MODEL_REVISION - 1);
+    let old = arrive(&behind, "hal", AUDIENCE_LINK, 5_000).unwrap_err();
+    assert_eq!(old.code, ddi_room::SERVER_BEHIND);
+    assert_eq!(
+        String::from(crate::screens::online::invite_problem(&old)),
+        String::from(ddi_l10n::msg::room::server_updating())
+    );
+    assert_eq!(behind.borrow().sockets(), 0);
     // A room on a server without an audience: no count, link or control
     // for its members, and its links offer nothing.
     let clock = ManualClock::new(5_000);

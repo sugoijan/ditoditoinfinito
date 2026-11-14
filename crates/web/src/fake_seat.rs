@@ -125,8 +125,8 @@ impl Http for FakeHttp {
                 ),
             ),
             (Method::Post, p) if p == format!("{path}/ticket") => {
-                match self.server.borrow_mut().ticket(&identity) {
-                    Ok(t) => answer(200, format!(r#"{{"ticket":"{t}","expires_at_ms":9}}"#)),
+                match self.server.borrow_mut().ticket_answer(&identity) {
+                    Ok(body) => answer(200, body),
                     Err(_) => answer(403, r#"{"error":"not_a_member"}"#.into()),
                 }
             }

@@ -299,6 +299,8 @@ impl OnlineLink {
 /// A ticket's answer as the authority takes it.
 fn ticket_of(r: &ApiResponse) -> Result<String, TicketProblem> {
     match api::read::<TicketDoc>(r) {
+        // An authority older than this client (round R2): no socket.
+        Ok(t) if !ddi_room::check_authority(t.model) => Err(TicketProblem::ServerBehind),
         Ok(t) => Ok(t.ticket),
         Err(p) => Err(match p.status {
             _ if p.code == ddi_room::UPDATE_REQUIRED => TicketProblem::UpdateRequired,
