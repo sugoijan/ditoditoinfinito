@@ -10,21 +10,14 @@ use super::credits;
 use super::data::{PackEntry, Platform};
 use super::options_model::{OptionsModel, Reset, Sample, World};
 use super::select_dialogs::{ImportDialog, Manage, ManageDialog};
+use super::test_kit::{env, harness};
 use super::{COMPACT, DESIGN, Env, sample};
-use crate::dev_widgets::FoldFn;
-use crate::look::Plain;
 use crate::state::settings::Settings;
 use crate::testing::Harness;
 use crate::{PointerKind, TextMode};
 
 /// Words a desktop screen must not say.
 const WEB_ONLY: &[&str] = &["browser", "this page", "IndexedDB", "site", "download"];
-
-fn env() -> Env {
-    let fold: FoldFn =
-        Rc::new(|s: &str| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s));
-    Env::new(Rc::new(Plain), fold)
-}
 
 /// [`env`] in `platform`'s wording.
 fn env_on(platform: Platform) -> Env {
@@ -148,7 +141,7 @@ fn desktop_screens_do_not_talk_of_the_browser() {
     }
     // The credits.
     let c = credits::sample();
-    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+    let mut h = harness();
     h.push(sample::credits_screen(&env, &c));
     h.run(0.3);
     let doc = format!("{:?}", credits::doc(&c, Platform::Desktop));
@@ -156,7 +149,7 @@ fn desktop_screens_do_not_talk_of_the_browser() {
         assert!(!doc.contains(w), "the credits say “{w}” on desktop");
     }
     // Calibration's menu.
-    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+    let mut h = harness();
     h.push(sample::calibration_screen(&env));
     h.run(0.3);
     for t in h.texts() {
@@ -498,7 +491,7 @@ fn a_pointer_release_for_an_old_origin_cannot_answer_the_next_request() {
 fn danoni_saved_url_does_not_overlap_the_empty_field_hint() {
     use super::data::{DanoniImportView, ImportView};
     let url = "https://example.invalid/work/";
-    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+    let mut h = harness();
     h.push(ImportDialog::new(
         env_on(Platform::Desktop),
         Rc::new(std::cell::RefCell::new(ImportView {

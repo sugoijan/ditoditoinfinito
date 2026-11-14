@@ -4,7 +4,7 @@ use std::rc::Rc;
 use ddi_chart::{NoteKind, Tick};
 
 use super::*;
-use crate::look::Plain;
+use crate::screens::test_kit::{env, harness};
 use crate::screens::{COMPACT, DESIGN};
 use crate::testing::Harness;
 use crate::{Modifiers, PointerKind, TextMode};
@@ -38,13 +38,6 @@ impl EditorHost for Host {
     fn music_time(&self) -> Option<f64> {
         self.time.get()
     }
-}
-
-fn env() -> Env {
-    Env::new(
-        Rc::new(Plain),
-        Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
-    )
 }
 
 fn place() -> EditorPlace {
@@ -745,7 +738,7 @@ fn the_footer_is_drawn_for_what_it_shows() {
 fn leaving_a_new_song_unsaved_says_it_is_not_kept() {
     let env = env();
     let host = Rc::new(Host::default());
-    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+    let mut h = harness();
     let place = EditorPlace {
         confirm: None,
         new_song: true,

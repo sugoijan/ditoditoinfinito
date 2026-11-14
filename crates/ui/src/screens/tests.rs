@@ -4,17 +4,11 @@
 use std::rc::Rc;
 
 use super::sample;
+use super::test_kit::{env, top};
 use super::{COMPACT, DESIGN, Env, SharedTheme};
-use crate::dev_widgets::FoldFn;
 use crate::look::Plain;
 use crate::testing::Harness;
 use crate::{PointerKind, TextMode};
-
-fn env() -> Env {
-    let fold: FoldFn =
-        Rc::new(|s: &str| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s));
-    Env::new(Rc::new(Plain), fold)
-}
 
 fn select(size: [f32; 2], design: [f32; 2], reduced: bool) -> (Harness, SharedTheme) {
     let env = env();
@@ -1730,12 +1724,6 @@ fn links_and_notices_ask_the_shell() {
     assert!(s.borrow().status.starts_with("PLAYED some-things-must "));
 }
 
-fn top(h: &Harness) -> String {
-    h.ui.layers()
-        .last()
-        .map(|l| l.name.clone())
-        .unwrap_or_default()
-}
 
 #[test]
 fn the_import_dialog_asks_the_shell_and_shows_the_report() {

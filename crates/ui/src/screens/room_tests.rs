@@ -14,23 +14,12 @@ use super::data::{ChartEntry, Difficulty, SelectData, SongEntry};
 use super::prompt::{PromptChoice, PromptScreen, PromptState};
 use super::room::{RoomCall, RoomShell};
 use super::start::{Choice, StartScreen};
+use super::test_kit::{Orders, Uploads, env, harness, shell, shell_with, there, top};
 use super::{DESIGN, Env, sample};
-use crate::look::Plain;
 use crate::state::room::{RoomClient, SharedRoom, StageOrder};
 use crate::testing::Harness;
 use crate::{PointerKind, TextMode};
 use ddi_room::Phase;
-
-fn env() -> Env {
-    Env::new(
-        Rc::new(Plain),
-        Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
-    )
-}
-
-fn harness() -> Harness {
-    Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own)
-}
 
 fn chart(style: &str, index: usize, meter: u32) -> ChartEntry {
     ChartEntry {
@@ -78,43 +67,6 @@ fn library(style: &str) -> SelectData {
     data
 }
 
-/// What the shell was asked: the stages' prompts it opened.
-type Orders = Rc<RefCell<Vec<StageOrder>>>;
-/// The uploads it was handed.
-type Uploads = Rc<RefCell<Vec<crate::state::room::UploadJob>>>;
-
-/// The room's shell for tests: songs prepared at once, prompts recorded.
-fn shell(room: &SharedRoom, orders: &Orders) -> RoomShell {
-    shell_with(room, orders, &Uploads::default())
-}
-
-/// [`shell`], its uploads kept in `uploads`.
-fn shell_with(room: &SharedRoom, orders: &Orders, uploads: &Uploads) -> RoomShell {
-    let shared = room.clone();
-    let orders = orders.clone();
-    let uploads = uploads.clone();
-    Rc::new(move |call, cx| match call {
-        RoomCall::Leave | RoomCall::Discard => cx.close(true),
-        // A shared song read as the online tests' song, its id the
-        // share's; a library song prepared at once.
-        RoomCall::Prepare(job) if job.share.is_some() => {
-            let s = crate::state::online::tests::room::song();
-            let picked = crate::state::room::Picked {
-                song: SongEntry {
-                    id: job.song.clone(),
-                    ..s.clone()
-                },
-                chart: s.charts[0].clone(),
-            };
-            shared.borrow_mut().finish_shared_load(&job, Ok(picked));
-        }
-        RoomCall::Prepare(job) => shared.borrow_mut().finish_load(&job, Ok(())),
-        RoomCall::PlayStage(order) => orders.borrow_mut().push(*order),
-        RoomCall::Upload(job) => uploads.borrow_mut().push(*job),
-        RoomCall::Redirect(_) => {}
-    })
-}
-
 /// The room's song select over [`library`] in `style`.
 fn room_select(
     env: &Env,
@@ -126,9 +78,6 @@ fn room_select(
         .with_room(room.clone(), shell(&room, orders))
 }
 
-fn top(h: &Harness) -> String {
-    h.ui.layers().last().unwrap().name.clone()
-}
 
 fn view(env: &Env) -> super::room::RoomView {
     env.state
@@ -1659,11 +1608,6 @@ fn said(h: &Harness, name: &str) -> String {
         ddi_actor::Kind::Text(t) => t.text().to_string(),
         _ => panic!("{name} is not text"),
     }
-}
-
-/// Whether an actor named `name` is in the tree.
-fn there(h: &Harness, name: &str) -> bool {
-    h.ui.actor(name).is_some()
 }
 
 /// The texts in the header's pills, in order.

@@ -26,19 +26,12 @@ use super::options_model::{OptionsModel, Reset, Sample, World};
 use super::page::Block;
 use super::prompt::PromptStep;
 use super::select_dialogs::{ImportDialog, Manage, ManageDialog};
+use super::test_kit::{env, harness};
 use super::{COMPACT, DESIGN, Env, sample};
-use crate::dev_widgets::FoldFn;
-use crate::look::Plain;
 use crate::message::{Message, Param};
 use crate::state::settings::Settings;
 use crate::testing::Harness;
 use crate::{Modifiers, PointerKind, TextMode};
-
-fn env() -> Env {
-    let fold: FoldFn =
-        Rc::new(|s: &str| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s));
-    Env::new(Rc::new(Plain), fold)
-}
 
 /// Sets the hidden option that opens a room's Rules by themselves on
 /// entering (`Settings::multiplayer_rules_first`), so the walk shows
@@ -2344,7 +2337,7 @@ fn moved_screens_show_no_text_written_in_code() {
     assert!(ddi_l10n::set_language("qps-ploc"));
     let env = env();
     for desktop in [false, true] {
-        let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+        let mut h = harness();
         h.push(sample::start_screen(&env, desktop));
         h.run(0.5);
         let texts = h.texts();
@@ -2516,7 +2509,7 @@ fn the_editor_speaks_japanese() {
     ddi_l10n::set_language("ja");
     let mut env = env();
     env.platform = Platform::Desktop;
-    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+    let mut h = harness();
     h.push(sample::editor_screen(&env, false));
     h.run(0.5);
     let texts = h.texts();
@@ -2544,7 +2537,7 @@ fn a_new_language_rebuilds_the_screens_in_place() {
     storage::install(Rc::new(MemoryStore::default()));
     ddi_l10n::set_language("en");
     let env = env();
-    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+    let mut h = harness();
     h.push(sample::start_screen(&env, true));
     h.run(0.5);
     assert!(h.texts().iter().any(|t| t == "Singleplayer"));

@@ -12,12 +12,12 @@ use ddi_engine::scroll::{ScrollOptions, SpeedMod};
 use super::*;
 use crate::look::Plain;
 use crate::screen::Cx;
-use crate::screens::DESIGN;
 use crate::screens::Env;
 use crate::screens::editor::{EditorCall, EditorHost, EditorPlace, EditorScreen, EditorView};
+use crate::screens::test_kit::harness;
 use crate::state::editor::Editor;
 use crate::testing::Harness;
-use crate::{PointerKind, TextMode};
+use crate::PointerKind;
 
 /// A shell drawing the skin: the pictures it was given.
 struct Host {
@@ -76,7 +76,7 @@ fn setup(scroll: ScrollOptions) -> Setup {
         pictures: RefCell::default(),
         time: Cell::new(None),
     });
-    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+    let mut h = harness();
     let mut editor = Editor::new_song(Some("song.ogg".into()), "Test");
     editor.set_segment(
         Tick::from_beats(4),
@@ -350,7 +350,7 @@ fn a_shell_without_the_skin_gets_plates() {
         Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
     );
     env.reduced_motion.set(true);
-    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+    let mut h = harness();
     h.push(
         EditorScreen::new(
             env.clone(),

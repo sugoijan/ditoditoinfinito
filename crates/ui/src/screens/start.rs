@@ -381,17 +381,10 @@ impl Screen for StartScreen {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::look::Plain;
+    use crate::screens::test_kit::env;
     use crate::testing::Harness;
     use crate::{PointerKind, TextMode, UiRequest};
     use std::cell::RefCell;
-
-    fn env() -> Env {
-        Env::new(
-            Rc::new(Plain),
-            Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
-        )
-    }
 
     #[test]
     fn first_key_only_focuses_singleplayer_and_hover_moves_focus() {

@@ -8,24 +8,12 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::data::{ChartEntry, Difficulty, SelectData, SongEntry};
-use super::room::{RoomCall, RoomShell};
 use super::select::{SelectCall, SelectScreen};
-use super::{DESIGN, Env, sample};
-use crate::look::Plain;
-use crate::state::room::{RoomClient, SharedRoom, StageOrder};
+use super::test_kit::{Orders, env, harness, shell, top};
+use super::{Env, sample};
+use crate::PointerKind;
+use crate::state::room::{RoomClient, SharedRoom};
 use crate::testing::Harness;
-use crate::{PointerKind, TextMode};
-
-fn env() -> Env {
-    Env::new(
-        Rc::new(Plain),
-        Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
-    )
-}
-
-fn harness() -> Harness {
-    Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own)
-}
 
 /// Three packs of six songs, each with Easy, Medium and Hard Single
 /// charts and a Double chart.
@@ -75,18 +63,6 @@ fn packs() -> SelectData {
 }
 
 type Calls = Rc<RefCell<Vec<SelectCall>>>;
-type Orders = Rc<RefCell<Vec<StageOrder>>>;
-
-fn room_shell(room: &SharedRoom, orders: &Orders) -> RoomShell {
-    let shared = room.clone();
-    let orders = orders.clone();
-    Rc::new(move |call, cx| match call {
-        RoomCall::Leave | RoomCall::Discard => cx.close(true),
-        RoomCall::Prepare(job) => shared.borrow_mut().finish_load(&job, Ok(())),
-        RoomCall::PlayStage(order) => orders.borrow_mut().push(*order),
-        _ => {}
-    })
-}
 
 fn select(env: &Env, room: &SharedRoom, data: SelectData, orders: &Orders, calls: &Calls) -> SelectScreen {
     let c = calls.clone();
@@ -95,7 +71,7 @@ fn select(env: &Env, room: &SharedRoom, data: SelectData, orders: &Orders, calls
             Rc::new(move |call, _cx| c.borrow_mut().push(call)),
             Default::default(),
         )
-        .with_room(room.clone(), room_shell(room, orders))
+        .with_room(room.clone(), shell(room, orders))
 }
 
 /// What the room's song select shows of its place: the song, the chart,
@@ -114,9 +90,6 @@ fn shown(env: &Env) -> Shown {
     )
 }
 
-fn top(h: &Harness) -> String {
-    h.ui.layers().last().map(|l| l.name.clone()).unwrap_or_default()
-}
 
 fn places(calls: &Calls) -> usize {
     calls

@@ -12,24 +12,13 @@ use ddi_room::{Finish, Finisher, OpponentSpec, ParticipantId, RunDetail};
 
 use super::data::{ChartEntry, Difficulty, ResultsKind, SongEntry};
 use super::results::{ResultsActions, ResultsScreen, Tab};
+use super::test_kit::{env, harness, there};
 use super::{DESIGN, Env, sample};
 use crate::hit;
-use crate::look::Plain;
 use crate::nav::MenuAction;
 use crate::state::room::{RoomClient, SharedRoom, StageOrder};
 use crate::testing::Harness;
 use crate::{PointerKind, TextMode};
-
-fn env() -> Env {
-    Env::new(
-        Rc::new(Plain),
-        Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
-    )
-}
-
-fn harness() -> Harness {
-    Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own)
-}
 
 fn song() -> SongEntry {
     SongEntry {
@@ -169,9 +158,6 @@ fn said(h: &Harness, owner: &str, part: &str) -> String {
     }
 }
 
-fn there(h: &Harness, name: &str) -> bool {
-    h.ui.actor(name).is_some()
-}
 
 fn view(env: &Env) -> super::results::StageView {
     env.state

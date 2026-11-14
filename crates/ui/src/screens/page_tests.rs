@@ -4,17 +4,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::page::{PageCall, PageFeed, PageScreen, PageTitle};
-use super::{DESIGN, Env, SharedTheme, credits};
-use crate::dev_widgets::FoldFn;
-use crate::look::Plain;
+use super::test_kit::env;
+use super::{DESIGN, SharedTheme, credits};
 use crate::testing::Harness;
 use crate::{PointerKind, TextMode, UiRequest};
-
-fn env() -> Env {
-    let fold: FoldFn =
-        Rc::new(|s: &str| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s));
-    Env::new(Rc::new(Plain), fold)
-}
 
 fn credits_page() -> (Harness, SharedTheme, Rc<RefCell<Vec<String>>>) {
     let env = env();

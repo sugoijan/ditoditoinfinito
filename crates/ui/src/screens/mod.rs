@@ -103,6 +103,8 @@ pub mod stage;
 pub mod start;
 pub mod studio;
 #[cfg(test)]
+mod test_kit;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod wording_tests;

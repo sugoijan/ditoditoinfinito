@@ -4,19 +4,13 @@ use std::rc::Rc;
 use ddi_actor::{Actor, Kind};
 
 use super::*;
-use crate::look::{Plain, call, quad};
+use crate::look::{call, quad};
 use crate::message::Param;
+use crate::screens::test_kit::env;
 use crate::testing::Harness;
 use crate::{Mark, PointerKind, Spot, TextMode};
 
 type Log = Rc<RefCell<Vec<String>>>;
-
-fn env() -> Env {
-    Env::new(
-        Rc::new(Plain),
-        Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
-    )
-}
 
 /// A screen with a thing on it (a box, a part inside it), which can be
 /// pointed at, and taps logged.

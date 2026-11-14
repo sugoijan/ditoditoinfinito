@@ -12,6 +12,7 @@ use super::*;
 use crate::look::Plain;
 use crate::screens::editor::{EditorCall, EditorHost, EditorPlace, EditorView};
 use crate::screens::editor_field::{FieldView, SkinField, shown_seconds};
+use crate::screens::test_kit::harness;
 use crate::screens::{COMPACT, DESIGN, Env};
 use crate::state::editor::Editor;
 use crate::state::editor::audio::Builder;
@@ -552,7 +553,7 @@ fn without_music_there_is_no_view() {
         Rc::new(Plain),
         Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
     );
-    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, TextMode::Own);
+    let mut h = harness();
     h.push(EditorScreen::new(
         env.clone(),
         Editor::new_song(None, "Test"),
