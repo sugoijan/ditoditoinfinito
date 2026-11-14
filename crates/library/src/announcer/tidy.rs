@@ -248,19 +248,36 @@ fn db(ratio: f64) -> f64 {
 
 /// Each frame's power over the channels together.
 fn powers<C: AsRef<[f32]>>(channels: &[C], frame: usize) -> Vec<f64> {
+    powers_of(channels, frame, |s, _| s)
+}
+
+/// [`powers`] of `channels` with each sample as `sample` makes it from
+/// itself and its place (a gain applied without writing the result).
+fn powers_of<C: AsRef<[f32]>>(
+    channels: &[C],
+    frame: usize,
+    sample: impl Fn(f32, usize) -> f32,
+) -> Vec<f64> {
     let len = channels.first().map_or(0, |c| c.as_ref().len());
     let n = len / frame.max(1);
     (0..n)
         .map(|i| {
             let mut sum = 0.0f64;
             for c in channels {
-                for &s in &c.as_ref()[i * frame..(i + 1) * frame] {
+                let from = i * frame;
+                for (k, &s) in c.as_ref()[from..from + frame].iter().enumerate() {
+                    let s = sample(s, from + k);
                     sum += f64::from(s) * f64::from(s);
                 }
             }
             sum / (frame * channels.len().max(1)) as f64
         })
         .collect()
+}
+
+/// The frame levels are measured over at `rate` Hz, samples.
+fn frame_len(rate: u32) -> usize {
+    (FRAME * f64::from(rate)).round().max(1.0) as usize
 }
 
 /// Each frame's level in dB under the loudest frame's.
@@ -310,10 +327,14 @@ fn fade(planes: &mut [Vec<f32>], rate: u32) {
 /// The RMS of the voiced frames of `channels`: those within
 /// [`VOICED_DB`] of the loudest.
 fn voiced_rms<C: AsRef<[f32]>>(channels: &[C], frame: usize) -> f64 {
-    let powers = powers(channels, frame);
+    voiced_of(&powers(channels, frame))
+}
+
+/// The RMS of the voiced frames of `powers` ([`voiced_rms`]).
+fn voiced_of(powers: &[f64]) -> f64 {
     let mut sum = 0.0f64;
     let mut count = 0usize;
-    for (p, l) in powers.iter().zip(levels(&powers)) {
+    for (p, l) in powers.iter().zip(levels(powers)) {
         if l > VOICED_DB {
             sum += p;
             count += 1;
@@ -405,8 +426,9 @@ fn compressor(planes: &[Vec<f32>], rate: u32, level: f64, chain: &Chain) -> Vec<
 
 /// A sound as the limiter is given it, before the gain.
 struct Ready {
-    /// The sound cut, rotated and faded: what the gains are applied to.
-    given: Vec<Vec<f32>>,
+    /// The sound cut, rotated and faded: what the gains are applied to
+    /// (where asked for, [`ready`]'s `keep`).
+    given: Option<Vec<Vec<f32>>>,
     planes: Vec<Vec<f32>>,
     /// Its true peaks ([`true_peaks`]).
     peaks: Vec<f64>,
@@ -418,16 +440,16 @@ struct Ready {
 /// The `part` kept of a sound, faded, as the limiter is given it: as it
 /// is where it is `alone` (at the level already), else through the
 /// rotator and the compressor, which is made up so that the voiced RMS
-/// stays what it was.
-fn ready(part: Vec<Vec<f32>>, rate: u32, alone: bool, chain: &Chain) -> Ready {
-    let frame = (FRAME * f64::from(rate)).round().max(1.0) as usize;
+/// stays what it was. What it was given is kept where `keep` asks.
+fn ready(part: Vec<Vec<f32>>, rate: u32, alone: bool, chain: &Chain, keep: bool) -> Ready {
+    let frame = frame_len(rate);
     let mut planes = if alone {
         part
     } else {
         rotated(part, rate, chain)
     };
     fade(&mut planes, rate);
-    let given = planes.clone();
+    let given = keep.then(|| planes.clone());
     let level = voiced_rms(&planes, frame);
     let mut compressed = (1.0, 1.0);
     if !alone && level > 1e-9 {
@@ -678,7 +700,7 @@ fn limited(
 /// whose limited sound has that RMS, found by halving (the limiter takes
 /// more the louder it is driven, so the RMS only rises with the gain).
 fn level(part: &[Vec<f32>], rate: u32, target: f64, chain: &Chain) -> f32 {
-    let frame = (FRAME * f64::from(rate)).round().max(1.0) as usize;
+    let frame = frame_len(rate);
     let mut plain = part.to_vec();
     fade(&mut plain, rate);
     let rms = voiced_rms(&plain, frame);
@@ -692,13 +714,15 @@ fn level(part: &[Vec<f32>], rate: u32, target: f64, chain: &Chain) -> f32 {
     if at_level(near) {
         return near;
     }
-    let ready = ready(part.to_vec(), rate, false, chain);
+    let ready = ready(part.to_vec(), rate, false, chain, false);
     let rms = voiced_rms(&ready.planes, frame);
+    // The voiced RMS of the limited sound ([`limited`]'s), its samples
+    // made as it makes them but not kept.
     let after = |gain: f64| {
-        voiced_rms(
-            &limited(&ready.planes, &ready.peaks, rate, gain, chain).0,
-            frame,
-        )
+        let (gains, _) = limiter(&ready.peaks, rate, gain, chain);
+        voiced_of(&powers_of(&ready.planes, frame, |s, i| {
+            (f64::from(s) * gain * gains[i]) as f32
+        }))
     };
     let mut low = target / rms.max(1e-12);
     let gain = if after(low) >= target * 0.999 {
@@ -755,7 +779,7 @@ fn measured<C: AsRef<[f32]>>(channels: &[C], rate: u32, target: f64, chain: &Cha
         end: seconds,
         gain: 1.0,
     };
-    let frame = (FRAME * f64::from(rate)).round().max(1.0) as usize;
+    let frame = frame_len(rate);
     let all = levels(&powers(channels, frame));
     if all.is_empty() || all.iter().all(|l| *l <= -239.0) {
         return m;
@@ -796,13 +820,15 @@ fn chained<C: AsRef<[f32]>>(
     chain: &Chain,
 ) -> (Vec<Vec<f32>>, Did) {
     let at = |s: f64| (s * f64::from(rate)).round() as usize;
-    let frame = (FRAME * f64::from(rate)).round().max(1.0) as usize;
+    let frame = frame_len(rate);
     let ready = ready(
         part(channels, at(m.start), at(m.end)),
         rate,
         at_level(m.gain),
         chain,
+        true,
     );
+    let given_planes = ready.given.as_deref().unwrap_or_default();
     let gain = f64::from(m.gain);
     let (out, least, shaping) = limited(&ready.planes, &ready.peaks, rate, gain, chain);
     let given = gain * voiced_rms(&ready.planes, frame);
@@ -816,7 +842,7 @@ fn chained<C: AsRef<[f32]>>(
     // What of the result is not what was given times one gain (the one
     // that fits it best).
     let (mut xy, mut xx, mut yy) = (0.0f64, 0.0f64, 0.0f64);
-    for (x, y) in ready.given.iter().zip(&out) {
+    for (x, y) in given_planes.iter().zip(&out) {
         for (a, b) in x.iter().zip(y) {
             let (a, b) = (f64::from(*a), f64::from(*b));
             xy += a * b;
@@ -826,7 +852,7 @@ fn chained<C: AsRef<[f32]>>(
     }
     let fit = xy / xx.max(1e-24);
     let mut error = 0.0f64;
-    for (x, y) in ready.given.iter().zip(&out) {
+    for (x, y) in given_planes.iter().zip(&out) {
         for (a, b) in x.iter().zip(y) {
             let e = f64::from(*b) - fit * f64::from(*a);
             error += e * e;
@@ -846,7 +872,7 @@ fn chained<C: AsRef<[f32]>>(
 /// How far the loudest sample of `channels` is over their voiced RMS, in
 /// dB (a sound's crest, as the leveling sees it).
 pub fn crest_db<C: AsRef<[f32]>>(channels: &[C], rate: u32) -> f64 {
-    let frame = (FRAME * f64::from(rate)).round().max(1.0) as usize;
+    let frame = frame_len(rate);
     let peak = channels
         .iter()
         .flat_map(|c| c.as_ref().iter())
@@ -856,7 +882,7 @@ pub fn crest_db<C: AsRef<[f32]>>(channels: &[C], rate: u32) -> f64 {
 
 /// The voiced RMS of `channels`, dBFS.
 pub fn voiced_rms_db<C: AsRef<[f32]>>(channels: &[C], rate: u32) -> f64 {
-    let frame = (FRAME * f64::from(rate)).round().max(1.0) as usize;
+    let frame = frame_len(rate);
     db(voiced_rms(channels, frame))
 }
 
@@ -891,7 +917,7 @@ mod tests {
     }
 
     fn voiced_rms_db(c: &[f32]) -> f64 {
-        let frame = (FRAME * f64::from(RATE)) as usize;
+        let frame = frame_len(RATE);
         let p = powers(&[c], frame);
         let voiced: Vec<f64> = p
             .iter()
@@ -985,7 +1011,7 @@ mod tests {
             // The gain between neighbors never jumps: a frame's share of
             // each look-ahead at the most.
             let at = |s: f64| (s * f64::from(RATE)).round() as usize;
-            let ready = ready(part(&[&t], at(m.start), at(m.end)), RATE, false, &CHAIN);
+            let ready = ready(part(&[&t], at(m.start), at(m.end)), RATE, false, &CHAIN, false);
             let (gains, _) = limiter(&ready.peaks, RATE, f64::from(m.gain), &CHAIN);
             let step = 1.0 / (CHAIN.look * f64::from(RATE)).round()
                 + 1.0 / (CHAIN.shape_look * f64::from(RATE)).round();
@@ -1130,7 +1156,7 @@ mod tests {
         assert!((voiced_rms_db(&out[0]) - VOICED_RMS_DB).abs() < 0.05);
         assert!(peak_db(&out[0]) <= LIMIT_DB + 1e-6);
         let at = |s: f64| (s * f64::from(RATE)).round() as usize;
-        let ready = ready(part(&[&t], at(m.start), at(m.end)), RATE, false, &CHAIN);
+        let ready = ready(part(&[&t], at(m.start), at(m.end)), RATE, false, &CHAIN, false);
         let (gains, shaping) = limiter(&ready.peaks, RATE, f64::from(m.gain), &CHAIN);
         assert_eq!(shaping, 1.0);
         // From one pulse to the next, in the middle of the voice, the
