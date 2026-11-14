@@ -1161,6 +1161,25 @@ pub(crate) fn scrolled(first: usize, by: i32, len: usize, fit: usize) -> usize {
     (first as i64 + i64::from(by)).clamp(0, max as i64) as usize
 }
 
+/// Builds `screen` again in `root`, the focus kept where it still is one
+/// of its controls, else moved to `fallback` (a role gone, a row gone).
+pub(crate) fn rebuild_keeping_focus(
+    screen: &mut impl crate::Screen,
+    root: &mut Actor,
+    cx: &mut crate::Cx,
+    fallback: &str,
+) {
+    let focused = cx.focused().map(str::to_string);
+    *root = screen.build(cx);
+    let kept = focused
+        .filter(|f| screen.focusables().iter().any(|n| n.name == *f))
+        .unwrap_or_else(|| {
+            cx.focus(fallback);
+            fallback.into()
+        });
+    restore_focus(root, Some(&kept));
+}
+
 /// Rebuilding a dialog keeps its focus name but replaces the actor carrying
 /// the focus appearance. Restore that appearance without moving focus.
 pub(crate) fn restore_focus(root: &mut Actor, name: Option<&str>) {

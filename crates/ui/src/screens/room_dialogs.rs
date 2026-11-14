@@ -2179,16 +2179,8 @@ impl Screen for PlayersDialog {
 
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
         if self.room.borrow().version() != self.seen {
-            *root = self.build(cx);
             // The host's button goes with the role.
-            let focused = cx.focused().map(str::to_string);
-            let kept = focused
-                .filter(|f| self.focusables().iter().any(|n| n.name == *f))
-                .unwrap_or_else(|| {
-                    cx.focus("Close");
-                    "Close".into()
-                });
-            super::restore_focus(root, Some(&kept));
+            super::rebuild_keeping_focus(self, root, cx, "Close");
         }
     }
 
@@ -2294,6 +2286,8 @@ pub struct HostDialog {
     /// Opened as the owner's (all of it), else as a co-host's: it closes
     /// when that changes (the room handed over or passed on).
     as_owner: Option<bool>,
+    /// The people as last built ([`HostDialog::gather`]).
+    people: Vec<Person>,
 }
 
 /// One of the other people, as Host options lists them.
@@ -2302,6 +2296,8 @@ struct Person {
     name: String,
     sub: String,
     co_host: bool,
+    /// A site administrator.
+    admin: bool,
     /// Came by the watch-only link and held to watching: the first
     /// button lets them play (`RoomClient::let_play`) in the place of
     /// Make co-host, until it is pressed.
@@ -2321,10 +2317,12 @@ impl HostDialog {
             seen: u64::MAX,
             fit: 1,
             as_owner: None,
+            people: Vec::new(),
         }
     }
 
-    fn people(&self) -> Vec<Person> {
+    /// The other people the player may act for, as the room has them now.
+    fn gather(&self) -> Vec<Person> {
         let r = self.room.borrow();
         // A co-host's: only those they may let play.
         let mut people = super::room::manageable(&r)
@@ -2347,6 +2345,7 @@ impl HostDialog {
                         .collect::<Vec<_>>()
                         .join(" · "),
                     co_host: mb.role == Role::CoHost,
+                    admin: mb.admin,
                     watch_only: mb.watch_only && mb.role != Role::Owner,
                     can_host: r.may_make_host(mb.id),
                 }
@@ -2354,25 +2353,17 @@ impl HostDialog {
             .collect::<Vec<_>>();
         // A large room: its co-hosts and administrators first.
         if people.len() > super::room::ROOM_OF_NINE {
-            people.sort_by_key(|p| p.sub.is_empty() || !(p.co_host || p.sub.starts_with(&String::from(m::role_admin()))));
+            people.sort_by_key(|p| !(p.co_host || p.admin));
         }
         people
     }
 
     fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx) {
-        let focused = cx.focused().map(str::to_string);
-        *root = self.build(cx);
-        let kept = focused
-            .filter(|f| self.focusables().iter().any(|n| n.name == *f))
-            .unwrap_or_else(|| {
-                cx.focus("Close");
-                "Close".into()
-            });
-        super::restore_focus(root, Some(&kept));
+        super::rebuild_keeping_focus(self, root, cx, "Close");
     }
 
     fn scroll(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
-        let len = self.people().len();
+        let len = self.people.len();
         self.first = scrolled(self.first, by, len, len.min(self.fit));
         self.rebuild(root, cx);
     }
@@ -2393,7 +2384,8 @@ impl Screen for HostDialog {
         let env = self.env.clone();
         let w = 560.0_f32.min(screen[0] - 16.0);
         let inner = w - 48.0;
-        let people = self.people();
+        self.people = self.gather();
+        let people = &self.people;
         let (succession, owner, policy) = {
             let r = self.room.borrow();
             self.seen = r.version();
@@ -2635,7 +2627,7 @@ impl Screen for HostDialog {
         if self.room.borrow().may_close_audience() {
             v.push(Focusable::new(AUDIENCE));
         }
-        let people = self.people();
+        let people = &self.people;
         let shown = people.len().min(self.fit);
         if people.len() > shown {
             v.push(Focusable::new("People.Up"));
@@ -2709,11 +2701,11 @@ impl Screen for HostDialog {
                         self.rebuild(root, cx);
                     }
                     other => {
+                        // The person pressed for, as the room has them now.
+                        let people = self.gather();
                         let person = |prefix: &str| {
-                            other
-                                .strip_prefix(prefix)
-                                .and_then(|n| n.parse::<u64>().ok())
-                                .and_then(|id| self.people().into_iter().find(|p| p.id == id))
+                            let id = other.strip_prefix(prefix)?.parse::<u64>().ok()?;
+                            people.iter().find(|p| p.id == id)
                         };
                         if let Some(p) = person("CoHost.")
                             && p.watch_only
