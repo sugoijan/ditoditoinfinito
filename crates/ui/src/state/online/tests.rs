@@ -1018,13 +1018,18 @@ pub(crate) mod room {
         assert_eq!(ob.others, 2);
         assert!(carol.take_stage_order().is_none());
         assert_eq!(carol.view(), crate::state::room::RoomView::Select);
-        // Both ready; Carol (connected, loading) holds the early start,
-        // so the deadline starts it, Carol sitting out.
+        // Both ready; Carol (connected, loading) holds the start through
+        // the loading grace (`hosted-deadline-v2`), then it starts without
+        // her, everyone who loaded being ready.
         alice.set_ready(true).unwrap();
         bob.set_ready(true).unwrap();
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
         assert_eq!(bob.state().phase.kind(), PhaseKind::Preparing);
-        tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 30_000);
+        tick(
+            &clock,
+            &mut [&mut alice, &mut bob, &mut carol],
+            ddi_room::ReadinessPolicy::LOADING_GRACE_V2_MS,
+        );
         assert_eq!(bob.state().phase.kind(), PhaseKind::Countdown);
         tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 4_000);
         assert!(alice.stage_started(stage) && bob.stage_started(stage));

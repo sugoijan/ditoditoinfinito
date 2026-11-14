@@ -2143,7 +2143,9 @@ fn the_panels_lines_say_what_each_player_is_doing() {
     step(&mut carol, 400);
     upload(&server, &mut alice.borrow_mut(), "abc12345");
     step(&mut carol, 400);
-    assert_eq!(says(&alice, "bob"), ("Not ready".into(), Tone::Plain));
+    // Not loaded yet: Loading (`hosted-deadline-v2`: everyone sees who
+    // is loading).
+    assert_eq!(says(&alice, "bob"), ("Loading".into(), Tone::Plain));
     let a = alice.borrow_mut().take_load_jobs();
     alice.borrow_mut().finish_load(&a[0], Ok(()));
     alice.borrow_mut().set_ready(true).unwrap();
@@ -5013,4 +5015,82 @@ fn an_online_pick_backed_out_of_leaves_the_rules_for_stage_one() {
     let server = t.server.borrow().state().clone();
     let m = server.current.as_ref().unwrap();
     assert!(m.rules_for(m.stages[0].id).boos, "stage 1 under them");
+}
+
+/// `hosted-deadline-v2` (follow-up round F, item 3) on everyone's screens:
+/// after the pick the status line says how many the room waits for to
+/// load and the grace's seconds, a slow loader's row says Loading, the
+/// prompt's rows too; once everyone has loaded the line is the Ready
+/// countdown's 15 s.
+#[test]
+fn everyone_sees_who_is_loading_and_then_the_ready_countdown() {
+    use crate::state::online::tests::room::{client, person, prepare, song, tick, upload};
+    use ddi_room::fake::FakeServer;
+    use ddi_room::{Identity, Intent, ManualClock, RoomPolicy};
+    let clock = ManualClock::new(1_000);
+    let mut policy = RoomPolicy::default();
+    policy.readiness.window_ms = 15_000;
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        policy,
+        clock.clone(),
+    )
+    .shared();
+    for who in ["bob", "carol"] {
+        server
+            .borrow_mut()
+            .join(Identity::new(format!("dev:{who}")), who, Intent::Play)
+            .unwrap();
+    }
+    let mk = |who: &'static str| Rc::new(RefCell::new(client(&server, person(&server, who), who, 1_000)));
+    let (alice, bob, carol) = (mk("alice"), mk("bob"), mk("carol"));
+    let step = |ms: u64| {
+        tick(
+            &clock,
+            &mut [&mut alice.borrow_mut(), &mut bob.borrow_mut(), &mut carol.borrow_mut()],
+            ms,
+        )
+    };
+    step(400);
+    let s = song();
+    alice.borrow_mut().pick(&s, &s.charts[0]).unwrap();
+    step(400);
+    upload(&server, &mut alice.borrow_mut(), "abc12345");
+    step(400);
+    // Alice and bob load; carol's device is slow.
+    prepare(&mut alice.borrow_mut());
+    prepare(&mut bob.borrow_mut());
+    step(400);
+    let line: String = super::room::status(&bob.borrow()).into();
+    assert!(line.starts_with("Waiting for 1 player to load · "), "{line}");
+    assert!(line.ends_with(" s"), "{line}");
+    let seconds = super::room::seconds_left(&bob.borrow()).unwrap();
+    assert!((43..=45).contains(&seconds), "{seconds}");
+    let rows = super::room::player_rows(&bob.borrow());
+    let carol_row = rows.iter().find(|r| r.name == "carol").expect("carol's row");
+    assert_eq!(carol_row.state, "Loading", "{rows:?}");
+    // The prompt says so too.
+    let order = bob.borrow_mut().take_stage_order().unwrap();
+    let orders = Orders::default();
+    let eb = env();
+    let mut hb = harness();
+    hb.push(
+        PromptScreen::new(
+            eb.clone(),
+            Rc::new(RefCell::new(PromptState::default())),
+            Rc::new(|_, _| {}),
+        )
+        .with_room(bob.clone(), order.stage, shell(&bob, &orders)),
+    );
+    hb.run(0.3);
+    assert!(has(&hb, "Loading"), "{:?}", hb.texts());
+    // Carol loads: the Ready countdown, 15 s.
+    prepare(&mut carol.borrow_mut());
+    step(400);
+    let line: String = super::room::status(&bob.borrow()).into();
+    assert!(line.starts_with("Stage 1 starts once everyone is ready · "), "{line}");
+    let seconds = super::room::seconds_left(&bob.borrow()).unwrap();
+    assert!((14..=15).contains(&seconds), "{seconds}");
 }

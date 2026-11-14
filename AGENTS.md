@@ -1173,7 +1173,11 @@ Rust and the browser are implementation details, not advertised features.
   now", any participant in principle, only the taking an operator's;
   `hosted-deadline-v1` (a window counts from the song's availability and
   ends early once every connected player who could join is ready and
-  loaded); `CpuMode::Roster` (named CPUs, each its own `OpponentSpec`);
+  loaded); `hosted-deadline-v2`, the default since follow-up round F (a
+  loading grace of 45 s first, waiting for everyone connected to load,
+  `ReadinessPolicy::loading_grace_ms`, `ReadinessWindow::loading_until`,
+  then the window, ending early once everyone who loaded is ready;
+  practice keeps v1's); `CpuMode::Roster` (named CPUs, each its own `OpponentSpec`);
   the host's succession (2026-11-12, `Hosting` in `RoomState::hosting`,
   the room's setting "If the host leaves", `HostLeaves`: Pass it on or
   Close, the owner's `Command::SetHostLeaves`): when the owner leaves,

@@ -992,11 +992,13 @@ impl RoomState {
     /// authority runs [`RoomState::advance`] then (a server's alarm).
     pub fn next_deadline(&self) -> Option<Millis> {
         match &self.phase {
-            // A window waits while its song is still being shared.
+            // A window waits while its song is still being shared; while
+            // it waits for its players to load (`hosted-deadline-v2`), the
+            // loading grace's end.
             Phase::Preparing {
                 stage,
                 window: Some(w),
-            } => (!self.content_pending(*stage)).then_some(w.deadline),
+            } => (!self.content_pending(*stage)).then_some(w.loading_until.unwrap_or(w.deadline)),
             Phase::Countdown { start_at, .. } => Some(*start_at),
             Phase::Stage { stage } | Phase::SongCompletion { stage } => {
                 self.report_deadline(*stage)

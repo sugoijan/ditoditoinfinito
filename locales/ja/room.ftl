@@ -535,6 +535,8 @@ room-status-pick-next = ステージ{ $number }の曲を選んでください。
 
 room-status-gathering = 全員の準備ができたらステージ{ $number }開始 · { $seconds }秒
 
+room-status-loading-wait = { $count }人の読み込みを待っています · { $seconds }秒
+
 room-status-sitting-out = ステージ{ $number }は見学です。ほかのプレイヤーがプレイ中です。
 
 room-status-pick-new-match = 対戦終了。曲を選んで次の対戦を始めましょう。

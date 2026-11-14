@@ -12,7 +12,7 @@ use crate::member::{Capability, Connection, Intent, Member, MemberKind, Role, ca
 use crate::phase::{Phase, ReadinessWindow};
 use crate::rules::{Access, Admission, ContentSource};
 use crate::state::{
-    Closure, ContentCard, ContentStatus, HostLeaves, Hosting, Match, MatchEnding, MatchRecord,
+    Closure, ContentCard, ContentStatus, HostLeaves, Hosting, Loading, Match, MatchEnding, MatchRecord,
     RoomState, Seat, SitOutReason, Spotlight, Stage, StageContent, StagePlay, Succession,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -1046,10 +1046,7 @@ impl RoomState {
                 Event::PhaseChanged {
                     phase: Phase::Preparing {
                         stage: p,
-                        window: Some(ReadinessWindow {
-                            deadline: now.after(self.policy.readiness.window_ms),
-                            ..w
-                        }),
+                        window: Some(self.window_from(now, w.readiness_rev)),
                     },
                 },
             ),
@@ -1168,10 +1165,7 @@ impl RoomState {
             Event::PhaseChanged {
                 phase: Phase::Preparing {
                     stage,
-                    window: Some(ReadinessWindow {
-                        deadline: now.after(self.policy.readiness.window_ms),
-                        readiness_rev,
-                    }),
+                    window: Some(self.window_from(now, readiness_rev)),
                 },
             },
         );
@@ -1188,7 +1182,7 @@ impl RoomState {
         }
         let Phase::Preparing {
             stage,
-            window: Some(_),
+            window: Some(w),
         } = self.phase
         else {
             return;
@@ -1197,14 +1191,90 @@ impl RoomState {
         if self.content_ready(s).is_err() {
             return;
         }
+        // `hosted-deadline-v2`: everyone loaded, the Ready countdown
+        // counts from now.
+        if w.loading() {
+            if self.still_loading(s) {
+                return;
+            }
+            self.end_loading(stage, w, now, out);
+        }
+        let Some(s) = self.stage(stage) else { return };
+        let grace = self.policy.readiness.grace().is_some();
         let (lineup, sat_out) = self.lineup(s);
-        let waiting = sat_out
-            .iter()
-            .any(|(_, r)| r.may_still_join() && *r != SitOutReason::NotConnected);
+        // v2 waits for those who loaded to ready (the loading is past);
+        // v1 for everyone connected who could still join.
+        let waiting = sat_out.iter().any(|(id, r)| {
+            r.may_still_join()
+                && *r != SitOutReason::NotConnected
+                && (!grace || s.prep(*id).loading == Loading::Loaded)
+        });
         if waiting || !self.enough(&lineup).0 {
             return;
         }
         self.commit_start(stage, lineup, sat_out, now, out);
+    }
+
+    /// A readiness window opened at `now` (a pick, the song available to
+    /// everyone, a Start): under `hosted-deadline-v2` its loading grace
+    /// first, the Ready countdown's latest end after it.
+    fn window_from(&self, now: Millis, readiness_rev: u32) -> ReadinessWindow {
+        let p = &self.policy.readiness;
+        match p.grace() {
+            Some(grace) => ReadinessWindow {
+                deadline: now.after(grace).after(p.window_ms),
+                readiness_rev,
+                loading_until: Some(now.after(grace)),
+            },
+            None => ReadinessWindow {
+                deadline: now.after(p.window_ms),
+                readiness_rev,
+                loading_until: None,
+            },
+        }
+    }
+
+    /// Someone connected who could play `stage` has not loaded it yet
+    /// (`hosted-deadline-v2`'s loading grace waits for them; a failed load
+    /// waits for nothing).
+    fn still_loading(&self, stage: &Stage) -> bool {
+        self.candidates().into_iter().any(|id| {
+            self.members.get(&id).is_some_and(|m| {
+                !m.left
+                    && !m.is_cpu()
+                    && m.intent == Intent::Play
+                    && m.connection == Connection::Connected
+            }) && matches!(
+                stage.prep(id).loading,
+                Loading::NotStarted | Loading::Loading { .. }
+            )
+        })
+    }
+
+    /// The loading grace over (everyone loaded, or its end reached): the
+    /// Ready countdown counts from `now`.
+    fn end_loading(
+        &mut self,
+        stage: StageId,
+        w: ReadinessWindow,
+        now: Millis,
+        out: &mut Vec<Event>,
+    ) -> ReadinessWindow {
+        let window = ReadinessWindow {
+            deadline: now.after(self.policy.readiness.window_ms),
+            loading_until: None,
+            ..w
+        };
+        self.emit(
+            out,
+            Event::PhaseChanged {
+                phase: Phase::Preparing {
+                    stage,
+                    window: Some(window),
+                },
+            },
+        );
+        window
     }
 
     /// May `id` prepare for `stage` now?
@@ -1419,16 +1489,13 @@ impl RoomState {
         if !sat_out.iter().any(|(_, reason)| reason.may_still_join()) {
             self.commit_start(stage, lineup, sat_out, now, out);
         } else {
-            let deadline = now.after(self.policy.readiness.window_ms);
+            let window = self.window_from(now, readiness_rev);
             self.emit(
                 out,
                 Event::PhaseChanged {
                     phase: Phase::Preparing {
                         stage,
-                        window: Some(ReadinessWindow {
-                            deadline,
-                            readiness_rev,
-                        }),
+                        window: Some(window),
                     },
                 },
             );
@@ -1660,6 +1727,18 @@ impl RoomState {
 
     fn tick(&mut self, now: Millis, out: &mut Vec<Event>) {
         match self.phase.clone() {
+            // `hosted-deadline-v2`: the loading grace's end; the Ready
+            // countdown counts, those still loading may still make it.
+            Phase::Preparing {
+                stage,
+                window: Some(w),
+            } if w.loading_until.is_some_and(|l| now >= l) => {
+                if self.content_pending(stage) {
+                    return;
+                }
+                self.end_loading(stage, w, now, out);
+                self.maybe_commit(now, out);
+            }
             Phase::Preparing {
                 stage,
                 window: Some(w),

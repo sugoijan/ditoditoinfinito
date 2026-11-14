@@ -41,6 +41,20 @@ pub struct ReadinessWindow {
     pub deadline: Millis,
     /// The stage's readiness revision the window was opened on.
     pub readiness_rev: u32,
+    /// `hosted-deadline-v2`: while the room waits for everyone to load,
+    /// when its loading grace ends (`deadline` is then the latest the
+    /// window can end, not yet counting); `None` once the Ready countdown
+    /// counts (and always under v1). ADDITIVE: left out of the JSON while
+    /// `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loading_until: Option<Millis>,
+}
+
+impl ReadinessWindow {
+    /// The room still waits for its players to load.
+    pub fn loading(&self) -> bool {
+        self.loading_until.is_some()
+    }
 }
 
 /// Why a match stopped.

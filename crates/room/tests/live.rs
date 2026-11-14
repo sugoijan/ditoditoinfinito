@@ -1130,9 +1130,10 @@ fn a_plan_is_checked_by_its_digest_and_a_device_that_computed_another_sits_out()
     r.players = two;
     start(&mut r, Some(good.digest.clone()), 2);
     r.players.extend(rest);
-    // P3 could still load: the readiness window waits for it, then the
-    // stage starts without it.
-    r.run(31_000);
+    // P3's load failed: under `hosted-deadline-v2` everyone who loaded
+    // is ready, so the stage starts at once without it (v1's window
+    // waited for it to the deadline).
+    r.run(2_000);
     let s = r.state();
     let play = s.stage(STAGE).unwrap().play.as_ref().unwrap();
     assert!(!play.lineup.contains(&ParticipantId(3)));

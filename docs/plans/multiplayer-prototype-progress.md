@@ -8608,6 +8608,79 @@ the Rules button."
   and online over `FakeServer`
   (`an_online_pick_backed_out_of_leaves_the_rules_for_stage_one`).
 
+### Loading has its own grace; the Ready countdown stays short (`hosted-deadline-v2`)
+
+The maintainer: "when testing with the CLI bots they take a while to load
+the song if I change it too quickly, I think tracking how everyone is
+loading would be useful too so we could have a separate 'grace' for the
+loading and the ready stays short (15s)."
+
+- **The rule** (`ddi_room::ReadinessPolicy`, `hosted-deadline-v2`,
+  PROVISIONAL; `hosted-deadline-v1` kept by name, `ReadinessPolicy::v1`):
+  after a pick, from the song's availability (its share uploaded), the
+  room first waits for everyone connected who wants to play the stage to
+  have its song loaded, up to **a loading grace of 45 s**
+  (`LOADING_GRACE_V2_MS`, `loading_grace_ms`; the server's
+  `ROOM_LOADING_GRACE_MS` may set another, unset in the deployed
+  configuration). The readiness window, **the Ready countdown**, counts
+  only then: from the last load, or from the grace's end
+  (`ReadinessWindow::loading_until` while it waits; the room's alarm,
+  `RoomState::next_deadline`, is the grace's end meanwhile). It is the
+  server's configured window (15 s deployed, `ROOM_READINESS_WINDOW_MS`;
+  the model's default stays 30 s) and **ends early once everyone who has
+  loaded is ready**: under v2 those still loading no longer hold it (they
+  had the grace). A failed load waits for nothing; a member away is not
+  waited for (as before).
+- **The exact timeline** (deployed values): pick at 0; the share up at
+  `a` (the spotlight's often makes `a` = 0); everyone loaded at `b`
+  (≤ `a` + 45 s), or the grace ends at `a` + 45 s; the Ready countdown
+  then runs to at most 15 s later, ends as soon as everyone loaded is
+  ready, and the 3 s start countdown follows. The longest a stage can
+  wait after its song is up: 45 + 15 + 3 s.
+- **A late loader**: still loading when the grace ends, they may finish,
+  ready and play until the Ready countdown ends (unless everyone else who
+  loaded is ready first: then the stage starts without them). Not loaded
+  and ready by its end, they sit the stage out as one who was not ready
+  does today: their prompt says "You weren't ready in time, so you sit
+  this stage out." and goes back to the room's song select, whose status
+  line says "You're sitting out stage N; the others are playing it." (an
+  online room's stage has nothing to watch yet); they earn nothing for
+  that stage and are back in for the next one (no persistent
+  elimination under the default rules).
+- **Everyone sees who is loading**: a player's row says **Loading** (with
+  a percent where their device reports one; today's shells report
+  "started" and "loaded", so it is "Loading") until they have loaded,
+  then **Not ready** or **Ready**, on the room's song select panel, the
+  Players pop-up and the stage's prompt (the same rows). The status line
+  says what the room waits for: "Waiting for 2 players to load · 31 s"
+  (ja 「2人の読み込みを待っています · 31秒」), then "Stage 1 starts once
+  everyone is ready · 15 s" as before.
+- **Practice** keeps no grace (`LocalAuthority::practice`: v1's window;
+  its one device loads from the library at once). `FakeServer` runs the
+  reducer, so it follows; the bots are `RoomClient`s and report loading
+  as people's devices do (Loading at the job's start, Loaded or Failed at
+  its end). The server needs only its configuration's new field (the
+  reducer and the alarm come from the crate); its tests pass.
+- **`ROOM_MODEL_REVISION` is 8**: every mirror must hold the same window
+  (a client of revision 7 is told to reload). **What a deploy changes**:
+  the server reads the policy from the crate, so its new rooms wait for
+  loading up to 45 s before their 15 s Ready countdown (its configuration
+  gains the optional `ROOM_LOADING_GRACE_MS`; `wrangler.toml` untouched);
+  rooms stored before keep the policy they were made with (v1's window,
+  no grace) until they close; older clients are told to reload.
+- **Tested**: the reducer (`crates/room/tests/loading_grace.rs`: all load
+  fast, the countdown from the last load; one slow, the countdown waits
+  for them; one never, the countdown at 45 s and they sit out; one loads
+  during the countdown and plays; the grace counts from availability; v1
+  and practice have none, v1 JSON read without the field); the
+  walkthroughs run v1 by name; the live tests (a failed load no longer
+  holds a start); the UI over `FakeServer`
+  (`everyone_sees_who_is_loading_and_then_the_ready_countdown`: the status
+  line's wait and seconds, the slow player's row Loading on the panel and
+  on the prompt, then the countdown's 15 s; the rows' "Loading" where
+  they said "Not ready" before); the server's config test (45 s by
+  default, `ROOM_LOADING_GRACE_MS` read) and its native tests.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -8616,6 +8689,7 @@ the Rules button."
 | Every opponent shown past eight where all fit at a lane of 10 px, fields cut to 8 lanes only where that makes all fit, a 3 px gap at nine columns (`fields-all-v0`: `MINI_LANE_ALL`, `DENSE_ROWS_MIN`, `DENSE_GAP`) | `ddi_shell::opponents` | 72 at 1280×720 are 9×4 a side at 11 px; smaller windows show as many as fit, the rest by rivals | Whether 10 px is the least the maintainer reads; whether shorter fields are wanted beyond the phone |
 | What a small field carries (`carry-v0`: score from 16 px, stars from 13, name from 11, combo from 9) | `ddi_shell::opponents::Carry` | 36 at 1280×720 lose the score, 72 also the stars | The steps, by looking |
 | A large field's miniatures under 24 px lanes draw their holds, rolls and mines plainly, as the built-in skin (`plain-notes-v0`, `CARRY_SKIN_NOTES`) | `ddi_shell::opponents::Carry::skin_notes`, `ddi_render::scene::Miniature::plain` | 72 fields cost what taps-only fields do (Firefox's 7.7 ms frames on a hold chart back to 2.3); the small fields' holds lose Infinito's wave material | The size, by looking; whether the exact batching of stencil holds is worth building for rooms of 9 to 24 on large windows |
+| `hosted-deadline-v2` (2026-11-14): a loading grace of 45 s (`LOADING_GRACE_V2_MS`) before the readiness window, which then ends early once everyone who loaded is ready; practice keeps v1 | `ddi_room::ReadinessPolicy`, `reduce.rs` (`window_from`, `end_loading`), the server's `ROOM_LOADING_GRACE_MS` | A slow loader holds the stage up to 45 s, then has the 15 s Ready countdown to finish and ready, else sits it out; rows say Loading | The 45 s; whether a late loader should hold the countdown's early end |
 | Opponents' fields default "As many as fit" | `Settings::opponent_fields` | About +0.85 ms main thread (Firefox) and +0.8 ms GPU at 2560×1440 with 72 | Whether the default should follow the room's size or the measured frame time |
 | Dancing hand in multiplayer Off by default | `Settings::dancing_hand_multiplayer` | No hand in a stage unless turned on | None (the maintainer's request) |
 | `online-cpus-v0` (2026-11-13): an online room's CPUs computed alike on every device (50 ms steps from −2 s, a shock put in 1.25 s after its checkpoint, a 2 s horizon's lead); every connected player's device reports for them, the room taking the first and counting a different one; nobody left to compute ends them as forfeits | `ddi_room::live::cpus`, `ddi_session::battle::cpus` | The host adds CPUs online as in practice; a wrong report that reached the room first stands | First or majority; the bytes (every device sends every CPU); the horizon |

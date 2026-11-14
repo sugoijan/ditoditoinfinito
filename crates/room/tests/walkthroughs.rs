@@ -35,11 +35,17 @@ fn survived(groups: &[&[ParticipantId]]) -> Vec<Vec<Finisher>> {
 
 impl Room {
     fn new(rules: MatchRules, source: ContentSource) -> Self {
+        // `hosted-deadline-v1`'s window, as these walkthroughs were
+        // written for (`loading_grace.rs` walks v2's loading grace).
+        let policy = RoomPolicy {
+            readiness: ReadinessPolicy::v1(),
+            ..RoomPolicy::default()
+        };
         let s = RoomState::new(
             RoomId::new("room"),
             Identity::new("twitch:host"),
             "Host".into(),
-            RoomPolicy::default(),
+            policy,
             rules,
             source,
         );

@@ -345,7 +345,8 @@ pub(crate) fn number_of(r: &RoomClient, id: StageId) -> usize {
 }
 
 /// Whole seconds left of the countdown or the readiness window (a window
-/// waiting for its song to be shared has none yet).
+/// waiting for its song to be shared has none yet; one waiting for its
+/// players to load, `hosted-deadline-v2`, the loading grace's).
 pub fn seconds_left(r: &RoomClient) -> Option<u64> {
     let s = r.state();
     let at = match &s.phase {
@@ -353,10 +354,65 @@ pub fn seconds_left(r: &RoomClient) -> Option<u64> {
         Phase::Preparing {
             stage,
             window: Some(w),
-        } if !s.content_pending(*stage) => w.deadline,
+        } if !s.content_pending(*stage) => w.loading_until.unwrap_or(w.deadline),
         _ => return None,
     };
     Some(at.0.saturating_sub(r.now_ms()).div_ceil(1000))
+}
+
+/// How many players the room's loading grace still waits for
+/// (`hosted-deadline-v2`: connected, wanting to play the upcoming stage,
+/// its song not loaded yet), while it waits; `None` once the Ready
+/// countdown counts.
+pub fn loading_waits(r: &RoomClient) -> Option<usize> {
+    let s = r.state();
+    let Phase::Preparing {
+        stage,
+        window: Some(w),
+    } = &s.phase
+    else {
+        return None;
+    };
+    if !w.loading() || s.content_pending(*stage) {
+        return None;
+    }
+    let st = s.stage(*stage)?;
+    Some(
+        s.candidates()
+            .into_iter()
+            .filter(|id| {
+                s.members.get(id).is_some_and(|m| {
+                    !m.left
+                        && !m.is_cpu()
+                        && m.intent == ddi_room::Intent::Play
+                        && m.connection == ddi_room::Connection::Connected
+                }) && matches!(
+                    st.prep(*id).loading,
+                    ddi_room::Loading::NotStarted | ddi_room::Loading::Loading { .. }
+                )
+            })
+            .count(),
+    )
+}
+
+/// A player's row while the upcoming stage's song is there to load and
+/// they have not loaded it: Loading, with how far where their device
+/// said (`hosted-deadline-v2`: everyone sees who is loading).
+fn loading_word(s: &ddi_room::RoomState, prep: Option<&ddi_room::Prep>) -> Option<String> {
+    let available = s.upcoming_stage().and_then(|id| s.stage(id)).is_some_and(|st| {
+        st.content
+            .as_ref()
+            .is_some_and(|c| c.status == ddi_room::ContentStatus::Available)
+    });
+    match prep.map(|p| &p.loading) {
+        Some(ddi_room::Loading::Loading { permille }) if available && *permille > 0 => {
+            Some(m::state_loading_percent(u32::from(*permille / 10)).into())
+        }
+        Some(ddi_room::Loading::Loading { .. } | ddi_room::Loading::NotStarted) if available => {
+            Some(m::state_loading().into())
+        }
+        _ => None,
+    }
 }
 
 /// The room's status line (M7b: above the list on song select, the
@@ -503,6 +559,10 @@ fn phase_status(r: &RoomClient) -> UiText {
                 m::status_sharing(n)
             } else if let Some(p) = r.load_problem(*stage) {
                 load_problem_text(p)
+            } else if let Some(waits) = loading_waits(r).filter(|&w| w > 0) {
+                // `hosted-deadline-v2`: the room waits for its players to
+                // load before the Ready countdown counts.
+                m::status_loading_wait(waits, seconds)
             } else if r.loading(*stage) {
                 m::status_preparing(n)
             } else {
@@ -873,7 +933,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                         _ => m::state_loading().into(),
                     },
                     Some(Participation::NotReady { .. }) if s.current.is_some() => {
-                        m::state_not_ready().into()
+                        loading_word(s, prep.as_ref()).unwrap_or_else(|| m::state_not_ready().into())
                     }
                     Some(Participation::LoadFailed { .. }) => m::state_load_failed().into(),
                     Some(Participation::Competing { .. }) => m::state_playing().into(),

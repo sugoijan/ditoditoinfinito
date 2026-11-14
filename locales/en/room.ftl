@@ -1153,6 +1153,18 @@ room-status-pick-next = Pick stage { $number }'s song.
 #   $seconds (Number) - whole seconds left
 room-status-gathering = Stage { $number } starts once everyone is ready · { $seconds } s
 
+# Before a stage's Ready countdown: the room waits for players still
+# loading the stage's song (downloading or preparing it), up to the time
+# shown; then the countdown starts and whoever is still loading may join
+# if they finish in time.
+# Variables:
+#   $count (Number) - how many players are still loading
+#   $seconds (Number) - whole seconds left of the wait
+room-status-loading-wait = { $count ->
+    [one] Waiting for 1 player to load · { $seconds } s
+   *[other] Waiting for { $count } players to load · { $seconds } s
+}
+
 # For someone who was not ready in time, while the others play.
 # Variables:
 #   $number (Number) - the stage, from 1

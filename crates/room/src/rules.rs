@@ -287,14 +287,28 @@ pub struct CapExceeded {
 /// unreadiness vetoes the start. `hosted-deadline-v1` (M7b, the maintainer's
 /// flow): the window counts from when the song is available to everyone,
 /// and the stage starts as soon as every connected player who could still
-/// join is ready and loaded (v0 never shortened it). PROVISIONAL: every
-/// number here is a working value, not a decided one.
+/// join is ready and loaded (v0 never shortened it). `hosted-deadline-v2`
+/// (follow-up round F, the maintainer's of 2026-11-14: "a separate 'grace'
+/// for the loading and the ready stays short"): from the song's
+/// availability the room first waits for everyone connected who could
+/// play to have it loaded, up to [`ReadinessPolicy::loading_grace_ms`],
+/// and only then counts the window, the Ready countdown, which ends early
+/// once everyone who loaded is ready; whoever is still loading may load,
+/// ready and play until its end, and sits the stage out after it.
+/// PROVISIONAL: every number here is a working value, not a decided one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadinessPolicy {
     /// Names this policy and its version in records and on the wire.
     pub id: String,
-    /// The readiness window. 15 s is the studies' test value.
+    /// The readiness window (under v2, the Ready countdown after the
+    /// loading). 15 s is the studies' test value and the deployed one.
     pub window_ms: u64,
+    /// `hosted-deadline-v2`'s loading grace: how long the room waits for
+    /// everyone to load before the window counts (0: none, v1's window
+    /// from the song's availability). ADDITIVE: left out of the JSON at 0,
+    /// read as 0 where missing (a policy stored or sent before v2).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub loading_grace_ms: u64,
     /// The committed start's countdown.
     pub countdown_ms: u64,
     /// Ready and loaded people needed to start (a window or at once).
@@ -303,18 +317,43 @@ pub struct ReadinessPolicy {
     pub min_competitors: u16,
 }
 
+fn is_zero(v: &u64) -> bool {
+    *v == 0
+}
+
 impl ReadinessPolicy {
     pub const HOSTED_DEADLINE_V0: &'static str = "hosted-deadline-v0";
     pub const HOSTED_DEADLINE_V1: &'static str = "hosted-deadline-v1";
+    pub const HOSTED_DEADLINE_V2: &'static str = "hosted-deadline-v2";
+    /// PROVISIONAL (`hosted-deadline-v2`, the maintainer's choice): the
+    /// loading grace, 45 s.
+    pub const LOADING_GRACE_V2_MS: u64 = 45_000;
+
+    /// `hosted-deadline-v1` (kept by name): the window from the song's
+    /// availability, no loading grace.
+    pub fn v1() -> Self {
+        Self {
+            id: Self::HOSTED_DEADLINE_V1.into(),
+            loading_grace_ms: 0,
+            ..Self::default()
+        }
+    }
+
+    /// The loading grace, where this policy has one (v2).
+    pub fn grace(&self) -> Option<u64> {
+        (self.loading_grace_ms > 0).then_some(self.loading_grace_ms)
+    }
 }
 
 impl Default for ReadinessPolicy {
     fn default() -> Self {
         Self {
-            id: Self::HOSTED_DEADLINE_V1.into(),
+            id: Self::HOSTED_DEADLINE_V2.into(),
             // Long enough for a member to download a song not shared ahead
-            // (the spotlight's upload usually makes it ready at once).
+            // (the spotlight's upload usually makes it ready at once). The
+            // server configures its own (15 s deployed).
             window_ms: 30_000,
+            loading_grace_ms: Self::LOADING_GRACE_V2_MS,
             countdown_ms: 3_000,
             min_ready_humans: 1,
             min_competitors: 2,

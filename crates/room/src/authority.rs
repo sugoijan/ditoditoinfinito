@@ -105,6 +105,12 @@ impl<C: Clock> LocalAuthority<C> {
         clock: C,
         policy: RoomPolicy,
     ) -> (Self, ClientId) {
+        // Practice waits for no one's loading but this device's, which is
+        // the library's at once: no loading grace (`hosted-deadline-v1`'s
+        // window, as practice always had).
+        let mut policy = policy;
+        policy.readiness.loading_grace_ms = 0;
+        policy.readiness.id = crate::rules::ReadinessPolicy::HOSTED_DEADLINE_V1.into();
         let state = RoomState::new(
             RoomId::new("practice"),
             Identity::new(Self::PRACTICE_CLIENT),
