@@ -2955,3 +2955,72 @@ fn a_reported_stage_keeps_the_played_policy_where_it_had_attacks() {
         assert_eq!(practice.my_targeting(), kept, "attacks: {attacks}");
     }
 }
+
+/// A stage's prompt left as the shells leave it: what came of it.
+#[derive(Debug, PartialEq)]
+enum Left {
+    Withdrawn,
+    Forfeited(bool),
+    Lost,
+}
+
+/// A stage's prompt left as the shells leave it
+/// (`crate::battle::leave_prompt`).
+fn leave(room: &mut RoomClient, order: &StageOrder, song: Option<&Song>) -> Left {
+    use crate::battle::LeftPrompt;
+    match crate::battle::leave_prompt(room, order, song) {
+        LeftPrompt::Withdrawn => Left::Withdrawn,
+        LeftPrompt::Forfeited(taken) => Left::Forfeited(taken.is_ok()),
+        LeftPrompt::Lost(_) => Left::Lost,
+    }
+}
+
+/// A practice stage's prompt left: before the room started it the
+/// player withdraws (not ready, nothing played); once on, a forfeit, the
+/// CPUs played to their end and the stage ranked with the player last;
+/// without a song to play the CPUs on, the match stops.
+#[test]
+fn a_practice_stage_left_from_its_prompt_withdraws_forfeits_or_stops_the_match() {
+    let song = bundled("beatucada");
+    // Before the start: withdrawn.
+    let mut practice = room(2, 2, 2);
+    let e = entry_at(&song, CHART);
+    practice.pick(&e, &e.charts[0]).unwrap();
+    let order = practice.take_stage_order().expect("its prompt");
+    for job in practice.take_load_jobs() {
+        practice.finish_load(&job, Ok(()));
+    }
+    assert_eq!(leave(&mut practice, &order, Some(&song)), Left::Withdrawn);
+    assert!(!practice.ready());
+    assert!(!practice.stage_started(order.stage));
+    assert!(practice.state().stage(order.stage).unwrap().play.is_none());
+    // Once on: a forfeit, judged and reported (the player last).
+    let mut practice = room(2, 2, 2);
+    let mut now = 0;
+    let order = begin(&song, &mut practice, &mut now);
+    assert_eq!(
+        leave(&mut practice, &order, Some(&song)),
+        Left::Forfeited(true)
+    );
+    let s = practice.state();
+    let play = s.stage(order.stage).unwrap().play.as_ref().unwrap();
+    let result = play.result.as_ref().expect("ranked");
+    assert!(!play.interrupted);
+    let last = result.placements.last().unwrap();
+    assert_eq!(last.participant, order.me, "{:?}", result.placements);
+    assert_eq!(last.finish, Finish::Forfeit);
+    // Without its song: the match stops.
+    let mut practice = room(2, 2, 2);
+    let mut now = 0;
+    let order = begin(&song, &mut practice, &mut now);
+    assert_eq!(leave(&mut practice, &order, None), Left::Lost);
+    let s = practice.state();
+    assert!(
+        s.stage(order.stage)
+            .unwrap()
+            .play
+            .as_ref()
+            .unwrap()
+            .interrupted
+    );
+}

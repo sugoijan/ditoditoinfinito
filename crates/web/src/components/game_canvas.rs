@@ -1341,17 +1341,12 @@ impl GameCanvas {
                 if let Some(order) = ctx.props().room_stage.as_deref()
                     && ctx.props().watch.is_none()
                     && crate::room::playing(order.stage.0).is_some()
-                    && !crate::room::withdraw(order)
                 {
                     let song = match &self.song {
                         Status::Ready(s) => Some(&s.song),
                         _ => None,
                     };
-                    // The match's rules, everyone's (D0).
-                    let rules = song
-                        .and_then(|s| s.charts.get(order.chart.index))
-                        .map(|_| ddi_session::battle::stage_ruleset(&order.rules));
-                    crate::room::leave_before_play(order, song, rules.as_ref());
+                    crate::room::leave_prompt(order, song);
                 }
                 if let Some(game) = self.game.borrow_mut().as_mut() {
                     game.clear_session();

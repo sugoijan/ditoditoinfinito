@@ -2724,6 +2724,49 @@ pub struct Reported {
     pub ending: Option<MatchEnd>,
 }
 
+/// A stage's prompt left (its Back; the shells' one way, each keeping
+/// its own guard for a stage watched with a room's audience): before the
+/// room started it the player withdraws (`RoomClient::leave_prompt`: not
+/// ready, the picker's pick reopened); once it is on with them, a
+/// forfeit: an online room's reported as the player's own run (the room
+/// decides the stage from everyone's reports), a practice's CPUs played
+/// to their end on `song` as read ([`forfeit`]) and the stage reported
+/// ([`report_outcome`]); without the song or its chart to play them on,
+/// or where that failed, the match stops (`RoomClient::stage_lost`).
+pub fn leave_prompt(room: &mut RoomClient, order: &StageOrder, song: Option<&Song>) -> LeftPrompt {
+    if room.leave_prompt(order.stage) == ddi_ui::state::room::PromptExit::Withdraw {
+        return LeftPrompt::Withdrawn;
+    }
+    if room.is_online() {
+        return LeftPrompt::Forfeited(room.report_run(order.stage, Run::Forfeit, None));
+    }
+    let chart = order.chart.index;
+    let rules = stage_ruleset(&order.rules);
+    let outcome = song
+        .filter(|s| s.charts.get(chart).is_some())
+        .map(|song| forfeit(StageSetup::of(order), song, chart, &rules));
+    match outcome {
+        Some(Ok(o)) => LeftPrompt::Forfeited(report_outcome(room, o).taken),
+        other => {
+            room.stage_lost();
+            LeftPrompt::Lost(other.and_then(Result::err))
+        }
+    }
+}
+
+/// What leaving a stage's prompt came to ([`leave_prompt`]).
+#[derive(Debug)]
+pub enum LeftPrompt {
+    /// Before the room started it: withdrawn.
+    Withdrawn,
+    /// The player's forfeit reported: whether the room took it (a
+    /// refusal is the shell's to log).
+    Forfeited(Result<(), Refusal>),
+    /// The match stopped: no song to play the CPUs on, or why their play
+    /// failed (the shell's to log).
+    Lost(Option<String>),
+}
+
 /// A stage left before its play began (its prompt's Back): the local
 /// player forfeits; the CPUs are played to their end as they would have
 /// been (on chart `chart` of `song`, under `ruleset`), and ranked.

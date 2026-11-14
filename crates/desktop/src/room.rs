@@ -328,29 +328,23 @@ pub fn live_handle(
     })
 }
 
-/// A stage's prompt left (M7b): before the room started it, the player
-/// withdraws (not ready; the host's pick reopened), `true`; once it is
-/// being played with them, a forfeit: an online room's reported here as
-/// the player's own run (`true`), practice's left to the play host
-/// (`false`: its CPUs are played to their end).
-pub fn left_stage(stage: StageId) -> bool {
-    if WATCHING.with_borrow(|w| w.as_ref().is_some_and(|(s, _)| *s == stage)) {
-        return true;
+/// A stage's prompt left (its Back, M7b;
+/// `ddi_session::battle::leave_prompt`): before the room started it, the
+/// player withdraws; once on, a forfeit, an online room's as the player's
+/// own report, a practice's CPUs played to their end on `song` (as read)
+/// and the stage reported; without a song to play them on, the match
+/// stops. A stage watched with the room's audience leaves nothing (it is
+/// no member).
+pub fn leave_prompt(order: &ddi_ui::state::room::StageOrder, song: Option<&ddi_chart::Song>) {
+    use ddi_session::battle::LeftPrompt;
+    if WATCHING.with_borrow(|w| w.as_ref().is_some_and(|(s, _)| *s == order.stage)) {
+        return;
     }
-    let room = stage_room();
-    if room.borrow_mut().leave_prompt(stage) == ddi_ui::state::room::PromptExit::Withdraw {
-        return true;
+    match ddi_session::battle::leave_prompt(&mut stage_room().borrow_mut(), order, song) {
+        LeftPrompt::Forfeited(Err(why)) => eprintln!("room: the forfeit was refused: {why:?}"),
+        LeftPrompt::Lost(Some(e)) => eprintln!("room: stage {}: {e}", order.number),
+        _ => {}
     }
-    if !room.borrow().is_online() {
-        return false;
-    }
-    if let Err(why) = room
-        .borrow_mut()
-        .report_run(stage, ddi_room::Run::Forfeit, None)
-    {
-        eprintln!("room: the forfeit was refused: {why:?}");
-    }
-    true
 }
 
 /// The run's practice room, made at first.

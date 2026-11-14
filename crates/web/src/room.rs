@@ -234,18 +234,6 @@ pub(crate) fn shell(which: RoomRoute) -> ddi_ui::screens::room::RoomShell {
     })
 }
 
-/// A stage's prompt left before the room started it (M7b): the player
-/// withdraws (not ready; an operator's pick reopened), whether so.
-pub(crate) fn withdraw(order: &StageOrder) -> bool {
-    let room = playing_room();
-    let exit = room.borrow_mut().leave_prompt(order.stage);
-    if exit == ddi_ui::state::room::PromptExit::Withdraw {
-        PLAYING.with(|p| p.borrow_mut().take());
-        return true;
-    }
-    false
-}
-
 /// The room of the stage being played, and its shell's calls, for the
 /// stage's prompt.
 pub(crate) fn prompt_room() -> (SharedRoom, ddi_ui::screens::room::RoomShell) {
@@ -516,41 +504,24 @@ pub(crate) fn report(
     reported.ending
 }
 
-/// A stage left before its play began (its prompt's Back): a forfeit, the
-/// CPUs played to their end on `song` (as read) under `ruleset`; without
-/// a song to play them on, the match stops. An online room hears the
-/// forfeit as the player's own report.
-pub(crate) fn leave_before_play(
-    order: &StageOrder,
-    song: Option<&ddi_chart::Song>,
-    ruleset: Option<&ddi_engine::rules::Ruleset>,
-) {
+/// A stage's prompt left (its Back, M7b;
+/// `ddi_session::battle::leave_prompt`): before the room started it, the
+/// player withdraws; once on, a forfeit, an online room's as the player's
+/// own report, a practice's CPUs played to their end on `song` (as read)
+/// and the stage reported; without a song to play them on, the match
+/// stops. The stage handed over is forgotten.
+pub(crate) fn leave_prompt(order: &StageOrder, song: Option<&ddi_chart::Song>) {
+    use ddi_session::battle::LeftPrompt;
     let room = playing_room();
-    if room.borrow().is_online() {
-        PLAYING.with(|p| p.borrow_mut().take());
-        let _ = room
-            .borrow_mut()
-            .report_run(order.stage, ddi_room::Run::Forfeit, None);
-        return;
-    }
-    let outcome = song.zip(ruleset).map(|(song, rules)| {
-        ddi_session::battle::forfeit(
-            ddi_session::battle::StageSetup::of(order),
-            song,
-            order.chart.index,
-            rules,
-        )
-    });
-    match outcome {
-        Some(Ok(o)) => {
-            report(o);
+    let left = ddi_session::battle::leave_prompt(&mut room.borrow_mut(), order, song);
+    PLAYING.with(|p| p.borrow_mut().take());
+    match left {
+        LeftPrompt::Forfeited(Err(why)) => {
+            web_sys::console::warn_1(&format!("room: the forfeit was refused: {why:?}").into())
         }
-        other => {
-            if let Some(Err(e)) = other {
-                web_sys::console::warn_1(&format!("room: stage {}: {e}", order.number).into());
-            }
-            PLAYING.with(|p| p.borrow_mut().take());
-            current().borrow_mut().stage_lost();
+        LeftPrompt::Lost(Some(e)) => {
+            web_sys::console::warn_1(&format!("room: stage {}: {e}", order.number).into())
         }
+        _ => {}
     }
 }

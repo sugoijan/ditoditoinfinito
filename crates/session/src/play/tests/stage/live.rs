@@ -2699,3 +2699,34 @@ const LIVE_PINNED: &[u64] = &[
     0x91684042c07e5087,
     0x3e9a47ff54003d72,
 ];
+
+/// An online stage's prompt left once the room started it: the player's
+/// forfeit reported as their own run, which the room keeps (it decides
+/// the stage from everyone's reports). (Before its start the room's
+/// client withdraws, as in practice.)
+#[test]
+fn an_online_stage_left_from_its_prompt_reports_the_player_s_forfeit() {
+    let song = bundled("beatucada");
+    let people = [("alice", Intent::Play), ("bob", Intent::Play)];
+    let r = Room::new(&people, None);
+    let orders = pick_and_ready(&r, &song, false, 0);
+    let order = orders[1].clone().unwrap();
+    for _ in 0..20 {
+        if r.rooms[1].borrow().stage_started(order.stage) {
+            break;
+        }
+        r.run(0.5);
+    }
+    assert!(r.rooms[1].borrow().stage_started(order.stage));
+    assert_eq!(
+        super::leave(&mut r.rooms[1].borrow_mut(), &order, Some(&song)),
+        super::Left::Forfeited(true)
+    );
+    r.run(0.5);
+    let server = r.server.borrow();
+    let stage = server.state().stage(order.stage).unwrap();
+    assert_eq!(
+        stage.play.as_ref().unwrap().reports.get(&order.me),
+        Some(&ddi_room::ReportedRun::of(ddi_room::Run::Forfeit))
+    );
+}

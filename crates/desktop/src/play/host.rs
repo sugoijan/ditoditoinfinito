@@ -2470,39 +2470,13 @@ fn read_images(
     rx
 }
 
-/// A stage left from its prompt: a forfeit reported to the room, the CPUs
+/// A stage left from its prompt (`crate::room::leave_prompt`): withdrawn
+/// before its start; once on, a forfeit reported to the room, the CPUs
 /// played to their end; where its song could not be read, the match
 /// stopped instead.
 fn leave_stage(r: &Readied) {
-    let Some(order) = &r.request.stage else {
-        return;
-    };
-    // Before its start: withdrawn; an online room's forfeit is the
-    // player's own report.
-    if crate::room::left_stage(order.stage) {
-        return;
-    }
-    match &r.loaded {
-        Some(loaded) => {
-            // The match's rules, everyone's (D0).
-            let ruleset = ddi_session::battle::stage_ruleset(&order.rules);
-            match ddi_session::battle::forfeit(
-                ddi_session::battle::StageSetup::of(order),
-                &loaded.song,
-                r.request.chart,
-                &ruleset,
-            ) {
-                // Left from the prompt: no play to speak over.
-                Ok(o) => {
-                    crate::room::report(o);
-                }
-                Err(e) => {
-                    eprintln!("room: stage {}: {e}", order.number);
-                    crate::room::current().borrow_mut().stage_lost();
-                }
-            }
-        }
-        None => crate::room::current().borrow_mut().stage_lost(),
+    if let Some(order) = &r.request.stage {
+        crate::room::leave_prompt(order, r.loaded.as_ref().map(|l| &l.song));
     }
 }
 
