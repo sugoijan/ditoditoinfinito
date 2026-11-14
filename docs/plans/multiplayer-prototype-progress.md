@@ -8010,6 +8010,7 @@ haven't tested the anchors too much but they seem good."
 - Tested: the engine (`the_solo_cpu_plays_the_absolute_levels_by_default`),
   desktop's flags and a full CPU song at each named strength on its new
   level (`cpu_play.rs`), the bots' test.
+
 ## Feedback round E1: every opponent's field, and the hand off in multiplayer (2026-11-14)
 
 The maintainer (2026-11-14): "I think we're showing less miniatures than
