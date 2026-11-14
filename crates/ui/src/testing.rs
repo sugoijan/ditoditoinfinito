@@ -376,3 +376,58 @@ impl Harness {
         self.requests.iter().filter(|r| f(r)).count()
     }
 }
+
+/// A draw list's debug text with every fraction rounded to a thousandth,
+/// for a test that pins what is drawn by a hash of that text. Whatever
+/// is turned by an angle or drawn round (an attack's line, a CPU's
+/// stars) takes its sines and cosines from the system's maths library,
+/// whose last bits differ between systems; the pin is of what is drawn,
+/// not of those.
+pub fn rounded(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let (mut i, mut plain) = (0, 0);
+    while i < bytes.len() {
+        let digit = bytes[i].is_ascii_digit()
+            || (bytes[i] == b'-' && bytes.get(i + 1).is_some_and(u8::is_ascii_digit));
+        let inside = i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+        if !digit || inside {
+            i += 1;
+            continue;
+        }
+        let mut end = i + 1;
+        while end < bytes.len()
+            && (bytes[end].is_ascii_digit()
+                || matches!(bytes[end], b'.' | b'e')
+                || (matches!(bytes[end], b'-' | b'+') && bytes[end - 1] == b'e'))
+        {
+            end += 1;
+        }
+        let token = &text[i..end];
+        if let (true, Ok(value)) = (token.contains(['.', 'e']), token.parse::<f64>()) {
+            let value = (value * 1000.0).round() / 1000.0;
+            out.push_str(&text[plain..i]);
+            // No negative zero.
+            out.push_str(&format!("{:.3}", if value == 0.0 { 0.0 } else { value }));
+            plain = end;
+        }
+        i = end;
+    }
+    out.push_str(&text[plain..]);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_draw_lists_text_is_rounded_to_thousandths() {
+        assert_eq!(
+            super::rounded("Quad { at: [1.23456, -0.00004], turn: 6.123234e-17, n: 12, id: a1.5 }"),
+            "Quad { at: [1.235, 0.000], turn: 0.000, n: 12, id: a1.5 }"
+        );
+        assert_eq!(
+            super::rounded("\"17 of 73 \u{b7} 41\" 0.70710677"),
+            "\"17 of 73 \u{b7} 41\" 0.707"
+        );
+    }
+}

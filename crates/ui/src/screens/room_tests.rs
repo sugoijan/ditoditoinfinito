@@ -4999,14 +4999,15 @@ fn everyone_sees_who_is_loading_and_then_the_ready_countdown() {
 /// PIN (simplify, round 2): the room's song select and its pop-ups (Rules,
 /// Add CPUs, Players, Standings, an online host's options) draw exactly
 /// what they drew before their parts were shared: a hash of each draw
-/// list, recorded on the code before.
+/// list (its fractions rounded, `crate::testing::rounded`: a CPU's stars
+/// are drawn round), recorded on the code before.
 #[test]
 fn the_rooms_screens_draw_as_pinned() {
     use ddi_room::{Finish, Finisher};
     use std::hash::{DefaultHasher, Hash, Hasher};
     let hash = |h: &Harness| {
         let mut s = DefaultHasher::new();
-        format!("{:?}", h.drawn).hash(&mut s);
+        crate::testing::rounded(&format!("{:?}", h.drawn)).hash(&mut s);
         s.finish()
     };
     let mut got: Vec<(&str, u64)> = Vec::new();
@@ -5079,14 +5080,14 @@ fn the_rooms_screens_draw_as_pinned() {
 }
 
 const PINNED: [(&str, u64); 10] = [
-    ("select", 16075161471851863422),
-    ("rules", 2777621463545564444),
-    ("add", 5068374162585030671),
-    ("add-level", 17212216341309922422),
-    ("players", 8255218483199178146),
-    ("standings", 11613174137148003295),
-    ("online-select", 7980021003221844594),
-    ("online-follower", 5607036973537741010),
-    ("online-players", 13411916049008837839),
-    ("host", 7918162560248348665),
+    ("select", 9001431102370433080),
+    ("rules", 857656272707336195),
+    ("add", 4071077426879471913),
+    ("add-level", 5801193428794422550),
+    ("players", 17490229943207298487),
+    ("standings", 4050983496291045925),
+    ("online-select", 15204592972399020846),
+    ("online-follower", 14720790371887534267),
+    ("online-players", 6858063256777611677),
+    ("host", 3471117147465488734),
 ];

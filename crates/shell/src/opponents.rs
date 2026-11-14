@@ -3197,8 +3197,10 @@ pub(crate) mod tests {
     /// The play's overlay drawn from fixed inputs (the miniatures' words,
     /// marks and flashes, a ladder, a player's own field out, who attacks
     /// whom and the attack's parts), each draw list's commands as text,
-    /// hashed: a change meant to draw the same keeps every one. (The
-    /// desktop's offscreen pictures differ from run to run.)
+    /// hashed with its fractions rounded (`ddi_ui::testing::rounded`: a
+    /// link's and a cue's quads are turned by an angle): a change meant to
+    /// draw the same keeps every one. (The desktop's offscreen pictures
+    /// differ from run to run.)
     #[test]
     fn the_overlay_s_draw_lists_are_pinned() {
         use crate::attack_links::{GridLayout, Layout, Phase};
@@ -3414,15 +3416,15 @@ pub(crate) mod tests {
                 &mut FixedMeasure,
             );
             let name = format!("{n}-{w}x{h}@{ratio}{}", if grid { "-grid" } else { "" });
-            got.push((name, fnv(&format!("{:?}", list.commands))));
+            got.push((name, fnv(&ddi_ui::testing::rounded(&format!("{:?}", list.commands)))));
         }
         let want: [(&str, u64); 6] = [
-            ("8-1280x720@1", 0xe7ec478624b17c80),
-            ("3-844x390@3", 0xdd8990b4a4c8b3be),
-            ("8-390x844@3", 0x2851616828712729),
-            ("24-1280x720@1", 0xf691962c0270edc2),
-            ("72-1920x1080@1", 0xdd80157668870ddd),
-            ("12-1280x720@1-grid", 0x1b4ba3476b81d70b),
+            ("8-1280x720@1", 0xfb855c5fb997e493),
+            ("3-844x390@3", 0x9b2d187272b3e370),
+            ("8-390x844@3", 0x1708c74bf4918b75),
+            ("24-1280x720@1", 0xf2ff6397913ba765),
+            ("72-1920x1080@1", 0x0c0d99a3245e709c),
+            ("12-1280x720@1-grid", 0xa88661132b1d4385),
         ];
         let got_: Vec<(&str, u64)> = got.iter().map(|(n, h)| (n.as_str(), *h)).collect();
         assert_eq!(got_, want, "{got_:#x?}");
