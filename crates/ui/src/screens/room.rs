@@ -1737,7 +1737,8 @@ pub fn panel(
     // A mark's room for each that shows: above where the rows begin past
     // the first, below where they end before the last (`first` short of
     // `last_first`, or everything not fitting from the top).
-    let marks = usize::from(first > 0 || last_first > 0) + usize::from(first > 0 && first < last_first);
+    let marks = usize::from(first > 0 || last_first > 0)
+        + usize::from(first > 0 && first < last_first);
     let room = height - 24.0 * marks as f32;
     let n = panel_fit(rows, first, room);
     let mut ry = y + if first > 0 { 24.0 } else { 0.0 };
@@ -2591,6 +2592,52 @@ pub fn at_once_name(a: ddi_room::AttacksAtOnce) -> UiText {
     }
 }
 
+/// The rows a comparison of two rules covers beyond those every one has
+/// (Timing difficulty, Boos): each where the room offers it.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct RuleGates {
+    pub stages: bool,
+    pub charts: bool,
+    /// The CPUs, compared as seated beside this many people.
+    pub cpus: Option<usize>,
+    pub attacks: bool,
+    /// Attacks at once, compared where the rules after have attacks On.
+    pub at_once: bool,
+    pub points: bool,
+}
+
+/// The rows whose rules differ from `before` to `after`, among those
+/// `gates` covers, in the Rules pop-up's order (`stages`, `difficulty`,
+/// `boos`, `charts`, `cpus`, `attacks`, `at_once`, `points`).
+pub(crate) fn rules_diff(
+    before: &ddi_room::MatchRules,
+    after: &ddi_room::MatchRules,
+    gates: RuleGates,
+) -> Vec<&'static str> {
+    let roster = |rules, humans| crate::state::cpu_roster::roster_of(rules, humans);
+    [
+        ("stages", gates.stages && before.stages != after.stages),
+        ("difficulty", before.difficulty != after.difficulty),
+        ("boos", before.boos != after.boos),
+        ("charts", gates.charts && before.charts != after.charts),
+        (
+            "cpus",
+            gates
+                .cpus
+                .is_some_and(|humans| roster(before, humans) != roster(after, humans)),
+        ),
+        ("attacks", gates.attacks && before.attacks() != after.attacks()),
+        (
+            "at_once",
+            gates.at_once && after.attacks() && before.at_once != after.at_once,
+        ),
+        ("points", gates.points && before.points != after.points),
+    ]
+    .into_iter()
+    .filter_map(|(id, differs)| differs.then_some(id))
+    .collect()
+}
+
 /// What a change of the running match's per-stage rules changes, from
 /// the rules `before` it (the stage before the change's) to `after`, in
 /// the parts' words joined ("Hard timing · Boos · No attacks"); `None`
@@ -2600,27 +2647,27 @@ pub fn change_words(
     after: &ddi_room::MatchRules,
     attacks_offered: bool,
 ) -> Option<UiText> {
+    let gates = RuleGates {
+        charts: true,
+        attacks: attacks_offered,
+        at_once: attacks_offered,
+        points: true,
+        ..RuleGates::default()
+    };
+    let diff = rules_diff(before, after, gates);
     let on = |b: bool| if b { "on" } else { "off" };
-    let mut parts: Vec<UiText> = Vec::new();
-    if before.difficulty != after.difficulty {
-        parts.push(m::rules_change_timing(difficulty_id(after.difficulty)));
-    }
-    if before.boos != after.boos {
-        parts.push(m::rules_change_boos(on(after.boos)));
-    }
-    if attacks_offered && before.attacks() != after.attacks() {
-        parts.push(m::rules_change_attacks(on(after.attacks())));
-    }
-    if before.charts != after.charts {
-        parts.push(m::rules_change_charts(after.charts.id()));
-    }
-    if attacks_offered && after.attacks() && before.at_once != after.at_once {
-        parts.push(m::rules_change_at_once(at_once_id(after.at_once)));
-    }
-    if before.points != after.points {
-        parts.push(m::rules_change_points(after.points.id()));
-    }
-    parts.into_iter().reduce(m::rules_change_join)
+    ["difficulty", "boos", "attacks", "charts", "at_once", "points"]
+        .into_iter()
+        .filter(|id| diff.contains(id))
+        .map(|id| match id {
+            "difficulty" => m::rules_change_timing(difficulty_id(after.difficulty)),
+            "boos" => m::rules_change_boos(on(after.boos)),
+            "attacks" => m::rules_change_attacks(on(after.attacks())),
+            "charts" => m::rules_change_charts(after.charts.id()),
+            "at_once" => m::rules_change_at_once(at_once_id(after.at_once)),
+            _ => m::rules_change_points(after.points.id()),
+        })
+        .reduce(m::rules_change_join)
 }
 
 /// The running match's latest change of its per-stage rules whose stage

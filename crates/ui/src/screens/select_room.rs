@@ -256,8 +256,7 @@ impl SelectScreen {
         cx.focus("Wheel");
         let taken = rm.room.borrow_mut().take_pick();
         if let Err(why) = taken {
-            rm.room.borrow_mut().clear_refusal();
-            cx.overlay(NoticeDialog::refusal(self.env.clone(), &why), true);
+            NoticeDialog::show_refusal(self.env.clone(), &rm.room, &why, cx);
         }
     }
 
@@ -881,10 +880,7 @@ impl SelectScreen {
                 let env = self.env.clone();
                 (self.play)(song, chart, &env, cx);
             }
-            Err(why) => {
-                rm.room.borrow_mut().clear_refusal();
-                cx.overlay(NoticeDialog::refusal(self.env.clone(), &why), true);
-            }
+            Err(why) => NoticeDialog::show_refusal(self.env.clone(), &rm.room, &why, cx),
         }
     }
 

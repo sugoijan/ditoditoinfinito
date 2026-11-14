@@ -22,15 +22,15 @@ use ddi_room::{
 
 use super::dialog::{button, fitted_dialog, shell, stepper};
 use super::room::{
-    PanelRow, cpu_level, cpu_name, cpu_sub, level_line, mark_text, panel, person_name,
-    players_first_rows, publish_dialog,
+    PanelRow, RuleGates, cpu_level, cpu_name, cpu_sub, level_line, mark_text, panel, person_name,
+    players_first_rows, publish_dialog, rules_diff,
 };
 use super::{Env, call, frame, left, right, scrolled};
 use crate::look;
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
 use crate::state::cpu_roster::{self, RosterAim};
-use crate::state::room::{SharedRoom, cpu_levels};
+use crate::state::room::{Refusal, SharedRoom, cpu_levels};
 
 /// Broadcast when the dialog applied new rules: the room redraws.
 pub const RULES_SAVED: &str = "Room.RulesSaved";
@@ -62,11 +62,18 @@ impl NoticeDialog {
         }
     }
 
+    /// The room refused `why`: the refusal taken from the room and said
+    /// in this notice over the screen.
+    pub fn show_refusal(env: Env, room: &SharedRoom, why: &Refusal, cx: &mut Cx) {
+        room.borrow_mut().clear_refusal();
+        cx.overlay(NoticeDialog::refusal(env, why), true);
+    }
+
     /// A pick refused, as `why` says.
-    pub fn refusal(env: Env, why: &crate::state::room::Refusal) -> NoticeDialog {
+    pub fn refusal(env: Env, why: &Refusal) -> NoticeDialog {
         let body: String = super::room::refusal_text(why).into();
         let title = match why {
-            crate::state::room::Refusal::Chart(_) => m::chart_unsupported_title(),
+            Refusal::Chart(_) => m::chart_unsupported_title(),
             _ => m::refused_title(),
         };
         NoticeDialog::new(env, &title, &body)
@@ -175,12 +182,9 @@ pub struct RulesDialog {
     problem: Option<String>,
     /// Draws for Add random, one more each.
     draws: u64,
-    /// The Points row is focused (its sentence brightens).
-    points_focused: bool,
-    /// The Charts row is focused (its sentence brightens).
-    zero_focused: bool,
-    /// The Attacks at once row is focused (its sentence brightens).
-    at_once_focused: bool,
+    /// The row whose sentence brightens, focused: `charts`,
+    /// `at_once` or `points` ([`BRIGHTENS`]).
+    bright: Option<&'static str>,
     /// During a match whose room takes changes from a later stage on
     /// (`RoomClient::may_change_stage_rules`): where the edits go, from
     /// the stage named (the default) or to the next match.
@@ -192,6 +196,25 @@ pub struct RulesDialog {
     /// The stage the change was said to land on when last built, and its
     /// number: what Apply sends.
     from: Option<(ddi_room::StageId, u16)>,
+}
+
+/// The rows whose sentence under them brightens while they are focused.
+const BRIGHTENS: [&str; 3] = ["charts", "at_once", "points"];
+
+/// The value of `all` one step from `at` (`up` or down), held at the
+/// ends: a choice's stepper pressed.
+fn step<T: Copy>(all: &[T], at: usize, up: bool) -> T {
+    all[if up {
+        (at + 1).min(all.len() - 1)
+    } else {
+        at.saturating_sub(1)
+    }]
+}
+
+/// Whether a choice of `len` values has one before and after `at`: its
+/// stepper's two buttons.
+fn ends(len: usize, at: usize) -> (bool, bool) {
+    (at > 0, at + 1 < len)
 }
 
 /// The rows a running match may change from a later stage on
@@ -229,9 +252,7 @@ impl RulesDialog {
             focus_seen: None,
             problem: None,
             draws,
-            points_focused: false,
-            zero_focused: false,
-            at_once_focused: false,
+            bright: None,
             to_stage: true,
             stage_draft: Rc::new(RefCell::new(stage_draft)),
             from,
@@ -417,67 +438,33 @@ impl RulesDialog {
         if !self.running() {
             return Vec::new();
         }
+        let r = self.room.borrow();
+        let gates = RuleGates {
+            charts: r.adaptive_offered(),
+            attacks: r.attacks_offered(),
+            at_once: r.at_once_offered(),
+            ..RuleGates::default()
+        };
         if self.to_stage() {
-            let r = self.room.borrow();
             let Some(ahead) = r.rules_ahead() else {
                 return Vec::new();
             };
-            let d = self.stage_draft.borrow();
-            let mut v = Vec::new();
-            if d.difficulty != ahead.difficulty {
-                v.push("difficulty");
-            }
-            if d.boos != ahead.boos {
-                v.push("boos");
-            }
-            if r.adaptive_offered() && d.charts != ahead.charts {
-                v.push("charts");
-            }
-            if r.attacks_offered() && d.attacks() != ahead.attacks() {
-                v.push("attacks");
-            }
-            if r.at_once_offered() && d.attacks() && d.at_once != ahead.at_once {
-                v.push("at_once");
-            }
-            if r.stage_points_offered() && d.points != ahead.points {
-                v.push("points");
-            }
-            return v;
+            let gates = RuleGates {
+                points: r.stage_points_offered(),
+                ..gates
+            };
+            return rules_diff(&ahead, &self.stage_draft.borrow(), gates);
         }
-        let r = self.room.borrow();
         let Some(locked) = r.locked_rules() else {
             return Vec::new();
         };
-        let d = self.draft.borrow();
-        let humans = r.humans();
-        let mut v = Vec::new();
-        if d.stages != locked.stages {
-            v.push("stages");
-        }
-        if d.difficulty != locked.difficulty {
-            v.push("difficulty");
-        }
-        if d.boos != locked.boos {
-            v.push("boos");
-        }
-        if r.adaptive_offered() && d.charts != locked.charts {
-            v.push("charts");
-        }
-        if r.cpus_offered()
-            && cpu_roster::roster_of(&d, humans) != cpu_roster::roster_of(locked, humans)
-        {
-            v.push("cpus");
-        }
-        if r.attacks_offered() && d.attacks() != locked.attacks() {
-            v.push("attacks");
-        }
-        if r.at_once_offered() && d.attacks() && d.at_once != locked.at_once {
-            v.push("at_once");
-        }
-        if r.points_offered() && d.points != locked.points {
-            v.push("points");
-        }
-        v
+        let gates = RuleGates {
+            stages: true,
+            cpus: r.cpus_offered().then(|| r.humans()),
+            points: r.points_offered(),
+            ..gates
+        };
+        rules_diff(locked, &self.draft.borrow(), gates)
     }
 
     /// Apply and restart is offered: from its button, while a match runs,
@@ -633,13 +620,17 @@ impl RulesDialog {
                 cx.broadcast(crate::Message::new(RULES_SAVED));
                 self.close(cx, false);
             }
-            Err(why) => {
-                self.room.borrow_mut().clear_refusal();
-                self.problem = Some(super::room::refusal_text(&why).into());
-                *root = self.build(cx);
-                super::restore_focus(root, Some("Apply"));
-            }
+            Err(why) => self.refused(&why, root, cx, "Apply"),
         }
+    }
+
+    /// The room refused what was asked: said under the rows, the focus
+    /// kept on `focus`.
+    fn refused(&mut self, why: &Refusal, root: &mut Actor, cx: &mut Cx, focus: &str) {
+        self.room.borrow_mut().clear_refusal();
+        self.problem = Some(super::room::refusal_text(why).into());
+        *root = self.build(cx);
+        super::restore_focus(root, Some(focus));
     }
 
     fn close(&mut self, cx: &mut Cx, cancel: bool) {
@@ -677,12 +668,7 @@ impl RulesDialog {
                 cx.broadcast(crate::Message::new(RULES_SAVED));
                 self.close(cx, false);
             }
-            Err(why) => {
-                self.room.borrow_mut().clear_refusal();
-                self.problem = Some(super::room::refusal_text(&why).into());
-                *root = self.build(cx);
-                super::restore_focus(root, Some(name));
-            }
+            Err(why) => self.refused(&why, root, cx, name),
         }
     }
 }
@@ -1020,6 +1006,29 @@ impl Screen for RulesDialog {
                 c.push(right(v, x0 + inner, ry));
             }
         };
+        // A row fixed here (the room does not offer it): its label, its
+        // value muted at the row's end.
+        let fixed_row = |c: &mut Vec<Actor>, name: &str, label: &str, value: &str, ry: f32| {
+            let row_y = ry + ROW / 2.0;
+            c.push(left(env.text(name, label, 14.0, 400, "Secondary"), x0, row_y));
+            let mut v = env.text(&format!("{name}.Value"), value, 13.0, 400, "Muted");
+            look::ellipsized(&mut v, inner - 110.0);
+            c.push(right(v, x0 + inner, row_y));
+        };
+        // A row's sentences under it, brightened while it is focused.
+        let about_lines = |c: &mut Vec<Actor>,
+                           id: &str,
+                           lines: &[String],
+                           bright: bool,
+                           ry: &mut f32| {
+            let color = if bright { "Secondary" } else { "Muted" };
+            for (k, line) in lines.iter().enumerate() {
+                let mut t = env.text(&format!("Rule.{id}.About{k}"), line, 12.0, 400, color);
+                look::ellipsized(&mut t, inner);
+                c.push(left(t, x0, *ry + 4.0));
+                *ry += 17.0;
+            }
+        };
         let on_off = |on: bool| -> String {
             if on { common::on() } else { common::off() }.into()
         };
@@ -1056,14 +1065,13 @@ impl Screen for RulesDialog {
         // DDI's options that are the match's, everyone's (D0): its
         // difficulty and Boos. (The ruleset has no row: it is DDI, which
         // the note under the rows says.)
-        let at = play.difficulty.index();
         mark(&mut c, "difficulty", ry + ROW / 2.0);
         stepper(
             &mut c,
             "difficulty",
             &m::rules_difficulty(),
             super::room::difficulty_name(play.difficulty).into(),
-            (at > 0, at + 1 < MatchDifficulty::ALL.len()),
+            ends(MatchDifficulty::ALL.len(), play.difficulty.index()),
             false,
             ry + ROW / 2.0,
         );
@@ -1082,42 +1090,21 @@ impl Screen for RulesDialog {
         // At zero life: out, or a step down the song's ladder, where the
         // room plays it; said Out where it cannot yet.
         if self.adaptive_offered() {
-            let at = play.charts.index();
             mark(&mut c, "charts", ry + ROW / 2.0);
             stepper(
                 &mut c,
                 "charts",
                 &m::rules_charts(),
                 super::room::charts_name(play.charts).into(),
-                (at > 0, at + 1 < ddi_room::Charts::ALL.len()),
+                ends(ddi_room::Charts::ALL.len(), play.charts.index()),
                 false,
                 ry + ROW / 2.0,
             );
             ry += ROW;
-            let color = if self.zero_focused { "Secondary" } else { "Muted" };
-            for (k, line) in zero_about.iter().enumerate() {
-                let mut t = env.text(&format!("Rule.charts.About{k}"), line, 12.0, 400, color);
-                look::ellipsized(&mut t, inner);
-                c.push(left(t, x0, ry + 4.0));
-                ry += 17.0;
-            }
+            about_lines(&mut c, "charts", &zero_about, self.bright == Some("charts"), &mut ry);
             said_to("charts", ry);
         } else {
-            let row_y = ry + ROW / 2.0;
-            c.push(left(
-                env.text("Rule.charts", &m::rules_charts(), 14.0, 400, "Secondary"),
-                x0,
-                row_y,
-            ));
-            let mut v = env.text(
-                "Rule.charts.Value",
-                &m::rules_charts_online(),
-                13.0,
-                400,
-                "Muted",
-            );
-            look::ellipsized(&mut v, inner - 110.0);
-            c.push(right(v, x0 + inner, row_y));
+            fixed_row(&mut c, "Rule.charts", &m::rules_charts(), &m::rules_charts_online(), ry);
             ry += ROW;
         }
         // Practice's CPUs: the roster, each removable, then the adds.
@@ -1226,87 +1213,47 @@ impl Screen for RulesDialog {
                 ry + ROW / 2.0,
             );
         } else {
-            let row_y = ry + ROW / 2.0;
-            c.push(left(
-                env.text("Rule.attacks", &m::rules_attacks(), 14.0, 400, "Secondary"),
-                x0,
-                row_y,
-            ));
-            let mut v = env.text(
-                "Rule.attacks.Value",
-                &m::rules_attacks_online(),
-                13.0,
-                400,
-                "Muted",
-            );
-            look::ellipsized(&mut v, inner - 110.0);
-            c.push(right(v, x0 + inner, row_y));
+            fixed_row(&mut c, "Rule.attacks", &m::rules_attacks(), &m::rules_attacks_online(), ry);
         }
         ry += ROW;
         // How many attacks may stand placed against one player, while
         // attacks are On.
         if at_once_shown {
-            let at = play.at_once.index();
             mark(&mut c, "at_once", ry + ROW / 2.0);
             stepper(
                 &mut c,
                 "at_once",
                 &m::rules_at_once(),
                 super::room::at_once_name(play.at_once).into(),
-                (at > 0, at + 1 < ddi_room::AttacksAtOnce::ALL.len()),
+                ends(ddi_room::AttacksAtOnce::ALL.len(), play.at_once.index()),
                 false,
                 ry + ROW / 2.0,
             );
             ry += ROW;
-            let color = if self.at_once_focused { "Secondary" } else { "Muted" };
-            for (k, line) in at_once_about.iter().enumerate() {
-                let mut t = env.text(&format!("Rule.at_once.About{k}"), line, 12.0, 400, color);
-                look::ellipsized(&mut t, inner);
-                c.push(left(t, x0, ry + 4.0));
-                ry += 17.0;
-            }
+            let bright = self.bright == Some("at_once");
+            about_lines(&mut c, "at_once", &at_once_about, bright, &mut ry);
             said_to("at_once", ry);
         }
         // Points: how strongly a large field favors its top places, where
         // the room's authority awards so; else what it is, fixed.
         if points {
-            let at = play.points.index();
             mark(&mut c, "points", ry + ROW / 2.0);
             stepper(
                 &mut c,
                 "points",
                 &m::rules_points(),
                 super::room::points_name(play.points).into(),
-                (at > 0, at + 1 < PointsBias::ALL.len()),
+                ends(PointsBias::ALL.len(), play.points.index()),
                 false,
                 ry + ROW / 2.0,
             );
             ry += ROW;
-            let color = if self.points_focused { "Secondary" } else { "Muted" };
-            for (k, line) in about.iter().enumerate() {
-                let mut t = env.text(&format!("Rule.points.About{k}"), line, 12.0, 400, color);
-                look::ellipsized(&mut t, inner);
-                c.push(left(t, x0, ry + 4.0));
-                ry += 17.0;
-            }
+            about_lines(&mut c, "points", &about, self.bright == Some("points"), &mut ry);
             said_to("points", ry);
         } else {
-            let row_y = ry + ROW / 2.0;
-            c.push(left(
-                env.text("Fixed.0", &m::rules_points(), 14.0, 400, "Secondary"),
-                x0,
-                row_y,
-            ));
-            let mut v = env.text("Fixed.0.Value", &m::rules_points_value(), 13.0, 400, "Muted");
-            look::ellipsized(&mut v, inner - 110.0);
-            c.push(right(v, x0 + inner, row_y));
+            fixed_row(&mut c, "Fixed.0", &m::rules_points(), &m::rules_points_value(), ry);
             ry += ROW;
-            for (k, line) in about.iter().enumerate() {
-                let mut t = env.text(&format!("Rule.points.About{k}"), line, 12.0, 400, "Muted");
-                look::ellipsized(&mut t, inner);
-                c.push(left(t, x0, ry + 4.0));
-                ry += 17.0;
-            }
+            about_lines(&mut c, "points", &about, false, &mut ry);
         }
         // The notes, and the room's answer, wrapped.
         let mut ny = ry + 12.0;
@@ -1475,41 +1422,22 @@ impl Screen for RulesDialog {
                 super::restore_focus(root, focused.as_deref());
             }
         }
-        // The Charts row's sentence brightens while it is focused.
-        if self.adaptive_offered() {
-            let focused = cx.focused().map(str::to_string);
-            let on = focused
-                .as_deref()
-                .is_some_and(|f| f == "Dec.charts" || f == "Inc.charts");
-            if on != self.zero_focused {
-                self.zero_focused = on;
-                *root = self.build(cx);
-                super::restore_focus(root, focused.as_deref());
-            }
-        }
-        // The Attacks at once row's sentence brightens while it is focused.
-        if self.at_once_shown() {
-            let focused = cx.focused().map(str::to_string);
-            let on = focused
-                .as_deref()
-                .is_some_and(|f| f == "Dec.at_once" || f == "Inc.at_once");
-            if on != self.at_once_focused {
-                self.at_once_focused = on;
-                *root = self.build(cx);
-                super::restore_focus(root, focused.as_deref());
-            }
-        }
-        // The Points row's sentence brightens while the row is focused.
-        if self.points_offered() {
-            let focused = cx.focused().map(str::to_string);
-            let on = focused
-                .as_deref()
-                .is_some_and(|f| f == "Dec.points" || f == "Inc.points");
-            if on != self.points_focused {
-                self.points_focused = on;
-                *root = self.build(cx);
-                super::restore_focus(root, focused.as_deref());
-            }
+        // A row's sentence brightens while the row is focused (Charts,
+        // Attacks at once, Points: where each shows).
+        let focused = cx.focused().map(str::to_string);
+        let bright = focused
+            .as_deref()
+            .and_then(|f| f.strip_prefix("Dec.").or_else(|| f.strip_prefix("Inc.")))
+            .and_then(|id| BRIGHTENS.into_iter().find(|b| *b == id))
+            .filter(|id| match *id {
+                "charts" => self.adaptive_offered(),
+                "at_once" => self.at_once_shown(),
+                _ => self.points_offered(),
+            });
+        if bright != self.bright {
+            self.bright = bright;
+            *root = self.build(cx);
+            super::restore_focus(root, focused.as_deref());
         }
     }
 
@@ -1582,13 +1510,8 @@ impl Screen for RulesDialog {
                     "Dec.difficulty" | "Inc.difficulty" if self.editable() => {
                         let edited = self.edited();
                         let mut d = edited.borrow_mut();
-                        let at = d.difficulty.index();
-                        let at = if name == "Inc.difficulty" {
-                            (at + 1).min(MatchDifficulty::ALL.len() - 1)
-                        } else {
-                            at.saturating_sub(1)
-                        };
-                        d.difficulty = MatchDifficulty::ALL[at];
+                        let up = name == "Inc.difficulty";
+                        d.difficulty = step(&MatchDifficulty::ALL, d.difficulty.index(), up);
                         drop(d);
                         rebuild(self, root, cx, name);
                     }
@@ -1604,7 +1527,7 @@ impl Screen for RulesDialog {
                         } else {
                             ddi_room::Charts::AsPicked
                         };
-                        self.zero_focused = true;
+                        self.bright = Some("charts");
                         rebuild(self, root, cx, name);
                     }
                     "Dec.points" | "Inc.points"
@@ -1612,15 +1535,9 @@ impl Screen for RulesDialog {
                     {
                         let edited = self.edited();
                         let mut d = edited.borrow_mut();
-                        let at = d.points.index();
-                        let at = if name == "Inc.points" {
-                            (at + 1).min(PointsBias::ALL.len() - 1)
-                        } else {
-                            at.saturating_sub(1)
-                        };
-                        d.points = PointsBias::ALL[at];
+                        d.points = step(&PointsBias::ALL, d.points.index(), name == "Inc.points");
                         drop(d);
-                        self.points_focused = true;
+                        self.bright = Some("points");
                         rebuild(self, root, cx, name);
                     }
                     "Dec.attacks" | "Inc.attacks"
@@ -1632,15 +1549,10 @@ impl Screen for RulesDialog {
                     "Dec.at_once" | "Inc.at_once" if self.editable() && self.at_once_shown() => {
                         let edited = self.edited();
                         let mut d = edited.borrow_mut();
-                        let at = d.at_once.index();
-                        let at = if name == "Inc.at_once" {
-                            (at + 1).min(ddi_room::AttacksAtOnce::ALL.len() - 1)
-                        } else {
-                            at.saturating_sub(1)
-                        };
-                        d.at_once = ddi_room::AttacksAtOnce::ALL[at];
+                        let up = name == "Inc.at_once";
+                        d.at_once = step(&ddi_room::AttacksAtOnce::ALL, d.at_once.index(), up);
                         drop(d);
-                        self.at_once_focused = true;
+                        self.bright = Some("at_once");
                         rebuild(self, root, cx, name);
                     }
                     "AddRandom" if self.free_seats() > 0 && self.row_editable("cpus") => {
