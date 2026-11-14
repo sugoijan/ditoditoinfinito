@@ -2187,7 +2187,7 @@ impl GameCanvas {
             // changed on the stage's prompt since the order was made); an
             // audience's has none.
             if !watched {
-                setup.targeting = crate::room::my_targeting();
+                setup.targeting = crate::room::stage_targeting(order);
             }
             setup
         });

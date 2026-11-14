@@ -444,10 +444,22 @@ pub(crate) fn live_handle(
     })
 }
 
-/// The local player's attack policy in the room of the stage being
-/// played, as its play starts.
-pub(crate) fn my_targeting() -> ddi_room::attacks::Targeting {
-    playing_room().borrow().my_targeting()
+/// The local player's attack policy as stage `order`'s play starts: the
+/// one they have now in the room that handed the stage over, where it is
+/// that room's stage (it may have changed on the stage's prompt), else
+/// the order's own (as desktop's `stage_targeting`).
+pub(crate) fn stage_targeting(order: &StageOrder) -> ddi_room::attacks::Targeting {
+    let room = PLAYING.with(|p| {
+        p.borrow()
+            .as_ref()
+            .filter(|p| p.order.stage == order.stage)
+            .map(|p| p.room.clone())
+    });
+    room.and_then(|room| {
+        let r = room.try_borrow().ok()?;
+        (r.me() == order.me && r.stage_started(order.stage)).then(|| r.my_targeting())
+    })
+    .unwrap_or(order.targeting)
 }
 
 /// Where a stage's results go back to: the room it was played in.
