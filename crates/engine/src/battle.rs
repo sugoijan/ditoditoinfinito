@@ -202,22 +202,64 @@ fn mix(mut x: u64) -> u64 {
     x ^ (x >> 31)
 }
 
-/// Whether a shock at `cell` is safe in chart `notes` (the whole chart,
+/// A chart's notes by lane, each with its seconds computed once
+/// ([`schedule_with`]): what [`safe`] and [`beside`] read.
+struct Lanes<'a> {
+    timing: &'a TimingMap,
+    /// Per lane, in the chart's order.
+    lanes: Vec<Vec<LaneNote>>,
+}
+
+#[derive(Clone, Copy)]
+struct LaneNote {
+    /// Its place in the chart's notes.
+    index: usize,
+    tick: Tick,
+    kind: NoteKind,
+    /// Its second.
+    at: f64,
+    /// A hold's or a roll's end's second (`at` for the rest).
+    end: f64,
+}
+
+impl<'a> Lanes<'a> {
+    fn new(notes: &[Note], timing: &'a TimingMap) -> Lanes<'a> {
+        let mut lanes: Vec<Vec<LaneNote>> = Vec::new();
+        for (index, n) in notes.iter().enumerate() {
+            let lane = usize::from(n.lane);
+            if lanes.len() <= lane {
+                lanes.resize_with(lane + 1, Vec::new);
+            }
+            let at = timing.seconds_at(n.tick);
+            let end = match n.kind {
+                NoteKind::HoldHead { end } | NoteKind::RollHead { end } => timing.seconds_at(end),
+                _ => at,
+            };
+            lanes[lane].push(LaneNote {
+                index,
+                tick: n.tick,
+                kind: n.kind,
+                at,
+                end,
+            });
+        }
+        Lanes { timing, lanes }
+    }
+
+    fn lane(&self, lane: u8) -> &[LaneNote] {
+        self.lanes.get(usize::from(lane)).map_or(&[], Vec::as_slice)
+    }
+}
+
+/// Whether a shock at `cell` is safe in the chart (`c`: the whole chart,
 /// as written: one schedule for everyone) under `table`, its window
 /// `window`, by `p`'s [`Clearance`].
-fn safe(
-    cell: Hazard,
-    notes: &[Note],
-    timing: &TimingMap,
-    table: &JudgeTable,
-    window: f64,
-    p: &Placement,
-) -> bool {
-    if !timing.judgeable(cell.tick) {
+fn safe(cell: Hazard, c: &Lanes, table: &JudgeTable, window: f64, p: &Placement) -> bool {
+    if !c.timing.judgeable(cell.tick) {
         return false;
     }
-    let m = timing.seconds_at(cell.tick);
-    let mut lane = notes.iter().filter(|n| n.lane == cell.lane);
+    let m = c.timing.seconds_at(cell.tick);
+    let mut lane = c.lane(cell.lane).iter();
     match p.clear {
         Clearance::Windows {
             margin,
@@ -226,14 +268,14 @@ fn safe(
         } => {
             let clear = window + table.max_early().max(table.miss_after()) + margin;
             lane.all(|n| {
-                let at = timing.seconds_at(n.tick);
+                let at = n.at;
                 match n.kind {
                     NoteKind::Tap => (at - m).abs() > clear,
                     NoteKind::Lift => {
                         (at - m).abs() > clear && !(at > m && at - m <= before_lift)
                     }
-                    NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
-                        let end = timing.seconds_at(end);
+                    NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } => {
+                        let end = n.end;
                         (at - m).abs() > clear
                             // No body across the shock's window.
                             && (end < m - window || at > m + window)
@@ -249,20 +291,16 @@ fn safe(
             after_note,
             lift_ready,
         } => {
-            // A press this early still hits a step (the third tier; the
-            // widest window where the ruleset has no third).
-            let before = table
-                .window(crate::rules::Judgement::W3)
-                .map_or_else(|| table.max_early(), |w| w.early);
+            let before = early_w3(table);
             // Not from `from` to `after_note` past `to`.
             let outside = |from: f64, to: f64| m < from || m > to + after_note;
             lane.all(|n| {
-                let at = timing.seconds_at(n.tick);
+                let at = n.at;
                 match n.kind {
                     NoteKind::Tap => outside(at - before, at),
                     NoteKind::Lift => outside(at - lift_ready.max(before), at),
-                    NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
-                        outside(at - before, timing.seconds_at(end).max(at))
+                    NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } => {
+                        outside(at - before, n.end.max(at))
                     }
                     NoteKind::Mine | NoteKind::Shock => n.tick != cell.tick,
                     NoteKind::Fake | NoteKind::AutoKeysound | NoteKind::Dummy => true,
@@ -272,79 +310,96 @@ fn safe(
     }
 }
 
+/// How early a press still hits a step: the third tier's early window
+/// (the widest where the ruleset has no third).
+fn early_w3(table: &JudgeTable) -> f64 {
+    table
+        .window(crate::rules::Judgement::W3)
+        .map_or_else(|| table.max_early(), |w| w.early)
+}
+
 /// The note of its lane a safe shock at `cell` is next to
-/// ([`Near`]), by its place in `notes`: shortly after it, or shortly
-/// before its step.
-fn beside(
-    cell: Hazard,
-    notes: &[Note],
-    timing: &TimingMap,
-    table: &JudgeTable,
-    p: &Placement,
-) -> Option<usize> {
+/// ([`Near`]), by its place in the chart's notes: shortly after it, or
+/// shortly before its step.
+fn beside(cell: Hazard, c: &Lanes, table: &JudgeTable, p: &Placement) -> Option<usize> {
     let near = p.near?;
     let Clearance::Margins { after_note, .. } = p.clear else {
         return None;
     };
-    let before = table
-        .window(crate::rules::Judgement::W3)
-        .map_or_else(|| table.max_early(), |w| w.early);
-    let m = timing.seconds_at(cell.tick);
-    notes.iter().position(|n| {
-        if n.lane != cell.lane {
-            return false;
-        }
-        let at = timing.seconds_at(n.tick);
-        let (end, steps) = match n.kind {
-            NoteKind::Tap => (at, true),
-            // A lift's key is ready long before it: only after it.
-            NoteKind::Lift => (at, false),
-            NoteKind::HoldHead { end } | NoteKind::RollHead { end } => {
-                (timing.seconds_at(end).max(at), true)
-            }
-            _ => return false,
-        };
-        (m >= end + after_note && m <= end + near.after)
-            || (steps && m <= at - before && m >= at - near.before_factor * before)
+    let before = early_w3(table);
+    let m = c.timing.seconds_at(cell.tick);
+    c.lane(cell.lane)
+        .iter()
+        .find(|n| {
+            let at = n.at;
+            let (end, steps) = match n.kind {
+                NoteKind::Tap => (at, true),
+                // A lift's key is ready long before it: only after it.
+                NoteKind::Lift => (at, false),
+                NoteKind::HoldHead { .. } | NoteKind::RollHead { .. } => (n.end.max(at), true),
+                _ => return false,
+            };
+            (m >= end + after_note && m <= end + near.after)
+                || (steps && m <= at - before && m >= at - near.before_factor * before)
+        })
+        .map(|n| n.index)
+}
+
+/// How many of `cells` (a section's, placed by `p` on chart `chart` of
+/// `song` under `table`) are next to a note of their lane ([`Near`]): for
+/// tests and the studies.
+pub fn beside_count(
+    song: &Song,
+    chart: usize,
+    table: &JudgeTable,
+    cells: &[Hazard],
+    p: &Placement,
+) -> usize {
+    let Some(c) = song.charts.get(chart) else {
+        return 0;
+    };
+    let lanes = Lanes::new(&c.notes, c.timing(song));
+    cells
+        .iter()
+        .filter(|h| beside(**h, &lanes, table, p).is_some())
+        .count()
+}
+
+/// A safe place of a section on the sixteenths: its beat, its second and
+/// the note it is next to ([`Near`]).
+struct Place {
+    cell: Hazard,
+    beat: usize,
+    at: f64,
+    beside: Option<usize>,
+}
+
+/// Whether `pl` is free of the shocks chosen so far: another row, and
+/// (`gap`) a lane gap from each of its lane's.
+fn free(pl: &Place, chosen: &[&Place], gap: Option<f64>) -> bool {
+    chosen.iter().all(|o| {
+        o.cell.tick != pl.cell.tick
+            && gap.is_none_or(|g| o.cell.lane != pl.cell.lane || (o.at - pl.at).abs() >= g)
     })
 }
 
-/// A section by `placement-v2` ([`Near`]): the shocks next to a note
-/// first, then the rest as v1 places them; `None` where eight do not fit
-/// so (the caller then places it as v1 does).
-fn section_near(
-    song: &Song,
-    chart: usize,
+/// The section from beat `start` of the chart (`c`, `lanes` lanes), if
+/// eight safe shocks fit (`p`), drawn from `seed`: by `placement-v2`
+/// ([`Near`]) the shocks next to a note first, then the rest as v1
+/// places them; where that does not fit (and by v1), the eighths, then
+/// the sixteenths.
+fn section(
+    c: &Lanes,
+    lanes: usize,
     table: &JudgeTable,
     start: u32,
     seed: u64,
     p: &Placement,
-    near: Near,
 ) -> Option<Section> {
-    let c = song.charts.get(chart)?;
-    let timing = c.timing(song);
-    let lanes = song
-        .layout_of(c)
-        .map(|l| l.lane_count())
-        .unwrap_or_else(|| {
-            c.notes
-                .iter()
-                .map(|n| usize::from(n.lane) + 1)
-                .max()
-                .unwrap_or(0)
-        })
-        .min(64);
     let window = INJECTED_MINE_V0.window(table);
     let first = i64::from(start) * TICKS_PER_BEAT;
     let sixteenth = TICKS_PER_BEAT / 4;
-    // Every safe place of the section on the sixteenths: its beat, its
-    // second and the note it is next to.
-    struct Place {
-        cell: Hazard,
-        beat: usize,
-        at: f64,
-        beside: Option<usize>,
-    }
+    let eighth = TICKS_PER_BEAT / 2;
     let mut places = Vec::new();
     for b in 0..p.section_beats as usize {
         let beat = first + b as i64 * TICKS_PER_BEAT;
@@ -354,71 +409,23 @@ fn section_near(
                     tick: Tick(t),
                     lane,
                 };
-                if safe(cell, &c.notes, timing, table, window, p) {
+                if safe(cell, c, table, window, p) {
                     places.push(Place {
                         cell,
                         beat: b,
-                        at: timing.seconds_at(cell.tick),
-                        beside: beside(cell, &c.notes, timing, table, p),
+                        at: c.timing.seconds_at(cell.tick),
+                        beside: beside(cell, c, table, p),
                     });
                 }
             }
         }
     }
-    // Free of the shocks chosen so far: another row, and (`gap`) a lane
-    // gap from each of its lane's.
-    let free = |pl: &Place, chosen: &[&Place], gap: bool| {
-        chosen.iter().all(|o| {
-            o.cell.tick != pl.cell.tick
-                && (!gap || o.cell.lane != pl.cell.lane || (o.at - pl.at).abs() >= near.lane_gap)
-        })
-    };
-    // Next to a note: one a beat, then a second, in the lane with the
-    // fewest so far, one a note.
-    let mut rng = mix(seed ^ mix(u64::from(start)) ^ 0x6e65_6172);
-    let mut aimed: Vec<&Place> = Vec::new();
-    let mut taken = vec![0usize; p.section_beats as usize];
-    let mut per_lane = vec![0usize; lanes];
-    for round in 0..2 {
-        for (b, taken) in taken.iter_mut().enumerate() {
-            if aimed.len() >= near.aim.min(p.mines) || *taken > round {
-                continue;
-            }
-            let pool: Vec<&Place> = places
-                .iter()
-                .filter(|pl| {
-                    pl.beat == b
-                        && pl.beside.is_some()
-                        && !aimed.iter().any(|o| o.beside == pl.beside)
-                        && free(pl, &aimed, true)
-                })
-                .collect();
-            let Some(least) = pool.iter().map(|pl| per_lane[usize::from(pl.cell.lane)]).min()
-            else {
-                continue;
-            };
-            let pool: Vec<&Place> = pool
-                .into_iter()
-                .filter(|pl| per_lane[usize::from(pl.cell.lane)] == least)
-                .collect();
-            rng = mix(rng);
-            let pick = pool[(rng % pool.len() as u64) as usize];
-            per_lane[usize::from(pick.cell.lane)] += 1;
-            *taken += 1;
-            aimed.push(pick);
-        }
-    }
-    // The rest as v1: the eighths, then the sixteenths, one a beat then a
-    // second; a lane gap kept, then (no other room) not.
-    for (step, gap) in [
-        (TICKS_PER_BEAT / 2, true),
-        (sixteenth, true),
-        (TICKS_PER_BEAT / 2, false),
-        (sixteenth, false),
-    ] {
+    // From `chosen`, on the grid of `step`, one a beat where a beat has
+    // room, then a second in the beats with room left, until eight; never
+    // two in a row.
+    let fill = |chosen: Vec<&Place>, mut taken: Vec<usize>, step: i64, gap: Option<f64>| {
+        let mut chosen = chosen;
         let mut rng = mix(seed ^ mix(u64::from(start)) ^ step as u64);
-        let mut chosen = aimed.clone();
-        let mut taken = taken.clone();
         for round in 0..2 {
             for (b, taken) in taken.iter_mut().enumerate() {
                 if chosen.len() >= p.mines || *taken > round {
@@ -438,121 +445,68 @@ fn section_near(
                 *taken += 1;
             }
         }
-        if chosen.len() >= p.mines {
+        (chosen.len() >= p.mines).then(|| {
             let mut cells: Vec<Hazard> = chosen.iter().map(|pl| pl.cell).collect();
             cells.sort();
-            return Some(Section {
+            Section {
                 start_beat: start,
                 cells,
-            });
-        }
-    }
-    None
-}
-
-/// How many of `cells` (a section's, placed by `p` on chart `chart` of
-/// `song` under `table`) are next to a note of their lane ([`Near`]): for
-/// tests and the studies.
-pub fn beside_count(
-    song: &Song,
-    chart: usize,
-    table: &JudgeTable,
-    cells: &[Hazard],
-    p: &Placement,
-) -> usize {
-    let Some(c) = song.charts.get(chart) else {
-        return 0;
+            }
+        })
     };
-    let timing = c.timing(song);
-    cells
-        .iter()
-        .filter(|h| beside(**h, &c.notes, timing, table, p).is_some())
-        .count()
-}
-
-/// The section from beat `start` of chart `chart` of `song`, if eight
-/// safe shocks fit (`p`), drawn from `seed`.
-fn section(
-    song: &Song,
-    chart: usize,
-    table: &JudgeTable,
-    start: u32,
-    seed: u64,
-    p: &Placement,
-) -> Option<Section> {
-    let c = song.charts.get(chart)?;
-    let timing = c.timing(song);
-    let lanes = song
-        .layout_of(c)
-        .map(|l| l.lane_count())
-        .unwrap_or_else(|| {
-            c.notes
-                .iter()
-                .map(|n| usize::from(n.lane) + 1)
-                .max()
-                .unwrap_or(0)
-        });
-    let window = INJECTED_MINE_V0.window(table);
-    let first = i64::from(start) * TICKS_PER_BEAT;
-    // `placement-v2`: next to the lane's notes first; where that does not
-    // fit, as v1 below.
-    if let Some(near) = p.near
-        && let Some(s) = section_near(song, chart, table, start, seed, p, near)
-    {
-        return Some(s);
-    }
-    // The eighths, then the sixteenths.
-    for step in [TICKS_PER_BEAT / 2, TICKS_PER_BEAT / 4] {
-        let mut by_beat: Vec<Vec<Hazard>> = vec![Vec::new(); p.section_beats as usize];
-        for (b, cells) in by_beat.iter_mut().enumerate() {
-            let beat = first + b as i64 * TICKS_PER_BEAT;
-            for t in (beat..beat + TICKS_PER_BEAT).step_by(step as usize) {
-                for lane in 0..lanes.min(64) as u8 {
-                    let cell = Hazard {
-                        tick: Tick(t),
-                        lane,
-                    };
-                    if safe(cell, &c.notes, timing, table, window, p) {
-                        cells.push(cell);
-                    }
-                }
-            }
-        }
-        let mut rng = mix(seed ^ mix(u64::from(start)) ^ step as u64);
-        let mut draw = |n: usize| {
-            rng = mix(rng);
-            (rng % n as u64) as usize
-        };
-        let mut chosen: Vec<Hazard> = Vec::new();
-        let mut taken = vec![0usize; by_beat.len()];
-        // One a beat where a beat has room, then a second in the beats
-        // with room left, until eight; never two in a row.
+    if let Some(near) = p.near {
+        // Next to a note: one a beat, then a second, in the lane with the
+        // fewest so far, one a note.
+        let mut rng = mix(seed ^ mix(u64::from(start)) ^ 0x6e65_6172);
+        let mut aimed: Vec<&Place> = Vec::new();
+        let mut taken = vec![0usize; p.section_beats as usize];
+        let mut per_lane = vec![0usize; lanes];
         for round in 0..2 {
-            for (b, cells) in by_beat.iter().enumerate() {
-                if chosen.len() >= p.mines || taken[b] > round {
+            for (b, taken) in taken.iter_mut().enumerate() {
+                if aimed.len() >= near.aim.min(p.mines) || *taken > round {
                     continue;
                 }
-                let free: Vec<Hazard> = cells
+                let pool: Vec<&Place> = places
                     .iter()
-                    .copied()
-                    .filter(|c| !chosen.iter().any(|o| o.tick == c.tick))
+                    .filter(|pl| {
+                        pl.beat == b
+                            && pl.beside.is_some()
+                            && !aimed.iter().any(|o| o.beside == pl.beside)
+                            && free(pl, &aimed, Some(near.lane_gap))
+                    })
                     .collect();
-                if free.is_empty() {
+                let Some(least) = pool.iter().map(|pl| per_lane[usize::from(pl.cell.lane)]).min()
+                else {
                     continue;
-                }
-                chosen.push(free[draw(free.len())]);
-                taken[b] += 1;
+                };
+                let pool: Vec<&Place> = pool
+                    .into_iter()
+                    .filter(|pl| per_lane[usize::from(pl.cell.lane)] == least)
+                    .collect();
+                rng = mix(rng);
+                let pick = pool[(rng % pool.len() as u64) as usize];
+                per_lane[usize::from(pick.cell.lane)] += 1;
+                *taken += 1;
+                aimed.push(pick);
             }
         }
-        if chosen.len() >= p.mines {
-            chosen.sort();
-            return Some(Section {
-                start_beat: start,
-                cells: chosen,
-            });
+        // The rest as v1: the eighths, then the sixteenths, one a beat
+        // then a second; a lane gap kept, then (no other room) not.
+        for (step, gap) in [
+            (eighth, Some(near.lane_gap)),
+            (sixteenth, Some(near.lane_gap)),
+            (eighth, None),
+            (sixteenth, None),
+        ] {
+            if let Some(s) = fill(aimed.clone(), taken.clone(), step, gap) {
+                return Some(s);
+            }
         }
     }
-    None
+    let none = vec![0usize; p.section_beats as usize];
+    [eighth, sixteenth]
+        .into_iter()
+        .find_map(|step| fill(Vec::new(), none.clone(), step, None))
 }
 
 /// Every section chart `chart` of `song` has under `table`, one per
@@ -578,9 +532,21 @@ pub fn schedule_with(
     };
     let last = c.notes.iter().map(|n| n.end_tick().0).max().unwrap_or(0);
     let last_beat = (last / TICKS_PER_BEAT).max(0) as u32;
+    let lanes = song
+        .layout_of(c)
+        .map(|l| l.lane_count())
+        .unwrap_or_else(|| {
+            c.notes
+                .iter()
+                .map(|n| usize::from(n.lane) + 1)
+                .max()
+                .unwrap_or(0)
+        })
+        .min(64);
+    let notes = Lanes::new(&c.notes, c.timing(song));
     (0..=last_beat.saturating_sub(p.section_beats))
         .step_by(p.every_beats as usize)
-        .map(|start| section(song, chart, table, start, seed, &p))
+        .map(|start| section(&notes, lanes, table, start, seed, &p))
         .collect()
 }
 

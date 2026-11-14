@@ -825,3 +825,70 @@ fn judgement_order_is_the_engine_s() {
     assert_eq!(Judgement::W1.index(), 0);
     assert_eq!(Judgement::Miss.index(), 5);
 }
+
+/// The schedules themselves, pinned: every bundled chart (every layout,
+/// generated versions too) by `placement-v0`, `v1` and `v2` under DDI
+/// Normal and ITG, two seeds, hashed (FNV-1a over each section's start
+/// and cells, `None` marked). A change to how placement is computed must
+/// leave every schedule as it was.
+#[test]
+fn bundled_schedules_are_pinned() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs");
+    let mut ids: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .collect();
+    ids.sort_by_key(|e| e.file_name());
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |x: i64| {
+        for b in x.to_le_bytes() {
+            hash = (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    let mut sections = 0;
+    for e in ids {
+        let Some(path) = std::fs::read_dir(e.path())
+            .unwrap()
+            .flatten()
+            .map(|f| f.path())
+            .find(|p| p.extension().is_some_and(|x| x == "ssc" || x == "sm"))
+        else {
+            continue;
+        };
+        let ext = path.extension().unwrap().to_string_lossy().into_owned();
+        let Ok(song) =
+            ddi_library::scan::parse_simfile(&std::fs::read_to_string(&path).unwrap(), &ext)
+        else {
+            continue;
+        };
+        for i in 0..song.charts.len() {
+            let tables = [
+                ddi_rules(ddi_engine::rules::ddi::Difficulty::Normal).judge,
+                rules("itg", &song).judge,
+            ];
+            for table in &tables {
+                for p in [&PLACEMENT_V0, &PLACEMENT_V1, &PLACEMENT_V2] {
+                    for seed in [7, 0x5eed_1234_abcd] {
+                        for s in schedule_with(&song, i, table, seed, p) {
+                            eat(-1);
+                            if let Some(s) = s {
+                                sections += 1;
+                                eat(i64::from(s.start_beat));
+                                for h in s.cells {
+                                    eat(h.tick.0);
+                                    eat(i64::from(h.lane));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    println!("schedules: {sections} sections, hash {hash:016x}");
+    assert_eq!(
+        (sections, format!("{hash:016x}")),
+        (82482, "c1c6d1a9950600b3".to_string())
+    );
+}
