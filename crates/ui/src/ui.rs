@@ -2158,10 +2158,16 @@ impl Ui {
         }
         let first = layer
             .screen
-            .focusables()
-            .into_iter()
-            .find(|f| visible_bounds(&layer.root, &f.name).is_some())
-            .map(|f| f.name);
+            .first_focus()
+            .filter(|n| visible_bounds(&layer.root, n).is_some())
+            .or_else(|| {
+                layer
+                    .screen
+                    .focusables()
+                    .into_iter()
+                    .find(|f| visible_bounds(&layer.root, &f.name).is_some())
+                    .map(|f| f.name)
+            });
         let Some(first) = first else { return false };
         self.repeater.clear();
         self.set_focus(id, Some(first), gesture);

@@ -202,6 +202,34 @@ fn the_start_menu_opens_multiplayer_by_default() {
     }
 }
 
+/// The multiplayer home's order (the maintainer, 2026-11-14: "CPU
+/// practice could be the last option"): Find match and Browse rooms
+/// (Coming soon), Private room, Join by link, CPU practice; the first key
+/// focuses Private room, the first that opens something.
+#[test]
+fn the_home_lists_cpu_practice_last_and_the_first_key_focuses_private_room() {
+    let env = env();
+    let mut h = harness();
+    h.push(sample::start_screen(&env, false));
+    h.run(0.3);
+    h.key("a", "a");
+    h.key("ArrowDown", "ArrowDown");
+    h.key("Enter", "Enter");
+    h.run(0.5);
+    assert_eq!(top(&h), "multiplayer");
+    let ys: Vec<f32> = ["find", "browse", "private", "join", "practice"]
+        .iter()
+        .map(|id| h.centre(&format!("Choice.{id}"))[1])
+        .collect();
+    assert!(ys.windows(2).all(|w| w[0] < w[1]), "{ys:?}");
+    assert_eq!(h.ui.focused(), None, "no focus until a key");
+    h.key("ArrowDown", "ArrowDown");
+    assert_eq!(h.ui.focused(), Some("Choice.private"));
+    h.key("ArrowDown", "ArrowDown");
+    h.key("ArrowDown", "ArrowDown");
+    assert_eq!(h.ui.focused(), Some("Choice.practice"));
+}
+
 /// CPU practice opens straight on the room's song select, with the
 /// default rules and roster and no pop-up (the maintainer, 2026-11-12);
 /// the Rules are behind their button, in their one form there (Cancel and

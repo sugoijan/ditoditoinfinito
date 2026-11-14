@@ -3,8 +3,8 @@
 //! start menu's outline rain, under the shared header and over the shared
 //! footer. Every entry `docs/plans/multiplayer-ui.md` plans for the menu is
 //! there: Find match and Browse rooms grayed out ("Coming soon", focusable
-//! and inert as the start menu's Multiplayer is), CPU practice, Private
-//! room and Join by link. The account sits at the footer's right: Sign in
+//! and inert), Private room, Join by link and, last, CPU practice (the
+//! maintainer, 2026-11-14); the first key focuses Private room. The account sits at the footer's right: Sign in
 //! with Twitch, or the signed-in name opening Sign out. Signing in is
 //! asked for where it is needed ([`SignInDialog`]: Private room signed
 //! out, the footer's Sign in), and the dialog follows the sign-in through
@@ -44,9 +44,10 @@ fn entries() -> [(&'static str, UiText, bool); 5] {
     [
         (FIND, m::home_find(), false),
         (BROWSE, m::home_browse(), false),
-        (PRACTICE, m::home_practice(), true),
         (PRIVATE, m::home_private(), true),
         (JOIN, m::home_join(), true),
+        // Last (the maintainer, 2026-11-14).
+        (PRACTICE, m::home_practice(), true),
     ]
 }
 
@@ -332,6 +333,12 @@ impl Screen for Home {
 
     fn defer_initial_focus(&self) -> bool {
         true
+    }
+
+    /// The first key focuses Private room, the first entry that opens
+    /// something (Find match and Browse rooms are Coming soon).
+    fn first_focus(&self) -> Option<String> {
+        Some(choice(PRIVATE))
     }
 
     fn shared_bars(&self) -> bool {

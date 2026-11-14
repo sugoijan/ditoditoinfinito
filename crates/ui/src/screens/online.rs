@@ -594,6 +594,10 @@ impl Screen for OnlineScreen {
         self.inner.defer_initial_focus()
     }
 
+    fn first_focus(&self) -> Option<String> {
+        self.inner.first_focus()
+    }
+
     fn shared_bars(&self) -> bool {
         self.inner.shared_bars()
     }

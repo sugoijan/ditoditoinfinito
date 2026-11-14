@@ -279,6 +279,14 @@ pub trait Screen {
         false
     }
 
+    /// What the first press focuses on a screen that defers its focus
+    /// ([`Screen::defer_initial_focus`]), where it is not the first shown
+    /// control (the multiplayer home's first entry that opens something,
+    /// past those Coming soon).
+    fn first_focus(&self) -> Option<String> {
+        None
+    }
+
     /// The screen may show the shared header and footer, the bars
     /// (`screens::header`, `screens::footer`, their parts given
     /// [`crate::ui::BARS_ON`] and its kin by `screens::transitions`): from
