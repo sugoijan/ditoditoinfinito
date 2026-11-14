@@ -37,28 +37,45 @@ pub fn is_movie(path: &str) -> bool {
 /// What the movie whose first bytes are `head` is. Never fails: bytes it
 /// does not recognise give [`VideoContainer::Unknown`].
 pub fn sniff(head: &[u8]) -> VideoFormat {
-    let (container, codec) = if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"AVI ") {
-        (VideoContainer::Avi, avi(head))
-    } else if head.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
-        (VideoContainer::Matroska, matroska(head))
-    } else if is_iso_media(head) {
-        (VideoContainer::Mp4, iso_media(head))
-    } else if head.starts_with(b"OggS") {
-        (VideoContainer::Ogg, ogg(head))
-    } else if head.starts_with(&ASF_HEADER) {
-        (VideoContainer::Asf, asf(head))
-    } else if head.starts_with(b"FLV\x01") {
-        (VideoContainer::Flv, flv(head))
-    } else if let Some(packet) = transport_packet_size(head) {
-        (VideoContainer::MpegTs, transport(head, packet))
-    } else if head.starts_with(&[0, 0, 1, 0xba]) {
-        (VideoContainer::MpegPs, mpeg_video(head))
-    } else if head.starts_with(&[0, 0, 1, 0xb3]) {
-        (VideoContainer::MpegVideo, mpeg_video(head))
-    } else {
-        (VideoContainer::Unknown, VideoCodec::Unknown)
+    let container = container_of(head);
+    let codec = match container {
+        VideoContainer::Avi => avi(head),
+        VideoContainer::Matroska => matroska(head),
+        VideoContainer::Mp4 => iso_media(head),
+        VideoContainer::Ogg => ogg(head),
+        VideoContainer::Asf => asf(head),
+        VideoContainer::Flv => flv(head),
+        VideoContainer::MpegTs => transport_packet_size(head)
+            .map_or(VideoCodec::Unknown, |packet| transport(head, packet)),
+        VideoContainer::MpegPs | VideoContainer::MpegVideo => mpeg_video(head),
+        _ => VideoCodec::Unknown,
     };
     VideoFormat { container, codec }
+}
+
+/// The container whose first bytes are `head`, by its magic bytes.
+fn container_of(head: &[u8]) -> VideoContainer {
+    if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"AVI ") {
+        VideoContainer::Avi
+    } else if head.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
+        VideoContainer::Matroska
+    } else if is_iso_media(head) {
+        VideoContainer::Mp4
+    } else if head.starts_with(b"OggS") {
+        VideoContainer::Ogg
+    } else if head.starts_with(&ASF_HEADER) {
+        VideoContainer::Asf
+    } else if head.starts_with(b"FLV\x01") {
+        VideoContainer::Flv
+    } else if transport_packet_size(head).is_some() {
+        VideoContainer::MpegTs
+    } else if head.starts_with(&[0, 0, 1, 0xba]) {
+        VideoContainer::MpegPs
+    } else if head.starts_with(&[0, 0, 1, 0xb3]) {
+        VideoContainer::MpegVideo
+    } else {
+        VideoContainer::Unknown
+    }
 }
 
 /// A movie's frames' size, pixels, from its first bytes `head` (as many as
@@ -69,29 +86,25 @@ pub fn sniff(head: &[u8]) -> VideoFormat {
 /// scripts then size its sprite as StepMania's screen,
 /// `docs/plans/phase-8-gaps.md`, step 3).
 pub fn dimensions(head: &[u8]) -> Option<(u32, u32)> {
-    let size = if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"AVI ") {
-        avi_size(head)
-    } else if head.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
-        matroska_size(head)
-    } else if is_iso_media(head) {
-        iso_size(head)
-    } else if head.starts_with(b"OggS") {
-        find(head, b"\x80theora", 0).and_then(|p| {
+    let size = match container_of(head) {
+        VideoContainer::Avi => avi_size(head),
+        VideoContainer::Matroska => matroska_size(head),
+        VideoContainer::Mp4 => iso_size(head),
+        VideoContainer::Ogg => find(head, b"\x80theora", 0).and_then(|p| {
             let b24 = |i: usize| -> Option<u32> {
                 let s = head.get(p + i..p + i + 3)?;
                 Some((u32::from(s[0]) << 16) | (u32::from(s[1]) << 8) | u32::from(s[2]))
             };
             Some((b24(14)?, b24(17)?))
-        })
-    } else if head.starts_with(&[0, 0, 1, 0xba]) || head.starts_with(&[0, 0, 1, 0xb3]) {
-        find(head, &[0, 0, 1, 0xb3], 0).and_then(|s| {
-            let b = head.get(s + 4..s + 7)?;
-            let w = (u32::from(b[0]) << 4) | (u32::from(b[1]) >> 4);
-            let h = ((u32::from(b[1]) & 0x0f) << 8) | u32::from(b[2]);
-            Some((w, h))
-        })
-    } else {
-        None
+        }),
+        VideoContainer::MpegPs | VideoContainer::MpegVideo => find(head, &[0, 0, 1, 0xb3], 0)
+            .and_then(|s| {
+                let b = head.get(s + 4..s + 7)?;
+                let w = (u32::from(b[0]) << 4) | (u32::from(b[1]) >> 4);
+                let h = ((u32::from(b[1]) & 0x0f) << 8) | u32::from(b[2]);
+                Some((w, h))
+            }),
+        _ => None,
     };
     size.filter(|&(w, h)| (1..=16384).contains(&w) && (1..=16384).contains(&h))
 }
@@ -112,6 +125,17 @@ fn avi_size(b: &[u8]) -> Option<(u32, u32)> {
 /// An MP4's first video track's sample entry size (`stsd`'s first entry:
 /// width and height at 32 and 34).
 fn iso_size(b: &[u8]) -> Option<(u32, u32)> {
+    // Version and flags, entry count, then the entry.
+    let entry = iso_video_entry(b)? + 8;
+    Some((
+        u32::from(be16(b, entry + 32)?),
+        u32::from(be16(b, entry + 34)?),
+    ))
+}
+
+/// Where an ISO media file's first video track's `stsd` box's data
+/// starts, when its `moov` comes before the media data.
+fn iso_video_entry(b: &[u8]) -> Option<usize> {
     let child = |kind: &[u8; 4], start: usize, end: usize| {
         boxes(b, start, end)
             .into_iter()
@@ -126,20 +150,16 @@ fn iso_size(b: &[u8]) -> Option<(u32, u32)> {
         let Some((mdia, mdia_end)) = child(b"mdia", trak, trak_end) else {
             continue;
         };
+        // `hdlr`: version and flags, pre_defined, then the handler type.
         let video = child(b"hdlr", mdia, mdia_end)
             .is_some_and(|(h, _)| b.get(h + 8..h + 12) == Some(b"vide"));
         if !video {
             continue;
         }
-        let (stsd, _) = child(b"minf", mdia, mdia_end)
+        return child(b"minf", mdia, mdia_end)
             .and_then(|(s, e)| child(b"stbl", s, e))
-            .and_then(|(s, e)| child(b"stsd", s, e))?;
-        // Version and flags, entry count, then the entry.
-        let entry = stsd + 8;
-        return Some((
-            u32::from(be16(b, entry + 32)?),
-            u32::from(be16(b, entry + 34)?),
-        ));
+            .and_then(|(s, e)| child(b"stsd", s, e))
+            .map(|(s, _)| s);
     }
     None
 }
@@ -414,37 +434,11 @@ fn is_iso_media(b: &[u8]) -> bool {
 /// The codec of an ISO media file's first video track, when its `moov`
 /// comes before the media data.
 fn iso_media(b: &[u8]) -> VideoCodec {
-    let child = |kind: &[u8; 4], start: usize, end: usize| {
-        boxes(b, start, end)
-            .into_iter()
-            .find(|(k, ..)| k == kind)
-            .map(|(_, s, e)| (s, e))
-    };
-    let Some((moov, moov_end)) = child(b"moov", 0, b.len()) else {
-        return VideoCodec::Unknown;
-    };
-    for (kind, trak, trak_end) in boxes(b, moov, moov_end) {
-        if &kind != b"trak" {
-            continue;
-        }
-        let Some((mdia, mdia_end)) = child(b"mdia", trak, trak_end) else {
-            continue;
-        };
-        // `hdlr`: version and flags, pre_defined, then the handler type.
-        let video = child(b"hdlr", mdia, mdia_end)
-            .is_some_and(|(h, _)| b.get(h + 8..h + 12) == Some(b"vide"));
-        if !video {
-            continue;
-        }
-        let entry = child(b"minf", mdia, mdia_end)
-            .and_then(|(s, e)| child(b"stbl", s, e))
-            .and_then(|(s, e)| child(b"stsd", s, e))
-            // Version and flags, entry count, then the first entry's size
-            // and type.
-            .and_then(|(s, _)| b.get(s + 12..s + 16));
-        return entry.map_or(VideoCodec::Unknown, iso_codec);
-    }
-    VideoCodec::Unknown
+    // Version and flags, entry count, then the first entry's size and
+    // type.
+    iso_video_entry(b)
+        .and_then(|s| b.get(s + 12..s + 16))
+        .map_or(VideoCodec::Unknown, iso_codec)
 }
 
 fn iso_codec(kind: &[u8]) -> VideoCodec {
