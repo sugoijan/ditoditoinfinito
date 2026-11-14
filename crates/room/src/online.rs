@@ -26,7 +26,7 @@
 use crate::authority::{Clock, RoomAuthority};
 use crate::command::Rejection;
 use crate::ids::{Millis, Revision, RoomId};
-use crate::live::client::{LiveLink, LiveSend};
+use crate::live::client::LiveLink;
 use crate::live::{LIVE_V1, ServerLiveEnvelope};
 use crate::member::Connection;
 use crate::protocol::{ClientEnvelope, Mirror, MirrorError, Resync, ServerEnvelope, ServerMessage};
@@ -43,6 +43,15 @@ pub mod close {
     pub const SIGN_IN_AGAIN: u16 = 4401;
     /// The room closed.
     pub const ROOM_CLOSED: u16 = 4410;
+}
+
+/// A message on a socket: JSON text or binary (live play's frames,
+/// `crate::live::wire`; an audience frame). What every side of the room
+/// puts on a socket: a member's link, the hub, a relay.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Message {
+    Text(String),
+    Binary(Vec<u8>),
 }
 
 /// What a shell's socket reports.
@@ -77,6 +86,13 @@ pub trait Transport {
     /// What happened since the last poll, oldest first: the socket open
     /// now only (an earlier one's late close is not reported).
     fn poll(&mut self) -> Vec<TransportEvent>;
+    /// Put `message` on the socket: text or binary.
+    fn put(&mut self, message: Message) {
+        match message {
+            Message::Text(t) => self.send(t),
+            Message::Binary(b) => self.send_binary(b),
+        }
+    }
 }
 
 impl<T: Transport + ?Sized> Transport for Box<T> {
@@ -298,10 +314,7 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
             .unwrap_or((None, false));
         self.live.follow(following, started);
         for send in self.live.due(self.clock.now().0) {
-            match send {
-                LiveSend::Text(t) => self.transport.send(t),
-                LiveSend::Binary(b) => self.transport.send_binary(b),
-            }
+            self.transport.put(send);
         }
     }
 

@@ -17,26 +17,20 @@
 //!   audience never moves a member's own messages.
 
 use super::{FakeServer, Frame, Latency};
-use crate::audience::hub::{AudienceHub, HubOut, HubSend};
-use crate::audience::relay::{Relay, RelayOut, RelaySend, SeatId, Target, identity_mark};
+use crate::audience::hub::{AudienceHub, HubOut};
+use crate::audience::relay::{Relay, RelayOut, SeatId, Target, identity_mark};
 use crate::audience::{AudienceRefusal, AudienceRules, KEEPALIVE, KEEPALIVE_ANSWER};
 use crate::ids::{Millis, ParticipantId, RoomId};
 use crate::live::{ServerLive, ServerLiveEnvelope};
-use crate::online::{Transport, TransportEvent};
+use crate::online::{Message, Transport, TransportEvent};
 use std::collections::{BTreeMap, VecDeque};
-
-/// What travels between the room and a relay.
-enum Hop {
-    Text(String),
-    Binary(Vec<u8>),
-}
 
 struct FakeRelay {
     relay: Relay,
     /// Its socket up to the room is open.
     up: bool,
     /// From the room, with when each arrives.
-    down: VecDeque<(u64, Hop)>,
+    down: VecDeque<(u64, Message)>,
     /// To the room, with when each arrives.
     upq: VecDeque<(u64, String)>,
 }
@@ -217,8 +211,8 @@ impl FakeServer {
                     if to == k {
                         let r = a.relays.get_mut(&k).expect("started");
                         let o = match send {
-                            HubSend::Text(t) => r.relay.from_room_text(&t, now),
-                            HubSend::Binary(b) => r.relay.from_room_binary(&b, now),
+                            Message::Text(t) => r.relay.from_room_text(&t, now),
+                            Message::Binary(b) => r.relay.from_room_binary(&b, now),
                         };
                         self.relay_out(&mut a, k, o);
                     }
@@ -438,8 +432,8 @@ impl FakeServer {
                 }
                 let (_, hop) = r.down.pop_front().expect("checked");
                 let o = match hop {
-                    Hop::Text(t) => r.relay.from_room_text(&t, now),
-                    Hop::Binary(b) => r.relay.from_room_binary(&b, now),
+                    Message::Text(t) => r.relay.from_room_text(&t, now),
+                    Message::Binary(b) => r.relay.from_room_binary(&b, now),
                 };
                 self.relay_out(&mut a, k, o);
             }
@@ -455,18 +449,12 @@ impl FakeServer {
         let hop = a.hop_ms;
         for (k, send) in out.to_relay {
             if let Some(r) = a.relays.get_mut(&k).filter(|r| r.up) {
-                r.down.push_back((now + hop, hop_of(send)));
+                r.down.push_back((now + hop, send));
             }
         }
         for send in out.to_relays {
             for r in a.relays.values_mut().filter(|r| r.up) {
-                r.down.push_back((
-                    now + hop,
-                    match &send {
-                        HubSend::Text(t) => Hop::Text(t.clone()),
-                        HubSend::Binary(b) => Hop::Binary(b.clone()),
-                    },
-                ));
+                r.down.push_back((now + hop, send.clone()));
             }
         }
         if let Some(msg) = out.to_members {
@@ -512,11 +500,7 @@ impl FakeServer {
         };
         for (t, send) in out.to_seats {
             for c in conns_of(a, t) {
-                let f = match &send {
-                    RelaySend::Text(t) => Frame::Text(t.clone()),
-                    RelaySend::Binary(b) => Frame::Binary(b.clone()),
-                };
-                Self::seat_push(a, c, f, now);
+                Self::seat_push(a, c, Frame::from(send.clone()), now);
             }
         }
         for (t, code) in out.close {
@@ -558,13 +542,6 @@ impl FakeServer {
         if let Some(a) = self.audience.as_mut() {
             a.hub.member_frame_built(frame);
         }
-    }
-}
-
-fn hop_of(send: HubSend) -> Hop {
-    match send {
-        HubSend::Text(t) => Hop::Text(t),
-        HubSend::Binary(b) => Hop::Binary(b),
     }
 }
 

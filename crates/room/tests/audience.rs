@@ -1136,7 +1136,7 @@ fn what_the_audience_costs() {
                 read_ns += t.elapsed().as_nanos();
                 let t = Instant::now();
                 for (_, send) in &out.to_seats {
-                    if let ddi_room::audience::relay::RelaySend::Binary(bytes) = send {
+                    if let ddi_room::online::Message::Binary(bytes) = send {
                         for q in queues.iter_mut() {
                             q.push(bytes.clone());
                         }

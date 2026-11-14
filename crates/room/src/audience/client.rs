@@ -19,10 +19,9 @@ use crate::audience::{
 };
 use crate::authority::Clock;
 use crate::ids::{Millis, RoomId};
-use crate::live::client::LiveSend;
 use crate::live::server::LiveSnapshot;
 use crate::live::stream::{Frame, FrameReader};
-use crate::online::{Transport, TransportEvent};
+use crate::online::{Message, Transport, TransportEvent};
 
 /// What came, for the game.
 #[derive(Clone, Debug, PartialEq)]
@@ -214,14 +213,14 @@ impl AudienceLink {
     }
 
     /// What to send now: the hello, a resume after a gap, the keep-alive.
-    pub fn due(&mut self, now: u64) -> Vec<LiveSend> {
+    pub fn due(&mut self, now: u64) -> Vec<Message> {
         let mut out = Vec::new();
         if !self.on {
             return out;
         }
         if self.hello_due {
             self.hello_due = false;
-            out.push(LiveSend::Text(AudienceUpEnvelope::text(
+            out.push(Message::Text(AudienceUpEnvelope::text(
                 AudienceUp::Hello {
                     version: AUDIENCE_VERSION,
                 },
@@ -231,13 +230,13 @@ impl AudienceLink {
             && let Some(after) = r.wants_resume(now)
             && let Some(stage) = r.stage()
         {
-            out.push(LiveSend::Text(AudienceUpEnvelope::text(
+            out.push(Message::Text(AudienceUpEnvelope::text(
                 AudienceUp::Resume { stage, after },
             )));
         }
         if now >= self.keepalive_at {
             self.keepalive_at = now + self.rules.keepalive_ms;
-            out.push(LiveSend::Text(KEEPALIVE.into()));
+            out.push(Message::Text(KEEPALIVE.into()));
         }
         out
     }
@@ -319,10 +318,7 @@ impl<T: Transport, C: Clock> Audience<T, C> {
         }
         if self.open {
             for s in self.link.due(now) {
-                match s {
-                    LiveSend::Text(t) => self.transport.send(t),
-                    LiveSend::Binary(b) => self.transport.send_binary(b),
-                }
+                self.transport.put(s);
             }
         }
         self.link.take_news()

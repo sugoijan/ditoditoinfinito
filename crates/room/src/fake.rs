@@ -35,7 +35,7 @@ use crate::ids::{ClientId, Identity, Millis, ParticipantId, RoomId};
 use crate::live::server::{BuiltFrame, LiveOut, LiveReply, LiveServer};
 use crate::live::{ClientLive, ServerLiveEnvelope};
 use crate::member::{Connection, Intent};
-use crate::online::{Transport, TransportEvent, close};
+use crate::online::{Message, Transport, TransportEvent, close};
 use crate::protocol::{ClientFrame, ServerEnvelope, ServerMessage};
 use crate::rules::{ContentSource, MatchRules, RoomPolicy};
 use crate::state::RoomState;
@@ -65,26 +65,21 @@ pub enum Fault {
     Close(u16),
 }
 
+/// What a socket carries down: a message, or its close.
+#[derive(Clone)]
 enum Frame {
     Text(String),
     Binary(Vec<u8>),
     Close(u16),
 }
 
-impl Frame {
-    fn copy(&self) -> Frame {
-        match self {
-            Frame::Text(t) => Frame::Text(t.clone()),
-            Frame::Binary(b) => Frame::Binary(b.clone()),
-            Frame::Close(c) => Frame::Close(*c),
+impl From<Message> for Frame {
+    fn from(m: Message) -> Frame {
+        match m {
+            Message::Text(t) => Frame::Text(t),
+            Message::Binary(b) => Frame::Binary(b),
         }
     }
-}
-
-/// What a client sent, on its way to the room.
-enum Up {
-    Text(String),
-    Binary(Vec<u8>),
 }
 
 /// A socket's latency: each message's one-way delay is the floor plus up
@@ -141,7 +136,7 @@ struct Conn {
     /// When its last frame arrives (a later one never overtakes it).
     last_down: u64,
     /// What it sent, on its way, with when each arrives.
-    uplink: VecDeque<(u64, Up)>,
+    uplink: VecDeque<(u64, Message)>,
     up_faults: VecDeque<Fault>,
 }
 
@@ -580,7 +575,7 @@ impl FakeServer {
 
     /// What a client's socket sent: on its way (its latency, its faults),
     /// or read at once.
-    fn client_send(&mut self, conn: u64, up: Up) {
+    fn client_send(&mut self, conn: u64, up: Message) {
         let now = self.now();
         let Some(c) = self.conns.get_mut(&conn).filter(|c| c.open) else {
             return;
@@ -602,8 +597,8 @@ impl FakeServer {
             return;
         }
         match up {
-            Up::Text(t) => self.receive(conn, &t),
-            Up::Binary(b) => self.receive_binary(conn, &b),
+            Message::Text(t) => self.receive(conn, &t),
+            Message::Binary(b) => self.receive_binary(conn, &b),
         }
     }
 
@@ -621,8 +616,8 @@ impl FakeServer {
                 });
             let Some((conn, up)) = next else { break };
             match up {
-                Up::Text(t) => self.receive(conn, &t),
-                Up::Binary(b) => self.receive_binary(conn, &b),
+                Message::Text(t) => self.receive(conn, &t),
+                Message::Binary(b) => self.receive_binary(conn, &b),
             }
         }
     }
@@ -909,7 +904,7 @@ impl FakeServer {
             return;
         };
         let mut at = now;
-        let mut copies = vec![frame.copy()];
+        let mut copies = vec![frame.clone()];
         let mut stale = None;
         if let Some(held) = c.held.take() {
             // The frame held back goes after this one.
@@ -917,7 +912,7 @@ impl FakeServer {
         } else {
             match c.faults.pop_front() {
                 Some(Fault::Delay(ms)) => at = now + ms,
-                Some(Fault::Duplicate) => copies.push(frame.copy()),
+                Some(Fault::Duplicate) => copies.push(frame.clone()),
                 Some(Fault::Drop) => copies.clear(),
                 Some(Fault::Reorder) => match &frame {
                     Frame::Text(t) => {
@@ -1065,7 +1060,7 @@ impl Transport for FakeSocket {
 
     fn send(&mut self, text: String) {
         if let Some(conn) = self.conn {
-            self.server.borrow_mut().client_send(conn, Up::Text(text));
+            self.server.borrow_mut().client_send(conn, Message::Text(text));
         }
     }
 
@@ -1073,7 +1068,7 @@ impl Transport for FakeSocket {
         if let Some(conn) = self.conn {
             self.server
                 .borrow_mut()
-                .client_send(conn, Up::Binary(bytes));
+                .client_send(conn, Message::Binary(bytes));
         }
     }
 

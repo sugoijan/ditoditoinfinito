@@ -24,27 +24,19 @@ use crate::ids::{Millis, ParticipantId, Revision, StageId};
 use crate::live::ServerLive;
 use crate::live::server::{LiveServer, LiveStage};
 use crate::live::stream::Frame;
+use crate::online::Message;
 use crate::member::{Capability, can};
 use crate::state::RoomState;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// One message for a relay's socket.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HubSend {
-    /// JSON text (`RelayDownEnvelope`).
-    Text(String),
-    /// An audience frame's bytes.
-    Binary(Vec<u8>),
-}
-
 /// What the room's audience side did.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HubOut {
     /// For one relay alone, in order.
-    pub to_relay: Vec<(u32, HubSend)>,
+    pub to_relay: Vec<(u32, Message)>,
     /// For every relay connected, in order: the same bytes for all.
-    pub to_relays: Vec<HubSend>,
+    pub to_relays: Vec<Message>,
     /// For every member's socket that said live hello (the count).
     pub to_members: Option<ServerLive>,
     /// What the host stores changed.
@@ -54,12 +46,12 @@ pub struct HubOut {
 impl HubOut {
     fn all(&mut self, msg: RelayDown) {
         self.to_relays
-            .push(HubSend::Text(RelayDownEnvelope::text(msg)));
+            .push(Message::Text(RelayDownEnvelope::text(msg)));
     }
 
     fn one(&mut self, relay: u32, msg: RelayDown) {
         self.to_relay
-            .push((relay, HubSend::Text(RelayDownEnvelope::text(msg))));
+            .push((relay, Message::Text(RelayDownEnvelope::text(msg))));
     }
 
     pub fn is_empty(&self) -> bool {
@@ -263,7 +255,7 @@ impl AudienceHub {
         {
             for (n, b) in &kept {
                 if *n > a {
-                    out.to_relay.push((relay, HubSend::Binary(b.clone())));
+                    out.to_relay.push((relay, Message::Binary(b.clone())));
                 }
             }
             return;
@@ -281,7 +273,7 @@ impl AudienceHub {
         }
         for (n, b) in &kept {
             if *n >= first {
-                out.to_relay.push((relay, HubSend::Binary(b.clone())));
+                out.to_relay.push((relay, Message::Binary(b.clone())));
             }
         }
     }
@@ -395,7 +387,7 @@ impl AudienceHub {
                         out.all(RelayDown::Snapshot(Box::new(snap)));
                     }
                 }
-                Coalesced::Frame(_, bytes) => out.to_relays.push(HubSend::Binary(bytes)),
+                Coalesced::Frame(_, bytes) => out.to_relays.push(Message::Binary(bytes)),
             }
         }
         if room.closed.is_some() {

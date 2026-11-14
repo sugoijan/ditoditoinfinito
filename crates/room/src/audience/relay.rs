@@ -25,6 +25,7 @@ use crate::audience::{
 };
 use crate::ids::{Millis, StageId};
 use crate::live::server::LiveSnapshot;
+use crate::online::Message;
 use std::collections::{BTreeMap, VecDeque};
 
 /// A seat on a relay (the relay's own number, kept in its socket's
@@ -40,17 +41,10 @@ pub enum Target {
     All,
 }
 
-/// One message for a seat's socket.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RelaySend {
-    Text(String),
-    Binary(Vec<u8>),
-}
-
 /// What the relay did.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RelayOut {
-    pub to_seats: Vec<(Target, RelaySend)>,
+    pub to_seats: Vec<(Target, Message)>,
     /// Sockets to close (after what was sent), with their code.
     pub close: Vec<(Target, u16)>,
     /// For the room (JSON text, `RelayUpEnvelope`).
@@ -60,7 +54,7 @@ pub struct RelayOut {
 impl RelayOut {
     fn text(&mut self, to: Target, msg: AudienceDown) {
         self.to_seats
-            .push((to, RelaySend::Text(AudienceDownEnvelope::text(msg))));
+            .push((to, Message::Text(AudienceDownEnvelope::text(msg))));
     }
 
     pub fn is_empty(&self) -> bool {
@@ -297,7 +291,7 @@ impl Relay {
         {
             for (n, b) in &self.kept {
                 if *n > a {
-                    out.to_seats.push((to, RelaySend::Binary(b.clone())));
+                    out.to_seats.push((to, Message::Binary(b.clone())));
                 }
             }
             return;
@@ -312,7 +306,7 @@ impl Relay {
         out.text(to, AudienceDown::Snapshot(Box::new(snap)));
         for (n, b) in &self.kept {
             if *n >= first {
-                out.to_seats.push((to, RelaySend::Binary(b.clone())));
+                out.to_seats.push((to, Message::Binary(b.clone())));
             }
         }
     }
@@ -460,7 +454,7 @@ impl Relay {
             self.kept.pop_front();
         }
         out.to_seats
-            .push((Target::All, RelaySend::Binary(bytes.to_vec())));
+            .push((Target::All, Message::Binary(bytes.to_vec())));
         out
     }
 

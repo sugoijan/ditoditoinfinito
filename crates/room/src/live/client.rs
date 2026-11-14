@@ -16,6 +16,7 @@ use crate::live::stream::{Frame, FrameReader, LiveReport, Outbox, StreamEnd};
 use crate::live::{
     ClientLive, ClientLiveEnvelope, LIVE_VERSION, LiveRefusal, LiveRules, ServerLive, wire,
 };
+use crate::online::Message;
 use std::collections::BTreeMap;
 
 /// What the room's live side said, for the game.
@@ -26,13 +27,6 @@ pub enum LiveNews {
     /// The stage as it stands; the frames after it follow.
     Snapshot(Box<LiveSnapshot>),
     Refused(LiveRefusal),
-}
-
-/// What to put on the socket.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LiveSend {
-    Text(String),
-    Binary(Vec<u8>),
 }
 
 /// The live link of one client.
@@ -442,7 +436,7 @@ impl LiveLink {
 
     /// What to send now: the hello, pings, queued messages, batches, a
     /// resume after a gap.
-    pub(crate) fn due(&mut self, now: u64) -> Vec<LiveSend> {
+    pub(crate) fn due(&mut self, now: u64) -> Vec<Message> {
         let mut out = Vec::new();
         if !self.on {
             // No socket: the stream is still cut on time, its batches
@@ -457,7 +451,7 @@ impl LiveLink {
         let text = |m: ClientLive| {
             serde_json::to_string(&ClientLiveEnvelope::new(m))
                 .ok()
-                .map(LiveSend::Text)
+                .map(Message::Text)
         };
         if self.hello_due {
             self.hello_due = false;
@@ -497,7 +491,7 @@ impl LiveLink {
             out.extend(
                 batches
                     .iter()
-                    .map(|b| LiveSend::Binary(wire::encode_batch(b))),
+                    .map(|b| Message::Binary(wire::encode_batch(b))),
             );
         }
         let send_ms = crate::live::cpus::ONLINE_CPUS_V0.send_ms;
@@ -515,7 +509,7 @@ impl LiveLink {
             }
             o.last_sent_ms = Some(now);
             o.sent += news.len() as u32;
-            out.extend(news.iter().map(|n| LiveSend::Binary(wire::encode_cpus(n))));
+            out.extend(news.iter().map(|n| Message::Binary(wire::encode_cpus(n))));
             // A run after the news of its end.
             out.extend(runs.into_iter().filter_map(text));
         }
@@ -582,8 +576,8 @@ mod tests {
             .due(60_000)
             .into_iter()
             .filter_map(|s| match s {
-                LiveSend::Binary(b) => Some(b),
-                LiveSend::Text(_) => None,
+                Message::Binary(b) => Some(b),
+                Message::Text(_) => None,
             })
             .collect();
         assert!(batches.len() > 200, "{} batches", batches.len());
