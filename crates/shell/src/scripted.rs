@@ -100,7 +100,7 @@ impl<C: StageContent> ScriptView<C> {
             && self
                 .scripts
                 .as_ref()
-                .is_some_and(|s| !s.movies().is_empty())
+                .is_some_and(|s| s.with_movies(|m| !m.is_empty()))
         {
             self.movies = Some(ddi_render::script_movies::ScriptMovies::new(device));
         }
@@ -126,27 +126,33 @@ impl<C: StageContent> ScriptView<C> {
         if drawn == 0 && self.movies.is_none() {
             return;
         }
-        let list = self.scripts.as_ref().map_or(Vec::new(), Scripts::movies);
-        let clips: Vec<_> = list
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| drawn & 1u32.checked_shl(*i as u32).unwrap_or(0) != 0)
-            .map(|(_, m)| ddi_session::movies::Clip {
-                name: m.path.clone(),
-                position: m.clock,
-                looping: m.looping,
-            })
-            .collect();
         let movies = self
             .movies
             .get_or_insert_with(|| ddi_render::script_movies::ScriptMovies::new(device));
-        let shown = deck(&clips, movies.renderer_mut());
-        for (name, video) in shown {
-            let Some(index) = list.iter().position(|m| m.path == name) else {
-                continue;
-            };
-            movies.target(renderer, device, index, list[index].size);
-            movies.draw(device, queue, index, video);
+        // The scripts' movies as they are (no copy a frame).
+        let play = |list: &[ddi_noteskin::lua::ScriptMovie]| {
+            let clips: Vec<_> = list
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| drawn & 1u32.checked_shl(*i as u32).unwrap_or(0) != 0)
+                .map(|(_, m)| ddi_session::movies::Clip {
+                    name: m.path.clone(),
+                    position: m.clock,
+                    looping: m.looping,
+                })
+                .collect();
+            let shown = deck(&clips, movies.renderer_mut());
+            for (name, video) in shown {
+                let Some(index) = list.iter().position(|m| m.path == name) else {
+                    continue;
+                };
+                movies.target(renderer, device, index, list[index].size);
+                movies.draw(device, queue, index, video);
+            }
+        };
+        match self.scripts.as_ref() {
+            Some(s) => s.with_movies(play),
+            None => play(&[]),
         }
     }
 
