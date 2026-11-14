@@ -47,9 +47,7 @@ pub struct AttackRunner {
     events: Vec<(i64, AttackEvent)>,
 }
 
-pub(crate) fn micros(seconds: f64) -> i64 {
-    ddi_ui::state::battle_plan::micros(seconds)
-}
+pub(crate) use ddi_ui::state::battle_plan::micros;
 
 /// The placement a stage's sections are drawn by: the engine's. The
 /// attack-rate study (`battle/study.rs`, tests only) may ask for an older

@@ -259,7 +259,7 @@ impl SessionConfig {
             && stage.battle.attacks()
             && (!stage.remote() || stage.live.is_some())
             && self.replay.is_none()
-            && let Some(speed) = crate::battle::raised_speed(song, chart_index, &options)
+            && let Some(speed) = ddi_ui::state::battle_plan::raised_speed(song, chart_index, &options)
         {
             options.scroll.speed = speed;
         }
@@ -513,6 +513,16 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     steps_told: Vec<(u8, bool, f64)>,
 }
 
+/// How a play ended ([`PlaySession::ended`]): left (a quit, a watcher
+/// leaving), finished before its chart's end (out of life, a watch
+/// over), or played to its end (a calibration's with its outcome).
+#[derive(Clone, Copy)]
+enum Ended {
+    Aborted,
+    Finished,
+    Played,
+}
+
 /// Which cue a simulated player follows. In calibration it plays as a
 /// human would: a human reacts to what they hear or see, not to the judged
 /// timeline, so corrections to the offsets must change when the autoplayer
@@ -714,10 +724,11 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             ddi_engine::cpu::validate_any_script(config.cpu.as_ref().unwrap())?;
         }
         let staging = config.staging.clone().filter(|_| config.replay.is_none());
-        // (A watched stage has no play of the viewer's own to autoplay.)
-        let watched = config.opponents.as_ref().is_some_and(|s| s.watching);
+        // A watched stage: nothing of the session's own player is played
+        // or judged (its clock alone runs), nor autoplayed.
+        let spectating = config.opponents.as_ref().is_some_and(|s| s.watching);
         let auto_play =
-            (config.auto || cpu || staging.is_some()) && config.replay.is_none() && !watched;
+            (config.auto || cpu || staging.is_some()) && config.replay.is_none() && !spectating;
         let rules = ruleset.fresh();
         let duration = audio.duration(&buffer);
         // Any key for the one lane (calibration by ear): judged there, shown
@@ -769,9 +780,6 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         {
             capture.extend(POLICY_KEYS.iter().map(|k| k.to_string()));
         }
-        // A watched stage: nothing of the session's own player is played
-        // or judged (its clock alone runs).
-        let spectating = config.opponents.as_ref().is_some_and(|s| s.watching);
         inputs.begin(capture, &layout, config.reverse, config.place);
 
         let mut player = Player::new(song, chart_index, ruleset, options);
@@ -855,12 +863,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 // between its page and this play).
                 h.room.borrow_mut().tick((h.wall_ms)());
                 let zero_in = h.room.borrow().song_zero_in(stage.stage);
+                let rules = h.room.borrow().live_rules();
                 zero_in.map(|zero_in| {
-                    crate::battle::live::live_start(
-                        zero_in,
-                        sample.output_latency,
-                        &ddi_room::live::LIVE_V1,
-                    )
+                    crate::battle::live::live_start(zero_in, sample.output_latency, &rules)
                 })
             }
             _ => None,
@@ -938,7 +943,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         }
         // A stage's CPU opponents, on the same song and rules, from the
         // same second.
-        let battle = match config.opponents.take() {
+        let mut battle = match config.opponents.take() {
             Some(setup) => {
                 // How far ahead the player reads: the attacks' leads
                 // (only a battle with attacks needs it).
@@ -963,9 +968,6 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             }
             None => None,
         };
-        // DEVELOPMENT ONLY: a section of battle shocks in the stage's
-        // play and each CPU's (`--mp-dev-mines`, `mpdevmines=`).
-        let mut battle = battle;
         // Later than a live stage's late join: forfeited at once, the
         // stage watched from where the room has it.
         let late_watch = live_start.is_some_and(|l| l.late)
@@ -975,6 +977,8 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         if late_watch {
             player.quit_at(song_offset);
         }
+        // DEVELOPMENT ONLY: a section of battle shocks in the stage's
+        // play and each CPU's (`--mp-dev-mines`, `mpdevmines=`).
         if let Some(b) = battle.as_mut()
             && let Some(beat) = b.setup().dev_mines_at_beat
         {
@@ -1600,31 +1604,14 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             } else {
                 self.audio.stop_music();
             }
-            let results = self.player.results();
-            self.announce_results(&results);
-            let (results, facts) = (Box::new(results), Box::new(self.facts()));
-            Some(if left {
-                // A play left (its results graded QUIT), or a watcher
-                // leaving the stage.
-                SessionEvent::Aborted { results, facts }
-            } else {
-                SessionEvent::Finished {
-                    results,
-                    facts,
-                    calibration: None,
-                    device_changed: self.inputs.device_changed(),
-                }
-            })
+            // A play left (its results graded QUIT), or a watcher leaving
+            // the stage.
+            Some(self.ended(if left { Ended::Aborted } else { Ended::Finished }))
         } else if self.aborted {
             self.audio.stop_all();
             // The play ends here, judged to now (`Player::quit_at`).
             self.player.quit_at(self.player.judge_time(host_now));
-            let results = self.player.results();
-            self.announce_results(&results);
-            Some(SessionEvent::Aborted {
-                results: Box::new(results),
-                facts: Box::new(self.facts()),
-            })
+            Some(self.ended(Ended::Aborted))
         } else if self.restarted {
             self.audio.stop_all();
             Some(SessionEvent::Restart)
@@ -1640,14 +1627,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 // The music (faded) and the event sounds; the voice's
                 // `gameplay failed` goes on into the results.
                 self.audio.stop_music();
-                let results = self.player.results();
-                self.announce_results(&results);
-                SessionEvent::Finished {
-                    results: Box::new(results),
-                    facts: Box::new(self.facts()),
-                    calibration: None,
-                    device_changed: self.inputs.device_changed(),
-                }
+                self.ended(Ended::Finished)
             })
         } else if self.calibration.as_ref().is_some_and(|(_, c)| c.done())
             || self.calibration_stops_early()
@@ -1656,9 +1636,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             // The test is over: clear the field instead of letting the rest of
             // the chart scroll on behind the result card.
             self.view.hide_notes = true;
-            Some(self.finished_event())
+            Some(self.ended(Ended::Played))
         } else if self.player.finished() && self.watch.is_none() {
-            Some(self.finished_event())
+            Some(self.ended(Ended::Played))
         } else {
             None
         };
@@ -2015,14 +1995,23 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         }
     }
 
-    fn finished_event(&mut self) -> SessionEvent {
+    /// The play's end as its event: its results (their line announced)
+    /// and the facts it is kept with.
+    fn ended(&mut self, end: Ended) -> SessionEvent {
         let results = self.player.results();
         self.announce_results(&results);
-        SessionEvent::Finished {
-            results: Box::new(results),
-            facts: Box::new(self.facts()),
-            calibration: self.calibration_outcome(),
-            device_changed: self.inputs.device_changed(),
+        let (results, facts) = (Box::new(results), Box::new(self.facts()));
+        match end {
+            Ended::Aborted => SessionEvent::Aborted { results, facts },
+            Ended::Finished | Ended::Played => SessionEvent::Finished {
+                results,
+                facts,
+                calibration: match end {
+                    Ended::Played => self.calibration_outcome(),
+                    _ => None,
+                },
+                device_changed: self.inputs.device_changed(),
+            },
         }
     }
 

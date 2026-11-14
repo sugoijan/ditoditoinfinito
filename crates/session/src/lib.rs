@@ -64,3 +64,24 @@ pub fn music_target_of(entry: &ddi_library::manifest::ManifestEntry) -> ddi_plat
         ddi_platform::mp3::Target::StepMania
     }
 }
+
+/// TESTS: the bundled songs as the game loads them.
+#[cfg(test)]
+pub(crate) mod test_songs {
+    /// The bundled song in folder `id` of `assets/songs/`, read as the
+    /// game reads a simfile (`ddi_library::scan::parse_simfile`: its
+    /// generated charts after its own, whose indexes stay theirs).
+    pub(crate) fn bundled(id: &str) -> ddi_chart::Song {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/songs")
+            .join(id);
+        let path = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|e| e == "ssc" || e == "sm"))
+            .unwrap();
+        let ext = path.extension().unwrap().to_string_lossy().into_owned();
+        ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), &ext).unwrap()
+    }
+}

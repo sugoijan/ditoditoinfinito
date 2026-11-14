@@ -11,8 +11,8 @@ const HARD: usize = 5;
 
 /// A practice room of one stage, `cpus` CPUs at `level`, attacks on,
 /// zero life stepping down.
-fn step_room(song: &Song, cpus: u16, level: u8, charts: ddi_room::Charts) -> RoomClient {
-    let mut room = attacks_room(song, cpus, level);
+fn step_room(cpus: u16, level: u8, charts: ddi_room::Charts) -> RoomClient {
+    let mut room = attacks_room(cpus, level);
     let rules = MatchRules {
         charts,
         ..room.rules().clone()
@@ -51,7 +51,7 @@ fn idle(
 fn the_player_and_the_cpus_step_down_alike_at_any_frame_rate() {
     let song = bundled("beatucada");
     assert_eq!(song.charts[HARD].difficulty, ddi_chart::Difficulty::Hard);
-    let mut practice = step_room(&song, 3, 1, ddi_room::Charts::Adaptive);
+    let mut practice = step_room(3, 1, ddi_room::Charts::Adaptive);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, HARD);
     assert!(order.rules.adaptive());
@@ -107,7 +107,7 @@ fn the_player_and_the_cpus_step_down_alike_at_any_frame_rate() {
 #[test]
 fn a_field_draws_the_chart_its_player_is_on() {
     let song = bundled("beatucada");
-    let mut practice = step_room(&song, 1, 1, ddi_room::Charts::Adaptive);
+    let mut practice = step_room(1, 1, ddi_room::Charts::Adaptive);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, HARD);
     let (a, _, _) = idle(&song, &order, 60.0);
@@ -148,9 +148,9 @@ fn those_still_in_rank_by_the_score_and_a_song_without_a_ladder_plays_as_picked(
     }
     assert!(ddi_engine::ladder::Ladder::of(&alone, CHART).is_empty());
     let mut now = 0;
-    let mut out = step_room(&alone, 3, 1, ddi_room::Charts::AsPicked);
+    let mut out = step_room(3, 1, ddi_room::Charts::AsPicked);
     let o_out = begin_at(&alone, &mut out, &mut now, CHART);
-    let mut step = step_room(&alone, 3, 1, ddi_room::Charts::Adaptive);
+    let mut step = step_room(3, 1, ddi_room::Charts::Adaptive);
     let o_step = begin_at(&alone, &mut step, &mut now, CHART);
     let (a, oa, _) = idle(&alone, &o_out, 60.0);
     let (b, ob, cues) = idle(&alone, &o_step, 60.0);
@@ -161,7 +161,7 @@ fn those_still_in_rank_by_the_score_and_a_song_without_a_ladder_plays_as_picked(
     assert_eq!(oa.details, ob.details);
     // On Hard: those still in by the score as earned, whatever their
     // steps; those out after.
-    let mut practice = step_room(&song, 7, 4, ddi_room::Charts::Adaptive);
+    let mut practice = step_room(7, 4, ddi_room::Charts::Adaptive);
     let order = begin_at(&song, &mut practice, &mut now, HARD);
     let (_, o, _) = idle(&song, &order, 60.0);
     let score = |p: ddi_room::ParticipantId| {
@@ -186,7 +186,7 @@ fn those_still_in_rank_by_the_score_and_a_song_without_a_ladder_plays_as_picked(
 #[test]
 fn the_claps_follow_the_new_chart_after_a_step() {
     let song = bundled("beatucada");
-    let mut practice = step_room(&song, 1, 1, ddi_room::Charts::Adaptive);
+    let mut practice = step_room(1, 1, ddi_room::Charts::Adaptive);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, HARD);
     let settings = Settings {
@@ -294,7 +294,7 @@ fn autoplayed(
 fn the_player_and_strong_cpus_step_up_alike_at_any_frame_rate() {
     let song = bundled("beatucada");
     let stage = medium(&song);
-    let mut practice = step_room(&song, 3, 10, ddi_room::Charts::Adaptive);
+    let mut practice = step_room(3, 10, ddi_room::Charts::Adaptive);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, stage);
     let (a, oa, cues) = autoplayed(&song, &order, 60.0);
@@ -347,7 +347,7 @@ const LEVEL_UP_DOWN: u8 = 2;
 #[test]
 fn fields_follow_steps_down_and_back_up() {
     let song = bundled("beatucada");
-    let mut practice = step_room(&song, 7, LEVEL_UP_DOWN, ddi_room::Charts::Adaptive);
+    let mut practice = step_room(7, LEVEL_UP_DOWN, ddi_room::Charts::Adaptive);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, medium(&song));
     let (a, _, _) = idle(&song, &order, 60.0);
@@ -375,7 +375,7 @@ fn fields_follow_steps_down_and_back_up() {
 #[test]
 fn a_chart_closed_is_told_as_staying_on_the_one_below() {
     let song = bundled("beatucada");
-    let mut practice = step_room(&song, 1, 1, ddi_room::Charts::Adaptive);
+    let mut practice = step_room(1, 1, ddi_room::Charts::Adaptive);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, HARD);
     let (mut s, clock) = stage_session(&song, &order, false, &[]);

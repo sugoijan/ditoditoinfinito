@@ -258,6 +258,22 @@ mod tests {
         }
     }
 
+    /// A tap on `control`.
+    fn tap(control: &str) -> RawInput {
+        RawInput {
+            device: DeviceId::Touch,
+            ..key(control, true)
+        }
+    }
+
+    /// A pad's `control` pressed.
+    fn pad(control: &str) -> RawInput {
+        RawInput {
+            device: DeviceId::Gamepad("pad".into()),
+            ..key(control, true)
+        }
+    }
+
     #[test]
     fn tab_goes_round_the_seats_and_back_to_the_grid() {
         let mut w = Watch::new(Watching::Spectator, 0.0);
@@ -278,13 +294,6 @@ mod tests {
         }
         w.read(&key("ShiftLeft", false), None);
         // A tap on a field, and back; a seat that is not there is none.
-        let tap = |control: &str| RawInput {
-            device: DeviceId::Touch,
-            control: control.into(),
-            pressed: true,
-            host_time: HostTime(0.0),
-            slot: 0,
-        };
         let ask = w.read(&tap("watch:2"), None).unwrap();
         w.apply(ask, 3);
         assert_eq!(w.focus, Some(2));
@@ -319,13 +328,7 @@ mod tests {
         let ask = w.read(&key("PageUp", true), None).unwrap();
         w.apply(ask, 72);
         assert_eq!(w.view(0.0).page, 5);
-        let pad = RawInput {
-            device: DeviceId::Gamepad("pad".into()),
-            control: "button:13".into(),
-            pressed: true,
-            host_time: HostTime(0.0),
-            slot: 0,
-        };
+        let pad = pad("button:13");
         assert_eq!(w.read(&pad, Some(MenuInput::Down)), Some(Ask::Page(1)));
         assert_eq!(w.read(&pad, Some(MenuInput::Up)), Some(Ask::Page(-1)));
         // The shoulders still follow a competitor; while one is followed
@@ -335,14 +338,8 @@ mod tests {
         w.apply(Ask::Page(1), 72);
         assert_eq!(w.page, 5);
         // A tap on the ladder turns the page.
-        let tap = RawInput {
-            device: DeviceId::Touch,
-            control: format!("{TOUCH_WATCH_CONTROL}{TOUCH_PAGE_SEAT}"),
-            pressed: true,
-            host_time: HostTime(0.0),
-            slot: 0,
-        };
-        assert_eq!(w.read(&tap, None), Some(Ask::Page(1)));
+        let page = tap(&format!("{TOUCH_WATCH_CONTROL}{TOUCH_PAGE_SEAT}"));
+        assert_eq!(w.read(&page, None), Some(Ask::Page(1)));
         // A player out of the stage has no pages.
         let mut out = Watch::new(Watching::Out, 0.0);
         assert_eq!(out.read(&key("PageDown", true), None), None);
@@ -366,13 +363,6 @@ mod tests {
             w.apply(ask, 3);
             assert_eq!(w.focus, Some(2));
             w.read(&key("ShiftLeft", false), None);
-            let tap = |control: &str| RawInput {
-                device: DeviceId::Touch,
-                control: control.into(),
-                pressed: true,
-                host_time: HostTime(0.0),
-                slot: 0,
-            };
             let ask = w.read(&tap("watch:1"), None).unwrap();
             w.apply(ask, 3);
             assert_eq!(w.focus, Some(1));
@@ -385,13 +375,7 @@ mod tests {
             assert_eq!(ask, Ask::Skip);
             w.apply(ask, 3);
             assert!(w.skip);
-            let pad = RawInput {
-                device: DeviceId::Gamepad("pad".into()),
-                control: "button:9".into(),
-                pressed: true,
-                host_time: HostTime(0.0),
-                slot: 0,
-            };
+            let pad = pad("button:9");
             assert_eq!(w.read(&pad, Some(MenuInput::Start)), Some(Ask::Skip));
             assert_eq!(w.read(&pad, Some(MenuInput::Next)), Some(Ask::Cycle(1)));
             assert_eq!(w.read(&pad, Some(MenuInput::Previous)), Some(Ask::Cycle(-1)));

@@ -89,13 +89,6 @@ pub const SPOTLIGHT_REST_MS: u64 = 3_000;
 /// numbered from 1): the server's grant for "no stage" (M7b).
 pub const SPOTLIGHT: StageId = StageId(0);
 
-/// Whether an online room may play the match's "Charts: Adaptive"
-/// (`ddi_engine::ladder`): always, since its live contract carries a
-/// stage's ladder and a competitor's steps
-/// (`docs/plans/multiplayer-prototype-progress.md`, "Adaptive charts").
-/// Nothing here reads it; kept while `ddi_session::battle` still does.
-pub const ONLINE_ADAPTIVE: bool = true;
-
 /// What the room's screens show now (M7b's flow): song select (the host
 /// picking, the others following), or a stage's start prompt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -19,13 +19,13 @@ mod step_down;
 /// A practice room of `stages` stages on beatucada's chart, `cpus` CPUs
 /// at `level`, every stage's song chosen and prepared (its chart read
 /// and the CPUs' plan checked, as a shell does).
-fn room(song: &Song, stages: u16, cpus: u16, level: u8) -> RoomClient {
-    room_seeded(song, stages, cpus, level, 7)
+fn room(stages: u16, cpus: u16, level: u8) -> RoomClient {
+    room_seeded(stages, cpus, level, 7)
 }
 
 /// [`room`] whose CPUs' seeds come from `seed`: a fixed count of CPUs at
 /// one level, each seat its own seed from the room's.
-fn room_seeded(_song: &Song, stages: u16, cpus: u16, level: u8, seed: u64) -> RoomClient {
+fn room_seeded(stages: u16, cpus: u16, level: u8, seed: u64) -> RoomClient {
     let mut room = RoomClient::new(0, seed);
     let mut rules = MatchRules {
         stages,
@@ -158,7 +158,7 @@ fn ids(o: &crate::battle::StageOutcome) -> Vec<Vec<(u64, Finish)>> {
 fn a_whole_match_of_judged_stages_reaches_its_results_and_the_next_lobby() {
     let song = bundled("beatucada");
     let settings = Settings::default();
-    let mut room = room(&song, 2, 3, 2);
+    let mut room = room(2, 3, 2);
     let mut now = 0;
     let mut totals = Vec::new();
     for stage in 1..=2 {
@@ -219,7 +219,7 @@ fn a_whole_match_of_judged_stages_reaches_its_results_and_the_next_lobby() {
 fn a_quit_is_a_forfeit_and_a_stage_never_restarts() {
     let song = bundled("beatucada");
     let settings = Settings::default();
-    let mut room = room(&song, 1, 3, 2);
+    let mut room = room(1, 3, 2);
     let mut now = 0;
     let order = begin(&song, &mut room, &mut now);
     // R twice: no restart in a stage. Escape twice: a quit.
@@ -251,7 +251,7 @@ fn a_quit_is_a_forfeit_and_a_stage_never_restarts() {
 fn out_of_life_the_player_is_out_and_a_last_cpu_wins_early() {
     let song = bundled("beatucada");
     let settings = Settings::default();
-    let mut room = room(&song, 1, 1, 4);
+    let mut room = room(1, 1, 4);
     let mut now = 0;
     let order = begin(&song, &mut room, &mut now);
     // Nobody presses: the gauge empties, the play fails.
@@ -284,7 +284,7 @@ fn the_winner_finishes_the_song_whatever_the_gauge_does_after() {
     // A room whose CPU slips before the end (its seed decides; the
     // first such seed, found as the CPU plays alone).
     let slips = |seed: u64| {
-        let mut probe = room_seeded(&song, 1, 1, 0, seed);
+        let mut probe = room_seeded(1, 1, 0, seed);
         let mut now = 0;
         let order = begin(&song, &mut probe, &mut now);
         let seat = order.cpus[0].clone();
@@ -295,7 +295,7 @@ fn the_winner_finishes_the_song_whatever_the_gauge_does_after() {
         alone.out_at().is_some()
     };
     let seed = (1..64).find(|&s| slips(s)).expect("a CPU that slips");
-    let mut room = room_seeded(&song, 1, 1, 0, seed);
+    let mut room = room_seeded(1, 1, 0, seed);
     let mut now = 0;
     let order = begin(&song, &mut room, &mut now);
     let (s, event, outcome) = play(&song, &settings, &order, true, &[]);
@@ -318,7 +318,7 @@ fn the_winner_finishes_the_song_whatever_the_gauge_does_after() {
 fn a_stage_is_never_a_replay_a_test_or_the_cpu_demo() {
     let song = bundled("beatucada");
     let settings = Settings::default();
-    let mut room = room(&song, 1, 1, 2);
+    let mut room = room(1, 1, 2);
     let mut now = 0;
     let order = begin(&song, &mut room, &mut now);
     let clock: Clock = Rc::new(RefCell::new(0.0));
@@ -452,7 +452,7 @@ const FULL: &[&str] = &[
 fn a_stage_speaks_its_battle_moments_once_and_none_of_a_play_s_routine() {
     let song = bundled("beatucada");
     let settings = Settings::default();
-    let mut room = room(&song, 2, 3, 2);
+    let mut room = room(2, 3, 2);
     let mut now = 0;
     let mut heard = Vec::new();
     for stage in 1..=2 {
@@ -548,7 +548,7 @@ fn out_of_life_is_said_or_shown_and_nothing_follows_it() {
         None,
     ];
     for pack in packs {
-        let mut room = room(&song, 1, 1, 4);
+        let mut room = room(1, 1, 4);
         let mut now = 0;
         let order = begin(&song, &mut room, &mut now);
         let (s, said) = play_voiced(
@@ -629,7 +629,7 @@ fn the_players_left_and_an_early_win_are_told_as_they_happen() {
     // A room whose three CPUs all slip, each at its own time.
     let seed = (1..200)
         .find(|&seed| {
-            let mut probe = room_seeded(&song, 1, 3, 0, seed);
+            let mut probe = room_seeded(1, 3, 0, seed);
             let mut now = 0;
             let times = outs(&begin(&song, &mut probe, &mut now));
             let mut t: Vec<f64> = times.iter().flatten().copied().collect();
@@ -637,7 +637,7 @@ fn the_players_left_and_an_early_win_are_told_as_they_happen() {
             t.len() == 3 && t.windows(2).all(|w| w[1] - w[0] > 0.1)
         })
         .expect("three CPUs that slip apart");
-    let mut room = room_seeded(&song, 1, 3, 0, seed);
+    let mut room = room_seeded(1, 3, 0, seed);
     let mut now = 0;
     let order = begin(&song, &mut room, &mut now);
     // A pack without the milestone.
@@ -689,7 +689,7 @@ fn the_players_left_and_an_early_win_are_told_as_they_happen() {
 fn an_online_stage_is_never_decided_here_and_reports_the_players_own_run() {
     let song = bundled("beatucada");
     let settings = Settings::default();
-    let mut room = room(&song, 1, 1, 2);
+    let mut room = room(1, 1, 2);
     let mut now = 0;
     let mut order = begin(&song, &mut room, &mut now);
     order.cpus.clear();
@@ -740,7 +740,7 @@ fn a_cpu_s_score_is_its_own_and_the_stage_ranks_by_life_then_the_score() {
         })
         .expect("a bundled chart with holds");
     let most = crate::battle::chart_most(&song, index, &rules).expect("DDI");
-    let mut room = room(&song, 1, 3, 6);
+    let mut room = room(1, 3, 6);
     let mut now = 0;
     let order = begin_at(&song, &mut room, &mut now, index);
     let (s, _event, outcome) = play(&song, &settings, &order, true, &[]);
@@ -807,7 +807,7 @@ fn a_cpu_s_score_is_its_own_and_the_stage_ranks_by_life_then_the_score() {
 fn each_cpu_s_miniature_is_fed_its_judged_moments() {
     let song = bundled("beatucada");
     let settings = Settings::default();
-    let mut room = room(&song, 1, 3, 2);
+    let mut room = room(1, 3, 2);
     let mut now = 0;
     let order = begin(&song, &mut room, &mut now);
     let (s, _, _) = play(&song, &settings, &order, true, &[]);
@@ -843,7 +843,7 @@ fn a_stage_is_played_under_the_match_s_rules_not_the_player_s() {
         assert!(ddi_engine::rules::presets::by_id(id).is_some(), "{id}");
     }
     let song = bundled("beatucada");
-    let mut room = room(&song, 1, 1, 2);
+    let mut room = room(1, 1, 2);
     let rules = MatchRules {
         // As a room stored before, or an authority one build behind.
         ruleset: "sm5".into(),
@@ -891,8 +891,8 @@ fn a_stage_is_played_under_the_match_s_rules_not_the_player_s() {
 
 /// A practice room under the attacks' battle (the Attacks rule On, as a
 /// practice room has it by default).
-fn attacks_room(song: &Song, cpus: u16, level: u8) -> RoomClient {
-    let mut room = room(song, 1, cpus, level);
+fn attacks_room(cpus: u16, level: u8) -> RoomClient {
+    let mut room = room(1, cpus, level);
     let rules = MatchRules {
         battle: ddi_room::BattlePreset::GAUGE_ATTACKS_V0.into(),
         ..room.rules().clone()
@@ -928,7 +928,7 @@ fn play_at(song: &Song, order: &StageOrder, fps: f64) -> PlaySession<FakeAudio, 
 #[test]
 fn attack_power_is_the_same_at_any_frame_rate_and_from_the_log() {
     let song = bundled("beatucada");
-    let mut practice = attacks_room(&song, 3, 2);
+    let mut practice = attacks_room(3, 2);
     let mut now = 0;
     let order = begin(&song, &mut practice, &mut now);
     assert_eq!(order.battle, ddi_room::BattlePreset::GaugeAttacksV0);
@@ -968,7 +968,7 @@ fn attack_power_is_the_same_at_any_frame_rate_and_from_the_log() {
     assert!(n + 1 >= ra.record().len(), "{n}");
     assert_eq!(&again[..n], &ra.record()[..n], "from the log");
     // The survival battle has none.
-    let mut plain = room(&song, 1, 1, 2);
+    let mut plain = room(1, 1, 2);
     let order = begin(&song, &mut plain, &mut now);
     let s = play_at(&song, &order, 60.0);
     assert!(s.battle().unwrap().attacks().is_none());
@@ -1042,7 +1042,7 @@ fn replayed(
 #[test]
 fn a_stage_s_development_shocks_are_judged_beside_the_chart() {
     let song = bundled("beatucada");
-    let mut practice = room(&song, 2, 1, 2);
+    let mut practice = room(2, 1, 2);
     let mut now = 0;
     let plain = begin(&song, &mut practice, &mut now);
     let without = play_at(&song, &plain, 60.0);
@@ -1079,7 +1079,7 @@ fn a_stage_s_development_shocks_are_judged_beside_the_chart() {
 #[test]
 fn cpus_receive_shocks_judged_alike_at_any_frame_rate() {
     let song = bundled("beatucada");
-    let mut practice = room(&song, 1, 4, 0);
+    let mut practice = room(1, 4, 0);
     let mut now = 0;
     let mut order = begin(&song, &mut practice, &mut now);
     order.dev_mines_at_beat = Some(16);
@@ -1120,7 +1120,7 @@ fn a_shock_stepped_on_in_a_stage_is_a_mine_by_the_match_s_difficulty() {
     use ddi_room::MatchDifficulty as D;
     let song = bundled("beatucada");
     for (difficulty, cost) in [(D::Easy, 0.01f32), (D::Normal, 0.05), (D::Hard, 0.10)] {
-        let mut practice = room(&song, 1, 4, 0);
+        let mut practice = room(1, 4, 0);
         let rules = MatchRules {
             difficulty,
             ..practice.rules().clone()
@@ -1204,7 +1204,7 @@ const LONG: usize = 4;
 #[test]
 fn attacks_are_launched_delivered_and_the_same_at_any_frame_rate_and_from_the_log() {
     let song = bundled("beatucada");
-    let mut practice = attacks_room(&song, 3, 2);
+    let mut practice = attacks_room(3, 2);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     let a = play_at(&song, &order, 60.0);
@@ -1315,7 +1315,7 @@ fn a_policy_changed_in_play_applies_from_the_next_checkpoint_at_any_frame_rate_a
     use crate::battle::Targeting;
     use ddi_room::attacks::AttackEvent;
     let song = bundled("beatucada");
-    let mut practice = attacks_room(&song, 3, 2);
+    let mut practice = attacks_room(3, 2);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     assert_eq!(order.targeting, Targeting::Spread);
@@ -1427,7 +1427,7 @@ fn a_policy_changed_in_play_applies_from_the_next_checkpoint_at_any_frame_rate_a
 fn shift_cycles_the_policy_tab_still_does_and_a_lane_s_shift_plays_the_lane() {
     use crate::play::PolicyKey;
     let song = bundled("beatucada");
-    let mut practice = attacks_room(&song, 3, 2);
+    let mut practice = attacks_room(3, 2);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     let settings = Settings::default();
@@ -1558,7 +1558,7 @@ fn shift_cycles_the_policy_tab_still_does_and_a_lane_s_shift_plays_the_lane() {
 fn the_player_s_attacks_are_links_while_they_last() {
     use std::collections::BTreeMap;
     let song = bundled("beatucada");
-    let mut practice = attacks_room(&song, 3, 9);
+    let mut practice = attacks_room(3, 9);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     let clock: Clock = Rc::new(RefCell::new(0.0));
@@ -1662,7 +1662,7 @@ fn the_player_s_attacks_are_links_while_they_last() {
     // Kept a turn after an attack is over.
     assert!(kept_after > 60, "{kept_after}");
     // The survival battle has neither.
-    let mut plain = room(&song, 1, 2, 2);
+    let mut plain = room(1, 2, 2);
     let order = begin_at(&song, &mut plain, &mut now, LONG);
     let s = play_at(&song, &order, 60.0);
     assert!(s.battle().unwrap().links(&s.player).is_empty());
@@ -1684,7 +1684,7 @@ fn the_player_s_attack_moments_are_told_in_the_status_line() {
     use crate::announcer::battle::{BATTLE_VOICE_V0, StageCue};
     use crate::battle::AttackMoment;
     let song = bundled("beatucada");
-    let mut practice = attacks_room(&song, 3, 9);
+    let mut practice = attacks_room(3, 9);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     let clock: Clock = Rc::new(RefCell::new(0.0));
@@ -1783,7 +1783,7 @@ fn the_player_s_attack_moments_are_told_in_the_status_line() {
     assert!(s.announcer_report().spoken.is_empty());
     assert!(s.attacks_told().iter().all(|t| !t.spoken()));
     // The survival battle tells none.
-    let mut plain = room(&song, 1, 2, 2);
+    let mut plain = room(1, 2, 2);
     let order = begin_at(&song, &mut plain, &mut now, LONG);
     let s = play_at(&song, &order, 60.0);
     assert!(s.attacks_told().is_empty());
@@ -1910,7 +1910,7 @@ fn the_attack_lines_are_said_in_a_stage_and_shown_only_where_they_were_not() {
     let incoming_line = Line::Battle(Battle::AttackIncoming);
     let launched_line = Line::Battle(Battle::AttackLaunched);
     let mut now = 0;
-    let mut practice = attacks_room(&song, 3, 9);
+    let mut practice = attacks_room(3, 9);
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     let (voice, lines) = scratch_pack(
         "attack-lines",
@@ -2027,7 +2027,7 @@ fn the_attack_lines_are_said_in_a_stage_and_shown_only_where_they_were_not() {
     // A pack without the two folders: silent for them, every moment
     // against the player shown (the player's own never in words),
     // nothing said in their place.
-    let mut practice = attacks_room(&song, 3, 9);
+    let mut practice = attacks_room(3, 9);
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     let (s, cues) = attacks_voiced(
         &song,
@@ -2064,7 +2064,7 @@ fn the_attack_lines_are_said_in_a_stage_and_shown_only_where_they_were_not() {
 fn a_lane_s_key_is_never_the_policy_s() {
     use crate::battle::Targeting;
     let song = bundled("beatucada");
-    let mut practice = attacks_room(&song, 2, 2);
+    let mut practice = attacks_room(2, 2);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     let mut settings = Settings::default();
@@ -2095,7 +2095,7 @@ fn a_lane_s_key_is_never_the_policy_s() {
             .contains(&"Tab".to_string())
     );
     // The survival battle: nothing to cycle.
-    let mut plain = room(&song, 1, 2, 2);
+    let mut plain = room(1, 2, 2);
     let order = begin_at(&song, &mut plain, &mut now, LONG);
     let s = play_with(&song, &order, 60.0, &Settings::default(), &edges);
     assert!(s.player.log().policies.is_empty());
@@ -2118,7 +2118,7 @@ fn chained_attacks_are_delivered_back_to_back_into_plays_and_cpus() {
     assert_eq!(crate::battle::attacks::rules().id, "attacks-v3");
     let song = bundled("beatucada");
     // Strong CPUs aiming at the leader: they pile up on one.
-    let mut practice = attacks_room(&song, 3, 9);
+    let mut practice = attacks_room(3, 9);
     let mut now = 0;
     let mut order = begin_at(&song, &mut practice, &mut now, LONG);
     for c in &mut order.cpus {
@@ -2193,7 +2193,7 @@ fn an_early_win_waits_for_the_last_attack_to_clear() {
         let mut settings = Settings::default();
         settings.stepmania.life_type = ddi_engine::rules::LifeType::Battery;
         settings.stepmania.lives = 1 + (seed % 5) as u8;
-        let mut practice = room_seeded(&song, 1, 3 + (seed % 5) as u16, 2 + (seed % 3) as u8, seed);
+        let mut practice = room_seeded(1, 3 + (seed % 5) as u16, 2 + (seed % 3) as u8, seed);
         let rules = MatchRules {
             battle: ddi_room::BattlePreset::GAUGE_ATTACKS_V0.into(),
             ..practice.rules().clone()
@@ -2245,7 +2245,7 @@ fn an_early_win_waits_for_the_last_attack_to_clear() {
 fn the_player_gone_the_cpus_and_their_attacks_are_played_out() {
     let song = bundled("beatucada");
     let settings = Settings::default();
-    let mut practice = attacks_room(&song, 4, 3);
+    let mut practice = attacks_room(4, 3);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     let keys = [
@@ -2373,7 +2373,7 @@ fn run_until(
 fn everyone_watching_sees_every_attack_between_the_fields() {
     let song = bundled("beatucada");
     // A spectator: the CPUs' attacks between them, each seen.
-    let mut practice = attacks_room(&song, 4, 6);
+    let mut practice = attacks_room(4, 6);
     let mut now = 0;
     let order = begin_watching(&song, &mut practice, &mut now, LONG);
     let (mut s, clock) = stage_session(&song, &order, false, &[]);
@@ -2400,7 +2400,7 @@ fn everyone_watching_sees_every_attack_between_the_fields() {
     assert!(shown >= 3, "{shown} of {}", ledger.attacks().len());
     // A player who leaves with an attack of their own on its way: it is
     // drawn from their field among the others'.
-    let mut practice = attacks_room(&song, 3, 3);
+    let mut practice = attacks_room(3, 3);
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     let (mut s, clock) = stage_session(&song, &order, true, &[]);
     let mut sent = None;
@@ -2445,7 +2445,7 @@ fn a_watched_stage_runs_its_cpus_to_its_settlement_at_any_frame_rate() {
     let settings = Settings::default();
     let mut rankings = Vec::new();
     for fps in [60.0, 144.0] {
-        let mut practice = attacks_room(&song, 4, 2);
+        let mut practice = attacks_room(4, 2);
         let mut now = 0;
         let order = begin_watching(&song, &mut practice, &mut now, LONG);
         assert_eq!(order.cpus.len(), 4);
@@ -2569,7 +2569,7 @@ fn a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely() {
     let mut settings = Settings::default();
     settings.stepmania.life_type = ddi_engine::rules::LifeType::Battery;
     settings.stepmania.lives = 1;
-    let mut practice = attacks_room(&song, 3, 2);
+    let mut practice = attacks_room(3, 2);
     let mut now = 0;
     let order = begin_watching(&song, &mut practice, &mut now, LONG);
     let clock: Clock = Rc::new(RefCell::new(0.0));
@@ -2680,7 +2680,7 @@ fn a_watched_stage_ends_when_the_winner_finishes_and_a_watcher_leaves_freely() {
 
     // Escape twice: the watcher leaves; the CPUs are played out, nobody
     // forfeits.
-    let mut practice = attacks_room(&song, 3, 2);
+    let mut practice = attacks_room(3, 2);
     let mut now = 0;
     let order = begin_watching(&song, &mut practice, &mut now, LONG);
     let keys = [
@@ -2714,7 +2714,7 @@ fn going_out_then_watching_on_gives_the_outcome_playing_out_did() {
     let song = bundled("beatucada");
     let mut seen = Vec::new();
     for (fps, skip) in [(60.0, true), (60.0, false), (144.0, false)] {
-        let mut practice = attacks_room(&song, 4, 3);
+        let mut practice = attacks_room(4, 3);
         let mut now = 0;
         let order = begin_at(&song, &mut practice, &mut now, LONG);
         assert!(!order.watching);
@@ -2802,7 +2802,7 @@ fn going_out_then_watching_on_gives_the_outcome_playing_out_did() {
 fn a_quit_in_a_stage_forfeits_and_watches_on_until_skipped() {
     let song = bundled("beatucada");
     for second in ["Enter", "Escape"] {
-        let mut practice = attacks_room(&song, 3, 3);
+        let mut practice = attacks_room(3, 3);
         let mut now = 0;
         let order = begin_at(&song, &mut practice, &mut now, LONG);
         let mut keys = vec![
@@ -2887,7 +2887,7 @@ fn a_quit_in_a_stage_forfeits_and_watches_on_until_skipped() {
 fn leaving_from_outside_the_play_forfeits_and_ends_an_online_stage_at_once() {
     let song = bundled("beatucada");
     // An online room's: the others on their own devices.
-    let mut practice = room(&song, 1, 1, 2);
+    let mut practice = room(1, 1, 2);
     let mut now = 0;
     let mut order = begin(&song, &mut practice, &mut now);
     order.cpus.clear();
@@ -2904,7 +2904,7 @@ fn leaving_from_outside_the_play_forfeits_and_ends_an_online_stage_at_once() {
     let outcome = s.take_stage_outcome().unwrap();
     assert_eq!(outcome.mine, ddi_room::Run::Forfeit);
     // Practice: the same call forfeits and watches on.
-    let mut practice = attacks_room(&song, 3, 3);
+    let mut practice = attacks_room(3, 3);
     let mut now = 0;
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     let (mut s, clock) = stage_session(&song, &order, true, &[]);

@@ -103,7 +103,7 @@ fn practice(
     auto: bool,
     keys: &[(f64, &str, bool)],
 ) -> String {
-    let mut room = room_seeded(song, 1, cpus, level, seed);
+    let mut room = room_seeded(1, cpus, level, seed);
     let rules = MatchRules {
         battle: ddi_room::BattlePreset::GAUGE_ATTACKS_V0.into(),
         ..room.rules().clone()
@@ -272,7 +272,7 @@ fn the_player_s_links_and_the_watchers_agree_on_who_is_out() {
     let (mut outgoing, mut watched, mut outs) = (0, 0, 0);
     for (seed, auto) in [(3u64, true), (7, true), (9, true), (4, false), (11, false)] {
         settings.stepmania.lives = 1 + (seed % 5) as u8;
-        let mut room = room_seeded(&song, 1, 3 + (seed % 5) as u16, 2 + (seed % 3) as u8, seed);
+        let mut room = room_seeded(1, 3 + (seed % 5) as u16, 2 + (seed % 3) as u8, seed);
         let rules = MatchRules {
             battle: ddi_room::BattlePreset::GAUGE_ATTACKS_V0.into(),
             ..room.rules().clone()

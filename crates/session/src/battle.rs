@@ -167,22 +167,10 @@ pub fn stage_ruleset(rules: &StageRules) -> Ruleset {
     rules.build()
 }
 
-/// A stage's scroll speed raised so that its player's lead fits under
-/// [`ddi_room::attacks::LEAD_V0`]'s cap (D5: an extreme slow setting would read further ahead
-/// than an attack may wait): the speed `options` play chart `chart` of
-/// `song` at, multiplied until the longest a note is shown before it is
-/// judged leaves room for the warning and the delay; `None` where it fits
-/// already.
-pub fn raised_speed(
-    song: &Song,
-    chart: usize,
-    options: &ddi_engine::player::PlayOptions,
-) -> Option<ddi_engine::scroll::SpeedMod> {
-    ddi_ui::state::battle_plan::raised_speed(song, chart, options)
-}
-
 /// Whether a stage with attacks raises the speed `settings` would play
-/// chart `chart` of `song` at ([`raised_speed`]): what its prompt says.
+/// chart `chart` of `song` at (`ddi_ui::state::battle_plan::raised_speed`:
+/// D5, an extreme slow setting would read further ahead than an attack
+/// may wait): what its prompt says.
 pub fn stage_speed_raised(
     song: &Song,
     chart: usize,
@@ -195,7 +183,7 @@ pub fn stage_speed_raised(
         options.scroll.speed,
         settings.speed_source,
     );
-    raised_speed(song, chart, &options).is_some()
+    ddi_ui::state::battle_plan::raised_speed(song, chart, &options).is_some()
 }
 
 /// DEVELOPMENT ONLY: the first section of battle shocks chart `chart` of
@@ -472,6 +460,16 @@ impl Seat {
     }
 }
 
+/// A stage played out ([`Battle::play_out`]) takes a step a checkpoint
+/// (and a last one): at most this many, a bound should a step ever fail
+/// to move it on.
+const PLAY_OUT_STEPS: usize = 10_000;
+
+/// How far past a checkpoint and the judge's lag a step of a stage
+/// played out judges the CPUs (seconds): enough that each is judged past
+/// the checkpoint, whose run waits for the slowest.
+const PLAY_OUT_PAST: f64 = 0.001;
+
 /// The opponents of a stage being played.
 pub struct Battle {
     setup: StageSetup,
@@ -583,10 +581,7 @@ pub struct Rung {
 /// that is not played live (its contract carries the ladder only live:
 /// the battle plan's rung digests, a stream's step moments).
 pub fn stage_ladder(song: &Song, chart: usize, setup: &StageSetup) -> Vec<ddi_engine::cpu::PlannedRung> {
-    let online = setup.remote() || setup.live.is_some();
-    if !setup.rules.adaptive()
-        || (online && (setup.live.is_none() || !ddi_ui::state::room::ONLINE_ADAPTIVE))
-    {
+    if !setup.rules.adaptive() || (setup.remote() && setup.live.is_none()) {
         return Vec::new();
     }
     ddi_engine::cpu::planned_ladder(song, chart)
@@ -1357,7 +1352,7 @@ impl Battle {
     /// watching is shown ([`Battle::feeds`]' count: after everyone
     /// else's), where they compete in the stage; none for a watcher.
     pub fn own_seat(&self) -> Option<usize> {
-        (!self.setup.watching).then(|| self.feeds().count())
+        self.competes().then(|| self.feeds().count())
     }
 
     /// The local player's own field as a stream draws it (their judged
@@ -1733,9 +1728,8 @@ impl Battle {
     /// [`Battle::play_out`] with the local player's run `me` (out, or a
     /// forfeit) already given to the ledger; none: a watcher's stage.
     fn play_out_as(&mut self, me: Option<Run>) {
-        // A bound: one step a checkpoint, and a last one.
         let mut steps = 0;
-        while self.decided.is_none() && steps < 10_000 {
+        while self.decided.is_none() && steps < PLAY_OUT_STEPS {
             steps += 1;
             let Some(next) = self.attacks.as_ref().and_then(|a| a.next_checkpoint()) else {
                 break;
@@ -1744,7 +1738,7 @@ impl Battle {
                 break;
             }
             let before = self.attacks.as_ref().map(|a| a.checkpoints().0);
-            self.step_cpus(next + ddi_engine::player::JUDGE_LAG + 0.001);
+            self.step_cpus(next + ddi_engine::player::JUDGE_LAG + PLAY_OUT_PAST);
             self.run_attacks(None);
             self.settle_quietly(me);
             if self.attacks.as_ref().map(|a| a.checkpoints().0) == before
@@ -2487,8 +2481,9 @@ impl Battle {
         }
         let mut details = Vec::new();
         if !watched {
-            let mut results = human.results_brief();
-            results.score = self.on_stage_scale(human);
+            // Their score as earned, whatever charts it stepped to (as the
+            // room compares it under adaptive charts).
+            let results = human.results_brief();
             let mut detail = run_detail(
                 &results,
                 human.ruleset(),
@@ -2650,18 +2645,10 @@ impl Battle {
             run_of(
                 human.gauge_failed_at(),
                 human.ruleset().gauge.life(),
-                &self.on_stage_scale(human),
+                &human.ruleset().score.view(),
                 human.steps().len(),
             )
         }
-    }
-
-    /// `player`'s score as the room compares it: as earned, each
-    /// stretch counted against what it was shown, whatever charts it
-    /// stepped to (`adaptive-v0`: a denser chart earns more; never put on
-    /// the stage chart's scale).
-    fn on_stage_scale(&self, player: &Player) -> ScoreView {
-        player.ruleset().score.view()
     }
 
     /// Every competitor's run, the local player's `me` first (none: a
@@ -2766,16 +2753,12 @@ mod adaptive_study;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn an_extreme_slow_speed_is_raised_to_fit_the_lead() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../assets/songs/beatucada/Beatucada.ssc");
-        let song = ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc")
-            .unwrap();
+        let song = crate::test_songs::bundled("beatucada");
         let mut o = ddi_engine::player::PlayOptions::default();
         o.scroll.speed = ddi_engine::scroll::SpeedMod::XMod(2.5);
+        let raised_speed = ddi_ui::state::battle_plan::raised_speed;
         assert_eq!(raised_speed(&song, 4, &o), None);
         o.scroll.speed = ddi_engine::scroll::SpeedMod::XMod(0.25);
         let raised = raised_speed(&song, 4, &o).expect("raised");

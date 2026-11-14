@@ -717,7 +717,7 @@ Rust and the browser are implementation details, not advertised features.
   before the win), the CPUs
   and their attacks played out once the player is gone,
   `Battle::play_out`; an extreme slow speed raised on such a stage,
-  `battle::raised_speed`;
+  `ddi_ui::state::battle_plan::raised_speed`;
   each CPU's miniature field fed by its stream of judged moments,
   `battle/feed.rs`: `Moment` (when, which note or shock, a tap's judgment
   or a shock stepped on, life, combo, out), the shocks put into its play

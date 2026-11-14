@@ -953,15 +953,7 @@ mod tests {
     }
 
     fn song() -> Song {
-        let path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs/beatucada");
-        let path = std::fs::read_dir(path)
-            .unwrap()
-            .flatten()
-            .map(|e| e.path())
-            .find(|p| p.extension().is_some_and(|e| e == "ssc"))
-            .unwrap();
-        ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc").unwrap()
+        crate::test_songs::bundled("beatucada")
     }
 
     fn moment(track: &TapTrack, i: usize, j: Judgement, late: f64) -> Moment {

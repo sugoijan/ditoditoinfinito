@@ -270,34 +270,7 @@ fn stage(
     let ruleset = stage_ruleset(&rules);
     let turn = seed as usize % 10;
     let levels: Vec<u8> = (0..10).map(|i| ((i + turn) % 10) as u8).collect();
-    let setup = StageSetup {
-        stage: StageId(seed),
-        number: 1,
-        of: 1,
-        battle: BattlePreset::GaugeAttacksV0,
-        rules,
-        me: ParticipantId(1),
-        targeting: Targeting::Spread,
-        cpus: levels
-            .iter()
-            .enumerate()
-            .map(|(i, &level)| CpuSeat {
-                participant: ParticipantId(i as u64 + 2),
-                ordinal: i as u16 + 1,
-                level,
-                seed: seed
-                    .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-                    .wrapping_add(i as u64 * 7919 + 1),
-                name: None,
-                skills: None,
-                targeting: Targeting::Spread,
-            })
-            .collect(),
-        dev_mines_at_beat: None,
-        others: 0,
-        watching: false,
-        live: None,
-    };
+    let setup = super::study::cpu_practice(seed, &levels, rules, None, Targeting::Spread);
     let ladder = stage_ladder(song, chart, &setup);
     let below = ladder.iter().filter(|r| !r.up).count();
     let mut b = Battle::new(setup, song, chart, &ruleset, 0.0, FORFEIT_HORIZON, &ladder).ok()?;
@@ -308,19 +281,7 @@ fn stage(
         a.out_at(b.setup.me, f64::NEG_INFINITY);
     }
     b.play_out_as(Some(Run::Forfeit));
-    let entrants = b.entrants_as(None);
-    let ranking = match &b.decided {
-        Some(r) => r.clone(),
-        None => {
-            let checkpoints = b
-                .attacks
-                .as_ref()
-                .map_or(&[][..], |a| a.ledger().checkpoints_us());
-            SETTLEMENT
-                .rank(&entrants, checkpoints, b.settling, b.setup.rules.rank_by())
-                .0
-        }
-    };
+    let ranking = b.final_ranking(None).0;
     let place_of = |p: ParticipantId| {
         let mut place = 1;
         for g in &ranking {
@@ -685,7 +646,7 @@ fn adaptive_study() {
 #[test]
 #[ignore = "a study: prints what a full ladder costs a stage of 72 CPUs"]
 fn adaptive_cost_of_72_cpus() {
-    let song = super::study::bundled_song("beatucada");
+    let song = crate::test_songs::bundled("beatucada");
     let chart = song
         .charts
         .iter()

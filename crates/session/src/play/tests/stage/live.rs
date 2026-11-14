@@ -231,23 +231,13 @@ impl Room {
 /// countdown runs. Each device's stage order (none for one that sits it
 /// out).
 fn pick_and_ready(r: &Room, song: &Song, attacks: bool, chart: usize) -> Vec<Option<StageOrder>> {
-    pick_and_ready_with(r, song, attacks, chart, |_, _| {})
+    pick_and_ready_staged(r, song, attacks, chart, 1, |_, _| {})
 }
 
-/// [`pick_and_ready`], each device's load job changed by `job` first (its
-/// player's options, as their settings would have them).
-fn pick_and_ready_with(
-    r: &Room,
-    song: &Song,
-    attacks: bool,
-    chart: usize,
-    tweak: impl FnMut(usize, &mut ddi_ui::state::room::LoadJob),
-) -> Vec<Option<StageOrder>> {
-    pick_and_ready_staged(r, song, attacks, chart, 1, tweak)
-}
-
-/// [`pick_and_ready_with`] in a match of `stages` (the next match's rules
-/// saved so before the pick; a pick in a running match goes on with it).
+/// [`pick_and_ready`] in a match of `stages` (the next match's rules
+/// saved so before the pick; a pick in a running match goes on with it),
+/// each device's load job changed by `tweak` first (its player's
+/// options, as their settings would have them).
 fn pick_and_ready_staged(
     r: &Room,
     song: &Song,
@@ -359,7 +349,7 @@ fn pick_and_ready_staged(
 /// [`pick_and_ready`] up to the readiness: every device prepared, its
 /// stage's order taken, nobody ready yet (their prompts ready them).
 fn pick_and_prepare(r: &Room, song: &Song, attacks: bool, chart: usize) -> Vec<Option<StageOrder>> {
-    let orders = pick_and_ready_with(r, song, attacks, chart, |_, _| {});
+    let orders = pick_and_ready(r, song, attacks, chart);
     for room in &r.rooms {
         let stage = orders[0].as_ref().unwrap().stage;
         if room.borrow().in_stage(stage) {
@@ -1106,7 +1096,7 @@ fn person_among_bots(latency: Option<Latency>, person: usize, speed: f64, seed: 
         speed,
         ..Settings::default()
     };
-    let orders = pick_and_ready_with(&r, &song, true, 0, |i, job| {
+    let orders = pick_and_ready_staged(&r, &song, true, 0, 1, |i, job| {
         if i == person
             && let Some(ask) = job.live.as_mut()
         {

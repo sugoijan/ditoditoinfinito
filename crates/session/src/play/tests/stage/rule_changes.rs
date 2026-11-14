@@ -13,7 +13,7 @@ fn each_stage_is_played_under_its_own_rules_after_a_change() {
         .iter()
         .position(|c| c.layout == "dance-single" && c.derivation.is_none())
         .unwrap();
-    let mut room = attacks_room(&song, 3, 5);
+    let mut room = attacks_room(3, 5);
     let rules = MatchRules {
         stages: 3,
         ..room.rules().clone()

@@ -43,24 +43,48 @@ const CHARTS: [(&str, usize); 6] = [
     ("some-things-must", usize::MAX - 2),
 ];
 
-/// A bundled song by its folder (for the other studies).
-pub(super) fn bundled_song(id: &str) -> Song {
-    bundled(id)
+/// A practice stage's setup of CPUs alone at `levels` under `rules`
+/// (attacks on), each seated with its own seed from `seed`, `skills` and
+/// `targeting`, the local player one who forfeits it: what the studies
+/// play out.
+pub(super) fn cpu_practice(
+    seed: u64,
+    levels: &[u8],
+    rules: StageRules,
+    skills: Option<&str>,
+    targeting: Targeting,
+) -> StageSetup {
+    StageSetup {
+        stage: StageId(seed),
+        number: 1,
+        of: 1,
+        battle: BattlePreset::GaugeAttacksV0,
+        rules,
+        me: ParticipantId(1),
+        targeting: Targeting::Spread,
+        cpus: levels
+            .iter()
+            .enumerate()
+            .map(|(i, &level)| CpuSeat {
+                participant: ParticipantId(i as u64 + 2),
+                ordinal: i as u16 + 1,
+                level,
+                seed: seed
+                    .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                    .wrapping_add(i as u64 * 7919 + 1),
+                name: None,
+                skills: skills.map(str::to_string),
+                targeting,
+            })
+            .collect(),
+        dev_mines_at_beat: None,
+        others: 0,
+        watching: false,
+        live: None,
+    }
 }
 
-fn bundled(id: &str) -> Song {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../assets/songs")
-        .join(id);
-    let path = std::fs::read_dir(dir)
-        .unwrap()
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|e| e == "ssc" || e == "sm"))
-        .unwrap();
-    let ext = path.extension().unwrap().to_string_lossy().into_owned();
-    ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), &ext).unwrap()
-}
+use crate::test_songs::bundled;
 
 /// The chart a [`CHARTS`] entry names: an index, or the song's Hard
 /// (`MAX`), Medium (`MAX - 1`) or Challenge (`MAX - 2`) dance-single
@@ -189,40 +213,8 @@ fn stage_with(
         ..StageRules::default()
     };
     let ruleset = stage_ruleset(&rules);
-    let setup = StageSetup {
-        stage: StageId(seed),
-        number: 1,
-        of: 1,
-        battle: BattlePreset::GaugeAttacksV0,
-        rules,
-        me: ParticipantId(1),
-        targeting: Targeting::Spread,
-        cpus: levels
-            .iter()
-            .enumerate()
-            .map(|(i, &level)| CpuSeat {
-                participant: ParticipantId(i as u64 + 2),
-                ordinal: i as u16 + 1,
-                level,
-                seed: seed
-                    .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-                    .wrapping_add(i as u64 * 7919 + 1),
-                name: None,
-                skills: skills.map(str::to_string),
-                targeting,
-            })
-            .collect(),
-        dev_mines_at_beat: None,
-        others: 0,
-        watching: false,
-        live: None,
-    };
-    let ladder = super::stage_ladder(song, chart, &setup);
-    let mut b = Battle::new(setup, song, chart, &ruleset, 0.0, FORFEIT_HORIZON, &ladder).unwrap();
-    if let Some(a) = b.attacks.as_mut() {
-        a.out_at(b.setup.me, f64::NEG_INFINITY);
-    }
-    b.play_out_as(Some(Run::Forfeit));
+    let setup = cpu_practice(seed, levels, rules, skills, targeting);
+    let b = super::played_out_forfeit(setup, song, chart, &ruleset).unwrap();
     let ledger = b.attacks.as_ref().unwrap().ledger();
     let facts = facts(&b, ledger, targeting);
     let table = ruleset.judge.clone();
