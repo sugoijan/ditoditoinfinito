@@ -60,6 +60,26 @@ pub(crate) fn button_rows(
     out
 }
 
+/// A row's value between the two buttons that change it (`Dec.<id>`
+/// and `Inc.<id>`, labeled `less` and `more`; `lo` and `hi`, whether
+/// there is a value that way), centered at `dec_x`, `value_x` and `inc_x`
+/// on the row's middle `y`.
+pub(crate) fn stepper(
+    env: &Env,
+    out: &mut Vec<Actor>,
+    id: &str,
+    (less, more): (&str, &str),
+    mut value: Actor,
+    (lo, hi): (bool, bool),
+    [dec_x, value_x, inc_x, y]: [f32; 4],
+) {
+    let kind = |on: bool| if on { "Button" } else { "Button.Disabled" };
+    out.push(button(env, &format!("Dec.{id}"), less, [dec_x, y], 36.0, kind(lo)));
+    crate::look::call(&mut value, "xy", &[value_x, y]);
+    out.push(value);
+    out.push(button(env, &format!("Inc.{id}"), more, [inc_x, y], 36.0, kind(hi)));
+}
+
 pub(crate) fn button(
     env: &Env,
     name: &str,

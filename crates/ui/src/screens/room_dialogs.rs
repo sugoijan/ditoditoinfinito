@@ -20,12 +20,12 @@ use ddi_room::{
     Phase, PointsBias, Role, StageStanding,
 };
 
-use super::dialog::{button, fitted_dialog, shell};
+use super::dialog::{button, fitted_dialog, shell, stepper};
 use super::room::{
     PanelRow, cpu_level, cpu_name, cpu_sub, level_line_right, mark_text, panel, person_name,
     players_first_rows, publish_dialog,
 };
-use super::{Env, call, frame, left, right};
+use super::{Env, call, frame, left, right, scrolled};
 use crate::look;
 use crate::nav::{Focusable, MenuAction};
 use crate::screen::{Cx, Handled, Input, Screen};
@@ -116,12 +116,6 @@ impl Screen for NoticeDialog {
             _ => Handled::No,
         }
     }
-}
-
-/// Scrolls a window of `len` rows showing `fit` from `first` by `by`.
-fn scrolled(first: usize, by: i32, len: usize, fit: usize) -> usize {
-    let max = len.saturating_sub(fit);
-    (first as i64 + i64::from(by)).clamp(0, max as i64) as usize
 }
 
 /// The defaults Reset restores: practice's rules and starting CPUs (from
@@ -1034,25 +1028,9 @@ impl Screen for RulesDialog {
                 } else {
                     (m::rules_previous(), m::rules_next())
                 };
-                c.push(button(
-                    &env,
-                    &format!("Dec.{id}"),
-                    &less,
-                    [x0 + inner - 150.0, ry],
-                    36.0,
-                    if lo { "Button" } else { "Button.Disabled" },
-                ));
                 look::ellipsized(&mut v, 92.0);
-                look::call(&mut v, "xy", &[x0 + inner - 84.0, ry]);
-                c.push(v);
-                c.push(button(
-                    &env,
-                    &format!("Inc.{id}"),
-                    &more,
-                    [x0 + inner - 18.0, ry],
-                    36.0,
-                    if hi { "Button" } else { "Button.Disabled" },
-                ));
+                let at = [x0 + inner - 150.0, x0 + inner - 84.0, x0 + inner - 18.0, ry];
+                super::dialog::stepper(&env, c, id, (&less, &more), v, (lo, hi), at);
             } else {
                 c.push(right(v, x0 + inner, ry));
             }
@@ -1886,40 +1864,18 @@ impl Screen for AddCpuDialog {
                 x0,
                 row_y,
             ));
-            c.push(button(
-                &env,
-                &format!("Dec.{id}"),
-                &m::rules_less(),
-                [x0 + inner - 150.0, row_y],
-                36.0,
-                if lo { "Button" } else { "Button.Disabled" },
-            ));
             let v = match value {
-                Some(value) => {
-                    let mut v = env.text(&format!("Add.{id}.Value"), &value, 14.0, 600, "Text");
-                    look::call(&mut v, "xy", &[x0 + inner - 84.0, row_y]);
-                    v
-                }
-                None => {
-                    let mut v = crate::stars::stars(
-                        &env,
-                        &format!("Add.{id}.Stars"),
-                        self.level + 1,
-                        LEVEL_STARS,
-                    );
-                    look::call(&mut v, "xy", &[x0 + inner - 84.0, row_y]);
-                    v
-                }
+                Some(value) => env.text(&format!("Add.{id}.Value"), &value, 14.0, 600, "Text"),
+                None => crate::stars::stars(
+                    &env,
+                    &format!("Add.{id}.Stars"),
+                    self.level + 1,
+                    LEVEL_STARS,
+                ),
             };
-            c.push(v);
-            c.push(button(
-                &env,
-                &format!("Inc.{id}"),
-                &m::rules_more(),
-                [x0 + inner - 18.0, row_y],
-                36.0,
-                if hi { "Button" } else { "Button.Disabled" },
-            ));
+            let at = [x0 + inner - 150.0, x0 + inner - 84.0, x0 + inner - 18.0, row_y];
+            let labels = (&*m::rules_less(), &*m::rules_more());
+            stepper(&env, &mut c, id, labels, v, (lo, hi), at);
             ry += ROW;
         }
         let label = m::add_cpus_add(self.count);
@@ -1943,11 +1899,11 @@ impl Screen for AddCpuDialog {
         ));
         ry += 28.0;
         if self.first > 0 {
-            c.push(env.component(
-                "Link",
-                "Button",
-                &look::Spec::new([inner, 20.0], &*m::panel_more_above(self.first)),
+            c.push(super::room::more_mark(
+                &env,
                 "Name.Up",
+                &m::panel_more_above(self.first),
+                [inner, 20.0],
                 [x0 + inner / 2.0, ry - 4.0],
             ));
         }
@@ -2004,14 +1960,11 @@ impl Screen for AddCpuDialog {
             }
         }
         if names.len() > self.first + shown {
-            c.push(env.component(
-                "Link",
-                "Button",
-                &look::Spec::new(
-                    [inner, 20.0],
-                    &*m::panel_more_below(names.len() - self.first - shown),
-                ),
+            c.push(super::room::more_mark(
+                &env,
                 "Name.Down",
+                &m::panel_more_below(names.len() - self.first - shown),
+                [inner, 20.0],
                 [x0 + inner / 2.0, ry + 10.0],
             ));
         }
@@ -2064,7 +2017,7 @@ impl Screen for AddCpuDialog {
         match input {
             Input::Wheel { delta, .. } => {
                 let n = self.names().len();
-                let by = if delta[1] > 0.0 { 1 } else { -1 };
+                let by = super::wheel_step(*delta);
                 self.first = scrolled(self.first, by, n, n.min(NAME_ROWS));
                 let focused = cx.focused().unwrap_or("Close").to_string();
                 rebuild(self, root, cx, &focused);
@@ -2363,18 +2316,11 @@ impl Screen for PlayersDialog {
                 action: MenuAction::Up | MenuAction::Down,
                 ..
             } => {
-                let down = matches!(
-                    input,
-                    Input::Menu {
-                        action: MenuAction::Down,
-                        ..
-                    }
-                );
-                self.scroll(if down { 1 } else { -1 }, root, cx);
+                self.scroll(super::scroll_step(input).unwrap_or(0), root, cx);
                 Handled::Yes
             }
             Input::Wheel { delta, .. } => {
-                self.scroll(if delta[1] > 0.0 { 1 } else { -1 }, root, cx);
+                self.scroll(super::wheel_step(*delta), root, cx);
                 Handled::Yes
             }
             Input::Activate { name } if name == "Panel.Up" || name == "Panel.Down" => {
@@ -2639,26 +2585,11 @@ impl Screen for HostDialog {
                 HostLeaves::PassOn => (m::host_leaves_pass(), false, true),
                 HostLeaves::Close => (m::host_leaves_close(), true, false),
             };
-            c.push(button(
-                &env,
-                "Dec.leaves",
-                &m::rules_previous(),
-                [x0 + inner - 210.0, mid],
-                36.0,
-                if lo { "Button" } else { "Button.Disabled" },
-            ));
             let mut v = env.text("HostLeaves.Value", &value, 14.0, 600, "Text");
             look::ellipsized(&mut v, 150.0);
-            look::call(&mut v, "xy", &[x0 + inner - 114.0, mid]);
-            c.push(v);
-            c.push(button(
-                &env,
-                "Inc.leaves",
-                &m::rules_next(),
-                [x0 + inner - 18.0, mid],
-                36.0,
-                if hi { "Button" } else { "Button.Disabled" },
-            ));
+            let at = [x0 + inner - 210.0, x0 + inner - 114.0, x0 + inner - 18.0, mid];
+            let labels = (&*m::rules_previous(), &*m::rules_next());
+            stepper(&env, &mut c, "leaves", labels, v, (lo, hi), at);
             let mut ay = ry + ROW + 8.0;
             for (i, line) in about.iter().enumerate() {
                 let t = env.text(&format!("HostLeaves.About{i}"), line, 13.0, 400, "Muted");
@@ -2709,11 +2640,11 @@ impl Screen for HostDialog {
             ));
         }
         if people.len() > shown {
-            c.push(env.component(
-                "Link",
-                "Button",
-                &look::Spec::new([inner, 22.0], &*m::panel_more_above(self.first)),
+            c.push(super::room::more_mark(
+                &env,
                 "People.Up",
+                &m::panel_more_above(self.first),
+                [inner, 22.0],
                 [x0 + inner / 2.0, ry + MARK / 2.0],
             ));
             ry += MARK;
@@ -2793,11 +2724,11 @@ impl Screen for HostDialog {
         }
         if people.len() > shown {
             let below = people.len() - self.first - shown;
-            c.push(env.component(
-                "Link",
-                "Button",
-                &look::Spec::new([inner, 22.0], &*m::panel_more_below(below)),
+            c.push(super::room::more_mark(
+                &env,
                 "People.Down",
+                &m::panel_more_below(below),
+                [inner, 22.0],
                 [x0 + inner / 2.0, ry + MARK / 2.0],
             ));
         }
@@ -2888,7 +2819,7 @@ impl Screen for HostDialog {
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
         match input {
             Input::Wheel { delta, .. } => {
-                self.scroll(if delta[1] > 0.0 { 1 } else { -1 }, root, cx);
+                self.scroll(super::wheel_step(*delta), root, cx);
                 Handled::Yes
             }
             Input::Activate { name } => {
@@ -3231,20 +3162,10 @@ impl Screen for StandingsDialog {
         let fit = len.min(STANDING_ROWS);
         let by = match input {
             Input::Menu {
-                action: MenuAction::Down,
+                action: MenuAction::Down | MenuAction::Up,
                 ..
-            } => 1,
-            Input::Menu {
-                action: MenuAction::Up,
-                ..
-            } => -1,
-            Input::Wheel { delta, .. } => {
-                if delta[1] > 0.0 {
-                    1
-                } else {
-                    -1
-                }
-            }
+            } => super::scroll_step(input).unwrap_or(0),
+            Input::Wheel { delta, .. } => super::wheel_step(*delta),
             Input::Activate { .. } | Input::Outside => {
                 self.room.borrow_mut().results_shown();
                 cx.close(false);

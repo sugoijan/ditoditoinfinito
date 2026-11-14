@@ -1132,6 +1132,35 @@ pub(crate) fn menu_pick<'a>(m: &'a crate::Message, name: &str) -> Option<&'a str
     m.str("Action")
 }
 
+/// A wheel's step through a list: one row on where it turns down, one
+/// back otherwise.
+pub(crate) fn wheel_step(delta: [f32; 2]) -> i32 {
+    if delta[1] > 0.0 { 1 } else { -1 }
+}
+
+/// A step through a list: Up and Down, or a wheel turned up or down.
+pub(crate) fn scroll_step(input: &crate::Input) -> Option<i32> {
+    use crate::nav::MenuAction;
+    match input {
+        crate::Input::Menu {
+            action: MenuAction::Up,
+            ..
+        } => Some(-1),
+        crate::Input::Menu {
+            action: MenuAction::Down,
+            ..
+        } => Some(1),
+        crate::Input::Wheel { delta, .. } if delta[1] != 0.0 => Some(wheel_step(*delta)),
+        _ => None,
+    }
+}
+
+/// Scrolls a window of `len` rows showing `fit` from `first` by `by`.
+pub(crate) fn scrolled(first: usize, by: i32, len: usize, fit: usize) -> usize {
+    let max = len.saturating_sub(fit);
+    (first as i64 + i64::from(by)).clamp(0, max as i64) as usize
+}
+
 /// Rebuilding a dialog keeps its focus name but replaces the actor carrying
 /// the focus appearance. Restore that appearance without moving focus.
 pub(crate) fn restore_focus(root: &mut Actor, name: Option<&str>) {

@@ -1069,24 +1069,7 @@ impl SelectScreen {
             self.take_pick(cx);
             return Some(Handled::Yes);
         }
-        let by = match input {
-            Input::Menu {
-                action: MenuAction::Up,
-                ..
-            } => -1,
-            Input::Menu {
-                action: MenuAction::Down,
-                ..
-            } => 1,
-            Input::Wheel { delta, .. } if delta[1] != 0.0 => {
-                if delta[1] > 0.0 {
-                    1
-                } else {
-                    -1
-                }
-            }
-            _ => return None,
-        };
+        let by = crate::screens::scroll_step(input)?;
         self.scroll_panel(by, root, cx);
         Some(Handled::Yes)
     }

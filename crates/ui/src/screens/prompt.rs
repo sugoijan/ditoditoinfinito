@@ -2247,7 +2247,7 @@ impl Screen for PromptScreen {
                 Handled::Yes
             }
             Input::Wheel { delta, .. } if self.room.is_some() && delta[1] != 0.0 => {
-                self.room_scroll(if delta[1] > 0.0 { 1 } else { -1 }, root, cx);
+                self.room_scroll(super::wheel_step(*delta), root, cx);
                 Handled::Yes
             }
             Input::Activate { name } => {

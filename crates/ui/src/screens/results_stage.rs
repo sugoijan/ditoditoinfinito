@@ -1484,8 +1484,7 @@ impl ResultsScreen {
                 delta,
                 ..
             } if !self.compact && tab == Tab::Standings && t.within("Panel.Standings") => {
-                let by = if delta[1] > 0.0 { 1 } else { -1 };
-                self.stage_scroll(by, root, cx);
+                self.stage_scroll(crate::screens::wheel_step(*delta), root, cx);
                 Some(Handled::Yes)
             }
             Input::Hover { target } if tab == Tab::Standings && !self.compact => {

@@ -1719,11 +1719,11 @@ pub fn panel(
     let n = panel_fit(rows, first, room);
     let mut ry = y + if first > 0 { 24.0 } else { 0.0 };
     if first > 0 {
-        children.push(env.component(
-            "Link",
-            "Button",
-            &look::Spec::new([w, 22.0], &*m::panel_more_above(first)),
+        children.push(more_mark(
+            env,
             "Panel.Up",
+            &m::panel_more_above(first),
+            [w, 22.0],
             [x + w / 2.0, y + 11.0],
         ));
     }
@@ -1815,11 +1815,11 @@ pub fn panel(
     }
     let below = rows.len() - first - n;
     if below > 0 {
-        children.push(env.component(
-            "Link",
-            "Button",
-            &look::Spec::new([w, 22.0], &*m::panel_more_below(below)),
+        children.push(more_mark(
+            env,
             "Panel.Down",
+            &m::panel_more_below(below),
+            [w, 22.0],
             [x + w / 2.0, y + height - 11.0],
         ));
     }
@@ -2017,11 +2017,11 @@ pub fn players_panel(env: &Env, r: &RoomClient, [x, y, w, h]: [f32; 4]) -> Actor
         ry += row;
     }
     if shown < rows.len() {
-        c.push(env.component(
-            "Link",
-            "Button",
-            &look::Spec::new([w, 24.0], &*m::panel_more_below(rows.len() - shown)),
+        c.push(more_mark(
+            env,
             PLAYERS_MORE,
+            &m::panel_more_below(rows.len() - shown),
+            [w, 24.0],
             [x + w / 2.0, ry + row / 2.0],
         ));
     }
@@ -2297,6 +2297,19 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         leave_open: kept.leave_open,
         ..view
     });
+}
+
+/// A list's mark of the lines it does not show ("N more above",
+/// "N more below"): a link of `size` centered on `at`, named `name`,
+/// pressed to scroll that way.
+pub(crate) fn more_mark(
+    env: &Env,
+    name: &str,
+    text: &str,
+    size: [f32; 2],
+    at: [f32; 2],
+) -> Actor {
+    env.component("Link", "Button", &look::Spec::new(size, text), name, at)
 }
 
 /// Changes what the pop-ups say of themselves in the debug state.

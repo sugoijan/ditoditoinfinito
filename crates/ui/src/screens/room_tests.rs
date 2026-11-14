@@ -5160,3 +5160,98 @@ fn everyone_sees_who_is_loading_and_then_the_ready_countdown() {
     let seconds = super::room::seconds_left(&bob.borrow()).unwrap();
     assert!((14..=15).contains(&seconds), "{seconds}");
 }
+
+/// PIN (simplify, round 2): the room's song select and its pop-ups (Rules,
+/// Add CPUs, Players, Standings, an online host's options) draw exactly
+/// what they drew before their parts were shared: a hash of each draw
+/// list, recorded on the code before.
+#[test]
+fn the_rooms_screens_draw_as_pinned() {
+    use ddi_room::{Finish, Finisher};
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let hash = |h: &Harness| {
+        let mut s = DefaultHasher::new();
+        format!("{:?}", h.drawn).hash(&mut s);
+        s.finish()
+    };
+    let mut got: Vec<(&str, u64)> = Vec::new();
+    let e = env();
+    let room: SharedRoom = Rc::new(RefCell::new(RoomClient::new(0, 1)));
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&e, room.clone(), "dance-single", &orders));
+    h.run(2.0);
+    got.push(("select", hash(&h)));
+    press(&mut h, "Room.Rules");
+    h.run(2.0);
+    got.push(("rules", hash(&h)));
+    press(&mut h, "AddCustom");
+    h.run(2.0);
+    got.push(("add", hash(&h)));
+    press(&mut h, "Inc.level");
+    h.run(2.0);
+    got.push(("add-level", hash(&h)));
+    press(&mut h, "Close");
+    h.run(2.0);
+    press(&mut h, "Cancel");
+    h.run(2.0);
+    open_players(&mut h);
+    h.run(2.0);
+    got.push(("players", hash(&h)));
+    press(&mut h, "Close");
+    h.run(2.0);
+    // A stage played: its standings.
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    let order = orders.borrow_mut().pop().expect("a prompt");
+    room.borrow_mut().set_ready(true).unwrap();
+    h.run(4.0);
+    let mut ids: Vec<_> = order.cpus.iter().map(|c| c.participant).collect();
+    ids.insert(1, order.me);
+    let ranking = ids
+        .into_iter()
+        .map(|participant| {
+            vec![Finisher {
+                participant,
+                finish: Finish::Survived,
+            }]
+        })
+        .collect();
+    room.borrow_mut()
+        .report_stage(order.stage, ranking, false)
+        .unwrap();
+    h.run(2.0);
+    got.push(("standings", hash(&h)));
+    // An online room's host: its options.
+    let t = Three::new(false);
+    let (ea, eb, ec) = (env(), env(), env());
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    let mut hc = online_select(&ec, &t.carol, songs_of(&["Charlie One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb, &mut hc]);
+    ha.run(2.0);
+    got.push(("online-select", hash(&ha)));
+    hb.run(2.0);
+    got.push(("online-follower", hash(&hb)));
+    open_players(&mut ha);
+    ha.run(2.0);
+    got.push(("online-players", hash(&ha)));
+    press(&mut ha, "HostOptions");
+    ha.run(2.0);
+    got.push(("host", hash(&ha)));
+    assert_eq!(got, PINNED);
+}
+
+const PINNED: [(&str, u64); 10] = [
+    ("select", 16075161471851863422),
+    ("rules", 2777621463545564444),
+    ("add", 5068374162585030671),
+    ("add-level", 17212216341309922422),
+    ("players", 8255218483199178146),
+    ("standings", 11613174137148003295),
+    ("online-select", 7980021003221844594),
+    ("online-follower", 5607036973537741010),
+    ("online-players", 13411916049008837839),
+    ("host", 7918162560248348665),
+];

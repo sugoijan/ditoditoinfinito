@@ -365,11 +365,11 @@ impl PromptScreen {
                 msg::room::panel_more_above(above).into()
             };
             let name = if below > 0 { "Room.Down" } else { "Room.Up" };
-            out.push(env.component(
-                "Link",
-                "Button",
-                &Spec::new([w, 20.0], &text),
+            out.push(crate::screens::room::more_mark(
+                env,
                 name,
+                &text,
+                [w, 20.0],
                 [x + w / 2.0, ry + 10.0],
             ));
             ry += 20.0;
