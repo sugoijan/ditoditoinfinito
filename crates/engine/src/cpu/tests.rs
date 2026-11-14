@@ -1,15 +1,6 @@
 use super::*;
 fn fixture() -> (Song, Profile) {
-    let path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs/beatucada");
-    let path = std::fs::read_dir(path)
-        .unwrap()
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|e| e == "ssc"))
-        .unwrap();
-    let song =
-        ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc").unwrap();
+    let song = crate::test_songs::bundled("beatucada");
     let projected = project(&song, 1).unwrap();
     let chart = &projected.charts[1];
     let judge = Judge::new(&chart.notes, chart.timing(&projected), presets::itg().judge);

@@ -4,6 +4,8 @@
 //! judged in a breather nor twice at a boundary, the life as the rule
 //! says, and a play without a ladder exactly as before.
 
+mod common;
+
 use ddi_chart::Song;
 use ddi_engine::judge::{JudgeEventKind, NoteState};
 use ddi_engine::ladder::{self, ADAPTIVE_V0, AdaptiveRule};
@@ -11,14 +13,7 @@ use ddi_engine::rules::ddi::{self, DdiOptions};
 use ddi_engine::{FailPolicy, PlayOptions, Player, Results, Ruleset};
 
 fn song() -> Song {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs/beatucada");
-    let path = std::fs::read_dir(dir)
-        .unwrap()
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|e| e == "ssc"))
-        .unwrap();
-    ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc").unwrap()
+    common::bundled("beatucada")
 }
 
 fn rules() -> Ruleset {

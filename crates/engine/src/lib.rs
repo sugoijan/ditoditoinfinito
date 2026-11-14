@@ -104,6 +104,25 @@ where
     )
 }
 
+/// What the crate's unit tests share.
+#[cfg(test)]
+pub(crate) mod test_songs {
+    /// Bundled song `id` (`assets/songs/<id>`), its `.ssc` read as the
+    /// library reads it.
+    pub fn bundled(id: &str) -> ddi_chart::Song {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/songs")
+            .join(id);
+        let path = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|e| e == "ssc"))
+            .unwrap();
+        ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc").unwrap()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

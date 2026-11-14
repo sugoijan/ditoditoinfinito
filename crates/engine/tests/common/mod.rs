@@ -12,6 +12,21 @@ use ddi_engine::history::replay;
 use ddi_engine::player::{PlayOptions, Player, Results};
 use ddi_engine::rules::Ruleset;
 
+/// Bundled song `id` (`assets/songs/<id>`), its `.ssc` read as the
+/// library reads it.
+pub fn bundled(id: &str) -> Song {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/songs")
+        .join(id);
+    let path = std::fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|e| e == "ssc"))
+        .unwrap();
+    ddi_library::scan::parse_simfile(&std::fs::read_to_string(path).unwrap(), "ssc").unwrap()
+}
+
 /// Plays `song` under `rules` with `edges` (`(song seconds, lane,
 /// pressed)`) to the end: its results and events in order, its key and
 /// log judged again to the same results.
