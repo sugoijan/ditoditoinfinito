@@ -1881,10 +1881,13 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let event = self
             .battle_cue(host)
             .map(|(e, age)| (policy.priority(e), StageCue::Event(e), age));
+        // The player's own attack is shown by its line, pulse and outline,
+        // never in words on the status line (follow-up round F, item 8);
+        // a voice still says it.
         let attacks = self
             .attack_told
             .iter()
-            .filter(|t| !t.spoken())
+            .filter(|t| !t.spoken() && t.moment != crate::battle::AttackMoment::Launched)
             .map(|t| (t, host - t.at))
             .filter(|(_, age)| *age < policy.cue_seconds)
             .map(|(t, age)| (policy.attack_priority(t.moment), StageCue::Attack(t.moment), age));

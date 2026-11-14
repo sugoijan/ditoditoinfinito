@@ -8814,6 +8814,18 @@ are listed beside the song and a tap on the list opens the pop-up).
   player's own options, the ruleset's pill included ("ITG" in the
   pictures' data), though a room plays DDI (open question below).
 
+### No "Attack launched" on the status line
+
+In a stage with attacks, the player's own attack no longer puts "Attack
+launched" on the status line (`PlaySession::stage_cue` leaves the
+launched moment out): its line, pulse and outline show it, and a voice,
+where one is on, still says its line (`battle attack launched`). The
+incoming attack's cue and every other moment are as before.
+Tested: the session (`the_player_s_attack_moments_are_told_in_the_status_line`:
+the player's own attack never the status line's cue, the incoming one
+at once; `the_attack_lines_are_said_in_a_stage_and_shown_only_where_they_were_not`:
+the launched line said where a voice has it, never shown in words).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

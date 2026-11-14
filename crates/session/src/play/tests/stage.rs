@@ -1740,12 +1740,10 @@ fn the_player_s_attack_moments_are_told_in_the_status_line() {
                 }
                 AttackMoment::Launched => {
                     assert!(links.iter().any(|l| l.outgoing), "{links:?}");
-                    // Shown, unless one against the player shows.
+                    // Never in words on the status line (follow-up round
+                    // F): its line, pulse and outline show it.
                     let cue = s.stage_cue(host).map(|c| c.0);
-                    assert!(
-                        matches!(cue, Some(StageCue::Attack(_))),
-                        "{cue:?}"
-                    );
+                    assert_ne!(cue, Some(StageCue::Attack(AttackMoment::Launched)));
                     cues.1 += 1;
                 }
             }
@@ -1943,9 +1941,12 @@ fn the_attack_lines_are_said_in_a_stage_and_shown_only_where_they_were_not() {
             }
         }
         // The cue right then: this moment's exactly where it was not
-        // said (else an earlier unsaid one's, or none).
+        // said (else an earlier unsaid one's, or none); the player's own
+        // attack never in words (follow-up round F).
         let own = Some(StageCue::Attack(t.moment));
-        if t.spoken() {
+        if t.moment == AttackMoment::Launched {
+            assert_ne!(*cue, own, "{t:?} shown in words");
+        } else if t.spoken() {
             assert!(
                 *cue != own
                     || told.iter().any(|u| u.moment == t.moment
@@ -2023,7 +2024,8 @@ fn the_attack_lines_are_said_in_a_stage_and_shown_only_where_they_were_not() {
     );
 
     // A pack without the two folders: silent for them, every moment
-    // shown, nothing said in their place.
+    // against the player shown (the player's own never in words),
+    // nothing said in their place.
     let mut practice = attacks_room(&song, 3, 9);
     let order = begin_at(&song, &mut practice, &mut now, LONG);
     let (s, cues) = attacks_voiced(
@@ -2033,7 +2035,14 @@ fn the_attack_lines_are_said_in_a_stage_and_shown_only_where_they_were_not() {
     );
     assert!(!s.attacks_told().is_empty());
     assert!(s.attacks_told().iter().all(|t| !t.spoken()));
-    assert!(cues.iter().all(|c| matches!(c, Some(StageCue::Attack(_)))));
+    for (t, c) in s.attacks_told().iter().zip(&cues) {
+        match t.moment {
+            AttackMoment::Incoming => assert!(matches!(c, Some(StageCue::Attack(_)))),
+            AttackMoment::Launched => {
+                assert_ne!(*c, Some(StageCue::Attack(AttackMoment::Launched)))
+            }
+        }
+    }
     assert!(
         !s.announcer_report()
             .spoken
