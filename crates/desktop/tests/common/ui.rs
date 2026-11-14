@@ -129,3 +129,25 @@ fn reveal(ui: &mut Ui, name: &str) {
         }
     }
 }
+
+/// What a play's results show that the play decided: the notes as the
+/// footer says them, and whether Retry and the song offset's editor show.
+#[derive(Debug, PartialEq)]
+pub struct ResultsShown {
+    pub notes: String,
+    pub retry: bool,
+    pub offset: bool,
+}
+
+/// The results on `ui`'s top screen ([`ResultsShown`]).
+pub fn results_shown(ui: &Ui) -> ResultsShown {
+    let text = |name: &str| match ui.actor(name).map(|a| &a.kind) {
+        Some(ddi_actor::Kind::Text(t)) => t.text().to_string(),
+        _ => String::new(),
+    };
+    ResultsShown {
+        notes: text("Footer.Note"),
+        retry: ui.actor("Retry").is_some(),
+        offset: ui.actor("OffsetValue").is_some(),
+    }
+}

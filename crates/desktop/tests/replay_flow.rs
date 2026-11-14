@@ -23,6 +23,9 @@ use common::ui::top;
 
 const SIZE: [u32; 2] = [960, 540];
 
+/// The note an autoplayed play's results have.
+const AUTOPLAY: &str = "Autoplay: this play does not count toward your bests.";
+
 #[test]
 fn a_play_its_replay_its_kept_results_a_quit_and_a_refusal() {
     common::indexes();
@@ -70,6 +73,15 @@ fn a_play_its_replay_its_kept_results_a_quit_and_a_refusal() {
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     run(&mut host, &mut ui, usize::MAX);
     assert_eq!(top(&ui), "results");
+    // Its notes (autoplayed), Retry and its song offset's editor.
+    assert_eq!(
+        common::ui::results_shown(&ui),
+        common::ui::ResultsShown {
+            notes: AUTOPLAY.into(),
+            retry: true,
+            offset: true,
+        }
+    );
     assert_eq!(store.len(), 1);
     let id = plays.history().last().unwrap().0.clone();
     // V: its replay's prompt, marked.
@@ -85,6 +97,13 @@ fn a_play_its_replay_its_kept_results_a_quit_and_a_refusal() {
     assert!(host.playing());
     run(&mut host, &mut ui, usize::MAX);
     assert_eq!(top(&ui), "results");
+    // When it was played first; Retry watches it again; no offset.
+    let shown = common::ui::results_shown(&ui);
+    assert!(
+        shown.notes.starts_with("Played ") && shown.notes.ends_with(&format!(" · {AUTOPLAY}")),
+        "{shown:?}"
+    );
+    assert!(shown.retry && !shown.offset, "{shown:?}");
     assert!(
         host.log
             .iter()
@@ -112,6 +131,13 @@ fn a_play_its_replay_its_kept_results_a_quit_and_a_refusal() {
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     ui.update(0.5);
     assert_eq!(top(&ui), "results");
+    // The same notes; no Retry, no offset.
+    let shown = common::ui::results_shown(&ui);
+    assert!(
+        shown.notes.starts_with("Played ") && shown.notes.ends_with(&format!(" · {AUTOPLAY}")),
+        "{shown:?}"
+    );
+    assert!(!shown.retry && !shown.offset, "{shown:?}");
     assert!(
         host.log
             .last()

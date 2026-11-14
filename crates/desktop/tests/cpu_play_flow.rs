@@ -79,6 +79,13 @@ fn cpu_from_prompt_to_results_and_retry_without_personal_history() {
     ui.update(0.05);
     assert_eq!(top(&ui), "results");
     assert_eq!(store.len(), 0, "CPU must not enter personal history");
+    // The CPU described under its results; Retry, no song offset.
+    let shown = common::ui::results_shown(&ui);
+    assert!(
+        shown.notes.starts_with("Autoplay: this play does not count toward your bests. · CPU · "),
+        "{shown:?}"
+    );
+    assert!(shown.retry && !shown.offset, "{shown:?}");
     assert!(!host.log.is_empty(), "CPU results were not produced");
     eprintln!("CPU integration: {} frames; {:?}", frames, host.log);
     // Retry: the prompt again (the results take keys after a moment).

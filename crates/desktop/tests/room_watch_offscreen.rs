@@ -158,6 +158,11 @@ impl Rig {
         self.wait_gpu();
         self.ui.update(0.05);
         assert_eq!(top(&self.ui), "results");
+        // Out of the stage: its mark (left or out of life); no Retry,
+        // no song offset.
+        let shown = common::ui::results_shown(&self.ui);
+        assert!(shown.notes.contains("Stage ") || shown.notes.is_empty(), "{shown:?}");
+        assert!(!shown.retry && !shown.offset, "{shown:?}");
         self.ui.update(3.0);
     }
 
@@ -336,6 +341,15 @@ fn a_practice_stage_is_watched_from_the_grid_and_a_seat_to_its_results() {
     let _ = rig.device.poll(wgpu::PollType::wait_indefinitely());
     rig.ui.update(0.05);
     assert_eq!(top(&rig.ui), "results");
+    // Watched: no notes, no Retry, no song offset.
+    assert_eq!(
+        common::ui::results_shown(&rig.ui),
+        common::ui::ResultsShown {
+            notes: String::new(),
+            retry: false,
+            offset: false,
+        }
+    );
     rig.ui.update(3.0);
 
     // Its results: the standings of the competitors alone, the winner

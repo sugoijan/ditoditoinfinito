@@ -130,6 +130,14 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
         ui.update(0.05);
         assert_eq!(top(ui), "results");
+        // The room's mark after the autoplay's note; no Retry, no song
+        // offset.
+        let shown = common::ui::results_shown(ui);
+        assert!(
+            shown.notes.starts_with("Autoplay: this play does not count toward your bests. · Stage "),
+            "{shown:?}"
+        );
+        assert!(!shown.retry && !shown.offset, "{shown:?}");
         // Back to room, never Retry: a stage is played once.
         assert!(ui.bounds("SongList").is_some());
         assert!(ui.bounds("Retry").is_none());
@@ -389,6 +397,12 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
     ui.update(0.05);
     assert_eq!(top(&ui), "results");
+    let shown = common::ui::results_shown(&ui);
+    assert_eq!(
+        shown.notes,
+        "Autoplay: this play does not count toward your bests. · Stage 1: place 1 of 4 · +12 pts"
+    );
+    assert!(!shown.retry && !shown.offset, "{shown:?}");
     assert!(attacks > 0, "full bars launched");
     // The player launched (autoplayed, its bar fills) and its links
     // showed: lines for their time, outlines after.
