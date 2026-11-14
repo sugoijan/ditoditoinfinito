@@ -485,13 +485,12 @@ pub fn audience_screen(
             // Watched over the audience's page through the play host: its
             // prompt counting down, the spectator view, then back to the
             // page (no results of its own: the page shows the stage's).
-            AudienceCall::Watch(order) => match &play {
-                Some(slot) => {
-                    WATCHING.with_borrow_mut(|w| *w = Some((order.stage, a.clone())));
-                    *slot.borrow_mut() = Some(crate::play::Request::stage(*order));
+            AudienceCall::Watch(order) => {
+                let stage = order.stage;
+                if hand_to_play(&play, *order, "audience") {
+                    WATCHING.with_borrow_mut(|w| *w = Some((stage, a.clone())));
                 }
-                None => eprintln!("audience: stage {}: no library to play it from", order.number),
-            },
+            }
             // Desktop's sound needs no press.
             AudienceCall::WatchPressed => {}
             AudienceCall::Redirect(r) => redirect(&r),
@@ -537,14 +536,32 @@ fn room_shell(
         // Its prompt over the room (`crate::play::host`): Ready, the
         // play, its results; its outcome reported before them. The sample
         // songs (no library) have no play.
-        RoomCall::PlayStage(order) => match &play {
-            Some(slot) => {
+        RoomCall::PlayStage(order) => {
+            if hand_to_play(&play, *order, "room") {
                 PLAYING.with_borrow_mut(|p| *p = Some(room.clone()));
-                *slot.borrow_mut() = Some(crate::play::Request::stage(*order));
             }
-            None => eprintln!("room: stage {}: no library to play it from", order.number),
-        },
+        }
     })
+}
+
+/// Stage `order` handed to the play host through `play` (its prompt over
+/// the screens), where there is a library to play it from; whether it
+/// was (`what` names the caller in the log).
+fn hand_to_play(
+    play: &Option<Rc<RefCell<Option<crate::play::Request>>>>,
+    order: ddi_ui::state::room::StageOrder,
+    what: &str,
+) -> bool {
+    match play {
+        Some(slot) => {
+            *slot.borrow_mut() = Some(crate::play::Request::stage(order));
+            true
+        }
+        None => {
+            eprintln!("{what}: stage {}: no library to play it from", order.number);
+            false
+        }
+    }
 }
 
 /// The shell a stage's prompt runs the room through meanwhile (its songs

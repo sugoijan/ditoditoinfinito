@@ -726,14 +726,7 @@ impl Shell {
                 .layers()
                 .iter()
                 .any(|l| l.name == ddi_ui::LEAVE_QUESTION);
-        if asks {
-            self.ui
-                .broadcast(ddi_ui::Message::new(ddi_ui::CLOSE_REQUESTED));
-            let out = self.ui.take_requests();
-            self.run(out);
-        } else {
-            self.request_quit();
-        }
+        self.ask_or_quit(asks);
     }
 
     /// A close request left a stage's play ([`Shell::close_requested`]):
@@ -744,7 +737,14 @@ impl Shell {
             return;
         }
         self.close_after_play = false;
-        if self.ui.guards_leaving() {
+        let asks = self.ui.guards_leaving();
+        self.ask_or_quit(asks);
+    }
+
+    /// Where `asks`, the screens are told the window is to close and ask
+    /// ("Leave the room?"); else the game quits.
+    fn ask_or_quit(&mut self, asks: bool) {
+        if asks {
             self.ui
                 .broadcast(ddi_ui::Message::new(ddi_ui::CLOSE_REQUESTED));
             let out = self.ui.take_requests();
