@@ -173,3 +173,4 @@ pub mod ogg_opus;
 pub mod opus;
 pub mod storage;
 pub mod video;
+pub mod wav;

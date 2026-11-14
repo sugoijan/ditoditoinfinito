@@ -1298,44 +1298,12 @@ mod tests {
 
     /// A float or 16-bit mono WAV's samples and rate (the study's).
     fn read_wav(bytes: &[u8]) -> (Vec<f32>, u32) {
-        let rate = u32::from_le_bytes(bytes[24..28].try_into().unwrap());
-        let float = bytes[20] == 3;
-        let data = &bytes[44..];
-        let samples = if float {
-            data.as_chunks::<4>()
-                .0
-                .iter()
-                .map(|b| f32::from_le_bytes(*b))
-                .collect()
-        } else {
-            data.as_chunks::<2>()
-                .0
-                .iter()
-                .map(|b| f32::from(i16::from_le_bytes(*b)) / 32768.0)
-                .collect()
-        };
-        (samples, rate)
+        let (planes, rate) = ddi_platform::wav::read(bytes).unwrap();
+        (planes.into_iter().next().unwrap_or_default(), rate)
     }
 
     fn write_wav(samples: &[f32], rate: u32) -> Vec<u8> {
-        let len = (samples.len() * 4) as u32;
-        let mut out = Vec::new();
-        out.extend_from_slice(b"RIFF");
-        out.extend_from_slice(&(36 + len).to_le_bytes());
-        out.extend_from_slice(b"WAVEfmt ");
-        out.extend_from_slice(&16u32.to_le_bytes());
-        out.extend_from_slice(&3u16.to_le_bytes());
-        out.extend_from_slice(&1u16.to_le_bytes());
-        out.extend_from_slice(&rate.to_le_bytes());
-        out.extend_from_slice(&(rate * 4).to_le_bytes());
-        out.extend_from_slice(&4u16.to_le_bytes());
-        out.extend_from_slice(&32u16.to_le_bytes());
-        out.extend_from_slice(b"data");
-        out.extend_from_slice(&len.to_le_bytes());
-        for s in samples {
-            out.extend_from_slice(&s.to_le_bytes());
-        }
-        out
+        ddi_platform::wav::write_float(&[samples], rate)
     }
 
     /// A chain written as `name:key=value,key=value` over [`CHAIN`]

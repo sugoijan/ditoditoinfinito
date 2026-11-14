@@ -184,32 +184,11 @@ pub fn decode_wav(bytes: &[u8]) -> Result<(Vec<u8>, usize), String> {
 
 /// `audio` as a WAV file of 32-bit floats (format 3), interleaved.
 pub fn wav(audio: &crate::decode::DecodedAudio) -> Result<Vec<u8>, String> {
-    let channels = audio.channels.len();
-    let frames = audio.frames();
-    let data = u32::try_from(frames * channels * 4)
+    u32::try_from(audio.frames() * audio.channels.len() * 4)
         .ok()
         .filter(|&n| n <= u32::MAX - 36)
         .ok_or("the audio is too long for a WAV file")?;
-    let block = (channels * 4) as u16;
-    let mut out = Vec::with_capacity(44 + data as usize);
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + data).to_le_bytes());
-    out.extend_from_slice(b"WAVEfmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&3u16.to_le_bytes());
-    out.extend_from_slice(&(channels as u16).to_le_bytes());
-    out.extend_from_slice(&audio.sample_rate.to_le_bytes());
-    out.extend_from_slice(&(audio.sample_rate * u32::from(block)).to_le_bytes());
-    out.extend_from_slice(&block.to_le_bytes());
-    out.extend_from_slice(&32u16.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&data.to_le_bytes());
-    for i in 0..frames {
-        for c in &audio.channels {
-            out.extend_from_slice(&c[i].to_le_bytes());
-        }
-    }
-    Ok(out)
+    Ok(crate::wav::write_float(&audio.channels, audio.sample_rate))
 }
 
 #[cfg(test)]

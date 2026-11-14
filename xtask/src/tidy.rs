@@ -12,7 +12,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::Subcommand;
 use ddi_library::announcer::tidy;
 use serde::Serialize;
@@ -82,87 +82,15 @@ pub struct Report {
     pub shaped_db: f64,
 }
 
-/// A WAV's samples, one `Vec` a channel, and its rate.
+/// A WAV's samples, one `Vec` a channel, and its rate
+/// ([`ddi_platform::wav::read`]).
 pub fn read_wav(bytes: &[u8]) -> Result<(Vec<Vec<f32>>, u32)> {
-    if bytes.len() < 12 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
-        bail!("not a WAV file");
-    }
-    let u16_at = |i: usize| u16::from_le_bytes([bytes[i], bytes[i + 1]]);
-    let u32_at =
-        |i: usize| u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
-    let mut format = None;
-    let mut at = 12;
-    while at + 8 <= bytes.len() {
-        let id = &bytes[at..at + 4];
-        let len = u32_at(at + 4) as usize;
-        let body = at + 8;
-        let end = (body + len).min(bytes.len());
-        if id == b"fmt " && len >= 16 {
-            format = Some((
-                u16_at(body),
-                u16_at(body + 2),
-                u32_at(body + 4),
-                u16_at(body + 14),
-            ));
-        } else if id == b"data" {
-            let Some((tag, channels, rate, bits)) = format else {
-                bail!("its data comes before its format");
-            };
-            let channels = usize::from(channels.max(1));
-            let data = &bytes[body..end];
-            let samples: Vec<f32> = match (tag, bits) {
-                (1, 16) => data
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    // As the game's decoders read 16 bits.
-                    .map(|b| f32::from(i16::from_le_bytes(*b)) / 32768.0)
-                    .collect(),
-                (3, 32) => data
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|b| f32::from_le_bytes(*b))
-                    .collect(),
-                _ => bail!("format {tag} at {bits} bits: 16-bit PCM or 32-bit float is read"),
-            };
-            let mut planes = vec![Vec::with_capacity(samples.len() / channels); channels];
-            for frame in samples.chunks_exact(channels) {
-                for (plane, s) in planes.iter_mut().zip(frame) {
-                    plane.push(*s);
-                }
-            }
-            return Ok((planes, rate));
-        }
-        at = body + len + (len & 1);
-    }
-    bail!("it has no data");
+    ddi_platform::wav::read(bytes).map_err(anyhow::Error::msg)
 }
 
 /// `channels` at `rate` as a 32-bit float WAV.
 pub fn write_wav(channels: &[Vec<f32>], rate: u32) -> Vec<u8> {
-    let count = channels.len().max(1) as u16;
-    let frames = channels.first().map_or(0, Vec::len);
-    let data_len = (frames * usize::from(count) * 4) as u32;
-    let mut out = Vec::with_capacity(44 + data_len as usize);
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + data_len).to_le_bytes());
-    out.extend_from_slice(b"WAVEfmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&3u16.to_le_bytes()); // IEEE float
-    out.extend_from_slice(&count.to_le_bytes());
-    out.extend_from_slice(&rate.to_le_bytes());
-    out.extend_from_slice(&(rate * u32::from(count) * 4).to_le_bytes());
-    out.extend_from_slice(&(count * 4).to_le_bytes());
-    out.extend_from_slice(&32u16.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&data_len.to_le_bytes());
-    for i in 0..frames {
-        for c in channels {
-            out.extend_from_slice(&c.get(i).copied().unwrap_or(0.0).to_le_bytes());
-        }
-    }
-    out
+    ddi_platform::wav::write_float(channels, rate)
 }
 
 fn db(ratio: f64) -> f64 {
