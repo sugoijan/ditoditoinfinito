@@ -348,12 +348,7 @@ impl Shell {
             let songs = songs.clone();
             play.chart_loaded = Some(Rc::new(move |id, song| songs.chart_loaded(id, song)));
         }
-        let ui = if let Some(songs) = songs.as_ref().filter(|_| {
-            matches!(
-                name,
-                "start" | "select" | "options" | "announcer" | "multiplayer" | "room"
-            )
-        }) {
+        let ui = if let Some(songs) = songs.as_ref().filter(|_| LIBRARY_SCREENS.contains(&name)) {
             let (ui, env, look) = library_ui_with(name, fold, sound.clone(), songs, quit);
             // Calibration's menu, opened again when a test leaves.
             {
@@ -1965,14 +1960,7 @@ pub fn theme_ui_with(
     if !matches!(first, "start" | "multiplayer" | "room") {
         ui.push(select);
     }
-    if matches!(first, "multiplayer" | "room") {
-        ui.push(crate::room::home(&env, None, None));
-        if first == "room" {
-            ui.push(crate::room::room_screen(&env, None, None));
-        } else if let Some(invite) = crate::online::take_join() {
-            ui.push(crate::room::invite(&env, invite, None, None));
-        }
-    }
+    push_multiplayer(&mut ui, &env, first, None, None);
     match first {
         "results" => ui.push(sample::results_screen(&env)),
         "options" => ui.push(sample::options_screen(&env, Some(changed))),
@@ -2004,29 +1992,11 @@ fn library_ui_with(
 ) -> (Ui, ThemeEnv, Rc<ddi_theme::Infinito>) {
     let (mut ui, env, look) = theme_base(fold);
     ui.push(title_screen(&env, sound.clone(), Some(songs.clone()), quit));
-    // `--screen multiplayer|room`: the prototype's home, the practice
-    // room over it.
-    if matches!(first, "multiplayer" | "room") {
-        ui.push(crate::room::home(
-            &env,
-            Some(songs.clone()),
-            Some(sound.clone()),
-        ));
-        if first == "room" {
-            ui.push(crate::room::room_screen(
-                &env,
-                Some(songs.clone()),
-                Some(sound.clone()),
-            ));
-        } else if let Some(invite) = crate::online::take_join() {
-            ui.push(crate::room::invite(
-                &env,
-                invite,
-                Some(songs.clone()),
-                Some(sound.clone()),
-            ));
-        }
-    } else if first != "start" && first != "options" && first != "announcer" {
+    if !push_multiplayer(&mut ui, &env, first, Some(songs), Some(sound.clone()))
+        && first != "start"
+        && first != "options"
+        && first != "announcer"
+    {
         ui.push(crate::songs::screen(&env, songs, Some(sound.clone())));
         // `--shared`: the share's song select over the library's.
         if songs.shared() {
@@ -2047,6 +2017,47 @@ fn library_ui_with(
         *songs.studio.borrow_mut() = Some(studio);
     }
     (ui, env, look)
+}
+
+/// `--screen multiplayer|room` (and `--join`): the multiplayer home, the
+/// practice room or `--join`'s invite page over it, on `songs` (the
+/// library; the sample songs without one). Whether `first` is one of
+/// them.
+fn push_multiplayer(
+    ui: &mut Ui,
+    env: &ThemeEnv,
+    first: &str,
+    songs: Option<&Rc<crate::songs::Songs>>,
+    sound: Option<SharedPlayer>,
+) -> bool {
+    if !matches!(first, "multiplayer" | "room") {
+        return false;
+    }
+    let songs = songs.cloned();
+    ui.push(crate::room::home(env, songs.clone(), sound.clone()));
+    if first == "room" {
+        ui.push(crate::room::room_screen(env, songs, sound));
+    } else if let Some(invite) = crate::online::take_join() {
+        ui.push(crate::room::invite(env, invite, songs, sound));
+    }
+    true
+}
+
+/// The screens that open on the library on disk ([`opens_on_library`]).
+pub const LIBRARY_SCREENS: [&str; 6] = [
+    "start",
+    "select",
+    "options",
+    "announcer",
+    "multiplayer",
+    "room",
+];
+
+/// Whether `--screen` `screen` opens on the library on disk: one of
+/// [`LIBRARY_SCREENS`], unless `--sample` asks for the sample data (the
+/// announcer studio always does; the rest open on the sample songs).
+pub fn opens_on_library(screen: &str, sample: bool) -> bool {
+    LIBRARY_SCREENS.contains(&screen) && (!sample || screen == "announcer")
 }
 
 /// The theme's look, its environment (motion reduced as the settings
@@ -2362,6 +2373,22 @@ impl Shell {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The multiplayer's screens open on the library, as song select's
+    /// do, so that a room's stages can be played (`--screen
+    /// multiplayer|room`, `--join`); `--sample` keeps the sample songs
+    /// but for the announcer studio.
+    #[test]
+    fn the_multiplayers_screens_open_on_the_library() {
+        for screen in ["start", "select", "options", "announcer", "multiplayer", "room"] {
+            assert!(opens_on_library(screen, false), "{screen}");
+        }
+        for screen in ["results", "credits", "calibration", "widgets", "dev", ""] {
+            assert!(!opens_on_library(screen, false), "{screen}");
+        }
+        assert!(opens_on_library("announcer", true));
+        assert!(!opens_on_library("room", true) && !opens_on_library("select", true));
+    }
 
     /// The window icon draws the Infinito band over transparency,
     /// including transparent holes inside its inner outline.

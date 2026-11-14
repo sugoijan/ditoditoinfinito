@@ -458,15 +458,12 @@ pub fn run() {
         std::process::exit(shares_from_command_line(Some(id)));
     }
     let volume = a.parsed::<f32>("--volume").map(|v| v.clamp(0.0, 1.0));
-    // Song select and options on the library on disk (the bundled songs
-    // and the song folders), unless `--sample` asks for the sample data;
-    // `--songs <dir>` adds a folder for this run.
-    let songs = ((!a.has("--sample")
-        && matches!(screen.as_str(), "start" | "select" | "options"))
-        || screen == "announcer")
-        .then(|| {
-            songs::Songs::new(a.values("--songs").map(std::path::PathBuf::from).collect())
-        });
+    // The screens on the library on disk (the bundled songs and the song
+    // folders: song select, options, the multiplayer's), unless `--sample`
+    // asks for the sample data; `--songs <dir>` adds a folder for this run.
+    let songs = shell::opens_on_library(&screen, a.has("--sample")).then(|| {
+        songs::Songs::new(a.values("--songs").map(std::path::PathBuf::from).collect())
+    });
     // A play or a test opened from here: no first start's offer over it.
     if let Some(s) = &songs
         && a.any(&args::OPENS_SELECT)
