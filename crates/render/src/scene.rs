@@ -1326,6 +1326,10 @@ pub struct Miniature {
     /// field's small miniatures, where the difference does not show and
     /// the skin's drawing costs the GPU (`ddi_shell::opponents::Carry`).
     pub plain: bool,
+    /// Its combo scaled with its field as the play's is with its own,
+    /// never kept at [`crate::hud::MINI_COMBO_MIN_SCALE`] (a large
+    /// field's miniatures: at that size it covered a small field).
+    pub fit_combo: bool,
     /// Its attack power above its life, where the battle has attacks
     /// (none once out).
     pub battle: Option<crate::hud::BattleBar>,
@@ -1699,6 +1703,7 @@ mod tests {
             out: false,
             combo: true,
             plain: false,
+            fit_combo: false,
             battle: None,
         }];
         add_miniatures(

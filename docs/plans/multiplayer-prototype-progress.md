@@ -8768,13 +8768,28 @@ the language's words (`english_is_the_ruleset_s_own_words`), the
 results' rows in English and Japanese, `xtask l10n check` (ドロップ's
 kana are in the faces).
 
+### The combo number shrinks with a small field
+
+On a large field's miniatures (more than a room of nine's eight shown)
+the combo is scaled with the field as the play's own combo is with its
+lane (`ddi_render::scene::Miniature::fit_combo`, `hud::Hud::prepare_minis`),
+no longer held at the least size a miniature's combo had
+(`MINI_COMBO_MIN_SCALE`, 0.3 of the play's, which at lanes of 10 to 16 px
+made it larger than the field's middle). It is left out below
+`CARRY_COMBO` (`carry-v0`'s step, re-chosen by looking: kept at 9 px,
+since at 11 px, 72 fields at 1280×720, the digits are about 8 px tall
+and read; the fields never go under 10). Rooms of eight or fewer and the
+field a watcher follows are unchanged. Pictures (desktop offscreen,
+`target/scratch/mp/fuf/shots/combo/`): 24, 36 and 72 fields at 1280×720
+(`combo-1280.png`), 72 at 1920×1080 and on a phone held sideways.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
 | `cpu-play-v1` (2026-11-14): a CPU at a level plays the chart a person is given; `hold-model-v1`: a hold let go early with half the level's lapse chance over each row's load while it lasts (1.25 times where the row uses the held lane's hand; the floor a second; Stamina and Technical dividing it by the square root of their product), rolls re-tapped every 0.12 s, lifts pressed 80 ms early, a chart's mine beside a note of its lane stepped on with the level's shock response, one inside a hold kept held over with that chance else let go around (30 ms before, 100 ms after); what is held adds 0.25 a lane to a row's speed demand | `ddi_engine::cpu::full` (`HOLD_MODEL_V1`, `CPU_PLAY`), `AbsoluteModel::held_load` | CPUs' fields show their holds, rolls, lifts and mines; their scores are their own and compare with a person's; holds let go 0 to 5% by level and chart | The values (never checked against people this round); whether weak levels should let go more |
 | Every opponent shown past eight where all fit at a lane of 10 px, fields cut to 8 lanes only where that makes all fit, a 3 px gap at nine columns (`fields-all-v0`: `MINI_LANE_ALL`, `DENSE_ROWS_MIN`, `DENSE_GAP`) | `ddi_shell::opponents` | 72 at 1280×720 are 9×4 a side at 11 px; smaller windows show as many as fit, the rest by rivals | Whether 10 px is the least the maintainer reads; whether shorter fields are wanted beyond the phone |
-| What a small field carries (`carry-v0`: score from 16 px, stars from 13, name from 11, combo from 9) | `ddi_shell::opponents::Carry` | 36 at 1280×720 lose the score, 72 also the stars | The steps, by looking |
+| What a small field carries (`carry-v0`: score from 16 px, stars from 13, name from 11, combo from 9, scaled with the field since follow-up round F) | `ddi_shell::opponents::Carry`, `Miniature::fit_combo` | 36 at 1280×720 lose the score, 72 also the stars; their combos small as their fields | The steps, by looking |
 | A large field's miniatures under 24 px lanes draw their holds, rolls and mines plainly, as the built-in skin (`plain-notes-v0`, `CARRY_SKIN_NOTES`) | `ddi_shell::opponents::Carry::skin_notes`, `ddi_render::scene::Miniature::plain` | 72 fields cost what taps-only fields do (Firefox's 7.7 ms frames on a hold chart back to 2.3); the small fields' holds lose Infinito's wave material | The size, by looking; whether the exact batching of stencil holds is worth building for rooms of 9 to 24 on large windows |
 | `hosted-deadline-v2` (2026-11-14): a loading grace of 45 s (`LOADING_GRACE_V2_MS`) before the readiness window, which then ends early once everyone who loaded is ready; practice keeps v1 | `ddi_room::ReadinessPolicy`, `reduce.rs` (`window_from`, `end_loading`), the server's `ROOM_LOADING_GRACE_MS` | A slow loader holds the stage up to 45 s, then has the 15 s Ready countdown to finish and ready, else sits it out; rows say Loading | The 45 s; whether a late loader should hold the countdown's early end |
 | `adaptive-v2` (2026-11-14): a step up also needs 95% of its bars' taps in the two best judgments (`ADAPTIVE_ACCURACY_V2`); a step down's boundary without the extra second (`down_lead` 0) | `ddi_engine::ladder::ADAPTIVE_V2` | Weak players and CPUs stay on their chart unless they play it cleanly; a step down's easier chart comes a bar sooner | The 95%; whether the step up's own second should go too |

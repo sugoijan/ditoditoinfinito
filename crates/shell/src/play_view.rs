@@ -1388,6 +1388,7 @@ impl<H: PlayHost> PlayView<H> {
                     out: mini.failed,
                     combo: fields.as_ref().is_none_or(|f| f.carry.combo) || followed,
                     plain: !followed && fields.as_ref().is_some_and(|f| !f.carry.skin_notes),
+                    fit_combo: !followed && fields.as_ref().is_some_and(|f| f.dense),
                     frame: mini,
                     geometry: slot.field,
                     panel: slot.panel,

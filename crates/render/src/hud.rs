@@ -313,7 +313,9 @@ pub(crate) struct Hud {
 
 /// The least a miniature's combo is scaled (the play's is 1 at a 72 px
 /// lane): smaller, its digits stop reading, so a small miniature's combo
-/// is larger than its lanes would make it.
+/// is larger than its lanes would make it. A large field's miniatures
+/// (`crate::scene::Miniature::fit_combo`) scale theirs with the field
+/// instead, and leave it out where it no longer reads.
 pub const MINI_COMBO_MIN_SCALE: f32 = 0.3;
 
 /// The miniatures' HUDs (`crate::scene::Miniature`): each one's life gauge
@@ -524,7 +526,8 @@ impl Hud {
                 value /= 10;
             }
             let count = count as f32;
-            let cs = s.max(MINI_COMBO_MIN_SCALE) * if tier == 10 { 1.2 } else { 1.0 } * pulse;
+            let least = if m.fit_combo { 0.0 } else { MINI_COMBO_MIN_SCALE };
+            let cs = s.max(least) * if tier == 10 { 1.2 } else { 1.0 } * pulse;
             let width = (count * 32.0 + 32.0) * cs;
             let bar = mini_life_rect(geo, top, span);
             let (power_rect, power, power_style) =
