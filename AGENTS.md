@@ -808,7 +808,10 @@ Rust and the browser are implementation details, not advertised features.
   row and behind the judgment and the notes, `play_view::behind_field`,
   `dance::behind_field_distance`), drawn by the play's own noteskin
   after its field on a band as its field's (`ddi_render::scene::Miniature`,
-  `NoteLayer::miniature`: no Lua run, the play's field's state put back),
+  `NoteLayer::miniature`: no Lua run, the play's field's state put back;
+  a large field's miniatures under `opponents::CARRY_SKIN_NOTES` draw
+  their holds, rolls and mines plainly, as the built-in skin does, in the
+  sprites' one run, `Miniature::plain`, `plain-notes-v0`),
   each one's life gauge and combo by the play's HUD shader placed as the
   play's (`hud::Hud::prepare_minis`), names and Out by the 2D pass, with
   each one's score small under its gauge (`opponents::ScoreShown`: DDI's

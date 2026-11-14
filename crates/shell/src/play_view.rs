@@ -1383,10 +1383,11 @@ impl<H: PlayHost> PlayView<H> {
                         warnings.push((slot.seat, slot.field, cue));
                     }
                 }
+                let followed = large.is_some_and(|l| l.seat == slot.seat);
                 minis.push(ddi_render::scene::Miniature {
                     out: mini.failed,
-                    combo: fields.as_ref().is_none_or(|f| f.carry.combo)
-                        || large.is_some_and(|l| l.seat == slot.seat),
+                    combo: fields.as_ref().is_none_or(|f| f.carry.combo) || followed,
+                    plain: !followed && fields.as_ref().is_some_and(|f| !f.carry.skin_notes),
                     frame: mini,
                     geometry: slot.field,
                     panel: slot.panel,

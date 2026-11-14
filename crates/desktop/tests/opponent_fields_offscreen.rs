@@ -721,6 +721,7 @@ fn miniature_scenarios_pictures_and_costs() {
                 ..all("upto8-72-cpus-1920x1080", 72, [1920, 1080])
             },
         ])
+        .chain(cost_scenarios())
         .collect();
     let only = std::env::var("DDI_FIELDS_ONLY").ok();
     for s in scenarios.iter() {
@@ -738,4 +739,38 @@ fn miniature_scenarios_pictures_and_costs() {
             eprintln!("  miniatures: {}", p.cost.line());
         }
     }
+}
+
+/// What holds and mines on many small fields cost (follow-up round F,
+/// item 1): Beatucada's Hard (few holds, no mines: the baseline), Easy
+/// (holds) and Challenge (holds and 132 mines), with 8, 24 and 72 CPUs at
+/// 1280×720 and 2560×1440 (`DDI_FIELDS_ONLY=cost-` runs them alone).
+fn cost_scenarios() -> Vec<Scenario> {
+    let mut out = Vec::new();
+    for (chart, name) in [(5, "hard"), (3, "easy"), (0, "challenge")] {
+        for size in [[1280, 720], [2560, 1440]] {
+            for cpus in [8u16, 24, 72] {
+                let name: &'static str = Box::leak(
+                    format!("cost-{name}-{cpus}-cpus-{}x{}", size[0], size[1]).into_boxed_str(),
+                );
+                out.push(Scenario {
+                    name,
+                    size,
+                    cpus,
+                    level: 7,
+                    skin: None,
+                    lives: None,
+                    hand: false,
+                    chart,
+                    shots: &[20.0],
+                    measure: Some(22.0),
+                    lyrics: false,
+                    attacks: true,
+                    up_to_eight: false,
+                    letgo_shot: false,
+                });
+            }
+        }
+    }
+    out
 }

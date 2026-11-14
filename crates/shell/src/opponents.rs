@@ -184,6 +184,9 @@ pub struct Carry {
     pub stars: bool,
     pub name: bool,
     pub combo: bool,
+    /// Its holds, rolls and mines as the skin draws them; else plainly,
+    /// as the built-in skin does (`ddi_render::scene::Miniature::plain`).
+    pub skin_notes: bool,
 }
 
 /// PROVISIONAL (`carry-v0`): the lanes (logical pixels) from which a
@@ -193,6 +196,13 @@ pub const CARRY_SCORE: f32 = 16.0;
 pub const CARRY_STARS: f32 = 13.0;
 pub const CARRY_NAME: f32 = 11.0;
 pub const CARRY_COMBO: f32 = 9.0;
+/// PROVISIONAL (`plain-notes-v0`, follow-up round F): the lane (logical
+/// pixels) from which a large field's miniature draws its holds, rolls
+/// and mines as the skin does (its long notes' material and stencil, its
+/// mines' electricity); below it they are drawn plainly, which the GPU
+/// does in one run for every field. Chosen by looking: below it the
+/// skin's drawing and the plain one cannot be told apart.
+pub const CARRY_SKIN_NOTES: f32 = 24.0;
 
 impl Carry {
     /// Everything: a room of eight or fewer's miniatures.
@@ -201,6 +211,7 @@ impl Carry {
         stars: true,
         name: true,
         combo: true,
+        skin_notes: true,
     };
 
     /// What a miniature at `lane` carries, in a large field (`dense`) or
@@ -214,6 +225,7 @@ impl Carry {
             stars: lane >= CARRY_STARS,
             name: lane >= CARRY_NAME,
             combo: lane >= CARRY_COMBO,
+            skin_notes: lane >= CARRY_SKIN_NOTES,
         }
     }
 }
@@ -2669,7 +2681,13 @@ pub(crate) mod tests {
         assert!(!c.score && !c.stars && c.name && c.combo);
         let c = Carry::at(10.0, true);
         assert!(!c.name && c.combo);
-        assert_eq!(Carry::at(CARRY_SCORE, true), Carry::ALL);
+        assert_eq!(
+            Carry::at(CARRY_SCORE.max(CARRY_SKIN_NOTES), true),
+            Carry::ALL
+        );
+        // Holds and mines plainly below their size, a room of eight never.
+        assert!(!Carry::at(CARRY_SKIN_NOTES - 1.0, true).skin_notes);
+        assert!(Carry::at(CARRY_SKIN_NOTES - 1.0, false).skin_notes);
         // Drawn: 72 at 1280×720 (lanes of 11) carry their names, no score
         // and no stars; Out still said; no strip under the ladder's words.
         let g = geo(1280.0, 720.0);

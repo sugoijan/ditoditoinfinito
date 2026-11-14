@@ -1072,49 +1072,12 @@ pub fn build_into(
     // Hold bodies first so heads draw over them.
     let notes: &[NoteSprite] = if opts.hide_notes { &[] } else { &frame.notes };
     for note in notes {
-        if let SpriteKind::HoldHead {
-            tail_y,
-            active,
-            dropped,
-        }
-        | SpriteKind::RollHead {
-            tail_y,
-            active,
-            dropped,
-        } = note.kind
+        if matches!(
+            note.kind,
+            SpriteKind::HoldHead { .. } | SpriteKind::RollHead { .. }
+        ) && !drawn(&layer, usize::from(note.lane), layer_part(&note.kind))
         {
-            let Some(lane) = layout.lanes.get(note.lane as usize) else {
-                continue;
-            };
-            if drawn(&layer, usize::from(note.lane), layer_part(&note.kind)) {
-                continue;
-            }
-            let is_roll = matches!(note.kind, SpriteKind::RollHead { .. });
-            let state = long_state(active, dropped);
-            let head_y = geo.lane_y(lane.scroll_sign, note.y);
-            let tail_screen = geo.lane_y(lane.scroll_sign, tail_y);
-            let tail_down = tail_screen >= head_y;
-            let ribs = rib_way(&lane.glyph, tail_down);
-            // Only the parts Hidden/Sudden leave visible; the one reaching
-            // the tail ends in a point.
-            for (lo, hi) in frame.appearance.visible_spans(note.y, tail_y) {
-                let y0 = geo.lane_y(lane.scroll_sign, lo);
-                let y1 = geo.lane_y(lane.scroll_sign, hi);
-                let center_y = (y0 + y1) / 2.0;
-                let h = (y1 - y0).abs().max(1.0);
-                let mut body = Instance::new(
-                    [geo.lane_x(lane.column), center_y],
-                    [a * 1.1, h],
-                    Shape::HoldBody,
-                    [1.0, 1.0, 1.0, LONG_ALPHA],
-                )
-                .params([if is_roll { 1.0 } else { 0.0 }, state, ribs, a]);
-                if hi >= tail_y {
-                    body.shape |= HOLD_TAIL;
-                }
-                // The quad's +y is the tail's way.
-                instances.push(body.rotated(if tail_down { 0.0 } else { std::f32::consts::PI }));
-            }
+            push_hold_body(&mut instances, note, layout, geo, frame);
         }
     }
 
@@ -1357,6 +1320,12 @@ pub struct Miniature {
     /// Its combo drawn (a large field's smallest leave it out:
     /// `ddi_shell::opponents::Carry`).
     pub combo: bool,
+    /// Its holds, rolls and mines drawn plainly, as the built-in skin
+    /// draws them (one run of sprites), rather than by the skin (its
+    /// long notes' material and stencil, its mines' electricity): a large
+    /// field's small miniatures, where the difference does not show and
+    /// the skin's drawing costs the GPU (`ddi_shell::opponents::Carry`).
+    pub plain: bool,
     /// Its attack power above its life, where the battle has attacks
     /// (none once out).
     pub battle: Option<crate::hud::BattleBar>,
@@ -1431,8 +1400,23 @@ pub(crate) fn add_miniatures(
                 .params([0.0, flash, 0.0, 0.0]),
             );
         }
+        // Drawn plainly: the built-in bodies under the heads, and the
+        // mines (a chart's white, a battle's shocks violet).
+        let plain = |note: &NoteSprite| {
+            m.plain
+                && matches!(
+                    note.kind,
+                    SpriteKind::HoldHead { .. }
+                        | SpriteKind::RollHead { .. }
+                        | SpriteKind::Mine
+                        | SpriteKind::Shock
+                )
+        };
+        for note in frame.notes.iter().filter(|n| plain(n)) {
+            push_hold_body(&mut out.instances, note, layout, geo, frame);
+        }
         for note in &frame.notes {
-            if !drawn(&layer, usize::from(note.lane), head_part(&note.kind)) {
+            if plain(note) || !drawn(&layer, usize::from(note.lane), head_part(&note.kind)) {
                 push_note(&mut out.instances, note, layout, geo, opts, frame.beat);
             }
         }
@@ -1442,12 +1426,64 @@ pub(crate) fn add_miniatures(
     if let Some(l) = layer.as_mut() {
         for m in minis {
             let from = out.quads.len() as u32;
-            l.miniature(&m.frame, layout, &m.geometry, &mut out.quads);
+            l.miniature(&m.frame, layout, &m.geometry, m.plain, &mut out.quads);
             out.parts.push(from..out.quads.len() as u32);
         }
     }
     order.quads(out.quads.len());
     out.order = order.segments;
+}
+
+/// A hold's or roll's built-in body (a roll ribbed), the parts Hidden and
+/// Sudden leave visible, the one reaching the tail ending in a point.
+fn push_hold_body(
+    instances: &mut Vec<Instance>,
+    note: &NoteSprite,
+    layout: &Layout,
+    geo: &FieldGeometry,
+    frame: &Frame,
+) {
+    let (SpriteKind::HoldHead {
+        tail_y,
+        active,
+        dropped,
+    }
+    | SpriteKind::RollHead {
+        tail_y,
+        active,
+        dropped,
+    }) = note.kind
+    else {
+        return;
+    };
+    let Some(lane) = layout.lanes.get(note.lane as usize) else {
+        return;
+    };
+    let a = geo.arrow;
+    let is_roll = matches!(note.kind, SpriteKind::RollHead { .. });
+    let state = long_state(active, dropped);
+    let head_y = geo.lane_y(lane.scroll_sign, note.y);
+    let tail_screen = geo.lane_y(lane.scroll_sign, tail_y);
+    let tail_down = tail_screen >= head_y;
+    let ribs = rib_way(&lane.glyph, tail_down);
+    for (lo, hi) in frame.appearance.visible_spans(note.y, tail_y) {
+        let y0 = geo.lane_y(lane.scroll_sign, lo);
+        let y1 = geo.lane_y(lane.scroll_sign, hi);
+        let center_y = (y0 + y1) / 2.0;
+        let h = (y1 - y0).abs().max(1.0);
+        let mut body = Instance::new(
+            [geo.lane_x(lane.column), center_y],
+            [a * 1.1, h],
+            Shape::HoldBody,
+            [1.0, 1.0, 1.0, LONG_ALPHA],
+        )
+        .params([if is_roll { 1.0 } else { 0.0 }, state, ribs, a]);
+        if hi >= tail_y {
+            body.shape |= HOLD_TAIL;
+        }
+        // The quad's +y is the tail's way.
+        instances.push(body.rotated(if tail_down { 0.0 } else { std::f32::consts::PI }));
+    }
 }
 
 fn push_note(
@@ -1662,6 +1698,7 @@ mod tests {
             panel: [850.0, 200.0, 930.0, 320.0],
             out: false,
             combo: true,
+            plain: false,
             battle: None,
         }];
         add_miniatures(

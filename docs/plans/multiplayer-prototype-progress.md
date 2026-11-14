@@ -8474,6 +8474,104 @@ body dimmed on its miniature while the others' stay lit. The scenario
 takes its picture just after the first hold any CPU lets go
 (`letgo_shot`).
 
+## Follow-up round F: the maintainer's decisions of 2026-11-14
+
+Nine items, each its own commit, in the brief's order.
+
+### Holds and mines on many small fields drawn plainly (`plain-notes-v0`)
+
+The full-chart round left 72 opponents' fields on a chart with holds or
+mines costing several milliseconds of GPU a frame natively.
+
+**What costs.** A `Def.LongNote` hold is drawn with the stencil: a clear,
+the envelope written, the shadows outside it, a clear, the band written
+with the head's holes erased, the wave material inside it, the overlap
+shadow, a clear; about fifteen quads in eight mask states a hold, and the
+batching never moves a masked quad (`ddi_render::batching`: only unmasked
+quads move to an earlier batch; a masked quad keeps its place). So every hold on every miniature is its own run of draws: on
+Beatucada's Easy at 20 s, 72 fields drew in **2,049 batches** (Hard, 5
+holds: 86). The mines' electricity (`MineConnectRows`, a `Tap Mine`
+frame's link and rims) adds quads and passes beside every mine. The GPU's
+work is many tiny draws and state changes, not pixels: it barely grows
+from 1280×720 to 2560×1440.
+
+**The exact fixes were not taken.** Batching masked holds across fields
+would need each mask phase of every field's holds merged into one run
+(the fields' pixels never overlap, so it is exact in principle), with
+the stencil's clears bounded per field: a reordering of the stencil
+passes that the batching's checks do not cover today. Fewer passes a
+hold would change the skin's look on every field, the play's own too.
+Both are left as proposals.
+
+**Plain below a size.** A large field's miniature (more than a room of
+nine's eight shown) whose lane is under **24 logical pixels**
+(`ddi_shell::opponents::CARRY_SKIN_NOTES`, `Carry::skin_notes`,
+PROVISIONAL) draws its holds, rolls and mines as the built-in skin does
+(`ddi_render::scene::Miniature::plain`): a hold's body in Infinito's
+built-in shape (a roll ribbed, a let-go hold dimmed, its tail pointed),
+its head the built-in long-note head, a mine the built-in mine (a
+battle's shock violet, a chart's mine white), all in the sprites' one
+run; the skin still draws everything else (receptors, taps, hit
+effects). Chosen by looking (`target/scratch/mp/fuf/shots/`): at 23 px
+(72 at 2560×1440 at scale 1) the built-in hold and the skin's are both a
+green chevron band and the mines both a small spiked mark; at 16 px and
+11 px nothing tells them apart. A room of eight or fewer never draws
+plainly (pixel tests unchanged), nor does the field a watcher follows.
+In rooms of nine to sixteen on a 1280×720 window (lanes of 23 to 25)
+the fields at 23 draw plainly.
+
+**Measured.** Natively (desktop offscreen, `opponent_fields_offscreen`'s
+new `cost-` scenarios, a debug build at opt-level 1, attacks on, CPUs at
+level 8, 220 frames from song second 22; load 3 to 11), a frame recorded
+and with the GPU's work, ms mean; Beatucada's Hard (5 holds, no mines:
+the near taps-only baseline), Easy (holds), Challenge (holds and 132
+mines):
+
+| Fields, size | Hard | Easy before → after | Challenge before → after |
+| --- | --- | --- | --- |
+| 8, 1280×720 | 0.29 / 1.44 | 0.28 / 1.94 → 0.27 / 1.82 | 0.34 / 2.29 → 0.33 / 2.38 |
+| 24, 1280×720 | 0.43 / 1.64 | 0.46 / 3.10 → 0.36 / 1.60 | 0.63 / 4.48 → 0.46 / 1.82 |
+| 72, 1280×720 | 0.67 / 2.04 | 0.78 / 6.28 → 0.54 / 2.05 | 1.17 / 9.84 → 0.72 / 2.25 |
+| 24, 2560×1440 (scale 1, lanes of 35: full) | 0.47 / 1.87 | 0.49 / 3.48 → 0.46 / 3.35 | 0.69 / 4.85 → 0.66 / 4.80 |
+| 72, 2560×1440 (scale 1, lanes of 23) | 1.10 / 3.10 | 1.06 / 7.07 → 0.81 / 2.71 | 1.55 / 10.82 → 1.12 / 3.44 |
+
+The skins' quads of 72 fields on Easy: 2,049 batches before, 71 after.
+
+In the browsers (`perf=1`, release builds of the same code with the
+plain drawing off and on, `target/scratch/mp/fuf/perf/`; CPU practice
+with 72 CPUs of mixed levels, As picked, the room's place set on the
+chart, autoplayed, song seconds 16 to 26, where Easy's holds are; each
+pair back to back, load 1.6 to 11, mostly 2 to 5). Chrome (WebGPU),
+main thread mean ms and the GPU's submit-to-done:
+
+| Chrome, 72 fields | Hard | Easy full → plain | Challenge full → plain |
+| --- | --- | --- | --- |
+| 1280×720, main | 1.82 / 1.88 | 2.20 → 1.77 | 2.59 → 2.10 |
+| 1280×720, GPU | 1.93 / 2.10 | 3.31 → 2.15 | 3.19 → 2.17 |
+| 2560×1440, main | 1.87 / 1.72 | 2.16 → 1.65 | 2.53 → 2.01 |
+| 2560×1440, GPU | 3.52 / 3.40 | 4.53 → 3.54 | 5.01 → 3.81 |
+| 24 fields, 2560×1440, main / GPU | | 1.58 / 4.01 → 1.49 / 3.64 | 1.72 / 4.04 → 1.49 / 3.72 |
+
+Firefox (WebGL2), main thread mean ms (frames over 8.3 ms of 600), and
+the GPU by the `readPixels` wait (a run of its own, `GPUSYNC=1`):
+
+| Firefox, 72 fields | Hard (full / plain) | Easy full → plain | Challenge full → plain |
+| --- | --- | --- | --- |
+| 2560×1440, main | 2.54 (0) / 2.49 (0) | 7.67 (158) → 2.32 (0) | 7.91 (246) → 2.67 (0) |
+| 2560×1440, submit | 0.82 / 0.82 | 5.87 → 0.70 | 5.61 → 0.84 |
+| 2560×1440, GPU | 3.48 / 3.51 | 4.66 → 3.56 | 4.94 → 3.75 |
+| 1280×720, main / GPU | | 7.45 / 3.38 → 2.24 / 2.16 | |
+
+**The target is met in both browsers at 2560×1440**: 72 fields on the
+hold chart within 0.1 ms of GPU and 0.2 ms of main thread of the near
+taps-only chart, on the mine chart within 0.3 and 0.2 (Chrome 0.3 / 0.4
+and 0.3 / 0.3). Firefox was the real problem: its WebGL calls for the
+stencil holds took 5.6 to 5.9 ms a frame (a quarter of the frames over a
+120 Hz frame's 8.3 ms). "Opponents' fields" keeps its default, As many
+as fit. Left as it is: a room of 9 to 24 at a large window at scale 1
+(lanes of 24 px or more) still draws the skin's holds, about +1.5 ms of
+GPU natively for 24 fields on the mine chart.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -8481,6 +8579,7 @@ takes its picture just after the first hold any CPU lets go
 | `cpu-play-v1` (2026-11-14): a CPU at a level plays the chart a person is given; `hold-model-v1`: a hold let go early with half the level's lapse chance over each row's load while it lasts (1.25 times where the row uses the held lane's hand; the floor a second; Stamina and Technical dividing it by the square root of their product), rolls re-tapped every 0.12 s, lifts pressed 80 ms early, a chart's mine beside a note of its lane stepped on with the level's shock response, one inside a hold kept held over with that chance else let go around (30 ms before, 100 ms after); what is held adds 0.25 a lane to a row's speed demand | `ddi_engine::cpu::full` (`HOLD_MODEL_V1`, `CPU_PLAY`), `AbsoluteModel::held_load` | CPUs' fields show their holds, rolls, lifts and mines; their scores are their own and compare with a person's; holds let go 0 to 5% by level and chart | The values (never checked against people this round); whether weak levels should let go more |
 | Every opponent shown past eight where all fit at a lane of 10 px, fields cut to 8 lanes only where that makes all fit, a 3 px gap at nine columns (`fields-all-v0`: `MINI_LANE_ALL`, `DENSE_ROWS_MIN`, `DENSE_GAP`) | `ddi_shell::opponents` | 72 at 1280×720 are 9×4 a side at 11 px; smaller windows show as many as fit, the rest by rivals | Whether 10 px is the least the maintainer reads; whether shorter fields are wanted beyond the phone |
 | What a small field carries (`carry-v0`: score from 16 px, stars from 13, name from 11, combo from 9) | `ddi_shell::opponents::Carry` | 36 at 1280×720 lose the score, 72 also the stars | The steps, by looking |
+| A large field's miniatures under 24 px lanes draw their holds, rolls and mines plainly, as the built-in skin (`plain-notes-v0`, `CARRY_SKIN_NOTES`) | `ddi_shell::opponents::Carry::skin_notes`, `ddi_render::scene::Miniature::plain` | 72 fields cost what taps-only fields do (Firefox's 7.7 ms frames on a hold chart back to 2.3); the small fields' holds lose Infinito's wave material | The size, by looking; whether the exact batching of stencil holds is worth building for rooms of 9 to 24 on large windows |
 | Opponents' fields default "As many as fit" | `Settings::opponent_fields` | About +0.85 ms main thread (Firefox) and +0.8 ms GPU at 2560×1440 with 72 | Whether the default should follow the room's size or the measured frame time |
 | Dancing hand in multiplayer Off by default | `Settings::dancing_hand_multiplayer` | No hand in a stage unless turned on | None (the maintainer's request) |
 | `online-cpus-v0` (2026-11-13): an online room's CPUs computed alike on every device (50 ms steps from −2 s, a shock put in 1.25 s after its checkpoint, a 2 s horizon's lead); every connected player's device reports for them, the room taking the first and counting a different one; nobody left to compute ends them as forfeits | `ddi_room::live::cpus`, `ddi_session::battle::cpus` | The host adds CPUs online as in practice; a wrong report that reached the room first stands | First or majority; the bytes (every device sends every CPU); the horizon |

@@ -124,12 +124,15 @@ pub trait NoteLayer {
     /// notes, and the hit effects of its judgments
     /// ([`ddi_engine::frame::ReceptorState::flash`]) where the layer
     /// draws them without running anything ([`NoteLayer::miniature_hits`]);
-    /// nothing of the play's own field changes.
+    /// nothing of the play's own field changes. `plain`: its holds,
+    /// rolls and mines are drawn by the built-in skin
+    /// ([`crate::scene::Miniature::plain`]), so the layer leaves them out.
     fn miniature(
         &mut self,
         _frame: &Frame,
         _layout: &Layout,
         _geo: &FieldGeometry,
+        _plain: bool,
         _out: &mut Vec<TexQuad>,
     ) {
     }
@@ -379,6 +382,9 @@ pub struct NoteskinPlay {
     /// How opaque explosion components' instances are drawn: 1 on the
     /// play's field, [`MINIATURE_HIT_ALPHA`] on a miniature's.
     explosion_alpha: f32,
+    /// A plain miniature's mines are the built-in skin's
+    /// ([`NoteLayer::miniature`]): [`NoteLayer::notes`] leaves them out.
+    no_mines: bool,
     /// Built-in substitutions and command errors, for the import report
     /// and the console.
     pub notes: Vec<String>,
@@ -1177,6 +1183,7 @@ impl NoteskinPlay {
             timer: 0.0,
             rest_receptors: None,
             explosion_alpha: 1.0,
+            no_mines: false,
             notes,
             problems: Problems::default(),
             srgb,
@@ -2369,6 +2376,7 @@ impl NoteLayer for NoteskinPlay {
         frame: &Frame,
         layout: &Layout,
         geo: &FieldGeometry,
+        plain: bool,
         out: &mut Vec<TexQuad>,
     ) {
         let now = self.frame_time.0;
@@ -2421,8 +2429,13 @@ impl NoteLayer for NoteskinPlay {
         self.rest_receptors = rest;
         // Its holds and rolls first, as a field's (a person's stream draws
         // them: `TapTrack::full`), then its notes.
-        self.holds(frame, layout, geo, out);
+        // Drawn plainly, its holds and mines are the built-in skin's.
+        if !plain {
+            self.holds(frame, layout, geo, out);
+        }
+        self.no_mines = plain;
         self.notes(frame, layout, geo, out);
+        self.no_mines = false;
         if self.miniature_hits() {
             // A small field's hit effect at full strength reads as a blot
             // over its receptor (Infinito's white W1 burst): fainter.
@@ -2724,7 +2737,12 @@ impl NoteLayer for NoteskinPlay {
         let k = geo.arrow / 64.0;
         let mut lanes = std::mem::take(&mut self.lanes);
         let mut electricity = Vec::new();
-        let joined = self.mine_links(frame, layout, geo, &mut lanes, out, &mut electricity);
+        let no_mines = self.no_mines;
+        let joined = if no_mines {
+            Default::default()
+        } else {
+            self.mine_links(frame, layout, geo, &mut lanes, out, &mut electricity)
+        };
         let mut order = std::mem::take(&mut self.note_order);
         order.clear();
         order.extend(
@@ -2742,7 +2760,9 @@ impl NoteLayer for NoteskinPlay {
                 SpriteKind::Tap | SpriteKind::Dummy => (Slot::Tap, Part::TapNote),
                 SpriteKind::Lift => (Slot::Lift, Part::TapLift),
                 SpriteKind::Fake => (Slot::Fake, Part::TapFake),
-                SpriteKind::Mine | SpriteKind::Shock => (lane.mine_slot(note), Part::TapMine),
+                SpriteKind::Mine | SpriteKind::Shock if !no_mines => {
+                    (lane.mine_slot(note), Part::TapMine)
+                }
                 _ => continue,
             };
             let note_type = note_type(note.beat);
@@ -3873,7 +3893,7 @@ mod tests {
         mini.receptors[2].flash = Some((Judgement::W2, 0.05));
         mini.receptors[3].flash = Some((Judgement::Miss, 0.05));
         let mut out = Vec::new();
-        play.miniature(&mini, &layout, &geo, &mut out);
+        play.miniature(&mini, &layout, &geo, false, &mut out);
         let bursts: Vec<_> = out
             .iter()
             .filter(|q| q.texture == 70)
