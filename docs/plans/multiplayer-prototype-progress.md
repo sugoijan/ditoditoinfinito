@@ -8918,6 +8918,44 @@ were):
   never used since `audience-view-v1`). The web's debug state calls the
   ladder `battle.ladder` (`battle.step_down` before).
 
+## The shells' room glue in one place (2026-11-14)
+
+The web shell and the desktop shell each kept a copy of the same room
+and online bookkeeping; each is now one copy in the shared crates, with
+nothing two peers agree on changed (the room model's revision stays 8;
+no judged result, CPU press, attack record, ranking, stream byte or
+digest moved):
+
+- The practice room as the shells make it, `ddi_ui::state::room::practice_room`,
+  the development switch's CPUs beyond the cap now `Development::cpus`.
+- A room's socket's address, `ddi_ui::state::online::api::socket_url`
+  (a trailing `/` on the server's address dropped on the web too).
+- `StageOrder::for_audience`; the announcer's `ddi_session::announcer::For`.
+- A stage's prompt left, `ddi_session::battle::leave_prompt`: withdrawn
+  before its start, else the forfeit (an online room's as the player's
+  own run, a practice's CPUs played out and reported), or the match
+  stopped. The shells differed in two small ways, both kept as the
+  better one: a practice stage whose song has no such chart stops the
+  match (the web's check; desktop tried to play the CPUs on it), and an
+  online room's refusal of the forfeit is logged on the web too
+  (desktop's). Pinned by session tests over the practice authority and
+  the fake server (`a_practice_stage_left_from_its_prompt_…`,
+  `an_online_stage_left_from_its_prompt_…`).
+- A shared song as a shell read it, `SharedFound`, made into what the
+  room shows by the room's and the audience's clients (desktop's own
+  copy of it went).
+- The online session's clients, `ddi_ui::state::online::Kept` (the room
+  by id, the audience's seat by link, let go when left). The web now
+  also forgets an online room's stage hand-over when the room is left,
+  so its client does not live on there either.
+- Join by link and an invite's page are a fed page themselves
+  (`OnlineScreen`, a `FedPage`); the home is its own screen
+  (`online_home::Home`).
+- On desktop a stage's room travels with the play request
+  (`room::StageRoom`), so the thread-local lookups and the tests' hooks
+  into them (`set_live_for_tests`, `set_audience_for_tests`) went. The
+  web keeps its thread-locals: its play is a route of its own.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

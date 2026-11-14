@@ -668,8 +668,13 @@ Rust and the browser are implementation details, not advertised features.
   stage's CPU opponents (`battle.rs`, `SessionConfig::opponents`, apart
   from the solo CPU demo's `cpu`: each a `ddi_engine::cpu::Opponent`
   judged beside the play, shown read-only, the stage's outcome as the
-  room's ranking, `take_stage_outcome`; a stage-left-at-its-prompt
-  forfeit, `battle::forfeit`; the battle's moments it tells,
+  room's ranking, `take_stage_outcome`; reported to its room for both
+  shells, `battle::report_outcome`; a stage's prompt left, the shells'
+  one way, `battle::leave_prompt` (withdrawn before its start, else a
+  forfeit: an online room's as the player's own run, a practice's CPUs
+  played out, `battle::forfeit`, or the match stopped); an announcer's
+  sounds for a play, a stage or song select, `announcer::For`; the
+  battle's moments it tells,
   `Battle::take_events`, spoken by a stage's voice,
   `announcer/battle.rs`: the provisional `BATTLE_VOICE_V0`, its
   priorities, one battle line at a time, a play's routine lines left
@@ -1314,8 +1319,8 @@ Rust and the browser are implementation details, not advertised features.
   2026-11-14 (`Settings::multiplayer` gates nothing and is only read;
   the web's `mp=1`/`mp=0` and desktop's `--multiplayer on|off` are taken
   and do nothing): the start menu's Multiplayer opens the
-  multiplayer home (`ddi_ui::screens::online::OnlineScreen`, the home
-  itself `screens/online_home.rs`: the start menu's column and rain under
+  multiplayer home (`ddi_ui::screens::online_home::Home`: the start
+  menu's column and rain under
   the bars; Find match and Browse rooms grayed "Coming soon", Private
   room, Join by link (a page with the invite field) and, last, CPU
   practice, the first key focusing Private room, `Screen::first_focus`;
@@ -1325,7 +1330,8 @@ Rust and the browser are implementation details, not advertised features.
   client: `RoomClient` holds `ddi_room`'s `LocalAuthority` and a `Mirror`
   kept from its envelopes, sends every change as a command (no room logic
   of its own), knows which library song and chart a stage's opaque content
-  names (`Picked`), refuses charts the CPU cannot play (`eligible`: one
+  names (`Picked`; a shared song as a shell read it, `SharedFound`, made
+  into one by the client, `finish_shared_found`), refuses charts the CPU cannot play (`eligible`: one
   player, four lanes), picks (`pick`: M7b's flow, `Command::Pick`),
   knows whether this player chooses the room's songs (`chooses`: the
   room's picker; `may_take_pick` and `take_pick` for an operator who
@@ -1337,7 +1343,9 @@ Rust and the browser are implementation details, not advertised features.
   prompt (`StageOrder`, `RoomCall::PlayStage`; `view`, `stage_started`,
   `leave_prompt`), whose judged outcome the shell reports as the
   authority (`report_stage`); `SharedRoom` is what the shells keep across
-  screens. `state/cpu_roster.rs` (with `cpu_roster.json`): the named CPUs
+  screens; a practice room as the shells make it, `practice_room`
+  (the development switch's CPUs beyond the cap, `Development::cpus`).
+  `state/cpu_roster.rs` (with `cpu_roster.json`): the named CPUs
   practice seats (invented names, data in every language; each at one of
   the ten levels, every level somebody's, shown as stars and never as a
   number), Add random's `RosterAim` hook; the roster a practice room was
@@ -1404,10 +1412,13 @@ Rust and the browser are implementation details, not advertised features.
   (`gauge-survival-v0`). Desktop's threads answer through the client's
   inbox (`set_inbox`, `ShellNews`). `crates/ui/src/state/online/` is the sign-in and the
   rooms' HTTP, sans-IO (`Online` over the shell's `Http`; `api.rs` each
-  request and answer; desktop's attempt polled, the web's page left for
-  the server's sign-in), `screens/online.rs` the multiplayer home and an
-  invite's page as pages made from it (`OnlineScreen`, `OnlineCall` to
-  the shell). The audience (`docs/plans/multiplayer-audience.md`):
+  request and answer, a room's socket's address, `api::socket_url`;
+  desktop's attempt polled, the web's page left for the server's
+  sign-in), and what both shells keep of it, `online::Kept` (the online
+  state, the room by id, the audience's seat by link, each made by the
+  shell's makers, let go when left), `screens/online.rs` Join by link
+  and an invite's page as pages fed by it (`OnlineScreen`, a `FedPage`;
+  `OnlineCall` to the shell). The audience (`docs/plans/multiplayer-audience.md`):
   `crates/ui/src/state/audience.rs`, `AudienceClient`, a seat over the
   shell's socket (`ddi_room::audience::Audience`), its tickets from
   `Online`'s audience join (`api::audience_join`, a new one per lost
@@ -1520,7 +1531,9 @@ Rust and the browser are implementation details, not advertised features.
   the UI's stack, a stage's prompt over it through the play host;
   `--screen multiplayer|room` and `--join` open on the song library as
   song select does, `shell::LIBRARY_SCREENS`; a
-  stage played over the room through the play host, `play::Request::stage`,
+  stage played over the room through the play host, `play::Request::stage`
+  with its room, `room::StageRoom` (a member's client or an audience
+  seat's and the wall clock, a test's fake one), never a thread-local,
   `room_screen_with` for tests, `tests/room_stage_flow.rs`). Its online
   rooms (M5c, `crates/desktop/src/online.rs`): HTTP through ureq on a
   thread a request, the room's socket through tungstenite (native-tls,
@@ -1554,8 +1567,8 @@ Rust and the browser are implementation details, not advertised features.
   room's audience that only watch (two a signed-in bot), each reporting
   what it received (`run_audience`). The audience's page on desktop
   (`room::audience_screen`): `--join` takes an audience link, its stages
-  watched through the play host (`room::audience_stage`, no results of
-  their own); `tests/audience_offscreen.rs`.
+  watched through the play host (`room::StageRoom::audience`, no results
+  of their own); `tests/audience_offscreen.rs`.
   The web keeps it for the session (`crates/web/src/room.rs`, thread-local
   as `crate::share` is): `#/mp` is the
   home, `#/room` the practice room's song select
@@ -1566,7 +1579,7 @@ Rust and the browser are implementation details, not advertised features.
   outcome reported by the game loop, back to `#/room`; an address the room
   did not hand over shows the room). A reload starts a new practice. Online rooms (M5c,
   `crates/web/src/online.rs`): `#/mp` is the online home
-  (`ddi_ui::screens::online::OnlineScreen`), `#/mp/join/<invite>` an
+  (`ddi_ui::screens::online_home::Home`), `#/mp/join/<invite>` an
   invite's page (links made before 2026-11-14 carry `mp=1`, still read),
   `#/mp/room/<id>` the online room's song select; signing in leaves the page for the
   server's `api/auth/twitch/login?return=<route>` and comes back to the
