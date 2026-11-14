@@ -67,12 +67,14 @@ pub fn pixels_hash(size: [u32; 2], rgba: &[u8]) -> u64 {
 /// FNV-1a (64 bits) of a file's bytes, in 16 hex digits: what a report
 /// and the bundled index name a file's content by.
 pub fn hash(bytes: &[u8]) -> String {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in bytes {
-        h ^= u64::from(*b);
-        h = h.wrapping_mul(0x0100_0000_01b3);
-    }
-    format!("{h:016x}")
+    format!("{:016x}", fnv1a64(bytes))
+}
+
+/// FNV-1a (64 bits) of `bytes`.
+pub fn fnv1a64(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h: u64, &b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 impl ImageCost {
@@ -224,6 +226,15 @@ impl ImageReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The names files' contents are known by (the bundled index, the
+    /// l10n reviews' and the announcers' records) never change.
+    #[test]
+    fn content_hashes_are_fixed() {
+        assert_eq!(hash(b""), "cbf29ce484222325");
+        assert_eq!(hash(b"a"), "af63dc4c8601ec8c");
+        assert_eq!(hash("Infinito ガキン".as_bytes()), "d51f1efff858b427");
+    }
 
     #[test]
     fn totals_scale_and_hash() {

@@ -177,7 +177,7 @@ pub(crate) fn gen_announcers(check: bool) -> Result<()> {
                             .to_path(dir.join(&path))
                             .with_context(|| format!("{path}/{f}"))?;
                         let bytes = fs::read(file)?;
-                        Ok((f.to_string(), ddi_noteskin::report::hash(&bytes)))
+                        Ok((f.to_string(), format!("{:016x}", ddi_library::pack::fnv1a64(&bytes))))
                     })
                     .collect::<Result<_>>()?;
                 Ok(Bundled {

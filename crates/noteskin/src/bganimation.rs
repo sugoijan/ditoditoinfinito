@@ -114,11 +114,7 @@ struct Rng(u64);
 impl Rng {
     fn seeded(name: &str) -> Rng {
         // FNV-1a of the name; never 0.
-        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        for b in name.to_lowercase().bytes() {
-            h = (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3);
-        }
-        Rng(h | 1)
+        Rng(crate::report::fnv1a64(name.to_lowercase().as_bytes()) | 1)
     }
 
     fn next(&mut self) -> u64 {

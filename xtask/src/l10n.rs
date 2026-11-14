@@ -246,7 +246,7 @@ fn catalog(root: &Path, tag: &str) -> Result<Catalog> {
 
 /// FNV-1a, 64 bits, as hex: stable everywhere, enough to see a change.
 fn hash(text: &str) -> String {
-    ddi_noteskin::report::hash(text.as_bytes())
+    format!("{:016x}", ddi_library::pack::fnv1a64(text.as_bytes()))
 }
 
 /// The plural categories CLDR gives `tag`'s cardinal numbers.

@@ -235,3 +235,13 @@ fn every_play_places_particles_the_same() {
     let (b, _) = build(&files, "BG");
     assert_eq!(a.tree, b.tree);
 }
+
+/// `random_up_to`'s draws are the same for the same animation's name.
+#[test]
+fn the_random_seed_is_fixed() {
+    let mut r = Rng::seeded("BGAnimation Ritmo");
+    assert_eq!(
+        [r.next(), r.next()],
+        [4811572627052422849, 15051357561418060108]
+    );
+}
