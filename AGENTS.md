@@ -852,7 +852,8 @@ Rust and the browser are implementation details, not advertised features.
   few DOM elements its own; no Yew; `#/video-check`, the crash page and
   the no-GPU page are plain DOM), one wgpu canvas and
   device for the whole app (`crates/web/src/web/screen.rs`: made at boot, moved
-  into the page that draws, made again after a lost device), Web Audio
+  into the page that draws, its last frame held over the next page until
+  that page draws, a second at most, made again after a lost device), Web Audio
   clock, settings in `localStorage` (`crates/web/src/web/kv.rs`), imported songs
   and the play history in IndexedDB (`ddi-library` version 4; the plays in
   `plays` and `play_summaries`, `crates/web/src/history.rs`,

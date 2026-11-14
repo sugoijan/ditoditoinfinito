@@ -2747,10 +2747,10 @@ fn frames(
 #[test]
 fn a_room_made_shows_no_view_until_it_answers_and_then_the_hosts_once() {
     let env = env();
-    let (clock, alice, mut h) = late_room(1_000, &env);
+    let (clock, alice, mut h) = late_room(1_600, &env);
     // Before the answer.
     let mut seen = Vec::new();
-    for _ in 0..48 {
+    for _ in 0..84 {
         seen.extend(frames(&clock, &[&alice], &mut h, 1.0 / 60.0, &["RoomJoining", "Header"]));
         assert!(no_view(&h), "{:?}", h.texts());
         assert!(!view(&env).host);
@@ -2758,7 +2758,7 @@ fn a_room_made_shows_no_view_until_it_answers_and_then_the_hosts_once() {
     assert!(has(&h, "Joining the room…"), "{:?}", h.texts());
     assert_eq!(alpha(&h, "RoomJoining"), 1.0, "shown after a moment");
     assert_eq!(alpha(&h, "Header"), 1.0);
-    // The answer comes (a second after the socket opened).
+    // The answer comes (1.6 s after the socket opened).
     let parts = ["Wheel", "Song", "RoomParts", "RoomPlayers", "Header", "RoomJoining", "Footer"];
     let after = frames(&clock, &[&alice], &mut h, 1.2, &parts);
     assert!(view(&env).host && list_shows(&h));
@@ -2933,7 +2933,7 @@ fn a_room_that_cannot_be_joined_says_why() {
     )));
     let env = env();
     let mut h = online_select(&env, &dave, songs_of(&["Delta One"]), &Orders::default());
-    frames(&t.clock, &[&dave], &mut h, 1.0, &[]);
+    frames(&t.clock, &[&dave], &mut h, 1.5, &[]);
     assert!(no_view(&h), "{:?}", h.texts());
     assert_eq!(said(&h, "RoomJoining"), "You left this room.");
     assert_eq!(alpha(&h, "RoomJoining"), 1.0);

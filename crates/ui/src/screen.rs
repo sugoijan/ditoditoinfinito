@@ -411,6 +411,8 @@ pub struct Cx {
     /// The last input was a key or a pad's (not a pointer).
     pub(crate) by_keys: bool,
     pub(crate) current_screen: bool,
+    /// The screen is coming in still ([`Cx::entering`]).
+    pub(crate) entering: bool,
     pub(crate) hints: std::rc::Rc<crate::controller_hints::Hints>,
 }
 
@@ -438,6 +440,7 @@ impl Cx {
             menu_pad: false,
             by_keys: false,
             current_screen: true,
+            entering: false,
             hints: std::rc::Rc::default(),
         }
     }
@@ -468,6 +471,14 @@ impl Cx {
     /// Dialogs and app chrome do not change the owning screen.
     pub fn is_current_screen(&self) -> bool {
         self.current_screen
+    }
+
+    /// This screen is coming in still (its entrance playing): a tree
+    /// built again meanwhile goes on coming in (`screens::relaid`); one
+    /// built at rest stands as it is, whatever else moves in it (a
+    /// button's press).
+    pub fn entering(&self) -> bool {
+        self.entering
     }
 
     /// Whether the screens' entrances are held for the web's loader to

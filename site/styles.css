@@ -86,6 +86,11 @@ a {
   display: block;
 }
 
+#ddi-screen.held {
+  display: block;
+  z-index: 50;
+}
+
 .screen-canvas {
   display: block;
   width: 100%;

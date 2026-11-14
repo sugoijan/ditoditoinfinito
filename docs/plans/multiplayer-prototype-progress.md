@@ -7687,6 +7687,61 @@ small while the frames come late is the GPU's or the browser's
 (compositor), one with a large `submit` is Firefox's WebGL. The same
 stage in a smaller window tells the GPU's share.
 
+## Feedback round D (the maintainer's test of 2026-11-14)
+
+Seven items, done in the maintainer's order (2, 3, 4, 5, 6, then 1, then
+7), each its own commit.
+
+### A small flicker from the multiplayer menu into a private room (found and fixed)
+
+Reproduced frame by frame: offscreen over the fake room
+(`crates/desktop/tests/room_entry_offscreen.rs`: Private room pressed
+signed in, the room made by the fake server's HTTP 200 or 900 ms later,
+the room's song select pushed as desktop does or on a page of its own
+with the bars carried as the web does, its first answer 200 or 900 ms
+after its socket opened; every frame drawn and kept with
+`DDI_OFFSCREEN_PPM`), and in headless Chrome by CDP's screencast (every
+painted frame) from the home's CPU practice, which takes the same page
+change. Four things flashed, the first the one seen most:
+
+- **On the web, one or more blank frames between the two pages**: the
+  bars gone, then back. The canvas is one for the app, moved into the
+  page that draws; the page left gave it back (parked, unseen) at once,
+  and the room's page starts its UI only once its library has loaded
+  (IndexedDB), so its own ground stood alone meanwhile (133 ms in
+  Chrome, one painted frame). Now the canvas's last frame stays over the
+  next page until that page takes it (`web::screen::park`, the parking's
+  `held` class; let go after a second where no page takes it, a page of
+  the DOM's). Every page change between two canvas pages gains this.
+- **The home's column jumping**: Private room's "Making the room…" line
+  re-centered the column (up, gliding: the rebuild replayed the column's
+  entrance, since `screens::relaid` finished the root's tweens and not
+  its children's), and the room's answer dropped the line and the column
+  snapped back as the exit began. Now the column is centered on itself
+  alone, the line shows only once making the room takes 0.6 s
+  (`CREATING_AFTER`), the home leaves as it stands once the room is made,
+  a tree rebuilt at rest stands at once (`Cx::entering`; `relaid`
+  finishes every tween under the root, `screens::finish_all`).
+- **The room's song select drawn as built for one frame** (desktop, and
+  under reduced motion): a screen pushed during an update was drawn
+  before its own first update, so its search's Clear (×) showed and its
+  footer was empty. `Ui::update` now gives a screen pushed in its pass
+  its first update in the same pass, at no time passed, so nothing is
+  ever drawn as built (every screen gains this).
+- **"Joining the room…" fading in and straight out** where the room
+  answered after half a second: the line waits 1 s now
+  (`JOINING_AFTER`).
+
+What changes in place by design stays: the bars' contents (the heading
+to the room's name when it comes, the footer's hints, the search) change
+at once when the view is known, and the view's parts come in once.
+Tested: the offscreen test's frames (the bars drawn every frame, the
+column still, the room's song select never drawn as built, the view
+coming in once, the joining line only for a slow room; desktop and web,
+full and reduced motion), the room's screens' entrance tests moved to
+the new line delay, Chrome's frames before (a blank frame at 600 ms)
+and after (none), the smoke check in Chrome and Firefox.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

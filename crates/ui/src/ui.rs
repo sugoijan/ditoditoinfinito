@@ -1103,7 +1103,34 @@ impl Ui {
             timer: self.time as f32,
             ..Clocks::default()
         };
-        for id in self.layer_ids() {
+        // A screen pushed during the pass (a screen's own push, a cover
+        // played out) has its first update in it too, at no time passed:
+        // nothing is ever drawn as built, before its screen filled it
+        // (song select's footer, its search's Clear hidden).
+        let mut ids = self.layer_ids();
+        let mut seen = ids.clone();
+        let mut dt = dt;
+        for _pass in 0..4 {
+            self.update_layers(&ids, dt, clocks);
+            ids = self
+                .layer_ids()
+                .into_iter()
+                .filter(|id| !seen.contains(id))
+                .collect();
+            if ids.is_empty() {
+                break;
+            }
+            seen.extend(&ids);
+            dt = 0.0;
+        }
+        self.problems.messages.truncate(64);
+        self.follow_inset();
+        self.update_hover();
+    }
+
+    /// One pass of [`Ui::update`] over the layers `ids`.
+    fn update_layers(&mut self, ids: &[u64], dt: f32, clocks: Clocks) {
+        for &id in ids {
             let mut cx = self.cx(id, false);
             let Some(layer) = self.layer_mut(id) else {
                 continue;
@@ -1164,8 +1191,10 @@ impl Ui {
                 self.push_layer(next, false, false, None, false);
             }
         }
-        self.problems.messages.truncate(64);
-        self.follow_inset();
+    }
+
+    /// The hover after an update: what is under a still mouse.
+    fn update_hover(&mut self) {
         // What is under a still mouse changes too (a list scrolled under
         // it, a screen come in): the hover follows, with the cursor; picked
         // only when something changed or moves.
@@ -1775,6 +1804,9 @@ impl Ui {
             .rev()
             .find(|l| !l.chrome && !l.overlay)
             .is_some_and(|l| l.id == id && !l.phase.going());
+        cx.entering = self
+            .layer(id)
+            .is_some_and(|l| matches!(l.phase, Phase::Entering(_)));
         cx
     }
 

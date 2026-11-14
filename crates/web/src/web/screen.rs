@@ -468,6 +468,7 @@ fn take(s: &mut Screen, class: &str) -> u64 {
     if s.owner != 0 {
         park(s);
     }
+    let _ = s.parking.class_list().remove_1("held");
     s.next_token += 1;
     s.owner = s.next_token;
     s.canvas.set_class_name(class);
@@ -482,7 +483,27 @@ fn park(s: &mut Screen) {
     s.canvas.set_class_name("screen-canvas");
     let _ = s.canvas.remove_attribute("style");
     let _ = s.parking.append_child(&s.canvas);
+    // The last frame stays over the page until the next holder draws
+    // (`styles.css`'s `held`): a page's UI starts only once what it
+    // needs has loaded (song select's library), and the new page's own
+    // ground would otherwise stand alone meanwhile, the bars gone for
+    // a few frames between two pages that both have them. Let go after
+    // a moment where no holder comes (a page of the DOM's).
+    let _ = s.parking.class_list().add_1("held");
+    let parked = s.next_token;
+    gloo::timers::callback::Timeout::new(HOLD_LAST_FRAME_MS, move || {
+        with(|s| {
+            if s.owner == 0 && s.next_token == parked {
+                let _ = s.parking.class_list().remove_1("held");
+            }
+        });
+    })
+    .forget();
 }
+
+/// How long the last frame of a page left stays over the next page while
+/// it gets ready to draw ([`park`]).
+const HOLD_LAST_FRAME_MS: u32 = 1_000;
 
 /// The page lets the canvas behind it show (`styles.css`).
 fn set_backdrop_class(on: bool) {

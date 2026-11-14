@@ -117,7 +117,7 @@ const SIDE_PARTS: [&str; 6] = [
 const JOINING: &str = "RoomJoining";
 /// How long joining goes on before the line shows: a room that answers
 /// at once shows none.
-const JOINING_AFTER: f32 = 0.4;
+const JOINING_AFTER: f32 = 1.0;
 
 /// Song select's room: the client, the shell's calls and what was drawn.
 pub(super) struct RoomMode {

@@ -1018,9 +1018,18 @@ pub(crate) fn relaid(fresh: &mut Actor, left: f32, cx: &crate::Cx) {
     // Longer tweens than an entrance (a backdrop fading, rows gliding)
     // are not one.
     if left <= 0.0 || left > total {
-        fresh.finish_tweening();
+        finish_all(fresh);
     } else {
         fresh.update(total - left, &ddi_actor::Clocks::default(), &mut problems);
+    }
+}
+
+/// Every tween under `a` played to its end, its own and its children's
+/// (a frame's `finish_tweening` is its own alone).
+pub(crate) fn finish_all(a: &mut Actor) {
+    a.finish_tweening();
+    for c in a.children_mut().iter_mut() {
+        finish_all(c);
     }
 }
 

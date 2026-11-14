@@ -69,7 +69,15 @@ pub struct Home {
     time: f64,
     /// The sign-in dialog is open ([`SignInDialog`]).
     dialog: Rc<Cell<bool>>,
+    /// Since when the room being made has been asked for (screen time),
+    /// and whether its line shows: only once it takes a moment
+    /// ([`CREATING_AFTER`]), so a quick answer flashes nothing.
+    creating_since: Option<f64>,
+    creating_shown: bool,
 }
+
+/// How long making a room takes before the home says so.
+const CREATING_AFTER: f64 = 0.6;
 
 impl Home {
     pub fn new(env: Env, online: SharedOnline, shell: OnlineShell) -> Home {
@@ -87,6 +95,8 @@ impl Home {
             seen,
             time: 0.0,
             dialog: Rc::new(Cell::new(false)),
+            creating_since: None,
+            creating_shown: false,
         }
     }
 
@@ -110,7 +120,9 @@ impl Home {
             v.push(m::account_unreachable().into());
         }
         if o.creating() {
-            v.push(m::creating().into());
+            if self.creating_shown {
+                v.push(m::creating().into());
+            }
         } else if let Some(p) = o.create_problem() {
             v.push(m::create_failed(UiText::data(&p.code)).into());
         }
@@ -163,8 +175,13 @@ impl Home {
             row = ((room - (n - 1.0) * gap) / n).max(44.0 / css_scale);
         }
         let width = env.metric("TitleMenu.Width", 380.0).min(w - 32.0);
-        let total = n * row + (n - 1.0) * gap + status_h;
-        let top = head + ((h - head - foot - total) / 2.0).max(8.0);
+        // Centered on the column alone, so a line coming or going under
+        // it (the room being made) moves nothing; lifted only where the
+        // lines would not fit above the footer.
+        let column_h = n * row + (n - 1.0) * gap;
+        let top = (head + ((h - head - foot - column_h) / 2.0).max(8.0))
+            .min(h - foot - 12.0 - column_h - status_h)
+            .max(head + 8.0);
         let mut column = Vec::new();
         for (i, (id, label, on)) in entries.iter().enumerate() {
             let component = if *on {
@@ -395,11 +412,25 @@ impl Screen for Home {
         if let Some(r) = redirect {
             (self.shell)(OnlineCall::Redirect(r), cx);
         }
+        let entering = entered.is_some();
         if let Some(room) = entered {
             (self.shell)(OnlineCall::EnterRoom(room), cx);
         }
         if !cx.is_current_screen() {
             return;
+        }
+        let creating = self.online.borrow().creating();
+        let mut show_creating = false;
+        if creating {
+            let since = *self.creating_since.get_or_insert(self.time);
+            show_creating = self.time - since >= CREATING_AFTER;
+        } else {
+            self.creating_since = None;
+        }
+        // The room made: the home leaves as it stands, the line with it
+        // (rebuilt, it would drop the line as the exit begins).
+        if entering {
+            self.seen = self.online.borrow().version();
         }
         // A sign-in under way (back from the server's page, or begun
         // elsewhere) shows in its dialog.
@@ -416,9 +447,20 @@ impl Screen for Home {
         }
         let version = self.online.borrow().version();
         let (size, zoom) = super::narrow_fit(&self.env, cx.viewport().screen);
-        if version != self.seen || size != self.size || zoom != self.zoom {
+        if version != self.seen
+            || size != self.size
+            || zoom != self.zoom
+            || (show_creating != self.creating_shown && !entering)
+        {
             self.seen = version;
-            let left = root.tween_time_left();
+            self.creating_shown = show_creating;
+            // At rest it stands as it is (a pressed button's glow is no
+            // entrance to go on with).
+            let left = if cx.entering() {
+                root.tween_time_left()
+            } else {
+                0.0
+            };
             *root = self.tree(cx);
             if let Some(actor) = cx.focused().and_then(|n| crate::hit::find_mut(root, n)) {
                 crate::widgets::play(actor, "GainFocus");
