@@ -829,8 +829,9 @@ fn judgement_order_is_the_engine_s() {
 /// The schedules themselves, pinned: every bundled chart (every layout,
 /// generated versions too) by `placement-v0`, `v1` and `v2` under DDI
 /// Normal and ITG, two seeds, hashed (FNV-1a over each section's start
-/// and cells, `None` marked). A change to how placement is computed must
-/// leave every schedule as it was.
+/// and cells, `None` marked), all three together and `placement-v2`'s
+/// alone. A change to how placement is computed must leave every
+/// schedule as it was.
 #[test]
 fn bundled_schedules_are_pinned() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs");
@@ -841,12 +842,15 @@ fn bundled_schedules_are_pinned() {
         .collect();
     ids.sort_by_key(|e| e.file_name());
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    let mut eat = |x: i64| {
+    // `placement-v2`'s alone (what stages play), hashed the same way.
+    let mut hash_v2: u64 = 0xcbf2_9ce4_8422_2325;
+    let fnv = |h: &mut u64, x: i64| {
         for b in x.to_le_bytes() {
-            hash = (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+            *h = (*h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
         }
     };
     let mut sections = 0;
+    let mut sections_v2 = 0;
     for e in ids {
         let Some(path) = std::fs::read_dir(e.path())
             .unwrap()
@@ -869,11 +873,19 @@ fn bundled_schedules_are_pinned() {
             ];
             for table in &tables {
                 for p in [&PLACEMENT_V0, &PLACEMENT_V1, &PLACEMENT_V2] {
+                    let v2 = p.id == PLACEMENT_V2.id;
                     for seed in [7, 0x5eed_1234_abcd] {
                         for s in schedule_with(&song, i, table, seed, p) {
+                            let mut eat = |x: i64| {
+                                fnv(&mut hash, x);
+                                if v2 {
+                                    fnv(&mut hash_v2, x);
+                                }
+                            };
                             eat(-1);
                             if let Some(s) = s {
                                 sections += 1;
+                                sections_v2 += usize::from(v2);
                                 eat(i64::from(s.start_beat));
                                 for h in s.cells {
                                     eat(h.tick.0);
@@ -886,9 +898,13 @@ fn bundled_schedules_are_pinned() {
             }
         }
     }
-    println!("schedules: {sections} sections, hash {hash:016x}");
+    println!("schedules: {sections} sections, hash {hash:016x}; placement-v2 {sections_v2}, {hash_v2:016x}");
     assert_eq!(
         (sections, format!("{hash:016x}")),
         (82482, "c1c6d1a9950600b3".to_string())
+    );
+    assert_eq!(
+        (sections_v2, format!("{hash_v2:016x}")),
+        (27508, "9ead6c195d8505f3".to_string())
     );
 }
