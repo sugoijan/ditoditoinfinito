@@ -771,22 +771,7 @@ impl SelectScreen {
             ..SelectData::default()
         };
         if !song.id.is_empty() {
-            let mut styles: Vec<String> = Vec::new();
-            for c in &song.charts {
-                if !styles.contains(&c.style) {
-                    styles.push(c.style.clone());
-                }
-            }
-            data.styles = styles
-                .into_iter()
-                .map(|id| {
-                    let name = ddi_chart::Layout::builtin(&id).map_or(id.clone(), |l| l.name);
-                    crate::screens::data::StyleDef {
-                        name: crate::screens::data::style_name(&id, &name).into(),
-                        id,
-                    }
-                })
-                .collect();
+            data.styles = song_styles(&song);
             data.style = song
                 .charts
                 .iter()
@@ -1146,6 +1131,42 @@ impl SelectScreen {
             *rm.published.borrow_mut() = None;
         }
     }
+}
+
+/// The styles of `song`'s charts, in their order, each named as the
+/// library names it (its layout's own name: song select translates a
+/// built-in one as it shows it, `SelectScreen::style_label`).
+fn song_styles(song: &SongEntry) -> Vec<crate::screens::data::StyleDef> {
+    let mut styles: Vec<crate::screens::data::StyleDef> = Vec::new();
+    for c in &song.charts {
+        if !styles.iter().any(|s| s.id == c.style) {
+            let name = ddi_chart::Layout::builtin(&c.style).map_or(c.style.clone(), |l| l.name);
+            styles.push(crate::screens::data::StyleDef {
+                id: c.style.clone(),
+                name,
+            });
+        }
+    }
+    styles
+}
+
+#[cfg(test)]
+#[test]
+fn a_followed_songs_styles_are_named_as_the_library_names_them() {
+    assert!(ddi_l10n::set_language("qps-ploc"));
+    let chart = |style: &str| ChartEntry {
+        style: style.into(),
+        ..ChartEntry::default()
+    };
+    let song = SongEntry {
+        charts: vec![chart("dance-single"), chart("my-layout"), chart("dance-single")],
+        ..SongEntry::default()
+    };
+    let styles = song_styles(&song);
+    ddi_l10n::set_language("en");
+    let single = ddi_chart::Layout::builtin("dance-single").unwrap().name;
+    let names: Vec<(&str, &str)> = styles.iter().map(|s| (s.id.as_str(), s.name.as_str())).collect();
+    assert_eq!(names, [("dance-single", single.as_str()), ("my-layout", "my-layout")]);
 }
 
 /// A song the others know only by the host's card: its title and artist,

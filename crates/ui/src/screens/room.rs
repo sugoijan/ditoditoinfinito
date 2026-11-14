@@ -2147,13 +2147,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         .filter(|mb| !mb.left)
         .map(|mb| RoomMemberView {
             id: mb.id.0,
-            name: match &mb.kind {
-                MemberKind::Cpu { ordinal, opponent } => opponent
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| format!("CPU {ordinal}")),
-                MemberKind::Human { name, .. } => name.clone(),
-            },
+            name: member_name(mb),
             role: snake(&mb.role),
             admin: mb.admin,
             connection: snake(&mb.connection),
@@ -2180,10 +2174,9 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
     if s.phase == Phase::Lobby || s.current.is_none() {
         for (n, spec) in roster.iter().enumerate() {
             members.push(RoomMemberView {
-                name: spec
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| format!("CPU {}", n + 1)),
+                name: spec.name.clone().unwrap_or_else(|| {
+                    m::cpu_name(u16::try_from(n + 1).unwrap_or(u16::MAX)).into()
+                }),
                 cpu: true,
                 level: Some(cpu_level(spec)),
                 personality: spec.personality.clone(),
@@ -2322,7 +2315,10 @@ pub fn publish_dialog(env: &Env, f: impl FnOnce(&mut RoomView)) {
 /// A person's name as the screens show it: theirs (data), labeled Bot for
 /// a bot (M7d).
 pub(crate) fn person_name(m: &ddi_room::Member) -> String {
-    shown_name(&member_name(m), m.is_bot())
+    match &m.kind {
+        MemberKind::Human { name, .. } => shown_name(name, m.is_bot()),
+        MemberKind::Cpu { ordinal, opponent } => cpu_name(opponent, *ordinal),
+    }
 }
 
 /// `name` (data) as shown: labeled Bot where `bot`.
@@ -2334,13 +2330,15 @@ pub(crate) fn shown_name(name: &str, bot: bool) -> String {
     }
 }
 
-pub(crate) fn member_name(m: &ddi_room::Member) -> String {
-    match &m.kind {
+/// A member's name as the debug view says it: theirs, a CPU's from its
+/// roster entry, else "CPU n" in the language shown.
+pub(crate) fn member_name(member: &ddi_room::Member) -> String {
+    match &member.kind {
         MemberKind::Human { name, .. } => name.clone(),
         MemberKind::Cpu { ordinal, opponent } => opponent
             .name
             .clone()
-            .unwrap_or_else(|| format!("CPU {ordinal}")),
+            .unwrap_or_else(|| m::cpu_name(*ordinal).into()),
     }
 }
 

@@ -1606,6 +1606,27 @@ fn the_prompts_players_keep_the_rooms_order_and_the_player_in_view() {
     assert_eq!(said(&h, &format!("Room.Player{mine}")), "You");
 }
 
+/// A CPU without a roster name is "CPU n" in the language shown, on the
+/// screens and in the debug view alike, never in English written in code.
+#[test]
+fn a_nameless_cpu_is_named_in_the_language_shown() {
+    let mut room = RoomClient::development(0, 1, 3);
+    let song = &library("dance-single").songs[0];
+    room.pick(song, &song.charts[0]).unwrap();
+    let s = room.state();
+    let cpu = s.members.values().find(|m| m.is_cpu()).expect("a CPU seated");
+    let ddi_room::MemberKind::Cpu { ordinal, opponent } = &cpu.kind else {
+        unreachable!()
+    };
+    assert!(opponent.name.is_none());
+    assert!(ddi_l10n::set_language("qps-ploc"));
+    let words: String = ddi_l10n::msg::room::cpu_name(*ordinal).into();
+    let (named, shown) = (super::room::member_name(cpu), super::room::person_name(cpu));
+    ddi_l10n::set_language("en");
+    assert_eq!((named.as_str(), shown.as_str()), (words.as_str(), words.as_str()));
+    assert!(!words.starts_with("CPU"), "{words}");
+}
+
 /// What the text actor named `name` says.
 fn said(h: &Harness, name: &str) -> String {
     match &h.actor(name).kind {
