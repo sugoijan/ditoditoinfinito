@@ -1475,7 +1475,7 @@ Rust and the browser are implementation details, not advertised features.
   default, opens them by themselves on entering in their first form,
   Reset and OK; its rows Stages, DDI's Difficulty and Boos, practice's
   roster, `AddCpuDialog`, and Attacks, offered where they work
-  (`room::attacks_offered`: practice, On by default; an online room says
+  (`RoomClient::attacks_offered`: practice, On by default; an online room says
   they are not there yet); the rules in a few words where they are
   summarized, `room::rules_words`: what differs from the usual, so "No
   attacks" where a practice match has them turned off), `PlayersDialog`
