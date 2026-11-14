@@ -3188,4 +3188,40 @@ pub(crate) mod tests {
         let got_: Vec<(&str, u64)> = got.iter().map(|(n, h)| (n.as_str(), *h)).collect();
         assert_eq!(got_, want, "{got_:#x?}");
     }
+
+    /// The slots' places pinned: every arrangement at every size of the
+    /// table (beside a field, with and without the attack warning's
+    /// place, up to eight or all; a watched grid; a rotation's seats),
+    /// hashed.
+    #[test]
+    fn arrangements_are_pinned() {
+        let fnv = |h: u64, text: &str| {
+            text.bytes()
+                .fold(h, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+        };
+        let mut h = 0xcbf2_9ce4_8422_2325u64;
+        for (w, hh, ratio) in SIZES {
+            for reverse in [false, true] {
+                let size = [w * ratio, hh * ratio];
+                let g = FieldGeometry::placed(size[0], size[1], 4.0, reverse, Default::default());
+                for n in [1, 2, 3, 5, 8, 9, 12, 24, 36, 72, 128] {
+                    for attacks in [false, true] {
+                        let k = keep(&g, ratio, attacks);
+                        for most in [ROOM_OPPONENTS, usize::MAX] {
+                            let f = arrange_up_to(n, most, &g, 4.0, reverse, ratio, &k);
+                            h = fnv(h, &format!("{f:?}"));
+                            if let Some(mut f) = f {
+                                rotate(&mut f, n, &[n / 2, 1], 17.9, ROTATION_V0, false);
+                                h = fnv(h, &format!("{:?}", f.slots));
+                            }
+                        }
+                    }
+                    let f = arrange_grid(n, &g, reverse, ratio, &keep_grid(&g, ratio));
+                    h = fnv(h, &format!("{f:?}"));
+                }
+                h = fnv(h, &format!("{:?}", large_slot(3, &g, 4.0)));
+            }
+        }
+        assert_eq!(h, 0xa5e8_6da1_078d_6950, "{h:#x}");
+    }
 }
