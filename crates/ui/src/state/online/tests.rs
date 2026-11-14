@@ -1180,9 +1180,7 @@ pub(crate) mod room {
                 stage,
                 Run::Live {
                     life: 0.4,
-                    accuracy: 0.8,
-                    absolute: None,
-                    score: None,
+                    score: 0,
                     steps: 0,
                 },
                 Some(detail.clone()),

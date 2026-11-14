@@ -363,7 +363,8 @@ fn percent_text(hundredths: i32) -> String {
 }
 
 /// A line's main number: the ruleset's score, or its percent where it
-/// counts none or the player's settings show a DDI score as its percent.
+/// counts none or the player's settings show a DDI score as its percent
+/// (the run's score where no detail came).
 fn score_of(row: &StageRow, percent: bool) -> String {
     let text = match &row.detail {
         Some(d) => match (d.score, d.percent) {
@@ -373,7 +374,7 @@ fn score_of(row: &StageRow, percent: bool) -> String {
             (None, None) => String::new(),
         },
         None => match row.run {
-            Some(Run::Live { accuracy, .. }) => format!("{:.2}%", accuracy * 100.0),
+            Some(Run::Live { score, .. }) => score.to_string(),
             _ => String::new(),
         },
     };

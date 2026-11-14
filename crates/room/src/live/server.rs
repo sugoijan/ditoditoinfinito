@@ -1056,9 +1056,7 @@ impl LiveStage {
                     Some(e) if e.forfeit() => Run::Forfeit,
                     _ => Run::Live {
                         life: f64::from(c.last.map_or(c.life_ppm, |m| m.life_ppm)) / 1e6,
-                        accuracy: 0.0,
-                        absolute: None,
-                        score: c.last.map(|m| m.score),
+                        score: c.last.map_or(0, |m| m.score),
                         steps: c.steps,
                     },
                 },

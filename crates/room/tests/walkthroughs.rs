@@ -1561,9 +1561,7 @@ fn a_reports_detail_is_additive_on_the_wire() {
             stage,
             run: ReportedRun::of(Run::Live {
                 life: 0.64,
-                accuracy: 0.995,
-                absolute: None,
-                score: None,
+                score: 0,
                 steps: 0,
             }),
             detail: Some(detail.clone()),
@@ -1629,9 +1627,7 @@ fn an_online_stage_settles_on_its_starters_reports() {
     );
     let live = Run::Live {
         life: 0.5,
-        accuracy: 0.9,
-        absolute: None,
-        score: None,
+        score: 0,
         steps: 0,
     };
     report(&mut r, ana, stage, Run::Out { at: 20.0 }).unwrap();
@@ -1962,9 +1958,7 @@ fn the_spotlight_is_shared_once_and_a_pick_of_it_reuses_the_share() {
             s1,
             Run::Live {
                 life,
-                accuracy: 0.9,
-                absolute: None,
-                score: None,
+                score: 0,
                 steps: 0,
             },
         )
@@ -2986,9 +2980,7 @@ fn a_running_match_goes_on_under_the_new_owner() {
     for (who, life) in [(a, 0.8), (b, 0.6)] {
         let run = Run::Live {
             life,
-            accuracy: 0.9,
-            absolute: None,
-            score: None,
+            score: 0,
             steps: 0,
         };
         report(&mut r, who, s1, run).unwrap();

@@ -348,9 +348,7 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
             stage,
             ddi_room::Run::Live {
                 life: 1.0,
-                accuracy: 0.9,
-                absolute: None,
-                score: None,
+                score: 0,
                 steps: 0,
             },
             Some(detail.clone()),

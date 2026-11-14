@@ -697,10 +697,10 @@ fn an_online_stage_is_never_decided_here_and_reports_the_players_own_run() {
     let (s, event, outcome) = play(&song, &settings, &order, true, &[]);
     assert!(matches!(event, SessionEvent::Finished { .. }));
     assert!(!outcome.confirmed_early, "never decided on this device");
-    let ddi_room::Run::Live { life, accuracy, .. } = outcome.mine else {
+    let ddi_room::Run::Live { life, score, .. } = outcome.mine else {
         panic!("{:?}", outcome.mine)
     };
-    assert!(life > 0.5 && accuracy > 0.99, "{life} {accuracy}");
+    assert!(life > 0.5 && score > 0, "{life} {score}");
     assert_eq!(ids(&outcome), vec![vec![(order.me.0, Finish::Survived)]]);
     let setup = StageSetup::of(&order);
     assert!(setup.remote());
@@ -797,7 +797,7 @@ fn a_cpu_s_score_is_its_own_and_the_stage_ranks_by_life_then_the_score() {
     let ddi_room::Run::Live { score, .. } = outcome.mine else {
         panic!("{:?}", outcome.mine)
     };
-    assert_eq!(score, Some(mine.score));
+    assert_eq!(score, mine.score);
 }
 
 /// Each CPU's field is fed its own judged moments as the stage plays

@@ -623,9 +623,7 @@ fn an_online_stages_lines_fill_in_as_the_reports_come() {
             stage,
             Run::Live {
                 life: 0.8,
-                accuracy: 0.965,
-                absolute: None,
-                score: None,
+                score: 0,
                 steps: 0,
             },
             Some(detail),

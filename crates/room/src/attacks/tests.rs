@@ -595,9 +595,7 @@ fn settlement_waits_for_the_last_attack_and_a_knockout_by_it_is_drawn() {
     let st = SETTLEMENT;
     let live = Run::Live {
         life: 0.5,
-        accuracy: 0.9,
-        absolute: None,
-        score: None,
+        score: 0,
         steps: 0,
     };
     // B alone in, an attack against B outstanding: not decided.
@@ -782,9 +780,7 @@ fn a_chain_expires_whole_and_keeps_the_stage_from_settling() {
     let st = SETTLEMENT;
     let live = Run::Live {
         life: 1.0,
-        accuracy: 0.9,
-        absolute: None,
-        score: None,
+        score: 0,
         steps: 0,
     };
     let field = [
@@ -1012,9 +1008,7 @@ fn settlement_v1_tells_last_standing_before_the_win() {
     let st = SETTLEMENT;
     let live = Run::Live {
         life: 1.0,
-        accuracy: 0.9,
-        absolute: None,
-        score: None,
+        score: 0,
         steps: 0,
     };
     let field = [

@@ -235,9 +235,7 @@ impl Player {
                 stage: STAGE,
                 run: ReportedRun::Live {
                     life_ppm: last.map_or(1_000_000, |m| m.life_ppm),
-                    accuracy_ppm: 900_000,
-                    absolute: None,
-                    score: last.map(|m| m.score),
+                    score: last.map_or(0, |m| m.score),
                     steps: 0,
                 },
                 detail: None,
@@ -305,9 +303,7 @@ impl Player {
                     },
                     _ => ReportedRun::Live {
                         life_ppm: last.map_or(1_000_000, |m| m.life_ppm) ^ u32::from(differs),
-                        accuracy_ppm: 800_000,
-                        absolute: None,
-                        score: last.map(|m| m.score),
+                        score: last.map_or(0, |m| m.score),
                         steps: 0,
                     },
                 };

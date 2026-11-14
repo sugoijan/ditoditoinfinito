@@ -2392,7 +2392,7 @@ fn a_live_stage_steps_up_and_the_others_fields_follow() {
     drop(server);
     match alice.mine {
         ddi_room::Run::Live { score, .. } => {
-            assert_eq!(score, plays[0].player.ruleset().score.view().ddi.map(|d| d.score))
+            assert_eq!(Some(score), plays[0].player.ruleset().score.view().ddi.map(|d| d.score))
         }
         ref other => panic!("{other:?}"),
     }
@@ -2690,12 +2690,14 @@ fn a_live_stage_shows_and_decides_as_pinned() {
 }
 
 /// [`a_live_stage_shows_and_decides_as_pinned`]'s digests, recorded
-/// before the merge.
+/// before the merge; recorded again at room model revision 9, where a run
+/// still in lost its proportional part and absolute score (the traces
+/// otherwise the same, line for line).
 const LIVE_PINNED: &[u64] = &[
-    0x9f1fd9a23b01c43c,
+    0x3cecf5357465d5ca,
     0x7c09fbbb36265a36,
     0x144a9b71bbc269a5,
-    0xfb5fef1a96a69f1c,
+    0xf37a8f417b32d3c5,
     0x91684042c07e5087,
     0x3e9a47ff54003d72,
 ];

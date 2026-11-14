@@ -57,7 +57,7 @@ use ddi_library::announcer::{Battle as Event, SURVIVOR_MILESTONES};
 use ddi_room::attacks::{AttackEvent, RosterSeat, SETTLEMENT, Settling, StageRoster};
 pub use ddi_room::attacks::{BlockReason, Targeting};
 use ddi_room::battle::decided;
-use ddi_room::{Absolute, BattlePreset, Entrant, Finisher, ParticipantId, Run, RunDetail, StageId};
+use ddi_room::{BattlePreset, Entrant, Finisher, ParticipantId, Run, RunDetail, StageId};
 pub use ddi_ui::state::room::StageRules;
 pub use ddi_ui::state::room::AttackSummary;
 use ddi_ui::state::room::{
@@ -2813,22 +2813,16 @@ fn played_out_forfeit(
 }
 
 /// A competitor's run as the room ranks it: out at `out_at`, else still
-/// in with `life` and `score`: its proportional part and, under DDI, the score shown
-/// (the sum, what the room ranks by after life) with its absolute score
-/// and the most its scale gives.
-/// `steps`, the steps down it made (a match's "At zero life: Step down").
+/// in with `life` and `score`: the score shown under DDI (the sum, what
+/// the room ranks by after life; a room plays DDI alone, 0 under another
+/// ruleset). `steps`, the steps it made on the song's ladder (a match's
+/// "Charts: Adaptive").
 pub fn run_of(out_at: Option<f64>, life: f32, score: &ScoreView, steps: usize) -> Run {
     match out_at {
         Some(at) => Run::Out { at },
         None => Run::Live {
             life: f64::from(life),
-            accuracy: accuracy(score),
-            // What an authority before round 3b breaks a tie by.
-            absolute: score.ddi.as_ref().map(|d| Absolute {
-                score: d.absolute,
-                most: d.most,
-            }),
-            score: score.ddi.as_ref().map(|d| d.score),
+            score: score.ddi.as_ref().map_or(0, |d| d.score),
             steps: u8::try_from(steps).unwrap_or(u8::MAX),
         },
     }

@@ -484,9 +484,7 @@ fn a_reports_detail_is_kept_alike_by_both_authorities_and_every_mirror() {
             stage,
             run: ReportedRun::Live {
                 life_ppm: 400_000,
-                accuracy_ppm: 800_000,
-                absolute: None,
-                score: None,
+                score: 0,
                 steps: 0,
             },
             detail: Some(detail.clone()),
@@ -660,13 +658,12 @@ fn a_members_watching_is_kept_alike_by_both_authorities_and_every_mirror() {
 /// The DDI ruleset's round 3: Difficulty and Boos are match rules, saved
 /// like the others, locked with the match, and kept alike by the local
 /// authority, the online one and every mirror; rules that name a ruleset
-/// a room could be played under before are taken and played as DDI; a
-/// report's absolute score breaks a tie between those who played the same
-/// notes. (Attacks choose the battle, which a hosted room's rules carry
+/// a room could be played under before are taken and played as DDI; the
+/// reports' scores rank those still in with the same life. (Attacks choose the battle, which a hosted room's rules carry
 /// as any other field.)
 #[test]
 fn the_match_rules_of_ddi_are_kept_alike_by_both_authorities_and_every_mirror() {
-    use ddi_room::{Absolute, MatchDifficulty, ReportedRun};
+    use ddi_room::{MatchDifficulty, ReportedRun};
     let stage = StageId(1);
     let mut rules = MatchRules::hosted();
     rules.difficulty = MatchDifficulty::Hard;
@@ -715,12 +712,7 @@ fn the_match_rules_of_ddi_are_kept_alike_by_both_authorities_and_every_mirror() 
                 stage,
                 run: ReportedRun::Live {
                     life_ppm: 1_000_000,
-                    accuracy_ppm: 960_000,
-                    absolute: Some(Absolute {
-                        score,
-                        most: 5_000,
-                    }),
-                    score: Some(960_000 + score),
+                    score: 960_000 + score,
                     steps: 0,
                 },
                 detail: None,

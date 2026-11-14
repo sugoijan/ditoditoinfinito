@@ -630,13 +630,7 @@ fn cpu_plays(song: &ddi_chart::Song, chart: usize, profile: &Profile) -> Result<
 /// A run in a line of the log.
 fn run_text(run: &Run) -> String {
     match run {
-        Run::Live { life, accuracy, .. } => {
-            format!(
-                "life {:.0}%, accuracy {:.2}%",
-                life * 100.0,
-                accuracy * 100.0
-            )
-        }
+        Run::Live { life, score, .. } => format!("life {:.0}%, score {score}", life * 100.0),
         Run::Out { at } => format!("out at {at:.1} s"),
         Run::Forfeit => "forfeit".into(),
     }
@@ -1928,7 +1922,7 @@ mod tests {
         assert_eq!(play.song_time(1_000), -LEAD_S);
         assert_eq!(play.advance(1_000), None, "nothing at the start");
         assert_eq!(play.advance(31_000), None, "the song goes on");
-        // Frame by frame to its end: one run, its life and accuracy.
+        // Frame by frame to its end: one run, its life and score.
         let mut t = 31_000;
         let run = loop {
             t += 16;
@@ -1938,22 +1932,11 @@ mod tests {
             assert!(t < 1_000_000, "the song ends");
         };
         match run {
-            Run::Live {
-                life,
-                accuracy,
-                absolute,
-                score,
-                ..
-            } => {
+            Run::Live { life, score, .. } => {
                 assert!((0.0..=1.0).contains(&life) && life > 0.0);
-                assert!(accuracy > 0.5 && accuracy <= 1.0, "{accuracy}");
                 // Under DDI its report carries the score, the sum (its
-                // own: it plays the whole chart), and its absolute part
-                // with the chart's most.
-                let a = absolute.expect("DDI");
-                assert!(a.most > 0);
-                let ratio = (accuracy * 1_000_000.0).round() as i64;
-                assert_eq!(score, Some(ratio + a.score));
+                // own: it plays the whole chart).
+                assert!(score > 500_000, "{score}");
             }
             Run::Out { at } => assert!(at > 0.0),
             Run::Forfeit => panic!("never a forfeit"),
