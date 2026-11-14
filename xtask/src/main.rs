@@ -157,6 +157,28 @@ struct SeoPaths {
 }
 
 /// The workspace's root, where xtask lives.
+/// A generated file at `path`: on `check`, an error where it is not
+/// `content` (naming it `name`, and the `command` that writes it); else
+/// written (its folder made) only where it differs, so file watchers such
+/// as Trunk's see no change on every build. Whether it was written.
+fn generated(path: &Path, content: &str, check: bool, name: &str, command: &str) -> Result<bool> {
+    let same = fs::read_to_string(path).is_ok_and(|c| c == content);
+    if check {
+        if !same {
+            bail!("{name} is stale; run `cargo run -p xtask -- {command}`");
+        }
+        return Ok(false);
+    }
+    if same {
+        return Ok(false);
+    }
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(path, content).with_context(|| format!("writing {}", path.display()))?;
+    Ok(true)
+}
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -249,14 +271,14 @@ fn regen_seo(paths: &SeoPaths) -> Result<()> {
     manifest.theme_color = theme_color(&colors, "Ground")?.to_string();
     let (_locale_key, locale) = manifest.default_locale_entry()?;
 
-    fs::write(&paths.head, render_seo_head(&manifest, locale)?)
-        .with_context(|| format!("failed to write {}", paths.head.display()))?;
-    fs::write(&paths.body, render_seo_body(locale))
-        .with_context(|| format!("failed to write {}", paths.body.display()))?;
-    fs::write(&paths.sitemap, render_seo_sitemap(&manifest))
-        .with_context(|| format!("failed to write {}", paths.sitemap.display()))?;
-    fs::write(&paths.theme_css, render_theme_css(&colors)?)
-        .with_context(|| format!("failed to write {}", paths.theme_css.display()))?;
+    for (path, text) in [
+        (&paths.head, render_seo_head(&manifest, locale)?),
+        (&paths.body, render_seo_body(locale)),
+        (&paths.sitemap, render_seo_sitemap(&manifest)),
+        (&paths.theme_css, render_theme_css(&colors)?),
+    ] {
+        generated(path, &text, false, "", "")?;
+    }
     Ok(())
 }
 

@@ -683,15 +683,7 @@ pub(crate) fn gen_credits(check: bool) -> Result<()> {
     let md = render_markdown(&credits);
     let rust_md = render_rust_markdown(&credits.rust_all);
     for (name, text) in [("CREDITS.md", &md), ("THIRD_PARTY_RUST.md", &rust_md)] {
-        let path = root.join("credits").join(name);
-        if check {
-            let current = fs::read_to_string(&path).unwrap_or_default();
-            if &current != text {
-                bail!("{name} is stale; run `cargo run -p xtask -- gen-credits`");
-            }
-        } else {
-            write_if_changed(&path, text)?;
-        }
+        crate::generated(&root.join("credits").join(name), text, check, name, "gen-credits")?;
     }
     let out_dir = root.join("target/credits");
     fs::create_dir_all(&out_dir)?;
@@ -713,14 +705,7 @@ pub(crate) fn gen_credits(check: bool) -> Result<()> {
     Ok(())
 }
 
-/// Avoids touching the file (and its mtime) when the content is identical, so
-/// file watchers such as Trunk's do not see a change on every build.
+/// Written only where it differs ([`crate::generated`]).
 fn write_if_changed(path: &Path, content: &str) -> Result<()> {
-    if fs::read_to_string(path)
-        .map(|c| c == content)
-        .unwrap_or(false)
-    {
-        return Ok(());
-    }
-    fs::write(path, content).with_context(|| format!("writing {}", path.display()))
+    crate::generated(path, content, false, "", "").map(|_| ())
 }

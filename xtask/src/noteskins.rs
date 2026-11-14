@@ -176,24 +176,11 @@ pub(crate) fn gen_noteskins(check: bool) -> Result<()> {
             .collect::<Result<_>>()?,
     };
     let json = serde_json::to_string(&index)? + "\n";
-    let out_dir = root.join("target/noteskins");
-    let out = out_dir.join("index.json");
-    if check {
-        let current = fs::read_to_string(&out).unwrap_or_default();
-        if current != json {
-            bail!(
-                "{} is stale; run `cargo run -p xtask -- gen-noteskins`",
-                out.display()
-            );
-        }
-        return Ok(());
+    let out = root.join("target/noteskins/index.json");
+    let name = out.display().to_string();
+    if crate::generated(&out, &json, check, &name, "gen-noteskins")? {
+        println!("wrote {name} ({} skins)", index.skins.len());
     }
-    fs::create_dir_all(&out_dir)?;
-    if fs::read_to_string(&out).is_ok_and(|c| c == json) {
-        return Ok(());
-    }
-    fs::write(&out, json)?;
-    println!("wrote {} ({} skins)", out.display(), index.skins.len());
     Ok(())
 }
 

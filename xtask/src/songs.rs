@@ -186,23 +186,10 @@ pub(crate) fn gen_songs(check: bool) -> Result<()> {
     }
     let manifest = Manifest { songs: entries };
     let json = serde_json::to_string_pretty(&manifest)? + "\n";
-    let out_dir = root.join("target/songs");
-    let out = out_dir.join("index.json");
-    if check {
-        let current = fs::read_to_string(&out).unwrap_or_default();
-        if current != json {
-            bail!(
-                "{} is stale; run `cargo run -p xtask -- gen-songs`",
-                out.display()
-            );
-        }
-        return Ok(());
+    let out = root.join("target/songs/index.json");
+    let name = out.display().to_string();
+    if crate::generated(&out, &json, check, &name, "gen-songs")? {
+        println!("wrote {name} ({} songs)", manifest.songs.len());
     }
-    fs::create_dir_all(&out_dir)?;
-    if fs::read_to_string(&out).map(|c| c == json).unwrap_or(false) {
-        return Ok(());
-    }
-    fs::write(&out, json)?;
-    println!("wrote {} ({} songs)", out.display(), manifest.songs.len());
     Ok(())
 }
