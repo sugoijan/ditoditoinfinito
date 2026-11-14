@@ -409,7 +409,7 @@ impl Layout<'_> {
 /// The local player's `links` as the frame at judged song second `t`
 /// shows them over `layout`, under `look`; those whose opponent's
 /// miniature is not in view (taking turns beyond the cap, before
-/// [`crate::opponents::priority_seats`] brought it in) are left out. The
+/// the stage's kept seats brought it in) are left out. The
 /// lines' ways are kept in `routes` for the slots as they are placed.
 pub fn shown(
     links: &[Link],
@@ -939,7 +939,7 @@ mod tests {
                         Default::default(),
                     );
                     let k = keep(&g, ratio, true);
-                    let Some(f) = crate::opponents::arrange(n, &g, 4.0, reverse, ratio, &k) else {
+                    let Some(f) = crate::opponents::tests::arrange(n, &g, 4.0, reverse, ratio, &k) else {
                         continue;
                     };
                     let what = format!("{w}x{h}@{ratio} reverse {reverse} n {n}");
@@ -1077,7 +1077,7 @@ mod tests {
     fn a_kept_route_is_the_route() {
         let g = FieldGeometry::placed(1280.0, 720.0, 4.0, false, Default::default());
         let k = keep(&g, 1.0, true);
-        let f = crate::opponents::arrange(8, &g, 4.0, false, 1.0, &k).unwrap();
+        let f = crate::opponents::tests::arrange(8, &g, 4.0, false, 1.0, &k).unwrap();
         let layout = Layout {
             geo: &g,
             span: 4.0,
@@ -1104,7 +1104,7 @@ mod tests {
     fn a_link_pulses_fades_and_keeps_its_outline() {
         let g = FieldGeometry::placed(1280.0, 720.0, 4.0, false, Default::default());
         let k = keep(&g, 1.0, true);
-        let f = crate::opponents::arrange(8, &g, 4.0, false, 1.0, &k).unwrap();
+        let f = crate::opponents::tests::arrange(8, &g, 4.0, false, 1.0, &k).unwrap();
         let layout = Layout {
             geo: &g,
             span: 4.0,

@@ -848,7 +848,8 @@ Rust and the browser are implementation details, not advertised features.
   back as `Drawn::watch_at` and `skip_at`; only
   beyond the cap (the development-only practice, at lanes of 16 px) do
   the opponents take turns in the slots, each in its own,
-  `priority_seats` never rotating away (`opponents::rotate`): whoever
+  the stage's kept seats (`Battle::kept_seats`) never rotating away
+  (`opponents::rotate`): whoever
   attacks the player and whom the player attacked last, while those
   attacks last and a turn after; there is no list of opponents any
   more; past eight opponents, a large field of up to 72 (feedback round

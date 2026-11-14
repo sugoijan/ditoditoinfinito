@@ -667,11 +667,12 @@ impl Renderer {
         self.frame_stats
     }
 
-    /// Start a new play without life trails or a combo pulse from its predecessor.
+    /// Where the last frame's HUD put its parts ([`crate::hud::HudSpots`]).
     pub fn hud_spots(&self) -> crate::hud::HudSpots {
         self.hud_spots
     }
 
+    /// Start a new play without life trails or a combo pulse from its predecessor.
     pub fn reset_hud(&mut self) {
         self.hud.reset();
     }

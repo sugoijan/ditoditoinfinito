@@ -6,7 +6,7 @@
 //!
 //! Those that matter to the player now get the slots: whoever attacks
 //! them or whom they attack (the stage's kept seats,
-//! [`crate::opponents::priority_seats`]), then the nearest rivals by
+//! `ddi_session::battle::Battle::kept_seats`), then the nearest rivals by
 //! standing (still in first, by life, then score), as many above as below.
 //! A slot changes hands rarely and calmly: an opponent shown stays for at
 //! least [`RivalPolicy::hold`] seconds, and while it is within
@@ -126,13 +126,9 @@ pub struct Rivals {
 
 impl Rivals {
     /// The slots' seats, in slot order (none: an empty slot).
+    #[cfg(test)]
     pub fn seats(&self) -> Vec<Option<usize>> {
         self.slots.iter().map(|s| s.map(|(seat, _)| seat)).collect()
-    }
-
-    /// When each slot's opponent came in.
-    pub fn since(&self) -> Vec<Option<f64>> {
-        self.slots.iter().map(|s| s.map(|(_, t)| t)).collect()
     }
 
     /// Chooses the `slots` opponents to show among `opponents` at song
@@ -149,7 +145,6 @@ impl Rivals {
     ) {
         let n = opponents.len();
         self.slots.resize(slots, None);
-        self.slots.truncate(slots);
         // A seat that is no longer there leaves its slot.
         for s in &mut self.slots {
             if s.is_some_and(|(seat, _)| seat >= n) {
@@ -184,15 +179,7 @@ impl Rivals {
                 (r - mine, true)
             }
         };
-        let pins: Vec<usize> = {
-            let mut v = Vec::new();
-            for &p in pinned {
-                if p < n && !v.contains(&p) && v.len() < slots {
-                    v.push(p);
-                }
-            }
-            v
-        };
+        let pins = crate::opponents::pins(pinned, n, slots);
         let mut nearest: Vec<usize> = (0..n).filter(|s| !pins.contains(s)).collect();
         nearest.sort_by_key(|&s| (distance(s), s));
         let wanted: Vec<usize> = pins

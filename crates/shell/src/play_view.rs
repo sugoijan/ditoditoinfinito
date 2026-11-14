@@ -819,26 +819,26 @@ impl<H: PlayHost> PlayView<H> {
         &self.lyrics_shown
     }
 
-    /// Where the last frame drew a stage's opponents' miniature fields,
-    /// if it did.
     /// What the 2D pass over the play holds and drew last (its text's
     /// runs drawn and uploaded so far, its draws), once it has drawn.
     pub fn overlay_stats(&self) -> Option<ddi_render::painter::PainterStats> {
         self.overlay.as_ref().map(|(p, _)| p.stats())
     }
 
+    /// Where the last frame drew a stage's opponents' miniature fields,
+    /// if it did.
     pub fn opponent_fields(&self) -> Option<&crate::opponents::Fields> {
         self.fields_drawn.as_ref()
     }
 
-    /// A large field's ladder as the last frame drew it: its words and
-    /// the field it stands for (`crate::rivals`), none in a room of nine.
     /// How many miniatures the last frame drew (each from its feed's
     /// whole frame; a field not drawn asks its summary alone).
     pub fn miniatures_drawn(&self) -> usize {
         self.minis_drawn
     }
 
+    /// A large field's ladder as the last frame drew it: its words and
+    /// the field it stands for (`crate::rivals`), none in a room of nine.
     pub fn ladder_drawn(&self) -> Option<&(String, crate::rivals::Ladder)> {
         self.ladder_drawn.as_ref()
     }
@@ -1272,11 +1272,11 @@ impl<H: PlayHost> PlayView<H> {
                 self.routes.clear();
             }
             let mut f = self.fields_for.as_ref()?.2.clone()?;
-            let pinned = crate::opponents::priority_seats(
-                b,
-                &session.player,
-                crate::opponents::ROTATION_V0,
-            );
+            // The seats kept in view whatever the turn: whoever attacks
+            // the player, then whom they attacked last, while those
+            // attacks last and a turn after.
+            let every = f64::from(crate::opponents::ROTATION_V0.every);
+            let pinned = b.kept_seats(&session.player, every);
             let paged = grid && n > ddi_session::play::GRID_PAGE;
             if paged {
                 // A spectator's grid past a page: the page's fields by
@@ -2052,7 +2052,7 @@ fn large_standings(
     }
 }
 
-/// What a stage's miniatures were arranged for (`crate::opponents::arrange`).
+/// What a stage's miniatures were arranged for (`crate::opponents::arrange_up_to`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct FieldsKey {
     n: usize,

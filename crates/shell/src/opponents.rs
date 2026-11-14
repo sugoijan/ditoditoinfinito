@@ -4,7 +4,7 @@
 //! spectator layout" and "Faithful miniature fields"), in the side space,
 //! never over the field.
 //!
-//! Each opponent has a miniature field in a stable slot ([`arrange`]): the
+//! Each opponent has a miniature field in a stable slot ([`arrange_up_to`]): the
 //! tap-only copy of the chart it plays scrolling to its receptors on this
 //! play's song clock, drawn by the play's own noteskin on a band as the
 //! play's field's (`ddi_render::scene::Miniature`, fed by its stream of
@@ -36,8 +36,8 @@
 //! than slots at the smallest miniature (a development-only practice far
 //! beyond the cap, or a window too small for a room's eight) do the
 //! opponents take turns in the slots ([`rotate`], [`ROTATION_V0`]), but
-//! for those a stage keeps in view ([`priority_seats`]: none until attacks
-//! exist).
+//! for those a stage keeps in view (`ddi_session::battle::Battle::kept_seats`:
+//! none until attacks exist).
 
 use ddi_actor::text::{TextMeasure, TextStyle};
 use ddi_render::FieldGeometry;
@@ -371,7 +371,7 @@ impl Slot {
     }
 }
 
-/// The opponents' miniatures' places ([`arrange`]).
+/// The opponents' miniatures' places ([`arrange_up_to`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fields {
     /// The slots, the left side's first, each side's row by row from its
@@ -671,18 +671,8 @@ fn part((share, least, most): (f32, f32, f32), of: f32) -> f32 {
 /// it (more than eight), or the eight slots a room of nine has, those
 /// that matter to the player shown in them (`crate::rivals`). The
 /// ladder's line under the left side's slots either way.
-pub fn arrange(
-    n: usize,
-    geo: &FieldGeometry,
-    span: f32,
-    reverse: bool,
-    ratio: f32,
-    keep_out: &[[f32; 4]],
-) -> Option<Fields> {
-    arrange_up_to(n, usize::MAX, geo, span, reverse, ratio, keep_out)
-}
-
-/// [`arrange`] showing at most `most` opponents (Options' "Up to eight":
+///
+/// At most `most` opponents shown (Options' "Up to eight":
 /// [`ROOM_OPPONENTS`], the slots of a room of nine past it as before
 /// the feedback round E1; `usize::MAX`: every one that fits).
 pub fn arrange_up_to(
@@ -1200,12 +1190,7 @@ pub fn rotate(
         }
         return;
     }
-    let mut kept: Vec<usize> = Vec::new();
-    for &p in pinned {
-        if p < n && !kept.contains(&p) && kept.len() < slots {
-            kept.push(p);
-        }
-    }
+    let kept = pins(pinned, n, slots);
     let others: Vec<usize> = (0..n).filter(|s| !kept.contains(s)).collect();
     let free = slots - kept.len();
     let every = f64::from(policy.every.max(0.1));
@@ -1242,17 +1227,16 @@ pub fn rotate(
     }
 }
 
-/// The seats a stage keeps in view whatever the turn ([`rotate`]: only
-/// beyond the cap, where the opponents take turns): whoever attacks the
-/// player, then whom the player attacked last, while those attacks last
-/// and one turn of `policy` after (`ddi_session::battle::Battle::kept_seats`),
-/// so that who attacks whom can be shown.
-pub fn priority_seats(
-    battle: &ddi_session::battle::Battle,
-    player: &ddi_engine::player::Player,
-    policy: Rotation,
-) -> Vec<usize> {
-    battle.kept_seats(player, f64::from(policy.every))
+/// The seats of `pinned` that are among `n` opponents, each once, as
+/// many as `slots` hold, in their order.
+pub(crate) fn pins(pinned: &[usize], n: usize, slots: usize) -> Vec<usize> {
+    let mut kept: Vec<usize> = Vec::new();
+    for &p in pinned {
+        if p < n && !kept.contains(&p) && kept.len() < slots {
+            kept.push(p);
+        }
+    }
+    kept
 }
 
 /// The ladder's colors: everyone's life as a mark, the player's own in
@@ -1807,6 +1791,18 @@ pub(crate) mod tests {
     use super::*;
     use ddi_actor::text::FixedMeasure;
     use ddi_render::draw2d::Command;
+
+    /// [`arrange_up_to`] showing every one that fits.
+    pub(crate) fn arrange(
+        n: usize,
+        geo: &FieldGeometry,
+        span: f32,
+        reverse: bool,
+        ratio: f32,
+        keep_out: &[[f32; 4]],
+    ) -> Option<Fields> {
+        arrange_up_to(n, usize::MAX, geo, span, reverse, ratio, keep_out)
+    }
     use ddi_room::ParticipantId;
 
     fn shown(n: usize) -> Shown {
