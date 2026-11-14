@@ -501,7 +501,7 @@ impl Hud {
         }
         let mut bytes = vec![0u8; stride as usize * n];
         for (i, m) in minis.iter().enumerate() {
-            let (geo, frame) = (&m.geometry, &m.frame);
+            let frame = &m.frame;
             let now = opts.hud_time.unwrap_or(frame.song_time);
             let life = frame.life.clamp(0.0, 1.0);
             let combo = if m.out || !m.combo { 0 } else { frame.combo };
@@ -512,68 +512,7 @@ impl Hud {
             }
             let motion = &mut self.minis.motions[i];
             motion.update(now, frame.song_time, life, combo, opts.reduced_motion);
-            let s = scale(geo);
-            let [top, bottom] = [m.panel[1], m.panel[3]];
-            let center = geo.center_x(span);
-            let tier = (combo / 100).min(10);
-            let pulse =
-                1.0 + 0.07 * (1.0 - ((now - motion.pulse_at) / 0.280).clamp(0.0, 1.0)) as f32;
-            let count = combo.checked_ilog10().unwrap_or(0) + 1;
-            let mut digits = [[0.0; 4]; 3];
-            let mut value = combo;
-            for d in (0..count as usize).rev() {
-                digits[d / 4][d % 4] = (value % 10) as f32;
-                value /= 10;
-            }
-            let count = count as f32;
-            let least = if m.fit_combo { 0.0 } else { MINI_COMBO_MIN_SCALE };
-            let cs = s.max(least) * if tier == 10 { 1.2 } else { 1.0 } * pulse;
-            let width = (count * 32.0 + 32.0) * cs;
-            let bar = mini_life_rect(geo, top, span);
-            let (power_rect, power, power_style) =
-                power_globals(bar, m.battle.filter(|_| !m.out), now, opts.reduced_motion);
-            let globals = Globals {
-                screen: [screen[0], screen[1], f32::from(self.linear), 1.0],
-                bar,
-                combo_rect: [
-                    center - width / 2.0,
-                    (top + bottom) / 2.0 - 16.0 * cs,
-                    width,
-                    96.0 * cs,
-                ],
-                mark: [0.0; 4],
-                life: [
-                    shown(motion.fill),
-                    shown(life),
-                    shown(motion.trail),
-                    motion.trail_alpha,
-                ],
-                motion: [
-                    if opts.reduced_motion {
-                        4.0
-                    } else {
-                        motion.evolution as f32
-                    },
-                    if opts.reduced_motion {
-                        0.626
-                    } else {
-                        motion.phase as f32
-                    },
-                    motion.full,
-                    f32::from(frame.danger || life <= 0.25),
-                ],
-                combo: [
-                    if combo >= 4 { count } else { 0.0 },
-                    tier as f32,
-                    cs,
-                    (3.5 + tier.saturating_sub(1).min(8) as f32 * 0.08)
-                        * if tier == 10 { 1.2 } else { 1.0 },
-                ],
-                digits,
-                power_rect,
-                power,
-                power_style,
-            };
+            let globals = mini_globals(m, motion, now, screen, span, self.linear, opts);
             let at = i * stride as usize;
             let g = bytemuck::bytes_of(&globals);
             bytes[at..at + g.len()].copy_from_slice(g);
@@ -607,69 +546,7 @@ impl Hud {
             .motion
             .get_or_insert_with(|| Motion::new(now, frame.song_time, life, frame.combo));
         m.update(now, frame.song_time, life, frame.combo, opts.reduced_motion);
-        let tier = (frame.combo / 100).min(10);
-        let s = scale(geo);
-        let pulse = 1.0 + 0.07 * (1.0 - ((now - m.pulse_at) / 0.280).clamp(0.0, 1.0)) as f32;
-        let count = frame.combo.checked_ilog10().unwrap_or(0) + 1;
-        let mut digits = [[0.0; 4]; 3];
-        let mut value = frame.combo;
-        for i in (0..count as usize).rev() {
-            digits[i / 4][i % 4] = (value % 10) as f32;
-            value /= 10;
-        }
-        let count = count as f32;
-        let cs = s * if tier == 10 { 1.2 } else { 1.0 } * pulse;
-        let cs = cs.min((geo.width - 16.0 * s).max(1.0) / (count * 32.0 + 32.0));
-        let width = (count * 32.0 + 32.0) * cs;
-        let mut mark = mark_rect(geo);
-        let overlaps = |r: [f32; 4]| {
-            mark[0] < r[2] && mark[0] + mark[2] > r[0] && mark[1] < r[3] && mark[1] + mark[3] > r[1]
-        };
-        if crate::scene::receptor_rows(geo, layout).any(overlaps)
-            || quit.is_some_and(|[x, y, r]| overlaps([x - r, y - r, x + r, y + r]))
-        {
-            mark[2] = 0.0;
-        }
-        let bar = life_rect(geo, field_span(layout));
-        let (power_rect, power, power_style) = power_globals(bar, battle, now, opts.reduced_motion);
-        let globals = Globals {
-            screen: [geo.width, geo.height, f32::from(self.linear), 1.0],
-            bar,
-            combo_rect: [
-                geo.center_x(field_span(layout)) - width / 2.0,
-                geo.height / 2.0 - 16.0 * cs,
-                width,
-                96.0 * cs,
-            ],
-            mark,
-            life: [shown(m.fill), shown(life), shown(m.trail), m.trail_alpha],
-            motion: [
-                if opts.reduced_motion {
-                    4.0
-                } else {
-                    m.evolution as f32
-                },
-                if opts.reduced_motion {
-                    0.626
-                } else {
-                    m.phase as f32
-                },
-                m.full,
-                // The selected 25% warning, or an earlier ruleset warning.
-                f32::from(frame.danger || life <= 0.25),
-            ],
-            combo: [
-                if frame.combo >= 4 { count } else { 0.0 },
-                tier as f32,
-                cs,
-                (3.5 + tier.saturating_sub(1).min(8) as f32 * 0.08)
-                    * if tier == 10 { 1.2 } else { 1.0 },
-            ],
-            digits,
-            power_rect,
-            power,
-            power_style,
-        };
+        let globals = own_globals(frame, layout, geo, quit, battle, m, now, self.linear, &opts);
         queue.write_buffer(&self.buffer, 0, bytemuck::bytes_of(&globals));
     }
 
@@ -694,6 +571,165 @@ impl Hud {
                 pass.draw(0..6, 0..3);
             }
         }
+    }
+}
+
+/// A miniature's globals: `m` on a `screen` (`[width, height]`), its
+/// field `span` lanes wide, its gauge's `motion` updated to `now`.
+fn mini_globals(
+    m: &crate::scene::Miniature,
+    motion: &Motion,
+    now: f64,
+    screen: [f32; 2],
+    span: f32,
+    linear: bool,
+    opts: &RenderOptions,
+) -> Globals {
+    let (geo, frame) = (&m.geometry, &m.frame);
+    let life = frame.life.clamp(0.0, 1.0);
+    let combo = if m.out || !m.combo { 0 } else { frame.combo };
+    let s = scale(geo);
+    let [top, bottom] = [m.panel[1], m.panel[3]];
+    let center = geo.center_x(span);
+    let tier = (combo / 100).min(10);
+    let pulse =
+        1.0 + 0.07 * (1.0 - ((now - motion.pulse_at) / 0.280).clamp(0.0, 1.0)) as f32;
+    let count = combo.checked_ilog10().unwrap_or(0) + 1;
+    let mut digits = [[0.0; 4]; 3];
+    let mut value = combo;
+    for d in (0..count as usize).rev() {
+        digits[d / 4][d % 4] = (value % 10) as f32;
+        value /= 10;
+    }
+    let count = count as f32;
+    let least = if m.fit_combo { 0.0 } else { MINI_COMBO_MIN_SCALE };
+    let cs = s.max(least) * if tier == 10 { 1.2 } else { 1.0 } * pulse;
+    let width = (count * 32.0 + 32.0) * cs;
+    let bar = mini_life_rect(geo, top, span);
+    let (power_rect, power, power_style) =
+        power_globals(bar, m.battle.filter(|_| !m.out), now, opts.reduced_motion);
+    Globals {
+        screen: [screen[0], screen[1], f32::from(linear), 1.0],
+        bar,
+        combo_rect: [
+            center - width / 2.0,
+            (top + bottom) / 2.0 - 16.0 * cs,
+            width,
+            96.0 * cs,
+        ],
+        mark: [0.0; 4],
+        life: [
+            shown(motion.fill),
+            shown(life),
+            shown(motion.trail),
+            motion.trail_alpha,
+        ],
+        motion: [
+            if opts.reduced_motion {
+                4.0
+            } else {
+                motion.evolution as f32
+            },
+            if opts.reduced_motion {
+                0.626
+            } else {
+                motion.phase as f32
+            },
+            motion.full,
+            f32::from(frame.danger || life <= 0.25),
+        ],
+        combo: [
+            if combo >= 4 { count } else { 0.0 },
+            tier as f32,
+            cs,
+            (3.5 + tier.saturating_sub(1).min(8) as f32 * 0.08)
+                * if tier == 10 { 1.2 } else { 1.0 },
+        ],
+        digits,
+        power_rect,
+        power,
+        power_style,
+    }
+}
+
+/// The play's own globals: `frame` on its field `geo` (`layout`'s), the
+/// quit button at `quit`, the player's `battle` bar, its gauge's
+/// `m`otion updated to `now`.
+#[allow(clippy::too_many_arguments)]
+fn own_globals(
+    frame: &Frame,
+    layout: &Layout,
+    geo: &FieldGeometry,
+    quit: Option<[f32; 3]>,
+    battle: Option<BattleBar>,
+    m: &Motion,
+    now: f64,
+    linear: bool,
+    opts: &RenderOptions,
+) -> Globals {
+    let life = frame.life.clamp(0.0, 1.0);
+    let tier = (frame.combo / 100).min(10);
+    let s = scale(geo);
+    let pulse = 1.0 + 0.07 * (1.0 - ((now - m.pulse_at) / 0.280).clamp(0.0, 1.0)) as f32;
+    let count = frame.combo.checked_ilog10().unwrap_or(0) + 1;
+    let mut digits = [[0.0; 4]; 3];
+    let mut value = frame.combo;
+    for i in (0..count as usize).rev() {
+        digits[i / 4][i % 4] = (value % 10) as f32;
+        value /= 10;
+    }
+    let count = count as f32;
+    let cs = s * if tier == 10 { 1.2 } else { 1.0 } * pulse;
+    let cs = cs.min((geo.width - 16.0 * s).max(1.0) / (count * 32.0 + 32.0));
+    let width = (count * 32.0 + 32.0) * cs;
+    let mut mark = mark_rect(geo);
+    let overlaps = |r: [f32; 4]| {
+        mark[0] < r[2] && mark[0] + mark[2] > r[0] && mark[1] < r[3] && mark[1] + mark[3] > r[1]
+    };
+    if crate::scene::receptor_rows(geo, layout).any(overlaps)
+        || quit.is_some_and(|[x, y, r]| overlaps([x - r, y - r, x + r, y + r]))
+    {
+        mark[2] = 0.0;
+    }
+    let bar = life_rect(geo, field_span(layout));
+    let (power_rect, power, power_style) = power_globals(bar, battle, now, opts.reduced_motion);
+    Globals {
+        screen: [geo.width, geo.height, f32::from(linear), 1.0],
+        bar,
+        combo_rect: [
+            geo.center_x(field_span(layout)) - width / 2.0,
+            geo.height / 2.0 - 16.0 * cs,
+            width,
+            96.0 * cs,
+        ],
+        mark,
+        life: [shown(m.fill), shown(life), shown(m.trail), m.trail_alpha],
+        motion: [
+            if opts.reduced_motion {
+                4.0
+            } else {
+                m.evolution as f32
+            },
+            if opts.reduced_motion {
+                0.626
+            } else {
+                m.phase as f32
+            },
+            m.full,
+            // The selected 25% warning, or an earlier ruleset warning.
+            f32::from(frame.danger || life <= 0.25),
+        ],
+        combo: [
+            if frame.combo >= 4 { count } else { 0.0 },
+            tier as f32,
+            cs,
+            (3.5 + tier.saturating_sub(1).min(8) as f32 * 0.08)
+                * if tier == 10 { 1.2 } else { 1.0 },
+        ],
+        digits,
+        power_rect,
+        power,
+        power_style,
     }
 }
 
@@ -880,5 +916,73 @@ mod tests {
         m.update(0.41, 0.41, 0.95, 0, false);
         assert_eq!(m.full, 0.0);
         assert_eq!(m.fill, 0.95);
+    }
+
+    /// The globals the HUD's shader is given, pinned: a miniature's and
+    /// the play's own over a few seconds of life and combo, hashed.
+    #[test]
+    fn globals_are_pinned() {
+        let fnv = |h: u64, bytes: &[u8]| {
+            bytes
+                .iter()
+                .fold(h, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3))
+        };
+        let (mut minis, mut own) = (0xcbf2_9ce4_8422_2325u64, 0xcbf2_9ce4_8422_2325u64);
+        let layout = Layout::dance_single();
+        let geo = FieldGeometry::new(1280.0, 720.0, 4.0, false);
+        let mini_geo = FieldGeometry {
+            arrow: 20.0,
+            left: 850.0,
+            receptor_y: 214.0,
+            direction: 1.0,
+            width: 1280.0,
+            height: 720.0,
+        };
+        for reduced in [false, true] {
+            let opts = RenderOptions {
+                reduced_motion: reduced,
+                ..RenderOptions::default()
+            };
+            let kinds = [(false, true, false), (true, true, true), (false, false, true)];
+            for (k, (out, combo, fit)) in kinds.into_iter().enumerate() {
+                let mut motion: Option<Motion> = None;
+                let mut mine: Option<Motion> = None;
+                for step in 0..90 {
+                    let t = 10.0 + step as f64 / 30.0;
+                    let mut f = crate::scene::tests::frame(Vec::new(), Default::default());
+                    f.song_time = t;
+                    f.life = (0.9 - 0.4 * ((step % 40) as f32 / 40.0) + 0.1 * k as f32).min(1.0);
+                    f.combo = if step % 37 == 36 { 0 } else { 95 + step as u32 * 3 };
+                    f.danger = step % 50 == 7;
+                    let m = crate::scene::Miniature {
+                        frame: f.clone(),
+                        geometry: mini_geo,
+                        panel: [850.0, 200.0, 930.0, 320.0],
+                        out,
+                        combo,
+                        plain: false,
+                        fit_combo: fit,
+                        battle: (step % 3 != 0).then_some(BattleBar {
+                            power: step as f32 / 90.0,
+                            charged: step % 9 == 0,
+                        }),
+                    };
+                    let life = f.life.clamp(0.0, 1.0);
+                    let shown_combo = if out || !combo { 0 } else { f.combo };
+                    let mo = motion.get_or_insert_with(|| Motion::new(t, t, life, shown_combo));
+                    mo.update(t, t, life, shown_combo, reduced);
+                    let g = mini_globals(&m, mo, t, [1280.0, 720.0], 4.0, k == 1, &opts);
+                    minis = fnv(minis, bytemuck::bytes_of(&g));
+                    let mm = mine.get_or_insert_with(|| Motion::new(t, t, life, f.combo));
+                    mm.update(t, t, life, f.combo, reduced);
+                    let quit = (k == 2).then_some([1200.0, 60.0, 30.0]);
+                    let battle = m.battle;
+                    let g = own_globals(&f, &layout, &geo, quit, battle, mm, t, k == 0, &opts);
+                    own = fnv(own, bytemuck::bytes_of(&g));
+                }
+            }
+        }
+        let want = (0x5958_861b_f007_0b77, 0xbc06_0318_be43_201e);
+        assert_eq!((minis, own), want, "{minis:#x} {own:#x}");
     }
 }
