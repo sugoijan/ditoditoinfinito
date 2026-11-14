@@ -21,7 +21,7 @@
 //! `showCrashOverlay(…)`) must be one of them, and every one of them
 //! named.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use swc_common::{FileName, GLOBALS, Globals, Mark, SourceMap, sync::Lrc};
@@ -40,10 +40,18 @@ const SCRIPTS: [&str; 2] = ["boot.js", "boot-art.js"];
 pub(crate) fn minify_boot(release: Option<bool>) -> Result<()> {
     let release =
         release.unwrap_or_else(|| std::env::var("TRUNK_PROFILE").is_ok_and(|p| p == "release"));
-    let out = PathBuf::from("target/boot");
-    std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
+    // From the checkout's root wherever it is run from (Trunk runs it
+    // there; a hand run may not).
+    let root = crate::repo_root();
+    written_to(&root, &root.join("target/boot"), release)
+}
+
+/// The boot scripts from `root`'s `site/` written to `out`, minified
+/// where `release`.
+fn written_to(root: &Path, out: &Path, release: bool) -> Result<()> {
+    std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
     for name in SCRIPTS {
-        let source = Path::new("site").join(name);
+        let source = root.join("site").join(name);
         let js = std::fs::read_to_string(&source)
             .with_context(|| format!("reading {}", source.display()))?;
         let js = if name == "boot.js" {
@@ -338,6 +346,18 @@ mod tests {
         )
         .unwrap();
         with_lines(&js, &table).unwrap();
+    }
+
+    /// The checkout's `site/` is read wherever the command runs from
+    /// (the tests run in `xtask/`).
+    #[test]
+    fn the_scripts_are_read_from_the_checkout_s_root() {
+        let out = std::env::temp_dir().join(format!("ddi-boot-{}", std::process::id()));
+        written_to(&crate::repo_root(), &out, false).unwrap();
+        for name in SCRIPTS {
+            assert!(out.join(name).is_file(), "{name}");
+        }
+        std::fs::remove_dir_all(&out).unwrap();
     }
 
     #[test]
