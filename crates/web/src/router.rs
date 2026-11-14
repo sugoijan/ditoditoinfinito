@@ -156,19 +156,10 @@ pub(crate) enum Route {
 
 impl Route {
     pub(crate) fn parse(hash: &str) -> Route {
-        let hash = hash.trim_start_matches('#');
-        let (path, query) = match hash.split_once('?') {
-            Some((p, q)) => (p, q),
-            None => (hash, ""),
-        };
+        let (path, query) = split_hash(hash);
         let path = path.trim_matches('/');
-        let params: BTreeMap<&str, String> = query
-            .split('&')
-            .filter(|kv| !kv.is_empty())
-            .map(|kv| match kv.split_once('=') {
-                Some((k, v)) => (k, percent_decode(v)),
-                None => (kv, String::new()),
-            })
+        let params: BTreeMap<&str, String> = params(query.unwrap_or_default())
+            .map(|(k, v)| (k, v.map(percent_decode).unwrap_or_default()))
             .collect();
         if let Some(id) = path.strip_prefix("s/")
             && ddi_library::share::valid_id(id)
@@ -567,10 +558,10 @@ fn keep_testing_at(hash: &str, at_load: bool) {
 /// settings say, until one is chosen in Options; `lang=` alone gives the
 /// choice back to the settings. Pages built after it speak it.
 fn lang_switch(hash: &str) {
-    let Some((_, query)) = hash.trim_start_matches('#').split_once('?') else {
+    let Some(query) = split_hash(hash).1 else {
         return;
     };
-    for tag in query.split('&').filter_map(|kv| kv.strip_prefix("lang=")) {
+    for tag in params(query).filter_map(|(k, v)| v.filter(|_| k == "lang")) {
         if tag.is_empty() {
             ddi_l10n::unforce();
             crate::settings::Settings::load().choose_language();
@@ -584,15 +575,15 @@ fn lang_switch(hash: &str) {
 /// `#/?share=1` on the start route sets `Settings::sharing`, `share=0`
 /// clears it; never a row of Options.
 fn share_switch(hash: &str) {
-    let Some((path, query)) = hash.trim_start_matches('#').split_once('?') else {
+    let (path, Some(query)) = split_hash(hash) else {
         return;
     };
     if !path.trim_start_matches('/').is_empty() {
         return;
     }
-    let Some(on) = query.split('&').find_map(|kv| match kv.split_once('=') {
-        Some(("share", "1")) => Some(true),
-        Some(("share", "0")) => Some(false),
+    let Some(on) = params(query).find_map(|kv| match kv {
+        ("share", Some("1")) => Some(true),
+        ("share", Some("0")) => Some(false),
         _ => None,
     }) else {
         return;
@@ -619,7 +610,7 @@ fn share_switch(hash: &str) {
 /// watch-only link (`Settings::multiplayer_watch_link`); TESTING ONLY,
 /// `mpfakeseat=1` (`mpfakeend=S`). Each address is read once.
 fn multiplayer_params(hash: &str, at_load: bool) {
-    let Some((path, query)) = hash.trim_start_matches('#').split_once('?') else {
+    let (path, Some(query)) = split_hash(hash) else {
         return;
     };
     let path = path.trim_start_matches('/');
@@ -637,12 +628,8 @@ fn multiplayer_params(hash: &str, at_load: bool) {
     if seen == hash {
         return;
     }
-    let param = |key: &str| {
-        query.split('&').find_map(|kv| match kv.split_once('=') {
-            Some((k, v)) if k == key => Some(v.to_string()),
-            _ => None,
-        })
-    };
+    let param =
+        |key: &str| params(query).find_map(|(k, v)| v.filter(|_| k == key).map(str::to_string));
     // DEVELOPMENT ONLY: `mpcpus=N` makes the next practice room one
     // against N CPUs, beyond the cap (M6b's miniature fields).
     if let Some(n) = param("mpcpus").and_then(|n| n.parse::<u16>().ok()) {
@@ -699,12 +686,30 @@ thread_local! {
 /// A parameter of the current address's query, if there.
 pub(crate) fn query_param(key: &str) -> Option<String> {
     let hash = web_sys::window()?.location().hash().ok()?;
-    let (_, query) = hash.split_once('?')?;
-    query.split('&').find_map(|kv| match kv.split_once('=') {
-        Some((k, v)) if k == key => Some(percent_decode(v)),
-        None if kv == key => Some(String::new()),
-        _ => None,
-    })
+    params(split_hash(&hash).1?)
+        .find_map(|(k, v)| (k == key).then(|| v.map(percent_decode).unwrap_or_default()))
+}
+
+/// An address's path and its query (`#/play?song=x`: `/play` and
+/// `song=x`), `None` where it has no `?`.
+fn split_hash(hash: &str) -> (&str, Option<&str>) {
+    let hash = hash.trim_start_matches('#');
+    match hash.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (hash, None),
+    }
+}
+
+/// A query's parameters in order: each name and its value as written
+/// (`None`: the name alone).
+fn params(query: &str) -> impl Iterator<Item = (&str, Option<&str>)> {
+    query
+        .split('&')
+        .filter(|kv| !kv.is_empty())
+        .map(|kv| match kv.split_once('=') {
+            Some((k, v)) => (k, Some(v)),
+            None => (kv, None),
+        })
 }
 
 /// The testing parameters kept ([`keep_testing`]), `&`-joined.
@@ -1079,6 +1084,27 @@ pub(crate) fn save_view(focus: Option<&str>, theme: Option<&ddi_ui::screens::The
 mod tests {
     use super::*;
     use wasm_bindgen_test::wasm_bindgen_test;
+
+    #[wasm_bindgen_test]
+    fn an_address_splits_into_its_path_and_parameters() {
+        assert_eq!(
+            split_hash("#/play?song=a%20b&auto"),
+            ("/play", Some("song=a%20b&auto"))
+        );
+        assert_eq!(split_hash("#/select"), ("/select", None));
+        assert_eq!(split_hash("/mp?"), ("/mp", Some("")));
+        let got: Vec<_> = params("a=1&&b&c=x=y&a=2").collect();
+        assert_eq!(
+            got,
+            [
+                ("a", Some("1")),
+                ("b", None),
+                ("c", Some("x=y")),
+                ("a", Some("2"))
+            ]
+        );
+        assert_eq!(params("").count(), 0);
+    }
 
     #[wasm_bindgen_test]
     fn cpu_route_roundtrip_and_conflicts() {
