@@ -439,6 +439,22 @@ pub struct TexturedPipeline {
     batcher: crate::batching::Batcher,
 }
 
+/// What batches `q` (`crate::batching::Key`): its texture, a packed one
+/// standing for its atlas page (`atlas`), its blend, its wrap and its
+/// material's.
+fn batch_key(atlas: &[Option<(u32, [f32; 4])>], q: &TexQuad) -> crate::batching::Key {
+    crate::batching::Key {
+        texture: match atlas.get(q.texture as usize).copied().flatten() {
+            Some((page, _)) if !q.wrap => page,
+            _ => q.texture,
+        },
+        blend: q.blend,
+        wrap: q.wrap,
+        material: q.material.map(|m| m.material),
+        images: q.material.map_or([UNTEXTURED; 2], |m| m.images),
+    }
+}
+
 /// A texture quads are drawn into, with what draws it.
 struct Target {
     /// Its id among the textures.
@@ -1357,43 +1373,28 @@ impl TexturedPipeline {
         let atlas = &self.atlas;
         self.batcher.order(
             quads,
-            |q| crate::batching::Key {
-                texture: match atlas.get(q.texture as usize).copied().flatten() {
-                    Some((page, _)) if !q.wrap => page,
-                    _ => q.texture,
-                },
-                blend: q.blend,
-                wrap: q.wrap,
-                material: q.material.map(|m| m.material),
-                images: q.material.map_or([UNTEXTURED; 2], |m| m.images),
-            },
+            |q| batch_key(atlas, q),
             |q| crate::renderer::quad_rect(q, width, height),
         );
     }
 
     /// [`TexturedPipeline::order_run`] for a run made of miniatures'
-    /// `parts` (`crate::batching::interleave`): whether it did.
+    /// `parts` (`crate::batching::Batcher::interleave`; the scene's
+    /// places, the run's first at `base`): whether it did.
     pub(crate) fn interleave_run(
         &mut self,
         quads: &mut [TexQuad],
         parts: &[std::ops::Range<u32>],
+        base: u32,
         width: u32,
         height: u32,
     ) -> bool {
         let atlas = &self.atlas;
-        crate::batching::interleave(
+        self.batcher.interleave(
             quads,
             parts,
-            |q| crate::batching::Key {
-                texture: match atlas.get(q.texture as usize).copied().flatten() {
-                    Some((page, _)) if !q.wrap => page,
-                    _ => q.texture,
-                },
-                blend: q.blend,
-                wrap: q.wrap,
-                material: q.material.map(|m| m.material),
-                images: q.material.map_or([UNTEXTURED; 2], |m| m.images),
-            },
+            base,
+            |q| batch_key(atlas, q),
             |q| crate::renderer::quad_rect(q, width, height),
         )
     }

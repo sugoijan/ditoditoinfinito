@@ -821,15 +821,14 @@ impl Renderer {
                     if parts.first().is_some_and(|p| p.start == r.start)
                         && parts.last().is_some_and(|p| p.end == r.end)
                     {
-                        let rel: Vec<std::ops::Range<u32>> = parts
-                            .iter()
-                            .map(|p| p.start - r.start..p.end - r.start)
-                            .collect();
                         // (Interleaved, they are in about as few
                         // batches as one miniature's; the general order's
                         // look-back over a run this long costs more than
                         // it merges.)
-                        if self.textured.interleave_run(run, &rel, width, height) {
+                        if self
+                            .textured
+                            .interleave_run(run, parts, r.start, width, height)
+                        {
                             continue;
                         }
                     }

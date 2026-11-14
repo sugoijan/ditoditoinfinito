@@ -994,6 +994,8 @@ pub fn build_into(
     let mut text = reuse(&mut out.text);
     text.reserve(8);
     let mut quads = reuse(&mut out.quads);
+    // (Filled by `add_miniatures` after this.)
+    let parts = reuse(&mut out.parts);
     let mut order = Order {
         segments: reuse(&mut out.order),
         ..Order::default()
@@ -1127,7 +1129,7 @@ pub fn build_into(
             text,
             quads,
             order: order.segments,
-            parts: Vec::new(),
+            parts,
         };
         return;
     }
@@ -1293,7 +1295,7 @@ pub fn build_into(
         text,
         quads,
         order: order.segments,
-        parts: Vec::new(),
+        parts,
     };
 }
 
@@ -1589,7 +1591,7 @@ fn push_note(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -1633,7 +1635,7 @@ mod tests {
         }
     }
 
-    fn frame(notes: Vec<NoteSprite>, appearance: Appearance) -> Frame {
+    pub(crate) fn frame(notes: Vec<NoteSprite>, appearance: Appearance) -> Frame {
         Frame {
             song_time: 0.0,
             note_motion: Default::default(),
