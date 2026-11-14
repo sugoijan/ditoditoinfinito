@@ -73,6 +73,9 @@ struct Scenario {
     attacks: bool,
     /// Options' "Up to eight" opponents' fields.
     up_to_eight: bool,
+    /// A picture just after the first hold a CPU lets go (the full
+    /// chart, `cpu-play-v1`).
+    letgo_shot: bool,
 }
 
 /// A frame's cost, milliseconds: recording it, and recording it with
@@ -277,6 +280,9 @@ fn play(s: &Scenario) -> Option<Played> {
         )));
     }
     let mut shots = s.shots.iter().copied().peekable();
+    // The first hold a CPU let go, once seen: a picture a little after.
+    let mut letgo: Option<f64> = None;
+    let mut letgo_taken = !s.letgo_shot;
     let measuring = 240;
     let mut measured = 0;
     let mut frames = 0;
@@ -334,8 +340,27 @@ fn play(s: &Scenario) -> Option<Played> {
         if let Some(p) = host.running() {
             played.out = p.session.opponents().iter().filter(|o| o.out).count();
         }
-        if shots.peek().is_some_and(|&t| song_t >= t) {
-            let t = shots.next().unwrap();
+        if letgo.is_none()
+            && !letgo_taken
+            && let Some(at) = host.running().and_then(|p| p.session.battle()).and_then(|b| {
+                b.feeds()
+                    .flat_map(|f| f.moments())
+                    .filter(|m| m.kind == ddi_session::battle::feed::MomentKind::HoldEnd(false))
+                    .map(|m| m.at)
+                    .reduce(f64::min)
+            })
+        {
+            letgo = Some(at + 0.15);
+            eprintln!("{}: a CPU let a hold go at {at:.2} s", s.name);
+        }
+        let letgo_due = !letgo_taken && letgo.is_some_and(|at| song_t >= at);
+        if letgo_due || shots.peek().is_some_and(|&t| song_t >= t) {
+            let t = if letgo_due {
+                letgo_taken = true;
+                letgo.unwrap()
+            } else {
+                shots.next().unwrap()
+            };
             // The text's fonts are read on a thread: real time for them.
             std::thread::sleep(std::time::Duration::from_millis(200));
             let _ = device.poll(wgpu::PollType::wait_indefinitely());
@@ -374,14 +399,15 @@ fn play(s: &Scenario) -> Option<Played> {
                 "{} at {t:.0} s: the skins' quads in {} batches, {} in their own order",
                 s.name, drawn[1].1, drawn[0].1
             );
-            ppm(size, &format!("{}-at-{t:.0}s", s.name), &drawn[1].0);
+            let what = if letgo_due { "letgo" } else { "at" };
+            ppm(size, &format!("{}-{what}-{t:.0}s", s.name), &drawn[1].0);
             eprintln!(
                 "{} at {t:.0} s: {} slots, {} out",
                 s.name, played.slots, played.out
             );
         }
         frames += 1;
-        if song_t > last + 0.5 && shots.peek().is_none() {
+        if song_t > last + 0.5 && shots.peek().is_none() && letgo_taken {
             break;
         }
         assert!(frames < 60 * 400, "the play never ended");
@@ -410,6 +436,7 @@ fn seventy_two_cpus_each_get_a_field_and_the_ladder() {
         lyrics: false,
         attacks: false,
         up_to_eight: false,
+        letgo_shot: false,
     }) else {
         return;
     };
@@ -441,6 +468,7 @@ fn seventy_two_cpus_up_to_eight_get_a_room_of_nines_slots() {
         lyrics: false,
         attacks: false,
         up_to_eight: true,
+        letgo_shot: false,
     }) else {
         return;
     };
@@ -472,6 +500,7 @@ fn eight_cpus_get_miniature_fields_beside_the_play() {
         lyrics: false,
         attacks: false,
         up_to_eight: false,
+        letgo_shot: false,
     }) else {
         return;
     };
@@ -499,6 +528,7 @@ fn a_phone_held_upright_shows_all_eight_in_its_margins() {
         lyrics: false,
         attacks: false,
         up_to_eight: false,
+        letgo_shot: false,
     }) else {
         return;
     };
@@ -522,6 +552,7 @@ fn lyrics_over_a_stage_keep_the_miniatures() {
         lyrics: true,
         attacks: false,
         up_to_eight: false,
+        letgo_shot: false,
     }) else {
         return;
     };
@@ -546,6 +577,7 @@ fn miniature_scenarios_pictures_and_costs() {
         lyrics: false,
         attacks: false,
         up_to_eight: false,
+        letgo_shot: false,
     };
     // Two pictures a turn apart: the opponents taking turns in the slots
     // (`ddi_shell::opponents::ROTATION_V0`, eight seconds).
@@ -620,6 +652,33 @@ fn miniature_scenarios_pictures_and_costs() {
         many("practice-72-cpus-1920x1080", 72, [1920, 1080]),
         many("development-128-cpus-1920x1080", 128, [1920, 1080]),
         many("development-128-cpus-1280x720", 128, [1280, 720]),
+        // The full chart on the miniatures (`cpu-play-v1`): Beatucada's
+        // Easy, 34 holds, and its Challenge, holds and 132 mines, where a
+        // middling level lets some holds go.
+        Scenario {
+            name: "holds-eight-cpus-easy-1280x720",
+            chart: 3,
+            shots: &[18.0, 30.0],
+            measure: None,
+            ..eight("", [1280, 720], None, false)
+        },
+        Scenario {
+            name: "holds-eight-level-5-cpus-challenge-1280x720",
+            chart: 0,
+            level: 4,
+            shots: &[20.0],
+            measure: None,
+            ..eight("", [1280, 720], None, false)
+        },
+        Scenario {
+            name: "holds-letgo-eight-level-2-cpus-medium-1280x720",
+            chart: 4,
+            level: 1,
+            shots: &[],
+            measure: None,
+            letgo_shot: true,
+            ..eight("", [1280, 720], None, false)
+        },
     ];
     // The feedback round E1's pictures: every opponent shown, attacks on
     // (practice's default), and the costs against "Up to eight".
@@ -649,6 +708,13 @@ fn miniature_scenarios_pictures_and_costs() {
             Scenario {
                 up_to_eight: true,
                 ..all("upto8-72-cpus-1280x720", 72, [1280, 720])
+            },
+            // The full chart's cost (`cpu-play-v1`): Beatucada's Easy, 34
+            // holds and no mines, beside its Challenge's 20 holds and 132
+            // mines above.
+            Scenario {
+                chart: 3,
+                ..all("all-72-cpus-easy-holds-1280x720", 72, [1280, 720])
             },
             Scenario {
                 up_to_eight: true,
