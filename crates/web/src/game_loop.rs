@@ -1064,7 +1064,7 @@ impl GameLoop {
                         // ladder's charts, the player's steps (when, the
                         // boundary, the rung), the step cue showing now
                         // (its rung), each field's steps as drawn.
-                        "step_down": step_down_debug(s, host_now.0),
+                        "ladder": ladder_debug(s, host_now.0),
                         // Attack power (M8a): each competitor's, the
                         // checkpoints run of the stage's, the last
                         // events.
@@ -1549,10 +1549,11 @@ fn extend(debug: &mut Value, more: Value) {
     }
 }
 
-/// A stage's steps as the debug state has them (`battle.step_down`, its
-/// old name: the ladder, each step's moment, boundary, rung and whether
-/// it was up, the cue's rung and direction, each field's steps).
-fn step_down_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
+/// A stage's ladder as the debug state has it (`battle.ladder`, named
+/// `battle.step_down` before 2026-11-14): its rungs, each step's moment,
+/// boundary, rung and whether it was up, the cue's rung and direction,
+/// each field's steps.
+fn ladder_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
     s: &ddi_session::play::PlaySession<A, I>,
     host: f64,
 ) -> serde_json::Value {

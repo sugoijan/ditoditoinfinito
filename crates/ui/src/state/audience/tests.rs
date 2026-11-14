@@ -511,8 +511,6 @@ fn the_music_s_delay_follows_what_the_fields_needed_stage_by_stage() {
         seen.push(d);
     }
     assert_eq!(seen, [1_400, 1_200, 1_000, 800, 800, 800]);
-    // `audience-view-v0` never moved.
-    assert_eq!(MUSIC_DELAY_V0.next_music_delay(800, &steady(700.0)), 800);
 }
 
 /// The seat keeps the fields' delay a frame as its play notes it, and the

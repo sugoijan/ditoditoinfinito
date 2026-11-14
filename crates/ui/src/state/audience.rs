@@ -40,24 +40,14 @@ use super::room::{
 };
 
 /// How far behind the room's song time an audience device plays a
-/// stage's music and draws its fields, as the stage starts: within the
-/// audience's ceiling (`AudienceRules::presentation_delay_ms`, two
-/// seconds), above what the fake room measured a moment to take to a seat
-/// (0.37 s at the median, 0.66 s at most, at 20 to 120 ms each way).
-/// Fixed for a stage (the music cannot move); the fields fall a little
-/// further behind it where a frame comes later still (their own delay
-/// from what the frames measure, `ddi_room::live::ViewDelay`).
-/// PROVISIONAL (`audience-view-v0`; followed by [`AUDIENCE_VIEW_V1`]).
-pub const MUSIC_DELAY_V0: AudienceView = AudienceView {
-    id: "audience-view-v0",
-    music_delay_ms: 800,
-    most_music_delay_ms: 800,
-    rise_above_ms: u64::MAX,
-    fall_ms: 0,
-    lag_quantile: 0.9,
-};
-
-/// `audience-view-v0`'s music delay, moved at each stage's start by what
+/// stage's music and draws its fields: as the first stage starts,
+/// `music_delay_ms`, within the audience's ceiling
+/// (`AudienceRules::presentation_delay_ms`, two seconds), above what the
+/// fake room measured a moment to take to a seat (0.37 s at the median,
+/// 0.66 s at most, at 20 to 120 ms each way), fixed for a stage (the
+/// music cannot move; the fields fall a little further behind it where a
+/// frame comes later still, their own delay from what the frames measure,
+/// `ddi_room::live::ViewDelay`); then moved at each stage's start by what
 /// the last stage watched needed: where the fields had to fall further
 /// behind the music than `rise_above_ms` for a tenth of its frames or
 /// more (their own delay's 90th percentile), the next stage's music is
@@ -70,7 +60,8 @@ pub const MUSIC_DELAY_V0: AudienceView = AudienceView {
 /// Resyncing at a silence was not chosen (songs have few, and a jump in
 /// the sound is heard however short), nor a slow drift (a rate change of
 /// the music is a pitch change, and the play's clock is the music's).
-/// PROVISIONAL (`audience-view-v1`, 2026-11-13).
+/// PROVISIONAL (`audience-view-v1`, 2026-11-13; `audience-view-v0`, the
+/// same 0.8 s never moved, was retired on 2026-11-14).
 pub const AUDIENCE_VIEW_V1: AudienceView = AudienceView {
     id: "audience-view-v1",
     music_delay_ms: 800,

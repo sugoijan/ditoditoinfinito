@@ -277,16 +277,6 @@ impl DdiScoreView {
     }
 }
 
-/// How a CPU's score was put beside a person's in a multiplayer stage
-/// (round 3b, RETIRED 2026-11-14: `docs/plans/multiplayer-prototype-progress.md`,
-/// "CPUs play the full chart"). A CPU played a tap-only copy of the
-/// stage's chart, so its score was put on the chart's own scale (its
-/// points as the same share of the chart's most, its W0s as counted).
-/// Since `cpu-play-v1` a CPU plays the chart a person is given, its
-/// score is its own, and nothing puts a score on another chart's scale:
-/// the name is kept so that it is not used again for something else.
-pub const CPU_SCORE_V0: &str = "cpu-score-v0";
-
 /// DDI's point count ([`DdiScoreView`]).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DdiScore {
