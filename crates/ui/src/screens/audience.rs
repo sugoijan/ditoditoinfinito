@@ -141,6 +141,7 @@ pub fn seat_end_text(e: &crate::state::room::SeatEnd) -> UiText {
     match e {
         SeatEnd::AudienceClosed => m::audience_closed(),
         SeatEnd::RoomClosed => m::invite_room_closed(),
+        SeatEnd::ClosedByOperator => m::closed_by_operator(),
         SeatEnd::LinkReplaced => m::audience_link_unknown(),
         SeatEnd::Refused(code) => super::online::invite_problem(&crate::state::online::api::Problem {
             status: 0,
@@ -188,6 +189,7 @@ fn doing(a: &AudienceClient, v: &PublicView) -> UiText {
             .map(|c| UiText::data(format!("{} — {}", c.title, c.artist)).to_string())
     };
     match &v.phase {
+        _ if v.closed && a.closed_by_operator() => m::closed_by_operator(),
         _ if v.closed => m::invite_room_closed(),
         Phase::Lobby => m::audience_doing_lobby(),
         Phase::Preparing { stage, .. } | Phase::Intermission { next: stage } => {
@@ -283,6 +285,9 @@ fn lines(a: &AudienceClient) -> Vec<(String, Tone)> {
     match &state {
         SeatState::Joining | SeatState::Watching => {}
         SeatState::Reconnecting => out.push((m::link_reconnecting().into(), Tone::Note)),
+        // (What the room is doing says why it ended where its operator
+        // closed it: not said twice.)
+        SeatState::Ended(AudienceEnd::RoomClosed) if a.closed_by_operator() => {}
         other => {
             if let Some(why) = seat_problem(other) {
                 out.push((why.into(), Tone::Note));

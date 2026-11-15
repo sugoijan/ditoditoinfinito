@@ -60,6 +60,10 @@ pub struct Shown {
     pub opponents: Vec<OpponentView>,
     /// "Out" and "Stage won", worded.
     pub out: String,
+    /// "Left the stage" and its short form ("Left", where a field is too
+    /// narrow for it), worded: a competitor who left the stage rather
+    /// than going out by their life (`OpponentView::left`).
+    pub left: (String, String),
     pub won: Option<String>,
     /// A battle's moment no announcer line said, worded, and how opaque,
     /// `0..=1`.
@@ -1853,8 +1857,12 @@ pub fn draw_fields(
                 .own
                 .as_ref()
                 .filter(|(seat, _)| *seat == slot.seat)
-                .map_or(&shown.out, |(_, w)| w);
-            let (word, m) = fitted(measure, said, &st, r - l);
+                .map_or(if o.left { &shown.left.0 } else { &shown.out }, |(_, w)| w);
+            let (mut word, mut m) = fitted(measure, said, &st, r - l);
+            // "Left the stage" cut short: its short form where there is one.
+            if o.left && word != *said && !shown.left.1.is_empty() {
+                (word, m) = fitted(measure, &shown.left.1, &st, r - l);
+            }
             let ww = m.advance;
             let wy = (t + b) / 2.0 - size.min(13.0) * 0.6 * ratio;
             list.text(word, &st, (l + r - ww) / 2.0, wy, MUTED);
@@ -2076,6 +2084,7 @@ pub(crate) mod tests {
                     level: Some(3),
                     life: 0.5,
                     out: i == 1,
+                    left: false,
                     score: 0.9,
                     sum: Some(5_900_000),
                     combo: 10,
@@ -2083,6 +2092,7 @@ pub(crate) mod tests {
                 })
                 .collect(),
             out: "Out".into(),
+            left: ("Left the stage".into(), "Left".into()),
             won: None,
             cue: None,
             score: ScoreShown::Sum,
@@ -2461,6 +2471,47 @@ pub(crate) mod tests {
         assert_eq!(words.iter().filter(|t| **t == "Out").count(), 2, "{words:?}");
         // Three small scores (the others'), none for the large field.
         assert_eq!(words.iter().filter(|t| **t == "5900000").count(), 3);
+    }
+
+    /// Round D1: a competitor who left the stage (their stream's
+    /// forfeit) is marked "Left the stage" on their field where it has
+    /// room for it, "Left" where it does not, never "Out"; one out by
+    /// their life says "Out" as before.
+    #[test]
+    fn a_field_whose_competitor_left_says_so() {
+        let said = |w: f32, h: f32, n: usize| {
+            let g = geo(w, h);
+            let k = keep(&g, 1.0, true);
+            let f = arrange(n, &g, 4.0, false, 1.0, &k).unwrap();
+            let mut shown = shown(n);
+            shown.opponents[0].out = true;
+            shown.opponents[0].left = true;
+            let mut list = DrawList::new();
+            draw_fields(
+                &mut list,
+                &shown,
+                &f,
+                &Flashes::new(),
+                &Locks::new(),
+                1.0,
+                &mut FixedMeasure,
+                &mut Memo::default(),
+            );
+            let width = f.slots[0].panel[2] - f.slots[0].panel[0];
+            let words: Vec<String> = texts(&list).into_iter().map(|(t, _)| t).collect();
+            (width, words)
+        };
+        // A few opponents at 1280×720: room for the words.
+        let (_, words) = said(1280.0, 720.0, 2);
+        assert!(words.iter().any(|t| t == "Left the stage"), "{words:?}");
+        // The second one (`shown`'s) is out by their life.
+        assert_eq!(words.iter().filter(|t| *t == "Out").count(), 1, "{words:?}");
+        // Eight on a phone held upright: the short form.
+        let (width, words) = said(390.0, 844.0, 8);
+        assert!(
+            words.iter().any(|t| t == "Left") && !words.iter().any(|t| t == "Left the stage"),
+            "{width}: {words:?}"
+        );
     }
 
     /// A player's own field after they are out of the stage: dimmed as a
@@ -3467,6 +3518,7 @@ pub(crate) mod tests {
             level: (i % 3 != 2).then_some((i % 10) as u8 + 1),
             life: (i as f32 * 0.137).fract(),
             out: i % 7 == 3,
+            left: false,
             score: 0.5 + (i as f64 * 0.0123).fract() / 2.0,
             sum: (i % 4 != 1).then_some(5_000_000 + i as i64 * 12_345),
             combo: i as u32 * 7,
@@ -3532,6 +3584,7 @@ pub(crate) mod tests {
             let shown = Shown {
                 opponents,
                 out: "Out".into(),
+                left: ("Left the stage".into(), "Left".into()),
                 won: Some("Last standing".into()),
                 cue: Some(("Attack incoming from a rather long way off".into(), 0.6)),
                 score: if n.is_multiple_of(2) {

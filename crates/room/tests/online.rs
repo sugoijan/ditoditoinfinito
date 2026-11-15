@@ -1373,6 +1373,52 @@ fn a_room_that_ends_closes_every_socket() {
     assert_eq!(server.borrow().state().closed, Some(Closure::HostLeft));
 }
 
+/// Round D1: the authority's `CloseRoom` (the server's operator's "Close
+/// this room") ends a room in any phase: every member's mirror says why
+/// (`Closure::ByAdministrator`), every socket is closed with 4410, no
+/// ticket is given again, and no member may issue it.
+#[test]
+fn a_room_closed_by_an_administrator_ends_for_everyone() {
+    use ddi_room::Closure;
+    let clock = ManualClock::new(1_000);
+    let (server, mut alice, mut bob) = two(&clock);
+    let close = Command::CloseRoom {
+        reason: Closure::ByAdministrator,
+    };
+    // Not a member's command, the host's neither.
+    let seq = alice.send(close.clone());
+    pump_all(&mut [&mut alice, &mut bob]);
+    assert_eq!(alice.answer(seq), Some(&Some(Rejection::AuthorityOnly)));
+    assert_eq!(server.borrow().state().closed, None);
+    let events = server.borrow_mut().authority(close.clone()).unwrap();
+    assert_eq!(
+        events,
+        vec![ddi_room::Event::RoomClosed {
+            reason: Closure::ByAdministrator
+        }]
+    );
+    pump_all(&mut [&mut alice, &mut bob]);
+    for c in [&alice, &bob] {
+        assert_eq!(c.link.link(), LinkState::Closed);
+        assert_eq!(c.room().closed, Some(Closure::ByAdministrator));
+    }
+    assert_eq!(server.borrow().sockets(), 0);
+    assert_eq!(
+        server.borrow_mut().ticket(&Identity::new("dev:bob")),
+        Err(Rejection::RoomClosed)
+    );
+    // Closed already: nothing more is decided there.
+    assert_eq!(
+        server.borrow_mut().authority(close),
+        Err(Rejection::RoomClosed)
+    );
+    // Its JSON, as the server's tombstone and a client read it.
+    assert_eq!(
+        serde_json::to_string(&Closure::ByAdministrator).unwrap(),
+        "\"by_administrator\""
+    );
+}
+
 /// Every player's place taken (a cap of two here): a join asking to play
 /// is in to watch, the same in the fake server's room, a local
 /// authority's and the members' mirrors; the watcher's Play is refused
@@ -1455,6 +1501,62 @@ fn a_join_to_a_room_full_of_players_watches_alike_everywhere() {
         Intent::Watch,
         "nobody is moved to Play by a place freeing up"
     );
+}
+
+/// Round D1: a member who left and comes back by the watch-only link is
+/// held to watching as a newcomer by it is: the same row, watching
+/// whatever they wanted before, Play refused until an operator lets them
+/// play; the same in the fake server's room and every mirror. One who
+/// comes back by the room's own invite is as before.
+#[test]
+fn a_member_who_left_and_returns_by_the_watch_only_link_is_held_to_watching() {
+    let clock = ManualClock::new(1_000);
+    let server = hosted(&clock).shared();
+    let mut alice = Client::new(&server, &clock, "dev:alice");
+    let id = server
+        .borrow_mut()
+        .join(Identity::new("dev:fan"), "Fan", Intent::Play)
+        .unwrap();
+    let mut fan = Client::new(&server, &clock, "dev:fan");
+    pump_all(&mut [&mut alice, &mut fan]);
+    assert_eq!(alice.room().member(id).unwrap().intent, Intent::Play);
+    // (Each return a page of its own: a client id of its own.)
+    let again = |n: u32| {
+        let mut c = Client::new(&server, &clock, "dev:fan");
+        c.client = ClientId::new(format!("dev:fan-client-{n}"));
+        c
+    };
+    fan.send(Command::Leave);
+    pump_all(&mut [&mut alice, &mut fan]);
+    assert!(alice.room().member(id).unwrap().left);
+    // Back by the room's own invite: their row as they left it.
+    assert_eq!(
+        server.borrow_mut().join(Identity::new("dev:fan"), "Fan", Intent::Play).unwrap(),
+        id
+    );
+    let mut fan = again(2);
+    pump_all(&mut [&mut alice, &mut fan]);
+    let m = alice.room().member(id).unwrap().clone();
+    assert_eq!((m.left, m.intent, m.watch_only), (false, Intent::Play, false));
+    let seq = fan.send(Command::Leave);
+    pump_all(&mut [&mut alice, &mut fan]);
+    assert_eq!(fan.answer(seq), Some(&None), "{:?}", fan.link.link());
+    assert!(alice.room().member(id).unwrap().left);
+    // Back by the watch-only link: held to watching.
+    assert_eq!(
+        server.borrow_mut().join_watch_only(Identity::new("dev:fan"), "Fan").unwrap(),
+        id
+    );
+    let mut fan = again(3);
+    pump_all(&mut [&mut alice, &mut fan]);
+    for room in [server.borrow().state(), alice.room(), fan.room()] {
+        let m = room.member(id).unwrap();
+        assert_eq!((m.left, m.intent, m.watch_only), (false, Intent::Watch, true));
+    }
+    let seq = fan.send(Command::SetIntent { intent: Intent::Play });
+    pump_all(&mut [&mut alice, &mut fan]);
+    assert_eq!(fan.answer(seq), Some(&Some(Rejection::WatchOnly)));
+    assert_eq!(fan.room(), server.borrow().state());
 }
 
 /// The watch-only link: the fake server's join holds the newcomer to

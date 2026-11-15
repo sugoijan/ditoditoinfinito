@@ -79,6 +79,11 @@ pub enum MomentKind {
     /// Nothing a note shows (their going out): their numbers after it
     /// alone.
     Mark,
+    /// They left the stage (a quit, a connection lost for good, never
+    /// started: a live stream's end other than out by life): out from
+    /// here as a [`MomentKind::Mark`] that says so, and ranked as the
+    /// stage ranks a forfeit, last ([`FieldFeed::left`]).
+    Left,
     /// They stepped to this rung of the stage's ladder (a match's
     /// "Charts: Adaptive", `ddi_engine::ladder`; numbered as
     /// `Ladder::rungs`, 0 the stage's chart): down, their life ran out
@@ -335,6 +340,8 @@ pub struct FieldFeed {
     /// long the stream (a large field's, `docs/plans/multiplayer-prototype-progress.md`,
     /// "Rooms of 1+72 players").
     out_at: f64,
+    /// A moment said they left the stage ([`MomentKind::Left`]).
+    left: bool,
     /// Their steps down and up the ladder, in order: what the field
     /// draws from each one on ([`FieldFeed::step`]).
     steps: Vec<FeedStep>,
@@ -391,6 +398,7 @@ impl FieldFeed {
             life,
             lock: None,
             out_at: f64::INFINITY,
+            left: false,
             steps: Vec::new(),
         }
     }
@@ -570,6 +578,7 @@ impl FieldFeed {
                 }
             }
             MomentKind::Boo | MomentKind::Mark | MomentKind::Step(_) => {}
+            MomentKind::Left => self.left = true,
             MomentKind::ShockHit => {
                 if let Some(s) = self
                     .shocks
@@ -591,6 +600,13 @@ impl FieldFeed {
     /// clock), once a moment said so.
     pub fn out_at(&self) -> Option<f64> {
         self.out_at.is_finite().then_some(self.out_at)
+    }
+
+    /// They left the stage (a forfeit) rather than going out by their
+    /// life: once out ([`FieldFeed::shown`]) their field says so and they
+    /// rank last, as the stage ranks a forfeit.
+    pub fn left(&self) -> bool {
+        self.left
     }
 
     /// The moments shown at song second `t`.
@@ -910,6 +926,7 @@ impl FieldFeed {
                 | MomentKind::HoldEnd(_)
                 | MomentKind::MineHit
                 | MomentKind::Mark
+                | MomentKind::Left
                 | MomentKind::Step(_) => None,
             })
             .filter(|f| f.age < WORD_SECONDS);

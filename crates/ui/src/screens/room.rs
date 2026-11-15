@@ -497,6 +497,12 @@ fn phase_status(r: &RoomClient) -> UiText {
             LinkState::Joining => return m::link_joining(),
             LinkState::Reconnecting { .. } => return m::link_reconnecting(),
             LinkState::SignInAgain => return m::link_sign_in_again(),
+            // Closed by the server's operator: said as it is.
+            LinkState::Closed
+                if r.state().closed == Some(ddi_room::Closure::ByAdministrator) =>
+            {
+                return m::closed_by_operator();
+            }
             LinkState::Closed => return m::link_closed(),
             LinkState::Left => return m::link_left(),
             // The room's authority is newer: a reload (More's Reload on

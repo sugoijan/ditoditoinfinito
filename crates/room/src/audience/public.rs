@@ -9,7 +9,17 @@
 //! match or not), each stage's song (its card, its chart's digest, the
 //! room's share once available, the battle plan's digest), each stage's
 //! start, result and the starters' reported details, and the match's
-//! standings.
+//! standings; once the room ended, why.
+//!
+//! What a page needs of a song before the device has loaded it is here
+//! as a member's client finds it (round D1): a stage's `share` and
+//! `chart` name the room's share and the chart in it, whose listing names
+//! the song's banner, as a member's client reads it; and a settled
+//! stage's Standings are its `result` (each starter's place, finish and
+//! award), its `details` (what each row shows) and the match's
+//! `standings` (totals and places), the players' names and kinds beside
+//! them: everything a member's Standings table shows to everyone once a
+//! stage is settled.
 //!
 //! Never in it: identities (`twitch:…`, `bot:…`), the admin flag, roles,
 //! connections, readiness and loading, intents of those who only watch
@@ -47,6 +57,11 @@ pub struct PublicView {
     /// The room ended: nothing more will come.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub closed: bool,
+    /// Why it ended, as its members are told (round D1: "The room was
+    /// closed." where the server's operator closed it). Additive: left
+    /// out while it has not ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closure: Option<crate::state::Closure>,
     /// The live timing's id the room plays by (`live-v2`), where it plays
     /// live.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -309,6 +324,7 @@ impl PublicView {
             }),
             phase: room.phase.clone(),
             closed: room.closed.is_some(),
+            closure: room.closed,
             live: room
                 .policy
                 .live

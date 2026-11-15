@@ -95,6 +95,10 @@ pub enum Closure {
     /// Its host went and the room was not passed on: the setting says
     /// Close ([`HostLeaves::Close`]), or nobody was there to pass it to.
     HostLeft,
+    /// The server's operator closed it ([`crate::Command::CloseRoom`],
+    /// round D1): the screens say "The room was closed." Additive to
+    /// revision 11: an authority before it never says it.
+    ByAdministrator,
 }
 
 /// Who the room passes to when its host goes ([`RoomState::succession`];

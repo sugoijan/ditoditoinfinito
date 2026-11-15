@@ -375,6 +375,13 @@ impl AudienceClient {
     }
 
     /// The room as its audience is shown it, once said.
+    /// The room's last view says the server's operator closed it
+    /// (`ddi_room::Closure::ByAdministrator`): "The room was closed."
+    pub fn closed_by_operator(&self) -> bool {
+        self.view()
+            .is_some_and(|v| v.closure == Some(ddi_room::Closure::ByAdministrator))
+    }
+
     pub fn view(&self) -> Option<&PublicView> {
         self.seat.link().view()
     }
@@ -916,7 +923,10 @@ impl LiveRoom for AudienceClient {
     }
 
     fn seat_end(&self) -> Option<SeatEnd> {
-        seat_end_of(&self.state())
+        seat_end_of(&self.state()).map(|e| match e {
+            SeatEnd::RoomClosed if self.closed_by_operator() => SeatEnd::ClosedByOperator,
+            e => e,
+        })
     }
 
     /// The fields' own delay beyond the music this frame: kept for the

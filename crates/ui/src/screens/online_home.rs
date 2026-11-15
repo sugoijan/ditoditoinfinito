@@ -51,6 +51,21 @@ fn entries() -> [(&'static str, UiText, bool); 5] {
     ]
 }
 
+/// Why a private room could not be made, a sentence: the server's
+/// operator's switches and caps each in their own words (round D1), any
+/// other reason with its code.
+pub fn create_problem(code: &str) -> UiText {
+    match code {
+        // New rooms are switched off for now.
+        "new_rooms_paused" => m::create_paused(),
+        // The server holds as many rooms as it may.
+        "server_busy" => m::create_busy(),
+        // This person hosts as many rooms as one person may at once.
+        "too_many_rooms" => m::create_too_many(),
+        code => m::create_failed(UiText::data(code)),
+    }
+}
+
 fn choice(id: &str) -> String {
     format!("Choice.{id}")
 }
@@ -125,7 +140,7 @@ impl Home {
                 v.push(m::creating().into());
             }
         } else if let Some(p) = o.create_problem() {
-            v.push(m::create_failed(UiText::data(&p.code)).into());
+            v.push(create_problem(&p.code).into());
         }
         v
     }

@@ -438,7 +438,7 @@ pub struct PlayView<H: PlayHost> {
     overlay: Option<(Painter, DrawList)>,
     /// A stage's opponents' words (`crate::opponents`: "Out", "Stage
     /// won"), once worded.
-    shown_words: Option<[String; 3]>,
+    shown_words: Option<[String; 5]>,
     /// Where the last frame put the opponents' miniatures, if it did,
     /// and whether a battle's moment was shown in their status line.
     fields_drawn: Option<crate::opponents::Fields>,
@@ -1777,6 +1777,8 @@ impl<H: PlayHost> PlayView<H> {
                     m::play_out().into(),
                     m::play_won().into(),
                     m::play_last_standing().into(),
+                    m::play_forfeit().into(),
+                    m::table_left().into(),
                 ]
             });
             let mut opponents = views_now;
@@ -1790,11 +1792,13 @@ impl<H: PlayHost> PlayView<H> {
                 let shown = feed.shown(frame.song_time);
                 o.life = shown.life;
                 o.out = shown.out;
+                o.left = shown.out && feed.left();
             }
             Overlay {
                 shown: crate::opponents::Shown {
                     opponents,
                     out: words[0].clone(),
+                    left: (words[3].clone(), words[4].clone()),
                     // "Stage won", or before it "Last standing" while
                     // attacks against the player are still to come.
                     won: if b.won() {
@@ -2162,7 +2166,13 @@ fn large_standings(
                 life: shown.life,
                 out: shown.out,
                 score: o.sum.map_or(o.score, |s| s as f64),
-                out_at: feed.out_at().filter(|_| shown.out).unwrap_or(f64::INFINITY),
+                // One who left the stage last, as the stage ranks a
+                // forfeit (their stream's end said so), whenever it was.
+                out_at: match feed.out_at().filter(|_| shown.out) {
+                    Some(_) if feed.left() => f64::NEG_INFINITY,
+                    Some(at) => at,
+                    None => f64::INFINITY,
+                },
                 rank,
             }
         })

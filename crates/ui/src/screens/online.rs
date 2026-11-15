@@ -190,6 +190,9 @@ pub fn invite_problem(p: &Problem) -> UiText {
         // (`api::worded_for`): seats are counted by network.
         api::TOO_MANY_ON_NETWORK => m::audience_too_many_network(),
         "audience_busy" => m::audience_busy(),
+        // The same for someone signed in (`api::worded_for`): an
+        // account's joins are counted, not a network's.
+        api::BUSY_ACCOUNT => m::audience_busy_account(),
         "audience_link_unknown" => m::audience_link_unknown(),
         "no_audience" => m::audience_none(),
         // The room's authority is newer than this game (round B1).

@@ -114,6 +114,7 @@ pub fn fold(snap: &mut LiveSnapshot, f: &Frame) {
                         combo: 0,
                         score: 0,
                         power: 0,
+                        step: None,
                     },
                 );
                 i
@@ -130,6 +131,7 @@ pub fn fold(snap: &mut LiveSnapshot, f: &Frame) {
             c.combo = m.combo;
             c.score = m.score;
         }
+        c.step = crate::live::server::StepStatus::after(c.step, &e.moments);
     }
     for k in &f.commitments {
         if !snap.commitments.iter().any(|c| c.attack == k.attack) {
@@ -462,6 +464,70 @@ mod tests {
         assert_eq!(two.seq, 10);
         assert_eq!(two.combo, 1_002);
         assert_eq!(snap.commitments.len(), 1);
+    }
+
+    /// Round D1: a relay's snapshot says the chart of the ladder each
+    /// competitor is on (their last step, with the rung stepped from),
+    /// folded from the frames' moments; the same frame again changes
+    /// nothing; a snapshot without it (a room before revision 11) reads.
+    #[test]
+    fn a_fold_keeps_each_competitors_last_step() {
+        use crate::live::server::StepStatus;
+        let mut snap = LiveSnapshot {
+            stage: StageId(2),
+            song_zero_at: Millis(0),
+            at: Millis(0),
+            first_frame: 1,
+            competitors: Vec::new(),
+            commitments: Vec::new(),
+            plan: None,
+            settling: None,
+        };
+        let step = |n: u32, at_ms: i32, tick: i64, rung: u8| Frame {
+            stage: StageId(2),
+            n,
+            at: Millis(u64::from(n) * 250),
+            entries: vec![FrameEntry {
+                participant: ParticipantId(2),
+                seq: n,
+                through_us: i64::from(at_ms) * 1_000,
+                moments: vec![Moment {
+                    at_ms,
+                    tick,
+                    lane: 0,
+                    kind: MomentKind::Step { rung },
+                    life_ppm: 500_000,
+                    combo: 0,
+                    score: 10,
+                }],
+                end: None,
+            }],
+            commitments: Vec::new(),
+            checkpoints: Vec::new(),
+            settling: None,
+        };
+        fold(&mut snap, &step(1, 20_000, 1_920, 1));
+        assert_eq!(
+            snap.competitors[0].step,
+            Some(StepStatus { rung: 1, from: 0, at_ms: 20_000, tick: 1_920 })
+        );
+        fold(&mut snap, &step(2, 31_000, 3_072, 2));
+        let two = StepStatus { rung: 2, from: 1, at_ms: 31_000, tick: 3_072 };
+        assert_eq!(snap.competitors[0].step, Some(two));
+        // The same again: as it was.
+        fold(&mut snap, &step(2, 31_000, 3_072, 2));
+        assert_eq!(snap.competitors[0].step, Some(two));
+        // Back to the stage's chart, from rung 2.
+        fold(&mut snap, &step(3, 60_000, 5_760, 0));
+        assert_eq!(snap.competitors[0].step.map(|s| (s.rung, s.from)), Some((0, 2)));
+        let json = serde_json::to_value(&snap).unwrap();
+        assert_eq!(json["competitors"][0]["step"]["from"], 2);
+        // One who never stepped says nothing of it, and reads so.
+        let mut none = json.clone();
+        none["competitors"][0].as_object_mut().unwrap().remove("step");
+        let back: LiveSnapshot = serde_json::from_value(none).unwrap();
+        assert_eq!(back.competitors[0].step, None);
+        assert!(serde_json::to_string(&back).unwrap().find("step").is_none());
     }
 
     #[test]

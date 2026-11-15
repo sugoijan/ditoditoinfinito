@@ -105,6 +105,49 @@ pub struct CompetitorStatus {
     pub combo: u32,
     pub score: i64,
     pub power: u32,
+    /// The last step they made on the stage's ladder (a match's "Charts:
+    /// Adaptive"), none while on the stage's chart from the start: what a
+    /// device that starts following part-way draws them on at once
+    /// (revision 11; before it such a device drew them on the stage's
+    /// chart until their next step). Additive: left out where none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<StepStatus>,
+}
+
+/// A competitor's last step on the stage's ladder, as its stream said it
+/// ([`MomentKind::Step`]): the rung stepped to and the one stepped from
+/// (numbered as the battle plan's `ladder`, 0 the stage's chart), when it
+/// was decided (song ms) and its boundary's tick, from which the rung's
+/// notes are theirs. A boundary still ahead is a step pending: until it
+/// they are on `from` (a step up plays it to the boundary; a step down
+/// has nothing to play until it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepStatus {
+    pub rung: u8,
+    pub from: u8,
+    pub at_ms: i32,
+    pub tick: i64,
+}
+
+impl StepStatus {
+    /// `step` moved on by `moments` (a stream's, in order): the last
+    /// step among them, stepped from the rung before it.
+    pub fn after(mut step: Option<StepStatus>, moments: &[Moment]) -> Option<StepStatus> {
+        for m in moments {
+            if let MomentKind::Step { rung } = m.kind
+                // The same step again (a replay) changes nothing.
+                && !step.is_some_and(|s| (s.rung, s.at_ms, s.tick) == (rung, m.at_ms, m.tick))
+            {
+                step = Some(StepStatus {
+                    rung,
+                    from: step.map_or(0, |s| s.rung),
+                    at_ms: m.at_ms,
+                    tick: m.tick,
+                });
+            }
+        }
+        step
+    }
 }
 
 /// A stage as it stands, for a socket that could not resume from the
@@ -478,9 +521,11 @@ struct Comp {
     reported: Option<u32>,
     /// Life as last reported (millionths).
     life_ppm: u32,
-    /// The steps down its stream said (a match's "At zero life: Step
-    /// down"): the highest rung.
+    /// The rung its stream last said it stepped to (a match's "Charts:
+    /// Adaptive"; 0 the stage's chart).
     steps: u8,
+    /// Its last step, for a snapshot ([`CompetitorStatus::step`]).
+    step: Option<StepStatus>,
 }
 
 /// The earlier of two times, either of which may be unknown.
@@ -621,6 +666,7 @@ impl LiveStage {
                         reported: None,
                         life_ppm: 1_000_000,
                         steps: 0,
+                        step: None,
                     },
                 )
             })
@@ -901,11 +947,8 @@ impl LiveStage {
         if let Some(m) = b.moments.last() {
             c.last = Some(*m);
         }
-        for m in &b.moments {
-            if let MomentKind::Step { rung } = m.kind {
-                c.steps = rung;
-            }
-        }
+        c.step = StepStatus::after(c.step, &b.moments);
+        c.steps = c.step.map_or(0, |s| s.rung);
         for r in b.reports {
             if (r.k as usize) < checkpoints {
                 c.reported = Some(c.reported.map_or(r.k, |k| k.max(r.k)));
@@ -1232,6 +1275,7 @@ impl LiveStage {
                     combo: c.last.map_or(0, |m| m.combo),
                     score: c.last.map_or(0, |m| m.score),
                     power: self.ledger.as_ref().map_or(0, |l| l.power(*p)),
+                    step: c.step,
                 })
                 .collect(),
             commitments: self.commitments.clone(),

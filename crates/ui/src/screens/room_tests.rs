@@ -5044,6 +5044,58 @@ fn everyone_sees_who_is_loading_and_then_the_ready_countdown() {
     assert!((14..=15).contains(&seconds), "{seconds}");
 }
 
+/// Round D1: a room the server's operator closed says so to its members
+/// ("The room was closed.", not "This room has closed."), on the status
+/// line of everyone in it, and asks nothing more of them; a room that
+/// ended under its host says what it said before.
+#[test]
+fn a_room_closed_by_the_operator_says_so_to_its_members() {
+    let t = Three::new(false);
+    t.step(400);
+    t.server
+        .borrow_mut()
+        .authority(ddi_room::Command::CloseRoom {
+            reason: ddi_room::Closure::ByAdministrator,
+        })
+        .unwrap();
+    t.step(400);
+    for room in [&t.alice, &t.bob, &t.carol] {
+        let r = room.borrow();
+        assert_eq!(r.link_state(), ddi_room::LinkState::Closed);
+        assert_eq!(String::from(super::room::status(&r)), "The room was closed.");
+    }
+    // Under its host (the setting Close, the host leaving): as before.
+    let t = Three::new(false);
+    t.step(400);
+    t.alice
+        .borrow_mut()
+        .set_host_leaves(ddi_room::HostLeaves::Close)
+        .unwrap();
+    t.step(400);
+    t.alice.borrow_mut().leave();
+    t.step(400);
+    assert_eq!(String::from(super::room::status(&t.bob.borrow())), "This room has closed.");
+}
+
+/// Round D1: why a private room could not be made, each of the server's
+/// operator's switches and caps in a sentence of its own (no bare code),
+/// any other reason with its code.
+#[test]
+fn a_room_that_could_not_be_made_says_why_in_a_sentence() {
+    use super::online_home::create_problem;
+    let said = |code: &str| String::from(create_problem(code));
+    assert_eq!(said("new_rooms_paused"), "New rooms are paused for now. Try again later.");
+    assert_eq!(
+        said("server_busy"),
+        "The server has as many rooms as it can hold right now. Try again later."
+    );
+    assert_eq!(
+        said("too_many_rooms"),
+        "You already host as many rooms as one person can at once. Close one, or try again later."
+    );
+    assert_eq!(said("room_name"), "Couldn't make the room (room_name).");
+}
+
 /// PIN (simplify, round 2): the room's song select and its pop-ups (Rules,
 /// Add CPUs, Players, Standings, an online host's options) draw exactly
 /// what they drew before their parts were shared: a hash of each draw
@@ -5051,7 +5103,8 @@ fn everyone_sees_who_is_loading_and_then_the_ready_countdown() {
 /// are drawn round), recorded on the code before. The online ones again
 /// in feedback round H: the player's "You" badge moved onto its name's
 /// line; the Rules pop-up's (and the Add CPU pop-up's over it) for
-/// Adaptive's sentence (`adaptive-v3`), nothing else.
+/// Adaptive's sentence (`adaptive-v3`, and again for `adaptive-v4`'s in
+/// round D1), nothing else.
 #[test]
 fn the_rooms_screens_draw_as_pinned() {
     use ddi_room::{Finish, Finisher};
@@ -5132,9 +5185,9 @@ fn the_rooms_screens_draw_as_pinned() {
 
 const PINNED: [(&str, u64); 10] = [
     ("select", 9001431102370433080),
-    ("rules", 2690560165581850526),
-    ("add", 8271965849172508198),
-    ("add-level", 16806627657009014540),
+    ("rules", 2077606742733717965),
+    ("add", 7793234522926027145),
+    ("add-level", 7905317275576826850),
     ("players", 17490229943207298487),
     ("standings", 4050983496291045925),
     ("online-select", 14361459534628858177),

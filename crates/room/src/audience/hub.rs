@@ -335,10 +335,13 @@ impl AudienceHub {
                 self.view_due = Some(v);
             }
         }
+        // (A room that ended says so at once: its last view, with why
+        // it ended, goes before the seats are closed.)
         if self.view_due.is_some()
-            && self
-                .view_at
-                .is_none_or(|t| now.0 >= t.0 + self.rules.view_ms)
+            && (room.closed.is_some()
+                || self
+                    .view_at
+                    .is_none_or(|t| now.0 >= t.0 + self.rules.view_ms))
         {
             let v = self.view_due.take().expect("checked");
             out.all(RelayDown::View(Box::new(v.clone())));

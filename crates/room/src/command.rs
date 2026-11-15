@@ -169,10 +169,12 @@ pub enum Command {
     },
     /// Whether `participant` is held to watching (`Member::watch_only`).
     /// The authority sets it for one who came by the room's watch-only
-    /// link (right after their `Join`); an operator (the owner, a
-    /// co-host) may only lift it (`on` false: "Let play", under
-    /// `Capability::LetPlay`; the owner's alone before round B1). Lifting
-    /// it changes nothing else: they choose Play themselves. Additive to
+    /// link (right after their `Join`: a newcomer, or one who had left
+    /// and comes back by it, who then watches whatever they wanted
+    /// before, round D1); an operator (the owner, a co-host) may only
+    /// lift it (`on` false: "Let play", under `Capability::LetPlay`; the
+    /// owner's alone before round B1). Lifting it changes nothing else:
+    /// they choose Play themselves. Additive to
     /// protocol 2: a member is held to it only by an authority that has
     /// it, and it is offered only for such a member, so it is never sent
     /// to one that could not read it.
@@ -249,6 +251,15 @@ pub enum Command {
     },
     Interrupt {
         reason: Interruption,
+    },
+    /// End the room for everyone (round D1: the server's operator's
+    /// "Close this room", `reason` [`Closure::ByAdministrator`]): its
+    /// event is [`Event::RoomClosed`], after which nothing is decided
+    /// there and its authority closes every socket (4410), as when a host
+    /// leaves a room that is not passed on. Taken in every phase; a stage
+    /// under way ends with the room, unranked.
+    CloseRoom {
+        reason: Closure,
     },
 }
 

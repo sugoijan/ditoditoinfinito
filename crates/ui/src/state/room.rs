@@ -1266,6 +1266,9 @@ pub enum SeatEnd {
     AudienceClosed,
     /// The room ended (4410).
     RoomClosed,
+    /// The room ended because the server's operator closed it (4410, its
+    /// last view saying so: `PublicView::closure`).
+    ClosedByOperator,
     /// Its link is no longer the room's (the invite replaced): a new
     /// ticket was refused.
     LinkReplaced,

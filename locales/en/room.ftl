@@ -246,7 +246,7 @@ room-rules-charts-adaptive = Adaptive
 
 # A line under the Charts row saying what the chosen value does.
 room-rules-charts-as-picked-about = Everyone plays the chart picked; a player whose life runs out is out until the next stage.
-room-rules-charts-adaptive-about = A player whose life runs out gets half of it back and plays the song's next easier chart from a bar ahead; one who keeps full life without a miss moves up to the next harder chart, above the one picked too: after four bars with nearly every step in the two best judgments, or after eight with most steps in the three best (back to a chart where their life ran out takes sixteen bars, and never after it ran out there twice). Those still in place by their score: harder charts earn more. On the easiest chart zero life is out.
+room-rules-charts-adaptive-about = A player whose life runs out gets half of it back and plays the song's next easier chart from a bar ahead; one who keeps full life without a miss moves up to the next harder chart, above the one picked too: after four bars with nearly every step in the three best judgments, or after eight with most of them (back to a chart where their life ran out takes sixteen bars, and never after it ran out there twice). Those still in place by their score: harder charts earn more. On the easiest chart zero life is out.
 
 # Added after that line where the song picked for the stage has no other
 # chart in its style to move to.
@@ -979,6 +979,18 @@ room-creating = Making the room…
 #   $code (String) - the server's reason, as a code
 room-create-failed = Couldn't make the room ({ $code }).
 
+# When making the room was refused because the server's operator has
+# paused new rooms for now (a sentence on the multiplayer home's status
+# line; about 60 letters).
+room-create-paused = New rooms are paused for now. Try again later.
+
+# The same where the server already holds as many rooms as it can.
+room-create-busy = The server has as many rooms as it can hold right now. Try again later.
+
+# The same where this person already hosts as many rooms as one person
+# may at once (rooms they made and have not closed).
+room-create-too-many = You already host as many rooms as one person can at once. Close one, or try again later.
+
 ## An invite's page (opened from an invite link): the room it is for
 ## before signing in, and joining it.
 
@@ -1051,6 +1063,11 @@ room-link-sign-in-again = Your sign-in ended. Sign in again to return to the roo
 
 # The status line when the room closed.
 room-link-closed = This room has closed.
+
+# The status line (and the audience's page, and over a watched stage)
+# when the server's operator closed the room: said to its members and to
+# everyone watching.
+room-closed-by-operator = The room was closed.
 
 # Said (on an invite's page, or on the room's status line) where the
 # room's server is newer than this game: desktop's, which needs a newer
@@ -1665,6 +1682,9 @@ room-audience-too-many-network = Too many people on your network are already wat
 # Too many joins from one network within a minute; the button can be
 # pressed again shortly.
 room-audience-busy = Many people on your network joined just now. Try again in a moment.
+# The same for someone signed in: their own account joined the audience
+# too many times within a minute.
+room-audience-busy-account = You joined this room's audience many times just now. Try again in a moment.
 room-audience-link-unknown = This audience link isn't this room's, or it was replaced.
 room-audience-none = This room has no audience to watch with.
 

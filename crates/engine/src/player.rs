@@ -1264,7 +1264,7 @@ impl Player {
         let up = if back {
             let start = start_of(rule.return_bars);
             (clean(start)
-                && (accurate(start, 2, rule.accuracy)
+                && (accurate(start, rule.early_best, rule.accuracy)
                     || (rule.normal_bars > 0 && accurate(start, rule.normal_best, rule.normal_accuracy))))
             .then_some(false)
         } else {
@@ -1272,7 +1272,7 @@ impl Player {
             // a lower floor.
             let early = start_of(rule.up_bars);
             let normal = start_of(rule.normal_bars);
-            if clean(early) && accurate(early, 2, rule.accuracy) {
+            if clean(early) && accurate(early, rule.early_best, rule.accuracy) {
                 Some(true)
             } else if rule.normal_bars > 0
                 && clean(normal)

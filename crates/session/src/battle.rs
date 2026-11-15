@@ -229,8 +229,12 @@ pub struct OpponentView {
     pub level: Option<u8>,
     /// Its gauge's life, `0..=1`.
     pub life: f32,
-    /// Its gauge emptied: out of the stage.
+    /// Out of the stage: its gauge emptied, or it left.
     pub out: bool,
+    /// Out because it left the stage (a quit, a connection lost for
+    /// good: a live stream's forfeit), not by its life: its field says
+    /// so, and it ranks last as the stage ranks a forfeit.
+    pub left: bool,
     /// Its score as a fraction of the best its notes give (the percent),
     /// and as the room shows it and ranks by it under DDI: the sum (a
     /// CPU's its own: it plays the whole chart); none under another
@@ -1432,7 +1436,11 @@ impl Battle {
                     at,
                     tick: ddi_chart::Tick(0),
                     lane: 0,
-                    kind: feed::MomentKind::Mark,
+                    kind: if self.forfeit.is_some() {
+                        feed::MomentKind::Left
+                    } else {
+                        feed::MomentKind::Mark
+                    },
                     life: 0.0,
                     combo,
                     out: true,
@@ -1469,6 +1477,7 @@ impl Battle {
             level: None,
             life: shown.life,
             out: shown.out,
+            left: shown.out && self.own.left(),
             score: accuracy(&view),
             sum: view.ddi.map(|d| d.score),
             combo: shown.combo,
@@ -2469,6 +2478,7 @@ impl Battle {
                     level: None,
                     life: shown.life,
                     out: shown.out,
+                    left: shown.out && s.feed.left(),
                     // The stream tells DDI's sum alone: the percent is
                     // worked out from it, the W0s it told and the chart's
                     // most (`live::ddi_of_sum`); none without a most.
@@ -2502,6 +2512,7 @@ impl Battle {
                         level: Some(s.level),
                         life: shown.life,
                         out: shown.out,
+                        left: false,
                         score: view.as_ref().map_or(0.0, accuracy),
                         sum: Some(view.and_then(|v| v.ddi).map_or(0, |d| d.score)),
                         combo: shown.combo,
@@ -2519,6 +2530,7 @@ impl Battle {
                         level: Some(s.level),
                         life: s.opponent.life(),
                         out: s.out_at().is_some(),
+                        left: false,
                         score: accuracy(&score),
                         sum: score.ddi.map(|d| d.score),
                         combo: s.opponent.combo(),

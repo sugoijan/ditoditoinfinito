@@ -504,8 +504,17 @@ pub fn worded_for(mut p: Problem, signed_in: bool) -> Problem {
     if !signed_in && p.code == ddi_room::audience::AudienceRefusal::TooManySeats.code() {
         p.code = TOO_MANY_ON_NETWORK.into();
     }
+    // Too many joins just now: a network's where not signed in, the
+    // account's own where signed in (round D1).
+    if signed_in && p.code == ddi_room::audience::AudienceRefusal::Busy.code() {
+        p.code = BUSY_ACCOUNT.into();
+    }
     p
 }
+
+/// The wording key of `audience_busy` for someone signed in
+/// ([`worded_for`]): the client's own, never a server's code.
+pub const BUSY_ACCOUNT: &str = "audience_busy_account";
 
 /// An audience seat's socket's path for a ticket
 /// (`/sockets/<id>/audience/ws?ticket=`).

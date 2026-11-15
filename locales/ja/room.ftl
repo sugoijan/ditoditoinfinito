@@ -127,7 +127,7 @@ room-rules-charts-as-picked = 選んだまま
 room-rules-charts-adaptive = 適応
 
 room-rules-charts-as-picked-about = 全員が選ばれた譜面をプレイし、ライフが尽きたプレイヤーは次のステージまで脱落します。
-room-rules-charts-adaptive-about = ライフが尽きたプレイヤーはライフが半分戻り、少し先の小節から同じ曲の一つ易しい譜面をプレイします。ミスなしでライフ満タンを保つと、一つ難しい譜面に上がります。4小節でほぼすべてが上位2つの判定なら早めに、8小節で大半が上位3つの判定でも上がります（選ばれた譜面より上にも。ライフが尽きた譜面へ戻るには16小節、2回尽きた譜面へは戻れません）。残っているプレイヤーはスコア順で、難しい譜面ほど稼げます。いちばん易しい譜面ではライフ0で脱落します。
+room-rules-charts-adaptive-about = ライフが尽きたプレイヤーはライフが半分戻り、少し先の小節から同じ曲の一つ易しい譜面をプレイします。ミスなしでライフ満タンを保つと、一つ難しい譜面に上がります。4小節でほぼすべてが上位3つの判定なら早めに、8小節で大半が上位3つの判定でも上がります（選ばれた譜面より上にも。ライフが尽きた譜面へ戻るには16小節、2回尽きた譜面へは戻れません）。残っているプレイヤーはスコア順で、難しい譜面ほど稼げます。いちばん易しい譜面ではライフ0で脱落します。
 
 room-rules-charts-no-ladder = 選ばれた曲にはこのスタイルの譜面がほかにないため、選んだままと同じになります。
 
@@ -437,6 +437,12 @@ room-creating = ルームを作成しています…
 
 room-create-failed = ルームを作成できませんでした（{ $code }）。
 
+room-create-paused = 新しいルームの作成は現在停止中です。しばらくしてからもう一度お試しください。
+
+room-create-busy = サーバーのルーム数が上限に達しています。しばらくしてからもう一度お試しください。
+
+room-create-too-many = 同時にホストできるルーム数の上限に達しています。どれかを閉じるか、しばらくしてからもう一度お試しください。
+
 ## An invite's page.
 
 room-invite-title = 招待
@@ -479,6 +485,7 @@ room-link-reconnecting = 接続が切れました。再接続しています…
 room-link-sign-in-again = サインインの期限が切れました。ルームに戻るにはもう一度サインインしてください。
 
 room-link-closed = このルームは閉じられました。
+room-closed-by-operator = ルームは閉じられました。
 room-update-required = このルームには新しいバージョンのゲームが必要です。
 room-update-reload = ゲームが更新されました。このルームで遊ぶには再読み込みしてください。
 room-update-reload-button = 再読み込み
@@ -739,6 +746,7 @@ room-audience-closed = ホストが観客席を閉じました。
 room-audience-too-many-seats = すでに2台の端末でこのルームを観戦しています。
 room-audience-too-many-network = お使いのネットワークからこのルームを観戦している人が多すぎます。
 room-audience-busy = お使いのネットワークから短時間に多くの参加がありました。しばらくしてからもう一度お試しください。
+room-audience-busy-account = 短時間に何度もこのルームの観客席に参加しました。しばらくしてからもう一度お試しください。
 room-audience-link-unknown = この観客用リンクはこのルームのものではないか、差し替えられました。
 room-audience-ended-back = { $key }: 戻る
 room-audience-ended-back-tap = 戻る

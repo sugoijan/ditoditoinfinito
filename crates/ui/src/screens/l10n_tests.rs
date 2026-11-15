@@ -1568,6 +1568,13 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         ha.tap(PointerKind::Mouse, "Close");
         ha.run(0.3);
     }
+    // (Held to watching, Bob watched; let play, he chooses Play again.)
+    bob.borrow_mut().set_intent(ddi_room::Intent::Play).unwrap();
+    step(400);
+    assert_eq!(
+        server.borrow().state().member(ParticipantId(2)).unwrap().intent,
+        ddi_room::Intent::Play
+    );
     // Asking before leaving: the question as the host gets it on Back
     // (Escape there is Stay), then each case's sentence.
     ha.key("Escape", "Escape");
@@ -1731,6 +1738,25 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     );
     step(1_000);
     shown(&mut hb, found);
+    // Round D1's sentences: why a room could not be made (the operator's
+    // switches and caps, another reason), a room its operator closed (a
+    // member's status line, an audience seat's), an account's joins.
+    checked(
+        ["new_rooms_paused", "server_busy", "too_many_rooms", "room_name"]
+            .into_iter()
+            .map(|code| super::online_home::create_problem(code).into())
+            .chain([
+                ddi_l10n::msg::room::closed_by_operator().into(),
+                super::audience::seat_end_text(&crate::state::room::SeatEnd::ClosedByOperator).into(),
+                super::online::invite_problem(&crate::state::online::api::Problem {
+                    status: 503,
+                    code: crate::state::online::api::BUSY_ACCOUNT.into(),
+                })
+                .into(),
+            ])
+            .collect(),
+        found,
+    );
 }
 
 /// The audience (`docs/plans/multiplayer-audience.md`): an audience

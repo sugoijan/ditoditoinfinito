@@ -2068,6 +2068,126 @@ fn an_audience_seat_that_arrives_part_way_sees_the_stage_as_it_stands() {
     }
 }
 
+/// Round D1 (revision 11): a seat that starts watching part-way draws a
+/// competitor on the chart of the ladder they are on at once, from the
+/// snapshot's word on their last step (before, on the stage's chart until
+/// their next step), and one who left the stage is shown as having left,
+/// not as out by their life, so that every device ranks them last as the
+/// stage does. Alice plays, Bob misses everything and steps down the
+/// ladder, Carol plays and quits; the seat comes seconds after Bob's
+/// last step and Carol's leaving (past the frames a resume replays).
+#[test]
+fn a_seat_part_way_draws_each_competitor_on_their_chart_and_one_who_left_as_left() {
+    let song = bundled("beatucada");
+    const HARD: usize = 5;
+    let r = Room::under(
+        &[
+            ("alice", Intent::Play),
+            ("bob", Intent::Play),
+            ("carol", Intent::Play),
+        ],
+        None,
+        &[],
+        RoomPolicy::default().with_live().with_audience(),
+    );
+    for _ in 0..10 {
+        r.run(0.5);
+        if r.rooms.iter().all(|x| x.borrow().room_now().is_some()) {
+            break;
+        }
+    }
+    let mut rules = r.rooms[0].borrow().rules().clone();
+    rules.charts = ddi_room::Charts::Adaptive;
+    r.rooms[0].borrow_mut().save_rules(rules).unwrap();
+    r.run(1.0);
+    let orders = pick_and_ready(&r, &song, true, HARD);
+    let (bob, carol) = (orders[1].as_ref().unwrap().me, orders[2].as_ref().unwrap().me);
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 5.0, 0.0]);
+    // Carol quits a few seconds into the notes; then on until Bob has
+    // stepped down and his last step is three seconds old (an audience
+    // resume replays two seconds of frames), Bob still in.
+    let (mut left, mut steps, mut since) = (false, 0usize, 0.0f64);
+    let began = *r.host.borrow();
+    loop {
+        let _ = play_out(&r, &mut plays, 0.25, |_, plays| {
+            if !left && plays[2].player.started() && plays[2].player.tally().taps[0] >= 8 {
+                left = true;
+                plays[2].leave();
+            }
+        });
+        let t = *r.host.borrow() - began;
+        let n = plays[1].player.steps().len();
+        if n != steps {
+            (steps, since) = (n, t);
+        }
+        if left && steps >= 1 && t - since >= 3.0 {
+            break;
+        }
+        assert!(t < 80.0, "Carol left ({left}) and Bob stepped down ({steps}) within the song");
+    }
+    let server_end = |who| r.server.borrow().live().unwrap().stage_or_last().unwrap().end(who);
+    assert_eq!(server_end(carol), Some(StreamEnd::Forfeit));
+    assert_eq!(server_end(bob), None, "Bob still in");
+    let rung_now = plays[1].player.steps().last().map(|s| s.rung);
+    let aud = audience_seat(&r, "dora", None);
+    let tick_aud = || aud.borrow_mut().tick(wall(*r.host.borrow()));
+    let e = entry_at(&song, HARD);
+    let _ = play_out(&r, &mut plays, 4.0, |_, _| {
+        tick_aud();
+        let jobs = aud.borrow_mut().take_load_jobs();
+        for job in jobs {
+            let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+            let picked = Picked {
+                song: SongEntry {
+                    id: job.song.clone(),
+                    ..e.clone()
+                },
+                chart: e.charts[0].clone(),
+            };
+            aud.borrow_mut().finish_load(&job, Ok((picked, prepared.live)));
+        }
+    });
+    let order = aud.borrow_mut().watch_now().expect("Watch hands the stage over");
+    let settings = Settings::default();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.opponents = Some(StageSetup::of(&order));
+    let host = r.host.clone();
+    config.live = Some(crate::battle::live::LiveHandle {
+        room: aud.clone(),
+        wall_ms: Rc::new(move || wall(*host.borrow())),
+    });
+    let mut watched = PlaySession::start(
+        &song,
+        order.chart.index,
+        &settings,
+        config,
+        FakeAudio::new(&r.host, 0.02),
+        110.0,
+        FakeInputs::new(&r.host),
+    )
+    .unwrap();
+    for _ in 0..120 {
+        r.step(1.0 / 60.0, false);
+        let host = *r.host.borrow();
+        for p in plays.iter_mut() {
+            let _ = p.tick(HostTime(host));
+        }
+        let _ = watched.tick(HostTime(host));
+    }
+    let b = watched.battle().unwrap();
+    let views = b.views();
+    let at = |who| views.iter().position(|v| v.participant == who).expect("their field");
+    // Carol left: out, and said so; Bob, where out by now, by his life.
+    let c = &views[at(carol)];
+    assert!(c.out && c.left, "Carol shown as having left: {c:?}");
+    assert!(!views[at(bob)].left, "{:?}", views[at(bob)]);
+    assert!(b.feeds().nth(at(carol)).unwrap().left());
+    // Bob's field knows the chart he was on when the seat came.
+    let rung = rung_now.expect("Bob stepped down before the seat came");
+    let seen: Vec<u8> = b.feeds().nth(at(bob)).unwrap().steps().map(|s| s.2).collect();
+    assert!(seen.contains(&rung), "Bob on rung {rung} when the seat came; his field knows {seen:?}");
+}
+
 /// An audience seat watching from the start goes back to its page while
 /// the stage goes on, then presses Watch again: the stage handed over as
 /// it stands, with what the first watch read and what came meanwhile (a
@@ -2670,6 +2790,16 @@ fn a_live_stage_steps_down_and_the_others_fields_follow() {
     let server = r.server.borrow();
     let stage = server.live().unwrap().stage_or_last().unwrap();
     assert!(stage.steps(r.rooms[1].borrow().me()) >= 2);
+    // The room's snapshot says Bob's last step (round D1): the rung he
+    // is on, the one he stepped from, its moment and its boundary.
+    let bob_id = r.rooms[1].borrow().me();
+    let snap = stage.snapshot(1, ddi_room::Millis(0));
+    let said = snap.competitors.iter().find(|c| c.participant == bob_id).unwrap().step.unwrap();
+    let steps = plays[1].player.steps();
+    let (last, before) = (steps[steps.len() - 1], steps[steps.len() - 2]);
+    assert_eq!((said.rung, said.from), (last.rung, before.rung));
+    assert_eq!(said.tick, last.tick.0);
+    assert!((f64::from(said.at_ms) / 1e3 - last.at).abs() < 0.01, "{said:?} {last:?}");
     drop(server);
     match bob.mine {
         ddi_room::Run::Live { steps, .. } => assert!(steps >= 2),
@@ -3039,14 +3169,17 @@ fn a_live_stage_shows_and_decides_as_pinned() {
 /// otherwise the same, line for line); and again with `battle-voice-v1`
 /// (feedback round J), where a player's steps under Adaptive charts are
 /// told at their boundaries (the traces otherwise the same: only their
-/// last `told` lines gained the steps).
+/// last `told` lines gained the steps); and again in round D1, where each
+/// view says whether its competitor left the stage (`left: false` in
+/// every one here; the traces otherwise the same, line for line, under
+/// `adaptive-v4` too).
 const LIVE_PINNED: &[u64] = &[
-    0xda5ba427b4c3ebfa,
-    0xad1fcb3e830629b7,
-    0x144a9b71bbc269a5,
-    0x865735e5008f5968,
-    0x91684042c07e5087,
-    0x3e9a47ff54003d72,
+    0xa08b62cf3d22efae,
+    0x873aad79c81c7ae7,
+    0xccf02f30ba20ecfb,
+    0x4fddf6dc97f38296,
+    0x1ab741456c8e0f6f,
+    0xc071cf01bc627638,
 ];
 
 /// An online stage's prompt left once the room started it: the player's

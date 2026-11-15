@@ -664,12 +664,23 @@ impl RoomState {
                 if m.is_cpu() {
                     return Err(Rejection::NotAHuman);
                 }
-                if m.watch_only != *on {
+                let (id, held) = (*participant, m.watch_only);
+                // Held to watching, they watch (round D1): one who had
+                // left wanting to play and comes back by the watch-only
+                // link keeps their row, not their place among the
+                // players (a newcomer by it joined to watch already).
+                // Never the owner, whom it does not hold.
+                let plays = *on && m.intent == Intent::Play && m.role != Role::Owner && !m.left;
+                if held != *on {
+                    self.emit(out, Event::WatchOnlyChanged { participant: id, on: *on });
+                }
+                if plays {
+                    self.cancel_if_committed(id, out);
                     self.emit(
                         out,
-                        Event::WatchOnlyChanged {
-                            participant: *participant,
-                            on: *on,
+                        Event::IntentChanged {
+                            participant: id,
+                            intent: Intent::Watch,
                         },
                     );
                 }
@@ -900,6 +911,11 @@ impl RoomState {
                     return Err(self.wrong_phase());
                 }
                 self.interrupt(*reason, out);
+                Ok(())
+            }
+            Command::CloseRoom { reason } => {
+                Self::authority_only(actor)?;
+                self.emit(out, Event::RoomClosed { reason: *reason });
                 Ok(())
             }
         }

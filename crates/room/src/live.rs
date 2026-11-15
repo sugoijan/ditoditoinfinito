@@ -46,7 +46,7 @@ pub use client::{LiveLink, LiveNews};
 pub use clock::{ClockEstimate, ClockEstimator, Ping, Pong};
 pub use delay::{VIEW_DELAY_V0, ViewDelay, ViewDelayRules, ViewMeter};
 pub use plan::{BattlePlan, PlanDigest, PlanProblem};
-pub use server::{LiveOut, LiveReply, LiveServer, LiveStage};
+pub use server::{CompetitorStatus, LiveOut, LiveReply, LiveServer, LiveSnapshot, LiveStage, StepStatus};
 pub use slew::{SLEW_V0, SlewRules, SongSlew};
 pub use stream::{
     Batch, Commitment, Frame, FrameEntry, FrameReader, LiveReport, Moment, MomentKind, Outbox,

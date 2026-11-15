@@ -397,6 +397,10 @@ mod tests {
         let l = Ladder::of(&rival, Some(at(RankBy::Score, 1.0, 500.0)));
         assert_eq!(l.place, Some(2), "{l:?}");
         assert_eq!(order(&rival), vec![0, 2, 1], "the later out above");
+        // One who left the stage ranks last whenever they left (their
+        // stream's forfeit, round D1), below everyone out by their life.
+        let rival = [out(30.0, 999.0), out(f64::NEG_INFINITY, 5_000.0), out(2.0, 1.0)];
+        assert_eq!(order(&rival), vec![0, 2, 1], "the one who left last");
         // As picked: life first.
         let rival = [at(RankBy::Life, 0.4, 900.0)];
         assert_eq!(Ladder::of(&rival, Some(at(RankBy::Life, 1.0, 500.0))).place, Some(1));

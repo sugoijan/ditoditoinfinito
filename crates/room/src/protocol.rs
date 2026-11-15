@@ -82,8 +82,14 @@ pub fn supported(version: u32) -> bool {
 ///    score retired;
 /// 10. `adaptive-v3` (an early step up as `adaptive-v2`'s, and a normal
 ///     one after more bars with a lower floor: every device steps the
-///     room's CPUs alike).
-pub const ROOM_MODEL_REVISION: u32 = 10;
+///     room's CPUs alike);
+/// 11. the maintainer's decisions of 2026-11-15, together: `adaptive-v4`
+///     (the early step up asks 90% in the three best judgments), a live
+///     snapshot's `step` (the chart of the ladder each competitor is on),
+///     the authority's `Command::CloseRoom` with
+///     `Closure::ByAdministrator`, and the public view's additions (a
+///     song's banner, the Standings).
+pub const ROOM_MODEL_REVISION: u32 = 11;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being

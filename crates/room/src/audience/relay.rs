@@ -4,7 +4,7 @@
 //!
 //! - **Seats**: admitted against what the room said (the audience link's
 //!   key, open or not, how many seats a relay holds) and the rules (two
-//!   seats a signed-in identity, eight an anonymous one, whose joins are
+//!   seats a signed-in identity, eight an anonymous one, either's joins
 //!   also bounded a minute: [`AudienceRules::seats_for`]);
 //!   each seat's hello answered with the view, the count and the stage as
 //!   the relay keeps it (a snapshot folded from the frames, and the last
@@ -95,10 +95,11 @@ pub struct Relay {
     admission: Option<Admission>,
     seats: BTreeMap<SeatId, Seat>,
     per_identity: BTreeMap<u64, u32>,
-    /// Each anonymous identity's joins within the last
-    /// `anonymous_join_window_ms` (their times; memory only, so a
-    /// restarted relay counts afresh).
-    anonymous_joins: BTreeMap<u64, VecDeque<u64>>,
+    /// Each identity's joins within the last `anonymous_join_window_ms`
+    /// (their times; memory only, so a restarted relay counts afresh):
+    /// an anonymous one's against `anonymous_joins_per_minute`, a
+    /// signed-in one's against `signed_in_joins_per_minute`.
+    joins: BTreeMap<u64, VecDeque<u64>>,
     next_seat: SeatId,
     view: Option<PublicView>,
     /// How many watch in all, as the room last said.
@@ -125,7 +126,7 @@ impl Relay {
             admission: None,
             seats: BTreeMap::new(),
             per_identity: BTreeMap::new(),
-            anonymous_joins: BTreeMap::new(),
+            joins: BTreeMap::new(),
             next_seat: 1,
             view: None,
             count: None,
@@ -224,15 +225,20 @@ impl Relay {
             return Err(AudienceRefusal::Full);
         }
         let mark = identity_mark(identity);
-        if super::is_anonymous(identity) {
-            // Every join that reached this far counts, a refused one too.
-            let joins = self.anonymous_joins.entry(mark).or_default();
+        {
+            // Every join that reached this far counts, a refused one too
+            // (an anonymous network's and, since round D1, an account's).
+            let most = if super::is_anonymous(identity) {
+                self.rules.anonymous_joins_per_minute
+            } else {
+                self.rules.signed_in_joins_per_minute
+            };
+            let joins = self.joins.entry(mark).or_default();
             let window = self.rules.anonymous_join_window_ms;
-            while joins.front().is_some_and(|t| now >= t + window)
-            {
+            while joins.front().is_some_and(|t| now >= t + window) {
                 joins.pop_front();
             }
-            if joins.len() as u32 >= self.rules.anonymous_joins_per_minute {
+            if joins.len() as u32 >= most {
                 return Err(AudienceRefusal::Busy);
             }
             joins.push_back(now);
@@ -471,9 +477,9 @@ impl Relay {
     /// between stages.
     pub fn tick(&mut self, now: u64) -> RelayOut {
         let mut out = RelayOut::default();
-        // Anonymous joins out of the window are forgotten.
+        // Joins out of the window are forgotten.
         let window = self.rules.anonymous_join_window_ms;
-        self.anonymous_joins
+        self.joins
             .retain(|_, joins| joins.back().is_some_and(|t| now < t + window));
         // Seats given and never taken are given up.
         let stale: Vec<SeatId> = self
@@ -575,16 +581,19 @@ mod tests {
             t += 1_000;
         }
         assert_eq!(r.admit("anon:net", "k", t), Err(AudienceRefusal::Busy));
-        // A signed-in person is never counted so.
-        for _ in 0..40 {
+        // A signed-in person's joins are bounded the same way (round
+        // D1), counted on their own.
+        for _ in 0..30 {
             let seat = r.admit("twitch:1", "k", t).unwrap();
             r.seat_gone(seat);
         }
+        assert_eq!(r.admit("twitch:1", "k", t), Err(AudienceRefusal::Busy));
+        assert!(r.admit("twitch:2", "k", t).is_ok(), "another account's are its own");
         // A minute after the first join, the next is let in.
         let _ = r.tick(60_000);
         assert!(r.admit("anon:net", "k", 60_000).is_ok());
         // Old joins are forgotten by the tick.
         let _ = r.tick(200_000);
-        assert!(r.anonymous_joins.is_empty());
+        assert!(r.joins.is_empty());
     }
 }

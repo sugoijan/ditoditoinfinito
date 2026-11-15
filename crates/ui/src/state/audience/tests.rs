@@ -523,6 +523,10 @@ fn a_seat_s_end_during_a_watched_stage_is_its_relay_s_or_a_refused_ticket() {
         crate::screens::audience::seat_end_text(&SeatEnd::LinkReplaced).to_string(),
         "This audience link isn't this room's, or it was replaced."
     );
+    assert_eq!(
+        crate::screens::audience::seat_end_text(&SeatEnd::ClosedByOperator).to_string(),
+        "The room was closed."
+    );
 }
 
 /// `audience-view-v1`: a stage whose fields had to fall behind the music
@@ -686,6 +690,15 @@ fn someone_not_signed_in_watches_with_the_audience_without_a_sign_in() {
         String::from(crate::screens::online::invite_problem(&busy)),
         "Many people on your network joined just now. Try again in a moment."
     );
+    // The same refusal read by someone signed in (round D1: an
+    // account's joins are bounded too) names no network.
+    let mine = crate::state::online::api::worded_for(busy.clone(), true);
+    assert_eq!(mine.code, crate::state::online::api::BUSY_ACCOUNT);
+    assert_eq!(
+        String::from(crate::screens::online::invite_problem(&mine)),
+        "You joined this room's audience many times just now. Try again in a moment."
+    );
+    assert_eq!(crate::state::online::api::worded_for(busy.clone(), false).code, "audience_busy");
     // A server from before (it asks the audience for a session): said as
     // the server being updated, and nobody signed out for it.
     let old: Handler = Box::new(|req| match (req.method, req.path.as_str()) {

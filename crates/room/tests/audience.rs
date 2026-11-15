@@ -611,6 +611,97 @@ fn the_public_view_says_nothing_a_member_alone_knows() {
     assert_eq!(json, again);
 }
 
+/// Round D1, for the audience's page: the view carries what a banner
+/// needs of each stage's song (the room's share and the chart's digest:
+/// what a member's client finds the song and its banner in the share's
+/// listing by) and everything a member's Standings table shows of a
+/// settled stage (each starter's place, finish and award, their
+/// details, the match's totals and places, their names), and, once the
+/// room ended, why. Over the room revision 10 stored (stage 1 settled,
+/// stage 2 next, a spotlight on another song).
+#[test]
+fn the_view_has_what_a_banner_and_the_standings_need() {
+    use ddi_room::{Actor, Closure, Command, Millis, ParticipantId, RoomState, StageId};
+    let mut state: RoomState = serde_json::from_str(include_str!("room-revision-10.json")).unwrap();
+    let view = PublicView::of(&state, "Friday night");
+    let one = &view.stages[0];
+    assert_eq!((one.share.as_deref(), one.chart.clone()), (Some("Share001"), Some(ChartKey::new("digest-1"))));
+    assert_eq!(one.card.as_ref().unwrap().title, "Song 1");
+    let play = one.play.as_ref().unwrap();
+    let result = play.result.as_ref().unwrap();
+    assert_eq!(result.placements.len(), 5);
+    assert_eq!(result.placements[0].participant, ParticipantId(7));
+    assert_eq!(result.placements[4].finish, ddi_room::Finish::Forfeit);
+    assert_eq!(play.details.len(), 4, "everyone who reported how they did");
+    let host = play.details.iter().find(|(p, _)| *p == ParticipantId(1)).unwrap();
+    assert_eq!((host.1.chart.as_deref(), host.1.harder), (Some("Challenge"), true));
+    assert_eq!(view.standings.len(), 5);
+    assert_eq!(view.standings[0].rank, 1);
+    assert!(view.stages[1].rules.is_some(), "stage 2's changed rules");
+    // Every row has a name to show (a CPU's its roster's).
+    for st in &view.standings {
+        let p = view.players.iter().find(|p| p.id == st.participant).unwrap();
+        assert!(p.name.is_some());
+    }
+    // Nothing of the spotlight, which only members see.
+    let json = serde_json::to_string(&view).unwrap();
+    assert!(!json.contains("Song 2") && !json.contains("closure"), "{json}");
+    // The song picked for the next stage: its card at once, its share
+    // once the room has it.
+    state
+        .apply(
+            Actor::Member(ParticipantId(2)),
+            Some(state.revision),
+            &Command::Pick {
+                content: ddi_room::ContentId {
+                    song: ddi_room::SongKey::new("song-3"),
+                    chart: ChartKey::new("digest-3"),
+                },
+                card: Some(Box::new(ContentCard {
+                    title: "Song 3".into(),
+                    ..ContentCard::default()
+                })),
+            },
+            Millis(2_000_000),
+        )
+        .unwrap();
+    let next = PublicView::of(&state, "Friday night").stages[1].clone();
+    assert_eq!(next.id, StageId(2));
+    assert_eq!((next.card.unwrap().title.as_str(), next.share), ("Song 3", None));
+    state
+        .apply(
+            Actor::Authority,
+            None,
+            &Command::SetContentStatus {
+                stage: StageId(2),
+                status: ContentStatus::Available,
+                share: Some("Share003".into()),
+            },
+            Millis(2_000_100),
+        )
+        .unwrap();
+    let next = PublicView::of(&state, "Friday night").stages[1].clone();
+    assert_eq!((next.share.as_deref(), next.chart), (Some("Share003"), Some(ChartKey::new("digest-3"))));
+    // Closed by the server's operator: the view says so, and why.
+    state
+        .apply(
+            Actor::Authority,
+            None,
+            &Command::CloseRoom { reason: Closure::ByAdministrator },
+            Millis(2_000_200),
+        )
+        .unwrap();
+    let closed = PublicView::of(&state, "Friday night");
+    assert!(closed.closed);
+    assert_eq!(closed.closure, Some(Closure::ByAdministrator));
+    let json = serde_json::to_value(&closed).unwrap();
+    assert_eq!(json["closure"], "by_administrator");
+    // A view from before the field reads.
+    let mut old = json.clone();
+    old.as_object_mut().unwrap().remove("closure");
+    assert_eq!(serde_json::from_value::<PublicView>(old).unwrap().closure, None);
+}
+
 #[test]
 fn the_view_changes_only_with_what_it_shows() {
     let clock = ManualClock::new(1_000_000);

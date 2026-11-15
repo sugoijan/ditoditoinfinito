@@ -168,6 +168,76 @@ pub(crate) struct RemoteSeat {
 }
 
 impl RemoteSeat {
+    /// Its stream said it stepped to rung `rung` of the stage's ladder at
+    /// song second `at` (on its own song clock), the rung's notes its own
+    /// from the boundary at `tick`: its field draws the rung's chart from
+    /// there (the stage's again for rung 0). `rungs`: each rung's chart
+    /// and whether it is above the stage's.
+    fn step(
+        &mut self,
+        track: &Rc<feed::TapTrack>,
+        rungs: &[(Rc<feed::TapTrack>, bool)],
+        rung: u8,
+        at: f64,
+        tick: Tick,
+    ) {
+        let r = match usize::from(rung).checked_sub(1) {
+            None => Some((Rc::clone(track), false)),
+            Some(i) => rungs.get(i).cloned(),
+        };
+        let Some((r, up)) = r else {
+            return;
+        };
+        // The same step said again (a snapshot's, then its moment in the
+        // frames after it, the seat's song clock shifted a little
+        // between): taken once.
+        if self.feed.steps().any(|(a, _, to)| to == rung && (a - at).abs() < 0.5) {
+            return;
+        }
+        self.steps = rung;
+        let boundary = track.seconds_at(tick);
+        // Back to the stage's chart: up where it came from a rung below
+        // it.
+        let up = up
+            || (rung == 0
+                && usize::from(self.steps_from)
+                    .checked_sub(1)
+                    .and_then(|i| rungs.get(i))
+                    .is_some_and(|f| !f.1));
+        self.steps_from = rung;
+        self.feed.step(r, (at, boundary, tick), rung, up);
+    }
+
+    /// A snapshot's word on the chart it is on (its last step,
+    /// `ddi_room::live::StepStatus`; revision 11), for a field that
+    /// starts following part-way: where the field knows no step of its
+    /// own yet, the rung it stepped from as the chart it was on all along
+    /// (nothing of the stage's chart is drawn where it left it before
+    /// this device looked), then the step itself, as its moment would
+    /// have said it. A field that followed the stream knows its steps
+    /// and takes the same step again as nothing.
+    fn step_status(
+        &mut self,
+        track: &Rc<feed::TapTrack>,
+        rungs: &[(Rc<feed::TapTrack>, bool)],
+        step: ddi_room::live::StepStatus,
+    ) {
+        if self.feed.steps().next().is_none()
+            && step.from != 0
+            && let Some((r, _)) = rungs.get(usize::from(step.from) - 1)
+        {
+            self.feed.step(
+                Rc::clone(r),
+                (f64::NEG_INFINITY, f64::NEG_INFINITY, Tick(i64::MIN)),
+                step.from,
+                false,
+            );
+            self.steps_from = step.from;
+        }
+        let at = (i64::from(step.at_ms) * 1_000 - self.shift_us) as f64 / 1e6;
+        self.step(track, rungs, step.rung, at, Tick(step.tick));
+    }
+
     /// Out of the stage (its gauge, or a forfeit).
     pub fn gone(&self) -> bool {
         self.end.is_some_and(|e| e != StreamEnd::Finished)
@@ -978,6 +1048,11 @@ impl Live {
                                     },
                                 );
                             }
+                            // The chart of the ladder it is on, where
+                            // this field has not followed its steps.
+                            if let Some(step) = c.step {
+                                seat.step_status(track, &self.rungs, step);
+                            }
                             if let Some(end) = c.end {
                                 Self::ended(seat, track, end, self.most, &mut got);
                             }
@@ -1086,24 +1161,7 @@ impl Live {
                 // A step: its field draws the rung's chart from the
                 // boundary (the stage's again for rung 0).
                 if let MomentKind::Step { rung } = m.kind {
-                    let r = match usize::from(rung).checked_sub(1) {
-                        None => Some((Rc::clone(track), false)),
-                        Some(i) => self.rungs.get(i).cloned(),
-                    };
-                    if let Some((r, up)) = r {
-                        seat.steps = rung;
-                        let boundary = track.seconds_at(Tick(m.tick));
-                        // Back to the stage's chart: up where it came from
-                        // a rung below it.
-                        let up = up
-                            || (rung == 0
-                                && usize::from(seat.steps_from)
-                                    .checked_sub(1)
-                                    .and_then(|i| self.rungs.get(i))
-                                    .is_some_and(|f| !f.1));
-                        seat.steps_from = rung;
-                        seat.feed.step(r, (fm.at, boundary, Tick(m.tick)), rung, up);
-                    }
+                    seat.step(track, &self.rungs, rung, fm.at, Tick(m.tick));
                 }
                 seat.feed.push(track, fm);
             }
@@ -1124,7 +1182,10 @@ impl Live {
 
     /// A remote seat's stream ended (`end`, as a frame or a snapshot said
     /// it; the first said is kept): out of the stage, its field marked out
-    /// from then (its going out's moment, else as far as it was judged).
+    /// from then (its going out's moment, else as far as it was judged),
+    /// and as having left where it did not go out by its life (a quit, a
+    /// connection lost for good, never started: `StreamEnd::forfeit`), so
+    /// that every device ranks it last, as the stage does.
     fn ended(
         seat: &mut RemoteSeat,
         track: &feed::TapTrack,
@@ -1148,7 +1209,11 @@ impl Live {
                     at: (at_us - seat.shift_us) as f64 / 1e6,
                     tick: Tick(0),
                     lane: 0,
-                    kind: feed::MomentKind::Mark,
+                    kind: if end.forfeit() {
+                        feed::MomentKind::Left
+                    } else {
+                        feed::MomentKind::Mark
+                    },
                     life: 0.0,
                     combo: 0,
                     out: true,

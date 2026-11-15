@@ -86,8 +86,12 @@ pub struct AudienceRules {
     /// [`AudienceRules::anonymous_join_window_ms`] (the join no longer
     /// costs a sign-in); past it `audience_busy` (503, which a client asks
     /// again after a wait). Added 2026-11-15 (PROVISIONAL), the relays'
-    /// alone. A signed-in identity's joins are never counted so.
+    /// alone.
     pub anonymous_joins_per_minute: u32,
+    /// The same for a signed-in identity's joins (round D1, the
+    /// maintainer: "Add the same guard"): an account's seats are two, but
+    /// its joins cost a relay the same work as anyone's.
+    pub signed_in_joins_per_minute: u32,
     /// The window those joins are counted in (a minute).
     pub anonymous_join_window_ms: u64,
     /// A relay says its count up, and the room says the total to its
@@ -119,8 +123,8 @@ pub struct AudienceRules {
 /// audience at most two seconds behind, 30 s of frames for a resume.
 ///
 /// Since 2026-11-15 the audience watches without signing in: eight seats
-/// an anonymous identity and 30 joins a minute of one on a relay. Under
-/// the same id: those two bound only the relays' admission (the server's,
+/// an anonymous identity and 30 joins a minute of one on a relay (of a
+/// signed-in one too, since round D1). Under the same id: those two bound only the relays' admission (the server's,
 /// and the fake's), so nothing a client or a peer reads, computes or
 /// names changed, and a new id would have made every client that knows
 /// only `audience-v0` offer no audience at all.
@@ -133,6 +137,7 @@ pub const AUDIENCE_V0: AudienceRules = AudienceRules {
     seats_per_identity: 2,
     seats_per_anonymous: 8,
     anonymous_joins_per_minute: 30,
+    signed_in_joins_per_minute: 30,
     anonymous_join_window_ms: 60_000,
     count_ms: 1_000,
     idle_count_ms: 5_000,
