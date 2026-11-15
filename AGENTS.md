@@ -1548,7 +1548,12 @@ Rust and the browser are implementation details, not advertised features.
   and asks them to leave by their own Back, `Cx::surface`,
   `Screen::yields`; the web's kept room's timer pushes it over the
   page, `crate::room::tell_due`, `Ui::push_dialog`, its button
-  navigating to the room);
+  navigating to the room; never over a control being bound,
+  `Screen::holds_notices`, `Cx::notices_wait`, `Ui::notices_wait`: it
+  opens once the binding is saved or canceled; and over a stage's
+  results, which tell it themselves, `results_stage.rs`, its button
+  going back to the room as the results' own does, the web's kept room
+  run under them too);
   `screens/room_dialogs.rs` Rules (from their button, Cancel and Apply;
   its rows scrolling between its title and buttons, focus scrolling a
   row into view, each note only where it applies;
@@ -1692,7 +1697,9 @@ Rust and the browser are implementation details, not advertised features.
   CUT seconds, the picks WAIT seconds apart, the members saying how
   they performed), and `mpfakeroom=S`
   makes online room `Room000001` a fake room in the page whose scripted
-  owner picks a stage S seconds after the player joined
+  owner picks a stage S seconds after the player joined, reports her
+  run three seconds into its play and picks a second stage S seconds
+  after the first's results
   (`crate::fake_room`: a member's view without a server). `Trunk.toml` passes `/api/` (redirects untouched) and
   `/api/sockets/` (WebSockets) to `just dev` of `../ddi-server`.
 - `tools/danoni-importer/` the native helper, a root workspace member requiring

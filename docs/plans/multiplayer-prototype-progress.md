@@ -10452,11 +10452,83 @@ ghost notes are really bad to look at, we should only show one chart".
   so while someone is followed (the grid's first seconds say "Tab or tap
   a field to follow one player").
 
+## Decisions round D4: the maintainer's second batch (2026-11-15)
+
+No room model change (`ROOM_MODEL_REVISION` stays 11): nothing here is
+agreed between peers. Nothing judged or decided moves.
+
+- **The dancing hand's three findings** (the review's `hand-1` to
+  `hand-3`, "Fix them on dev"; small, local fixes with tests, nothing
+  else in the hand's crates touched):
+  - `hand-1`: the hand faded out about three seconds before the first
+    hour of a long song ("plan limits"): a rolling plan was held to a
+    plan file's cap of an hour. `Plan::new` (a plan made) is no longer
+    held to it, `Plan::load` (a plan file) still is, every other limit
+    kept for both (`a_plan_made_runs_past_an_hour_and_a_plan_file_does_
+    not`; the shell's `the_planner_publishes_plans_past_the_first_hour`
+    fails on the code before, and `the_hand_plays_on_past_the_first_
+    hour`, a whole play, is ignored for its minute of an idle hand's
+    motion).
+  - `hand-2`: a mine in a held lane, then a jump while the hold still
+    runs: the planner's cut of each push counted the hold as held and
+    took a tap the hand's whole-chart cut kept, and the hand stopped
+    ("planned input differs from the chart gameplay judges"). The
+    planner keeps, with each running hold, its lane's later notes, so
+    its cut sees what the whole-chart cut saw (`a_mine_in_a_held_lane_
+    before_a_jump_cuts_alike_in_every_push`).
+  - `hand-3`, confirmed and worse than estimated: on a clock that moves
+    every 100 ms the learnt costs sank to their floor (a twentieth of
+    the truth) and a frame with work to do took 20 ms against a bound
+    of 1 ms. A frame's reading moves the costs less by as much as the
+    clock's step is longer than the work expected (`Costs::learn`), so
+    they stay about true (`the_bound_holds_on_a_clock_of_a_tenth_of_a_
+    second`: no frame over half again its bound); a clock finer than
+    the work (every default browser) learns as before.
+- **The stage-due notice** waits for a control being bound (Options →
+  Controls' guided binding and its one-key dialog, from their opening
+  to their Save or Cancel: `Screen::holds_notices`) and opens as soon
+  as that dialog is gone; a text field being typed into is not held
+  for (the text stays in its field, only the typing ends, as under any
+  dialog, and a field left focused must not hide a stage). It is told
+  over a stage's results too, on both shells ("Tell them the same
+  way"): the results open it themselves, its button going back to the
+  room as their own does; the web's kept room is run under a stage's
+  results, so the next stage's song is prepared there (it was not).
+- **A stage's end lines** (`battle-voice-v3`, replacing
+  `battle-voice-v2`): `gameplay cleared` and `gameplay failed` are not
+  said where the pack has the lines the stage's results will say of
+  its outcome for the player, whichever way it goes; the full combo's
+  line is unaffected. See Provisional choices.
+- **Two texts**: the Rules pop-up's sentence under Charts: Adaptive is
+  "Each player's chart changes with their skill." (the pinned Rules,
+  Add CPU and Add CPU level draw hashes regenerated for it alone);
+  "New song" refusing music that does not decode says "The new song
+  could not be made: this file's audio could not be read. Try an Ogg,
+  MP3 or WAV file." (formats both shells read), the decoder's words
+  going to the web's console and desktop's log.
+- **An empty room closes after two minutes** (the server, its limit
+  `empty_room_secs`, 120 by default in its code): a room with no
+  member's socket open ends two minutes after the last one closed, or
+  after it was made; a member connecting cancels it, the audience does
+  not keep it open, a stage under way does not either. It ends as any
+  ended room (a returning member, an invite and an audience link read
+  "This room has closed."). The game says so quietly where the invite
+  is copied: "Invite link copied. The room stays open while someone is
+  in it." (the leave question already told a host alone that the room
+  will close).
+
+Walked in headless Chrome and Firefox with the fake room
+(`mpfakeroom=9`, given a second stage for it): the notice held while
+the keyboard's binding is open and told once it is canceled; told over
+stage 1's results as stage 2 is picked, Go landing on its prompt; the
+Rules sentence and the new song's refusal in English and Japanese.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
-| `battle-voice-v2` (2026-11-15, decisions round D2; replaces `battle-voice-v1`): the lines of the player's own play's end (the full combo's, cleared, failed) below every battle line, at most a second late (`end_window`), cleared and failed never after a line that said the stage's outcome; the rest as `battle-voice-v1` below | `ddi_session::announcer::battle` | A stage says "full combo" and "cleared" as the player's last note is judged, then the stage's outcome on its results | Whether cleared should also stay out where the stage's outcome will be said on the results (today both are heard, cleared first) |
+| `battle-voice-v3` (2026-11-15, decisions round D4; replaces `battle-voice-v2`): as `battle-voice-v2`, but cleared and failed are not said where the voice has the outcome line the stage's results will say. The outcome is not known as the last note is judged, so the voice must have all the lines it could be: `battle stage won`, `drawn` and `not won` for a player still in at the end of a stage ranked on this device, or `battle match won`, `drawn` and `not won` on a match's last stage | `ddi_session::announcer::battle::BATTLE_VOICE_V3`, `Announcer::results_say`, `stage_play_end` | With our packs a stage ends on the full combo's line (if any) and then the outcome on the results, never "Cleared" before it; a pack with only some of the outcome lines says cleared as before; an online room's stage before the last still says cleared (its results say no outcome there) | Whether a pack with only some outcome lines should skip cleared too, and whether an online stage's results should say its outcome |
+| RETIRED 2026-11-15 (by `battle-voice-v3`): `battle-voice-v2` (2026-11-15, decisions round D2; replaces `battle-voice-v1`): the lines of the player's own play's end (the full combo's, cleared, failed) below every battle line, at most a second late (`end_window`), cleared and failed never after a line that said the stage's outcome; the rest as `battle-voice-v1` below | `ddi_session::announcer::battle` | A stage says "full combo" and "cleared" as the player's last note is judged, then the stage's outcome on its results | Whether cleared should also stay out where the stage's outcome will be said on the results (today both are heard, cleared first) |
 | `battle-voice-v1` (2026-11-15, feedback round J; replaces `battle-voice-v0`): a step's line (priority 12) waits at most a second for the line being said (`step_window`); the combo lines below every battle line, at most a second late (`combo_window`), never over a battle line nor one due; a battle line due during a combo line starts at its end | `ddi_session::announcer::battle::BATTLE_VOICE_V1` | Stages say the combo lines again and the player's steps; an attack line may come up to a combo line's length late | The two windows; whether the comments or other routine lines belong in a stage |
 | `cpu-play-v1` (2026-11-14): a CPU at a level plays the chart a person is given; `hold-model-v1`: a hold let go early with half the level's lapse chance over each row's load while it lasts (1.25 times where the row uses the held lane's hand; the floor a second; Stamina and Technical dividing it by the square root of their product), rolls re-tapped every 0.12 s, lifts pressed 80 ms early, a chart's mine beside a note of its lane stepped on with the level's shock response, one inside a hold kept held over with that chance else let go around (30 ms before, 100 ms after); what is held adds 0.25 a lane to a row's speed demand | `ddi_engine::cpu::full` (`HOLD_MODEL_V1`, `CPU_PLAY`), `AbsoluteModel::held_load` | CPUs' fields show their holds, rolls, lifts and mines; their scores are their own and compare with a person's; holds let go 0 to 5% by level and chart | The values (never checked against people this round); whether weak levels should let go more |
 | Every opponent shown past eight where all fit at a lane of 10 px, fields cut to 8 lanes only where that makes all fit, a 3 px gap at nine columns (`fields-all-v0`: `MINI_LANE_ALL`, `DENSE_ROWS_MIN`, `DENSE_GAP`) | `ddi_shell::opponents` | 72 at 1280×720 are 9×4 a side at 11 px; smaller windows show as many as fit, the rest by rivals | Whether 10 px is the least the maintainer reads; whether shorter fields are wanted beyond the phone |
@@ -10464,6 +10536,7 @@ ghost notes are really bad to look at, we should only show one chart".
 | A large field's miniatures under 24 px lanes draw their holds, rolls and mines plainly, as the built-in skin (`plain-notes-v0`, `CARRY_SKIN_NOTES`) | `ddi_shell::opponents::Carry::skin_notes`, `ddi_render::scene::Miniature::plain` | 72 fields cost what taps-only fields do (Firefox's 7.7 ms frames on a hold chart back to 2.3); the small fields' holds lose Infinito's wave material | The size, by looking; whether the exact batching of stencil holds is worth building for rooms of 9 to 24 on large windows |
 | `hosted-deadline-v2` (2026-11-14): a loading grace of 45 s (`LOADING_GRACE_V2_MS`) before the readiness window, which then ends early once everyone who loaded is ready; practice keeps v1 | `ddi_room::ReadinessPolicy`, `reduce.rs` (`window_from`, `end_loading`), the server's `ROOM_LOADING_GRACE_MS` | A slow loader holds the stage up to 45 s, then has the 15 s Ready countdown to finish and ready, else sits it out; rows say Loading | The 45 s; whether a late loader should hold the countdown's early end |
 | `adaptive-v4` (2026-11-15, round D1; replaces `adaptive-v3`): an early step up after four clean bars with 90% of their taps in the three best judgments (`ADAPTIVE_EARLY_ACCURACY_V4`, `early_best` 3; v3 asked 95% in the two best), or a normal one after eight clean bars with 80% in the three best; back up to a rung whose life ran out sixteen bars by either's accuracy; closed after two run-outs; `ROOM_MODEL_REVISION` 11 | `ddi_engine::ladder::ADAPTIVE_V4`, `Step::early` | A clean four bars steps up even with many W2s (reached in about four kept plays in five, in almost none under v3); nearly every step up a CPU makes is early, a few more fall back (level 5 from Medium: 31% of its steps up, 27%), and on Beginner picks the weak levels go out about twice as often | Whether an early step up should wait longer straight after a step up (the Beginner picks' outs); the 90% |
+| `empty_room_secs` 120 (round D4): a room with no member connected ends two minutes after its last socket closed (or its making); 0 is no limit | the server's `limits::EMPTY_ROOM_SECS`, `RoomCore::alarm` | A host who makes a room and leaves to play later finds it closed (accepted by the maintainer); a reload or a short outage keeps it | Whether two minutes is right once people use it |
 | `max_rooms_per_owner` 5 (round D1): the rooms one signed-in person owns at once, dormant ones included until their idle end | the server's `limits::ROOMS_PER_OWNER`, `registry::may_create` | The sixth room is refused with a sentence; a host who never leaves their rooms is refused for up to a week | Whether only rooms someone is connected to (or made in the last day) should count, or a new room should end the owner's oldest dormant one |
 | RETIRED 2026-11-15 (by `adaptive-v3`, whose early step up it is): `adaptive-v2` (2026-11-14): a step up also needs 95% of its bars' taps in the two best judgments (`ADAPTIVE_ACCURACY_V2`); a step down's boundary without the extra second (`down_lead` 0) | `ddi_engine::ladder::ADAPTIVE_V2` | Weak players and CPUs stay on their chart unless they play it cleanly; a step down's easier chart comes a bar sooner | The 95%; whether the step up's own second should go too |
 | Opponents' fields default "As many as fit" | `Settings::opponent_fields` | About +0.85 ms main thread (Firefox) and +0.8 ms GPU at 2560×1440 with 72 | Whether the default should follow the room's size or the measured frame time |
