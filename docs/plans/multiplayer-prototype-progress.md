@@ -9604,6 +9604,73 @@ match's Standings table as a tab (the players' part shows the match's
 places and points), and a seat that joins between stages shows the rain
 (it watched no stage's picture).
 
+## Review fixes: the room and its client (2026-11-15)
+
+A read-only review of the room model and the room's client found these;
+each was reproduced as a test that failed first, then fixed. The model's
+fixes run on the authority (the private server online, `LocalAuthority`
+in practice), so online rooms get them with a server built on this room
+crate; `ROOM_MODEL_REVISION` stays 10 (no new command, event or refusal).
+
+- **A song picked again after its share failed** (first pass 1): `pick`
+  chooses the content again where it is `Unavailable`, Pending and shared
+  anew, never a window on content nobody can load
+  (`crates/room/tests/review_fixes.rs`).
+- **A member who left, back** (first pass 2): held to the room as any
+  arrival: refused `RoomFull` at the member bound, and in to watch where
+  every player's place is taken (`join-watch-v0`; the join's answer says
+  Watch, so the shells' "joined to watch" line shows where the server says
+  the join was not `already` a member).
+- **Watch chosen after the start committed** (first pass 4): cancels the
+  start (`RosterChanged`), as a starter leaving or disconnecting does.
+- **The attack ledger's launch** (first pass 7): one map of the attacks
+  against each recipient (cleanup; traces unchanged).
+- **Joined to watch** (first pass 3): the line keeps its 12 s from the
+  connection when a stage's prompt opens meanwhile.
+- **The spotlight cleared** (first pass 5): the picker's song select
+  resting on no song clears the room's spotlight after the same rest.
+- **A reloaded room's page** (ui-state-1): the link asks who is signed in
+  (`Online::check`) and takes the identity once known, so a reload (and
+  the room's "Reload to update") finds the player's own row and roles.
+- **Back on a stage's prompt** (ui-state-2): the stage stays left while
+  that readiness window (or that play, after a forfeit) lasts
+  (`RoomClient::leave_prompt`, `left_prompts`); a new window opens it again.
+- **The audience's re-picked stage** (ui-state-3): what the seat prepared
+  is keyed by the stage's share and chart; a stage picked again with
+  another song is prepared again and a late answer for the first dropped.
+- **Retry sharing on a song the room refused** (ui-state-4): asks for a
+  grant and uploads again, once a press.
+- **A live stage's others** (ui-state-5): the remote fields are the lineup
+  the room committed (`LiveRoom::lineup`), not every candidate the order
+  named when the prompt opened.
+- **The spotlight's reads and uploads** (ui-state-6): a read's answer is
+  kept only for the song asked for; the picker's uploads go one at a time
+  (the grant and the upload name no song), the next song shared once the
+  last is done.
+- **The invite** (ui-state-7): read again when More opens (another
+  operator may have replaced it) and, after a failed read, after 10 s
+  (`INVITE_RETRY_MS`).
+- **An audience seat's socket that never opens** (ui-state-8): the next
+  ticket after the same backoff as a lost socket's.
+- **A battle plan or a preparation lost with a socket** (ui-state-9,
+  confirmed): offered and told again on the next socket
+  (`RoomClient::connected_again`; the room takes either again as the
+  same).
+- **The Rules pop-up's Apply** (ui-screens-1): based on the room's
+  revision when the pop-up opened (`save_rules_at`,
+  `change_stage_rules_at`, `restart_match_at`), so the room's stale guard
+  works; rules saved meanwhile by someone else are never put back unseen:
+  the pop-up shows the rules as they are now and says so
+  (`room-refused-rules-changed`, also the status line's word for a
+  `Stale` refusal that crossed on the wire); Apply again saves the edit.
+- **The counts** (ui-screens-4): one definition of who counts among the
+  room's players (`screens::room::plays`: the committed lineup, else the
+  match's competitors who want to play, else those who want to play) for
+  the Ready card, the players panel, its phone strip, the Players pop-up
+  and the loading wait: a watcher or one waiting for the next match is
+  never counted, so "ready / players" completes and the panel never reads
+  past the cap.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
