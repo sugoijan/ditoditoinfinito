@@ -79,7 +79,7 @@ pub struct Options {
     /// Guest bots' invite (`--join`; none: the host bot's room).
     pub join: Option<String>,
     pub guests: usize,
-    /// The server (`--api`), else `DDI_API_URL`, else the production one.
+    /// The server (`--api`): required (review3 desktop-4).
     pub api: Option<String>,
     /// The game's page invite links open on (`--site`).
     pub site: Option<String>,
@@ -155,7 +155,8 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   --host               a host bot: makes a room, prints its invite, picks songs
   --join LINK|INVITE   guest bots join this room (else the host bot's)
   --guests N           guest bots (default 3 with --join, else 0; at most 73 bots)
-  --api URL            the server (else DDI_API_URL, else the production one)
+  --api URL            the server (required: a development one; never the
+                       production one by default)
   --site URL           the game's page for invite links
   --names A,B,…        the bots' names (else the CPU roster's)
   --level N | A-B      every bot's CPU level N (1 to 10 of the absolute scale,
@@ -163,7 +164,8 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
                        levels spread over A to B inclusive in an order drawn
                        from --seed (else the roster's)
   --personality P      every bot's personality: a preset or seven multipliers
-  --songs DIR          the host's songs from this folder (repeatable)
+  --songs DIR          the host's songs from this folder (repeatable; else
+                       the bundled songs alone, never the settings' folders)
   --pick ID[:N],…      the host's songs in this order (chart index N)
   --rest SECONDS       the host's rest on a song before picking it (default 8)
   --stages N           the host's Rules: stages a match
@@ -325,6 +327,12 @@ impl Options {
         } else {
             0
         });
+        // A development tool reaches no server by default (review3
+        // desktop-4): a forgotten flag must never sign bots in, make
+        // rooms or upload songs on the production one.
+        if o.api.is_none() {
+            return Err("--mp-bots needs --api URL: the server to run against (a development one)".into());
+        }
         if o.anonymous && o.audience == 0 {
             return Err("--anonymous needs --audience".into());
         }
@@ -1365,15 +1373,19 @@ fn host_plays(song: &SongEntry, chart: &ChartEntry) -> bool {
         .is_ok()
 }
 
-/// The host's songs: the fixed list, else every song of the library (or
-/// of `--songs`' folders alone) with a chart one player plays on four
+/// The host's songs: the fixed list, else every bundled song (or every
+/// song of `--songs`' folders alone) with a chart one player plays on four
 /// lanes ([`choose_chart`]; the CPU's check waits until the host comes to
-/// it, [`host_plays`]), in an order drawn from `seed`.
+/// it, [`host_plays`]), in an order drawn from `seed`. Never the settings'
+/// song folders (review3 desktop-4): what the host rests on or picks is
+/// uploaded as the room's share, and local packs stay local.
 fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
     let songs = crate::songs::Songs::new(o.songs.clone());
-    songs.start(std::sync::Arc::new(|| {}));
-    if let Some(l) = songs.library.borrow_mut().as_mut() {
-        l.wait();
+    if !o.songs.is_empty() {
+        songs.start(std::sync::Arc::new(|| {}));
+        if let Some(l) = songs.library.borrow_mut().as_mut() {
+            l.wait();
+        }
     }
     let roots: Vec<PathBuf> = o
         .songs
@@ -1387,7 +1399,9 @@ fn host_songs(o: &Options, seed: u64) -> Vec<(SongEntry, ChartEntry)> {
     } else {
         Vec::new()
     };
-    if let Some(l) = songs.library.borrow().as_ref() {
+    if let Some(l) = songs.library.borrow().as_ref()
+        && !roots.is_empty()
+    {
         library.extend(
             l.songs
                 .iter()
@@ -1483,6 +1497,10 @@ pub fn run(args: &[String]) -> i32 {
     if let Some(api) = &o.api {
         crate::share::set_base(api);
     }
+    // Anonymous audience seats sign nobody in (review3 desktop-7).
+    if !needs_token(&o) {
+        return run_with(o, "");
+    }
     let token = std::env::var("DDI_SHARE_TOKEN")
         .ok()
         .filter(|t| !t.trim().is_empty())
@@ -1493,6 +1511,12 @@ pub fn run(args: &[String]) -> i32 {
         return 2;
     }
     run_with(o, &token)
+}
+
+/// Whether the run of `o` signs bots in, so needs the admin share token:
+/// all but anonymous audience seats alone.
+fn needs_token(o: &Options) -> bool {
+    !(o.anonymous && o.audience > 0 && !o.host && o.guests == 0)
 }
 
 /// The bots of `o`, signed in with the admin `token`, until stopped or
@@ -1643,8 +1667,12 @@ impl Bot {
 mod tests {
     use super::*;
 
+    /// `s` split, the local server named (`--api`, which the bots need).
     fn args(s: &str) -> Vec<String> {
-        s.split_whitespace().map(String::from).collect()
+        s.split_whitespace()
+            .map(String::from)
+            .chain(["--api".into(), "http://127.0.0.1:8787/ditoditoinfinito/api".into()])
+            .collect()
     }
 
     #[test]
@@ -1709,6 +1737,35 @@ mod tests {
         ] {
             assert!(Options::parse(&args(bad)).is_err(), "{bad}");
         }
+    }
+
+    /// review3 desktop-4: a development tool never reaches the production
+    /// server by a forgotten flag: no `--api`, no run (whatever
+    /// `DDI_API_URL` says); and desktop-7: anonymous audience seats need
+    /// no admin token.
+    #[test]
+    fn the_bots_need_an_explicit_server() {
+        let bare = |s: &str| s.split_whitespace().map(String::from).collect::<Vec<_>>();
+        for without in [
+            "--mp-bots --host",
+            "--mp-bots --join Room000001.abcdefghijABCDEFGHIJ01",
+            "--mp-bots --audience 3 --anonymous --join Room000001.abcdefghijABCDEFGHIJ01",
+        ] {
+            let e = Options::parse(&bare(without)).expect_err(without);
+            assert!(e.contains("--api"), "{e}");
+        }
+        assert!(Options::parse(&args("--mp-bots --host")).is_ok());
+        let anonymous = Options::parse(&args(
+            "--mp-bots --audience 3 --anonymous --join Room000001.abcdefghijABCDEFGHIJ01",
+        ))
+        .unwrap();
+        assert!(!needs_token(&anonymous));
+        let signed = Options::parse(&args(
+            "--mp-bots --audience 3 --join Room000001.abcdefghijABCDEFGHIJ01",
+        ))
+        .unwrap();
+        assert!(needs_token(&signed));
+        assert!(needs_token(&Options::parse(&args("--mp-bots --host")).unwrap()));
     }
 
     #[test]
