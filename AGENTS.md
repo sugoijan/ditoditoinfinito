@@ -1629,7 +1629,7 @@ Rust and the browser are implementation details, not advertised features.
   `api/sockets/<id>/ws`; a stage's song uploaded under the room's grant
   (`crate::room::upload`, `share::upload_room`: an imported or a bundled
   song), read from the room's share (`crate::room::prepare_for`), its
-  stage played at `#/play?…&stage=<id>` back to `#/mp/room/<id>`
+  stage played at `#/play?…&stage=<id>&room=<id>` back to `#/mp/room/<id>`
   (`crate::room::play_in`, `back_route`). A room watched with its
   audience: `#/mp/audience/<link>` its link's page, `#/mp/watch/<link>`
   the audience's page, `#/mp/watch/<link>/stage` a stage watched (the
@@ -1784,7 +1784,7 @@ Rust and the browser are implementation details, not advertised features.
   `--mp-dev-mines BEAT`, a section of battle shocks in each stage's play
   from that beat, as `mpdevmines=BEAT`), `--share IDS|pack:NAME
   [--expires W]`, `--shares`, `--delete-share ID` (songs shared by link),
-  `--mp-bots [--host] [--join LINK] [--guests N] [--api URL] [--site URL]
+  `--mp-bots --api URL [--host] [--join LINK] [--guests N] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
   [--pick ID[:N],…] [--names A,B] [--level N|A-B] [--personality P]
   [--cpus N[:LEVEL]] [--audience N [--anonymous]]`

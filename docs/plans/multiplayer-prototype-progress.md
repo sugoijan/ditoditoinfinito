@@ -9794,6 +9794,69 @@ only), then fixed. Nothing judged, decided or stored moves;
 - support-3 (an upload grant's size and the pack's art) is left to the
   server's security round, which changes `UploadGrant`.
 
+## Review fixes: the two shells (2026-11-15)
+
+The same review's findings in the web and desktop shells, each
+reproduced first (a failing test, or a browser walk against a build of
+the code as it stood), then fixed. Nothing judged, decided or stored
+moves; `ROOM_MODEL_REVISION` stays 10.
+
+- **One clock for a room** (desktop-1, desktop-6): the rooms, seats and
+  the sign-in are made, ticked and read on the wall clock
+  (`Ui::set_wall_ms`, `Cx::wall_ms`; desktop's `clock::UiClock`, the
+  web's `Date.now()`), never on the art's clock, which runs on the
+  host's monotonic clock and stood still while the computer slept: after
+  a sleep a practice room's countdown hung for the sleep's length and a
+  live stage read the room's time wrong. A rig drives the clocks as the
+  window does, with a simulated sleep (`room_clock_offscreen`). The web
+  had the same two bases (`performance.timeOrigin` plus the frame's time
+  against `Date.now()`); it is fixed the same way.
+- **Leaving an online room by any way** (web-1): the web leaves it (told,
+  its socket closed, forgotten) as soon as the address is no longer its
+  song select, a stage's or a page over it, by the browser's Back, an
+  address or a link; a room replaced by another is left too
+  (`Kept::room_or`, both shells). An audience seat likewise, and its
+  audio context closed (web-7).
+- **Options and Calibrate over a practice room** (web-2): pages over the
+  room (Options, Calibrate, a calibration's run, the announcer studio and
+  its scenes) keep the room and its match as they were.
+- **An online room under Options** (web-3): run on a timer of its own
+  while such a page is shown (an idle page draws no frames): its picks
+  prepared and uploaded, the room told; its stage's prompt opens once the
+  member is back on its song select, as on desktop. A member who stays
+  there past the readiness window misses the stage, as on desktop.
+- **A stage's page torn down** (web-4): the browser's Back during a
+  stage's watched-on forfeit (or an address) leaves the stage whole and
+  reports it (`PlaySession::leave_now`); from its prompt, as the game's
+  Back does. A practice prompt left in its countdown (by either Back) now
+  cancels the start (`RoomClient::leave_prompt`): before, the stage
+  started with the player in it and nobody played it.
+- **A reloaded stage address** (web-5): an online stage's address names
+  its room (`&room=<id>`); an address no stage was handed for goes back
+  to its room's page (the online room's, else the practice room's).
+- **Testing parameters in online stages** (web-6): `auto`, `bias`, `gfx`
+  and `slow` are carried into a practice room's stages alone, and an
+  online room's stage is never autoplayed for a person.
+- **The fake seat** (web-8, testing only): `mpfakeseat=1` swaps the online
+  state on an audience link's pages alone; the multiplayer home and the
+  person's own rooms stay the real ones.
+- **Desktop's HTTP** (desktop-2): an answer must begin in 30 s and a
+  small body come whole in 30 s (a long poll's 45 s; a file's 30 s plus
+  its size at 32 KiB/s); past it the request is unreachable, so a ticket
+  is asked again, Private room says it failed, a share's read fails.
+- **Desktop's room socket** (desktop-3): its connection and opening
+  (TLS, the upgrade) bounded by 10 s each; heard nothing for 10 s it
+  pings, for 20 s it closes as dropped (1006) into the link's
+  reconnecting. Checked against the local server: an idle room's socket
+  stays connected past both bounds.
+- **The bots** (desktop-4, desktop-7): `--mp-bots` refuses to run
+  without `--api`; a host bot picks from the bundled songs, or from
+  `--songs` alone, never the settings' song folders (what it rests on
+  and picks is uploaded as the room's share); anonymous audience seats
+  need no admin token.
+- **Share downloads** (desktop-5): each share's progress is its own, so
+  two shares read at once never show or clear each other's line.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
