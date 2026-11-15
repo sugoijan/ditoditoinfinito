@@ -9307,6 +9307,22 @@ none", with what the server derives and keeps about a viewer.
   that. An older client against the new server works as before (it signs
   in first, and is then seated as itself).
 - **Deploy**: the server first, then the game. No new secret or variable.
+- **Checked on a local server** (`just dev`, no `CF-Connecting-IP`
+  header there, so every join without a session is the development mark;
+  the address's derivation is the native tests'): bots hosting a room of
+  three on a three-stage match; `curl` of the audience join with no
+  cookie admitted with a ticket whose claims are the room, relay, seat
+  and expiry alone, no cookie set; eight such seats, the ninth `409
+  too_many_seats`, the thirtieth-and-later joins in the minute `503
+  audience_busy`; a join given a `CF-Connecting-IP` another mark; four
+  signed-in bot seats (`--audience 4`) admitted while the development
+  mark was full, a bot's third `409`; a fresh headless Chrome and Firefox
+  on the audience link of a web build behind a proxy of the API, Watch,
+  the audience's page and the stage with three fields, no sign-in page
+  and no cookie; desktop's real HTTP and sockets with no session
+  (`--mp-bots --audience 9 --anonymous`, a development flag): eight
+  watching, the ninth "too many people on your network" (which found a
+  double borrow in the seat's own ticket refusal, fixed and tested).
 
 
 ## Provisional choices
