@@ -1099,6 +1099,20 @@ pub fn arrange_grid(
     // How many a page shows (all of them: no pages), whether they are a
     // large field's, their fields' height and their layout.
     let large = total > ROOM_OPPONENTS && most > ROOM_OPPONENTS;
+    // A room's eight or fewer, or pages of a room's eight (Options' "Up to
+    // eight"); as many as fit at the least, the rest taking turns (a
+    // window far too small; a large field's too, review finding
+    // shell-render-7).
+    let small = || {
+        let page = total.min(ROOM_OPPONENTS);
+        let mut shown = page;
+        let mut way = best(shown, rows_play, false);
+        while shown > 1 && way.is_none_or(|w| w.0 < GRID_LANE_MIN) {
+            shown -= 1;
+            way = best(shown, rows_play, false);
+        }
+        way.map(|way| (shown, false, rows_play, way))
+    };
     let plan = if large {
         // Every one, in the play's proportion, else on fields cut
         // shorter, a lane at a time, down to [`DENSE_ROWS_MIN`].
@@ -1134,18 +1148,10 @@ pub fn arrange_grid(
             }
             best(lo, rows_play, true).map(|way| (lo, true, rows_play, way))
         })
+        .filter(|p| p.3.0 >= GRID_LANE_MIN)
+        .or_else(small)
     } else {
-        // A room's eight or fewer, or pages of a room's eight (Options'
-        // "Up to eight"); as many as fit at the least, the rest taking
-        // turns (a window far too small).
-        let page = total.min(ROOM_OPPONENTS);
-        let mut shown = page;
-        let mut way = best(shown, rows_play, false);
-        while shown > 1 && way.is_none_or(|w| w.0 < GRID_LANE_MIN) {
-            shown -= 1;
-            way = best(shown, rows_play, false);
-        }
-        way.map(|way| (shown, false, rows_play, way))
+        small()
     };
     let (shown, dense, rows, (lane, room, cols)) = plan?;
     if lane < GRID_LANE_MIN {
@@ -1383,6 +1389,7 @@ pub fn choose(
         // slots (around the competitor followed, for a spectator), the
         // ladder for the whole field.
         let (standings, me) = standings();
+        rivals.follow(c.shown);
         rivals.update(fields.slots.len(), &standings, me, &pinned, c.time, RIVALS_V0);
         rivals.apply(fields, c.time, RIVALS_V0, c.reduced);
         (fields.ladder.is_some().then(|| Ladder::of(&standings, me)), None)
@@ -2196,6 +2203,22 @@ pub(crate) mod tests {
             assert_eq!(f.rows, rows_for(g), "{what}");
         }
         assert!((f.range - (f.rows - 1.5)).abs() < 1e-4);
+    }
+
+    /// A large watched grid on a window too small for a room's eight
+    /// shows what fits in turns, as a room's grid does there, never
+    /// nothing (review finding shell-render-7).
+    #[test]
+    fn a_large_watched_grid_on_a_tiny_window_shows_what_fits() {
+        for (w, h) in [(160.0, 120.0), (200.0, 150.0), (120.0, 90.0)] {
+            let g = geo(w, h);
+            let small = arrange_grid(8, usize::MAX, &g, 4.0, false, 1.0, &[]);
+            let large = arrange_grid(20, usize::MAX, &g, 4.0, false, 1.0, &[]);
+            if let Some(s) = &small {
+                let l = large.as_ref().unwrap_or_else(|| panic!("{w}x{h}: eight show {}, twenty nothing", s.slots.len()));
+                assert!(!l.slots.is_empty());
+            }
+        }
     }
 
     /// A stage of another layout than four lanes (an online room without

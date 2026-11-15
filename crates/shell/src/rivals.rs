@@ -145,11 +145,31 @@ impl Ladder {
 /// Which opponents the slots show, kept from frame to frame.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Rivals {
-    /// Each slot's seat and the song second it came in.
+    /// Each slot's seat and the song second it came in: its position
+    /// among the seats shown ([`Rivals::follow`]).
     slots: Vec<Option<(usize, f64)>>,
+    /// The seats shown its positions were among.
+    shown: Vec<usize>,
 }
 
 impl Rivals {
+    /// The seats shown are now `shown` (another competitor followed, a
+    /// seat more or less): each slot keeps the person it showed, at their
+    /// new position, with the time they came in (review finding
+    /// shell-render-4); one no longer shown leaves its slot.
+    pub fn follow(&mut self, shown: &[usize]) {
+        if self.shown == shown {
+            return;
+        }
+        for s in &mut self.slots {
+            *s = s.and_then(|(pos, at)| {
+                let seat = *self.shown.get(pos)?;
+                shown.iter().position(|x| *x == seat).map(|p| (p, at))
+            });
+        }
+        self.shown = shown.to_vec();
+    }
+
     /// The slots' seats, in slot order (none: an empty slot).
     #[cfg(test)]
     pub fn seats(&self) -> Vec<Option<usize>> {
@@ -376,6 +396,37 @@ mod tests {
         // Equal scores under Adaptive: life breaks the tie.
         let rival = [at(RankBy::Score, 0.4, 500.0)];
         assert_eq!(Ladder::of(&rival, Some(at(RankBy::Score, 1.0, 500.0))).place, Some(1));
+    }
+
+    /// Following another competitor shifts every position among the seats
+    /// shown: each slot keeps its person, and the time they came in.
+    #[test]
+    fn the_slots_keep_their_people_when_the_seats_shown_change() {
+        let f = field();
+        let seats_of = |r: &Rivals, shown: &[usize]| -> Vec<Option<usize>> {
+            r.seats().into_iter().map(|p| p.map(|p| shown[p])).collect()
+        };
+        // Seats 0..73, following 5: the seats shown all but 5.
+        let shown_a: Vec<usize> = (0..73).filter(|&s| s != 5).collect();
+        let mut r = Rivals::default();
+        r.follow(&shown_a);
+        r.update(8, &f, Some(s(1.0 - 29.5 / 100.0, 0.0)), &[], 1.0, RIVALS_V0);
+        let before = seats_of(&r, &shown_a);
+        // Now following 60: the same people shown, a moment later.
+        let shown_b: Vec<usize> = (0..73).filter(|&s| s != 60).collect();
+        r.follow(&shown_b);
+        assert_eq!(seats_of(&r, &shown_b), before);
+        let f_b: Vec<Standing> = shown_b.iter().map(|&seat| {
+            let i = shown_a.iter().position(|x| *x == seat).unwrap_or(59);
+            f.get(i).copied().unwrap_or(s(0.7, 0.0))
+        }).collect();
+        r.update(8, &f_b, Some(s(1.0 - 29.5 / 100.0, 0.0)), &[], 1.5, RIVALS_V0);
+        // Within the hold, nobody moved.
+        let mut a: Vec<_> = seats_of(&r, &shown_b);
+        let mut b = before.clone();
+        a.sort();
+        b.sort();
+        assert_eq!(a, b);
     }
 
     #[test]

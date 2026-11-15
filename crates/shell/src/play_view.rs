@@ -1360,6 +1360,15 @@ impl<H: PlayHost> PlayView<H> {
                 self.fields_for = Some((key, keep_out.clone(), arranged));
                 self.routes.clear();
             }
+            if self.fields_for.as_ref().is_none_or(|(.., f)| f.is_none()) {
+                // No field fits (a window too small): no ladder nor page
+                // of one drawn before (review finding shell-render-6).
+                self.ladder = None;
+                self.ladder_page = None;
+                if grid {
+                    session.set_watch_pages(1);
+                }
+            }
             let mut f = self.fields_for.as_ref()?.2.clone()?;
             // The seats kept in view whatever the turn: whoever attacks
             // the player, then whom they attacked last, while those
@@ -1432,6 +1441,12 @@ impl<H: PlayHost> PlayView<H> {
             let slots = fields.iter().flat_map(|f| f.slots.iter().map(|s| (s, f.range)));
             for (slot, range) in slots.chain(large.iter().map(|s| (s, frame.visible_range))) {
                 let Some(feed) = feeds.get(slot.seat) else {
+                    // An empty slot keeps its rows, empty: they are read
+                    // by slot (review finding shell-render-8).
+                    locks.push(0, None);
+                    if !hits {
+                        flashes.push(0, None);
+                    }
                     continue;
                 };
                 let track = b.track_of(slot.seat);
