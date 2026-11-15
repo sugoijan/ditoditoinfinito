@@ -985,7 +985,8 @@ Rust and the browser are implementation details, not advertised features.
   quiet line; the Worker itself in the private repository
   `../ddi-server`, routed at `sugoijan.dev/ditoditoinfinito/api/*` and
   proxied there by `just dev`; `docs/plans/shared-songs.md`). Compiles for `wasm32-unknown-unknown` only (empty when
-  built natively).
+  built natively, but for its routes' table, `crates/web/src/route.rs`:
+  pure, so that its tests run natively, `cargo test -p ddi-web`).
 - `crates/desktop/` the desktop shell (`ddi-desktop`, run by `app` natively;
   `docs/plans/desktop.md`): a winit window drawing the UI core with
   `render`'s painter (cosmic-text, system fonts); sound through cpal with
@@ -1074,7 +1075,11 @@ Rust and the browser are implementation details, not advertised features.
   an adapter or with `DDI_NO_GPU=1`, as in CI's `desktop` job on Linux,
   macOS and Windows, with and without `video`; the room's screens'
   tests skip only their pictures there, `common::gpu::Pictures`, their
-  frames laid out and measured undrawn). The video decoder
+  frames laid out and measured undrawn, and a play runs undrawn there,
+  `common::rig::Draws` over the play host's `Host::headless` and
+  `Host::step_play`, TESTING ONLY: its prompt readies without a view and
+  its frames are judged and not drawn, so a stage played through the
+  host is checked but for what the view draws). The video decoder
   helper is found at `DDI_VIDEO_HELPER`, else as `video/ddi-video-helper`
   beside the executable, in a macOS app's `Contents/Helpers/` or beside a
   folder above it (`crates/desktop/build.rs`
@@ -1953,9 +1958,9 @@ Rust and the browser are implementation details, not advertised features.
   share-protocol,
   platform with `decode` and, through desktop, `decode-all` (its references against
   the `ffmpeg` command where it is installed), library with `nfkd`,
-  actor, ui, l10n, theme, noteskin, lua, desktop, xtask), after writing the
+  actor, ui, l10n, theme, noteskin, lua, desktop, the web's routes' table, xtask), after writing the
   bundled songs' and noteskins' indexes the desktop's tests read. The
-  app crate has no native tests; verify the web in a browser. Desktop's
+  app crate has no native tests and the web shell only its routes'; verify the web in a browser. Desktop's
   local checks: `DDI_WEB_PLAYS=<file>` (`--test play -- --ignored`: the
   judgements against the web's plays of the same charts),
   `DDI_WORKS=<dir>` and `DDI_WEB_WORKS=<jsonl>` (`--test works --

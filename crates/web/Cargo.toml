@@ -8,19 +8,23 @@ authors.workspace = true
 repository.workspace = true
 description = "DitoDitoInfinito: the web shell (wasm only; run through the `ddi` crate)"
 
-# The crate is empty natively (`#![cfg(target_arch = "wasm32")]`), so its
-# dependencies are wasm's alone: a native workspace build neither builds
-# them nor reports them unused.
+# What the routes' table needs (`src/route.rs`, the one module built
+# natively too, for its tests: `cargo test -p ddi-web`).
+[dependencies]
+ddi-engine.workspace = true
+ddi-library.workspace = true
+ddi-ui.workspace = true
+
+# The rest of the crate is wasm's alone (`#[cfg(target_arch = "wasm32")]`
+# on its modules), and so are its dependencies: a native workspace build
+# neither builds them nor reports them unused.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ddi-actor.workspace = true
 ddi-chart.workspace = true
-ddi-engine.workspace = true
 ddi-render.workspace = true
 ddi-platform = { workspace = true, features = ["decode"] }
-ddi-library.workspace = true
 ddi-noteskin.workspace = true
 ddi-lua.workspace = true
-ddi-ui.workspace = true
 ddi-room.workspace = true
 ddi-l10n.workspace = true
 # The play session, shared with desktop (step 7.1).
