@@ -9857,6 +9857,24 @@ moves; `ROOM_MODEL_REVISION` stays 10.
 - **Share downloads** (desktop-5): each share's progress is its own, so
   two shares read at once never show or clear each other's line.
 
+## The server's follow-ups after the review's fixes (2026-11-15)
+
+In `../ddi-server` and `crates/share-protocol`; nothing on the wire and
+no revision moves (`ROOM_MODEL_REVISION` stays 10). A member who had
+left and comes back is answered by the server's join as the room model
+now decides it: `409 room_full` at the member bound (offering the
+audience), and at the competitor cap in to watch with `already: false`,
+so the game says it joined to watch (checked natively and on a local
+server with the bounds lowered from the panel; the server needed no
+change, only the tests). A room that ends now deletes its storage once
+the index has taken its end (its shares deleted, its close report
+answered), keeping a small tombstone for its idle lifetime that still
+answers `410 room_closed`; after it the room is unknown (`404`, which
+the game words the same). An upload grant counts a share's pack art (at
+its 16 MB most) against its bytes; the game's clients send none under a
+grant, so nothing they do changes. The panel's Limits table fits at
+1280 and 1024 px (its source column folded under "What a change does").
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
