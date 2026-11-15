@@ -146,6 +146,7 @@ pub fn grant_refusal(status: u16, body: Option<&str>) -> ShareError {
             refusals::GRANT_INVALID,
             refusals::GRANT_SCOPE,
             refusals::GRANT_LIMITS,
+            refusals::GRANT_USED,
         ]
         .contains(b)
     });
@@ -406,6 +407,22 @@ mod tests {
             ShareError::TokenRefused
         );
         assert!(!grant_expired(&ShareError::TokenRefused));
+        // A second share under one grant (2026-11-15), and a room's
+        // shares full, keep their codes.
+        assert_eq!(
+            grant_refusal(409, Some("grant_used")),
+            ShareError::Status {
+                status: 409,
+                body: Some("grant_used".into())
+            }
+        );
+        assert_eq!(
+            grant_refusal(413, Some("grant_limits")),
+            ShareError::Status {
+                status: 413,
+                body: Some("grant_limits".into())
+            }
+        );
     }
 
     #[test]

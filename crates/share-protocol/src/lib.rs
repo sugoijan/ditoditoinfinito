@@ -428,6 +428,14 @@ pub struct UploadGrant {
     pub max_bytes: f64,
     pub max_songs: usize,
     pub expires_at_ms: i64,
+    /// The grant's own id (2026-11-15): one share a grant. The server
+    /// keeps it with the share it made and refuses a second
+    /// ([`refusals::GRANT_USED`]); a renewed grant for the same stage,
+    /// content and member keeps it, so an upload it interrupted goes on.
+    /// Opaque to clients, which pass the signed grant on untouched.
+    /// Empty in a grant signed before it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub grant_id: String,
 }
 
 /// How long a grant lasts.
@@ -496,8 +504,11 @@ pub mod refusals {
     pub const GRANT_INVALID: &str = "grant_invalid";
     /// The grant is another room's, stage's or member's.
     pub const GRANT_SCOPE: &str = "grant_scope";
-    /// More than the grant allows (`413`).
+    /// More than the grant allows (`413`), or the room keeps as many
+    /// shares as it may.
     pub const GRANT_LIMITS: &str = "grant_limits";
+    /// The grant already made its share (`409`): one share a grant.
+    pub const GRANT_USED: &str = "grant_used";
 }
 
 #[cfg(test)]
@@ -697,8 +708,24 @@ mod tests {
             max_bytes: 25.0,
             max_songs: GRANT_MAX_SONGS,
             expires_at_ms: 10,
+            grant_id: "g1".into(),
         };
         assert_eq!(g.allows(&new_share()), Err("larger than the grant allows"));
+        // The id travels in the signed claims; a grant signed before it
+        // reads as none.
+        let json = serde_json::to_string(&g).unwrap();
+        assert!(json.contains(r#""grant_id":"g1""#), "{json}");
+        let old: UploadGrant = serde_json::from_str(
+            r#"{"room":"R","player":"p","stage":1,"content_key":"k","max_bytes":1.0,
+            "max_songs":1,"expires_at_ms":1}"#,
+        )
+        .unwrap();
+        assert_eq!(old.grant_id, "");
+        assert!(
+            !serde_json::to_string(&old)
+                .unwrap()
+                .contains("grant_id")
+        );
         let small = UploadGrant {
             max_bytes: MAX_SHARE_BYTES,
             ..g.clone()
