@@ -403,6 +403,13 @@ editor-recorded-on-grid = on the grid on average, ±{ $spread } ms
 #   $title (String) - the song's title ("Beatucada")
 editor-status-recovered = Unsaved changes to { $title } recovered from the last time; leave without saving to drop them
 
+# The changes could not be kept for a crash or a closed tab (the
+# autosave failed: storage full, a folder that cannot be written); they
+# are still in the editor, and saving keeps them. The status line.
+# Variables:
+#   $error (String) - why: its kind as errors-* say it, then the system's own words (untranslated)
+editor-status-autosave-failed = The unsaved changes could not be backed up ({ $error }): save to keep them
+
 # The editor opened on a song just made from a music file.
 editor-status-new-song = A new song: saving keeps it
 

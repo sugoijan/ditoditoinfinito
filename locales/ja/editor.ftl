@@ -183,6 +183,8 @@ editor-recorded-on-grid = 平均のずれなし、±{ $spread } ms
 
 editor-status-recovered = 「{ $title }」の前回の未保存の変更を復元しました。破棄するには保存せずに終了します。
 
+editor-status-autosave-failed = 未保存の変更をバックアップできませんでした（{ $error }）。保存すると残ります。
+
 editor-status-new-song = 新しい曲です。保存すると残ります。
 
 editor-menu-title = エディター

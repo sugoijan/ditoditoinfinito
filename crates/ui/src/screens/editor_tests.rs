@@ -15,6 +15,8 @@ struct Host {
     time: Cell<Option<f64>>,
     /// Saves fail with this.
     fail: RefCell<Option<String>>,
+    /// Autosaves fail with this.
+    autosave_fails: RefCell<Option<String>>,
 }
 
 impl EditorHost for Host {
@@ -31,6 +33,11 @@ impl EditorHost for Host {
         }
         if call == EditorCall::Stop {
             self.time.set(None);
+        }
+        if call == EditorCall::Autosave
+            && let Some(e) = self.autosave_fails.borrow().clone()
+        {
+            cx.broadcast(autosave_failed(e));
         }
         self.calls.borrow_mut().push(call);
     }
@@ -387,6 +394,41 @@ fn leaving_unsaved_asks() {
     s.h.tap(PointerKind::Touch, "Confirm");
     s.h.run(0.3);
     assert_eq!(s.h.ui.layers().len(), 0);
+}
+
+/// Review studio-editor-9: an autosave the shell could not keep is said
+/// on the status line (once), and tried again, instead of going by
+/// unnoticed until a crash loses the changes.
+#[test]
+fn a_failed_autosave_is_said_and_tried_again() {
+    let mut s = setup([1280.0, 720.0], DESIGN);
+    let autosaves = |s: &Setup| {
+        s.host
+            .calls
+            .borrow()
+            .iter()
+            .filter(|c| **c == EditorCall::Autosave)
+            .count()
+    };
+    *s.host.autosave_fails.borrow_mut() = Some("QuotaExceededError".into());
+    s.h.key("Digit1", "1");
+    s.h.run(autosave::EVERY as f32 + 0.5);
+    assert_eq!(autosaves(&s), 1);
+    let status = s.env.state.borrow().status.clone();
+    assert!(
+        status.contains("could not be backed up") && status.contains("QuotaExceededError"),
+        "{status}"
+    );
+    // Tried again without another edit; said once.
+    s.env.state.borrow_mut().status.clear();
+    s.h.run(autosave::EVERY as f32 + 0.5);
+    assert_eq!(autosaves(&s), 2);
+    // Kept at last: no more tries until the next edit.
+    *s.host.autosave_fails.borrow_mut() = None;
+    s.h.run(autosave::EVERY as f32 + 0.5);
+    assert_eq!(autosaves(&s), 3);
+    s.h.run(autosave::EVERY as f32 * 2.0);
+    assert_eq!(autosaves(&s), 3);
 }
 
 /// Review studio-editor-6: a chart read with what the editor does not

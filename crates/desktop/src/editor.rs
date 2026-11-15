@@ -36,7 +36,8 @@ use ddi_session::listen::{Cues, Listener};
 use ddi_ui::Cx;
 use ddi_ui::screens::Env;
 use ddi_ui::screens::editor::{
-    EditorCall, EditorHost, EditorPlace, EditorScreen, RecordInput, save_failed, saved,
+    EditorCall, EditorHost, EditorPlace, EditorScreen, RecordInput, autosave_failed, save_failed,
+    saved,
 };
 use ddi_ui::screens::editor_field::{FieldPicture, SkinField};
 use ddi_ui::screens::select::SelectCall;
@@ -344,6 +345,7 @@ impl EditorHost for Host {
                     && let Err(e) = autosave::keep(&slots, &a)
                 {
                     eprintln!("editor: autosave: {e}");
+                    cx.broadcast(autosave_failed(e));
                 }
             }
             EditorCall::Leave => {

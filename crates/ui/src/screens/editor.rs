@@ -89,6 +89,17 @@ pub fn save_failed(error: impl Into<String>) -> Message {
     Message::new(SAVED).with("Error", Param::Str(error.into()))
 }
 
+/// Broadcast by the shell when an autosave ([`EditorCall::Autosave`])
+/// could not be kept (storage full, a folder that cannot be written):
+/// `Error` says why. The editor says so once, since a crash or a closed
+/// tab would then lose the changes, and tries again.
+pub const AUTOSAVE_FAILED: &str = "Editor.AutosaveFailed";
+
+/// [`AUTOSAVE_FAILED`] with why.
+pub fn autosave_failed(error: impl Into<String>) -> Message {
+    Message::new(AUTOSAVE_FAILED).with("Error", Param::Str(error.into()))
+}
+
 /// What the editor asks of its shell.
 #[derive(Clone, Debug, PartialEq)]
 pub enum EditorCall {
@@ -434,6 +445,9 @@ pub struct EditorScreen {
     /// The leave question's Save was chosen: once the save ends well the
     /// editor is left (`true`: and the game quits).
     after_save: Option<bool>,
+    /// A failed autosave was said ([`AUTOSAVE_FAILED`]): not again until
+    /// the song is saved.
+    autosave_said: bool,
 }
 
 impl EditorScreen {
@@ -482,6 +496,7 @@ impl EditorScreen {
             seq: 0,
             left: false,
             after_save: None,
+            autosave_said: false,
         }
     }
 
@@ -2868,6 +2883,14 @@ impl Screen for EditorScreen {
             crate::ui::CLOSE_REQUESTED if cx.is_current_screen() && !self.left => {
                 self.leave(true, cx);
             }
+            AUTOSAVE_FAILED => {
+                // Tried again at the next turn of the autosave's clock.
+                self.autosaved = (None, cx.time());
+                if !std::mem::replace(&mut self.autosave_said, true) {
+                    let why = super::errors::error_text(m.str("Error").unwrap_or_default());
+                    self.say(em::status_autosave_failed(why));
+                }
+            }
             SAVED => match (m.int("Revision"), m.str("Error")) {
                 (_, Some(e)) => {
                     self.after_save = None;
@@ -2877,6 +2900,7 @@ impl Screen for EditorScreen {
                     let r = (r >= 0).then_some(r as u64);
                     self.editor.borrow_mut().mark_saved_at(r);
                     self.place.new_song = false;
+                    self.autosave_said = false;
                     self.say(em::status_saved());
                     // The leave question's Save: left now, unless the
                     // song was edited again meanwhile.
