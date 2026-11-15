@@ -110,6 +110,11 @@ pub struct Options {
     /// `docs/plans/multiplayer-audience.md`): no play, nothing sent but
     /// what a seat sends; each reports what it received.
     pub audience: usize,
+    /// The audience's seats with no session at all (`--anonymous`,
+    /// DEVELOPMENT TOOL): seated as the server seats anyone not signed in,
+    /// by its connecting network's mark (eight a network), instead of
+    /// two a signed-in bot.
+    pub anonymous: bool,
     /// The host's Rules: CPUs of the match's roster (`--cpus N[:LEVEL]`,
     /// `online-cpus-v0`: no socket plays them; every device, the bots'
     /// included, computes them), at one level from 1 where given.
@@ -135,6 +140,7 @@ impl Default for Options {
             wait_for: 2,
             seed: None,
             audience: 0,
+            anonymous: false,
             cpus: None,
         }
     }
@@ -171,7 +177,10 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
   --audience N         N seats in the room's audience by --join's link (its
                        audience link, or its invite at the member bound): they
                        only watch (no play) and report what they received,
-                       two seats a signed-in bot (at most 5000)";
+                       two seats a signed-in bot (at most 5000)
+  --anonymous          with --audience: the seats with no session at all,
+                       seated by the server as anyone not signed in (by the
+                       connecting network, eight a network)";
 
 impl Options {
     /// `args` (the command line after the program) read.
@@ -190,6 +199,10 @@ impl Options {
                 "--mp-bots" => took = false,
                 "--host" => {
                     o.host = true;
+                    took = false;
+                }
+                "--anonymous" => {
+                    o.anonymous = true;
                     took = false;
                 }
                 "--join" => {
@@ -312,6 +325,9 @@ impl Options {
         } else {
             0
         });
+        if o.anonymous && o.audience == 0 {
+            return Err("--anonymous needs --audience".into());
+        }
         if o.audience > 0 && o.join.is_none() {
             return Err("--audience needs --join".into());
         }
@@ -1662,6 +1678,13 @@ mod tests {
         ))
         .unwrap();
         assert_eq!((o.audience, o.guests), (40, 0), "no guests by default beside an audience");
+        assert!(!o.anonymous);
+        let o = Options::parse(&args(
+            "--mp-bots --audience 9 --anonymous --join Room000001.abcdefghijABCDEFGHIJ01",
+        ))
+        .unwrap();
+        assert!(o.anonymous && o.audience == 9);
+        assert!(Options::parse(&args("--mp-bots --anonymous --join Room000001.abcdefghijABCDEFGHIJ01")).is_err());
         assert_eq!(o.join.as_deref(), Some("Room000001.abcdefghijABCDEFGHIJ01"));
         for bad in [
             "--mp-bots --audience 3",
@@ -1992,13 +2015,39 @@ fn run_audience(o: &Options, token: &str) -> i32 {
     let site = o.site.clone().unwrap_or_else(crate::online::site);
     let link = o.join.clone().unwrap_or_default();
     let seed = o.seed.unwrap_or_else(now_ms);
-    let people = o.audience.div_ceil(2);
+    let people = if o.anonymous { 0 } else { o.audience.div_ceil(2) };
     println!(
-        "{} audience: {} seats by {link} against {base}, {people} bots signed in (DEVELOPMENT TOOL; Ctrl-C leaves)",
+        "{} audience: {} seats by {link} against {base}, {} (DEVELOPMENT TOOL; Ctrl-C leaves)",
         clock_text(),
-        o.audience
+        o.audience,
+        if o.anonymous {
+            "no session (anonymous)".to_string()
+        } else {
+            format!("{people} bots signed in")
+        }
     );
     let mut seats = Vec::new();
+    if o.anonymous {
+        // No session at all: one online state, never signed in.
+        let online = crate::online::session(
+            base.clone(),
+            site.clone(),
+            None,
+            Rc::new(|_: Option<&str>| {}),
+        );
+        for _ in 0..o.audience {
+            seats.push((
+                AudienceClient::new(
+                    online.clone(),
+                    &link,
+                    Box::new(crate::online::SocketTransport::audience(Some(base.clone()))),
+                    None,
+                    now_ms(),
+                ),
+                Watched::default(),
+            ));
+        }
+    }
     for k in 0..people {
         let name = format!("Watcher {:x}{}", seed % 0xffff, k + 1);
         let session = match sign_in(&base, token, &name) {

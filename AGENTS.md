@@ -1574,7 +1574,8 @@ Rust and the browser are implementation details, not advertised features.
   computed by every bot as by a person's device and reported for
   (`battle::live::LivePlay`); `--cpus N[:LEVEL]` gives the host bot's
   Rules N CPUs of the roster (CPUs, never bots). `--audience N` with `--join LINK`: N seats in the
-  room's audience that only watch (two a signed-in bot), each reporting
+  room's audience that only watch (two a signed-in bot; with
+  `--anonymous` no session at all, seated by network), each reporting
   what it received (`run_audience`). The audience's page on desktop
   (`room::audience_screen`): `--join` takes an audience link, its stages
   watched through the play host (`room::StageRoom::audience`, no results
@@ -1757,7 +1758,7 @@ Rust and the browser are implementation details, not advertised features.
   `--mp-bots [--host] [--join LINK] [--guests N] [--api URL] [--site URL]
   [--stages N] [--matches N] [--rest S] [--wait-for N] [--songs DIR]
   [--pick ID[:N],…] [--names A,B] [--level N|A-B] [--personality P]
-  [--cpus N[:LEVEL]] [--audience N]`
+  [--cpus N[:LEVEL]] [--audience N [--anonymous]]`
   (DEVELOPMENT TOOL: bots in a private online room, played by the CPU,
   no window or sound; the admin share token from `DDI_SHARE_TOKEN`;
   locally `DDI_SHARE_TOKEN=test-token … --api
