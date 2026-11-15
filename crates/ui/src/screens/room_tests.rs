@@ -5759,6 +5759,200 @@ fn a_member_on_options_is_told_their_stage_is_due_and_goes_to_ready() {
     assert_eq!(eb.state.borrow().over, 0, "Options left as its Back leaves it");
 }
 
+/// Decisions round D4, item C (the maintainer, 2026-11-15: "during a
+/// key bind it waits until the bind finishes or is canceled"): a member
+/// binding a control in Options when their stage comes due is not told
+/// over the binding (the notice would take the press it waits for, and
+/// its Go would cancel what was bound); once the binding is canceled (or
+/// saved: the dialog gone either way) the notice opens. Desktop's path
+/// (the room's screen under Options) and what the web's asks first
+/// (`Ui::notices_wait`).
+#[test]
+fn the_due_notice_waits_for_a_control_being_bound() {
+    use super::options_dialogs::{BindDialog, KeyDialog};
+    use crate::state::bind::BindFlow;
+    use ddi_platform::DeviceId;
+    for one_key in [false, true] {
+        let t = Three::new(false);
+        let eb = env();
+        let orders = Orders::default();
+        let mut hb = harness();
+        hb.push(
+            sample::room_select(&eb, t.bob.clone(), songs_of(&["Bravo One"]))
+                .with_room(t.bob.clone(), shell(&t.bob, &orders)),
+        );
+        t.settle(400, &mut [&mut hb]);
+        hb.push(sample::options_screen(&eb, None));
+        hb.run(0.5);
+        assert!(!hb.ui.notices_wait());
+        // The guided binding of the keyboard, or one more key for a lane.
+        let opened = if one_key {
+            hb.ui.push_dialog(KeyDialog::new(eb.clone(), "Left", Rc::new(|_, _| {})))
+        } else {
+            let layout = ddi_chart::Layout::builtin("dance-single").unwrap();
+            let flow = BindFlow::new(
+                Some(DeviceId::Keyboard),
+                &layout,
+                Default::default(),
+                Vec::new(),
+                Default::default(),
+            );
+            hb.ui
+                .push_dialog(BindDialog::new(eb.clone(), flow, "Single", Rc::new(|_, _| {})))
+        };
+        assert!(opened);
+        hb.run(0.5);
+        let binding = if one_key { "key" } else { "bind" };
+        assert_eq!(hb.ui.layers().last().unwrap().name, binding);
+        assert!(hb.ui.notices_wait());
+        // The stage comes due meanwhile.
+        let song = songs_of(&["Alpha One"]).songs.remove(0);
+        t.alice.borrow_mut().pick(&song, &song.charts[0]).unwrap();
+        t.settle(400, &mut [&mut hb]);
+        crate::state::online::tests::room::upload(&t.server, &mut t.alice.borrow_mut(), "abc12345");
+        for _ in 0..6 {
+            t.settle(400, &mut [&mut hb]);
+        }
+        assert!(t.bob.borrow().stage_due().is_some(), "{:?}", t.bob.borrow().state().phase);
+        assert_eq!(notices(&hb), 0, "{one_key}: not over the binding: {:?}", hb.ui.layers());
+        assert_eq!(hb.ui.layers().last().unwrap().name, binding);
+        assert!(t.bob.borrow().telling_due().get().is_none());
+        assert!(orders.borrow().is_empty());
+        // The binding canceled: told at once.
+        hb.tap(PointerKind::Mouse, "Cancel");
+        t.settle(300, &mut [&mut hb]);
+        assert!(!hb.ui.notices_wait());
+        assert_eq!(notices(&hb), 1, "{one_key}: {:?}", hb.ui.layers());
+        assert_eq!(hb.ui.layers().last().unwrap().name, super::room::DUE_NOTICE);
+        assert!(has(&hb, "Stage 1 is starting"), "{:?}", hb.texts());
+    }
+}
+
+/// Decisions round D4, item C ("Tell them the same way"): a member still
+/// on a stage's results when the room's next stage comes due is told
+/// over the results, as over Options; the notice's button goes back to
+/// the room as the results' own does, and the stage's prompt opens
+/// there. On one stack over the room's song select (desktop) and as a
+/// page of its own, the room run beside it (the web); Stay keeps the
+/// results and is not asked again.
+#[test]
+fn a_member_on_a_stages_results_is_told_the_next_stage_is_due() {
+    use super::data::ResultsKind;
+    use super::results::{ResultsActions, ResultsScreen};
+    use crate::state::online::tests::room::{prepare, upload};
+    use ddi_room::Run;
+    for (desktop, stay) in [(true, false), (false, false), (true, true)] {
+        let t = Three::new(false);
+        let eb = env();
+        let orders = Orders::default();
+        let everyone = [&t.alice, &t.bob, &t.carol];
+        t.step(400);
+        t.step(400);
+        let mut rules = t.alice.borrow().rules().clone();
+        rules.stages = 2;
+        t.alice.borrow_mut().save_rules(rules).unwrap();
+        t.step(400);
+        // Stage 1, played by everyone.
+        let song = songs_of(&["Alpha One"]).songs.remove(0);
+        t.alice.borrow_mut().pick(&song, &song.charts[0]).unwrap();
+        t.step(400);
+        upload(&t.server, &mut t.alice.borrow_mut(), "abc12340");
+        t.step(400);
+        for r in everyone {
+            prepare(&mut r.borrow_mut());
+        }
+        t.step(400);
+        let first = t.bob.borrow_mut().take_stage_order().expect("stage 1's prompt");
+        for r in everyone {
+            let _ = r.borrow_mut().take_stage_order();
+            r.borrow_mut().set_ready(true).unwrap();
+        }
+        t.step(400);
+        t.step(4_000);
+        for r in everyone {
+            r.borrow_mut()
+                .report_run(first.stage, Run::Live { life: 0.8, score: 0, steps: 0 }, None)
+                .unwrap();
+        }
+        t.step(400);
+        t.step(400);
+        // Bob stays on its results.
+        let went = Rc::new(std::cell::Cell::new(0));
+        let mut hb = harness();
+        if desktop {
+            hb.push(
+                sample::room_select(&eb, t.bob.clone(), songs_of(&["Bravo One"]))
+                    .with_room(t.bob.clone(), shell(&t.bob, &orders)),
+            );
+            hb.run(0.3);
+        }
+        let mut data = sample::results();
+        data.kind = ResultsKind::Stage;
+        let actions = if desktop {
+            ResultsActions::default()
+        } else {
+            // The web's button navigates to the room's song select.
+            let went = went.clone();
+            ResultsActions {
+                song_list: Some(Rc::new(move |_, _| went.set(went.get() + 1))),
+                ..Default::default()
+            }
+        };
+        hb.push(ResultsScreen::new(eb.clone(), data, actions).with_room(t.bob.clone(), first.stage));
+        t.settle(400, &mut [&mut hb]);
+        assert_eq!(top(&hb), "results");
+        assert_eq!(notices(&hb), 0);
+        // Stage 2 picked while he is there.
+        let song = songs_of(&["Alpha One", "Alpha Two"]).songs.remove(1);
+        t.alice.borrow_mut().pick(&song, &song.charts[0]).unwrap();
+        t.settle(400, &mut [&mut hb]);
+        upload(&t.server, &mut t.alice.borrow_mut(), "abc12341");
+        for _ in 0..6 {
+            t.step(400);
+            if !desktop {
+                // (The web's timer under the page prepares the song.)
+                prepare(&mut t.bob.borrow_mut());
+            }
+            t.settle(200, &mut [&mut hb]);
+        }
+        assert!(t.bob.borrow().stage_due().is_some(), "{:?}", t.bob.borrow().state().phase);
+        assert_eq!(notices(&hb), 1, "{desktop}: told once: {:?}", hb.ui.layers());
+        assert_eq!(hb.ui.layers().last().unwrap().name, super::room::DUE_NOTICE);
+        assert!(has(&hb, "Stage 2 is starting"), "{:?}", hb.texts());
+        assert!(orders.borrow().is_empty(), "no prompt under the results");
+        if stay {
+            hb.key("Escape", "Escape");
+            for _ in 0..4 {
+                t.settle(300, &mut [&mut hb]);
+            }
+            assert_eq!(notices(&hb), 0, "not told again");
+            assert_eq!(top(&hb), "results");
+            assert!(orders.borrow().is_empty());
+            continue;
+        }
+        assert_eq!(hb.ui.focused(), Some("Go"));
+        hb.key("Enter", "Enter");
+        for _ in 0..4 {
+            t.settle(200, &mut [&mut hb]);
+        }
+        assert_eq!(notices(&hb), 0);
+        if desktop {
+            // (Stage 1's standings, where the results' Graphs tab was
+            // the one shown: closed as the player closes them.)
+            if hb.ui.layers().last().unwrap().name == "room-standings" {
+                hb.key("Escape", "Escape");
+                for _ in 0..4 {
+                    t.settle(200, &mut [&mut hb]);
+                }
+            }
+            assert_eq!(top(&hb), "select", "{:?}", hb.ui.layers());
+            assert_eq!(orders.borrow().len(), 1, "stage 2's prompt handed over");
+        } else {
+            assert_eq!(went.get(), 1, "the results' own way back to the room");
+        }
+    }
+}
+
 /// Stay here keeps Options and is not asked again for the stage; its
 /// prompt still opens by itself once the player is back on the room.
 #[test]

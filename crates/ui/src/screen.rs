@@ -318,6 +318,16 @@ pub trait Screen {
         false
     }
 
+    /// A step in progress here that a notice from outside the screens
+    /// must not open over (a control being bound: the notice would take
+    /// the press meant for the binding, and going where it leads would
+    /// cancel it): such a notice waits until this screen is gone
+    /// ([`Cx::notices_wait`], [`crate::Ui::notices_wait`]; a room's
+    /// stage due, `screens::room::DueDialog`).
+    fn holds_notices(&self) -> bool {
+        false
+    }
+
     /// The named actors focus moves between, in order (the first is
     /// focused when the screen comes in), with any explicit neighbours.
     fn focusables(&self) -> Vec<Focusable> {
@@ -436,6 +446,7 @@ pub struct Cx {
     pub(crate) current_screen: bool,
     /// Every screen over this one yields ([`Cx::covered_by_yielding`]).
     pub(crate) yielding_over: bool,
+    pub(crate) notices_wait: bool,
     /// The screen is coming in still ([`Cx::entering`]).
     pub(crate) entering: bool,
     pub(crate) hints: std::rc::Rc<crate::controller_hints::Hints>,
@@ -467,6 +478,7 @@ impl Cx {
             by_keys: false,
             current_screen: true,
             yielding_over: false,
+            notices_wait: false,
             entering: false,
             hints: std::rc::Rc::default(),
         }
@@ -504,6 +516,12 @@ impl Cx {
     /// leave ([`Screen::yields`]): [`Cx::surface`] would bring it back.
     pub fn covered_by_yielding(&self) -> bool {
         self.yielding_over
+    }
+
+    /// A screen or a dialog up now is in a step a notice must not open
+    /// over ([`Screen::holds_notices`]): a notice waits.
+    pub fn notices_wait(&self) -> bool {
+        self.notices_wait
     }
 
     /// Opens a dialog over the current screen, whichever it is (this

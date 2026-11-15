@@ -593,8 +593,11 @@ impl SelectScreen {
         if !cx.is_current_screen() {
             // Under a screen opened over the room (Options, Calibrate):
             // a stage due is told there, with a way to its Ready screen
-            // ([`room::DueDialog`]); never over a play or its results.
-            if cx.covered_by_yielding() {
+            // ([`room::DueDialog`]); never over a play (a stage's results
+            // tell it themselves, `results_stage.rs`), and not while a
+            // control is being bound there: it is told once that step
+            // is saved or canceled.
+            if cx.covered_by_yielding() && !cx.notices_wait() {
                 let go: room::DueGo =
                     Rc::new(|cx| cx.broadcast(Message::new(room::DUE_GO)));
                 room::DueDialog::tell(&self.env, &room, go, cx);

@@ -494,6 +494,16 @@ impl Ui {
         true
     }
 
+    /// A screen or a dialog up now is in a step a notice from outside
+    /// must not open over ([`Screen::holds_notices`]: a control being
+    /// bound): a shell's notice ([`Self::push_dialog`]) waits until it
+    /// is gone.
+    pub fn notices_wait(&self) -> bool {
+        self.layers
+            .iter()
+            .any(|l| !l.chrome && l.screen.holds_notices())
+    }
+
     /// The current screen's layer: the topmost that is neither an
     /// overlay nor the chrome.
     fn current_screen_mut(&mut self) -> Option<&mut Layer> {
@@ -1851,6 +1861,7 @@ impl Ui {
                 .peekable();
             over.peek().is_some() && over.all(|l| l.screen.yields())
         });
+        cx.notices_wait = self.notices_wait();
         cx
     }
 

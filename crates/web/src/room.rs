@@ -224,9 +224,12 @@ const OVER_PUMP_MS: u32 = 100;
 /// uploaded and the room hears from it; a stage due meanwhile is told
 /// over the page ([`tell_due`]), and its prompt opens once the member is
 /// back on its song select (as desktop's, whose room screen runs under
-/// Options).
+/// Options). On a stage's results too ([`on_results`]): the next stage's
+/// song is prepared while its member is still there, and the results
+/// tell them it is due themselves (`ddi_ui`'s `results_stage.rs`).
 fn run_over(page: &RoomPage) {
-    let wanted = *page == RoomPage::Over && crate::online::kept_room().is_some();
+    let wanted = matches!(page, RoomPage::Over | RoomPage::Stage)
+        && crate::online::kept_room().is_some();
     OVER_PUMP.with_borrow_mut(|timer| {
         if !wanted {
             *timer = None;
@@ -234,17 +237,26 @@ fn run_over(page: &RoomPage) {
             // (Stopped by the next page's first frame, never from inside
             // its own call.)
             *timer = Some(gloo::timers::callback::Interval::new(OVER_PUMP_MS, || {
-                if room_page() == RoomPage::Over {
-                    pump_kept();
+                match room_page() {
+                    RoomPage::Over => pump_kept(true),
+                    RoomPage::Stage if on_results() => pump_kept(false),
+                    _ => {}
                 }
             }));
         }
     });
 }
 
+/// On a stage's page with its play over (its outcome reported, or its
+/// prompt left): its results, where the page itself no longer runs the
+/// room.
+fn on_results() -> bool {
+    PLAYING.with_borrow(Option::is_none)
+}
+
 /// The kept online room's one run: ticked, its songs to prepare and
-/// upload handed on.
-fn pump_kept() {
+/// upload handed on, and with `tell` a stage due told over the page.
+fn pump_kept(tell: bool) {
     let Some(room) = crate::online::kept_room() else {
         return;
     };
@@ -261,7 +273,9 @@ fn pump_kept() {
     for job in uploads {
         upload(room.clone(), job);
     }
-    tell_due(&room);
+    if tell {
+        tell_due(&room);
+    }
 }
 
 /// The kept online room's stage is due for its member while they are on

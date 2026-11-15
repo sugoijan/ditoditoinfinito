@@ -653,6 +653,12 @@ impl Screen for BindDialog {
         "bind"
     }
 
+    // From its first step to its Save or Cancel: a notice over it would
+    // take the press it waits for, and leaving would lose what was bound.
+    fn holds_notices(&self) -> bool {
+        true
+    }
+
     fn animating(&self) -> bool {
         self.holds.any()
     }
@@ -925,6 +931,11 @@ impl Screen for KeyDialog {
 
     fn name(&self) -> &str {
         "key"
+    }
+
+    // Waiting for the one press it binds.
+    fn holds_notices(&self) -> bool {
+        true
     }
 
     fn animating(&self) -> bool {

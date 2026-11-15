@@ -1474,7 +1474,7 @@ impl ResultsScreen {
         cx.focus(name.clone());
     }
 
-    fn song_list(&mut self, cx: &mut Cx) {
+    pub(super) fn song_list(&mut self, cx: &mut Cx) {
         self.env.state.borrow_mut().status = "song list".into();
         match self.actions.song_list.clone() {
             Some(f) => {

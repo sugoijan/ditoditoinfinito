@@ -956,6 +956,10 @@ pub(crate) fn push_dialog<S: ddi_ui::Screen + 'static>(
         let Some(env) = h.theme.as_ref().map(|t| t.env.clone()) else {
             continue;
         };
+        // Not over a control being bound: asked again once it is done.
+        if h.ui.notices_wait() {
+            return false;
+        }
         let Some(dialog) = make(&env) else {
             return false;
         };

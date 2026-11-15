@@ -138,6 +138,9 @@ pub(super) struct StageMode {
     /// these results are up (where leaving the room costs something), and
     /// its Leave leaves through this shell.
     back: Option<(crate::screens::room::RoomShell, bool)>,
+    /// The due notice's button was pressed here: these results are on
+    /// their way back to the room and tell nothing more.
+    going: bool,
 }
 
 /// The stage's standings as the debug state shows them
@@ -1068,6 +1071,7 @@ impl ResultsScreen {
             watched: false,
             quit_at: None,
             back: None,
+            going: false,
         });
         self
     }
@@ -1122,6 +1126,12 @@ impl ResultsScreen {
         }
         if room::left_by(msg) == Some(room::LeaveBy::Quit) {
             sm.quit_at = Some(room::quit_leaving(&sm.room, cx.time()));
+        }
+        // The due notice's button: back to the room, as the results'
+        // own button goes.
+        if msg.name == room::DUE_GO {
+            sm.going = true;
+            self.song_list(cx);
         }
     }
 
@@ -1419,6 +1429,18 @@ impl ResultsScreen {
         }
         if changed {
             self.stage_redraw(root, cx);
+        }
+        // The room's next stage is due while the player is still here:
+        // told over these results as over Options ([`room::DueDialog`];
+        // the maintainer, 2026-11-15: "Tell them the same way"), its
+        // button going back to the room, where the stage's prompt opens.
+        let going = self.stage.as_ref().is_some_and(|sm| sm.going);
+        if cx.is_current_screen() && !cx.notices_wait() && !going {
+            use crate::screens::room;
+            let go: room::DueGo = Rc::new(|cx| cx.broadcast(crate::Message::new(room::DUE_GO)));
+            if let Some(notice) = room::DueDialog::due(&self.env, &room, go) {
+                cx.overlay(notice, true);
+            }
         }
     }
 

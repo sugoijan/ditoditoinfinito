@@ -1522,12 +1522,15 @@ pub const DUE_NOTICE: &str = "room-stage-due";
 
 /// The room's stage is due while the player is on a screen opened over
 /// the room (Options, Calibrate, the announcer studio; the maintainer,
-/// 2026-11-15: "Tell them"): a notice over that screen saying so, with
+/// 2026-11-15: "Tell them") or still on the last stage's results ("Tell
+/// them the same way"): a notice over that screen saying so, with
 /// the room's status line (its countdown) and a button that goes to the
 /// stage's Ready screen. Nothing is taken out of the player's hands:
 /// Stay here keeps the screen (told once a stage, `RoomClient::stay`),
 /// and the notice goes by itself only when the stage is no longer theirs
-/// to go to.
+/// to go to. It never opens over a control being bound
+/// ([`crate::Screen::holds_notices`]): it waits until the binding is
+/// saved or canceled.
 pub struct DueDialog {
     env: Env,
     room: SharedRoom,
