@@ -3,7 +3,9 @@
 //! seats' sockets and one socket up to the room.
 //!
 //! - **Seats**: admitted against what the room said (the audience link's
-//!   key, open or not, how many seats a relay holds, two an identity);
+//!   key, open or not, how many seats a relay holds) and the rules (two
+//!   seats a signed-in identity, eight an anonymous one, whose joins are
+//!   also bounded a minute: [`AudienceRules::seats_for`]);
 //!   each seat's hello answered with the view, the count and the stage as
 //!   the relay keeps it (a snapshot folded from the frames, and the last
 //!   frames), a resume from the frames kept; frames sent on as they came,
@@ -27,7 +29,7 @@ use crate::ids::StageId;
 use crate::live::server::LiveSnapshot;
 use crate::live::stream::KeptFrames;
 use crate::online::Message;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 /// A seat on a relay (the relay's own number, kept in its socket's
 /// attachment).
@@ -93,6 +95,10 @@ pub struct Relay {
     admission: Option<Admission>,
     seats: BTreeMap<SeatId, Seat>,
     per_identity: BTreeMap<u64, u32>,
+    /// Each anonymous identity's joins within the last
+    /// `anonymous_join_window_ms` (their times; memory only, so a
+    /// restarted relay counts afresh).
+    anonymous_joins: BTreeMap<u64, VecDeque<u64>>,
     next_seat: SeatId,
     view: Option<PublicView>,
     /// How many watch in all, as the room last said.
@@ -119,6 +125,7 @@ impl Relay {
             admission: None,
             seats: BTreeMap::new(),
             per_identity: BTreeMap::new(),
+            anonymous_joins: BTreeMap::new(),
             next_seat: 1,
             view: None,
             count: None,
@@ -217,8 +224,21 @@ impl Relay {
             return Err(AudienceRefusal::Full);
         }
         let mark = identity_mark(identity);
+        if super::is_anonymous(identity) {
+            // Every join that reached this far counts, a refused one too.
+            let joins = self.anonymous_joins.entry(mark).or_default();
+            let window = self.rules.anonymous_join_window_ms;
+            while joins.front().is_some_and(|t| now >= t + window)
+            {
+                joins.pop_front();
+            }
+            if joins.len() as u32 >= self.rules.anonymous_joins_per_minute {
+                return Err(AudienceRefusal::Busy);
+            }
+            joins.push_back(now);
+        }
         let held = self.per_identity.get(&mark).copied().unwrap_or(0);
-        if held >= self.rules.seats_per_identity {
+        if held >= self.rules.seats_for(identity) {
             return Err(AudienceRefusal::TooManySeats);
         }
         let seat = self.next_seat;
@@ -451,6 +471,10 @@ impl Relay {
     /// between stages.
     pub fn tick(&mut self, now: u64) -> RelayOut {
         let mut out = RelayOut::default();
+        // Anonymous joins out of the window are forgotten.
+        let window = self.rules.anonymous_join_window_ms;
+        self.anonymous_joins
+            .retain(|_, joins| joins.back().is_some_and(|t| now < t + window));
         // Seats given and never taken are given up.
         let stale: Vec<SeatId> = self
             .seats
@@ -496,5 +520,71 @@ mod tests {
     fn an_identity_s_mark_is_this_value() {
         assert_eq!(identity_mark("twitch:12345"), 5_433_475_829_025_022_859);
         assert_eq!(identity_mark(""), 0xcbf2_9ce4_8422_2325);
+    }
+
+    fn admitting() -> Relay {
+        let mut r = Relay::new(crate::audience::AUDIENCE_V0, 0);
+        let _ = r.from_room_text(
+            &RelayDownEnvelope::text(RelayDown::Admission {
+                key: "k".into(),
+                open: true,
+                seats: 500,
+            }),
+            0,
+        );
+        r
+    }
+
+    #[test]
+    fn an_anonymous_identity_holds_eight_seats_and_a_person_two() {
+        let mut r = admitting();
+        for _ in 0..8 {
+            r.admit("anon:net", "k", 1_000).unwrap();
+        }
+        assert_eq!(r.admit("anon:net", "k", 1_000), Err(AudienceRefusal::TooManySeats));
+        assert_eq!(r.held_by("anon:net"), 8);
+        // Another network's mark, and a signed-in person's two.
+        assert!(r.admit("anon:other", "k", 1_000).is_ok());
+        r.admit("twitch:1", "k", 1_000).unwrap();
+        r.admit("twitch:1", "k", 1_000).unwrap();
+        assert_eq!(r.admit("twitch:1", "k", 1_000), Err(AudienceRefusal::TooManySeats));
+        // A seat that goes frees its place.
+        // The bounds are apart: a network's eight and its people's two
+        // each, admitted at once.
+        for _ in 0..8 {
+            r.admit("anon:shared", "k", 1_000).unwrap();
+        }
+        r.admit("twitch:2", "k", 1_000).unwrap();
+        r.admit("twitch:2", "k", 1_000).unwrap();
+        assert_eq!(r.admit("anon:shared", "k", 1_000), Err(AudienceRefusal::TooManySeats));
+        assert_eq!(r.admit("twitch:2", "k", 1_000), Err(AudienceRefusal::TooManySeats));
+        let seat = r.admit("anon:third", "k", 1_000).unwrap();
+        r.seat_gone(seat);
+        assert_eq!(r.held_by("anon:third"), 0);
+    }
+
+    #[test]
+    fn an_anonymous_identity_s_joins_are_bounded_a_minute_and_come_back() {
+        let mut r = admitting();
+        // A viewer whose socket keeps dropping: each join a new seat, the
+        // old one gone.
+        let mut t = 0;
+        for _ in 0..30 {
+            let seat = r.admit("anon:net", "k", t).unwrap();
+            r.seat_gone(seat);
+            t += 1_000;
+        }
+        assert_eq!(r.admit("anon:net", "k", t), Err(AudienceRefusal::Busy));
+        // A signed-in person is never counted so.
+        for _ in 0..40 {
+            let seat = r.admit("twitch:1", "k", t).unwrap();
+            r.seat_gone(seat);
+        }
+        // A minute after the first join, the next is let in.
+        let _ = r.tick(60_000);
+        assert!(r.admit("anon:net", "k", 60_000).is_ok());
+        // Old joins are forgotten by the tick.
+        let _ = r.tick(200_000);
+        assert!(r.anonymous_joins.is_empty());
     }
 }

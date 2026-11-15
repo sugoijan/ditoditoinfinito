@@ -112,7 +112,7 @@ impl Http for FakeHttp {
                 let body: serde_json::Value =
                     serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap_or_default();
                 let (s, b) = self.server.borrow_mut().audience_join_answer(
-                    &format!("dev:{who}"),
+                    Some(&format!("dev:{who}")),
                     body["invite"].as_str().unwrap_or_default(),
                     None,
                 );

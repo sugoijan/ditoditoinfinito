@@ -40,7 +40,7 @@ pub(crate) fn watcher(server: &SharedFake, who: &'static str) -> SharedOnline {
             let link = body["invite"].as_str().unwrap_or_default();
             let (status, body) = s
                 .borrow_mut()
-                .audience_join_answer(&format!("dev:{who}"), link, None);
+                .audience_join_answer(Some(&format!("dev:{who}")), link, None);
             Some(crate::state::online::api::ApiResponse {
                 status,
                 body,

@@ -1593,7 +1593,7 @@ impl Http for AudienceHttp {
                 let body: serde_json::Value =
                     serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap();
                 let (status, body) = self.server.borrow_mut().audience_join_answer(
-                    &format!("dev:{}", self.who),
+                    Some(&format!("dev:{}", self.who)),
                     body["invite"].as_str().unwrap_or_default(),
                     self.latency,
                 );

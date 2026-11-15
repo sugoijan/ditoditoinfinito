@@ -46,7 +46,7 @@ use std::rc::Rc;
 mod audience;
 mod invites;
 pub use audience::{AudienceStats, FakeAudienceSocket};
-pub use invites::{FakeLinks, LinkKind};
+pub use invites::{FAKE_ANONYMOUS, FakeLinks, LinkKind};
 
 /// Something done to the frames the room sends one person.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -18,6 +18,11 @@
 
 use super::{FakeServer, Latency};
 use crate::audience::AudienceRefusal;
+
+/// The anonymous identity the fake admits an audience join without a
+/// session as: one network's mark (the server's is a daily keyed hash of
+/// the connecting address's network; the fake has no address).
+pub const FAKE_ANONYMOUS: &str = "anon:fake-network";
 use crate::member::{MemberKind, Role};
 use crate::rules::Admission;
 
@@ -147,15 +152,19 @@ impl FakeServer {
         Ok(preview.to_string())
     }
 
-    /// `POST /rooms/<id>/audience {invite: link}` for `identity`: the
-    /// server's answer's status and body (`{ticket, relay,
-    /// expires_at_ms}`, or `{error}`), the seat's socket `latency` away.
+    /// `POST /rooms/<id>/audience {invite: link}` for `identity` (the
+    /// signed-in person's; none: no session, admitted anonymously as
+    /// [`FAKE_ANONYMOUS`], as the server admits it by its connecting
+    /// network's mark): the server's answer's status and body (`{ticket,
+    /// relay, expires_at_ms}`, or `{error}`), the seat's socket `latency`
+    /// away.
     pub fn audience_join_answer(
         &mut self,
-        identity: &str,
+        identity: Option<&str>,
         link: &str,
         latency: Option<Latency>,
     ) -> (u16, String) {
+        let identity = identity.unwrap_or(FAKE_ANONYMOUS);
         let refused = |r: AudienceRefusal| (r.status(), format!(r#"{{"error":"{}"}}"#, r.code()));
         if self.state().closed.is_some() {
             return refused(AudienceRefusal::RoomClosed);
@@ -241,7 +250,7 @@ mod tests {
         let mut f = fake(RoomPolicy::default().with_live().with_audience());
         let links = f.links().clone();
         for link in [&links.audience, &links.invite, &links.watch] {
-            let (status, body) = f.audience_join_answer("dev:dora", link, None);
+            let (status, body) = f.audience_join_answer(Some("dev:dora"), link, None);
             if status == 200 {
                 let b = json(&body);
                 assert!(b["ticket"].as_str().unwrap().starts_with("aud-"));
@@ -253,11 +262,29 @@ mod tests {
                 assert_eq!((status, json(&body)["error"].clone()), (409, "too_many_seats".into()));
             }
         }
-        let (status, body) = f.audience_join_answer("dev:erin", "Room000001.other", None);
+        let (status, body) = f.audience_join_answer(Some("dev:erin"), "Room000001.other", None);
         assert_eq!((status, json(&body)["error"].as_str().unwrap()), (404, "audience_link_unknown"));
         let mut plain = fake(RoomPolicy::default().with_live());
         let link = plain.links().invite.clone();
-        let (status, body) = plain.audience_join_answer("dev:dora", &link, None);
+        let (status, body) = plain.audience_join_answer(Some("dev:dora"), &link, None);
         assert_eq!((status, json(&body)["error"].as_str().unwrap()), (404, "no_audience"));
+    }
+
+    #[test]
+    fn an_audience_join_without_a_session_is_anonymous_and_bounded_by_its_network() {
+        let mut f = fake(RoomPolicy::default().with_live().with_audience());
+        let link = f.links().audience.clone();
+        for _ in 0..8 {
+            let (status, body) = f.audience_join_answer(None, &link, None);
+            assert_eq!(status, 200, "{body}");
+        }
+        // The ninth from the same network is refused; a signed-in person
+        // still has their own two.
+        let (status, body) = f.audience_join_answer(None, &link, None);
+        assert_eq!((status, json(&body)["error"].clone()), (409, "too_many_seats".into()));
+        let (status, _) = f.audience_join_answer(Some("dev:dora"), &link, None);
+        assert_eq!(status, 200);
+        let home = crate::audience::AUDIENCE_V0.home_relay(FAKE_ANONYMOUS);
+        assert_eq!(f.relay(home).unwrap().held_by(FAKE_ANONYMOUS), 8);
     }
 }

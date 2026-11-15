@@ -73,8 +73,23 @@ pub struct AudienceRules {
     /// one of them; past them relays are opened only as the first fill
     /// (so a small audience starts a few relays, never the bound's all).
     pub home_relays: u32,
-    /// Seats one identity may hold in a room (two tabs, a phone).
+    /// Seats one signed-in identity may hold in a room (two tabs, a
+    /// phone).
     pub seats_per_identity: u32,
+    /// Seats one anonymous identity ([`is_anonymous`]: the server's daily
+    /// mark of a connecting network, `anon:…`) may hold: more than a
+    /// person's, as many people share one address (a household, a campus,
+    /// a carrier's NAT). Added 2026-11-15 (PROVISIONAL): the relays'
+    /// admission alone reads it, nothing a client reads or computes.
+    pub seats_per_anonymous: u32,
+    /// Audience joins one anonymous identity may make on one relay within
+    /// [`AudienceRules::anonymous_join_window_ms`] (the join no longer
+    /// costs a sign-in); past it `audience_busy` (503, which a client asks
+    /// again after a wait). Added 2026-11-15 (PROVISIONAL), the relays'
+    /// alone. A signed-in identity's joins are never counted so.
+    pub anonymous_joins_per_minute: u32,
+    /// The window those joins are counted in (a minute).
+    pub anonymous_join_window_ms: u64,
     /// A relay says its count up, and the room says the total to its
     /// members and relays, at most this often.
     pub count_ms: u64,
@@ -102,6 +117,13 @@ pub struct AudienceRules {
 /// 20,000 seats a room in relays of 500 (40 relays), two seats an
 /// identity, the count once a second, a view at most once a second, the
 /// audience at most two seconds behind, 30 s of frames for a resume.
+///
+/// Since 2026-11-15 the audience watches without signing in: eight seats
+/// an anonymous identity and 30 joins a minute of one on a relay. Under
+/// the same id: those two bound only the relays' admission (the server's,
+/// and the fake's), so nothing a client or a peer reads, computes or
+/// names changed, and a new id would have made every client that knows
+/// only `audience-v0` offer no audience at all.
 pub const AUDIENCE_V0: AudienceRules = AudienceRules {
     id: "audience-v0",
     frame_ms: 250,
@@ -109,6 +131,9 @@ pub const AUDIENCE_V0: AudienceRules = AudienceRules {
     relay_seats: 500,
     home_relays: 4,
     seats_per_identity: 2,
+    seats_per_anonymous: 8,
+    anonymous_joins_per_minute: 30,
+    anonymous_join_window_ms: 60_000,
     count_ms: 1_000,
     idle_count_ms: 5_000,
     view_ms: 1_000,
@@ -119,7 +144,31 @@ pub const AUDIENCE_V0: AudienceRules = AudienceRules {
     ticket_ms: 60_000,
 };
 
+/// An anonymous audience identity's prefix: the server admits an audience
+/// join without a session as `anon:<mark>`, the mark a daily keyed hash
+/// of the connecting address's network (never the address itself).
+pub const ANONYMOUS_PREFIX: &str = "anon:";
+
+/// Whether `identity` is an anonymous audience identity
+/// ([`ANONYMOUS_PREFIX`]); a signed-in one is a member's (`twitch:…`,
+/// `bot:…`).
+pub fn is_anonymous(identity: &str) -> bool {
+    identity.starts_with(ANONYMOUS_PREFIX)
+}
+
 impl AudienceRules {
+    /// The seats `identity` may hold in a room: a signed-in identity's
+    /// own bound, or an anonymous one's (a network's). The two never
+    /// share a count: a signed-in person's seats are theirs, never their
+    /// network's, and an anonymous seat is nobody's account's.
+    pub fn seats_for(&self, identity: &str) -> u32 {
+        if is_anonymous(identity) {
+            self.seats_per_anonymous
+        } else {
+            self.seats_per_identity
+        }
+    }
+
     pub fn named(id: &str) -> Option<AudienceRules> {
         [AUDIENCE_V0].into_iter().find(|r| r.id == id)
     }
@@ -187,23 +236,29 @@ pub enum AudienceRefusal {
     Closed,
     /// The room ended.
     RoomClosed,
-    /// This identity holds as many seats as it may.
+    /// This identity holds as many seats as it may (two a person; for an
+    /// anonymous one, eight a network).
     TooManySeats,
     /// The link is not this room's audience link (or was replaced).
     BadLink,
     /// The room has no audience (its authority predates it).
     NoAudience,
+    /// Too many joins from this anonymous identity just now: asked again
+    /// after a wait (503, which every client already asks again after a
+    /// wait, as for a relay that was not ready).
+    Busy,
 }
 
 impl AudienceRefusal {
     /// Every refusal (a code read back to its refusal).
-    pub const ALL: [AudienceRefusal; 6] = [
+    pub const ALL: [AudienceRefusal; 7] = [
         Self::Full,
         Self::Closed,
         Self::RoomClosed,
         Self::TooManySeats,
         Self::BadLink,
         Self::NoAudience,
+        Self::Busy,
     ];
 
     /// The error code the server answers with.
@@ -215,6 +270,7 @@ impl AudienceRefusal {
             Self::TooManySeats => "too_many_seats",
             Self::BadLink => "audience_link_unknown",
             Self::NoAudience => "no_audience",
+            Self::Busy => "audience_busy",
         }
     }
 
@@ -225,6 +281,7 @@ impl AudienceRefusal {
             Self::Closed => 403,
             Self::RoomClosed => 410,
             Self::BadLink | Self::NoAudience => 404,
+            Self::Busy => 503,
         }
     }
 }
@@ -390,6 +447,21 @@ mod tests {
         assert!(serde_json::from_str::<crate::live::ServerLiveEnvelope>(&down).is_err());
         assert_eq!(AudienceRefusal::Full.code(), "audience_full");
         assert_eq!(close::of(AudienceEnd::RoomClosed), 4410);
+    }
+
+    #[test]
+    fn an_anonymous_identity_has_more_seats_and_a_busy_join_is_asked_again() {
+        let r = AUDIENCE_V0;
+        assert!(is_anonymous("anon:0f1e2d3c4b5a69788796a5b4c3d2e1f0"));
+        assert!(!is_anonymous("twitch:12345") && !is_anonymous("bot:ana"));
+        assert_eq!(r.seats_for("anon:0f1e"), 8);
+        assert_eq!(r.seats_for("twitch:12345"), 2);
+        // A 5xx: every client asks again after a wait, as for a relay that
+        // was not ready.
+        assert_eq!(
+            (AudienceRefusal::Busy.code(), AudienceRefusal::Busy.status()),
+            ("audience_busy", 503)
+        );
     }
 
     #[test]
