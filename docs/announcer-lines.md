@@ -144,16 +144,24 @@ the multiplayer prototype, `docs/plans/multiplayer-prototype-progress.md`,
 M4), never in a play of your own. Each names one moment of a battle as
 the local player lives it (`docs/plans/multiplayer.md`, "Announcer events
 implied by the mechanism"). During a stage the routine lines of a play
-are left out (the comments, `life lost`, `last life`, the full combos,
-`cleared`, `failed` and the results' grades, records and cheer), so that
-a chart's clear is never heard as a win: the battle's lines speak
-instead, and a pack without them is quiet but for its fallbacks (our own
-announcers have them all). The combo lines stay (`gameplay <N> combo`,
+are left out (the comments, `life lost`, `last life` and the results'
+grades, records and cheer): the battle's lines speak instead, and a pack
+without them is quiet but for its fallbacks (our own announcers have
+them all). The combo lines stay (`gameplay <N> combo`,
 `gameplay combo overflow`, `gameplay combo stopped`; since 2026-11-15),
 below every battle line: one is said only where nothing else is
 speaking or about to (a step's line due), at most a second after the
-combo reached its count, else not at all. A quit stage still says
-`evaluation quit`.
+combo reached its count, else not at all. So do the lines of your own
+play's end (since 2026-11-15 too): `gameplay full combo` (and `w1` to
+`w3`) as your last note is judged and `gameplay cleared` after it, or
+`gameplay failed`, as in a play of your own but below every battle line:
+said only where nothing else is speaking or about to, waiting at most a
+second for a line being said, else not at all; a battle line due while
+one speaks starts at its end (the results' outcome too). `cleared` and
+`failed` are not said once a line has told you the stage's outcome (you
+are out, with `battle eliminated` or `failed` in its place; you won
+before the song's end): that line stands, so a chart's clear is never
+heard after a win. A quit stage still says `evaluation quit`.
 
 | Folder | When | Falls back to |
 |---|---|---|
@@ -182,7 +190,7 @@ over your life, your life over a step of yours, a step over who is
 left, who is left over an attack of your own, and the openings last),
 else it is passed over, never delayed; a step's line alone waits for
 the line being said to end, up to a second; a battle line due while a
-combo line speaks starts at its end; a line about a moment that has
+combo line or a line of your play's end speaks starts at its end; a line about a moment that has
 passed is never said late (an attack against you is said before its
 first shock comes into view, or shown). On a match's last stage the match's
 line takes the place of the stage's (where the pack has it). The game

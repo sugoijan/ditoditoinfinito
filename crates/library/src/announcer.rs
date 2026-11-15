@@ -468,7 +468,7 @@ impl Line {
     /// ([`Line::Combo`]), each hundred past 1000 where the pack has no
     /// count of its own ([`Line::ComboOverflow`]) and a combo above 50
     /// broken ([`Line::ComboStopped`]). Not the full combos, which are
-    /// the play's end.
+    /// the play's end (`battle-voice-v2` speaks those in a stage too).
     pub fn is_combo(self) -> bool {
         matches!(self, Line::Combo(_) | Line::ComboOverflow | Line::ComboStopped)
     }

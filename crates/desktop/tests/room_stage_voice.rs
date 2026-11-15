@@ -204,7 +204,9 @@ fn a_scratch_pack_s_attack_lines_are_said_in_a_practice_stage() {
 /// Ours, which come with the game, chosen by their keys: each says a
 /// practice stage's battle lines from the assets, the two attack lines
 /// among them, each by its own line (never a play's routine line but the
-/// combo lines, `battle-voice-v1`; never one in another's place), the
+/// combo lines, `battle-voice-v1`, and those of the play's end,
+/// `battle-voice-v2`: the autoplay's full combo, then cleared, before the
+/// results' outcome; never one in another's place), the
 /// autoplayed player's steps up as their new charts begin, and the status
 /// line shows only the moments passed over for a line that mattered as
 /// much.
@@ -227,13 +229,26 @@ fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
             "{key}: {:?}",
             heard.spoken
         );
-        // Nothing but the battle's lines, here we go and the combo lines.
+        // Nothing but the battle's lines, here we go, the combo lines
+        // and the lines of the play's end.
         let combo = |l: &str| ddi_library::announcer::Line::parse(l).is_some_and(|l| l.is_combo());
+        let end = |l: &str| {
+            ddi_library::announcer::Line::parse(l)
+                .is_some_and(ddi_session::announcer::battle::end_line)
+        };
         assert!(
-            heard
-                .spoken
-                .iter()
-                .all(|l| l.starts_with("battle ") || l == "gameplay here we go normal" || combo(l)),
+            heard.spoken.iter().all(|l| l.starts_with("battle ")
+                || l == "gameplay here we go normal"
+                || combo(l)
+                || end(l)),
+            "{key}: {:?}",
+            heard.spoken
+        );
+        // The autoplay's full combo, then cleared, then the outcome.
+        let n = heard.spoken.len();
+        assert_eq!(
+            heard.spoken[n - 3..n - 1],
+            ["gameplay full combo w1", "gameplay cleared"],
             "{key}: {:?}",
             heard.spoken
         );

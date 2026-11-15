@@ -13,7 +13,7 @@
 //!
 //! [`Announcer::battle_by`]: super::Announcer::battle_by
 //!
-//! The policy is [`BATTLE_VOICE_V1`], PROVISIONAL: its numbers are
+//! The policy is [`BATTLE_VOICE_V2`], PROVISIONAL: its numbers are
 //! nobody's tuning yet, and are kept here alone. A battle line never
 //! waits behind another battle line: one due while a line that matters as
 //! much or more is still speaking is passed over (shown, not said late),
@@ -28,8 +28,16 @@
 //! line's end (they are short). The combo lines ([`Line::is_combo`]) came
 //! back into a stage with `battle-voice-v1` (feedback round J), below
 //! every battle line: said only where nothing speaks or is due over them,
-//! up to [`VoicePolicy::combo_window`] late, else dropped. Judging, the
-//! clock and the music never wait for any of it.
+//! up to [`VoicePolicy::combo_window`] late, else dropped. The lines of
+//! the player's own play's end ([`end_line`]: the full combo's, then
+//! cleared; failed) came back with `battle-voice-v2` (decisions round D2,
+//! the maintainer, 2026-11-15), below every battle line as the combo
+//! lines are: decided once the frame's battle moments are told, said
+//! where nothing speaks or is due over them, up to
+//! [`VoicePolicy::end_window`] late, else dropped; cleared and failed not
+//! at all where a line already said the stage's outcome for the player
+//! (out of it, the win: that line wins, and the routine one is not said
+//! after it). Judging, the clock and the music never wait for any of it.
 
 use ddi_library::announcer::{Battle as Event, Kept, Line, Spoken};
 use ddi_library::path::RelPathBuf;
@@ -59,30 +67,40 @@ pub struct VoicePolicy {
     /// its line may still start, after a line being said; later, or where
     /// a battle line is due while it would speak, it is dropped.
     pub combo_window: f64,
+    /// Seconds after the player's own play ends (failed, or its last
+    /// note judged) within which its end lines may still start, after a
+    /// line being said; later, or where a battle line is due while they
+    /// would speak, they are dropped.
+    pub end_window: f64,
 }
 
-/// What a combo line speaking counts as among the battle's priorities:
-/// below every battle line ([`VoicePolicy::priority`] gives none under 5).
+/// What a combo line speaking counts as among the battle's priorities,
+/// and a line of the play's end ([`end_line`]): below every battle line
+/// ([`VoicePolicy::priority`] gives none under 5).
 pub const COMBO_PRIORITY: u8 = 0;
 
-/// The battle voice of the prototype (`battle-voice-v1`, feedback round
-/// J, 2026-11-15; it replaced `battle-voice-v0`, which left the combo
-/// lines out and had no step lines): one battle line at a time, outcomes
-/// over an attack against the player over the player's own life over a
-/// step of the player's own (up or down) over who is left over an attack
-/// of the player's own over the stage's opening and the winner's finished
-/// song; a step's line never over a line being said, at most a second
-/// late; the combo lines below them all, said only in a quiet moment, at
-/// most a second late, never over a battle line nor one due; the rest of
-/// a play's routine lines left out of a stage (a chart's clear is not a
-/// stage's win); moments shown 2.5 s.
-pub const BATTLE_VOICE_V1: VoicePolicy = VoicePolicy {
-    id: "battle-voice-v1",
+/// The battle voice of the prototype (`battle-voice-v2`, decisions round
+/// D2, 2026-11-15; it replaced `battle-voice-v1`, which left the play's
+/// end lines out, as `battle-voice-v0` before it left the combo lines out
+/// and had no step lines): one battle line at a time, outcomes over an
+/// attack against the player over the player's own life over a step of
+/// the player's own (up or down) over who is left over an attack of the
+/// player's own over the stage's opening and the winner's finished song;
+/// a step's line never over a line being said, at most a second late; the
+/// combo lines and the lines of the player's own play's end (the full
+/// combo's, cleared, failed: [`end_line`]) below them all, said only in a
+/// quiet moment, at most a second late, never over a battle line nor one
+/// due, cleared and failed never after a line that said the stage's
+/// outcome; the rest of a play's routine lines left out of a stage (the
+/// comments, a life lost, the results' own lines); moments shown 2.5 s.
+pub const BATTLE_VOICE_V2: VoicePolicy = VoicePolicy {
+    id: "battle-voice-v2",
     cue_seconds: 2.5,
     cue_fade: 0.25,
     incoming_again: 6.0,
     step_window: 1.0,
     combo_window: 1.0,
+    end_window: 1.0,
 };
 
 impl VoicePolicy {
@@ -152,14 +170,27 @@ impl VoicePolicy {
     }
 }
 
+/// Whether `line` is one of the player's own play's end, which a stage
+/// speaks below its battle lines (`battle-voice-v2`): the full combo's
+/// (`gameplay full combo`, and its kinds `w1` to `w3`), `gameplay
+/// cleared` and `gameplay failed`. Not the mid-song comments, a life lost
+/// or the last life, nor the results' lines.
+pub fn end_line(line: Line) -> bool {
+    matches!(
+        line,
+        Line::FullCombo | Line::FullComboW(_) | Line::Cleared | Line::Failed
+    )
+}
+
 /// Whether a stage speaks `line`: the battle's lines and those spoken in
 /// their place, the play's here we go, the combo lines
-/// ([`Line::is_combo`], `battle-voice-v1`) and a quit's results (the rest
-/// of a play's lines are left out of a stage).
+/// ([`Line::is_combo`], `battle-voice-v1`), the lines of the play's end
+/// ([`end_line`], `battle-voice-v2`) and a quit's results (the rest of a
+/// play's lines are left out of a stage).
 pub fn stage_speaks(line: Line) -> bool {
     match line {
         Line::Battle(_) | Line::HereWeGo | Line::Quit => true,
-        l if l.is_combo() => true,
+        l if l.is_combo() || end_line(l) => true,
         _ => Event::ALL
             .iter()
             .any(|&e| Line::Battle(e).chain().contains(&line)),
@@ -259,6 +290,13 @@ pub(super) struct StageVoice {
     /// The line the opening was said with, once it was (`Some(None)`:
     /// nothing was).
     pub opened: Option<Option<Line>>,
+    /// The player's own play ended this frame (`failed`, the full combo
+    /// kept): its end lines wait for the frame's battle moments
+    /// ([`super::Announcer::stage_play_end`]).
+    pub ending: Option<(bool, ddi_engine::rules::FullCombo)>,
+    /// A line said the stage's outcome for the player (out of it, the
+    /// win): cleared and failed are not said after it.
+    pub outcome_said: bool,
 }
 
 impl StageVoice {
@@ -269,12 +307,15 @@ impl StageVoice {
             due: Vec::new(),
             end: None,
             opened: None,
+            ending: None,
+            outcome_said: false,
         }
     }
 
     /// When `event` due at `at` may start: at once where nothing speaks
-    /// or it matters more than what does, at the end of a combo line
-    /// speaking (never over it), else never (`None`).
+    /// or it matters more than what does, at the end of a combo line or
+    /// a line of the play's end speaking (never over it), else never
+    /// (`None`).
     pub fn start(&self, event: Event, at: f64) -> Option<f64> {
         match self.busy {
             Some((until, COMBO_PRIORITY)) if at < until => Some(until),
@@ -315,7 +356,7 @@ mod tests {
 
     #[test]
     fn the_priorities_follow_the_design_s_order() {
-        let p = BATTLE_VOICE_V1;
+        let p = BATTLE_VOICE_V2;
         assert!(p.priority(Event::Eliminated) > p.priority(Event::LifeCritical));
         assert!(p.priority(Event::StageWon) > p.priority(Event::LifeCritical));
         assert!(p.priority(Event::LifeCritical) > p.priority(Event::Survivors(2)));
@@ -344,7 +385,7 @@ mod tests {
         for e in Event::ALL {
             assert!(p.priority(e) > COMBO_PRIORITY, "{e:?}");
         }
-        assert_eq!(p.id, "battle-voice-v1");
+        assert_eq!(p.id, "battle-voice-v2");
         for m in [AttackMoment::Incoming, AttackMoment::Launched] {
             assert_eq!(p.attack_priority(m), p.priority(m.event()));
         }
@@ -366,8 +407,27 @@ mod tests {
                     | Line::Combo(_)
                     | Line::ComboOverflow
                     | Line::ComboStopped
+                    | Line::FullCombo
+                    | Line::FullComboW(_)
             );
             assert_eq!(kept, expected, "{line:?}");
+        }
+        // The lines of the play's end came back (`battle-voice-v2`):
+        // exactly these.
+        let ends: Vec<Line> = Line::all().into_iter().filter(|l| end_line(*l)).collect();
+        assert_eq!(
+            ends.iter().map(|l| l.folder()).collect::<Vec<_>>(),
+            [
+                "gameplay full combo",
+                "gameplay full combo w1",
+                "gameplay full combo w2",
+                "gameplay full combo w3",
+                "gameplay cleared",
+                "gameplay failed",
+            ],
+        );
+        for end in ends {
+            assert!(!routine(end) && stage_speaks(end), "{end:?}");
         }
         // The combo lines came back (`battle-voice-v1`).
         for combo in [Line::Combo(100), Line::Combo(64), Line::ComboOverflow, Line::ComboStopped] {
@@ -376,7 +436,8 @@ mod tests {
         for routine_line in [
             Line::CommentHot,
             Line::CommentGood,
-            Line::FullCombo,
+            Line::CommentOni,
+            Line::EvaluationFullCombo(1),
             Line::LifeLost,
             Line::LastLife,
             Line::Restart,
@@ -430,7 +491,7 @@ mod tests {
 
     #[test]
     fn a_cue_fades_in_and_out_or_not_at_all_under_reduced_motion() {
-        let p = BATTLE_VOICE_V1;
+        let p = BATTLE_VOICE_V2;
         assert_eq!(p.cue_alpha(-0.1, false), 0.0);
         assert!(p.cue_alpha(0.05, false) < 1.0);
         assert_eq!(p.cue_alpha(1.0, false), 1.0);
@@ -458,7 +519,7 @@ mod tests {
             rate: 1.0,
         };
         let mut a = Announcer::new(true, 0.5, None, timing, Some(10.0))
-            .in_stage(Event::StageBegin, BATTLE_VOICE_V1);
+            .in_stage(Event::StageBegin, BATTLE_VOICE_V2);
         a.set_voice(std::rc::Rc::new(std::cell::RefCell::new(v)));
         a
     }
@@ -521,6 +582,237 @@ mod tests {
             m.ended = i + 1 == frames;
             each(i, a, audio);
             a.tick(audio, &m);
+            a.stage_play_end(audio, m.now);
+        }
+    }
+
+    /// A stage's play as the session runs a frame (the play's own lines,
+    /// then the battle's moments, then the lines of the play's end):
+    /// `frames` of half a second from song second 10 (the audio clock at
+    /// 110), ending on the last one `failed` or with `full` kept, and
+    /// `tell(i, a, audio)` the battle's moments of frame `i`.
+    fn play_out(
+        a: &mut super::super::Announcer<f64>,
+        audio: &mut super::super::tests::Fake,
+        frames: u32,
+        (failed, full): (bool, ddi_engine::rules::FullCombo),
+        mut tell: impl FnMut(u32, &mut super::super::Announcer<f64>, &mut super::super::tests::Fake),
+    ) {
+        use super::super::Moment;
+        let mut m = Moment {
+            dt: 0.5,
+            life: 1.0,
+            ..Moment::default()
+        };
+        for i in 0..frames {
+            let last = i + 1 == frames;
+            m.now = 110.0 + f64::from(i) * 0.5;
+            m.song_time = 10.0 + f64::from(i) * 0.5;
+            m.ended = last;
+            m.failed = last && failed;
+            m.full_combo = if last { full } else { ddi_engine::rules::FullCombo::None };
+            a.tick(audio, &m);
+            tell(i, a, audio);
+            a.stage_play_end(audio, m.now);
+        }
+    }
+
+    fn spoken(a: &super::super::Announcer<f64>) -> Vec<(&str, f64)> {
+        a.report.spoken.iter().map(|(f, t)| (f.as_str(), *t)).collect()
+    }
+
+    /// `battle-voice-v2` (decisions round D2): the lines of the player's
+    /// own play's end come back into a stage: the full combo's (its
+    /// kind's, else the plain one) as the last note is judged and cleared
+    /// after it, as a single play says them; failed where the play fails
+    /// and nothing said they are out. The comments stay out.
+    #[test]
+    fn a_stage_says_the_full_combo_and_cleared_as_the_play_ends() {
+        use ddi_engine::rules::FullCombo;
+        let none = |_: u32, _: &mut super::super::Announcer<f64>, _: &mut super::super::tests::Fake| {};
+        let pack = [
+            "gameplay full combo",
+            "gameplay full combo w1",
+            "gameplay cleared",
+            "gameplay failed",
+            "gameplay comment hot",
+        ];
+        // The last frame is the 20th: the audio clock at 119.5.
+        for (full, lines) in [
+            (FullCombo::None, vec![("gameplay cleared", 119.53)]),
+            (
+                FullCombo::FC,
+                vec![("gameplay full combo", 119.53), ("gameplay cleared", 120.03)],
+            ),
+            (
+                FullCombo::MarvelousFC,
+                vec![("gameplay full combo w1", 119.53), ("gameplay cleared", 120.03)],
+            ),
+            // A kind the pack has no line for: the plain one.
+            (
+                FullCombo::GreatFC,
+                vec![("gameplay full combo", 119.53), ("gameplay cleared", 120.03)],
+            ),
+        ] {
+            let mut audio = super::super::tests::Fake::default();
+            let mut a = stage(&pack, 0.5);
+            play_out(&mut a, &mut audio, 20, (false, full), none);
+            let said = spoken(&a);
+            assert_eq!(said.len(), lines.len(), "{full:?}: {said:?}");
+            for ((f, t), (want, at)) in said.iter().zip(&lines) {
+                assert_eq!(f, want, "{full:?}");
+                assert!((t - at).abs() < 1e-9, "{full:?}: {said:?}");
+            }
+            one_at_a_time(&audio, 0.5);
+            assert_eq!(a.report.dropped, 0);
+        }
+        // Cleared follows a full combo's line however long that is (it
+        // is not late for it).
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(&["gameplay full combo", "gameplay cleared"], 2.5);
+        play_out(&mut a, &mut audio, 20, (false, FullCombo::FC), none);
+        let said = spoken(&a);
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert!((said[1].1 - (119.53 + 2.5)).abs() < 1e-9, "{said:?}");
+        // Failed with nothing said of it (a pack without `battle
+        // eliminated` whose moment was not told): the play's own line.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(&pack, 0.5);
+        play_out(&mut a, &mut audio, 20, (true, FullCombo::None), none);
+        assert_eq!(spoken(&a), [("gameplay failed", 119.53)]);
+        // Said once: the end is not told again on later frames.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(&pack, 0.5);
+        play_out(&mut a, &mut audio, 20, (false, FullCombo::None), none);
+        let m = super::super::Moment {
+            now: 125.0,
+            dt: 0.5,
+            ended: true,
+            ..Default::default()
+        };
+        a.tick(&mut audio, &m);
+        a.stage_play_end(&mut audio, 125.0);
+        assert_eq!(spoken(&a).len(), 1);
+    }
+
+    /// The stage's own end wins: out of the stage, `battle eliminated`
+    /// (or failed in its place, once) and no failed after it; the win
+    /// said before the song's end, no cleared after it (the full combo's
+    /// line still says what the win did not).
+    #[test]
+    fn a_line_that_said_the_stages_outcome_is_not_followed_by_the_routine_end() {
+        use ddi_engine::rules::FullCombo;
+        for (pack, want) in [
+            (
+                &["battle eliminated", "gameplay failed"][..],
+                "battle eliminated",
+            ),
+            (&["gameplay failed"][..], "gameplay failed"),
+        ] {
+            let mut audio = super::super::tests::Fake::default();
+            let mut a = stage(pack, 1.5);
+            play_out(&mut a, &mut audio, 20, (true, FullCombo::None), |i, a, audio| {
+                if i == 19 {
+                    a.battle(audio, Event::Eliminated, 119.5);
+                }
+            });
+            assert_eq!(spoken(&a), [(want, 119.53)], "{pack:?}");
+            assert_eq!(audio.voiced.len(), 1);
+        }
+        // Won before the song's end, the song played on to a full combo.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(
+            &["battle stage won", "gameplay full combo", "gameplay cleared"],
+            0.5,
+        );
+        play_out(&mut a, &mut audio, 20, (false, FullCombo::FC), |i, a, audio| {
+            if i == 10 {
+                a.battle(audio, Event::StageWon, 115.0);
+            }
+        });
+        assert_eq!(
+            spoken(&a),
+            [("battle stage won", 115.03), ("gameplay full combo", 119.53)]
+        );
+        // The win confirmed as the last note is judged: the win alone.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(&["battle stage won", "gameplay cleared"], 0.5);
+        play_out(&mut a, &mut audio, 20, (false, FullCombo::None), |i, a, audio| {
+            if i == 19 {
+                a.battle(audio, Event::StageWon, 119.5);
+            }
+        });
+        assert_eq!(spoken(&a), [("battle stage won", 119.53)]);
+    }
+
+    /// Below every battle line, as the combo lines are: the end's lines
+    /// wait for a battle line being said where it ends within the end
+    /// window, else they are dropped, never said late; dropped where a
+    /// battle line is due before they would be over; and a battle line
+    /// due while one speaks (a milestone, the results' outcome) starts at
+    /// its end. Never two voices at once, none cut off.
+    #[test]
+    fn the_end_lines_never_talk_over_a_battle_line_nor_wait_long_for_one() {
+        use ddi_engine::rules::FullCombo;
+        let p = BATTLE_VOICE_V2;
+        assert_eq!(p.end_window, 1.0);
+        // Held: a milestone of 0.8 s told half a second before the end.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(&["battle survivors 2", "gameplay cleared"], 0.8);
+        play_out(&mut a, &mut audio, 20, (false, FullCombo::None), |i, a, audio| {
+            if i == 18 {
+                a.battle(audio, Event::Survivors(2), 119.0);
+            }
+        });
+        let said = spoken(&a);
+        assert_eq!(said[0], ("battle survivors 2", 119.03));
+        assert_eq!(said[1].0, "gameplay cleared");
+        assert!((said[1].1 - (119.03 + 0.8)).abs() < 1e-9, "at its end: {said:?}");
+        one_at_a_time(&audio, 0.8);
+        // Dropped: the battle line goes on past the end window.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(
+            &["battle survivors 2", "gameplay full combo", "gameplay cleared"],
+            p.end_window + 1.0,
+        );
+        play_out(&mut a, &mut audio, 20, (false, FullCombo::FC), |i, a, audio| {
+            if i == 19 {
+                a.battle(audio, Event::Survivors(2), 119.5);
+            }
+        });
+        assert_eq!(spoken(&a), [("battle survivors 2", 119.53)], "never said late");
+        assert_eq!(a.report.dropped, 2);
+        // Dropped: a step's line due while it would speak.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(&["battle step up", "gameplay cleared"], 0.8);
+        a.battle_due(120.0);
+        play_out(&mut a, &mut audio, 20, (false, FullCombo::None), |_, _, _| {});
+        assert!(a.report.spoken.is_empty(), "{:?}", a.report.spoken);
+        // A milestone told while cleared speaks: at its end.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(&["battle survivors 2", "gameplay cleared"], 0.8);
+        play_out(&mut a, &mut audio, 20, (false, FullCombo::None), |_, _, _| {});
+        a.battle(&mut audio, Event::Survivors(2), 119.9);
+        let said = spoken(&a);
+        assert_eq!(said[0], ("gameplay cleared", 119.53));
+        assert_eq!(said[1].0, "battle survivors 2");
+        assert!((said[1].1 - (119.53 + 0.8)).abs() < 1e-9, "{said:?}");
+        one_at_a_time(&audio, 0.8);
+        // The results' outcome, the room confirming the stage while
+        // cleared speaks: at its end; once it is over, at once.
+        for (at, want) in [(119.9, 119.53 + 0.8), (125.0, 125.03)] {
+            let mut audio = super::super::tests::Fake::default();
+            let mut a = stage(&["battle stage not won", "gameplay cleared"], 0.8);
+            play_out(&mut a, &mut audio, 20, (false, FullCombo::None), |_, _, _| {});
+            a.stage_end(Some(Event::StageNotWon));
+            assert_eq!(
+                a.stage_results(&mut audio, at, None),
+                Some(Line::Battle(Event::StageNotWon))
+            );
+            let said = spoken(&a);
+            assert_eq!(said[1].0, "battle stage not won");
+            assert!((said[1].1 - want).abs() < 1e-9, "{said:?}");
+            one_at_a_time(&audio, 0.8);
         }
     }
 
@@ -535,8 +827,8 @@ mod tests {
     }
 
     /// `battle-voice-v1`: a combo line is said in a quiet moment of a
-    /// stage; the other routine lines stay out (no comment, no cleared)
-    /// whatever the play does.
+    /// stage; the other routine lines stay out (no comment) whatever the
+    /// play does, but those of its end (`battle-voice-v2`: cleared).
     #[test]
     fn a_stage_says_its_combo_in_a_quiet_moment_and_no_other_routine_line() {
         let mut audio = super::super::tests::Fake::default();
@@ -555,7 +847,15 @@ mod tests {
         // at most).
         run(&mut a, &mut audio, 60, |i| if i < 50 { i * 5 } else { 0 }, |_, _, _| {});
         let said: Vec<&str> = a.report.spoken.iter().map(|(f, _)| f.as_str()).collect();
-        assert_eq!(said, ["gameplay 100 combo", "gameplay 200 combo", "gameplay combo stopped"]);
+        assert_eq!(
+            said,
+            [
+                "gameplay 100 combo",
+                "gameplay 200 combo",
+                "gameplay combo stopped",
+                "gameplay cleared"
+            ]
+        );
         // Said at once: the combo reached 100 at frame 20 (audio 120).
         assert!((a.report.spoken[0].1 - 120.03).abs() < 1e-9);
         one_at_a_time(&audio, 0.5);
@@ -568,7 +868,7 @@ mod tests {
     /// end. Never two voices at once.
     #[test]
     fn a_combo_line_waits_a_moment_for_a_battle_line_or_is_dropped() {
-        let p = BATTLE_VOICE_V1;
+        let p = BATTLE_VOICE_V2;
         // Held: an attack line of 0.8 s at 119.6, the combo at 120.
         let mut audio = super::super::tests::Fake::default();
         let mut a = stage(&["gameplay 100 combo", "battle attack incoming"], 0.8);
@@ -620,7 +920,7 @@ mod tests {
     /// (no fallback).
     #[test]
     fn a_step_line_waits_up_to_a_second_never_over_a_line() {
-        let p = BATTLE_VOICE_V1;
+        let p = BATTLE_VOICE_V2;
         let up = Line::Battle(Event::StepUp);
         let mut audio = super::super::tests::Fake::default();
         let mut a = stage(&["battle step up", "battle step down", "battle life critical"], 0.8);
@@ -737,7 +1037,7 @@ mod tests {
             said,
             at: 0.0,
         };
-        let p = BATTLE_VOICE_V1;
+        let p = BATTLE_VOICE_V2;
         assert!(told(Some(Line::Battle(Event::FinalStage))).spoken());
         assert!(!told(Some(Line::Battle(Event::StageBegin))).spoken());
         assert!(told(Some(Line::Battle(Event::StageBegin))).shown(&p));

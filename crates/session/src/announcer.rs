@@ -768,8 +768,10 @@ impl<B> Announcer<B> {
             }
         }
         // A stage leaves a play's routine lines out but its combo lines
-        // (`battle-voice-v1`, [`Announcer::stage_combo`]): its battle's
-        // moments speak instead ([`Announcer::battle`]).
+        // (`battle-voice-v1`, [`Announcer::stage_combo`]) and the lines
+        // of the play's end (`battle-voice-v2`, kept here until the
+        // frame's battle moments are told, [`Announcer::stage_play_end`]):
+        // its battle's moments speak instead ([`Announcer::battle`]).
         if self.stage.is_some() {
             if !self.ended {
                 self.since += m.dt.clamp(0.0, 0.25);
@@ -786,6 +788,12 @@ impl<B> Announcer<B> {
             }
             self.combo = m.combo;
             self.lives = m.lives;
+            if m.ended
+                && !self.ended
+                && let Some(stage) = self.stage.as_mut()
+            {
+                stage.ending = Some((m.failed, m.full_combo));
+            }
             self.ended |= m.ended;
             return;
         }
@@ -859,13 +867,7 @@ impl<B> Announcer<B> {
             // The full combo kept as the last note is judged (ours, the
             // moment DDR says it: its kind's line, else the plain one),
             // then cleared once it has been said.
-            let full = match m.full_combo {
-                FullCombo::MarvelousFC => Some(Line::FullComboW(1)),
-                FullCombo::PerfectFC => Some(Line::FullComboW(2)),
-                FullCombo::GreatFC => Some(Line::FullComboW(3)),
-                FullCombo::FC => Some(Line::FullCombo),
-                FullCombo::None => None,
-            };
+            let full = full_combo_line(m.full_combo);
             let mut cleared = at;
             if let Some(line) = full {
                 let len = self.length(audio, line);
@@ -995,6 +997,9 @@ impl<B> Announcer<B> {
         let said = self.say_found(audio, &[line], start)?;
         if let Some(stage) = self.stage.as_mut() {
             stage.busy = Some((start + length, priority));
+            // The stage's outcome for the player, said: cleared and
+            // failed do not follow it ([`Announcer::stage_play_end`]).
+            stage.outcome_said |= priority >= stage.policy.priority(Battle::Eliminated);
         }
         Some(said)
     }
@@ -1037,6 +1042,68 @@ impl<B> Announcer<B> {
         }
     }
 
+    /// The lines of the player's own play's end in a stage, under
+    /// `battle-voice-v2`, at `now` (audio clock), once the frame's battle
+    /// moments are told ([`Announcer::battle`]): failed, or the full
+    /// combo's line and cleared after it, as a single play says them, but
+    /// below every battle line: said at once where nothing speaks, else
+    /// at the end of what does where that is within
+    /// [`battle::VoicePolicy::end_window`]; dropped where they would be
+    /// later, or where a battle line is due before they would be over
+    /// (cleared alone then goes: the full combo's is said where it fits
+    /// by itself). Cleared and failed are not said where a line already
+    /// said the stage's outcome for the player (out of it, with `battle
+    /// eliminated` or failed in its place; the win): that line wins.
+    pub fn stage_play_end<A: AudioBackend<Buffer = B>>(&mut self, audio: &mut A, now: f64) {
+        let Some((failed, full, outcome_said)) = self.stage.as_mut().and_then(|stage| {
+            let (failed, full) = stage.ending.take()?;
+            Some((failed, full, stage.outcome_said))
+        }) else {
+            return;
+        };
+        if !self.speaking() {
+            return;
+        }
+        let mut lines = Vec::new();
+        if failed {
+            lines.push(Line::Failed);
+        } else {
+            lines.extend(full_combo_line(full));
+            lines.push(Line::Cleared);
+        }
+        let at = now + LEAD;
+        let mut start = match self.stage.as_ref() {
+            Some(stage) => stage.after_busy(at),
+            None => return,
+        };
+        // Late by how long the line being said goes on (cleared after
+        // the full combo's line is not late for it).
+        let late = self
+            .stage
+            .as_ref()
+            .is_some_and(|stage| start > at + stage.policy.end_window);
+        for line in lines {
+            let routine_end = matches!(line, Line::Cleared | Line::Failed);
+            let length = self.length(audio, line).unwrap_or(0.0);
+            let Some(stage) = self.stage.as_ref() else {
+                return;
+            };
+            if (routine_end && outcome_said) || late || stage.due_within(start, start + length) {
+                // What the pack has no sound for is no line passed over.
+                if self.length(audio, line).is_some() {
+                    self.report.dropped += 1;
+                }
+                continue;
+            }
+            if self.say(audio, &[line], start) {
+                start += length;
+                if let Some(stage) = self.stage.as_mut() {
+                    stage.busy = Some((start, battle::COMBO_PRIORITY));
+                }
+            }
+        }
+    }
+
     /// A stage's end as its results will tell it (`crate::battle::Battle::
     /// end_event`), kept until the room has confirmed it.
     pub fn stage_end(&mut self, event: Option<Battle>) {
@@ -1063,7 +1130,26 @@ impl<B> Announcer<B> {
         if lines.is_empty() {
             return None;
         }
-        self.say_found(audio, &lines, now + LEAD)
+        // Never over a line of the play's end still being said (its
+        // cleared): at its end, as a battle line after a combo line.
+        let at = now + LEAD;
+        let start = match self.stage.as_ref().and_then(|s| s.busy) {
+            Some((until, battle::COMBO_PRIORITY)) if at < until => until,
+            _ => at,
+        };
+        self.say_found(audio, &lines, start)
+    }
+}
+
+/// The line of the full combo kept as a play's last note is judged: its
+/// kind's (which falls back to the plain one), none without one.
+fn full_combo_line(full: FullCombo) -> Option<Line> {
+    match full {
+        FullCombo::MarvelousFC => Some(Line::FullComboW(1)),
+        FullCombo::PerfectFC => Some(Line::FullComboW(2)),
+        FullCombo::GreatFC => Some(Line::FullComboW(3)),
+        FullCombo::FC => Some(Line::FullCombo),
+        FullCombo::None => None,
     }
 }
 

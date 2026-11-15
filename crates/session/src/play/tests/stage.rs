@@ -443,10 +443,12 @@ const FULL: &[&str] = &[
 
 /// A two-stage match with a pack of every line: each stage opens with the
 /// battle's line in ready's place and here we go before the first note;
-/// a play's routine lines (the comments, cleared, the grades) are never
+/// a play's routine lines (the comments, the grades) are never
 /// said in a stage, though the pack has them; its combo lines are
 /// (`battle-voice-v1`), the combo passing one of their counts in a quiet
-/// moment; each stage's end is said once on its
+/// moment, and the lines of the play's end (`battle-voice-v2`: the
+/// autoplay's full combo, then cleared, as its last note is judged, once,
+/// before the stage's end, and never failed); each stage's end is said once on its
 /// results, after the room confirmed it, the match's in the last one's
 /// place; nothing shows beside the field, everything having been said.
 #[test]
@@ -476,11 +478,23 @@ fn a_stage_speaks_its_battle_moments_once_and_none_of_a_play_s_routine() {
             [opening, "gameplay here we go normal"],
             "{said:?}"
         );
-        for routine in ["comment", "cleared", "failed", "evaluation"] {
+        for routine in ["comment", "failed", "evaluation"] {
             assert!(
                 !said.iter().any(|l| l.contains(routine)),
                 "{routine}: {said:?}"
             );
+        }
+        // The play's end, below the battle's lines: the full combo's
+        // line and cleared after it, once each, then the stage's end on
+        // its results.
+        let n = said.len();
+        assert_eq!(
+            said[n - 3..n - 1],
+            ["gameplay full combo", "gameplay cleared"],
+            "{said:?}"
+        );
+        for end in ["gameplay full combo", "gameplay cleared"] {
+            assert_eq!(said.iter().filter(|l| *l == end).count(), 1, "{end}: {said:?}");
         }
         assert_eq!(
             said.iter().filter(|l| *l == "gameplay 20 combo").count(),
@@ -536,7 +550,7 @@ fn a_stage_speaks_its_battle_moments_once_and_none_of_a_play_s_routine() {
     );
 }
 
-use crate::announcer::battle::BATTLE_VOICE_V1 as BATTLE_VOICE;
+use crate::announcer::battle::BATTLE_VOICE_V2 as BATTLE_VOICE;
 
 /// The player out of life against one CPU: out is said as it happens
 /// (where the pack has it), before the results; the stage decided for the
@@ -682,6 +696,9 @@ fn the_players_left_and_an_early_win_are_told_as_they_happen() {
             "gameplay here we go normal",
             "battle stage won",
             "gameplay 20 combo",
+            // The play's end (`battle-voice-v2`): the full combo's line;
+            // no cleared after the win was said.
+            "gameplay full combo",
             "battle match won"
         ]
     );
@@ -1688,7 +1705,7 @@ fn the_player_s_attacks_are_links_while_they_last() {
 /// has the lines.)
 #[test]
 fn the_player_s_attack_moments_are_told_in_the_status_line() {
-    use crate::announcer::battle::{BATTLE_VOICE_V1, StageCue};
+    use crate::announcer::battle::{BATTLE_VOICE_V2, StageCue};
     use crate::battle::AttackMoment;
     let song = bundled("beatucada");
     let mut practice = attacks_room(3, 9);
@@ -1709,7 +1726,7 @@ fn the_player_s_attack_moments_are_told_in_the_status_line() {
     )
     .unwrap();
     let horizon = s.player.reading_horizon();
-    let policy = BATTLE_VOICE_V1;
+    let policy = BATTLE_VOICE_V2;
     assert_eq!(policy.attack_priority(AttackMoment::Incoming), 30);
     assert!(
         policy.attack_priority(AttackMoment::Incoming)
@@ -1909,11 +1926,11 @@ fn scratch_pack(
 /// moment shows.
 #[test]
 fn the_attack_lines_are_said_in_a_stage_and_shown_only_where_they_were_not() {
-    use crate::announcer::battle::{BATTLE_VOICE_V1, StageCue};
+    use crate::announcer::battle::{BATTLE_VOICE_V2, StageCue};
     use crate::battle::AttackMoment;
     use ddi_library::announcer::Line;
     let song = bundled("beatucada");
-    let policy = BATTLE_VOICE_V1;
+    let policy = BATTLE_VOICE_V2;
     let incoming_line = Line::Battle(Battle::AttackIncoming);
     let launched_line = Line::Battle(Battle::AttackLaunched);
     let mut now = 0;
