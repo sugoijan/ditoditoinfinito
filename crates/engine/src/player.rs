@@ -1443,9 +1443,22 @@ impl Player {
         }
         let t = at.max(judged);
         // The bar lines before the edge decided first (a step up).
-        let before = self.judge_to_bars(t);
+        let mut before = self.judge_to_bars(t);
         if self.finished {
             return before;
+        }
+        // With a ladder, everything before the edge judged and applied
+        // first, a step down made where its life ran out, as a CPU's play
+        // is fed (`Opponent::advance`): the edge is judged against the
+        // chart the step left, whatever the frames (review finding
+        // engine-3). Without one, as ever (the press judges to it).
+        if !self.ladder.is_empty() {
+            let mut due = self.advance_judges(t);
+            self.apply(&mut due);
+            before.extend(due);
+            if self.finished {
+                return before;
+            }
         }
         if self.judged_lane.is_none() {
             self.log.inputs.push(LoggedInput {

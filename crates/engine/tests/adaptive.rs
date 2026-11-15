@@ -737,3 +737,110 @@ fn the_life_read_just_after_a_step_down_is_the_life_given_back() {
     }
     assert!(rounded_away > 0, "a step the old record rounded away: {steps}");
 }
+
+/// A song made for a step down beside a battle's shocks: 120 BPM, a
+/// Challenge of three-lane jumps (lanes 0, 1 and 3) every eighth, which a
+/// player who presses lane 2 alone misses, each followed two ticks later
+/// by a tap on lane 2; a Medium below it the same.
+fn shock_song() -> Song {
+    let chart = |name: &str, meter: u32| {
+        let body = (0..24)
+            .map(|_| {
+                (0..192)
+                    .map(|r| match r % 24 {
+                        0 => "1101",
+                        2 => "0010",
+                        _ => "0000",
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .collect::<Vec<_>>()
+            .join("\n,\n");
+        format!("#NOTES:\ndance-single:\n:\n{name}:\n{meter}:\n0,0,0,0,0:\n{body}\n;\n")
+    };
+    let text = format!(
+        "#TITLE:t;\n#OFFSET:0;\n#BPMS:0=120;\n{}{}",
+        chart("Challenge", 12),
+        chart("Medium", 4)
+    );
+    ddi_chart::formats::sm::parse_sm(&text).expect("parses")
+}
+
+/// A press in the same update as the miss that empties life (no frame
+/// judged between them) is judged as one a frame after it: against the
+/// chart the step down left, so whether a battle's shock beside an old
+/// note is stepped on is the same at any frame rate (review finding
+/// engine-3). Lane 2's taps pressed on time, everything else missed, a
+/// shock on lane 2 on every jump; one more press on lane 2 a little after
+/// the step down's moment, judged in frames of 1 ms and of 60 per second
+/// at every phase.
+#[test]
+fn a_press_just_after_life_runs_out_is_judged_the_same_at_any_frame_rate() {
+    let song = shock_song();
+    let stage = song
+        .charts
+        .iter()
+        .position(|c| c.difficulty == ddi_chart::Difficulty::Challenge)
+        .unwrap();
+    let rungs = ladder::below(&song, stage);
+    assert_eq!(rungs.len(), 1);
+    // A shock on lane 2 a tick (10.4 ms) after each of its taps.
+    let shocks: Vec<ddi_engine::battle::Hazard> = (1..24 * 8)
+        .map(|k| ddi_engine::battle::Hazard {
+            tick: ddi_chart::Tick(k * 24 + 3),
+            lane: 2,
+        })
+        .collect();
+    let base: Vec<(f64, u8, bool)> = {
+        let p = Player::new(&song, stage, rules(), PlayOptions::default());
+        ddi_engine::autoplay::script(p.judge().notes(), 0.0)
+            .into_iter()
+            .filter(|x| x.lane == 2)
+            .flat_map(|x| [(x.press, 2, true), (x.press + 0.005, 2, false)])
+            .collect()
+    };
+    let run = |edges: &[(f64, u8, bool)], step: f64, phase: f64| {
+        let mut p = player(&song, stage, &rungs);
+        p.add_hazards(&shocks).unwrap();
+        p.start(0.0, 0.0);
+        let mut next = 0;
+        let mut t = -1.0 + phase;
+        while !p.finished() && t < 120.0 {
+            t += step;
+            while let Some(&(at, lane, pressed)) = edges.get(next).filter(|e| e.0 <= t) {
+                p.input_at(lane, pressed, at);
+                next += 1;
+            }
+            p.update_at(t);
+        }
+        p
+    };
+    let first = run(&base, 0.001, 0.0);
+    let m = first.steps().first().expect("a step down").at;
+    let mut differ = Vec::new();
+    for k in 0..6 {
+        let at = m + 0.032 + 0.003 * f64::from(k);
+        // Nothing else pressed from the step down on.
+        let mut edges: Vec<_> = base.iter().copied().filter(|e| e.0 < m).collect();
+        edges.push((at, 2, true));
+        edges.push((at + 0.005, 2, false));
+        edges.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        let fine = run(&edges, 0.001, 0.0);
+        let rf = fine.results();
+        // Judged a frame after the step: no note of the old chart left,
+        // the shock beside it stepped on.
+        assert_eq!(fine.hazards().map(|h| h.counts().0), Some(1), "{at}");
+        for phase in 0..17 {
+            let coarse = run(&edges, 1.0 / 60.0, 0.001 * f64::from(phase));
+            let rc = coarse.results();
+            if rc.tally != rf.tally
+                || rc.steps != rf.steps
+                || coarse.hazards().map(|h| h.counts()) != fine.hazards().map(|h| h.counts())
+            {
+                differ.push((at - m, phase, rc.tally, rf.tally));
+            }
+        }
+    }
+    assert!(differ.is_empty(), "{} differ: {:?}", differ.len(), differ.first());
+}
