@@ -599,7 +599,12 @@ measurement on the platform.
    computes and checks against the view's `battle` digest; the results'
    Standings from the view. Between stages, a page of the view: the room's
    name, host, rules in words (`room::rules_words`), players, picks,
-   standings, and the count.
+   standings, and the count. Since 2026-11-15 (`audience-page-v1`,
+   the progress note's "Feedback round I") built as a room's Ready card:
+   the translucent card over the start menu's rain, then over the last
+   watched stage's picture; the competitors in the card's players' part
+   with their places and match points; the grid shows every field where
+   they fit (`grid-all-v1`), its pages in the room's order.
 3. **The count shown to the room**: "132 watching" (a message with a
    plural) on the room's status line and the stage's status line, from
    `LiveLink::audience`; the owner's Host options gain "Close the audience"

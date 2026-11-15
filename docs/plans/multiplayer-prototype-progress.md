@@ -4824,7 +4824,8 @@ only the cap they show reads "/ 73" where it read "/ 9".
   slots build a field's frame.
 - **The spectator view**: a grid of more than twelve competitors
   (`ddi_session::play::GRID_PAGE`, `watch-pages-v0`, PROVISIONAL) shows
-  a page of twelve by standing; Page Up and Page Down turn the pages
+  a page of twelve by standing (since 2026-11-15 every field where they
+  fit, pages in the room's order: "Feedback round I"); Page Up and Page Down turn the pages
   (round), as do the D-pad's Up and Down on a controller (its shoulders
   keep following a competitor) and a tap on the ladder; the hint says so
   for the first seconds ("Tab or tap to follow · Page Up/Down or D-pad
@@ -9464,6 +9465,122 @@ seat bounds are the relays' alone. `ROOM_MODEL_REVISION` stays 10.
 computed from it); `max_competitors` cannot be raised past 73 (the awards'
 tables end there), nor the audience past 20,000 seats a room.
 
+## Feedback round I: the audience's view, the Ready card, the audience's page (2026-11-15)
+
+The maintainer, after testing the deployed game with 73 players: the
+audience's view flickered at some point; it showed about eight fields
+where a player's view shows all 72 opponents; the Ready screen is
+cramped with many players; the audience's page is bare between stages.
+
+### The flicker: a paged grid ranked by standing (`grid-pages-v1`)
+
+A watched grid past a page (twelve fields, `watch-pages-v0`: an
+audience seat watching 73 in the grid) chose its page's fields **by
+standing** every frame (`opponents::choose` over `rivals::order`: life,
+then the score). Life moves with every judgment and the scores arrive in
+batches, so the order turned over from frame to frame and the twelve
+places swapped fields constantly: what looked like players changing
+quickly, and, with Charts: Adaptive, like charts flipping (neighbouring
+places drew competitors on different rungs; a step down's zero life and
+half life back moved its field across the page at once). Pages are in
+the room's order now; nothing reorders them. `opponents::tests::
+a_paged_grid_keeps_its_fields_in_place_as_the_standings_move` fails on
+the old code at its second frame. Checked against: the fields' view
+delay (`view-delay-v0` rises at 0.5 s a second and falls at 0.05, so a
+field's own time never goes back and its rung, `FieldFeed::rung_at`
+over the view time, never flips back across a step's cut); the rivals'
+slots of a followed view (held by `rivals-v0`); no reconnect or
+re-handover was involved. No run against a local server with 72 bots
+was made: the cause was found in the code and pinned by the test, and
+the web's and desktop's watched 73 keep `trace.seat_changes` at 0. As a
+lasting aid, `__DDI_DEBUG.watch` carries `rungs` (each field's rung as
+drawn), `delay` (the largest field delay, s) and `trace` (`frames`,
+`seat_changes`: a place showing another seat while the view, its page
+and its slots stayed; `rung_changes` against `steps`, the feeds' steps;
+`view_changes`), `ddi_shell::play_view::WatchTrace`.
+
+### The watched view shows everyone (`grid-all-v1`)
+
+- **Followed**: the followed competitor's field in the play's field's
+  place and every other competitor beside it by the player's own
+  arrangement (`arrange_up_to`, `Carry`, plain notes, the ladder), up to
+  72 (it already was; a desktop test now pins it at 73).
+- **The grid**: past a room's eight, every field at once while all fit
+  at the play view's least lane (`MINI_LANE_ALL`, fields cut down to
+  `DENSE_ROWS_MIN` lanes where only that lets them), the gaps shrinking
+  past two columns and what they carry by their lane (`Carry`); pages
+  only where they cannot fit, of as many as fit at that lane (never
+  fewer than eight), in the room's order; the session turns the pages
+  the grid was drawn with (`PlaySession::set_watch_pages`). Lanes
+  (logical pixels; `opponents::tests::a_watched_grid_shows_everyone_where_they_fit`):
+
+  | Screen | 8 | 24 | 48 | 73 |
+  |---|---|---|---|---|
+  | 1280×720 | 29 | 19 | 13 | 10 |
+  | 1920×1080 | 48 | 30 | 22 | 17 |
+  | 2704×1528 | 70 | 46 | 33 | 26 |
+  | 844×390 | 17.7 | 12.3 | 10.3, 2 pages of 42 | 10.3, 2 pages of 42 |
+  | 390×844 | 18.7 | 10.7 | 10.3 (fields cut to 9 lanes) | 10.3, 3 pages of 36 |
+
+- Options → Display's "Opponents' fields: Up to eight" keeps a player's
+  eight slots and gives a watcher pages of a room's eight at a room's
+  sizes.
+- The same for a member who chose Watch, a player out of a stage that
+  goes on (their own dimmed field as before) and an audience seat;
+  attack links and each recipient's warning as before at every lane.
+- Pictures: `cargo test -p ddi-desktop --test watch_all_offscreen`
+  (`DDI_OFFSCREEN_PPM`): 73 watched at 1280×720 (the grid at lanes of
+  10, followed at 11) and 390×844 (pages of 30); 73 CPUs and the
+  watcher's seat need the development-only practice there.
+
+### The Ready card (`ready-card-v1`)
+
+A room's stage's prompt is a card of most of the screen (a margin of 3%
+of the width, 24 to 64 px; the safe area less 8 px on a phone), its
+plate translucent (`Panel.Glass`, `#14121a` at 76%) over the song's
+darkened backdrop. Beside the classic card's parts (the song, the
+status, the diagram with the modifiers, the policy's row, Ready and
+Back, in the same order and focus) the players in columns where the
+card has room (at least 270 px beside), else under the diagram filling
+the card's height. The players' part (`room::players_part`) draws each
+player with the players panel's own line (`room::player_line`, factored
+out of `players_panel`: the name and its badge, a CPU's stars or a
+role, the policy's word, the state, place and points) in the panel's
+order; columns of at least 260 px, as many as the count needs; past
+what it holds a window keeping the player's own line in view, a mark
+under it (a tap scrolls a column), the wheel, and Page Up/Page Down a
+column at a time. At 1280×720: 24 players all in view, 73 in two
+columns of 18 (36 in view); 1920×1080: 36 of 73; 844×390 and 390×844:
+12 and 16. Contrast of the plate's text (WCAG): over a black backdrop
+Text 16.7, Secondary 10.9, Muted 7.1, Faint 5.2; over the brightest
+backdrop pixel measured at the prompt (Beatucada, `#5f6366`) 13.1, 8.6,
+5.6, 4.1; over a white one undarkened (not drawn: the prompt's base is
+darkened) 7.5, 4.9, 3.2, 2.3. Motion changes nothing of it. A solo
+play's prompt is unchanged. Pictures before and after:
+`cargo test -p ddi-desktop --test ready_card_offscreen -- --ignored`
+(`DDI_READY_CARD_BEFORE=1` for the pictures alone).
+
+### The audience's page (`audience-page-v1`)
+
+The page is the Ready card's card now (no page of text, no song
+select): the room's name, host, what the room is doing (the song picked
+for the next stage, a stage playing, the match's end), the last stage's
+winner, the rules in a few words, how many watch, the seat's state, and
+the competitors in the players' part (from the public view: names, a
+CPU's stars, place and match points once placed, Out for the match;
+nothing a member alone knows), Watch (as before, the press starting the
+sound) and Stop watching. Behind it the start menu's note rain (the
+same component and clock, still under reduced motion) until the seat
+watched a stage; then that stage's picture as its prompt had it
+(`AudienceClient::set_backdrop`, told by both shells), darkened as the
+backdrop's base, kept until the next one's. Not done: the song's banner
+(the public view carries no picture; a share's would have to be read
+for it), a generated background's still (drawn for the play alone: the
+page keeps the last picture or the rain), the last stage's and the
+match's Standings table as a tab (the players' part shows the match's
+places and points), and a seat that joins between stages shows the rain
+(it watched no stage's picture).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -9524,7 +9641,9 @@ tables end there), nor the audience past 20,000 seats a room.
 | Anonymous audience seats (2026-11-15): eight a network's daily mark, two a signed-in identity, never counted together; 30 joins a minute a mark on a relay | `ddi_room::audience::AUDIENCE_V0` (`seats_per_anonymous`, `anonymous_joins_per_minute`, `anonymous_join_window_ms`); `../ddi-server`'s `anon.rs` | Anyone watches by the link without signing in; a ninth seat from one network is refused; past thirty joins a minute the join is asked again after a wait | The numbers, once watched in use |
 | `member-bound-v0`: 384 members besides administrators (a full field and about 300 watching) | `RoomPolicy::DEFAULT_MAX_MEMBERS`; the server's `ROOM_MAX_MEMBERS` (raised to the competitor cap where set below it) | The 385th person is refused as the room being full | The bound, and the audience beyond it (counted, not listed) |
 | `rivals-v0`: past eight opponents, eight slots; a slot's opponent stays 8 s at least, keeps it within two places and a twelfth of the field of the nearest rivals; attackers in at once; a 0.3 s fade-in | `ddi_shell::rivals::RIVALS_V0` | With 72 CPUs the eight beside the field are the player's attackers and nearest rivals, changing every eight seconds or more | The hold and slack; whether the leader should always have a slot |
-| `watch-pages-v0`: a spectator's grid shows twelve fields a page by standing; Page Up/Down, the D-pad's Up/Down and a tap on the ladder turn the pages | `ddi_session::play::GRID_PAGE`, `watch.rs` | A watcher of 73 sees the top twelve first, then pages | The page's size; whether pages should turn by themselves |
+| `grid-all-v1` (was `watch-pages-v0`, then `grid-pages-v1`): a spectator's grid shows every field at the play view's least lane; pages only where they cannot fit, of as many as fit, in the room's order; Page Up/Down, the D-pad's Up/Down and a tap on the ladder turn them | `ddi_shell::opponents::arrange_grid`, `watch.rs` | A watcher of 73 sees all 73 at 1280×720 (lanes of 10); a phone pages | Whether pages should turn by themselves |
+| `ready-card-v1`: a room's Ready card of most of the screen, its plate `Panel.Glass` (76%), players in columns of 260 px or more beside the rest | `prompt_room.rs`, `room::players_part` | 24 players in view at 1280×720, 36 of 73 | The plate's opacity; the columns' width |
+| `audience-page-v1`: the audience's page as the Ready card, over the rain, then the last stage's picture | `screens/audience.rs` | No bare page between stages | A banner for the next song; the Standings as a tab |
 | A large room's lists (past nine rows) put the local player first, then those with a role, then people, then CPUs; Host options its co-hosts and administrators first | `screens::room::player_rows`, `panel_order`, `HostDialog::people` | Among 73 the player and the operators are found at once | A search field for the Players pop-up |
 | A stage's Standings keep the player's line in view (the window's first or last line); the match's result names one line of leaders and the player's own place | `screens::room::window_keeping`, `results_stage.rs` | The player's place among 73 always shows | None |
 | CPU seeds per seat derived from the match's profile seed, and per stage from the stage's number (`cpu-stage-seed-v1`, round B1, ANSWERED) | `member::OpponentSpec::for_seat`, `stage_seed` | Each CPU of a match plays its own seed, another each stage | Per-CPU profiles, personalities |

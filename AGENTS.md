@@ -413,7 +413,10 @@ Rust and the browser are implementation details, not advertised features.
   `set_watched_stage`: the card, the watching line and the buttons);
   auto-start always takes priority. Its countdown fills the Start button's
   background beneath the label (whole-second steps under reduced motion),
-  without a separate bar or countdown text.
+  without a separate bar or countdown text. A room's stage's prompt is
+  a larger translucent card (`ready-card-v1`, the look's `Dialog.Glass`)
+  with the players in columns, `room::players_part` drawing the players
+  panel's line, `room::player_line`.
   `docs/plans/start-prompt.md`) with their sample
   data, options' rows made from the settings and the shell every
   platform shares (`options_model.rs`, `options_shell.rs`, the bind
@@ -893,8 +896,11 @@ Rust and the browser are implementation details, not advertised features.
   place and, where not everyone is shown, a strip of everyone's life;
   Options → Display's "Opponents' fields: Up to eight"
   (`Settings::opponent_fields`, `RenderOptions::opponents_up_to_eight`)
-  keeps the eight slots; a spectator's grid past twelve in pages,
-  `ddi_session::play::GRID_PAGE`).
+  keeps the eight slots (a watcher's grid in pages of eight); a
+  spectator's grid shows every field at the same least lane, in pages
+  in the room's order only where they cannot fit, `grid-all-v1`,
+  `PlaySession::set_watch_pages`; `__DDI_DEBUG.watch.trace` counts what
+  changed from frame to frame).
   Platform-free (native and wasm), natively tested.
 - `crates/app/` the game (`ddi`, the workspace's default member):
   a `main` that starts the web shell on wasm and the desktop shell
@@ -1451,7 +1457,9 @@ Rust and the browser are implementation details, not advertised features.
   room's song time (a member who watches a live stage the same way,
   `room::WATCH_MUSIC_V0`, `RoomClient::watch_music_ms`);
   `screens/audience.rs` its page between stages
-  (`AudienceScreen`, `AudienceCall`; `ThemeState::audience`); the invite
+  (`AudienceScreen`, `AudienceCall`; `ThemeState::audience`; built as
+  the Ready card, `audience-page-v1`, over the menu's rain, then the
+  last watched stage's picture, `AudienceClient::set_backdrop`); the invite
   page's Watch with the audience (`Online::watch_audience`, signed in
   or not, never asking for a sign-in; `OnlineCall::Watch`), members' count on the status line, Host options'
   Close/Open the audience and More's Copy audience link

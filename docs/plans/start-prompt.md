@@ -243,3 +243,17 @@ transparent receptor images, per-lane presses, skin readiness and cleanup;
 the existing prompt countdown/loading/options tests cover the play handoff.
 Browser checks cover DanOni-7, saved mappings on WebGL2, wrapped Pump Double,
 Retina sizing and phone layouts.
+
+## A room's Ready card (2026-11-15)
+
+A room's stage's prompt (`PromptScreen::with_room`) is a larger card
+since the feedback round I (`ready-card-v1`,
+`docs/plans/multiplayer-prototype-progress.md`): most of the screen with
+a margin on a desktop, the whole safe area on a phone, its plate
+translucent over the song's darkened backdrop (the look's
+`Dialog.Glass`); the players in columns beside the classic card's parts
+where it is wide enough (`room::players_part`, the players panel's line),
+else under the diagram filling the card; Page Up and Page Down scroll
+them a column at a time, as do the wheel and the mark under them. What
+the card holds and its focus order are unchanged; a solo play's prompt is
+not changed.
