@@ -10137,10 +10137,98 @@ room stored by revision 10 (`crates/room/tests/room-revision-10.json`,
 written by revision 10's own reducer, which loads, writes back what it
 read and plays on).
 
+## Decisions round D2: the frontend's four (2026-11-15)
+
+Four decisions the maintainer made one by one, each the frontend's
+alone; nothing on the wire, nothing judged or decided moves,
+`ROOM_MODEL_REVISION` untouched.
+
+- **A member on Options, Calibrate or the studio is told their stage is
+  due** ("Tell them"). Where the room would hand the player a stage's
+  prompt while a screen opened over the room is shown
+  (`RoomClient::stage_due`: the same test as the prompt's, not taking
+  it), a notice opens over that screen (`screens::room::DueDialog`,
+  layer `room-stage-due`): "Stage N is starting", a sentence, the room's
+  own status line under it with its countdown, and two buttons, Go to
+  Ready (chosen first) and Stay here (Escape, a press beside it). Go
+  closes what is over the room and the prompt opens by itself as it
+  always did; Stay keeps the screen and is not asked again for that
+  stage (`RoomClient::stay`; its prompt still opens once they are back).
+  Nothing is closed for them, and the notice goes by itself only once
+  the stage is no longer theirs to go to. A stage they are not in but
+  may watch (practice, a live room: the room hands watchers a prompt
+  today) says so and its button reads Watch. Desktop: the room's song
+  select, which runs under the screens on the UI's stack, opens it over
+  the current screen (`Cx::overlay_current`) where every screen over it
+  yields (`Screen::yields`: Options and the pages, never a play, its
+  prompt or its results), and Go asks them to leave, each by its own
+  Back with its dialogs closed first (`Cx::surface`), so Options leaves
+  as its Back leaves it (what it edited is saved as it changes). The
+  web: the kept online room's 100 ms timer under a page over it pushes
+  it over that page's screen (`crate::room::tell_due`,
+  `ui_host::push_dialog`, `Ui::push_dialog`), and Go navigates to the
+  room's song select; on a page without the UI's screens (a
+  calibration's run, a studio scene's play) the player is told once back
+  on one. CPU practice never has a stage due under Options by the
+  screens alone (its player is the one who picks). Tests:
+  `room_tests.rs` (`a_member_on_options_is_told…`, `staying_on_options…`,
+  `the_due_notice_goes…`, `a_shell_pushes_the_due_notice…`) over the
+  fake room; desktop's `tests/room_due.rs` with its own Options and
+  Calibrate. TESTING ONLY for the browsers: `mpfakeroom=S`
+  (`crate::fake_room`), an online room in the page whose scripted owner
+  picks S seconds after the player joined.
+- **The lines of the player's own play's end come back into a stage**
+  (`battle-voice-v2`, replacing `battle-voice-v1`): `gameplay full
+  combo` and its kinds `w1` to `w3` as the last note is judged, then
+  `gameplay cleared`; or `gameplay failed`
+  (`announcer::battle::end_line`: exactly these six). Below every
+  battle line, as the combo lines: decided after the frame's battle
+  moments are told (`Announcer::stage_play_end`), said where nothing
+  speaks, else at the end of the line being said where that is within a
+  second (`end_window`), dropped where later or where a battle line is
+  due before they would be over; a battle line due while one speaks
+  starts at its end, the results' outcome too. Cleared and failed are
+  not said once a line said the stage's outcome for the player (out,
+  with `battle eliminated` or failed in its place; the win before the
+  song's end). Not the comments, a life lost, the last life, nor the
+  results' own lines. A single play's lines are unchanged. Two pinned
+  tellings moved, by the new lines alone (the battle's moments told are
+  the same): `a_stage_speaks_its_battle_moments_once_and_none_of_a_play_s_routine`
+  (now `… gameplay full combo, gameplay cleared, <the stage's end>`)
+  and `the_players_left_and_an_early_win_are_told_as_they_happen` (now
+  `… gameplay full combo, battle match won`: no cleared after the win
+  was said); desktop's `room_stage_voice.rs` hears `gameplay full combo
+  w1`, `gameplay cleared` before the outcome from both of our packs.
+- **"New song" checks that its music decodes before it makes the song**
+  ("Check before creating"), on both shells: the whole file decoded as
+  a play decodes it (desktop: `ddi_platform::decode_all`; the web: the
+  browser's decoder, else the built-in ones, on an offline context,
+  `AudioDecoder::decodes`); a file that does not is refused in the
+  words a song that fails to load is given, after the notice's own
+  ("The new song could not be made: its music could not be decoded:
+  …", `new_song::Failure::Music`, `failures::new_song_text`: no new
+  message), and nothing is created: no folder, no stored song, no
+  editor. A good file behaves as before.
+- **The stage prompt's line under Charts: Adaptive** says "the chart
+  changes with your skill" (`room-prompt-chart-adapts`, in the place of
+  `room-prompt-life-easier`'s "an easier chart when your life runs
+  out"; Japanese draft 「譜面は実力に合わせて変わる」): no word of life
+  running out nor of how. Under As picked the line keeps "out when your
+  life runs out". The other places a person is told what Adaptive does
+  were read and left: the rules in a few words say nothing for Adaptive
+  (the usual) and "Charts as picked" otherwise; a change says "Adaptive
+  charts"; the Standings mark a player's chart with an arrow and its
+  name; the play's status line says "Stepping down: Medium", "Stepping
+  up: Challenge", "Staying on Hard" as they happen; the Rules pop-up
+  keeps its full sentence (it has the room, and the rule it spells out
+  is being changed elsewhere at the same time: it should lead with the
+  same idea once that lands).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `battle-voice-v2` (2026-11-15, decisions round D2; replaces `battle-voice-v1`): the lines of the player's own play's end (the full combo's, cleared, failed) below every battle line, at most a second late (`end_window`), cleared and failed never after a line that said the stage's outcome; the rest as `battle-voice-v1` below | `ddi_session::announcer::battle` | A stage says "full combo" and "cleared" as the player's last note is judged, then the stage's outcome on its results | Whether cleared should also stay out where the stage's outcome will be said on the results (today both are heard, cleared first) |
 | `battle-voice-v1` (2026-11-15, feedback round J; replaces `battle-voice-v0`): a step's line (priority 12) waits at most a second for the line being said (`step_window`); the combo lines below every battle line, at most a second late (`combo_window`), never over a battle line nor one due; a battle line due during a combo line starts at its end | `ddi_session::announcer::battle::BATTLE_VOICE_V1` | Stages say the combo lines again and the player's steps; an attack line may come up to a combo line's length late | The two windows; whether the comments or other routine lines belong in a stage |
 | `cpu-play-v1` (2026-11-14): a CPU at a level plays the chart a person is given; `hold-model-v1`: a hold let go early with half the level's lapse chance over each row's load while it lasts (1.25 times where the row uses the held lane's hand; the floor a second; Stamina and Technical dividing it by the square root of their product), rolls re-tapped every 0.12 s, lifts pressed 80 ms early, a chart's mine beside a note of its lane stepped on with the level's shock response, one inside a hold kept held over with that chance else let go around (30 ms before, 100 ms after); what is held adds 0.25 a lane to a row's speed demand | `ddi_engine::cpu::full` (`HOLD_MODEL_V1`, `CPU_PLAY`), `AbsoluteModel::held_load` | CPUs' fields show their holds, rolls, lifts and mines; their scores are their own and compare with a person's; holds let go 0 to 5% by level and chart | The values (never checked against people this round); whether weak levels should let go more |
 | Every opponent shown past eight where all fit at a lane of 10 px, fields cut to 8 lanes only where that makes all fit, a 3 px gap at nine columns (`fields-all-v0`: `MINI_LANE_ALL`, `DENSE_ROWS_MIN`, `DENSE_GAP`) | `ddi_shell::opponents` | 72 at 1280×720 are 9×4 a side at 11 px; smaller windows show as many as fit, the rest by rivals | Whether 10 px is the least the maintainer reads; whether shorter fields are wanted beyond the phone |

@@ -685,11 +685,14 @@ Rust and the browser are implementation details, not advertised features.
   sounds for a play, a stage or song select, `announcer::For`; the
   battle's moments it tells,
   `Battle::take_events`, spoken by a stage's voice,
-  `announcer/battle.rs`: the provisional `BATTLE_VOICE_V1`
-  (`battle-voice-v1`), its priorities, one battle line at a time, the
+  `announcer/battle.rs`: the provisional `BATTLE_VOICE_V2`
+  (`battle-voice-v2`), its priorities, one battle line at a time, the
   combo lines below them all, `Line::is_combo`, said only in a quiet
-  moment and at most a second late, a play's other routine lines left
-  out; the player's steps under Adaptive charts said at their
+  moment and at most a second late, and so the lines of the player's own
+  play's end (`end_line`: the full combo's, cleared, failed; decided
+  once the frame's battle moments are told, `Announcer::stage_play_end`,
+  cleared and failed never after a line that said the stage's outcome),
+  a play's other routine lines left out; the player's steps under Adaptive charts said at their
   boundaries, `battle step up` and `battle step down`, never over a line
   being said, `Announcer::battle_patient`, `PlaySession::tell_steps`,
   `steps_told`; the results' line once the shell's `stage_reported` passes the
@@ -1034,7 +1037,8 @@ Rust and the browser are implementation details, not advertised features.
   in the data folder's `announcers/`, `docs/plans/announcer-studio.md`,
   step 5); the chart editor
   (`editor.rs`: song select's E, saving into the song's folder, its
-  playtests; new songs from a music file, `editor/new_song.rs`); the
+  playtests; new songs from a music file, `editor/new_song.rs`, made
+  only once the music decodes, as on the web); the
   devices' fingerprints and notices (`devices.rs`). Settings in
   `storage.json` in the config folder; `DDI_HOME` moves the config, data
   and cache folders under it (`paths.rs`). One app a data folder
@@ -1516,7 +1520,16 @@ Rust and the browser are implementation details, not advertised features.
   (`room::players_strip`); a tap on either opens the Players pop-up.
   `screens/room.rs` what the
   room's screens share (`RoomCall`, the per-frame `Pump`, the status and
-  rows, the panel, More, `ThemeState::room`, a `RoomView`, for tests);
+  rows, the panel, More, `ThemeState::room`, a `RoomView`, for tests;
+  `DueDialog`, the notice over a screen opened over the room (Options,
+  Calibrate, the announcer studio) that the room's stage is due for the
+  player, `RoomClient::stage_due`, with the room's status line and a
+  button to its Ready screen, Stay here told once a stage, nothing
+  closed for them: desktop's room screen under those screens opens it
+  and asks them to leave by their own Back, `Cx::surface`,
+  `Screen::yields`; the web's kept room's timer pushes it over the
+  page, `crate::room::tell_due`, `Ui::push_dialog`, its button
+  navigating to the room);
   `screens/room_dialogs.rs` Rules (from their button, Cancel and Apply;
   its rows scrolling between its title and buttons, focus scrolling a
   row into view, each note only where it applies;
@@ -1655,7 +1668,10 @@ Rust and the browser are implementation details, not advertised features.
   TESTING
   ONLY, `mpfakeseat=1` (`mpfakeend=S`) in the address the page loads on
   makes the next seat one
-  in a fake room in the page (`crate::fake_seat`). `Trunk.toml` passes `/api/` (redirects untouched) and
+  in a fake room in the page (`crate::fake_seat`), and `mpfakeroom=S`
+  makes online room `Room000001` a fake room in the page whose scripted
+  owner picks a stage S seconds after the player joined
+  (`crate::fake_room`: a member's view without a server). `Trunk.toml` passes `/api/` (redirects untouched) and
   `/api/sockets/` (WebSockets) to `just dev` of `../ddi-server`.
 - `tools/danoni-importer/` the native helper, a root workspace member requiring
   Rust 1.99 (as does the SDK). Both share the root lock; the `importer` profile
@@ -2029,7 +2045,7 @@ otherwise at most a second late, and at once when a screen or dialog
 comes or goes). The testing parameters (`gfx`, `auto`, `bias`,
 `slow`, `perf`, `lang`, and the multiplayer ones, `mprules`,
 `mpwatchlink`, `mpattacks`, `mpcpus`, `mpdevmines`, `mpfakeseat`,
-`mpfakeend`) take effect given in the address the page loads on, on any
+`mpfakeend`, `mpfakeroom`) take effect given in the address the page loads on, on any
 route (`#/select?perf=1`, `#/mp?mpcpus=16`, `#/options?lang=ja`;
 `crate::router::Route::current`'s first read), and later on the routes
 each was always read on; `gfx`, `auto`, `bias` and `slow` stay for the

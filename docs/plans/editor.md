@@ -400,6 +400,13 @@ tags made into a song, charted, playtested autoplayed and back, saved,
 listed by song select and opened again equal after a reload; a second
 one left unsaved and gone from the list).
 
+New songs' music is checked (2026-11-15): the file is decoded whole, as
+a play decodes it, before anything is made; music that does not decode
+is refused on song select ("The new song could not be made: its music
+could not be decoded: …") and no folder, stored song or editor is made
+(desktop's `editor_new_song.rs` with two broken WAVs made from bytes;
+the web walked in Chrome and Firefox).
+
 **Note record** (2026-10-23; `ddi_ui::state::editor::record`,
 `ddi_ui::screens::editor`'s `record`, `ddi_session::listen`). R plays
 the music from a measure before the cursor (by the time signature
