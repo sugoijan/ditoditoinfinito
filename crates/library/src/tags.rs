@@ -78,10 +78,10 @@ fn id3(head: &[u8]) -> Tags {
         let Some(s) = body.get(..4) else {
             return tags;
         };
-        at = if major == 4 { syncsafe(s) } else { 4 + be(s) };
+        at = if major == 4 { syncsafe(s) } else { be(s).saturating_add(4) };
     }
     let (id_len, header) = if major == 2 { (3, 6) } else { (4, 10) };
-    while let Some(fh) = body.get(at..at + header) {
+    while let Some(fh) = body.get(at..at.saturating_add(header)) {
         let id = &fh[..id_len];
         if id[0] == 0 {
             break;
@@ -92,7 +92,7 @@ fn id3(head: &[u8]) -> Tags {
             _ => syncsafe(&fh[4..8]),
         };
         let start = at + header;
-        at = start + size;
+        at = start.saturating_add(size);
         let Some(data) = body.get(start..at.min(body.len())) else {
             break;
         };
@@ -170,17 +170,17 @@ fn comments(b: &[u8]) -> Tags {
     let Some(vendor) = le32(b, 0) else {
         return tags;
     };
-    let mut at = 4 + vendor;
+    let mut at = vendor.saturating_add(4);
     let Some(n) = le32(b, at) else {
         return tags;
     };
-    at += 4;
+    at = at.saturating_add(4);
     for _ in 0..n {
         let Some(len) = le32(b, at) else {
             break;
         };
         at += 4;
-        let Some(c) = b.get(at..at + len) else {
+        let Some(c) = b.get(at..at.saturating_add(len)) else {
             break;
         };
         at += len;
@@ -266,11 +266,11 @@ fn wav(head: &[u8]) -> Tags {
             continue;
         }
         let end = end.min(head.len());
-        let mut i = start + 4;
-        while let (Some(sub), Some(n)) = (head.get(i..i + 4), le32(head, i + 4)) {
-            let text = head.get(i + 8..(i + 8 + n).min(end)).unwrap_or_default();
-            i += 8 + n + (n & 1);
-            let slot = match sub {
+        // The subchunks are walked as the chunks are, with checked
+        // offsets and within the list: a size that wraps ends the walk.
+        for (sub, from, to) in crate::bytes::riff_chunks(head, start + 4, end, usize::MAX) {
+            let text = head.get(from..to.min(end)).unwrap_or_default();
+            let slot = match &sub {
                 b"INAM" => &mut tags.title,
                 b"IART" => &mut tags.artist,
                 _ => continue,
@@ -462,5 +462,45 @@ mod tests {
             }
         );
         assert_eq!(read(b"not music"), Tags::default());
+    }
+
+    /// A subchunk whose size wraps a 32-bit offset (the web's) back to
+    /// where it began, which looped for ever there, and one claiming more
+    /// than its list: both end, a name before them kept.
+    #[test]
+    fn a_wav_info_subchunk_sized_to_wrap_ends() {
+        for size in [0xFFFF_FFF8u32, 0xFFFF_FFF7, 0xFFFF_FFFF, 64] {
+            let info: Vec<u8> = [
+                &b"INFO"[..],
+                b"IART",
+                &3u32.to_le_bytes(),
+                b"Me\0\0",
+                b"INAM",
+                &size.to_le_bytes(),
+                b"Wave",
+            ]
+            .concat();
+            let mut wav = b"RIFF\0\0\0\0WAVE".to_vec();
+            wav.extend(b"LIST");
+            wav.extend((info.len() as u32).to_le_bytes());
+            wav.extend(&info);
+            wav.extend(b"INAM\x04\0\0\0Evil");
+            let tags = read(&wav);
+            assert_eq!(tags.artist.as_deref(), Some("Me"), "{size:#x}");
+            assert_ne!(tags.title.as_deref(), Some("Evil"), "{size:#x}");
+        }
+        // The same sizes in an ID3 frame and a Vorbis comment end too.
+        let tag = id3(
+            3,
+            &[
+                frame(b"TIT2", b"\0Song", false),
+                b"TPE1\xff\xff\xff\xf8\0\0\0Me".to_vec(),
+            ],
+        );
+        assert_eq!(read(&tag).title.as_deref(), Some("Song"));
+        let mut c = 0xFFFF_FFFCu32.to_le_bytes().to_vec();
+        c.extend(1u32.to_le_bytes());
+        c.extend(0xFFFF_FFF8u32.to_le_bytes());
+        assert_eq!(comments(&c), Tags::default());
     }
 }
