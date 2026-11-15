@@ -640,6 +640,7 @@ fn an_online_stages_lines_fill_in_as_the_reports_come() {
     // The player's own line: their signed-in name and the "You" badge.
     assert_eq!(said(&h, "Stand0", "Name"), "alice");
     assert_eq!(said(&h, "Stand0", "Name.BadgeText"), "You");
+    crate::screens::test_kit::assert_badge_on_line(&h, Some("Stand0"), "Name", 14.0);
     assert!(v.rows[0].badge && !v.rows[1].badge);
     assert_eq!(
         said(&h, "Stand0", "Place"),

@@ -2256,6 +2256,7 @@ fn the_panels_lines_say_what_each_player_is_doing() {
         assert_eq!(said(h, "Players1.Name"), other);
         assert_eq!(said(h, &format!("Players{at}.State")), state);
         assert_eq!(said(h, &format!("Players{own}.Name.BadgeText")), "You");
+        super::test_kit::assert_badge_on_line(h, None, &format!("Players{own}.Name"), 15.0);
         assert!(!there(h, &format!("Players{}.Name.Badge", 1 - own)));
         assert_eq!(said(h, "Players2.State"), "Download failed");
         assert_eq!(said(h, "Players3.State"), "Watching");
@@ -5000,7 +5001,9 @@ fn everyone_sees_who_is_loading_and_then_the_ready_countdown() {
 /// Add CPUs, Players, Standings, an online host's options) draw exactly
 /// what they drew before their parts were shared: a hash of each draw
 /// list (its fractions rounded, `crate::testing::rounded`: a CPU's stars
-/// are drawn round), recorded on the code before.
+/// are drawn round), recorded on the code before. The online ones again
+/// in feedback round H: the player's "You" badge moved onto its name's
+/// line, nothing else.
 #[test]
 fn the_rooms_screens_draw_as_pinned() {
     use ddi_room::{Finish, Finisher};
@@ -5086,8 +5089,77 @@ const PINNED: [(&str, u64); 10] = [
     ("add-level", 5801193428794422550),
     ("players", 17490229943207298487),
     ("standings", 4050983496291045925),
-    ("online-select", 15204592972399020846),
-    ("online-follower", 14720790371887534267),
-    ("online-players", 6858063256777611677),
-    ("host", 3471117147465488734),
+    ("online-select", 14361459534628858177),
+    ("online-follower", 17435691216428764643),
+    ("online-players", 17102094105239206682),
+    ("host", 6063949652104764403),
 ];
+
+/// The first `make(k)` whose "You" badge is drawn (the local player's
+/// own line), for [`super::test_kit::assert_badge_on_line`].
+fn badged(h: &Harness, make: impl Fn(usize) -> String) -> String {
+    (0..80)
+        .map(make)
+        .find(|id| there(h, &format!("{id}.Badge")))
+        .unwrap_or_else(|| panic!("no badge drawn: {:?}", h.texts()))
+}
+
+/// The "You" badge on its name's line wherever the player's own line has
+/// it (feedback round H, item 1): the players panel beside the song, the
+/// Players pop-up, the stage's prompt's players and the stage's
+/// Standings pop-up, each read from the frame's rects (the results'
+/// Standings tab: `results_stage_tests`).
+#[test]
+fn the_you_badge_sits_on_its_names_line_wherever_players_are_listed() {
+    use super::test_kit::assert_badge_on_line;
+    use ddi_room::{Finish, Finisher};
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    room.borrow_mut().set_own_name(Some("alice".into()));
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    let own = badged(&h, |k| format!("Players{k}.Name"));
+    assert_badge_on_line(&h, None, &own, 15.0);
+    open_players(&mut h);
+    assert_eq!(top(&h), "room-players");
+    let own = badged(&h, |k| format!("Panel{k}.Name"));
+    assert_badge_on_line(&h, None, &own, 15.0);
+    h.key("Escape", "Escape");
+    h.run(0.5);
+    // The stage's prompt.
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    let order = orders.borrow_mut().pop().expect("a prompt");
+    let mut hp = harness();
+    hp.push(
+        PromptScreen::new(env.clone(), Rc::new(RefCell::new(PromptState::default())), Rc::new(|_, _| {}))
+            .with_room(room.clone(), order.stage, shell(&room, &Orders::default())),
+    );
+    hp.run(0.5);
+    let own = badged(&hp, |k| format!("Room.Player{k}"));
+    assert_badge_on_line(&hp, None, &own, 13.0);
+    // The stage's Standings, popped up on song select.
+    // (Ready already: the prompt's countdown runs.)
+    let _ = room.borrow_mut().set_ready(true);
+    let now = room.borrow().now_ms();
+    room.borrow_mut().tick(now + 10_000);
+    let mut ids: Vec<_> = order.cpus.iter().map(|c| c.participant).collect();
+    ids.insert(0, order.me);
+    let ranking = ids
+        .into_iter()
+        .map(|participant| {
+            vec![Finisher {
+                participant,
+                finish: Finish::Survived,
+            }]
+        })
+        .collect();
+    room.borrow_mut().report_stage(order.stage, ranking, false).unwrap();
+    h.run(0.5);
+    assert_eq!(top(&h), "room-standings");
+    let own = badged(&h, |k| format!("Name{k}"));
+    assert_badge_on_line(&h, None, &own, 14.0);
+}

@@ -689,12 +689,40 @@ pub(crate) fn participant_label(
 /// before it.
 pub fn badge_width(size: f32) -> f32 {
     let t: String = m::you().into();
-    let text = (size - 3.0).max(9.0);
+    let text = badge_text_size(size);
     BADGE_GAP + look::mono_width(&t, text) + 2.0 * BADGE_PAD
 }
 
 const BADGE_GAP: f32 = 8.0;
 const BADGE_PAD: f32 = 6.0;
+
+/// How far below a run's line box's middle its letters' optical middle
+/// sits, as a share of its size: the text face (Iosevka Term) puts the
+/// baseline 0.375 of the size below the box's middle (both shells center
+/// the face's ascent of 0.965 and descent of 0.215 in a line of 1.25),
+/// and halfway between its x-height's (0.52) and its capitals' (0.735)
+/// middles reads right beside a lowercase name, a capitalized one and a
+/// Japanese one alike (feedback round H, item 1). Ideographs and kana
+/// sit on the box's middle already (their em box centered there).
+pub const OPTICAL_MIDDLE: f32 = 0.375 - (0.52 + 0.735) / 4.0;
+
+/// Where the "You" badge sits against its name, for a name of `size`
+/// pixels: the plate's middle below the name's line box's middle, and its
+/// word's line box's middle below the plate's (negative: above), so the
+/// plate's middle is on the name's letters' optical middle and its
+/// word's letters on the plate's.
+pub fn badge_offsets(size: f32) -> (f32, f32) {
+    let word: String = m::you().into();
+    let text = badge_text_size(size);
+    let cased = word.chars().any(|c| c.is_uppercase() || c.is_lowercase());
+    let inner = if cased { -OPTICAL_MIDDLE * text } else { 0.0 };
+    (OPTICAL_MIDDLE * size, inner)
+}
+
+/// The badge word's size beside a name of `size` pixels.
+fn badge_text_size(size: f32) -> f32 {
+    (size - 3.0).max(9.0)
+}
 
 /// A name (the actor `id`) at `[x, mid]` (its left edge, its middle) in
 /// `room` pixels, and, where `badge`, the quiet "You" chip after it
@@ -725,20 +753,22 @@ pub fn name_and_badge(
         return (out, name_w);
     }
     let word: String = m::you().into();
-    let text = (size - 3.0).max(9.0);
+    let text = badge_text_size(size);
     let w = chip - BADGE_GAP;
     let h = text + 6.0;
     let cx = x + full + BADGE_GAP + w / 2.0;
+    let (plate_dy, word_dy) = badge_offsets(size);
+    let cy = mid + plate_dy;
     let mut plate = look::quad_at(
         &format!("{id}.Badge"),
         [w, h],
         look::with_alpha(env.color("Text"), 0.10),
-        [cx, mid],
+        [cx, cy],
     );
     look::call(&mut plate, "cornerradius", &[h / 2.0]);
     out.push(plate);
     let mut t = env.text(&format!("{id}.BadgeText"), &word, text, 600, "Muted");
-    look::call(&mut t, "xy", &[cx, mid]);
+    look::call(&mut t, "xy", &[cx, cy + word_dy]);
     out.push(t);
     (out, full + chip)
 }
