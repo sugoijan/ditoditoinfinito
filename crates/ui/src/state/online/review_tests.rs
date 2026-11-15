@@ -128,3 +128,63 @@ fn a_forfeit_is_not_handed_the_stage_again() {
     assert_eq!(bob.view(), RoomView::Select);
     assert!(bob.take_stage_order().is_none(), "never the forfeited stage again");
 }
+
+/// First pass 3: joined to watch a full room that plays live, the line
+/// that says so keeps its time from the connection when a stage's prompt
+/// opens for the watcher (the rule that clears notices at a prompt is for
+/// the others).
+#[test]
+fn joined_to_watch_is_said_through_a_prompt_opening() {
+    use super::link::LinkNotice;
+    use super::tests::INVITE;
+    use super::tests::room::{person, shared_pick, song, upload};
+    use crate::state::room::RoomView;
+    use ddi_room::fake::FakeServer;
+    use ddi_room::{Identity, RoomPolicy};
+    let clock = ManualClock::new(1_000);
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy {
+            max_competitors: 2,
+            ..RoomPolicy::default().with_live()
+        },
+        clock.clone(),
+    )
+    .shared();
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+    server
+        .borrow_mut()
+        .join(ddi_room::Identity::new("dev:bob"), "bob", ddi_room::Intent::Play)
+        .unwrap();
+    let carol_online = person(&server, "carol");
+    carol_online.borrow_mut().open_invite(INVITE);
+    carol_online.borrow_mut().poll(3);
+    carol_online.borrow_mut().join_invite();
+    carol_online.borrow_mut().poll(4);
+    let mut carol = client(&server, carol_online, "carol", 1_000);
+    tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+    assert!(carol.watching());
+    assert!(carol.watches(), "a live room's stages are watched");
+    assert_eq!(carol.link_notice(), Some(LinkNotice::JoinedToWatch));
+    let s = song();
+    alice.pick(&s, &s.charts[0]).unwrap();
+    tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+    upload(&server, &mut alice, "abc12345");
+    tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+    for j in carol.take_load_jobs() {
+        carol.finish_shared_load(&j, Ok(shared_pick(&s)));
+    }
+    tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
+    let stage = alice.stages()[0].id;
+    assert_eq!(carol.view(), RoomView::Prompt(stage));
+    assert_eq!(
+        carol.link_notice(),
+        Some(LinkNotice::JoinedToWatch),
+        "still said, its 12 s not over"
+    );
+    tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 12_000);
+    assert_eq!(carol.link_notice(), None, "gone at its time");
+}

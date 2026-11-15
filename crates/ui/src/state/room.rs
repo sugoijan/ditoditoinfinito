@@ -2221,11 +2221,15 @@ impl RoomClient {
         self.tell_spotlight();
         // A stage's prompt opens with no notice from before it (nor a
         // refusal of something done before it), and the room comes back
-        // from a stage with none from it.
+        // from a stage with none from it; joined to watch is said its
+        // time from the connection, whatever opens meanwhile.
         let staged = self.prompt_stage();
         if staged != self.notice_stage {
             self.notice_stage = staged;
-            if self.link_notice().is_some() {
+            if self
+                .link_notice()
+                .is_some_and(|n| n != LinkNotice::JoinedToWatch)
+            {
                 self.set_link_notice(None);
             }
             if self.refusal.take().is_some() {
