@@ -691,8 +691,8 @@ impl StageBattle {
         if n == 0 {
             return;
         }
-        // Who is under attacks already: how many, and when the last of
-        // them clears.
+        // Who is under attacks already: how many (still to come: Spread's
+        // first key), and when the last of them clears.
         let mut taken: BTreeMap<ParticipantId, (u32, i64)> = BTreeMap::new();
         for a in &self.attacks {
             if a.state == AttackState::Active {
@@ -702,13 +702,6 @@ impl StageBattle {
             }
         }
         let room = self.rules.chain.saturating_add(1);
-        // Attacks still to come against each (Spread's first key).
-        let mut ahead: BTreeMap<ParticipantId, u32> = BTreeMap::new();
-        for a in &self.attacks {
-            if a.state == AttackState::Active {
-                *ahead.entry(a.recipient).or_default() += 1;
-            }
-        }
         // The state the policies judge by: before this batch.
         let before = self.seats.clone();
         let tie = |sender: ParticipantId, p: ParticipantId| {
@@ -743,7 +736,7 @@ impl StageBattle {
                 .collect();
             let spread_key = |p: &ParticipantId| {
                 (
-                    ahead.get(p).copied().unwrap_or(0),
+                    taken.get(p).map_or(0, |t| t.0),
                     before[p].admitted,
                     tie(sender, *p),
                 )
@@ -812,7 +805,6 @@ impl StageBattle {
                     let t = taken.entry(recipient).or_insert((0, i64::MIN));
                     t.0 += 1;
                     t.1 = t.1.max(section.clear_us);
-                    *ahead.entry(recipient).or_default() += 1;
                     let id = self.attacks.len() as AttackId + 1;
                     self.attacks.push(Attack {
                         id,
