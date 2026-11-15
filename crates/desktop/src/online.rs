@@ -691,4 +691,332 @@ mod tests {
         assert!(opened, "the socket opened");
         assert_eq!(closed_within(&mut t, Duration::from_secs(45)), Some(1006));
     }
+
+    // Round M (the review's gap 5): the socket's and the HTTP's threads
+    // against a listener of the test's own on 127.0.0.1, speaking as the
+    // server does: what `just test` and CI never ran (only
+    // `tests/online.rs` against a local server did).
+
+    /// What a loopback server saw of one socket.
+    #[derive(Debug, Default)]
+    struct Saw {
+        /// The upgrade's path and query.
+        uri: String,
+        texts: Vec<String>,
+        binaries: Vec<Vec<u8>>,
+        pings: u32,
+        /// The client's end closed: with a close frame (`Some(true)`), or
+        /// its connection ended without one.
+        closed: Option<bool>,
+    }
+
+    /// A WebSocket server on 127.0.0.1 for one connection: after the
+    /// upgrade it answers each text with `echo:<text>` and each binary
+    /// reversed, and does `then` once it read `after` messages (its
+    /// close with a code, or the TCP connection dropped); reading until
+    /// the client is gone or `for_` passed. Its address and what it saw.
+    fn loopback(
+        after: usize,
+        then: Option<Result<u16, ()>>,
+        for_: Duration,
+    ) -> (std::net::SocketAddr, std::thread::JoinHandle<Saw>) {
+        use tungstenite::Message;
+        use tungstenite::handshake::server::{Request, Response};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut saw = Saw::default();
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_millis(50)))
+                .unwrap();
+            let mut uri = String::new();
+            // (The callback's error type is tungstenite's own.)
+            #[allow(clippy::result_large_err)]
+            let mut ws = tungstenite::accept_hdr(stream, |req: &Request, resp: Response| {
+                uri = req.uri().to_string();
+                Ok(resp)
+            })
+            .unwrap();
+            saw.uri = uri;
+            let began = std::time::Instant::now();
+            let mut read = 0;
+            let mut done = false;
+            while began.elapsed() < for_ {
+                match ws.read() {
+                    Ok(Message::Text(t)) => {
+                        read += 1;
+                        saw.texts.push(t.to_string());
+                        let _ = ws.send(Message::text(format!("echo:{t}")));
+                    }
+                    Ok(Message::Binary(b)) => {
+                        read += 1;
+                        saw.binaries.push(b.to_vec());
+                        let back: Vec<u8> = b.iter().rev().copied().collect();
+                        let _ = ws.send(Message::binary(back));
+                    }
+                    Ok(Message::Ping(_)) => {
+                        saw.pings += 1;
+                        // (tungstenite queued the pong: written here.)
+                        let _ = ws.flush();
+                    }
+                    Ok(Message::Close(_)) => {
+                        saw.closed = Some(true);
+                        let _ = ws.flush();
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(tungstenite::Error::Io(e))
+                        if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+                    Err(_) => {
+                        saw.closed.get_or_insert(false);
+                        break;
+                    }
+                }
+                if read >= after && !done {
+                    done = true;
+                    match then {
+                        Some(Ok(code)) => {
+                            use tungstenite::protocol::CloseFrame;
+                            use tungstenite::protocol::frame::coding::CloseCode;
+                            let _ = ws.close(Some(CloseFrame {
+                                code: CloseCode::from(code),
+                                reason: "".into(),
+                            }));
+                            let _ = ws.flush();
+                        }
+                        // Dropped: no close frame, the TCP connection gone.
+                        Some(Err(())) => return saw,
+                        None => {}
+                    }
+                }
+            }
+            saw
+        });
+        (at, server)
+    }
+
+    /// The socket to `at`, opened (asserted).
+    fn opened(at: std::net::SocketAddr) -> SocketTransport {
+        let mut t = SocketTransport::with_base(format!("http://{at}/ditoditoinfinito/api"));
+        t.open(&RoomId::new("Room000001"), "ticket-7");
+        let began = std::time::Instant::now();
+        loop {
+            if t.poll().iter().any(|e| matches!(e, TransportEvent::Opened)) {
+                return t;
+            }
+            assert!(began.elapsed() < Duration::from_secs(5), "the socket never opened");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Polls `t` until `n` events came or its close, five seconds at
+    /// most.
+    fn events(t: &mut SocketTransport, n: usize) -> Vec<TransportEvent> {
+        let began = std::time::Instant::now();
+        let mut got = Vec::new();
+        while got.len() < n && began.elapsed() < Duration::from_secs(5) {
+            got.extend(t.poll());
+            if got.iter().any(|e| matches!(e, TransportEvent::Closed { .. })) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        got
+    }
+
+    /// The socket's thread speaks the server's protocol: the ticket in
+    /// the upgrade's query on the room's socket path, a text and a
+    /// binary frame each way, and each close code the server ends a
+    /// socket with told as it is (4401 sign in again, 4410 the room
+    /// closed, 4000 left, 4429 too many sockets); after the close the
+    /// thread is gone (the server sees its end of the connection close).
+    #[test]
+    fn the_socket_carries_text_and_binary_and_tells_each_close_code() {
+        for code in [4401u16, 4410, 4000, 4429] {
+            let (at, server) = loopback(2, Some(Ok(code)), Duration::from_secs(10));
+            let mut t = opened(at);
+            assert!(t.binary());
+            t.send("hello".into());
+            t.send_binary(vec![1, 2, 3]);
+            let got = events(&mut t, 3);
+            assert_eq!(
+                got,
+                vec![
+                    TransportEvent::Text("echo:hello".into()),
+                    TransportEvent::Binary(vec![3, 2, 1]),
+                    TransportEvent::Closed { code },
+                ],
+                "{code}"
+            );
+            // Closed: nothing more is sent or read, and polling says
+            // nothing.
+            t.send("late".into());
+            assert!(t.poll().is_empty());
+            let saw = server.join().unwrap();
+            assert_eq!(saw.uri, "/ditoditoinfinito/api/sockets/Room000001/ws?ticket=ticket-7");
+            assert_eq!(saw.texts, ["hello"]);
+            assert_eq!(saw.binaries, [vec![1, 2, 3]]);
+            assert!(saw.closed.is_some(), "the client's end closed: {saw:?}");
+        }
+    }
+
+    /// A TCP connection dropped with no close frame is a dropped socket
+    /// (1006), into the link's reconnecting; and an audience seat's
+    /// socket asks its own path.
+    #[test]
+    fn a_dropped_connection_closes_1006_and_an_audience_socket_asks_its_path() {
+        let (at, server) = loopback(1, Some(Err(())), Duration::from_secs(10));
+        let mut t = SocketTransport::audience(Some(format!("http://{at}/api")));
+        t.open(&RoomId::new("Room000001"), "seat-ticket");
+        let began = std::time::Instant::now();
+        while !t.poll().iter().any(|e| matches!(e, TransportEvent::Opened)) {
+            assert!(began.elapsed() < Duration::from_secs(5), "never opened");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        t.send("hello".into());
+        let got = events(&mut t, 2);
+        assert_eq!(got.last(), Some(&TransportEvent::Closed { code: 1006 }), "{got:?}");
+        let saw = server.join().unwrap();
+        assert_eq!(saw.uri, "/api/sockets/Room000001/audience/ws?ticket=seat-ticket");
+    }
+
+    /// The game closing its socket (the room left, the transport
+    /// dropped) sends the close and ends the thread: the server reads
+    /// the close frame, and nothing is told the game after it.
+    #[test]
+    fn the_game_closing_its_socket_tells_the_server() {
+        let (at, server) = loopback(usize::MAX, None, Duration::from_secs(10));
+        let mut t = opened(at);
+        t.send("one".into());
+        assert_eq!(events(&mut t, 1), vec![TransportEvent::Text("echo:one".into())]);
+        t.close();
+        assert!(t.poll().is_empty());
+        let saw = server.join().unwrap();
+        assert_eq!(saw.closed, Some(true), "a close frame: {saw:?}");
+    }
+
+    /// The keepalive: a socket that hears nothing pings after
+    /// [`PING_AFTER`]; a server that is there answers, so the socket is
+    /// still open past [`DEAD_AFTER`] (a quiet room between stages is
+    /// not a dead connection), and a message still crosses it.
+    #[test]
+    fn a_quiet_socket_pings_and_stays_open_while_the_server_answers() {
+        let quiet = DEAD_AFTER + Duration::from_secs(4);
+        let (at, server) = loopback(usize::MAX, None, quiet + Duration::from_secs(10));
+        let mut t = opened(at);
+        let began = std::time::Instant::now();
+        while began.elapsed() < quiet {
+            let got = t.poll();
+            assert!(got.is_empty(), "a quiet socket says nothing: {got:?}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        t.send("still".into());
+        assert_eq!(events(&mut t, 1), vec![TransportEvent::Text("echo:still".into())]);
+        t.close();
+        let saw = server.join().unwrap();
+        assert!(saw.pings >= 1, "pinged while quiet: {saw:?}");
+    }
+
+    /// One HTTP request answered by a listener on 127.0.0.1: the request
+    /// as read (its head and body) and the answer written, `head` after
+    /// the status line.
+    fn http_once(
+        status: &'static str,
+        head: &'static str,
+        body: &'static str,
+    ) -> (std::net::SocketAddr, std::thread::JoinHandle<String>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut read = Vec::new();
+            let mut buf = [0u8; 2048];
+            // The head, then as many bytes as its content-length says.
+            loop {
+                let text = String::from_utf8_lossy(&read).to_string();
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let length = text[..end]
+                        .lines()
+                        .find_map(|l| {
+                            let (k, v) = l.split_once(':')?;
+                            k.eq_ignore_ascii_case("content-length")
+                                .then(|| v.trim().parse::<usize>().ok())?
+                        })
+                        .unwrap_or(0);
+                    if read.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+                match s.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => read.extend_from_slice(&buf[..n]),
+                }
+            }
+            let answer = format!(
+                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n{head}\r\n{body}",
+                body.len()
+            );
+            let _ = s.write_all(answer.as_bytes());
+            String::from_utf8_lossy(&read).to_string()
+        });
+        (at, server)
+    }
+
+    /// The answer to `request` from the HTTP thread, ten seconds at most.
+    fn answered(http: &mut ThreadHttp, request: ApiRequest) -> ApiResponse {
+        http.start(3, request);
+        let began = std::time::Instant::now();
+        loop {
+            if let Some((id, r)) = http.poll().into_iter().next() {
+                assert_eq!(id, 3);
+                return r;
+            }
+            assert!(began.elapsed() < Duration::from_secs(10), "never answered");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// The HTTP thread sends what the server reads (the path under the
+    /// base, the session as `Authorization: Bearer`, a JSON body) and
+    /// reads what it answers: the status, the body, and the session
+    /// signed again in `x-ddi-session` (kept by the caller as the new
+    /// one); a refusal's status and code come through as they are (a
+    /// ticket's `429 too_many_tickets`).
+    #[test]
+    fn the_http_thread_sends_the_session_and_reads_the_one_signed_again() {
+        let (at, server) = http_once("200 OK", "x-ddi-session: signed-again\r\n", r#"{"ticket":"t1"}"#);
+        let mut http = ThreadHttp::with_base(format!("http://{at}/ditoditoinfinito/api/"));
+        let mut request = ddi_ui::state::online::api::ticket("Room000001");
+        request.bearer = Some("my-session".into());
+        let r = answered(&mut http, request);
+        assert_eq!((r.status, r.body.as_str()), (200, r#"{"ticket":"t1"}"#));
+        assert_eq!(r.session.as_deref(), Some("signed-again"));
+        let read = server.join().unwrap();
+        let lower = read.to_ascii_lowercase();
+        assert!(
+            read.starts_with("POST /ditoditoinfinito/api/rooms/Room000001/ticket HTTP/1.1"),
+            "{read}"
+        );
+        assert!(lower.contains("authorization: bearer my-session"), "{read}");
+        assert!(lower.contains("content-type: application/json"), "{read}");
+        assert!(read.ends_with("}") && read.contains(r#""model":"#), "{read}");
+
+        // A sign-in attempt's poll: its own secret, never the session.
+        let (at, server) = http_once("429 Too Many Requests", "", r#"{"error":"too_many_tickets"}"#);
+        let mut http = ThreadHttp::with_base(format!("http://{at}/api"));
+        let mut request = ddi_ui::state::online::api::me();
+        request.bearer = Some("my-session".into());
+        request.poll = Some("poll-secret".into());
+        let r = answered(&mut http, request);
+        assert_eq!((r.status, r.session), (429, None));
+        assert!(r.body.contains("too_many_tickets"), "{}", r.body);
+        let read = server.join().unwrap();
+        assert!(read.starts_with("GET /api/me HTTP/1.1"), "{read}");
+        let lower = read.to_ascii_lowercase();
+        assert!(lower.contains("authorization: poll poll-secret"), "{read}");
+        assert!(!lower.contains("bearer"), "{read}");
+    }
 }
