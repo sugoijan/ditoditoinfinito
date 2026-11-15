@@ -131,7 +131,14 @@ impl Ladder {
         let mine = me.map(|_| field.len() - 1);
         let ranked = order(&field);
         Ladder {
-            place: mine.and_then(|m| ranked.iter().position(|&i| i == m).map(|p| p + 1)),
+            // Ties share a place, as the stage's ranking groups them: one
+            // more than those strictly above.
+            place: me.map(|m| {
+                1 + opponents
+                    .iter()
+                    .filter(|o| above(o, &m) == std::cmp::Ordering::Less)
+                    .count()
+            }),
             of: field.len(),
             still_in: field.iter().filter(|s| !s.out).count(),
             marks: ranked
@@ -396,6 +403,9 @@ mod tests {
         // Equal scores under Adaptive: life breaks the tie.
         let rival = [at(RankBy::Score, 0.4, 500.0)];
         assert_eq!(Ladder::of(&rival, Some(at(RankBy::Score, 1.0, 500.0))).place, Some(1));
+        // Everyone level (the song's start): first, the place shared.
+        let level = [at(RankBy::Score, 1.0, 0.0); 72];
+        assert_eq!(Ladder::of(&level, Some(at(RankBy::Score, 1.0, 0.0))).place, Some(1));
     }
 
     /// Following another competitor shifts every position among the seats
