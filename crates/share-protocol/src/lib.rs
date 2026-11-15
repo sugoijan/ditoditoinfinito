@@ -444,12 +444,20 @@ pub const GRANT_TTL_MS: i64 = 30 * 60 * 1_000;
 pub const GRANT_MAX_SONGS: usize = 1;
 
 impl UploadGrant {
-    /// Whether `share` fits what the grant allows.
+    /// Whether `share` fits what the grant allows: its files, and the
+    /// pack's art where it says it brings one, counted at the most the
+    /// art may be ([`MAX_ART_BYTES`]: its size is known only when it is
+    /// uploaded, after the share is made).
     pub fn allows<R>(&self, share: &NewShare<R>) -> Result<(), &'static str> {
         if share.songs.len() > self.max_songs {
             return Err("more songs than the grant allows");
         }
-        if share.bytes() > self.max_bytes {
+        let art = if share.pack_art {
+            MAX_ART_BYTES as f64
+        } else {
+            0.0
+        };
+        if share.bytes() + art > self.max_bytes {
             return Err("larger than the grant allows");
         }
         Ok(())
@@ -696,6 +704,47 @@ mod tests {
         assert_eq!(strip_base("/ditoditoinfinito/api", base), Some(""));
         assert_eq!(strip_base("/ditoditoinfinito/apis/s", base), None);
         assert_eq!(strip_base("/s", ""), Some("/s"));
+    }
+
+    /// The pack's art is uploaded after the share is made, up to
+    /// [`MAX_ART_BYTES`]: a share that says it brings art is counted with
+    /// that much against the grant, so a client cannot upload more than
+    /// the grant allows by way of the art. Our clients send none under a
+    /// grant (desktop's room upload says `pack_art: false`; the web's
+    /// gathers a room's song with no pack, so no pack's art), and a share
+    /// without art is held to the grant exactly as before.
+    #[test]
+    fn a_grant_counts_the_pack_art_against_its_bytes() {
+        let files = new_share().bytes();
+        let g = UploadGrant {
+            room: "Room000001".into(),
+            player: "twitch:1".into(),
+            stage: 3,
+            content_key: content_key("00ff"),
+            max_bytes: files,
+            max_songs: GRANT_MAX_SONGS,
+            expires_at_ms: 10,
+            grant_id: "g1".into(),
+        };
+        let without = NewShare {
+            pack_art: false,
+            ..new_share()
+        };
+        assert_eq!(g.allows(&without), Ok(()));
+        assert_eq!(g.allows(&new_share()), Err("larger than the grant allows"));
+        let roomy = UploadGrant {
+            max_bytes: files + MAX_ART_BYTES as f64,
+            ..g.clone()
+        };
+        assert_eq!(roomy.allows(&new_share()), Ok(()));
+        let short = UploadGrant {
+            max_bytes: files + MAX_ART_BYTES as f64 - 1.0,
+            ..g
+        };
+        assert_eq!(
+            short.allows(&new_share()),
+            Err("larger than the grant allows")
+        );
     }
 
     #[test]
