@@ -59,12 +59,12 @@ Rust and the browser are implementation details, not advertised features.
   battle's own, nothing judged by it;
   `reading_horizon`, how long a play's notes are shown before they are
   judged); a match's "Charts: Adaptive" (`ladder.rs`, `ADAPTIVE`, which
-  is `ADAPTIVE_V3`: sixteen bars back up to a rung whose life ran out, a
+  is `ADAPTIVE_V4`: sixteen bars back up to a rung whose life ran out, a
   rung closed once life ran out on it twice, `Step::closes`, a step up
-  early after four bars with 95% of their taps in the two best
-  judgments, `Step::early`, or normally after eight with 80% in the
-  three best, `normal_bars`; `adaptive-v0`, `adaptive-v1` and
-  `adaptive-v2` retired; tests and studies
+  early after four bars with 90% of their taps in the three best
+  judgments, `Step::early`, `early_best`, or normally after eight with
+  80% in the three best, `normal_bars`; `adaptive-v0` to `adaptive-v3`
+  retired; tests and studies
   set variants of it, `Player::set_ladder_rule`:
   a song's ladder of easier and harder charts, `ladder::Ladder`,
   `below`, `above`, its rungs numbered from 1, the easier then the
@@ -1238,12 +1238,17 @@ Rust and the browser are implementation details, not advertised features.
   `RoomState::observes`; the one before a member, only `MakeHost`
   leaving them a co-host) or ends (`Event::RoomClosed`,
   `RoomState::closed`, `Rejection::RoomClosed`: its authority closes
-  every socket with 4410); an owner away with nobody connected keeps
+  every socket with 4410; the authority's own `Command::CloseRoom`
+  ends one too, `Closure::ByAdministrator`, the server's operator's
+  "Close this room": the screens say "The room was closed."); an owner
+  away with nobody connected keeps
   the room; `Command::MakeHost` hands it over; a pick nobody holds is
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 10 since 2026-11-15, `adaptive-v3`; 9 since 2026-11-14; round B1, 2 since
+  (`ROOM_MODEL_REVISION`, 11 since 2026-11-15: `adaptive-v4`, a live
+  snapshot's `step`, `Command::CloseRoom`; 10 `adaptive-v3`; 9 since
+  2026-11-14; round B1, 2 since
   `attacks-v2`, 3 adaptive charts, 4 `attacks-v3`, 5 `cpu-levels-v1`,
   6 `adaptive-v1`), checked both ways: a client says its own in the
   join's, ticket's and audience join's `model`, an authority refusing
@@ -1308,9 +1313,16 @@ Rust and the browser are implementation details, not advertised features.
   digest on the content, `SetBattlePlan`), each competitor's moments and
   checkpoint reports (`attacks::Reporter`) in numbered batches gathered
   into one frame a tick (`live/stream.rs`; binary, `live/wire.rs`,
-  `BATCH_V2` and `FRAME_V2`, a step down a moment kind of its own), the
+  `BATCH_V2` and `FRAME_V2`, a step down a moment kind of its own; a
+  stream's end says how, `StreamEnd`: out by life at a time, or left,
+  `forfeit`, which a field marks "Left the stage" and the ladder ranks
+  last, `ddi_session::battle::feed::MomentKind::Left`,
+  `OpponentView::left`), the
   room's side sans-IO (`live/server.rs`, `LiveServer`: the ledger at
   deadlines, the decision as practice makes it, resume and snapshots,
+  a snapshot's `CompetitorStatus::step` saying the chart of the ladder
+  each competitor is on, `StepStatus`, so a field followed from part-way
+  draws it at once, `RemoteSeat::step_status`;
   `LiveDurable` for the server's storage) and the client's in
   `OnlineAuthority` (`live/client.rs`, `LiveLink`); `FakeServer` runs it
   with latency and faults both ways (`Latency`, `OffsetClock`,

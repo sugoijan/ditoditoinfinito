@@ -9875,6 +9875,268 @@ its 16 MB most) against its bytes; the game's clients send none under a
 grant, so nothing they do changes. The panel's Limits table fits at
 1280 and 1024 px (its source column folded under "What a change does").
 
+## Round D1: the maintainer's decisions that change the room model or the server (revision 11, 2026-11-15)
+
+Nine decisions, asked one by one, shipped together as room model
+revision 11 (`ddi_room::ROOM_MODEL_REVISION`), the game and the private
+server (`../ddi-server`).
+
+**The deploy: the server and the frontend together, the server first.**
+A frontend of revision 11 against the older server says "The server is
+being updated. Try again in a moment." until the server follows; a page
+of revision 10 against the new server is told to reload
+(`update_required`) at its next join, or at its next ticket between
+stages. **People in rooms are told to reload**: a room open across the
+deploy shows "Reload to update" the next time its socket is opened
+between stages, and a stage under way finishes first (the server's
+object restarting ends its live part, which then settles on the
+players' reports, as at any deploy). Nothing to bind, migrate or set:
+the new route (`POST /admin/room/<id>/close`), the index's `POST
+/admin/log` and the two new defaults come with the code; with no
+overrides stored every limit is as before but `max_rooms_per_owner` (5,
+no limit before) and `signed_in_joins_per_minute` (30, not counted
+before).
+
+### The early step up is eased (`adaptive-v4`)
+
+- **The rule** (`ddi_engine::ladder::ADAPTIVE_V4`, replacing
+  `adaptive-v3`): the early step up after **four** clean bars (full
+  life, no miss, hold let go or mine or shock stepped on) asks **90% of
+  their taps in the three best judgments** (W0, W1 or W2 under DDI;
+  `AdaptiveRule::early_best`). It asked 95% in the two best, which
+  people almost never reach. The normal step up (eight clean bars, 80%
+  in the three best), the return rule (sixteen bars back to a chart
+  where life ran out) and the closing after two run-outs are unchanged.
+- **Peers must agree**: every device steps the room's CPUs. The online
+  CPUs' fixture (`the_cpus_play_alike`) was recorded again once:
+  scenario 0 (As picked) is byte for byte the same; scenario 1 (the
+  Adaptive one) differs from checkpoint 18 on (its CPUs stepping up
+  early where they stepped up normally, and the powers and attacks that
+  follow). It passes natively and for wasm32-wasip1. The session's
+  pinned stage traces (42 practice cases, 6 live ones) are the same line
+  for line but for a new field of each view (`left: false`), their
+  digests recorded again for that alone.
+- **Tested** (`crates/engine/tests/adaptive.rs`): a play 25 ms late on
+  every note (all W2) steps up early now, and never under v3's two best
+  (`an_early_step_up_needs_nine_in_ten_in_the_three_best_judgments`); a
+  sloppy play (every sixth press 60 ms late, W3, full life kept: 81 to
+  88% of any four or eight bars in the three best) never steps up early
+  and steps up normally after eight bars; not where the normal step up
+  asks 90%; no step up across a miss; back up after sixteen bars and
+  closing after two run-outs by normal steps too; each at 60 and 144 fps
+  and from the log.
+- **Measured** (`adaptive_step_up_study`, as in feedback round H: the
+  thirteen local arcade mixes in place, 1,066 song files, every chart
+  with a ladder from every slot (982 Beginner, 1,040 Easy, 1,040 Medium,
+  1,039 Hard, 298 Challenge picks), ten CPUs one a level, DDI Normal,
+  attacks on, one seed; 161 s, load about 5; MEASUREMENTS OF CPUS
+  AGAINST CPUS; `adaptive-v3`'s column reproduces round H's). By the
+  pick's slot and level, `adaptive-v3` → `adaptive-v4`: steps up a stage
+  (early ones), the share of steps up that fell back within sixteen
+  bars, where it finished one rung down / on the pick / one up / two or
+  more up (%), the first step up's bar (climbed %), and how often it
+  went out of the stage:
+
+| Pick | Level | Ups (early) | Fell back in 16 bars | Finished −1 / 0 / +1 / +2 | First up, bar (climbed) | Out of the stage |
+| --- | --- | --- | --- | --- | --- | --- |
+| Beginner | 1 | 1.03 (0.09) → 1.31 (1.12) | 0% → 0% | 0 / 20 / 57 / 23 → 0 / 11.2 / 48.9 / 39.9 | 39.6 (80%) → 36.5 (88.8%) | 28% → 42.2% |
+| Beginner | 3 | 1.60 (0.75) → 2.20 (2.19) | 0% → 0% | 0 / 4.5 / 36.2 / 59.4 → 0 / 0.6 / 10.7 / 88.7 | 37.5 (95.5%) → 29.9 (99.4%) | 16.3% → 33.6% |
+| Beginner | 5 | 2.26 (1.06) → 2.68 (2.68) | 0% → 0% | 0 / 0.2 / 9.8 / 90 → 0 / 0.1 / 4.2 / 95.7 | 28.5 (99.8%) → 27.4 (99.9%) | 12.2% → 25.5% |
+| Easy | 1 | 0.36 (0.03) → 0.58 (0.50) | 43% → 45.5% | 28.9 / 54.9 / 15.6 / 0.6 → 28 / 49 / 21.1 / 1.9 | 41.2 (34.8%) → 36.7 (54.7%) | 4% → 5% |
+| Easy | 3 | 1.03 (0.21) → 1.47 (1.45) | 17.9% → 23.3% | 3.9 / 32.7 / 53.8 / 9.6 → 3.8 / 26.7 / 42.5 / 27 | 33.4 (85.1%) → 25.6 (94.3%) | 0.5% → 1.7% |
+| Easy | 5 | 1.67 (0.81) → 1.93 (1.90) | 11% → 15.7% | 0.6 / 9.5 / 40.2 / 49.7 → 0.4 / 9.6 / 33.2 / 56.8 | 22.3 (97.1%) → 18.9 (97.6%) | 0.6% → 0.7% |
+| Medium | 1 | 0.03 (0.00) → 0.06 (0.05) | 50% → 54.5% | 53.5 / 15.4 / 0.5 / 0 → 53.9 / 14.4 / 1.7 / 0 | 47.9 (3.1%) → 40.4 (6.3%) | 5.9% → 5.3% |
+| Medium | 3 | 0.34 (0.03) → 0.56 (0.53) | 39.7% → 40.2% | 28.7 / 51.7 / 16.1 / 0.1 → 28.5 / 44.4 / 23.3 / 0.4 | 38.1 (33.4%) → 30.2 (55.2%) | 2.2% → 2.2% |
+| Medium | 5 | 0.93 (0.44) → 1.07 (1.03) | 26.9% → 30.8% | 7.7 / 39.6 / 49.5 / 2.8 → 7.4 / 39 / 48.8 / 4.4 | 23.7 (87%) → 18.1 (94.2%) | 2.1% → 2.2% |
+| Medium | 7 | 1.20 (0.53) → 1.27 (1.23) | 8.3% → 11.4% | 0.4 / 11.9 / 73.1 / 14.6 → 0.4 / 11.6 / 72.8 / 15.2 | 20.2 (99.1%) → 15.8 (99.8%) | 1.3% → 1.5% |
+| Medium | 10 | 1.29 (1.24) → 1.29 (1.29) | 0% → 0% | 0 / 0.1 / 71.6 / 28.3 → 0 / 0.1 / 71.5 / 28.4 | 14.8 (99.9%) → 14.8 (99.9%) | 0.1% → 0.2% |
+| Hard | 5 | 0.12 (0.02) → 0.18 (0.14) | 44.3% → 48.6% | 39.9 / 48 / 3.1 / 0 → 39.7 / 47.3 / 4.1 / 0 | 38.3 (11.5%) → 30 (17.4%) | 1.1% → 1.1% |
+| Hard | 7 | 0.24 (0.07) → 0.28 (0.24) | 20.8% → 28.2% | 13.1 / 72.9 / 13.9 / 0 → 13.9 / 71.5 / 14.5 / 0 | 33.3 (23.2%) → 24.9 (26.8%) | 0.2% → 0.2% |
+| Hard | 10 | 0.29 (0.28) → 0.29 (0.29) | 0.7% → 0.3% | 0 / 72 / 28 / 0 → 0 / 72 / 28 / 0 | 14.2 (28.7%) → 13.8 (28.7%) | 0% → 0% |
+| Challenge | 7 | 0.05 (0.00) → 0.05 (0.00) | 13.3% → 13.3% | 37.2 / 48 / 0 / 0 → 37.2 / 48 / 0 / 0 | 91.4 (4.7%) → 91.4 (4.7%) | 0.3% → 0.3% |
+
+  Beside them (Medium pick, level 5: ups (early), fell back, climbed):
+  v3 0.93 (0.44), 27%, 87%; **v4 1.07 (1.03), 31%, 94%**; 90% in the two
+  best: 0.96 (0.63), 28%, 89%; 95% in the three best: 1.05 (0.99), 31%,
+  93% (it is counting the third judgment that eases it, far more than
+  the share).
+- **What it does to the CPUs**: nearly every step up is early now (the
+  normal one is left for whoever scrapes between 80 and 90%); the first
+  step up comes four to eight bars sooner and more of the weak and
+  middle levels climb (Medium's level 3: 33% → 55% of stages, Easy's
+  level 1: 35% → 55%); a few more steps up fall back within sixteen bars
+  (Medium's level 5: 27% → 31%, Hard's level 7: 21% → 28%); the strong
+  levels are as before. **On Beginner picks the weak and middle levels
+  go out of the stage about twice as often** (level 1: 28% → 42%, level
+  3: 16% → 34%, level 5: 12% → 26%; from Easy up it barely moves): they
+  climb two rungs quickly and what follows takes them out. Not looked
+  into further in this round: worth a look before the rule is called
+  settled (an early step up straight after a step up, four bars into
+  the new chart, is the likely place).
+- **A person** (the maintainer's kept plays read in place, 521 plays not
+  autoplayed, their taps' offsets put on DDI's grid, their own life
+  record, windows of four bars taken as 7 s since a kept play's record
+  has no bar lines: an estimate): a clean full-life stretch of four bars
+  in 483 plays; **the early step up reached in 1 play under v3's rule
+  and in 422 (81%) under v4's**; of 11,986 clean four-bar stretches, 1
+  (0.0%) against 5,315 (44%); the normal step up reached in 422 too;
+  the first qualifying moment about 40 s into the play (median). With
+  four bars taken as 5.3 s or 8 s: 10 or 0 plays under v3, 444 or 413
+  under v4. Over the 17 plays kept under DDI: 0 and 16.
+- **What a player notices**: a clean stretch of four bars steps up even
+  with many W2s; before, four bars needed nearly every step in the two
+  best and most climbs took eight. The Rules pop-up's sentence follows
+  (en; ja an unverified draft): "…after four bars with nearly every step
+  in the three best judgments, or after eight with most of them (…)".
+
+### A competitor who left the stage is ranked last everywhere
+
+A live stream's end already said how it ended (`StreamEnd`: out by life
+at a time, `Forfeit`, the room's `Dropped` and `NoShow`), in a batch, a
+frame, the audience's coalesced frame and a snapshot; what dropped it
+was the device's own field feed, which marked any end as "out" at the
+time the stream had reached, so the large field's ladder placed a quit
+by when it happened. Now the field's mark says they left
+(`feed::MomentKind::Left`, `FieldFeed::left`, `OpponentView::left`):
+the ladder ranks them last, as the stage ranks a forfeit
+(`play_view::large_standings`, `Standing::out_at` `-inf`), and their
+field says "Left the stage" where the player's own says it ("Left"
+where the field is too narrow), never "Out". **No new binary format**:
+`FRAME_V2` and `BATCH_V2` stay (the brief expected a version 3; nothing
+in a frame or a batch had to change, and a snapshot is JSON, read with
+its new field left out: see below). Tested: the session's
+`a_seat_part_way_draws_each_competitor_on_their_chart_and_one_who_left_as_left`
+(fails without it: Carol, who quit, shown `out` and not `left`), the
+shell's `a_field_whose_competitor_left_says_so` and the ladder's order.
+
+### A live snapshot says which chart of the ladder each competitor is on
+
+`CompetitorStatus::step` (`ddi_room::live::StepStatus`: the rung
+stepped to and from, the step's moment and its boundary's tick; left
+out for one who never stepped): kept by the room's live side from each
+stream's step moments (`LiveServer`) and by a relay from the audience's
+frames (`audience::frames::fold`). A field that starts following
+part-way (an audience seat's Watch, a reload, a member handed a running
+stage) takes it (`RemoteSeat::step_status`): the rung stepped from as
+the chart they were on, then the step, pending or past, so the right
+chart is drawn at once; before, they were drawn on the stage's chart
+until their next step. Tested: the same session test (fails without it:
+"Bob on rung 1 when the seat came; his field knows [2]"), the fold's
+unit test, and the room's snapshot in
+`a_live_stage_steps_down_and_the_others_fields_follow`.
+
+### An operator can close a room
+
+- **The model**: the authority's `Command::CloseRoom { reason }`, its
+  event the existing `Event::RoomClosed`, with
+  `Closure::ByAdministrator` beside `HostLeft`; taken in every phase
+  (a stage under way ends with the room, unranked); no member may issue
+  it. The public view says why a room ended (`PublicView::closure`), and
+  a room that ended sends its last view at once, before its seats are
+  closed.
+- **The server**: the panel's room detail has **Close this room**
+  behind the room's name typed (`POST /admin/room/<id>/close {name}`:
+  only an administrator, only from the panel's own origin, only JSON;
+  the room's object checks the name against its own, `409
+  name_mismatch`); the room is ended for everyone as one that ended
+  under its host (sockets and seats 4410, shares deleted), buried behind
+  a tombstone that answers `410 room_closed` and says `admin`, and the
+  log says who closed which room.
+- **The game**: its members' status line and the audience's page (and
+  the words over a stage being watched) say "The room was closed."
+  (`room-closed-by-operator`; ja a draft) where the room's last state or
+  view says an administrator closed it; a room that ended otherwise says
+  "This room has closed." as before.
+
+### A returning member by the watch-only link is held to watching
+
+The server ignored the link for someone who had been a member and left;
+the game's `FakeServer` held them. Both do now, and the model needed
+one thing: `SetWatchOnly { on: true }` (the authority's) also moves a
+member who wants to play to Watch (never the owner), canceling a
+committed start they were in, so "held to watching" is true for one who
+left wanting to play (before, such a member would have been held and
+still seated). Back by the room's own invite, or by a member's link
+with none, their row is as they left it. Tested in the model
+(`a_member_who_left_and_returns_by_the_watch_only_link_is_held_to_watching`)
+and the server.
+
+### Five rooms a person, a signed-in viewer's join guard, own sentences
+
+- `max_rooms_per_owner` defaults to 5 (no limit before; the panel's
+  override 0 is "no limit"); the sixth room is refused `409
+  too_many_rooms`. **It counts the registry's rooms the person owns,
+  dormant ones included**: a room whose host closed the tab without
+  leaving stays theirs until its idle end (a week by default), so
+  someone who hosts a room on five evenings of a week and never leaves
+  one is refused the sixth until the oldest ends. Flagged for the
+  maintainer (see the open questions).
+- A signed-in audience viewer's joins on a relay are bounded as an
+  anonymous network's are: 30 a minute an account
+  (`AudienceRules::signed_in_joins_per_minute`, the same `503
+  audience_busy`, changeable from the panel); its sentence for someone
+  signed in names no network ("You joined this room's audience many
+  times just now. Try again in a moment.").
+- The multiplayer home says why a room could not be made in a sentence
+  (`screens::online_home::create_problem`): "New rooms are paused for
+  now. Try again later." (`new_rooms_paused`), "The server has as many
+  rooms as it can hold right now. Try again later." (`server_busy`),
+  "You already host as many rooms as one person can at once. Close one,
+  or try again later." (`too_many_rooms`); any other reason keeps its
+  code. en; ja drafts.
+
+### Checked on a local server and in the browsers
+
+Against a local `just dev` of the server at revision 11 (its own state
+folder, the development identity provider, a local admin; scripts under
+`target/scratch/mp/d1/`, in the verify skill): the panel answers its
+admin and is the unknown route's 404 for anyone else; one bot's sixth
+room is `409 too_many_rooms`; Close this room is 404 for a member, 403
+from another origin or none, `409 name_mismatch` for a wrong name, and
+with the room's name ends it (both members' sockets told
+`room_closed`, `by_administrator`, then closed; the invite, a ticket and
+a second close `410 room_closed`; the log's line); a room of bots closed
+that way: both bots "the room closed" (the game's own client read the
+close as ended); a member who left, back by the watch-only link:
+`intent: watch`, held; a signed-in viewer's joins: two tickets, 28 `409
+too_many_seats`, the 31st `503 audience_busy`, another account let in;
+three bots through an Adaptive stage on Beatucada's Hard, one stopped
+22 s in: an anonymous audience seat arriving 38 s in got a snapshot
+saying both others on rung 1 (stepped 12 and 13 s in, long before the
+frames a resume replays) and the third's stream ended (`dropped`: it
+left the room with its forfeit), and the room placed it third of three;
+desktop's `tests/online.rs` (2 tests). The panel's button walked in
+headless Chrome (a wrong name, then the room's). A device's ladder was
+not looked at against the server (the bots draw none): the session's and
+the shell's tests cover it. In headless Chrome and Firefox, a practice
+stage on Beatucada's Hard autoplayed 25 ms late steps up to Challenge
+early 23.6 s in (normally, 31 s in, under `adaptive-v3`); the smoke walk
+passes in both. Node's own WebSocket client stays in CLOSING after a
+room's 4410 on the local runtime (the old host-left end too): the close
+frame came, the local runtime does not drop the connection.
+
+### For the audience's page (data only)
+
+The public view already carried what a member's client finds a song's
+banner by: a stage's `share` (the room's share, once available) and
+`chart` (the digest that finds the song in the share's listing, whose
+entry names its `banner`: `SharedFound::banner`, which the seat's client
+gets for every stage it prepares, `AudienceClient` → `Picked`), and the
+song's card at once when it is picked. And everything a member's
+Standings table shows of a settled stage: each starter's place, finish
+and award (`PublicPlay::result`), what each row shows
+(`PublicPlay::details`: score, percent, grade, life or when out, combo,
+the tiers, attacks, the chart finished on), the match's totals and
+places (`standings`), the players' names and kinds, a stage's own rules
+where changed. Added: only `PublicView::closure`. Not in it, as before:
+a starter's raw reported run (a member's table uses it only for a row
+before the stage is settled, or one whose report carried no detail),
+the spotlight, anything a member alone knows.
+`the_view_has_what_a_banner_and_the_standings_need` pins it over the
+room stored by revision 10 (`crates/room/tests/room-revision-10.json`,
+written by revision 10's own reducer, which loads, writes back what it
+read and plays on).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -9885,7 +10147,8 @@ grant, so nothing they do changes. The panel's Limits table fits at
 | What a small field carries (`carry-v0`: score from 16 px, stars from 13, name from 11, combo from 9, scaled with the field since follow-up round F) | `ddi_shell::opponents::Carry`, `Miniature::fit_combo` | 36 at 1280×720 lose the score, 72 also the stars; their combos small as their fields | The steps, by looking |
 | A large field's miniatures under 24 px lanes draw their holds, rolls and mines plainly, as the built-in skin (`plain-notes-v0`, `CARRY_SKIN_NOTES`) | `ddi_shell::opponents::Carry::skin_notes`, `ddi_render::scene::Miniature::plain` | 72 fields cost what taps-only fields do (Firefox's 7.7 ms frames on a hold chart back to 2.3); the small fields' holds lose Infinito's wave material | The size, by looking; whether the exact batching of stencil holds is worth building for rooms of 9 to 24 on large windows |
 | `hosted-deadline-v2` (2026-11-14): a loading grace of 45 s (`LOADING_GRACE_V2_MS`) before the readiness window, which then ends early once everyone who loaded is ready; practice keeps v1 | `ddi_room::ReadinessPolicy`, `reduce.rs` (`window_from`, `end_loading`), the server's `ROOM_LOADING_GRACE_MS` | A slow loader holds the stage up to 45 s, then has the 15 s Ready countdown to finish and ready, else sits it out; rows say Loading | The 45 s; whether a late loader should hold the countdown's early end |
-| `adaptive-v3` (2026-11-15, feedback round H): an early step up exactly as `adaptive-v2`'s (four clean bars, 95% of their taps in the two best judgments), or a normal one after eight clean bars with 80% in the three best (`ADAPTIVE_NORMAL_BARS_V3`, `ADAPTIVE_NORMAL_ACCURACY_V3`, `normal_best` 3); back up to a rung whose life ran out sixteen bars by either's accuracy; closed after two run-outs; `ROOM_MODEL_REVISION` 10 | `ddi_engine::ladder::ADAPTIVE_V3`, `Step::early` | A player who holds full life climbs within a section or two; a CPU at home on its chart climbs (level 5 from Medium in 87% of stages, 58% under v2) and falls back within sixteen bars more often (27% of level 5's steps up, 17%) | Eight bars or ten (ten: level 5 climbs 78%, falls back 24%); 80% in three |
+| `adaptive-v4` (2026-11-15, round D1; replaces `adaptive-v3`): an early step up after four clean bars with 90% of their taps in the three best judgments (`ADAPTIVE_EARLY_ACCURACY_V4`, `early_best` 3; v3 asked 95% in the two best), or a normal one after eight clean bars with 80% in the three best; back up to a rung whose life ran out sixteen bars by either's accuracy; closed after two run-outs; `ROOM_MODEL_REVISION` 11 | `ddi_engine::ladder::ADAPTIVE_V4`, `Step::early` | A clean four bars steps up even with many W2s (reached in about four kept plays in five, in almost none under v3); nearly every step up a CPU makes is early, a few more fall back (level 5 from Medium: 31% of its steps up, 27%), and on Beginner picks the weak levels go out about twice as often | Whether an early step up should wait longer straight after a step up (the Beginner picks' outs); the 90% |
+| `max_rooms_per_owner` 5 (round D1): the rooms one signed-in person owns at once, dormant ones included until their idle end | the server's `limits::ROOMS_PER_OWNER`, `registry::may_create` | The sixth room is refused with a sentence; a host who never leaves their rooms is refused for up to a week | Whether only rooms someone is connected to (or made in the last day) should count, or a new room should end the owner's oldest dormant one |
 | RETIRED 2026-11-15 (by `adaptive-v3`, whose early step up it is): `adaptive-v2` (2026-11-14): a step up also needs 95% of its bars' taps in the two best judgments (`ADAPTIVE_ACCURACY_V2`); a step down's boundary without the extra second (`down_lead` 0) | `ddi_engine::ladder::ADAPTIVE_V2` | Weak players and CPUs stay on their chart unless they play it cleanly; a step down's easier chart comes a bar sooner | The 95%; whether the step up's own second should go too |
 | Opponents' fields default "As many as fit" | `Settings::opponent_fields` | About +0.85 ms main thread (Firefox) and +0.8 ms GPU at 2560×1440 with 72 | Whether the default should follow the room's size or the measured frame time |
 | Dancing hand in multiplayer Off by default | `Settings::dancing_hand_multiplayer` | No hand in a stage unless turned on | None (the maintainer's request) |
@@ -10030,6 +10293,20 @@ grant, so nothing they do changes. The panel's Limits table fits at
 | The standings' attack columns take the combo's place; the summary flows under the lines | `screens::results_stage` (`columns`, `summary_lines`) | With attacks the stage's standings have no max combo | Which column should give way (the combo, the place in the match, the judgments' strip) |
 
 ## Open questions
+
+- Round D1 (2026-11-15): (1) five rooms a person counts dormant rooms
+  (a host who closed the tab without leaving keeps the room for its idle
+  week): should only rooms with someone connected count, or rooms made
+  in the last day, or should a sixth room end the owner's oldest dormant
+  one? (2) under `adaptive-v4` the weak CPU levels go out of Beginner
+  picks about twice as often (they climb two rungs early): should an
+  early step up wait longer straight after a step up? (3) the audience's
+  page: a seat that joins between stages gets the next song's banner
+  only once the song is picked and shared (the spotlight is not in the
+  public view, by design); is that enough? (4) a room closed by the
+  operator answers later arrivals "This room has closed." as any ended
+  room (the tombstone's 410 says no reason); should the invite's page
+  say "The room was closed." too?
 
 - CPUs play the full chart (`cpu-play-v1`, 2026-11-14): the holds'
   bodies on many miniatures cost GPU time (natively about +4.5 ms with

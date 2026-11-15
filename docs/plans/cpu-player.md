@@ -706,7 +706,7 @@ miniatures costs GPU time (72 of them on a chart of 34 holds: about 4.5
 ms a frame more natively): `docs/plans/multiplayer-prototype-progress.md`,
 "CPUs play the full chart", "Cost".
 
-### Adaptive charts under `adaptive-v3`
+### Adaptive charts under `adaptive-v3` and `adaptive-v4`
 
 A CPU steps by the stage's rule, as a person does (its play is a
 `Player`). Under `adaptive-v2` (follow-up round F) a step up needed 95%
@@ -721,6 +721,16 @@ CPU at full life is nearly always above that floor (eight bars with no
 floor measured the same); the floor is for people, whose spread is
 wider. The tables: `docs/plans/multiplayer-prototype-progress.md`,
 "Feedback round H".
+
+Since round D1 (`ddi_engine::ladder::ADAPTIVE_V4`, room model revision
+11) the early step up asks 90% of its four bars' taps in the three best
+judgments (95% in the two best before): nearly every step up a CPU
+makes is early now, the first one four to eight bars sooner (from a
+Medium pick level 3 climbs in 55% of stages, level 5 in 94%, its first
+step up about bar 18), a few more of them falling back within sixteen
+bars (level 5: 31%, 27% before), and on Beginner picks the weak levels
+go out of the stage about twice as often. The tables: the same note,
+"Round D1".
 
 ## Evasion: a CPU against a battle's shocks
 
