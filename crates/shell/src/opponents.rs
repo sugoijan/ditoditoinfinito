@@ -3763,11 +3763,11 @@ pub(crate) mod tests {
             got.push((name, fnv(&ddi_ui::testing::rounded(&drawn))));
         }
         let want: [(&str, u64); 6] = [
-            ("8-1280x720@1", 0x69daf82a34040bd6),
-            ("3-844x390@3", 0x94a0944502129d1f),
-            ("8-390x844@3", 0x6ab6706f0c5a770c),
-            ("24-1280x720@1", 0xe04b8e43a55e529f),
-            ("72-1920x1080@1", 0x30492d34e7375935),
+            ("8-1280x720@1", 0x6870f9babf29f2fe),
+            ("3-844x390@3", 0xf595570eddf7313f),
+            ("8-390x844@3", 0xaeb47b12d28c2388),
+            ("24-1280x720@1", 0xeb7c929dada8103f),
+            ("72-1920x1080@1", 0x3309c9c262379e68),
             ("12-1280x720@1-grid", 0x0912e86416b4c2ba),
         ];
         let got_: Vec<(&str, u64)> = got.iter().map(|(n, h)| (n.as_str(), *h)).collect();

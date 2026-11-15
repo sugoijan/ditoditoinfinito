@@ -860,22 +860,25 @@ const OTHER_EDGE: f32 = 1.3;
 /// A miniature's ends for a line traveling `toward` it (1) or away
 /// from it (-1), `out` the way from the field to it (1 to the right):
 /// its edge at `x` from its power bar's height down, the line going the
-/// way `out` (toward) or against it; and its top edge from that side's
-/// corner on, where its bar is, the line coming down onto it or leaving
-/// upward. A `gap` apart, as far as its band goes.
+/// way `out` (toward) or against it; and its top edge from its middle
+/// outward, where its bar is, the line coming down onto it or leaving
+/// upward (a sweep under the miniatures beside it rather than an S
+/// squeezed into the gap before it). A `gap` apart, as far as its band
+/// goes.
 fn mini_ends(slot: &Slot, x: f32, out: f32, toward: f32, span: f32, gap: f32, most: usize) -> [End; 2] {
     let (mini, _) = ddi_render::scene::miniature_power_and_life(&slot.field, slot.panel, span);
     let y = mini[1] + mini[3] / 2.0;
     let down = ((slot.panel[3] - y) / gap - 1.0).max(0.0) as usize;
-    let across = ((slot.panel[2] - slot.panel[0]) / gap - 2.0).max(0.0) as usize;
+    let across = ((slot.panel[2] - slot.panel[0]) / 2.0 / gap - 1.0).max(0.0) as usize;
+    let middle = (slot.panel[0] + slot.panel[2]) / 2.0;
     [
         End::along([x, y], [0.0, gap], 0, down, most, [out * toward, 0.0]),
         End {
             weight: OTHER_EDGE,
             ..End::along(
-                [x + out * gap, slot.panel[1]],
-                [out * gap, 0.0],
-                0,
+                [middle, slot.panel[1]],
+                [gap, 0.0],
+                across,
                 across,
                 most,
                 [0.0, toward],
