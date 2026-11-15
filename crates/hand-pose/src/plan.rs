@@ -310,9 +310,11 @@ impl Plan {
         }
         serde_json::from_slice::<Self>(bytes)
             .map_err(|e| e.to_string())?
-            .validated()
+            .validated(3600.)
     }
-    /// A plan from its parts, checked as [`Self::load`] checks one.
+    /// A plan from its parts, checked as [`Self::load`] checks one, but
+    /// for a file's limit of an hour: a rolling plan of a live play runs
+    /// as long as its song.
     pub fn new(parts: PlanParts) -> Result<Self, String> {
         let PlanParts {
             version,
@@ -338,10 +340,11 @@ impl Plan {
             roll_pulses,
             ..Self::empty(duration)
         }
-        .validated()
+        .validated(f64::INFINITY)
     }
     /// Check a plan read or made, and derive what it keeps beside its parts.
-    fn validated(mut self) -> Result<Self, String> {
+    /// `longest` is the duration allowed (seconds).
+    fn validated(mut self, longest: f64) -> Result<Self, String> {
         let p = &mut self;
         match (p.version, p.mat) {
             (1, None)
@@ -364,7 +367,7 @@ impl Plan {
         let placement = &p.placement;
         if !p.duration.is_finite()
             || p.duration <= 0.
-            || p.duration > 3600.
+            || p.duration > longest
             || ![
                 placement.tile_pitch_mm,
                 placement.panel_anchor_mm,
@@ -1293,6 +1296,41 @@ mod tests {
         }
         p.rebuild_edges();
         p
+    }
+    /// A rolling plan of a live play may run past an hour (its song's
+    /// length); a plan file may not, and nothing else is let through.
+    #[test]
+    fn a_plan_made_runs_past_an_hour_and_a_plan_file_does_not() {
+        let parts = |duration: f64| PlanParts {
+            version: 1,
+            mat: None,
+            layout: String::new(),
+            duration,
+            initial: Initial { left: 4, right: 6 },
+            tracks: Tracks {
+                left: vec![flight(3600.2, 3600.6, 4, 2)],
+                right: Vec::new(),
+            },
+            placement: Placement::default(),
+            events: Vec::new(),
+            mines: Vec::new(),
+            roll_pulses: Vec::new(),
+        };
+        let plan = Plan::new(parts(3601.)).unwrap();
+        assert_eq!(plan.duration, 3601.);
+        for bad in [0., -1., f64::NAN, f64::INFINITY] {
+            assert_eq!(Plan::new(parts(bad)).err().unwrap(), "plan limits");
+        }
+        let file = |duration: f64| {
+            format!(
+                r#"{{"duration":{duration},"initial":{{"L":4,"R":6}},"tracks":{{"L":[],"R":[]}},"placement":{{"tile_pitch_mm":24,"panel_anchor_mm":15,"center_offset_mm":9,"other_offset_mm":5.5}},"events":[]}}"#
+            )
+        };
+        assert!(Plan::load(file(3600.).as_bytes()).is_ok());
+        assert_eq!(
+            Plan::load(file(3601.).as_bytes()).err().unwrap(),
+            "plan limits"
+        );
     }
     #[test]
     fn shared_spots_follow_the_approach_and_mirror_inside_the_same_tile() {

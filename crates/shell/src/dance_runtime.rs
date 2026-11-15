@@ -50,7 +50,13 @@ const COARSE_CLOCK: f64 = 0.000_25;
 /// moves each stage's cost in proportion to its part of what was
 /// expected (`cost *= 1 + LEARN · (measured − expected) / expected`):
 /// linear in the measurement, so a coarse clock's readings average out
-/// over frames.
+/// over frames. A clock whose step is longer than the work expected reads
+/// 0 nearly always and a whole step now and then, and one such frame
+/// moves the costs less by as much as the step is longer
+/// (`LEARN · expected / step`): at the full rate the many zeros took a
+/// twentieth off each time and the rare step, held to doubling, could
+/// not make up for them, so the costs sank and the frames ran several
+/// times past their bound.
 #[derive(Clone, Debug, Default)]
 struct Costs {
     stages: Vec<(&'static str, f64)>,
@@ -65,13 +71,15 @@ impl Costs {
     }
 
     /// A frame did `counts` checkpoints of each stage and measured
-    /// `measured` seconds for all of its work.
-    fn learn(&mut self, counts: &[(&'static str, u32)], measured: f64) {
+    /// `measured` seconds for all of its work, on a clock whose smallest
+    /// step seen is `resolution` seconds (infinite before any was).
+    fn learn(&mut self, counts: &[(&'static str, u32)], measured: f64, resolution: f64) {
         let expected: f64 = counts.iter().map(|(s, n)| self.of(s) * f64::from(*n)).sum();
         if !(measured.is_finite() && measured >= 0. && expected > 0.) {
             return;
         }
-        let factor = (1. + LEARN * (measured - expected) / expected).clamp(0.5, 2.);
+        let learn = LEARN * (expected / resolution).min(1.);
+        let factor = (1. + learn * (measured - expected) / expected).clamp(0.5, 2.);
         for (stage, _) in counts {
             let cost = (self.of(stage) * factor).clamp(COST_RANGE[0], COST_RANGE[1]);
             match self.stages.iter_mut().find(|(s, _)| s == stage) {
@@ -488,7 +496,7 @@ impl RuntimePreview {
             }
             let elapsed = clock() - start;
             if elapsed.is_finite() {
-                self.costs.learn(&counts, elapsed);
+                self.costs.learn(&counts, elapsed, self.resolution);
                 self.expected_ms = expected * 1000.;
                 self.work_ms = elapsed.max(0.) * 1000.;
                 self.peak_work_ms = self.peak_work_ms.max(self.work_ms);
@@ -1007,6 +1015,172 @@ mod tests {
             assert!(worst < 0.000_25, "{share}: {} ms past", worst * 1000.);
             assert!(over * 50 < frames as usize, "{share}: {over} of {frames}");
         }
+    }
+
+    /// A song longer than an hour, at the planner alone (its clock may
+    /// jump ahead over an empty field, a play's may not): every plan it
+    /// publishes around and past the hour is a plan the motion takes.
+    #[test]
+    fn the_planner_publishes_plans_past_the_first_hour() {
+        let song = ordinary_song(-3594.);
+        let player = ordinary_player(&song, ddi_engine::Turn::Off);
+        let mut r = RuntimePreview::for_player(&player, "dance-single").unwrap();
+        let (mut published, mut longest) = (0, 0f64);
+        let mut now = 0.;
+        while now < r.duration {
+            r.receive(now);
+            assert!(r.error.is_none(), "at {now}: {:?}", r.error);
+            for _ in 0..1_000_000 {
+                if r.planner.stage() == "idle" {
+                    break;
+                }
+                r.planner.step();
+            }
+            assert!(r.planner.report.failure.is_none(), "at {now}");
+            if let Some(publication) = r.planner.take_publication() {
+                let plan = publication.plan.pose_plan();
+                assert!(plan.is_ok(), "at {now}: {:?}", plan.err());
+                published += 1;
+                longest = longest.max(plan.unwrap().duration);
+            }
+            now = if now < 3590. { 3590. } else { now + 0.25 };
+        }
+        assert!(published > 20 && longest > 3600., "{published} {longest}");
+        assert_eq!(r.cursor, r.source.len());
+    }
+
+    /// A song longer than an hour: the hand plays on past it. A rolling
+    /// publication's plan runs to what the planner knows of the song,
+    /// which no plan file's limit of an hour holds (the hand used to fade
+    /// out three seconds before the hour, "plan limits"). The chart's
+    /// notes sit around the hour, the frames before them 8 a second
+    /// over an empty field. Run by hand: an hour of an idle hand's motion
+    /// takes about a minute to prepare unoptimized.
+    #[test]
+    #[ignore = "slow: an hour of the hand's motion"]
+    fn the_hand_plays_on_past_the_first_hour() {
+        let song = ordinary_song(-3594.);
+        let player = ordinary_player(&song, ddi_engine::Turn::Off);
+        assert!(player.song_end_time() > 3600.5);
+        let mut r = RuntimePreview::for_player(&player, "dance-single").unwrap();
+        let ticks = Cell::new(0.);
+        let clock = || {
+            let t = ticks.get();
+            ticks.set(t + 0.000_000_5);
+            t
+        };
+        for _ in 0..200_000 {
+            r.prepare(-1., &clock);
+            if r.available || r.failure().is_some() {
+                break;
+            }
+        }
+        assert!(r.available, "{}", r.debug());
+        r.start_preloaded();
+        let mut t = 0.;
+        while t < player.song_end_time() + 1. {
+            r.prepare(t - r.origin, &clock);
+            assert!(r.failure().is_none(), "at {t}: {}", r.debug());
+            assert!(r.available, "at {t}: {}", r.debug());
+            t += if t < 3585. { 1. / 8. } else { 1. / 120. };
+        }
+        assert_eq!(r.starved_frames, 0);
+        assert!(r.plan.as_ref().unwrap().duration > 3600.);
+    }
+
+    /// A mine in a held lane, then a jump while the hold still runs: the
+    /// hand's copy of the chart (cut once, whole) keeps both of the
+    /// jump's taps, since StepMania's cut counts a lane as held only
+    /// while the hold is the lane's latest note, and the planner's cut of
+    /// each push has to see the same (it used to count the hold still,
+    /// take a tap out and stop the hand: "planned input differs from the
+    /// chart gameplay judges").
+    #[test]
+    fn a_mine_in_a_held_lane_before_a_jump_cuts_alike_in_every_push() {
+        let song = ddi_chart::formats::sm::parse_sm(
+            "#TITLE:Mine in a hold;#OFFSET:0;#BPMS:0=120;#NOTES:dance-single::Medium:5:0,0,0,0,0:\n2000\n0000\n0000\n0000,\n0000\n0000\n0000\n0000,\n0000\n0000\nM000\n0000,\n0000\n0000\n0000\n0110,\n0000\n0000\n0000\n0000,\n3000\n0000\n0000\n0001;",
+        )
+        .unwrap();
+        let player = ordinary_player(&song, ddi_engine::Turn::Off);
+        let mut r = RuntimePreview::for_player(&player, "dance-single").unwrap();
+        // The whole-chart cut kept every note.
+        assert_eq!(r.source.len(), 5);
+        let ticks = Cell::new(0.);
+        let clock = || {
+            let t = ticks.get();
+            ticks.set(t + 0.000_000_5);
+            t
+        };
+        for _ in 0..200_000 {
+            r.prepare(-1., &clock);
+            if r.available || r.failure().is_some() {
+                break;
+            }
+        }
+        assert!(r.available, "{}", r.debug());
+        r.start_preloaded();
+        let frames = (player.song_end_time() * 120.).ceil() as i32;
+        for frame in 0..=frames {
+            r.prepare(f64::from(frame) / 120. - r.origin, &clock);
+            assert!(r.failure().is_none(), "at frame {frame}: {}", r.debug());
+            assert!(r.available, "at frame {frame}: {}", r.debug());
+        }
+        assert_eq!(r.planner.report.removed, 0);
+        assert_eq!(r.planner.report.received, 5);
+    }
+
+    /// On a clock that only moves every 100 ms (a browser with its timer's
+    /// precision much reduced) a frame's work reads 0 nearly always and
+    /// 100 ms now and then. The costs learnt from such readings stay
+    /// about what the work costs, so the work counted keeps a frame near
+    /// its bound: each checkpoint costs 4 µs of the test's own time, and
+    /// over the dense chart no frame works more than half again its
+    /// bound (the costs used to sink to their floor, a twentieth of the
+    /// truth, and a frame with work to do took 20 ms against a bound of
+    /// 1 ms).
+    #[test]
+    fn the_bound_holds_on_a_clock_of_a_tenth_of_a_second() {
+        let (song, chart) = dense_chart();
+        let player = ddi_engine::player::Player::new(
+            &song,
+            chart,
+            ddi_engine::rules::ddi::ruleset(&ddi_engine::rules::ddi::DdiOptions::default()),
+            Default::default(),
+        );
+        let mut r = RuntimePreview::for_player(&player, "dance-single").unwrap();
+        let truth = Cell::new(0f64);
+        let clock = || {
+            let t = truth.get();
+            truth.set(t + 0.000_004);
+            (t * 10.).floor() / 10.
+        };
+        // A frame every 1/120 s of the clock's own time, whatever its work.
+        let frame_ends = |n: i32| truth.set(truth.get().max(f64::from(n) / 120.));
+        let mut n = 0;
+        for _ in 0..20_000 {
+            r.prepare(-1., &clock);
+            n += 1;
+            frame_ends(n);
+            if r.available || r.failure().is_some() {
+                break;
+            }
+        }
+        assert!(r.available, "{}", r.debug());
+        r.start_preloaded();
+        let mut worst = 0f64;
+        let frames = (player.song_end_time() * 120.).ceil() as i32;
+        for frame in 0..=frames {
+            let before = truth.get();
+            r.prepare(f64::from(frame) / 120. - r.origin, &clock);
+            assert!(r.failure().is_none(), "at {frame}: {}", r.debug());
+            if frame >= 2000 {
+                let (spent, bound) = (truth.get() - before, r.bound_ms / 1000.);
+                worst = worst.max(spent / bound);
+            }
+            n += 1;
+            frame_ends(n);
+        }
+        assert!(worst < 1.5, "a frame worked {worst} times its bound");
     }
 
     /// A stage's play stepping down its ladder (a match's "At zero life:

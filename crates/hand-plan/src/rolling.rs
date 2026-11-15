@@ -179,13 +179,24 @@ impl RollingPlanner {
             .last()
             .map_or(self.last_raw_time, |n| self.input.timing.seconds_at(n.tick));
         self.last_raw_tick = raw.last().map(|n| n.tick.0).or(self.last_raw_tick);
+        let running = |n: &Note| {
+            n.kind
+                .hold_end()
+                .is_some_and(|e| self.last_raw_tick.is_none_or(|t| e.0 >= t))
+        };
+        // With each running hold, its lane's later notes (a mine inside
+        // it): the whole-chart cut counts a lane as held only while the
+        // hold is the lane's latest note, and the next push's cut has to
+        // see the same.
         self.raw_holds = effective
-            .into_iter()
+            .iter()
             .filter(|n| {
-                n.kind
-                    .hold_end()
-                    .is_some_and(|e| self.last_raw_tick.is_none_or(|t| e.0 >= t))
+                running(n)
+                    || effective
+                        .iter()
+                        .any(|h| h.lane == n.lane && h.tick < n.tick && running(h))
             })
+            .cloned()
             .collect();
         Ok(())
     }

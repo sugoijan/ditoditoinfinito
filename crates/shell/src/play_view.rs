@@ -1545,7 +1545,8 @@ impl<H: PlayHost> PlayView<H> {
         let hand_time = session
             .hand_rests_at()
             .map_or(frame.song_time, |at| frame.song_time.min(at));
-        // A step down: the hand plays the new chart from its boundary.
+        // A step to another chart: the hand plays out what it was given
+        // and rests to the end of the stage.
         self.dance.follow_steps(&session.player);
         self.dance.before_field(
             device,
