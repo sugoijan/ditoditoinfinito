@@ -1237,7 +1237,7 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 9 since 2026-11-14; round B1, 2 since
+  (`ROOM_MODEL_REVISION`, 10 since 2026-11-15, `adaptive-v3`; 9 since 2026-11-14; round B1, 2 since
   `attacks-v2`, 3 adaptive charts, 4 `attacks-v3`, 5 `cpu-levels-v1`,
   6 `adaptive-v1`), checked both ways: a client says its own in the
   join's, ticket's and audience join's `model`, an authority refusing
