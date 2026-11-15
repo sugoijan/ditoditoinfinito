@@ -105,7 +105,7 @@ fn shoot(rig: &mut common::rig::Rig, name: &str, links: Vec<StagedLink>) {
     let drawn = rig.host.attack_links();
     let lines = drawn.iter().filter(|l| l.path.len() >= 2).count();
     eprintln!("picture {name}: {asked} links asked, {} shown, {lines} with a line", drawn.len());
-    let size = rig.target.size;
+    let size = rig.draws.size;
     common::shot(&format!("{name}.png"), &rig.read(), size);
 }
 
