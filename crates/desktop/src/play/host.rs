@@ -1133,15 +1133,11 @@ impl Host {
 
     /// The prompt's quiet suggestion to calibrate (`PromptInfo::timing`,
     /// `docs/plans/quiet-calibration.md`; the web's `timing_hint`): none
-    /// on a test, a replay or an autoplay; else what the kept plays on
-    /// the devices say and whether both are calibrated, in a line.
+    /// where the play's purpose has none (`Purpose::shows_timing_hint`);
+    /// else what the kept plays on the devices say and whether both are
+    /// calibrated, in a line.
     fn timing_hint(&self, request: &Request) -> Option<String> {
-        if request.calibration.is_some()
-            || request.replay.is_some()
-            || request.auto
-            || request.scene.is_some()
-            || request.stage.is_some()
-        {
+        if !request.purpose().shows_timing_hint(request.auto) {
             return None;
         }
         // The devices watched.

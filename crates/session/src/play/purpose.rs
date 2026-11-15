@@ -1,8 +1,9 @@
 //! What a play is for, decided once from the facts both shells have (a
 //! replay, calibration, the chart editor's playtest, an announcer studio
 //! scene, the solo CPU, a room's stage), and what follows from it: whether
-//! the play is kept in the history, gets its best play's ghost, and gives
-//! the announcer what the history says before it (`Prior`).
+//! the play is kept in the history, gets its best play's ghost, gives
+//! the announcer what the history says before it (`Prior`), and has the
+//! start prompt's timing hint.
 
 /// What a play is for. Each flag a fact a shell knows before the play
 /// starts; none set is a song played for itself.
@@ -47,6 +48,15 @@ impl Purpose {
     pub fn has_prior(self) -> bool {
         self.keeps()
     }
+
+    /// Whether the start prompt's quiet line suggests calibrating or not
+    /// (`screens::prompt::timing_hint`, `docs/plans/quiet-calibration.md`),
+    /// the play autoplayed where `auto`: never on a calibration test, a
+    /// replay, an announcer studio scene or a room's stage, nor under
+    /// autoplay (nobody's timing is played there).
+    pub fn shows_timing_hint(self, auto: bool) -> bool {
+        !(self.calibration || self.replay || self.scene || self.stage || auto)
+    }
 }
 
 #[cfg(test)]
@@ -60,22 +70,25 @@ mod tests {
     #[test]
     fn each_purpose_keeps_ghosts_and_tells_as_the_shells_decided() {
         let p = Purpose::default();
-        // (name, purpose, keeps, ghost, prior)
+        // (name, purpose, keeps, ghost, prior, timing hint)
         let table = [
-            ("a song", p, true, true, true),
-            ("a replay", Purpose { replay: true, ..p }, false, false, false),
-            ("calibration", Purpose { calibration: true, ..p }, false, false, false),
-            ("a playtest", Purpose { playtest: true, ..p }, false, false, false),
-            ("a scene", Purpose { scene: true, ..p }, false, false, false),
-            ("the solo CPU", Purpose { cpu: true, ..p }, false, false, false),
-            ("a stage", Purpose { stage: true, ..p }, false, false, false),
+            ("a song", p, true, true, true, true),
+            ("a replay", Purpose { replay: true, ..p }, false, false, false, false),
+            ("calibration", Purpose { calibration: true, ..p }, false, false, false, false),
+            ("a playtest", Purpose { playtest: true, ..p }, false, false, false, true),
+            ("a scene", Purpose { scene: true, ..p }, false, false, false, false),
+            ("the solo CPU", Purpose { cpu: true, ..p }, false, false, false, true),
+            ("a stage", Purpose { stage: true, ..p }, false, false, false, false),
             // A watched stage is a stage (its order says it is watched).
-            ("a watched stage", Purpose { stage: true, ..p }, false, false, false),
+            ("a watched stage", Purpose { stage: true, ..p }, false, false, false, false),
         ];
-        for (name, purpose, keeps, ghost, prior) in table {
+        for (name, purpose, keeps, ghost, prior, hint) in table {
             assert_eq!(purpose.keeps(), keeps, "{name} kept");
             assert_eq!(purpose.has_ghost(), ghost, "{name} ghost");
             assert_eq!(purpose.has_prior(), prior, "{name} prior");
+            assert_eq!(purpose.shows_timing_hint(false), hint, "{name} timing hint");
+            // Autoplayed, none says anything of the player's timing.
+            assert!(!purpose.shows_timing_hint(true), "{name} autoplayed");
         }
     }
 }

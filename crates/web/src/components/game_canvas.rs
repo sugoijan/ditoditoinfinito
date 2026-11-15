@@ -2740,11 +2740,12 @@ impl GameCanvas {
     }
 
     /// The prompt's quiet suggestion to calibrate (`PromptInfo::timing`,
-    /// `docs/plans/quiet-calibration.md`): none on a replay or an
-    /// autoplay; else what the kept plays on the devices say
+    /// `docs/plans/quiet-calibration.md`): none where the play's purpose
+    /// has none (`Purpose::shows_timing_hint`: a test, a replay, a scene,
+    /// a stage, an autoplay); else what the kept plays on the devices say
     /// (`timing_verdict`) and whether both are calibrated, in a line.
     fn timing_hint(&self, ctx: &Context<Self>) -> Option<String> {
-        if self.replay.is_some() || ctx.props().auto {
+        if !self.purpose(ctx).shows_timing_hint(ctx.props().auto) {
             return None;
         }
         // The devices probed (after Start's context on a direct route).
