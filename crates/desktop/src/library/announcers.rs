@@ -450,8 +450,8 @@ mod tests {
         assert_eq!(names, ["Mr. Clank", "ガキンさん"]);
         for a in &found {
             assert!(a.key().starts_with("bundled:"));
-            // Every line the game speaks, the battle's sixteen among them.
-            assert_eq!(a.kept.lines.len(), 66, "{}", a.kept.name);
+            // Every line the game speaks, the battle's eighteen among them.
+            assert_eq!(a.kept.lines.len(), 68, "{}", a.kept.name);
             for b in announcer::Battle::ALL {
                 let line = announcer::Line::Battle(b);
                 assert_eq!(
