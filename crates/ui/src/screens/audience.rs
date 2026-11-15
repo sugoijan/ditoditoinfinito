@@ -535,6 +535,10 @@ pub struct AudienceScreen {
     published: Option<Published>,
     /// Watch was offered when last laid out (it is focused as it comes).
     offered: bool,
+    /// What is focused, as the screen was last told, and whether the
+    /// footer says Enter watches the stage.
+    focused: Option<String>,
+    hinted_watch: bool,
     time: f64,
     /// The rain's clock (the screens' wall clock; still under reduced
     /// motion) and whether it moves.
@@ -565,6 +569,8 @@ impl AudienceScreen {
             seconds: None,
             published: None,
             offered: false,
+            focused: None,
+            hinted_watch: false,
             time: 0.0,
             rain_time: 0.0,
             rain_animating: false,
@@ -904,24 +910,23 @@ impl AudienceScreen {
         crate::look::call(&mut card, "xy", &[(sw - card_w * zoom) / 2.0, top.max(8.0)]);
         let mut all = vec![super::ground(&env, self.screen), self.backdrop(cx), card];
         if !touch {
+            // Each key's own action, once: Enter the focused button's
+            // (Watch, while it is offered and focused, as it is first),
+            // Esc Stop watching; never Stop watching twice (Enter on its
+            // button is the button's own label).
             let (watch, leave) = (m::audience_watch_stage(), m::audience_leave());
-            let first = if self.buttons.first() == Some(&WATCH_BUTTON) {
-                watch.as_str()
-            } else {
-                leave.as_str()
-            };
-            all.push(footer(
-                &env,
-                self.screen,
-                &[(&["ENTER"], first), (&["ESC"], leave.as_str())],
-                &[
-                    (&[HintAction::Confirm, HintAction::Start], first),
-                    (&[HintAction::Back], leave.as_str()),
-                ],
-                "",
-                &[],
-                cx,
-            ));
+            let offered = self.buttons.first() == Some(&WATCH_BUTTON);
+            let on_watch = offered && self.focused.as_deref().is_none_or(|f| f == WATCH_BUTTON);
+            let mut keys: Vec<(&[&str], &str)> = Vec::new();
+            let mut pads: Vec<(&[HintAction], &str)> = Vec::new();
+            if on_watch {
+                keys.push((&["ENTER"], watch.as_str()));
+                pads.push((&[HintAction::Confirm, HintAction::Start], watch.as_str()));
+            }
+            keys.push((&["ESC"], leave.as_str()));
+            pads.push((&[HintAction::Back], leave.as_str()));
+            self.hinted_watch = on_watch;
+            all.push(footer(&env, self.screen, &keys, &pads, "", &[], cx));
         }
         let mut root = ddi_actor::Actor::new(ddi_actor::Kind::Frame(all));
         super::transitions(&mut root, &env, &[("Audience", super::Edge::None)]);
@@ -1008,18 +1013,22 @@ impl AudienceScreen {
 
     /// The part shown scrolled by `by` lines (`pages`: by so many of
     /// its pages), where its lines do not all fit.
-    fn scroll(&mut self, by: i32, pages: i32, root: &mut Actor, cx: &mut Cx) {
-        if self.part == Part::Standings && self.tabs {
+    /// Whether it moved.
+    fn scroll(&mut self, by: i32, pages: i32, root: &mut Actor, cx: &mut Cx) -> bool {
+        let moved = if self.part == Part::Standings && self.tabs {
             let (shown, n, _) = self.table_shown;
             let by = by + pages * shown.max(1) as i32;
-            self.table_first = super::scrolled(self.table_first, by, n, shown);
+            let to = super::scrolled(self.table_first, by, n, shown);
+            std::mem::replace(&mut self.table_first, to) != to
         } else {
             let (n, shown, per) = self.shown;
             let by = by + pages * per.max(1) as i32;
-            self.first = super::scrolled(self.first, by, n, shown);
-        }
+            let to = super::scrolled(self.first, by, n, shown);
+            std::mem::replace(&mut self.first, to) != to
+        };
         self.rebuild(root, cx);
         self.env_publish();
+        moved
     }
 
     /// The part beside the lines changes (a tab, the shoulders).
@@ -1193,6 +1202,29 @@ impl crate::screen::Screen for AudienceScreen {
                 self.scroll(0, if down { 1 } else { -1 }, root, cx);
                 Handled::Yes
             }
+            // Up and Down scroll the part shown a line (a controller's
+            // D-pad and stick, as the keys: the page has no other way to
+            // scroll with one), as a pop-up's rows scroll for someone with
+            // no row to move to: from a tab focused where the page has
+            // tabs (Down past the last line going on to the buttons, as
+            // it does where everything fits), from its buttons where it
+            // has none (nothing is above or below them).
+            Input::Menu {
+                action: action @ (MenuAction::Up | MenuAction::Down),
+                ..
+            } if !self.tabs
+                || self
+                    .focused
+                    .as_deref()
+                    .is_some_and(|f| f == TAB_PLAYERS || f == TAB_STANDINGS) =>
+            {
+                let by = if *action == MenuAction::Down { 1 } else { -1 };
+                if self.scroll(by, 0, root, cx) {
+                    Handled::Yes
+                } else {
+                    Handled::No
+                }
+            }
             Input::Wheel { delta, .. } if delta[1] != 0.0 => {
                 self.scroll(super::wheel_step(*delta), 0, root, cx);
                 Handled::Yes
@@ -1200,6 +1232,16 @@ impl crate::screen::Screen for AudienceScreen {
             Input::Key(k) if k.down && matches!(k.code.as_str(), "PageDown" | "PageUp") => {
                 self.scroll(0, if k.code == "PageDown" { 1 } else { -1 }, root, cx);
                 Handled::Yes
+            }
+            // The footer's Enter is the focused button's.
+            Input::Focus { to, .. } => {
+                self.focused = to.clone();
+                let on_watch = self.buttons.first() == Some(&WATCH_BUTTON)
+                    && to.as_deref().is_none_or(|f| f == WATCH_BUTTON);
+                if on_watch != self.hinted_watch {
+                    self.rebuild(root, cx);
+                }
+                Handled::No
             }
             // The line the pointer is over: its exact counts under the
             // table where the lines have no second line for them.

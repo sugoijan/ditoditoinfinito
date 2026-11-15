@@ -1588,3 +1588,61 @@ fn the_audience_page_is_laid_out_again_when_the_screen_changes() {
     assert!(card[0] >= 0.0 && card[2] <= vp.width, "inside the screen: {card:?} in {vp:?}");
     assert!(card[3] - card[1] > 0.8 * vp.height, "most of its height: {card:?} in {vp:?}");
 }
+
+/// Round M, item 4: the page's footer names each key's own action once.
+/// Esc is Stop watching; Enter is named only while it does something
+/// else (Watch, offered and focused): never "Stop watching" twice, as it
+/// was while Stop watching was the one button.
+#[test]
+fn the_audience_page_s_footer_names_each_action_once() {
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let carol = Rc::new(RefCell::new(arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap()));
+    let (env, mut h) = page(&carol, [1280.0, 720.0]);
+    run(&clock, &server, &mut [&mut alice], &mut [&mut carol.borrow_mut()], 1_000);
+    h.run(0.3);
+    let hints = env.state.borrow().hints.clone();
+    assert_eq!(hints, ["ESC Stop watching"], "one button, one hint");
+}
+
+/// Round M, item 4: a controller scrolls the page's parts. Where the
+/// players do not all fit, Down and Up (the D-pad, as the keys) scroll
+/// them a line from the page's buttons while it has no tabs; once it has
+/// them, from the tab focused, Down past the last line going on to the
+/// buttons.
+#[test]
+fn a_controller_scrolls_the_audience_page_s_parts() {
+    use crate::nav::MenuAction;
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    for i in 0..60 {
+        server
+            .borrow_mut()
+            .join(Identity::new(format!("dev:p{i:02}")), &format!("p{i:02}"), Intent::Play)
+            .unwrap();
+    }
+    let carol = Rc::new(RefCell::new(arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap()));
+    let (_, mut h) = page(&carol, [1280.0, 720.0]);
+    run(&clock, &server, &mut [&mut alice], &mut [&mut carol.borrow_mut()], 1_000);
+    h.run(0.3);
+    // The first line shown (the lines are named by their place in the list).
+    let first = |h: &crate::testing::Harness| {
+        (0..70)
+            .find(|k| h.ui.actor(&format!("Audience.Player{k}.Name")).is_some())
+            .expect("a player's line")
+    };
+    let top = first(&h);
+    assert!(h.ui.actor("Audience.Down").is_some(), "more players than fit");
+    h.pad(MenuAction::Down, true);
+    h.pad(MenuAction::Down, false);
+    h.run(0.1);
+    let down = first(&h);
+    assert_ne!(down, top, "the D-pad's Down scrolls the players");
+    assert_eq!(h.ui.focused(), Some("Item.back"), "the focus stays on the button");
+    h.pad(MenuAction::Up, true);
+    h.pad(MenuAction::Up, false);
+    h.run(0.1);
+    assert_eq!(first(&h), top, "and Up scrolls back");
+}
