@@ -230,3 +230,38 @@ fn close_1012_reconnects_and_plays_live() {
     assert_eq!(bob.link_state(), LinkState::Connected);
     assert!(bob.plays_live() && bob.live_link().unwrap().is_on());
 }
+
+/// The countdown's seconds are the room's (ui-screens-10): its deadlines
+/// are stamped by the room's clock, so a device whose own runs 20 s fast
+/// shows what one on the room's time shows, once the room's clock is
+/// estimated, rather than a countdown already at zero.
+#[test]
+fn countdown_seconds_are_counted_on_the_rooms_clock() {
+    use crate::screens::room::seconds_left;
+    let clock = ManualClock::new(5_000);
+    let server = room_with(&clock, &["bob"], RoomPolicy::default().with_live());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 25_000);
+    let run = |alice: &mut RoomClient, bob: &mut RoomClient, ms: u64| {
+        for _ in 0..4 {
+            clock.advance(ms / 4);
+            let now = clock.now().0;
+            alice.tick(now);
+            bob.tick(now + 20_000);
+        }
+    };
+    for _ in 0..50 {
+        run(&mut alice, &mut bob, 40);
+    }
+    assert!(bob.room_now().is_some(), "the room's clock is estimated");
+    let start_at = ddi_room::Millis(clock.now().0 + 9_500);
+    server.borrow_mut().rewrite(|s| {
+        s.phase = ddi_room::Phase::Countdown {
+            stage: ddi_room::StageId(1),
+            start_at,
+        };
+    });
+    run(&mut alice, &mut bob, 40);
+    assert_eq!(seconds_left(&alice), Some(10));
+    assert_eq!(seconds_left(&bob), seconds_left(&alice), "the fast device's");
+}

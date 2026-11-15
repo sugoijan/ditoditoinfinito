@@ -346,7 +346,9 @@ pub(crate) fn number_of(r: &RoomClient, id: StageId) -> usize {
 
 /// Whole seconds left of the countdown or the readiness window (a window
 /// waiting for its song to be shared has none yet; one waiting for its
-/// players to load, `hosted-deadline-v2`, the loading grace's).
+/// players to load, `hosted-deadline-v2`, the loading grace's). Counted
+/// on the room's clock where it is estimated (an online room that plays
+/// live: its deadlines are the room's), else on this device's.
 pub fn seconds_left(r: &RoomClient) -> Option<u64> {
     let s = r.state();
     let at = match &s.phase {
@@ -357,7 +359,8 @@ pub fn seconds_left(r: &RoomClient) -> Option<u64> {
         } if !s.content_pending(*stage) => w.loading_until.unwrap_or(w.deadline),
         _ => return None,
     };
-    Some(at.0.saturating_sub(r.now_ms()).div_ceil(1000))
+    let now = r.room_now().map_or_else(|| r.now_ms(), |m| m.0);
+    Some(at.0.saturating_sub(now).div_ceil(1000))
 }
 
 /// How many players the room's loading grace still waits for
