@@ -709,14 +709,26 @@ impl Opponent {
     /// Played to its end at once (nothing it does depends on anyone
     /// else): every press fed and every note judged.
     pub fn finish(&mut self) {
-        let end = self
-            .presses
-            .iter()
-            .map(|p| p.release - self.judge_offset)
-            .fold(f64::NEG_INFINITY, f64::max)
-            .max(self.player.end_time())
-            + 1.0;
-        self.advance(end);
+        // Its end as its presses and chart have it, again after each
+        // stretch played: a rung stepped to on the way may run on past
+        // the chart it left (review finding engine-2).
+        let end_now = |o: &Self| {
+            o.presses
+                .iter()
+                .map(|p| p.release - o.judge_offset)
+                .fold(f64::NEG_INFINITY, f64::max)
+                .max(o.player.end_time())
+                + 1.0
+        };
+        let mut end = end_now(self);
+        loop {
+            self.advance(end);
+            let later = end_now(self);
+            if later <= end {
+                break;
+            }
+            end = later;
+        }
         // A hold's outcome shown past the end, at most a few seconds.
         let mut t = end;
         while !self.player.finished() && t < end + 30.0 {
@@ -1106,6 +1118,78 @@ mod tests {
             }
         }
         assert!(stepped > 0, "the weakest level steps down on Hard");
+    }
+
+    /// A CPU played out at once (`finish`, a practice stage's CPUs once the
+    /// player is gone) plays as one judged frame by frame: a rung it
+    /// steps to on the way whose notes run past the stage's chart's end
+    /// is played to its own end, never its last notes missed (review
+    /// finding engine-2). A song made for it: a Challenge of streams the
+    /// weakest level steps down from, to a Medium that runs eight
+    /// seconds on.
+    #[test]
+    fn a_cpu_played_out_at_once_plays_the_rungs_it_steps_to_to_their_end() {
+        use crate::judge::JudgeEventKind;
+        use crate::rules::ddi::{self, DdiOptions};
+        let stream = ["1000", "0100", "0010", "0001", "1001", "0110", "1010", "0101"];
+        let chart = |name: &str, meter: u32, measures: usize, rows: usize| {
+            let body = (0..measures)
+                .map(|m| {
+                    (0..rows)
+                        .map(|r| stream[(m * rows + r) % stream.len()])
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .collect::<Vec<_>>()
+                .join("\n,\n");
+            format!("#NOTES:\ndance-single:\n:\n{name}:\n{meter}:\n0,0,0,0,0:\n{body}\n;\n")
+        };
+        let text = format!(
+            "#TITLE:t;\n#OFFSET:0;\n#BPMS:0=150;\n{}{}",
+            chart("Challenge", 12, 30, 16),
+            chart("Medium", 2, 35, 2)
+        );
+        let song = ddi_chart::formats::sm::parse_sm(&text).expect("parses");
+        let challenge = song.charts.iter().position(|c| c.difficulty == ddi_chart::Difficulty::Challenge).unwrap();
+        let planned = planned_ladder(&song, challenge);
+        assert_eq!(planned.len(), 1, "the Medium below");
+        const LEVEL: usize = 3;
+        let make = |seed: u64| {
+            let mut r = ddi::ruleset(&DdiOptions::default());
+            r.fail = FailPolicy::Immediate;
+            let mut o = Opponent::new(&song, challenge, r, LEVEL, seed).unwrap();
+            o.add_rungs(&planned).unwrap();
+            o.start(0.0);
+            o
+        };
+        // The stage's chart's own end, as `finish` read it before a step.
+        let stage_end = make(1).player().end_time() + 1.0;
+        for seed in 1..=3u64 {
+            let mut framed = make(seed);
+            let mut t = -2.0;
+            while !framed.finished() && t < 400.0 {
+                t += 1.0 / 60.0;
+                framed.advance(t);
+            }
+            let mut at_once = make(seed);
+            at_once.finish();
+            let (a, b) = (framed.player().results(), at_once.player().results());
+            assert!(!a.steps.is_empty(), "{seed}: stepped down to the Medium");
+            let hit_past = |r: &crate::Results| {
+                r.timeline
+                    .iter()
+                    .filter(|j| {
+                        f64::from(j.time) > stage_end
+                            && matches!(j.kind, JudgeEventKind::Tap(x, _) if !x.is_miss())
+                    })
+                    .count()
+            };
+            assert!(hit_past(&a) > 0, "{seed}: notes hit past the stage's chart's end");
+            assert_eq!(hit_past(&a), hit_past(&b), "{seed}");
+            assert_eq!(a.steps, b.steps, "{seed}");
+            assert_eq!(a.tally, b.tally, "{seed}");
+            assert_eq!(a.life, b.life, "{seed}");
+        }
     }
 
     /// A strong CPU with a full ladder (a match's "Charts: Adaptive")
