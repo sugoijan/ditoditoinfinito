@@ -10286,6 +10286,95 @@ The tests:
   line: the rooms and a live play's clock must move to one clock that
   never goes back together).
 
+## Round D3: the audience's page gains the Standings, the banner and a late joiner's picture (2026-11-15)
+
+The maintainer's decision for the audience's page between stages: "The
+Standings table, The next song's banner, The last stage's picture for a
+late joiner". All three from the public view the audience already
+receives (`ddi_room::audience::public::PublicView`); nothing on the
+wire, nothing judged or decided moves, `ROOM_MODEL_REVISION` untouched,
+no server change. The page is `audience-page-v2`.
+
+- **The Standings** are a second part beside the players': once a stage
+  of the view's match settled, two tabs over that part, Players and
+  Standings, the standings brought up as each stage settles (once: the
+  part chosen after stays until the next one does). A tap or a click on
+  a tab, a controller's shoulders, or the focus walk (Up from the
+  buttons to the tab shown, Left and Right, Enter; Down back) change the
+  part; the wheel, Page Up/Down and a tap on the "N more" line scroll a
+  long table. The table is the members' (`results_stage`'s, the one
+  their stage results show): the same builder
+  (`ddi_ui::state::room::TableSource`, which `RoomClient::stage_table`
+  and `AudienceClient::stage_table` both fill, the second from the
+  view's `stages[..].play.result`/`details`, `standings` and rules) and
+  the same drawing (`results::stage_standings` through `TableWho`: a
+  member's room or `audience::PublicWho`). Everything the view has: the
+  place, the award, the match total and place and how it moved, the
+  score or the percent by the viewer's own Score display, the grade,
+  life or when out or that they left, the combo, the judgments' bar
+  with their counts, the attacks' three columns where the stage had
+  them, the chart finished on under Adaptive, a changed stage's rules,
+  and the match's result on top after the last stage. Where the card is
+  split, its lines give the table 724 px (every column) where the card
+  has them (1280×720: yes; a phone on its side: award, total, score,
+  grade; upright: award, total, score).
+  **What a member's table has that the audience's lacks**: a starter's
+  line before the room confirmed the stage (a member sees each raw run
+  as it is reported; the view carries none, so the audience's lines
+  fill in with the result), the viewer's own line and "You" badge and
+  the kept-in-view scrolling that goes with it, the viewer's own attack
+  summary under the lines, matches before the current one, and the
+  room's `StandingsDialog` (the match's per-stage points grid with its
+  changed-rules lines), which the page does not have.
+- **The next song's banner**: from the pick until the stage is over, a
+  row under what the room is doing: the song's title and artist (the
+  view's card) beside a plain plate, and in the plate's place the banner
+  once the seat read the room's share of the song
+  (`AudienceClient::banner`: the prepared song's, which the shells' read
+  takes from the share's listing as a member's does,
+  `SharedFound::banner`). The plate stays where the song has no banner,
+  the share is not read (a room that does not play live is not read by
+  a seat), or the read failed. Nothing before the pick.
+- **The last stage's picture for a late joiner**
+  (`AudienceClient::sync_picture`): a seat with no picture (it joined
+  between stages, or watched none) looks, once per settled stage, for
+  the last settled stage's song's background: from the song as it read
+  it for that stage, else by a read of the share the view names for
+  that stage (a `LoadJob` as a stage's, without what live play needs;
+  the shells' read now says the background, `SharedFound::background`).
+  The picture is the song's own `#BACKGROUND` alone, as a watched
+  stage's page picture is (a generated background is drawn for a play
+  alone, and a banner is never blown up); the rain stays where no stage
+  was played, the view names no share, the read fails or the song has
+  no background. A stage the seat then watches replaces it, as before.
+  On desktop the share's read downloads the song's music with its
+  pictures (one path, the cache's); the web fetches the picture alone.
+- TESTING ONLY: the web's fake seat takes `mpfakematch=STAGES,CUT,WAIT`
+  (a match of so many stages, each cut to CUT seconds, the picks WAIT
+  seconds apart; the members say how they performed and the owner picks
+  again), so a browser walks the page before a stage, with a song
+  picked, during a stage, after one and after the match.
+- Tests: `the_audience_s_standings_are_the_members_table` (both tables
+  built and compared, and as drawn), `the_audience_page_brings_the_
+  standings_up_once_a_stage_settles`, `the_audience_page_shows_the_
+  picked_song_s_banner_once_the_share_is_read`, `a_late_joiner_s_page_
+  shows_the_last_played_stage_s_picture` (`ddi-ui`, over `FakeServer`'s
+  audience); the `qps-ploc` walk plays a match of two stages under the
+  page; desktop's `audience_offscreen` draws the six states in English
+  and Japanese (`DDI_OFFSCREEN_PPM`); walked in headless Chrome and
+  Firefox with the fake seat at 1280×720, 844×390 and 390×844.
+- Found in the browser walk and fixed: on a phone held upright, the
+  page after a watched stage (the browser's Back, or the stage's end)
+  was laid out for the window's design and clipped: its first frame is
+  built before the page has its size there, and the page was only built
+  again when the room's view changed. It is laid out again whenever the
+  screen changes (`the_audience_page_is_laid_out_again_when_the_screen_
+  changes` fails on the code before).
+- Found, not changed: `a_stage_watched_with_the_audience_is_drawn_
+  behind_the_room` (desktop) fails about one run in two on this machine
+  under load, on the commit before this round too (the fields' delay
+  rises to its cap as the stage is handed over late).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

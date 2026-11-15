@@ -1485,7 +1485,16 @@ Rust and the browser are implementation details, not advertised features.
   `screens/audience.rs` its page between stages
   (`AudienceScreen`, `AudienceCall`; `ThemeState::audience`; built as
   the Ready card, `audience-page-v1`, over the menu's rain, then the
-  last watched stage's picture, `AudienceClient::set_backdrop`); the invite
+  last watched stage's picture, `AudienceClient::set_backdrop`; since
+  round D3, `audience-page-v2`: once a stage settled, tabs Players and
+  Standings over the players' part, the last settled stage's table the
+  members' own, `AudienceClient::stage_table` over `room::TableSource`,
+  the builder `RoomClient::stage_table` uses, drawn by
+  `results::stage_standings` through `TableWho`; the picked song's
+  banner beside its title once the seat read the room's share,
+  `AudienceClient::banner`; and for a seat with no picture the last
+  played stage's background read from its share, `sync_picture`,
+  `SharedFound::background`); the invite
   page's Watch with the audience (`Online::watch_audience`, signed in
   or not, never asking for a sign-in; `OnlineCall::Watch`), members' count on the status line, Host options'
   Close/Open the audience and More's Copy audience link
@@ -1672,7 +1681,10 @@ Rust and the browser are implementation details, not advertised features.
   TESTING
   ONLY, `mpfakeseat=1` (`mpfakeend=S`) in the address the page loads on
   makes the next seat one
-  in a fake room in the page (`crate::fake_seat`), and `mpfakeroom=S`
+  in a fake room in the page (`crate::fake_seat`;
+  `mpfakematch=STAGES,CUT,WAIT` its match: so many stages, each cut to
+  CUT seconds, the picks WAIT seconds apart, the members saying how
+  they performed), and `mpfakeroom=S`
   makes online room `Room000001` a fake room in the page whose scripted
   owner picks a stage S seconds after the player joined
   (`crate::fake_room`: a member's view without a server). `Trunk.toml` passes `/api/` (redirects untouched) and
@@ -2049,7 +2061,7 @@ otherwise at most a second late, and at once when a screen or dialog
 comes or goes). The testing parameters (`gfx`, `auto`, `bias`,
 `slow`, `perf`, `lang`, and the multiplayer ones, `mprules`,
 `mpwatchlink`, `mpattacks`, `mpcpus`, `mpdevmines`, `mpfakeseat`,
-`mpfakeend`, `mpfakeroom`) take effect given in the address the page loads on, on any
+`mpfakeend`, `mpfakematch`, `mpfakeroom`) take effect given in the address the page loads on, on any
 route (`#/select?perf=1`, `#/mp?mpcpus=16`, `#/options?lang=ja`;
 `crate::router::Route::current`'s first read), and later on the routes
 each was always read on; `gfx`, `auto`, `bias` and `slow` stay for the

@@ -605,6 +605,13 @@ measurement on the platform.
    watched stage's picture; the competitors in the card's players' part
    with their places and match points; the grid shows every field where
    they fit (`grid-all-v1`), its pages in the room's order.
+   Since round D3 (`audience-page-v2`, the progress note's "Round D3"):
+   once a stage settled, the last settled stage's Standings as a second
+   part beside the players' (tabs; the members' table, built from the
+   view by the members' builder); the picked song's banner beside its
+   title once the seat read the room's share; and, for a seat with no
+   picture of its own (one that joined between stages), the last played
+   stage's background read from the share the view names for it.
 3. **The count shown to the room**: "132 watching" (a message with a
    plural) on the room's status line and the stage's status line, from
    `LiveLink::audience`; the owner's Host options gain "Close the audience"
