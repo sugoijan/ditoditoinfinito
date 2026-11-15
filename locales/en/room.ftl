@@ -1160,8 +1160,11 @@ room-replace-invite-title = Replace the invite link?
 room-replace-invite-body = The old invite link stops working, and so do the room's other links made from it (watch-only and audience). Everyone already in the room stays.
 room-sign-in-again = Sign in again
 
-# The status line after More's invite items.
-room-invite-copied = Invite link copied.
+# The status line after More's invite items. The first also tells the
+# host, quietly, that the room does not outlive its people: a room with
+# nobody connected closes after a couple of minutes (one line, about 70
+# letters).
+room-invite-copied = Invite link copied. The room stays open while someone is in it.
 room-watch-invite-copied = Watch-only link copied.
 room-invite-replaced = Invite replaced: the old link no longer works.
 room-invite-not-replaced = Couldn't replace the invite.

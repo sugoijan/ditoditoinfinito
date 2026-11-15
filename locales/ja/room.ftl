@@ -528,7 +528,7 @@ room-replace-invite-title = 招待リンクを差し替えますか？
 room-replace-invite-body = 古い招待リンクは使えなくなり、そこから作られたほかのリンク（観戦専用と観客）も使えなくなります。すでにルームにいる人はそのまま残ります。
 room-sign-in-again = もう一度サインイン
 
-room-invite-copied = 招待リンクをコピーしました。
+room-invite-copied = 招待リンクをコピーしました。ルームは誰かがいる間だけ開いています。
 room-watch-invite-copied = 観戦専用リンクをコピーしました。
 room-invite-replaced = 招待を差し替えました。古いリンクは使えません。
 room-invite-not-replaced = 招待を差し替えられませんでした。
