@@ -1459,6 +1459,17 @@ impl Battle {
         self.competes().then(|| self.feeds().count())
     }
 
+    /// TESTING ONLY: the fields of a stage judged on this device (CPU
+    /// practice: the CPUs') drawn `seconds` behind the song from now, as
+    /// a network's streams are ([`feed::FieldFeed::set_delay`]), so that
+    /// a test without a room's server sees a delayed field. A live
+    /// stage's fields take their delay from the room every frame.
+    pub fn delay_fields_for_tests(&mut self, seconds: f64) {
+        for s in &mut self.seats {
+            s.feed.set_delay(seconds);
+        }
+    }
+
     /// The local player's own field as a stream draws it (their judged
     /// play, their going out): their miniature among the others' once
     /// they are out of the stage and follow a competitor large.

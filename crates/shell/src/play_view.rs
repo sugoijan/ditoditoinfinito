@@ -314,6 +314,15 @@ pub struct WatchDrawn {
     pub rungs: Vec<u8>,
     pub delay: f64,
     pub trace: WatchTrace,
+    /// The stage's song second the frame was drawn for, and the second
+    /// of its own the followed competitor's field shows (its view delay
+    /// behind the song's: `FieldFeed::view_time`); none where nobody is
+    /// followed.
+    pub song: f64,
+    pub followed_at: Option<f64>,
+    /// The followed competitor's name plate on their field
+    /// (`crate::battle_cue::draw_followed`): who it says they are.
+    pub plate: Option<crate::battle_cue::Followed>,
 }
 
 /// A watched stage's frames counted as they went, for catching a flicker
@@ -482,6 +491,8 @@ pub struct PlayView<H: PlayHost> {
     /// The last frame's chart line (`crate::battle_cue::draw_chart`): the
     /// chart's words and how bright its step still showed.
     chart_drawn: Option<(String, f32)>,
+    /// The followed competitor's name plate as the last frame drew it.
+    plate_drawn: Option<crate::battle_cue::PlateDrawn>,
     /// The last frame's lines and outlines of who attacks whom
     /// (`crate::attack_links`).
     links_drawn: Vec<crate::attack_links::Shown>,
@@ -550,6 +561,7 @@ impl<H: PlayHost> PlayView<H> {
             attack_drawn: None,
             policy_drawn: None,
             chart_drawn: None,
+            plate_drawn: None,
             links_drawn: Vec::new(),
             watch_drawn: None,
             watch_trace: WatchTrace::default(),
@@ -962,6 +974,13 @@ impl<H: PlayHost> PlayView<H> {
     /// The chart line as the last frame drew it: the chart played now as
     /// song select names it, and how bright the step that brought it
     /// still is (0: at rest).
+    /// The followed competitor's name plate as the last frame drew it
+    /// (`crate::battle_cue::draw_followed`); none where nobody is
+    /// followed.
+    pub fn plate_drawn(&self) -> Option<&crate::battle_cue::PlateDrawn> {
+        self.plate_drawn.as_ref()
+    }
+
     pub fn chart_drawn(&self) -> Option<(&str, f32)> {
         self.chart_drawn.as_ref().map(|(t, k)| (t.as_str(), *k))
     }
@@ -1085,6 +1104,9 @@ impl<H: PlayHost> PlayView<H> {
             .present
             .unwrap_or_else(|| session.predicted_present(moment.now));
         let frame = session.frame(present);
+        // The stage's song second (a followed competitor's frame says
+        // its field's own, its view delay behind).
+        let song = session.player.clock().render_time(present);
         // (A stage watched on after the player's own play ended goes on.)
         let started = session.player.started();
         let finished = started && !session.song_going();
@@ -1383,11 +1405,11 @@ impl<H: PlayHost> PlayView<H> {
                     grid,
                     page,
                     pinned: &pinned,
-                    time: frame.song_time,
+                    time: song,
                     reduced: render.reduced_motion,
                 },
                 &mut self.rivals,
-                || large_standings(b, &views_now, &session.player, (focus, own_seat), frame.song_time),
+                || large_standings(b, &views_now, &session.player, (focus, own_seat), song),
             );
             self.ladder = ladder;
             self.ladder_page = ladder_page;
@@ -1435,7 +1457,12 @@ impl<H: PlayHost> PlayView<H> {
                 feeds.push(b.own_feed());
             }
             let view_of = |seat: usize| views_now.get(seat).or(own_view.as_ref().filter(|_| seat == views_now.len()));
-            let t = frame.song_time;
+            // The stage's song second: each field takes its own view
+            // delay from it (a followed competitor's frame's time is
+            // their field's own, the delay behind already: read from
+            // that, their field and the others' were drawn the delay
+            // behind twice, the feedback round K's "ghost notes").
+            let t = song;
             // Each slot's field, then the large one's (its notes as far
             // ahead as a play's own shows them).
             let slots = fields.iter().flat_map(|f| f.slots.iter().map(|s| (s, f.range)));
@@ -1502,6 +1529,8 @@ impl<H: PlayHost> PlayView<H> {
             }
         }
         minis.truncate(drawn);
+        // The followed field's own time: the large one's, the last.
+        let followed_at = large.and_then(|_| minis.last()).map(|m| m.frame.song_time);
         self.minis_drawn = minis.len();
         self.renderer.set_miniatures(minis);
         // (Booked with the scene: the hand's lap stays its own.)
@@ -1640,7 +1669,7 @@ impl<H: PlayHost> PlayView<H> {
                             keep_out: &keep_out[..line_keep],
                         },
                         &mut self.routes,
-                        frame.song_time,
+                        song,
                         render.reduced_motion,
                         crate::attack_links::ATTACK_LINKS_V0,
                     ),
@@ -1660,7 +1689,7 @@ impl<H: PlayHost> PlayView<H> {
                                 keep_out: &keep,
                             },
                             &mut self.routes,
-                            frame.song_time,
+                            song,
                             render.reduced_motion,
                             crate::attack_links::ATTACK_LINKS_V0,
                         )
@@ -1677,7 +1706,7 @@ impl<H: PlayHost> PlayView<H> {
                     keep_out: &keep_out[..line_keep],
                 },
                 &mut self.routes,
-                frame.song_time,
+                song,
                 render.reduced_motion,
                 crate::attack_links::ATTACK_LINKS_V0,
             ),
@@ -1764,6 +1793,29 @@ impl<H: PlayHost> PlayView<H> {
             }
         }
         let lane = fields.as_ref().map_or(0.0, |f| f.lane);
+        // The followed competitor's name plate (the feedback round K):
+        // who they are, their place of everyone as the stage ranks, Out
+        // or Left as their field's mark says it.
+        let followed = battle.zip(focus).and_then(|(b, seat)| {
+            use ddi_l10n::msg::room as m;
+            let o = views_now.get(seat)?;
+            let feed = b.feeds().nth(seat)?;
+            let (others, me) =
+                large_standings(b, &views_now, &session.player, (focus, own_seat), song);
+            let ladder = crate::rivals::Ladder::of(&others, me);
+            Some(crate::battle_cue::Followed {
+                name: o.name.clone(),
+                level: o.level,
+                place: ladder.place.map(|p| m::watch_place(p, ladder.of).into()),
+                out: feed.shown(song).out.then(|| {
+                    if feed.left() {
+                        m::table_left().into()
+                    } else {
+                        m::play_out().into()
+                    }
+                }),
+            })
+        });
         // The slots as drawn: the miniatures', then the large field's.
         let mut fields = fields;
         let large_at = fields.as_mut().zip(large).map(|(f, l)| {
@@ -1789,7 +1841,7 @@ impl<H: PlayHost> PlayView<H> {
             }
             // Life and out as their streams show them.
             for (o, feed) in opponents.iter_mut().zip(all) {
-                let shown = feed.shown(frame.song_time);
+                let shown = feed.shown(song);
                 o.life = shown.life;
                 o.out = shown.out;
                 o.left = shown.out && feed.left();
@@ -1908,6 +1960,7 @@ impl<H: PlayHost> PlayView<H> {
                 warnings: std::mem::take(&mut warnings),
                 own_out: own_out.clone(),
                 chart,
+                followed: followed.clone(),
             }
         });
         let skip_at = own_out
@@ -1955,6 +2008,9 @@ impl<H: PlayHost> PlayView<H> {
             rungs: rungs_drawn.iter().map(|&(_, r)| r).collect(),
             delay: delay_drawn,
             trace: self.watch_trace.clone(),
+            song,
+            followed_at,
+            plate: attack.as_ref().and_then(|a| a.followed.clone()),
         });
         self.attack_drawn = attack.as_ref().and_then(|a| a.cue);
         self.waiting_drawn = attack.as_ref().is_some_and(|a| a.waiting.is_some());
@@ -1977,7 +2033,9 @@ impl<H: PlayHost> PlayView<H> {
                 || a.policy.is_some()
                 || a.own_out.is_some()
                 || a.chart.is_some()
+                || a.followed.is_some()
         });
+        self.plate_drawn = None;
         if lyrics.is_some() || shown.is_some() || attack_shown {
             let place = (&geo, span, screen.ratio);
             self.draw_overlay((device, queue, encoder), target, place, lyrics, shown, attack);
@@ -2077,6 +2135,26 @@ impl<H: PlayHost> PlayView<H> {
                         &mut measure,
                     )
                 });
+                // A followed competitor's name plate, in the policy's
+                // place (their field has no policy label).
+                let reserve = a.chart.as_ref().map_or(0.0, |(text, _)| {
+                    crate::battle_cue::chart_room(text, ratio, &mut measure)
+                });
+                self.plate_drawn = a.followed.as_ref().map(|who| {
+                    crate::battle_cue::draw_followed(
+                        list,
+                        who,
+                        reserve,
+                        geo,
+                        span,
+                        ratio,
+                        &mut measure,
+                    )
+                });
+                let clear = match (clear, &self.plate_drawn) {
+                    (c, Some(p)) => Some(c.unwrap_or(0.0).max(p.end)),
+                    (c, None) => c,
+                };
                 let below = crate::battle_cue::waiting_below_fits(geo, span, ratio);
                 let bright = a
                     .chart
@@ -2262,6 +2340,8 @@ struct Attack {
     /// The chart played now, where the stage has a ladder, and the step
     /// that brought it: up, and how bright it still is.
     chart: Option<(String, Option<(bool, f32)>)>,
+    /// The competitor followed, for the name plate on their field.
+    followed: Option<crate::battle_cue::Followed>,
 }
 
 /// What a stage's miniatures show over the play in a frame

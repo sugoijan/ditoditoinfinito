@@ -332,6 +332,130 @@ fn policy_cap(
     Some(left + w)
 }
 
+/// Who a watcher follows, for the name plate on their field (the
+/// feedback round K; `followed-plate-v0`): the competitor whose field is
+/// the large one, in the play's field's place.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Followed {
+    pub name: std::rc::Rc<str>,
+    /// A CPU's level, drawn as its stars (a person has none).
+    pub level: Option<u8>,
+    /// Their place among everyone in the stage now, worded ("2 of 4"),
+    /// as the stage ranks.
+    pub place: Option<String>,
+    /// Out of the stage: the word their field is marked with (Out, or
+    /// that they left), in the place's place.
+    pub out: Option<String>,
+}
+
+/// What a name plate drew, target pixels: its plate (`[left, top, right,
+/// bottom]`), the name as cut, and whether the stars and the words after
+/// the plate (the place, or Out) had room.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlateDrawn {
+    pub plate: [f32; 4],
+    pub name: String,
+    pub stars: bool,
+    pub words: bool,
+    /// Where all of it ends, at the right (the chart line keeps clear).
+    pub end: f32,
+}
+
+/// The name's size on the plate, logical pixels, and the share of the
+/// life gauge's width the plate and its words may take (the chart line
+/// has the rest).
+const PLATE_NAME: f32 = 13.0;
+const PLATE_SHARE: f32 = 0.75;
+const PLATE: [f32; 4] = [0.04, 0.03, 0.08, 0.80];
+const PLATE_TEXT: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+
+/// Draws the name plate of the competitor a watcher follows on their
+/// field `geo` (`span` lanes wide): under the life gauge's left end, on
+/// the line the chart is named at the right of (where a player's own
+/// field says their attack policy, which a followed field has none of):
+/// the name bright on a dark plate with a CPU's stars after it, then,
+/// quietly, their place of everyone, or Out once they are out of the
+/// stage (the name dimmed then, as their field is). The name is cut
+/// between graphemes only once the place and then the stars have gone;
+/// the place also gives way to the chart line, which needs `reserve`
+/// pixels at the gauge's right end to be whole ([`chart_room`]).
+/// `ratio`: a logical pixel.
+pub fn draw_followed(
+    list: &mut DrawList,
+    who: &Followed,
+    reserve: f32,
+    geo: &FieldGeometry,
+    span: f32,
+    ratio: f32,
+    measure: &mut dyn TextMeasure,
+) -> PlateDrawn {
+    let (_, life) = ddi_render::scene::power_and_life(geo, span);
+    let face: std::sync::Arc<str> = ddi_l10n::font_stack(FACE).into();
+    let mut name_style = TextStyle::new(face.clone(), PLATE_NAME * ratio);
+    name_style.weight = 700;
+    let mut quiet = TextStyle::new(face, POLICY_SIZE * ratio);
+    quiet.weight = 500;
+    let (pad, gap) = (5.0 * ratio, 6.0 * ratio);
+    let room = life[2] * PLATE_SHARE;
+    let star_tall = 10.0 * ratio;
+    let stars_w = who.level.map(|_| ddi_ui::stars::width(star_tall) + gap);
+    let words = who.out.as_deref().or(who.place.as_deref());
+    let words_w = words.map(|w| measure.measure(w, &quiet).advance + gap);
+    let full = measure.measure(&who.name, &name_style).advance;
+    // What goes first where it is narrow: the words, then the stars, then
+    // the name's end.
+    let (mut stars, mut said) = (stars_w, words_w);
+    let fits = |stars: Option<f32>, said: Option<f32>| {
+        let room = if said.is_some() { room.min(life[2] - reserve) } else { room };
+        full + 2.0 * pad + stars.unwrap_or(0.0) + said.unwrap_or(0.0) <= room
+    };
+    if !fits(stars, said) {
+        said = None;
+    }
+    if !fits(stars, said) {
+        stars = None;
+    }
+    let (name, name_w) = fit(measure, &who.name, &name_style, (room - 2.0 * pad).max(0.0));
+    let dim = if who.out.is_some() { 0.6 } else { 1.0 };
+    let y = line_y(&life, ratio, 0);
+    let tall = PLATE_NAME * 1.3 * ratio;
+    let x = life[0];
+    let right = x + pad + name_w + stars.unwrap_or(0.0) + pad;
+    let mut plate = Quad::plain([x, y - ratio, right, y + tall + ratio], PLATE);
+    plate.shape = Shape {
+        radius: [3.0 * ratio; 2],
+        ..Shape::NONE
+    };
+    let rect = plate.rect;
+    list.quad(plate);
+    let mut color = PLATE_TEXT;
+    color[3] *= dim;
+    list.text(name.clone(), &name_style, x + pad, y, color);
+    if let (Some(level), Some(_)) = (who.level, stars) {
+        crate::opponents::draw_stars(
+            list,
+            level,
+            [x + pad + name_w + gap, y + tall / 2.0],
+            star_tall,
+            dim,
+        );
+    }
+    let mut end = right;
+    if let (Some(w), Some(width)) = (words, said) {
+        // On the name's baseline's line: the quiet text is a pixel smaller.
+        let dy = (PLATE_NAME - POLICY_SIZE) * ratio * 0.6;
+        list.text(w, &quiet, right + gap, y + dy, MUTED);
+        end = right + width;
+    }
+    PlateDrawn {
+        plate: rect,
+        name,
+        stars: stars.is_some(),
+        words: said.is_some(),
+        end,
+    }
+}
+
 /// How long the chart line stays bright after a step's boundary, seconds.
 pub const CHART_EMPHASIS: f64 = 1.5;
 /// The chart line bright, as a step changes it.
@@ -346,6 +470,15 @@ pub fn chart_emphasis(age: f64, reduced: bool) -> f32 {
         return 0.0;
     }
     (1.0 - age / CHART_EMPHASIS).clamp(0.0, 1.0) as f32
+}
+
+/// The room the chart line `text` needs at the life gauge's right end to
+/// be drawn whole ([`draw_chart`]: its words, its chevron's place and the
+/// gap before them), target pixels.
+pub fn chart_room(text: &str, ratio: f32, measure: &mut dyn TextMeasure) -> f32 {
+    let mut style = TextStyle::new(ddi_l10n::font_stack(FACE), POLICY_SIZE * ratio);
+    style.weight = 500;
+    measure.measure(text, &style).advance + (10.0 + POLICY_SIZE * 0.7 + 4.0) * ratio
 }
 
 /// Draws `text`, the chart played now, on the policy label's line over
@@ -565,6 +698,97 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// The followed competitor's name plate (the feedback round K): under
+    /// the life gauge's left end, inside the field, clear of the
+    /// receptors' row where the chart line is, at every size and both
+    /// ways; the name whole while the stars and the place show, the place
+    /// going first where it is narrow, then the stars, then the name's
+    /// end, cut between graphemes; the chart line starts after it; Out in
+    /// the place's place, the name dimmed.
+    #[test]
+    fn the_followed_plate_is_under_the_gauge_and_keeps_the_name() {
+        let who = |name: &str, level: Option<u8>, out: Option<&str>| Followed {
+            name: name.into(),
+            level,
+            place: Some("2 of 73".into()),
+            out: out.map(String::from),
+        };
+        for (w, h, ratio) in [
+            (1280.0, 720.0, 1.0),
+            (1920.0, 1080.0, 1.0),
+            (844.0, 390.0, 1.0),
+            (390.0, 844.0, 1.0),
+            (390.0 * 3.0, 844.0 * 3.0, 3.0),
+            (2560.0, 1440.0, 2.0),
+        ] {
+            for reverse in [false, true] {
+                let geo = FieldGeometry::new(w, h, 4.0, reverse);
+                let (_, life) = ddi_render::scene::power_and_life(&geo, 4.0);
+                for name in ["Ana", "Quill Sprocket", "しずかなアコーディオン弾き", "A very long name of a player indeed"] {
+                    for level in [None, Some(7)] {
+                        let mut list = DrawList::new();
+                        let d = draw_followed(&mut list, &who(name, level, None), 0.0, &geo, 4.0, ratio, &mut Wide);
+                        let at = format!("{w}x{h}@{ratio} reverse {reverse} {name:?} {level:?}: {d:?}");
+                        let [l, t, r, b] = d.plate;
+                        assert!(l >= life[0] - 0.01 && t >= life[1] + life[3], "{at}");
+                        assert!(d.end <= life[0] + life[2] * PLATE_SHARE + 0.01, "{at}");
+                        assert!(r <= d.end + 0.01, "{at}");
+                        // As tall as the chart line's line, about.
+                        assert!(b - t <= (PLATE_NAME * 1.3 + 2.0) * ratio + 0.01, "{at}");
+                        // The name whole while anything else shows.
+                        if d.stars || d.words {
+                            assert_eq!(d.name, name, "{at}");
+                        }
+                        assert!(!d.stars || level.is_some(), "{at}");
+                        // The place goes before the stars.
+                        if level.is_some() && d.words {
+                            assert!(d.stars, "{at}");
+                        }
+                        if d.name != name {
+                            assert!(d.name.ends_with('…') && name.starts_with(d.name.trim_end_matches('…').trim_end()), "{at}");
+                        }
+                        let all = texts(&list);
+                        assert_eq!(all[0].0, d.name, "{at}");
+                        assert_eq!(all[0].3, PLATE_TEXT, "{at}");
+                        assert_eq!(all.len(), 1 + usize::from(d.words), "{at}");
+                        // The chart line after it, on its line.
+                        let before = list.commands.len();
+                        draw_chart(&mut list, "CHALLENGE 12", None, d.end, &geo, 4.0, ratio, &mut Wide);
+                        if let Some((_, x, y, _)) = texts(&list).get(all.len()) {
+                            assert!(*x >= d.end, "{at}: the chart at {x}");
+                            assert!((*y - all[0].2).abs() < 0.01, "{at}");
+                        }
+                        assert!(list.commands.len() <= before + 1, "{at}");
+                    }
+                }
+                // The place gives way to a chart line that needs its
+                // room; the stars and the name do not.
+                let mut list = DrawList::new();
+                let need = chart_room("CHALLENGE 12", ratio, &mut Wide);
+                let free = draw_followed(&mut list, &who("Ana Li", Some(3), None), 0.0, &geo, 4.0, ratio, &mut Wide);
+                let tight = draw_followed(&mut list, &who("Ana Li", Some(3), None), need, &geo, 4.0, ratio, &mut Wide);
+                assert!(tight.stars && tight.name == "Ana Li", "{w}x{h}: {tight:?}");
+                if free.words && free.end > life[0] + life[2] - need {
+                    assert!(!tight.words, "{w}x{h}: {tight:?}");
+                }
+                assert!(!tight.words || tight.end <= life[0] + life[2] - need + 0.01, "{w}x{h}: {tight:?}");
+                // A short name on a desktop's field: all of it.
+                if w >= 1280.0 {
+                    let mut list = DrawList::new();
+                    let d = draw_followed(&mut list, &who("Ana", Some(3), None), 0.0, &geo, 4.0, ratio, &mut Wide);
+                    assert!(d.stars && d.words, "{w}x{h}: {d:?}");
+                    assert_eq!(texts(&list)[1].0, "2 of 73");
+                    // Out: said in the place's place, the name dimmed.
+                    let mut list = DrawList::new();
+                    let d = draw_followed(&mut list, &who("Ana", Some(3), Some("Out")), 0.0, &geo, 4.0, ratio, &mut Wide);
+                    let all = texts(&list);
+                    assert!(d.words && all[1].0 == "Out", "{w}x{h}: {all:?}");
+                    assert!(all[0].3[3] < 1.0, "{w}x{h}: dimmed");
+                }
+            }
+        }
     }
 
     /// The chart line: on the policy label's line, its end at the life

@@ -1761,6 +1761,13 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         self.battle.as_ref()
     }
 
+    /// TESTING ONLY ([`Battle::delay_fields_for_tests`]).
+    pub fn delay_fields_for_tests(&mut self, seconds: f64) {
+        if let Some(b) = self.battle.as_mut() {
+            b.delay_fields_for_tests(seconds);
+        }
+    }
+
     /// A stage's attack commitments since the last call, worded for a
     /// log (English; `Battle::take_log`).
     pub fn take_battle_log(&mut self) -> Vec<String> {

@@ -1580,6 +1580,14 @@ room-live-lost = The room lost the live stage; your run counts at the end
 #   $name (String) - the player followed
 room-watch-following = Watching { $name }
 
+# On the field of the player followed, under their life gauge, after
+# their name: their place among everyone in the stage now (narrow: about
+# 8 letters).
+# Variables:
+#   $place (Number) - their place now, from 1
+#   $field (Number) - everyone in the stage
+room-watch-place = { $place } of { $field }
+
 # In the line under the fields, for a few seconds: a player's life ran
 # out.
 # Variables:

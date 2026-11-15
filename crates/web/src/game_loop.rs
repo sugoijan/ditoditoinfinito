@@ -1554,6 +1554,16 @@ fn watch_debug(watch: Option<&ddi_shell::play_view::WatchDrawn>) -> Value {
             "steps": w.trace.steps,
             "view_changes": w.trace.view_changes,
         },
+        // The stage's song second, the followed field's own (its view
+        // delay behind) and its name plate: who it says they are.
+        "song": w.song,
+        "followed_at": w.followed_at,
+        "plate": w.plate.as_ref().map(|p| json!({
+            "name": &*p.name,
+            "level": p.level,
+            "place": p.place,
+            "out": p.out,
+        })),
         "fields_at": presses,
         "skip_at": skip_at,
     })

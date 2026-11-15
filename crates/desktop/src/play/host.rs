@@ -605,6 +605,15 @@ impl Host {
         Some((text.to_string(), k))
     }
 
+    /// The followed competitor's name plate as the play's last frame
+    /// drew it (tests; `ddi_shell::battle_cue::draw_followed`).
+    pub fn plate_drawn(&self) -> Option<ddi_shell::battle_cue::PlateDrawn> {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return None;
+        };
+        r.view.as_ref()?.plate_drawn().cloned()
+    }
+
     /// Who attacks whom as the play's last frame drew it, for the
     /// player's own attacks (tests; `ddi_shell::attack_links`).
     pub fn attack_links(&self) -> Vec<ddi_shell::attack_links::Shown> {
@@ -643,6 +652,15 @@ impl Host {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// TESTING ONLY: a practice stage's fields drawn `seconds` behind
+    /// the song, as a network's streams are
+    /// (`ddi_session::battle::Battle::delay_fields_for_tests`).
+    pub fn delay_fields_for_tests(&mut self, seconds: f64) {
+        if let Stage::Playing(_, play, _) = &mut self.stage {
+            play.session.delay_fields_for_tests(seconds);
         }
     }
 

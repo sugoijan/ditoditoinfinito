@@ -709,6 +709,8 @@ room-live-lost = ルームがステージの中継を失いました。結果は
 
 room-watch-following = { $name }を観戦中
 
+room-watch-place = { $field }人中 { $place }位
+
 room-watch-cue-out = { $name } アウト
 
 room-watch-cue-won = { $name } 1位確定
