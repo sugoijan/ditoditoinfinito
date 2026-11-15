@@ -48,6 +48,25 @@ use crate::screen::{Cx, Handled, Input, Screen};
 #[path = "prompt_room.rs"]
 mod room_mode;
 
+/// A room's stage as its start prompt says it
+/// ([`PromptInfo::set_stage`], [`PromptInfo::set_watched_stage`];
+/// `StageOrder::line`).
+#[derive(Clone, Copy, Debug)]
+pub struct StageLine<'a> {
+    /// The stage, from 1, and the match's stages.
+    pub number: u16,
+    pub stages: u16,
+    /// The CPUs and the other people starting it.
+    pub cpus: usize,
+    pub others: u16,
+    pub rules: &'a crate::state::room::StageRules,
+    /// The match's Attacks rule where the room offers attacks.
+    pub attacks: Option<bool>,
+    /// The room offers Adaptive charts (`RoomClient::adaptive_offered`):
+    /// where it does not, As picked is no choice and is not said.
+    pub adaptive_offered: bool,
+}
+
 /// What the prompt names: the song and its chart.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PromptInfo {
@@ -517,24 +536,37 @@ impl PromptInfo {
     /// Boos where on; `attacks`, the match's Attacks rule where its room
     /// offers attacks, said where it is Off, `StageOrder::attacks_rule`),
     /// before the mods; no timing line (a stage is no time to calibrate).
-    pub fn set_stage(
-        &mut self,
-        number: u16,
-        stages: u16,
-        cpus: usize,
-        others: u16,
-        rules: &crate::state::room::StageRules,
-        attacks: Option<bool>,
-    ) {
-        // An online room's stage: other people on their own devices.
-        let note: String = if others > 0 {
-            msg::room::prompt_stage_online(number, stages, others).into()
-        } else {
-            msg::room::prompt_stage(number, stages, cpus).into()
+    pub fn set_stage(&mut self, line: StageLine) {
+        let StageLine {
+            number,
+            stages,
+            cpus,
+            others,
+            rules,
+            attacks,
+            adaptive_offered,
+        } = line;
+        // Against whom: the CPUs, the other people (an online room's), or
+        // both.
+        let who: String = match (others, cpus) {
+            (0, cpus) => msg::room::prompt_stage_cpus(number, stages, cpus).into(),
+            (others, 0) => msg::room::prompt_stage_people(number, stages, others).into(),
+            (others, cpus) => msg::room::prompt_stage_mixed(number, stages, others, cpus).into(),
         };
-        let rules: String =
-            msg::room::prompt_ruleset(super::room::rules_words(rules, attacks)).into();
-        let note = format!("{note} · {rules}");
+        // What running out of life does: out, or (Adaptive) an easier
+        // chart.
+        let life: String = if adaptive_offered && rules.charts == ddi_room::Charts::Adaptive {
+            msg::room::prompt_life_easier().into()
+        } else {
+            msg::room::prompt_life_out().into()
+        };
+        let rules: String = msg::room::prompt_ruleset(super::room::rules_words_in(
+            rules,
+            attacks,
+            adaptive_offered,
+        ))
+        .into();
+        let note = format!("{who} · {life} · {rules}");
         self.mods = if self.mods.is_empty() {
             note
         } else {
@@ -546,17 +578,16 @@ impl PromptInfo {
     /// A stage this device watches (a member who chose Watch, or someone
     /// watching with the room's audience): its place in the match, how
     /// many play it, its rules; nothing said of playing against them.
-    pub fn set_watched_stage(
-        &mut self,
-        number: u16,
-        stages: u16,
-        players: usize,
-        rules: &crate::state::room::StageRules,
-        attacks: Option<bool>,
-    ) {
-        let note: String = msg::room::prompt_stage_watched(number, stages, players).into();
-        let rules: String =
-            msg::room::prompt_ruleset(super::room::rules_words(rules, attacks)).into();
+    pub fn set_watched_stage(&mut self, line: StageLine) {
+        let players = line.cpus + usize::from(line.others);
+        let note: String =
+            msg::room::prompt_stage_watched(line.number, line.stages, players).into();
+        let rules: String = msg::room::prompt_ruleset(super::room::rules_words_in(
+            line.rules,
+            line.attacks,
+            line.adaptive_offered,
+        ))
+        .into();
         self.mods = format!("{note} · {rules}");
         self.timing = None;
         self.watched = true;
@@ -2557,13 +2588,15 @@ mod tests {
         let (mut h, _) = prompt(&state);
         assert!(h.ui.actor("BindingKey0").is_some() && h.ui.actor("Opt.speed").is_some());
         let mut info = state.borrow().info.clone();
-        info.set_watched_stage(
-            1,
-            4,
-            3,
-            &crate::state::room::StageRules::default(),
-            Some(true),
-        );
+        info.set_watched_stage(StageLine {
+            number: 1,
+            stages: 4,
+            cpus: 3,
+            others: 0,
+            rules: &crate::state::room::StageRules::default(),
+            attacks: Some(true),
+            adaptive_offered: true,
+        });
         state.borrow_mut().set_info(info);
         h.requests.clear();
         h.run(0.5);

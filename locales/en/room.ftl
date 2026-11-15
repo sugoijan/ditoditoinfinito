@@ -735,26 +735,48 @@ room-prompt-speed-raised = Speed raised so attacks can warn in time
 ## A stage's start prompt, results and the room between stages.
 
 # On a stage's start prompt, in the line of the play's modifiers: the
-# stage, against how many CPUs, and the rule (out when life is gone).
+# stage and against how many CPUs (what running out of life does follows).
 # Variables:
 #   $number (Number) - the stage, from 1
 #   $stages (Number) - the match's stages
 #   $cpus (Number) - CPU opponents
-room-prompt-stage = Stage { $number } of { $stages } · { $cpus ->
+room-prompt-stage-cpus = Stage { $number } of { $stages } · { $cpus ->
     [one] against one CPU
    *[other] against { $cpus } CPUs
-} · out when your life runs out
+}
 
-# The same for an online room's stage: the others play it on their own
-# devices (not shown during the play).
+# The same for an online room's stage against other people alone.
 # Variables:
 #   $number (Number) - the stage, from 1
 #   $stages (Number) - the match's stages
 #   $others (Number) - the other players starting it
-room-prompt-stage-online = Stage { $number } of { $stages } · { $others ->
+room-prompt-stage-people = Stage { $number } of { $stages } · { $others ->
     [one] against one other player
    *[other] against { $others } other players
-}, each on their own device · out when your life runs out
+}
+
+# The same for an online room's stage against other people and the
+# room's CPUs.
+# Variables:
+#   $number (Number) - the stage, from 1
+#   $stages (Number) - the match's stages
+#   $others (Number) - the other players starting it
+#   $cpus (Number) - CPU opponents
+room-prompt-stage-mixed = Stage { $number } of { $stages } · against { $others ->
+    [one] one other player
+   *[other] { $others } other players
+} and { $cpus ->
+    [one] one CPU
+   *[other] { $cpus } CPUs
+}
+
+# After the stage's line on its start prompt: what running out of life
+# does, where the charts are as picked (the player is out of the stage).
+room-prompt-life-out = out when your life runs out
+
+# The same where the match's charts are Adaptive: the player goes on, on
+# the song's next easier chart (on the easiest, they are out).
+room-prompt-life-easier = an easier chart when your life runs out
 
 # The same for a stage this device watches (a member who chose Watch, or
 # someone watching with the room's audience): nothing is played here.

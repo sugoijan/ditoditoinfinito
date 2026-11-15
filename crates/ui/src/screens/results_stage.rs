@@ -1228,9 +1228,10 @@ impl ResultsScreen {
         } else if table.rules.changed {
             // Played under rules changed during the match: said, with
             // those rules, beside the heading.
-            m::table_rules_changed(crate::screens::room::rules_words(
+            m::table_rules_changed(crate::screens::room::rules_words_in(
                 &table.rules,
                 Some(table.attacks),
+                table.adaptive_offered,
             ))
             .into()
         } else {

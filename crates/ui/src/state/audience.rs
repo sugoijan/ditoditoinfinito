@@ -795,6 +795,7 @@ impl AudienceClient {
             chart: prepared.picked.chart,
             battle: ddi_room::BattlePreset::with_attacks(attacks),
             attacks_offered: true,
+            adaptive_offered: true,
             rules: self.stage_rules_of(Some(stage)),
             me: AUDIENCE_ME,
             targeting: Default::default(),

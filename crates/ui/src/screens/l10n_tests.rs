@@ -1226,20 +1226,32 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
     let mut info = super::prompt::PromptInfo::default();
     // (Practice with its attacks turned off: said. An online room's has
     // none to turn off: nothing said.)
-    info.set_stage(1, 4, 3, 0, &Default::default(), Some(false));
+    let practice = crate::state::room::StageRules::default();
+    info.set_stage(super::prompt::StageLine {
+        number: 1,
+        stages: 4,
+        cpus: 3,
+        others: 0,
+        rules: &practice,
+        attacks: Some(false),
+        adaptive_offered: true,
+    });
     let mut online = super::prompt::PromptInfo::default();
-    online.set_stage(
-        2,
-        4,
-        0,
-        2,
-        &crate::state::room::StageRules {
-            difficulty: ddi_room::MatchDifficulty::Hard,
-            boos: true,
-            ..Default::default()
-        },
-        None,
-    );
+    let hard = crate::state::room::StageRules {
+        difficulty: ddi_room::MatchDifficulty::Hard,
+        boos: true,
+        charts: ddi_room::Charts::Adaptive,
+        ..Default::default()
+    };
+    online.set_stage(super::prompt::StageLine {
+        number: 2,
+        stages: 4,
+        cpus: 2,
+        others: 2,
+        rules: &hard,
+        attacks: None,
+        adaptive_offered: true,
+    });
     checked(
         vec![
             info.mods,

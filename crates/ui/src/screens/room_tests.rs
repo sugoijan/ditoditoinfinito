@@ -836,12 +836,21 @@ fn the_rules_summary_says_no_attacks_only_where_they_are_turned_off() {
         "DDI · Hard timing · Boos · No attacks"
     );
     // A stage's prompt: the same words after the stage's line.
-    use super::prompt::PromptInfo;
+    use super::prompt::{PromptInfo, StageLine};
+    let line = |attacks| StageLine {
+        number: 1,
+        stages: 4,
+        cpus: 3,
+        others: 0,
+        rules: &rules,
+        attacks,
+        adaptive_offered: true,
+    };
     let mut info = PromptInfo::default();
-    info.set_stage(1, 4, 3, 0, &rules, Some(false));
+    info.set_stage(line(Some(false)));
     assert!(info.mods.ends_with("Rules: DDI · No attacks"), "{}", info.mods);
     let mut info = PromptInfo::default();
-    info.set_stage(1, 4, 3, 0, &rules, Some(true));
+    info.set_stage(line(Some(true)));
     assert!(info.mods.ends_with("Rules: DDI"), "{}", info.mods);
     // A new practice room has attacks, and Reset's defaults too.
     let room = RoomClient::shared(0, 1);
@@ -5406,4 +5415,53 @@ fn the_counts_are_of_who_can_play() {
     );
     hp.run(0.5);
     assert_eq!(said(&hp, "Room.Ready"), "1 / 2", "{:?}", hp.texts());
+}
+
+/// ui-screens-5, ui-screens-9 and the life line (fix round G4): a stage's
+/// prompt names the room's CPUs beside the other people, says what
+/// running out of life does under the match's Charts rule (out, or an
+/// easier chart under Adaptive) and no longer that the others play on
+/// their own devices, and names the Charts rule only where the room
+/// offers Adaptive. Before: "against 2 other players, each on their own
+/// device · out when your life runs out" for all three, with "Charts as
+/// picked" where the room offers no Adaptive.
+#[test]
+fn a_stage_prompt_says_whom_it_is_against_and_what_zero_life_does() {
+    use super::prompt::{PromptInfo, StageLine};
+    let adaptive = crate::state::room::StageRules {
+        charts: ddi_room::Charts::Adaptive,
+        ..Default::default()
+    };
+    let as_picked = crate::state::room::StageRules::default();
+    let said = |cpus, others, rules, attacks, adaptive_offered| {
+        let mut info = PromptInfo::default();
+        info.set_stage(StageLine {
+            number: 1,
+            stages: 3,
+            cpus,
+            others,
+            rules,
+            attacks,
+            adaptive_offered,
+        });
+        info.mods
+    };
+    assert_eq!(
+        said(4, 2, &adaptive, None, true),
+        "Stage 1 of 3 · against 2 other players and 4 CPUs · \
+         an easier chart when your life runs out · Rules: DDI"
+    );
+    assert_eq!(
+        said(4, 0, &adaptive, Some(true), true),
+        "Stage 1 of 3 · against 4 CPUs · an easier chart when your life runs out · Rules: DDI"
+    );
+    assert_eq!(
+        said(1, 0, &as_picked, Some(true), true),
+        "Stage 1 of 3 · against one CPU · out when your life runs out · \
+         Rules: DDI · Charts as picked"
+    );
+    assert_eq!(
+        said(0, 2, &as_picked, None, false),
+        "Stage 1 of 3 · against 2 other players · out when your life runs out · Rules: DDI"
+    );
 }

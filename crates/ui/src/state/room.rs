@@ -580,6 +580,9 @@ pub struct StageOrder {
     /// Attacks can be played in the stage's room (CPU practice): its
     /// prompt then says where the match has none.
     pub attacks_offered: bool,
+    /// The room offers Adaptive charts ([`RoomClient::adaptive_offered`]):
+    /// its prompt says the charts rule only where it does.
+    pub adaptive_offered: bool,
     /// The match's rules the stage is judged by, everyone's (D0), played
     /// in place of the player's own.
     pub rules: StageRules,
@@ -637,6 +640,19 @@ impl StageOrder {
     /// attacks are offered, none where they are not (nothing to say).
     pub fn attacks_rule(&self) -> Option<bool> {
         self.attacks_offered.then(|| self.battle.attacks())
+    }
+
+    /// The stage as its start prompt says it.
+    pub fn line(&self) -> crate::screens::prompt::StageLine<'_> {
+        crate::screens::prompt::StageLine {
+            number: self.number,
+            stages: self.of,
+            cpus: self.cpus.len(),
+            others: self.others,
+            rules: &self.rules,
+            attacks: self.attacks_rule(),
+            adaptive_offered: self.adaptive_offered,
+        }
     }
 
     /// A stage handed over to watch with a room's audience
@@ -881,6 +897,9 @@ pub struct StageTable {
     /// The room confirmed the outcome: the places, awards and order are
     /// final. Before, the rows are as seated and fill in as reports come.
     pub confirmed: bool,
+    /// The room offers Adaptive charts ([`RoomClient::adaptive_offered`]):
+    /// the rules' words name the charts rule only where it does.
+    pub adaptive_offered: bool,
     /// The match's rules: the ruleset's tiers and score (the engine's
     /// id), its difficulty and Boos.
     pub rules: StageRules,
@@ -3563,6 +3582,7 @@ impl RoomClient {
             confirmed,
             rules: StageRules::of_stage(m, stage),
             attacks: self.attacks_played(&m.rules_for(stage)),
+            adaptive_offered: self.adaptive_offered(),
             summary: self.summaries.get(&stage).cloned(),
             rows,
             result,
@@ -3613,6 +3633,7 @@ impl RoomClient {
             // offered (never a rule that silently does nothing).
             battle: BattlePreset::with_attacks(self.attacks_played(&m.rules_for(stage))),
             attacks_offered: self.attacks_offered(),
+            adaptive_offered: self.adaptive_offered(),
             rules: StageRules::of_stage(m, stage),
             dev_mines_at_beat: development().mines_at_beat,
             me: self.me,

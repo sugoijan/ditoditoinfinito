@@ -463,22 +463,9 @@ fn full_info(request: &Request, loaded: &Loaded, settings: &Settings) -> PromptI
         && order.watching
     {
         // Watched (a member's Watch, or with the room's audience).
-        info.set_watched_stage(
-            order.number,
-            order.of,
-            order.cpus.len() + usize::from(order.others),
-            &order.rules,
-            order.attacks_rule(),
-        );
+        info.set_watched_stage(order.line());
     } else if let Some(order) = &request.stage {
-        info.set_stage(
-            order.number,
-            order.of,
-            order.cpus.len(),
-            order.others,
-            &order.rules,
-            order.attacks_rule(),
-        );
+        info.set_stage(order.line());
         if order.battle.attacks()
             && order.others == 0
             && ddi_session::battle::stage_speed_raised(&loaded.song, request.chart, settings)

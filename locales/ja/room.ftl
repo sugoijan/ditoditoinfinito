@@ -291,9 +291,15 @@ room-leave-co-host = 共同ホストを務めています。進行中の対戦�
 
 ## A stage's prompt, results and the room between stages.
 
-room-prompt-stage = ステージ { $number } / { $stages } · CPU { $cpus }人と対戦 · ゲージが尽きるとアウト
+room-prompt-stage-cpus = ステージ { $number } / { $stages } · CPU { $cpus }人と対戦
 
-room-prompt-stage-online = ステージ { $number } / { $stages } · ほかのプレイヤー{ $others }人とそれぞれの端末で対戦 · ゲージが尽きるとアウト
+room-prompt-stage-people = ステージ { $number } / { $stages } · ほかのプレイヤー{ $others }人と対戦
+
+room-prompt-stage-mixed = ステージ { $number } / { $stages } · ほかのプレイヤー{ $others }人とCPU { $cpus }人と対戦
+
+room-prompt-life-out = ゲージが尽きるとアウト
+
+room-prompt-life-easier = ゲージが尽きると一つ易しい譜面へ
 
 room-prompt-stage-watched = ステージ { $number } / { $stages } · { $players }人のプレイを観戦
 

@@ -2865,22 +2865,9 @@ impl GameCanvas {
         }
         if let Some(order) = props.room_stage.as_ref().filter(|o| o.watching) {
             // Watched (a member's Watch, or with the room's audience).
-            info.set_watched_stage(
-                order.number,
-                order.of,
-                order.cpus.len() + usize::from(order.others),
-                &order.rules,
-                order.attacks_rule(),
-            );
+            info.set_watched_stage(order.line());
         } else if let Some(order) = &props.room_stage {
-            info.set_stage(
-                order.number,
-                order.of,
-                order.cpus.len(),
-                order.others,
-                &order.rules,
-                order.attacks_rule(),
-            );
+            info.set_stage(order.line());
             if let (Status::Ready(song), SongSource::Song { chart, .. }) =
                 (&self.song, &props.source)
                 && order.battle.attacks()

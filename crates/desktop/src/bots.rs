@@ -1837,6 +1837,7 @@ mod tests {
             chart: ChartEntry::default(),
             battle: ddi_room::BattlePreset::GaugeSurvivalV0,
             attacks_offered: false,
+            adaptive_offered: true,
             rules,
             dev_mines_at_beat: None,
             me: ddi_room::ParticipantId(2),
