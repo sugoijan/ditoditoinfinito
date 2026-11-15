@@ -873,7 +873,11 @@ Rust and the browser are implementation details, not advertised features.
   the half-lane cap is for miniatures beside a field of one's own; the
   renderer draws no field and no HUD of its own,
   `RenderOptions::no_field`), or the competitor followed in the play's
-  field's place (`opponents::large_slot`) with the others beside it,
+  field's place (`opponents::large_slot`: a miniature there, the one
+  drawing of their notes, every field at the stage's song second less
+  its own view delay) with the others beside it, their name plate under
+  their life gauge (`battle_cue::draw_followed`: the name, a CPU's
+  stars, their place of everyone or Out),
   who attacks whom between the fields (`attack_links::shown_between`)
   and each recipient's warning, the status line's "Watching [name]" and
   the stage's moments; a player's own field out of the stage, dimmed

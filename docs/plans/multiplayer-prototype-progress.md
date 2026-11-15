@@ -10375,6 +10375,83 @@ no server change. The page is `audience-page-v2`.
   under load, on the commit before this round too (the fields' delay
   rises to its cap as the stage is handed over late).
 
+## Feedback round K: one player followed: who they are, one chart on their field (2026-11-15)
+
+The maintainer, after watching a stage of the deployed game with one
+player followed: "I miss a way to see who is the player, and also the
+ghost notes are really bad to look at, we should only show one chart".
+
+### The "ghost notes" (found, then fixed)
+
+- **What they were**: the followed competitor's own chart drawn twice,
+  never two charts. The followed field is a miniature in the play's
+  field's place (`ddi_shell::opponents::large_slot`: its receptors, its
+  notes, its bars), and the frame the renderer is given is that
+  competitor's too (`FieldFeed::frame_large`: the judgment's word, the
+  combo, the score), whose notes the renderer also drew, under the
+  miniature's. And the miniatures were drawn for the frame's time, which
+  for a followed competitor is their field's own, their view delay
+  behind the song already: so the miniature's copy was the delay behind
+  the frame's copy (twice the delay behind the song). In CPU practice
+  the delay is 0 and the two copies fell on each other, which is why no
+  test or picture showed it; over a network (a live stage watched by a
+  member or with the audience, a player out of a live stage following
+  someone) the delay is a few tenths of a second and the two copies came
+  apart: every note twice, the frame's copy darker under the brighter
+  miniature's. The miniatures beside the followed field were late by the
+  followed competitor's delay too (alone, so no second copy). The
+  spectator's grid was not affected (its frame has no notes, its time is
+  the song's).
+- **Now**: no field means none of the frame's notes either
+  (`RenderOptions::no_field`, `ddi_render::scene`), and every field is
+  drawn for the stage's song second, each taking its own view delay from
+  it (`PlayView::draw`'s `song`, the play's clock's; the standings, the
+  rivals' turns and the attack lines too). The followed field shows one
+  chart, the one its competitor plays now, as their stream says it: the
+  stage's chart to their step's cut, the new chart's from its boundary
+  (`FieldFeed::fill`, unchanged: it never drew two charts' notes over
+  each other, which the round's test checks frame by frame on a stage
+  whose CPUs step down). There was no second chart to choose between, so
+  no constant keeps "the other one".
+- Testing: `Battle::delay_fields_for_tests` (TESTING ONLY, with the
+  session's and desktop host's of the same name) draws a practice's
+  fields a delay behind the song, as a network's are;
+  `WatchDrawn::song` and `followed_at` say the stage's second and the
+  followed field's own (`__DDI_DEBUG.watch.song`, `followed_at`).
+  `crates/desktop/tests/watch_follow_offscreen.rs`.
+- Not changed: the background, the movies and the lyrics of a stage
+  with someone followed still go by the followed frame's time (the
+  field's delay behind the song: they shift by it when the watcher
+  changes whom they follow).
+
+### Who is followed: the name plate (`followed-plate-v0`, PROVISIONAL)
+
+- What there was: "Watching [name]" in the status line under the right
+  side's miniatures (14 px, muted; on a phone at the screen's bottom,
+  cut), the same for a member who watches, a player out of a stage and
+  an audience seat. It stays.
+- On the followed field itself, under the life gauge's left end, on the
+  line the chart is named at the right of (where a player's own field
+  has their attack policy; a followed field has none):
+  `ddi_shell::battle_cue::draw_followed`: the name bright and bold on a
+  dark plate, a CPU's stars after it, then quietly their place of
+  everyone in the stage now as the stage ranks ("2 of 4",
+  `room-watch-place`; `crate::rivals::Ladder`), or Out / Left once they
+  are out, the name dimmed as their field is. Where it is narrow the
+  place goes first (also where the chart line needs the room to be
+  whole), then the stars, then the name is cut between graphemes; the
+  plate and its words take three quarters of the gauge's width at most.
+  The score is the HUD's (the followed competitor's, top right), not
+  repeated. It follows the focus (Tab, a tap) and shows for a player out
+  of the stage who follows someone; nobody followed, none.
+- Not on it: a person's role (host, co-host, Bot): a stage's play knows
+  its competitors' names and a CPU's level, not the room's roles.
+- Changing whom is followed was there already without a pointer: Tab
+  and Shift+Tab, a controller's shoulders, a tap or click on a field
+  (the large one: back to every field). Nothing was added; no hint says
+  so while someone is followed (the grid's first seconds say "Tab or tap
+  a field to follow one player").
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
