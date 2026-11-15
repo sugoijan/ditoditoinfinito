@@ -1016,7 +1016,10 @@ impl RoomState {
         if s.play.is_some() {
             return Err(Rejection::StageStarted);
         }
-        if s.content.as_ref().map(|c| &c.id) != Some(content) {
+        // A new song, or the same one whose share failed: chosen (and
+        // shared) anew, never a window on content nobody can load.
+        let unusable = |c: &StageContent| matches!(c.status, ContentStatus::Unavailable { .. });
+        if s.content.as_ref().is_none_or(|c| &c.id != content || unusable(c)) {
             let (status, share) = match self.source {
                 ContentSource::LocalLibrary => (ContentStatus::Available, None),
                 ContentSource::Shared => match self.known_share(content) {
