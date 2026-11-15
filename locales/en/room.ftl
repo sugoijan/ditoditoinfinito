@@ -114,6 +114,12 @@ room-stop-match = Stop match
 #   $seconds (Number) - whole seconds left
 room-status-countdown = Stage { $number } starts in { $seconds }…
 
+# The countdown to the stage's start where the seconds left are not
+# known yet (the audience's page before the room's clock is).
+# Variables:
+#   $number (Number) - the stage, from 1
+room-status-countdown-soon = Stage { $number } is about to start.
+
 # The stage is being played (its play is over the room; seen only if
 # it was left without a result).
 # Variables:

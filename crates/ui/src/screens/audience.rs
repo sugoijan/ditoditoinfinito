@@ -167,6 +167,17 @@ fn number(v: &PublicView, stage: ddi_room::StageId) -> usize {
     v.stages.iter().position(|s| s.id == stage).map_or(1, |i| i + 1)
 }
 
+/// Whole seconds left of a stage's countdown, on the room's clock as
+/// the seat estimates it (none before it does).
+fn countdown_seconds(a: &AudienceClient) -> Option<u64> {
+    use crate::state::room::LiveRoom;
+    let Phase::Countdown { start_at, .. } = a.view()?.phase else {
+        return None;
+    };
+    let now = a.room_ms_at(a.now_ms())?;
+    Some(start_at.0.saturating_sub(now.0).div_ceil(1000))
+}
+
 /// What the room is doing, a sentence.
 fn doing(a: &AudienceClient, v: &PublicView) -> UiText {
     let song = |stage: ddi_room::StageId| {
@@ -187,7 +198,10 @@ fn doing(a: &AudienceClient, v: &PublicView) -> UiText {
                 _ => m::audience_doing_picking(number(v, *stage)),
             }
         }
-        Phase::Countdown { stage, .. } => m::status_countdown(number(v, *stage), 0),
+        Phase::Countdown { stage, .. } => match countdown_seconds(a) {
+            Some(seconds) => m::status_countdown(number(v, *stage), seconds),
+            None => m::status_countdown_soon(number(v, *stage)),
+        },
         Phase::Stage { stage } | Phase::SongCompletion { stage } => {
             if !a.plays_live() {
                 m::audience_doing_not_live(number(v, *stage))
@@ -372,6 +386,9 @@ pub struct AudienceScreen {
     shown: (usize, usize, usize),
     /// The client's version the card was built for.
     built: Option<u64>,
+    /// The countdown's seconds as built: the card is built again as they
+    /// change.
+    seconds: Option<u64>,
     /// What the debug view was last published for.
     published: Option<(u64, u32, Option<u32>, u32, u64)>,
     /// Watch was offered when last laid out (it is focused as it comes).
@@ -395,6 +412,7 @@ impl AudienceScreen {
             first: 0,
             shown: (0, 0, 0),
             built: None,
+            seconds: None,
             published: None,
             offered: false,
             time: 0.0,
@@ -458,6 +476,7 @@ impl AudienceScreen {
         let [sw, sh] = self.screen;
         let a = self.audience.borrow();
         self.built = Some(a.version());
+        self.seconds = countdown_seconds(&a);
         // A compact screen (a phone) has no footer of hints, as a page.
         let touch = compact;
         let footer_h = if touch { 0.0 } else { 40.0 };
@@ -723,7 +742,11 @@ impl crate::screen::Screen for AudienceScreen {
         if let Some(r) = redirect {
             (self.shell)(AudienceCall::Redirect(r), cx);
         }
-        if self.built != Some(self.audience.borrow().version()) {
+        let changed = {
+            let a = self.audience.borrow();
+            self.built != Some(a.version()) || self.seconds != countdown_seconds(&a)
+        };
+        if changed {
             self.rebuild(root, cx);
         }
         // Watch focused first as it comes (Enter or Start presses it).

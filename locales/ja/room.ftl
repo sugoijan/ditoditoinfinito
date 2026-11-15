@@ -54,6 +54,8 @@ room-stop-match = 対戦を中止
 
 room-status-countdown = ステージ { $number } まであと { $seconds }…
 
+room-status-countdown-soon = まもなくステージ { $number } が始まります。
+
 room-status-playing = ステージ { $number } をプレイ中です。
 
 room-status-preparing = ステージ { $number } の曲を準備しています…

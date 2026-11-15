@@ -800,6 +800,53 @@ fn the_audience_page_is_a_card_over_the_rain_then_the_last_stages_picture() {
     hd.run(0.1);
 }
 
+/// ui-screens-6: the audience's page counts a stage's countdown down on
+/// the room's clock where the seat knows it (`countdown_seconds`, the
+/// card built again as the seconds change), never "starts in 0" for the
+/// whole of it.
+#[test]
+fn the_audience_page_counts_the_countdown_down() {
+    use crate::look::Plain;
+    use crate::screens::audience::AudienceScreen;
+    use crate::screens::{DESIGN, Env};
+    use crate::testing::Harness;
+    let env = Env::new(
+        Rc::new(Plain),
+        Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
+    );
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let carol = Rc::new(RefCell::new(arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap()));
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, crate::TextMode::Own);
+    h.push(AudienceScreen::new(env, carol.clone(), Rc::new(|_, _| {})));
+    let step = |ms: u64, h: &mut Harness, alice: &mut RoomClient| {
+        for _ in 0..ms / 50 {
+            clock.advance(50);
+            server.borrow_mut().pump();
+            alice.tick(clock.now().0);
+            carol.borrow_mut().tick(clock.now().0);
+            h.ui.set_clock(clock.now().0 as f64 / 1_000.0);
+            h.run(0.05);
+        }
+    };
+    step(3_000, &mut h, &mut alice);
+    let start_at = ddi_room::Millis(clock.now().0 + 9_000);
+    server.borrow_mut().rewrite(|s| {
+        s.phase = ddi_room::Phase::Countdown {
+            stage: ddi_room::StageId(1),
+            start_at,
+        };
+    });
+    step(1_000, &mut h, &mut alice);
+    let texts = h.texts().join("\n");
+    assert!(!texts.contains("starts in 0"), "{texts}");
+    // The seat knows the room's clock from its first stage's frames: until
+    // then the stage is about to start, without a count.
+    assert!(carol.borrow().room_ms_at(clock.now().0).is_none());
+    assert!(texts.contains("Stage 1 is about to start."), "{texts}");
+}
+
 /// ui-state-3 (fix round G1): a stage picked with one song, then backed
 /// out of and picked again with another, is prepared again with the
 /// second; an answer for the first that comes late is dropped.
