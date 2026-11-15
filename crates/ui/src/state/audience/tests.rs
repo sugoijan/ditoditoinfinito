@@ -15,7 +15,7 @@ use crate::state::online::tests::{Handler, err, me_of, ok, signed_in};
 use crate::state::room::RoomClient;
 use ddi_room::audience::AudienceRules;
 use ddi_room::fake::{FakeAudienceSocket, FakeServer, SharedFake};
-use ddi_room::{Closure, Identity, Intent, RoomPolicy};
+use ddi_room::{Closure, Identity, Intent, ReconnectPolicy, RoomId, RoomPolicy, Transport};
 
 /// The room's audience link (its key is the fake's own).
 pub(crate) const AUDIENCE_LINK: &str = "Room000001.audienceAUDIENCEaudien01";
@@ -850,4 +850,77 @@ fn a_stage_picked_again_with_another_song_is_prepared_again() {
     // The first song's answer, late: not the stage's any more.
     carol.finish_load(&first[0], Err(LoadProblem::Download));
     assert_eq!(carol.load_problem(stage), None);
+}
+
+/// A seat's socket whose relay refuses it: closed (1006) each time before
+/// it ever opens.
+struct Refusing;
+
+impl Transport for Refusing {
+    fn open(&mut self, _room: &RoomId, _ticket: &str) {}
+
+    fn send(&mut self, _text: String) {}
+
+    fn send_binary(&mut self, _bytes: Vec<u8>) {}
+
+    fn binary(&self) -> bool {
+        true
+    }
+
+    fn close(&mut self) {}
+
+    fn poll(&mut self) -> Vec<ddi_room::TransportEvent> {
+        vec![ddi_room::TransportEvent::Closed { code: 1006 }]
+    }
+}
+
+/// ui-state-8 (fix round G1): a seat whose socket closes before it ever
+/// opens asks for a new ticket after the same waits as a lost one, never
+/// at every tick.
+#[test]
+fn a_socket_that_never_opens_is_asked_for_again_after_a_wait() {
+    use crate::state::online::tests::FakeHttp;
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let s = server.clone();
+    let handler: Handler = Box::new(move |req| match (req.method, req.path.as_str()) {
+        (Method::Get, "/me") => ok(&me_of("dan")),
+        (Method::Post, "/rooms/Room000001/audience") => {
+            let (status, body) = s
+                .borrow_mut()
+                .audience_join_answer(Some("dev:dan"), AUDIENCE_LINK, None);
+            Some(crate::state::online::api::ApiResponse {
+                status,
+                body,
+                session: None,
+            })
+        }
+        _ => panic!("unexpected {req:?}"),
+    });
+    let online = crate::state::online::Online::new(
+        Box::new(FakeHttp {
+            handler: Rc::new(RefCell::new(handler)),
+            log: log.clone(),
+            out: Default::default(),
+        }),
+        crate::state::online::OnlineConfig {
+            platform: crate::state::online::Platform::Web,
+            site: "http://localhost:8080/".into(),
+        },
+    )
+    .shared();
+    let mut dan = AudienceClient::new(online, AUDIENCE_LINK, Box::new(Refusing), None, 5_000);
+    let joins = || {
+        log.borrow()
+            .iter()
+            .filter(|r| r.path == "/rooms/Room000001/audience")
+            .count()
+    };
+    run(&clock, &server, &mut [], &mut [&mut dan], 400);
+    let first = ReconnectPolicy::RECONNECT_BACKOFF_V0.wait_ms(1);
+    assert!(first >= 400, "{first}");
+    assert!(joins() <= 2, "asked {} times in 0.4 s", joins());
+    run(&clock, &server, &mut [], &mut [&mut dan], 10_000);
+    assert!(joins() <= 6, "asked {} times in 10 s", joins());
 }

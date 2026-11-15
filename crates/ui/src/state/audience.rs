@@ -473,8 +473,20 @@ impl AudienceClient {
             );
         }
         let was_on = self.seat.link().is_on();
+        let wanted = self.seat.wants_ticket();
         let news = self.seat.poll();
         let on = self.seat.link().is_on();
+        // A socket closed before it ever opened (a relay down, the upgrade
+        // refused): the next ticket after a wait too, as for a lost one.
+        if !was_on
+            && !on
+            && !wanted
+            && self.seat.wants_ticket()
+            && self.seat.link().ended().is_none()
+        {
+            self.attempt += 1;
+            self.retry_at = now_ms + ReconnectPolicy::RECONNECT_BACKOFF_V0.wait_ms(self.attempt);
+        }
         if on != was_on {
             if on {
                 self.sockets += 1;
