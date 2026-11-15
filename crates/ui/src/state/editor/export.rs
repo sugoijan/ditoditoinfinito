@@ -14,13 +14,15 @@ pub fn simfile(song: &Song, sm: bool) -> (String, &'static str) {
     }
 }
 
-/// A file name from a title: what file systems take.
+/// A file name from a title: what file systems take (Windows too: no
+/// dot or space at its end, no device name,
+/// `ddi_library::path::portable_name`).
 pub fn file_stem(title: &str) -> String {
     let s: String = title
         .chars()
         .map(|c| if "/\\:*?\"<>|".contains(c) { '_' } else { c })
         .collect();
-    let s = s.trim().trim_matches('.').to_string();
+    let s = ddi_library::path::portable_name(&s);
     if s.is_empty() { "song".into() } else { s }
 }
 
@@ -32,5 +34,11 @@ mod tests {
     fn file_names_from_titles() {
         assert_eq!(file_stem("A/B: c?"), "A_B_ c_");
         assert_eq!(file_stem(" .. "), "song");
+        // Review studio-editor-10: Windows drops a trailing dot or space
+        // (the folder made was not the one asked for) and refuses its
+        // device names.
+        assert_eq!(file_stem("Song ."), "Song");
+        assert_eq!(file_stem("aux"), "_aux");
+        assert_eq!(file_stem("COM1"), "_COM1");
     }
 }

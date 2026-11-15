@@ -368,7 +368,8 @@ pub struct Export {
 
 /// The name a file or folder of the pack takes from `name`: no
 /// separators or characters systems refuse, no dots or spaces at the
-/// ends, at most 80 characters.
+/// ends, no device name of Windows' ([`crate::path::portable_name`]), at
+/// most 80 characters.
 fn file_safe(name: &str) -> String {
     let cleaned: String = name
         .chars()
@@ -382,9 +383,7 @@ fn file_safe(name: &str) -> String {
         .collect();
     let words: Vec<&str> = cleaned.split_whitespace().collect();
     let joined: String = words.join(" ").chars().take(80).collect();
-    joined
-        .trim_matches(|c: char| c == '.' || c.is_whitespace())
-        .to_string()
+    crate::path::portable_name(&joined)
 }
 
 /// The line a file is, from its path: a line folder it is in (the

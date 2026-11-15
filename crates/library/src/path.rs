@@ -24,6 +24,31 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+/// A file or folder name made from a person's words (a song's title, an
+/// announcer's name), as every system takes it: no dots or spaces at
+/// its ends (Windows drops them, so the name made would not be the name
+/// asked for) and never one of Windows' device names (`CON`, `PRN`,
+/// `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, in any case, with or
+/// without an extension), which gets `_` before it. Characters that
+/// are no part of a name are the caller's to replace; an empty name
+/// stays empty.
+pub fn portable_name(name: &str) -> String {
+    let name = name.trim_matches(|c: char| c == '.' || c.is_whitespace());
+    let stem = name.split('.').next().unwrap_or("").trim_end();
+    let device = matches!(
+        stem.to_ascii_uppercase().as_str(),
+        "CON" | "PRN" | "AUX" | "NUL"
+    ) || (stem.len() == 4
+        && stem.is_char_boundary(3)
+        && matches!(stem[..3].to_ascii_uppercase().as_str(), "COM" | "LPT")
+        && matches!(stem.as_bytes()[3], b'1'..=b'9'));
+    if device {
+        format!("_{name}")
+    } else {
+        name.to_string()
+    }
+}
+
 /// A `/`-separated path relative to a root (an import, a song folder, a
 /// zip), borrowed. See the [module documentation](self).
 #[repr(transparent)]
@@ -381,6 +406,24 @@ impl PartialEq<RelPathBuf> for &RelPath {
 
 #[cfg(test)]
 mod tests {
+    /// Review studio-editor-10: names made from titles are ones Windows
+    /// keeps as asked.
+    #[test]
+    fn names_made_from_words_are_portable() {
+        use super::portable_name;
+        assert_eq!(portable_name("Song ."), "Song");
+        assert_eq!(portable_name(" . Song. . "), "Song");
+        assert_eq!(portable_name("aux"), "_aux");
+        assert_eq!(portable_name("Con"), "_Con");
+        assert_eq!(portable_name("NUL.txt"), "_NUL.txt");
+        assert_eq!(portable_name("com1"), "_com1");
+        assert_eq!(portable_name("LPT9 .ogg"), "_LPT9 .ogg");
+        // Names that only look alike are left alone.
+        for name in ["COM0", "COM10", "Console", "Auxiliary", "com", "Lpt", "コン", ""] {
+            assert_eq!(portable_name(name), name);
+        }
+    }
+
     use super::*;
 
     #[test]

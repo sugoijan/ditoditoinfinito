@@ -597,3 +597,18 @@ fn recordings_and_their_decoded_sound_are_bounded() {
     assert_eq!(kept.remove(5), Some("huge"));
     assert!(kept.is_empty() && kept.bytes() == 0);
 }
+
+/// Review studio-editor-10: an announcer named as a Windows device, or
+/// with a dot or a space at its end, still gets a folder Windows makes.
+#[test]
+fn a_pack_s_folder_is_a_name_every_system_takes() {
+    assert_eq!(file_safe("Con"), "_Con");
+    assert_eq!(file_safe("aux"), "_aux");
+    assert_eq!(file_safe("Voice . "), "Voice");
+    assert_eq!(file_safe("Mr. Clank"), "Mr. Clank");
+    let d = Draft {
+        name: "NUL".into(),
+        ..Draft::default()
+    };
+    assert_eq!(d.folder_name(), "_NUL");
+}
