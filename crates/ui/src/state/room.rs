@@ -1047,6 +1047,10 @@ pub struct RoomClient {
     /// The song and chart the picker's song select rests on, since when
     /// (M7b): told to the room once it rested [`SPOTLIGHT_REST_MS`].
     resting: Option<(ContentId, ContentCard, u64)>,
+    /// Since when the picker's song select rests on no song (a search
+    /// that finds nothing): the room's spotlight cleared after the same
+    /// rest.
+    resting_on_none: Option<u64>,
     /// This device's upload of the spotlight's song (an online picker's).
     spotlight_sharing: Option<(ContentId, Sharing)>,
     /// The spotlight's song as read from the room's share (a member's), and
@@ -1593,6 +1597,7 @@ impl RoomClient {
             uploads: Vec::new(),
             inbox: None,
             resting: None,
+            resting_on_none: None,
             spotlight_sharing: None,
             spotlight_loaded: None,
             spotlight_asked: None,
@@ -2255,6 +2260,11 @@ impl RoomClient {
             });
             (id, card_of(song, chart))
         });
+        if next.is_none() {
+            self.resting_on_none.get_or_insert(now);
+        } else {
+            self.resting_on_none = None;
+        }
         if self.resting.as_ref().map(|(id, _, _)| id) != next.as_ref().map(|(id, _)| id) {
             self.resting = next.map(|(id, card)| (id, card, now));
         }
@@ -2263,6 +2273,21 @@ impl RoomClient {
     /// Tells the room what the picker's song select has rested on.
     fn tell_spotlight(&mut self) {
         if !self.is_online() || self.link_state() != LinkState::Connected || !self.chooses() {
+            return;
+        }
+        // Resting on no song: the picker's spotlight cleared, once a rest.
+        if let Some(since) = self.resting_on_none {
+            if self.now_ms() >= since + SPOTLIGHT_REST_MS {
+                self.resting_on_none = None;
+            }
+            if self.resting_on_none.is_none()
+                && self.state().spotlight.as_ref().is_some_and(|s| s.by == self.me)
+            {
+                let _ = self.send(Command::Spotlight {
+                    content: None,
+                    card: None,
+                });
+            }
             return;
         }
         let Some((id, _, since)) = &self.resting else {

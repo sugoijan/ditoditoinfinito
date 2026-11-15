@@ -188,3 +188,29 @@ fn joined_to_watch_is_said_through_a_prompt_opening() {
     tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 12_000);
     assert_eq!(carol.link_notice(), None, "gone at its time");
 }
+
+/// First pass 5: the picker's song select resting on no song (a search
+/// that finds nothing) clears the room's spotlight after the same rest,
+/// so the others no longer preview a song the picker left.
+#[test]
+fn resting_on_no_song_clears_the_spotlight() {
+    use super::tests::room::song;
+    let clock = ManualClock::new(1_000);
+    let server = room_of(&clock, &["bob"]);
+    let mut alice = client(&server, super::tests::room::person(&server, "alice"), "alice", 1_000);
+    let mut bob = client(&server, super::tests::room::person(&server, "bob"), "bob", 1_000);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let s = song();
+    alice.hover(Some((&s, &s.charts[0])));
+    tick(&clock, &mut [&mut alice, &mut bob], 3_600);
+    assert!(bob.state().spotlight.is_some());
+    alice.hover(None);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    assert!(bob.state().spotlight.is_some(), "not rested yet");
+    tick(&clock, &mut [&mut alice, &mut bob], 3_600);
+    assert!(bob.state().spotlight.is_none(), "cleared");
+    // Back on a song: told again.
+    alice.hover(Some((&s, &s.charts[0])));
+    tick(&clock, &mut [&mut alice, &mut bob], 3_600);
+    assert!(bob.state().spotlight.is_some());
+}
