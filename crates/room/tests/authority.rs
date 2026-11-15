@@ -675,3 +675,52 @@ fn a_room_stored_by_revision_8_loads_and_plays_on() {
     assert!(matches!(state.phase, Phase::Preparing { stage: StageId(2), .. }));
     assert_eq!(state.standings().unwrap(), before, "stage 1's points kept");
 }
+
+/// A room stored by revision 10 loads under every later one (round D1):
+/// the JSON revision 10's own reducer wrote (`room-revision-10.json`: a
+/// hosted room that plays live with an audience, three stages under
+/// Adaptive charts, a roster of two CPUs, a co-host who took the pick, a
+/// member held to watching by the watch-only link, one who left, the
+/// host's setting Close, stage 1 reported with details and settled, a
+/// per-stage change of rules from stage 2, a spotlight and a kept share)
+/// reads, writes back what it reads, and plays on.
+#[test]
+fn a_room_stored_by_revision_10_loads_and_plays_on() {
+    let text = include_str!("room-revision-10.json");
+    let mut state: RoomState = serde_json::from_str(text).unwrap();
+    let back = serde_json::to_value(&state).unwrap();
+    assert_eq!(
+        back,
+        serde_json::from_str::<serde_json::Value>(text).unwrap(),
+        "written as it was read"
+    );
+    assert!(state.policy.live.is_some() && state.policy.audience.is_some());
+    assert_eq!(state.closed, None);
+    assert_eq!(state.picker(), Some(ParticipantId(2)));
+    assert_eq!(state.if_host_leaves(), ddi_room::HostLeaves::Close);
+    assert!(state.member(ParticipantId(4)).unwrap().watch_only);
+    assert!(state.member(ParticipantId(5)).unwrap().left);
+    let m = state.current.as_ref().unwrap();
+    assert_eq!(m.rules.charts, ddi_room::Charts::Adaptive);
+    assert!(m.stage_rules_changed(StageId(2)));
+    assert_eq!(m.stages[0].play.as_ref().unwrap().details.len(), 4);
+    assert_eq!(state.phase, Phase::Intermission { next: StageId(2) });
+    let before = state.standings().unwrap();
+    let revision = state.revision;
+    state
+        .apply(
+            ddi_room::Actor::Member(ParticipantId(2)),
+            Some(revision),
+            &Command::Pick {
+                content: ContentId {
+                    song: SongKey::new("song-2"),
+                    chart: ChartKey::new("digest-2"),
+                },
+                card: None,
+            },
+            Millis(1_000_000),
+        )
+        .unwrap();
+    assert!(matches!(state.phase, Phase::Preparing { stage: StageId(2), .. }));
+    assert_eq!(state.standings().unwrap(), before, "stage 1's points kept");
+}
