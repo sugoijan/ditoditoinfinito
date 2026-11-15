@@ -1405,3 +1405,158 @@ fn the_audience_page_shows_the_picked_song_s_banner_once_the_share_is_read() {
     assert!(h.ui.actor("Audience.BannerPlate").is_some() && h.ui.actor("Audience.Banner").is_none());
     assert_eq!(view(&env).banner.as_deref(), Some("plate"));
 }
+
+/// Round D3, item 3: a seat that joins between stages shows the last
+/// played stage's picture behind its card. No stage played yet: the
+/// rain, nothing asked. A stage played before the seat came: its song
+/// asked for from the share the public view names for it (as a stage's
+/// song, without what live play needs), the rain meanwhile; its
+/// background, once read, in the rain's place. A read that fails, a song
+/// without a background and a stage whose share is gone (the view names
+/// none) keep the rain. A seat that read the stage's song but watched
+/// none of it has the picture from that read.
+#[test]
+fn a_late_joiner_s_page_shows_the_last_played_stage_s_picture() {
+    use crate::state::online::tests::room::song;
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 5_000);
+    let read = |job: &LoadJob| -> LoadResult {
+        let mut found = song();
+        found.id = job.song.clone();
+        Ok((Picked { chart: found.charts[0].clone(), song: found }, None))
+    };
+    let late = |who: &'static str| {
+        let seat = Rc::new(RefCell::new(
+            arrive(&server, who, AUDIENCE_LINK, clock.now().0).unwrap(),
+        ));
+        let (_, h, asked) = page_asking(&seat, [1280.0, 720.0]);
+        (seat, h, asked)
+    };
+    let rain = |h: &crate::testing::Harness| {
+        h.ui.actor("MenuBackground").is_some() && h.ui.actor("Audience.Backdrop").is_none()
+    };
+    let picture = |h: &crate::testing::Harness| {
+        h.ui.actor("Audience.Backdrop").is_some() && h.ui.actor("MenuBackground").is_none()
+    };
+    // Before any stage: the rain, nothing asked.
+    let (early, mut he, asked_early) = late("carol");
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut early.borrow_mut()], 2_000);
+    he.run(0.3);
+    assert!(rain(&he) && asked_early.borrow().is_empty());
+    // A stage played. The seat that was there read its song (with its
+    // background) and watched none of it: the picture from that read.
+    two_stages(&mut alice);
+    let prepare_early = |ms: u64, alice: &mut RoomClient, bob: &mut RoomClient, he: &mut crate::testing::Harness| {
+        run(&clock, &server, &mut [alice, bob], &mut [&mut early.borrow_mut()], ms);
+        he.run(0.2);
+        for job in asked_early.borrow_mut().drain(..) {
+            early
+                .borrow_mut()
+                .finish_load_with(&job, read(&job), Some("share001/bg.png".into()));
+        }
+    };
+    let stage = {
+        use ddi_room::{Command, ContentStatus};
+        let mut s = song();
+        s.charts[0].digest = Some(ddi_chart::ChartDigest(1));
+        alice.pick(&s, &s.charts[0]).unwrap();
+        prepare_early(400, &mut alice, &mut bob, &mut he);
+        let stage = alice.stages()[0].id;
+        server
+            .borrow_mut()
+            .authority(Command::SetContentStatus {
+                stage,
+                status: ContentStatus::Available,
+                share: Some("share001".into()),
+            })
+            .unwrap();
+        prepare_early(1_400, &mut alice, &mut bob, &mut he);
+        assert!(rain(&he), "nothing played yet");
+        stage
+    };
+    // (The stage ends by its starters' reports, as `play_stage` has it.)
+    {
+        use crate::state::online::tests::room::prepare;
+        use ddi_room::{Command, Finish, Finisher, Run};
+        prepare(&mut alice);
+        prepare(&mut bob);
+        alice.set_ready(true).unwrap();
+        bob.set_ready(true).unwrap();
+        prepare_early(8_000, &mut alice, &mut bob, &mut he);
+        assert!(matches!(alice.state().phase, Phase::Stage { .. }));
+        assert!(rain(&he), "while the first stage plays: nothing played yet");
+        alice
+            .report_run(stage, Run::Live { life: 1.0, score: 1, steps: 0 }, None)
+            .unwrap();
+        bob.report_run(stage, Run::Out { at: 3.0 }, None).unwrap();
+        prepare_early(400, &mut alice, &mut bob, &mut he);
+        if !alice.stage_confirmed(stage) {
+            let ranking = vec![
+                vec![Finisher { participant: alice.me(), finish: Finish::Survived }],
+                vec![Finisher { participant: bob.me(), finish: Finish::Eliminated }],
+            ];
+            server
+                .borrow_mut()
+                .authority(Command::EndSong { stage, ranking: Some(ranking) })
+                .unwrap();
+        }
+        prepare_early(2_400, &mut alice, &mut bob, &mut he);
+    }
+    assert_eq!(early.borrow().settled_stage(), Some(stage));
+    assert!(picture(&he), "the song as this seat read it");
+    assert_eq!(early.borrow().backdrop().map(|b| b.0.as_str()), Some("share001/bg.png"));
+    // A seat that joins now: the rain, the stage's song asked for from
+    // the share the view names; its background in the rain's place.
+    let (dan, mut hd, asked) = late("dan");
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut dan.borrow_mut()], 2_000);
+    hd.run(0.3);
+    assert!(rain(&hd), "until the picture is read");
+    let jobs = asked.borrow().clone();
+    assert_eq!(jobs.len(), 1, "asked once");
+    assert_eq!(
+        (jobs[0].stage, jobs[0].share.as_deref(), jobs[0].digest, jobs[0].live.is_none()),
+        (stage, Some("share001"), Some(ddi_chart::ChartDigest(1)), true)
+    );
+    dan.borrow_mut()
+        .finish_load_with(&jobs[0], read(&jobs[0]), Some("share001/bg.png".into()));
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut dan.borrow_mut()], 400);
+    hd.run(0.3);
+    assert!(picture(&hd), "the last played stage's picture");
+    assert_eq!(asked.borrow().len(), 1, "not asked again");
+    // A stage this seat watches replaces it, as before.
+    dan.borrow_mut().set_backdrop(Some(("watched".into(), 1.5)));
+    assert_eq!(dan.borrow().backdrop().map(|b| b.0.as_str()), Some("watched"));
+    // The read fails; the song has no background: the rain stays.
+    for (who, answer) in [("erin", None), ("fay", Some(None))] {
+        let (seat, mut h, asked) = late(who);
+        run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut seat.borrow_mut()], 2_000);
+        h.run(0.3);
+        let jobs = asked.borrow().clone();
+        assert_eq!(jobs.len(), 1);
+        match answer {
+            None => seat.borrow_mut().finish_load(&jobs[0], Err(LoadProblem::Download)),
+            Some(background) => seat
+                .borrow_mut()
+                .finish_load_with(&jobs[0], read(&jobs[0]), background),
+        }
+        run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut seat.borrow_mut()], 2_000);
+        h.run(0.3);
+        assert!(rain(&h), "{who}");
+        assert_eq!(asked.borrow().len(), 1, "{who}: not asked again");
+        assert_eq!(seat.borrow().load_problem(stage), None, "{who}: no stage's problem");
+    }
+    // The share gone (the view names none for the stage): nothing asked.
+    server.borrow_mut().rewrite(|s| {
+        let m = s.current.as_mut().unwrap();
+        m.stages[0].content.as_mut().unwrap().share = None;
+    });
+    // (The audience's view comes once a second at most.)
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [], 2_000);
+    let (gus, mut hg, asked) = late("gus");
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut gus.borrow_mut()], 2_000);
+    hg.run(0.3);
+    assert_eq!(gus.borrow().settled_stage(), Some(stage));
+    assert!(rain(&hg) && asked.borrow().is_empty());
+}

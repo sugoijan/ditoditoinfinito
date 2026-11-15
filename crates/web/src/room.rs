@@ -527,6 +527,10 @@ async fn read_shared(job: &LoadJob) -> Result<SharedFound, LoadProblem> {
             .banner
             .as_ref()
             .and_then(|b| crate::share::file_url(&entry.id, b.as_str())),
+        background: entry
+            .background
+            .as_ref()
+            .and_then(|b| crate::share::file_url(&entry.id, b.as_str())),
         entry: entry.clone(),
         index: p.index,
         pack: record.pack.clone(),

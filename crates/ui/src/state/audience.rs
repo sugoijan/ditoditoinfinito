@@ -225,6 +225,9 @@ impl Refused {
 struct Prepared {
     picked: Picked,
     prep: Option<LivePrep>,
+    /// The song's background picture (a texture source), where the
+    /// shell's read said one.
+    background: Option<String>,
 }
 
 /// An audience seat's client.
@@ -270,7 +273,16 @@ pub struct AudienceClient {
     /// as its prompt had it: the audience's page's backdrop until the
     /// next stage's replaces it ([`AudienceClient::set_backdrop`]).
     backdrop: Option<(String, f32)>,
+    /// The last played stage whose picture was looked for, for a seat
+    /// that has none ([`AudienceClient::sync_picture`]), and the share
+    /// asked for it where the seat had not read the stage's song.
+    picture_of: Option<StageId>,
+    picture_asked: Option<(StageId, String)>,
 }
+
+/// The shape a late joiner's picture is told with, unread (the page
+/// draws it cover fitted, whatever its own).
+const PICTURE_ASPECT: f32 = 16.0 / 9.0;
 
 /// A shell's threads' news since the last call (desktop's share
 /// downloads), drained each tick ([`AudienceClient::set_inbox`]): the
@@ -335,6 +347,8 @@ impl AudienceClient {
             sockets: 0,
             inbox: None,
             backdrop: None,
+            picture_of: None,
+            picture_asked: None,
         };
         c.tick(now_ms);
         c
@@ -515,6 +529,7 @@ impl AudienceClient {
             }
         }
         self.sync_loading();
+        self.sync_picture();
         self.note_seen();
     }
 
@@ -653,6 +668,48 @@ impl AudienceClient {
         self.version += 1;
     }
 
+    /// The last played stage's picture for a seat that has none (round
+    /// D3: one that joined between stages, or watched none of them): the
+    /// song's background as the play's backdrop shows it, behind the
+    /// page's card in the rain's place. From the song as this seat read
+    /// it, else read from the room's share the public view names for
+    /// that stage (a job as a stage's, without what live play needs),
+    /// once a stage; the rain stays where no stage was played yet, the
+    /// view names no share (it is gone), the read fails or the song has
+    /// no background (a generated one is drawn for a play alone).
+    fn sync_picture(&mut self) {
+        if self.backdrop.is_some() {
+            return;
+        }
+        let Some(stage) = self.settled_stage() else {
+            return;
+        };
+        if self.picture_of == Some(stage) {
+            return;
+        }
+        self.picture_of = Some(stage);
+        if let Some(p) = self.prepared.get(&stage) {
+            if let Some(source) = p.background.clone() {
+                self.backdrop = Some((source, PICTURE_ASPECT));
+                self.version += 1;
+            }
+            return;
+        }
+        // Asked for as a stage's song and not read: not asked again.
+        if self.asked.contains_key(&stage) {
+            return;
+        }
+        let named = self
+            .view()
+            .and_then(|v| v.stages.iter().find(|s| s.id == stage))
+            .and_then(|s| Some((s.share.clone()?, s.chart.clone()?)));
+        let Some((share, chart)) = named else {
+            return;
+        };
+        self.picture_asked = Some((stage, share.clone()));
+        self.jobs.push(LoadJob::from_share(stage, 0, share, &chart, None));
+    }
+
     /// Songs to prepare from the room's share (the shell answers
     /// [`Self::finish_load`]).
     pub fn take_load_jobs(&mut self) -> Vec<LoadJob> {
@@ -662,6 +719,31 @@ impl AudienceClient {
     /// The shell prepared `job`: the song read from the share with what
     /// live play needs, or why not.
     pub fn finish_load(&mut self, job: &LoadJob, result: LoadResult) {
+        self.finish_load_with(job, result, None);
+    }
+
+    /// [`Self::finish_load`], with the song's background picture (a
+    /// texture source) where the shell's read said one.
+    pub fn finish_load_with(
+        &mut self,
+        job: &LoadJob,
+        result: LoadResult,
+        background: Option<String>,
+    ) {
+        // The last played stage's song, read for its picture alone.
+        if !self.asked.contains_key(&job.stage)
+            && self
+                .picture_asked
+                .as_ref()
+                .is_some_and(|(stage, share)| *stage == job.stage && job.share.as_ref() == Some(share))
+        {
+            self.picture_asked = None;
+            if let (Ok(_), Some(source), None) = (&result, background, &self.backdrop) {
+                self.backdrop = Some((source, PICTURE_ASPECT));
+                self.version += 1;
+            }
+            return;
+        }
         // The song the stage has now, or a late answer for one it had.
         let current = self.asked.get(&job.stage).is_some_and(|(share, chart)| {
             job.share.as_ref() == Some(share) && job.digest == chart.as_str().parse().ok()
@@ -671,7 +753,14 @@ impl AudienceClient {
         }
         match result {
             Ok((picked, prep)) => {
-                self.prepared.insert(job.stage, Prepared { picked, prep });
+                self.prepared.insert(
+                    job.stage,
+                    Prepared {
+                        picked,
+                        prep,
+                        background,
+                    },
+                );
                 self.problems.remove(&job.stage);
             }
             Err(p) => {
@@ -688,7 +777,12 @@ impl AudienceClient {
         job: &LoadJob,
         result: Result<crate::state::room::SharedFound, LoadProblem>,
     ) {
-        self.finish_load(job, result.and_then(crate::state::room::SharedFound::picked));
+        let background = result.as_ref().ok().and_then(|f| f.background.clone());
+        self.finish_load_with(
+            job,
+            result.and_then(crate::state::room::SharedFound::picked),
+            background,
+        );
     }
 
     /// Why the stage's song could not be prepared, if it could not.

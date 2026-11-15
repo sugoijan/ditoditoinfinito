@@ -556,3 +556,308 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
         ppm("audience-page-after-a-stage", &pixels);
     }
 }
+
+
+/// A bundled song's file as desktop's texture source.
+fn bundled(file: &str) -> String {
+    format!("{}/../../assets/songs/beatucada/{file}", env!("CARGO_MANIFEST_DIR"))
+}
+
+/// Round D3: the audience's page between the stages of a match of two,
+/// in the window's own look, on this machine's GPU offscreen: before a
+/// first stage (the rain, the players), the song picked (its banner
+/// beside its title once the seat read the room's share), during a stage
+/// (Watch), after a stage (its Standings, the members' table, over the
+/// stage's picture), for a seat that joins then (the last played stage's
+/// picture read from its share), and after the match (its result on
+/// top). Each kept as a picture in English and Japanese with
+/// `DDI_OFFSCREEN_PPM=<dir>` (a phone's layouts are the web's: the
+/// window keeps its design's shape).
+///
+/// Skipped where there is no GPU adapter (CI).
+#[test]
+fn the_audience_s_page_between_stages_has_the_standings_the_banner_and_the_last_picture() {
+    use ddi_ui::screens::audience::{AudienceCall, AudienceScreen};
+    use ddi_ui::state::audience::SharedAudience;
+    use ddi_ui::state::room::LoadJob;
+    common::indexes();
+    let Some(adapter) = common::gpu::adapter_or_skip() else {
+        return;
+    };
+    let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
+    let mut ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
+    let wall = std::cell::Cell::new(WALL);
+    let server_clock = ManualClock::new(WALL);
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy::default().with_live().with_audience(),
+        server_clock.clone(),
+    )
+    .shared();
+    server.borrow_mut().set_room_name("Friday night");
+    server
+        .borrow_mut()
+        .join(Identity::new("dev:bob"), "bob", Intent::Play)
+        .unwrap();
+    let rooms: Vec<SharedRoom> = ["alice", "bob"]
+        .into_iter()
+        .map(|who| {
+            Rc::new(RefCell::new(RoomClient::online(
+                person(&server, who),
+                "Room000001",
+                Box::new(FakeSocket::new(server.clone())),
+                ddi_room::ClientId::new(format!("{who}-test")),
+                WALL,
+            )))
+        })
+        .collect();
+    let song = ddi_desktop::play::load::read_chart("beatucada").unwrap();
+    let chart = chart_with_holds_and_mines(&song);
+    let mut entry = common::practice::song_entry("beatucada", "Beatucada", chart, Difficulty::Hard);
+    entry.artist = "Vários".into();
+    let seats: RefCell<Vec<SharedAudience>> = RefCell::default();
+    let asked: Rc<RefCell<Vec<(SharedAudience, LoadJob)>>> = Rc::default();
+    // A seat by the audience link, nobody signed in.
+    let arrive = || -> SharedAudience {
+        let online = Online::new(
+            Box::new(AudienceHttp {
+                server: server.clone(),
+                out: Vec::new(),
+            }),
+            OnlineConfig {
+                platform: Platform::Desktop,
+                site: "http://localhost:8080/".into(),
+            },
+        )
+        .shared();
+        online.borrow_mut().check();
+        online.borrow_mut().poll(0);
+        let seat = Rc::new(RefCell::new(AudienceClient::new(
+            online,
+            LINK,
+            Box::new(FakeAudienceSocket::new(server.clone())),
+            None,
+            wall.get(),
+        )));
+        seats.borrow_mut().push(seat.clone());
+        seat
+    };
+    // Time passes: the room, its members (who prepare what they are asked
+    // and take their prompts, as their screens would) and the seats
+    // (whose songs are read as a shell reads a share's: the bundled song
+    // here, with its banner and its background).
+    let run = |ms: u64| {
+        for _ in 0..ms / 50 {
+            wall.set(wall.get() + 50);
+            server_clock.set(wall.get());
+            for room in &rooms {
+                room.borrow_mut().tick(wall.get());
+                let jobs = room.borrow_mut().take_load_jobs();
+                for job in jobs {
+                    let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+                    if job.share.is_some() {
+                        let picked = Picked {
+                            song: SongEntry { id: job.song.clone(), ..entry.clone() },
+                            chart: entry.charts[0].clone(),
+                        };
+                        room.borrow_mut()
+                            .finish_shared_load_live(&job, Ok((picked, prepared.live)));
+                    } else {
+                        room.borrow_mut().finish_load_live(&job, Ok(prepared.live));
+                    }
+                }
+                let _ = room.borrow_mut().take_stage_order();
+            }
+            server.borrow_mut().pump();
+            for seat in seats.borrow().iter() {
+                seat.borrow_mut().tick(wall.get());
+                let jobs = seat.borrow_mut().take_load_jobs();
+                asked.borrow_mut().extend(jobs.into_iter().map(|j| (seat.clone(), j)));
+            }
+            for (seat, job) in asked.borrow_mut().drain(..) {
+                let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+                let picked = Picked {
+                    song: SongEntry {
+                        id: "beatucada".into(),
+                        banner: Some(bundled("Banner.png")),
+                        ..entry.clone()
+                    },
+                    chart: entry.charts[0].clone(),
+                };
+                seat.borrow_mut().finish_load_with(
+                    &job,
+                    Ok((picked, prepared.live)),
+                    Some(bundled("Background.png")),
+                );
+            }
+        }
+    };
+    // The page over `seat` in each language: `there` drawn, `gone` not
+    // (the start menu lies under the page here, with its own rain: the
+    // rain's going is the UI's own tests'); its pictures kept as
+    // `audience-page-<state>-<lang>.png`.
+    let mut shoot = |state: &str, seat: &SharedAudience, there: &[&str], gone: &[&str]| {
+        for lang in ["en", "ja"] {
+            assert!(ddi_l10n::force(lang));
+            {
+                let size = SIZE;
+                let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), size, true);
+                let sink = asked.clone();
+                let of = seat.clone();
+                ui.push_over(AudienceScreen::new(
+                    env,
+                    seat.clone(),
+                    Rc::new(move |call, _| {
+                        if let AudienceCall::Prepare(job) = call {
+                            sink.borrow_mut().push((of.clone(), job));
+                        }
+                    }),
+                ));
+                for _ in 0..8 {
+                    ui.update(0.05);
+                }
+                // (The pictures' files are read on a thread: real time
+                // for them.)
+                for _ in 0..10 {
+                    std::thread::sleep(std::time::Duration::from_millis(30));
+                    let _ = ui_gpu.draw_offscreen(&mut ui, size, wgpu::TextureFormat::Rgba8Unorm);
+                    ui.update(0.05);
+                }
+                for name in there {
+                    assert!(ui.actor(name).is_some(), "{state} {lang}: no {name}");
+                }
+                for name in gone {
+                    assert!(ui.actor(name).is_none(), "{state} {lang}: {name}");
+                }
+                let pixels = ui_gpu.draw_offscreen(&mut ui, size, wgpu::TextureFormat::Rgba8Unorm);
+                common::shot(&format!("audience-page-{state}-{lang}.png"), &pixels, size);
+            }
+        }
+        ddi_l10n::unforce();
+    };
+    // A stage played to its settlement: picked, shared, everyone ready,
+    // started, each member's run reported with how they performed, the
+    // song ended. `between` is called once the song is picked and read,
+    // and once the stage plays.
+    let details = |out: bool| ddi_room::RunDetail {
+        score: Some(if out { 2_104_330 } else { 5_912_480 }),
+        percent: Some(if out { 4_120 } else { 9_853 }),
+        grade: if out { "C" } else { "S" }.into(),
+        life_ppm: if out { 0 } else { 870_000 },
+        out_at_ms: out.then_some(71_300),
+        max_combo: if out { 45 } else { 318 },
+        tiers: if out { vec![60, 50, 40, 20, 10, 5, 30] } else { vec![200, 90, 20, 6, 2, 1, 1] },
+        attacks: Some(if out { 1 } else { 3 }),
+        received: Some(if out { 3 } else { 1 }),
+        shocks: Some(if out { 9 } else { 2 }),
+        chart: out.then(|| "Medium".to_string()),
+        ..Default::default()
+    };
+    let play = |share: &str, between: &mut dyn FnMut(&str)| -> ddi_room::StageId {
+        use ddi_room::{Finish, Finisher, Phase, Run};
+        rooms[0].borrow_mut().pick(&entry, &entry.charts[0]).unwrap();
+        run(500);
+        let Phase::Preparing { stage, .. } = rooms[0].borrow().state().phase.clone() else {
+            panic!("the pick opens the stage: {:?}", rooms[0].borrow().state().phase);
+        };
+        let uploads = rooms[0].borrow_mut().take_upload_jobs();
+        for j in uploads {
+            server
+                .borrow_mut()
+                .authority(Command::SetContentStatus {
+                    stage: j.stage,
+                    status: ContentStatus::Available,
+                    share: Some(share.into()),
+                })
+                .unwrap();
+            rooms[0].borrow_mut().upload_finished(j.stage, Ok(share.into()));
+        }
+        run(2_500);
+        between("picked");
+        let mut readied = false;
+        for _ in 0..120 {
+            if !readied && rooms.iter().all(|r| r.borrow_mut().set_ready(true).is_ok()) {
+                readied = true;
+            }
+            if rooms[0].borrow().stage_started(stage)
+                && rooms[0].borrow().song_zero_at(stage).is_some()
+            {
+                break;
+            }
+            run(500);
+        }
+        assert!(rooms[0].borrow().stage_started(stage), "the room started it");
+        run(2_500);
+        between("playing");
+        let (a, b) = (rooms[0].borrow().me(), rooms[1].borrow().me());
+        let run_a = Run::Live { life: 0.87, score: 5_912_480, steps: 0 };
+        rooms[0].borrow_mut().report_run(stage, run_a, Some(details(false))).unwrap();
+        rooms[1]
+            .borrow_mut()
+            .report_run(stage, Run::Out { at: 71.3 }, Some(details(true)))
+            .unwrap();
+        run(500);
+        if !rooms[0].borrow().stage_confirmed(stage) {
+            let ranking = vec![
+                vec![Finisher { participant: a, finish: Finish::Survived }],
+                vec![Finisher { participant: b, finish: Finish::Eliminated }],
+            ];
+            server
+                .borrow_mut()
+                .authority(Command::EndSong { stage, ranking: Some(ranking) })
+                .unwrap();
+        }
+        run(2_500);
+        assert!(rooms[0].borrow().stage_confirmed(stage));
+        stage
+    };
+    let carol = arrive();
+    run(3_000);
+    let mut rules = rooms[0].borrow().rules().clone();
+    rules.stages = 2;
+    rooms[0].borrow_mut().save_rules(rules).unwrap();
+    run(2_000);
+    shoot(
+        "1-before-a-stage",
+        &carol,
+        &["Card", "Audience.Player0.Name"],
+        &["Tab.Standings", "Audience.BannerPlate", "Audience.Backdrop"],
+    );
+    let first = play("share001", &mut |at| match at {
+        "picked" => shoot(
+            "2-song-picked",
+            &carol,
+            &["Audience.Banner", "Audience.Song"],
+            &["Tab.Standings"],
+        ),
+        _ => shoot("3-during-a-stage", &carol, &["Item.watch", "Audience.Banner"], &["Tab.Standings"]),
+    });
+    // After the stage: its Standings over its picture (the song as this
+    // seat read it, no stage watched).
+    assert_eq!(carol.borrow().settled_stage(), Some(first));
+    shoot(
+        "4-after-a-stage",
+        &carol,
+        &["Tab.Standings", "Tab.Players", "Stand0", "Stand1", "Audience.Backdrop"],
+        &["Final.Winners", "Audience.Player0.Name"],
+    );
+    // A seat that joins now: the last played stage's picture, read from
+    // the share the view names for it.
+    let dan = arrive();
+    run(3_000);
+    assert_eq!(dan.borrow().backdrop().map(|b| b.0.clone()), Some(bundled("Background.png")));
+    shoot("5-a-late-joiner", &dan, &["Audience.Backdrop", "Stand0"], &[]);
+    // The match's last stage: its result on top.
+    let second = play("share002", &mut |_| {});
+    run(2_000);
+    assert_eq!(rooms[0].borrow().state().phase, ddi_room::Phase::MatchResults);
+    assert_eq!(carol.borrow().settled_stage(), Some(second));
+    shoot(
+        "6-after-the-match",
+        &carol,
+        &["Final.Winners", "Stand0", "Audience.Backdrop"],
+        &["Audience.BannerPlate"],
+    );
+}

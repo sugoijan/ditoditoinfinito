@@ -419,6 +419,10 @@ pub struct SharedFound {
     pub index: usize,
     pub pack: String,
     pub banner: Option<String>,
+    /// Its background picture as the shell's texture source, where the
+    /// song has one (the play's backdrop's picture: an audience seat's
+    /// page shows the last played stage's behind its card).
+    pub background: Option<String>,
     pub live: Option<LivePrep>,
 }
 

@@ -310,6 +310,7 @@ pub fn prepare_online_with(
                     index: prepared.index,
                     pack: first.pack.clone(),
                     banner: first.entry.banner.as_deref().map(|b| first.source(b)),
+                    background: first.entry.background.as_deref().map(|b| first.source(b)),
                     live: prepared.live,
                 }))
             })();
