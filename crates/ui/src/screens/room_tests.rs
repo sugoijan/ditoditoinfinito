@@ -5502,12 +5502,17 @@ fn a_stage_prompt_says_whom_it_is_against_and_what_zero_life_does() {
     assert_eq!(
         said(4, 2, &adaptive, None, true),
         "Stage 1 of 3 · against 2 other players and 4 CPUs · \
-         an easier chart when your life runs out · Rules: DDI"
+         the chart changes with your skill · Rules: DDI"
     );
     assert_eq!(
         said(4, 0, &adaptive, Some(true), true),
-        "Stage 1 of 3 · against 4 CPUs · an easier chart when your life runs out · Rules: DDI"
+        "Stage 1 of 3 · against 4 CPUs · the chart changes with your skill · Rules: DDI"
     );
+    // Under Adaptive nothing is said of life running out, nor of how the
+    // chart changes (the maintainer, 2026-11-15).
+    for word in ["life", "easier", "harder", "bar"] {
+        assert!(!said(4, 0, &adaptive, Some(true), true).contains(word), "{word}");
+    }
     assert_eq!(
         said(1, 0, &as_picked, Some(true), true),
         "Stage 1 of 3 · against one CPU · out when your life runs out · \

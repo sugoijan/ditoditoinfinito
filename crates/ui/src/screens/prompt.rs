@@ -555,10 +555,11 @@ impl PromptInfo {
             (others, 0) => msg::room::prompt_stage_people(number, stages, others).into(),
             (others, cpus) => msg::room::prompt_stage_mixed(number, stages, others, cpus).into(),
         };
-        // What running out of life does: out, or (Adaptive) an easier
-        // chart.
+        // What running out of life does: out; or, under Adaptive, that
+        // the chart changes with the player's skill (the maintainer,
+        // 2026-11-15: no word of life running out there, nor of how).
         let life: String = if adaptive_offered && rules.charts == ddi_room::Charts::Adaptive {
-            msg::room::prompt_life_easier().into()
+            msg::room::prompt_chart_adapts().into()
         } else {
             msg::room::prompt_life_out().into()
         };

@@ -299,7 +299,7 @@ room-prompt-stage-mixed = ステージ { $number } / { $stages } · ほかのプ
 
 room-prompt-life-out = ゲージが尽きるとアウト
 
-room-prompt-life-easier = ゲージが尽きると一つ易しい譜面へ
+room-prompt-chart-adapts = 譜面は実力に合わせて変わる
 
 room-prompt-stage-watched = ステージ { $number } / { $stages } · { $players }人のプレイを観戦
 

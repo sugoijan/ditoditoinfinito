@@ -774,9 +774,11 @@ room-prompt-stage-mixed = Stage { $number } of { $stages } · against { $others 
 # does, where the charts are as picked (the player is out of the stage).
 room-prompt-life-out = out when your life runs out
 
-# The same where the match's charts are Adaptive: the player goes on, on
-# the song's next easier chart (on the easiest, they are out).
-room-prompt-life-easier = an easier chart when your life runs out
+# In its place where the match's charts are Adaptive: what the rule
+# means for the player, in a few words (the chart they play changes,
+# easier or harder, with how well they play; how and when is not said
+# here, nor that life running out is what moves it down).
+room-prompt-chart-adapts = the chart changes with your skill
 
 # The same for a stage this device watches (a member who chose Watch, or
 # someone watching with the room's audience): nothing is played here.
