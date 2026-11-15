@@ -2608,6 +2608,11 @@ fn publish_now(h: &Host) {
                 );
                 set(&v, "saved", p.options_saved.into());
                 set(&v, "waiting", strings(&p.waiting));
+                set(
+                    &v,
+                    "timing",
+                    p.timing.as_deref().map_or(JsValue::NULL, JsValue::from),
+                );
                 v.into()
             }),
         );

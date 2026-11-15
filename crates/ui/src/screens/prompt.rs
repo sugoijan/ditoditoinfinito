@@ -213,6 +213,9 @@ pub struct PromptView {
     pub waiting: Vec<String>,
     pub bindings: Vec<String>,
     pub active_lane: Option<usize>,
+    /// The quiet line suggesting calibrating or not
+    /// ([`PromptInfo::timing`]; none where the play's purpose has none).
+    pub timing: Option<String>,
 }
 
 /// What the shell shows; `version` goes up with every change.
@@ -1698,6 +1701,7 @@ impl PromptScreen {
             options_differ: self.state.borrow().options_differ,
             options_saved: self.state.borrow().options_saved,
             waiting: self.state.borrow().waiting.clone(),
+            timing: self.state.borrow().info.timing.clone(),
             bindings: self
                 .state
                 .borrow()
