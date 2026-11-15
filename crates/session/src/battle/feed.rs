@@ -587,6 +587,12 @@ impl FieldFeed {
         self.moments.insert(at, m);
     }
 
+    /// When they went out of the stage (song seconds on the field's own
+    /// clock), once a moment said so.
+    pub fn out_at(&self) -> Option<f64> {
+        self.out_at.is_finite().then_some(self.out_at)
+    }
+
     /// The moments shown at song second `t`.
     fn shown_moments(&self, t: f64) -> &[Moment] {
         let v = self.view_time(t);

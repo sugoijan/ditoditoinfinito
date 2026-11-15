@@ -7,7 +7,9 @@
 //! Those that matter to the player now get the slots: whoever attacks
 //! them or whom they attack (the stage's kept seats,
 //! `ddi_session::battle::Battle::kept_seats`), then the nearest rivals by
-//! standing (still in first, by life, then score), as many above as below.
+//! standing (as the stage ranks them, `ddi_room::battle::rank`: still in
+//! first, by life then score, or under Charts: Adaptive by score then
+//! life; then those out, the latest first), as many above as below.
 //! A slot changes hands rarely and calmly: an opponent shown stays for at
 //! least [`RivalPolicy::hold`] seconds, and while it is within
 //! [`RivalPolicy::margin`] places (and a share of the field) of the
@@ -27,9 +29,28 @@ pub struct Standing {
     pub life: f32,
     /// Out of the stage.
     pub out: bool,
-    /// What it ranks by after life: the room's score (DDI's sum, a CPU's
+    /// What it ranks by beside life: the room's score (DDI's sum, a CPU's
     /// its own) or the percent where there is none.
     pub score: f64,
+    /// When it went out (song seconds; the later the higher among those
+    /// out, as the stage ranks them; `-inf` for a forfeit, last).
+    pub out_at: f64,
+    /// The stage's ranking rule (the same for every standing of a
+    /// stage): life then score, or under Charts: Adaptive score then life
+    /// (review finding shell-render-3).
+    pub rank: ddi_room::rules::RankBy,
+}
+
+impl Default for Standing {
+    fn default() -> Self {
+        Standing {
+            life: 1.0,
+            out: false,
+            score: 0.0,
+            out_at: f64::INFINITY,
+            rank: ddi_room::rules::RankBy::Life,
+        }
+    }
 }
 
 /// How slots change hands. PROVISIONAL (`rivals-v0`).
@@ -57,22 +78,26 @@ pub const RIVALS_V0: RivalPolicy = RivalPolicy {
     fade: 0.3,
 };
 
-/// Whether `a` stands above `b`: still in before out, then life, then
-/// score.
+/// Whether `a` stands above `b`, as the stage ranks them
+/// (`ddi_room::battle::rank`): still in before out; those still in by
+/// life then score, or by score then life ([`Standing::rank`]); those out
+/// the latest first, then by score.
 fn above(a: &Standing, b: &Standing) -> std::cmp::Ordering {
+    use ddi_room::rules::RankBy;
     use std::cmp::Ordering;
     match (a.out, b.out) {
         (false, true) => return Ordering::Less,
         (true, false) => return Ordering::Greater,
         _ => {}
     }
-    if !a.out {
-        match b.life.total_cmp(&a.life) {
-            Ordering::Equal => {}
-            o => return o,
-        }
+    let (life, score) = (b.life.total_cmp(&a.life), b.score.total_cmp(&a.score));
+    if a.out {
+        return b.out_at.total_cmp(&a.out_at).then(score);
     }
-    b.score.total_cmp(&a.score)
+    match a.rank {
+        RankBy::Life => life.then(score),
+        RankBy::Score => score.then(life),
+    }
 }
 
 /// The order of `field` (indices), best first; ties by index.
@@ -288,8 +313,8 @@ mod tests {
     fn s(life: f32, score: f64) -> Standing {
         Standing {
             life,
-            out: false,
             score,
+            ..Standing::default()
         }
     }
 
@@ -307,6 +332,8 @@ mod tests {
             life: 0.0,
             out: true,
             score: 99.0,
+            out_at: 3.0,
+            ..Standing::default()
         });
         assert_eq!(order(&f), vec![1, 2, 0, 3]);
         let l = Ladder::of(&f, Some(s(0.6, 0.0)));
@@ -316,6 +343,39 @@ mod tests {
         assert!(l.marks[4].1, "the out last");
         // A spectator: no place.
         assert_eq!(Ladder::of(&f, None).place, None);
+    }
+
+    /// The ladder ranks as the stage does (review finding
+    /// shell-render-3): under Charts: Adaptive by the score, life only
+    /// breaking a tie; those out the latest first, whatever their score.
+    #[test]
+    fn the_ladder_ranks_as_the_stage_does() {
+        use ddi_room::rules::RankBy;
+        let at = |rank: RankBy, life: f32, score: f64| Standing {
+            life,
+            score,
+            rank,
+            ..Standing::default()
+        };
+        let out = |at: f64, score: f64| Standing {
+            life: 0.0,
+            out: true,
+            score,
+            out_at: at,
+            ..Standing::default()
+        };
+        // The player at full life on an easier chart, a rival at 40% with
+        // more points.
+        let rival = [at(RankBy::Score, 0.4, 900.0), out(30.0, 999.0), out(50.0, 1.0)];
+        let l = Ladder::of(&rival, Some(at(RankBy::Score, 1.0, 500.0)));
+        assert_eq!(l.place, Some(2), "{l:?}");
+        assert_eq!(order(&rival), vec![0, 2, 1], "the later out above");
+        // As picked: life first.
+        let rival = [at(RankBy::Life, 0.4, 900.0)];
+        assert_eq!(Ladder::of(&rival, Some(at(RankBy::Life, 1.0, 500.0))).place, Some(1));
+        // Equal scores under Adaptive: life breaks the tie.
+        let rival = [at(RankBy::Score, 0.4, 500.0)];
+        assert_eq!(Ladder::of(&rival, Some(at(RankBy::Score, 1.0, 500.0))).place, Some(1));
     }
 
     #[test]

@@ -1365,7 +1365,7 @@ impl<H: PlayHost> PlayView<H> {
             // the player, then whom they attacked last, while those
             // attacks last and a turn after.
             let every = f64::from(crate::opponents::ROTATION_V0.every);
-            let pinned = b.kept_seats(&session.player, every);
+            let pinned = pinned_seats(own_seat, b.kept_seats(&session.player, every));
             let page = spectator.map_or(0, |w| w.page);
             let (ladder, ladder_page) = crate::opponents::choose(
                 &mut f,
@@ -1378,7 +1378,7 @@ impl<H: PlayHost> PlayView<H> {
                     reduced: render.reduced_motion,
                 },
                 &mut self.rivals,
-                || large_standings(b, &views_now, &frame, focus, frame.song_time),
+                || large_standings(b, &views_now, &session.player, (focus, own_seat), frame.song_time),
             );
             self.ladder = ladder;
             self.ladder_page = ladder_page;
@@ -2121,18 +2121,23 @@ impl<H: PlayHost> PlayView<H> {
     }
 }
 
-/// A large field's standings for `crate::rivals`: every opponent but a
-/// followed competitor (`focus`), as their streams show them at song
-/// second `t`, and whom the slots gather around: the player (their own
-/// play's life and score in `frame`), the competitor followed, or nobody
-/// (a spectator's grid).
+/// The large field's standings (`crate::rivals`): every competitor's but
+/// the followed competitor's (`focus`), as their streams show them at
+/// song second `t`, then the player's own where they follow someone
+/// (`own_seat`: the seats shown end with it), and whom the slots gather
+/// around: the player, the competitor followed, or nobody (a spectator's
+/// grid). The player's own read from the battle and their play (`human`),
+/// never from a watched frame, which says nobody failed (review finding
+/// shell-render-2); all of them ranked by the stage's rule
+/// (shell-render-3).
 fn large_standings(
     b: &ddi_session::battle::Battle,
     views: &[ddi_session::battle::OpponentView],
-    frame: &ddi_engine::frame::Frame,
-    focus: Option<usize>,
+    human: &ddi_engine::player::Player,
+    (focus, own_seat): (Option<usize>, Option<usize>),
     t: f64,
 ) -> (Vec<crate::rivals::Standing>, Option<crate::rivals::Standing>) {
+    let rank = b.setup().rules.rank_by();
     let all: Vec<crate::rivals::Standing> = views
         .iter()
         .zip(b.feeds())
@@ -2142,9 +2147,49 @@ fn large_standings(
                 life: shown.life,
                 out: shown.out,
                 score: o.sum.map_or(o.score, |s| s as f64),
+                out_at: feed.out_at().filter(|_| shown.out).unwrap_or(f64::INFINITY),
+                rank,
             }
         })
         .collect();
+    let own = b.competes().then(|| {
+        let view = human.ruleset().score.view();
+        let out = !b.me_in(human);
+        crate::rivals::Standing {
+            life: if out { 0.0 } else { human.ruleset().gauge.life() },
+            out,
+            score: view.ddi.map_or(view.percent.unwrap_or(0.0), |d| d.score as f64),
+            // A forfeit last, as the stage ranks it.
+            out_at: match (b.forfeited_at(), human.gauge_failed_at()) {
+                (Some(_), _) => f64::NEG_INFINITY,
+                (None, Some(at)) => at,
+                (None, None) => f64::INFINITY,
+            },
+            rank,
+        }
+    });
+    standings_shown(all, own, focus, own_seat)
+}
+
+/// The seats kept in view whatever the turn: the player's own where
+/// they are out of the stage and follow someone (`own_seat`: their way
+/// back to their field, review finding shell-render-5), then those the
+/// stage keeps (`kept`).
+fn pinned_seats(own_seat: Option<usize>, kept: Vec<usize>) -> Vec<usize> {
+    own_seat.into_iter().chain(kept).collect()
+}
+
+/// [`large_standings`] from everyone's standings (`all`, in seat order)
+/// and the player's own (`own`, none for a spectator): those shown as
+/// miniatures in the order the seats shown are (all but the followed
+/// `focus`, then the player's own where `own_seat` says it is shown), and
+/// whom the slots gather around (the followed, else the player).
+fn standings_shown(
+    all: Vec<crate::rivals::Standing>,
+    own: Option<crate::rivals::Standing>,
+    focus: Option<usize>,
+    own_seat: Option<usize>,
+) -> (Vec<crate::rivals::Standing>, Option<crate::rivals::Standing>) {
     match focus {
         Some(f) => {
             let me = all.get(f).copied();
@@ -2153,21 +2198,11 @@ fn large_standings(
                 .enumerate()
                 .filter(|(i, _)| *i != f)
                 .map(|(_, s)| *s)
+                .chain(own.filter(|_| own_seat.is_some()))
                 .collect();
             (others, me)
         }
-        None if b.competes() => {
-            let me = crate::rivals::Standing {
-                life: frame.life,
-                out: frame.failed,
-                score: frame
-                    .score
-                    .ddi
-                    .map_or(frame.score.percent.unwrap_or(0.0), |d| d.score as f64),
-            };
-            (all, Some(me))
-        }
-        None => (all, None),
+        None => (all, own),
     }
 }
 
@@ -2299,4 +2334,66 @@ fn cue_words(
         }
         .into(),
     )
+}
+
+#[cfg(test)]
+mod standings_tests {
+    use super::*;
+    use crate::rivals::{Ladder, Standing};
+
+    fn standing(life: f32) -> Standing {
+        Standing {
+            life,
+            score: f64::from(life) * 1000.0,
+            ..Standing::default()
+        }
+    }
+
+    /// A player out of a large stage counts as out on the ladder and has
+    /// a place among everyone, whether they follow someone or not; while
+    /// they follow someone their own standing is among those shown, last
+    /// as their seat is, and their own miniature is kept in view (review
+    /// findings shell-render-2 and shell-render-5).
+    #[test]
+    fn a_player_out_of_a_large_stage_is_out_on_the_ladder_and_keeps_their_miniature() {
+        let all: Vec<Standing> = (0..30).map(|i| standing(1.0 - i as f32 / 40.0)).collect();
+        let own = Standing {
+            life: 0.0,
+            out: true,
+            out_at: 20.0,
+            ..Standing::default()
+        };
+        // Not following anyone: everyone and the player, who is out.
+        let (others, me) = standings_shown(all.clone(), Some(own), None, None);
+        let l = Ladder::of(&others, me);
+        assert_eq!((l.of, l.still_in, l.place), (31, 30, Some(31)), "{l:?}");
+        // Following seat 3: the others and the player's own, last.
+        let own_seat = Some(30);
+        let (others, me) = standings_shown(all.clone(), Some(own), Some(3), own_seat);
+        assert_eq!(others.len(), 30, "29 others and the player's own");
+        assert_eq!(others.last(), Some(&own));
+        let l = Ladder::of(&others, me);
+        assert_eq!((l.of, l.still_in), (31, 30), "{l:?}");
+        // The rivals' slots on a phone keep the player's own in view.
+        let g = ddi_render::FieldGeometry::placed(390.0 * 3.0, 844.0 * 3.0, 4.0, false, Default::default());
+        let mut f = crate::opponents::arrange_up_to(30, usize::MAX, &g, 4.0, false, 3.0, &[]).unwrap();
+        assert!(f.rotating, "not all fit: the rivals' slots");
+        let shown: Vec<usize> = (0..30).filter(|&s| s != 3).chain(own_seat).collect();
+        let pinned = pinned_seats(own_seat, Vec::new());
+        let mut rivals = crate::rivals::Rivals::default();
+        crate::opponents::choose(
+            &mut f,
+            &crate::opponents::Choosing {
+                shown: &shown,
+                grid: false,
+                page: 0,
+                pinned: &pinned,
+                time: 1.0,
+                reduced: true,
+            },
+            &mut rivals,
+            || (others, me),
+        );
+        assert!(f.slots.iter().any(|s| s.seat == 30), "{:?}", f.slots.iter().map(|s| s.seat).collect::<Vec<_>>());
+    }
 }

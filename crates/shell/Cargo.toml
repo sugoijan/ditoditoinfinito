@@ -21,6 +21,7 @@ ddi-library.workspace = true
 ddi-noteskin.workspace = true
 ddi-platform.workspace = true
 ddi-render.workspace = true
+ddi-room.workspace = true
 ddi-session.workspace = true
 ddi-theme.workspace = true
 ddi-ui.workspace = true
@@ -29,4 +30,3 @@ wgpu.workspace = true
 
 [dev-dependencies]
 ddi-dance-mat.workspace = true
-ddi-room.workspace = true

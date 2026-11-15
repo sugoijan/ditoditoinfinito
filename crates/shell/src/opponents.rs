@@ -3070,8 +3070,7 @@ pub(crate) mod tests {
                 &vec![
                     crate::rivals::Standing {
                         life: 0.5,
-                        out: false,
-                        score: 0.0
+                        ..Default::default()
                     };
                     72
                 ],
@@ -3118,8 +3117,7 @@ pub(crate) mod tests {
         let k = keep(&g, 1.0, false);
         let standing = |i: usize| crate::rivals::Standing {
             life: 1.0 - i as f32 / 200.0,
-            out: false,
-            score: 0.0,
+            ..Default::default()
         };
         // Twelve shown whole: everyone but the followed seat 5, then the
         // player's own (seat 12).
@@ -3239,8 +3237,8 @@ pub(crate) mod tests {
             let standings: Vec<crate::rivals::Standing> = (0..n)
                 .map(|i| crate::rivals::Standing {
                     life: ((i * 7 + frame * 13) % 97) as f32 / 97.0,
-                    out: false,
                     score: ((i * 31 + frame * 17) % 101) as f64,
+                    ..Default::default()
                 })
                 .collect();
             choose(&mut f, &choosing, &mut rivals, || (standings, None));
@@ -3505,6 +3503,7 @@ pub(crate) mod tests {
                     life: o.life,
                     out: o.out,
                     score: o.score,
+                    ..Default::default()
                 })
                 .collect();
             let shown = Shown {
