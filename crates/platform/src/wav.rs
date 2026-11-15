@@ -77,12 +77,15 @@ pub fn read(bytes: &[u8]) -> Result<(Vec<Vec<f32>>, u32), String> {
         |i: usize| u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
     let mut format = None;
     let mut at = 12;
-    while at + 8 <= bytes.len() {
+    while bytes.len().checked_sub(at).is_some_and(|left| left >= 8) {
         let id = &bytes[at..at + 4];
         let len = u32_at(at + 4) as usize;
         let body = at + 8;
-        let end = (body + len).min(bytes.len());
+        let end = body.saturating_add(len).min(bytes.len());
         if id == b"fmt " && len >= 16 {
+            if end - body < 16 {
+                return Err("it ends inside its format".into());
+            }
             format = Some((
                 u16_at(body),
                 u16_at(body + 2),
@@ -122,7 +125,11 @@ pub fn read(bytes: &[u8]) -> Result<(Vec<Vec<f32>>, u32), String> {
             }
             return Ok((planes, rate));
         }
-        at = body + len + (len & 1);
+        // A size past the file's end ends the walk.
+        match body.checked_add(len).and_then(|n| n.checked_add(len & 1)) {
+            Some(next) => at = next,
+            None => break,
+        }
     }
     Err("it has no data".into())
 }
@@ -130,6 +137,17 @@ pub fn read(bytes: &[u8]) -> Result<(Vec<Vec<f32>>, u32), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file that ends inside its format, or whose chunk size runs past
+    /// any offset, is refused rather than read out of bounds.
+    #[test]
+    fn a_truncated_or_oversized_chunk_is_refused() {
+        assert!(read(b"RIFF\x14\0\0\0WAVEfmt \x10\0\0\0\x01\0").is_err());
+        assert!(read(b"RIFF\x14\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0\x80\xbb").is_err());
+        let mut huge = b"RIFF\0\0\0\0WAVEjunk\xff\xff\xff\xff".to_vec();
+        huge.extend([0; 8]);
+        assert!(read(&huge).is_err());
+    }
 
     #[test]
     fn a_stereo_wav_has_its_header_and_interleaved_samples() {
