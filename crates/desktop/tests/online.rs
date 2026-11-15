@@ -430,3 +430,41 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
     });
     tick_until(&mut [&mut b], |r| r[0].link_state() == LinkState::Left);
 }
+
+/// review3 desktop-3: an idle room's socket stays connected past the
+/// keepalive's bounds (the server answers its pings), never dropped and
+/// reconnected for being quiet.
+#[test]
+fn an_idle_rooms_socket_stays_connected() {
+    let Some(api) = api() else {
+        eprintln!("DDI_ONLINE_API not set: skipped");
+        return;
+    };
+    let name = format!("deskidle{}", now() % 100_000);
+    let host = person(&api);
+    host.borrow_mut().check();
+    until(&host, |o| {
+        !matches!(o.account(), ddi_ui::state::online::Account::Checking)
+    });
+    host.borrow_mut().private_room();
+    let (url, code) = attempt_of(&host);
+    browser(&url, &code, &name);
+    let mut room_id = None;
+    until(&host, |o| {
+        room_id = o.take_entered();
+        room_id.is_some()
+    });
+    let mut a = connect(&host, &api, &room_id.unwrap(), "idle");
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(26) {
+        a.tick(now());
+        assert_eq!(
+            a.link_state(),
+            LinkState::Connected,
+            "dropped after {:?}",
+            start.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    a.leave();
+}

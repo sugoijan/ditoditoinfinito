@@ -207,15 +207,43 @@ fn leave_left_audience(page: &RoomPage) {
     }
 }
 
+thread_local! {
+    /// The timer that runs an online room under a page over it
+    /// ([`run_over`]): such a page draws only when it changes, and the room
+    /// must go on meanwhile.
+    static OVER_PUMP: RefCell<Option<gloo::timers::callback::Interval>> =
+        const { RefCell::new(None) };
+}
+
+/// How often an online room is run under a page over it (ms).
+const OVER_PUMP_MS: u32 = 100;
+
 /// An online room kept while its member is on a page over it (Options,
-/// Calibrate): run as its song select runs it (review3 web-3), so that
-/// its picks are prepared and uploaded and the room hears from it; its
-/// stage's prompt opens once the member is back on its song select (as
-/// desktop's, whose room screen runs under Options).
+/// Calibrate): run as its song select runs it (review3 web-3), on a timer
+/// of its own while the page is there, so that its picks are prepared and
+/// uploaded and the room hears from it; its stage's prompt opens once the
+/// member is back on its song select (as desktop's, whose room screen
+/// runs under Options).
 fn run_over(page: &RoomPage) {
-    if *page != RoomPage::Over {
-        return;
-    }
+    let wanted = *page == RoomPage::Over && crate::online::kept_room().is_some();
+    OVER_PUMP.with_borrow_mut(|timer| {
+        if !wanted {
+            *timer = None;
+        } else if timer.is_none() {
+            // (Stopped by the next page's first frame, never from inside
+            // its own call.)
+            *timer = Some(gloo::timers::callback::Interval::new(OVER_PUMP_MS, || {
+                if room_page() == RoomPage::Over {
+                    pump_kept();
+                }
+            }));
+        }
+    });
+}
+
+/// The kept online room's one run: ticked, its songs to prepare and
+/// upload handed on.
+fn pump_kept() {
     let Some(room) = crate::online::kept_room() else {
         return;
     };
@@ -270,6 +298,28 @@ pub(crate) fn sync_unload_guard() {
             ));
         }
     });
+}
+
+/// The online room kept, for `__DDI_DEBUG.ui.keptRoom`: its id, its
+/// phase, its upcoming stage and whether the room still waits for this
+/// player to load its song (null without one).
+pub(crate) fn kept_debug() -> wasm_bindgen::JsValue {
+    let (Some(id), Some(room)) = (crate::online::kept_room_id(), crate::online::kept_room()) else {
+        return wasm_bindgen::JsValue::NULL;
+    };
+    let Ok(r) = room.try_borrow() else {
+        return wasm_bindgen::JsValue::NULL;
+    };
+    let stage = r.state().upcoming_stage();
+    let o = js_sys::Object::new();
+    let set = |k: &str, v: wasm_bindgen::JsValue| {
+        let _ = js_sys::Reflect::set(&o, &k.into(), &v);
+    };
+    set("id", id.into());
+    set("phase", format!("{:?}", r.state().phase.kind()).into());
+    set("stage", stage.map_or(wasm_bindgen::JsValue::NULL, |s| (s.0 as f64).into()));
+    set("loading", stage.is_some_and(|s| r.loading(s)).into());
+    o.into()
 }
 
 /// Whether the `beforeunload` question is registered now

@@ -2293,6 +2293,9 @@ fn publish_now(h: &Host) {
     // Back on it), and whether `beforeunload` is registered for it.
     set(&ui, "leaveGuard", h.ui.guards_leaving().into());
     set(&ui, "unloadGuard", crate::room::unload_guarded().into());
+    // The online room kept for the session, wherever the page is (a page
+    // over it runs it: Options, Calibrate).
+    set(&ui, "keptRoom", crate::room::kept_debug());
     set(&ui, "padGesture", (!is_webkit()).into());
     {
         let d = h.dev.borrow();
