@@ -3007,3 +3007,85 @@ fn a_live_stage_draws_the_lineup_not_the_candidates() {
         assert_eq!(p.battle().unwrap().views().len(), 1, "only the other one who plays");
     }
 }
+
+/// ui-state-9 (fix round G1): the picker's device offers the stage's
+/// battle plan and its socket drops before the room read it: once it is
+/// back the plan is offered again, the room takes it and both devices
+/// report the song loaded.
+#[test]
+fn a_battle_plan_lost_with_its_socket_is_offered_again() {
+    let song = bundled("beatucada");
+    let r = Room::new(
+        &[("alice", Intent::Play), ("bob", Intent::Play)],
+        Some(Latency {
+            down_ms: 30,
+            down_jitter_ms: 0,
+            up_ms: 300,
+            up_jitter_ms: 0,
+            seed: 5,
+        }),
+    );
+    for _ in 0..10 {
+        r.run(0.5);
+        if r.rooms.iter().all(|x| x.borrow().room_now().is_some()) {
+            break;
+        }
+    }
+    let mut rules = r.rooms[0].borrow().rules().clone();
+    rules.set_attacks(true);
+    r.rooms[0].borrow_mut().save_rules(rules).unwrap();
+    r.run(2.0);
+    let e = entry_at(&song, 0);
+    r.rooms[0].borrow_mut().pick(&e, &e.charts[0]).unwrap();
+    r.run(2.0);
+    let uploads = r.rooms[0].borrow_mut().take_upload_jobs();
+    for j in uploads {
+        r.server
+            .borrow_mut()
+            .authority(Command::SetContentStatus {
+                stage: j.stage,
+                status: ContentStatus::Available,
+                share: Some("abc12345".into()),
+            })
+            .unwrap();
+        r.rooms[0].borrow_mut().upload_finished(j.stage, Ok("abc12345".into()));
+    }
+    r.run(1.0);
+    let stage = r.rooms[0].borrow().stages()[0].id;
+    // The picker's load finishes: the plan offered, on its way up as the
+    // socket drops.
+    let alice = r.rooms[0].borrow().me();
+    let jobs = r.rooms[0].borrow_mut().take_load_jobs();
+    for job in jobs {
+        let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+        r.rooms[0].borrow_mut().finish_load_live(&job, Ok(prepared.live));
+    }
+    r.step(0.02, true);
+    r.server.borrow_mut().drop_socket(alice);
+    r.step(0.02, true);
+    let jobs = r.rooms[1].borrow_mut().take_load_jobs();
+    for job in jobs {
+        let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+        let picked = Picked {
+            song: SongEntry {
+                id: job.song.clone(),
+                ..e.clone()
+            },
+            chart: e.charts[0].clone(),
+        };
+        r.rooms[1]
+            .borrow_mut()
+            .finish_shared_load_live(&job, Ok((picked, prepared.live)));
+    }
+    r.run(6.0);
+    let server = r.server.borrow();
+    let st = server.state().stage(stage).unwrap();
+    assert!(
+        st.content.as_ref().unwrap().battle.is_some(),
+        "the room has the plan"
+    );
+    for room in &r.rooms {
+        let me = room.borrow().me();
+        assert_eq!(st.prep_ref(me).loading, ddi_room::Loading::Loaded, "{me:?}");
+    }
+}

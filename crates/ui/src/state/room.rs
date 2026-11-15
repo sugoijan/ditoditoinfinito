@@ -2243,6 +2243,9 @@ impl RoomClient {
         self.take_grants();
         self.read_inbox();
         self.pump();
+        if before != LinkState::Connected && self.link_state() == LinkState::Connected {
+            self.connected_again();
+        }
         self.read_live();
         self.tell_spotlight();
         // A stage's prompt opens with no notice from before it (nor a
@@ -3047,6 +3050,37 @@ impl RoomClient {
                 loading: Loading::Loaded,
             });
         }
+    }
+
+    /// A socket opened (again): what this device told the room's live
+    /// side once and it may not have read with the socket before (a
+    /// battle plan offered, a stage prepared) is told again; the room
+    /// takes either again as the same.
+    fn connected_again(&mut self) {
+        if !self.is_online() {
+            return;
+        }
+        self.offered.clear();
+        let again: Vec<(StageId, i64, Option<ddi_room::live::plan::PlanDigest>)> = self
+            .live_preps
+            .iter()
+            .filter(|(stage, _)| self.state().stage(**stage).is_some_and(|st| st.play.is_none()))
+            .map(|(stage, prep)| {
+                (*stage, prep.horizon_us, prep.plan.as_ref().map(|p| p.digest.clone()))
+            })
+            .collect();
+        if let Some(link) = self.online_link_mut() {
+            for (stage, horizon_us, plan) in again {
+                link.authority
+                    .live_mut()
+                    .send(ddi_room::live::ClientLive::Prepared {
+                        stage,
+                        horizon_us,
+                        plan,
+                    });
+            }
+        }
+        self.sync_live();
     }
 
     /// This device's battle plan of `stage` is not the room's: its
