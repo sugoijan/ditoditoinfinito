@@ -1,0 +1,467 @@
+== played
+  digest: 0x509ea838916cec89 (4247 lines)
+  outcome: P1 > P2 > P4 > P3 > P5 · mine Live { life: 1.0, score: 2265217, steps: 0 } · policy Spread
+    P1: score Some(2265217) percent Some(10000) grade "Absolute Bot" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(3) taken Some(3) shocks Some(0) chart None
+    P2: score Some(2087841) percent Some(9217) grade "S" life 1000000 out None combo 60 tiers [102, 68, 35, 6, 0, 0, 6] sent Some(3) taken Some(3) shocks Some(3) chart None
+    P3: score Some(2029643) percent Some(8960) grade "S" life 1000000 out None combo 54 tiers [96, 62, 42, 5, 2, 0, 10] sent Some(3) taken Some(3) shocks Some(4) chart None
+    P4: score Some(2059188) percent Some(9090) grade "S" life 1000000 out None combo 79 tiers [98, 63, 38, 12, 0, 0, 6] sent Some(3) taken Some(3) shocks Some(6) chart None
+    P5: score Some(2049339) percent Some(9047) grade "S" life 670000 out None combo 78 tiers [96, 70, 40, 5, 0, 0, 6] sent Some(3) taken Some(3) shocks Some(7) chart None
+  told: MatchBegin@0.02
+  left at its prompt: P5 > P4 > P3 > P2 > P1f · mine Forfeit · policy Spread
+== played hard
+  digest: 0x9628bd031b7187dc (4247 lines)
+  outcome: P1 > P3 > P4 > P2 · mine Live { life: 1.0, score: 2265217, steps: 0 } · policy Spread
+    P1: score Some(2265217) percent Some(10000) grade "Absolute Bot" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(3) taken Some(3) shocks Some(0) chart None
+    P2: score Some(2215039) percent Some(9778) grade "SS" life 1000000 out None combo 126 tiers [174, 36, 4, 0, 0, 0, 3] sent Some(3) taken Some(3) shocks Some(1) chart None
+    P3: score Some(2247259) percent Some(9920) grade "SSS" life 1000000 out None combo 217 tiers [165, 42, 10, 0, 0, 0, 0] sent Some(3) taken Some(3) shocks Some(0) chart None
+    P4: score Some(2229359) percent Some(9841) grade "SS" life 1000000 out None combo 121 tiers [170, 38, 8, 0, 0, 0, 1] sent Some(3) taken Some(3) shocks Some(1) chart None
+  told: MatchBegin@0.02
+  left at its prompt: P2 > P4 > P3 > P1f · mine Forfeit · policy Spread
+== out, watched on
+  digest: 0xa1d3ffd43a5db1a1 (4247 lines)
+  outcome: P5 > P4 > P3 > P2 > P1x · mine Out { at: 10.044398907103826 } · policy Spread
+    P1: score Some(-8953) percent Some(-40) grade "F" life 0 out Some(10044) combo 0 tiers [0, 0, 0, 0, 0, 0, 5] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score Some(2066347) percent Some(9122) grade "S" life 980000 out None combo 60 tiers [95, 66, 43, 8, 0, 0, 5] sent Some(3) taken Some(3) shocks Some(3) chart None
+    P3: score Some(2029643) percent Some(8960) grade "S" life 1000000 out None combo 54 tiers [96, 62, 42, 5, 2, 0, 10] sent Some(3) taken Some(3) shocks Some(4) chart None
+    P4: score Some(2059188) percent Some(9090) grade "S" life 1000000 out None combo 79 tiers [98, 63, 38, 12, 0, 0, 6] sent Some(3) taken Some(3) shocks Some(6) chart None
+    P5: score Some(2116484) percent Some(9343) grade "S" life 1000000 out None combo 78 tiers [97, 70, 41, 6, 0, 0, 3] sent Some(3) taken Some(3) shocks Some(4) chart None
+  told: MatchBegin@0.02, LifeCritical@9.90, Eliminated@10.88
+  left at its prompt: P5 > P4 > P3 > P2 > P1f · mine Forfeit · policy Spread
+== out, skipped
+  digest: 0x79453508e32b036b (443 lines)
+  outcome: P5 > P4 > P3 > P2 > P1x · mine Out { at: 10.044398907103826 } · policy Spread
+    P1: score Some(-8953) percent Some(-40) grade "F" life 0 out Some(10044) combo 0 tiers [0, 0, 0, 0, 0, 0, 5] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score Some(2066347) percent Some(9122) grade "S" life 980000 out None combo 60 tiers [95, 66, 43, 8, 0, 0, 5] sent Some(3) taken Some(3) shocks Some(3) chart None
+    P3: score Some(2029643) percent Some(8960) grade "S" life 1000000 out None combo 54 tiers [96, 62, 42, 5, 2, 0, 10] sent Some(3) taken Some(3) shocks Some(4) chart None
+    P4: score Some(2059188) percent Some(9090) grade "S" life 1000000 out None combo 79 tiers [98, 63, 38, 12, 0, 0, 6] sent Some(3) taken Some(3) shocks Some(6) chart None
+    P5: score Some(2116484) percent Some(9343) grade "S" life 1000000 out None combo 78 tiers [97, 70, 41, 6, 0, 0, 3] sent Some(3) taken Some(3) shocks Some(4) chart None
+  told: MatchBegin@0.02, LifeCritical@9.90, Eliminated@10.88
+  left at its prompt: P5 > P4 > P3 > P2 > P1f · mine Forfeit · policy Spread
+== quit
+  digest: 0xc5392aaee603d416 (4247 lines)
+  outcome: P4 > P3 > P2 > P1f · mine Forfeit · policy Spread
+    P1: score Some(411861) percent Some(1818) grade "QUIT" life 1000000 out None combo 43 tiers [43, 0, 0, 0, 0, 0, 0] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score Some(2035014) percent Some(8984) grade "S" life 980000 out None combo 51 tiers [96, 64, 43, 5, 0, 0, 9] sent Some(3) taken Some(3) shocks Some(4) chart None
+    P3: score Some(2087838) percent Some(9217) grade "S" life 1000000 out None combo 53 tiers [99, 60, 45, 8, 0, 0, 5] sent Some(3) taken Some(4) shocks Some(4) chart None
+    P4: score Some(2099482) percent Some(9268) grade "S" life 1000000 out None combo 137 tiers [105, 64, 34, 9, 0, 0, 5] sent Some(3) taken Some(2) shocks Some(1) chart None
+  told: MatchBegin@0.02
+  left at its prompt: P4 > P3 > P2 > P1f · mine Forfeit · policy Spread
+== watched
+  digest: 0xbcb98777abbdab0b (4247 lines)
+  outcome: P5 > P2 > P4 > P3 · watched · mine Forfeit · policy Spread
+    P2: score Some(2182774) percent Some(9636) grade "SS" life 1000000 out None combo 132 tiers [138, 50, 23, 4, 0, 0, 2] sent Some(3) taken Some(3) shocks Some(1) chart None
+    P3: score Some(2128151) percent Some(9395) grade "S" life 1000000 out None combo 90 tiers [126, 49, 33, 5, 0, 0, 4] sent Some(3) taken Some(3) shocks Some(2) chart None
+    P4: score Some(2174707) percent Some(9600) grade "SS" life 1000000 out None combo 91 tiers [128, 52, 33, 3, 0, 0, 1] sent Some(3) taken Some(3) shocks Some(4) chart None
+    P5: score Some(2187251) percent Some(9656) grade "SS" life 1000000 out None combo 184 tiers [139, 48, 24, 5, 0, 0, 1] sent Some(3) taken Some(3) shocks Some(1) chart None
+  told: MatchBegin@0.02
+  left at its prompt: P5 > P2 > P4 > P3 · watched · mine Forfeit · policy Spread
+== battery 1
+  digest: 0xf107916a48183caf (4247 lines)
+  outcome: P1 > P2x > P5x > P3x > P4x · decided early · mine Live { life: 1.0, score: 0, steps: 0 } · policy Spread
+    P1: score None percent Some(10000) grade "★★★★" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(2) taken Some(2) shocks Some(0) chart None
+    P2: score None percent Some(4927) grade "F" life 0 out Some(59050) combo 76 tiers [86, 20, 8, 3, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(1) chart None
+    P3: score None percent Some(2894) grade "F" life 0 out Some(39588) combo 53 tiers [57, 7, 6, 2, 1, 0, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(2821) grade "F" life 0 out Some(39526) combo 40 tiers [55, 12, 4, 0, 0, 0, 2] sent Some(1) taken Some(1) shocks Some(0) chart None
+    P5: score None percent Some(3073) grade "F" life 0 out Some(39603) combo 73 tiers [55, 13, 4, 1, 1, 0, 0] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Survivors(4)@40.37, Survivors(2)@40.42, StageWon@65.47
+  left at its prompt: P2 > P5x > P3x > P4x > P1f · mine Forfeit · policy Spread
+== battery 1 out, watched on
+  digest: 0xe3323f070532c3b5 (4247 lines)
+  outcome: P2 > P5x > P3x > P4x > P1x · decided early · mine Out { at: 8.542155737704919 } · policy Spread
+    P1: score None percent Some(0) grade "F" life 0 out Some(8542) combo 0 tiers [0, 0, 0, 0, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(9463) grade "S+" life 0 out Some(75673) combo 81 tiers [159, 34, 17, 5, 0, 0, 2] sent Some(1) taken Some(1) shocks Some(0) chart None
+    P3: score None percent Some(2894) grade "F" life 0 out Some(39588) combo 53 tiers [57, 7, 6, 2, 1, 0, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(2821) grade "F" life 0 out Some(39526) combo 40 tiers [55, 12, 4, 0, 0, 0, 2] sent Some(1) taken Some(1) shocks Some(0) chart None
+    P5: score None percent Some(3073) grade "F" life 0 out Some(39603) combo 73 tiers [55, 13, 4, 1, 1, 0, 0] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, LifeCritical@8.88, Eliminated@9.38, Survivors(2)@40.40
+  left at its prompt: P2 > P5x > P3x > P4x > P1f · mine Forfeit · policy Spread
+== battery 1 watched
+  digest: 0x9a43744c7c4a0eab (4247 lines)
+  outcome: P2 > P5x > P3x > P4x · decided early · watched · mine Forfeit · policy Spread
+    P2: score None percent Some(9463) grade "S+" life 0 out Some(75673) combo 81 tiers [159, 34, 17, 5, 0, 0, 2] sent Some(1) taken Some(1) shocks Some(0) chart None
+    P3: score None percent Some(2894) grade "F" life 0 out Some(39588) combo 53 tiers [57, 7, 6, 2, 1, 0, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(2821) grade "F" life 0 out Some(39526) combo 40 tiers [55, 12, 4, 0, 0, 0, 2] sent Some(1) taken Some(1) shocks Some(0) chart None
+    P5: score None percent Some(3073) grade "F" life 0 out Some(39603) combo 73 tiers [55, 13, 4, 1, 1, 0, 0] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Survivors(2)@40.40
+  left at its prompt: P2 > P5x > P3x > P4x · watched · mine Forfeit · policy Spread
+== battery 2
+  digest: 0x44a2c1b86919efde (4247 lines)
+  outcome: P1 > P4x > P3x > P6x > P5x > P2x · decided early · mine Live { life: 1.0, score: 0, steps: 0 } · policy Spread
+    P1: score None percent Some(10000) grade "★★★★" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(2) taken Some(2) shocks Some(0) chart None
+    P2: score None percent Some(2878) grade "F" life 0 out Some(39568) combo 37 tiers [55, 9, 8, 0, 0, 1, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P3: score None percent Some(3220) grade "F" life 0 out Some(42231) combo 74 tiers [68, 9, 0, 2, 0, 1, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(5244) grade "F" life 0 out Some(59765) combo 120 tiers [100, 12, 7, 1, 0, 0, 0] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P5: score None percent Some(2878) grade "F" life 0 out Some(39575) combo 38 tiers [55, 9, 8, 0, 0, 1, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P6: score None percent Some(3098) grade "F" life 0 out Some(40911) combo 47 tiers [65, 9, 1, 0, 0, 1, 1] sent Some(1) taken Some(1) shocks Some(2) chart None
+  told: MatchBegin@0.02, Survivors(4)@40.38, Survivors(2)@43.07, StageWon@65.47
+  left at its prompt: P4 > P3x > P6x > P5x > P2x > P1f · mine Forfeit · policy Spread
+== battery 2 out, quit
+  digest: 0x20056639c994975c (4247 lines)
+  outcome: P4 > P3x > P6x > P5x > P2x > P1f · decided early · mine Forfeit · policy Spread
+    P1: score None percent Some(1870) grade "QUIT" life 1000000 out None combo 43 tiers [43, 0, 0, 0, 0, 0, 0] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(2878) grade "F" life 0 out Some(39568) combo 37 tiers [55, 9, 8, 0, 0, 1, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P3: score None percent Some(3220) grade "F" life 0 out Some(42231) combo 74 tiers [68, 9, 0, 2, 0, 1, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(9886) grade "★★" life 333333 out None combo 217 tiers [178, 27, 11, 1, 0, 0, 0] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P5: score None percent Some(2878) grade "F" life 0 out Some(39575) combo 38 tiers [55, 9, 8, 0, 0, 1, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P6: score None percent Some(3098) grade "F" life 0 out Some(40911) combo 47 tiers [65, 9, 1, 0, 0, 1, 1] sent Some(1) taken Some(1) shocks Some(2) chart None
+  told: MatchBegin@0.02, Survivors(2)@41.72
+  left at its prompt: P4 > P3x > P6x > P5x > P2x > P1f · mine Forfeit · policy Spread
+== battery 2 watched
+  digest: 0x8ccf8e1c5f98d216 (4247 lines)
+  outcome: P4 > P3x > P6x > P5x > P2x · decided early · watched · mine Forfeit · policy Spread
+    P2: score None percent Some(2878) grade "F" life 0 out Some(39568) combo 37 tiers [55, 9, 8, 0, 0, 1, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P3: score None percent Some(3220) grade "F" life 0 out Some(42231) combo 74 tiers [68, 9, 0, 2, 0, 1, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(9886) grade "★★" life 333333 out None combo 217 tiers [178, 27, 11, 1, 0, 0, 0] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P5: score None percent Some(2878) grade "F" life 0 out Some(39575) combo 38 tiers [55, 9, 8, 0, 0, 1, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P6: score None percent Some(3098) grade "F" life 0 out Some(40911) combo 47 tiers [65, 9, 1, 0, 0, 1, 1] sent Some(1) taken Some(1) shocks Some(2) chart None
+  told: MatchBegin@0.02, Survivors(2)@41.72
+  left at its prompt: P4 > P3x > P6x > P5x > P2x · watched · mine Forfeit · policy Spread
+== battery 3
+  digest: 0xe3423ee7cf56c5b4 (4247 lines)
+  outcome: P1 > P5x > P2x > P6x > P3x > P4x > P7x · decided early · mine Live { life: 1.0, score: 0, steps: 0 } · policy Spread
+    P1: score None percent Some(10000) grade "★★★★" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(3) taken Some(4) shocks Some(0) chart None
+    P2: score None percent Some(5220) grade "F" life 0 out Some(63132) combo 79 tiers [85, 21, 13, 6, 1, 0, 1] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P3: score None percent Some(2935) grade "F" life 0 out Some(42231) combo 45 tiers [60, 10, 4, 3, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(2683) grade "F" life 0 out Some(40263) combo 53 tiers [46, 14, 11, 1, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P5: score None percent Some(7927) grade "F" life 0 out Some(91903) combo 101 tiers [126, 29, 30, 8, 0, 0, 3] sent Some(3) taken Some(2) shocks Some(0) chart None
+    P6: score None percent Some(3691) grade "F" life 0 out Some(50100) combo 47 tiers [69, 16, 5, 5, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P7: score None percent Some(2593) grade "F" life 0 out Some(39314) combo 31 tiers [47, 12, 10, 0, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Survivors(4)@43.07, Survivors(2)@63.97, StageWon@93.00
+  left at its prompt: P2x > P5x > P6x > P3x > P4x > P7x > P1f · mine Forfeit · policy Spread
+== battery 3 out, skipped
+  digest: 0x6f8e931ef74c32a6 (403 lines)
+  outcome: P2x > P5x > P6x > P3x > P4x > P7x > P1x · decided early · mine Out { at: 9.033959016393442 } · policy Spread
+    P1: score None percent Some(0) grade "F" life 0 out Some(9034) combo 0 tiers [0, 0, 0, 0, 0, 0, 4] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(5333) grade "F" life 0 out Some(64095) combo 79 tiers [88, 20, 15, 4, 1, 0, 1] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P3: score None percent Some(2935) grade "F" life 0 out Some(42231) combo 45 tiers [60, 10, 4, 3, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P4: score None percent Some(2683) grade "F" life 0 out Some(40263) combo 53 tiers [46, 14, 11, 1, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P5: score None percent Some(5285) grade "F" life 0 out Some(63423) combo 101 tiers [88, 19, 16, 4, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P6: score None percent Some(3691) grade "F" life 0 out Some(50100) combo 47 tiers [69, 16, 5, 5, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P7: score None percent Some(2593) grade "F" life 0 out Some(39314) combo 31 tiers [47, 12, 10, 0, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Eliminated@9.87
+  left at its prompt: P2x > P5x > P6x > P3x > P4x > P7x > P1f · mine Forfeit · policy Spread
+== battery 3 watched
+  digest: 0x2a4207059a100144 (2703 lines)
+  outcome: P2x = P5x > P6x > P3x > P4x > P7x · decided early · drawn by a final attack · watched · mine Forfeit · policy Spread
+    P2: score None percent Some(5333) grade "F" life 0 out Some(64095) combo 79 tiers [88, 20, 15, 4, 1, 0, 1] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P3: score None percent Some(2935) grade "F" life 0 out Some(42231) combo 45 tiers [60, 10, 4, 3, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(2683) grade "F" life 0 out Some(40263) combo 53 tiers [46, 14, 11, 1, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P5: score None percent Some(5285) grade "F" life 0 out Some(63423) combo 101 tiers [88, 19, 16, 4, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P6: score None percent Some(3691) grade "F" life 0 out Some(50100) combo 47 tiers [69, 16, 5, 5, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P7: score None percent Some(2593) grade "F" life 0 out Some(39314) combo 31 tiers [47, 12, 10, 0, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Survivors(4)@41.10, Survivors(2)@50.93
+  left at its prompt: P2x > P5x > P6x > P3x > P4x > P7x · watched · mine Forfeit · policy Spread
+== battery 4
+  digest: 0xa427cd789cc68b37 (4247 lines)
+  outcome: P1 > P6 > P4x > P7x > P8x > P2x > P5x > P3x · mine Live { life: 1.0, score: 0, steps: 0 } · policy Spread
+    P1: score None percent Some(10000) grade "★★★★" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(3) taken Some(3) shocks Some(0) chart None
+    P2: score None percent Some(3423) grade "F" life 0 out Some(47395) combo 47 tiers [60, 17, 8, 2, 0, 1, 2] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P3: score None percent Some(3106) grade "F" life 0 out Some(40906) combo 73 tiers [62, 5, 6, 2, 1, 1, 0] sent Some(1) taken Some(1) shocks Some(3) chart None
+    P4: score None percent Some(5431) grade "F" life 0 out Some(66329) combo 101 tiers [86, 21, 20, 6, 0, 0, 2] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P5: score None percent Some(2951) grade "F" life 0 out Some(40930) combo 34 tiers [51, 15, 8, 0, 1, 0, 2] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P6: score None percent Some(9455) grade "S+" life 400000 out None combo 143 tiers [164, 24, 24, 3, 0, 0, 2] sent Some(3) taken Some(3) shocks Some(1) chart None
+    P7: score None percent Some(4976) grade "F" life 0 out Some(62664) combo 45 tiers [83, 22, 13, 5, 0, 1, 2] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P8: score None percent Some(3545) grade "F" life 0 out Some(50100) combo 35 tiers [64, 15, 12, 3, 0, 0, 4] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Survivors(4)@50.93, Survivors(2)@67.17
+  left at its prompt: P4x > P6x > P7x > P8x > P2x > P5x > P3x > P1f · mine Forfeit · policy Spread
+== battery 4 out, watched on
+  digest: 0x3a3467dffd6623ae (2791 lines)
+  outcome: P4x = P6x > P7x > P8x > P2x > P5x > P3x > P1x · decided early · drawn by a final attack · mine Out { at: 10.017565573770492 } · policy Spread
+    P1: score None percent Some(0) grade "F" life 0 out Some(10018) combo 0 tiers [0, 0, 0, 0, 0, 0, 5] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(3423) grade "F" life 0 out Some(47395) combo 47 tiers [60, 17, 8, 2, 0, 1, 2] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P3: score None percent Some(3106) grade "F" life 0 out Some(40906) combo 73 tiers [62, 5, 6, 2, 1, 1, 0] sent Some(1) taken Some(1) shocks Some(3) chart None
+    P4: score None percent Some(5431) grade "F" life 0 out Some(66329) combo 101 tiers [86, 21, 20, 6, 0, 0, 2] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P5: score None percent Some(2951) grade "F" life 0 out Some(40930) combo 34 tiers [51, 15, 8, 0, 1, 0, 2] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P6: score None percent Some(5472) grade "F" life 0 out Some(66072) combo 59 tiers [105, 13, 10, 4, 0, 1, 2] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P7: score None percent Some(4976) grade "F" life 0 out Some(62664) combo 45 tiers [83, 22, 13, 5, 0, 1, 2] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P8: score None percent Some(3545) grade "F" life 0 out Some(50100) combo 35 tiers [64, 15, 12, 3, 0, 0, 4] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, LifeCritical@9.87, Eliminated@10.85, Survivors(4)@48.23, Survivors(2)@63.47
+  left at its prompt: P4x > P6x > P7x > P8x > P2x > P5x > P3x > P1f · mine Forfeit · policy Spread
+== battery 4 watched
+  digest: 0x6c9f54473bcdcf5f (2791 lines)
+  outcome: P4x = P6x > P7x > P8x > P2x > P5x > P3x · decided early · drawn by a final attack · watched · mine Forfeit · policy Spread
+    P2: score None percent Some(3423) grade "F" life 0 out Some(47395) combo 47 tiers [60, 17, 8, 2, 0, 1, 2] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P3: score None percent Some(3106) grade "F" life 0 out Some(40906) combo 73 tiers [62, 5, 6, 2, 1, 1, 0] sent Some(1) taken Some(1) shocks Some(3) chart None
+    P4: score None percent Some(5431) grade "F" life 0 out Some(66329) combo 101 tiers [86, 21, 20, 6, 0, 0, 2] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P5: score None percent Some(2951) grade "F" life 0 out Some(40930) combo 34 tiers [51, 15, 8, 0, 1, 0, 2] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P6: score None percent Some(5472) grade "F" life 0 out Some(66072) combo 59 tiers [105, 13, 10, 4, 0, 1, 2] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P7: score None percent Some(4976) grade "F" life 0 out Some(62664) combo 45 tiers [83, 22, 13, 5, 0, 1, 2] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P8: score None percent Some(3545) grade "F" life 0 out Some(50100) combo 35 tiers [64, 15, 12, 3, 0, 0, 4] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Survivors(4)@48.23, Survivors(2)@63.47
+  left at its prompt: P4x > P6x > P7x > P8x > P2x > P5x > P3x · watched · mine Forfeit · policy Spread
+== battery 5
+  digest: 0x52176ea6daa62608 (4247 lines)
+  outcome: P1 > P4x > P3x > P2x · decided early · mine Live { life: 1.0, score: 0, steps: 0 } · policy Spread
+    P1: score None percent Some(10000) grade "★★★★" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(1) taken Some(1) shocks Some(0) chart None
+    P2: score None percent Some(715) grade "F" life 0 out Some(18255) combo 20 tiers [19, 1, 0, 0, 0, 0, 1] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P3: score None percent Some(3333) grade "F" life 0 out Some(41557) combo 78 tiers [62, 11, 5, 0, 1, 0, 0] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(3309) grade "F" life 0 out Some(43041) combo 81 tiers [57, 8, 10, 6, 0, 0, 0] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Survivors(2)@42.37, StageWon@43.95
+  left at its prompt: P4x > P3x > P2x > P1f · mine Forfeit · policy Spread
+== battery 5 out, quit
+  digest: 0xe793013e1fb2696e (1859 lines)
+  outcome: P3x = P4x > P2x > P1f · decided early · drawn by a final attack · mine Forfeit · policy Spread
+    P1: score None percent Some(1870) grade "QUIT" life 1000000 out None combo 43 tiers [43, 0, 0, 0, 0, 0, 0] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(715) grade "F" life 0 out Some(18255) combo 20 tiers [19, 1, 0, 0, 0, 0, 1] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P3: score None percent Some(3333) grade "F" life 0 out Some(41557) combo 78 tiers [62, 11, 5, 0, 1, 0, 0] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(3309) grade "F" life 0 out Some(43041) combo 81 tiers [57, 8, 10, 6, 0, 0, 0] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Survivors(2)@30.23
+  left at its prompt: P4x > P3x > P2x > P1f · mine Forfeit · policy Spread
+== battery 5 watched
+  digest: 0xd761706e516d5ed2 (1859 lines)
+  outcome: P3x = P4x > P2x · decided early · drawn by a final attack · watched · mine Forfeit · policy Spread
+    P2: score None percent Some(715) grade "F" life 0 out Some(18255) combo 20 tiers [19, 1, 0, 0, 0, 0, 1] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P3: score None percent Some(3333) grade "F" life 0 out Some(41557) combo 78 tiers [62, 11, 5, 0, 1, 0, 0] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(3309) grade "F" life 0 out Some(43041) combo 81 tiers [57, 8, 10, 6, 0, 0, 0] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Survivors(2)@19.10
+  left at its prompt: P4x > P3x > P2x · watched · mine Forfeit · policy Spread
+== battery 6
+  digest: 0xfbd80ff2b260ea43 (4247 lines)
+  outcome: P1 > P2x = P5x > P3x > P4x · decided early · mine Live { life: 1.0, score: 0, steps: 0 } · policy Spread
+    P1: score None percent Some(10000) grade "★★★★" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(2008) grade "F" life 0 out Some(33132) combo 36 tiers [40, 8, 4, 0, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P3: score None percent Some(1764) grade "F" life 0 out Some(31165) combo 31 tiers [32, 9, 3, 2, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P4: score None percent Some(1260) grade "F" life 0 out Some(26493) combo 29 tiers [28, 4, 3, 1, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P5: score None percent Some(2024) grade "F" life 0 out Some(33132) combo 35 tiers [40, 7, 4, 1, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+  told: MatchBegin@0.02, Survivors(4)@27.33, StageWon@33.97
+  left at its prompt: P2x = P5x > P3x > P4x > P1f · mine Forfeit · policy Spread
+== battery 6 out, skipped
+  digest: 0xb29ff16be6857b78 (383 lines)
+  outcome: P2x = P5x > P3x > P4x > P1x · decided early · mine Out { at: 8.542155737704919 } · policy Spread
+    P1: score None percent Some(0) grade "F" life 0 out Some(8542) combo 0 tiers [0, 0, 0, 0, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(2008) grade "F" life 0 out Some(33132) combo 36 tiers [40, 8, 4, 0, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P3: score None percent Some(1764) grade "F" life 0 out Some(31165) combo 31 tiers [32, 9, 3, 2, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P4: score None percent Some(1260) grade "F" life 0 out Some(26493) combo 29 tiers [28, 4, 3, 1, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P5: score None percent Some(2024) grade "F" life 0 out Some(33132) combo 35 tiers [40, 7, 4, 1, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+  told: MatchBegin@0.02, LifeCritical@8.88, Eliminated@9.38
+  left at its prompt: P2x = P5x > P3x > P4x > P1f · mine Forfeit · policy Spread
+== battery 6 watched
+  digest: 0xee37609ff5065f1f (1463 lines)
+  outcome: P2x = P5x > P3x > P4x · decided early · watched · mine Forfeit · policy Spread
+    P2: score None percent Some(2008) grade "F" life 0 out Some(33132) combo 36 tiers [40, 8, 4, 0, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P3: score None percent Some(1764) grade "F" life 0 out Some(31165) combo 31 tiers [32, 9, 3, 2, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P4: score None percent Some(1260) grade "F" life 0 out Some(26493) combo 29 tiers [28, 4, 3, 1, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P5: score None percent Some(2024) grade "F" life 0 out Some(33132) combo 35 tiers [40, 7, 4, 1, 0, 0, 2] sent Some(0) taken Some(0) shocks Some(0) chart None
+  told: MatchBegin@0.02, Survivors(2)@32.00
+  left at its prompt: P2x = P5x > P3x > P4x · watched · mine Forfeit · policy Spread
+== battery 7
+  digest: 0x7c45efe5d310be0c (4247 lines)
+  outcome: P1 > P4x > P6x > P2x > P3x > P5x · decided early · mine Live { life: 1.0, score: 0, steps: 0 } · policy Spread
+    P1: score None percent Some(10000) grade "★★★★" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(3) taken Some(3) shocks Some(0) chart None
+    P2: score None percent Some(5154) grade "F" life 0 out Some(63870) combo 60 tiers [93, 18, 10, 5, 0, 0, 3] sent Some(2) taken Some(2) shocks Some(0) chart None
+    P3: score None percent Some(4911) grade "F" life 0 out Some(61534) combo 74 tiers [89, 12, 14, 6, 0, 0, 2] sent Some(2) taken Some(2) shocks Some(1) chart None
+    P4: score None percent Some(7813) grade "F" life 0 out Some(89444) combo 126 tiers [129, 31, 23, 5, 0, 0, 3] sent Some(3) taken Some(3) shocks Some(0) chart None
+    P5: score None percent Some(3390) grade "F" life 0 out Some(42397) combo 81 tiers [60, 14, 4, 3, 0, 0, 0] sent Some(1) taken Some(1) shocks Some(3) chart None
+    P6: score None percent Some(5439) grade "F" life 0 out Some(64066) combo 76 tiers [97, 13, 15, 3, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(2) chart None
+  told: MatchBegin@0.02, Survivors(4)@62.37, Survivors(2)@64.87, StageWon@91.15
+  left at its prompt: P4 > P3x > P6x > P2x > P5x > P1f · mine Forfeit · policy Spread
+== battery 7 out, watched on
+  digest: 0x864a6cc4a94cabab (4247 lines)
+  outcome: P4 > P3x > P6x > P2x > P5x > P1x · decided early · mine Out { at: 9.033959016393442 } · policy Spread
+    P1: score None percent Some(0) grade "F" life 0 out Some(9034) combo 0 tiers [0, 0, 0, 0, 0, 0, 3] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(5154) grade "F" life 0 out Some(63870) combo 60 tiers [93, 18, 10, 5, 0, 0, 3] sent Some(2) taken Some(2) shocks Some(0) chart None
+    P3: score None percent Some(7163) grade "F" life 0 out Some(81575) combo 125 tiers [125, 18, 21, 8, 0, 0, 2] sent Some(2) taken Some(3) shocks Some(1) chart None
+    P4: score None percent Some(9260) grade "S" life 0 out Some(89444) combo 126 tiers [158, 31, 20, 5, 0, 0, 3] sent Some(3) taken Some(2) shocks Some(0) chart None
+    P5: score None percent Some(3390) grade "F" life 0 out Some(42397) combo 81 tiers [60, 14, 4, 3, 0, 0, 0] sent Some(1) taken Some(1) shocks Some(3) chart None
+    P6: score None percent Some(5439) grade "F" life 0 out Some(64066) combo 76 tiers [97, 13, 15, 3, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(2) chart None
+  told: MatchBegin@0.02, LifeCritical@9.38, Eliminated@9.87, Survivors(4)@43.20, Survivors(2)@64.87
+  left at its prompt: P4 > P3x > P6x > P2x > P5x > P1f · mine Forfeit · policy Spread
+== battery 7 watched
+  digest: 0x9ebbfc69a045143f (4247 lines)
+  outcome: P4 > P3x > P6x > P2x > P5x · decided early · watched · mine Forfeit · policy Spread
+    P2: score None percent Some(5228) grade "F" life 0 out Some(63870) combo 60 tiers [98, 18, 7, 3, 0, 0, 3] sent Some(2) taken Some(1) shocks Some(0) chart None
+    P3: score None percent Some(7163) grade "F" life 0 out Some(81575) combo 125 tiers [125, 18, 21, 8, 0, 0, 2] sent Some(2) taken Some(3) shocks Some(1) chart None
+    P4: score None percent Some(9285) grade "S" life 0 out Some(89444) combo 126 tiers [158, 30, 23, 3, 0, 0, 3] sent Some(3) taken Some(2) shocks Some(0) chart None
+    P5: score None percent Some(3390) grade "F" life 0 out Some(42397) combo 81 tiers [60, 14, 4, 3, 0, 0, 0] sent Some(1) taken Some(2) shocks Some(3) chart None
+    P6: score None percent Some(5439) grade "F" life 0 out Some(64066) combo 76 tiers [97, 13, 15, 3, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(2) chart None
+  told: MatchBegin@0.02, Survivors(4)@43.20, Survivors(2)@64.87
+  left at its prompt: P4 > P3x > P6x > P2x > P5x · watched · mine Forfeit · policy Spread
+== battery 8
+  digest: 0x5b7d62b4414acef6 (4247 lines)
+  outcome: P1 > P5x > P2x > P6x > P3x > P4x > P7x · decided early · mine Live { life: 1.0, score: 0, steps: 0 } · policy Spread
+    P1: score None percent Some(10000) grade "★★★★" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(3) taken Some(3) shocks Some(0) chart None
+    P2: score None percent Some(6374) grade "F" life 0 out Some(71985) combo 151 tiers [108, 18, 23, 2, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P3: score None percent Some(5211) grade "F" life 0 out Some(61518) combo 92 tiers [101, 13, 6, 2, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P4: score None percent Some(5041) grade "F" life 0 out Some(61224) combo 120 tiers [97, 8, 10, 6, 1, 0, 1] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P5: score None percent Some(6537) grade "F" life 0 out Some(75919) combo 115 tiers [117, 21, 16, 3, 0, 0, 3] sent Some(2) taken Some(2) shocks Some(1) chart None
+    P6: score None percent Some(5211) grade "F" life 0 out Some(62699) combo 88 tiers [102, 13, 6, 3, 0, 0, 2] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P7: score None percent Some(5008) grade "F" life 0 out Some(59567) combo 119 tiers [98, 8, 11, 2, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(3) chart None
+  told: MatchBegin@0.02, Survivors(4)@62.33, Survivors(2)@72.82, StageWon@76.75
+  left at its prompt: P5 > P2x > P6x > P3x > P4x > P7x > P1f · mine Forfeit · policy Spread
+== battery 8 out, quit
+  digest: 0xbeeac68f5a6c8827 (4247 lines)
+  outcome: P5 > P2x > P6x > P3x > P4x > P7x > P1f · decided early · mine Forfeit · policy Spread
+    P1: score None percent Some(1870) grade "QUIT" life 1000000 out None combo 43 tiers [43, 0, 0, 0, 0, 0, 0] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(6374) grade "F" life 0 out Some(71985) combo 151 tiers [108, 18, 23, 2, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P3: score None percent Some(5211) grade "F" life 0 out Some(61518) combo 92 tiers [101, 13, 6, 2, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P4: score None percent Some(5065) grade "F" life 0 out Some(61224) combo 120 tiers [97, 9, 10, 5, 1, 0, 1] sent Some(2) taken Some(3) shocks Some(3) chart None
+    P5: score None percent Some(9341) grade "S" life 0 out Some(75919) combo 115 tiers [161, 29, 21, 3, 0, 0, 3] sent Some(2) taken Some(1) shocks Some(1) chart None
+    P6: score None percent Some(5211) grade "F" life 0 out Some(62699) combo 88 tiers [102, 13, 6, 3, 0, 0, 2] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P7: score None percent Some(5008) grade "F" life 0 out Some(59567) combo 119 tiers [98, 8, 11, 2, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(3) chart None
+  told: MatchBegin@0.02, Survivors(4)@62.03, Survivors(2)@63.50
+  left at its prompt: P5 > P2x > P6x > P3x > P4x > P7x > P1f · mine Forfeit · policy Spread
+== battery 8 watched
+  digest: 0xd74bde09d14bdae0 (4247 lines)
+  outcome: P5 > P2x > P6x > P3x > P4x > P7x · decided early · watched · mine Forfeit · policy Spread
+    P2: score None percent Some(6374) grade "F" life 0 out Some(71985) combo 151 tiers [108, 18, 23, 2, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P3: score None percent Some(5211) grade "F" life 0 out Some(61518) combo 92 tiers [101, 13, 6, 2, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P4: score None percent Some(5065) grade "F" life 0 out Some(61224) combo 120 tiers [97, 9, 10, 5, 1, 0, 1] sent Some(2) taken Some(3) shocks Some(3) chart None
+    P5: score None percent Some(9341) grade "S" life 0 out Some(75919) combo 115 tiers [161, 29, 21, 3, 0, 0, 3] sent Some(2) taken Some(1) shocks Some(1) chart None
+    P6: score None percent Some(5211) grade "F" life 0 out Some(62699) combo 88 tiers [102, 13, 6, 3, 0, 0, 2] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P7: score None percent Some(5008) grade "F" life 0 out Some(59567) combo 119 tiers [98, 8, 11, 2, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(3) chart None
+  told: MatchBegin@0.02, Survivors(4)@62.03, Survivors(2)@63.50
+  left at its prompt: P5 > P2x > P6x > P3x > P4x > P7x · watched · mine Forfeit · policy Spread
+== battery 9
+  digest: 0xd74a3b7a5064ce94 (4247 lines)
+  outcome: P1 > P2x > P7x > P3x > P4x > P8x > P6x > P5x · decided early · mine Live { life: 1.0, score: 0, steps: 0 } · policy Spread
+    P1: score None percent Some(10000) grade "★★★★" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(2) taken Some(2) shocks Some(0) chart None
+    P2: score None percent Some(5089) grade "F" life 0 out Some(62588) combo 53 tiers [82, 18, 15, 9, 1, 0, 1] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P3: score None percent Some(3862) grade "F" life 0 out Some(52067) combo 53 tiers [67, 16, 12, 4, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P4: score None percent Some(3130) grade "F" life 0 out Some(47395) combo 40 tiers [55, 17, 10, 4, 0, 0, 4] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P5: score None percent Some(2618) grade "F" life 0 out Some(39974) combo 47 tiers [51, 9, 8, 3, 1, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P6: score None percent Some(2943) grade "F" life 0 out Some(42231) combo 52 tiers [56, 13, 6, 2, 1, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P7: score None percent Some(4057) grade "F" life 0 out Some(53296) combo 71 tiers [66, 21, 11, 5, 0, 1, 2] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P8: score None percent Some(2992) grade "F" life 0 out Some(44235) combo 47 tiers [52, 14, 9, 4, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(2) chart None
+  told: MatchBegin@0.02, Survivors(4)@48.23, Survivors(2)@54.13, StageWon@69.52
+  left at its prompt: P2 > P8x > P7x > P3x > P4x > P6x > P5x > P1f · mine Forfeit · policy Spread
+== battery 9 out, skipped
+  digest: 0x6f4cc75eebd9c739 (443 lines)
+  outcome: P2 > P8x > P7x > P3x > P4x > P6x > P5x > P1x · decided early · mine Out { at: 10.017565573770492 } · policy Spread
+    P1: score None percent Some(0) grade "F" life 0 out Some(10018) combo 0 tiers [0, 0, 0, 0, 0, 0, 5] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(8911) grade "S-" life 0 out Some(70263) combo 53 tiers [144, 31, 27, 8, 3, 0, 4] sent Some(2) taken Some(1) shocks Some(2) chart None
+    P3: score None percent Some(3837) grade "F" life 0 out Some(53050) combo 53 tiers [68, 16, 13, 4, 0, 0, 4] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(3130) grade "F" life 0 out Some(47395) combo 40 tiers [55, 17, 10, 4, 0, 0, 4] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P5: score None percent Some(2618) grade "F" life 0 out Some(39974) combo 47 tiers [51, 9, 8, 3, 1, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P6: score None percent Some(2943) grade "F" life 0 out Some(42231) combo 52 tiers [56, 13, 6, 2, 1, 0, 3] sent Some(1) taken Some(2) shocks Some(2) chart None
+    P7: score None percent Some(5122) grade "F" life 0 out Some(63870) combo 71 tiers [80, 27, 14, 5, 0, 0, 3] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P8: score None percent Some(5203) grade "F" life 0 out Some(65495) combo 49 tiers [88, 23, 14, 3, 1, 1, 3] sent Some(2) taken Some(2) shocks Some(1) chart None
+  told: MatchBegin@0.02, LifeCritical@9.87, Eliminated@10.85
+  left at its prompt: P2 > P8x > P7x > P3x > P4x > P6x > P5x > P1f · mine Forfeit · policy Spread
+== battery 9 watched
+  digest: 0x7d723a65439a60d8 (2747 lines)
+  outcome: P2x = P7x > P3x > P4x > P8x > P6x > P5x · decided early · drawn by a final attack · watched · mine Forfeit · policy Spread
+    P2: score None percent Some(5398) grade "F" life 0 out Some(65254) combo 53 tiers [87, 20, 15, 8, 1, 0, 1] sent Some(2) taken Some(2) shocks Some(3) chart None
+    P3: score None percent Some(3837) grade "F" life 0 out Some(53050) combo 53 tiers [68, 16, 13, 4, 0, 0, 4] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(3130) grade "F" life 0 out Some(47395) combo 40 tiers [55, 17, 10, 4, 0, 0, 4] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P5: score None percent Some(2618) grade "F" life 0 out Some(39974) combo 47 tiers [51, 9, 8, 3, 1, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P6: score None percent Some(2943) grade "F" life 0 out Some(42231) combo 52 tiers [56, 13, 6, 2, 1, 0, 3] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P7: score None percent Some(5122) grade "F" life 0 out Some(63870) combo 71 tiers [80, 27, 14, 5, 0, 0, 3] sent Some(2) taken Some(2) shocks Some(2) chart None
+    P8: score None percent Some(2992) grade "F" life 0 out Some(44235) combo 47 tiers [52, 14, 9, 4, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(2) chart None
+  told: MatchBegin@0.02, Survivors(4)@45.05, Survivors(2)@53.88
+  left at its prompt: P2x = P7x > P3x > P4x > P8x > P6x > P5x · drawn by a final attack · watched · mine Forfeit · policy Spread
+== battery 10
+  digest: 0x798a289c397e33d3 (4247 lines)
+  outcome: P1 > P4x > P3x > P2x · decided early · mine Live { life: 1.0, score: 0, steps: 0 } · policy Spread
+    P1: score None percent Some(10000) grade "★★★★" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(24) grade "F" life 0 out Some(9034) combo 3 tiers [3, 0, 0, 0, 0, 0, 1] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P3: score None percent Some(545) grade "F" life 0 out Some(15919) combo 16 tiers [12, 3, 1, 0, 0, 0, 1] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P4: score None percent Some(1138) grade "F" life 0 out Some(23296) combo 31 tiers [26, 4, 0, 1, 0, 0, 1] sent Some(0) taken Some(0) shocks Some(0) chart None
+  told: MatchBegin@0.02, Survivors(2)@16.75, StageWon@24.13
+  left at its prompt: P4 > P3x > P2x > P1f · mine Forfeit · policy Spread
+== battery 10 out, watched on
+  digest: 0x90649028c4a2f314 (4247 lines)
+  outcome: P4 > P3x > P2x > P1x · decided early · mine Out { at: 8.050352459016395 } · policy Spread
+    P1: score None percent Some(0) grade "F" life 0 out Some(8050) combo 0 tiers [0, 0, 0, 0, 0, 0, 1] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(24) grade "F" life 0 out Some(9034) combo 3 tiers [3, 0, 0, 0, 0, 0, 1] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P3: score None percent Some(545) grade "F" life 0 out Some(15919) combo 16 tiers [12, 3, 1, 0, 0, 0, 1] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P4: score None percent Some(9098) grade "S-" life 0 out Some(23296) combo 127 tiers [165, 26, 14, 8, 0, 0, 4] sent Some(0) taken Some(0) shocks Some(0) chart None
+  told: MatchBegin@0.02, Eliminated@8.88, Survivors(2)@9.87
+  left at its prompt: P4 > P3x > P2x > P1f · mine Forfeit · policy Spread
+== battery 10 watched
+  digest: 0x28a6ef396c4d88d8 (4247 lines)
+  outcome: P4 > P3x > P2x · decided early · watched · mine Forfeit · policy Spread
+    P2: score None percent Some(24) grade "F" life 0 out Some(9034) combo 3 tiers [3, 0, 0, 0, 0, 0, 1] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P3: score None percent Some(545) grade "F" life 0 out Some(15919) combo 16 tiers [12, 3, 1, 0, 0, 0, 1] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P4: score None percent Some(9098) grade "S-" life 0 out Some(23296) combo 127 tiers [165, 26, 14, 8, 0, 0, 4] sent Some(0) taken Some(0) shocks Some(0) chart None
+  told: MatchBegin@0.02, Survivors(2)@9.87
+  left at its prompt: P4 > P3x > P2x · watched · mine Forfeit · policy Spread
+== battery 11
+  digest: 0x01aa5f3c5db6c765 (4247 lines)
+  outcome: P1 > P2x > P3x > P5x > P4x · decided early · mine Live { life: 1.0, score: 0, steps: 0 } · policy Spread
+    P1: score None percent Some(10000) grade "★★★★" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(2) taken Some(2) shocks Some(0) chart None
+    P2: score None percent Some(5138) grade "F" life 0 out Some(61478) combo 82 tiers [98, 9, 12, 3, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(1) chart None
+    P3: score None percent Some(5000) grade "F" life 0 out Some(59494) combo 75 tiers [95, 12, 9, 3, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(1) chart None
+    P4: score None percent Some(2984) grade "F" life 0 out Some(39753) combo 42 tiers [60, 9, 3, 1, 0, 0, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P5: score None percent Some(3122) grade "F" life 0 out Some(41595) combo 39 tiers [63, 6, 5, 3, 0, 0, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Survivors(4)@40.57, Survivors(2)@60.30, StageWon@65.47
+  left at its prompt: P2x > P3x > P5x > P4x > P1f · mine Forfeit · policy Spread
+== battery 11 out, quit
+  digest: 0xdd9d40825da71a59 (2595 lines)
+  outcome: P2x = P3x > P5x > P4x > P1f · decided early · drawn by a final attack · mine Forfeit · policy Spread
+    P1: score None percent Some(1870) grade "QUIT" life 1000000 out None combo 43 tiers [43, 0, 0, 0, 0, 0, 0] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(5138) grade "F" life 0 out Some(61478) combo 82 tiers [98, 9, 12, 3, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(1) chart None
+    P3: score None percent Some(5187) grade "F" life 0 out Some(61449) combo 75 tiers [98, 13, 9, 2, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(1) chart None
+    P4: score None percent Some(2984) grade "F" life 0 out Some(39753) combo 42 tiers [60, 9, 3, 1, 0, 0, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P5: score None percent Some(3122) grade "F" life 0 out Some(41595) combo 39 tiers [63, 6, 5, 3, 0, 0, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Survivors(4)@30.23, Survivors(2)@42.40
+  left at its prompt: P2x > P3x > P5x > P4x > P1f · mine Forfeit · policy Spread
+== battery 11 watched
+  digest: 0x9a732e323436c7fa (2595 lines)
+  outcome: P2x = P3x > P5x > P4x · decided early · drawn by a final attack · watched · mine Forfeit · policy Spread
+    P2: score None percent Some(5138) grade "F" life 0 out Some(61478) combo 82 tiers [98, 9, 12, 3, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(1) chart None
+    P3: score None percent Some(5187) grade "F" life 0 out Some(61449) combo 75 tiers [98, 13, 9, 2, 0, 0, 1] sent Some(2) taken Some(2) shocks Some(1) chart None
+    P4: score None percent Some(2984) grade "F" life 0 out Some(39753) combo 42 tiers [60, 9, 3, 1, 0, 0, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P5: score None percent Some(3122) grade "F" life 0 out Some(41595) combo 39 tiers [63, 6, 5, 3, 0, 0, 1] sent Some(1) taken Some(1) shocks Some(1) chart None
+  told: MatchBegin@0.02, Survivors(2)@42.40
+  left at its prompt: P2x > P3x > P5x > P4x · watched · mine Forfeit · policy Spread
+== battery 12
+  digest: 0x808d64258f30733e (4247 lines)
+  outcome: P1 > P3x > P5x > P2x > P4x > P6x · decided early · mine Live { life: 1.0, score: 0, steps: 0 } · policy Spread
+    P1: score None percent Some(10000) grade "★★★★" life 1000000 out None combo 217 tiers [217, 0, 0, 0, 0, 0, 0] sent Some(2) taken Some(1) shocks Some(0) chart None
+    P2: score None percent Some(2959) grade "F" life 0 out Some(40085) combo 47 tiers [53, 13, 5, 3, 0, 0, 1] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P3: score None percent Some(4203) grade "F" life 0 out Some(55632) combo 58 tiers [75, 14, 14, 6, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(0) chart None
+    P4: score None percent Some(2203) grade "F" life 0 out Some(35591) combo 47 tiers [47, 8, 3, 0, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(0) chart None
+    P5: score None percent Some(3276) grade "F" life 0 out Some(44112) combo 78 tiers [59, 12, 6, 3, 0, 2, 0] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P6: score None percent Some(1821) grade "F" life 0 out Some(33624) combo 44 tiers [40, 3, 6, 3, 0, 0, 3] sent Some(0) taken Some(1) shocks Some(0) chart None
+  told: MatchBegin@0.02, Survivors(4)@36.43, Survivors(2)@44.92, StageWon@56.47
+  left at its prompt: P2x = P3x = P5x > P4x > P6x > P1f · drawn by a final attack · mine Forfeit · policy Spread
+== battery 12 out, skipped
+  digest: 0x8b766ae4a431a51b (403 lines)
+  outcome: P2x = P3x = P5x > P4x > P6x > P1x · decided early · drawn by a final attack · mine Out { at: 9.033959016393442 } · policy Spread
+    P1: score None percent Some(0) grade "F" life 0 out Some(9034) combo 0 tiers [0, 0, 0, 0, 0, 0, 3] sent Some(0) taken Some(0) shocks Some(0) chart None
+    P2: score None percent Some(2959) grade "F" life 0 out Some(40085) combo 47 tiers [53, 13, 5, 3, 0, 0, 1] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P3: score None percent Some(2650) grade "F" life 0 out Some(39526) combo 45 tiers [47, 9, 10, 5, 0, 0, 2] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(2203) grade "F" life 0 out Some(35591) combo 47 tiers [47, 8, 3, 0, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(0) chart None
+    P5: score None percent Some(3276) grade "F" life 0 out Some(44112) combo 78 tiers [59, 12, 6, 3, 0, 2, 0] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P6: score None percent Some(1821) grade "F" life 0 out Some(33624) combo 44 tiers [40, 3, 6, 3, 0, 0, 3] sent Some(0) taken Some(0) shocks Some(0) chart None
+  told: MatchBegin@0.02, LifeCritical@9.38, Eliminated@9.87
+  left at its prompt: P2x = P3x = P5x > P4x > P6x > P1f · drawn by a final attack · mine Forfeit · policy Spread
+== battery 12 watched
+  digest: 0xe7a6862520ad3860 (1903 lines)
+  outcome: P2x = P3x = P5x > P4x > P6x · decided early · drawn by a final attack · watched · mine Forfeit · policy Spread
+    P2: score None percent Some(2959) grade "F" life 0 out Some(40085) combo 47 tiers [53, 13, 5, 3, 0, 0, 1] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P3: score None percent Some(2650) grade "F" life 0 out Some(39526) combo 45 tiers [47, 9, 10, 5, 0, 0, 2] sent Some(1) taken Some(1) shocks Some(1) chart None
+    P4: score None percent Some(2203) grade "F" life 0 out Some(35591) combo 47 tiers [47, 8, 3, 0, 0, 0, 3] sent Some(1) taken Some(1) shocks Some(0) chart None
+    P5: score None percent Some(3276) grade "F" life 0 out Some(44112) combo 78 tiers [59, 12, 6, 3, 0, 2, 0] sent Some(1) taken Some(1) shocks Some(2) chart None
+    P6: score None percent Some(1821) grade "F" life 0 out Some(33624) combo 44 tiers [40, 3, 6, 3, 0, 0, 3] sent Some(0) taken Some(0) shocks Some(0) chart None
+  told: MatchBegin@0.02, Survivors(4)@34.47, Survivors(2)@40.37
+  left at its prompt: P2x = P3x = P5x > P4x > P6x · drawn by a final attack · watched · mine Forfeit · policy Spread
+== adaptive, stepping down
+  digest: 0xf8eb32e711017fe1 (4167 lines)
+  outcome: P4 > P2 > P3 > P1x · mine Out { at: 31.68374316939891 } · policy Spread
+    P1: score Some(-101633) percent Some(-817) grade "F" life 0 out Some(31684) combo 0 tiers [0, 0, 0, 0, 0, 0, 20] sent Some(0) taken Some(0) shocks Some(0) chart Some("Beginner")
+    P2: score Some(1763703) percent Some(7701) grade "B" life 1000000 out None combo 33 tiers [48, 54, 65, 27, 6, 0, 22] sent Some(2) taken Some(2) shocks Some(3) chart Some("Medium")
+    P3: score Some(1710894) percent Some(7438) grade "B" life 780000 out None combo 23 tiers [48, 49, 61, 34, 8, 4, 20] sent Some(2) taken Some(3) shocks Some(10) chart Some("Medium")
+    P4: score Some(1790517) percent Some(7784) grade "B" life 1000000 out None combo 26 tiers [56, 43, 75, 22, 5, 2, 21] sent Some(2) taken Some(1) shocks Some(2) chart Some("Medium")
+  told: MatchBegin@0.02, LifeCritical@9.65, StepDown@12.62, StepDown@18.52, StepDown@24.42, Eliminated@32.52
+  steps: rung 1@8.94, rung 2@13.98, rung 3@20.62
+  left at its prompt: P4 > P2 > P3 > P1f · mine Forfeit · policy Spread
+== adaptive, stepping up
+  digest: 0x857fca1152698bde (4143 lines)
+  outcome: P1 > P2 > P4 > P3 · mine Live { life: 1.0, score: 2339798, steps: 3 } · policy Spread
+    P1: score Some(2339798) percent Some(9955) grade "SSS" life 1000000 out None combo 207 tiers [243, 0, 0, 0, 0, 0, 1] sent Some(4) taken Some(3) shocks Some(0) chart Some("Challenge") (harder)
+    P2: score Some(2134068) percent Some(9359) grade "S" life 1000000 out None combo 71 tiers [131, 54, 29, 10, 0, 0, 4] sent Some(3) taken Some(3) shocks Some(3) chart Some("Challenge") (harder)
+    P3: score Some(2095796) percent Some(9211) grade "S" life 1000000 out None combo 111 tiers [120, 55, 40, 5, 0, 0, 7] sent Some(3) taken Some(3) shocks Some(6) chart Some("Challenge") (harder)
+    P4: score Some(2096508) percent Some(9358) grade "S" life 1000000 out None combo 81 tiers [121, 55, 36, 7, 0, 0, 4] sent Some(3) taken Some(4) shocks Some(1) chart Some("Challenge") (harder)
+  told: MatchBegin@0.02, StepUp@36.22, StepUp@49.98, StepUp@61.80
+  steps: rung 2@31.48, rung 3@45.25, rung 4@57.05
+  left at its prompt: P3 > P4 > P2 > P1f · mine Forfeit · policy Spread
+== adaptive, watched
+  digest: 0xec18875561e12e4d (4167 lines)
+  outcome: P5 > P4 > P2 > P3 · watched · mine Forfeit · policy Spread
+    P2: score Some(1754591) percent Some(7220) grade "B" life 1000000 out None combo 41 tiers [64, 60, 66, 39, 4, 5, 30] sent Some(2) taken Some(2) shocks Some(3) chart Some("Medium")
+    P3: score Some(1675434) percent Some(6908) grade "B" life 1000000 out None combo 43 tiers [57, 61, 66, 31, 13, 4, 35] sent Some(2) taken Some(2) shocks Some(5) chart Some("Medium")
+    P4: score Some(1777254) percent Some(7676) grade "B" life 1000000 out None combo 48 tiers [74, 57, 50, 19, 7, 5, 25] sent Some(2) taken Some(2) shocks Some(5) chart Some("Medium")
+    P5: score Some(1793657) percent Some(7365) grade "B" life 1000000 out None combo 57 tiers [72, 57, 59, 44, 7, 2, 28] sent Some(2) taken Some(2) shocks Some(3) chart Some("Medium")
+  told: MatchBegin@0.02
+  left at its prompt: P5 > P4 > P2 > P3 · watched · mine Forfeit · policy Spread

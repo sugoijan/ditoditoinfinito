@@ -7,7 +7,7 @@
 use super::*;
 
 /// Beatucada's Hard single: its ladder is Medium, Easy, Beginner.
-const HARD: usize = 5;
+pub(super) const HARD: usize = 5;
 
 /// A practice room of one stage, `cpus` CPUs at `level`, attacks on,
 /// zero life stepping down.

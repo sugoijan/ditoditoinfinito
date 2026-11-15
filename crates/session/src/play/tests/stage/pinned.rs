@@ -4,6 +4,26 @@
 //! settlement, the outcome): written before the battle's parallel copies
 //! (its three settle paths, its three link builders, its seat lookups)
 //! were merged, so that the merge is shown to change none of it.
+//!
+//! **Reading a pin** (round M; the review's gaps 9 and 10). A digest
+//! says only that something moved. Beside each one, in Git, is the part
+//! of its trace a person can read: `pinned.txt` (practice) and
+//! `live_pinned.txt` (an online room's stage) hold, a stage, its digest
+//! and its [`readable`] lines (who ranked where and how they finished,
+//! each competitor's score, grade, life, combo, attacks and chart, what
+//! the battle told and when, how many frames the trace has), and the
+//! tests compare the whole file, so a re-recording's diff shows what
+//! changed in words, not forty opaque numbers.
+//!
+//! - A pin moved: the test fails saying which lines differ. Where the
+//!   change is meant, record again with
+//!   `DDI_PIN_WRITE=1 cargo test -p ddi-session --lib as_pinned`
+//!   (it rewrites both files in place) and read `git diff` of them.
+//! - The whole trace of every stage, frame by frame (1 to 2 MB a
+//!   stage, never kept in Git):
+//!   `DDI_PIN_DUMP=<an existing folder> cargo test -p ddi-session --lib as_pinned`
+//!   writes `<name>.txt` a stage there; dump before and after a change
+//!   and `diff` the two folders to see the first frame that moved.
 
 use super::*;
 
@@ -69,9 +89,145 @@ pub(super) fn trace(out: &mut String, host: f64, s: &PlaySession<FakeAudio, Fake
     let _ = writeln!(out, "  fields {fields:x?}");
 }
 
+/// The part of a stage's trace a person reads (the module's header):
+/// its outcome (the ranking best first, ties joined by `=`, each
+/// competitor `P<id>` with `x` where they went out and `f` where they
+/// forfeited; whether it was decided early or drawn by a final attack;
+/// the player's own run; each competitor's line) and what the battle
+/// told, each moment at its second.
+pub(super) fn readable(
+    outcome: Option<&crate::battle::StageOutcome>,
+    told: &[crate::announcer::battle::Told],
+) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    match outcome {
+        None => out.push_str("  outcome: none\n"),
+        Some(o) => {
+            let _ = writeln!(out, "  outcome: {}", outcome_line(o));
+            for (p, d) in &o.details {
+                let _ = writeln!(
+                    out,
+                    "    P{}: score {:?} percent {:?} grade {:?} life {} out {:?} combo {} tiers {:?} sent {:?} taken {:?} shocks {:?} chart {:?}{}",
+                    p.0,
+                    d.score,
+                    d.percent,
+                    d.grade,
+                    d.life_ppm,
+                    d.out_at_ms,
+                    d.max_combo,
+                    d.tiers,
+                    d.attacks,
+                    d.received,
+                    d.shocks,
+                    d.chart,
+                    if d.harder { " (harder)" } else { "" },
+                );
+            }
+        }
+    }
+    let told: Vec<String> = told
+        .iter()
+        .map(|t| {
+            let said = match &t.said {
+                Some(_) if t.spoken() => " said",
+                Some(_) => " said by another line",
+                None => "",
+            };
+            format!("{:?}@{:.2}{said}", t.event, t.at)
+        })
+        .collect();
+    let _ = writeln!(out, "  told: {}", told.join(", "));
+    out
+}
+
+/// A stage's outcome in a line ([`readable`]).
+fn outcome_line(o: &crate::battle::StageOutcome) -> String {
+    let ranking: Vec<String> = o
+        .ranking
+        .iter()
+        .map(|group| {
+            group
+                .iter()
+                .map(|f| {
+                    let how = match f.finish {
+                        ddi_room::Finish::Survived => "",
+                        ddi_room::Finish::Eliminated => "x",
+                        ddi_room::Finish::Forfeit => "f",
+                    };
+                    format!("P{}{how}", f.participant.0)
+                })
+                .collect::<Vec<_>>()
+                .join(" = ")
+        })
+        .collect();
+    format!(
+        "{}{}{}{} · mine {:?} · policy {:?}",
+        ranking.join(" > "),
+        if o.confirmed_early { " · decided early" } else { "" },
+        if o.drawn_by_final_attack { " · drawn by a final attack" } else { "" },
+        if o.watched { " · watched" } else { "" },
+        o.mine,
+        o.targeting,
+    )
+}
+
+/// A stage's pin as its file keeps it: its name, its trace's digest and
+/// frames, and `read` (its [`readable`] lines).
+pub(super) fn pin(name: &str, trace: &str, read: &str) -> String {
+    format!(
+        "== {name}\n  digest: {:#018x} ({} lines)\n{read}",
+        fnv(trace),
+        trace.lines().count()
+    )
+}
+
+/// The pins `made` against the file `kept` (its text, and its name under
+/// this folder): equal, or the lines that differ said; with
+/// `DDI_PIN_WRITE=1` the file is written again instead (the module's
+/// header).
+pub(super) fn check_pins(made: &str, kept: &str, file: &str) {
+    if std::env::var_os("DDI_PIN_WRITE").is_some() {
+        let path = format!(
+            "{}/src/play/tests/stage/{file}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        std::fs::write(&path, made).unwrap_or_else(|e| panic!("{path}: {e}"));
+        eprintln!("{path} written: read its diff");
+        return;
+    }
+    // (A checkout may turn the file's line ends.)
+    let kept = &kept.replace("\r\n", "\n");
+    if made == kept {
+        return;
+    }
+    let (m, k): (Vec<&str>, Vec<&str>) = (made.lines().collect(), kept.lines().collect());
+    let mut said = 0;
+    let mut stage = "";
+    for i in 0..m.len().max(k.len()) {
+        let (a, b) = (m.get(i).copied(), k.get(i).copied());
+        if let Some(name) = a.and_then(|l| l.strip_prefix("== ")) {
+            stage = name;
+        }
+        if a != b && said < 24 {
+            said += 1;
+            eprintln!(
+                "{file}:{} ({stage})\n  pinned: {}\n  now:    {}",
+                i + 1,
+                b.unwrap_or("(nothing)"),
+                a.unwrap_or("(nothing)")
+            );
+        }
+    }
+    panic!(
+        "{file}: a stage's pin moved (above, the first lines that differ). Meant? Record again with DDI_PIN_WRITE=1 and read the diff; the whole traces: DDI_PIN_DUMP=<folder> (this module's header)"
+    );
+}
+
 /// `s` run at 60 frames a second to its end (or host second `limit`),
-/// traced every `every` frames; then its outcome and what it told.
-fn traced(s: &mut PlaySession<FakeAudio, FakeInputs>, clock: &Clock, limit: f64) -> String {
+/// traced every `every` frames; then its outcome and what it told. With
+/// it, the part a person reads ([`readable`]).
+fn traced(s: &mut PlaySession<FakeAudio, FakeInputs>, clock: &Clock, limit: f64) -> (String, String) {
     let mut out = String::new();
     let mut frame = 0u64;
     loop {
@@ -86,34 +242,53 @@ fn traced(s: &mut PlaySession<FakeAudio, FakeInputs>, clock: &Clock, limit: f64)
             break;
         }
     }
-    out.push_str(&format!("outcome {:?}\n", s.take_stage_outcome()));
+    let outcome = s.take_stage_outcome();
+    out.push_str(&format!("outcome {outcome:?}\n"));
     out.push_str(&format!("told {:?}\n", s.battle_told()));
-    out
+    let read = readable(outcome.as_ref(), s.battle_told());
+    (out, read)
 }
 
 /// A practice stage with attacks on the long chart (`cpus` at `level`,
 /// seeded from `seed`), played with `settings` (a battery of lives
 /// there: CPUs go out and stages are decided early), watched or played
-/// by the player (`auto`: autoplayed; `keys` pressed): its trace.
+/// by the player (`auto`: autoplayed; `keys` pressed): its trace and
+/// what a person reads of it.
 fn practice(
+    song: &Song,
+    settings: &Settings,
+    seat: (u16, u8, u64),
+    watching: bool,
+    auto: bool,
+    keys: &[(f64, &str, bool)],
+) -> (String, String) {
+    practice_on(song, settings, seat, watching, auto, keys, (ddi_room::Charts::AsPicked, LONG))
+}
+
+/// [`practice`] on chart `chart` of the song under the match's Charts
+/// rule `charts` (Adaptive: a new room's default; the competitors step
+/// down and up the song's ladder).
+fn practice_on(
     song: &Song,
     settings: &Settings,
     (cpus, level, seed): (u16, u8, u64),
     watching: bool,
     auto: bool,
     keys: &[(f64, &str, bool)],
-) -> String {
+    (charts, chart): (ddi_room::Charts, usize),
+) -> (String, String) {
     let mut room = room_seeded(1, cpus, level, seed);
     let rules = MatchRules {
         battle: ddi_room::BattlePreset::GAUGE_ATTACKS_V0.into(),
+        charts,
         ..room.rules().clone()
     };
     room.save_rules(rules).unwrap();
     let mut now = 0;
     let order = if watching {
-        begin_watching(song, &mut room, &mut now, LONG)
+        begin_watching(song, &mut room, &mut now, chart)
     } else {
-        begin_at(song, &mut room, &mut now, LONG)
+        begin_at(song, &mut room, &mut now, chart)
     };
     let clock: Clock = Rc::new(RefCell::new(0.0));
     let mut inputs = FakeInputs::new(&clock);
@@ -135,7 +310,17 @@ fn practice(
         inputs,
     )
     .unwrap();
-    let mut out = traced(&mut s, &clock, 300.0);
+    let (mut out, mut read) = traced(&mut s, &clock, 300.0);
+    // (The steps the player made, where the charts adapt.)
+    if !s.player.steps().is_empty() {
+        let steps: Vec<String> = s
+            .player
+            .steps()
+            .iter()
+            .map(|st| format!("rung {}@{:.2}", st.rung, st.at))
+            .collect();
+        read.push_str(&format!("  steps: {}\n", steps.join(", ")));
+    }
     // The same stage left at its prompt.
     let left = crate::battle::forfeit(
         StageSetup::of(&order),
@@ -144,7 +329,11 @@ fn practice(
         &rules_of(settings, &order, song),
     );
     out.push_str(&format!("left {left:?}\n"));
-    out
+    match &left {
+        Ok(o) => read.push_str(&format!("  left at its prompt: {}\n", outcome_line(o))),
+        Err(e) => read.push_str(&format!("  left at its prompt: {e}\n")),
+    }
+    (out, read)
 }
 
 /// Every way a practice stage is played and decided, pinned: the player
@@ -153,7 +342,12 @@ fn practice(
 /// own field among the others', settled as it comes); out of life and
 /// skipping (played out at once, settled quietly); quitting in it (a
 /// forfeit); a spectator; and the stage left at its prompt; under DDI
-/// and under a battery of lives (CPUs going out).
+/// and under a battery of lives (CPUs going out); and under Charts:
+/// Adaptive, a new room's default (round M; the review's gap 10): a
+/// player who presses nothing stepping down the song's ladder beside
+/// CPUs who step too, an autoplayed player stepping up it, and such a
+/// stage watched. Compared with `pinned.txt` (the module's header says
+/// how to read a pin that moved and how to record it again).
 #[test]
 fn a_practice_stage_shows_and_decides_as_pinned() {
     let song = bundled("beatucada");
@@ -176,7 +370,12 @@ fn a_practice_stage_shows_and_decides_as_pinned() {
         s.stepmania.lives = lives;
         s
     };
-    let mut traces: Vec<(String, String)> = vec![
+    // Beatucada's singles: Hard (its ladder below it Medium, Easy,
+    // Beginner) and Easy (Medium and Hard above it).
+    let (hard, easy) = (super::step_down::HARD, EASY);
+    assert_eq!(song.charts[easy].difficulty, ddi_chart::Difficulty::Easy);
+    let adaptive = |chart| (ddi_room::Charts::Adaptive, chart);
+    let mut traces: Vec<(String, (String, String))> = vec![
         ("played".into(), practice(&song, &ddi, (4, 3, 7), false, true, &[])),
         ("played hard".into(), practice(&song, &ddi, (3, 9, 7), false, true, &[])),
         ("out, watched on".into(), practice(&song, &ddi, (4, 3, 7), false, false, &[])),
@@ -199,66 +398,46 @@ fn a_practice_stage_shows_and_decides_as_pinned() {
         ));
         traces.push((format!("battery {seed} watched"), practice(&song, &settings, seat, true, false, &[])));
     }
+    // Charts: Adaptive.
+    traces.push((
+        "adaptive, stepping down".into(),
+        practice_on(&song, &ddi, (3, 1, 7), false, false, &[], adaptive(hard)),
+    ));
+    traces.push((
+        "adaptive, stepping up".into(),
+        practice_on(&song, &ddi, (3, 6, 7), false, true, &[], adaptive(easy)),
+    ));
+    traces.push((
+        "adaptive, watched".into(),
+        practice_on(&song, &ddi, (4, 2, 7), true, false, &[], adaptive(hard)),
+    ));
     if let Ok(dir) = std::env::var("DDI_PIN_DUMP") {
-        for (name, t) in &traces {
-            let _ = std::fs::write(format!("{dir}/{name}.txt"), t);
+        for (name, (t, _)) in &traces {
+            std::fs::write(format!("{dir}/{name}.txt"), t).expect("DDI_PIN_DUMP: an existing folder");
         }
     }
-    let digests: Vec<(&str, u64)> = traces.iter().map(|(name, t)| (name.as_str(), fnv(t))).collect();
-    eprintln!("{digests:#x?}");
-    assert_eq!(digests, PINNED);
+    let made: String = traces
+        .iter()
+        .map(|(name, (t, read))| pin(name, t, read))
+        .collect();
+    check_pins(&made, include_str!("pinned.txt"), "pinned.txt");
+    // The steps are in the pins: down under the player who presses
+    // nothing, up under the autoplayed one.
+    for name in ["adaptive, stepping down", "adaptive, stepping up"] {
+        let (_, (_, read)) = traces.iter().find(|(n, _)| n == name).unwrap();
+        assert!(read.contains("  steps: rung "), "{name}: {read}");
+    }
 }
 
-/// [`a_practice_stage_shows_and_decides_as_pinned`]'s digests, recorded
-/// before the merge; recorded again at room model revision 9, where a run
-/// still in lost its proportional part and absolute score (the traces
-/// otherwise the same, line for line); and again in round D1, where each
-/// view says whether its competitor left the stage (`left: false` in
-/// every one here; the traces otherwise the same, line for line).
-const PINNED: &[(&str, u64)] = &[
-    ("played", 0x509ea838916cec89),
-    ("played hard", 0x9628bd031b7187dc),
-    ("out, watched on", 0xa1d3ffd43a5db1a1),
-    ("out, skipped", 0x79453508e32b036b),
-    ("quit", 0xc5392aaee603d416),
-    ("watched", 0xbcb98777abbdab0b),
-    ("battery 1", 0xf107916a48183caf),
-    ("battery 1 out, watched on", 0xe3323f070532c3b5),
-    ("battery 1 watched", 0x9a43744c7c4a0eab),
-    ("battery 2", 0x44a2c1b86919efde),
-    ("battery 2 out, quit", 0x20056639c994975c),
-    ("battery 2 watched", 0x8ccf8e1c5f98d216),
-    ("battery 3", 0xe3423ee7cf56c5b4),
-    ("battery 3 out, skipped", 0x6f8e931ef74c32a6),
-    ("battery 3 watched", 0x2a4207059a100144),
-    ("battery 4", 0xa427cd789cc68b37),
-    ("battery 4 out, watched on", 0x3a3467dffd6623ae),
-    ("battery 4 watched", 0x6c9f54473bcdcf5f),
-    ("battery 5", 0x52176ea6daa62608),
-    ("battery 5 out, quit", 0xe793013e1fb2696e),
-    ("battery 5 watched", 0xd761706e516d5ed2),
-    ("battery 6", 0xfbd80ff2b260ea43),
-    ("battery 6 out, skipped", 0xb29ff16be6857b78),
-    ("battery 6 watched", 0xee37609ff5065f1f),
-    ("battery 7", 0x7c45efe5d310be0c),
-    ("battery 7 out, watched on", 0x864a6cc4a94cabab),
-    ("battery 7 watched", 0x9ebbfc69a045143f),
-    ("battery 8", 0x5b7d62b4414acef6),
-    ("battery 8 out, quit", 0xbeeac68f5a6c8827),
-    ("battery 8 watched", 0xd74bde09d14bdae0),
-    ("battery 9", 0xd74a3b7a5064ce94),
-    ("battery 9 out, skipped", 0x6f4cc75eebd9c739),
-    ("battery 9 watched", 0x7d723a65439a60d8),
-    ("battery 10", 0x798a289c397e33d3),
-    ("battery 10 out, watched on", 0x90649028c4a2f314),
-    ("battery 10 watched", 0x28a6ef396c4d88d8),
-    ("battery 11", 0x1aa5f3c5db6c765),
-    ("battery 11 out, quit", 0xdd9d40825da71a59),
-    ("battery 11 watched", 0x9a732e323436c7fa),
-    ("battery 12", 0x808d64258f30733e),
-    ("battery 12 out, skipped", 0x8b766ae4a431a51b),
-    ("battery 12 watched", 0xe7a6862520ad3860),
-];
+/// Beatucada's Easy single.
+const EASY: usize = 3;
+
+// (The digests were a constant here until round M: recorded before the
+// merge; again at room model revision 9, where a run still in lost its
+// proportional part and absolute score; and in round D1, where each view
+// says whether its competitor left the stage; the traces otherwise the
+// same, line for line. `pinned.txt` holds them now, unchanged, with what
+// a person reads of each.)
 
 /// The player's own links ([`crate::battle::Battle::links`]) and
 /// everyone's as a watcher sees them ([`crate::battle::Battle::seen_links`])

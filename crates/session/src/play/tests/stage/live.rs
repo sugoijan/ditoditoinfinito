@@ -3098,11 +3098,13 @@ fn a_live_stage_with_cpus_plays_them_alike_on_every_device() {
 /// decision as told), pinned by digests recorded before the battle's
 /// parallel copies were merged: two people and a watcher, with CPUs and
 /// without (the room deciding the stage early), a person late on every
-/// note going out and watching on.
+/// note going out and watching on. Compared with `live_pinned.txt`
+/// (`super::pinned`'s header: how to read a pin that moved, record it
+/// again, `DDI_PIN_WRITE=1`, and dump the whole traces, `DDI_PIN_DUMP`).
 #[test]
 fn a_live_stage_shows_and_decides_as_pinned() {
     let song = bundled("beatucada");
-    let mut digests = Vec::new();
+    let mut made = String::new();
     for cpus in [true, false] {
         let r = Room::new(
             &[
@@ -3157,39 +3159,34 @@ fn a_live_stage_shows_and_decides_as_pinned() {
                 }
             }
         });
+        let mut read = Vec::new();
         for ((out, e), p) in traces.iter_mut().zip(ended.iter_mut()).zip(&plays) {
             let (_, outcome) = e.take().expect("ended");
             out.push_str(&format!("outcome {outcome:?}\ntold {:?}\n", p.battle_told()));
+            read.push(super::pinned::readable(Some(&outcome), p.battle_told()));
         }
         if let Ok(dir) = std::env::var("DDI_PIN_DUMP") {
             for (i, t) in traces.iter().enumerate() {
-                let _ = std::fs::write(format!("{dir}/live {cpus} {i}.txt"), t);
+                std::fs::write(format!("{dir}/live {cpus} {i}.txt"), t)
+                    .expect("DDI_PIN_DUMP: an existing folder");
             }
         }
-        digests.extend(traces.iter().map(|t| super::pinned::fnv(t)));
+        let who = ["alice (plays)", "bob (late on every note)", "carol (watches)"];
+        for ((t, read), who) in traces.iter().zip(&read).zip(who) {
+            let name = format!("live, {}, {who}", if cpus { "three CPUs" } else { "no CPUs" });
+            made.push_str(&super::pinned::pin(&name, t, read));
+        }
     }
-    eprintln!("{digests:#x?}");
-    assert_eq!(digests, LIVE_PINNED);
+    super::pinned::check_pins(&made, include_str!("live_pinned.txt"), "live_pinned.txt");
 }
 
-/// [`a_live_stage_shows_and_decides_as_pinned`]'s digests, recorded
-/// before the merge; recorded again at room model revision 9, where a run
-/// still in lost its proportional part and absolute score (the traces
-/// otherwise the same, line for line); and again with `battle-voice-v1`
-/// (feedback round J), where a player's steps under Adaptive charts are
-/// told at their boundaries (the traces otherwise the same: only their
-/// last `told` lines gained the steps); and again in round D1, where each
-/// view says whether its competitor left the stage (`left: false` in
-/// every one here; the traces otherwise the same, line for line, under
-/// `adaptive-v4` too).
-const LIVE_PINNED: &[u64] = &[
-    0xa08b62cf3d22efae,
-    0x873aad79c81c7ae7,
-    0xccf02f30ba20ecfb,
-    0x4fddf6dc97f38296,
-    0x1ab741456c8e0f6f,
-    0xc071cf01bc627638,
-];
+// (The digests were a constant here until round M: recorded before the
+// merge; again at room model revision 9; with `battle-voice-v1`, where a
+// player's steps under Adaptive charts are told at their boundaries; and
+// in round D1, where each view says whether its competitor left the
+// stage. `live_pinned.txt` holds them now, unchanged, with what a person
+// reads of each: `super::pinned`'s header says how to read and record
+// them.)
 
 /// An online stage's prompt left once the room started it: the player's
 /// forfeit reported as their own run, which the room keeps (it decides
