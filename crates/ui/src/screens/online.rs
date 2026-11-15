@@ -168,6 +168,10 @@ pub fn invite_problem(p: &Problem) -> UiText {
         "audience_full" => m::audience_full(),
         "audience_closed" => m::audience_closed(),
         "too_many_seats" => m::audience_too_many_seats(),
+        // Its words for someone watching without signing in
+        // (`api::worded_for`): seats are counted by network.
+        api::TOO_MANY_ON_NETWORK => m::audience_too_many_network(),
+        "audience_busy" => m::audience_busy(),
         "audience_link_unknown" => m::audience_link_unknown(),
         "no_audience" => m::audience_none(),
         // The room's authority is newer than this game (round B1).
@@ -284,7 +288,11 @@ fn invite_doc(online: &Online) -> PageDoc {
         }
     }
     blocks.push(Block::Gap);
-    blocks.push(account_block(online));
+    // An audience link's page says nothing of an account unless one is
+    // signed in: watching asks for none.
+    if !audience_link || online.me().is_some() {
+        blocks.push(account_block(online));
+    }
     sign_in_blocks(online, &mut blocks, !joinable && !audience);
     let mut actions = Vec::new();
     if update {
@@ -296,7 +304,8 @@ fn invite_doc(online: &Online) -> PageDoc {
             m::invite_joining().into()
         }));
     } else if audience && !joinable && !online.sign_in_state().busy() {
-        actions.push(if online.me().is_some() {
+        // Signed in or not: the audience asks for no sign-in.
+        actions.push(
             Action::new(
                 AUDIENCE,
                 if audience_link {
@@ -305,10 +314,8 @@ fn invite_doc(online: &Online) -> PageDoc {
                     m::invite_audience_join()
                 },
             )
-            .primary()
-        } else {
-            Action::new(AUDIENCE, m::invite_audience_sign_in()).primary()
-        });
+            .primary(),
+        );
     } else if joinable && !online.sign_in_state().busy() {
         actions.push(if online.me().is_some() {
             Action::new(

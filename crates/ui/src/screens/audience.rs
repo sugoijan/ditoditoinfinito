@@ -56,8 +56,7 @@ pub type AudienceShell = Rc<dyn Fn(AudienceCall, &mut Cx)>;
 /// the web's `__DDI_DEBUG.audience`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct AudienceView {
-    /// `joining`, `watching`, `reconnecting`, `refused`, `ended`,
-    /// `sign_in_again`.
+    /// `joining`, `watching`, `reconnecting`, `refused`, `ended`.
     pub seat: String,
     /// Why refused or ended (a code).
     pub why: Option<String>,
@@ -88,7 +87,6 @@ pub fn seat_words(s: &SeatState) -> (&'static str, Option<String>) {
         SeatState::Refused(Refused::Other(c)) => ("refused", Some(c.clone())),
         SeatState::Ended(AudienceEnd::Closed) => ("ended", Some("audience_closed".into())),
         SeatState::Ended(AudienceEnd::RoomClosed) => ("ended", Some("room_closed".into())),
-        SeatState::SignInAgain => ("sign_in_again", None),
     }
 }
 
@@ -130,7 +128,6 @@ pub fn seat_problem(s: &SeatState) -> Option<UiText> {
         }
         SeatState::Ended(AudienceEnd::Closed) => m::audience_closed(),
         SeatState::Ended(AudienceEnd::RoomClosed) => m::invite_room_closed(),
-        SeatState::SignInAgain => m::link_sign_in_again(),
         _ => return None,
     })
 }
@@ -143,7 +140,6 @@ pub fn seat_end_text(e: &crate::state::room::SeatEnd) -> UiText {
         SeatEnd::AudienceClosed => m::audience_closed(),
         SeatEnd::RoomClosed => m::invite_room_closed(),
         SeatEnd::LinkReplaced => m::audience_link_unknown(),
-        SeatEnd::SignInAgain => m::link_sign_in_again(),
         SeatEnd::Refused(code) => super::online::invite_problem(&crate::state::online::api::Problem {
             status: 0,
             code: code.clone(),
@@ -298,9 +294,6 @@ pub fn doc(a: &AudienceClient) -> PageDoc {
     if a.watchable().is_some() {
         actions.push(Action::new(WATCH, m::audience_watch_stage()).primary());
     }
-    if state == SeatState::SignInAgain {
-        actions.push(Action::new("signin", m::sign_in_again()).primary());
-    }
     actions.push(Action::new("back", m::audience_leave()));
     blocks.push(Block::Gap);
     blocks.push(Block::Actions(actions));
@@ -349,9 +342,6 @@ impl AudienceScreen {
                         audience.borrow_mut().leave();
                         shell(AudienceCall::Leave, cx);
                         return None;
-                    }
-                    PageCall::Button(id) if id == "signin" => {
-                        audience.borrow_mut().sign_in_again();
                     }
                     PageCall::Button(id) if id == WATCH => {
                         // In the press: the sound's gesture, then the

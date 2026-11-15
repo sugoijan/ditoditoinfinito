@@ -52,6 +52,37 @@ pub(crate) fn watcher(server: &SharedFake, who: &'static str) -> SharedOnline {
     signed_in(handler)
 }
 
+/// Someone not signed in (a fresh browser, desktop with no session
+/// file), over the fake room as the server answers them: `/me` signed
+/// out, an invite's preview, the audience join admitted anonymously
+/// (`FakeServer::audience_join_answer` with no identity). Any sign-in
+/// request fails the test.
+pub(crate) fn stranger(server: &SharedFake) -> SharedOnline {
+    let s = server.clone();
+    let handler: Handler = Box::new(move |req| match (req.method, req.path.as_str()) {
+        (Method::Get, "/me") => err(401, "signed_out"),
+        (Method::Get, p) if p.starts_with("/invites/") => {
+            match s.borrow().invite_preview(&p["/invites/".len()..]) {
+                Ok(body) => ok(&body),
+                Err((status, code)) => err(status, code),
+            }
+        }
+        (Method::Post, "/rooms/Room000001/audience") => {
+            let body: serde_json::Value =
+                serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap();
+            let link = body["invite"].as_str().unwrap_or_default();
+            let (status, body) = s.borrow_mut().audience_join_answer(None, link, None);
+            Some(crate::state::online::api::ApiResponse {
+                status,
+                body,
+                session: None,
+            })
+        }
+        _ => panic!("no sign-in on the audience's path: {req:?}"),
+    });
+    signed_in(handler)
+}
+
 pub(crate) fn room(clock: &ManualClock, policy: RoomPolicy) -> SharedFake {
     let server = FakeServer::hosted(
         "Room000001",
@@ -480,7 +511,6 @@ fn a_seat_s_end_during_a_watched_stage_is_its_relay_s_or_a_refused_ticket() {
             SeatState::Refused(Refused::Audience(AudienceRefusal::Full)),
             SeatEnd::Refused("audience_full".into()),
         ),
-        (SeatState::SignInAgain, SeatEnd::SignInAgain),
     ];
     for (state, end) in cases {
         let e = seat_end_of(&state).unwrap();
@@ -547,4 +577,131 @@ fn the_seat_notes_the_fields_delay_for_the_next_stage() {
     // The fields' own room is what is left of the ceiling.
     let d = seat.view_delay(&ddi_room::live::LIVE_V1);
     assert!(d.delay_ms() <= 800.0, "{}", d.delay_ms());
+}
+
+/// The maintainer (2026-11-15): "let the audience spectate without having
+/// to sign-in and be anonymous".
+#[test]
+fn someone_not_signed_in_watches_with_the_audience_without_a_sign_in() {
+    use crate::look::Plain;
+    use crate::screens::online::{OnlineCall, OnlinePage, OnlineScreen};
+    use crate::screens::{DESIGN, Env};
+    use crate::state::online::{Account, SignIn};
+    use crate::testing::Harness;
+    let env = Env::new(
+        Rc::new(Plain),
+        Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
+    );
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let online = stranger(&server);
+    assert_eq!(*online.borrow().account(), Account::SignedOut);
+    let calls: Rc<RefCell<Vec<OnlineCall>>> = Rc::default();
+    let c = calls.clone();
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, crate::TextMode::Own);
+    h.ui.set_clock(5.0);
+    h.push(OnlineScreen::new(
+        env,
+        online.clone(),
+        OnlinePage::Invite(AUDIENCE_LINK.into()),
+        Rc::new(move |call, _| c.borrow_mut().push(call)),
+    ));
+    h.run(0.5);
+    // The audience link's page: Watch, and nothing of signing in or of an
+    // account.
+    let texts = h.texts().join("\n");
+    assert!(texts.contains("Watch"), "{texts}");
+    assert!(!texts.contains("Sign in") && !texts.contains("Twitch"), "{texts}");
+    assert!(!texts.contains("Not signed in"), "{texts}");
+    online.borrow_mut().watch_audience();
+    h.run(0.5);
+    // Straight to the seat: no sign-in started, no page left for one.
+    assert_eq!(*online.borrow().sign_in_state(), SignIn::Idle);
+    assert!(
+        calls
+            .borrow()
+            .iter()
+            .all(|c| !matches!(c, OnlineCall::Redirect(_))),
+        "{:?}",
+        calls.borrow()
+    );
+    let ticket = match calls.borrow().last() {
+        Some(OnlineCall::Watch { link, ticket }) if link == AUDIENCE_LINK => ticket.clone(),
+        other => panic!("{other:?}"),
+    };
+    let mut seat = AudienceClient::new(
+        online.clone(),
+        AUDIENCE_LINK,
+        Box::new(FakeAudienceSocket::new(server.clone())),
+        Some(ticket),
+        5_000,
+    );
+    run(&clock, &server, &mut [], &mut [&mut seat], 2_000);
+    assert_eq!(seat.state(), SeatState::Watching);
+    assert!(seat.view().is_some());
+    // Nobody was signed out or in.
+    assert_eq!(*online.borrow().account(), Account::SignedOut);
+    // Seven more from the same network; the ninth is told its network's
+    // seats are taken, in words for someone not signed in.
+    for _ in 0..7 {
+        assert!(arrive_anonymously(&server, AUDIENCE_LINK).is_ok());
+    }
+    let ninth = arrive_anonymously(&server, AUDIENCE_LINK).unwrap_err();
+    assert_eq!(ninth.code, crate::state::online::api::TOO_MANY_ON_NETWORK);
+    assert_eq!(
+        String::from(crate::screens::online::invite_problem(&ninth)),
+        "Too many people on your network are already watching this room."
+    );
+    // A signed-in person keeps their own two (never their network's).
+    assert!(arrive(&server, "erin", AUDIENCE_LINK, 5_000).is_ok());
+    let too_many = arrive(&server, "erin", AUDIENCE_LINK, 5_000)
+        .and_then(|_| arrive(&server, "erin", AUDIENCE_LINK, 5_000))
+        .unwrap_err();
+    assert_eq!(
+        String::from(crate::screens::online::invite_problem(&too_many)),
+        "You are already watching this room on two devices."
+    );
+    // Thirty joins a minute from one network, then "try again in a
+    // moment": the press can be made again shortly.
+    let busy = (0..40)
+        .find_map(|_| arrive_anonymously(&server, AUDIENCE_LINK).err().filter(|p| p.code == "audience_busy"))
+        .expect("the network's joins bounded");
+    assert_eq!(
+        String::from(crate::screens::online::invite_problem(&busy)),
+        "Many people on your network joined just now. Try again in a moment."
+    );
+    // A server from before (it asks the audience for a session): said as
+    // the server being updated, and nobody signed out for it.
+    let old: Handler = Box::new(|req| match (req.method, req.path.as_str()) {
+        (Method::Get, "/me") => ok(&me_of("ivy")),
+        (Method::Get, p) if p.starts_with("/invites/") => ok(
+            r#"{"kind":"audience","room_name":"R","host_display_name":"h","phase":"lobby","admission":"open","members":1,"players_full":false,"audience":true}"#,
+        ),
+        (Method::Post, "/rooms/Room000001/audience") => err(401, "signed_out"),
+        _ => panic!("unexpected {req:?}"),
+    });
+    let ivy = signed_in(old);
+    ivy.borrow_mut().open_invite(AUDIENCE_LINK);
+    ivy.borrow_mut().poll(0);
+    ivy.borrow_mut().watch_audience();
+    ivy.borrow_mut().poll(0);
+    let o = ivy.borrow();
+    assert_eq!(o.invite().unwrap().refused.as_ref().unwrap().code, ddi_room::SERVER_BEHIND);
+    assert!(o.me().is_some(), "not signed out for it");
+    assert_eq!(*o.sign_in_state(), SignIn::Idle);
+}
+
+/// Someone not signed in arriving by `link`: its page's Watch, the seat
+/// given (its ticket) or the refusal.
+fn arrive_anonymously(server: &SharedFake, link: &str) -> Result<String, Problem> {
+    let online = stranger(server);
+    let mut o = online.borrow_mut();
+    o.open_invite(link);
+    o.poll(0);
+    o.watch_audience();
+    o.poll(0);
+    match o.take_seated() {
+        Some(s) => Ok(s.ticket),
+        None => Err(o.invite().unwrap().refused.clone().unwrap()),
+    }
 }

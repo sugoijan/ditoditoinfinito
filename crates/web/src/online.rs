@@ -72,7 +72,7 @@ pub(crate) fn audience(link: &str) -> SharedAudience {
             // TESTING ONLY (`mpfakeseat=1`): a seat in a fake room's
             // audience in the page (`crate::fake_seat`).
             let client = if crate::fake_seat::on() {
-                crate::fake_seat::seat(link)
+                crate::fake_seat::seat(link, ticket)
             } else {
                 AudienceClient::new(
                     current(),
@@ -230,6 +230,11 @@ pub(crate) fn signed_in_name() -> Option<String> {
 
 /// The session's online state, made at first.
 pub(crate) fn current() -> SharedOnline {
+    // TESTING ONLY (`mpfakeseat=1`): the signed-out viewer over the fake
+    // room in the page (`crate::fake_seat`).
+    if crate::fake_seat::on() {
+        return crate::fake_seat::viewer();
+    }
     KEPT.with(|k| {
         k.online_or(|| {
             Online::new(

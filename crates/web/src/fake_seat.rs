@@ -7,8 +7,12 @@
 //! a seat in the fake room's audience (`ddi_room::fake`, in the page),
 //! whose three members stream a bundled song's chart as scripted hits
 //! (each missing every few notes), on the wall clock, pumped twenty times
-//! a second. The seat, its page, the stage handed over, the play route
-//! and the spectator view are the real ones; only the server is not.
+//! a second. The viewer is signed out (no session, as a fresh browser):
+//! the audience link's page (`#/mp/audience/<link>`) reads the fake room's
+//! preview and its Watch joins the audience anonymously, as the server
+//! admits a join without a session. The seat, its pages, the stage handed
+//! over, the play route and the spectator view are the real ones; only
+//! the server is not.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -34,6 +38,8 @@ thread_local! {
     static WANTED: Cell<bool> = const { Cell::new(false) };
     static END_AFTER: Cell<Option<f64>> = const { Cell::new(None) };
     static FAKE: RefCell<Option<Rc<RefCell<Fake>>>> = const { RefCell::new(None) };
+    /// The viewer's online state over the fake room (signed out).
+    static VIEWER: RefCell<Option<SharedOnline>> = const { RefCell::new(None) };
 }
 
 /// The next audience seat is the fake room's (`end_after`: the audience
@@ -73,12 +79,13 @@ enum Step {
     Playing(StageId, ddi_room::Millis),
 }
 
-/// HTTP answered from the fake room: who `who` is, the room's summary,
-/// its tickets and grants; for the seat, the audience join as the server
-/// answers it.
+/// HTTP answered from the fake room: who `who` is (none: the viewer,
+/// signed out), the room's summary, its tickets and grants; the invite's
+/// preview and the audience join as the server answers them (the viewer's
+/// anonymous).
 struct FakeHttp {
     server: SharedFake,
-    who: &'static str,
+    who: Option<&'static str>,
     out: Vec<(u64, ApiResponse)>,
 }
 
@@ -92,7 +99,31 @@ fn answer(status: u16, body: String) -> ApiResponse {
 
 impl Http for FakeHttp {
     fn start(&mut self, id: u64, req: ApiRequest) {
-        let who = self.who;
+        let Some(who) = self.who else {
+            // The viewer: no session.
+            let a = match (req.method, req.path.as_str()) {
+                (Method::Get, p) if p.starts_with("/invites/") => {
+                    match self.server.borrow().invite_preview(&p["/invites/".len()..]) {
+                        Ok(b) => answer(200, b),
+                        Err((s, code)) => answer(s, format!(r#"{{"error":"{code}"}}"#)),
+                    }
+                }
+                (Method::Post, p) if p == format!("/rooms/{ROOM}/audience") => {
+                    let body: serde_json::Value =
+                        serde_json::from_str(req.body.as_deref().unwrap_or("{}"))
+                            .unwrap_or_default();
+                    let (s, b) = self.server.borrow_mut().audience_join_answer(
+                        None,
+                        body["invite"].as_str().unwrap_or_default(),
+                        None,
+                    );
+                    answer(s, b)
+                }
+                _ => answer(401, r#"{"error":"signed_out"}"#.into()),
+            };
+            self.out.push((id, a));
+            return;
+        };
         let identity = Identity::new(format!("dev:{who}"));
         let path = format!("/rooms/{ROOM}");
         let a = match (req.method, req.path.as_str()) {
@@ -144,7 +175,7 @@ impl Http for FakeHttp {
     }
 }
 
-fn online(server: &SharedFake, who: &'static str) -> SharedOnline {
+fn online(server: &SharedFake, who: Option<&'static str>) -> SharedOnline {
     let o = Online::new(
         Box::new(FakeHttp {
             server: server.clone(),
@@ -256,9 +287,38 @@ fn entry(song: &ddi_chart::Song, chart: usize) -> SongEntry {
     }
 }
 
-/// A seat in the fake room's audience by `link`, the room made and its
-/// pump started (the song read first).
-pub(crate) fn seat(link: &str) -> AudienceClient {
+/// The viewer's online state over the fake room (made with it at first):
+/// signed out, its invite pages and audience join the fake room's.
+pub(crate) fn viewer() -> SharedOnline {
+    if let Some(o) = VIEWER.with_borrow(|v| v.clone()) {
+        return o;
+    }
+    let server = room().borrow().server.clone();
+    let o = online(&server, None);
+    VIEWER.with_borrow_mut(|v| *v = Some(o.clone()));
+    o
+}
+
+/// A seat in the fake room's audience by `link` (`ticket`: the one its
+/// page's Watch was given; none: asked for at once), the viewer's.
+pub(crate) fn seat(link: &str, ticket: Option<String>) -> AudienceClient {
+    let online = viewer();
+    let server = room().borrow().server.clone();
+    AudienceClient::new(
+        online,
+        link,
+        Box::new(FakeAudienceSocket::new(server)),
+        ticket,
+        now_ms(),
+    )
+}
+
+/// The fake room, made and its pump started (the song read first) at
+/// first.
+fn room() -> Rc<RefCell<Fake>> {
+    if let Some(f) = FAKE.with_borrow(|f| f.clone()) {
+        return f;
+    }
     let now = now_ms();
     let clock = ManualClock::new(now);
     let server = FakeServer::hosted(
@@ -278,7 +338,7 @@ pub(crate) fn seat(link: &str) -> AudienceClient {
                 .join(Identity::new(format!("dev:{who}")), who, Intent::Play);
         }
         rooms.push(Rc::new(RefCell::new(RoomClient::online(
-            online(&server, who),
+            online(&server, Some(who)),
             ROOM,
             Box::new(FakeSocket::new(server.clone())),
             ClientId::new(format!("{who}-fake")),
@@ -318,14 +378,8 @@ pub(crate) fn seat(link: &str) -> AudienceClient {
             f.pump();
         }
     }));
-    FAKE.with_borrow_mut(|f| *f = Some(fake));
-    AudienceClient::new(
-        online(&server, "dora"),
-        link,
-        Box::new(FakeAudienceSocket::new(server)),
-        None,
-        now,
-    )
+    FAKE.with_borrow_mut(|f| *f = Some(fake.clone()));
+    fake
 }
 
 /// A watched stage's song, read as the bundled song (the fake room's

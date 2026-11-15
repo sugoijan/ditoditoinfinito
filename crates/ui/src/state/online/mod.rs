@@ -70,7 +70,9 @@ pub enum Dest {
     /// Back into this room (after the session ended in it).
     Room(String),
     /// Watch with the room's audience by this link
-    /// (`docs/plans/multiplayer-audience.md`).
+    /// (`docs/plans/multiplayer-audience.md`): no sign-in is asked for to
+    /// watch since 2026-11-15; kept for a return the web saved before
+    /// (`ddi.mp.after`), which goes straight to the seat.
     Audience(String),
 }
 
@@ -509,17 +511,17 @@ impl Online {
 
     /// Watch with the room's audience by the invite looked at (an
     /// audience link, or the room's own where it offers its audience at
-    /// its member bound): at once when signed in, else after signing in.
+    /// its member bound): at once, signed in or not
+    /// (`docs/plans/multiplayer-audience.md`, "Watching without signing
+    /// in": a person signed in watches as themselves, anyone else
+    /// anonymously).
     pub fn watch_audience(&mut self) {
         let Some(view) = &mut self.invite else {
             return;
         };
         let invite = view.invite.clone();
         view.refused = None;
-        match &self.account {
-            Account::SignedIn(_) => self.join_audience(&invite),
-            _ => self.sign_in(Dest::Audience(invite)),
-        }
+        self.join_audience(&invite);
         self.changed();
     }
 
@@ -716,8 +718,20 @@ impl Online {
                             ticket: t.ticket,
                         });
                     }
+                    // The audience join needs no session: only a server
+                    // from before asks for one (nobody is signed out for
+                    // it).
+                    Err(p) if p.signed_out() => {
+                        if let Some(v) = self.invite.as_mut().filter(|v| v.invite == link) {
+                            v.refused = Some(Problem {
+                                status: p.status,
+                                code: ddi_room::SERVER_BEHIND.into(),
+                            });
+                        }
+                    }
                     Err(p) => {
                         self.note_problem(&p);
+                        let p = api::worded_for(p, self.me().is_some());
                         if let Some(v) = self.invite.as_mut().filter(|v| v.invite == link) {
                             v.refused = Some(p);
                         }

@@ -458,11 +458,27 @@ pub fn socket_path(room: &str, ticket: &str) -> String {
 
 /// A seat in room `room`'s audience by `link` (the audience link, or the
 /// room's own links where it offers its audience at its member bound):
-/// signed in; a ticket ([`AudienceTicketDoc`]) or the refusal
+/// signed in or not (a session, where there is one, seats the person as
+/// themselves; without, the server seats the connecting network's
+/// anonymous mark); a ticket ([`AudienceTicketDoc`]) or the refusal
 /// (`ddi_room::audience::AudienceRefusal`'s code).
 pub fn audience_join(room: &str, link: &str) -> ApiRequest {
     ApiRequest::new(Method::Post, format!("/rooms/{room}/audience"))
         .json(serde_json::json!({ "invite": link, "model": model() }))
+}
+
+/// The wording key of `too_many_seats` for someone watching without
+/// signing in ([`worded_for`]): the client's own, never a server's code.
+pub const TOO_MANY_ON_NETWORK: &str = "too_many_seats_network";
+
+/// An audience join's refusal as this person is to read it: someone not
+/// signed in is seated anonymously, by network, so `too_many_seats` means
+/// the network's eight ([`TOO_MANY_ON_NETWORK`]), not "two devices".
+pub fn worded_for(mut p: Problem, signed_in: bool) -> Problem {
+    if !signed_in && p.code == ddi_room::audience::AudienceRefusal::TooManySeats.code() {
+        p.code = TOO_MANY_ON_NETWORK.into();
+    }
+    p
 }
 
 /// An audience seat's socket's path for a ticket

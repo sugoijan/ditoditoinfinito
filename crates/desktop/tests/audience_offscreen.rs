@@ -34,6 +34,8 @@ use ddi_ui::state::online::{Http, Online, OnlineConfig, Platform, SharedOnline};
 use ddi_ui::state::room::{Picked, RoomClient, SharedRoom, prepare_stage};
 
 const SIZE: [u32; 2] = [1280, 720];
+/// The room's audience link (the fake's).
+const LINK: &str = "Room000001.audienceAUDIENCEaudien01";
 /// The wall clock's ms at the fake clock's start.
 const WALL: u64 = 1_700_000_000_000;
 /// A frame of the test: 50 ms (the room's frames come every 100).
@@ -64,7 +66,10 @@ fn ppm(name: &str, pixels: &[u8]) {
 }
 
 
-/// The audience join answered from the fake room's audience.
+/// The audience join answered from the fake room's audience, for a
+/// viewer who is not signed in (desktop with no `online-session` file):
+/// `/me` says signed out, the invite's preview is the fake room's, the
+/// join is admitted anonymously.
 struct AudienceHttp {
     server: SharedFake,
     out: Vec<(u64, ApiResponse)>,
@@ -73,10 +78,21 @@ struct AudienceHttp {
 impl Http for AudienceHttp {
     fn start(&mut self, id: u64, req: ApiRequest) {
         let answer = match (req.method, req.path.as_str()) {
-            (Method::Get, "/me") => ok(
-                r#"{"player_id":"dev:dora","login":"dora","display_name":"dora","admin":false,"expires_at_ms":1}"#
-                    .into(),
-            ),
+            (Method::Get, "/me") => ApiResponse {
+                status: 401,
+                body: r#"{"error":"signed_out"}"#.into(),
+                session: None,
+            },
+            (Method::Get, p) if p.starts_with("/invites/") => {
+                match self.server.borrow().invite_preview(&p["/invites/".len()..]) {
+                    Ok(b) => ok(b),
+                    Err((status, code)) => ApiResponse {
+                        status,
+                        body: format!(r#"{{"error":"{code}"}}"#),
+                        session: None,
+                    },
+                }
+            }
             // As the server answers it (`FakeServer::audience_join_answer`).
             (Method::Post, "/rooms/Room000001/audience") => {
                 let latency = Latency {
@@ -89,7 +105,7 @@ impl Http for AudienceHttp {
                 let body: serde_json::Value =
                     serde_json::from_str(req.body.as_deref().unwrap_or("{}")).unwrap();
                 let (status, body) = self.server.borrow_mut().audience_join_answer(
-                    Some("dev:dora"),
+                    None,
                     body["invite"].as_str().unwrap_or_default(),
                     Some(latency),
                 );
@@ -187,14 +203,34 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
             site: "http://localhost:8080/".into(),
         },
     )
+    // No session kept (no `online-session` file).
+    .with_token(None, Rc::new(|_| {}))
     .shared();
-    online.borrow_mut().check();
-    online.borrow_mut().poll(0);
+    // `--join <audience link>`: its page, Watch, the seat: no sign-in.
+    let ticket = {
+        let mut o = online.borrow_mut();
+        o.check();
+        o.open_invite(LINK);
+        o.poll(0);
+        assert!(o.me().is_none(), "nobody signed in");
+        assert!(o.invite().unwrap().audience_link());
+        o.watch_audience();
+        o.poll(0);
+        assert_eq!(
+            *o.sign_in_state(),
+            ddi_ui::state::online::SignIn::Idle,
+            "watching asks for no sign-in"
+        );
+        assert!(o.take_redirect().is_none(), "nor a browser opened");
+        let seated = o.take_seated().expect("a seat");
+        assert_eq!(seated.link, LINK);
+        seated.ticket
+    };
     let audience = Rc::new(RefCell::new(AudienceClient::new(
         online,
-        "Room000001.audienceAUDIENCEaudien01",
+        LINK,
         Box::new(FakeAudienceSocket::new(server.clone())),
-        None,
+        Some(ticket),
         wall(),
     )));
     let step = |ns: u64| {

@@ -1224,8 +1224,6 @@ pub enum SeatEnd {
     /// Its link is no longer the room's (the invite replaced): a new
     /// ticket was refused.
     LinkReplaced,
-    /// The session ended: sign in again.
-    SignInAgain,
     /// Another refusal of a new ticket (its code: data).
     Refused(String),
 }

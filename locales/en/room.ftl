@@ -1611,8 +1611,6 @@ room-invite-audience = You're invited to watch with the audience.
 room-invite-full-audience = The room is full: you can watch with its audience.
 # The button there (about 24 letters).
 room-invite-audience-join = Watch with the audience
-# The button before signing in.
-room-invite-audience-sign-in = Sign in with Twitch to watch
 # While the audience join is under way, and on the audience's page before
 # the room is shown.
 room-audience-joining = Joining the audience…
@@ -1621,6 +1619,13 @@ room-audience-joining = Joining the audience…
 room-audience-full = The room's audience is full.
 room-audience-closed = The host closed the audience.
 room-audience-too-many-seats = You are already watching this room on two devices.
+# The same for someone watching without signing in: the audience's seats
+# are counted by network (a household, a campus, a phone carrier's), eight
+# a network.
+room-audience-too-many-network = Too many people on your network are already watching this room.
+# Too many joins from one network within a minute; the button can be
+# pressed again shortly.
+room-audience-busy = Many people on your network joined just now. Try again in a moment.
 room-audience-link-unknown = This audience link isn't this room's, or it was replaced.
 room-audience-none = This room has no audience to watch with.
 

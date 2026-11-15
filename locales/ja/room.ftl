@@ -720,12 +720,13 @@ room-audience-opened-notice = 観客席をまた開きました。
 room-invite-audience = 観客として観戦に招待されています。
 room-invite-full-audience = このルームは満員です。観客として観戦できます。
 room-invite-audience-join = 観客として観戦
-room-invite-audience-sign-in = Twitchでサインインして観戦
 room-audience-joining = 観客席に入っています…
 
 room-audience-full = このルームの観客席は満員です。
 room-audience-closed = ホストが観客席を閉じました。
 room-audience-too-many-seats = すでに2台の端末でこのルームを観戦しています。
+room-audience-too-many-network = お使いのネットワークからこのルームを観戦している人が多すぎます。
+room-audience-busy = お使いのネットワークから短時間に多くの参加がありました。しばらくしてからもう一度お試しください。
 room-audience-link-unknown = この観客用リンクはこのルームのものではないか、差し替えられました。
 room-audience-ended-back = { $key }: 戻る
 room-audience-ended-back-tap = 戻る

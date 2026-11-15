@@ -198,8 +198,6 @@ pub enum SeatState {
     Refused(Refused),
     /// The relay closed the seat for good.
     Ended(AudienceEnd),
-    /// The session ended: sign in again.
-    SignInAgain,
 }
 
 /// Why the audience join said no, as the screens word it.
@@ -240,7 +238,6 @@ pub struct AudienceClient {
     attempt: u32,
     retry_at: u64,
     refused: Option<Refused>,
-    signed_out: bool,
     version: u64,
     live_news: crate::state::room::LiveNewsTap,
     jobs: Vec<LoadJob>,
@@ -316,7 +313,6 @@ impl AudienceClient {
             attempt: 0,
             retry_at: 0,
             refused: None,
-            signed_out: false,
             version: 0,
             live_news: Default::default(),
             jobs: Vec::new(),
@@ -376,9 +372,6 @@ impl AudienceClient {
         if let Some(end) = self.seat.link().ended() {
             return SeatState::Ended(end);
         }
-        if self.signed_out {
-            return SeatState::SignInAgain;
-        }
         if let Some(r) = &self.refused {
             return SeatState::Refused(r.clone());
         }
@@ -395,13 +388,6 @@ impl AudienceClient {
     pub fn leave(&mut self) {
         self.seat.leave();
         self.version += 1;
-    }
-
-    /// Sign in again (the session ended): the page returns to this link.
-    pub fn sign_in_again(&mut self) {
-        self.online
-            .borrow_mut()
-            .sign_in(super::online::Dest::Audience(self.link.clone()));
     }
 
     /// Where a shell's threads answer [`Self::take_load_jobs`].
@@ -421,12 +407,6 @@ impl AudienceClient {
         }
         self.clock.set(now_ms.max(self.clock.now().0));
         self.online.borrow_mut().poll(now_ms);
-        if self.signed_out && self.online.borrow().me().is_some() {
-            // Signed in again: asked anew.
-            self.signed_out = false;
-            self.retry_at = 0;
-            self.version += 1;
-        }
         if let Some(id) = self.ticket_req
             && let Some(r) = self.online.borrow_mut().take_answer(id)
         {
@@ -435,20 +415,28 @@ impl AudienceClient {
                 Ok(t) => {
                     self.seat.ticket(&t.ticket);
                 }
-                Err(p) if p.signed_out() => self.signed_out = true,
+                // The audience join needs no session (2026-11-15): only a
+                // server from before asks for one.
+                Err(p) if p.signed_out() => {
+                    self.refused = Some(Refused::Other(ddi_room::SERVER_BEHIND.into()));
+                }
+                // A relay not ready, or too many joins from this network
+                // just now (`audience_busy`): asked again after a wait.
                 Err(p) if p.transient() => {
                     self.attempt += 1;
                     self.retry_at =
                         now_ms + ReconnectPolicy::RECONNECT_BACKOFF_V0.wait_ms(self.attempt);
                 }
-                Err(p) => self.refused = Some(Refused::of(&p)),
+                Err(p) => {
+                    let signed_in = self.online.borrow().me().is_some();
+                    self.refused = Some(Refused::of(&api::worded_for(p, signed_in)));
+                }
             }
             self.version += 1;
         }
         if self.seat.wants_ticket()
             && self.ticket_req.is_none()
             && self.refused.is_none()
-            && !self.signed_out
             && now_ms >= self.retry_at
         {
             self.ticket_req = Some(
@@ -890,7 +878,6 @@ pub fn seat_end_of(state: &SeatState) -> Option<SeatEnd> {
         SeatState::Refused(Refused::Audience(AudienceRefusal::BadLink)) => SeatEnd::LinkReplaced,
         SeatState::Refused(Refused::Audience(r)) => SeatEnd::Refused(r.code().into()),
         SeatState::Refused(Refused::Other(code)) => SeatEnd::Refused(code.clone()),
-        SeatState::SignInAgain => SeatEnd::SignInAgain,
     })
 }
 
