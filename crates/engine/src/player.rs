@@ -287,7 +287,11 @@ pub struct Player {
     log: PlayLog,
     /// [`Results::timeline`] and [`Results::life`] as they grow.
     timeline: Vec<Judged>,
-    life: Vec<[f32; 2]>,
+    /// Life as it changed (judged song seconds, life): in seconds as
+    /// judged, never an `f32`'s, whose spacing is microseconds past 16 s
+    /// (a step down's life read just after it, `life_at`); made
+    /// [`Results::life`]'s pairs only there.
+    life: Vec<(f64, f32)>,
     /// Display frame interval in seconds, for receptor snapping.
     frame_interval: f64,
     /// `take_from[new_lane] = old_lane` of the turn.
@@ -585,7 +589,7 @@ impl Player {
         self.ruleset.score.begin(&self.ctx);
         self.ruleset.gauge.begin(&self.ctx);
         self.timeline.clear();
-        self.life = vec![[self.song_offset as f32, self.ruleset.gauge.life()]];
+        self.life = vec![(self.song_offset, self.ruleset.gauge.life())];
     }
 
     /// The chart's totals as the judge has them (what the score and the
@@ -1346,12 +1350,11 @@ impl Player {
     /// Life as it was just before judged song second `t` (its record:
     /// the same whatever the frames).
     pub fn life_at(&self, t: f64) -> f32 {
-        let t = t as f32;
-        let i = self.life.partition_point(|l| l[0] < t);
+        let i = self.life.partition_point(|l| l.0 < t);
         i.checked_sub(1)
             .and_then(|i| self.life.get(i))
             .or(self.life.first())
-            .map_or_else(|| self.ruleset.gauge.life(), |l| l[1])
+            .map_or_else(|| self.ruleset.gauge.life(), |l| l.1)
     }
 
     /// The battle's shocks put into the play, as judged so far.
@@ -2116,11 +2119,11 @@ impl Player {
             self.stepping = Some(ev.song_time);
         }
         let life = self.ruleset.gauge.life();
-        if self.life.last().is_none_or(|l| l[1] != life) {
+        if self.life.last().is_none_or(|l| l.1 != life) {
             // In time order: a press judged after a miss in the same
             // update may be stamped a little before it.
-            let at = (ev.song_time as f32).max(self.life.last().map_or(f32::MIN, |l| l[0]));
-            self.life.push([at, life]);
+            let at = ev.song_time.max(self.life.last().map_or(f64::MIN, |l| l.0));
+            self.life.push((at, life));
         }
         self.track_clean(ev);
         if self.gauge_failed_at.is_none() && self.ruleset.gauge.failed() {
@@ -2396,7 +2399,7 @@ impl Player {
     pub fn results(&self) -> Results {
         let mut r = self.results_brief();
         r.timeline = self.timeline.clone();
-        r.life = self.life.clone();
+        r.life = self.life.iter().map(|&(at, life)| [at as f32, life]).collect();
         r
     }
 

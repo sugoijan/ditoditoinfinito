@@ -689,3 +689,51 @@ fn back_up_by_normal_steps_takes_sixteen_bars_too() {
     let beats = p.timing().beat_at(back.at) - p.timing().beat_at(down.boundary);
     assert!(beats >= 64.0 - 1e-6, "{beats}");
 }
+
+/// The life a step down gives back is the life read just after its moment
+/// (`Player::life_at`, which a stage's stream and its CPUs' fields take
+/// the step's life from), wherever in the song it comes: the record's
+/// times are not rounded to an `f32`'s spacing, microseconds apart past
+/// 16 s (review finding engine-1). Plays of every chart with a ladder,
+/// pressing one lane, two or three, each pressed a little late or not.
+#[test]
+fn the_life_read_just_after_a_step_down_is_the_life_given_back() {
+    let song = song();
+    let mut steps = 0;
+    let mut rounded_away = 0;
+    for stage in 0..song.charts.len() {
+        if song.charts[stage].layout != "dance-single" || song.charts[stage].derivation.is_some() {
+            continue;
+        }
+        let rungs = ladder::below(&song, stage);
+        if rungs.is_empty() {
+            continue;
+        }
+        let mut charts = vec![stage];
+        charts.extend_from_slice(&rungs);
+        for lanes in 1..=3u8 {
+            for late in [0.0, 0.0123, 0.0371] {
+                let mut edges: Vec<(f64, u8, bool)> = Vec::new();
+                for &c in &charts {
+                    let p = Player::new(&song, c, rules(), PlayOptions::default());
+                    for press in ddi_engine::autoplay::script(p.judge().notes(), 0.0) {
+                        if press.lane < lanes {
+                            edges.push((press.press + late, press.lane, true));
+                            edges.push((press.release + late, press.lane, false));
+                        }
+                    }
+                }
+                edges.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+                let p = play(&song, stage, &rungs, &edges, 1.0 / 60.0);
+                for s in p.steps().iter().filter(|s| !s.up && s.at > 16.0) {
+                    steps += 1;
+                    if ((s.at + 1e-6) as f32) <= s.at as f32 {
+                        rounded_away += 1;
+                    }
+                    assert_eq!(p.life_at(s.at + 1e-6), ADAPTIVE.life, "{s:?}");
+                }
+            }
+        }
+    }
+    assert!(rounded_away > 0, "a step the old record rounded away: {steps}");
+}
