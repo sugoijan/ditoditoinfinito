@@ -295,6 +295,10 @@ impl Pump {
         let order = room.borrow_mut().take_stage_order();
         match order {
             Some(order) => {
+                // A leave question left open goes first: what it said
+                // leaving costs was song select's, and under the prompt
+                // it would be buried (ui-screens-7).
+                cx.broadcast(crate::Message::new(STAGE_OPENS));
                 shell(RoomCall::PlayStage(Box::new(order)), cx);
                 true
             }
@@ -1488,6 +1492,10 @@ impl LeaveBy {
 /// says how they set about it ([`left_by`]).
 pub const LEAVE_CONFIRMED: &str = "Room.LeaveConfirmed";
 
+/// Broadcast as the room hands the player a stage's prompt: the leave
+/// question closes ([`ask_leave`]).
+pub const STAGE_OPENS: &str = "Room.StageOpens";
+
 /// What leaving costs, in a sentence or two: what the room will do.
 pub fn leave_text(cost: &crate::state::room::LeaveCost) -> UiText {
     use crate::state::room::LeaveCost;
@@ -1608,6 +1616,11 @@ impl crate::screen::Screen for LeaveDialog {
         cx: &mut Cx,
     ) -> crate::screen::Handled {
         self.0.input(input, root, cx)
+    }
+    fn message(&mut self, message: &crate::Message, _root: &mut Actor, cx: &mut Cx) {
+        if message.name == STAGE_OPENS {
+            cx.close(true);
+        }
     }
 }
 

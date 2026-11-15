@@ -5510,3 +5510,41 @@ fn standings_closed_with_back_are_seen() {
     again.run(0.5);
     assert_eq!(top(&again), "select", "not popped up again");
 }
+
+/// ui-screens-7: a leave question left open when the room hands the
+/// player a stage's prompt is closed as the prompt opens (its cost was
+/// for song select; under the prompt it would be buried, and a window's
+/// close would find it and quit without the prompt's own question).
+#[test]
+fn a_leave_question_open_when_a_stage_opens_is_closed() {
+    use crate::state::online::tests::room::upload;
+    let t = Three::new(false);
+    let eb = env();
+    let (orders, calls) = (Orders::default(), Calls::default());
+    let mut hb = harness();
+    hb.push(
+        sample::room_select(&eb, t.bob.clone(), songs_of(&["Bravo One"]))
+            .with_room(t.bob.clone(), leaving_shell(&t.bob, &orders, &calls)),
+    );
+    t.settle(400, &mut [&mut hb]);
+    let song = songs_of(&["Alpha One"]).songs.remove(0);
+    t.alice.borrow_mut().pick(&song, &song.charts[0]).unwrap();
+    t.settle(400, &mut [&mut hb]);
+    hb.key("Escape", "Escape");
+    hb.run(0.3);
+    assert!(asked(&hb), "a player in the match is asked");
+    upload(&t.server, &mut t.alice.borrow_mut(), "abc12345");
+    for _ in 0..4 {
+        t.settle(400, &mut [&mut hb]);
+    }
+    assert_eq!(orders.borrow().len(), 1, "the stage's prompt handed over");
+    let open = hb
+        .ui
+        .layers()
+        .iter()
+        .filter(|l| l.name == crate::LEAVE_QUESTION)
+        .count();
+    assert_eq!(open, 0, "the question went with it");
+    assert!(!t.bob.borrow().asking_leave().get());
+    assert!(calls.borrow().is_empty(), "nobody left");
+}
