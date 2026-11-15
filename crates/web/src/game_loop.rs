@@ -1529,6 +1529,18 @@ fn watch_debug(watch: Option<&ddi_shell::play_view::WatchDrawn>) -> Value {
         "mark": w.mark,
         "skip": w.skip,
         "over": w.over,
+        // Each field's rung as drawn (the fields' order), the largest view
+        // delay (s) and what changed from frame to frame
+        // (`ddi_shell::play_view::WatchTrace`): for catching a flicker.
+        "rungs": w.rungs,
+        "delay": w.delay,
+        "trace": {
+            "frames": w.trace.frames,
+            "seat_changes": w.trace.seat_changes,
+            "rung_changes": w.trace.rung_changes,
+            "steps": w.trace.steps,
+            "view_changes": w.trace.view_changes,
+        },
         "fields_at": presses,
         "skip_at": skip_at,
     })

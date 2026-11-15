@@ -307,6 +307,66 @@ pub struct WatchDrawn {
     pub skip: Option<String>,
     /// The stage is decided: its results follow.
     pub over: bool,
+    /// Each field's rung as drawn (`fields`' order, the large one's
+    /// last; 0 the stage's chart), the largest of the fields' view
+    /// delays (seconds) and what changed from frame to frame
+    /// ([`WatchTrace`]).
+    pub rungs: Vec<u8>,
+    pub delay: f64,
+    pub trace: WatchTrace,
+}
+
+/// A watched stage's frames counted as they went, for catching a flicker
+/// (the feedback round I): the frames drawn; the times a place showed
+/// another seat while the view, its page and its arrangement stayed (a
+/// paged grid's pages are in the room's order since `grid-pages-v1`, so
+/// only the turns of too few slots and the rivals of a large field
+/// change hands); the times a field's rung changed against its steps
+/// taken; and the times the view itself changed (followed, the page, the
+/// arrangement).
+/// A watched frame's view: the seat followed, the page and the slots.
+type TraceView = (Option<usize>, Option<(usize, usize)>, usize);
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WatchTrace {
+    pub frames: u64,
+    pub seat_changes: u64,
+    pub rung_changes: u64,
+    pub steps: u64,
+    pub view_changes: u64,
+    /// The last frame's view, places' seats and each seat's rung.
+    last: Option<(TraceView, Vec<usize>)>,
+    rungs: std::collections::HashMap<usize, u8>,
+}
+
+impl WatchTrace {
+    /// A frame drawn: the seat followed, the page, the slots' count, the
+    /// places' seats and each field's `(seat, rung)`, and the steps the
+    /// feeds hold.
+    fn frame(
+        &mut self,
+        view: TraceView,
+        seats: Vec<usize>,
+        rungs: &[(usize, u8)],
+        steps: u64,
+    ) {
+        self.frames += 1;
+        match &self.last {
+            Some((v, before)) if *v == view => {
+                self.seat_changes +=
+                    before.iter().zip(&seats).filter(|(a, b)| a != b).count() as u64;
+            }
+            Some(_) => self.view_changes += 1,
+            None => {}
+        }
+        for &(seat, rung) in rungs {
+            if self.rungs.insert(seat, rung).is_some_and(|r| r != rung) {
+                self.rung_changes += 1;
+            }
+        }
+        self.steps = steps;
+        self.last = Some((view, seats));
+    }
 }
 
 /// A skin readied for a play: the skin, its images by texture index
@@ -427,6 +487,8 @@ pub struct PlayView<H: PlayHost> {
     links_drawn: Vec<crate::attack_links::Shown>,
     /// A watched stage as the last frame drew it.
     watch_drawn: Option<WatchDrawn>,
+    /// A watched stage's frames as they went ([`WatchTrace`]).
+    watch_trace: WatchTrace,
     /// The song's generated background (`docs/plans/phase-8-gaps.md`,
     /// step 5).
     generated: Option<Generated>,
@@ -490,6 +552,7 @@ impl<H: PlayHost> PlayView<H> {
             chart_drawn: None,
             links_drawn: Vec::new(),
             watch_drawn: None,
+            watch_trace: WatchTrace::default(),
             waiting_drawn: false,
             generated: None,
             entrance: None,
@@ -1346,6 +1409,10 @@ impl<H: PlayHost> PlayView<H> {
         // The attack warnings on a grid's fields (each recipient's).
         let mut warnings: Vec<(usize, ddi_render::FieldGeometry, crate::battle_cue::Cue)> =
             Vec::new();
+        // Each field's rung as drawn and the largest view delay, for the
+        // watched stage's trace (`WatchTrace`).
+        let mut rungs_drawn: Vec<(usize, u8)> = Vec::new();
+        let mut delay_drawn = 0.0_f64;
         if let Some(b) = battle {
             let scroll = session.player.options().scroll;
             let hits = layer.as_ref().is_some_and(|l| l.miniature_hits()) || layer.is_none();
@@ -1364,6 +1431,10 @@ impl<H: PlayHost> PlayView<H> {
                 };
                 let track = b.track_of(slot.seat);
                 feed.locks_into(t, locks.push(usize::from(track.lanes()), None));
+                if watch.is_some() {
+                    rungs_drawn.push((slot.seat, feed.rung_at(t)));
+                    delay_drawn = delay_drawn.max(t - feed.view_time(t));
+                }
                 let followed = large.is_some_and(|l| l.seat == slot.seat);
                 let combo = fields.as_ref().is_none_or(|f| f.carry.combo) || followed;
                 let plain = !followed && fields.as_ref().is_some_and(|f| !f.carry.skin_notes);
@@ -1819,6 +1890,17 @@ impl<H: PlayHost> PlayView<H> {
         let skip_at = own_out
             .as_ref()
             .and_then(|o| o.skip.as_ref().map(|_| css(o.skip_area(screen.ratio))));
+        if let Some(w) = watch {
+            let seats = shown
+                .as_ref()
+                .map_or_else(Vec::new, |o| o.fields.slots.iter().map(|s| s.seat).collect());
+            let steps = battle.map_or(0, |b| b.feeds().map(|f| f.steps().count() as u64).sum());
+            let slots = seats.len();
+            self.watch_trace
+                .frame((w.focus, self.ladder_page, slots), seats, &rungs_drawn, steps);
+        } else if self.watch_trace.frames > 0 {
+            self.watch_trace = WatchTrace::default();
+        }
         self.watch_drawn = watch.map(|w| WatchDrawn {
             view: match (w.why, w.focus) {
                 (ddi_session::play::Watching::Spectator, None) => "grid",
@@ -1847,6 +1929,9 @@ impl<H: PlayHost> PlayView<H> {
             skip: own_out.as_ref().and_then(|o| o.skip.clone()),
             over: w.over,
             page: self.ladder_page.map(|(page, pages)| (page + 1, pages)),
+            rungs: rungs_drawn.iter().map(|&(_, r)| r).collect(),
+            delay: delay_drawn,
+            trace: self.watch_trace.clone(),
         });
         self.attack_drawn = attack.as_ref().and_then(|a| a.cue);
         self.waiting_drawn = attack.as_ref().is_some_and(|a| a.waiting.is_some());

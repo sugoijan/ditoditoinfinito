@@ -1247,7 +1247,7 @@ pub struct Choosing<'a> {
 }
 
 /// The seats `fields`' slots show this frame, among `choosing.shown`: a
-/// spectator's grid past a page, the page's by standing; a large field
+/// spectator's grid past a page, the page's in the room's order; a large field
 /// shown whole, each in its own place; a large field that does not fit,
 /// those that matter to the player now (`rivals`, kept from frame to
 /// frame); else in turns ([`rotate`]), those the stage keeps in view
@@ -1275,13 +1275,15 @@ pub fn choose(
         .collect();
     let page_size = ddi_session::play::GRID_PAGE;
     let chosen = if c.grid && n > page_size {
-        // A spectator's grid past a page: the page's fields by
-        // standing, the ladder for the whole field.
+        // A spectator's grid past a page: the page's fields in the room's
+        // order, the ladder for the whole field. Never by standing: life
+        // and scores move with every judgment, and a page ranked by them
+        // swapped its fields between places from frame to frame (the
+        // flicker of the feedback round I, `grid-pages-v1`).
         let (standings, _) = standings();
-        let ranked = crate::rivals::order(&standings);
         let from = c.page * page_size;
         for (i, slot) in fields.slots.iter_mut().enumerate() {
-            slot.seat = ranked.get(from + i).copied().unwrap_or(usize::MAX);
+            slot.seat = if from + i < n { from + i } else { usize::MAX };
             slot.dim = 0.0;
         }
         (
@@ -3025,6 +3027,45 @@ pub(crate) mod tests {
         });
         assert_eq!((f.slots[0].seat, f.slots[1].seat), (41, 7));
         assert!(f.slots.iter().all(|s| s.seat != 40 && s.seat <= 128));
+    }
+
+    /// The feedback round I's flicker: a watched grid past a page, its
+    /// standings moving with every judgment (a step down's life, scores
+    /// arriving in batches), keeps each field in its place from frame to
+    /// frame; only the watcher's page turns change them.
+    #[test]
+    fn a_paged_grid_keeps_its_fields_in_place_as_the_standings_move() {
+        let g = geo(390.0, 844.0);
+        let n = 73;
+        let shown: Vec<usize> = (0..n).collect();
+        let base = arrange_grid(n, &g, false, 1.0, &keep_grid(&g, 1.0)).unwrap();
+        let mut rivals = crate::rivals::Rivals::default();
+        let mut last: Option<Vec<usize>> = None;
+        for frame in 0..240_usize {
+            let mut f = base.clone();
+            let choosing = Choosing {
+                shown: &shown,
+                grid: true,
+                page: 0,
+                pinned: &[],
+                time: frame as f64 / 60.0,
+                reduced: false,
+            };
+            // Everyone's life and score moving, the order turning over.
+            let standings: Vec<crate::rivals::Standing> = (0..n)
+                .map(|i| crate::rivals::Standing {
+                    life: ((i * 7 + frame * 13) % 97) as f32 / 97.0,
+                    out: false,
+                    score: ((i * 31 + frame * 17) % 101) as f64,
+                })
+                .collect();
+            choose(&mut f, &choosing, &mut rivals, || (standings, None));
+            let seats: Vec<usize> = f.slots.iter().map(|s| s.seat).collect();
+            if let Some(l) = &last {
+                assert_eq!(l, &seats, "frame {frame}");
+            }
+            last = Some(seats);
+        }
     }
 
     #[test]

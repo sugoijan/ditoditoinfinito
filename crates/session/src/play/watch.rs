@@ -41,7 +41,8 @@ pub const WATCH_HINT_SECONDS: f64 = 6.0;
 pub const WATCH_CUE_SECONDS: f64 = 2.5;
 
 /// PROVISIONAL (`watch-pages-v0`, 2026-11-13): a spectator's grid shows at
-/// most this many fields a page, by standing; past it, Page Up and Page
+/// most this many fields a page, in the room's order (`grid-pages-v1`:
+/// by standing before, which moved them from frame to frame); past it, Page Up and Page
 /// Down (a pad's D-pad Up and Down, which mean nothing else there: its
 /// shoulders follow a competitor) turn the pages.
 pub const GRID_PAGE: usize = 12;
@@ -72,7 +73,7 @@ pub struct WatchView {
     /// Nobody plays the stage any more (decided, the winner done): its
     /// results follow.
     pub over: bool,
-    /// The grid's page ([`GRID_PAGE`] fields a page, by standing), from 0.
+    /// The grid's page ([`GRID_PAGE`] fields a page, in the room's order), from 0.
     pub page: usize,
     /// The seat it is watched through ended (an audience's: the audience
     /// closed, the room ended, its link replaced): the view stopped, why
