@@ -214,3 +214,45 @@ fn resting_on_no_song_clears_the_spotlight() {
     tick(&clock, &mut [&mut alice, &mut bob], 3_600);
     assert!(bob.state().spotlight.is_some());
 }
+
+/// ui-state-4: Retry sharing on a song the room refused (no chosen chart
+/// in what was shared) asks for a grant and uploads it again; nothing is
+/// uploaded again by itself.
+#[test]
+fn retry_sharing_on_a_refused_song_uploads_it_again() {
+    use super::tests::room::{person, song};
+    use ddi_room::{Command, ContentStatus};
+    let clock = ManualClock::new(1_000);
+    let server = room_of(&clock, &["bob"]);
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let s = song();
+    alice.pick(&s, &s.charts[0]).unwrap();
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let stage = alice.stages()[0].id;
+    let jobs = alice.take_upload_jobs();
+    assert_eq!(jobs.len(), 1);
+    server
+        .borrow_mut()
+        .authority(Command::SetContentStatus {
+            stage,
+            status: ContentStatus::Unavailable {
+                code: "digest_mismatch".into(),
+            },
+            share: None,
+        })
+        .unwrap();
+    alice.upload_finished(stage, Ok("abc12345".into()));
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    assert!(alice.may_retry_sharing(stage));
+    assert!(alice.take_upload_jobs().is_empty(), "not again by itself");
+    alice.retry_sharing(stage);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let again = alice.take_upload_jobs();
+    assert_eq!(again.len(), 1, "uploaded again when asked");
+    assert_eq!(again[0].grant, "grant-alice-2");
+    assert!(!alice.may_retry_sharing(stage), "not offered while under way");
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    assert!(alice.take_upload_jobs().is_empty(), "once");
+}

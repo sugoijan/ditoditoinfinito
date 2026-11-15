@@ -3151,6 +3151,30 @@ impl RoomClient {
     /// Share stage `stage`'s song again after a failure (or the room's
     /// refusal of what was shared): a new grant, a new upload.
     pub fn retry_sharing(&mut self, stage: StageId) {
+        // What the room refused (Unavailable) is never asked for by
+        // itself: Retry asks for its grant here.
+        let refused = self
+            .state()
+            .stage(stage)
+            .filter(|st| {
+                st.play.is_none()
+                    && st
+                        .content
+                        .as_ref()
+                        .is_some_and(|c| matches!(c.status, ContentStatus::Unavailable { .. }))
+            })
+            .map(|st| st.content_changed_at);
+        if let Some(chosen) = refused
+            && self.may_retry_sharing(stage)
+            && self.link_state() == LinkState::Connected
+        {
+            self.sharing.insert(stage, (chosen, Sharing::Asking));
+            if let Some(l) = self.online_link_mut() {
+                l.request_grant(stage, chosen);
+            }
+            self.version += 1;
+            return;
+        }
         if self.sharing.remove(&stage).is_some() {
             self.version += 1;
             self.sync_loading();
@@ -3172,7 +3196,12 @@ impl RoomClient {
                 .content
                 .as_ref()
                 .is_some_and(|c| self.picks.contains_key(&c.id))
-            && (matches!(self.sharing(stage), Some(Sharing::Failed(_))) || refused)
+            && match self.sharing(stage) {
+                Some(Sharing::Failed(_)) => true,
+                // A retry under way is not offered again.
+                Some(Sharing::Asking | Sharing::Uploading { .. }) => false,
+                _ => refused,
+            }
     }
 
     /// Grants the room answered: an upload handed to the shell, the room's
