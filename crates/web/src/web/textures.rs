@@ -58,6 +58,11 @@ pub(crate) fn keep(source: &str, blob: Option<Blob>) {
     });
 }
 
+/// The file kept for `source`, if any.
+pub(crate) fn kept(source: &str) -> Option<Blob> {
+    KEPT.with(|k| k.borrow().get(source).cloned())
+}
+
 /// Whether a file is kept for `source`.
 pub(crate) fn is_kept(source: &str) -> bool {
     KEPT.with(|k| k.borrow().contains_key(source))

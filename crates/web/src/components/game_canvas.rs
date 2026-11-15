@@ -151,6 +151,35 @@ fn play_background() -> Option<String> {
         .filter(|n| crate::web::textures::is_kept(n))
 }
 
+thread_local! {
+    /// The last watched stage's picture kept for the audience's page
+    /// beyond its play (`keep_for_audience`): the play's own name, and the
+    /// copy's.
+    static AUDIENCE_BACKDROP: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
+}
+
+/// The play's picture `source` kept under a name of its own for the
+/// audience's page (the play's files go with the play), the copy before
+/// it let go; none where no file is kept for it (a generated still is
+/// drawn, not kept).
+fn keep_for_audience(source: &str) -> Option<String> {
+    if let Some((from, copy)) = AUDIENCE_BACKDROP.with(|b| b.borrow().clone())
+        && from == source
+    {
+        return Some(copy);
+    }
+    let blob = crate::web::textures::kept(source)?;
+    let n = PLAY_LOADS.with(std::cell::Cell::get);
+    let copy = format!("audience-backdrop:{n}");
+    if let Some((_, old)) = AUDIENCE_BACKDROP.with(|b| b.borrow_mut().take()) {
+        crate::web::screen::forget_textures(&old);
+        crate::web::textures::keep(&old, None);
+    }
+    crate::web::textures::keep(&copy, Some(blob));
+    AUDIENCE_BACKDROP.with(|b| *b.borrow_mut() = Some((source.to_string(), copy.clone())));
+    Some(copy)
+}
+
 fn release_play_background() {
     if let Some(old) = PLAY_BACKGROUND.with(|b| b.borrow_mut().take()) {
         // The textures made of them go too (each load has names of its
@@ -2641,11 +2670,11 @@ impl GameCanvas {
         // (`audience-page-v1`; a generated still is drawn for the play
         // alone, so the page keeps its last picture or the rain then).
         if let (Some(link), Some(p)) = (&ctx.props().watch, picture.as_ref())
-            && !p.source.starts_with("generated-still:")
+            && let Some(name) = keep_for_audience(&p.source)
         {
             crate::online::audience(link)
                 .borrow_mut()
-                .set_backdrop(Some((p.source.clone(), p.aspect)));
+                .set_backdrop(Some((name, p.aspect)));
         }
         let info = self.prompt_info(ctx);
         let layout = match (&self.song, &ctx.props().source) {
