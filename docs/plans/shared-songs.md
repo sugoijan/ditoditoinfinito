@@ -274,8 +274,10 @@ songs") and "Clear the share list", and the list clears once the share
 is up; "Share this song…" and "Share the pack…" stay for one song or a
 whole pack with no list. Desktop (`crates/desktop/src/share.rs`, ureq
 on the calling thread with rustls on the system's trust store): a share
-read into the cache folder (`shares/<id>/<n>/`, each file at the path
-its entry names it by: the web's `bg/`, `bga/` and `layer/` prefixes
+read into the cache folder (`shares/<id>/<n>/song/`, each file at the path
+its entry names it by; a file above the song's folder, a pack's banner
+or music, is kept by the share as `__up__/…` and read back beside the
+song's folder, `ddi_library::share::share_path`: the web's `bg/`, `bga/` and `layer/` prefixes
 map to and from a song folder's paths, `ddi_library::share::stored_files`,
 so a share made on either shell plays on the other), its charts, music
 and pictures with the list (`--shared <link or id>`, song select's

@@ -1016,8 +1016,10 @@ Rust and the browser are implementation details, not advertised features.
   `CVDisplayLink`);
   songs shared by link (`share.rs`, `docs/plans/shared-songs.md`: a
   share read from the server (`DDI_API_URL`, else the production
-  route) into the cache's `shares/<id>/<n>/`, each file at the path its
-  entry names it by, the chart, music and pictures with the list and
+  route) into the cache's `shares/<id>/<n>/song/`, each file at the path its
+  entry names it by (a file above the song's folder, a pack's, beside
+  it, kept by the share as `__up__/…`, `ddi_library::share::share_path`),
+  the chart, music and pictures with the list and
   what the background changes play when the play loads, listed by song
   select's shared mode through `--shared <link or id>`; uploads through
   song select's Share… with the switch `--sharing on`, or `--share

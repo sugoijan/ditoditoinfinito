@@ -9726,6 +9726,67 @@ wasm32-wasip1 with its fixture unchanged); `ROOM_MODEL_REVISION` stays 10.
   (shell-render-7, confirmed at 120×90) shows what fits in turns;
   **empty slots** (shell-render-8, latent) keep their lock and flash rows.
 
+## Review fixes: the screens and the supporting crates (2026-11-15)
+
+The same review's findings in the screens and the supporting crates,
+each reproduced first as a failing test (the reviewers read the code
+only), then fixed. Nothing judged, decided or stored moves;
+`ROOM_MODEL_REVISION` stays 10.
+
+- **Host options from a row** (ui-screens-2): a tap anywhere on a
+  person's row in the Players pop-up (their name, role, status or policy,
+  not only the plate between them) opens Host options on them.
+- **The audience's stars** (ui-screens-3): a CPU's level from 1, as the
+  members see it (the public view carries the engine's index;
+  `room::shown_level`).
+- **A stage's prompt line** (ui-screens-5, ui-screens-9, and two things
+  the coordinating session saw): "against 2 other players and 4 CPUs"
+  where an online room seats CPUs; no more "each on their own device";
+  what zero life does by the match's Charts rule ("out when your life
+  runs out", or under Adaptive "an easier chart when your life runs
+  out"); the Charts rule named only where the room offers Adaptive
+  (`StageLine`, `StageOrder::line`, `StageTable::adaptive_offered`).
+- **The audience's countdown** (ui-screens-6): counted down on the room's
+  clock where the seat knows it (from its first stage's frames), else
+  "Stage N is about to start." (never "starts in 0" for the whole of it).
+- **A leave question under a stage's prompt** (ui-screens-7): closed as
+  the room hands the player the stage's prompt (`room::STAGE_OPENS`), so
+  a window's close there asks the prompt's own question.
+- **The standings closed with Back** (ui-screens-8): seen, as with
+  Continue; they no longer pop up again on the next room song select.
+- **Countdown seconds** (ui-screens-10, confirmed): counted on the room's
+  clock where it is estimated (a live room's), else the device's: a
+  device whose clock runs 20 s fast used to show 0 s for most of a
+  readiness window and the countdown; it now shows the room's seconds
+  once its clock is estimated (a few pings after joining).
+- **The audience's player count** (ui-screens-11): of the players listed
+  (not of those who left).
+- **The Ready card's backdrop**: the field's band is not drawn behind a
+  room's Ready card (through its translucent plate it read as a dark
+  stripe); the song's picture alone until the play starts, the band from
+  the loading screen on.
+- **The solo CPU's line** (checked): at a level (every automatic play,
+  `--cpu-level`, `level=`, a named strength) it already says "CPU · No
+  fail · Level N of 10" with no "Tap-only"; "Tap-only" stays only for a
+  prepared profile, which plays the tap-only copy (`cpu-play-v0`).
+  Comments that still called a stage's CPUs a tap-only copy were fixed.
+- **A crafted WAV for New song** (support-1): the tag reader's INFO
+  subchunks walked with checked offsets (`bytes::riff_chunks`), and the
+  ID3 and Vorbis comment offsets saturate: a size that wrapped a 32-bit
+  offset (the web's) looped the tab for ever.
+- **Songs whose files sit in their pack's folder** (support-2): a share
+  keeps a file above the song's folder (`#BANNER:../bn.png`, its music,
+  a background change's image) under `__up__/…`
+  (`ddi_library::share::share_path`), uploaded so by desktop and the web
+  and asked for so by both readers; desktop reads a share's song into
+  `shares/<id>/<n>/song/`, so its pack's files have their place beside
+  it. A path no share can keep is said as what it is before anything is
+  sent (`ShareError::BadPath`), not as "too large".
+- **A truncated WAV for the leveler** (support-4): refused, not read out
+  of bounds.
+- support-3 (an upload grant's size and the pack's art) is left to the
+  server's security round, which changes `UploadGrant`.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
