@@ -579,9 +579,25 @@ impl Live {
             .collect();
         let reporter = (competes && plan.is_some())
             .then(|| Reporter::new(me, plan.as_ref().map_or_else(Vec::new, |p| p.checkpoints_us.clone())));
-        // What the room's client kept of the stage before this play (its
-        // last snapshot and the frames since: a play that starts
-        // part-way) is read with the rest by the first `receive`.
+        // A play that starts part-way (an audience's Watch, a reload, a
+        // member handed a running stage) reads what the room's client
+        // kept of the stage (its last snapshot and the frames since) with
+        // the rest at its first `receive`, and where a play before this
+        // one read part of it, asks for the stage again as it stands
+        // (review finding session-1). One that starts with the song, as
+        // ever, from now on: what came before is the countdown's, and
+        // reading it late would count as the network's delay.
+        {
+            let mut room = handle.room.borrow_mut();
+            let part_way = room
+                .song_zero_in(stage)
+                .is_some_and(|z| z * 1_000.0 < -(rules.stale_ms as f64));
+            if !part_way {
+                let _ = room.take_live_news();
+            } else if !room.live_news_whole(stage) {
+                room.read_live_again(stage);
+            }
+        }
         Live {
             handle,
             stage,
@@ -1019,6 +1035,15 @@ impl Live {
         got: &mut Received,
     ) {
         let room_now = self.room_now_us(t);
+        // A frame built long before it is read (what was kept of the
+        // stage before this play began, or a resume's) says nothing of
+        // the network's delay now: its lag is not sampled.
+        let fresh = self
+            .handle
+            .room
+            .borrow()
+            .song_zero_at(self.stage)
+            .is_none_or(|z| room_now - song_us_at(z, f.at) <= self.rules.stale_ms as i64 * 1_000);
         for e in &f.entries {
             if e.participant == self.me {
                 continue;
@@ -1030,6 +1055,7 @@ impl Live {
             // time just before its news came: what the view must cover.
             if let Some(before) = seat.through_us
                 && seat.end.is_none()
+                && fresh
             {
                 self.delay.sample(room_now as f64 / 1_000.0, micros_s(room_now - before) * 1_000.0);
             }

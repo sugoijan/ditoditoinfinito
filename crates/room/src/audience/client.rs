@@ -97,6 +97,13 @@ impl AudienceLink {
     }
 
     /// The frames read so far of the stage followed.
+    /// Stage `stage` read again from the relay ([`crate::live::LiveLink::read_again`]).
+    pub fn read_again(&mut self, stage: crate::StageId) {
+        let mut r = FrameReader::new(stage);
+        r.ask_resume();
+        self.reader = Some(r);
+    }
+
     pub fn reader(&self) -> Option<&FrameReader> {
         self.reader.as_ref()
     }

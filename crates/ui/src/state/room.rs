@@ -1159,6 +1159,16 @@ pub trait LiveRoom {
     fn take_live_news(&mut self) -> Vec<ddi_room::live::LiveNews>;
     /// The stage played live here is over: its news is no longer kept.
     fn stop_live_news(&mut self);
+    /// What is kept of `stage`'s news is all of it since its start or its
+    /// last snapshot ([`LiveNewsTap::whole`]): a play of it that starts
+    /// now learns the stage as it stands from it. Else it asks the room
+    /// again ([`LiveRoom::read_live_again`]).
+    fn live_news_whole(&self, _stage: StageId) -> bool {
+        true
+    }
+    /// Stage `stage` read again from the room: its reader started over,
+    /// asking for the stage as it stands (review finding session-1).
+    fn read_live_again(&mut self, _stage: StageId) {}
     /// The local play's stream of `stage` (none: nothing is sent, an
     /// audience's).
     fn live_stream(&mut self, stage: StageId) -> Option<&mut ddi_room::live::Outbox>;
@@ -1263,41 +1273,67 @@ pub fn decision_of(
 /// latest stage's news since its last snapshot, so that a play that
 /// starts part-way (an audience's Watch, a member handed a running stage)
 /// learns the stage as it stands (review finding session-1) and nothing
-/// piles up beyond one stage.
+/// piles up beyond one stage. Where a play read part of a stage and
+/// stopped, what is kept of it is not the whole: the next play of it asks
+/// the room again (`LiveRoom::read_live_again`).
 #[derive(Debug, Default)]
 pub struct LiveNewsTap {
     news: Vec<ddi_room::live::LiveNews>,
     reading: bool,
+    /// The latest stage its news were of.
+    stage: Option<StageId>,
+    /// A stage a play read and stopped reading: what it read is gone, so
+    /// what is kept of it is not the whole ([`LiveNewsTap::whole`]).
+    partial: Option<StageId>,
 }
 
 impl LiveNewsTap {
     /// News come: kept for the stage read, or for one to come.
     pub fn extend(&mut self, news: impl IntoIterator<Item = ddi_room::live::LiveNews>) {
         use ddi_room::live::LiveNews;
-        if self.reading {
-            self.news.extend(news);
-            return;
-        }
         let stage_of = |n: &LiveNews| match n {
             LiveNews::Frame(f) => Some(f.stage),
             LiveNews::Snapshot(s) => Some(s.stage),
             LiveNews::Refused(_) => None,
         };
         for n in news {
-            match &n {
-                // The stage as it stands: what came of it before is in it.
-                LiveNews::Snapshot(s) => {
-                    let stage = s.stage;
-                    self.news.retain(|x| stage_of(x).is_some_and(|y| y > stage));
+            if let Some(stage) = stage_of(&n) {
+                self.stage = Some(self.stage.map_or(stage, |s| s.max(stage)));
+            }
+            if !self.reading {
+                match &n {
+                    // The stage as it stands: what came of it before is
+                    // in it.
+                    LiveNews::Snapshot(s) => {
+                        let stage = s.stage;
+                        self.news.retain(|x| stage_of(x).is_some_and(|y| y > stage));
+                        if self.partial == Some(stage) {
+                            self.partial = None;
+                        }
+                    }
+                    LiveNews::Frame(f) => {
+                        let stage = f.stage;
+                        self.news.retain(|x| stage_of(x).is_none_or(|y| y >= stage));
+                    }
+                    LiveNews::Refused(_) => {}
                 }
-                LiveNews::Frame(f) => {
-                    let stage = f.stage;
-                    self.news.retain(|x| stage_of(x).is_none_or(|y| y >= stage));
-                }
-                LiveNews::Refused(_) => {}
             }
             self.news.push(n);
         }
+    }
+
+    /// What it keeps of `stage` is all of it since its start or its last
+    /// snapshot: no play read part of it and stopped since.
+    pub fn whole(&self, stage: StageId) -> bool {
+        self.partial != Some(stage)
+    }
+
+    /// Stage `stage` is read again from the room (its link's reader
+    /// started over): nothing kept of it any more.
+    pub fn read_again(&mut self, stage: StageId) {
+        self.news.clear();
+        self.stage = Some(stage);
+        self.partial = None;
     }
 
     /// The news since the last call; asking keeps them coming.
@@ -1308,6 +1344,9 @@ impl LiveNewsTap {
 
     /// The stage read is over: what it left is dropped.
     pub fn stop(&mut self) {
+        if self.reading {
+            self.partial = self.stage;
+        }
         self.reading = false;
         self.news.clear();
     }
@@ -1422,6 +1461,17 @@ impl LiveRoom for RoomClient {
 
     fn stop_live_news(&mut self) {
         RoomClient::stop_live_news(self);
+    }
+
+    fn live_news_whole(&self, stage: StageId) -> bool {
+        self.live_news.whole(stage)
+    }
+
+    fn read_live_again(&mut self, stage: StageId) {
+        self.live_news.read_again(stage);
+        if let Link::Online(l) = &mut self.link {
+            l.authority.live_mut().read_again(stage);
+        }
     }
 
     fn live_stream(&mut self, stage: StageId) -> Option<&mut ddi_room::live::Outbox> {

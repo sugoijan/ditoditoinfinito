@@ -2068,6 +2068,119 @@ fn an_audience_seat_that_arrives_part_way_sees_the_stage_as_it_stands() {
     }
 }
 
+/// An audience seat watching from the start goes back to its page while
+/// the stage goes on, then presses Watch again: the stage handed over as
+/// it stands, with what the first watch read and what came meanwhile (a
+/// player who went out, the attacks committed), not only what came after
+/// the second (review finding session-1, the reload's sibling).
+#[test]
+fn an_audience_seat_that_watches_again_sees_the_stage_as_it_stands() {
+    let song = bundled("beatucada");
+    let r = Room::under(
+        &[("alice", Intent::Play), ("bob", Intent::Play)],
+        None,
+        &[],
+        RoomPolicy::default().with_live().with_audience(),
+    );
+    let aud = audience_seat(&r, "dora", None);
+    let tick_aud = || aud.borrow_mut().tick(wall(*r.host.borrow()));
+    tick_aud();
+    let orders = pick_and_ready(&r, &song, true, 0);
+    let e = entry_at(&song, 0);
+    for _ in 0..50 {
+        r.step(0.02, true);
+        tick_aud();
+    }
+    let jobs = aud.borrow_mut().take_load_jobs();
+    for job in jobs {
+        let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+        let picked = Picked {
+            song: SongEntry {
+                id: job.song.clone(),
+                ..e.clone()
+            },
+            chart: e.charts[0].clone(),
+        };
+        aud.borrow_mut().finish_load(&job, Ok((picked, prepared.live)));
+    }
+    // Bob misses everything and goes out early.
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 5.0]);
+    let bob = orders[1].as_ref().unwrap().me;
+    let start = |order: &StageOrder| {
+        let settings = Settings::default();
+        let mut config = SessionConfig::from_settings(&settings, true, None);
+        config.opponents = Some(StageSetup::of(order));
+        let host = r.host.clone();
+        config.live = Some(crate::battle::live::LiveHandle {
+            room: aud.clone(),
+            wall_ms: Rc::new(move || wall(*host.borrow())),
+        });
+        PlaySession::start(
+            &song,
+            order.chart.index,
+            &settings,
+            config,
+            FakeAudio::new(&r.host, 0.02),
+            110.0,
+            FakeInputs::new(&r.host),
+        )
+        .unwrap()
+    };
+    let mut order = None;
+    for _ in 0..200 {
+        r.step(0.02, false);
+        for p in plays.iter_mut() {
+            let _ = p.tick(HostTime(*r.host.borrow()));
+        }
+        tick_aud();
+        order = aud.borrow_mut().take_stage_order();
+        if order.is_some() {
+            break;
+        }
+    }
+    let first = start(&order.expect("the audience's stage"));
+    let run = |plays: &mut Vec<PlaySession<FakeAudio, FakeInputs>>, watched: Option<&mut PlaySession<FakeAudio, FakeInputs>>, seconds: f64| {
+        let mut watched = watched;
+        for _ in 0..(seconds * 60.0) as usize {
+            r.step(1.0 / 60.0, false);
+            let host = *r.host.borrow();
+            for p in plays.iter_mut() {
+                let _ = p.tick(HostTime(host));
+            }
+            match watched.as_deref_mut() {
+                Some(w) => {
+                    let _ = w.tick(HostTime(host));
+                }
+                None => tick_aud(),
+            }
+        }
+    };
+    let mut first = first;
+    // Watched until Bob is out on its field and an attack is on one.
+    // (Bob steps down the ladder first: out once on its lowest rung.)
+    for _ in 0..30 {
+        run(&mut plays, Some(&mut first), 5.0);
+        if first.battle().unwrap().views().iter().any(|v| v.participant == bob && v.out) {
+            break;
+        }
+    }
+    let views = first.battle().unwrap().views();
+    assert!(views.iter().any(|v| v.participant == bob && v.out), "{views:?}");
+    let shocks_before: usize = first.battle().unwrap().feeds().map(|f| f.shocks().len()).sum();
+    // Back to its page: the play ends, the seat goes on.
+    drop(first);
+    run(&mut plays, None, 5.0);
+    let order = aud.borrow_mut().watch_now().expect("Watch hands the stage over");
+    let mut again = start(&order);
+    run(&mut plays, Some(&mut again), 3.0);
+    let b = again.battle().unwrap();
+    let views = b.views();
+    let bob_view = views.iter().find(|v| v.participant == bob).expect("bob's field");
+    assert!(bob_view.out, "bob, out before the second watch, shown out: {bob_view:?}");
+    let shocks: usize = b.feeds().map(|f| f.shocks().len()).sum();
+    assert!(shocks >= shocks_before, "{shocks} shocks on the fields, {shocks_before} before");
+}
+
 /// The seat a stage is watched through ends during it (the host closes
 /// the audience: 4403): the view stops (the music fading, no more frames)
 /// and says why, nothing ends it by itself before the song's end, and

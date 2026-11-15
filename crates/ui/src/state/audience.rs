@@ -885,6 +885,15 @@ impl LiveRoom for AudienceClient {
         self.live_news.stop();
     }
 
+    fn live_news_whole(&self, stage: StageId) -> bool {
+        self.live_news.whole(stage)
+    }
+
+    fn read_live_again(&mut self, stage: StageId) {
+        self.live_news.read_again(stage);
+        self.seat.link_mut().read_again(stage);
+    }
+
     fn live_stream(&mut self, _stage: StageId) -> Option<&mut ddi_room::live::Outbox> {
         None
     }

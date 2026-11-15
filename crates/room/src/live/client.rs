@@ -294,6 +294,16 @@ impl LiveLink {
         self.outboxes.get(&stage)
     }
 
+    /// Stage `stage` read again from the room: a fresh reader that asks
+    /// for the stage as it stands (a snapshot, or every frame where all
+    /// are kept), for a play of it that starts after another read it
+    /// (`ddi_session`'s `Live::new`).
+    pub fn read_again(&mut self, stage: StageId) {
+        let mut r = FrameReader::new(stage);
+        r.ask_resume();
+        self.reader = Some(r);
+    }
+
     /// The frames read so far of the stage followed.
     pub fn reader(&self) -> Option<&FrameReader> {
         self.reader.as_ref()
