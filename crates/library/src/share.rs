@@ -52,6 +52,10 @@ pub enum ShareError {
     Answer(String),
     /// A song's chart could not be read for an upload: the song's title.
     NoChart(String),
+    /// A file's path is one a share cannot keep (checked before an
+    /// upload, [`check_path`]; the server refuses the whole share for
+    /// it): the path.
+    BadPath(String),
     /// A song or one of its files failed: its name, and why.
     In {
         name: String,
@@ -105,6 +109,7 @@ impl std::fmt::Display for ShareError {
             ShareError::Failed { doing, error } => write!(f, "{doing}: {error}"),
             ShareError::Answer(e) => write!(f, "the server's answer: {e}"),
             ShareError::NoChart(title) => write!(f, "{title}: its chart could not be read"),
+            ShareError::BadPath(path) => write!(f, "{path}: a path a share cannot keep"),
             ShareError::In { name, error } => write!(f, "{name}: {error}"),
         }
     }
@@ -261,6 +266,38 @@ pub fn stored_files(entry: &ManifestEntry) -> Vec<(String, String)> {
     out
 }
 
+/// The segment a share keeps in place of `..`: a file of the song that
+/// sits above its folder (a pack's banner or music, `#BANNER:../bn.png`,
+/// as a library read in place names it) is kept under a path inside the
+/// share ([`valid_path`] refuses `..`), `../bn.png` as `__up__/bn.png`.
+pub const UP: &str = "__up__";
+
+/// The path a share lists and serves stored path `stored` (of
+/// [`stored_files`]) under: each `..` segment as [`UP`]; every other path
+/// as it is. The uploader lists and puts each file at it; a reader asks
+/// for each file the entry names at it.
+pub fn share_path(stored: &str) -> String {
+    if !stored.split('/').any(|p| p == "..") {
+        return stored.to_string();
+    }
+    stored
+        .split('/')
+        .map(|p| if p == ".." { UP } else { p })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// `path` (a [`share_path`]) as a share may list it, else
+/// [`ShareError::BadPath`]: checked before an upload, so that a path the
+/// server would refuse the whole share for is said as what it is.
+pub fn check_path(path: &str) -> Result<(), ShareError> {
+    if valid_path(path) {
+        Ok(())
+    } else {
+        Err(ShareError::BadPath(path.to_string()))
+    }
+}
+
 /// The files a play needs first, of [`stored_files`]: the chart, the
 /// music, the pictures and the lyrics (everything but what the
 /// background changes play, which a play fetches when it comes).
@@ -292,6 +329,38 @@ pub fn link_of(base: &str, id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// support-2: a song read in place that names files above its folder
+    /// (`#BANNER:../bn.png`, its music and a background change's image in
+    /// the pack's folder) is listed under paths a share keeps, each
+    /// distinct; the entry's names stay as they are (a reader maps them
+    /// with [`share_path`] too); a path no share may keep is said so.
+    #[test]
+    fn files_above_the_songs_folder_are_shared_under_paths_a_share_keeps() {
+        let entry: ManifestEntry = serde_json::from_value(serde_json::json!({
+            "id": "a", "title": "A", "artist": "B",
+            "chart": "song.sm", "music": "../music.ogg", "banner": "../bn.png",
+            "bg_images": ["../x.png", "x.png"], "charts": [],
+        }))
+        .unwrap();
+        let files = stored_files(&entry);
+        // As stored, a share could keep none of them (the server refused
+        // the whole share, read as "too large").
+        assert!(!valid_path(&files[1].0) && !valid_path(&files[3].0));
+        let listed: Vec<String> = files.iter().map(|(s, _)| share_path(s)).collect();
+        assert_eq!(
+            listed,
+            ["song.sm", "__up__/music.ogg", "__up__/bn.png", "bg/__up__/x.png", "bg/x.png"]
+        );
+        assert!(listed.iter().all(|p| check_path(p).is_ok() && valid_path(p)));
+        let named: Vec<&str> = files.iter().map(|(_, n)| n.as_str()).collect();
+        assert_eq!(named, ["song.sm", "../music.ogg", "../bn.png", "../x.png", "x.png"]);
+        assert_eq!(share_path("bg/a b.png"), "bg/a b.png");
+        assert_eq!(
+            check_path("bg\\x.png"),
+            Err(ShareError::BadPath("bg\\x.png".into()))
+        );
+    }
 
     #[test]
     fn ids_are_short_and_plain() {

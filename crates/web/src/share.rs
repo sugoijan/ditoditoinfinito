@@ -79,6 +79,8 @@ pub(crate) use ddi_library::share::{is_shared_id, parse_song_id, song_id, valid_
 /// out); `None` for a song of no share.
 pub(crate) fn file_url(song_id: &str, path: &str) -> Option<String> {
     let (share, n) = parse_song_id(song_id)?;
+    // A file above the song's folder, as the share keeps it (`__up__/`).
+    let path = ddi_library::share::share_path(path);
     if let Some(s) = kept(share)
         && let Some(song) = s.songs.get(n)
         && let Some(f) = song
@@ -88,7 +90,7 @@ pub(crate) fn file_url(song_id: &str, path: &str) -> Option<String> {
     {
         return Some(ddi_library::share::resolve_url(&base(), &f.url));
     }
-    Some(ddi_library::share::file_url(&base(), share, n, path))
+    Some(ddi_library::share::file_url(&base(), share, n, &path))
 }
 
 /// The entry of shared song `song_id`, if its share was read this
@@ -102,6 +104,7 @@ pub(crate) fn entry(song_id: &str) -> Option<ddi_library::manifest::ManifestEntr
 /// `song_id`, if it lists it.
 pub(crate) fn file_size(song_id: &str, path: &str) -> Option<u64> {
     let (share, n) = parse_song_id(song_id)?;
+    let path = ddi_library::share::share_path(path);
     let s = kept(share)?;
     let f = s.songs.get(n)?.files.iter().find(|f| f.path == path)?;
     (f.bytes >= 0.0).then_some(f.bytes as u64)
@@ -322,6 +325,12 @@ async fn gather_imported(
                 })?;
             let bytes = blob.size();
             view.bytes += bytes;
+            // Kept by the share at a path it may list (a background
+            // image above the song's folder, `bg/../x.png`, as
+            // `bg/__up__/x.png`), else refused as what it is.
+            let path = ddi_library::share::share_path(&path);
+            ddi_library::share::check_path(&path)
+                .map_err(|e| ShareError::of(record.entry.title.clone(), e))?;
             files.push(ShareFileDoc {
                 path: path.clone(),
                 bytes,

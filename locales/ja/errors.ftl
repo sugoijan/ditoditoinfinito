@@ -72,6 +72,8 @@ errors-share-answer = サーバーの応答を読み取れませんでした（{
 
 errors-share-no-chart = 「{ $song }」の譜面を読み込めませんでした
 
+errors-share-bad-path = ファイル「{ $path }」の名前は共有できません
+
 errors-share-in = { $name }：{ $error }
 
 errors-share-link-gone = このリンクは存在しないか、期限が切れています。

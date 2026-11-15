@@ -185,6 +185,7 @@ pub fn share_text(e: &ShareError) -> UiText {
         ShareError::Failed { error, .. } => error_text(error),
         ShareError::Answer(e) => m::share_answer(e),
         ShareError::NoChart(title) => m::share_no_chart(title),
+        ShareError::BadPath(path) => m::share_bad_path(UiText::data(path)),
         ShareError::In { name, error } => m::share_in(name, share_text(error)),
     }
 }

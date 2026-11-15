@@ -175,6 +175,12 @@ errors-share-answer = the server's answer could not be read ({ $detail })
 #   $song (String) - the song's title
 errors-share-no-chart = the chart of “{ $song }” could not be read
 
+# A file of a song has a name a share cannot keep (a path with a
+# backslash or an empty part, say); nothing was uploaded.
+# Variables:
+#   $path (String) - the file's path in the song, as the share lists it
+errors-share-bad-path = the file “{ $path }” has a name a share cannot keep
+
 # A song, or a file of one, failed.
 # Variables:
 #   $name (String) - the song's title or the file's path

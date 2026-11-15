@@ -1,7 +1,9 @@
 //! Songs shared by link on desktop (`docs/plans/shared-songs.md`): a
 //! share read from the server (`DDI_API_URL`, else the production one)
-//! into the cache folder (`shares/<id>/<n>/`, each file at the path its
-//! entry names it by, as a song folder), listed by song select in its
+//! into the cache folder (`shares/<id>/<n>/song/`, each file at the path
+//! its entry names it by, as a song folder: one its pack's folder,
+//! `shares/<id>/<n>/`, holds what the entry names above it, a pack's
+//! `../bn.png`), listed by song select in its
 //! shared mode (`--shared <link or id>`) and played from there: the
 //! chart, the music and the pictures come with the list, what the
 //! background changes play comes when the play loads
@@ -134,6 +136,12 @@ fn not_loaded() -> ShareError {
     ShareError::failed("playing a shared song")("the share of this song is not loaded")
 }
 
+/// A shared song's folder inside its own (`shares/<id>/<n>/song/`): a
+/// file the entry names above the song's folder (`../bn.png`, a pack's,
+/// shared as `__up__/bn.png`, `contract::share_path`) has its place
+/// beside it, as in the pack it came from.
+const SONG_DIR: &str = "song";
+
 /// Where share `id`'s files go.
 fn share_root(id: &str) -> Result<PathBuf, ShareError> {
     Ok(crate::paths::cache_dir()
@@ -204,7 +212,7 @@ pub fn load(id: &str, progress: &dyn Fn()) -> Result<LoadedShare, ShareError> {
         songs.push(LibSong {
             root: dir,
             zip: false,
-            dir: RelPathBuf::new(),
+            dir: RelPathBuf::from(SONG_DIR),
             pack: if pack.is_empty() {
                 doc.pack.clone()
             } else {
@@ -263,7 +271,8 @@ pub fn ensure_all(id: &str) -> Result<(), ShareError> {
     Ok(())
 }
 
-/// File `stored` of song `n` at `dir/<named>`, fetched unless it is
+/// File `stored` of song `n` at `dir/song/<named>` ([`SONG_DIR`]),
+/// fetched (as the share lists it, `contract::share_path`) unless it is
 /// there at its listed size.
 fn ensure_file(
     doc: &ShareDoc,
@@ -273,7 +282,9 @@ fn ensure_file(
     named: &str,
     dir: &Path,
 ) -> Result<(), ShareError> {
-    let rel = RelPathBuf::from(named);
+    let stored = contract::share_path(stored);
+    let stored = stored.as_str();
+    let rel = RelPathBuf::from(SONG_DIR).join(named);
     let rel = rel.normalize().unwrap_or(rel);
     let target = rel.to_path(dir).ok_or_else(|| {
         ShareError::of(
@@ -449,23 +460,12 @@ fn gather(ids: &[String], view: &mut ShareView) -> Result<(Songs, Sources), Shar
     for id in ids {
         let (files, entry) = Files::of(id).ok_or_else(|| ShareError::NoChart(id.clone()))?;
         let song_pack = crate::library::song(id).map(|s| s.pack).unwrap_or_default();
-        let mut listed = Vec::new();
-        let mut these = Vec::new();
-        let mut bytes = 0.0;
-        for (stored, named) in contract::stored_files(&entry) {
-            let Some(source) = source_of(&files, &named) else {
-                continue;
-            };
-            bytes += source.len() as f64;
-            view.bytes += source.len() as f64;
-            listed.push(ShareFileDoc {
-                path: stored.clone(),
-                bytes: source.len() as f64,
-                url: String::new(),
-            });
-            these.push((stored, source));
-        }
-        if !these.iter().any(|(s, _)| *s == entry.chart.as_str()) {
+        let (listed, these, bytes) = listing(&entry, &files)?;
+        view.bytes += bytes;
+        if !these
+            .iter()
+            .any(|(s, _)| *s == contract::share_path(entry.chart.as_str()))
+        {
             return Err(ShareError::NoChart(entry.title));
         }
         songs.push(ShareSongDoc {
@@ -475,6 +475,40 @@ fn gather(ids: &[String], view: &mut ShareView) -> Result<(Songs, Sources), Shar
         sources.push(these);
     }
     Ok((songs, sources))
+}
+
+/// A song's files as a share lists them, their bytes' sources and their
+/// bytes ([`listing`]).
+type Listing = (Vec<ShareFileDoc>, Vec<(String, Source)>, f64);
+
+/// A song's files as a share lists them, `entry` read from `files`: each
+/// under the path the share keeps it at (`contract::share_path`: a file
+/// the entry names above the song's folder, a pack's banner or music, at
+/// `__up__/…`), its bytes' source, and their bytes; a path no share may
+/// keep is refused here, said as what it is (the server would refuse the
+/// whole share for it, which reads as "too large").
+fn listing(
+    entry: &ddi_library::manifest::ManifestEntry,
+    files: &Files,
+) -> Result<Listing, ShareError> {
+    let mut listed = Vec::new();
+    let mut these = Vec::new();
+    let mut bytes = 0.0;
+    for (stored, named) in contract::stored_files(entry) {
+        let Some(source) = source_of(files, &named) else {
+            continue;
+        };
+        let path = contract::share_path(&stored);
+        contract::check_path(&path).map_err(|e| ShareError::of(entry.title.clone(), e))?;
+        bytes += source.len() as f64;
+        listed.push(ShareFileDoc {
+            path: path.clone(),
+            bytes: source.len() as f64,
+            url: String::new(),
+        });
+        these.push((path, source));
+    }
+    Ok((listed, these, bytes))
 }
 
 /// A refusal as read from a response: a grant's with its code
@@ -653,4 +687,46 @@ pub fn describe(s: &LoadedShare, now: f64) -> String {
         s.songs.len(),
         contract::expires_in(s.expires_at, now).unwrap_or_else(|| "never expires".into())
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// support-2: a song read in place whose banner and music sit in its
+    /// pack's folder (`#BANNER:../bn.png`) is listed under paths a share
+    /// keeps (before: `../bn.png`, which the server refused as a whole,
+    /// read as "too large"), each found where the entry names it; its
+    /// reader puts them back beside the song's folder, in the share's own.
+    #[test]
+    fn a_song_with_files_in_its_pack_folder_is_listed_as_a_share_keeps_it() {
+        let root = std::env::temp_dir().join(format!("ddi-share-pack-{}", std::process::id()));
+        let song = root.join("Pack").join("Song");
+        std::fs::create_dir_all(&song).unwrap();
+        std::fs::write(song.join("song.sm"), "#TITLE:A;").unwrap();
+        std::fs::write(root.join("Pack").join("bn.png"), [1, 2, 3]).unwrap();
+        std::fs::write(root.join("Pack").join("music.ogg"), [4; 10]).unwrap();
+        let entry: ddi_library::manifest::ManifestEntry =
+            serde_json::from_value(serde_json::json!({
+                "id": "a", "title": "A", "artist": "B",
+                "chart": "song.sm", "music": "../music.ogg", "banner": "../bn.png",
+                "charts": [],
+            }))
+            .unwrap();
+        let files = Files::Dir {
+            root: root.clone(),
+            dir: RelPathBuf::from("Pack/Song"),
+        };
+        let (listed, these, bytes) = listing(&entry, &files).unwrap();
+        let paths: Vec<&str> = listed.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["song.sm", "__up__/music.ogg", "__up__/bn.png"]);
+        assert!(paths.iter().all(|p| contract::valid_path(p)));
+        assert_eq!((these.len(), bytes), (3, 22.0));
+        // Read back: the song's folder is `song/` in the share's, so its
+        // pack's files have their place beside it.
+        let rel = RelPathBuf::from(SONG_DIR).join("../bn.png");
+        let rel = rel.normalize().unwrap();
+        assert_eq!(rel.as_str(), "bn.png");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
