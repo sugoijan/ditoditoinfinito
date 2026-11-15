@@ -79,8 +79,11 @@ pub fn supported(version: u32) -> bool {
 /// 9. the check both ways; the policy's version flags, the commands
 ///    before `Pick`, the attack ledger's recovery, the step-down flag of
 ///    the binary format (`BATCH_V2`, `FRAME_V2`) and ranking without a
-///    score retired.
-pub const ROOM_MODEL_REVISION: u32 = 9;
+///    score retired;
+/// 10. `adaptive-v3` (an early step up as `adaptive-v2`'s, and a normal
+///     one after more bars with a lower floor: every device steps the
+///     room's CPUs alike).
+pub const ROOM_MODEL_REVISION: u32 = 10;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being

@@ -332,9 +332,10 @@ fn the_web_leaves_for_the_servers_page_and_resumes_the_join_on_return() {
             ),
             (Method::Post, "/rooms/Room000001/join") => {
                 assert!(req.body.as_deref().unwrap().contains(INVITE));
-                ok(
-                    r#"{"room_id":"Room000001","participant":3,"intent":"play","participation":{"not_ready":{"stage":1}},"already":false,"model":9}"#,
-                )
+                ok(&format!(
+                    r#"{{"room_id":"Room000001","participant":3,"intent":"play","participation":{{"not_ready":{{"stage":1}}}},"already":false,"model":{}}}"#,
+                    ddi_room::ROOM_MODEL_REVISION
+                ))
             }
             _ => panic!("unexpected {req:?}"),
         }),

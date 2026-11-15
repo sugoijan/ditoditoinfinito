@@ -1553,7 +1553,7 @@ fn extend(debug: &mut Value, more: Value) {
 
 /// A stage's ladder as the debug state has it (`battle.ladder`, named
 /// `battle.step_down` before 2026-11-14): its rungs, each step's moment,
-/// boundary, rung and whether it was up, the cue's rung and direction,
+/// boundary, rung, whether it was up and whether it was an early step up, the cue's rung and direction,
 /// each field's steps.
 fn ladder_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
     s: &ddi_session::play::PlaySession<A, I>,
@@ -1566,7 +1566,7 @@ fn ladder_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
         .player
         .steps()
         .iter()
-        .map(|st| json!([st.at, st.boundary, st.rung, st.up]))
+        .map(|st| json!([st.at, st.boundary, st.rung, st.up, st.early]))
         .collect();
     let cue = s.stage_cue(host).and_then(|(c, _)| match c {
         ddi_session::announcer::battle::StageCue::Step { rung, up } => Some(json!([rung, up])),

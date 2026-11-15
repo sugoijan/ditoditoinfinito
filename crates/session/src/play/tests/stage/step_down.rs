@@ -335,8 +335,9 @@ fn the_player_and_strong_cpus_step_up_alike_at_any_frame_rate() {
 }
 
 /// The CPUs' level (from 0) whose plays climb from Medium to Hard and
-/// fall back on this song: three stars (`adaptive-v2`'s accuracy keeps
-/// two-star CPUs from climbing at all).
+/// fall back on this song: three stars (chosen under `adaptive-v2`, whose
+/// accuracy kept two-star CPUs from climbing at all; `adaptive-v3`'s
+/// normal step up lets them, and three stars still climb and fall back).
 const LEVEL_UP_DOWN: u8 = 2;
 
 /// Three-star CPUs on Medium (they climb to Hard now and then, and fall

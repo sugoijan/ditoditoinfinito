@@ -355,7 +355,7 @@ fn a_perfect_play_steps_up_once_after_four_bars_the_same_at_any_frame_rate() {
     let r = p.results();
     assert_eq!(r.steps.len(), 1, "{:?}", r.steps);
     let s = r.steps[0];
-    assert!(s.up);
+    assert!(s.up && s.early, "on time: the early step up");
     assert_eq!((s.rung, s.from, s.chart), (1, 0, hard));
     // Decided on a bar line, at least four bars of full life in; the
     // boundary a bar line past the horizon and a second.
@@ -401,7 +401,7 @@ fn up_down_up(rule: AdaptiveRule) -> (Player, Vec<ddi_engine::ladder::Step>) {
 #[test]
 fn a_play_steps_up_then_down_and_back_up_takes_sixteen_bars() {
     let (p, steps) = up_down_up(ladder::ADAPTIVE);
-    assert_eq!(ladder::ADAPTIVE, ladder::ADAPTIVE_V2);
+    assert_eq!(ladder::ADAPTIVE, ladder::ADAPTIVE_V3);
     assert_eq!(ladder::ADAPTIVE.return_bars, 16);
     assert!(steps.len() >= 3, "{steps:?}");
     assert!(steps[0].up);
@@ -435,16 +435,18 @@ fn a_rule_of_eight_bars_back_up_and_no_closing_takes_eight_and_closes_nothing() 
 /// Life run out on Hard twice: Hard is closed for the rest of the stage,
 /// however well the rest is played; the step down that closed it says
 /// so. The same at 60 and 144 fps and from the log. (The rule with
-/// shorter bars, two up and four back up, so that the bundled song is
-/// long enough for both run-outs and the bars after.)
-#[test]
-fn a_rung_whose_life_ran_out_twice_is_closed() {
+/// shorter bars, two up early, three normally and four back up, so that
+/// the bundled song is long enough for both run-outs and the bars
+/// after.)
+fn closed_after_twice(late: f64) {
     use ddi_chart::Difficulty::*;
     RULE.set(Some(AdaptiveRule {
         up_bars: 2,
+        normal_bars: 3,
         return_bars: 4,
         ..ADAPTIVE
     }));
+    LATE.set(late);
     let song = song();
     let medium = single(&song, Medium);
     let hard = single(&song, Hard);
@@ -482,8 +484,27 @@ fn a_rung_whose_life_ran_out_twice_is_closed() {
     assert!(steps[4..].iter().all(|s| !(s.up && s.rung == 2)), "{steps:?}");
     let left = p.timing().beat_at(p.end_time()) - p.timing().beat_at(shut.boundary);
     assert!(left > 32.0, "the song went on long enough to have climbed back: {left}");
+    // The first step up: early on time, normal late; a step back up is
+    // never early (its own sixteen bars).
+    assert_eq!(steps[0].early, late == 0.0, "{steps:?}");
+    assert!(steps[1..].iter().all(|s| !s.early), "{steps:?}");
     RULE.set(None);
+    LATE.set(0.0);
 }
+
+#[test]
+fn a_rung_whose_life_ran_out_twice_is_closed() {
+    closed_after_twice(0.0);
+}
+
+/// The same by normal steps up (every tap 25 ms late: DDI's W2, never the
+/// two best): closed after life ran out on it twice all the same.
+#[test]
+fn a_rung_whose_life_ran_out_twice_is_closed_to_normal_steps_up_too() {
+    closed_after_twice(0.025);
+}
+
+
 
 #[test]
 fn a_play_steps_down_then_up_past_the_picked_chart() {
@@ -540,36 +561,131 @@ fn a_rule_without_steps_up_is_the_step_down_alone() {
     assert!(p.results().steps.is_empty());
 }
 
-/// `adaptive-v2`: four bars of full life with no miss are not enough
-/// where the taps were not in the two best judgments: a play 25 ms late
-/// on every note (DDI's W2, full life kept) never steps up, while the same
-/// rule asking no accuracy steps it up; on time it steps up. The same at
-/// 60 and 144 fps and from the log.
+/// The early step up is `adaptive-v2`'s step up exactly: four bars of
+/// full life with no miss are not enough where the taps were not in the
+/// two best judgments: a play 25 ms late on every note (DDI's W2, full
+/// life kept) never steps up early, while the same rule asking no
+/// accuracy steps it up; on time it steps up. The same at 60 and 144 fps
+/// and from the log.
 #[test]
-fn a_step_up_needs_the_two_best_judgments_under_v2() {
+fn an_early_step_up_needs_the_two_best_judgments() {
     use ddi_chart::Difficulty::*;
     let song = song();
     let medium = single(&song, Medium);
     let hard = single(&song, Hard);
-    let steps = |rule: AdaptiveRule, late: f64| {
-        RULE.set(Some(rule));
-        LATE.set(late);
-        let p = alike(&song, medium, &[], &[hard], &[]);
-        RULE.set(None);
-        LATE.set(0.0);
-        let r = p.results();
-        (r.steps.clone(), r.tally.count(ddi_engine::Judgement::W2), r.failed)
+    // `adaptive-v3` without its normal step up: `adaptive-v2`.
+    let early_only = AdaptiveRule {
+        normal_bars: 0,
+        ..ADAPTIVE
     };
     let any = AdaptiveRule {
         accuracy: 0.0,
-        ..ADAPTIVE
+        ..early_only
     };
-    let (late_any, w2, failed) = steps(any, 0.025);
+    let (late_any, w2, failed) = steps_of(&song, medium, hard, any, 0.025, &[]);
     assert!(w2 > 20 && !failed, "late: W2s ({w2}), full life");
     assert_eq!(late_any.len(), 1, "steps up where no accuracy is asked: {late_any:?}");
-    let (late_v2, _, _) = steps(ladder::ADAPTIVE_V2, 0.025);
-    assert!(late_v2.is_empty(), "v2 never: {late_v2:?}");
-    let (on_time, _, _) = steps(ladder::ADAPTIVE_V2, 0.0);
+    let (late, _, _) = steps_of(&song, medium, hard, early_only, 0.025, &[]);
+    assert!(late.is_empty(), "never early: {late:?}");
+    let (on_time, _, _) = steps_of(&song, medium, hard, early_only, 0.0, &[]);
     assert_eq!(on_time.len(), 1, "{on_time:?}");
-    assert!(on_time[0].up);
+    assert!(on_time[0].up && on_time[0].early);
+}
+
+/// The steps of a play `late` seconds late on every note of whatever
+/// chart it is on (but in `gaps`), Medium with Hard above, under `rule`;
+/// its W2s and whether it failed. Played at 60 and 144 fps and from its
+/// log alike.
+fn steps_of(
+    song: &Song,
+    medium: usize,
+    hard: usize,
+    rule: AdaptiveRule,
+    late: f64,
+    gaps: &[(f64, f64)],
+) -> (Vec<ddi_engine::ladder::Step>, u32, bool) {
+    RULE.set(Some(rule));
+    LATE.set(late);
+    let p = alike(song, medium, &[], &[hard], gaps);
+    RULE.set(None);
+    LATE.set(0.0);
+    let r = p.results();
+    (r.steps.clone(), r.tally.count(ddi_engine::Judgement::W2), r.failed)
+}
+
+/// The normal step up (`adaptive-v3`): the same late play, never early,
+/// steps up after the rule's longer stretch of full life, its taps in
+/// the three best judgments; not where the rule asks the two best of
+/// them; not before its bars are all clean.
+#[test]
+fn a_normal_step_up_takes_its_longer_bars_and_its_floor() {
+    use ddi_chart::Difficulty::*;
+    let song = song();
+    let medium = single(&song, Medium);
+    let hard = single(&song, Hard);
+    let (late, _, _) = steps_of(&song, medium, hard, ADAPTIVE, 0.025, &[]);
+    assert_eq!(late.len(), 1, "{late:?}");
+    let s = late[0];
+    assert!(s.up && !s.early, "{s:?}");
+    let p = Player::new(&song, medium, rules(), PlayOptions::default());
+    let beat = p.timing().beat_at(s.at);
+    let bars = f64::from(ADAPTIVE.normal_bars) * 4.0;
+    assert!(beat >= bars - 1e-6, "{beat}");
+    assert!((beat / 4.0 - (beat / 4.0).round()).abs() < 1e-6, "{beat}");
+    // Its floor: the same play asked for the two best judgments never
+    // steps up.
+    let strict = AdaptiveRule {
+        normal_best: 2,
+        ..ADAPTIVE
+    };
+    let (none, _, _) = steps_of(&song, medium, hard, strict, 0.025, &[]);
+    assert!(none.is_empty(), "{none:?}");
+    // Its stretch: a rule of twice the bars steps up no sooner than them.
+    let longer = AdaptiveRule {
+        normal_bars: ADAPTIVE.normal_bars * 2,
+        ..ADAPTIVE
+    };
+    let (later, _, _) = steps_of(&song, medium, hard, longer, 0.025, &[]);
+    assert!(
+        later.first().is_some_and(|l| p.timing().beat_at(l.at) >= 2.0 * bars - 1e-6),
+        "{later:?}"
+    );
+}
+
+/// No step up across a miss, early or normal: a stretch with nothing
+/// pressed (misses, life lost) and the step up comes the rule's bars
+/// after life is full again, never sooner.
+#[test]
+fn no_step_up_across_a_miss() {
+    use ddi_chart::Difficulty::*;
+    let song = song();
+    let medium = single(&song, Medium);
+    let hard = single(&song, Hard);
+    let p = Player::new(&song, medium, rules(), PlayOptions::default());
+    // Misses from a few bars in, before either rule's bars are full.
+    let gap = (p.timing().seconds_at_beat(12.0), p.timing().seconds_at_beat(13.0));
+    for (late, bars) in [(0.0, ADAPTIVE.up_bars), (0.025, ADAPTIVE.normal_bars)] {
+        let (steps, _, failed) = steps_of(&song, medium, hard, ADAPTIVE, late, &[gap]);
+        assert!(!failed);
+        let s = steps.first().copied().unwrap_or_else(|| panic!("{late}: no step up"));
+        assert!(s.up && s.early == (late == 0.0), "{s:?}");
+        let since = p.timing().beat_at(s.at) - 13.0;
+        assert!(since >= f64::from(bars) * 4.0, "{late}: {since} beats after the misses");
+    }
+}
+
+/// The return rule against both kinds: back up to a rung whose life ran
+/// out takes sixteen bars, by the normal step up's accuracy too (late on
+/// every note).
+#[test]
+fn back_up_by_normal_steps_takes_sixteen_bars_too() {
+    LATE.set(0.025);
+    let (p, steps) = up_down_up(ADAPTIVE);
+    LATE.set(0.0);
+    assert!(steps.len() >= 3, "{steps:?}");
+    assert!(steps[0].up && !steps[0].early);
+    let (down, back) = (steps[1], steps[2]);
+    assert!(!down.up && back.up && back.rung == 2 && !back.early, "{steps:?}");
+    let beats = p.timing().beat_at(back.at) - p.timing().beat_at(down.boundary);
+    assert!(beats >= 64.0 - 1e-6, "{beats}");
 }

@@ -5003,7 +5003,8 @@ fn everyone_sees_who_is_loading_and_then_the_ready_countdown() {
 /// list (its fractions rounded, `crate::testing::rounded`: a CPU's stars
 /// are drawn round), recorded on the code before. The online ones again
 /// in feedback round H: the player's "You" badge moved onto its name's
-/// line, nothing else.
+/// line; the Rules pop-up's (and the Add CPU pop-up's over it) for
+/// Adaptive's sentence (`adaptive-v3`), nothing else.
 #[test]
 fn the_rooms_screens_draw_as_pinned() {
     use ddi_room::{Finish, Finisher};
@@ -5084,9 +5085,9 @@ fn the_rooms_screens_draw_as_pinned() {
 
 const PINNED: [(&str, u64); 10] = [
     ("select", 9001431102370433080),
-    ("rules", 857656272707336195),
-    ("add", 4071077426879471913),
-    ("add-level", 5801193428794422550),
+    ("rules", 2690560165581850526),
+    ("add", 8271965849172508198),
+    ("add-level", 16806627657009014540),
     ("players", 17490229943207298487),
     ("standings", 4050983496291045925),
     ("online-select", 14361459534628858177),

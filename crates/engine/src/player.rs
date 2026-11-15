@@ -360,9 +360,10 @@ pub struct Player {
     /// Since when (judged seconds) its life has been full with no miss
     /// and no shock stepped on; `None` while it is not.
     clean_from: Option<f64>,
-    /// The taps judged since the last step up's bars began, and whether
-    /// each was in the two best judgments (`adaptive-v2`).
-    best_taps: Vec<(f64, bool)>,
+    /// The taps judged in the bars a step up may still read, each with
+    /// its place among the ruleset's judgments (0 the best: W0 under DDI,
+    /// W1 where a ruleset has no W0).
+    best_taps: Vec<(f64, u8)>,
     /// The next bar line a step up is decided at, once a ladder is set.
     next_bar: Option<ddi_chart::Tick>,
 }
@@ -1079,6 +1080,7 @@ impl Player {
             up: to > from,
             from: crate::ladder::rung_of(below, from),
             closes,
+            early: false,
         });
     }
 
@@ -1087,7 +1089,7 @@ impl Player {
     /// those before it played on (a hold crossing it to its end), the
     /// next harder rung's from the boundary put in, except in a lane such
     /// a hold still runs in; life as it is.
-    fn step_up(&mut self, at: f64) {
+    fn step_up(&mut self, at: f64, early: bool) {
         let from = self.level;
         let to = from + 1;
         let Some(next) = self.rung_at(to).cloned() else {
@@ -1117,6 +1119,9 @@ impl Player {
         self.judge.step_up(tick, &incoming, &self.timing);
         self.pending_up = Some((from, boundary));
         self.finish_step(rows, &next, (from, to), (at, boundary, tick), false);
+        if let Some(s) = self.steps.last_mut() {
+            s.early = early;
+        }
     }
 
     /// Each row's progress by its tick, before the judge's notes change.
@@ -1226,28 +1231,57 @@ impl Player {
         if self.closed(to) {
             return;
         }
-        let bars = if self.ran_out.contains(&to) {
-            self.rule.return_bars
-        } else {
-            self.rule.up_bars
+        let rule = self.rule;
+        let back = self.ran_out.contains(&to);
+        // The bars `bars` back from this bar line: their start, where they
+        // are all past the last step's boundary and at full life with no
+        // miss since; and whether `share` of their taps are in the
+        // `best` best judgments.
+        let start_of = |bars: u32| {
+            let span = i64::from(bars) * i64::from(rule.bar_beats.max(1)) * ddi_chart::TICKS_PER_BEAT;
+            self.timing.seconds_at(ddi_chart::Tick(tick.0 - span))
         };
-        let span = i64::from(bars) * i64::from(self.rule.bar_beats.max(1)) * ddi_chart::TICKS_PER_BEAT;
-        let start = self.timing.seconds_at(ddi_chart::Tick(tick.0 - span));
-        if self.steps.last().is_some_and(|s| start < s.boundary) {
-            return;
-        }
-        // `adaptive-v2`: the taps of those bars, nearly all in the two
-        // best judgments.
-        let (best, all) = self
-            .best_taps
-            .iter()
-            .filter(|&&(t, _)| t >= start && t <= b)
-            .fold((0usize, 0usize), |(n, a), &(_, good)| (n + usize::from(good), a + 1));
-        self.best_taps.retain(|&(t, _)| t >= start);
-        let accurate =
-            self.rule.accuracy <= 0.0 || all == 0 || best as f64 >= self.rule.accuracy * all as f64;
-        if accurate && self.clean_from.is_some_and(|c| c <= start) {
-            self.step_up(b);
+        let clean = |start: f64| {
+            !self.steps.last().is_some_and(|s| start < s.boundary)
+                && self.clean_from.is_some_and(|c| c <= start)
+        };
+        let accurate = |start: f64, best: u8, share: f64| {
+            let (good, all) = self
+                .best_taps
+                .iter()
+                .filter(|&&(t, _)| t >= start && t <= b)
+                .fold((0usize, 0usize), |(n, a), &(_, rank)| (n + usize::from(rank < best), a + 1));
+            share <= 0.0 || all == 0 || good as f64 >= share * all as f64
+        };
+        // The taps any of them may read again at a later bar line.
+        let kept = start_of(rule.up_bars.max(rule.normal_bars).max(rule.return_bars));
+        // Back to a rung whose life ran out: its longer bars, by either
+        // kind's accuracy over them.
+        let up = if back {
+            let start = start_of(rule.return_bars);
+            (clean(start)
+                && (accurate(start, 2, rule.accuracy)
+                    || (rule.normal_bars > 0 && accurate(start, rule.normal_best, rule.normal_accuracy))))
+            .then_some(false)
+        } else {
+            // Early: the strict rule's few bars; else normal: more bars,
+            // a lower floor.
+            let early = start_of(rule.up_bars);
+            let normal = start_of(rule.normal_bars);
+            if clean(early) && accurate(early, 2, rule.accuracy) {
+                Some(true)
+            } else if rule.normal_bars > 0
+                && clean(normal)
+                && accurate(normal, rule.normal_best, rule.normal_accuracy)
+            {
+                Some(false)
+            } else {
+                None
+            }
+        };
+        self.best_taps.retain(|&(t, _)| t >= kept);
+        if let Some(early) = up {
+            self.step_up(b, early);
         }
     }
 
@@ -1277,17 +1311,17 @@ impl Player {
         } else if self.clean_from.is_none() {
             self.clean_from = Some(ev.song_time);
         }
-        // Each tap, and whether it was in the two best judgments (W0 or
-        // W1 where the ruleset has a W0, else W1 or W2), for
-        // `adaptive-v2`'s accuracy.
-        if self.rule.accuracy > 0.0
+        // Each tap, and its place among the ruleset's judgments (0: W0
+        // where the ruleset has one, else W1), for a step up's accuracy.
+        if (self.rule.accuracy > 0.0 || self.rule.normal_accuracy > 0.0)
             && let JudgeEventKind::Tap(j, delta) = ev.kind
         {
-            let best = match self.ruleset.judge.is_w0(j, delta) {
-                Some(_) => j == Judgement::W1,
-                None => matches!(j, Judgement::W1 | Judgement::W2),
+            let rank = match self.ruleset.judge.is_w0(j, delta) {
+                Some(true) => 0,
+                Some(false) => j.index() + 1,
+                None => j.index(),
             };
-            self.best_taps.push((ev.song_time, best));
+            self.best_taps.push((ev.song_time, u8::try_from(rank).unwrap_or(u8::MAX)));
         }
     }
 

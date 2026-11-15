@@ -1,8 +1,9 @@
 //! Adaptive charts: stepping down and up a song's ladder (a multiplayer
 //! match's rule "Charts: Adaptive", `docs/plans/multiplayer-prototype-progress.md`,
-//! "Adaptive charts"). PROVISIONAL, named: [`ADAPTIVE_V2`] (what is
+//! "Adaptive charts"). PROVISIONAL, named: [`ADAPTIVE_V3`] (what is
 //! played, [`ADAPTIVE`]; `adaptive-v0` and `adaptive-v1` were retired on
-//! 2026-11-14).
+//! 2026-11-14, `adaptive-v2` on 2026-11-15: v3's early step up is v2's
+//! step up exactly).
 //!
 //! A stage's **ladder** is the other charts of its song in the stage
 //! chart's style, easier ([`below`]) and harder ([`above`]); everyone
@@ -13,13 +14,16 @@
 //! until the boundary, nothing lost or gained in it); their life is
 //! given back to a share and cannot drop below one point until the
 //! boundary. On the lowest rung zero life is out as ever. A competitor
-//! who held full life for [`AdaptiveRule::up_bars`] bars with no miss and
-//! no shock stepped on moves to the next harder rung from the next
-//! boundary, the old chart played up to it, life unchanged
-//! ([`AdaptiveRule::return_bars`] to go back up to a rung whose life ran
-//! out, and never again to one whose life ran out
-//! [`AdaptiveRule::closed_after`] times: the rung is closed to them for
-//! the rest of the stage).
+//! who held full life with no miss and no shock stepped on moves to the
+//! next harder rung from the next boundary, the old chart played up to
+//! it, life unchanged: early, after [`AdaptiveRule::up_bars`] bars nearly
+//! all in the two best judgments ([`AdaptiveRule::accuracy`]), or after
+//! the longer [`AdaptiveRule::normal_bars`] with
+//! [`AdaptiveRule::normal_accuracy`] in the
+//! [`AdaptiveRule::normal_best`] best ([`AdaptiveRule::return_bars`] to
+//! go back up to a rung whose life ran out, and never again to one whose
+//! life ran out [`AdaptiveRule::closed_after`] times: the rung is closed
+//! to them for the rest of the stage).
 //!
 //! The play itself changes chart ([`crate::Player::add_rung`]): one
 //! player, one judge, its notes rebuilt at the step (the notes judged
@@ -46,20 +50,33 @@ pub struct AdaptiveRule {
     /// 100).
     pub floor: f32,
     /// The bars of full life, with no miss and no shock stepped on, that
-    /// earn a step up (counted from the last step's boundary); 0 never
-    /// steps up.
+    /// earn an early step up (counted from the last step's boundary), with
+    /// [`AdaptiveRule::accuracy`]; 0 never steps up.
     pub up_bars: u32,
+    /// The bars of full life, with no miss and no shock stepped on, that
+    /// earn a normal step up, with [`AdaptiveRule::normal_accuracy`]; 0
+    /// has none (the early step up alone).
+    pub normal_bars: u32,
+    /// The least share of the taps judged in a normal step up's bars in
+    /// the ruleset's [`AdaptiveRule::normal_best`] best judgments; 0 asks
+    /// nothing of them.
+    pub normal_accuracy: f64,
+    /// How many of the ruleset's best judgments
+    /// [`AdaptiveRule::normal_accuracy`] counts (3: W0, W1 or W2 under
+    /// DDI).
+    pub normal_best: u8,
     /// The bars it takes instead to step back up to a rung whose life
-    /// ran out (the hysteresis that keeps anyone from bouncing).
+    /// ran out (the hysteresis that keeps anyone from bouncing), early or
+    /// normal: with either's accuracy over them.
     pub return_bars: u32,
     /// The times life may run out on a rung before it is closed to the
     /// competitor for the rest of the stage (never stepped up to again,
     /// nor past it); 0 never closes one.
     pub closed_after: u32,
-    /// The least share of the taps judged in the bars that earn a step up
-    /// (first time or back) that must be in the ruleset's two best
-    /// judgments (W0 or W1 under DDI; W1 or W2 where a ruleset has no
-    /// W0); 0 asks nothing of them. Bars without a tap ask nothing.
+    /// The least share of the taps judged in the bars that earn an early
+    /// step up that must be in the ruleset's two best judgments (W0 or W1
+    /// under DDI; W1 or W2 where a ruleset has no W0); 0 asks nothing of
+    /// them. Bars without a tap ask nothing.
     pub accuracy: f64,
     /// The seconds past the reading horizon a step down's boundary is at
     /// least (the breather: life held at [`AdaptiveRule::floor`] until
@@ -67,39 +84,56 @@ pub struct AdaptiveRule {
     pub down_lead: f64,
 }
 
-/// `adaptive-v2` (PROVISIONAL; follow-up round F, the maintainer's of
-/// 2026-11-14): half the life back (the start's) at a step down, the
-/// boundary the next bar line at least the reading horizon ahead, life
-/// kept at one point or more until then; a step up after four bars (16
-/// beats) of full life without a miss or a shock stepped on, with
-/// [`ADAPTIVE_ACCURACY_V2`] of the taps in its bars in the two best
-/// judgments, from the next bar line at least the reading horizon and a
-/// second ahead; sixteen bars back up to a rung whose life ran out, and a
-/// rung closed once life ran out on it twice (`adaptive-v1`, the
-/// maintainer, 2026-11-14: "after stepping down from a chart the barrier
-/// to step up should be higher than it originally is, and if you manage
-/// to step up and end up stepping down, you can't step up again"): the
-/// worst a stage can bounce is down, up once after the higher barrier,
-/// down, and there they stay. Every rung's score as earned.
-pub const ADAPTIVE_V2: AdaptiveRule = AdaptiveRule {
-    name: "adaptive-v2",
+/// `adaptive-v3` (PROVISIONAL; feedback round H, the maintainer's of
+/// 2026-11-15: "a strict criteria for an early step up, and a less strict
+/// one for a normal step up"): half the life back (the start's) at a step
+/// down, the boundary the next bar line at least the reading horizon
+/// ahead, life kept at one point or more until then; a step up from the
+/// next bar line at least the reading horizon and a second ahead, after
+/// full life without a miss, a hold let go or a mine or shock stepped on
+/// for either
+/// - **early**: four bars (16 beats) with [`ADAPTIVE_EARLY_ACCURACY_V3`]
+///   of their taps in the two best judgments (`adaptive-v2`'s step up
+///   exactly), or
+/// - **normal**: [`ADAPTIVE_NORMAL_BARS_V3`] bars with
+///   [`ADAPTIVE_NORMAL_ACCURACY_V3`] of their taps in the three best;
+///
+/// sixteen bars back up to a rung whose life ran out, by either's
+/// accuracy over them, and a rung closed once life ran out on it twice
+/// (`adaptive-v1`, the maintainer, 2026-11-14: "after stepping down from
+/// a chart the barrier to step up should be higher than it originally
+/// is, and if you manage to step up and end up stepping down, you can't
+/// step up again"). Every rung's score as earned. The values measured in
+/// `docs/plans/multiplayer-prototype-progress.md`, "Feedback round H".
+pub const ADAPTIVE_V3: AdaptiveRule = AdaptiveRule {
+    name: "adaptive-v3",
     life: 0.5,
     lead: 1.0,
     bar_beats: 4,
     floor: 0.01,
     up_bars: 4,
+    normal_bars: ADAPTIVE_NORMAL_BARS_V3,
+    normal_accuracy: ADAPTIVE_NORMAL_ACCURACY_V3,
+    normal_best: 3,
     return_bars: 16,
     closed_after: 2,
-    accuracy: ADAPTIVE_ACCURACY_V2,
+    accuracy: ADAPTIVE_EARLY_ACCURACY_V3,
     down_lead: 0.0,
 };
 
-/// PROVISIONAL (`adaptive-v2`): the share of a step up's taps in the two
-/// best judgments, 95%.
-pub const ADAPTIVE_ACCURACY_V2: f64 = 0.95;
+/// PROVISIONAL (`adaptive-v3`): an early step up's share of its taps in
+/// the two best judgments, 95% (`adaptive-v2`'s).
+pub const ADAPTIVE_EARLY_ACCURACY_V3: f64 = 0.95;
 
-/// The rule a stage plays ([`ADAPTIVE_V2`]).
-pub const ADAPTIVE: AdaptiveRule = ADAPTIVE_V2;
+/// PROVISIONAL (`adaptive-v3`): the bars of a normal step up.
+pub const ADAPTIVE_NORMAL_BARS_V3: u32 = 8;
+
+/// PROVISIONAL (`adaptive-v3`): a normal step up's share of its taps in
+/// the three best judgments.
+pub const ADAPTIVE_NORMAL_ACCURACY_V3: f64 = 0.80;
+
+/// The rule a stage plays ([`ADAPTIVE_V3`]).
+pub const ADAPTIVE: AdaptiveRule = ADAPTIVE_V3;
 
 /// One step of a play from a rung to the next ([`crate::Results::steps`]).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -130,6 +164,11 @@ pub struct Step {
     /// again in the stage.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub closes: bool,
+    /// A step up earned early ([`AdaptiveRule::up_bars`] with
+    /// [`AdaptiveRule::accuracy`]); a normal one, or a step back up to a
+    /// rung whose life ran out, otherwise.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub early: bool,
 }
 
 /// A stage's ladder: the stage's chart and its rungs either way, each
@@ -419,28 +458,33 @@ mod tests {
         assert!((at - 12.0).abs() < 1e-9);
     }
 
-    /// `adaptive-v2`'s step down: the next bar line at least the horizon
-    /// ahead, without the extra second (a bar sooner here); its step up
-    /// keeps the second.
+    /// `adaptive-v3`'s step down: the next bar line at least the horizon
+    /// ahead, without the extra second (`adaptive-v2`'s); its step up
+    /// keeps the second. Its values, by name.
     #[test]
-    fn a_v2_step_downs_breather_has_no_extra_second() {
+    fn a_step_downs_breather_has_no_extra_second() {
         let timing = TimingMap::constant(120.0, 0.0);
-        assert_eq!(ADAPTIVE_V2.down_lead, 0.0);
+        assert_eq!(ADAPTIVE_V3.down_lead, 0.0);
         // 11.5 s: beat 23, the bar line at 12 s; with the second, 14 s.
-        let (_, at) = ADAPTIVE_V2.boundary(true, &timing, 10.0, 1.5);
+        let (_, at) = ADAPTIVE_V3.boundary(true, &timing, 10.0, 1.5);
         assert!((at - 12.0).abs() < 1e-9);
-        let (_, at) = ADAPTIVE_V2.boundary(false, &timing, 10.0, 1.5);
+        let (_, at) = ADAPTIVE_V3.boundary(false, &timing, 10.0, 1.5);
         assert!((at - 14.0).abs() < 1e-9);
-        assert_eq!(ADAPTIVE, ADAPTIVE_V2);
-        assert_eq!(ADAPTIVE_V2.name, "adaptive-v2");
+        assert_eq!(ADAPTIVE, ADAPTIVE_V3);
+        assert_eq!(ADAPTIVE_V3.name, "adaptive-v3");
         assert_eq!(
-            (ADAPTIVE_V2.life, ADAPTIVE_V2.floor, ADAPTIVE_V2.bar_beats),
+            (ADAPTIVE_V3.life, ADAPTIVE_V3.floor, ADAPTIVE_V3.bar_beats),
             (0.5, 0.01, 4)
         );
         assert_eq!(
-            (ADAPTIVE_V2.up_bars, ADAPTIVE_V2.return_bars, ADAPTIVE_V2.closed_after),
+            (ADAPTIVE_V3.up_bars, ADAPTIVE_V3.return_bars, ADAPTIVE_V3.closed_after),
             (4, 16, 2)
         );
-        assert_eq!(ADAPTIVE_V2.accuracy, 0.95);
+        // The early step up is `adaptive-v2`'s.
+        assert_eq!(ADAPTIVE_V3.accuracy, 0.95);
+        assert_eq!(
+            (ADAPTIVE_V3.normal_bars, ADAPTIVE_V3.normal_accuracy, ADAPTIVE_V3.normal_best),
+            (ADAPTIVE_NORMAL_BARS_V3, ADAPTIVE_NORMAL_ACCURACY_V3, 3)
+        );
     }
 }

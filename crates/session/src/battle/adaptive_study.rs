@@ -1,4 +1,4 @@
-//! Opt-in study: the match rule "Charts: Adaptive" (`adaptive-v2`,
+//! Opt-in study: the match rule "Charts: Adaptive" (`adaptive-v3`,
 //! `ddi_engine::ladder`;
 //! `docs/plans/multiplayer-prototype-progress.md`, "Adaptive charts" and
 //! "Feedback round D").
@@ -17,8 +17,9 @@
 //!    rung (`placement-v2`);
 //! 3. stages of ten CPUs, one at each level, attacks on, from every Medium
 //!    and Hard pick with a ladder (every `DDI_STEP_EVERY`th, 1), under DDI
-//!    Normal and Hard, each As picked and Adaptive (`adaptive-v2`; the
-//!    study compared `adaptive-v1` too, retired since), seeded
+//!    Normal and Hard, each As picked and Adaptive (`adaptive-v3`; the
+//!    study compared `adaptive-v1` and `adaptive-v2` too, retired since;
+//!    [`adaptive_step_up_study`] compares v3's step up against v2's), seeded
 //!    (`DDI_STEP_SEEDS`, 2): by level, where it finished (its rung from the pick), its steps up and down, how
 //!    often it goes out and bounces (down from a rung, up to it again,
 //!    down again; and that twice), its place and its score, against As
@@ -195,9 +196,16 @@ struct Seated {
     /// Each step up: the share of the two best judgments in the four
     /// bars before it, and whether it later fell back from that rung.
     ups: Vec<(f64, bool)>,
+    /// Its steps up that fell back down from that rung within sixteen
+    /// bars of their boundary.
+    bounce16: u32,
+    /// The beat of its first step up, if any.
+    first_up: Option<f64>,
+    /// The song seconds it played on each place from the pick (-4..=4).
+    secs: [f64; 9],
 }
 
-/// The rules compared: As picked, and Adaptive under `adaptive-v2`
+/// The rules compared: As picked, and Adaptive under `adaptive-v3`
 /// (`adaptive-v0` was compared in feedback round D, `adaptive-v1` in
 /// follow-up round F; both retired since).
 const RULES: usize = 2;
@@ -304,9 +312,63 @@ fn stage(
                 place: place_of(s.seat.participant),
                 score: b.cpu_detail(i).score.unwrap_or(0),
                 ups: up_quality(s.opponent.player(), s.opponent.player().steps()),
+                bounce16: bounces_within(s.opponent.player(), 16.0),
+                first_up: {
+                    let p = s.opponent.player();
+                    p.steps().iter().find(|st| st.up).map(|st| p.timing().beat_at(st.at))
+                },
+                secs: seconds_on(s.opponent.player(), below),
             })
             .collect(),
     )
+}
+
+/// The steps up of `player` that fell back down from their rung within
+/// `bars` bars of their boundary.
+fn bounces_within(player: &ddi_engine::Player, bars: f64) -> u32 {
+    let steps = player.steps();
+    let timing = player.timing();
+    steps
+        .iter()
+        .enumerate()
+        .filter(|(i, up)| {
+            up.up
+                && steps[i + 1..].iter().any(|d| {
+                    !d.up
+                        && d.from == up.rung
+                        && timing.beat_at(d.at) - timing.beat_at(up.boundary) <= 4.0 * bars
+                })
+        })
+        .count() as u32
+}
+
+/// The song seconds `player` played on each place from the pick (-4..=4,
+/// as [`place_index`]): from its first note to its end, each step's
+/// boundary changing the place.
+fn seconds_on(player: &ddi_engine::Player, below: usize) -> [f64; 9] {
+    let mut out = [0.0; 9];
+    let first = player
+        .judge()
+        .notes()
+        .iter()
+        .map(|n| n.seconds)
+        .fold(f64::INFINITY, f64::min)
+        .min(0.0);
+    let end = player.end_time();
+    let mut at = first;
+    let mut place = 0i8;
+    for s in player.steps() {
+        let b = s.boundary.min(end);
+        if b > at {
+            out[place_index(place)] += b - at;
+            at = b;
+        }
+        place = ddi_engine::ladder::level_of(below, s.rung);
+    }
+    if end > at {
+        out[place_index(place)] += end - at;
+    }
+    out
 }
 
 /// Whether a play bounced twice on one rung: left it down three times.
@@ -492,13 +554,13 @@ fn report(name: &str, t: &Tally, started: std::time::Instant) {
         for (d, name) in ["Normal", "Hard"].iter().enumerate() {
             let pairs = |r: usize| 100.0 * t.pairs[p][d][r].1 as f64 / t.pairs[p][d][r].0.max(1) as f64;
             println!(
-                "picked {pick}, DDI {name}, ten CPUs (one a level), attacks on: {} stages a rule; stronger above weaker: as picked {:.1}%, adaptive-v2 {:.1}%",
+                "picked {pick}, DDI {name}, ten CPUs (one a level), attacks on: {} stages a rule; stronger above weaker: as picked {:.1}%, adaptive {:.1}%",
                 t.stages[p][d],
                 pairs(0),
                 pairs(1),
             );
             println!(
-                "  level | as picked: out%  place  score     | v2: out%  place  score     ups  downs  bounce% twice% | v2 finished -4..+4 %"
+                "  level | as picked: out%  place  score     | adaptive: out%  place  score     ups  downs  bounce% twice% | adaptive finished -4..+4 %"
             );
             for l in 0..10 {
                 let (o, s) = (t.levels[p][d][0][l], t.levels[p][d][1][l]);
@@ -595,7 +657,7 @@ fn adaptive_study() {
         song_files(&dir, &mut files);
     }
     files.sort();
-    let workers = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get().min(4));
     let chunk = files.len().div_ceil(workers).max(1);
     let parts: Vec<(Tally, u32)> = std::thread::scope(|scope| {
         let handles: Vec<_> = files
@@ -701,3 +763,234 @@ fn adaptive_cost_of_72_cpus() {
     }
 }
 
+
+/// `adaptive-v3`'s candidates (feedback round H): `adaptive-v2` (the early
+/// step up alone) and normal steps up of other bars and floors beside it,
+/// each `(name, bars, share, best)`.
+const CANDIDATES: [(&str, u32, f64, u8); 9] = [
+    ("v2 (early alone)", 0, 0.0, 3),
+    ("10 bars, 80% in 3 best", 10, 0.80, 3),
+    ("12 bars, 80% in 3 best", 12, 0.80, 3),
+    ("8 bars, no floor", 8, 0.0, 3),
+    ("8 bars, 80% in 3 best", 8, 0.80, 3),
+    ("8 bars, 90% in 3 best", 8, 0.90, 3),
+    ("6 bars, 85% in 3 best", 6, 0.85, 3),
+    ("12 bars, no floor", 12, 0.0, 3),
+    ("8 bars, 70% in 2 best", 8, 0.70, 2),
+];
+
+fn candidate(k: usize) -> ddi_engine::ladder::AdaptiveRule {
+    let (_, bars, share, best) = CANDIDATES[k];
+    ddi_engine::ladder::AdaptiveRule {
+        normal_bars: bars,
+        normal_accuracy: share,
+        normal_best: best,
+        ..ddi_engine::ladder::ADAPTIVE
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct UpSum {
+    stages: u32,
+    out: u32,
+    ups: u32,
+    early: u32,
+    downs: u32,
+    bounce16: u32,
+    finished: [u32; 9],
+    secs: [f64; 9],
+    first_up: f64,
+    climbed: u32,
+}
+
+impl UpSum {
+    fn add(&mut self, o: &UpSum) {
+        self.stages += o.stages;
+        self.out += o.out;
+        self.ups += o.ups;
+        self.early += o.early;
+        self.downs += o.downs;
+        self.bounce16 += o.bounce16;
+        for k in 0..9 {
+            self.finished[k] += o.finished[k];
+            self.secs[k] += o.secs[k];
+        }
+        self.first_up += o.first_up;
+        self.climbed += o.climbed;
+    }
+}
+
+/// By the pick's slot, the candidate and the level.
+type UpTally = Vec<[[UpSum; 10]; CANDIDATES.len()]>;
+
+fn up_tally() -> UpTally {
+    vec![[[UpSum::default(); 10]; CANDIDATES.len()]; 6]
+}
+
+fn add_up(t: &mut UpTally, o: &UpTally) {
+    for s in 0..6 {
+        for c in 0..CANDIDATES.len() {
+            for l in 0..10 {
+                let b = o[s][c][l];
+                t[s][c][l].add(&b);
+            }
+        }
+    }
+}
+
+/// Every candidate on every dance-single chart of `song` with a ladder
+/// (every `every`th of the local corpus's), ten CPUs one a level, DDI
+/// Normal, attacks on, `seeds` seeds.
+#[allow(clippy::needless_range_loop)]
+fn study_ups(song: &Song, bundled: bool, every: usize, seeds: u64, counter: &mut usize) -> UpTally {
+    let mut t = up_tally();
+    for (index, chart) in song.charts.iter().enumerate() {
+        if chart.layout != "dance-single" || chart.derivation.is_some() || chart.notes.is_empty() {
+            continue;
+        }
+        let slot = SLOTS.iter().position(|d| *d == chart.difficulty).unwrap_or(5);
+        if ddi_engine::ladder::Ladder::of(song, index).is_empty() {
+            continue;
+        }
+        *counter += 1;
+        if !bundled && !(*counter - 1).is_multiple_of(every) {
+            continue;
+        }
+        for seed in 1..=seeds {
+            for c in 0..CANDIDATES.len() {
+                let Some(seats) = stage(song, index, MatchDifficulty::Normal, Charts::Adaptive, candidate(c), seed)
+                else {
+                    continue;
+                };
+                for s in seats {
+                    let u = &mut t[slot][c][s.level.min(9)];
+                    u.stages += 1;
+                    u.out += u32::from(s.out);
+                    u.ups += s.steps.iter().filter(|st| st.up).count() as u32;
+                    u.early += s.steps.iter().filter(|st| st.up && st.early).count() as u32;
+                    u.downs += s.steps.iter().filter(|st| !st.up).count() as u32;
+                    u.bounce16 += s.bounce16;
+                    let rung = s.steps.last().map_or(0, |st| st.rung);
+                    u.finished[place_index(ddi_engine::ladder::level_of(s.below, rung))] += 1;
+                    for k in 0..9 {
+                        u.secs[k] += s.secs[k];
+                    }
+                    if let Some(b) = s.first_up {
+                        u.first_up += b / 4.0;
+                        u.climbed += 1;
+                    }
+                }
+            }
+        }
+    }
+    t
+}
+
+#[allow(clippy::needless_range_loop)]
+fn report_ups(name: &str, t: &UpTally, started: std::time::Instant) {
+    println!("== {name}: step ups by candidate (DDI Normal, ten CPUs one a level, attacks on)");
+    for (s, d) in SLOTS.iter().enumerate() {
+        if t[s][0].iter().all(|u| u.stages == 0) {
+            continue;
+        }
+        println!("-- picked {} ({} stages a candidate)", d.name(), t[s][0][0].stages);
+        for (c, (cname, ..)) in CANDIDATES.iter().enumerate() {
+            println!("  {cname}");
+            println!(
+                "    level | ups (early) downs | bounce16 % of ups | out % | finished -1 / 0 / +1 / +2 % | time below / on / above % | first up, bar (climbed %)"
+            );
+            for l in 0..10 {
+                let u = t[s][c][l];
+                let n = f64::from(u.stages.max(1));
+                let pct = |x: u32| 100.0 * f64::from(x) / n;
+                let total: f64 = u.secs.iter().sum::<f64>().max(1e-9);
+                let below: f64 = u.secs[..4].iter().sum();
+                let above: f64 = u.secs[5..].iter().sum();
+                println!(
+                    "    {:>5} | {:4.2} ({:4.2}) {:4.2} | {:5.1} | {:5.1} | {:5.1} {:5.1} {:5.1} {:5.1} | {:5.1} {:5.1} {:5.1} | {:6.1} ({:5.1})",
+                    l + 1,
+                    f64::from(u.ups) / n,
+                    f64::from(u.early) / n,
+                    f64::from(u.downs) / n,
+                    100.0 * f64::from(u.bounce16) / f64::from(u.ups.max(1)),
+                    pct(u.out),
+                    pct(u.finished[3]),
+                    pct(u.finished[4]),
+                    pct(u.finished[5]),
+                    pct(u.finished[6] + u.finished[7] + u.finished[8]),
+                    100.0 * below / total,
+                    100.0 * u.secs[4] / total,
+                    100.0 * above / total,
+                    if u.climbed > 0 { u.first_up / f64::from(u.climbed) } else { 0.0 },
+                    pct(u.climbed),
+                );
+            }
+        }
+    }
+    println!("  ({:.0} s so far)", started.elapsed().as_secs_f64());
+}
+
+/// Feedback round H: `adaptive-v2`'s step up against `adaptive-v3`'s
+/// candidates, from every slot. `cargo test --release -p ddi-session
+/// --lib adaptive_step_up_study -- --ignored --nocapture`, with
+/// `DDI_STEP_CORPUS`, `DDI_STEP_EVERY` and `DDI_STEP_SEEDS` (1) as
+/// [`adaptive_study`]'s. Aggregates only, never a song's name.
+#[test]
+#[ignore = "a study: prints what each step up candidate does over the bundled songs and a local corpus"]
+fn adaptive_step_up_study() {
+    let every: usize = std::env::var("DDI_STEP_EVERY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1)
+        .max(1);
+    let seeds: u64 = std::env::var("DDI_STEP_SEEDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+    let started = std::time::Instant::now();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs");
+    let mut files = Vec::new();
+    song_files(&dir, &mut files);
+    let mut bundled = up_tally();
+    let mut counter = 0;
+    for f in &files {
+        if let Some(song) = read(f) {
+            add_up(&mut bundled, &study_ups(&song, true, every, seeds, &mut counter));
+        }
+    }
+    report_ups("the bundled songs", &bundled, started);
+    let Some(dirs) = std::env::var_os("DDI_STEP_CORPUS") else {
+        return;
+    };
+    let mut files = Vec::new();
+    for dir in std::env::split_paths(&dirs) {
+        song_files(&dir, &mut files);
+    }
+    files.sort();
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get().min(4));
+    let chunk = files.len().div_ceil(workers).max(1);
+    let parts: Vec<UpTally> = std::thread::scope(|scope| {
+        let handles: Vec<_> = files
+            .chunks(chunk)
+            .map(|files| {
+                scope.spawn(move || {
+                    let mut t = up_tally();
+                    let mut counter = 0;
+                    for f in files {
+                        if let Some(song) = read(f) {
+                            add_up(&mut t, &study_ups(&song, false, every, seeds, &mut counter));
+                        }
+                    }
+                    t
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let mut total = up_tally();
+    for t in &parts {
+        add_up(&mut total, t);
+    }
+    println!("({} song files)", files.len());
+    report_ups("the local corpus", &total, started);
+}
