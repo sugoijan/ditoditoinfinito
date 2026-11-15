@@ -410,6 +410,10 @@ room-invite-not-one = 招待リンクではありません。
 
 room-sign-in-waiting = ブラウザでTwitchのサインインを済ませてから、ここに戻ってください。
 
+room-sign-in-code = ブラウザで開いたページに、このコードを入力してください：{ $code }
+
+room-sign-in-too-many-codes = ブラウザで間違ったコードが何度も入力されたため、サインインは終了しました。「もう一度」で新しいコードが表示されます。
+
 room-sign-in-again-browser = もう一度ブラウザを開く
 room-sign-in-cancel = キャンセル
 

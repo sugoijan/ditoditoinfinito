@@ -94,6 +94,21 @@ fn account_block(online: &Online) -> Block {
     )
 }
 
+/// Desktop's attempt's code, to type in the page the browser opened
+/// (the server's confirmation page: nothing goes to Twitch without it).
+pub fn sign_in_code(code: &str) -> UiText {
+    m::sign_in_code(UiText::data(api::grouped_code(code)))
+}
+
+/// A failed sign-in, worded: wrong codes typed in the browser's page
+/// said as such, any other reason by its code.
+pub fn sign_in_failed(code: &str) -> UiText {
+    match code {
+        api::TOO_MANY_CODES => m::sign_in_too_many_codes(),
+        code => m::sign_in_failed(UiText::data(code)),
+    }
+}
+
 /// Signing in, where it stands (nothing when idle); `retry` offers Try
 /// again after a cancel or a failure (an invite's page has its own Join).
 fn sign_in_blocks(online: &Online, blocks: &mut Vec<Block>, retry: bool) {
@@ -102,7 +117,10 @@ fn sign_in_blocks(online: &Online, blocks: &mut Vec<Block>, retry: bool) {
         SignIn::Starting { .. } | SignIn::Completing { .. } => {
             blocks.push(Block::Note(m::sign_in_completing().into()));
         }
-        SignIn::Waiting { .. } => {
+        SignIn::Waiting { code, .. } => {
+            if let Some(code) = code {
+                blocks.push(Block::Note(sign_in_code(code).into()));
+            }
             blocks.push(Block::Note(m::sign_in_waiting().into()));
             blocks.push(Block::Actions(vec![
                 Action::new("browser", m::sign_in_again_browser()),
@@ -119,7 +137,7 @@ fn sign_in_blocks(online: &Online, blocks: &mut Vec<Block>, retry: bool) {
             }
         }
         SignIn::Failed { code, .. } => {
-            blocks.push(Block::Note(m::sign_in_failed(UiText::data(code)).into()));
+            blocks.push(Block::Note(sign_in_failed(code).into()));
             if retry {
                 blocks.push(Block::Actions(vec![Action::new(
                     "retry",

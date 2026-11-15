@@ -130,10 +130,15 @@ fn desktop_signs_in_through_an_attempt_then_makes_the_room() {
         Platform::Desktop,
         Box::new(move |req| match (req.method, req.path.as_str()) {
             (Method::Post, "/auth/attempts") => {
-                assert_eq!(req.body.as_deref(), Some(r#"{"return":"/mp"}"#));
+                // This build shows the attempt's code (a server refuses
+                // one that does not).
+                assert_eq!(
+                    req.body.as_deref(),
+                    Some(r#"{"return":"/mp","shows_code":true}"#)
+                );
                 Some(ApiResponse {
                     status: 201,
-                    body: r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"http://api/auth/attempts/a1/open","expires_at_ms":9}"#.into(),
+                    body: r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"http://api/auth/attempts/a1/open","user_code":"ABC234","expires_at_ms":9}"#.into(),
                     session: None,
                 })
             }
@@ -185,7 +190,12 @@ fn desktop_signs_in_through_an_attempt_then_makes_the_room() {
         Some(Redirect::Browser("http://api/auth/attempts/a1/open".into()))
     );
     assert_eq!(o.take_redirect(), None);
-    assert!(matches!(o.sign_in_state(), SignIn::Waiting { .. }));
+    // The code the page asks for, shown while waiting.
+    assert!(matches!(
+        o.sign_in_state(),
+        SignIn::Waiting { code: Some(c), .. } if c == "ABC234"
+    ));
+    assert_eq!(crate::state::online::api::grouped_code("ABC234"), "ABC-234");
     // Open again: the same attempt's page.
     o.open_browser_again();
     assert!(matches!(o.take_redirect(), Some(Redirect::Browser(_))));
@@ -261,6 +271,14 @@ fn a_canceled_attempt_signs_nobody_in_and_failures_keep_the_destination() {
     // The server's own ends of an attempt.
     for (status, expect) in [
         (r#"{"status":"canceled"}"#, "canceled"),
+        // Ended by wrong codes in the browser's page: a failure of its
+        // own, Try again a new attempt (and code).
+        (
+            r#"{"status":"canceled","reason":"too_many_codes"}"#,
+            "too_many_codes",
+        ),
+        // An unknown reason is a plain cancel.
+        (r#"{"status":"canceled","reason":"other"}"#, "canceled"),
         (r#"{"status":"expired"}"#, "attempt_expired"),
         (r#"{"status":"claimed"}"#, "attempt_claimed"),
     ] {

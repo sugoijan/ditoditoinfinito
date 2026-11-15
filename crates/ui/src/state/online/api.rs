@@ -349,9 +349,29 @@ pub struct AttemptDoc {
     pub attempt_id: String,
     pub poll_secret: String,
     pub open_url: String,
+    /// The code the person types in the page `open_url` opens (since
+    /// 2026-11-15: nothing goes to Twitch without it), shown grouped
+    /// ([`grouped_code`]). None from a server that predates it.
+    #[serde(default)]
+    pub user_code: Option<String>,
     #[serde(default)]
     pub expires_at_ms: i64,
 }
+
+/// An attempt's code as the desktop shows it: `ABC-DEF`.
+pub fn grouped_code(code: &str) -> String {
+    let split = code.char_indices().nth(3).map_or(code.len(), |(i, _)| i);
+    let (a, b) = code.split_at(split);
+    if b.is_empty() {
+        a.to_string()
+    } else {
+        format!("{a}-{b}")
+    }
+}
+
+/// Why a poll answers `canceled` where the server ended the attempt:
+/// too many wrong codes were typed in the page.
+pub const TOO_MANY_CODES: &str = "too_many_codes";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -369,6 +389,9 @@ pub struct AttemptPoll {
     pub status: AttemptStatus,
     #[serde(default)]
     pub session_token: Option<String>,
+    /// Why it was canceled, where the server ended it ([`TOO_MANY_CODES`]).
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 pub fn me() -> ApiRequest {
@@ -385,8 +408,11 @@ pub fn login_path(route: &str) -> String {
     format!("/auth/twitch/login?return={}", percent_encode(route))
 }
 
+/// Desktop's attempt; `shows_code`: this build shows the attempt's code
+/// (a server refuses a client that does not, `update_required`).
 pub fn new_attempt(route: &str) -> ApiRequest {
-    ApiRequest::new(Method::Post, "/auth/attempts").json(serde_json::json!({ "return": route }))
+    ApiRequest::new(Method::Post, "/auth/attempts")
+        .json(serde_json::json!({ "return": route, "shows_code": true }))
 }
 
 pub fn poll_attempt(id: &str, secret: &str) -> ApiRequest {

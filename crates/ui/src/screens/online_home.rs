@@ -574,8 +574,11 @@ impl SignInDialog {
             SignIn::Starting { .. } | SignIn::Completing { .. } => {
                 (vec![m::sign_in_completing().into()], vec![cancel])
             }
-            SignIn::Waiting { .. } => (
-                vec![m::sign_in_waiting().into()],
+            SignIn::Waiting { code, .. } => (
+                code.iter()
+                    .map(|c| super::online::sign_in_code(c).into())
+                    .chain([m::sign_in_waiting().into()])
+                    .collect(),
                 vec![
                     cancel,
                     ("Browser", m::sign_in_again_browser().into(), "Button"),
@@ -586,7 +589,7 @@ impl SignInDialog {
                 vec![cancel, ("Retry", m::sign_in_retry().into(), "PlayButton")],
             ),
             SignIn::Failed { dest, code } => (
-                vec![m::sign_in_failed(UiText::data(code)).into(), intro(dest)],
+                vec![super::online::sign_in_failed(code).into(), intro(dest)],
                 vec![cancel, ("Retry", m::sign_in_retry().into(), "PlayButton")],
             ),
         }

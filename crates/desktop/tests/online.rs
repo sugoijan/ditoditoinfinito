@@ -18,7 +18,9 @@ use std::time::{Duration, Instant};
 
 use ddi_desktop::online::{SocketTransport, ThreadHttp};
 use ddi_room::{ClientId, LinkState};
-use ddi_ui::state::online::{Dest, Online, OnlineConfig, Platform, Redirect, SharedOnline};
+use ddi_ui::state::online::{
+    Dest, Online, OnlineConfig, Platform, Redirect, SharedOnline, SignIn,
+};
 use ddi_ui::state::room::RoomClient;
 
 fn api() -> Option<String> {
@@ -62,23 +64,50 @@ fn until(online: &SharedOnline, mut done: impl FnMut(&mut Online) -> bool) {
     }
 }
 
-/// What the system browser does with the attempt's page: on to the
-/// development provider as `user`, back to the server's callback, with
-/// the sign-in's binding cookie.
-fn browser(url: &str, user: &str) {
+/// What the system browser and the person do with the attempt's page
+/// (since 2026-11-15): the page asks for the code the app shows (and
+/// leads nowhere by itself); a post from another origin is refused; a
+/// wrong code is counted; the code typed as shown, posted from the page's
+/// own origin, goes on to the development provider as `user` and back to
+/// the server's callback, with the sign-in's binding cookie.
+fn browser(url: &str, code: &str, user: &str) {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .max_redirects(0)
         .http_status_as_error(false)
         .build()
         .into();
+    let mut page = agent.get(url).call().expect("the server answers");
+    assert_eq!(page.status().as_u16(), 200, "the attempt's page");
+    assert!(page.headers().get("location").is_none(), "never on by itself");
+    let text = page.body_mut().read_to_string().unwrap();
+    assert!(text.contains("action=confirm"), "{text}");
+    let confirm = format!("{}/confirm", url.trim_end_matches("/open"));
+    let origin = {
+        let (scheme, rest) = url.split_once("://").unwrap();
+        format!("{scheme}://{}", rest.split('/').next().unwrap())
+    };
+    let post = |origin: &str, form: &str| {
+        agent
+            .post(&confirm)
+            .header("origin", origin)
+            .content_type("application/x-www-form-urlencoded")
+            .send(form.to_string())
+            .expect("the server answers")
+    };
+    // Another site's form: refused before the attempt is read.
+    let r = post("http://192.0.2.7", &format!("code={code}&action=continue"));
+    assert_eq!(r.status().as_u16(), 403, "a cross-origin confirm");
+    // A wrong code: the page again, counted.
+    let mut r = post(&origin, "code=ZZZ-ZZZ&action=continue");
+    assert_eq!(r.status().as_u16(), 400, "a wrong code");
+    assert!(r.body_mut().read_to_string().unwrap().contains("4 more tries"));
+    // The code as the app shows it, typed in lower case.
+    let shown = ddi_ui::state::online::api::grouped_code(code).to_lowercase();
+    let r = post(&origin, &format!("code={shown}&action=continue"));
     let mut cookie = String::new();
-    let mut next = url.to_string();
+    let mut next = None;
+    let mut r = r;
     for _ in 0..4 {
-        let mut req = agent.get(&next);
-        if !cookie.is_empty() {
-            req = req.header("cookie", &cookie);
-        }
-        let r = req.call().expect("the server answers");
         for c in r.headers().get_all("set-cookie") {
             let pair = c.to_str().unwrap().split(';').next().unwrap().to_string();
             if !pair.ends_with('=') {
@@ -87,19 +116,27 @@ fn browser(url: &str, user: &str) {
         }
         let Some(location) = r.headers().get("location") else {
             assert_eq!(r.status().as_u16(), 200, "the callback's page");
+            assert!(next.is_some(), "the confirmation led on");
             return;
         };
-        next = location.to_str().unwrap().to_string();
-        if next.contains("/auth/fake/authorize") {
-            next = format!("{next}&user={user}&name={user}");
+        let mut to = location.to_str().unwrap().to_string();
+        if to.contains("/auth/fake/authorize") {
+            assert!(to.contains("force_verify=true"), "{to}");
+            to = format!("{to}&user={user}&name={user}");
         }
+        next = Some(to.clone());
+        let mut req = agent.get(&to);
+        if !cookie.is_empty() {
+            req = req.header("cookie", &cookie);
+        }
+        r = req.call().expect("the server answers");
     }
     panic!("too many redirects");
 }
 
-/// Signs `online` in as `user` (for `dest`), the browser played.
-fn sign_in(online: &SharedOnline, user: &str, dest: Dest) {
-    online.borrow_mut().sign_in(dest);
+/// The browser's URL and the code the app shows, once it asked for an
+/// attempt.
+fn attempt_of(online: &SharedOnline) -> (String, String) {
     let mut url = None;
     until(online, |o| {
         if let Some(Redirect::Browser(u)) = o.take_redirect() {
@@ -107,7 +144,18 @@ fn sign_in(online: &SharedOnline, user: &str, dest: Dest) {
         }
         url.is_some()
     });
-    browser(&url.unwrap(), user);
+    let code = match online.borrow().sign_in_state() {
+        SignIn::Waiting { code: Some(c), .. } => c.clone(),
+        other => panic!("no code shown: {other:?}"),
+    };
+    (url.unwrap(), code)
+}
+
+/// Signs `online` in as `user` (for `dest`), the browser played.
+fn sign_in(online: &SharedOnline, user: &str, dest: Dest) {
+    online.borrow_mut().sign_in(dest);
+    let (url, code) = attempt_of(online);
+    browser(&url, &code, user);
 }
 
 fn connect(online: &SharedOnline, api: &str, room: &str, who: &str) -> RoomClient {
@@ -159,14 +207,8 @@ fn desktop_signs_in_makes_a_room_and_a_guest_joins_it() {
         !matches!(o.account(), ddi_ui::state::online::Account::Checking)
     });
     host.borrow_mut().private_room();
-    let mut url = None;
-    until(&host, |o| {
-        if let Some(Redirect::Browser(u)) = o.take_redirect() {
-            url = Some(u);
-        }
-        url.is_some()
-    });
-    browser(&url.unwrap(), &host_name);
+    let (url, code) = attempt_of(&host);
+    browser(&url, &code, &host_name);
     let mut room_id = None;
     until(&host, |o| {
         room_id = o.take_entered();

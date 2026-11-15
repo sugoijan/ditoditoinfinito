@@ -1348,7 +1348,7 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
         h.push(Home::new(env.clone(), r.online.clone(), quiet()));
         shown(&mut h, found);
     }
-    let attempt = r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"u","expires_at_ms":9}"#;
+    let attempt = r#"{"attempt_id":"a1","poll_secret":"s1","open_url":"u","user_code":"ABC234","expires_at_ms":9}"#;
     let r = rig(
         Platform::Desktop,
         Box::new(move |req| match req.path.as_str() {

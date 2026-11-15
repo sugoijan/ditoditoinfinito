@@ -98,12 +98,15 @@ pub enum SignIn {
     Starting {
         dest: Dest,
     },
-    /// Desktop: the system browser is on Twitch; the attempt is polled.
+    /// Desktop: the system browser is on the attempt's page, which asks
+    /// for `code` (shown grouped, `api::grouped_code`; none from a server
+    /// that predates codes); the attempt is polled.
     Waiting {
         dest: Dest,
         attempt: String,
         secret: String,
         open_url: String,
+        code: Option<String>,
     },
     /// Reading who signed in.
     Completing {
@@ -647,6 +650,7 @@ impl Online {
                             attempt: a.attempt_id,
                             secret: a.poll_secret,
                             open_url: a.open_url,
+                            code: a.user_code,
                         };
                     }
                     Err(p) => self.sign_in = SignIn::Failed { dest, code: p.code },
@@ -668,6 +672,16 @@ impl Online {
                             self.token = Some(token);
                             self.sign_in = SignIn::Completing { dest };
                             self.start(api::me(), Want::Me);
+                        }
+                        (AttemptStatus::Canceled, _)
+                            if p.reason.as_deref() == Some(api::TOO_MANY_CODES) =>
+                        {
+                            // Ended by wrong codes in the page: Try again
+                            // makes a new attempt with a new code.
+                            self.sign_in = SignIn::Failed {
+                                dest,
+                                code: api::TOO_MANY_CODES.into(),
+                            };
                         }
                         (AttemptStatus::Canceled, _) => {
                             self.sign_in = SignIn::Canceled { dest };

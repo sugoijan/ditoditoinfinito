@@ -914,6 +914,17 @@ room-invite-not-one = That isn't an invite link.
 # Desktop, while signing in: the browser is open on Twitch's page.
 room-sign-in-waiting = Finish signing in with Twitch in your browser, then come back here.
 
+# Desktop, while signing in, above the line before: the code the page the
+# browser opened asks for (the server's page asks the person to type it,
+# so a sign-in link nobody started on this computer can't sign them in).
+# Variables:
+#   $code (String) - six letters and digits, grouped: ABC-DEF
+room-sign-in-code = Type this code in the page your browser opened: { $code }
+
+# Desktop, after the browser's page took too many wrong codes and ended
+# the sign-in. Try again (room-sign-in-retry) starts again with a new code.
+room-sign-in-too-many-codes = Too many wrong codes were typed in the browser, so that sign-in ended. Try again for a new code.
+
 # Buttons while signing in on desktop (about 24 letters each).
 room-sign-in-again-browser = Open the browser again
 room-sign-in-cancel = Cancel
