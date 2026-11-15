@@ -2026,6 +2026,10 @@ pub struct PlayersDialog {
     /// The local player may change between Play and Watch now (as
     /// built): its button is offered.
     chooses: bool,
+    /// The person each of the panel's rows is about where the operator
+    /// may act on them (as built): a tap anywhere on the row, its name
+    /// and words included, opens Host options on them.
+    managed: Vec<Option<u64>>,
 }
 
 impl PlayersDialog {
@@ -2037,7 +2041,20 @@ impl PlayersDialog {
             seen: u64::MAX,
             manages: false,
             chooses: false,
+            managed: Vec::new(),
         }
+    }
+
+    /// The person a tap on `t` is on: the row's plate, or any of the
+    /// row's own parts (`Panel{k}.…`), where they may be managed.
+    fn person_tapped(&self, t: &crate::Target) -> Option<Option<u64>> {
+        t.chain.iter().find_map(|n| {
+            if let Some(id) = n.strip_prefix("Person.") {
+                return Some(id.parse().ok());
+            }
+            let k: usize = n.strip_prefix("Panel")?.split('.').next()?.parse().ok()?;
+            self.managed.get(k).copied().flatten().map(Some)
+        })
     }
 
     fn scroll(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
@@ -2090,6 +2107,13 @@ impl Screen for PlayersDialog {
             }
         }
         drop(r);
+        self.managed = rows
+            .iter()
+            .map(|row| match row {
+                PanelRow::Player(p) if p.manage => p.id,
+                _ => None,
+            })
+            .collect();
         let mut sy = y + 64.0;
         for (i, line) in super::dialog::wrap_lines(&status, w - 48.0, 13.0)
             .iter()
@@ -2226,8 +2250,8 @@ impl Screen for PlayersDialog {
                 target: Some(t),
                 gesture: crate::Gesture::Tap,
                 ..
-            } if self.manages && t.name.starts_with("Person.") => {
-                let id = t.name.strip_prefix("Person.").and_then(|n| n.parse().ok());
+            } if self.manages && self.person_tapped(&t).is_some() => {
+                let id = self.person_tapped(&t).flatten();
                 cx.overlay(
                     HostDialog::new(self.env.clone(), self.room.clone(), id),
                     true,

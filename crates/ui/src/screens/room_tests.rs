@@ -3261,9 +3261,21 @@ fn host_options_work_by_keyboard_controller_and_a_tap_on_a_row() {
     step(&mut ha, MenuAction::Back, true);
     ha.run(0.3);
     assert_eq!(top(&ha), "select");
-    // Touch: the new owner taps Carol's row in their Players pop-up, and
-    // Host options opens on her.
+    // Touch: the new owner taps Carol's name in their Players pop-up,
+    // which covers most of her row, and Host options opens on her; then
+    // the row's plate does the same.
     open_players(&mut hb);
+    let name = (0..12)
+        .map(|k| format!("Panel{k}.Name"))
+        .find(|n| there(&hb, n) && said(&hb, n) == "carol")
+        .expect("Carol's name in the pop-up");
+    hb.tap(PointerKind::Touch, &name);
+    hb.run(0.5);
+    assert_eq!(top(&hb), "room-host", "a tap on the name opens Host options");
+    assert_eq!(hb.ui.focused(), Some("CoHost.3"));
+    step(&mut hb, MenuAction::Back, true);
+    hb.run(0.3);
+    assert_eq!(top(&hb), "room-players");
     hb.tap(PointerKind::Touch, "Person.3");
     hb.run(0.5);
     assert_eq!(top(&hb), "room-host");
