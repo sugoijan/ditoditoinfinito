@@ -2191,13 +2191,17 @@ impl RoomClient {
         self.pump();
         self.read_live();
         self.tell_spotlight();
-        // A stage's prompt opens with no notice from before it, and the
-        // room comes back from a stage with none from it.
+        // A stage's prompt opens with no notice from before it (nor a
+        // refusal of something done before it), and the room comes back
+        // from a stage with none from it.
         let staged = self.prompt_stage();
         if staged != self.notice_stage {
             self.notice_stage = staged;
             if self.link_notice().is_some() {
                 self.set_link_notice(None);
+            }
+            if self.refusal.take().is_some() {
+                self.version += 1;
             }
         }
         if self.link_state() != before {
