@@ -161,7 +161,15 @@ one speaks starts at its end (the results' outcome too). `cleared` and
 `failed` are not said once a line has told you the stage's outcome (you
 are out, with `battle eliminated` or `failed` in its place; you won
 before the song's end): that line stands, so a chart's clear is never
-heard after a win. A quit stage still says `evaluation quit`.
+heard after a win. Nor are they said where your pack has the lines the
+stage's results will say of its outcome, whichever way it goes: a pack
+with all three of `battle stage won`, `battle stage drawn` and `battle
+stage not won` does not say `cleared` in a stage whose results tell how
+it went (the full combo's line is still said), and one with all three
+of `battle match won`, `battle match drawn` and `battle match not won`
+says neither `cleared` nor `failed` on a match's last stage; the
+outcome's line is what you hear. A pack without them says `cleared` and
+`failed` as above. A quit stage still says `evaluation quit`.
 
 | Folder | When | Falls back to |
 |---|---|---|

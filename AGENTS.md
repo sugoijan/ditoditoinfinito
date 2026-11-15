@@ -685,13 +685,15 @@ Rust and the browser are implementation details, not advertised features.
   sounds for a play, a stage or song select, `announcer::For`; the
   battle's moments it tells,
   `Battle::take_events`, spoken by a stage's voice,
-  `announcer/battle.rs`: the provisional `BATTLE_VOICE_V2`
-  (`battle-voice-v2`), its priorities, one battle line at a time, the
+  `announcer/battle.rs`: the provisional `BATTLE_VOICE_V3`
+  (`battle-voice-v3`), its priorities, one battle line at a time, the
   combo lines below them all, `Line::is_combo`, said only in a quiet
   moment and at most a second late, and so the lines of the player's own
   play's end (`end_line`: the full combo's, cleared, failed; decided
   once the frame's battle moments are told, `Announcer::stage_play_end`,
-  cleared and failed never after a line that said the stage's outcome),
+  cleared and failed never after a line that said the stage's outcome
+  nor where the voice has the lines its results will say of it,
+  `Announcer::results_say`),
   a play's other routine lines left out; the player's steps under Adaptive charts said at their
   boundaries, `battle step up` and `battle step down`, never over a line
   being said, `Announcer::battle_patient`, `PlaySession::tell_steps`,

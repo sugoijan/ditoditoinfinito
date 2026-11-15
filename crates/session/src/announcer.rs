@@ -561,6 +561,20 @@ impl<B> Announcer<B> {
         self
     }
 
+    /// What the stage's results will say of its outcome
+    /// ([`Announcer::stage_results`]), which the lines of the play's end
+    /// look ahead to ([`Announcer::stage_play_end`]): the stage's own end
+    /// for a player still in at the song's end (`stage`: one ranked on
+    /// this device; an online room's is the room's and is not told), and
+    /// the match's (`last`: its last stage).
+    pub fn results_say(mut self, stage: bool, last: bool) -> Announcer<B> {
+        if let Some(voice) = self.stage.as_mut() {
+            voice.ranked = stage;
+            voice.last = last;
+        }
+        self
+    }
+
     /// A stage's opening, once the play has begun: the line it was said
     /// with (`None`: nothing was, or nothing speaks). `None` before.
     pub fn opened_with(&self) -> Option<Option<Line>> {
@@ -1053,17 +1067,38 @@ impl<B> Announcer<B> {
     /// (cleared alone then goes: the full combo's is said where it fits
     /// by itself). Cleared and failed are not said where a line already
     /// said the stage's outcome for the player (out of it, with `battle
-    /// eliminated` or failed in its place; the win): that line wins.
+    /// eliminated` or failed in its place; the win): that line wins. Nor
+    /// (`battle-voice-v3`) where the voice has a line the stage's results
+    /// will say of its outcome ([`Announcer::results_say`]). The outcome
+    /// is not known yet as the last note is judged, so the voice must
+    /// have a line for it whichever way it goes: the stage's own end for
+    /// a player still in (won, drawn, not won), or on the match's last
+    /// stage the match's; a voice with only some of them could have none
+    /// for this player, and keeps the routine line. The full combo's line
+    /// is said either way.
     pub fn stage_play_end<A: AudioBackend<Buffer = B>>(&mut self, audio: &mut A, now: f64) {
-        let Some((failed, full, outcome_said)) = self.stage.as_mut().and_then(|stage| {
-            let (failed, full) = stage.ending.take()?;
-            Some((failed, full, stage.outcome_said))
-        }) else {
+        let Some((failed, full, outcome_said, ranked, last)) =
+            self.stage.as_mut().and_then(|stage| {
+                let (failed, full) = stage.ending.take()?;
+                Some((failed, full, stage.outcome_said, stage.ranked, stage.last))
+            })
+        else {
             return;
         };
         if !self.speaking() {
             return;
         }
+        let has = |events: [Battle; 3]| {
+            events
+                .into_iter()
+                .all(|e| self.length(audio, Line::Battle(e)).is_some())
+        };
+        let outcome_follows = (last
+            && has([Battle::MatchWon, Battle::MatchDrawn, Battle::MatchNotWon]))
+            || (ranked
+                && !failed
+                && has([Battle::StageWon, Battle::StageDrawn, Battle::StageNotWon]));
+        let outcome_said = outcome_said || outcome_follows;
         let mut lines = Vec::new();
         if failed {
             lines.push(Line::Failed);

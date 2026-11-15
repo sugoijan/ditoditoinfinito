@@ -19,7 +19,7 @@ use ddi_ui::state::history::{
 };
 use ddi_ui::state::settings::Settings;
 
-use crate::announcer::battle::{BATTLE_VOICE_V2, Told, VoicePolicy};
+use crate::announcer::battle::{BATTLE_VOICE_V3, Told, VoicePolicy};
 use crate::announcer::{Announcer, Ending, Moment, Prior, SharedVoice, Timing};
 use crate::battle::{Battle, OpponentView, StageOutcome, StageSetup};
 use crate::calibration::{self, CalMode, Calibrator, Outcome};
@@ -1048,7 +1048,14 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         };
         // A stage's voice: opened by the battle, its routine left out.
         let announcer = match &battle {
-            Some(b) => announcer.in_stage(b.setup().opening(), BATTLE_VOICE_V2),
+            Some(b) => announcer
+                .in_stage(b.setup().opening(), BATTLE_VOICE_V3)
+                .results_say(
+                    // (`Battle::end_event`: a stage ranked on this
+                    // device, for one who competes in it.)
+                    !b.setup().remote() && b.competes(),
+                    b.setup().number >= b.setup().of,
+                ),
             None => announcer,
         };
         // A staged play has danced already where a note came before its
@@ -1533,7 +1540,9 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 self.tell_steps(t, now, host_now.0);
             }
             // The lines of the player's own play's end, below what the
-            // battle just said (`battle-voice-v2`).
+            // battle just said (`battle-voice-v2`; cleared and failed
+            // giving way to the outcome's line the results will say,
+            // `battle-voice-v3`).
             self.announcer.stage_play_end(&mut *self.audio, now);
         }
 
@@ -1807,7 +1816,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 at: host,
             });
         }
-        let policy = BATTLE_VOICE_V2;
+        let policy = BATTLE_VOICE_V3;
         let mut due: Vec<_> = moments.into_iter().map(|e| (e, None)).collect();
         due.extend(attacks.into_iter().map(|(m, first)| (m.event(), Some((m, first)))));
         due.sort_by_key(|(e, _)| std::cmp::Reverse(policy.priority(*e)));
@@ -2003,7 +2012,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
 
     /// The battle voice's policy, for the cues' look.
     pub fn battle_policy(&self) -> Option<VoicePolicy> {
-        self.battle.as_ref().map(|_| BATTLE_VOICE_V2)
+        self.battle.as_ref().map(|_| BATTLE_VOICE_V3)
     }
 
     /// The moment shown beside the field at host time `host`, and how old

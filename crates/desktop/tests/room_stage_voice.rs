@@ -216,9 +216,10 @@ fn a_scratch_pack_s_attack_lines_are_said_in_a_practice_stage() {
 /// Ours, which come with the game, chosen by their keys: each says a
 /// practice stage's battle lines from the assets, the two attack lines
 /// among them, each by its own line (never a play's routine line but the
-/// combo lines, `battle-voice-v1`, and those of the play's end,
-/// `battle-voice-v2`: the autoplay's full combo, then cleared, before the
-/// results' outcome; never one in another's place), the
+/// combo lines, `battle-voice-v1`, and of the play's end the autoplay's
+/// full combo before the results' outcome, with no cleared between them
+/// since the packs have the outcomes' lines, `battle-voice-v3`; never one
+/// in another's place), the
 /// autoplayed player's steps up as their new charts begin, and the status
 /// line shows only the moments passed over for a line that mattered as
 /// much.
@@ -256,14 +257,11 @@ fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
             "{key}: {:?}",
             heard.spoken
         );
-        // The autoplay's full combo, then cleared, then the outcome.
+        // The autoplay's full combo, then the outcome: no cleared (the
+        // outcome's line follows), no failed.
         let n = heard.spoken.len();
-        assert_eq!(
-            heard.spoken[n - 3..n - 1],
-            ["gameplay full combo w1", "gameplay cleared"],
-            "{key}: {:?}",
-            heard.spoken
-        );
+        assert_eq!(heard.spoken[n - 2], "gameplay full combo w1", "{key}: {:?}", heard.spoken);
+        assert_eq!(said("gameplay cleared") + said("gameplay failed"), 0, "{key}: {:?}", heard.spoken);
         assert!(heard.spoken.iter().any(|l| combo(l)), "{key}: a combo line: {:?}", heard.spoken);
         // The player, autoplayed, steps up: each said by its line.
         assert!(said("battle step up") > 0, "{key}: {:?}", heard.spoken);

@@ -1993,7 +1993,7 @@ impl Host {
         // A stage's battle moments: said by a line, or shown.
         let told = play.session.battle_told();
         if !told.is_empty() {
-            let policy = ddi_session::announcer::battle::BATTLE_VOICE_V2;
+            let policy = ddi_session::announcer::battle::BATTLE_VOICE_V3;
             let moments: Vec<String> = told
                 .iter()
                 .map(|t| {
