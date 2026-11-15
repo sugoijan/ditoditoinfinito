@@ -9465,6 +9465,29 @@ seat bounds are the relays' alone. `ROOM_MODEL_REVISION` stays 10.
 computed from it); `max_competitors` cannot be raised past 73 (the awards'
 tables end there), nor the audience past 20,000 seats a room.
 
+## Desktop's sign-in asks for a code, and the server's bounds (2026-11-15)
+
+A security review of the server found that a desktop sign-in attempt's
+link signed whoever opened it in for whoever had made the attempt. The
+desktop's sign-in is now a device-authorization flow: the sign-in dialog
+shows a six-character code ("Type this code in the page your browser
+opened: ABC-DEF", `room-sign-in-code`), and the page the browser opens
+asks for it, with a warning to close the page if someone else sent the
+link or the code; nothing goes to Twitch until the code is typed there.
+Five wrong codes end the attempt and the dialog says so
+(`room-sign-in-too-many-codes`) and offers Try again (a new code). An
+older desktop build is told `update_required` when it asks to sign in:
+it cannot sign in until it is updated. The web's sign-in is unchanged.
+`desktop/tests/online.rs` types the code in the page as a person would.
+
+One upload grant now makes one share (the grant's `grant_id`; a second
+is `grant_used`; a renewed grant goes on with its unfinished share), and
+a room keeps at most 64 shares. The server also bounds what a member can
+make a room store (client ids and records, names, content keys, battle
+plans, sockets and tickets) and stores a room in several rows; the
+details are in the server's README. `ROOM_MODEL_REVISION` stays 10.
+Deploy the server before the game.
+
 ## Feedback round I: the audience's view, the Ready card, the audience's page (2026-11-15)
 
 The maintainer, after testing the deployed game with 73 players: the

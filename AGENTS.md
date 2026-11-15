@@ -1096,7 +1096,11 @@ Rust and the browser are implementation details, not advertised features.
   (`ddi-share-protocol`, serde only, as `crates/importer-protocol` is): ids,
   limits, expiry words, the share's JSON as made, answered and listed,
   path checks, file paths and routes, and an online room's upload grant
-  (its claims, `Authorization: Grant`, its answer). `ddi_library::share`
+  (its claims, `Authorization: Grant`, its answer; one share a grant
+  since 2026-11-15, by the claims' `grant_id`, which the shells pass on
+  untouched in the signed grant: a second share is `grant_used`, a
+  renewed grant keeps the id and goes on with its unfinished share).
+  `ddi_library::share`
   re-exports it for the game; the private server (`../ddi-server`)
   depends on it by path and keeps no copy. Pure, natively tested.
 - `crates/room/` the multiplayer room, match and stage model (`ddi-room`,
@@ -1567,7 +1571,11 @@ Rust and the browser are implementation details, not advertised features.
   rooms (M5c, `crates/desktop/src/online.rs`): HTTP through ureq on a
   thread a request, the room's socket through tungstenite (native-tls,
   as ureq) on a thread of its own, signing in by the server's attempt in
-  the system browser (`crate::os::open_url`) long-polled, the session kept
+  the system browser (`crate::os::open_url`) long-polled, the attempt's
+  code shown in the sign-in dialog and typed by the person in the
+  server's page before anything goes to Twitch (since 2026-11-15:
+  `SignIn::Waiting::code`, `api::grouped_code`; five wrong codes end it,
+  `api::TOO_MANY_CODES`, Try again a new one), the session kept
   in the config folder's `online-session` (never `share_token`, a
   refreshed one from `x-ddi-session`); `--join LINK|INVITE` opens an
   invite's page; a stage's song uploaded (`share::upload_room`) or read
