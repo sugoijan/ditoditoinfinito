@@ -682,9 +682,14 @@ Rust and the browser are implementation details, not advertised features.
   sounds for a play, a stage or song select, `announcer::For`; the
   battle's moments it tells,
   `Battle::take_events`, spoken by a stage's voice,
-  `announcer/battle.rs`: the provisional `BATTLE_VOICE_V0`, its
-  priorities, one battle line at a time, a play's routine lines left
-  out, the results' line once the shell's `stage_reported` passes the
+  `announcer/battle.rs`: the provisional `BATTLE_VOICE_V1`
+  (`battle-voice-v1`), its priorities, one battle line at a time, the
+  combo lines below them all, `Line::is_combo`, said only in a quiet
+  moment and at most a second late, a play's other routine lines left
+  out; the player's steps under Adaptive charts said at their
+  boundaries, `battle step up` and `battle step down`, never over a line
+  being said, `Announcer::battle_patient`, `PlaySession::tell_steps`,
+  `steps_told`; the results' line once the shell's `stage_reported` passes the
   room's `MatchEnd`; where no line said one, `PlaySession::battle_cue`,
   shown in the miniatures' status line, `ddi_shell::opponents`;
   the match's rules for a stage, everyone's and the CPUs', DDI with the
@@ -803,7 +808,13 @@ Rust and the browser are implementation details, not advertised features.
   waiting line under the life gauge's right end and the player's
   attack policy, one small muted word under its left end, where a tap
   or a click cycles it (`battle_cue::draw_policy`, `policy_area`,
-  `Drawn::policy_at`), `crates/shell/src/battle_cue.rs`; who attacks
+  `Drawn::policy_at`), and under Adaptive charts the chart played now
+  on that line at the gauge's right end as song select names it,
+  changing at a step's boundary, bright a moment with a chevron its way
+  (`battle_cue::draw_chart`, `Battle::chart_line`, `chart_shown`; the
+  waiting line then a line lower, or in its place where that would
+  reach the receptors, `waiting_below_fits`),
+  `crates/shell/src/battle_cue.rs`; who attacks
   whom for the player's own attacks, `crates/shell/src/attack_links.rs`
   (`attack-links-v0`): a line in the side space from the power bar's end
   to the recipient's miniature at its own bar, or from the sender's to

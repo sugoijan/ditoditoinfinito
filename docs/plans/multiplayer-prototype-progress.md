@@ -9325,10 +9325,125 @@ none", with what the server derives and keeps about a viewer.
   double borrow in the seat's own ticket refusal, fixed and tested).
 
 
+## Feedback round J: which chart I am on, a voice for stepping, combo lines in battles (2026-11-15)
+
+The maintainer, after playing stages under "Charts: Adaptive": "I miss
+some way to know which chart I'm in because of step up/down, maybe a
+small text on the same line as the target indicator but aligned to the
+right would be useful"; "it might be useful to have announcer lines for
+when a 'step up' in particular happens, a 'step down' line could also be
+useful"; "I also miss the combo announcer lines during battles".
+
+### The chart line
+
+- In a stage with a ladder (Adaptive with another chart to step to:
+  `Battle::chart_line` is `None` otherwise), one small muted text on the
+  attack policy's line, its end at the life gauge's right end, names the
+  chart played now as song select names it in words ("HARD 11": the
+  label in the buttons' capitals and the meter;
+  `ddi_ui::screens::select::chart_shown`, the one function the Play
+  button, a room's chart under its buttons and now the HUD share; a
+  named chart by its name, a version with its mark), built for each rung
+  once (`ddi_session::battle::chart_shown`, `Rung::shown`,
+  `Battle::chart_shown`).
+- It changes at a step's boundary, when the new chart's notes begin, not
+  when the step is decided (`Battle::chart_line` from the steps'
+  boundaries; checked before, at and after each step both ways). For
+  `CHART_EMPHASIS` (1.5 s) it is bright with a small chevron before it
+  pointing the step's way, fading to the muted rest; under reduced motion
+  the text simply changes (`ddi_shell::battle_cue::{draw_chart,
+  chart_emphasis}`).
+- Room: past the policy word and its key cap (`draw_policy` now says
+  where it ends) and 10 px; a name too long is cut at its end between
+  graphemes and its meter kept ("CHALL… 12"; the meter alone where
+  nothing of the name fits). "CHALLENGE 12" fits whole at every size of
+  the miniatures' table beside "Retaliate" and "仕返し" (on a phone
+  there is no key cap: the label is tapped); only a phone held sideways
+  with a key's cap (a phone with a keyboard) cuts the name.
+- With the waiting line: the chart keeps its place and the waiting line
+  goes one line lower, right-aligned as before
+  (`draw_waiting_row`), where that line clears the receptors' row and the
+  judgment (`waiting_below_fits`: every desktop size, every size under
+  Reverse); where it does not (a phone's field, its receptors at the
+  top), the waiting line takes the chart's place while it is due, but
+  for a step's bright moment, when the chart shows and the waiting line
+  waits. Neither ever covers the other.
+- The same line on a followed competitor's field for a watcher (their
+  feed's steps); none over a spectator's grid; the miniatures unchanged.
+  A stage has no replay (stage plays are never kept), so there is none
+  there.
+- Pins and pictures: `battle_cue::tests::the_cue_s_line_is_pinned`
+  (rounded hashes, a desktop's size and a phone's upright), the layout
+  test at every size in English and Japanese, `step_down.rs`'s
+  `the_chart_line_changes_at_each_boundary_both_ways`; desktop's
+  `step_down_offscreen` takes `chart-line-down-{before,at,after}` and
+  `chart-line-up-{before,at,after}` and checks the words and brightness
+  drawn (`Host::chart_drawn`, `PlayView::chart_drawn`).
+
+### A voice for stepping (`battle step up`, `battle step down`)
+
+- Two battle lines (`ddi_library::announcer::Battle::StepUp`,
+  `StepDown`; folders `battle step up`, `battle step down`; no fallback),
+  said by a stage's voice when the local player steps, at the step's
+  boundary (the same frame the chart line changes,
+  `PlaySession::tell_steps`), told among the battle's moments
+  (`battle_told`) and in `steps_told` with the line said. Priority 12:
+  under the outcomes (40), an attack against the player (30) and life
+  critical (20), over who is left (10), an attack of the player's own
+  (8) and the openings (5). It never talks over a line being said: it
+  starts at that line's end where that is within a second of its moment
+  (`VoicePolicy::step_window`), else it is passed over
+  (`Announcer::battle_patient`). Where it was not said (no line in the
+  pack, passed over) the status line shows "Stepping up: …" or "Stepping
+  down: …" as before, now from the boundary; a step down that closed its
+  chart still shows "Staying on …" (no line says that). A watcher hears
+  nothing for others' steps (only the session's own player steps).
+- The studio lists both in its battle section with their names and when
+  they speak (no scene: no battle line has one yet, the existing rule
+  `studio::hearable`); `examples.toml` two texts each in English and
+  Japanese; our packs three each, made and bundled (see
+  `docs/plans/announcers.md`, "A step's two lines").
+
+### Combo lines back in stages (`battle-voice-v1`)
+
+- `BATTLE_VOICE_V1` replaces `battle-voice-v0` (not kept beside it). The
+  combo lines are `Line::is_combo`: `gameplay <N> combo` (any count the
+  pack has, StepMania's hundreds otherwise), `gameplay combo overflow`
+  and `gameplay combo stopped` (a combo above 50 broken); not the full
+  combos (the play's end). They are decoded for a stage and said under
+  5.1's rules (the 2 s gap between them, `COMBO_GAP`), below every
+  battle line (`COMBO_PRIORITY` 0): only where nothing speaks, or at the
+  end of what does where that is within a second of the combo's moment
+  (`VoicePolicy::combo_window`), never where a battle line known to be
+  due (a step decided, before its boundary: `Announcer::battle_due`)
+  would come while it speaks; else dropped. A battle line due while a
+  combo line speaks starts at its end instead of over it (combo lines
+  are short), an attack against the player still only before its
+  deadline. The other routine lines (the comments, hot and danger among
+  them, life lost, the full combos, cleared, failed, the grades) stay
+  out of a stage.
+- Tests on the fake clock (`announcer::battle::tests`): a combo said in
+  a quiet moment, held while an attack line speaks and said at its end,
+  dropped once its moment passed or where a step is due, a battle line
+  at a combo's end, a step line at the end of a line being said or
+  passed over past a second, never two voices at once; the solo play's
+  announcer tests unchanged. Desktop's `room_stage_voice` hears our
+  packs say the step up and the combo lines in an autoplayed stage.
+
+### What moved
+
+Nothing judged, pressed, recorded, ranked or streamed. The session's
+pinned practice traces are unchanged; `LIVE_PINNED` (the live stage's
+six traces) changed in three, only in their last `told` line, which now
+lists the players' steps (`StepUp`/`StepDown`, said `None`: those plays
+have no voice); recorded again. `the_cpus_play_alike` unchanged;
+`ROOM_MODEL_REVISION` stays 10.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `battle-voice-v1` (2026-11-15, feedback round J; replaces `battle-voice-v0`): a step's line (priority 12) waits at most a second for the line being said (`step_window`); the combo lines below every battle line, at most a second late (`combo_window`), never over a battle line nor one due; a battle line due during a combo line starts at its end | `ddi_session::announcer::battle::BATTLE_VOICE_V1` | Stages say the combo lines again and the player's steps; an attack line may come up to a combo line's length late | The two windows; whether the comments or other routine lines belong in a stage |
 | `cpu-play-v1` (2026-11-14): a CPU at a level plays the chart a person is given; `hold-model-v1`: a hold let go early with half the level's lapse chance over each row's load while it lasts (1.25 times where the row uses the held lane's hand; the floor a second; Stamina and Technical dividing it by the square root of their product), rolls re-tapped every 0.12 s, lifts pressed 80 ms early, a chart's mine beside a note of its lane stepped on with the level's shock response, one inside a hold kept held over with that chance else let go around (30 ms before, 100 ms after); what is held adds 0.25 a lane to a row's speed demand | `ddi_engine::cpu::full` (`HOLD_MODEL_V1`, `CPU_PLAY`), `AbsoluteModel::held_load` | CPUs' fields show their holds, rolls, lifts and mines; their scores are their own and compare with a person's; holds let go 0 to 5% by level and chart | The values (never checked against people this round); whether weak levels should let go more |
 | Every opponent shown past eight where all fit at a lane of 10 px, fields cut to 8 lanes only where that makes all fit, a 3 px gap at nine columns (`fields-all-v0`: `MINI_LANE_ALL`, `DENSE_ROWS_MIN`, `DENSE_GAP`) | `ddi_shell::opponents` | 72 at 1280×720 are 9×4 a side at 11 px; smaller windows show as many as fit, the rest by rivals | Whether 10 px is the least the maintainer reads; whether shorter fields are wanted beyond the phone |
 | What a small field carries (`carry-v0`: score from 16 px, stars from 13, name from 11, combo from 9, scaled with the field since follow-up round F) | `ddi_shell::opponents::Carry`, `Miniature::fit_combo` | 36 at 1280×720 lose the score, 72 also the stars; their combos small as their fields | The steps, by looking |

@@ -538,6 +538,16 @@ Decision 1's original pack, explored from 2026-11-03 with ElevenLabs
   kana (よにん, ふたり), which the dictionary would read as numbers.
   The studio shows them as the battle lines' examples, before
   `examples.toml`'s texts.
+- **A step's two lines** (2026-11-15, feedback round J): both packs
+  gained `battle step up` and `battle step down` (said as a stage's new
+  chart's notes begin under "Charts: Adaptive"), three texts each, made
+  by `kokoro.py pack --bundle` from the model already in the cache
+  (`HF_HUB_OFFLINE=1`): only the twelve new sounds were made (211 and
+  210 kept), every sound bundled before byte for byte the same, the
+  `PROVENANCE.toml`s as the tool writes them. As made: 0.76 to 0.97 s
+  for `Mr. Clank`, 0.93 to 1.5 s for `ガキンさん`; −12.4 to −14.2 LUFS,
+  true peaks −1.8 to −2.5 dBFS (`announcer-level-v3`, as the rest).
+  217 sounds for `Mr. Clank`, 216 for `ガキンさん`, over 68 lines.
 
 ### Louder packs (2026-11-12)
 
