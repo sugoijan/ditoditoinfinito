@@ -1341,6 +1341,7 @@ impl<H: PlayHost> PlayView<H> {
                         n,
                         most,
                         &geo,
+                        span,
                         render.reverse,
                         screen.ratio,
                         &keep_out,

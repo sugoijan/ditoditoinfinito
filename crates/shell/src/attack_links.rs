@@ -791,7 +791,7 @@ mod tests {
                         Default::default(),
                     );
                     let k = keep_grid(&g, ratio);
-                    let f = crate::opponents::arrange_grid(n, usize::MAX, &g, reverse, ratio, &k).unwrap();
+                    let f = crate::opponents::arrange_grid(n, usize::MAX, &g, 4.0, reverse, ratio, &k).unwrap();
                     let what = format!("{w}x{h}@{ratio} reverse {reverse} n {n}");
                     let layout = GridLayout {
                         fields: &f,
@@ -871,7 +871,7 @@ mod tests {
         // A link over its time.
         let g = FieldGeometry::placed(1280.0, 720.0, 4.0, false, Default::default());
         let k = keep_grid(&g, 1.0);
-        let f = crate::opponents::arrange_grid(4, usize::MAX, &g, false, 1.0, &k).unwrap();
+        let f = crate::opponents::arrange_grid(4, usize::MAX, &g, 4.0, false, 1.0, &k).unwrap();
         let layout = GridLayout {
             fields: &f,
             size: [1280.0, 720.0],
