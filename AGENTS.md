@@ -59,10 +59,12 @@ Rust and the browser are implementation details, not advertised features.
   battle's own, nothing judged by it;
   `reading_horizon`, how long a play's notes are shown before they are
   judged); a match's "Charts: Adaptive" (`ladder.rs`, `ADAPTIVE`, which
-  is `ADAPTIVE_V2`: sixteen bars back up to a rung whose life ran out, a
+  is `ADAPTIVE_V3`: sixteen bars back up to a rung whose life ran out, a
   rung closed once life ran out on it twice, `Step::closes`, a step up
-  asking 95% of its bars' taps in the two best judgments;
-  `adaptive-v0` and `adaptive-v1` retired 2026-11-14; tests and studies
+  early after four bars with 95% of their taps in the two best
+  judgments, `Step::early`, or normally after eight with 80% in the
+  three best, `normal_bars`; `adaptive-v0`, `adaptive-v1` and
+  `adaptive-v2` retired; tests and studies
   set variants of it, `Player::set_ladder_rule`:
   a song's ladder of easier and harder charts, `ladder::Ladder`,
   `below`, `above`, its rungs numbered from 1, the easier then the

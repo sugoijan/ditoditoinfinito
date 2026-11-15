@@ -9085,6 +9085,173 @@ told to reload on their next ticket between stages, and a stage under
 way finishes. Deploying the frontend first would show "the server is
 being updated" until the server follows.
 
+## Feedback round H: the "You" badge, a stale notice, stepping up (2026-11-15)
+
+The maintainer, after testing: "'You' pill not vertically aligned";
+"ready screen shows old notification like 'Audience link copied'";
+"adaptive 'step up' seems too strict, maybe we can have a strict
+criteria for an early step up, and a less strict one for a normal step
+up".
+
+### The "You" badge on its name's line
+
+- **Where it is drawn**: everywhere through one helper,
+  `screens::room::name_and_badge`: the players panel beside the song
+  (`Players<k>.Name`), the follower's panel and the Players pop-up
+  (`Panel<k>.Name`), the stage's prompt's players (`Room.Player<k>`),
+  the stage's Standings pop-up (`Name<k>`) and the results' Standings
+  tab (`Stand<k>`'s `Name`). The phone's strip shows the player's own
+  name without a badge; Host options list the others only; the
+  miniatures say "You" without a badge.
+- **What was wrong** (the same in every place, since they share the
+  helper): the plate and its word were centered on the name's line box,
+  whose middle is not the letters': the text face (Iosevka Term) has its
+  baseline 0.375 of the size below the box's middle in both shells, so a
+  lowercase name's letters sit about 0.12 of the size below it and the
+  plate looked high beside them (1.5 px at the panel's 15 px, 3 on a
+  2× screen), the word "You" a little low in its plate.
+- **Now**: the plate's middle is on the name's letters' optical middle,
+  halfway between its x-height's and its capitals' middles
+  (`room::OPTICAL_MIDDLE`, 0.061 of the size below the box's middle:
+  what reads right beside a lowercase, a capitalized and a Japanese
+  name), and the word on the plate's middle the same way (自分 on its
+  box's middle: ideographs are centered there already)
+  (`room::badge_offsets`).
+- **Tested**: `test_kit::assert_badge_on_line` reads the frame's rects
+  and pins the plate's and the word's offsets against the name's line
+  in every place (`the_you_badge_sits_on_its_names_line_wherever_players_are_listed`:
+  panel, Players pop-up, prompt, Standings pop-up; the online panel and
+  the results' tab in their own tests). The rooms' pinned draw lists
+  moved for the online screens only (the badge), and for Rules (the
+  sentence below). Pictures (desktop offscreen, `you_badge_offscreen`,
+  1280×720 and 844×390, English and Japanese, before and after side by
+  side): `target/scratch/mp/fbh/sidebyside/`; the browsers':
+  `target/scratch/mp/fbh/web/shots/`.
+
+### A notice lives once and never crosses a stage's prompt
+
+- **Cause**: the room's status-line notices (`LinkNotice`: the invite,
+  watch-only or audience link copied, the invite replaced, the audience
+  closed or opened) were kept in the online link's state with no end
+  (only "joined to watch" had one), and every screen that shows the
+  room's status line read them: the stage's prompt
+  (`room::status_line`) showed "Audience link copied" whenever it was
+  the last one. The same on both shells (the web's `Ui` a page and
+  desktop's one stack read the same `RoomClient`).
+- **Now**: every notice lives `link::NOTICE_MS` (5 s) from the tick
+  after it was raised ("joined to watch" keeps its 12 s from the
+  connection), and the room clears any notice, and a refusal, when the
+  stage whose prompt opens for this player changes either way
+  (`RoomClient::tick`, `notice_stage`): a prompt opens with none from
+  before it, and the room comes back from a stage with none from it.
+- **Tested**: `a_notice_lives_once_and_never_crosses_a_stages_prompt`
+  (the prompt a page of its own as on the web, and over the room's song
+  select on one stack as on desktop; a notice still showing and one
+  faded; one raised on the prompt gone after the stage), failing
+  before the fix. In the browser, a practice room has no link notices
+  (they come from an online room's link); its prompt opened with
+  neither a notice nor a timing hint.
+
+### The start prompt's timing hint by the play's purpose
+
+`Purpose::shows_timing_hint(auto)` (desktop's rule: none for
+calibration, a replay, an announcer studio scene or a stage, nor under
+autoplay), in `purpose.rs`'s table, used by both shells; the web
+showed one on a stage's prompt before. `ui.theme.prompt.timing` in the
+web's debug state.
+
+### Stepping up: strict early, easier later (`adaptive-v3`)
+
+- **The rule** (`ddi_engine::ladder::ADAPTIVE_V3`, what a stage plays;
+  `adaptive-v2` retired, being its early step up): at each bar line,
+  with full life and no miss, hold let go or mine or shock stepped on
+  since,
+  - **early**: four bars with 95% of their taps in the two best
+    judgments (W0 or W1 under DDI), `adaptive-v2`'s step up exactly
+    (`Step::early`);
+  - **normal**: eight bars with 80% of their taps in the three best
+    (W0, W1 or W2), `ADAPTIVE_NORMAL_BARS_V3`,
+    `ADAPTIVE_NORMAL_ACCURACY_V3`, `AdaptiveRule::normal_best`;
+  - back up to a rung whose life ran out: sixteen bars, by either
+    kind's accuracy over them; a rung closed once life ran out on it
+    twice, for both kinds.
+- **Peers must agree**: `ROOM_MODEL_REVISION` 10 (the online CPUs'
+  ladders are computed on every device). The online CPUs' fixture
+  (`the_cpus_play_alike`) was recorded again once: the same rule
+  without its normal step up reproduces the old fixture byte for byte,
+  and the new one differs only from checkpoint 22 of the Adaptive
+  scenario on (its CPUs stepping up sooner, and the powers and attacks
+  that follow); it passes natively and for wasm32-wasip1. No other
+  pinned stage digest moved (the session's pinned battles step no
+  differently).
+- **Tested** (`crates/engine/tests/adaptive.rs`): the early step up is
+  v2's (`an_early_step_up_needs_the_two_best_judgments`: a play 25 ms
+  late never steps up early); the normal one's bars and floor (the
+  same late play steps up after eight bars, never early; not with the
+  two best asked; not before twice the bars with a rule of sixteen);
+  no step up across a miss (early or normal, the rule's bars after
+  life is full again); back up after sixteen bars and closing after two
+  run-outs by normal steps too; each at 60 and 144 fps and from the log.
+  In the browser: Beatucada's Hard autoplayed 25 ms late (`bias=25`)
+  steps up to Challenge 31 s in by the normal rule (`early` false), in
+  Chrome and Firefox.
+- **Measured** (`adaptive_step_up_study`; the thirteen local arcade
+  mixes in place, 1,066 song files; every chart with a ladder from
+  every slot, ten CPUs one a level, DDI Normal, attacks on, one seed;
+  247 s and 400 s, load 5 to 8; MEASUREMENTS OF CPUS AGAINST CPUS).
+  By the pick's slot and level, `adaptive-v2` → `adaptive-v3`: steps up
+  a stage (early ones), the share of steps up that fell back within
+  sixteen bars, where it finished one rung down / on the pick / one up /
+  two or more up (%), and the first step up's bar (climbed %):
+
+| Pick | Level | Ups (early) | Fell back in 16 bars | Finished −1 / 0 / +1 / +2 | First up, bar (climbed) |
+| --- | --- | --- | --- | --- | --- |
+| Beginner | 1 | 0.23 → 1.03 (0.09) | 0 → 0 | 0 / 77.9 / 21.4 / 0.7 → 0 / 20.0 / 57.0 / 23.0 | 63 (22%) → 40 (80%) |
+| Beginner | 3 | 1.06 → 1.60 (0.75) | 0 → 0 | 0 / 14.3 / 66.3 / 19.5 → 0 / 4.5 / 36.2 / 59.4 | 39 (86%) → 38 (96%) |
+| Easy | 1 | 0.06 → 0.36 | 52% → 43% | 28.8 / 68.4 / 2.8 / 0 → 28.9 / 54.9 / 15.6 / 0.6 | 53 (6%) → 41 (35%) |
+| Easy | 3 | 0.36 → 1.03 (0.21) | 16% → 18% | 4.2 / 68.7 / 26.6 / 0.5 → 3.9 / 32.7 / 53.8 / 9.6 | 42 (34%) → 33 (85%) |
+| Easy | 5 | 1.27 → 1.67 (0.81) | 5% → 11% | 0.6 / 11.9 / 60.7 / 26.8 → 0.6 / 9.5 / 40.2 / 49.7 | 24 (94%) → 22 (97%) |
+| Medium | 1 | 0.00 → 0.03 | – | 54.3 / 14.6 / 0.1 / 0 → 53.5 / 15.4 / 0.5 / 0 | – (0%) → 48 (3%) |
+| Medium | 3 | 0.03 → 0.34 (0.03) | 46% → 40% | 29.0 / 65.9 / 1.3 / 0 → 28.7 / 51.7 / 16.1 / 0.1 | 42 (3%) → 38 (33%) |
+| Medium | 5 | 0.59 → 0.93 (0.44) | 17% → 27% | 9.5 / 47.5 / 41.2 / 1.2 → 7.7 / 39.6 / 49.5 / 2.8 | 23 (58%) → 24 (87%) |
+| Medium | 7 | 1.09 → 1.20 (0.53) | 7% → 8% | 0.3 / 13.7 / 76.3 / 9.7 → 0.4 / 11.9 / 73.1 / 14.6 | 28 (96%) → 20 (99%) |
+| Medium | 10 | 1.29 → 1.29 (1.24) | 0 → 0 | 0 / 0.1 / 71.6 / 28.3 (same) | 15 (100%) (same) |
+| Hard | 5 | 0.03 → 0.12 (0.02) | 39% → 44% | 39.7 / 48.4 / 1.4 / 0 → 39.9 / 48.0 / 3.1 / 0 | 20 (3%) → 38 (12%) |
+| Hard | 7 | 0.17 → 0.24 (0.07) | 17% → 21% | 15.1 / 71.5 / 12.8 / 0 → 13.1 / 72.9 / 13.9 / 0 | 33 (17%) → 33 (23%) |
+| Hard | 10 | 0.29 → 0.29 | 1% → 1% | (same) | 15 (29%) (same) |
+| Challenge | 7 | 0.00 → 0.05 | – → 13% | 35.9 / 47.0 / 0 / 0 → 37.2 / 48.0 / 0 / 0 | – → 91 (5%) |
+
+  The candidates beside it (Medium pick, level 5: ups, fell back,
+  climbed): v2 0.59, 17%, 58%; **8 bars, 80% in three: 0.93, 27%, 87%**;
+  8 bars, no floor: the same to a tenth (a CPU at full life is nearly
+  always above 80% in three); 8 bars, 90% in three: 0.92, 26%, 86%; 6
+  bars, 85% in three: 1.00, 29%, 91%; 10 bars, 80%: 0.82, 24%, 78%; 12
+  bars, 80% (or none): 0.75, 22%, 71%; 8 bars, 70% in two: 0.86, 24%,
+  81%. Time on the rungs above the pick, Medium pick level 5: 26% →
+  36%; level 7: 46% → 57%.
+- **Why these values**: eight bars is two of a song's usual four-bar
+  phrases, so a player holding full life climbs within a section or two
+  (the first step up about bar 20 to 24 for the CPUs at home on their
+  chart, Medium's levels 5 and 6 climbing in 87 to 95% of stages); the
+  floor (80% in the three best) is what keeps someone scraping by at
+  full life with many W3s from being lifted (the CPUs never scrape that
+  way, so the floor does not show in their tables); the strict four bars
+  stay for someone clearly above the chart. The cost is more falling
+  back for the middle levels near their limit (Medium's level 5: 27% of
+  its steps up come back down within sixteen bars, 17% under v2), while
+  the strong levels are as before; the return rule and the closing keep
+  anyone from bouncing more than once on a rung. Ten bars is the next
+  step if falling back shows in play (level 5: 78% climb, 24% fall
+  back).
+- **What a player notices**: under DDI a clean play steps up after
+  eight bars even with many W2s, where before it needed nearly every
+  step in the two best; a near-perfect stretch still steps up after
+  four. The Rules pop-up's sentence says both (en; ja an unverified
+  draft): "…one who keeps full life without a miss moves up to the next
+  harder chart, above the one picked too: after four bars with nearly
+  every step in the two best judgments, or after eight with most steps
+  in the three best (…)".
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -9094,7 +9261,8 @@ being updated" until the server follows.
 | What a small field carries (`carry-v0`: score from 16 px, stars from 13, name from 11, combo from 9, scaled with the field since follow-up round F) | `ddi_shell::opponents::Carry`, `Miniature::fit_combo` | 36 at 1280×720 lose the score, 72 also the stars; their combos small as their fields | The steps, by looking |
 | A large field's miniatures under 24 px lanes draw their holds, rolls and mines plainly, as the built-in skin (`plain-notes-v0`, `CARRY_SKIN_NOTES`) | `ddi_shell::opponents::Carry::skin_notes`, `ddi_render::scene::Miniature::plain` | 72 fields cost what taps-only fields do (Firefox's 7.7 ms frames on a hold chart back to 2.3); the small fields' holds lose Infinito's wave material | The size, by looking; whether the exact batching of stencil holds is worth building for rooms of 9 to 24 on large windows |
 | `hosted-deadline-v2` (2026-11-14): a loading grace of 45 s (`LOADING_GRACE_V2_MS`) before the readiness window, which then ends early once everyone who loaded is ready; practice keeps v1 | `ddi_room::ReadinessPolicy`, `reduce.rs` (`window_from`, `end_loading`), the server's `ROOM_LOADING_GRACE_MS` | A slow loader holds the stage up to 45 s, then has the 15 s Ready countdown to finish and ready, else sits it out; rows say Loading | The 45 s; whether a late loader should hold the countdown's early end |
-| `adaptive-v2` (2026-11-14): a step up also needs 95% of its bars' taps in the two best judgments (`ADAPTIVE_ACCURACY_V2`); a step down's boundary without the extra second (`down_lead` 0) | `ddi_engine::ladder::ADAPTIVE_V2` | Weak players and CPUs stay on their chart unless they play it cleanly; a step down's easier chart comes a bar sooner | The 95%; whether the step up's own second should go too |
+| `adaptive-v3` (2026-11-15, feedback round H): an early step up exactly as `adaptive-v2`'s (four clean bars, 95% of their taps in the two best judgments), or a normal one after eight clean bars with 80% in the three best (`ADAPTIVE_NORMAL_BARS_V3`, `ADAPTIVE_NORMAL_ACCURACY_V3`, `normal_best` 3); back up to a rung whose life ran out sixteen bars by either's accuracy; closed after two run-outs; `ROOM_MODEL_REVISION` 10 | `ddi_engine::ladder::ADAPTIVE_V3`, `Step::early` | A player who holds full life climbs within a section or two; a CPU at home on its chart climbs (level 5 from Medium in 87% of stages, 58% under v2) and falls back within sixteen bars more often (27% of level 5's steps up, 17%) | Eight bars or ten (ten: level 5 climbs 78%, falls back 24%); 80% in three |
+| RETIRED 2026-11-15 (by `adaptive-v3`, whose early step up it is): `adaptive-v2` (2026-11-14): a step up also needs 95% of its bars' taps in the two best judgments (`ADAPTIVE_ACCURACY_V2`); a step down's boundary without the extra second (`down_lead` 0) | `ddi_engine::ladder::ADAPTIVE_V2` | Weak players and CPUs stay on their chart unless they play it cleanly; a step down's easier chart comes a bar sooner | The 95%; whether the step up's own second should go too |
 | Opponents' fields default "As many as fit" | `Settings::opponent_fields` | About +0.85 ms main thread (Firefox) and +0.8 ms GPU at 2560×1440 with 72 | Whether the default should follow the room's size or the measured frame time |
 | Dancing hand in multiplayer Off by default | `Settings::dancing_hand_multiplayer` | No hand in a stage unless turned on | None (the maintainer's request) |
 | `online-cpus-v0` (2026-11-13): an online room's CPUs computed alike on every device (50 ms steps from −2 s, a shock put in 1.25 s after its checkpoint, a 2 s horizon's lead); every connected player's device reports for them, the room taking the first and counting a different one; nobody left to compute ends them as forfeits | `ddi_room::live::cpus`, `ddi_session::battle::cpus` | The host adds CPUs online as in practice; a wrong report that reached the room first stands | First or majority; the bytes (every device sends every CPU); the horizon |
