@@ -2551,6 +2551,17 @@ impl RoomClient {
         if self.stage_started(stage) {
             return PromptExit::Forfeit;
         }
+        // Practice's start already committed (the countdown), left by a
+        // watcher (the CPUs wait for nobody: no stage runs unwatched) or
+        // by a player in it (their Ready is taken already: no stage
+        // starts with them that nobody plays; review3 web-4): the start
+        // canceled, back to choosing.
+        if !self.is_online()
+            && self.may(Capability::Advance)
+            && matches!(self.state().phase, Phase::Countdown { stage: p, .. } if p == stage)
+        {
+            let _ = self.cancel_start();
+        }
         if self.state().upcoming_stage() == Some(stage) {
             if self.ready() {
                 let _ = self.set_ready(false);
@@ -2567,16 +2578,6 @@ impl RoomClient {
             {
                 let _ = self.cancel_start();
             }
-        }
-        // A watcher leaving a start already committed (the CPUs wait for
-        // nobody): the start canceled, so that no stage runs unwatched.
-        if !self.is_online()
-            && self.watches()
-            && !self.in_stage(stage)
-            && self.may(Capability::Advance)
-            && matches!(self.state().phase, Phase::Countdown { stage: p, .. } if p == stage)
-        {
-            let _ = self.cancel_start();
         }
         PromptExit::Withdraw
     }
@@ -4528,6 +4529,32 @@ mod tests {
         ));
         assert_eq!(room.view(), RoomView::Select);
         assert_eq!(room.next_pick_number(), 1);
+        // Picking it again opens its prompt again.
+        room.pick(&s, &s.charts[0]).unwrap();
+        assert_eq!(room.view(), RoomView::Prompt(first));
+        assert!(room.take_stage_order().is_some());
+    }
+
+    /// The prompt left during the practice's countdown (Ready pressed,
+    /// alone with CPUs; review3 web-4's prompt case, by the game's Back
+    /// or the browser's): the start canceled and the player withdrawn, as
+    /// before it, never a stage started with them that nobody plays.
+    #[test]
+    fn leaving_the_prompt_in_the_countdown_cancels_the_start() {
+        let mut room = RoomClient::new(0, 1);
+        let s = song("a");
+        room.pick(&s, &s.charts[0]).unwrap();
+        let first = room.stages()[0].id;
+        assert!(room.take_stage_order().is_some());
+        prepare(&mut room);
+        room.set_ready(true).unwrap();
+        assert!(matches!(room.state().phase, Phase::Countdown { .. }));
+        room.tick(1_000);
+        assert_eq!(room.leave_prompt(first), PromptExit::Withdraw);
+        room.tick(10_000);
+        assert!(!room.stage_started(first), "{:?}", room.state().phase);
+        assert!(!room.ready());
+        assert_eq!(room.view(), RoomView::Select);
         // Picking it again opens its prompt again.
         room.pick(&s, &s.charts[0]).unwrap();
         assert_eq!(room.view(), RoomView::Prompt(first));

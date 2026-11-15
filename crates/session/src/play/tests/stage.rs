@@ -2920,6 +2920,20 @@ fn leaving_from_outside_the_play_forfeits_and_ends_an_online_stage_at_once() {
     assert!(run_until(&mut s, &clock, 60.0, 9.0).is_none(), "watching on");
     assert_eq!(s.watch(9.0).map(|w| w.why), Some(Watching::Left));
     assert!(s.battle().unwrap().forfeited());
+    // The play gone at once (the web's page torn down while watching on,
+    // review3 web-4): the outcome now, a forfeit, the CPUs ranked.
+    let outcome = s.leave_now(HostTime(9.1)).expect("the stage's outcome");
+    assert_eq!(outcome.stage, order.stage);
+    assert_eq!(outcome.mine, ddi_room::Run::Forfeit);
+    assert_eq!(outcome.ranking.iter().flatten().count(), 4);
+    assert!(s.leave_now(HostTime(9.2)).is_none(), "once");
+    // And from the play itself, never left before.
+    let mut practice = attacks_room(3, 3);
+    let order = begin_at(&song, &mut practice, &mut now, LONG);
+    let (mut s, clock) = stage_session(&song, &order, true, &[]);
+    assert!(run_until(&mut s, &clock, 60.0, 6.0).is_none());
+    let outcome = s.leave_now(HostTime(6.0)).expect("the stage's outcome");
+    assert_eq!(outcome.mine, ddi_room::Run::Forfeit);
 }
 
 /// The shells' one report of a stage's outcome

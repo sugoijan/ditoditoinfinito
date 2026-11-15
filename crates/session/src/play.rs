@@ -2346,6 +2346,24 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         self.aborted = true;
     }
 
+    /// The player leaves and the play goes at once (the web's page torn
+    /// down by the browser's Back or an address, review3 web-4): the
+    /// stage's outcome now, as their leave and the end of what they
+    /// would have watched on make it (a forfeit, the CPUs played to their
+    /// end), so that the room hears how it went. `None` outside a stage,
+    /// and where the play is over and its outcome taken already.
+    pub fn leave_now(&mut self, host_now: HostTime) -> Option<StageOutcome> {
+        // A leave forfeits and watches on, a second ends the watch.
+        for _ in 0..3 {
+            if self.over {
+                break;
+            }
+            self.leave();
+            let _ = self.tick(host_now);
+        }
+        self.take_stage_outcome()
+    }
+
     /// The stage as it is watched, at host second `host`: by a spectator
     /// from its start, by a player from when they are out of it; none
     /// while the player plays (and outside a stage).

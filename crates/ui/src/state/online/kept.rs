@@ -48,7 +48,9 @@ impl Kept {
     }
 
     /// Online room `id`'s client: the one kept where it is that room's,
-    /// else made by `make` (and joined) in its place.
+    /// else made by `make` (and joined) in its place, another room kept
+    /// left first (told, its socket closed: review3 web-1, never a member
+    /// who is gone but still joined).
     pub fn room_or(&self, id: &str, make: impl FnOnce() -> SharedRoom) -> SharedRoom {
         let kept = self
             .room
@@ -59,6 +61,12 @@ impl Kept {
         if let Some(r) = kept {
             return r;
         }
+        let other = self.room.borrow_mut().take();
+        if let Some((_, old)) = other
+            && let Ok(mut old) = old.try_borrow_mut()
+        {
+            old.leave();
+        }
         let room = make();
         *self.room.borrow_mut() = Some((id.into(), room.clone()));
         room
@@ -67,6 +75,11 @@ impl Kept {
     /// The online room kept, if any.
     pub fn room(&self) -> Option<SharedRoom> {
         self.room.borrow().as_ref().map(|(_, r)| r.clone())
+    }
+
+    /// The online room kept's id, if any.
+    pub fn room_id(&self) -> Option<String> {
+        self.room.borrow().as_ref().map(|(id, _)| id.clone())
     }
 
     /// Leave room: the room's client let go (its socket closed once the
@@ -139,6 +152,35 @@ mod tests {
         drop(left);
         assert!(gone.upgrade().is_none(), "the left room's client lives on");
         assert!(kept.room().is_none());
+    }
+
+    /// A room replaced by another is left, told (review3 web-1): never a
+    /// member gone from the screens who stays joined, connected and
+    /// waited for.
+    #[test]
+    fn a_room_replaced_by_another_is_left() {
+        use crate::state::online::tests::room::{client, person, room_of, tick};
+        use std::cell::RefCell;
+        let clock = ddi_room::ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        let kept = Kept::new();
+        let bob = kept.room_or("Room000001", || {
+            Rc::new(RefCell::new(client(&server, person(&server, "bob"), "bob", 1_000)))
+        });
+        for _ in 0..3 {
+            tick(&clock, &mut [&mut bob.borrow_mut()], 400);
+        }
+        assert_eq!(bob.borrow().link_state(), ddi_room::LinkState::Connected);
+        let _other = kept.room_or("Room000002", || RoomClient::shared(2, 2));
+        for _ in 0..3 {
+            tick(&clock, &mut [&mut bob.borrow_mut()], 400);
+        }
+        let left = server
+            .borrow()
+            .state()
+            .member(ddi_room::ParticipantId(2))
+            .is_some_and(|m| m.left);
+        assert!(left, "bob left the room he no longer shows");
     }
 
     /// The online state is made once, and a maker may ask the holder for
