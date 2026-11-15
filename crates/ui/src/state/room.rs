@@ -2067,6 +2067,14 @@ impl RoomClient {
         }
     }
 
+    /// Read the online room's invite again, where it was read (More
+    /// opened): another operator may have replaced it since.
+    pub fn refresh_invite(&mut self) {
+        if let Some(l) = self.online_link_mut() {
+            l.refresh_invite();
+        }
+    }
+
     /// Whether the local player may replace the online room's invite (an
     /// operator's, as copying it is: `Capability::ReplaceInvite`, round
     /// B1), once the invite is read.

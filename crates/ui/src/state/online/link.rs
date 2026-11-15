@@ -42,6 +42,9 @@ pub const JOINED_TO_WATCH_MS: u64 = 12_000;
 /// that opens later (feedback round H, item 2).
 pub const NOTICE_MS: u64 = 5_000;
 
+/// How long after a failed read of the invite it is asked for again.
+pub const INVITE_RETRY_MS: u64 = 10_000;
+
 /// A stage's upload grant as the room answered it: for the content chosen
 /// at `chosen` (its `content_changed_at`).
 #[derive(Clone, Debug, PartialEq)]
@@ -67,6 +70,10 @@ pub struct OnlineLink {
     summary_req: Option<u64>,
     invite_req: Option<u64>,
     invite_asked: bool,
+    /// Not asked for again before then (a read failed).
+    invite_retry_at: u64,
+    /// The wall clock of the last tick.
+    now_ms: u64,
     rotate_req: Option<u64>,
     grant_reqs: Vec<(u64, StageId, Revision)>,
     grants: Vec<GrantNews>,
@@ -109,6 +116,8 @@ impl OnlineLink {
             summary_req,
             invite_req: None,
             invite_asked: false,
+            invite_retry_at: 0,
+            now_ms: 0,
             rotate_req: None,
             grant_reqs: Vec::new(),
             grants: Vec::new(),
@@ -177,8 +186,16 @@ impl OnlineLink {
     /// Ask for the invite (operators only; others are refused and see
     /// none).
     pub fn fetch_invite(&mut self) {
-        if !self.invite_asked {
+        if !self.invite_asked && self.now_ms >= self.invite_retry_at {
             self.invite_asked = true;
+            self.invite_req = Some(self.online.borrow_mut().request(api::invite(&self.room_id)));
+        }
+    }
+
+    /// Read the invite again where it was read: another operator may have
+    /// replaced it since (nothing in the room says so).
+    pub fn refresh_invite(&mut self) {
+        if self.invite.is_some() && self.invite_req.is_none() && self.rotate_req.is_none() {
             self.invite_req = Some(self.online.borrow_mut().request(api::invite(&self.room_id)));
         }
     }
@@ -221,6 +238,7 @@ impl OnlineLink {
     /// Whether anything the screen shows changed.
     pub fn tick(&mut self, now_ms: u64) -> bool {
         let mut changed = false;
+        self.now_ms = now_ms;
         self.online.borrow_mut().poll(now_ms);
         // Whoever is signed in, once known (a reload learns it after the
         // link was made; a sign-in may change it).
@@ -274,8 +292,14 @@ impl OnlineLink {
         }
         if let Some(r) = self.take(self.invite_req) {
             self.invite_req = None;
-            if let Ok(i) = api::read::<InviteDoc>(&r) {
-                self.take_invites(i);
+            match api::read::<InviteDoc>(&r) {
+                Ok(i) => self.take_invites(i),
+                // Asked for again after a while (the screen asks while
+                // there is none).
+                Err(_) => {
+                    self.invite_asked = false;
+                    self.invite_retry_at = now_ms + INVITE_RETRY_MS;
+                }
             }
             changed = true;
         }

@@ -347,3 +347,98 @@ fn the_spotlights_upload_ending_late_is_not_the_next_songs() {
 fn b_chart(s: &crate::screens::data::SongEntry) -> ddi_room::ChartKey {
     crate::state::room::content_id(s, &s.charts[0]).chart
 }
+
+/// `who`'s online state over the fake room whose invite endpoint is
+/// `invite`'s: read as it stands, replaced by any operator, failing while
+/// `down` says so.
+fn with_invite(
+    server: &SharedFake,
+    who: &'static str,
+    invite: Rc<RefCell<String>>,
+    down: Rc<RefCell<bool>>,
+) -> SharedOnline {
+    use super::api::Method;
+    use super::tests::{err, ok};
+    let mut rest = handler_of(server, who);
+    let handler: super::tests::Handler = Box::new(move |req| match (req.method, req.path.as_str()) {
+        (Method::Get, "/rooms/Room000001/invite") if *down.borrow() => err(503, "unavailable"),
+        (Method::Get, "/rooms/Room000001/invite") => ok(&format!(
+            r#"{{"invite":"{}","expires_at_ms":9,"admission":"open"}}"#,
+            invite.borrow()
+        )),
+        (Method::Post, "/rooms/Room000001/invite") => {
+            let next = format!("{}X", invite.borrow());
+            *invite.borrow_mut() = next.clone();
+            ok(&format!(r#"{{"invite":"{next}","expires_at_ms":9,"admission":"open"}}"#))
+        }
+        _ => rest(req),
+    });
+    let online = Online::new(
+        Box::new(FakeHttp {
+            handler: Rc::new(RefCell::new(handler)),
+            log: Rc::new(RefCell::new(Vec::new())),
+            out: VecDeque::new(),
+        }),
+        OnlineConfig {
+            platform: Platform::Web,
+            site: "http://localhost:8080/".into(),
+        },
+    )
+    .shared();
+    online.borrow_mut().check();
+    online.borrow_mut().poll(0);
+    online
+}
+
+/// ui-state-7: one operator replaces the invite; the other's copy of it
+/// is read again (More opened), not the dead link; and a failed read of
+/// the invite is asked again after a while.
+#[test]
+fn an_invite_replaced_by_another_operator_and_a_failed_read_are_read_again() {
+    use ddi_room::Command;
+    let clock = ManualClock::new(1_000);
+    let server = room_of(&clock, &["bob"]);
+    server
+        .borrow_mut()
+        .authority(Command::SetCoHost {
+            participant: ParticipantId(2),
+            on: true,
+        })
+        .unwrap();
+    let invite = Rc::new(RefCell::new("Room000001.abcdefghijABCDEFGHIJ01".to_string()));
+    let down = Rc::new(RefCell::new(true));
+    let mut alice = client(
+        &server,
+        with_invite(&server, "alice", invite.clone(), down.clone()),
+        "alice",
+        1_000,
+    );
+    let mut bob = client(
+        &server,
+        with_invite(&server, "bob", invite.clone(), Rc::new(RefCell::new(false))),
+        "bob",
+        1_000,
+    );
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    // Alice's first read fails; asked again, after a while, as the
+    // screen asks each frame while there is none.
+    alice.fetch_invite();
+    bob.fetch_invite();
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    assert_eq!(alice.invite_link(), None);
+    *down.borrow_mut() = false;
+    for _ in 0..40 {
+        alice.fetch_invite();
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+    }
+    let first = alice.invite_link().expect("read again after the failure");
+    assert_eq!(bob.invite_link().as_deref(), Some(first.as_str()));
+    // Bob replaces it: Alice's More reads it again.
+    bob.rotate_invite();
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let replaced = bob.invite_link().unwrap();
+    assert_ne!(replaced, first);
+    alice.refresh_invite();
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    assert_eq!(alice.invite_link(), Some(replaced));
+}

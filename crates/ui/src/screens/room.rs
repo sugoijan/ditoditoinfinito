@@ -1392,6 +1392,8 @@ pub const MORE: &str = "Room.More";
 
 /// Opens the room's More menu.
 pub fn open_more(env: &Env, room: &SharedRoom, compact: bool, cx: &mut Cx) {
+    // The invite read again: another operator may have replaced it.
+    room.borrow_mut().refresh_invite();
     let items = more_items(&room.borrow(), compact);
     super::action_menu(env, &common::more(), items, MORE, cx);
 }
