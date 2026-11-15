@@ -319,6 +319,7 @@ pub fn player_rows(v: &PublicView) -> Vec<super::room::PlayerRow> {
                 me: false,
                 ready: level.is_some(),
                 cpu: level.is_some(),
+                plays: !p.out_for_match,
                 place: standing.map(|st| st.rank),
                 points: standing.map(|st| super::room::points_text(st.total).into()),
                 role: String::new(),

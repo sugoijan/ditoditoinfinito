@@ -275,8 +275,10 @@ impl PromptScreen {
             return (Vec::new(), 0.0);
         };
         let rows = room::panel_order(room::player_rows(&rm.room.borrow()));
-        let ready = rows.iter().filter(|p| p.ready && !p.cpu).count();
-        let people = rows.iter().filter(|p| !p.cpu).count();
+        // Of the people who play the stage ([`room::plays`]): a watcher or
+        // one waiting for the next match is never waited for.
+        let ready = rows.iter().filter(|p| p.plays && p.ready && !p.cpu).count();
+        let people = rows.iter().filter(|p| p.plays && !p.cpu).count();
         let part = room::players_part(
             &self.env,
             &rows,

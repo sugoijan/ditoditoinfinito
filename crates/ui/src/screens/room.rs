@@ -377,16 +377,17 @@ pub fn loading_waits(r: &RoomClient) -> Option<usize> {
         return None;
     }
     let st = s.stage(*stage)?;
+    // Of who counts among the players ([`plays`]), the people connected.
+    let plays = plays(s);
     Some(
         s.candidates()
             .into_iter()
             .filter(|id| {
-                s.members.get(id).is_some_and(|m| {
-                    !m.left
-                        && !m.is_cpu()
-                        && m.intent == ddi_room::Intent::Play
-                        && m.connection == ddi_room::Connection::Connected
-                }) && matches!(
+                plays(*id)
+                    && s.members.get(id).is_some_and(|m| {
+                        !m.is_cpu() && m.connection == ddi_room::Connection::Connected
+                    })
+                    && matches!(
                     st.prep(*id).loading,
                     ddi_room::Loading::NotStarted | ddi_room::Loading::Loading { .. }
                 )
@@ -636,6 +637,10 @@ pub struct PlayerRow {
     /// Ready (or a CPU, which needs no readiness) for the upcoming stage.
     pub ready: bool,
     pub cpu: bool,
+    /// Counted among the room's players ([`plays`]): a CPU, or a person
+    /// who can play now (not watching, nor waiting for the next match;
+    /// in the lineup once a stage's start is committed).
+    pub plays: bool,
     /// The players panel's line ([`players_panel`]): the place in the
     /// match and the match points, once a stage of it is confirmed.
     pub place: Option<u16>,
@@ -915,6 +920,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
             .map(|st| (st.rank, String::from(points_text(st.total))))
     };
     let upcoming = s.upcoming_stage().and_then(|id| s.stage(id));
+    let plays = plays(s);
     let attacks = r.attacks_on();
     let policy = |t: ddi_room::attacks::Targeting| -> String {
         if attacks {
@@ -969,6 +975,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     me,
                     ready,
                     cpu: false,
+                    plays: plays(member.id),
                     place: standing.as_ref().map(|(rank, _)| *rank),
                     points: standing.map(|(_, points)| points),
                     role: person_role(s, member).unwrap_or_default(),
@@ -990,6 +997,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                     me: false,
                     ready: true,
                     cpu: true,
+                    plays: true,
                     place: standing.as_ref().map(|(rank, _)| *rank),
                     points: standing.map(|(_, points)| points),
                     role: String::new(),
@@ -1016,6 +1024,7 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                 me: false,
                 ready: true,
                 cpu: true,
+                plays: true,
                 place: None,
                 points: None,
                 role: String::new(),
@@ -1040,6 +1049,37 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
         });
     }
     rows
+}
+
+/// Who counts among the room's players, the one definition the Ready
+/// card, the players panel, its phone strip and the Players pop-up share:
+/// in the lineup of the stage whose start is committed; else, during a
+/// match, one of its competitors who wants to play; else (between
+/// matches) a person who wants to play. Never a watcher, nor one waiting
+/// for the next match.
+pub fn plays(s: &ddi_room::RoomState) -> impl Fn(ddi_room::ParticipantId) -> bool + '_ {
+    let stage = match s.phase {
+        Phase::Preparing { stage, .. }
+        | Phase::Countdown { stage, .. }
+        | Phase::Stage { stage }
+        | Phase::SongCompletion { stage } => s.stage(stage),
+        _ => None,
+    };
+    let lineup = stage.and_then(|st| st.play.as_ref()).map(|p| p.lineup.clone());
+    let candidates = s.current.is_some().then(|| s.candidates());
+    move |id| {
+        let wants = s.member(id).is_some_and(|m| m.wants_to_play());
+        match (&lineup, &candidates) {
+            (Some(lineup), _) => lineup.contains(&id),
+            (None, Some(candidates)) => wants && candidates.contains(&id),
+            (None, None) => wants,
+        }
+    }
+}
+
+/// How many of `rows` count among the room's players ([`plays`]).
+pub fn players_counted(rows: &[PlayerRow]) -> usize {
+    rows.iter().filter(|p| p.plays).count()
 }
 
 /// The most rows a room of nine (the cap until 2026-11-13) lists: up to
@@ -1705,7 +1745,7 @@ fn players_section(r: &RoomClient, players: Vec<PlayerRow>) -> Vec<PanelRow> {
     let cap = r.state().policy.max_competitors;
     let mut rows = vec![PanelRow::Heading(
         m::players().into(),
-        m::players_count(players.len(), cap).into(),
+        m::players_count(players_counted(&players), cap).into(),
     )];
     rows.extend(players.into_iter().map(PanelRow::Player));
     rows
@@ -1938,7 +1978,7 @@ pub fn players_panel(env: &Env, r: &RoomClient, [x, y, w, h]: [f32; 4]) -> Actor
     c.push(left(
         env.text(
             "Players.Count",
-            &m::players_count(rows.len(), cap),
+            &m::players_count(players_counted(&rows), cap),
             12.0,
             400,
             "Muted",
@@ -2228,7 +2268,7 @@ pub fn players_strip(
     let rows = panel_order(players);
     let cap = r.state().policy.max_competitors;
     let mid = y + h / 2.0;
-    let count: String = m::players_count(rows.len(), cap).into();
+    let count: String = m::players_count(players_counted(&rows), cap).into();
     let count_w = look::mono_width(&count, 12.0) + 22.0;
     let mut c = Vec::new();
     // The hit area: drawn, faintly (`crate::hit`).

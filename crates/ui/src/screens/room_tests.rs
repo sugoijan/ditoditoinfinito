@@ -2275,7 +2275,8 @@ fn the_panels_lines_say_what_each_player_is_doing() {
         (&ha, "alice", "bob", "Loading", 1, 0),
         (&hb, "alice", "bob", "Ready", 0, 1),
     ] {
-        assert_eq!(said(h, "Players.Count"), "4 / 73");
+        // Dave watches: three of them play (fix round G1, ui-screens-4).
+        assert_eq!(said(h, "Players.Count"), "3 / 73");
         assert_eq!(said(h, "Players0.Name"), first);
         assert_eq!(said(h, "Players0.Role"), "Host · Picking");
         assert_eq!(said(h, "Players1.Name"), other);
@@ -5354,4 +5355,43 @@ fn an_apply_over_rules_changed_meanwhile_says_so_and_shows_them() {
     t.settle(400, &mut [&mut ha, &mut hb]);
     let next = t.server.borrow().state().next.rules.clone();
     assert_eq!((next.difficulty, next.boos), (owners, !boos));
+}
+
+/// ui-screens-4 (fix round G1): the rooms' counts are of who can play.
+/// With one of three watching, the players panel says two of the cap and
+/// the stage's Ready card counts the two who play it, so that it
+/// completes once both are ready.
+#[test]
+fn the_counts_are_of_who_can_play() {
+    use crate::state::online::tests::room::{prepare, song, upload};
+    let t = Three::new(false);
+    let (ea, eb) = (env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    t.carol.borrow_mut().set_intent(ddi_room::Intent::Watch).unwrap();
+    t.settle(400, &mut [&mut ha]);
+    assert_eq!(said(&ha, "Players.Count"), "2 / 73", "the watcher not counted");
+    let s = song();
+    t.alice.borrow_mut().pick(&s, &s.charts[0]).unwrap();
+    t.step(400);
+    upload(&t.server, &mut t.alice.borrow_mut(), "abc12345");
+    t.step(400);
+    for r in [&t.alice, &t.bob, &t.carol] {
+        prepare(&mut r.borrow_mut());
+    }
+    t.step(400);
+    let order = t.alice.borrow_mut().take_stage_order().unwrap();
+    t.alice.borrow_mut().set_ready(true).unwrap();
+    t.step(400);
+    let state = Rc::new(RefCell::new(PromptState::default()));
+    let mut hp = harness();
+    hp.push(
+        PromptScreen::new(eb, state, Rc::new(|_, _| {})).with_room(
+            t.alice.clone(),
+            order.stage,
+            shell(&t.alice, &Orders::default()),
+        ),
+    );
+    hp.run(0.5);
+    assert_eq!(said(&hp, "Room.Ready"), "1 / 2", "{:?}", hp.texts());
 }
