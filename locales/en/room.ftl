@@ -1583,6 +1583,11 @@ room-live-lost = The room lost the live stage; your run counts at the end
 #   $name (String) - the player followed
 room-watch-following = Watching { $name }
 
+# After that line's words, beside a small key cap (Tab, or a controller's
+# shoulder button): what the key does while one player is followed, the
+# next player's field becomes the large one (quiet, about 12 letters).
+room-watch-next = next player
+
 # On the field of the player followed, under their life gauge, after
 # their name: their place among everyone in the stage now (narrow: about
 # 8 letters).

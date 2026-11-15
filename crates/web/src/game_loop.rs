@@ -1558,6 +1558,10 @@ fn watch_debug(watch: Option<&ddi_shell::play_view::WatchDrawn>) -> Value {
         // delay behind) and its name plate: who it says they are.
         "song": w.song,
         "followed_at": w.followed_at,
+        // The song second what is behind the fields was drawn for.
+        "scene_at": w.scene_at,
+        // The cap after "Watching [name]": what follows the next player.
+        "follow_key": w.follow_key,
         "plate": w.plate.as_ref().map(|p| json!({
             "name": &*p.name,
             "level": p.level,

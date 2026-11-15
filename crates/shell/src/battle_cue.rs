@@ -298,8 +298,9 @@ const CAP_SIZE: f32 = 9.0;
 
 /// The policy key's cap after the label ending at `x` (its top at `y`):
 /// an outline with the key's name in it, quieter than the label; nothing
-/// where it would reach past `limit`. Where it ends, if drawn.
-fn policy_cap(
+/// where it would reach past `limit`. Where it ends, if drawn. (The
+/// watched stage's follow hint's cap too, `crate::opponents`.)
+pub(crate) fn policy_cap(
     list: &mut DrawList,
     key: &str,
     x: f32,

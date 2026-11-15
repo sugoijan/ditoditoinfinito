@@ -2252,6 +2252,35 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         }
     }
 
+    /// How the competitor followed is changed now, for the hint beside
+    /// who is followed (`ddi_shell::opponents`' status line): Tab, or
+    /// the pad's shoulder where a pad was pressed last (named as its cap
+    /// is); nothing after a tap (a field is tapped), outside a watched
+    /// stage and where there is nobody to follow.
+    pub fn follow_key(&self) -> Option<PolicyKey> {
+        self.watch.as_ref()?;
+        self.battle.as_ref().filter(|b| b.feeds().count() > 0)?;
+        match &self.last_device {
+            Some(DeviceId::Touch) => None,
+            Some(DeviceId::Gamepad(id)) => {
+                let standard = self.known_pads.iter().any(|p| p.id == *id && p.standard);
+                let control = self
+                    .controls
+                    .menu_controls(id, standard, ddi_engine::MenuInput::Next)
+                    .into_iter()
+                    .next()?;
+                ddi_ui::controller_hints::pad_control_name(
+                    &self.known_pads,
+                    &self.styles,
+                    id,
+                    &control,
+                )
+                .map(PolicyKey::Pad)
+            }
+            _ => Some(PolicyKey::Key("Tab")),
+        }
+    }
+
     /// The next attack policy, from the judged song second of host time
     /// `host`: kept in the play's log and given to the ledger, which
     /// launches by it from its next checkpoint.
@@ -2353,6 +2382,20 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             frame.life = 0.0;
         }
         frame
+    }
+
+    /// The stage's own song second and beat at `present`, whoever is
+    /// followed: what the background, its movies, the song's scripts and
+    /// the lyrics are drawn for. [`PlaySession::frame`]'s time is the
+    /// followed competitor's field's own while one is followed (its view
+    /// delay behind the song), and what is behind the fields must not
+    /// shift by that delay when the watcher changes whom they follow
+    /// (round M). Outside that, the frame's own (the audio test's held
+    /// beat too).
+    pub fn stage_clock(&self, present: HostTime) -> (f64, f64) {
+        let frame = self.player.frame(present);
+        let beat = if self.view.hide_notes { 0.0 } else { frame.beat };
+        (frame.song_time, beat)
     }
 
     /// The player leaves the play from outside it (the window asked to

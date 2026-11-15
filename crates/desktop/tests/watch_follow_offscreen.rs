@@ -139,6 +139,10 @@ fn followed_behind(size: [u32; 2], lang: &str) {
     }
     let w = rig.host.watch().unwrap();
     assert_eq!(w.view, "focus");
+    // How to follow another, after the label: nothing after a tap (the
+    // seat was followed by one: a field is tapped), Tab's cap once a key
+    // was pressed (round M).
+    assert_eq!(w.follow_key, None, "followed by a tap");
     assert_eq!(w.followed_at, Some(w.song), "a practice's fields are at the song's time");
     // The name plate on the followed field: who they are, their stars
     // (a CPU's), their place of the three; under their life gauge,
@@ -182,6 +186,8 @@ fn followed_behind(size: [u32; 2], lang: &str) {
         w.song - at
     );
     assert!((w.delay - DELAY).abs() < 1e-6, "{}", w.delay);
+    // What is behind the fields stays on the stage's song time (round M).
+    assert_eq!(w.scene_at, w.song, "the background on the stage's time");
     ddi_l10n::unforce();
 }
 

@@ -3097,3 +3097,51 @@ fn a_practice_stage_left_from_its_prompt_withdraws_forfeits_or_stops_the_match()
             .interrupted
     );
 }
+
+/// Round M, item 4: while one competitor is followed, what is behind the
+/// fields (the background, its movies, the song's scripts, the lyrics)
+/// runs on the stage's song time (`PlaySession::stage_clock`), not on
+/// the followed field's own. The fields drawn behind the song as a
+/// network's are, each by its own delay: the followed field's frame is
+/// that far behind, and changes by the difference when the watcher
+/// follows another; the stage's clock is the song's throughout, a
+/// movie's clock on it (`crate::movies::MovieSlots`'s `t`) and a
+/// scripted background's beat never shifting with whom is followed.
+#[test]
+fn what_is_behind_the_fields_stays_on_the_stage_s_time_whoever_is_followed() {
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(4, 2);
+    let mut now = 0;
+    let order = begin_watching(&song, &mut practice, &mut now, LONG);
+    let keys = [(12.0, "Tab", true), (12.05, "Tab", false), (14.0, "Tab", true), (14.05, "Tab", false)];
+    let (mut s, clock) = stage_session(&song, &order, false, &keys);
+    assert!(run_until(&mut s, &clock, 60.0, 11.0).is_none());
+    // How to follow another (round M): Tab for someone at a keyboard.
+    assert_eq!(s.follow_key(), Some(crate::play::PolicyKey::Key("Tab")));
+    // Nobody followed: the frame's own time is the stage's.
+    let at = HostTime(11.0);
+    assert_eq!(s.stage_clock(at), (s.frame(at).song_time, s.frame(at).beat));
+    const DELAY: f64 = 0.4;
+    s.delay_fields_for_tests(DELAY);
+    let mut seen = Vec::new();
+    for (t, seat) in [(13.0, 0), (15.0, 1)] {
+        assert!(run_until(&mut s, &clock, 60.0, t).is_none());
+        assert_eq!(s.watch(t).unwrap().focus, Some(seat));
+        let present = HostTime(t);
+        let large = s.frame(present);
+        let (stage_at, stage_beat) = s.stage_clock(present);
+        let own = s.player.clock().render_time(present);
+        assert_eq!(stage_at, own, "the stage's song second");
+        assert!(
+            (stage_at - large.song_time - DELAY).abs() < 1e-9,
+            "the followed field {} s behind",
+            stage_at - large.song_time
+        );
+        assert!(stage_beat > large.beat, "and its beat behind the stage's");
+        seen.push((t, stage_at, stage_beat));
+    }
+    // Two seconds of the watcher's clock, two seconds of the stage's:
+    // nothing shifted when the followed competitor changed.
+    let (a, b) = (seen[0], seen[1]);
+    assert!(((b.1 - a.1) - (b.0 - a.0)).abs() < 1e-9, "{seen:?}");
+}

@@ -73,6 +73,11 @@ pub struct Shown {
     /// A quiet word at the status line's start (a watched stage's: who
     /// is followed, how to follow someone).
     pub label: Option<String>,
+    /// After the label, how to follow another competitor while one is
+    /// followed: the key's cap (Tab, a pad's shoulder by its name) and
+    /// what it does, worded ("next player"); drawn quietly where both
+    /// fit on the status line.
+    pub label_key: Option<(String, String)>,
     /// The slot of `fields` that is the field shown large (a watched
     /// stage's focus: the play's own field's place): no name line, no
     /// stars and no small score there (the HUD's places say them).
@@ -1707,8 +1712,23 @@ pub fn draw_fields(
     if let Some(label) = &shown.label {
         let st = style(14.0, 600);
         let (t, m) = fitted(measure, label, &st, sw);
-        x += m.advance + 12.0 * ratio;
+        x += m.advance;
         list.text(t, &st, sx, sy, MUTED);
+        // How to follow another: the key's cap, as the attack policy's
+        // after its label, and what it does.
+        if let Some((key, word)) = &shown.label_key {
+            let st = style(12.0, 500);
+            let word_w = measure.measure(word, &st).advance;
+            let limit = sx + sw - 5.0 * ratio - word_w;
+            if let Some(end) =
+                crate::battle_cue::policy_cap(list, key, x, sy + ratio, ratio, limit, measure)
+            {
+                let quiet = [MUTED[0], MUTED[1], MUTED[2], MUTED[3] * 0.6];
+                list.text(word.as_str(), &st, end + 5.0 * ratio, sy + ratio, quiet);
+                x = end + 5.0 * ratio + word_w;
+            }
+        }
+        x += 12.0 * ratio;
     }
     if let Some(won) = &shown.won {
         let st = style(14.0, 700);
@@ -2097,6 +2117,7 @@ pub(crate) mod tests {
             cue: None,
             score: ScoreShown::Sum,
             label: None,
+            label_key: None,
             large: None,
             stale: Vec::new(),
             ladder: None,
@@ -2467,6 +2488,22 @@ pub(crate) mod tests {
         let texts = texts(&list);
         let words: Vec<&str> = texts.iter().map(|(t, _)| t.as_str()).collect();
         assert!(words.contains(&"Watching Followed"), "{words:?}");
+        // Round M: how to follow another, after the label: the key's
+        // cap and what it does, both after the label and on the line.
+        assert!(!words.contains(&"tab") && !words.contains(&"next player"));
+        shown.label_key = Some(("tab".into(), "next player".into()));
+        let mut hinted = DrawList::new();
+        draw_fields(&mut hinted, &shown, &f, &Flashes::new(), &Locks::new(), 1.0, &mut measure, &mut Memo::default());
+        let hinted: Vec<(String, f32)> = hinted
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Text(t) => Some((t.text.to_string(), t.transform.apply([0.0, 0.0])[0])),
+                _ => None,
+            })
+            .collect();
+        let at = |w: &str| hinted.iter().find(|(t, _)| t == w).map(|(_, x)| *x).unwrap_or_else(|| panic!("{w}: {hinted:?}"));
+        assert!(at("Watching Followed") < at("tab") && at("tab") < at("next player"), "{hinted:?}");
         assert!(!words.contains(&"Followed"), "{words:?}");
         assert_eq!(words.iter().filter(|t| **t == "Out").count(), 2, "{words:?}");
         // Three small scores (the others'), none for the large field.
@@ -3593,6 +3630,7 @@ pub(crate) mod tests {
                     ScoreShown::Percent
                 },
                 label: grid.then(|| "Watching Ri\u{301}os".into()),
+                label_key: None,
                 large: None,
                 stale: vec![4],
                 ladder: Some((

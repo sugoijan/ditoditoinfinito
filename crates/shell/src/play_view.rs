@@ -296,6 +296,10 @@ pub struct WatchDrawn {
     pub fields: Vec<(usize, [f32; 4])>,
     /// The status line's label and moment as worded.
     pub label: Option<String>,
+    /// The cap after the label while one is followed (what follows the
+    /// next player: "tab", a pad's shoulder's name), where it was asked
+    /// for (none on a touch screen).
+    pub follow_key: Option<String>,
     pub cue: Option<String>,
     /// The attack warnings drawn on the grid's fields: their seats.
     pub warned: Vec<usize>,
@@ -320,6 +324,9 @@ pub struct WatchDrawn {
     /// followed.
     pub song: f64,
     pub followed_at: Option<f64>,
+    /// The song second the background, its movies, the song's scripts
+    /// and the lyrics were drawn for: the stage's, whoever is followed.
+    pub scene_at: f64,
     /// The followed competitor's name plate on their field
     /// (`crate::battle_cue::draw_followed`): who it says they are.
     pub plate: Option<crate::battle_cue::Followed>,
@@ -1110,7 +1117,6 @@ impl<H: PlayHost> PlayView<H> {
         // (A stage watched on after the player's own play ended goes on.)
         let started = session.player.started();
         let finished = started && !session.song_going();
-        self.playing_at = (started && !finished).then_some(frame.song_time);
         let refresh = self.refresh_hz();
         // A watched stage (`watch-v0`): a spectator has no field of
         // their own (every field over the whole screen, or the one they
@@ -1127,6 +1133,16 @@ impl<H: PlayHost> PlayView<H> {
             .then(|| session.battle().map(|b| b.feeds().count()))
             .flatten();
         let grid = spectator.is_some() && focus.is_none();
+        // What is behind the fields (the background, its movies, the
+        // song's scripts, a work's layers) and the lyrics run on the
+        // stage's song time, never on a followed field's own, which is
+        // its view delay behind and changes with whom is followed.
+        let (scene_at, scene_beat) = if focus.is_some() {
+            session.stage_clock(present)
+        } else {
+            (frame.song_time, frame.beat)
+        };
+        self.playing_at = (started && !finished).then_some(scene_at);
         self.upload_backgrounds(device, queue, self.playing_at);
         if std::mem::take(&mut self.skins_changed) {
             self.renderer
@@ -1143,7 +1159,7 @@ impl<H: PlayHost> PlayView<H> {
             let before = self.host.seconds();
             self.movies.update(
                 &self.schedule,
-                frame.song_time,
+                scene_at,
                 self.renderer.background_mut(),
                 device,
                 queue,
@@ -1189,7 +1205,7 @@ impl<H: PlayHost> PlayView<H> {
                 &render,
             );
         }
-        render.backdrop = self.backdrop(frame.song_time);
+        render.backdrop = self.backdrop(scene_at);
         self.backdrop_drawn = render.backdrop;
         if let Some(g) = self.generated.as_mut() {
             g.draw_shown(
@@ -1199,7 +1215,7 @@ impl<H: PlayHost> PlayView<H> {
                 encoder,
                 &render,
                 &self.pictures,
-                (frame.song_time, frame.beat),
+                (scene_at, scene_beat),
             );
         }
         // The field's place, for the quit button, a work's layers and
@@ -1254,7 +1270,7 @@ impl<H: PlayHost> PlayView<H> {
             &mut self.stage,
             &mut self.scripts,
             (&mut self.renderer, device, queue),
-            (frame.song_time, frame.beat),
+            (scene_at, scene_beat),
             &self.schedule,
             ([w, h], frame_aspect),
             geo.center_x(span),
@@ -1650,6 +1666,21 @@ impl<H: PlayHost> PlayView<H> {
                     .filter(|b| b.live_lost())
                     .map(|_| ddi_l10n::msg::room::live_lost().into())
             });
+        // While one is followed: how to follow another, after the label
+        // (a key's cap or the pad's shoulder; a field is tapped on a
+        // touch screen).
+        let label_key = watch
+            .filter(|w| w.focus.is_some() && !w.over && !screen.touch)
+            .and_then(|_| session.follow_key())
+            .map(|k| {
+                let cap = match k {
+                    ddi_session::play::PolicyKey::Key(code) => {
+                        ddi_ui::controller_hints::policy_keycap(code).label().to_string()
+                    }
+                    ddi_session::play::PolicyKey::Pad(name) => name.to_string(),
+                };
+                (cap, String::from(ddi_l10n::msg::room::watch_next()))
+            });
         // Who attacks whom: a line and the recipient's field outlined
         // (`crate::attack_links`). For the player's own attacks; for
         // someone watching, between the competitors' fields (a grid's,
@@ -1860,6 +1891,7 @@ impl<H: PlayHost> PlayView<H> {
                         b.last_standing_me(&session.player).then(|| words[2].clone())
                     },
                     label,
+                    label_key,
                     large: large_at,
                     stale: b.stale_seats(),
                     own: own_seat.zip(own_word),
@@ -1996,6 +2028,9 @@ impl<H: PlayHost> PlayView<H> {
                     .collect()
             }),
             label: shown.as_ref().and_then(|o| o.shown.label.clone()),
+            follow_key: shown
+                .as_ref()
+                .and_then(|o| o.shown.label_key.as_ref().map(|k| k.0.clone())),
             cue: shown
                 .as_ref()
                 .and_then(|o| o.shown.cue.as_ref().map(|(c, _)| c.clone())),
@@ -2011,6 +2046,7 @@ impl<H: PlayHost> PlayView<H> {
             trace: self.watch_trace.clone(),
             song,
             followed_at,
+            scene_at,
             plate: attack.as_ref().and_then(|a| a.followed.clone()),
         });
         self.attack_drawn = attack.as_ref().and_then(|a| a.cue);
