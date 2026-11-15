@@ -5,7 +5,9 @@
 //! The card's parts stay inside the window and the player's own line is
 //! drawn.
 //!
-//! Skipped where there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>`
+//! Without a GPU adapter (CI) the prompt readies undrawn
+//! (`common::rig::Draws`) and the card's layout is checked all the same;
+//! only the pictures are skipped. `DDI_OFFSCREEN_PPM=<dir>`
 //! keeps pictures (PPM); `DDI_READY_CARD=all` draws every size, count and
 //! language (else 73 at 1280×720 and 24 on a phone, in English).
 
@@ -19,9 +21,6 @@ use common::ui::top;
 
 fn card(size: [u32; 2], players: u16, lang: &str) {
     common::indexes();
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
     assert!(ddi_l10n::force(lang));
     let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), size, true);
     // The design the window would choose (compact on a phone's sizes).
@@ -31,7 +30,7 @@ fn card(size: [u32; 2], players: u16, lang: &str) {
     let host = Host::new(Rc::default(), None);
     // A fresh practice room each time (the run keeps one).
     ddi_desktop::room::discard();
-    let mut rig = common::rig::Rig::new(&adapter, size, ui, env, host).with_ui_gpu(&adapter);
+    let mut rig = common::rig::Rig::here(size, ui, env, host);
     let room = common::practice::open(&mut rig.ui, &rig.env, &rig.host);
     let entry = common::practice::song_entry("beatucada", "Beatucada", 4, Difficulty::Medium);
     {
@@ -56,12 +55,13 @@ fn card(size: [u32; 2], players: u16, lang: &str) {
     // `DDI_READY_CARD_BEFORE=1`: the picture alone (the card before
     // `ready-card-v1`, for comparing).
     if std::env::var_os("DDI_READY_CARD_BEFORE").is_some() {
-        let pixels = rig.ui_picture();
-        common::shot(
-            &format!("ready-{players}-{}x{}-{lang}.ppm", size[0], size[1]),
-            &pixels,
-            size,
-        );
+        if let Some(pixels) = rig.ui_picture() {
+            common::shot(
+                &format!("ready-{players}-{}x{}-{lang}.ppm", size[0], size[1]),
+                &pixels,
+                size,
+            );
+        }
         ddi_l10n::unforce();
         return;
     }
@@ -94,12 +94,13 @@ fn card(size: [u32; 2], players: u16, lang: &str) {
     if size == [1280, 720] {
         assert!(shown >= usize::from(players).min(24), "{shown}");
     }
-    let pixels = rig.ui_picture();
-    common::shot(
-        &format!("ready-{players}-{}x{}-{lang}.ppm", size[0], size[1]),
-        &pixels,
-        size,
-    );
+    if let Some(pixels) = rig.ui_picture() {
+        common::shot(
+            &format!("ready-{players}-{}x{}-{lang}.ppm", size[0], size[1]),
+            &pixels,
+            size,
+        );
+    }
     ddi_l10n::unforce();
 }
 

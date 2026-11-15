@@ -12,13 +12,16 @@
 //!   the play (Escape twice) forfeits, watches on and skips (a press on
 //!   the plate); each ranked as before.
 //!
-//! Skipped where there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>`
-//! keeps pictures (PPM).
+//! Without a GPU adapter (CI) the stages run undrawn
+//! (`common::rig::Draws`): the room, the watch state as the session has
+//! it (the view, the seat followed), the stage going on, its results,
+//! the ranking and the history are checked; what the view says (the
+//! fields' places, the labels, the lines drawn) and the pictures are not.
+//! `DDI_OFFSCREEN_PPM=<dir>` keeps pictures (PPM).
 
 mod common;
 use std::rc::Rc;
 
-use ddi_desktop::gpu::{self};
 use ddi_desktop::play::host::Host;
 use ddi_platform::history::MemoryPlayStore;
 use ddi_platform::DeviceId;
@@ -63,12 +66,11 @@ impl std::ops::DerefMut for Rig {
 impl Rig {
     fn new() -> Option<Rig> {
         common::indexes();
-        let adapter = common::gpu::adapter_or_skip()?;
         let (ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
         let store = Rc::new(MemoryPlayStore::default());
         let plays = Plays::new(store.clone());
         let host = Host::new(Rc::default(), Some(plays));
-        let mut window = common::rig::Rig::new(&adapter, SIZE, ui, env, host).with_ui_gpu(&adapter);
+        let mut window = common::rig::Rig::here(SIZE, ui, env, host);
         let w = &mut window;
         let room = common::practice::open(&mut w.ui, &w.env, &w.host);
         let entry =
@@ -135,13 +137,15 @@ impl Rig {
             std::thread::sleep(std::time::Duration::from_millis(20));
             self.frame();
         }
-        ppm(name, &gpu::read_rgba(&self.device, &self.queue, &self.target.texture));
+        self.shot_now(name);
     }
 
     /// The frame drawn last, as it is (a moment that would pass in
     /// [`Rig::shot`]'s frames: an attack's line lasts 1.5 s).
     fn shot_now(&mut self, name: &str) {
-        ppm(name, &self.read());
+        if let Some(pixels) = self.draws.picture() {
+            ppm(name, &pixels);
+        }
     }
 
     /// The play's frames to its end; the results' screen is up.
@@ -205,16 +209,19 @@ fn a_practice_stage_is_watched_from_the_grid_and_a_seat_to_its_results() {
     for _ in 0..8 {
         rig.frame();
     }
-    let w = rig.host.watch().expect("a watched stage");
-    assert_eq!((w.view, w.focus), ("grid", None));
-    assert_eq!(w.fields.len(), 3);
-    assert_eq!(w.lane, 63.0, "three in a row at 1280×720");
-    assert_eq!(
-        w.label.as_deref(),
-        Some("Tab or tap a field to follow one player")
-    );
-    let fields = rig.host.opponent_fields().expect("the grid");
-    assert_eq!(fields.slots.len(), 3);
+    assert_eq!(rig.watching(), Some(("grid", None)));
+    if rig.drawn() {
+        let w = rig.host.watch().expect("a watched stage");
+        assert_eq!((w.view, w.focus), ("grid", None));
+        assert_eq!(w.fields.len(), 3);
+        assert_eq!(w.lane, 63.0, "three in a row at 1280×720");
+        assert_eq!(
+            w.label.as_deref(),
+            Some("Tab or tap a field to follow one player")
+        );
+        let fields = rig.host.opponent_fields().expect("the grid");
+        assert_eq!(fields.slots.len(), 3);
+    }
     let p = rig.host.running().expect("playing");
     assert_eq!(p.session.opponents().len(), 3);
     assert_eq!(p.session.player.judge().last_time(), None, "nothing judged");
@@ -226,12 +233,7 @@ fn a_practice_stage_is_watched_from_the_grid_and_a_seat_to_its_results() {
     rig.press("Tab");
     rig.frame();
     rig.frame();
-    let w = rig.host.watch().unwrap();
-    assert_eq!((w.view, w.focus), ("focus", Some(0)));
-    assert_eq!(w.fields.len(), 3, "two beside, the large one last");
-    assert_eq!(w.fields[2].0, 0);
-    let seats: Vec<usize> = w.fields.iter().map(|f| f.0).collect();
-    assert_eq!(seats, [1, 2, 0]);
+    assert_eq!(rig.watching(), Some(("focus", Some(0))));
     let names: Vec<String> = rig
         .host
         .running()
@@ -241,27 +243,37 @@ fn a_practice_stage_is_watched_from_the_grid_and_a_seat_to_its_results() {
         .iter()
         .map(|o| o.name.to_string())
         .collect();
-    assert_eq!(w.label, Some(format!("Watching {}", names[0])));
-    // The large field is the play's own field's band.
-    let large = w.fields[2].1;
-    assert!(large[0] > 400.0 && large[2] < 880.0 && large[1] == 0.0 && large[3] == 720.0);
-    rig.shot("watch-focus");
+    if rig.drawn() {
+        let w = rig.host.watch().unwrap();
+        assert_eq!((w.view, w.focus), ("focus", Some(0)));
+        assert_eq!(w.fields.len(), 3, "two beside, the large one last");
+        assert_eq!(w.fields[2].0, 0);
+        let seats: Vec<usize> = w.fields.iter().map(|f| f.0).collect();
+        assert_eq!(seats, [1, 2, 0]);
+        assert_eq!(w.label, Some(format!("Watching {}", names[0])));
+        // How to follow the next, after the label (round M).
+        assert_eq!(w.follow_key.as_deref(), Some("tab"));
+        // The large field is the play's own field's band.
+        let large = w.fields[2].1;
+        assert!(large[0] > 400.0 && large[2] < 880.0 && large[1] == 0.0 && large[3] == 720.0);
+        rig.shot("watch-focus");
 
-    // A press on a field beside it follows that competitor.
-    let at = rig.host.feed.borrow().watch_at.clone();
-    assert_eq!(at.len(), 3);
-    assert_eq!(at.iter().filter(|(s, _)| s.is_none()).count(), 1);
-    let (seat, _) = at.iter().find(|(s, _)| *s == Some(2)).copied().unwrap();
-    assert_eq!(seat, Some(2));
+        // A press on a field beside it follows that competitor.
+        let at = rig.host.feed.borrow().watch_at.clone();
+        assert_eq!(at.len(), 3);
+        assert_eq!(at.iter().filter(|(s, _)| s.is_none()).count(), 1);
+        let (seat, _) = at.iter().find(|(s, _)| *s == Some(2)).copied().unwrap();
+        assert_eq!(seat, Some(2));
+    }
     rig.edge(DeviceId::Touch, "watch:2", true);
     rig.frame();
     rig.frame();
-    assert_eq!(rig.host.watch().unwrap().focus, Some(2));
+    assert_eq!(rig.watching(), Some(("focus", Some(2))));
     // A press on the large field: every field again.
     rig.edge(DeviceId::Touch, ddi_session::play::TOUCH_WATCH_ALL, true);
     rig.frame();
     rig.frame();
-    assert_eq!(rig.host.watch().unwrap().view, "grid");
+    assert_eq!(rig.watching(), Some(("grid", None)));
     // Shift+Tab from the grid: the last; Escape once: the grid, the
     // stage going on.
     rig.edge(DeviceId::Keyboard, "ShiftLeft", true);
@@ -269,13 +281,13 @@ fn a_practice_stage_is_watched_from_the_grid_and_a_seat_to_its_results() {
     rig.edge(DeviceId::Keyboard, "ShiftLeft", false);
     rig.frame();
     rig.frame();
-    assert_eq!(rig.host.watch().unwrap().focus, Some(2));
+    assert_eq!(rig.watching(), Some(("focus", Some(2))));
     rig.press("Escape");
     for _ in 0..12 {
         rig.frame();
     }
     assert!(rig.host.playing(), "Escape once does not leave");
-    assert_eq!(rig.host.watch().unwrap().view, "grid");
+    assert_eq!(rig.watching(), Some(("grid", None)));
 
     // To its end: who attacks whom is drawn between the fields, the
     // warning beside the recipient's.
@@ -330,15 +342,17 @@ fn a_practice_stage_is_watched_from_the_grid_and_a_seat_to_its_results() {
             following = true;
         }
         if frames % 16 == 0 {
-            let _ = rig.device.poll(wgpu::PollType::wait_indefinitely());
+            rig.wait_gpu();
         }
         frames += 1;
         assert!(frames < 4 * 400, "the stage never ended");
     }
     assert!(attacks > 0, "the CPUs attacked each other");
-    assert!(lines > 0 && warned > 0, "{lines} lines, {warned} warnings");
-    assert!(focus_lines > 0, "a followed competitor's attacks drawn");
-    let _ = rig.device.poll(wgpu::PollType::wait_indefinitely());
+    if rig.drawn() {
+        assert!(lines > 0 && warned > 0, "{lines} lines, {warned} warnings");
+        assert!(focus_lines > 0, "a followed competitor's attacks drawn");
+    }
+    rig.wait_gpu();
     rig.ui.update(0.05);
     assert_eq!(top(&rig.ui), "results");
     // Watched: no notes, no Retry, no song offset.
@@ -364,8 +378,9 @@ fn a_practice_stage_is_watched_from_the_grid_and_a_seat_to_its_results() {
     assert!(rig.ui.actor("ScoreBox").is_none(), "no grade of their own");
     assert!(rig.ui.bounds("Tab.Standings").is_some() && rig.ui.bounds("Tab.Graphs").is_none());
     assert!(rig.ui.bounds("Retry").is_none());
-    let pixels = rig.ui_picture();
-    ppm("watch-results", &pixels);
+    if let Some(pixels) = rig.ui_picture() {
+        ppm("watch-results", &pixels);
+    }
     rig.back_to_room();
     assert!(matches!(
         rig.room.borrow().state().phase,
@@ -414,26 +429,33 @@ fn a_player_out_of_a_stage_watches_on_and_skips_to_its_results() {
     assert!(rig.room.borrow().ready());
     rig.start();
     let mut frames = 0;
-    while rig.host.watch().is_none() {
+    while rig.watching().is_none() {
         rig.frame();
         frames += 1;
         assert!(rig.host.playing(), "the play ended at once");
         assert!(frames < 4 * 200, "the player never went out");
     }
-    let w = rig.host.watch().unwrap();
-    assert_eq!((w.view, w.focus), ("out", None));
-    assert_eq!(w.mark.as_deref(), Some("Out"));
-    assert_eq!(w.skip.as_deref(), Some("Enter: skip to results"));
+    // (A frame for the view to say it.)
+    rig.frame();
+    assert_eq!(rig.watching(), Some(("out", None)));
+    if rig.drawn() {
+        let w = rig.host.watch().unwrap();
+        assert_eq!((w.view, w.focus), ("out", None));
+        assert_eq!(w.mark.as_deref(), Some("Out"));
+        assert_eq!(w.skip.as_deref(), Some("Enter: skip to results"));
+    }
     // The stage goes on: the others beside the player's own field, the
     // song playing, for as long as they watch.
     for _ in 0..20 {
         rig.frame();
         assert!(rig.host.playing(), "watching on");
     }
-    assert_eq!(rig.host.opponent_fields().unwrap().slots.len(), 3);
+    if rig.drawn() {
+        assert_eq!(rig.host.opponent_fields().unwrap().slots.len(), 3);
+        assert!(rig.host.feed.borrow().skip_at.is_some());
+    }
     let p = rig.host.running().unwrap();
     assert!(p.session.player.failed() && p.session.song_going());
-    assert!(rig.host.feed.borrow().skip_at.is_some());
     rig.shot("watch-out");
     // Tab follows a competitor large, as a watcher's focus: their own
     // field then a miniature among the others (its seat the last, after
@@ -441,19 +463,22 @@ fn a_player_out_of_a_stage_watches_on_and_skips_to_its_results() {
     rig.press("Tab");
     rig.frame();
     rig.frame();
-    let w = rig.host.watch().unwrap();
-    assert_eq!((w.view, w.focus), ("out", Some(0)));
-    let seats: Vec<usize> = w.fields.iter().map(|(s, _)| *s).collect();
-    assert_eq!(seats.len(), 4, "{seats:?}");
-    assert!(seats.contains(&3) && seats.last() == Some(&0), "{seats:?}");
-    assert!(rig.host.feed.borrow().skip_at.is_some());
-    assert_eq!(w.label.as_deref().map(|l| l.starts_with("Watching")), Some(true));
+    assert_eq!(rig.watching(), Some(("out", Some(0))));
+    if rig.drawn() {
+        let w = rig.host.watch().unwrap();
+        assert_eq!((w.view, w.focus), ("out", Some(0)));
+        let seats: Vec<usize> = w.fields.iter().map(|(s, _)| *s).collect();
+        assert_eq!(seats.len(), 4, "{seats:?}");
+        assert!(seats.contains(&3) && seats.last() == Some(&0), "{seats:?}");
+        assert!(rig.host.feed.borrow().skip_at.is_some());
+        assert_eq!(w.label.as_deref().map(|l| l.starts_with("Watching")), Some(true));
+    }
     rig.shot("watch-out-follow");
     // Escape once: back to their own dimmed field.
     rig.press("Escape");
     rig.frame();
     rig.frame();
-    assert_eq!(rig.host.watch().unwrap().focus, None);
+    assert_eq!(rig.watching(), Some(("out", None)));
     assert!(rig.host.playing(), "once is not the quit");
     // Enter: the results at once.
     rig.press("Enter");
@@ -477,7 +502,7 @@ fn a_player_out_of_a_stage_watches_on_and_skips_to_its_results() {
     for _ in 0..12 {
         rig.frame();
     }
-    assert!(rig.host.watch().is_none(), "playing");
+    assert!(rig.watching().is_none(), "playing");
     rig.edge(DeviceId::Keyboard, "Escape", true);
     rig.edge(DeviceId::Keyboard, "Escape", false);
     rig.frame();
@@ -486,9 +511,12 @@ fn a_player_out_of_a_stage_watches_on_and_skips_to_its_results() {
     rig.frame();
     rig.frame();
     assert!(rig.host.playing(), "the quit does not end the stage");
-    let w = rig.host.watch().expect("watching on");
-    assert_eq!(w.view, "left");
-    assert_eq!(w.mark.as_deref(), Some("Left the stage"));
+    assert_eq!(rig.watching(), Some(("left", None)), "watching on");
+    if rig.drawn() {
+        let w = rig.host.watch().expect("watching on");
+        assert_eq!(w.view, "left");
+        assert_eq!(w.mark.as_deref(), Some("Left the stage"));
+    }
     let p = rig.host.running().unwrap();
     assert!(p.session.battle().unwrap().forfeited());
     for _ in 0..12 {
@@ -497,8 +525,10 @@ fn a_player_out_of_a_stage_watches_on_and_skips_to_its_results() {
     }
     rig.shot("watch-left");
     // A press on the plate (the shell sends `skip` for one inside it).
-    let [l, t, r, b] = rig.host.feed.borrow().skip_at.expect("the skip's plate");
-    assert!(l < r && t < b && l > 400.0 && r < 880.0);
+    if rig.drawn() {
+        let [l, t, r, b] = rig.host.feed.borrow().skip_at.expect("the skip's plate");
+        assert!(l < r && t < b && l > 400.0 && r < 880.0);
+    }
     rig.edge(DeviceId::Touch, ddi_session::play::TOUCH_SKIP_CONTROL, true);
     rig.until_results();
     let view = rig.env.state.borrow().stage.clone().expect("the standings");

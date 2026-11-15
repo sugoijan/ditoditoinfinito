@@ -6,15 +6,16 @@
 //! the prompt, an autoplayed stage against CPUs whose full bars launch
 //! attacks; what the play said of the battle's moments and the attacks',
 //! and what it showed in the status line instead, read from the host's
-//! log. Skipped where there is no GPU adapter (CI).
+//! log. Without a GPU adapter (CI) the stage runs undrawn
+//! (`common::rig::Draws`) and all of it is checked all the same: what is
+//! said and shown is the session's, never the view's.
 
 mod common;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
 
-use ddi_desktop::gpu;
-use ddi_desktop::play::host::{Device, Host};
+use ddi_desktop::play::host::Host;
 use ddi_platform::history::MemoryPlayStore;
 use ddi_platform::storage::{self, MemoryStore};
 use ddi_ui::screens::data::Difficulty;
@@ -38,11 +39,9 @@ struct Heard {
 /// A one-stage practice match under the attacks' battle on Beatucada's
 /// Medium chart, autoplayed against the CPUs with announcer `key` chosen
 /// (`folder`: a song folder it is found in; ours need none): what the
-/// play said. `None` without a GPU adapter.
+/// play said.
 fn stage_with(key_of: &str, folder: Option<PathBuf>) -> Option<Heard> {
     common::indexes();
-    let instance = gpu::instance();
-    let adapter = gpu::adapter(&instance, None)?;
     storage::install(Rc::new(MemoryStore::default()));
     Settings {
         announcer: Some(key_of.into()),
@@ -52,18 +51,11 @@ fn stage_with(key_of: &str, folder: Option<PathBuf>) -> Option<Heard> {
     if let Some(folder) = &folder {
         ddi_desktop::library::set_extra_folders(std::slice::from_ref(folder));
     }
-    let (device, queue) = gpu::device(&adapter).unwrap();
     let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let store = Rc::new(MemoryPlayStore::default());
     let mut host = Host::new(Rc::default(), Some(Plays::new(store)));
     let clock = common::rig::fake_clock(&mut host);
-    let formats = common::gpu::formats();
-    let dev = || Device {
-        device: &device,
-        queue: &queue,
-        formats,
-    };
-    let target = common::gpu::Target::new(&device, SIZE);
+    let draws = common::rig::Draws::here(&mut host, SIZE);
     let room = common::practice::open(&mut ui, &env, &host);
     let chart = 4;
     let entry = common::practice::song_entry("beatucada", "Beatucada", chart, Difficulty::Medium);
@@ -88,28 +80,28 @@ fn stage_with(key_of: &str, folder: Option<PathBuf>) -> Option<Heard> {
     ddi_desktop::play::voice::set_test_delay(600);
     let mut waited = 0;
     while !host.prompt_ready() || !host.voice_loaded() {
-        host.poll(&mut ui, &env, Some(dev()), 48_000);
+        draws.poll(&mut host, &mut ui, &env);
         ui.update(0.05);
         std::thread::sleep(std::time::Duration::from_millis(20));
         waited += 1;
         assert!(waited < 3000, "the song or the voice was never read");
     }
-    common::rig::ready_and_start(&mut host, &mut ui, &env, &room, dev);
+    draws.ready_and_start(&mut host, &mut ui, &env, &room);
     assert!(host.playing(), "{:?}", ui.layers());
     let mut frames = 0;
     while host.playing() {
         let now = clock.fetch_add(1_000_000_000 / 10, Ordering::SeqCst) + 1_000_000_000 / 10;
-        common::rig::draw(&mut host, &dev(), &target, &mut ui, &env, now);
+        draws.frame(&mut host, &mut ui, &env, now);
         if frames % 16 == 0 {
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
+            draws.wait_gpu();
         }
         frames += 1;
         assert!(frames < 10 * 400, "the play never ended");
     }
-    let _ = device.poll(wgpu::PollType::wait_indefinitely());
+    draws.wait_gpu();
     ui.update(1.0);
     // The results' line, once the room confirmed the stage.
-    host.poll(&mut ui, &env, Some(dev()), 48_000);
+    draws.poll(&mut host, &mut ui, &env);
     ui.update(0.5);
     eprintln!("{key_of}: {:#?}", host.log);
     // No line came due before its sound was decoded: what is asserted

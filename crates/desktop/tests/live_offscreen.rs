@@ -10,8 +10,12 @@
 //! mine gone with its receptor flashing, the lane's lock) and the view's
 //! delay adapting below the live rules' second.
 //!
-//! Skipped where there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>`
-//! keeps pictures (PPM) of the remote field at those moments.
+//! Without a GPU adapter (CI) the stage runs undrawn
+//! (`common::rig::Draws`) and all of it is checked all the same (the
+//! remote field's frames are the session's, the room's side the fake's)
+//! but the miniatures' slots as drawn and the pictures.
+//! `DDI_OFFSCREEN_PPM=<dir>` keeps pictures (PPM) of the remote field at
+//! those moments.
 
 mod common;
 use std::cell::RefCell;
@@ -19,9 +23,7 @@ use std::rc::Rc;
 use std::sync::atomic::Ordering;
 
 use ddi_chart::{NoteKind, Song};
-use ddi_desktop::gpu::{self, Gpu};
-use ddi_desktop::play::host::{Device, Host};
-use ddi_desktop::play::view::Formats;
+use ddi_desktop::play::host::Host;
 use ddi_engine::frame::SpriteKind;
 use ddi_platform::HostTime;
 use ddi_room::fake::{FakeServer, FakeSocket, Latency, SharedFake};
@@ -125,24 +127,13 @@ fn script(song: &Song, chart: usize, shock_at: f64) -> (Vec<Moment>, [usize; 3])
     (out, [holds[0], holds[1], mine.unwrap_or(usize::MAX)])
 }
 
-fn ppm(name: &str, pixels: &[u8]) {
-    common::shot(&format!("{name}.ppm"), pixels, SIZE);
-}
-
 #[test]
 fn a_live_stage_draws_a_persons_holds_mines_a_locked_lane_and_the_adaptive_delay() {
     common::indexes();
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).unwrap();
-    let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
-    let _ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
     let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let mut host = Host::new(Rc::default(), None);
     let clock = common::rig::fake_clock(&mut host);
-    let formats = common::gpu::formats();
-    let target = common::gpu::Target::new(&device, SIZE);
+    let draws = common::rig::Draws::here(&mut host, SIZE);
     // The wall clock runs with the fake one (ms since the epoch).
     let wall: Rc<dyn Fn() -> u64> = {
         let c = clock.clone();
@@ -268,16 +259,9 @@ fn a_live_stage_draws_a_persons_holds_mines_a_locked_lane_and_the_adaptive_delay
     let mut request = ddi_desktop::play::Request::stage(orders[0].clone(), stage_room);
     request.auto = true;
     *host.requested.borrow_mut() = Some(request);
-    fn dev<'a>(device: &'a wgpu::Device, queue: &'a wgpu::Queue, formats: Formats) -> Device<'a> {
-        Device {
-            device,
-            queue,
-            formats,
-        }
-    }
     let mut waited = 0;
     while !host.prompt_ready() {
-        host.poll(&mut ui, &env, Some(dev(&device, &queue, formats)), 48_000);
+        draws.poll(&mut host, &mut ui, &env);
         ui.set_clock(wall() as f64 / 1_000.0);
         ui.update(0.05);
         step(FRAME_NS);
@@ -293,7 +277,7 @@ fn a_live_stage_draws_a_persons_holds_mines_a_locked_lane_and_the_adaptive_delay
         step(FRAME_NS);
         ui.set_clock(wall() as f64 / 1_000.0);
         ui.update(0.05);
-        host.poll(&mut ui, &env, Some(dev(&device, &queue, formats)), 48_000);
+        draws.poll(&mut host, &mut ui, &env);
         waited += 1;
         assert!(waited < 400, "the stage never started: {:?}", ui.layers());
     }
@@ -330,7 +314,7 @@ fn a_live_stage_draws_a_persons_holds_mines_a_locked_lane_and_the_adaptive_delay
         }
         let now = clock.load(Ordering::SeqCst);
         ui.set_clock(wall() as f64 / 1_000.0);
-        common::rig::draw(&mut host, &dev(&device, &queue, formats), &target, &mut ui, &env, now);
+        draws.frame(&mut host, &mut ui, &env, now);
         frames += 1;
         let play = host.running().expect("playing");
         let s = &play.session;
@@ -403,11 +387,10 @@ fn a_live_stage_draws_a_persons_holds_mines_a_locked_lane_and_the_adaptive_delay
             seen.locked = Some(format!("{locks:?}"));
             shot = Some("live-locked");
         }
-        if let Some(name) = shot {
+        if let Some(name) = shot.filter(|_| draws.drawn()) {
             // The fields' fonts are read on a thread: a moment for them.
             std::thread::sleep(std::time::Duration::from_millis(30));
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            ppm(name, &gpu::read_rgba(&device, &queue, &target.texture));
+            draws.shot(&format!("{name}.ppm"));
         }
         if v > last {
             break;
@@ -415,7 +398,9 @@ fn a_live_stage_draws_a_persons_holds_mines_a_locked_lane_and_the_adaptive_delay
         assert!(frames < 20 * 400, "the stage went on too long");
     }
     // The miniature beside the field: Bob's, one slot.
-    assert_eq!(host.opponent_fields().unwrap().slots.len(), 1);
+    if draws.drawn() {
+        assert_eq!(host.opponent_fields().unwrap().slots.len(), 1);
+    }
     eprintln!("seen: held {:?}, dropped {:?}, mine {:?}/{:?}, locked {:?}", seen.held, seen.dropped, seen.mine_before, seen.mine_after, seen.locked);
     assert!(seen.held.is_some() && seen.dropped.is_some() && seen.locked.is_some(), "{seen:?}");
     assert!(mine == usize::MAX || seen.mine_after.is_some(), "{seen:?}");
@@ -447,17 +432,10 @@ struct Seen {
 #[test]
 fn a_live_stage_with_cpus_draws_their_fields_from_this_devices_computation() {
     common::indexes();
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).unwrap();
-    let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
-    let _ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
     let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let mut host = Host::new(Rc::default(), None);
     let clock = common::rig::fake_clock(&mut host);
-    let formats = common::gpu::formats();
-    let target = common::gpu::Target::new(&device, SIZE);
+    let draws = common::rig::Draws::here(&mut host, SIZE);
     let wall: Rc<dyn Fn() -> u64> = {
         let c = clock.clone();
         Rc::new(move || WALL + (c.load(Ordering::SeqCst) - 1_000_000_000) / 1_000_000)
@@ -579,16 +557,9 @@ fn a_live_stage_with_cpus_draws_their_fields_from_this_devices_computation() {
     let mut request = ddi_desktop::play::Request::stage(orders[0].clone(), stage_room);
     request.auto = true;
     *host.requested.borrow_mut() = Some(request);
-    fn dev<'a>(device: &'a wgpu::Device, queue: &'a wgpu::Queue, formats: Formats) -> Device<'a> {
-        Device {
-            device,
-            queue,
-            formats,
-        }
-    }
     let mut waited = 0;
     while !host.prompt_ready() {
-        host.poll(&mut ui, &env, Some(dev(&device, &queue, formats)), 48_000);
+        draws.poll(&mut host, &mut ui, &env);
         ui.set_clock(wall() as f64 / 1_000.0);
         ui.update(0.05);
         step(FRAME_NS);
@@ -604,7 +575,7 @@ fn a_live_stage_with_cpus_draws_their_fields_from_this_devices_computation() {
         step(FRAME_NS);
         ui.set_clock(wall() as f64 / 1_000.0);
         ui.update(0.05);
-        host.poll(&mut ui, &env, Some(dev(&device, &queue, formats)), 48_000);
+        draws.poll(&mut host, &mut ui, &env);
         waited += 1;
         assert!(waited < 400, "the stage never started: {:?}", ui.layers());
     }
@@ -631,7 +602,7 @@ fn a_live_stage_with_cpus_draws_their_fields_from_this_devices_computation() {
         }
         let now = clock.load(Ordering::SeqCst);
         ui.set_clock(wall() as f64 / 1_000.0);
-        common::rig::draw(&mut host, &dev(&device, &queue, formats), &target, &mut ui, &env, now);
+        draws.frame(&mut host, &mut ui, &env, now);
         let play = host.running().expect("playing");
         let b = play.session.battle().expect("a stage");
         let views = b.views();
@@ -640,14 +611,15 @@ fn a_live_stage_with_cpus_draws_their_fields_from_this_devices_computation() {
             assert!(v.level.is_some(), "a CPU's stars");
             most_combo[k] = most_combo[k].max(v.combo);
         }
-        if !shot && frame > 20 * 25 {
+        if !shot && frame > 20 * 25 && draws.drawn() {
             shot = true;
             std::thread::sleep(std::time::Duration::from_millis(30));
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            ppm("live-cpus", &gpu::read_rgba(&device, &queue, &target.texture));
+            draws.shot("live-cpus.ppm");
         }
     }
-    assert_eq!(host.opponent_fields().unwrap().slots.len(), 3);
+    if draws.drawn() {
+        assert_eq!(host.opponent_fields().unwrap().slots.len(), 3);
+    }
     assert!(most_combo.iter().all(|c| *c > 10), "their fields fed: {most_combo:?}");
     let server = server.borrow();
     let live = server.live().unwrap().stage().unwrap();

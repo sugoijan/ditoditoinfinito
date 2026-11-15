@@ -6,13 +6,14 @@
 //! fix, `grid-pages-v1`); one competitor followed shows the 72 others
 //! beside its field as a player's view shows its opponents.
 //!
-//! Skipped where there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>`
-//! keeps pictures (PPM).
+//! Without a GPU adapter (CI) the stage runs undrawn (`common::rig::Draws`):
+//! the room, the watched stage's 73 competitors and the seat followed
+//! are checked, the grid's places and the pictures are not.
+//! `DDI_OFFSCREEN_PPM=<dir>` keeps pictures (PPM).
 
 mod common;
 use std::rc::Rc;
 
-use ddi_desktop::gpu;
 use ddi_desktop::play::host::Host;
 use ddi_room::CpuMode;
 use ddi_ui::screens::data::Difficulty;
@@ -22,12 +23,9 @@ const CPUS: u16 = 73;
 
 fn watched(size: [u32; 2], name: &str) {
     common::indexes();
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
     let (ui, env) = common::ui::theme("start", common::ui::lowercase(), size, true);
     let host = Host::new(Rc::default(), None);
-    let mut rig = common::rig::Rig::new(&adapter, size, ui, env, host).with_ui_gpu(&adapter);
+    let mut rig = common::rig::Rig::here(size, ui, env, host);
     // 73 CPUs and the watcher's own seat: one past a practice's cap of
     // 73 seats, so the development-only practice (`room::develop`); the
     // 73 competitors are an audience's room of 73.
@@ -78,42 +76,53 @@ fn watched(size: [u32; 2], name: &str) {
             last = Some(seats);
         }
     }
-    let w = rig.host.watch().expect("a watched stage");
-    assert_eq!((w.view, w.focus), ("grid", None));
-    eprintln!("{name}: the grid of {} at lanes of {}", w.fields.len(), w.lane);
-    if size == [1280, 720] {
-        assert_eq!(w.fields.len(), 73, "everyone at once");
-        assert_eq!(w.page, None);
-        assert!(w.lane >= ddi_shell::opponents::MINI_LANE_ALL);
+    // As the session has it, drawn or not: every field, the 73.
+    assert_eq!(rig.watching(), Some(("grid", None)));
+    let competitors = |rig: &common::rig::Rig| {
+        let play = rig.host.running().expect("a play");
+        play.session.battle().expect("a stage").views().len()
+    };
+    assert_eq!(competitors(&rig), usize::from(CPUS));
+    if rig.drawn() {
+        let w = rig.host.watch().expect("a watched stage");
+        assert_eq!((w.view, w.focus), ("grid", None));
+        eprintln!("{name}: the grid of {} at lanes of {}", w.fields.len(), w.lane);
+        if size == [1280, 720] {
+            assert_eq!(w.fields.len(), 73, "everyone at once");
+            assert_eq!(w.page, None);
+            assert!(w.lane >= ddi_shell::opponents::MINI_LANE_ALL);
+        }
+        assert_eq!(w.trace.seat_changes, 0, "{:?}", w.trace);
+        let drawn = rig.host.miniatures_drawn();
+        assert_eq!(drawn, w.fields.len(), "a frame for every field");
+        for _ in 0..12 {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            rig.frame(step);
+        }
+        rig.shot(&format!("{name}-grid.ppm"));
     }
-    assert_eq!(w.trace.seat_changes, 0, "{:?}", w.trace);
-    let drawn = rig.host.miniatures_drawn();
-    assert_eq!(drawn, w.fields.len(), "a frame for every field");
-    for _ in 0..12 {
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        rig.frame(step);
-    }
-    rig.wait_gpu();
-    common::shot(&format!("{name}-grid.ppm"), &gpu::read_rgba(&rig.device, &rig.queue, &rig.target.texture), size);
 
     // One followed: the 72 others beside its field, as a player's view.
     rig.press("Tab");
     for _ in 0..4 {
         rig.frame(step);
     }
-    let w = rig.host.watch().unwrap();
-    assert_eq!((w.view, w.focus), ("focus", Some(0)));
-    eprintln!("{name}: followed, {} fields at lanes of {}", w.fields.len(), w.lane);
-    if size == [1280, 720] {
-        assert_eq!(w.fields.len(), 73, "72 beside, the large one last");
-        assert_eq!(w.fields[72].0, 0);
+    assert_eq!(rig.watching(), Some(("focus", Some(0))));
+    assert!(rig.host.playing(), "the stage goes on");
+    if rig.drawn() {
+        let w = rig.host.watch().unwrap();
+        assert_eq!((w.view, w.focus), ("focus", Some(0)));
+        eprintln!("{name}: followed, {} fields at lanes of {}", w.fields.len(), w.lane);
+        if size == [1280, 720] {
+            assert_eq!(w.fields.len(), 73, "72 beside, the large one last");
+            assert_eq!(w.fields[72].0, 0);
+        }
+        for _ in 0..12 {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            rig.frame(step);
+        }
+        rig.shot(&format!("{name}-focus.ppm"));
     }
-    for _ in 0..12 {
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        rig.frame(step);
-    }
-    rig.wait_gpu();
-    common::shot(&format!("{name}-focus.ppm"), &gpu::read_rgba(&rig.device, &rig.queue, &rig.target.texture), size);
 }
 
 #[test]

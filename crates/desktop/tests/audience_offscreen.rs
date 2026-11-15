@@ -8,7 +8,12 @@
 //! structurally (two fields, both moving, the grid, the delay within the
 //! audience's ceiling) and kept as a picture with `DDI_OFFSCREEN_PPM=<dir>`.
 //!
-//! Skipped where there is no GPU adapter (CI).
+//! Without a GPU adapter (CI) the stage runs undrawn
+//! (`common::rig::Draws`) and the pages are laid out unpainted
+//! (`common::gpu::Pictures`): the seats, the watched stage's fields and
+//! their delay, and the pages' parts are checked all the same; only the
+//! stage's picture kept for the page (the view reads it) and the
+//! pictures themselves are not.
 
 mod common;
 use std::cell::RefCell;
@@ -16,9 +21,7 @@ use std::rc::Rc;
 use std::sync::atomic::Ordering;
 
 use ddi_chart::{NoteKind, Song};
-use ddi_desktop::gpu::{self, Gpu};
-use ddi_desktop::play::host::{Device, Host};
-use ddi_desktop::play::view::Formats;
+use ddi_desktop::play::host::Host;
 use ddi_platform::HostTime;
 use ddi_room::fake::{FakeServer, FakeSocket, Latency, SharedFake};
 use ddi_room::live::{Moment, MomentKind};
@@ -59,10 +62,6 @@ fn chart_with_holds_and_mines(song: &Song) -> usize {
             (usize::from(holds >= 2) + usize::from(mines >= 1), mines.min(5), holds.min(5))
         })
         .expect("a single chart")
-}
-
-fn ppm(name: &str, pixels: &[u8]) {
-    common::shot(&format!("{name}.ppm"), pixels, SIZE);
 }
 
 
@@ -152,17 +151,11 @@ fn taps(song: &Song, chart: usize) -> Vec<Moment> {
 #[test]
 fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
     common::indexes();
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).unwrap();
-    let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
-    let mut ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
+    let mut pictures = common::gpu::Pictures::new();
     let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let mut host = Host::new(Rc::default(), None);
     let clock = common::rig::fake_clock(&mut host);
-    let formats = common::gpu::formats();
-    let target = common::gpu::Target::new(&device, SIZE);
+    let draws = common::rig::Draws::here(&mut host, SIZE);
     let wall: Rc<dyn Fn() -> u64> = {
         let c = clock.clone();
         Rc::new(move || WALL + (c.load(Ordering::SeqCst) - 1_000_000_000) / 1_000_000)
@@ -425,8 +418,7 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
         // offered.
         assert!(page_ui.actor("MenuBackground").is_some(), "the rain");
         assert!(page_ui.actor("Audience.Backdrop").is_none());
-        let pixels = ui_gpu.draw_offscreen(&mut page_ui, SIZE, wgpu::TextureFormat::Rgba8Unorm);
-        ppm("audience-page-during-a-stage", &pixels);
+        pictures.shot(&mut page_ui, SIZE, "audience-page-during-a-stage.ppm");
         assert!(
             page_ui.actor("Item.watch").is_some() || page_env.state.borrow().page_items.iter().any(|i| i.contains("watch")),
             "Watch on the page: {:?}",
@@ -446,18 +438,11 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
     let mut seat = ddi_desktop::room::StageRoom::audience(audience.clone());
     seat.wall_ms = wall.clone();
     *host.requested.borrow_mut() = Some(ddi_desktop::play::Request::stage(order, seat));
-    fn dev<'a>(device: &'a wgpu::Device, queue: &'a wgpu::Queue, formats: Formats) -> Device<'a> {
-        Device {
-            device,
-            queue,
-            formats,
-        }
-    }
     let mut waited = 0;
     // (A watched stage may start by itself while it loads: its prompt
     // is then never seen ready.)
     while !host.prompt_ready() && !host.playing() {
-        host.poll(&mut ui, &env, Some(dev(&device, &queue, formats)), 48_000);
+        draws.poll(&mut host, &mut ui, &env);
         ui.set_clock(wall() as f64 / 1_000.0);
         ui.update(0.05);
         step(FRAME_NS);
@@ -484,7 +469,7 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
         audience.borrow_mut().tick(wall());
         ui.set_clock(wall() as f64 / 1_000.0);
         ui.update(0.05);
-        host.poll(&mut ui, &env, Some(dev(&device, &queue, formats)), 48_000);
+        draws.poll(&mut host, &mut ui, &env);
         waited += 1;
         assert!(waited < 400, "the watched stage never started: {:?}", ui.layers());
     }
@@ -499,7 +484,7 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
         stream(&mut sent);
         let now = clock.load(Ordering::SeqCst);
         ui.set_clock(wall() as f64 / 1_000.0);
-        common::rig::draw(&mut host, &dev(&device, &queue, formats), &target, &mut ui, &env, now);
+        draws.frame(&mut host, &mut ui, &env, now);
         let Some(play) = host.running() else {
             break;
         };
@@ -517,11 +502,10 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
             delays.push(b.live_state().unwrap().delay_ms);
         }
         grid |= s.watch(now as f64 / 1e9).is_some_and(|w| w.focus.is_none());
-        if !shot && song_t > 20.0 {
+        if !shot && song_t > 20.0 && draws.drawn() {
             shot = true;
             std::thread::sleep(std::time::Duration::from_millis(30));
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            ppm("audience-grid", &gpu::read_rgba(&device, &queue, &target.texture));
+            draws.shot("audience-grid.ppm");
         }
     }
     assert!(grid, "the grid: nobody followed");
@@ -536,7 +520,14 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
     assert_eq!(audience.borrow().sockets(), 1);
     // After the stage: its picture is the page's backdrop
     // (`audience-page-v1`), the card over it.
-    assert!(audience.borrow().backdrop().is_some(), "the stage's picture kept for the page");
+    // (The view tells the seat the song's picture: a drawn play's.)
+    if draws.drawn() {
+        assert!(audience.borrow().backdrop().is_some(), "the stage's picture kept for the page");
+    } else {
+        audience
+            .borrow_mut()
+            .set_backdrop(Some((bundled("Background.png"), 16.0 / 9.0)));
+    }
     {
         use ddi_ui::screens::audience::AudienceScreen;
         let (mut page_ui, page_env) =
@@ -548,12 +539,13 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
         assert!(page_ui.actor("Audience.Backdrop").is_some(), "the last stage's picture");
         // (The pictures' files are read on a thread: real time for them.)
         for _ in 0..10 {
-            std::thread::sleep(std::time::Duration::from_millis(30));
-            let _ = ui_gpu.draw_offscreen(&mut page_ui, SIZE, wgpu::TextureFormat::Rgba8Unorm);
+            if pictures.drawn() {
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+            let _ = pictures.draw(&mut page_ui, SIZE);
             page_ui.update(0.05);
         }
-        let pixels = ui_gpu.draw_offscreen(&mut page_ui, SIZE, wgpu::TextureFormat::Rgba8Unorm);
-        ppm("audience-page-after-a-stage", &pixels);
+        pictures.shot(&mut page_ui, SIZE, "audience-page-after-a-stage.ppm");
     }
 }
 
@@ -574,18 +566,15 @@ fn bundled(file: &str) -> String {
 /// `DDI_OFFSCREEN_PPM=<dir>` (a phone's layouts are the web's: the
 /// window keeps its design's shape).
 ///
-/// Skipped where there is no GPU adapter (CI).
+/// Without a GPU adapter (CI) the pages are laid out unpainted and their
+/// parts checked all the same.
 #[test]
 fn the_audience_s_page_between_stages_has_the_standings_the_banner_and_the_last_picture() {
     use ddi_ui::screens::audience::{AudienceCall, AudienceScreen};
     use ddi_ui::state::audience::SharedAudience;
     use ddi_ui::state::room::LoadJob;
     common::indexes();
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
-    let mut ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
+    let mut pictures = common::gpu::Pictures::new();
     let wall = std::cell::Cell::new(WALL);
     let server_clock = ManualClock::new(WALL);
     let server = FakeServer::hosted(
@@ -721,8 +710,10 @@ fn the_audience_s_page_between_stages_has_the_standings_the_banner_and_the_last_
                 // (The pictures' files are read on a thread: real time
                 // for them.)
                 for _ in 0..10 {
-                    std::thread::sleep(std::time::Duration::from_millis(30));
-                    let _ = ui_gpu.draw_offscreen(&mut ui, size, wgpu::TextureFormat::Rgba8Unorm);
+                    if pictures.drawn() {
+                        std::thread::sleep(std::time::Duration::from_millis(30));
+                    }
+                    let _ = pictures.draw(&mut ui, size);
                     ui.update(0.05);
                 }
                 for name in there {
@@ -731,8 +722,7 @@ fn the_audience_s_page_between_stages_has_the_standings_the_banner_and_the_last_
                 for name in gone {
                     assert!(ui.actor(name).is_none(), "{state} {lang}: {name}");
                 }
-                let pixels = ui_gpu.draw_offscreen(&mut ui, size, wgpu::TextureFormat::Rgba8Unorm);
-                common::shot(&format!("audience-page-{state}-{lang}.png"), &pixels, size);
+                pictures.shot(&mut ui, size, &format!("audience-page-{state}-{lang}.png"));
             }
         }
         ddi_l10n::unforce();

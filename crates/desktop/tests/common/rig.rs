@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ddi_desktop::gpu::{self, Gpu};
+use ddi_desktop::gpu;
 use ddi_desktop::play::host::{Device, Host};
 use ddi_desktop::play::view::Formats;
 use ddi_platform::{DeviceId, HostTime, RawInput};
@@ -99,133 +99,266 @@ pub fn countdown<'a>(
     host.poll(ui, env, Some(dev()), 48_000);
 }
 
-/// The window's parts a test drives: its GPU, the UI, the play host on a
-/// fake clock and the picture it draws into.
+/// What a play is drawn on in a test: this machine's GPU and a picture
+/// to draw into, or nothing where there is none (CI's runners,
+/// `DDI_NO_GPU=1`): the host is then headless (`Host::headless`: its
+/// prompt readies and its play runs, judged and not drawn), so what a
+/// test asserts of the room, the stage's outcome, the voice and the
+/// session runs either way, and only what reads the view (the fields'
+/// places, what was drawn) or the pixels sits behind [`Draws::drawn`].
+pub struct Draws {
+    gpu: Option<(wgpu::Device, wgpu::Queue, Target)>,
+    pub formats: Formats,
+    pub size: [u32; 2],
+}
+
+impl Draws {
+    /// On this machine's GPU at `size`; without one, saying so once, and
+    /// `host` made headless.
+    pub fn here(host: &mut Host, size: [u32; 2]) -> Draws {
+        let instance = gpu::instance();
+        match gpu::adapter(&instance, None) {
+            Some(adapter) => Draws::on(&adapter, size),
+            None => {
+                eprintln!("no GPU adapter: the play runs undrawn, its pictures are skipped");
+                host.headless = true;
+                Draws {
+                    gpu: None,
+                    formats: formats(),
+                    size,
+                }
+            }
+        }
+    }
+
+    /// On a device of `adapter`'s.
+    pub fn on(adapter: &wgpu::Adapter, size: [u32; 2]) -> Draws {
+        let (device, queue) = gpu::device(adapter).unwrap();
+        let target = Target::new(&device, size);
+        Draws {
+            gpu: Some((device, queue, target)),
+            formats: formats(),
+            size,
+        }
+    }
+
+    /// Whether the play is drawn here (else it runs headless).
+    pub fn drawn(&self) -> bool {
+        self.gpu.is_some()
+    }
+
+    /// The host's device, where there is one.
+    pub fn dev(&self) -> Option<Device<'_>> {
+        self.gpu.as_ref().map(|(device, queue, _)| Device {
+            device,
+            queue,
+            formats: self.formats,
+        })
+    }
+
+    pub fn poll(&self, host: &mut Host, ui: &mut Ui, env: &Env) {
+        host.poll(ui, env, self.dev(), 48_000);
+    }
+
+    /// Polls `host` until its prompt is ready, a twentieth of a second
+    /// of the UI each time; the song's reading on its thread given real
+    /// time between.
+    pub fn wait_prompt(&self, host: &mut Host, ui: &mut Ui, env: &Env) {
+        let mut waited = 0;
+        loop {
+            self.poll(host, ui, env);
+            ui.update(0.05);
+            if host.prompt_ready() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            waited += 1;
+            assert!(waited < 1000, "the song was never read: {:?}", host.prompt_waiting());
+        }
+    }
+
+    /// [`ready_and_start`], drawn or not.
+    pub fn ready_and_start(
+        &self,
+        host: &mut Host,
+        ui: &mut Ui,
+        env: &Env,
+        room: &ddi_ui::state::room::SharedRoom,
+    ) {
+        ui.update(0.5);
+        super::ui::key(ui, "Enter", "Enter");
+        ui.update(0.05);
+        self.countdown(host, ui, env, room);
+    }
+
+    /// [`countdown`], drawn or not.
+    pub fn countdown(
+        &self,
+        host: &mut Host,
+        ui: &mut Ui,
+        env: &Env,
+        room: &ddi_ui::state::room::SharedRoom,
+    ) {
+        {
+            let mut r = room.borrow_mut();
+            let later = r.now_ms() + 3_000;
+            r.tick(later);
+        }
+        ui.update(0.05);
+        self.poll(host, ui, env);
+    }
+
+    /// One frame of `host`'s play at `now_ns` on the fake clock: drawn
+    /// into the picture and submitted, or judged alone.
+    pub fn frame(&self, host: &mut Host, ui: &mut Ui, env: &Env, now_ns: u64) {
+        match (&self.gpu, self.dev()) {
+            (Some((_, _, target)), Some(dev)) => draw(host, &dev, target, ui, env, now_ns),
+            _ => host.step_play(HostTime(now_ns as f64 / 1e9), ui, env),
+        }
+    }
+
+    /// The GPU's work waited for (nothing without one).
+    pub fn wait_gpu(&self) {
+        if let Some((device, _, _)) = &self.gpu {
+            let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        }
+    }
+
+    /// The pixels drawn last (RGBA rows), where the play is drawn.
+    pub fn picture(&self) -> Option<Vec<u8>> {
+        self.gpu
+            .as_ref()
+            .map(|(device, queue, target)| target.read(device, queue))
+    }
+
+    /// The pixels drawn last kept as `name` under `DDI_OFFSCREEN_PPM`,
+    /// where the play is drawn.
+    pub fn shot(&self, name: &str) {
+        if let Some(pixels) = self.picture() {
+            super::shot(name, &pixels, self.size);
+        }
+    }
+}
+
+/// The window's parts a test drives: what its play is drawn on
+/// ([`Draws`]), the UI, the play host on a fake clock and the UI's own
+/// pictures.
 pub struct Rig {
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
-    /// The UI's own device, as the window keeps one.
-    pub ui_gpu: Option<Gpu>,
+    pub draws: Draws,
+    /// The UI's own pictures, as the window keeps a device for it
+    /// (undrawn without a GPU).
+    pub pictures: super::gpu::Pictures,
     pub ui: Ui,
     pub env: Env,
     pub host: Host,
     pub clock: Arc<AtomicU64>,
-    pub formats: Formats,
-    pub target: Target,
 }
 
 impl Rig {
     /// `host` beside `ui` on a fake clock, drawing at `size` on a device
     /// of `adapter`'s.
     pub fn new(adapter: &wgpu::Adapter, size: [u32; 2], ui: Ui, env: Env, mut host: Host) -> Rig {
-        let (device, queue) = gpu::device(adapter).unwrap();
         let clock = fake_clock(&mut host);
-        let target = Target::new(&device, size);
         Rig {
-            device,
-            queue,
-            ui_gpu: None,
+            draws: Draws::on(adapter, size),
+            pictures: super::gpu::Pictures::new(),
             ui,
             env,
             host,
             clock,
-            formats: formats(),
-            target,
         }
     }
 
-    /// With a device of its own for the UI, as the window has.
-    pub fn with_ui_gpu(mut self, adapter: &wgpu::Adapter) -> Rig {
-        let (device, queue) = gpu::device(adapter).unwrap();
-        self.ui_gpu = Some(Gpu::new(device, queue, wgpu::TextureFormat::Rgba8Unorm));
+    /// [`Rig::new`] on this machine's GPU, or headless where there is
+    /// none ([`Draws::here`]).
+    pub fn here(size: [u32; 2], ui: Ui, env: Env, mut host: Host) -> Rig {
+        let clock = fake_clock(&mut host);
+        Rig {
+            draws: Draws::here(&mut host, size),
+            pictures: super::gpu::Pictures::new(),
+            ui,
+            env,
+            host,
+            clock,
+        }
+    }
+
+    /// (The UI's pictures are always there now.)
+    pub fn with_ui_gpu(self, _adapter: &wgpu::Adapter) -> Rig {
         self
     }
 
-    pub fn dev(&self) -> Device<'_> {
-        Device {
-            device: &self.device,
-            queue: &self.queue,
-            formats: self.formats,
-        }
+    /// Whether the play is drawn (else it runs headless).
+    pub fn drawn(&self) -> bool {
+        self.draws.drawn()
     }
 
     pub fn poll(&mut self) {
-        let dev = Device {
-            device: &self.device,
-            queue: &self.queue,
-            formats: self.formats,
-        };
-        self.host.poll(&mut self.ui, &self.env, Some(dev), 48_000);
+        self.draws.poll(&mut self.host, &mut self.ui, &self.env);
     }
 
     /// [`wait_prompt`].
     pub fn wait_prompt(&mut self) {
-        let (device, queue, formats) = (&self.device, &self.queue, self.formats);
-        wait_prompt(&mut self.host, &mut self.ui, &self.env, || Device {
-            device,
-            queue,
-            formats,
-        });
+        self.draws.wait_prompt(&mut self.host, &mut self.ui, &self.env);
     }
 
     /// [`ready_and_start`] in `room`.
     pub fn ready_and_start(&mut self, room: &ddi_ui::state::room::SharedRoom) {
-        let (device, queue, formats) = (&self.device, &self.queue, self.formats);
-        ready_and_start(&mut self.host, &mut self.ui, &self.env, room, || Device {
-            device,
-            queue,
-            formats,
-        });
+        self.draws
+            .ready_and_start(&mut self.host, &mut self.ui, &self.env, room);
     }
 
     /// [`countdown`] in `room`.
     pub fn countdown(&mut self, room: &ddi_ui::state::room::SharedRoom) {
-        let (device, queue, formats) = (&self.device, &self.queue, self.formats);
-        countdown(&mut self.host, &mut self.ui, &self.env, room, || Device {
-            device,
-            queue,
-            formats,
-        });
+        self.draws
+            .countdown(&mut self.host, &mut self.ui, &self.env, room);
     }
 
     /// One frame of the play `step_ns` on: the host second it was drawn
-    /// at.
+    /// (or, headless, judged) at.
     pub fn frame(&mut self, step_ns: u64) -> f64 {
         let now = self.clock.fetch_add(step_ns, Ordering::SeqCst) + step_ns;
-        let dev = Device {
-            device: &self.device,
-            queue: &self.queue,
-            formats: self.formats,
-        };
-        draw(
-            &mut self.host,
-            &dev,
-            &self.target,
-            &mut self.ui,
-            &self.env,
-            now,
-        );
+        self.draws
+            .frame(&mut self.host, &mut self.ui, &self.env, now);
         now as f64 / 1e9
     }
 
-    /// The pixels drawn last.
+    /// The pixels drawn last (empty where the play is not drawn).
     pub fn read(&self) -> Vec<u8> {
-        self.target.read(&self.device, &self.queue)
+        self.draws.picture().unwrap_or_default()
     }
 
-    /// The UI drawn alone on its own device (an empty picture without
-    /// one): its pixels.
-    pub fn ui_picture(&mut self) -> Vec<u8> {
-        let size = self.target.size;
-        match self.ui_gpu.as_mut() {
-            Some(gpu) => gpu.draw_offscreen(&mut self.ui, size, wgpu::TextureFormat::Rgba8Unorm),
-            None => Vec::new(),
-        }
+    /// The pixels drawn last kept as `name`, where the play is drawn.
+    pub fn shot(&self, name: &str) {
+        self.draws.shot(name);
+    }
+
+    /// The UI drawn alone on its own device: its pixels (none without a
+    /// GPU, the UI laid out as a frame all the same).
+    pub fn ui_picture(&mut self) -> Option<Vec<u8>> {
+        let size = self.draws.size;
+        self.pictures.draw(&mut self.ui, size)
     }
 
     /// The GPU's work waited for.
     pub fn wait_gpu(&self) {
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        self.draws.wait_gpu();
+    }
+
+    /// The stage as it is watched now, as the session has it (drawn or
+    /// not): the view's word as the drawn view says it (`grid`, `focus`,
+    /// `out`, `left`) and the seat followed; none while the player plays.
+    pub fn watching(&self) -> Option<(&'static str, Option<usize>)> {
+        use ddi_session::play::Watching;
+        let now = self.clock.load(Ordering::SeqCst) as f64 / 1e9;
+        let w = self.host.running()?.session.watch(now)?;
+        let view = match (w.why, w.focus) {
+            (Watching::Spectator, None) => "grid",
+            (Watching::Spectator, Some(_)) => "focus",
+            (Watching::Out, _) => "out",
+            (Watching::Left, _) => "left",
+        };
+        Some((view, w.focus))
     }
 
     /// A control's edge from `device`, a tenth of a second before the

@@ -369,6 +369,15 @@ pub struct Host {
     picture: Option<Picture>,
     /// How long a scene's results show (tests shorten it).
     pub scene_results: Duration,
+    /// TESTING ONLY: a play readied and run with no device, nothing
+    /// drawn (CI's runners have no GPU): polled with no [`Device`], its
+    /// prompt readies once the song is read, its scripts are loaded and
+    /// the sound is open (no view is made: no skin, no pictures, no
+    /// dancing hand), Start plays, and [`Host::step_play`] is a frame
+    /// judged and not drawn. Everything the room, the session and the
+    /// screens say runs as in the window; nothing the view says does
+    /// (the fields' places, what was drawn). Never set by the app.
+    pub headless: bool,
 }
 
 impl Default for Host {
@@ -402,6 +411,7 @@ impl Default for Host {
             scene_back: Rc::default(),
             picture: None,
             scene_results: Duration::from_secs_f64(in_play::RESULTS_SECONDS),
+            headless: false,
         }
     }
 }
@@ -1331,6 +1341,8 @@ impl Host {
                         .into_iter()
                         .collect(),
                 );
+            } else if let Some(loaded) = r.loaded.clone().filter(|_| self.headless) {
+                self.ready_headless(r, &loaded);
             }
             return;
         };
@@ -1389,22 +1401,7 @@ impl Host {
                     r.stage = Some(super::stage::read(contents, self.wake.clone()));
                 }
             }
-            let mut info = full_info(&r.request, &loaded, &settings);
-            info.timing = self.timing_hint(&r.request);
-            r.prompt.borrow_mut().set_info(info);
-            // The options' skin row is the chart's layout's.
-            if let Some(o) = &r.options {
-                if let Some(layout) = loaded
-                    .song
-                    .charts
-                    .get(r.request.chart)
-                    .and_then(|c| loaded.song.layout_of(c))
-                {
-                    o.borrow_mut().set_layout(&layout.id);
-                }
-                o.borrow().show(&mut r.prompt.borrow_mut());
-                r.applied = o.borrow().overrides();
-            }
+            self.tell_prompt(r, &loaded, &settings);
         }
         // The play options changed on the prompt: the skin read again
         // when they change it (its key, or the direction its Lua is
@@ -1557,6 +1554,73 @@ impl Host {
         let mut p = r.prompt.borrow_mut();
         p.set_picture(picture);
         p.set_waiting(waiting);
+    }
+
+    /// The prompt told what the song read says: its chart and mods, and
+    /// the options' skin row for the chart's layout.
+    fn tell_prompt(&self, r: &mut Readied, loaded: &Loaded, settings: &Settings) {
+        let mut info = full_info(&r.request, loaded, settings);
+        info.timing = self.timing_hint(&r.request);
+        r.prompt.borrow_mut().set_info(info);
+        // The options' skin row is the chart's layout's.
+        if let Some(o) = &r.options {
+            if let Some(layout) = loaded
+                .song
+                .charts
+                .get(r.request.chart)
+                .and_then(|c| loaded.song.layout_of(c))
+            {
+                o.borrow_mut().set_layout(&layout.id);
+            }
+            o.borrow().show(&mut r.prompt.borrow_mut());
+            r.applied = o.borrow().overrides();
+        }
+    }
+
+    /// TESTING ONLY ([`Host::headless`]): the prompt readied with no
+    /// device, once the song is read: what [`Host::ready`] tells it that
+    /// needs no view (the bindings, the chart and its mods, the options
+    /// as they change), waiting only for the song's scripts and the
+    /// sound. No view is made, so the play that starts is not drawn.
+    fn ready_headless(&mut self, r: &mut Readied, loaded: &Rc<Loaded>) {
+        let settings = r.settings();
+        let layout = if r.request.calibration.is_none() && r.request.replay.is_none() {
+            loaded
+                .song
+                .charts
+                .get(r.request.chart)
+                .and_then(|c| loaded.song.layout_of(c))
+        } else {
+            None
+        };
+        r.prompt
+            .borrow_mut()
+            .set_bindings(layout.as_ref(), &settings);
+        if r.view_made.is_none() {
+            r.view_made = Some(Instant::now());
+            self.tell_prompt(r, loaded, &settings);
+        }
+        if let Some(o) = &r.options {
+            let now = o.borrow().overrides();
+            if now != r.applied {
+                r.applied = now;
+                let mut info = full_info(&r.request, loaded, &settings);
+                info.timing = self.timing_hint(&r.request);
+                r.prompt.borrow_mut().set_info(info);
+            }
+        }
+        let sound = r
+            .audio
+            .as_ref()
+            .is_some_and(|(a, at)| a.running() || at.elapsed() >= SOUND_WAIT);
+        let scripts = matches!(r.scripts, SongScripts::Unread | SongScripts::Loading(_));
+        let waiting: Vec<String> = [(scripts, "scripts"), (!sound, "audio")]
+            .into_iter()
+            .filter(|(w, _)| *w)
+            .map(|(_, n)| n.to_string())
+            .collect();
+        r.ready = waiting.is_empty();
+        r.prompt.borrow_mut().set_waiting(waiting);
     }
 
     /// Start was pressed: the play begins if everything is ready, else
@@ -1743,6 +1807,32 @@ impl Host {
         ui: &mut Ui,
         env: &Env,
     ) {
+        self.play_frame(Some((dev, encoder, view, plain, size)), now, ui, env);
+    }
+
+    /// TESTING ONLY ([`Host::headless`]): one frame of the play at `now`
+    /// judged and not drawn, its end handled as [`Host::draw_play`]
+    /// handles it (the stage's outcome to the room, the results).
+    pub fn step_play(&mut self, now: HostTime, ui: &mut Ui, env: &Env) {
+        self.play_frame(None, now, ui, env);
+    }
+
+    /// [`Host::draw_play`], drawn into `drawing`'s view where there is
+    /// one.
+    #[allow(clippy::type_complexity)]
+    fn play_frame(
+        &mut self,
+        drawing: Option<(
+            &Device<'_>,
+            &mut wgpu::CommandEncoder,
+            &wgpu::TextureView,
+            Option<&wgpu::TextureView>,
+            [u32; 2],
+        )>,
+        now: HostTime,
+        ui: &mut Ui,
+        env: &Env,
+    ) {
         let Stage::Playing(r, play, render) = &mut self.stage else {
             return;
         };
@@ -1753,16 +1843,28 @@ impl Host {
         ddi_shell::apply_view(render, play.session.view, play.session.ghost_delta());
         // A scene's play goes into its picture; the words of what it says
         // into the frame as each line starts.
-        let (view, plain) = if let Some(run) = r.scene.as_mut() {
+        if let Some(run) = r.scene.as_mut() {
             let at = play.session.audio().context_time();
             for m in run.words.next(&play.session.announcer_report().spoken, at) {
                 ui.broadcast(m);
             }
-            (picture_view(&mut self.picture, dev.device, size), None)
-        } else {
-            (view, plain)
-        };
-        if let Some(v) = r.view.as_mut() {
+        }
+        // Each attack's commitment, to the log (M8b, development).
+        for line in play.session.take_battle_log() {
+            eprintln!("{line}");
+            self.log.push(line);
+        }
+        let drawing = drawing.map(|(dev, encoder, view, plain, size)| {
+            let (view, plain) = if r.scene.is_some() {
+                (picture_view(&mut self.picture, dev.device, size), None)
+            } else {
+                (view, plain)
+            };
+            (dev, encoder, view, plain, size)
+        });
+        if let Some((dev, encoder, view, plain, size)) = drawing
+            && let Some(v) = r.view.as_mut()
+        {
             v.scale = self.scale;
             v.present_at = self.present_at.take();
             let since = self
@@ -1781,11 +1883,6 @@ impl Host {
             // Where the play showed what its scene can ring.
             if let Some(run) = &r.scene {
                 run.spots.set(ddi_shell::play_spots(v.renderer.hud_spots()));
-            }
-            // Each attack's commitment, to the log (M8b, development).
-            for line in play.session.take_battle_log() {
-                eprintln!("{line}");
-                self.log.push(line);
             }
             // The scripts' sounds, at once on the play's sound.
             for sound in v.take_script_sounds() {

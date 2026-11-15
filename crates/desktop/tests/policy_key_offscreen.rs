@@ -4,44 +4,31 @@
 //! stage with attacks, its prompt's policy row saying how to change it
 //! during play (Shift's cap, "during play"), then the play, where Shift
 //! cycles the policy and the label under the life gauge has Shift's
-//! small cap after it. Skipped where there is no GPU adapter (CI).
-//! `DDI_OFFSCREEN_PPM=<dir>` keeps `prompt.ppm` and `play.ppm`.
+//! small cap after it. Without a GPU adapter (CI) the stage runs
+//! undrawn (`common::rig::Draws`): the prompt's row and its key's hint,
+//! the play's policy key and Shift cycling it are checked all the same;
+//! only the pictures are skipped. `DDI_OFFSCREEN_PPM=<dir>` keeps
+//! `prompt.ppm` and `play.ppm`.
 
 mod common;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
 
-use ddi_desktop::gpu::{self, Gpu};
-use ddi_desktop::play::host::{Device, Host};
+use ddi_desktop::play::host::Host;
 use ddi_platform::HostTime;
 use ddi_ui::screens::data::Difficulty;
 use common::ui::key;
 
 const SIZE: [u32; 2] = [1280, 720];
 
-fn ppm(name: &str, pixels: &[u8]) {
-    common::shot(&format!("{name}.ppm"), pixels, SIZE);
-}
-
 #[test]
 fn shift_is_shown_on_the_prompt_and_beside_the_policy_and_cycles_it() {
     common::indexes();
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).unwrap();
-    let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
-    let mut ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
+    let mut pictures = common::gpu::Pictures::new();
     let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let mut host = Host::new(Rc::default(), None);
     let clock = common::rig::fake_clock(&mut host);
-    let formats = common::gpu::formats();
-    let dev = || Device {
-        device: &device,
-        queue: &queue,
-        formats,
-    };
-    let target = common::gpu::Target::new(&device, SIZE);
+    let draws = common::rig::Draws::here(&mut host, SIZE);
     let room = common::practice::open(&mut ui, &env, &host);
     let chart = 4;
     let entry = common::practice::song_entry("beatucada", "Beatucada", chart, Difficulty::Medium);
@@ -61,7 +48,7 @@ fn shift_is_shown_on_the_prompt_and_beside_the_policy_and_cycles_it() {
     *host.requested.borrow_mut() = Some(request);
     let mut waited = 0;
     while !host.prompt_ready() {
-        host.poll(&mut ui, &env, Some(dev()), 48_000);
+        draws.poll(&mut host, &mut ui, &env);
         ui.update(0.05);
         std::thread::sleep(std::time::Duration::from_millis(20));
         waited += 1;
@@ -72,12 +59,11 @@ fn shift_is_shown_on_the_prompt_and_beside_the_policy_and_cycles_it() {
     // play".
     assert!(ui.actor("Opt.room.targeting").is_some(), "{:?}", ui.layers());
     assert!(ui.actor("Opt.room.targeting.Key").is_some(), "the key's hint");
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    if pictures.drawn() {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
     ui.update(0.1);
-    ppm(
-        "prompt",
-        &ui_gpu.draw_offscreen(&mut ui, SIZE, wgpu::TextureFormat::Rgba8Unorm),
-    );
+    pictures.shot(&mut ui, SIZE, "prompt.ppm");
     key(&mut ui, "Enter", "Enter");
     ui.update(0.05);
     {
@@ -86,7 +72,7 @@ fn shift_is_shown_on_the_prompt_and_beside_the_policy_and_cycles_it() {
         r.tick(later);
     }
     ui.update(0.05);
-    host.poll(&mut ui, &env, Some(dev()), 48_000);
+    draws.poll(&mut host, &mut ui, &env);
     assert!(host.playing(), "{:?}", ui.layers());
     use ddi_room::attacks::Targeting;
     let mut frames = 0;
@@ -112,19 +98,20 @@ fn shift_is_shown_on_the_prompt_and_beside_the_policy_and_cycles_it() {
             assert_eq!(b.policy(&p.session.player), Some(Targeting::Retaliate), "Shift cycled it");
             assert_eq!(p.session.player.log().policies.len(), 1);
         }
-        common::rig::draw(&mut host, &dev(), &target, &mut ui, &env, now);
+        draws.frame(&mut host, &mut ui, &env, now);
         if frames == 46 && !shot {
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            common::rig::draw(&mut host, &dev(), &target, &mut ui, &env, now);
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            ppm("play", &gpu::read_rgba(&device, &queue, &target.texture));
+            if draws.drawn() {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                draws.wait_gpu();
+                draws.frame(&mut host, &mut ui, &env, now);
+                draws.shot("play.ppm");
+            }
             shot = true;
         }
         if frames % 16 == 0 {
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
+            draws.wait_gpu();
         }
         frames += 1;
     }
-    assert!(shot, "the play was drawn past its policy change");
+    assert!(shot, "the play went on past its policy change");
 }

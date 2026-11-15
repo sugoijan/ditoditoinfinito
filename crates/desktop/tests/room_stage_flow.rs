@@ -8,15 +8,19 @@
 //! the standings, the match's results, the next match's pick; then a
 //! stage's prompt left before its start withdraws (no forfeit). Nothing
 //! is kept in the history.
-//! Skipped where there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>`
-//! keeps pictures of the play, the intermission and the results (PPM).
+//! Without a GPU adapter (CI) the stages run undrawn
+//! (`common::rig::Draws`): everything of the room, the prompts, the
+//! plays' outcomes, the results and their standings, the attacks'
+//! ledger, the policy and the log is checked; only what the view says
+//! (where the policy's label and the attack lines were drawn) and the
+//! pictures are not. `DDI_OFFSCREEN_PPM=<dir>` keeps pictures of the
+//! play, the intermission and the results (PPM).
 
 mod common;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
 
-use ddi_desktop::gpu::{self, Gpu};
-use ddi_desktop::play::host::{Device, Host};
+use ddi_desktop::play::host::Host;
 use ddi_platform::HostTime;
 use ddi_platform::history::MemoryPlayStore;
 use ddi_room::Phase;
@@ -28,31 +32,16 @@ use common::ui::top;
 const SIZE: [u32; 2] = [1280, 720];
 const CHART: usize = 1;
 
-fn ppm(name: &str, pixels: &[u8]) {
-    common::shot(&format!("{name}.ppm"), pixels, SIZE);
-}
-
 #[test]
 fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
     common::indexes();
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).unwrap();
-    let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
-    let mut ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
     let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let store = Rc::new(MemoryPlayStore::default());
     let plays = Plays::new(store.clone());
     let mut host = Host::new(Rc::default(), Some(plays.clone()));
     let clock = common::rig::fake_clock(&mut host);
-    let formats = common::gpu::formats();
-    let dev = || Device {
-        device: &device,
-        queue: &queue,
-        formats,
-    };
-    let target = common::gpu::Target::new(&device, SIZE);
+    let draws = common::rig::Draws::here(&mut host, SIZE);
+    let mut pictures = common::gpu::Pictures::new();
 
     // The room over the start menu, its stages played through the host.
     let room = common::practice::open(&mut ui, &env, &host);
@@ -82,7 +71,7 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
         assert!(request.stage.is_some());
         request.auto = true;
         *host.requested.borrow_mut() = Some(request);
-        common::rig::wait_prompt(&mut host, ui, &env, dev);
+        draws.wait_prompt(&mut host, ui, &env);
         ui.update(0.5);
         assert_eq!(top(ui), "play-prompt");
         // Ready: the room counts down (alone with CPUs, all ready), then
@@ -96,13 +85,13 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
             r.tick(later);
         }
         ui.update(0.05);
-        host.poll(ui, &env, Some(dev()), 48_000);
+        draws.poll(&mut host, ui, &env);
         assert!(host.playing(), "{:?}", ui.layers());
         let mut frames = 0;
         let mut columns = 0;
         while host.playing() {
             let now = clock.fetch_add(1_000_000_000 / 4, Ordering::SeqCst) + 1_000_000_000 / 4;
-            common::rig::draw(&mut host, &dev(), &target, ui, &env, now);
+            draws.frame(&mut host, ui, &env, now);
             if let Some(p) = host.running() {
                 let opponents = p.session.opponents();
                 if !opponents.is_empty() {
@@ -112,22 +101,22 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
             }
             // The column's fonts are read on a thread: real time for it
             // before the picture.
-            if shot.is_some() && (60..120).contains(&frames) {
+            if shot.is_some() && draws.drawn() && (60..120).contains(&frames) {
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
             if frames == 120
                 && let Some(name) = shot
             {
-                ppm(name, &gpu::read_rgba(&device, &queue, &target.texture));
+                draws.shot(&format!("{name}.ppm"));
             }
             if frames % 16 == 0 {
-                let _ = device.poll(wgpu::PollType::wait_indefinitely());
+                draws.wait_gpu();
             }
             frames += 1;
             assert!(frames < 4 * 400, "the play never ended");
         }
         assert!(columns > 0, "the opponents were shown");
-        let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        draws.wait_gpu();
         ui.update(0.05);
         assert_eq!(top(ui), "results");
         // The room's mark after the autoplay's note; no Retry, no song
@@ -179,7 +168,7 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
         // Back to the room (Enter: its button has focus).
         key(ui, "Enter", "Enter");
         ui.update(0.5);
-        host.poll(ui, &env, Some(dev()), 48_000);
+        draws.poll(&mut host, ui, &env);
         ui.update(1.0);
         assert!(!host.prompting() && !host.playing());
         // The room's song select: the standings were seen on the
@@ -203,17 +192,11 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
     );
     assert!(!view.ready, "Ready again for stage 2");
     ui.update(0.5);
-    ppm(
-        "intermission",
-        &ui_gpu.draw_offscreen(&mut ui, SIZE, wgpu::TextureFormat::Rgba8Unorm),
-    );
+    pictures.shot(&mut ui, SIZE, "intermission.ppm");
     play_stage(&mut ui, None);
     assert_eq!(room.borrow().state().phase, Phase::MatchResults);
     ui.update(0.5);
-    ppm(
-        "results",
-        &ui_gpu.draw_offscreen(&mut ui, SIZE, wgpu::TextureFormat::Rgba8Unorm),
-    );
+    pictures.shot(&mut ui, SIZE, "results.ppm");
     let standings = room.borrow().state().standings().unwrap();
     assert_eq!(standings.len(), 4);
     assert!(store.is_empty(), "a stage is not kept in the history");
@@ -227,7 +210,7 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
     ui.update(0.1);
     let mut waited = 0;
     while !host.prompt_ready() {
-        host.poll(&mut ui, &env, Some(dev()), 48_000);
+        draws.poll(&mut host, &mut ui, &env);
         ui.update(0.05);
         std::thread::sleep(std::time::Duration::from_millis(20));
         waited += 1;
@@ -236,7 +219,7 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
     ui.update(0.5);
     key(&mut ui, "Escape", "Escape");
     ui.update(0.5);
-    host.poll(&mut ui, &env, Some(dev()), 48_000);
+    draws.poll(&mut host, &mut ui, &env);
     ui.update(1.0);
     assert_eq!(top(&ui), "select", "{:?}", ui.layers());
     assert!(matches!(
@@ -255,21 +238,11 @@ fn a_practice_match_plays_its_stages_and_comes_back_to_the_room() {
 #[test]
 fn a_practice_stage_with_attacks_launches_them_through_the_window() {
     common::indexes();
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).unwrap();
     let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let store = Rc::new(MemoryPlayStore::default());
     let mut host = Host::new(Rc::default(), Some(Plays::new(store.clone())));
     let clock = common::rig::fake_clock(&mut host);
-    let formats = common::gpu::formats();
-    let dev = || Device {
-        device: &device,
-        queue: &queue,
-        formats,
-    };
-    let target = common::gpu::Target::new(&device, SIZE);
+    let draws = common::rig::Draws::here(&mut host, SIZE);
     let room = common::practice::open(&mut ui, &env, &host);
     // Beatucada's Medium chart: long enough for full bars.
     let chart = 4;
@@ -294,7 +267,7 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
     *host.requested.borrow_mut() = Some(request);
     let mut waited = 0;
     while !host.prompt_ready() {
-        host.poll(&mut ui, &env, Some(dev()), 48_000);
+        draws.poll(&mut host, &mut ui, &env);
         ui.update(0.05);
         std::thread::sleep(std::time::Duration::from_millis(20));
         waited += 1;
@@ -326,7 +299,7 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
         r.tick(later);
     }
     ui.update(0.05);
-    host.poll(&mut ui, &env, Some(dev()), 48_000);
+    draws.poll(&mut host, &mut ui, &env);
     assert!(host.playing(), "{:?}", ui.layers());
     let mut frames = 0;
     let mut attacks = 0;
@@ -341,8 +314,9 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
             let p = host.running().expect("playing");
             let b = p.session.battle().expect("a stage");
             assert_eq!(b.policy(&p.session.player), Some(Targeting::Retaliate));
-            let at = host.feed.borrow().policy_at.expect("its label drawn");
-            label = Some(at);
+            // (Where its label was drawn, where the play is drawn.)
+            label = host.feed.borrow().policy_at;
+            assert_eq!(label.is_some(), draws.drawn(), "its label drawn");
             for pressed in [true, false] {
                 host.feed.borrow_mut().edges.push(ddi_platform::RawInput {
                     device: ddi_platform::DeviceId::Touch,
@@ -359,7 +333,7 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
             assert_eq!(b.policy(&p.session.player), Some(Targeting::Leader));
             assert_eq!(p.session.player.log().policies.len(), 1);
         }
-        common::rig::draw(&mut host, &dev(), &target, &mut ui, &env, now);
+        draws.frame(&mut host, &mut ui, &env, now);
         if let Some(p) = host.running()
             && let Some(b) = p.session.battle()
             && let Some(a) = b.attacks()
@@ -389,12 +363,12 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
             }
         }
         if frames % 16 == 0 {
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
+            draws.wait_gpu();
         }
         frames += 1;
         assert!(frames < 4 * 400, "the play never ended");
     }
-    let _ = device.poll(wgpu::PollType::wait_indefinitely());
+    draws.wait_gpu();
     ui.update(0.05);
     assert_eq!(top(&ui), "results");
     let shown = common::ui::results_shown(&ui);
@@ -406,8 +380,10 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
     assert!(attacks > 0, "full bars launched");
     // The player launched (autoplayed, its bar fills) and its links
     // showed: lines for their time, outlines after.
-    assert!(links.0 > 0, "outgoing links drawn: {links:?}");
-    assert!(lines > 0 && outlines > lines, "{lines} lines, {outlines} outlines");
+    if draws.drawn() {
+        assert!(links.0 > 0, "outgoing links drawn: {links:?}");
+        assert!(lines > 0 && outlines > lines, "{lines} lines, {outlines} outlines");
+    }
     eprintln!("links drawn: {} outgoing, {} incoming frames", links.0, links.1);
     // The standings count them: every line says its attacks and shocks,
     // and those launched add up to the ledger's.
@@ -435,8 +411,9 @@ fn a_practice_stage_with_attacks_launches_them_through_the_window() {
     assert!(store.is_empty(), "a stage is not kept in the history");
     // The label under the gauge's left end, inside the field, and the
     // policy the play left is the room's for the next stage.
-    let [l, t, r, b] = label.expect("the label's place");
-    assert!(l > 400.0 && r < 640.0 && t < 20.0 && b > 30.0 && b < 80.0, "{l} {t} {r} {b}");
+    if let Some([l, t, r, b]) = label {
+        assert!(l > 400.0 && r < 640.0 && t < 20.0 && b > 30.0 && b < 80.0, "{l} {t} {r} {b}");
+    }
     assert_eq!(room.borrow().my_targeting(), Targeting::Leader);
     eprintln!("attacks: {attacks}, {against_me} against the player");
 }

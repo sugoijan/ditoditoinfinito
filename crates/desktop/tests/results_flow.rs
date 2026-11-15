@@ -1,16 +1,16 @@
 //! What a finished play's results say as the window shows them
 //! (`play::host`), on this machine's GPU offscreen and on a fake clock
 //! with no sound device: a play nobody presses in, failed, whose keeping
-//! failed too; an autoplay quit. Skipped where there is no GPU adapter
-//! (CI).
+//! failed too; an autoplay quit. Without a GPU adapter (CI) the plays
+//! run undrawn (`common::rig::Draws`) and all of it is checked all the
+//! same.
 
 mod common;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
 
-use ddi_desktop::gpu;
 use ddi_desktop::play::Request;
-use ddi_desktop::play::host::{Device, Host};
+use ddi_desktop::play::host::Host;
 use ddi_platform::history::MemoryPlayStore;
 use ddi_platform::{DeviceId, HostTime, RawInput};
 use ddi_ui::state::history::Plays;
@@ -21,10 +21,6 @@ const SIZE: [u32; 2] = [960, 540];
 #[test]
 fn a_failed_play_unkept_and_a_quit_say_so_on_their_results() {
     common::indexes();
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).unwrap();
     let (mut ui, env) = common::ui::theme("select", common::ui::lowercase(), SIZE, false);
     ui.update(0.5);
     let store = Rc::new(MemoryPlayStore::default());
@@ -32,38 +28,32 @@ fn a_failed_play_unkept_and_a_quit_say_so_on_their_results() {
     let plays = Plays::new(store.clone());
     let mut host = Host::new(Rc::default(), Some(plays.clone()));
     let clock = common::rig::fake_clock(&mut host);
-    let formats = common::gpu::formats();
-    let dev = || Device {
-        device: &device,
-        queue: &queue,
-        formats,
-    };
-    let target = common::gpu::Target::new(&device, SIZE);
+    let draws = common::rig::Draws::here(&mut host, SIZE);
     let run = |host: &mut Host, ui: &mut ddi_ui::Ui, frames: usize| {
         let mut n = 0;
         while host.playing() && n < frames {
             let now = clock.fetch_add(1_000_000_000 / 60, Ordering::SeqCst) + 1_000_000_000 / 60;
-            common::rig::draw(host, &dev(), &target, ui, &env, now);
+            draws.frame(host, ui, &env, now);
             n += 1;
             assert!(n < 60 * 300, "the play never ended");
         }
-        let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        draws.wait_gpu();
         ui.update(0.05);
     };
     let start = |host: &mut Host, ui: &mut ddi_ui::Ui, request: Request| {
         *host.requested.borrow_mut() = Some(request);
-        common::rig::wait_prompt(host, ui, &env, dev);
+        draws.wait_prompt(host, ui, &env);
         ui.update(0.5);
         key(ui, "Enter", "Enter");
         ui.update(0.05);
-        host.poll(ui, &env, Some(dev()), 48_000);
+        draws.poll(host, ui, &env);
         assert!(host.playing());
     };
     let leave = |host: &mut Host, ui: &mut ddi_ui::Ui| {
         ui.update(3.0);
         key(ui, "Escape", "Escape");
         ui.update(0.5);
-        host.poll(ui, &env, Some(dev()), 48_000);
+        draws.poll(host, ui, &env);
         ui.update(1.0);
         assert!(host.idle());
     };
