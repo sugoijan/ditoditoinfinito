@@ -76,6 +76,17 @@ jobs:
           cargo run -p xtask -- l10n check
       - name: Native tests
         run: cargo test -p ddi-chart -p ddi-engine -p ddi-character -p ddi-hand-pose -p ddi-hand-plan -p ddi-render -p ddi-platform -p ddi-library -p ddi-actor -p ddi-ui -p ddi-theme -p ddi-noteskin -p ddi-lua -p ddi-session -p ddi-shell -p ddi-room -p ddi-share-protocol -p ddi-l10n -p ddi-desktop -p ddi -p xtask --features ddi-platform/decode,ddi-library/nfkd
+      # The proof that every device computes an online room's CPUs alike
+      # (crates/session/src/battle/cpus/tests.rs, against its recorded
+      # fixture), built for the browser's architecture and run under
+      # Node's WASI (.cargo/config.toml's runner, tools/wasi-run): the web
+      # build is wasm32 with the same floating point and the same code.
+      # Only the session's tests are built for the target.
+      - name: The CPUs play alike on wasm32
+        run: |
+          rustup target add wasm32-wasip1
+          node --version
+          cargo test -p ddi-session --target wasm32-wasip1 --lib cpus::tests -- --test-threads=1
 
   # The desktop shell on the three systems it is for, with and without
   # background movies (the `video` feature: the sandboxed FFmpeg helper,
@@ -132,6 +143,11 @@ jobs:
         run: target/debug/video/ddi-video-helper --sandbox-check
       - name: Build and test it without background movies
         run: cargo test -p ddi-desktop --no-default-features --no-fail-fast
+      # The same proof as the `test` job's wasm32 run, on each desktop
+      # system (Windows' and macOS's own maths libraries): the peers of a
+      # room must agree with the recorded fixture, whatever they run on.
+      - name: The CPUs play alike on this system
+        run: cargo test -p ddi-session --lib cpus::tests
 
   # The software video decoder (video/): FFmpeg built with wasi-sdk, as
   # the build-inputs release has it (with its source tarball, served next

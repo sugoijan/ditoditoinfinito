@@ -4,16 +4,19 @@
 //! very different frame rates and network delays, gives the same reports,
 //! ends, shocks and plays every time, and the same as the recorded
 //! fixture (`fixture.txt`), which the same test checks built for the
-//! browser's architecture too:
+//! browser's architecture too, and on Linux, macOS and Windows
+//! (`.github/workflows/deploy.yml`: the `test` job's wasm32 step, the
+//! `desktop` job's on each system):
 //!
 //! ```text
-//! CARGO_TARGET_WASM32_WASIP1_RUNNER="node target/scratch/mp/ocpu/wasi-run.mjs" \
-//!   cargo test -p ddi-session --target wasm32-wasip1 --lib cpus::tests -- --test-threads=1
+//! cargo test -p ddi-session --target wasm32-wasip1 --lib cpus::tests -- --test-threads=1
 //! ```
 //!
-//! (`wasi-run.mjs` runs a WASI module under Node's `node:wasi`; the web
-//! build is wasm32 with the same floating point and the same code: the
-//! song and the fixture are compiled in, no file is read.)
+//! (`.cargo/config.toml` names the runner, `tools/wasi-run/wasi-run.mjs`,
+//! which runs a WASI module under Node's `node:wasi`; `rustup target add
+//! wasm32-wasip1` once. The web build is wasm32 with the same floating
+//! point and the same code: the song and the fixture are compiled in, no
+//! file is read.)
 
 use super::*;
 use ddi_engine::cpu::PlannedRung;

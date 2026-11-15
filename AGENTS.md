@@ -755,7 +755,9 @@ Rust and the browser are implementation details, not advertised features.
   an online room's CPUs played alike on every device, `battle/cpus.rs`
   (`Drive`: in fixed steps, the room's shocks put in at a song time
   everyone knows; its proof, `cpus/tests.rs` with `fixture.txt`,
-  checked natively and built for wasm32);
+  checked natively and built for wasm32, in CI too: under Node's WASI
+  by `.cargo/config.toml`'s runner, `tools/wasi-run/wasi-run.mjs`, and
+  on each desktop system);
   an online room's stage played live, `battle/live.rs`
   (`docs/plans/multiplayer-online-play.md`): `Battle::with_live` over a
   `LiveHandle` (the room client and the shell's wall clock,

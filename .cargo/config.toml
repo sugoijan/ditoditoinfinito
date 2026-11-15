@@ -5,3 +5,11 @@
 # before 16.4) are told the game cannot run (site/index.html's check).
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "target-feature=+simd128"]
+
+# Tests built for the browser's architecture run under Node's WASI
+# (tools/wasi-run/wasi-run.mjs; `rustup target add wasm32-wasip1`): the
+# proof that every device computes an online room's CPUs alike,
+# `cargo test -p ddi-session --target wasm32-wasip1 --lib cpus::tests`.
+# The path is this file's folder's parent's, wherever Cargo is run from.
+[target.wasm32-wasip1]
+runner = "tools/wasi-run/wasi-run.mjs"
