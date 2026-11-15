@@ -12,6 +12,39 @@ use super::{Editor, export};
 /// the first song folder; the web: the stored songs' pack).
 pub const PACK: &str = "Dito Edits";
 
+/// Why a new song was not made (worded by the screens,
+/// `screens::failures::new_song_text`; `Display` is for logs).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Failure {
+    /// The music file's audio cannot be decoded (checked before anything
+    /// is made: decisions round D2, the maintainer, 2026-11-15, "Check
+    /// before creating"), with the decoder's words.
+    Music(String),
+    /// Anything else, as the system said it.
+    Other(String),
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Failure::Music(e) => write!(f, "its music could not be decoded: {e}"),
+            Failure::Other(e) => f.write_str(e),
+        }
+    }
+}
+
+impl From<String> for Failure {
+    fn from(e: String) -> Failure {
+        Failure::Other(e)
+    }
+}
+
+impl From<&str> for Failure {
+    fn from(e: &str) -> Failure {
+        Failure::Other(e.into())
+    }
+}
+
 /// A new song's names and where it goes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewSong {

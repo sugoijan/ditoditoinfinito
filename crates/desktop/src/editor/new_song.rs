@@ -15,7 +15,7 @@ use ddi_library::tags;
 use ddi_ui::screens::Env;
 use ddi_ui::screens::editor::EditorScreen;
 use ddi_ui::state::editor::Editor;
-use ddi_ui::state::editor::new_song::{NewSong, PACK};
+use ddi_ui::state::editor::new_song::{Failure, NewSong, PACK};
 
 use crate::songs::Songs;
 
@@ -39,8 +39,26 @@ fn base(songs: &Songs) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// Makes the song for the music at `music` and puts it in the library.
-pub fn create(songs: &Songs, music: &Path) -> Result<Made, String> {
+/// Whether the music at `music` decodes, as a play decodes it (the whole
+/// file: `ddi_platform::decode_all`), before a song is made of it: a
+/// file that does not is refused with the decoder's words and nothing is
+/// created.
+fn check_music(music: &Path) -> Result<(), Failure> {
+    let bytes = std::fs::read(music).map_err(|e| format!("{}: {e}", music.display()))?;
+    let ext = music.extension().and_then(|e| e.to_str());
+    ddi_platform::decode_all::decode(&bytes, ext)
+        .map(|_| ())
+        .map_err(|e| Failure::Music(e.to_string()))
+}
+
+/// Makes the song for the music at `music` and puts it in the library;
+/// music that cannot be decoded makes none ([`check_music`]).
+pub fn create(songs: &Songs, music: &Path) -> Result<Made, Failure> {
+    check_music(music)?;
+    Ok(make(songs, music)?)
+}
+
+fn make(songs: &Songs, music: &Path) -> Result<Made, String> {
     let pack = base(songs)?.join(PACK);
     std::fs::create_dir_all(&pack).map_err(|e| format!("{}: {e}", pack.display()))?;
     let name = music
@@ -99,7 +117,7 @@ pub fn forget(songs: &Songs, id: &str, dir: &Path) {
 
 /// Song select's "New song": the music picked (`crate::os::pick_music`),
 /// the song made, the editor on it; `None` when the picker was cancelled.
-pub fn pick(env: &Env, songs: &Rc<Songs>) -> Option<Result<EditorScreen, String>> {
+pub fn pick(env: &Env, songs: &Rc<Songs>) -> Option<Result<EditorScreen, Failure>> {
     let music = crate::os::pick_music()?;
     Some(create(songs, &music).map(|m| {
         super::open(

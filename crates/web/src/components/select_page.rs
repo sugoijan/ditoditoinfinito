@@ -57,7 +57,7 @@ pub(crate) enum Msg {
     Library(Result<Library, String>),
     /// The music picked for a new song, and the song made (its id).
     Music(web_sys::File),
-    NewSong(Result<String, String>),
+    NewSong(Result<String, ddi_ui::state::editor::new_song::Failure>),
     Folders(Vec<(String, JsValue)>),
     Usage(Option<f64>),
     Persisted(Option<bool>),
@@ -349,7 +349,7 @@ impl Component for SelectPage {
                 );
             }
             Msg::NewSong(Err(e)) => {
-                let reason = ddi_ui::screens::errors::error_text(&e);
+                let reason = ddi_ui::screens::failures::new_song_text(&e);
                 ctx.link()
                     .send_message(Msg::Say(nm::new_song_failed(reason).into()));
             }

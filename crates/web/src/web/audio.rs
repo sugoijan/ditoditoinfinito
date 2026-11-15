@@ -485,6 +485,13 @@ impl AudioDecoder {
         Ok(buffer)
     }
 
+    /// Whether `bytes` decode at all, by the browser's decoder or the
+    /// built-in ones ([`Self::decode`] without the MP3 alignment): what
+    /// "New song" checks before it makes a song of a music file.
+    pub(crate) async fn decodes(&self, bytes: &[u8]) -> Result<(), String> {
+        self.decode_any(bytes, &|| true).await.map(|_| ())
+    }
+
     /// The browser's decode, else the built-in one; whether it is the
     /// built-in one. The built-in one stops once `wanted` says no.
     async fn decode_any(

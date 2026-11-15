@@ -49,6 +49,17 @@ pub enum LoadFailure {
     Other(String),
 }
 
+/// Why a new song could not be made, after "The new song could not be
+/// made:" (`notices-new-song-failed`): its music's as a song's that
+/// fails to load says it, anything else as the system said it.
+pub fn new_song_text(why: &crate::state::editor::new_song::Failure) -> UiText {
+    use crate::state::editor::new_song::Failure;
+    match why {
+        Failure::Music(e) => m::load_music(error_text(e)),
+        Failure::Other(e) => error_text(e),
+    }
+}
+
 impl LoadFailure {
     /// A clause, after "The song failed to load:" (`prompt-song-failed`).
     pub fn text(&self) -> UiText {
@@ -207,6 +218,30 @@ pub fn share_upload_text(e: &ShareError) -> UiText {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A new song's music that does not decode is said in the words a
+    /// song that fails to load is given (no message of its own);
+    /// anything else as the system said it.
+    #[test]
+    fn a_new_songs_failure_is_worded_as_a_songs_load() {
+        use crate::state::editor::new_song::Failure;
+        ddi_l10n::set_language("en");
+        let said = |why: Failure| -> String {
+            ddi_l10n::msg::notices::new_song_failed(new_song_text(&why)).into()
+        };
+        assert_eq!(
+            said(Failure::Music("malformed audio: no frames".into())),
+            "The new song could not be made: its music could not be decoded: malformed audio: no frames"
+        );
+        assert_eq!(
+            said(Failure::from("no data folder")),
+            "The new song could not be made: no data folder"
+        );
+        assert_eq!(
+            Failure::Music("x".into()).to_string(),
+            "its music could not be decoded: x"
+        );
+    }
 
     #[test]
     fn our_reports_are_worded_in_the_player_s_language() {

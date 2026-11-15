@@ -1041,7 +1041,7 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
                     Some(Err(e)) => {
                         songs.notices.borrow_mut().push(Notice::error(
                             ddi_l10n::msg::notices::new_song_failed(
-                                ddi_ui::screens::errors::error_text(&e),
+                                ddi_ui::screens::failures::new_song_text(&e),
                             ),
                         ));
                         songs.send_notices(cx);

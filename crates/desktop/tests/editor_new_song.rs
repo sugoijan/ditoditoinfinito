@@ -88,6 +88,28 @@ fn wav(seconds: f64, title: &str) -> Vec<u8> {
     out
 }
 
+/// A WAV no decoder reads, from bytes: a well-formed RIFF whose format
+/// chunk names a coding of nobody's (0x7a7a), over a second of noise.
+fn broken_wav() -> Vec<u8> {
+    let data: Vec<u8> = (0..44_100u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 24) as u8).collect();
+    let mut body = b"WAVE".to_vec();
+    body.extend(b"fmt ");
+    body.extend(16u32.to_le_bytes());
+    body.extend(0x7a7au16.to_le_bytes());
+    body.extend(1u16.to_le_bytes());
+    body.extend(44_100u32.to_le_bytes());
+    body.extend(44_100u32.to_le_bytes());
+    body.extend(1u16.to_le_bytes());
+    body.extend(8u16.to_le_bytes());
+    body.extend(b"data");
+    body.extend((data.len() as u32).to_le_bytes());
+    body.extend(&data);
+    let mut out = b"RIFF".to_vec();
+    out.extend((body.len() as u32).to_le_bytes());
+    out.extend(body);
+    out
+}
+
 fn scratch() -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/scratch/editor-new-song");
     let _ = std::fs::remove_dir_all(&dir);
@@ -134,6 +156,31 @@ fn a_new_song_made_charted_played_saved_and_opened_again() {
     tap(&mut h, "NewSong");
     assert_eq!(top(&h.ui), "select", "{:?}", h.ui.layers());
     assert!(!pack.exists());
+
+    // Music that does not decode (decisions round D2, item 3: "Check
+    // before creating"): a WAV whose format chunk names a coding nobody
+    // reads, and one cut off inside its header, each made here from
+    // bytes. Song select says so in the words a song that fails to load
+    // is given, and nothing is made: no folder, no song, no editor.
+    for (name, bytes) in [("unknown_coding.wav", broken_wav()), ("cut_off.wav", wav(1.0, "Cut")[..30].to_vec())] {
+        let bad = dir.join("music").join(name);
+        std::fs::write(&bad, bytes).unwrap();
+        ddi_desktop::os::inject_picked_music(Some(bad));
+        tap(&mut h, "Link.Add");
+        tap(&mut h, "NewSong");
+        assert_eq!(top(&h.ui), "select", "{name}: {:?}", h.ui.layers());
+        assert!(!pack.exists(), "{name}: nothing made");
+        let said = h
+            .texts()
+            .into_iter()
+            .find(|t| t.starts_with("The new song could not be made: "))
+            .unwrap_or_else(|| panic!("{name}: not said: {:?}", h.texts()));
+        assert!(
+            said.starts_with("The new song could not be made: its music could not be decoded: "),
+            "{name}: {said}"
+        );
+        assert!(env.state.borrow().editor.is_none(), "{name}: no editor");
+    }
 
     // Picked: the folder, the editor on the song, unsaved.
     ddi_desktop::os::inject_picked_music(Some(music.clone()));
