@@ -3344,3 +3344,124 @@ fn a_battle_plan_lost_with_its_socket_is_offered_again() {
         assert_eq!(st.prep_ref(me).loading, ddi_room::Loading::Loaded, "{me:?}");
     }
 }
+
+/// The fields' delay beyond the music over the first `seconds` of a
+/// watched play that the audience's seat starts `late` seconds after it
+/// was handed the stage (its client ticked meanwhile, as its page and the
+/// play host tick it while the song loads): the delay at each frame (ms).
+fn watched_delays(late: f64, seconds: f64) -> Vec<f64> {
+    let song = bundled("beatucada");
+    let latency = |seed| Latency {
+        down_ms: 60,
+        down_jitter_ms: 40,
+        up_ms: 60,
+        up_jitter_ms: 40,
+        seed,
+    };
+    let r = Room::under(
+        &[("alice", Intent::Play), ("bob", Intent::Play)],
+        Some(latency(3)),
+        &[],
+        RoomPolicy::default().with_live().with_audience(),
+    );
+    let aud = audience_seat(&r, "dora", Some(latency(11)));
+    let tick_aud = || aud.borrow_mut().tick(wall(*r.host.borrow()));
+    tick_aud();
+    let orders = pick_and_ready(&r, &song, false, 0);
+    for _ in 0..50 {
+        r.step(0.02, true);
+        tick_aud();
+    }
+    let e = entry_at(&song, 0);
+    let jobs = aud.borrow_mut().take_load_jobs();
+    for job in jobs {
+        let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+        let picked = Picked {
+            song: SongEntry {
+                id: job.song.clone(),
+                ..e.clone()
+            },
+            chart: e.charts[0].clone(),
+        };
+        aud.borrow_mut().finish_load(&job, Ok((picked, prepared.live)));
+    }
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 0.0]);
+    let frame = |plays: &mut [PlaySession<FakeAudio, FakeInputs>]| {
+        r.step(1.0 / 60.0, false);
+        for p in plays.iter_mut() {
+            let _ = p.tick(HostTime(*r.host.borrow()));
+        }
+    };
+    let mut order = None;
+    for _ in 0..400 {
+        frame(&mut plays);
+        tick_aud();
+        order = aud.borrow_mut().take_stage_order();
+        if order.is_some() {
+            break;
+        }
+    }
+    let order = order.expect("the audience's stage");
+    // The song loads, the seat's client ticked meanwhile.
+    for _ in 0..(late * 60.0).round() as usize {
+        frame(&mut plays);
+        tick_aud();
+    }
+    let settings = Settings::default();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.opponents = Some(StageSetup::of(&order));
+    let host = r.host.clone();
+    config.live = Some(crate::battle::live::LiveHandle {
+        room: aud.clone(),
+        wall_ms: Rc::new(move || wall(*host.borrow())),
+    });
+    let mut watched = PlaySession::start(
+        &song,
+        order.chart.index,
+        &settings,
+        config,
+        FakeAudio::new(&r.host, 0.02),
+        110.0,
+        FakeInputs::new(&r.host),
+    )
+    .unwrap();
+    let mut delays = Vec::new();
+    for _ in 0..(seconds * 60.0) as usize {
+        frame(&mut plays);
+        let _ = watched.tick(HostTime(*r.host.borrow()));
+        let l = watched.battle().unwrap().live_state().unwrap();
+        delays.push(l.delay_ms);
+    }
+    delays
+}
+
+/// Round M, item 1: a watched stage whose play starts part-way (the
+/// audience's Watch pressed late, a reload, a slow load of the song) draws
+/// its fields no further behind than one that starts with the song: the
+/// view's delay is measured from frames read as they arrive, never from
+/// those that waited in the seat's client while the play was not there to
+/// read them. Before the fix a play that started more than the stale time
+/// late sampled the last two seconds of its backlog as the network's lag
+/// and went to its ceiling (1,200 ms beyond the music), coming down only
+/// after the 8 s window, at 50 ms a second.
+#[test]
+fn a_watched_play_that_starts_late_draws_its_fields_no_further_behind() {
+    let on_time = watched_delays(0.0, 12.0);
+    let most = |d: &[f64]| d.iter().cloned().fold(0.0, f64::max);
+    let base = most(&on_time);
+    eprintln!("on time: at most {base:.0} ms, {:.0} ms at the end", on_time.last().unwrap());
+    assert!(base < 600.0, "what a 60±40 ms link warrants: {base}");
+    for late in [0.5, 1.5, 2.5, 4.0, 9.0] {
+        let d = watched_delays(late, 12.0);
+        eprintln!(
+            "{late} s late: at most {:.0} ms, {:.0} ms at the end",
+            most(&d),
+            d.last().unwrap()
+        );
+        assert!(
+            most(&d) <= base + 60.0,
+            "{late} s late: the fields up to {:.0} ms beyond the music, {base:.0} on time",
+            most(&d)
+        );
+    }
+}

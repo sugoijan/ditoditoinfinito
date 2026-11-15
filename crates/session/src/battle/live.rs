@@ -477,7 +477,26 @@ pub(crate) struct Live {
     snapshot_known: usize,
     /// [`Live::cpu_lead_us`].
     cpu_lead_us: i64,
+    /// The shell's wall clock (ms) when the room's news was last read
+    /// (none: never yet, by a play that started part-way and has the
+    /// stage's backlog to read first).
+    read_at: Option<u64>,
+    /// The news read this frame came since a reading at most
+    /// [`READ_GAP_MS`] ago: read as it arrived, so how far a stream had
+    /// fallen behind when it came measures the network. News that waited
+    /// longer in the room's client (the backlog a play that starts
+    /// part-way reads first, what piled up while the song loaded or a
+    /// frame was held) waited for this device, not for the network: its
+    /// lag is not sampled, or a late start would raise the views' delay
+    /// to its ceiling for many seconds (round M).
+    arriving: bool,
 }
+
+/// The longest since the last reading of the room's news for this
+/// reading's frames to count as read as they arrived (ms): the quarter
+/// second a view's delay takes a held frame for
+/// (`ddi_room::live::ViewDelay::advance`).
+pub const READ_GAP_MS: u64 = 250;
 
 /// A judge event as a moment of the stream (none: nothing a field
 /// shows).
@@ -655,19 +674,25 @@ impl Live {
         // the rest at its first `receive`, and where a play before this
         // one read part of it, asks for the stage again as it stands
         // (review finding session-1). One that starts with the song, as
-        // ever, from now on: what came before is the countdown's, and
-        // reading it late would count as the network's delay.
-        {
+        // ever, from now on: what came before is the countdown's. Either
+        // way what waited in the client is no measure of the network's
+        // delay ([`Live::read_at`]): a backlog's first reading samples
+        // nothing.
+        let read_at = {
             let mut room = handle.room.borrow_mut();
             let part_way = room
                 .song_zero_in(stage)
                 .is_some_and(|z| z * 1_000.0 < -(rules.stale_ms as f64));
             if !part_way {
                 let _ = room.take_live_news();
-            } else if !room.live_news_whole(stage) {
-                room.read_live_again(stage);
+                Some((handle.wall_ms)())
+            } else {
+                if !room.live_news_whole(stage) {
+                    room.read_live_again(stage);
+                }
+                None
             }
-        }
+        };
         Live {
             handle,
             stage,
@@ -698,6 +723,8 @@ impl Live {
             steps_sent: 0,
             snapshot_known: 0,
             cpu_lead_us,
+            read_at,
+            arriving: false,
         }
     }
 
@@ -1015,6 +1042,11 @@ impl Live {
         mut human: Option<&mut Deliver<'_>>,
     ) -> Received {
         let mut got = Received::default();
+        let now = (self.handle.wall_ms)();
+        self.arriving = self
+            .read_at
+            .is_some_and(|last| now.saturating_sub(last) <= READ_GAP_MS);
+        self.read_at = Some(now);
         let news = self.handle.room.borrow_mut().take_live_news();
         for n in news {
             match n {
@@ -1112,13 +1144,15 @@ impl Live {
         let room_now = self.room_now_us(t);
         // A frame built long before it is read (what was kept of the
         // stage before this play began, or a resume's) says nothing of
-        // the network's delay now: its lag is not sampled.
-        let fresh = self
-            .handle
-            .room
-            .borrow()
-            .song_zero_at(self.stage)
-            .is_none_or(|z| room_now - song_us_at(z, f.at) <= self.rules.stale_ms as i64 * 1_000);
+        // the network's delay now: its lag is not sampled. Nor is that
+        // of any frame that waited in the client ([`Live::arriving`]).
+        let fresh = self.arriving
+            && self
+                .handle
+                .room
+                .borrow()
+                .song_zero_at(self.stage)
+                .is_none_or(|z| room_now - song_us_at(z, f.at) <= self.rules.stale_ms as i64 * 1_000);
         for e in &f.entries {
             if e.participant == self.me {
                 continue;
