@@ -43,6 +43,30 @@ pub fn now() -> HostTime {
     HostTime(now_ns() as f64 / 1e9)
 }
 
+/// The clocks the window gives its UI each frame: the live art's
+/// (`ddi_ui::Ui::set_clock`), seconds since the epoch as the web's, so a
+/// start does not begin the art over from the same state, taken once and
+/// run on by the host clock; and the wall clock (`ddi_ui::Ui::set_wall_ms`),
+/// which the rooms are made, ticked and read on (review3 desktop-1: the
+/// host clock stands still while the computer sleeps, so the art's clock
+/// falls behind the wall clock by the sleep, and a room ticked on it froze
+/// for as long).
+#[derive(Debug, Default)]
+pub struct UiClock {
+    /// The wall clock less the host clock, at the first frame.
+    origin: Option<f64>,
+}
+
+impl UiClock {
+    /// One frame's clocks at host time `host` (seconds) and wall clock
+    /// `wall_ms` (ms since the epoch, [`now_ms`]).
+    pub fn frame(&mut self, ui: &mut ddi_ui::Ui, host: f64, wall_ms: u64) {
+        let origin = *self.origin.get_or_insert(wall_ms as f64 / 1000.0 - host);
+        ui.set_clock(origin + host);
+        ui.set_wall_ms(wall_ms);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

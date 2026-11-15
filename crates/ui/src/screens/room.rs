@@ -272,7 +272,7 @@ impl Pump {
     /// Runs it; whether the room changed since the last run.
     pub fn run(&mut self, room: &SharedRoom, shell: &RoomShell, cx: &mut Cx) -> bool {
         room.borrow_mut()
-            .tick((cx.clock() * 1000.0).max(0.0) as u64);
+            .tick(cx.wall_ms());
         online_update(room, shell, cx);
         let jobs = room.borrow_mut().take_load_jobs();
         for job in jobs {

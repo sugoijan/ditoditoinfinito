@@ -247,3 +247,42 @@ impl Rig {
         self.edge(DeviceId::Keyboard, code, false);
     }
 }
+
+/// The window's clocks as `Shell::redraw` sets them on the UI
+/// (`ddi_desktop::clock::UiClock`): the host clock and the wall clock
+/// moving on together frame by frame, and apart across a sleep (the host
+/// clock, an `Instant`, stands still while the computer sleeps; the wall
+/// clock does not).
+pub struct ShellClock {
+    pub ui_clock: ddi_desktop::clock::UiClock,
+    /// Host time, seconds.
+    pub host: f64,
+    /// Wall clock, ms since the epoch.
+    pub wall_ms: u64,
+}
+
+impl ShellClock {
+    /// From the system's wall clock now, host time one second in.
+    pub fn now() -> ShellClock {
+        ShellClock {
+            ui_clock: ddi_desktop::clock::UiClock::default(),
+            host: 1.0,
+            wall_ms: ddi_desktop::clock::now_ms(),
+        }
+    }
+
+    /// One frame `dt` seconds after the last: both clocks on, set on the
+    /// UI as the window sets them, then its update.
+    pub fn frame(&mut self, ui: &mut Ui, dt: f64) {
+        self.host += dt;
+        self.wall_ms += (dt * 1000.0).round() as u64;
+        self.ui_clock.frame(ui, self.host, self.wall_ms);
+        ui.update(dt as f32);
+    }
+
+    /// The computer asleep `seconds`: the wall clock moves on, the host
+    /// clock does not.
+    pub fn sleep(&mut self, seconds: u64) {
+        self.wall_ms += seconds * 1000;
+    }
+}

@@ -252,9 +252,9 @@ pub(crate) fn prompt_room() -> (SharedRoom, ddi_ui::screens::room::RoomShell) {
     (room, shell)
 }
 
-/// Milliseconds since the epoch: the clock the screens share
-/// (`ddi_ui::Ui::set_clock`) is on it too.
-fn now_ms() -> u64 {
+/// Milliseconds since the epoch: the rooms' clock, which the screens tick
+/// them on too (`ddi_ui::Ui::set_wall_ms`, set each frame by `crate::ui_host`).
+pub(crate) fn now_ms() -> u64 {
     js_sys::Date::now().max(0.0) as u64
 }
 

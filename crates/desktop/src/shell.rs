@@ -46,8 +46,8 @@ use crate::preview::{Player, SharedPlayer};
 use std::cell::RefCell;
 
 thread_local! {
-    /// The wall clock less the host clock, at the first frame (`Shell::redraw`'s clock).
-    static WALL_ORIGIN: std::cell::OnceCell<f64> = const { std::cell::OnceCell::new() };
+    /// The UI's clocks as the window sets them (`Shell::redraw`).
+    static WALL_ORIGIN: RefCell<crate::clock::UiClock> = RefCell::default();
 }
 
 /// How long to wait before asking a surface whose window is not visible
@@ -954,19 +954,13 @@ impl Shell {
             .map_or(1.0 / 60.0, |l| (now - l).as_secs_f32().min(0.25));
         self.last = Some(now);
         self.idle_since = None;
-        // The live art's clock, one across the screens: seconds since the
-        // epoch as the web's, so a start does not begin the art over from
-        // the same state, taken once and run on by the host clock.
-        let host = crate::clock::now().0;
-        let origin = WALL_ORIGIN.with(|o| {
-            *o.get_or_init(|| {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0.0, |d| d.as_secs_f64())
-                    - host
-            })
+        WALL_ORIGIN.with(|o| {
+            o.borrow_mut().frame(
+                &mut self.ui,
+                crate::clock::now().0,
+                crate::clock::now_ms(),
+            );
         });
-        self.ui.set_clock(origin + host);
         self.ui.update(dt);
         let r = self.ui.take_requests();
         self.run(r);
@@ -2303,6 +2297,7 @@ impl Shell {
         read: bool,
     ) -> Option<Vec<u8>> {
         self.ui.set_clock(clock);
+        self.ui.set_wall_ms((clock * 1000.0).max(0.0) as u64);
         self.ui.update(dt);
         let r = self.ui.take_requests();
         self.run(r);

@@ -300,6 +300,8 @@ pub struct Ui {
     time: f64,
     /// The shell's clock, seconds on its origin ([`Ui::set_clock`]).
     clock: Option<f64>,
+    /// The wall clock, ms since the epoch ([`Ui::set_wall_ms`]).
+    wall_ms: Option<u64>,
     /// Screens pushed now keep their entrances for [`Ui::reveal`]
     /// ([`Ui::hold_entrances`]), and one has.
     hold_entrances: bool,
@@ -382,6 +384,7 @@ impl Ui {
             last_mouse_down: None,
             time: 0.0,
             clock: None,
+            wall_ms: None,
             hold_entrances: false,
             held: false,
             input_time: None,
@@ -1058,6 +1061,16 @@ impl Ui {
         if seconds.is_finite() {
             self.clock = Some(seconds);
         }
+    }
+
+    /// The wall clock, ms since the Unix epoch (the system's, the web's
+    /// `Date.now()`), set before each `update`: what [`Cx::wall_ms`] gives
+    /// the screens that tick a room, a seat or the sign-in. The rooms are
+    /// made and a live play reads them on it, so the screens tick them on
+    /// it too (never on [`Ui::set_clock`]'s, which runs on the host's
+    /// monotonic clock and stands still while the computer sleeps).
+    pub fn set_wall_ms(&mut self, ms: u64) {
+        self.wall_ms = Some(ms);
     }
 
     /// Whether every screen is at rest: none coming in, leaving or
@@ -1797,6 +1810,7 @@ impl Ui {
             self.textures.clone(),
         );
         cx.input_time = self.input_time;
+        cx.wall_ms = self.wall_ms;
         cx.holding = self.held;
         cx.menu_key = self.menu_key;
         cx.menu_source = self.menu_source.clone();
@@ -1845,6 +1859,7 @@ impl Ui {
             self.textures.clone(),
         );
         cx.holding = self.hold_entrances;
+        cx.wall_ms = self.wall_ms;
         cx.hints = self.hints.clone();
         let mut root = screen.build(&mut cx);
         if self.hold_entrances {

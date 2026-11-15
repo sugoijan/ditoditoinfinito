@@ -1350,7 +1350,7 @@ impl ResultsScreen {
         sm.time = cx.time();
         let room = sm.room.clone();
         room.borrow_mut()
-            .tick((cx.clock() * 1000.0).max(0.0) as u64);
+            .tick(cx.wall_ms());
         if let Some((_, asked)) = &mut sm.back
             && !*asked
             && cx.is_current_screen()

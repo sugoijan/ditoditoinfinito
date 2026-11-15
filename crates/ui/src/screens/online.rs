@@ -497,7 +497,7 @@ impl PageModel for OnlinePageModel {
     }
 
     fn tick(&mut self, cx: &mut Cx) {
-        let now = (cx.clock() * 1000.0).max(0.0) as u64;
+        let now = cx.wall_ms();
         let (redirect, entered, seated) = {
             let mut o = self.online.borrow_mut();
             o.poll(now);

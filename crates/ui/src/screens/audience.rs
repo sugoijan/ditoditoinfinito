@@ -729,7 +729,7 @@ impl crate::screen::Screen for AudienceScreen {
     fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
         self.time = cx.time();
         // The seat's socket and the room's view come while nothing moves.
-        let now = (cx.clock() * 1000.0).max(0.0) as u64;
+        let now = cx.wall_ms();
         let (jobs, order, redirect) = {
             let mut a = self.audience.borrow_mut();
             a.tick(now);

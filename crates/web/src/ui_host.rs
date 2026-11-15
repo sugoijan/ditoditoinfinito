@@ -1898,6 +1898,11 @@ impl Host {
             .and_then(|w| w.performance())
             .map_or(0.0, |p| p.time_origin());
         self.ui.set_clock((origin + time_ms) / 1000.0);
+        // The rooms' clock, `Date.now()`: what they are made and a live
+        // play reads them on (`crate::room::now_ms`). The time origin plus
+        // the frame's time runs on the monotonic clock, which a browser
+        // may stop while the computer sleeps (review3 desktop-1).
+        self.ui.set_wall_ms(crate::room::now_ms());
         self.ui.update(dt);
         // What the first screens need, loaded under the shell from the
         // first frame on (`preload`); the loader's bar runs its last

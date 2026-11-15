@@ -5588,3 +5588,24 @@ fn a_rooms_ready_card_has_no_field_band_behind_it() {
     h.run(1.0);
     assert!(there(&h, "Filter"));
 }
+
+/// The room's screens tick it on the wall clock the shell gives
+/// (`Ui::set_wall_ms`), never on the live art's (review3 desktop-1): with
+/// the art's clock a minute behind (the host clock stood still while the
+/// computer slept), the room still moves on with the wall clock.
+#[test]
+fn the_rooms_screens_tick_it_on_the_wall_clock() {
+    let env = env();
+    let wall = 1_800_000_000_000u64;
+    let room = RoomClient::shared(wall, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    for frame in 0..30u64 {
+        h.ui.set_clock((wall - 60_000) as f64 / 1000.0 + frame as f64 / 60.0);
+        h.ui.set_wall_ms(wall + frame * 100);
+        h.run(1.0 / 60.0);
+    }
+    assert_eq!(room.borrow().now_ms(), wall + 29 * 100);
+}

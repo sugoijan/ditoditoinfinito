@@ -407,6 +407,8 @@ pub struct Cx {
     viewport: Viewport,
     time: f64,
     clock: f64,
+    /// The wall clock ([`crate::Ui::set_wall_ms`]).
+    pub(crate) wall_ms: Option<u64>,
     pub(crate) input_time: Option<f64>,
     focused: Option<String>,
     /// The menu action being handled came from a keyboard key.
@@ -440,6 +442,7 @@ impl Cx {
             viewport,
             time,
             clock,
+            wall_ms: None,
             input_time: None,
             focused,
             menu_key: false,
@@ -550,6 +553,14 @@ impl Cx {
     /// screen. The UI's own time where the shell gave none.
     pub fn clock(&self) -> f64 {
         self.clock
+    }
+
+    /// The wall clock, ms since the Unix epoch ([`crate::Ui::set_wall_ms`]),
+    /// which rooms, audience seats and the sign-in are ticked on; where
+    /// the shell gives none (a test), [`Cx::clock`]'s in ms.
+    pub fn wall_ms(&self) -> u64 {
+        self.wall_ms
+            .unwrap_or_else(|| (self.clock * 1000.0).max(0.0) as u64)
     }
 
     /// The name of this screen's focused actor.
