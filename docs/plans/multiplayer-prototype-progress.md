@@ -10224,6 +10224,68 @@ alone; nothing on the wire, nothing judged or decided moves,
   is being changed elsewhere at the same time: it should lead with the
   same idea once that lands).
 
+## Review fixes: the second pass (the editor, the studio, the tests) (2026-11-15)
+
+The review's second pass (`studio-editor.md`, `tests.md`), each finding
+reproduced as a failing test first where a test could say it.
+
+The chart editor and the announcer studio:
+
+- studio-editor-1: an autosave is its song's own (desktop:
+  `editor-autosave/<name>.json`; the web: `ddi.editor.v1:<name>`),
+  forgotten only by that song's save or by leaving it unsaved, never by
+  another song opened, left or saved; the one slot of before is still
+  read. The recovery line names the song.
+- studio-editor-2: the editor guards its leaving while it has unsaved
+  changes (`Screen::guards_leaving`): the browser's Back, the window's
+  close and Back ask Stay, Save (saved, then left) or Discard; the web's
+  `beforeunload` is registered while the editor's page has unsaved
+  changes. A song left by an address typed is autosaved before another
+  takes the session, and before a playtest's page.
+- studio-editor-4: a draft that cannot be read is kept aside
+  (`draft.unreadable.json`, never replaced; the web: a key of its own),
+  the page says so, and new recordings' ids start past every stored
+  recording.
+- studio-editor-3, -5: a recording over 32 MB or past a draft's 2000
+  files and 512 MB is left out and said; decoded sound is kept for the
+  last takes only (128 MB, decoded again on demand); desktop reads ahead
+  of the decoder by a few files at most; a studio left with work under
+  way is the one opened again (desktop), a page that went stores nothing
+  more (the web), and nothing is added or saved before the stored draft
+  is read.
+- studio-editor-6: note data the model does not hold (a routine chart's
+  second player, attacks on notes, attack notes, unknown letters) is
+  kept as written (`SourceInfo::KEPT_NOTES`) and written back as it came
+  while its chart is not edited; a save that would drop it asks first,
+  naming the charts and offering a copy.
+- studio-editor-7: the web's saved song follows its Song fields where
+  they name a stored file. -8: an export the draft changed under is not
+  offered. -9: a failed autosave or draft save is said on the page.
+  -10: names made from titles are ones Windows keeps.
+
+The tests:
+
+- tests-1: the voice tests wait on the voice being loaded
+  (`Host::voice_loaded`) and assert nothing came due undecoded. tests-2:
+  `the_cpus_play_alike` runs for wasm32 under Node's WASI
+  (`tools/wasi-run`, `.cargo/config.toml`) and on each desktop system in
+  CI. tests-3, -8: the l10n walk reports text beside a message and fails
+  where a part to open is not found; `reveal` fails where it never
+  reveals. tests-7: the watcher's loop asserts there was an attack.
+  tests-6: desktop's room rules, entry, host, picker, standings, badge,
+  room, CPUs and room clock tests run without a GPU (frames laid out and
+  measured undrawn, `common::gpu::Pictures`), skipping only their
+  pictures. tests-5 (the server): the tests' object runs the object's
+  own alarm decision, socket bound and ticket limit.
+- Gaps closed: the share record's digests are read by one function
+  (`ddi_share_protocol::record_chart_digests`) the game tests against
+  its own records. Found and not fixed: after the wall clock is set
+  back, a practice room's countdown (and an online link's reconnect
+  wait) stands still until the wall clock passes its old reading
+  (`room_clock_offscreen.rs`'s ignored test, with why the fix is not a
+  line: the rooms and a live play's clock must move to one clock that
+  never goes back together).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

@@ -1066,7 +1066,9 @@ Rust and the browser are implementation details, not advertised features.
   room) is `DDI_HOME=<another folder>`. Tested without a sound device
   on a fake clock and offscreen (`crates/desktop/tests/`; GPU tests skip without
   an adapter or with `DDI_NO_GPU=1`, as in CI's `desktop` job on Linux,
-  macOS and Windows, with and without `video`). The video decoder
+  macOS and Windows, with and without `video`; the room's screens'
+  tests skip only their pictures there, `common::gpu::Pictures`, their
+  frames laid out and measured undrawn). The video decoder
   helper is found at `DDI_VIDEO_HELPER`, else as `video/ddi-video-helper`
   beside the executable, in a macOS app's `Contents/Helpers/` or beside a
   folder above it (`crates/desktop/build.rs`
