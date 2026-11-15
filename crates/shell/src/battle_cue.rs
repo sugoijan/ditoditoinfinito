@@ -24,6 +24,17 @@
 //!   (`ddi_session::play`); after it a small quiet cap names the key (or
 //!   the pad's control) that does it, where it fits (none on a touch
 //!   screen, where the label is tapped).
+//! - The chart line ([`draw_chart`], feedback round J): in a stage under
+//!   "Charts: Adaptive", the chart played now as song select names it
+//!   ("HARD 9"), one small muted text on the policy label's line, aligned
+//!   to the life gauge's right end. It changes at a step's boundary, when
+//!   the new chart's notes begin, bright for [`CHART_EMPHASIS`] seconds
+//!   with a chevron pointing the step's way, then muted again (under
+//!   reduced motion it simply changes). Where the waiting line is due too
+//!   it goes one line lower ([`draw_waiting_row`]) and the chart keeps its
+//!   place; where that line would reach the receptors' row (a short field,
+//!   a phone held sideways: [`waiting_below_fits`]) the waiting line takes
+//!   the chart's place while it is due, but for a step's bright moment.
 
 use ddi_actor::text::{TextMeasure, TextStyle};
 use ddi_render::FieldGeometry;
@@ -187,15 +198,50 @@ pub fn draw_waiting(
     ratio: f32,
     measure: &mut dyn TextMeasure,
 ) {
+    draw_waiting_row(list, text, geo, span, ratio, 0, measure);
+}
+
+/// [`draw_waiting`] on line `row` under the life gauge (0 the policy
+/// label's; 1 the next, where the chart line takes the first's right
+/// end).
+pub fn draw_waiting_row(
+    list: &mut DrawList,
+    text: &str,
+    geo: &FieldGeometry,
+    span: f32,
+    ratio: f32,
+    row: u8,
+    measure: &mut dyn TextMeasure,
+) {
     let (power, life) = ddi_render::scene::power_and_life(geo, span);
     let mut style = TextStyle::new(ddi_l10n::font_stack(FACE), 12.0 * ratio);
     style.weight = 500;
     let width = measure.measure(text, &style).advance;
     let right = power[0] + power[2];
     let x = (right - width).max(4.0 * ratio);
-    let y = life[1] + life[3] + 3.0 * ratio;
+    let y = line_y(&life, ratio, row);
     list.text(text, &style, x, y, MUTED);
 }
+
+/// Whether a second line under the life gauge of the field `geo` (`span`
+/// lanes wide) clears the receptors' row (at the top: not under Reverse)
+/// and the judgment; `ratio` a logical pixel.
+pub fn waiting_below_fits(geo: &FieldGeometry, span: f32, ratio: f32) -> bool {
+    let (_, life) = ddi_render::scene::power_and_life(geo, span);
+    let bottom = line_y(&life, ratio, 1) + POLICY_SIZE * 1.25 * ratio;
+    let judgment = ddi_render::scene::judgement_area(geo, span);
+    let receptors = geo.direction < 0.0 || bottom <= geo.receptor_y - geo.arrow * 0.5;
+    receptors && bottom <= judgment[1]
+}
+
+/// The top of line `row` under the life gauge `life` (0 the policy
+/// label's).
+fn line_y(life: &[f32; 4], ratio: f32, row: u8) -> f32 {
+    life[1] + life[3] + 3.0 * ratio + f32::from(row) * POLICY_SIZE * LINE * ratio
+}
+
+/// A line's height under the gauge, in its text's size.
+const LINE: f32 = 1.3;
 
 /// Where a tap or a click cycles the attack policy, `[left, top, right,
 /// bottom]` in target pixels: the label's place under the life gauge's
@@ -222,6 +268,8 @@ const POLICY_SIZE: f32 = 12.0;
 /// `ratio` a logical pixel. With `key` (what changes it: a key's name,
 /// "shift", or a pad control's), a small quiet cap after it, where it
 /// fits before the bars' middle (the waiting line's half is the right).
+/// Where what it drew ends, at the right (the chart line keeps clear of
+/// it).
 #[allow(clippy::too_many_arguments)]
 pub fn draw_policy(
     list: &mut DrawList,
@@ -231,18 +279,18 @@ pub fn draw_policy(
     span: f32,
     ratio: f32,
     measure: &mut dyn TextMeasure,
-) {
+) -> f32 {
     let (power, life) = ddi_render::scene::power_and_life(geo, span);
     let mut style = TextStyle::new(ddi_l10n::font_stack(FACE), POLICY_SIZE * ratio);
     style.weight = 500;
     let y = life[1] + life[3] + 3.0 * ratio;
-    let width = key.map(|_| measure.measure(text, &style).advance);
+    let width = measure.measure(text, &style).advance;
     list.text(text, &style, life[0], y, MUTED);
-    let (Some(key), Some(width)) = (key, width) else {
-        return;
+    let Some(key) = key else {
+        return life[0] + width;
     };
     let limit = power[0] + power[2] * 0.45;
-    policy_cap(list, key, life[0] + width, y, ratio, limit, measure);
+    policy_cap(list, key, life[0] + width, y, ratio, limit, measure).unwrap_or(life[0] + width)
 }
 
 /// The cap's legend size, logical pixels.
@@ -250,7 +298,7 @@ const CAP_SIZE: f32 = 9.0;
 
 /// The policy key's cap after the label ending at `x` (its top at `y`):
 /// an outline with the key's name in it, quieter than the label; nothing
-/// where it would reach past `limit`.
+/// where it would reach past `limit`. Where it ends, if drawn.
 fn policy_cap(
     list: &mut DrawList,
     key: &str,
@@ -259,7 +307,7 @@ fn policy_cap(
     ratio: f32,
     limit: f32,
     measure: &mut dyn TextMeasure,
-) {
+) -> Option<f32> {
     let mut style = TextStyle::new(ddi_l10n::font_stack(FACE), CAP_SIZE * ratio);
     style.weight = 500;
     let legend = measure.measure(key, &style).advance;
@@ -267,7 +315,7 @@ fn policy_cap(
     let left = x + 6.0 * ratio;
     let w = legend + 2.0 * pad;
     if left + w > limit {
-        return;
+        return None;
     }
     let top = y + 0.5 * ratio;
     let color = [MUTED[0], MUTED[1], MUTED[2], MUTED[3] * 0.7];
@@ -281,6 +329,125 @@ fn policy_cap(
     list.quad(q);
     let ty = top + (h - CAP_SIZE * ratio * 1.25) / 2.0;
     list.text(key, &style, left + pad, ty, color);
+    Some(left + w)
+}
+
+/// How long the chart line stays bright after a step's boundary, seconds.
+pub const CHART_EMPHASIS: f64 = 1.5;
+/// The chart line bright, as a step changes it.
+const BRIGHT: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+
+/// How bright the chart line is `age` song seconds after its step's
+/// boundary, `0..=1` (0: muted, at rest): fading out over
+/// [`CHART_EMPHASIS`]; none under reduced motion (the text simply
+/// changes).
+pub fn chart_emphasis(age: f64, reduced: bool) -> f32 {
+    if reduced || !(0.0..CHART_EMPHASIS).contains(&age) {
+        return 0.0;
+    }
+    (1.0 - age / CHART_EMPHASIS).clamp(0.0, 1.0) as f32
+}
+
+/// Draws `text`, the chart played now, on the policy label's line over
+/// the field `geo` (`span` lanes wide), right-aligned to the life gauge's
+/// right end; `ratio` a logical pixel. Its room starts past `clear` (where
+/// the policy label and its cap end, or the gauge's left end): a name too
+/// long for it is cut at its end between graphemes, an ellipsis after it,
+/// its meter kept whole ("CHALL… 12"; the meter alone where nothing of the
+/// name fits).
+/// `step`: the step that brought it, up or down, and how bright it is
+/// still ([`chart_emphasis`]): a chevron before the text pointing its way
+/// and the text brighter, both fading to rest.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_chart(
+    list: &mut DrawList,
+    text: &str,
+    step: Option<(bool, f32)>,
+    clear: f32,
+    geo: &FieldGeometry,
+    span: f32,
+    ratio: f32,
+    measure: &mut dyn TextMeasure,
+) {
+    let (_, life) = ddi_render::scene::power_and_life(geo, span);
+    let mut style = TextStyle::new(ddi_l10n::font_stack(FACE), POLICY_SIZE * ratio);
+    style.weight = 500;
+    let right = life[0] + life[2];
+    let gap = 10.0 * ratio;
+    let chevron = POLICY_SIZE * 0.7 * ratio;
+    let room = right - clear.max(life[0]) - gap - chevron - 4.0 * ratio;
+    // The meter kept whole where the name is cut ("CHALL… 12").
+    let (text, width) = match text.rsplit_once(' ') {
+        Some((name, meter))
+            if !meter.is_empty() && meter.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            let tail = format!(" {meter}");
+            let tail_w = measure.measure(&tail, &style).advance;
+            let (name, w) = fit(measure, name, &style, room - tail_w);
+            if name.is_empty() {
+                fit(measure, meter, &style, room)
+            } else {
+                (format!("{name}{tail}"), w + tail_w)
+            }
+        }
+        _ => fit(measure, text, &style, room),
+    };
+    if text.is_empty() {
+        return;
+    }
+    let y = line_y(&life, ratio, 0);
+    let x = right - width;
+    let k = step.map_or(0.0, |(_, k)| k.clamp(0.0, 1.0));
+    let mix = |a: f32, b: f32| a + (b - a) * k;
+    let color = [
+        mix(MUTED[0], BRIGHT[0]),
+        mix(MUTED[1], BRIGHT[1]),
+        mix(MUTED[2], BRIGHT[2]),
+        mix(MUTED[3], BRIGHT[3]),
+    ];
+    list.text(text, &style, x, y, color);
+    // The chevron, before the text, pointing the step's way.
+    if let Some((up, _)) = step.filter(|_| k > 0.0) {
+        let cx = x - 4.0 * ratio - chevron / 2.0;
+        let cy = y + POLICY_SIZE * 1.25 * ratio / 2.0;
+        let (hw, hh) = (chevron / 2.0, chevron / 4.0);
+        let (tip, ends) = if up { (cy - hh, cy + hh) } else { (cy + hh, cy - hh) };
+        let thick = 1.6 * ratio;
+        let c = [BRIGHT[0], BRIGHT[1], BRIGHT[2], k];
+        list.quad(segment([cx - hw, ends], [cx, tip], thick, c));
+        list.quad(segment([cx, tip], [cx + hw, ends], thick, c));
+    }
+}
+
+/// `s` cut to `room` pixels, an ellipsis at its end, and its width: the
+/// longest start that fits with "…", cut between graphemes, the spaces
+/// before the ellipsis left out; nothing where not even "…" fits.
+fn fit(measure: &mut dyn TextMeasure, s: &str, style: &TextStyle, room: f32) -> (String, f32) {
+    let w = measure.measure(s, style).advance;
+    if w <= room {
+        return (s.to_string(), w);
+    }
+    let ends: Vec<usize> = unicode_segmentation::UnicodeSegmentation::grapheme_indices(s, true)
+        .map(|(i, _)| i)
+        .skip(1)
+        .collect();
+    let mut best = ("…".to_string(), measure.measure("…", style).advance);
+    let (mut lo, mut hi) = (0usize, ends.len());
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        let cut = format!("{}…", s[..ends[mid]].trim_end());
+        let w = measure.measure(&cut, style).advance;
+        if w <= room {
+            best = (cut, w);
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if best.1 > room {
+        return (String::new(), 0.0);
+    }
+    best
 }
 
 /// An attack policy's word, as the label and the rooms say it.
@@ -367,6 +534,183 @@ mod tests {
             }
         }
         assert_eq!(policy_word(ddi_session::battle::Targeting::Leader), "Leader");
+    }
+
+    /// A measure as the theme's face draws: half an em a Latin
+    /// character, a whole one a Japanese one.
+    struct Wide;
+    impl TextMeasure for Wide {
+        fn measure(&mut self, text: &str, style: &TextStyle) -> ddi_actor::text::RunMetrics {
+            let size = style.size();
+            let advance: f32 = text
+                .chars()
+                .map(|c| if c as u32 >= 0x3000 { size } else { size * 0.5 })
+                .sum();
+            ddi_actor::text::RunMetrics {
+                advance,
+                ink: [0.0, -size, advance, 0.0],
+                baseline: style.line_height() * 0.8,
+            }
+        }
+    }
+
+    fn texts(list: &DrawList) -> Vec<(String, f32, f32, [f32; 4])> {
+        list.commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Text(t) => {
+                    let [x, y] = t.transform.apply([0.0, 0.0]);
+                    Some((t.text.to_string(), x, y, t.color))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The chart line: on the policy label's line, its end at the life
+    /// gauge's right end, clear of the label and its cap, at every size
+    /// the miniatures' table uses, a phone's upright among them, with the
+    /// English and the Japanese policy words; the longest difficulty
+    /// with a two-digit meter whole. The waiting line, due too, goes one
+    /// line lower, still above the receptors' row and the judgment.
+    #[test]
+    fn the_chart_line_sits_at_the_gauge_s_right_end_beside_the_policy() {
+        let chart = "CHALLENGE 12";
+        for (w, h, ratio) in [
+            (1280.0, 720.0, 1.0),
+            (1920.0, 1080.0, 1.0),
+            (844.0, 390.0, 1.0),
+            (390.0, 844.0, 1.0),
+            (390.0 * 3.0, 844.0 * 3.0, 3.0),
+            (844.0 * 3.0, 390.0 * 3.0, 3.0),
+            (2560.0, 1440.0, 2.0),
+        ] {
+            for reverse in [false, true] {
+                let geo = FieldGeometry::new(w, h, 4.0, reverse);
+                let (_, life) = ddi_render::scene::power_and_life(&geo, 4.0);
+                for (word, key) in [
+                    ("Retaliate", Some("Tab")),
+                    ("Retaliate", None),
+                    ("仕返し", Some("Tab")),
+                    ("仕返し", None),
+                ] {
+                    let mut list = DrawList::new();
+                    let clear = draw_policy(&mut list, word, key, &geo, 4.0, ratio, &mut Wide);
+                    let before = list.commands.len();
+                    draw_chart(&mut list, chart, None, clear, &geo, 4.0, ratio, &mut Wide);
+                    let below = waiting_below_fits(&geo, 4.0, ratio);
+                    draw_waiting_row(&mut list, "Waiting for target", &geo, 4.0, ratio, 1, &mut Wide);
+                    let all = texts(&list);
+                    let policy = &all[0];
+                    let (text, x, y, color) = &all[all.len() - 2];
+                    assert_eq!(list.commands.len(), before + 2, "{w}x{h}: the chart and the waiting line");
+                    // Under Reverse and on a desktop's screen there is
+                    // room for both; a phone's receptors at the top may be
+                    // too near (the waiting line then takes the chart's
+                    // place).
+                    if reverse || w > h {
+                        assert!(below || h / ratio < 500.0, "{w}x{h}@{ratio} reverse {reverse}");
+                    }
+                    // Whole on a desktop's screen and on a phone's (no
+                    // key cap on a touch screen, where the label is
+                    // tapped); a phone's sideways with a key's cap cuts the
+                    // name and keeps the meter.
+                    if w / ratio >= 1280.0 || key.is_none() {
+                        assert_eq!(text, chart, "{w}x{h} {word}: whole");
+                    } else {
+                        assert!(text == chart || text.ends_with("… 12"), "{w}x{h} {word}: {text}");
+                    }
+                    assert_eq!(*color, MUTED, "at rest, muted");
+                    assert_eq!(*y, policy.2, "{w}x{h}: on the policy's line");
+                    let mut style = TextStyle::new("x", POLICY_SIZE * ratio);
+                    style.weight = 500;
+                    let width = Wide.measure(text, &style).advance;
+                    assert!((x + width - (life[0] + life[2])).abs() < 0.01, "{w}x{h}: at the gauge's right end");
+                    assert!(*x >= clear + 10.0 * ratio, "{w}x{h} {word}: clear of the policy ({x} {clear})");
+                    // The waiting line under it, above the receptors' row
+                    // (at the top) and the judgment.
+                    let wait = &all[all.len() - 1];
+                    let bottom = wait.2 + POLICY_SIZE * 1.25 * ratio;
+                    assert!(wait.2 >= y + POLICY_SIZE * 1.25 * ratio, "{w}x{h}: under the chart");
+                    if below {
+                        if !reverse {
+                            assert!(bottom <= geo.receptor_y - geo.arrow * 0.5, "{w}x{h}: above the receptors ({bottom})");
+                        }
+                        let judgment = ddi_render::scene::judgement_area(&geo, 4.0);
+                        assert!(bottom <= judgment[1], "{w}x{h}: above the judgment");
+                    }
+                }
+            }
+        }
+    }
+
+    /// A step's emphasis: bright with a chevron its way at the boundary,
+    /// fading to the muted rest over [`CHART_EMPHASIS`]; under reduced
+    /// motion none (the text simply changes). A name too long for its
+    /// room is cut at its end, an ellipsis after it.
+    #[test]
+    fn a_step_shows_bright_its_way_then_rests_and_long_names_are_cut() {
+        assert_eq!(chart_emphasis(0.0, false), 1.0);
+        assert!((chart_emphasis(CHART_EMPHASIS / 2.0, false) - 0.5).abs() < 1e-6);
+        assert_eq!(chart_emphasis(CHART_EMPHASIS, false), 0.0);
+        assert_eq!(chart_emphasis(-0.1, false), 0.0, "before its boundary");
+        assert_eq!(chart_emphasis(0.0, true), 0.0, "reduced motion");
+        let geo = FieldGeometry::new(1280.0, 720.0, 4.0, false);
+        let chevron = |up: bool, k: f32| {
+            let mut list = DrawList::new();
+            draw_chart(&mut list, "HARD 9", Some((up, k)), 0.0, &geo, 4.0, 1.0, &mut Wide);
+            list
+        };
+        let up = chevron(true, 1.0);
+        assert_eq!(up.commands.len(), 3, "the text and the chevron's two strokes");
+        assert_eq!(texts(&up)[0].3, BRIGHT);
+        // The chevron's tip above its ends going up, below them going down.
+        let tip_y = |l: &DrawList| {
+            let Command::Quad(q) = &l.commands[1] else { panic!("a stroke") };
+            let [_, y] = q.transform.apply([q.rect[2], 0.0]);
+            let [_, y0] = q.transform.apply([q.rect[0], 0.0]);
+            y - y0
+        };
+        assert!(tip_y(&up) < 0.0);
+        assert!(tip_y(&chevron(false, 1.0)) > 0.0);
+        let rest = chevron(true, 0.0);
+        assert_eq!(rest.commands.len(), 1, "at rest: the text alone");
+        assert_eq!(texts(&rest)[0].3, MUTED);
+        // Too long: cut at its end between graphemes.
+        let mut list = DrawList::new();
+        let long = "A VERY LONG EDIT NAME THAT GOES ON AND ON AND ON AND ON AND ON AND ON AND ON AND ON 13";
+        draw_chart(&mut list, long, None, 0.0, &geo, 4.0, 1.0, &mut Wide);
+        let (text, x, ..) = &texts(&list)[0];
+        let head = text.strip_suffix("… 13").expect("cut, its meter kept");
+        assert!(long.starts_with(head), "{text}");
+        let (_, life) = ddi_render::scene::power_and_life(&geo, 4.0);
+        assert!(*x >= life[0] + 10.0 * 1.0, "{x}");
+    }
+
+    /// The cue's line as drawn, pinned: the policy and its cap, the chart
+    /// at rest, just after a step up and a step down, and with the waiting
+    /// line under it, at a desktop's size and a phone's upright.
+    #[test]
+    fn the_cue_s_line_is_pinned() {
+        let fnv = |text: &str| {
+            text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+                (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+            })
+        };
+        let mut got = Vec::new();
+        for (name, w, h, ratio) in [("desktop", 1280.0, 720.0, 1.0), ("phone", 1170.0, 2532.0, 3.0)] {
+            let geo = FieldGeometry::new(w, h, 4.0, false);
+            let mut list = DrawList::new();
+            let m = &mut ddi_actor::text::FixedMeasure;
+            let clear = draw_policy(&mut list, "Spread", Some("Tab"), &geo, 4.0, ratio, m);
+            draw_chart(&mut list, "HARD 9", None, clear, &geo, 4.0, ratio, m);
+            draw_chart(&mut list, "CHALLENGE 12", Some((true, 0.8)), clear, &geo, 4.0, ratio, m);
+            draw_chart(&mut list, "MEDIUM 6", Some((false, 0.3)), clear, &geo, 4.0, ratio, m);
+            draw_waiting_row(&mut list, "Waiting for target", &geo, 4.0, ratio, 1, m);
+            got.push((name, fnv(&ddi_ui::testing::rounded(&format!("{:?}", list.commands)))));
+        }
+        let want: [(&str, u64); 2] = [("desktop", 0xe2493277aa93490f), ("phone", 0x1a52adc5c42a7c57)];
+        assert_eq!(got, want, "{got:#x?}");
     }
 
     fn incoming() -> Incoming {

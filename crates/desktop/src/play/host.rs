@@ -607,6 +607,17 @@ impl Host {
         })
     }
 
+    /// The chart line the play's last frame drew: the chart played now
+    /// and how bright its step still was (tests;
+    /// `ddi_shell::battle_cue::draw_chart`).
+    pub fn chart_drawn(&self) -> Option<(String, f32)> {
+        let Stage::Playing(r, ..) = &self.stage else {
+            return None;
+        };
+        let (text, k) = r.view.as_ref()?.chart_drawn()?;
+        Some((text.to_string(), k))
+    }
+
     /// Who attacks whom as the play's last frame drew it, for the
     /// player's own attacks (tests; `ddi_shell::attack_links`).
     pub fn attack_links(&self) -> Vec<ddi_shell::attack_links::Shown> {

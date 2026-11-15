@@ -170,6 +170,43 @@ fn rig_with(
     Some(rig)
 }
 
+/// The chart line's pictures and checks for the player's first step
+/// (feedback round J): the stage's chart named until the step's boundary
+/// (decided, not there yet), the new chart's name bright at it, muted
+/// after its emphasis. `taken`: which of the three were taken; `stage`
+/// and `new`: the two charts as song select names them; `t`, the judged
+/// second; `name`, the pictures' prefix.
+fn chart_line_shots(
+    host: &Host,
+    step: &ddi_engine::ladder::Step,
+    t: f64,
+    (stage, new): (&str, &str),
+    taken: &mut [bool; 3],
+    name: &str,
+) -> Option<String> {
+    let line = host.chart_drawn();
+    let text = line.as_ref().map(|l| l.0.as_str());
+    if !taken[0] && t > step.at + 0.2 && t < step.boundary - 0.3 {
+        taken[0] = true;
+        assert_eq!(text, Some(stage), "the stage's chart until the boundary");
+        assert_eq!(line.as_ref().map(|l| l.1), Some(0.0), "at rest");
+        return Some(format!("{name}-before"));
+    }
+    if !taken[1] && t > step.boundary + 0.05 && t < step.boundary + 0.5 {
+        taken[1] = true;
+        assert_eq!(text, Some(new), "the new chart from its boundary");
+        assert!(line.as_ref().is_some_and(|l| l.1 > 0.5), "bright: {line:?}");
+        return Some(format!("{name}-at"));
+    }
+    if taken[1] && !taken[2] && t > step.boundary + ddi_shell::battle_cue::CHART_EMPHASIS + 0.5 {
+        taken[2] = true;
+        assert_eq!(text, Some(new));
+        assert_eq!(line.as_ref().map(|l| l.1), Some(0.0), "muted again");
+        return Some(format!("{name}-after"));
+    }
+    None
+}
+
 impl Rig {
     fn poll(&mut self) {
         let dev = Device {
@@ -212,6 +249,8 @@ fn a_practice_stage_steps_down_the_player_and_a_cpu() {
     let mut cpu_stepped = false;
     let mut player_steps = 0;
     let mut hand_seen = false;
+    let mut chart_shots = [false; 3];
+    let mut chart_shot_names: Vec<String> = Vec::new();
     // What the CPUs did, frame by frame: the same on every run.
     let mut trace: Vec<String> = Vec::new();
     while rig.host.playing() {
@@ -241,6 +280,15 @@ fn a_practice_stage_steps_down_the_player_and_a_cpu() {
                 }
             }
             if let Some(st) = steps.first() {
+                let names = (
+                    ddi_session::battle::chart_shown(&song, 5),
+                    ddi_session::battle::chart_shown(&song, st.chart),
+                );
+                if let Some(shot) =
+                    chart_line_shots(&rig.host, st, t, (&names.0, &names.1), &mut chart_shots, "chart-line-down")
+                {
+                    chart_shot_names.push(shot);
+                }
                 if let Some((ddi_session::announcer::battle::StageCue::Step { rung: 1, up: false }, _)) =
                     s.stage_cue(now)
                 {
@@ -266,8 +314,8 @@ fn a_practice_stage_steps_down_the_player_and_a_cpu() {
                 }
             }
         }
-        for name in shots {
-            ppm(name, &rig.read());
+        for name in shots.into_iter().map(str::to_string).chain(chart_shot_names.drain(..)) {
+            ppm(&name, &rig.read());
         }
         // The dancing hand plays out what it was given at the step and
         // rests: it never stops (a stopped hand hides for the play).
@@ -293,6 +341,7 @@ fn a_practice_stage_steps_down_the_player_and_a_cpu() {
     assert!(player_steps >= 1, "the player stepped down");
     assert!(seen_cue, "the status line said it");
     assert!(shot_breather && shot_new, "{shot_breather} {shot_new}");
+    assert_eq!(chart_shots, [true; 3], "the chart line before, at and after the step");
     assert!(cpu_stepped, "a CPU stepped");
     assert!(hand_seen, "the dancing hand played beside the stage");
     // The standings mark who finished on which chart.
@@ -333,6 +382,8 @@ fn a_practice_stage_steps_up_the_player_and_a_cpu_climbs_two_rungs() {
     let (mut shot_cue, mut shot_new, mut shot_cpu) = (false, false, false);
     let mut player_up = 0;
     let mut two_rungs = false;
+    let mut chart_shots = [false; 3];
+    let mut chart_shot_names: Vec<String> = Vec::new();
     while rig.host.playing() {
         let now = rig.frame();
         let mut shots: Vec<&str> = Vec::new();
@@ -358,6 +409,15 @@ fn a_practice_stage_steps_up_the_player_and_a_cpu_climbs_two_rungs() {
             }
             if let Some(st) = steps.first() {
                 assert!(st.up, "a perfect play only climbs: {steps:?}");
+                let names = (
+                    ddi_session::battle::chart_shown(&song, medium),
+                    ddi_session::battle::chart_shown(&song, st.chart),
+                );
+                if let Some(shot) =
+                    chart_line_shots(&rig.host, st, t, (&names.0, &names.1), &mut chart_shots, "chart-line-up")
+                {
+                    chart_shot_names.push(shot);
+                }
                 if let Some((ddi_session::announcer::battle::StageCue::Step { up: true, .. }, _)) =
                     s.stage_cue(now)
                 {
@@ -380,8 +440,8 @@ fn a_practice_stage_steps_up_the_player_and_a_cpu_climbs_two_rungs() {
                 }
             }
         }
-        for name in shots {
-            ppm(name, &rig.read());
+        for name in shots.into_iter().map(str::to_string).chain(chart_shot_names.drain(..)) {
+            ppm(&name, &rig.read());
         }
         if frames % 16 == 0 {
             let _ = rig.device.poll(wgpu::PollType::wait_indefinitely());
@@ -393,6 +453,7 @@ fn a_practice_stage_steps_up_the_player_and_a_cpu_climbs_two_rungs() {
     let ui = &mut rig.ui;
     ui.update(0.05);
     assert_eq!(top(ui), "results");
+    assert_eq!(chart_shots, [true; 3], "the chart line before, at and after the step");
     assert!(player_up >= 1, "the player stepped up");
     assert!(seen_cue, "the status line said it");
     assert!(shot_cue && shot_new, "{shot_cue} {shot_new}");

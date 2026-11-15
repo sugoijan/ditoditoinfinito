@@ -419,6 +419,9 @@ pub struct PlayView<H: PlayHost> {
     /// The last frame's attack policy label: the policy and where a tap
     /// cycles it, target pixels (`crate::battle_cue::policy_area`).
     policy_drawn: Option<(ddi_session::battle::Targeting, [f32; 4])>,
+    /// The last frame's chart line (`crate::battle_cue::draw_chart`): the
+    /// chart's words and how bright its step still showed.
+    chart_drawn: Option<(String, f32)>,
     /// The last frame's lines and outlines of who attacks whom
     /// (`crate::attack_links`).
     links_drawn: Vec<crate::attack_links::Shown>,
@@ -484,6 +487,7 @@ impl<H: PlayHost> PlayView<H> {
             fields_score: Default::default(),
             attack_drawn: None,
             policy_drawn: None,
+            chart_drawn: None,
             links_drawn: Vec::new(),
             watch_drawn: None,
             waiting_drawn: false,
@@ -890,6 +894,13 @@ impl<H: PlayHost> PlayView<H> {
     /// and where a tap or a click cycles it (target pixels).
     pub fn policy_drawn(&self) -> Option<(ddi_session::battle::Targeting, [f32; 4])> {
         self.policy_drawn
+    }
+
+    /// The chart line as the last frame drew it: the chart played now as
+    /// song select names it, and how bright the step that brought it
+    /// still is (0: at rest).
+    pub fn chart_drawn(&self) -> Option<(&str, f32)> {
+        self.chart_drawn.as_ref().map(|(t, k)| (t.as_str(), *k))
     }
 
     /// What the last frame drew behind the field.
@@ -1756,6 +1767,33 @@ impl<H: PlayHost> PlayView<H> {
                 None => b.incoming(&session.player),
             };
             let cue = crate::battle_cue::cue(incoming, t, in_sight, render.reduced_motion);
+            // The chart played now, where the stage has a ladder: the
+            // player's own, or the followed competitor's (none over a
+            // spectator's grid).
+            let steps: Option<Vec<(f64, u8)>> = match focus {
+                Some(seat) => b
+                    .feeds()
+                    .nth(seat)
+                    .map(|f| f.steps().map(|(_, boundary, rung)| (boundary, rung)).collect()),
+                None if grid => None,
+                None => Some(
+                    session
+                        .player
+                        .steps()
+                        .iter()
+                        .map(|st| (st.boundary, st.rung))
+                        .collect(),
+                ),
+            };
+            let chart = steps
+                .and_then(|steps| b.chart_line(steps, t))
+                .and_then(|line| {
+                    let text = b.chart_shown(line.rung)?.to_string();
+                    let step = line.step.map(|(up, age)| {
+                        (up, crate::battle_cue::chart_emphasis(age, render.reduced_motion))
+                    });
+                    Some((text, step))
+                });
             let waiting = b
                 .waiting(&session.player)
                 .map(|_| String::from(ddi_l10n::msg::room::play_attack_waiting()));
@@ -1775,6 +1813,7 @@ impl<H: PlayHost> PlayView<H> {
                 policy_key,
                 warnings: std::mem::take(&mut warnings),
                 own_out: own_out.clone(),
+                chart,
             }
         });
         let skip_at = own_out
@@ -1811,6 +1850,11 @@ impl<H: PlayHost> PlayView<H> {
         });
         self.attack_drawn = attack.as_ref().and_then(|a| a.cue);
         self.waiting_drawn = attack.as_ref().is_some_and(|a| a.waiting.is_some());
+        self.chart_drawn = attack.as_ref().and_then(|a| {
+            a.chart
+                .as_ref()
+                .map(|(t, step)| (t.clone(), step.map_or(0.0, |(_, k)| k)))
+        });
         self.policy_drawn = attack.as_ref().and_then(|a| {
             Some((
                 a.policy?,
@@ -1820,7 +1864,11 @@ impl<H: PlayHost> PlayView<H> {
         let policy_at = self.policy_drawn.map(|(_, r)| r.map(|v| v / screen.ratio));
         // (An attack's parts show even where no miniature fits.)
         let attack_shown = attack.as_ref().is_some_and(|a| {
-            a.cue.is_some() || a.waiting.is_some() || a.policy.is_some() || a.own_out.is_some()
+            a.cue.is_some()
+                || a.waiting.is_some()
+                || a.policy.is_some()
+                || a.own_out.is_some()
+                || a.chart.is_some()
         });
         if lyrics.is_some() || shown.is_some() || attack_shown {
             let place = (&geo, span, screen.ratio);
@@ -1905,7 +1953,12 @@ impl<H: PlayHost> PlayView<H> {
                 if let Some(cue) = &a.cue {
                     crate::battle_cue::draw(list, cue, geo, span);
                 }
-                if let Some(policy) = a.policy {
+                // The cue's line under the life gauge: the policy at the
+                // left, the chart at the right, the waiting line under the
+                // chart where both are due; where no second line fits, the
+                // waiting line in the chart's place but for a step's
+                // bright moment.
+                let clear = a.policy.map(|policy| {
                     crate::battle_cue::draw_policy(
                         list,
                         &crate::battle_cue::policy_word(policy),
@@ -1914,10 +1967,44 @@ impl<H: PlayHost> PlayView<H> {
                         span,
                         ratio,
                         &mut measure,
+                    )
+                });
+                let below = crate::battle_cue::waiting_below_fits(geo, span, ratio);
+                let bright = a
+                    .chart
+                    .as_ref()
+                    .is_some_and(|(_, step)| step.is_some_and(|(_, k)| k > 0.0));
+                let (chart, waiting_row) = match (&a.chart, &a.waiting) {
+                    (Some(_), Some(_)) if below => (a.chart.as_ref(), Some(1)),
+                    (Some(_), Some(_)) if bright => (a.chart.as_ref(), None),
+                    (Some(_), Some(_)) => (None, Some(0)),
+                    (chart, waiting) => (chart.as_ref(), waiting.as_ref().map(|_| 0)),
+                };
+                if chart.is_none() {
+                    self.chart_drawn = None;
+                }
+                if let Some((text, step)) = chart {
+                    crate::battle_cue::draw_chart(
+                        list,
+                        text,
+                        *step,
+                        clear.unwrap_or(0.0),
+                        geo,
+                        span,
+                        ratio,
+                        &mut measure,
                     );
                 }
-                if let Some(text) = &a.waiting {
-                    crate::battle_cue::draw_waiting(list, text, geo, span, ratio, &mut measure);
+                if let (Some(text), Some(row)) = (&a.waiting, waiting_row) {
+                    crate::battle_cue::draw_waiting_row(
+                        list,
+                        text,
+                        geo,
+                        span,
+                        ratio,
+                        row,
+                        &mut measure,
+                    );
                 }
             }
         }
@@ -2023,6 +2110,9 @@ struct Attack {
     warnings: Vec<(usize, ddi_render::FieldGeometry, crate::battle_cue::Cue)>,
     /// The player's own field after they are out of the stage.
     own_out: Option<crate::opponents::OwnOut>,
+    /// The chart played now, where the stage has a ladder, and the step
+    /// that brought it: up, and how bright it still is.
+    chart: Option<(String, Option<(bool, f32)>)>,
 }
 
 /// What a stage's miniatures show over the play in a frame

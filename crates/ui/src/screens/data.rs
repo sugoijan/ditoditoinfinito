@@ -104,6 +104,31 @@ pub struct ChartEntry {
 }
 
 impl ChartEntry {
+    /// Chart `index` of `song` as the song list has it, nothing of the
+    /// player's (no best): its style, difficulty, meter, notes, name (a
+    /// version's its source's, as [`crate::state::select_view`] names
+    /// it) and version.
+    pub fn of_song(song: &ddi_chart::Song, index: usize) -> Option<ChartEntry> {
+        let c = song.charts.get(index)?;
+        let name = c
+            .derivation
+            .as_ref()
+            .and_then(|d| song.charts.get(d.source()))
+            .map_or(&c.name, |s| &s.name);
+        Some(ChartEntry {
+            style: c.layout.clone(),
+            difficulty: c.difficulty,
+            meter: c.meter,
+            notes: c.notes.len() as u32,
+            credit: c.credit.clone(),
+            index,
+            name: name.clone(),
+            best: None,
+            digest: None,
+            version: c.derivation.as_ref().map(ddi_chart::simplify::Derivation::kind),
+        })
+    }
+
     /// Whether its version leaves notes out, its plays assisted (a
     /// conversion's are not).
     pub fn assisted(&self) -> bool {

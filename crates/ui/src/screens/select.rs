@@ -283,6 +283,15 @@ pub(super) fn chart_text(c: &ChartEntry, shown: &str) -> UiText {
     }
 }
 
+/// A chart as song select names it in words (the Play button, a room's
+/// chart under its buttons, a stage's chart on the play's HUD): its label
+/// in the buttons' capitals and its meter ("HARD 9"), a named chart by
+/// its name, a version's with its mark ([`chart_text`]).
+pub fn chart_shown(c: &ChartEntry) -> UiText {
+    let name = format!("{} {}", c.label().to_uppercase(), c.meter_text());
+    chart_text(c, name.trim_end())
+}
+
 /// Text read from a song's files (its title, artist, a chart's name):
 /// data, none where there is none.
 fn data(s: &str) -> String {
@@ -2016,10 +2025,9 @@ impl SelectScreen {
                 && let Some(c) = pick.map(|p| charts[p])
             {
                 let y = charts_y + self.layout.chart_h / 2.0;
-                let name = format!("{} {}", c.label().to_uppercase(), c.meter_text());
                 let mut t = env.text(
                     "ChartName",
-                    &chart_text(c, name.trim_end()),
+                    &chart_shown(c),
                     14.0,
                     700,
                     "Text",
@@ -2046,8 +2054,7 @@ impl SelectScreen {
                 Some(c) => {
                     // The chart as it names itself (data), in the
                     // button's capitals.
-                    let chart = format!("{} {}", c.label().to_uppercase(), c.meter_text());
-                    let chart = chart_text(c, chart.trim_end());
+                    let chart = chart_shown(c);
                     let label: String = if self.autoplay {
                         msg::autoplay_chart(chart)
                     } else {

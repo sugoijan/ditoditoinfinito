@@ -412,3 +412,60 @@ fn a_chart_closed_is_told_as_staying_on_the_one_below() {
     assert!(s.player.steps()[0].closes);
 }
 
+
+/// The play's chart line (`Battle::chart_line`, feedback round J): the
+/// stage's chart as song select names it until the first step's
+/// boundary (not its decision), each step's chart from its boundary on,
+/// its direction and age said, both ways; none on a stage as picked.
+#[test]
+fn the_chart_line_changes_at_each_boundary_both_ways() {
+    let song = bundled("beatucada");
+    for (stage, auto, level) in [(HARD, false, 1), (medium(&song), true, 10)] {
+        let mut practice = step_room(3, level, ddi_room::Charts::Adaptive);
+        let mut now = 0;
+        let order = begin_at(&song, &mut practice, &mut now, stage);
+        let s = if auto {
+            autoplayed(&song, &order, 60.0).0
+        } else {
+            idle(&song, &order, 60.0).0
+        };
+        let b = s.battle().unwrap();
+        let steps = s.player.steps().to_vec();
+        assert!(!steps.is_empty());
+        let pairs: Vec<(f64, u8)> = steps.iter().map(|st| (st.boundary, st.rung)).collect();
+        let line = |t: f64| b.chart_line(pairs.iter().copied(), t).expect("a ladder");
+        // The stage's chart, named as song select names it.
+        let name = crate::battle::chart_shown(&song, stage);
+        assert_eq!(b.chart_shown(0), Some(name.as_str()));
+        assert!(name.starts_with(&song.charts[stage].difficulty.name().to_uppercase()), "{name}");
+        assert!(name.ends_with(&song.charts[stage].meter.to_string()), "{name}");
+        let first = steps[0];
+        assert!(first.at < first.boundary);
+        assert_eq!(line(first.at + 0.01).rung, 0, "decided, not there yet");
+        assert_eq!(line(first.boundary - 0.01).rung, 0);
+        let mut previous = 0;
+        for st in &steps {
+            let at = line(st.boundary);
+            assert_eq!(at.rung, st.rung);
+            assert_eq!(at.step, Some((st.up, 0.0)), "{st:?}");
+            let later = line(st.boundary + 1.0);
+            assert_eq!(later.rung, st.rung);
+            assert!(later.step.is_some_and(|(up, age)| up == st.up && (age - 1.0).abs() < 1e-9));
+            assert_ne!(b.chart_shown(st.rung), b.chart_shown(previous));
+            let chart = &song.charts[st.chart];
+            assert!(
+                b.chart_shown(st.rung)
+                    .is_some_and(|n| n.starts_with(&chart.difficulty.name().to_uppercase())),
+                "{:?}",
+                b.chart_shown(st.rung)
+            );
+            previous = st.rung;
+        }
+    }
+    // As picked: no ladder, no line.
+    let mut picked = step_room(1, 1, ddi_room::Charts::AsPicked);
+    let mut now = 0;
+    let order = begin_at(&song, &mut picked, &mut now, HARD);
+    let (s, _) = stage_session(&song, &order, false, &[]);
+    assert_eq!(s.battle().unwrap().chart_line([], 10.0), None);
+}

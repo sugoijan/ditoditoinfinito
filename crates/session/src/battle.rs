@@ -487,6 +487,8 @@ pub struct Battle {
     cpu_rungs: Vec<Rc<feed::TapTrack>>,
     /// The stage's chart's name as the song list names it (data).
     stage_name: String,
+    /// The stage's chart as song select names it in words ([`chart_shown`]).
+    stage_shown: String,
     /// An online room's CPUs' battle plan where this device has none of
     /// its own (one watching the stage): made from the chart and the
     /// stage's seed (`LiveOrder::seed`), what puts the room's shocks in.
@@ -570,6 +572,9 @@ pub struct Rung {
     pub track: Rc<feed::TapTrack>,
     /// Its name as the song list names it (data).
     pub name: String,
+    /// It as song select names it in words, with its meter ("HARD 9",
+    /// `ddi_ui::screens::select::chart_shown`): the play's chart line.
+    pub shown: String,
     /// Harder than the stage's chart (a rung above it).
     pub up: bool,
 }
@@ -604,10 +609,30 @@ pub fn ladder_rungs(
                 chart: r.chart,
                 track: Rc::new(feed::TapTrack::full(song, r.chart)?),
                 name: ddi_engine::ladder::rung_name(&song.charts[r.chart]),
+                shown: chart_shown(song, r.chart),
                 up: r.up,
             })
         })
         .collect()
+}
+
+/// Chart `chart` of `song` as song select names it in words, with its
+/// meter (`ddi_ui::screens::select::chart_shown`; empty where there is no
+/// such chart).
+pub fn chart_shown(song: &Song, chart: usize) -> String {
+    ddi_ui::screens::data::ChartEntry::of_song(song, chart)
+        .map(|c| ddi_ui::screens::select::chart_shown(&c).into())
+        .unwrap_or_default()
+}
+
+/// What the play's chart line shows ([`Battle::chart_line`]): the rung
+/// played now (0 the stage's chart) and, once a step has been made, its
+/// direction (up) and the song seconds since its boundary, when the new
+/// chart's notes began.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChartLine {
+    pub rung: u8,
+    pub step: Option<(bool, f64)>,
 }
 
 /// A run's detail's chart where `player` finished on another than the
@@ -826,6 +851,7 @@ impl Battle {
                 .get(chart)
                 .map(ddi_engine::ladder::rung_name)
                 .unwrap_or_default(),
+            stage_shown: chart_shown(song, chart),
             most: chart_most(song, chart, ruleset),
             attacks,
             decided: None,
@@ -873,6 +899,64 @@ impl Battle {
             0 => Some(self.stage_name.as_str()),
             r => self.rung_name(r),
         }
+    }
+
+    /// The chart rung `rung` is (the stage's for 0) as song select names
+    /// it in words, with its meter: the play's chart line
+    /// (`ddi_shell::battle_cue::draw_chart`).
+    pub fn chart_shown(&self, rung: u8) -> Option<&str> {
+        match rung {
+            0 => Some(self.stage_shown.as_str()),
+            r => usize::from(r)
+                .checked_sub(1)
+                .and_then(|i| self.rungs.get(i))
+                .map(|r| r.shown.as_str()),
+        }
+    }
+
+    /// Where rung `rung` stands among the stage's charts, from the easiest
+    /// (negative: below the stage's chart, 0 it, positive above): a step
+    /// to a rung standing higher is a step up.
+    pub fn rung_height(&self, rung: u8) -> i32 {
+        let Some(i) = usize::from(rung).checked_sub(1) else {
+            return 0;
+        };
+        let below = self.rungs.iter().filter(|r| !r.up).count();
+        if i < below {
+            -(i as i32 + 1)
+        } else {
+            (i - below) as i32 + 1
+        }
+    }
+
+    /// The chart line of a competitor whose steps are `steps` (each its
+    /// boundary and the rung stepped to, in order) at song second `t`:
+    /// the rung they play from the last boundary passed, and that step's
+    /// direction and age. `None` where the stage has no ladder (as
+    /// picked, or a song with no other chart to step to).
+    pub fn chart_line(
+        &self,
+        steps: impl IntoIterator<Item = (f64, u8)>,
+        t: f64,
+    ) -> Option<ChartLine> {
+        if self.rungs.is_empty() {
+            return None;
+        }
+        let mut line = ChartLine {
+            rung: 0,
+            step: None,
+        };
+        for (boundary, rung) in steps {
+            if boundary > t {
+                break;
+            }
+            let up = self.rung_height(rung) > self.rung_height(line.rung);
+            line = ChartLine {
+                rung,
+                step: Some((up, t - boundary)),
+            };
+        }
+        Some(line)
     }
 
     /// Whether rung `rung` is above the stage's chart.
