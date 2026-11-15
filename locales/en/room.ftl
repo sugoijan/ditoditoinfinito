@@ -1697,3 +1697,8 @@ room-audience-players = { $count ->
     [one] One player
    *[other] { $count } players
 }
+
+# Refused (in the Rules pop-up, or on the room's status line): someone else
+# changed the rules while this player's edit was open; nothing of theirs
+# was applied and the pop-up now shows the rules as they are.
+room-refused-rules-changed = Someone else changed the rules meanwhile. Here they are now: check them, then Apply again.

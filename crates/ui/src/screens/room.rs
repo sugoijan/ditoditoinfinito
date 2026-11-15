@@ -2611,6 +2611,7 @@ pub fn refusal_text(why: &Refusal) -> UiText {
             Rejection::InvalidRules(p) | Rejection::RulesNeedReview(p) => rules_problem(p),
             Rejection::RulesLandLater { from: Some(_), .. } => m::refused_rules_later(),
             Rejection::RulesLandLater { from: None, .. } => m::refused_rules_no_stage(),
+            Rejection::Stale { .. } => m::refused_rules_changed(),
             other => {
                 let code = format!("{other:?}");
                 let code = code.split([' ', '{', '(']).next().unwrap_or("").to_string();

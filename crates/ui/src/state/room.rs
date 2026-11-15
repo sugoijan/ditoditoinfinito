@@ -3848,6 +3848,32 @@ impl RoomClient {
     /// ([`RoomClient::rules_land_on`]). Refused with
     /// `Rejection::RulesLandLater` where the room has moved on since.
     pub fn change_stage_rules(&mut self, from: StageId, rules: &MatchRules) -> Result<(), Refusal> {
+        self.change_stage_rules_at(None, from, rules)
+    }
+
+    /// The room's revision now: what an edit begun now is based on
+    /// (the Rules pop-up keeps it from when it opened).
+    pub fn revision(&self) -> Revision {
+        self.state().revision
+    }
+
+    /// Whether the rules (the next match's, or the running match's
+    /// changes from a later stage) were saved since revision `base`: an
+    /// edit begun then would put back what it was begun on.
+    pub fn rules_changed_since(&self, base: Revision) -> bool {
+        let s = self.state();
+        s.next.saved_at > base || s.current.as_ref().is_some_and(|m| m.changes_saved_at() > base)
+    }
+
+    /// [`Self::change_stage_rules`] for an edit begun at revision `base`
+    /// (none: now): the room refuses it (`Rejection::Stale`) where they
+    /// were changed since.
+    pub fn change_stage_rules_at(
+        &mut self,
+        base: Option<Revision>,
+        from: StageId,
+        rules: &MatchRules,
+    ) -> Result<(), Refusal> {
         // The bias named only where it is not the match's own: a match
         // whose Points nobody changes sends what it did before.
         let play = match self.state().current.as_ref() {
@@ -3865,13 +3891,18 @@ impl RoomClient {
             }
             _ => rules.play_rules(),
         };
-        self.send(Command::ChangeStageRules { from, rules: play })
+        self.send_at(base, Command::ChangeStageRules { from, rules: play })
     }
 
     /// Save `rules` for the next match and stop the running match, as one
     /// change: the next pick starts a new match under them.
     pub fn restart_match(&mut self, rules: MatchRules) -> Result<(), Refusal> {
-        self.send(Command::RestartMatch { rules })?;
+        self.restart_match_at(None, rules)
+    }
+
+    /// [`Self::restart_match`] for an edit begun at revision `base`.
+    pub fn restart_match_at(&mut self, base: Option<Revision>, rules: MatchRules) -> Result<(), Refusal> {
+        self.send_at(base, Command::RestartMatch { rules })?;
         self.remember_roster();
         Ok(())
     }
@@ -3885,7 +3916,14 @@ impl RoomClient {
     /// Save the next match's rules (in the lobby, the rules the match will
     /// start with; during a match, a draft that leaves it alone).
     pub fn save_rules(&mut self, rules: MatchRules) -> Result<(), Refusal> {
-        self.send(Command::SaveNextRules { rules })?;
+        self.save_rules_at(None, rules)
+    }
+
+    /// [`Self::save_rules`] for an edit begun at revision `base` (none:
+    /// now): the room refuses it (`Rejection::Stale`) where the rules
+    /// were saved since, never putting back what the edit began on.
+    pub fn save_rules_at(&mut self, base: Option<Revision>, rules: MatchRules) -> Result<(), Refusal> {
+        self.send_at(base, Command::SaveNextRules { rules })?;
         self.remember_roster();
         Ok(())
     }
@@ -3926,7 +3964,12 @@ impl RoomClient {
     /// messages that follow (practice: at once; online: later, a refusal
     /// then said on the status line).
     fn send(&mut self, cmd: Command) -> Result<(), Refusal> {
-        match self.submit(cmd) {
+        self.send_at(None, cmd)
+    }
+
+    /// [`Self::send`] based on revision `base` (none: the mirror's now).
+    fn send_at(&mut self, base: Option<Revision>, cmd: Command) -> Result<(), Refusal> {
+        match self.submit(base, cmd) {
             Some(Some(rejection)) => self.refuse(Refusal::Room(rejection)),
             _ => {
                 self.refusal = None;
@@ -3939,10 +3982,10 @@ impl RoomClient {
 
     /// One command in its envelope, and what the authority sent after it
     /// applied: the command's answer if among it ([`Self::pump_for`]).
-    fn submit(&mut self, cmd: Command) -> Option<Option<Rejection>> {
+    fn submit(&mut self, base: Option<Revision>, cmd: Command) -> Option<Option<Rejection>> {
         self.seq += 1;
         let seq = self.seq;
-        let base = self.mirror.state().map(|s| s.revision);
+        let base = base.or_else(|| self.mirror.state().map(|s| s.revision));
         let client = self.client.clone();
         self.authority_mut()
             .submit(ddi_room::ClientEnvelope::new(client, seq, base, cmd));
@@ -4113,7 +4156,7 @@ impl RoomClient {
             let Some((stage, readiness_rev, content)) = next else {
                 return;
             };
-            let answer = self.submit(Command::ReportLoading {
+            let answer = self.submit(None, Command::ReportLoading {
                 stage,
                 readiness_rev,
                 loading: Loading::Loading { permille: 0 },

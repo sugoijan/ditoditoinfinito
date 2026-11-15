@@ -5313,3 +5313,45 @@ fn a_notice_lives_once_and_never_crosses_a_stages_prompt() {
         }
     }
 }
+
+/// ui-screens-1 (fix round G1): the co-host's Rules pop-up held open
+/// while the owner applies their own change: the co-host's Apply does
+/// not put back what the pop-up opened with. It says the rules were
+/// changed meanwhile and shows them as they are now; Apply again saves
+/// the co-host's edit over them.
+#[test]
+fn an_apply_over_rules_changed_meanwhile_says_so_and_shows_them() {
+    let t = Three::new(true);
+    let (ea, eb) = (env(), env());
+    let orders = Orders::default();
+    let mut ha = online_select(&ea, &t.alice, songs_of(&["Alpha One"]), &orders);
+    let mut hb = online_select(&eb, &t.bob, songs_of(&["Bravo One"]), &orders);
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    let boos = t.server.borrow().state().next.rules.boos;
+    let difficulty = t.server.borrow().state().next.rules.difficulty;
+    // The co-host opens the Rules; the owner changes the timing.
+    press(&mut hb, "Room.Rules");
+    press(&mut ha, "Room.Rules");
+    press(&mut ha, "Inc.difficulty");
+    press(&mut ha, "Apply");
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    let owners = t.server.borrow().state().next.rules.difficulty;
+    assert_ne!(owners, difficulty);
+    // The co-host's Boos, applied over the pop-up they opened before.
+    press(&mut hb, "Inc.boos");
+    press(&mut hb, "Apply");
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    let next = t.server.borrow().state().next.rules.clone();
+    assert_eq!(next.difficulty, owners, "the owner's change stands");
+    assert_eq!(next.boos, boos, "nothing applied over it unseen");
+    assert_eq!(top(&hb), "room-rules", "the pop-up stays open");
+    let said: String = ddi_l10n::msg::room::refused_rules_changed().into();
+    let first = hb.texts().into_iter().find(|t| said.starts_with(t.as_str()) && t.len() > 20);
+    assert!(first.is_some(), "{:?}", hb.texts());
+    // As the rules are now; Apply again saves the co-host's edit.
+    press(&mut hb, "Inc.boos");
+    press(&mut hb, "Apply");
+    t.settle(400, &mut [&mut ha, &mut hb]);
+    let next = t.server.borrow().state().next.rules.clone();
+    assert_eq!((next.difficulty, next.boos), (owners, !boos));
+}

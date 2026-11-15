@@ -752,3 +752,5 @@ room-audience-stage-won = ステージ{ $number }の勝者：{ $names }
 room-audience-standings = 順位
 room-audience-standing = { $rank }. { $name } ・ { $points }ポイント
 room-audience-players = プレイヤー{ $count }人
+
+room-refused-rules-changed = その間にほかの人がルールを変更しました。今のルールを表示しています。確かめてから、もう一度適用してください。

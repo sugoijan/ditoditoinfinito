@@ -196,6 +196,10 @@ pub struct RulesDialog {
     /// The stage the change was said to land on when last built, and its
     /// number: what Apply sends.
     from: Option<(ddi_room::StageId, u16)>,
+    /// The room's revision the drafts were copied at: Apply is based on
+    /// it, so that rules saved meanwhile by someone else are never put
+    /// back unseen (`Rejection::Stale`).
+    base: ddi_room::Revision,
 }
 
 /// The rows whose sentence under them brightens while they are focused.
@@ -239,6 +243,7 @@ impl RulesDialog {
         let ahead = room.borrow().rules_ahead();
         let from = room.borrow().rules_land_on();
         let stage_draft = ahead.unwrap_or_else(|| draft.clone());
+        let base = room.borrow().revision();
         RulesDialog {
             env,
             room,
@@ -256,7 +261,32 @@ impl RulesDialog {
             to_stage: true,
             stage_draft: Rc::new(RefCell::new(stage_draft)),
             from,
+            base,
         }
+    }
+
+    /// The rules were saved by someone else since the drafts were copied:
+    /// the drafts are the room's again, said under the rows. Whether so.
+    fn changed_meanwhile(&mut self, root: &mut Actor, cx: &mut Cx, focus: &str) -> bool {
+        if !self.room.borrow().rules_changed_since(self.base) {
+            return false;
+        }
+        self.reload();
+        self.refused(&Refusal::Room(ddi_room::Rejection::Stale {
+            base: self.base,
+            changed_at: self.base,
+        }), root, cx, focus);
+        true
+    }
+
+    /// The drafts copied from the room again, at its revision now.
+    fn reload(&mut self) {
+        let r = self.room.borrow();
+        let draft = r.state().next.rules.clone();
+        *self.stage_draft.borrow_mut() = r.rules_ahead().unwrap_or_else(|| draft.clone());
+        *self.draft.borrow_mut() = draft;
+        self.base = r.revision();
+        self.from = r.rules_land_on();
     }
 
     /// The edits may go to a later stage of the running match: from its
@@ -592,12 +622,16 @@ impl RulesDialog {
     /// change; closes, or says why not. A match that ended meanwhile has
     /// nothing to stop: the draft is saved for the next one, as Apply.
     fn restart(&mut self, root: &mut Actor, cx: &mut Cx) {
+        if self.editable() && self.changed_meanwhile(root, cx, "Apply") {
+            return;
+        }
+        let base = Some(self.base);
         let draft = self.restart_rules();
         let may = self.room.borrow().may_restart();
         let done = if may {
-            self.room.borrow_mut().restart_match(draft)
+            self.room.borrow_mut().restart_match_at(base, draft)
         } else if self.editable() {
-            self.room.borrow_mut().save_rules(draft)
+            self.room.borrow_mut().save_rules_at(base, draft)
         } else {
             Ok(())
         };
@@ -614,6 +648,11 @@ impl RulesDialog {
     /// kept on `focus`.
     fn refused(&mut self, why: &Refusal, root: &mut Actor, cx: &mut Cx, focus: &str) {
         self.room.borrow_mut().clear_refusal();
+        // Refused as stale (another's save crossed this one): the room's
+        // rules shown as they are now.
+        if matches!(why, Refusal::Room(ddi_room::Rejection::Stale { .. })) {
+            self.reload();
+        }
         self.problem = Some(super::room::refusal_text(why).into());
         *root = self.build(cx);
         super::restore_focus(root, Some(focus));
@@ -627,12 +666,16 @@ impl RulesDialog {
     /// to a later stage, the stage's rules (when they differ from that
     /// stage's): each edit where it was made; closes, or says why not.
     fn apply(&mut self, root: &mut Actor, cx: &mut Cx, name: &str) {
+        if self.editable() && self.changed_meanwhile(root, cx, name) {
+            return;
+        }
+        let base = Some(self.base);
         let draft = self.draft.borrow().clone();
         let same = self.room.borrow().state().next.rules == draft;
         let mut saved = if same || !self.editable() {
             Ok(())
         } else {
-            self.room.borrow_mut().save_rules(draft)
+            self.room.borrow_mut().save_rules_at(base, draft)
         };
         if saved.is_ok() && self.stage_offered() {
             let stage = self.stage_draft.borrow().clone();
@@ -642,7 +685,7 @@ impl RulesDialog {
                     || a.points != stage.points
             });
             if differs && let Some((from, _)) = self.from {
-                saved = self.room.borrow_mut().change_stage_rules(from, &stage);
+                saved = self.room.borrow_mut().change_stage_rules_at(base, from, &stage);
                 if saved.is_err() {
                     // Where it would land now, for Apply again.
                     self.from = self.room.borrow().rules_land_on();
