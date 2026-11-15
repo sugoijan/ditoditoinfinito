@@ -721,3 +721,81 @@ fn arrive_anonymously(server: &SharedFake, link: &str) -> Result<String, Problem
         None => Err(o.invite().unwrap().refused.clone().unwrap()),
     }
 }
+
+/// The audience's page between stages (`audience-page-v1`, the feedback
+/// round I): a card as the Ready card is, over the start menu's rain
+/// before the seat watched a stage, over the last stage's picture once
+/// the shell told it (kept until another replaces it), the players the
+/// public view lists in the card's players part, Stop watching its one
+/// button while nothing plays; a seat that joins later, knowing no
+/// stage's picture, on the rain.
+#[test]
+fn the_audience_page_is_a_card_over_the_rain_then_the_last_stages_picture() {
+    use crate::look::Plain;
+    use crate::screens::audience::AudienceScreen;
+    use crate::screens::{DESIGN, Env};
+    use crate::testing::Harness;
+    let env = Env::new(
+        Rc::new(Plain),
+        Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
+    );
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let carol = Rc::new(RefCell::new(arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap()));
+    let mut h = Harness::new(DESIGN, [1280.0, 720.0], 1.0, crate::TextMode::Own);
+    h.push(AudienceScreen::new(env.clone(), carol.clone(), Rc::new(|_, _| {})));
+    let step = |ms: u64, h: &mut Harness, alice: &mut RoomClient| {
+        for _ in 0..ms / 50 {
+            clock.advance(50);
+            server.borrow_mut().pump();
+            alice.tick(clock.now().0);
+            h.ui.set_clock(clock.now().0 as f64 / 1_000.0);
+            h.run(0.05);
+        }
+    };
+    step(4_000, &mut h, &mut alice);
+    let texts = h.texts().join("\n");
+    assert!(texts.contains("After Hours"), "{texts}");
+    assert!(texts.contains("The host is choosing the first song."), "{texts}");
+    // The card, translucent, over the rain; the players listed.
+    assert!(h.ui.actor("Card").is_some());
+    assert!(h.ui.actor("MenuBackground").is_some(), "the rain before a first stage");
+    assert!(h.ui.actor("Audience.Backdrop").is_none());
+    let names: Vec<String> = (0..4)
+        .filter_map(|k| {
+            h.ui.actor(&format!("Audience.Player{k}.Name"))
+                .and_then(|a| match &a.kind {
+                    ddi_actor::Kind::Text(t) => Some(t.text().to_string()),
+                    _ => None,
+                })
+        })
+        .collect();
+    assert!(names.iter().any(|n| n == "alice") && names.iter().any(|n| n == "bob"), "{names:?}");
+    assert_eq!(env.state.borrow().page_items, vec!["Item.back".to_string()]);
+    let card = h.ui.bounds("Card").unwrap();
+    assert!(card[2] - card[0] >= 1280.0 * 0.85, "most of the screen: {card:?}");
+    // A stage watched: its picture told by the shell; the page over it.
+    carol
+        .borrow_mut()
+        .set_backdrop(Some(("song:after-hours:bg".into(), 4.0 / 3.0)));
+    step(200, &mut h, &mut alice);
+    assert!(h.ui.actor("Audience.Backdrop").is_some(), "the last stage's picture");
+    assert!(h.ui.actor("MenuBackground").is_none());
+    // Nothing told by the next stage: the picture stays.
+    carol.borrow_mut().set_backdrop(None);
+    step(200, &mut h, &mut alice);
+    assert!(h.ui.actor("Audience.Backdrop").is_some());
+    // A seat that joins now knows no stage's picture: the rain.
+    let dan = Rc::new(RefCell::new(
+        arrive(&server, "dan", AUDIENCE_LINK, ddi_room::Clock::now(&clock).0).unwrap(),
+    ));
+    let mut hd = Harness::new(DESIGN, [1280.0, 720.0], 1.0, crate::TextMode::Own);
+    hd.push(AudienceScreen::new(env, dan.clone(), Rc::new(|_, _| {})));
+    run(&clock, &server, &mut [], &mut [&mut dan.borrow_mut()], 2_000);
+    hd.run(0.1);
+    assert!(hd.ui.actor("MenuBackground").is_some());
+    // Escape stops watching.
+    hd.key("Escape", "Escape");
+    hd.run(0.1);
+}

@@ -157,7 +157,7 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
     };
     let (device, queue) = gpu::device(&adapter).unwrap();
     let (ui_device, ui_queue) = gpu::device(&adapter).unwrap();
-    let _ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
+    let mut ui_gpu = Gpu::new(ui_device, ui_queue, wgpu::TextureFormat::Rgba8Unorm);
     let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let mut host = Host::new(Rc::default(), None);
     let clock = common::rig::fake_clock(&mut host);
@@ -420,6 +420,13 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
             page_ui.update(0.05);
         }
         assert!(!calls.borrow().contains(&"watch"), "never handed over by itself");
+        // The audience's page (`audience-page-v1`): its card over the
+        // start menu's rain (no stage watched yet on this seat), Watch
+        // offered.
+        assert!(page_ui.actor("MenuBackground").is_some(), "the rain");
+        assert!(page_ui.actor("Audience.Backdrop").is_none());
+        let pixels = ui_gpu.draw_offscreen(&mut page_ui, SIZE, wgpu::TextureFormat::Rgba8Unorm);
+        ppm("audience-page-during-a-stage", &pixels);
         assert!(
             page_ui.actor("Item.watch").is_some() || page_env.state.borrow().page_items.iter().any(|i| i.contains("watch")),
             "Watch on the page: {:?}",
@@ -527,4 +534,25 @@ fn a_stage_watched_with_the_audience_is_drawn_behind_the_room() {
     let ceiling = ddi_room::audience::AUDIENCE_V0.presentation_delay_ms as f64;
     assert!(delays.iter().all(|d| d + hi * 1_000.0 <= ceiling), "{delays:?}");
     assert_eq!(audience.borrow().sockets(), 1);
+    // After the stage: its picture is the page's backdrop
+    // (`audience-page-v1`), the card over it.
+    assert!(audience.borrow().backdrop().is_some(), "the stage's picture kept for the page");
+    {
+        use ddi_ui::screens::audience::AudienceScreen;
+        let (mut page_ui, page_env) =
+            common::ui::theme("start", common::ui::lowercase(), SIZE, true);
+        page_ui.push_over(AudienceScreen::new(page_env, audience.clone(), Rc::new(|_, _| {})));
+        for _ in 0..10 {
+            page_ui.update(0.05);
+        }
+        assert!(page_ui.actor("Audience.Backdrop").is_some(), "the last stage's picture");
+        // (The pictures' files are read on a thread: real time for them.)
+        for _ in 0..10 {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            let _ = ui_gpu.draw_offscreen(&mut page_ui, SIZE, wgpu::TextureFormat::Rgba8Unorm);
+            page_ui.update(0.05);
+        }
+        let pixels = ui_gpu.draw_offscreen(&mut page_ui, SIZE, wgpu::TextureFormat::Rgba8Unorm);
+        ppm("audience-page-after-a-stage", &pixels);
+    }
 }

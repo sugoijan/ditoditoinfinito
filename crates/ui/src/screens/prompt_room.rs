@@ -24,16 +24,10 @@ use ddi_room::{Participation, StageId};
 
 /// How long the prompt says why it goes before going back to the room.
 const GONE_SECONDS: f32 = 2.5;
-/// PROVISIONAL (`ready-card-v1`, the feedback round I): the players'
-/// part's rows (the room's players panel's line, `room::player_line`, at
-/// its least), its columns' least width and the gap between them; and
-/// the room the card leaves the screen's edges on a desktop (a share of
-/// the width within these bounds) and on a phone (its safe area).
-const LIST_ROW: f32 = 28.0;
-const LIST_COL_MIN: f32 = 260.0;
-const LIST_COL_GAP: f32 = 16.0;
-const LIST_HEAD: f32 = 22.0;
-const LIST_MARK: f32 = 22.0;
+/// PROVISIONAL (`ready-card-v1`, the feedback round I): the room the
+/// card leaves the screen's edges on a desktop (a share of the width
+/// within these bounds) and on a phone (its safe area); the players'
+/// part is `room::players_part`.
 pub(super) const CARD_MARGIN: (f32, f32, f32) = (0.03, 24.0, 64.0);
 pub(super) const CARD_PHONE_MARGIN: f32 = 8.0;
 /// The players' part beside the card's other parts from this width of
@@ -276,83 +270,30 @@ impl PromptScreen {
     /// what the part holds a window of them, the local player's line
     /// always in view (`room::window_keeping`, as the Standings pop-up
     /// has it), a mark under it for the rows hidden. Its height.
-    pub(super) fn room_list(&self, [x, y, w, h]: [f32; 4]) -> (Vec<Actor>, f32) {
+    pub(super) fn room_list(&self, area: [f32; 4]) -> (Vec<Actor>, f32) {
         let Some(rm) = &self.room else {
             return (Vec::new(), 0.0);
         };
-        let env = &self.env;
         let rows = room::panel_order(room::player_rows(&rm.room.borrow()));
-        let n = rows.len();
-        let body = h.max(LIST_HEAD + 4.0 * LIST_ROW) - LIST_HEAD;
-        let per_all = ((body / LIST_ROW).floor() as usize).max(1);
-        let cols_most = (((w + LIST_COL_GAP) / (LIST_COL_MIN + LIST_COL_GAP)).floor() as usize).max(1);
-        let cols = n.div_ceil(per_all).clamp(1, cols_most);
-        let marks = n > cols * per_all;
-        let per = if marks {
-            (((body - LIST_MARK) / LIST_ROW).floor() as usize).max(1)
-        } else {
-            per_all
-        };
-        let shown = if marks { cols * per } else { n };
-        let first = rm.first.get().min(n.saturating_sub(shown));
-        rm.first.set(first);
-        rm.rows_shown.set((n, shown, per));
-        let me_at = rows.iter().position(|p| p.me);
-        let window = room::window_keeping(n, first, shown, me_at);
-        let col_w = (w - LIST_COL_GAP * (cols - 1) as f32) / cols as f32;
-        let placed = rows.iter().any(|p| p.points.is_some());
-        let mut out = Vec::new();
-        let head = look::tracked(
-            env.text("Room.Players", &msg::room::players(), 11.0, 600, "Faint"),
-            120,
-        );
-        out.push(left(head, x, y + 8.0));
         let ready = rows.iter().filter(|p| p.ready && !p.cpu).count();
         let people = rows.iter().filter(|p| !p.cpu).count();
-        out.push(right(
-            env.text(
-                "Room.Ready",
-                &msg::room::players_count(ready, people),
-                11.0,
-                400,
-                "Muted",
-            ),
-            x + w,
-            y + 8.0,
-        ));
-        let top = y + LIST_HEAD;
-        for (j, &k) in window.iter().enumerate() {
-            let (col, at) = (j / per.max(1), j % per.max(1));
-            let cx0 = x + col as f32 * (col_w + LIST_COL_GAP);
-            room::player_line(
-                env,
-                &mut out,
-                &format!("Room.Player{k}"),
-                &rows[k],
-                [cx0, top + at as f32 * LIST_ROW, col_w, LIST_ROW],
-                placed,
-            );
-        }
-        let used = window.len().min(per);
-        let mut ry = top + used as f32 * LIST_ROW;
-        if marks {
-            let below = n - first - shown;
-            let text: String = if below > 0 {
-                msg::room::panel_more_below(below).into()
-            } else {
-                msg::room::panel_more_above(first).into()
-            };
-            let name = if below > 0 { "Room.Down" } else { "Room.Up" };
-            out.push(crate::screens::room::more_mark(
-                env,
-                name,
-                &text,
-                [w, 20.0],
-                [x + w / 2.0, ry + LIST_MARK / 2.0],
-            ));
-            ry += LIST_MARK;
-        }
-        (out, ry - y)
+        let part = room::players_part(
+            &self.env,
+            &rows,
+            &room::PartNames {
+                heading: "Room.Players",
+                count: "Room.Ready",
+                row: "Room.Player",
+                down: "Room.Down",
+                up: "Room.Up",
+            },
+            (&msg::room::players(), &msg::room::players_count(ready, people)),
+            rm.first.get(),
+            area,
+        );
+        rm.first.set(part.first);
+        rm.rows_shown.set((rows.len(), part.shown, part.per));
+        (part.actors, part.height)
     }
 
     /// The player's attack policy, where the stage's match has attacks

@@ -1980,6 +1980,114 @@ pub fn players_panel(env: &Env, r: &RoomClient, [x, y, w, h]: [f32; 4]) -> Actor
     super::frame("RoomPlayers", c)
 }
 
+/// PROVISIONAL (`ready-card-v1`, the feedback round I): a players'
+/// part's rows (the players panel's line, [`player_line`], at its
+/// least), its columns' least width and the gap between them, its
+/// heading's and its mark's heights.
+pub const PART_ROW: f32 = 28.0;
+pub const PART_COL_MIN: f32 = 260.0;
+pub const PART_COL_GAP: f32 = 16.0;
+const PART_HEAD: f32 = 22.0;
+const PART_MARK: f32 = 22.0;
+
+/// The names a players' part gives its actors: its heading, its count,
+/// each row's (`{row}{k}`, `k` in the rows' order), its marks.
+pub struct PartNames<'a> {
+    pub heading: &'a str,
+    pub count: &'a str,
+    pub row: &'a str,
+    pub down: &'a str,
+    pub up: &'a str,
+}
+
+/// A players' part as laid out ([`players_part`]).
+pub struct PlayersPart {
+    pub actors: Vec<Actor>,
+    pub height: f32,
+    /// The first row of the window (clamped), the rows shown and a
+    /// column's rows: what scrolling moves by.
+    pub first: usize,
+    pub shown: usize,
+    pub per: usize,
+}
+
+/// `rows` in `[x, y, w, h]` (`h` at least four rows): a heading and a
+/// count (`words`), then each the players panel's line ([`player_line`]),
+/// in as many columns as they need and `w` holds (one for a few, several
+/// for many, each at least [`PART_COL_MIN`] wide), down each column then
+/// the next; past what the part holds a window of them from `first`, the
+/// local player's line always in view ([`window_keeping`]), a mark under
+/// it for the rows hidden. The stage's Ready card and the audience's page
+/// (`ready-card-v1`).
+pub fn players_part(
+    env: &Env,
+    rows: &[PlayerRow],
+    names: &PartNames<'_>,
+    (heading, count): (&str, &str),
+    first: usize,
+    [x, y, w, h]: [f32; 4],
+) -> PlayersPart {
+    let n = rows.len();
+    let body = h.max(PART_HEAD + 4.0 * PART_ROW) - PART_HEAD;
+    let per_all = ((body / PART_ROW).floor() as usize).max(1);
+    let cols_most = (((w + PART_COL_GAP) / (PART_COL_MIN + PART_COL_GAP)).floor() as usize).max(1);
+    let cols = n.div_ceil(per_all).clamp(1, cols_most);
+    let marks = n > cols * per_all;
+    let per = if marks {
+        (((body - PART_MARK) / PART_ROW).floor() as usize).max(1)
+    } else {
+        per_all
+    };
+    let shown = if marks { cols * per } else { n };
+    let first = first.min(n.saturating_sub(shown));
+    let me_at = rows.iter().position(|p| p.me);
+    let window = window_keeping(n, first, shown, me_at);
+    let col_w = (w - PART_COL_GAP * (cols - 1) as f32) / cols as f32;
+    let placed = rows.iter().any(|p| p.points.is_some());
+    let mut out = Vec::new();
+    out.push(left(
+        look::tracked(env.text(names.heading, heading, 11.0, 600, "Faint"), 120),
+        x,
+        y + 8.0,
+    ));
+    if !count.is_empty() {
+        out.push(right(env.text(names.count, count, 11.0, 400, "Muted"), x + w, y + 8.0));
+    }
+    let top = y + PART_HEAD;
+    for (j, &k) in window.iter().enumerate() {
+        let (col, at) = (j / per.max(1), j % per.max(1));
+        let cx0 = x + col as f32 * (col_w + PART_COL_GAP);
+        player_line(
+            env,
+            &mut out,
+            &format!("{}{k}", names.row),
+            &rows[k],
+            [cx0, top + at as f32 * PART_ROW, col_w, PART_ROW],
+            placed,
+        );
+    }
+    let used = window.len().min(per);
+    let mut ry = top + used as f32 * PART_ROW;
+    if marks {
+        let below = n - first - shown;
+        let text: String = if below > 0 {
+            m::panel_more_below(below).into()
+        } else {
+            m::panel_more_above(first).into()
+        };
+        let name = if below > 0 { names.down } else { names.up };
+        out.push(more_mark(env, name, &text, [w, 20.0], [x + w / 2.0, ry + PART_MARK / 2.0]));
+        ry += PART_MARK;
+    }
+    PlayersPart {
+        actors: out,
+        height: ry - y,
+        first,
+        shown,
+        per,
+    }
+}
+
 /// One player's line as the room's players panel draws it
 /// ([`players_panel`]; the stage's prompt and the audience's page draw
 /// theirs with it): in `[x, y, w, row]` (`row` tall), the local player's

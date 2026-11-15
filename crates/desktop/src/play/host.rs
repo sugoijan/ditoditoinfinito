@@ -1483,6 +1483,15 @@ impl Host {
             frame,
             filter(&loaded, r.request.chart, &settings, ui),
         );
+        // Watched with a room's audience: the song's picture is the
+        // audience's page's backdrop once the stage is over
+        // (`audience-page-v1`; a generated still is drawn for the play
+        // alone, so the page keeps its last picture or the rain then).
+        if let Some(p) = picture.as_ref().filter(|p| !p.source.starts_with("generated-still:"))
+            && let Some(seat) = r.request.stage_room.as_ref().and_then(|s| s.seat())
+        {
+            seat.borrow_mut().set_backdrop(Some((p.source.clone(), p.aspect)));
+        }
         // The dancing hand readied for the play as it now is: again when
         // the play's options change, or after a reset (a new view, the
         // prompt up again with a new seed).

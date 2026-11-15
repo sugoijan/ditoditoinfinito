@@ -12,7 +12,6 @@
 //! ([`AudienceCall::Prepare`]) and, once the room starts it, the stage to
 //! watch ([`AudienceCall::Watch`]); the shell comes back here after it.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use ddi_l10n::UiText;
@@ -22,11 +21,14 @@ use ddi_room::audience::AudienceEnd;
 use ddi_room::audience::public::{PublicContent, PublicKind, PublicView};
 use serde::Serialize;
 
-use super::Env;
-use super::page::{
-    Action, Block, FedPage, PageCall, PageDoc, PageFeed, PageModel, PageScreen, PageTitle,
-};
-use crate::screen::Cx;
+use ddi_actor::Actor;
+use ddi_engine::MenuInput as HintAction;
+
+use super::dialog::wrap_lines;
+use super::{Env, footer, frame, left};
+use crate::look::Spec;
+use crate::nav::{Focusable, MenuAction};
+use crate::screen::{Cx, Handled, Input};
 use crate::state::audience::{AudienceClient, Refused, SeatState, SharedAudience};
 use crate::state::online::Redirect;
 use crate::state::room::{LoadJob, StageOrder};
@@ -198,36 +200,44 @@ fn doing(a: &AudienceClient, v: &PublicView) -> UiText {
     }
 }
 
-/// The page as `a` stands.
-pub fn doc(a: &AudienceClient) -> PageDoc {
-    let mut blocks = Vec::new();
+/// One line of the audience's card: its text and how it reads.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Tone {
+    Title,
+    Text,
+    Accent,
+    Muted,
+    Note,
+}
+
+/// The card's lines as `a` stands: the room's name and host, what the
+/// room is doing (the song picked for the next stage, a stage's number
+/// and the match's end), who won the last stage, the rules in a few
+/// words, how many watch; and where the seat stands (joining,
+/// reconnecting, refused, ended, with why).
+fn lines(a: &AudienceClient) -> Vec<(String, Tone)> {
+    let mut out = Vec::new();
     let state = a.state();
     match a.view() {
         // Still joining: said so (a refusal says why below instead).
         None if matches!(state, SeatState::Joining | SeatState::Reconnecting) => {
-            blocks.push(Block::Text(m::audience_joining().into()))
+            out.push((m::audience_joining().into(), Tone::Text))
         }
         None => {}
         Some(v) => {
-            blocks.push(Block::Subheading(UiText::data(&v.name).into()));
+            out.push((UiText::data(&v.name).into(), Tone::Title));
             if let Some(host) = &v.host {
-                blocks.push(Block::Text(m::invite_host(UiText::data(host)).into()));
+                out.push((m::invite_host(UiText::data(host)).into(), Tone::Muted));
             }
-            if let Some(n) = a.count() {
-                blocks.push(Block::Muted(m::audience_watching(n).into()));
-            }
-            blocks.push(Block::Text(doing(a, v).into()));
+            out.push((doing(a, v).into(), Tone::Accent));
             if let Some(stage) = a.current_stage() {
                 if a.plan_mismatch(stage) {
-                    blocks.push(Block::Muted(m::audience_plan_mismatch().into()));
+                    out.push((m::audience_plan_mismatch().into(), Tone::Muted));
                 }
                 if a.load_problem(stage).is_some() {
-                    blocks.push(Block::Muted(m::audience_song_unreadable().into()));
+                    out.push((m::audience_song_unreadable().into(), Tone::Muted));
                 }
             }
-            blocks.push(Block::Muted(
-                super::room::rules_words(&a.stage_rules(), Some(a.attacks())).into(),
-            ));
             // The last stage confirmed: who won it.
             if let Some((i, s)) = v
                 .stages
@@ -244,178 +254,362 @@ pub fn doc(a: &AudienceClient) -> PageDoc {
                     .map(|p| player_name(v, p.participant))
                     .collect();
                 if !first.is_empty() {
-                    blocks.push(Block::Text(
-                        m::audience_stage_won(i + 1, first.join(", ")).into(),
-                    ));
+                    out.push((m::audience_stage_won(i + 1, first.join(", ")).into(), Tone::Text));
                 }
             }
-            blocks.push(Block::Gap);
-            if !v.standings.is_empty() {
-                blocks.push(Block::Heading(m::audience_standings().into()));
-                for st in v.standings.iter().take(12) {
-                    blocks.push(Block::Text(
-                        m::audience_standing(
-                            st.rank,
-                            player_name(v, st.participant),
-                            st.total.to_string(),
-                        )
-                        .into(),
-                    ));
-                }
-                if v.standings.len() > 12 {
-                    blocks.push(Block::Muted(m::panel_more_below(v.standings.len() - 12).into()));
-                }
-            } else if !v.players.is_empty() {
-                blocks.push(Block::Heading(m::audience_players(v.players.len()).into()));
-                let names: Vec<String> = v
-                    .players
-                    .iter()
-                    .filter(|p| !p.left)
-                    .take(24)
-                    .map(|p| player_name(v, p.id))
-                    .collect();
-                blocks.push(Block::Text(UiText::data(names.join(", ")).into()));
+            out.push((
+                super::room::rules_words(&a.stage_rules(), Some(a.attacks())).into(),
+                Tone::Muted,
+            ));
+            if let Some(n) = a.count() {
+                out.push((m::audience_watching(n).into(), Tone::Muted));
             }
         }
     }
     match &state {
-        SeatState::Joining if a.view().is_some() => {}
         SeatState::Joining | SeatState::Watching => {}
-        SeatState::Reconnecting => blocks.push(Block::Note(m::link_reconnecting().into())),
+        SeatState::Reconnecting => out.push((m::link_reconnecting().into(), Tone::Note)),
         other => {
             if let Some(why) = seat_problem(other) {
-                blocks.push(Block::Note(why.into()));
+                out.push((why.into(), Tone::Note));
             }
         }
     }
-    let mut actions = Vec::new();
-    // A stage being played that the seat is not watching (it arrived,
-    // reloaded or came back during it): Watch, first.
-    if a.watchable().is_some() {
-        actions.push(Action::new(WATCH, m::audience_watch_stage()).primary());
-    }
-    actions.push(Action::new("back", m::audience_leave()));
-    blocks.push(Block::Gap);
-    blocks.push(Block::Actions(actions));
-    PageDoc {
-        title: PageTitle::new(m::audience_title(), m::audience_heading()),
-        blocks,
-    }
+    out
 }
 
-/// The page's Watch: the stage being played, as it stands.
+/// The competitors as the public view has them, as the players panel's
+/// rows (`room::player_line`): each one's name (a CPU's level as stars,
+/// a bot labeled), their place and match points once a stage of the
+/// match is confirmed, and Out where the match is over for them; in the
+/// room's order (by place once placed). Only what the public view
+/// carries: no readiness, no connection, no policy.
+pub fn player_rows(v: &PublicView) -> Vec<super::room::PlayerRow> {
+    use super::room::{PlayerRow, Tone as RowTone};
+    let placed = v.standings.iter().any(|st| {
+        st.stages
+            .iter()
+            .any(|sg| matches!(sg, ddi_room::StageStanding::Placed(_)))
+    });
+    let rows: Vec<PlayerRow> = v
+        .players
+        .iter()
+        .filter(|p| !p.left || p.in_match)
+        .map(|p| {
+            let standing = v
+                .standings
+                .iter()
+                .find(|st| st.participant == p.id)
+                .filter(|_| placed);
+            let level = match p.kind {
+                PublicKind::Cpu { level, .. } => Some(level),
+                _ => None,
+            };
+            let status: String = if p.out_for_match {
+                m::play_out().into()
+            } else {
+                String::new()
+            };
+            PlayerRow {
+                name: player_name(v, p.id),
+                badge: false,
+                sub: String::new(),
+                level,
+                state: status.clone(),
+                me: false,
+                ready: level.is_some(),
+                cpu: level.is_some(),
+                place: standing.map(|st| st.rank),
+                points: standing.map(|st| super::room::points_text(st.total).into()),
+                role: String::new(),
+                status,
+                tone: if p.out_for_match {
+                    RowTone::Away
+                } else {
+                    RowTone::Plain
+                },
+                policy: String::new(),
+                id: None,
+                manage: false,
+            }
+        })
+        .collect();
+    super::room::panel_order(rows)
+}
+
+/// The card's Watch: the stage being played, as it stands; and its
+/// Stop watching.
 pub const WATCH: &str = "watch";
+const WATCH_BUTTON: &str = "Item.watch";
+const LEAVE_BUTTON: &str = "Item.back";
 
-/// The audience's page over its client.
-pub type AudienceScreen = FedPage<AudiencePage>;
-
-/// What the audience's page follows: the seat's client, and what it hands
-/// on to the shell.
-pub struct AudiencePage {
+/// The audience's page (`audience-page-v1`, the feedback round I): no
+/// song select and no page of text, but a card built as a room's stage's
+/// Ready card is (`ready-card-v1`: the same translucent plate, most of
+/// the screen, the players' part in columns, `room::players_part`) over
+/// the start menu's note rain before the first stage this seat watched,
+/// and after it over that stage's picture (`AudienceClient::backdrop`),
+/// darkened as the play's backdrop is; its buttons Watch (where a stage
+/// plays that the seat is not watching) and Stop watching.
+pub struct AudienceScreen {
     env: Env,
     audience: SharedAudience,
     shell: AudienceShell,
-    /// What the debug view was last published for ([`Self::env_publish`]).
+    screen: [f32; 2],
+    zoom: f32,
+    /// The buttons laid out, in order.
+    buttons: Vec<&'static str>,
+    /// The players' part's first row, rows, rows shown and a column's
+    /// rows when last laid out.
+    first: usize,
+    shown: (usize, usize, usize),
+    /// The client's version the card was built for.
+    built: Option<u64>,
+    /// What the debug view was last published for.
     published: Option<(u64, u32, Option<u32>, u32, u64)>,
     /// Watch was offered when last laid out (it is focused as it comes).
     offered: bool,
-    /// A stage handed over this frame, given to the shell once the page
-    /// followed.
-    order: Option<StageOrder>,
+    time: f64,
+    /// The rain's clock (the screens' wall clock; still under reduced
+    /// motion) and whether it moves.
+    rain_time: f64,
+    rain_animating: bool,
 }
 
 impl AudienceScreen {
     pub fn new(env: Env, audience: SharedAudience, shell: AudienceShell) -> AudienceScreen {
-        let feed: PageFeed = Rc::new(RefCell::new(None));
-        let first = doc(&audience.borrow());
-        let page_shell: super::page::PageShell = {
-            let audience = audience.clone();
-            let shell = shell.clone();
-            Rc::new(move |call, cx| {
-                match call {
-                    PageCall::Leave => {
-                        audience.borrow_mut().leave();
-                        shell(AudienceCall::Leave, cx);
-                        return None;
-                    }
-                    PageCall::Button(id) if id == "back" => {
-                        audience.borrow_mut().leave();
-                        shell(AudienceCall::Leave, cx);
-                        return None;
-                    }
-                    PageCall::Button(id) if id == WATCH => {
-                        // In the press: the sound's gesture, then the
-                        // stage handed over as it stands.
-                        shell(AudienceCall::WatchPressed, cx);
-                        let order = audience.borrow_mut().watch_now();
-                        if let Some(order) = order {
-                            shell(AudienceCall::Watch(Box::new(order)), cx);
-                        }
-                    }
-                    _ => return None,
-                }
-                Some(doc(&audience.borrow()))
-            })
-        };
-        let page =
-            PageScreen::new(env.clone(), "audience", first).with_shell(page_shell, feed.clone());
-        let model = AudiencePage {
+        AudienceScreen {
             env,
             audience,
             shell,
+            screen: super::DESIGN,
+            zoom: 1.0,
+            buttons: Vec::new(),
+            first: 0,
+            shown: (0, 0, 0),
+            built: None,
             published: None,
             offered: false,
-            order: None,
-        };
-        FedPage::fed(page, feed, model)
-    }
-}
-
-impl PageModel for AudiencePage {
-    fn version(&self) -> u64 {
-        self.audience.borrow().version()
-    }
-
-    fn doc(&self) -> PageDoc {
-        doc(&self.audience.borrow())
-    }
-
-    fn tick(&mut self, cx: &mut Cx) {
-        // The seat's socket and the room's view come while nothing moves.
-        let now = (cx.clock() * 1000.0).max(0.0) as u64;
-        let (jobs, order, redirect) = {
-            let mut a = self.audience.borrow_mut();
-            a.tick(now);
-            let redirect = a.online().borrow_mut().take_redirect();
-            (a.take_load_jobs(), a.take_stage_order(), redirect)
-        };
-        for job in jobs {
-            (self.shell)(AudienceCall::Prepare(job), cx);
+            time: 0.0,
+            rain_time: 0.0,
+            rain_animating: false,
         }
-        if let Some(r) = redirect {
-            (self.shell)(AudienceCall::Redirect(r), cx);
-        }
-        self.order = order;
-        self.env_publish();
     }
 
-    fn after(&mut self, page: &mut PageScreen, root: &mut ddi_actor::Actor, cx: &mut Cx) {
-        // Watch focused first as it comes (Enter or Start presses it).
-        let offered = self.audience.borrow().watchable().is_some();
-        if offered && !self.offered {
-            if page.focus_button(WATCH, root, cx) {
-                self.offered = true;
+    /// What lies behind the card: the last stage watched's picture,
+    /// darkened as the play's backdrop is (its blurred base, cover
+    /// fitted), else the start menu's rain.
+    fn backdrop(&mut self, cx: &mut Cx) -> Actor {
+        let size = self.screen;
+        let [w, h] = size;
+        if let Some((source, _)) = self.audience.borrow().backdrop().cloned() {
+            use ddi_actor::background::BASE_SIDE;
+            let texture = cx.blurred_texture(&source, BASE_SIDE);
+            let mut sprite = crate::look::named(
+                ddi_actor::Kind::Sprite(ddi_actor::Sprite::quad([w, h])),
+                "Audience.Backdrop",
+            );
+            if let ddi_actor::Kind::Sprite(sp) = &mut sprite.kind {
+                sprite_texture(sp, texture);
             }
-        } else if !offered {
-            self.offered = false;
+            let alpha = self
+                .env
+                .metric("Backdrop.Alpha", ddi_actor::background::BASE_ALPHA);
+            crate::look::call(&mut sprite, "xy", &[w / 2.0, h / 2.0]);
+            crate::look::call(&mut sprite, "diffuse", &[1.0, 1.0, 1.0, alpha]);
+            self.rain_animating = false;
+            return sprite;
         }
-        if let Some(order) = self.order.take() {
-            (self.shell)(AudienceCall::Watch(Box::new(order)), cx);
+        match self
+            .env
+            .look
+            .component("TitleMenu.Background", &Spec::new(size, ""))
+        {
+            Some(mut background) => {
+                background.name = "MenuBackground".into();
+                if let Some(source) = self.env.look.image("TitleMenu.Background") {
+                    let texture = cx.texture(source, 1024.0);
+                    super::sprites_mut(&mut background, &mut |s| s.texture = texture);
+                }
+                self.rain_animating = self.env.look.animate_component(
+                    "TitleMenu.Background",
+                    &mut background,
+                    size,
+                    self.rain_time,
+                );
+                background
+            }
+            None => frame("MenuBackground", Vec::new()),
         }
     }
-}
 
-impl AudiencePage {
+    fn tree(&mut self, cx: &mut Cx) -> Actor {
+        let vp = cx.viewport().screen;
+        let compact;
+        (self.screen, self.zoom, compact) = super::compact_fit(&self.env, vp);
+        let env = self.env.clone();
+        let [sw, sh] = self.screen;
+        let a = self.audience.borrow();
+        self.built = Some(a.version());
+        // A compact screen (a phone) has no footer of hints, as a page.
+        let touch = compact;
+        let footer_h = if touch { 0.0 } else { 40.0 };
+        // The Ready card's sizes (`super::prompt`'s `ready-card-v1`).
+        let (full_w, full_h) = if sw > 600.0 && sh >= 480.0 {
+            let m = (0.03 * sw).clamp(24.0, 64.0);
+            (sw - 2.0 * m, sh - footer_h - 2.0 * m.min(32.0))
+        } else {
+            (sw - 16.0, sh - footer_h - 16.0)
+        };
+        let classic = if sh < 480.0 { 560.0_f32.min(full_w) } else { 560.0 };
+        let split = full_w - 294.0 >= 480.0;
+        let w = if split { classic.min(full_w - 294.0) } else { full_w };
+        let inner = w - 48.0;
+        let mut c: Vec<Actor> = Vec::new();
+        let mut y = 24.0;
+        for (k, (text, tone)) in lines(&a).into_iter().enumerate() {
+            let (size, weight, color) = match tone {
+                Tone::Title => (26.0, 700, "Text"),
+                Tone::Text => (15.0, 600, "Text"),
+                Tone::Accent => (15.0, 600, "Accent"),
+                Tone::Muted => (13.0, 400, "Muted"),
+                Tone::Note => (14.0, 600, "Gold"),
+            };
+            if k > 0 && matches!(tone, Tone::Accent | Tone::Note) {
+                y += 6.0;
+            }
+            for (i, l) in wrap_lines(&text, inner, size).into_iter().enumerate() {
+                let mut t = env.text(&format!("Line{k}.{i}"), &l, size, weight, color);
+                crate::look::ellipsized(&mut t, inner);
+                y += size * 0.65;
+                c.push(left(t, 24.0, y));
+                y += size * 0.65;
+            }
+            y += 2.0;
+        }
+        y += 16.0;
+        // The buttons: Watch (where offered) first, focused as it comes.
+        let mut buttons: Vec<(&'static str, String, &str)> = Vec::new();
+        if a.watchable().is_some() {
+            buttons.push((WATCH_BUTTON, m::audience_watch_stage().into(), "PlayButton"));
+        }
+        buttons.push((LEAVE_BUTTON, m::audience_leave().into(), "Button"));
+        let bh = if self.zoom > 1.0 { 48.0 } else { 40.0 };
+        let rows = a.view().map(player_rows).unwrap_or_default();
+        let words = (
+            String::from(m::players()),
+            a.view()
+                .map(|v| String::from(m::audience_players(v.players.len())))
+                .unwrap_or_default(),
+        );
+        let names = super::room::PartNames {
+            heading: "Audience.Players",
+            count: "Audience.Count",
+            row: "Audience.Player",
+            down: "Audience.Down",
+            up: "Audience.Up",
+        };
+        let mut part_at = None;
+        if !split && !rows.is_empty() {
+            // Under the lines, as tall as the card leaves above the
+            // buttons.
+            let room = (full_h - y - bh - 24.0 - 18.0).max(0.0);
+            part_at = Some([24.0, y, inner, room]);
+        }
+        let mut place_part = |c: &mut Vec<Actor>, area: [f32; 4]| -> f32 {
+            let part = super::room::players_part(
+                &env,
+                &rows,
+                &names,
+                (&words.0, &words.1),
+                self.first,
+                area,
+            );
+            self.first = part.first;
+            self.shown = (rows.len(), part.shown, part.per);
+            c.extend(part.actors);
+            part.height
+        };
+        if let Some(area) = part_at {
+            y += place_part(&mut c, area) + 18.0;
+        }
+        let widths: Vec<f32> = buttons
+            .iter()
+            .map(|(_, l, kind)| {
+                let size = if *kind == "PlayButton" { 18.0 } else { 15.0 };
+                (crate::look::mono_width(l, size) + 36.0).max(104.0)
+            })
+            .collect();
+        let mut x = w - 24.0;
+        for ((name, label, kind), bw) in buttons.iter().zip(&widths) {
+            c.push(env.component(
+                kind,
+                "Button",
+                &Spec::new([*bw, bh], label.as_str()),
+                name,
+                [x - bw / 2.0, y + bh / 2.0],
+            ));
+            x -= bw + 10.0;
+        }
+        y += bh;
+        let h = (y + 24.0).max(full_h);
+        let card_w = if split { full_w } else { w };
+        if split && !rows.is_empty() {
+            place_part(&mut c, [w, 24.0, full_w - w - 24.0, h - 48.0]);
+        }
+        drop(a);
+        self.buttons = buttons.iter().map(|(n, ..)| *n).collect();
+        let mut children = vec![env.component(
+            "Dialog.Glass",
+            "Panel",
+            &Spec::new([card_w, h], ""),
+            "Card",
+            [0.0, 0.0],
+        )];
+        children.extend(c);
+        let mut card = frame("Audience", children);
+        let room = sh - 16.0 - footer_h;
+        let zoom = (room / h).min(1.0);
+        crate::look::call(&mut card, "zoom", &[zoom]);
+        let top = ((sh - footer_h) - h * zoom) / 2.0;
+        crate::look::call(&mut card, "xy", &[(sw - card_w * zoom) / 2.0, top.max(8.0)]);
+        let mut all = vec![super::ground(&env, self.screen), self.backdrop(cx), card];
+        if !touch {
+            let (watch, leave) = (m::audience_watch_stage(), m::audience_leave());
+            let first = if self.buttons.first() == Some(&WATCH_BUTTON) {
+                watch.as_str()
+            } else {
+                leave.as_str()
+            };
+            all.push(footer(
+                &env,
+                self.screen,
+                &[(&["ENTER"], first), (&["ESC"], leave.as_str())],
+                &[
+                    (&[HintAction::Confirm, HintAction::Start], first),
+                    (&[HintAction::Back], leave.as_str()),
+                ],
+                "",
+                &[],
+                cx,
+            ));
+        }
+        let mut root = ddi_actor::Actor::new(ddi_actor::Kind::Frame(all));
+        super::transitions(&mut root, &env, &[("Audience", super::Edge::None)]);
+        if self.zoom != 1.0 {
+            crate::look::call(&mut root, "zoom", &[self.zoom]);
+        }
+        root
+    }
+
+    fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx) {
+        let left = crate::hit::find_mut(root, "Audience").map_or(0.0, |c| c.tween_time_left());
+        *root = self.tree(cx);
+        super::relaid(root, left, cx);
+        let st = &mut self.env.state.borrow_mut();
+        st.page_items = self.buttons.iter().map(|b| b.to_string()).collect();
+    }
+
     /// Says what the seat shows (`ThemeState::audience`), when anything
     /// it says changed: the client's version, or the counts that move
     /// without it.
@@ -435,5 +629,155 @@ impl AudiencePage {
         let view = debug_view(&a);
         drop(a);
         self.env.state.borrow_mut().audience = Some(view);
+    }
+
+    fn leave(&mut self, cx: &mut Cx) {
+        self.audience.borrow_mut().leave();
+        (self.shell)(AudienceCall::Leave, cx);
+    }
+
+    /// Watch pressed: in the press, the sound's gesture, then the stage
+    /// handed over as it stands.
+    fn watch(&mut self, cx: &mut Cx) {
+        (self.shell)(AudienceCall::WatchPressed, cx);
+        let order = self.audience.borrow_mut().watch_now();
+        if let Some(order) = order {
+            (self.shell)(AudienceCall::Watch(Box::new(order)), cx);
+        }
+    }
+
+    fn scroll(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
+        let (n, shown, _) = self.shown;
+        self.first = super::scrolled(self.first, by, n, shown);
+        self.rebuild(root, cx);
+    }
+}
+
+/// `texture` on a sprite drawn cover fitted.
+fn sprite_texture(sp: &mut ddi_actor::Sprite, texture: u32) {
+    sp.texture = texture;
+    sp.fit = ddi_actor::Fit::Cover;
+}
+
+impl crate::screen::Screen for AudienceScreen {
+    fn name(&self) -> &str {
+        "audience"
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        self.time = cx.time();
+        self.rain_time = if self.env.reduced() { 0.0 } else { cx.clock() };
+        let root = self.tree(cx);
+        self.env.state.borrow_mut().page_items =
+            self.buttons.iter().map(|b| b.to_string()).collect();
+        self.env_publish();
+        root
+    }
+
+    fn focusables(&self) -> Vec<Focusable> {
+        let mut v: Vec<Focusable> = self.buttons.iter().map(|b| Focusable::new(*b)).collect();
+        // Side by side: Left and Right between them, Watch the rightmost.
+        let n = v.len();
+        for i in 0..n {
+            if i + 1 < n {
+                v[i].left = Some(self.buttons[i + 1].into());
+            }
+            if i > 0 {
+                v[i].right = Some(self.buttons[i - 1].into());
+            }
+        }
+        v
+    }
+
+    fn first_focus(&self) -> Option<String> {
+        self.buttons.first().map(|b| b.to_string())
+    }
+
+    fn animating(&self) -> bool {
+        self.rain_animating && !self.env.reduced()
+    }
+
+    fn wake_at(&self) -> Option<f64> {
+        // Answers come while nothing moves: looked for ten times a second.
+        Some(self.time + 0.1)
+    }
+
+    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+        self.time = cx.time();
+        // The seat's socket and the room's view come while nothing moves.
+        let now = (cx.clock() * 1000.0).max(0.0) as u64;
+        let (jobs, order, redirect) = {
+            let mut a = self.audience.borrow_mut();
+            a.tick(now);
+            let redirect = a.online().borrow_mut().take_redirect();
+            (a.take_load_jobs(), a.take_stage_order(), redirect)
+        };
+        for job in jobs {
+            (self.shell)(AudienceCall::Prepare(job), cx);
+        }
+        if let Some(r) = redirect {
+            (self.shell)(AudienceCall::Redirect(r), cx);
+        }
+        if self.built != Some(self.audience.borrow().version()) {
+            self.rebuild(root, cx);
+        }
+        // Watch focused first as it comes (Enter or Start presses it).
+        let offered = self.buttons.first() == Some(&WATCH_BUTTON);
+        if offered && !self.offered {
+            cx.focus(WATCH_BUTTON);
+            self.offered = true;
+        } else if !offered {
+            self.offered = false;
+        }
+        if !self.env.reduced() {
+            self.rain_time = cx.clock();
+        }
+        if let Some(background) = crate::hit::find_mut(root, "MenuBackground") {
+            self.rain_animating = self.env.look.animate_component(
+                "TitleMenu.Background",
+                background,
+                self.screen,
+                self.rain_time,
+            );
+        }
+        self.env_publish();
+        if let Some(order) = order {
+            (self.shell)(AudienceCall::Watch(Box::new(order)), cx);
+        }
+    }
+
+    fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
+        match input {
+            Input::Menu {
+                action: MenuAction::Back,
+                ..
+            } => {
+                self.leave(cx);
+                Handled::Yes
+            }
+            Input::Activate { name } if name == WATCH_BUTTON => {
+                self.watch(cx);
+                Handled::Yes
+            }
+            Input::Activate { name } if name == LEAVE_BUTTON => {
+                self.leave(cx);
+                Handled::Yes
+            }
+            Input::Activate { name } if name == "Audience.Down" || name == "Audience.Up" => {
+                let page = self.shown.2.max(1) as i32;
+                self.scroll(if name == "Audience.Down" { page } else { -page }, root, cx);
+                Handled::Yes
+            }
+            Input::Wheel { delta, .. } if delta[1] != 0.0 => {
+                self.scroll(super::wheel_step(*delta), root, cx);
+                Handled::Yes
+            }
+            Input::Key(k) if k.down && matches!(k.code.as_str(), "PageDown" | "PageUp") => {
+                let page = self.shown.2.max(1) as i32;
+                self.scroll(if k.code == "PageDown" { page } else { -page }, root, cx);
+                Handled::Yes
+            }
+            _ => Handled::No,
+        }
     }
 }

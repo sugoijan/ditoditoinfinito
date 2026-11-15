@@ -262,6 +262,10 @@ pub struct AudienceClient {
     sockets: u32,
     /// The shell's threads' preparations (desktop's).
     inbox: Option<AudienceInbox>,
+    /// The last stage watched's picture (a texture source, its shape),
+    /// as its prompt had it: the audience's page's backdrop until the
+    /// next stage's replaces it ([`AudienceClient::set_backdrop`]).
+    backdrop: Option<(String, f32)>,
 }
 
 /// A shell's threads' news since the last call (desktop's share
@@ -326,6 +330,7 @@ impl AudienceClient {
             music: MusicDelays::new(AUDIENCE_VIEW_V1),
             sockets: 0,
             inbox: None,
+            backdrop: None,
         };
         c.tick(now_ms);
         c
@@ -346,6 +351,23 @@ impl AudienceClient {
     /// Bumped by every change a screen shows.
     pub fn version(&self) -> u64 {
         self.version
+    }
+
+    /// The picture of the stage watched (its prompt's: the song's own or
+    /// its generated background's still; a texture source and its
+    /// shape), told by the shell as the stage's play shows it: the
+    /// audience's page draws it behind its card once the stage is over,
+    /// until the next stage's replaces it. None kept: the start menu's
+    /// rain (before the first stage of this visit).
+    pub fn set_backdrop(&mut self, picture: Option<(String, f32)>) {
+        if picture.is_some() && picture != self.backdrop {
+            self.backdrop = picture;
+            self.version += 1;
+        }
+    }
+
+    pub fn backdrop(&self) -> Option<&(String, f32)> {
+        self.backdrop.as_ref()
     }
 
     /// The room as its audience is shown it, once said.

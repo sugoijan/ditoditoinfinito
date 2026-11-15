@@ -81,6 +81,14 @@ impl StageRoom {
         }
     }
 
+    /// The audience's seat, where the stage is watched with it.
+    pub fn seat(&self) -> Option<&ddi_ui::state::audience::SharedAudience> {
+        match &self.client {
+            StageClient::Audience(a) => Some(a),
+            StageClient::Member(_) => None,
+        }
+    }
+
     /// The member's room, where the stage is theirs.
     pub fn room(&self) -> Option<&SharedRoom> {
         match &self.client {

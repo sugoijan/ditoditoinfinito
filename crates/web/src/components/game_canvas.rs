@@ -2636,6 +2636,17 @@ impl GameCanvas {
             }
         }
         let picture = self.prompt_picture(ctx);
+        // Watched with a room's audience: the song's picture is the
+        // audience's page's backdrop once the stage is over
+        // (`audience-page-v1`; a generated still is drawn for the play
+        // alone, so the page keeps its last picture or the rain then).
+        if let (Some(link), Some(p)) = (&ctx.props().watch, picture.as_ref())
+            && !p.source.starts_with("generated-still:")
+        {
+            crate::online::audience(link)
+                .borrow_mut()
+                .set_backdrop(Some((p.source.clone(), p.aspect)));
+        }
         let info = self.prompt_info(ctx);
         let layout = match (&self.song, &ctx.props().source) {
             (Status::Ready(song), SongSource::Song { chart, .. }) if self.replay.is_none() => song
