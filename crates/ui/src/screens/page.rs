@@ -1493,6 +1493,10 @@ impl Screen for PageScreen {
         &self.name
     }
 
+    fn yields(&self) -> bool {
+        true
+    }
+
     fn build(&mut self, cx: &mut Cx) -> Actor {
         self.place(cx.viewport().screen);
         // Where it was left, if it was.

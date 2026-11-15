@@ -591,6 +591,14 @@ impl SelectScreen {
             return;
         }
         if !cx.is_current_screen() {
+            // Under a screen opened over the room (Options, Calibrate):
+            // a stage due is told there, with a way to its Ready screen
+            // ([`room::DueDialog`]); never over a play or its results.
+            if cx.covered_by_yielding() {
+                let go: room::DueGo =
+                    Rc::new(|cx| cx.broadcast(Message::new(room::DUE_GO)));
+                room::DueDialog::tell(&self.env, &room, go, cx);
+            }
             return;
         }
         // The Rules once the room is known (an online room's first
@@ -1059,6 +1067,11 @@ impl SelectScreen {
         let room = rm.room.clone();
         if msg.name == crate::screens::room_dialogs::RULES_SAVED {
             self.refill_room(root, cx);
+        }
+        // The due notice's button: the screens over the room leave, and
+        // the stage's prompt opens once this one is shown again.
+        if msg.name == room::DUE_GO && cx.covered_by_yielding() {
+            cx.surface();
         }
         // The window asked to close while leaving costs something: asked
         // here, where the room's screen is the one shown.

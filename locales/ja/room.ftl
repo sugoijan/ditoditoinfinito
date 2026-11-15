@@ -638,6 +638,13 @@ room-prompt-sat-out = 準備が間に合わなかったため、このステー�
 
 room-prompt-canceled = ステージの開始は取り消されました。
 
+room-due-title = ステージ{ $number }が始まります
+room-due-play = ルームの次のステージが始まります。準備画面でプレイに参加できます。
+room-due-watch = プレイしないステージが始まります。観戦できます。
+room-due-go = 準備画面へ
+room-due-go-watch = 観戦する
+room-due-stay = このまま
+
 room-results-tab-standings = 順位
 room-results-tab-graphs = グラフ
 

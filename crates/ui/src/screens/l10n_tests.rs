@@ -1042,6 +1042,26 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
         h.key("Enter", "Enter");
         show(&mut h, found);
     }
+    // A stage due while the player is on a screen over the room: the
+    // notice, for a stage to play and for one to watch.
+    for watch in [false, true] {
+        let room = RoomClient::shared(0, 1);
+        room.borrow_mut().set_rules_seen(true);
+        if watch {
+            room.borrow_mut().set_intent(ddi_room::Intent::Watch).unwrap();
+        }
+        room.borrow_mut().pick(&song, &chart).unwrap();
+        let jobs = room.borrow_mut().take_load_jobs();
+        for job in jobs {
+            room.borrow_mut().finish_load(&job, Ok(()));
+        }
+        let mut h = harness();
+        h.push(sample::options_screen(env, None));
+        let notice = super::room::DueDialog::due(env, &room, Rc::new(|_| {})).expect("due");
+        assert!(h.ui.push_dialog(notice));
+        shown(&mut h, found);
+        assert_eq!(h.ui.layers().last().unwrap().name, super::room::DUE_NOTICE);
+    }
     // A stage's results, its prompt's note, its play's column and every
     // kind of the player's stage result.
     let mut h = harness();

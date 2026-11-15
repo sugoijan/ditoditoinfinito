@@ -5662,3 +5662,210 @@ fn the_rooms_screens_tick_it_on_the_wall_clock() {
     }
     assert_eq!(room.borrow().now_ms(), wall + 29 * 100);
 }
+
+/// Bob, a member of the online room, on its song select with Options
+/// opened over it; alice picks, and the stage's song is shared: the
+/// stage is due for bob.
+fn bob_on_options(t: &Three, eb: &Env, orders: &Orders) -> Harness {
+    use crate::state::online::tests::room::upload;
+    let mut hb = harness();
+    hb.push(
+        sample::room_select(eb, t.bob.clone(), songs_of(&["Bravo One"]))
+            .with_room(t.bob.clone(), shell(&t.bob, orders)),
+    );
+    t.settle(400, &mut [&mut hb]);
+    hb.push(sample::options_screen(eb, None));
+    hb.run(0.5);
+    assert_eq!(top(&hb), "options");
+    let song = songs_of(&["Alpha One"]).songs.remove(0);
+    t.alice.borrow_mut().pick(&song, &song.charts[0]).unwrap();
+    t.settle(400, &mut [&mut hb]);
+    upload(&t.server, &mut t.alice.borrow_mut(), "abc12345");
+    for _ in 0..4 {
+        t.settle(400, &mut [&mut hb]);
+    }
+    hb
+}
+
+fn notices(h: &Harness) -> usize {
+    h.ui
+        .layers()
+        .iter()
+        .filter(|l| l.name == super::room::DUE_NOTICE)
+        .count()
+}
+
+/// Decisions round D2, item 1 (the maintainer, 2026-11-15: "Tell them"):
+/// a member on Options when their room's stage is due is told so over
+/// Options, with the room's countdown and a button that goes to the
+/// stage's Ready screen; Options is never closed for them. Desktop's
+/// path: the room's screen under Options on the UI's stack.
+#[test]
+fn a_member_on_options_is_told_their_stage_is_due_and_goes_to_ready() {
+    let t = Three::new(false);
+    let eb = env();
+    let orders = Orders::default();
+    let mut hb = bob_on_options(&t, &eb, &orders);
+    assert!(orders.borrow().is_empty(), "no prompt opens under Options");
+    assert_eq!(top(&hb), super::room::DUE_NOTICE, "{:?}", hb.ui.layers());
+    assert_eq!(notices(&hb), 1, "told once");
+    assert_eq!(view(&eb).due_open, Some((1, false)));
+    assert!(has(&hb, "Stage 1 is starting"), "{:?}", hb.texts());
+    assert!(
+        has(&hb, "Your room's next stage is starting. Go to Ready to play it."),
+        "{:?}",
+        hb.texts()
+    );
+    // The room's status line under it, counting.
+    let counted = |h: &Harness| {
+        h.texts()
+            .iter()
+            .find(|t| t.contains(" · ") && t.ends_with(" s"))
+            .cloned()
+            .unwrap_or_else(|| panic!("no countdown in {:?}", h.texts()))
+    };
+    let before = counted(&hb);
+    for _ in 0..3 {
+        t.settle(800, &mut [&mut hb]);
+    }
+    assert_ne!(counted(&hb), before, "the seconds count down");
+    assert_eq!(notices(&hb), 1);
+    assert!(hb.ui.layers().iter().any(|l| l.name == "options"), "Options stays");
+    // Go to Ready is chosen first: Options leaves by its own Back, and
+    // the prompt opens once the room's screen shows again.
+    assert_eq!(hb.ui.focused(), Some("Go"));
+    hb.key("Enter", "Enter");
+    for _ in 0..4 {
+        t.settle(200, &mut [&mut hb]);
+    }
+    assert_eq!(notices(&hb), 0);
+    assert!(!hb.ui.layers().iter().any(|l| l.name == "options"), "{:?}", hb.ui.layers());
+    assert_eq!(orders.borrow().len(), 1, "the stage's prompt handed over");
+    assert_eq!(view(&eb).due_open, None);
+    assert_eq!(eb.state.borrow().over, 0, "Options left as its Back leaves it");
+}
+
+/// Stay here keeps Options and is not asked again for the stage; its
+/// prompt still opens by itself once the player is back on the room.
+#[test]
+fn staying_on_options_is_told_once_and_the_prompt_opens_on_the_way_back() {
+    let t = Three::new(false);
+    let eb = env();
+    let orders = Orders::default();
+    let mut hb = bob_on_options(&t, &eb, &orders);
+    assert_eq!(top(&hb), super::room::DUE_NOTICE);
+    // Escape is Stay.
+    hb.key("Escape", "Escape");
+    for _ in 0..4 {
+        t.settle(300, &mut [&mut hb]);
+    }
+    assert_eq!(notices(&hb), 0, "not told again");
+    assert_eq!(top(&hb), "options");
+    assert!(orders.borrow().is_empty());
+    assert!(t.bob.borrow().stage_due().is_none());
+    hb.key("Escape", "Escape");
+    for _ in 0..4 {
+        t.settle(300, &mut [&mut hb]);
+    }
+    assert_eq!(orders.borrow().len(), 1, "back on the room: its prompt");
+}
+
+/// The notice goes by itself when the stage is no longer theirs to go
+/// to (the pick backed out of); Options stays.
+#[test]
+fn the_due_notice_goes_when_the_stage_is_no_longer_due() {
+    let t = Three::new(false);
+    let eb = env();
+    let orders = Orders::default();
+    let mut hb = bob_on_options(&t, &eb, &orders);
+    assert_eq!(top(&hb), super::room::DUE_NOTICE);
+    let stage = t.alice.borrow().state().upcoming_stage().unwrap();
+    let _ = t.alice.borrow_mut().take_stage_order();
+    let _ = t.alice.borrow_mut().leave_prompt(stage);
+    for _ in 0..4 {
+        t.settle(300, &mut [&mut hb]);
+    }
+    assert!(t.bob.borrow().stage_due().is_none(), "{:?}", t.bob.borrow().state().phase);
+    assert_eq!(notices(&hb), 0);
+    assert_eq!(top(&hb), "options");
+    assert!(!t.bob.borrow().telling_due().get().is_some());
+}
+
+/// The web's path: Options is a page of its own (no room screen under
+/// it); the shell pushes the notice over it from the kept room, and its
+/// button asks the shell to go (the web navigates to the room's route).
+/// A stage the player only watches says so.
+#[test]
+fn a_shell_pushes_the_due_notice_over_a_page_of_its_own() {
+    use super::room::DueDialog;
+    let t = Three::new(false);
+    let eb = env();
+    let orders = Orders::default();
+    // Bob's room runs without a screen (the web's timer under the page).
+    let mut hb = harness();
+    hb.push(sample::options_screen(&eb, None));
+    hb.run(0.5);
+    let went = Rc::new(std::cell::Cell::new(0));
+    let go = |went: &Rc<std::cell::Cell<u32>>| -> super::room::DueGo {
+        let went = went.clone();
+        Rc::new(move |_| went.set(went.get() + 1))
+    };
+    t.step(400);
+    t.step(200);
+    assert!(DueDialog::due(&eb, &t.bob, go(&went)).is_none(), "nothing due yet");
+    let song = songs_of(&["Alpha One"]).songs.remove(0);
+    t.alice.borrow_mut().pick(&song, &song.charts[0]).unwrap();
+    t.step(400);
+    t.step(200);
+    crate::state::online::tests::room::upload(&t.server, &mut t.alice.borrow_mut(), "abc12345");
+    for _ in 0..4 {
+        t.step(400);
+        crate::state::online::tests::room::prepare(&mut t.bob.borrow_mut());
+        t.step(200);
+    }
+    assert!(
+        t.bob.borrow().stage_due().is_some(),
+        "{:?} {:?}",
+        t.bob.borrow().state().phase,
+        t.bob.borrow().view()
+    );
+    assert!(orders.borrow().is_empty());
+    let d = DueDialog::due(&eb, &t.bob, go(&went)).expect("due");
+    assert!(DueDialog::due(&eb, &t.bob, go(&went)).is_none(), "told once while it is open");
+    assert!(hb.ui.push_dialog(d));
+    hb.run(0.5);
+    assert_eq!(top(&hb), super::room::DUE_NOTICE);
+    assert!(has(&hb, "Go to Ready") && has(&hb, "Stay here"), "{:?}", hb.texts());
+    hb.key("Enter", "Enter");
+    hb.run(0.5);
+    assert_eq!(went.get(), 1);
+    assert_eq!(top(&hb), "options", "the shell goes; the notice only asks");
+    assert!(t.bob.borrow().telling_due().get().is_none());
+    assert!(t.bob.borrow().stage_due().is_some(), "still due until the prompt takes it");
+
+    // A stage to watch: CPU practice with the player watching.
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    room.borrow_mut().set_intent(ddi_room::Intent::Watch).unwrap();
+    let data = library("dance-single");
+    room.borrow_mut().pick(&data.songs[0], &data.songs[0].charts[0]).unwrap();
+    let jobs = room.borrow_mut().take_load_jobs();
+    for job in jobs {
+        room.borrow_mut().finish_load(&job, Ok(()));
+    }
+    let due = room.borrow().stage_due().expect("a watcher's stage");
+    assert!(due.watching);
+    let ew = env();
+    let mut hw = harness();
+    hw.push(sample::options_screen(&ew, None));
+    hw.run(0.5);
+    assert!(hw.ui.push_dialog(DueDialog::due(&ew, &room, go(&went)).unwrap()));
+    hw.run(0.5);
+    assert!(
+        has(&hw, "A stage you are not playing is starting. You can watch it."),
+        "{:?}",
+        hw.texts()
+    );
+    assert!(has(&hw, "Watch"), "{:?}", hw.texts());
+    assert_eq!(view(&ew).due_open, Some((1, true)));
+}

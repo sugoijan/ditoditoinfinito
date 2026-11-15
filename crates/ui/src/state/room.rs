@@ -564,6 +564,17 @@ impl CpuSeat {
     }
 }
 
+/// A stage due for a player who is not on the room's screens
+/// ([`RoomClient::stage_due`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StageDue {
+    pub stage: StageId,
+    /// Its number in the match, from 1.
+    pub number: u16,
+    /// They are not in it: it is theirs to watch.
+    pub watching: bool,
+}
+
 /// A stage to play now, handed to the shell once its countdown is over
 /// ([`RoomClient::take_stage_order`]): the library song and chart, the
 /// stage's place in the match, the battle, the local player and the CPUs
@@ -1052,6 +1063,13 @@ pub struct RoomClient {
     /// never handed over again while that window or play lasts
     /// ([`Self::forget_left_prompts`]).
     left_prompts: BTreeSet<StageId>,
+    /// Stages this player was told are due on a screen over the room
+    /// ([`RoomClient::stage_due`]) and chose to stay for: never told
+    /// again while that window or play lasts.
+    stayed: BTreeSet<StageId>,
+    /// The stage a notice over a screen over the room tells is due now,
+    /// while that notice is open ([`RoomClient::telling_due`]).
+    telling: Rc<std::cell::Cell<Option<StageId>>>,
     /// The stage whose prompt the last tick had open, if any: a notice is
     /// never carried across its opening or its end (feedback round H,
     /// item 2).
@@ -1677,6 +1695,8 @@ impl RoomClient {
             asked: BTreeSet::new(),
             launched: BTreeSet::new(),
             left_prompts: BTreeSet::new(),
+            stayed: BTreeSet::new(),
+            telling: Rc::default(),
             notice_stage: None,
             sharing: BTreeMap::new(),
             uploads: Vec::new(),
@@ -3593,6 +3613,41 @@ impl RoomClient {
         })
     }
 
+    /// The stage whose prompt the room would hand this player now
+    /// ([`RoomClient::take_stage_order`], which this does not take),
+    /// for a player who is on a screen opened over the room (Options,
+    /// Calibrate, the announcer studio): they are told it is due, once a
+    /// stage (never again after [`RoomClient::stay`]).
+    pub fn stage_due(&self) -> Option<StageDue> {
+        let stage = self.prompt_stage()?;
+        if self.launched.contains(&stage) || self.stayed.contains(&stage) {
+            return None;
+        }
+        let s = self.state();
+        let m = s.current.as_ref()?;
+        let index = m.stage_index(stage)?;
+        self.picked(&m.stages[index].content.as_ref()?.id)?;
+        Some(StageDue {
+            stage,
+            number: u16::try_from(index + 1).unwrap_or(u16::MAX),
+            watching: !self.in_stage(stage),
+        })
+    }
+
+    /// Told `stage` is due, the player stays where they are: not told
+    /// again while its window or its play lasts (its prompt still opens
+    /// by itself once they are back on the room's song select).
+    pub fn stay(&mut self, stage: StageId) {
+        self.stayed.insert(stage);
+    }
+
+    /// The stage a notice tells is due now, while that notice is open on
+    /// a screen over the room (`screens::room::DueDialog` sets it and
+    /// clears it when it goes): told once, whoever looks.
+    pub fn telling_due(&self) -> Rc<std::cell::Cell<Option<StageId>>> {
+        self.telling.clone()
+    }
+
     /// The stage whose countdown just ended, to play now: handed over
     /// once (a stage is never played twice).
     pub fn take_stage_order(&mut self) -> Option<StageOrder> {
@@ -4134,7 +4189,7 @@ impl RoomClient {
     /// in is over (a window closed, the stage played): the next window of
     /// the same stage (the pick made again) opens it again.
     fn forget_left_prompts(&mut self) {
-        if self.left_prompts.is_empty() {
+        if self.left_prompts.is_empty() && self.stayed.is_empty() {
             return;
         }
         let open = match self.state().phase {
@@ -4147,6 +4202,7 @@ impl RoomClient {
             _ => None,
         };
         self.left_prompts.retain(|s| Some(*s) == open);
+        self.stayed.retain(|s| Some(*s) == open);
     }
 
     /// What the room's live side said since the last tick: kept for the

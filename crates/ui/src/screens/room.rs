@@ -172,6 +172,10 @@ pub struct RoomView {
     pub leave_cost: Option<String>,
     pub leave_text: Option<String>,
     pub leave_open: bool,
+    /// The notice that a stage is due is open over a screen over the
+    /// room ([`DueDialog`]): the stage's number, and whether it is the
+    /// player's to watch only.
+    pub due_open: Option<(u16, bool)>,
     /// The host's: Host options is open; the local player may change the
     /// room's hosts (an online room's owner); and what the room does when
     /// its host leaves (`pass_on`, `close`; none: a room that does not
@@ -1502,6 +1506,198 @@ pub const LEAVE_CONFIRMED: &str = "Room.LeaveConfirmed";
 /// question closes ([`ask_leave`]).
 pub const STAGE_OPENS: &str = "Room.StageOpens";
 
+/// What the due notice's button does: goes to the stage's Ready screen
+/// (a shell closes what is over the room: the web navigates to the
+/// room's song select, desktop's room screen asks the screens over it to
+/// leave, [`Cx::surface`]), where the prompt opens by itself.
+pub type DueGo = Rc<dyn Fn(&mut Cx)>;
+
+/// Broadcast by the notice's button where the room's screen is under
+/// the screens it was opened over (desktop): that screen asks them to
+/// leave ([`Cx::surface`]).
+pub const DUE_GO: &str = "Room.DueGo";
+
+/// The notice's layer among the layers.
+pub const DUE_NOTICE: &str = "room-stage-due";
+
+/// The room's stage is due while the player is on a screen opened over
+/// the room (Options, Calibrate, the announcer studio; the maintainer,
+/// 2026-11-15: "Tell them"): a notice over that screen saying so, with
+/// the room's status line (its countdown) and a button that goes to the
+/// stage's Ready screen. Nothing is taken out of the player's hands:
+/// Stay here keeps the screen (told once a stage, `RoomClient::stay`),
+/// and the notice goes by itself only when the stage is no longer theirs
+/// to go to.
+pub struct DueDialog {
+    env: Env,
+    room: SharedRoom,
+    go: DueGo,
+    due: crate::state::room::StageDue,
+    telling: Rc<std::cell::Cell<Option<StageId>>>,
+    lines: Vec<String>,
+}
+
+impl DueDialog {
+    /// The notice, where a stage is due for the player (`RoomClient::
+    /// stage_due`) and no notice tells it already.
+    pub fn due(env: &Env, room: &SharedRoom, go: DueGo) -> Option<DueDialog> {
+        let (due, telling) = {
+            let r = room.try_borrow().ok()?;
+            (r.stage_due()?, r.telling_due())
+        };
+        if telling.get() == Some(due.stage) {
+            return None;
+        }
+        telling.set(Some(due.stage));
+        publish_dialog(env, |v| v.due_open = Some((due.number, due.watching)));
+        Some(DueDialog {
+            env: env.clone(),
+            room: room.clone(),
+            go,
+            due,
+            telling,
+            lines: Vec::new(),
+        })
+    }
+
+    /// Opens it over the screens from a room screen's own call
+    /// (desktop's room under Options); whether it did.
+    pub fn tell(env: &Env, room: &SharedRoom, go: DueGo, cx: &mut Cx) -> bool {
+        match DueDialog::due(env, room, go) {
+            Some(d) => {
+                cx.overlay_current(d);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// What it says now: the sentence, then the room's status line.
+    fn words(&self, width: f32) -> Vec<String> {
+        let Ok(r) = self.room.try_borrow() else {
+            return self.lines.clone();
+        };
+        let first = if self.due.watching {
+            m::due_watch()
+        } else {
+            m::due_play()
+        };
+        let mut lines = super::dialog::wrap_lines(&first, width, 14.0);
+        lines.extend(super::dialog::wrap_lines(&status_line(&r), width, 14.0));
+        lines
+    }
+
+    fn panel(&self, screen: [f32; 2]) -> f32 {
+        520.0_f32.min(screen[0] - 32.0)
+    }
+}
+
+impl crate::screen::Screen for DueDialog {
+    fn presentation(&self) -> Option<crate::look::Presentation<'_>> {
+        Some(self.env.presentation())
+    }
+
+    fn name(&self) -> &str {
+        DUE_NOTICE
+    }
+
+    fn build(&mut self, cx: &mut Cx) -> Actor {
+        let vp = cx.viewport().screen;
+        let (screen, scale) = super::narrow_fit(&self.env, vp);
+        let w = self.panel(screen);
+        self.lines = self.words(w - 48.0);
+        let h = 160.0 + self.lines.len() as f32 * 18.0;
+        let title = m::due_title(self.due.number);
+        let (mut c, [x, y]) = super::dialog::shell(&self.env, screen, [w, h], &title);
+        super::dialog::dialog_body(&self.env, &mut c, &self.lines, [x, y], w, |i| {
+            if i + 1 == self.lines.len() { "Secondary" } else { "Muted" }
+        });
+        let go: String = if self.due.watching {
+            m::due_go_watch().into()
+        } else {
+            m::due_go().into()
+        };
+        let buttons = [
+            ("Stay", m::due_stay().into(), "Button"),
+            ("Go", go, "Button"),
+        ];
+        c.extend(super::dialog::button_rows(&self.env, &buttons, 2, [x, y, w, h], 180.0));
+        self.env.state.borrow_mut().page_items = vec!["Go".into(), "Stay".into()];
+        super::dialog::fitted_dialog(c, screen, h, scale)
+    }
+
+    fn focusables(&self) -> Vec<crate::nav::Focusable> {
+        // Go first: what the notice is for.
+        vec![crate::nav::Focusable::new("Go"), crate::nav::Focusable::new("Stay")]
+    }
+
+    fn update(&mut self, _dt: f32, root: &mut Actor, cx: &mut Cx) {
+        // No longer theirs to go to (the stage over, its prompt opened
+        // elsewhere, the room left): the notice goes; the screen stays.
+        let due = self.room.try_borrow().ok().map(|r| r.stage_due());
+        match due {
+            Some(Some(due)) if due.stage == self.due.stage => {
+                let vp = cx.viewport().screen;
+                let (screen, _) = super::narrow_fit(&self.env, vp);
+                let now = self.words(self.panel(screen) - 48.0);
+                if due != self.due || now != self.lines {
+                    self.due = due;
+                    publish_dialog(&self.env, |v| v.due_open = Some((due.number, due.watching)));
+                    let fresh = self.build(cx);
+                    super::refill(root, fresh);
+                }
+            }
+            Some(_) => cx.close(true),
+            None => {}
+        }
+    }
+
+    fn input(
+        &mut self,
+        input: &crate::screen::Input,
+        _root: &mut Actor,
+        cx: &mut Cx,
+    ) -> crate::screen::Handled {
+        use crate::screen::{Handled, Input};
+        match input {
+            Input::Activate { name } if name == "Go" => {
+                cx.close(false);
+                (self.go)(cx);
+                Handled::Yes
+            }
+            Input::Activate { name } if name == "Stay" => {
+                if let Ok(mut r) = self.room.try_borrow_mut() {
+                    r.stay(self.due.stage);
+                }
+                cx.close(true);
+                Handled::Yes
+            }
+            // Escape, Back, a press beside it: Stay.
+            Input::Menu {
+                action: crate::nav::MenuAction::Back,
+                ..
+            }
+            | Input::Outside => {
+                if let Ok(mut r) = self.room.try_borrow_mut() {
+                    r.stay(self.due.stage);
+                }
+                cx.close(true);
+                Handled::Yes
+            }
+            _ => Handled::No,
+        }
+    }
+}
+
+impl Drop for DueDialog {
+    fn drop(&mut self) {
+        if self.telling.get() == Some(self.due.stage) {
+            self.telling.set(None);
+        }
+        publish_dialog(&self.env, |v| v.due_open = None);
+    }
+}
+
 /// What leaving costs, in a sentence or two: what the room will do.
 pub fn leave_text(cost: &crate::state::room::LeaveCost) -> UiText {
     use crate::state::room::LeaveCost;
@@ -2533,6 +2729,7 @@ pub fn publish(env: &Env, room: &SharedRoom, view: &str, items: Vec<String>) {
         standings_open: kept.standings_open,
         host_open: kept.host_open,
         leave_open: kept.leave_open,
+        due_open: kept.due_open,
         ..view
     });
 }

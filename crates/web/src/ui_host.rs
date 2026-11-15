@@ -937,6 +937,36 @@ pub(crate) fn hand_over(host: &Rc<RefCell<Host>>, pads: Vec<ddi_engine::Connecte
     }
 }
 
+/// A dialog over the page's screen from outside its events (a room's
+/// notice that its stage is due, `crate::room`): made with the theme's
+/// environment of the first host up that has one, opened over its
+/// current screen. Whether one was opened.
+pub(crate) fn push_dialog<S: ddi_ui::Screen + 'static>(
+    make: impl FnOnce(&ThemeEnv) -> Option<S>,
+) -> bool {
+    let up: Vec<Rc<RefCell<Host>>> =
+        UP.with_borrow_mut(|up| up.iter().filter_map(Weak::upgrade).collect());
+    for host in &up {
+        let Ok(mut h) = host.try_borrow_mut() else {
+            continue;
+        };
+        if h.closed {
+            continue;
+        }
+        let Some(env) = h.theme.as_ref().map(|t| t.env.clone()) else {
+            continue;
+        };
+        let Some(dialog) = make(&env) else {
+            return false;
+        };
+        let pushed = h.ui.push_dialog(dialog);
+        drop(h);
+        schedule(host);
+        return pushed;
+    }
+    false
+}
+
 /// A frame for every host up (the shell's fade begins: the screens
 /// held under it come in, `Ui::reveal`).
 pub(crate) fn wake_all() {

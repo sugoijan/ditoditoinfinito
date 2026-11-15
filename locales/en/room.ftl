@@ -1404,6 +1404,25 @@ room-prompt-sat-out = You weren't ready in time, so you sit this stage out.
 # or the host picked again).
 room-prompt-canceled = The stage's start was canceled.
 
+## A stage is due while the player is on a screen opened over the room
+## (Options, Calibrate, the announcer studio): a notice over that screen,
+## with the room's status line (its countdown) under these words. The
+## screen is never closed for them.
+
+# The notice's title (about 30 letters).
+# Variables:
+#   $number (Number) - the stage, from 1
+room-due-title = Stage { $number } is starting
+# For a player who can play the stage.
+room-due-play = Your room's next stage is starting. Go to Ready to play it.
+# For a stage they are not playing, which they can watch.
+room-due-watch = A stage you are not playing is starting. You can watch it.
+# The notice's buttons (about 16 letters each): to the stage's Ready
+# screen, to the stage watched, or staying on the screen.
+room-due-go = Go to Ready
+room-due-go-watch = Watch
+room-due-stay = Stay here
+
 ## A stage's results: the Standings and Graphs tabs where a play's four
 ## graphs are (feedback round B).
 

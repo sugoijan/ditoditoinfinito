@@ -1262,6 +1262,10 @@ impl Screen for OptionsScreen {
         "options"
     }
 
+    fn yields(&self) -> bool {
+        true
+    }
+
     fn build(&mut self, cx: &mut Cx) -> Actor {
         self.env.state.borrow_mut().over += 1;
         self.place(cx.viewport().screen);

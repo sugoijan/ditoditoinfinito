@@ -29,8 +29,8 @@ use ddi_ui::state::online::{Http, Online, OnlineConfig, Platform, SharedOnline};
 use ddi_ui::state::room::{LoadJob, Picked, RoomClient, SharedRoom, prepare_stage};
 
 /// The bundled song the fake room plays.
-const SONG: &str = "beatucada";
-const ROOM: &str = "Room000001";
+pub(crate) const SONG: &str = "beatucada";
+pub(crate) const ROOM: &str = "Room000001";
 const MEMBERS: [&str; 3] = ["alice", "bob", "cody"];
 
 thread_local! {
@@ -189,7 +189,7 @@ impl Http for FakeHttp {
     }
 }
 
-fn online(server: &SharedFake, who: Option<&'static str>) -> SharedOnline {
+pub(crate) fn online(server: &SharedFake, who: Option<&'static str>) -> SharedOnline {
     let o = Online::new(
         Box::new(FakeHttp {
             server: server.clone(),
@@ -285,7 +285,7 @@ impl Script {
 
 /// The bundled song's entry as song select would give it, its chart
 /// `chart`.
-fn entry(song: &ddi_chart::Song, chart: usize) -> SongEntry {
+pub(crate) fn entry(song: &ddi_chart::Song, chart: usize) -> SongEntry {
     SongEntry {
         id: SONG.into(),
         title: song.title.clone(),

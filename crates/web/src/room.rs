@@ -221,9 +221,10 @@ const OVER_PUMP_MS: u32 = 100;
 /// An online room kept while its member is on a page over it (Options,
 /// Calibrate): run as its song select runs it (review3 web-3), on a timer
 /// of its own while the page is there, so that its picks are prepared and
-/// uploaded and the room hears from it; its stage's prompt opens once the
-/// member is back on its song select (as desktop's, whose room screen
-/// runs under Options).
+/// uploaded and the room hears from it; a stage due meanwhile is told
+/// over the page ([`tell_due`]), and its prompt opens once the member is
+/// back on its song select (as desktop's, whose room screen runs under
+/// Options).
 fn run_over(page: &RoomPage) {
     let wanted = *page == RoomPage::Over && crate::online::kept_room().is_some();
     OVER_PUMP.with_borrow_mut(|timer| {
@@ -260,6 +261,35 @@ fn pump_kept() {
     for job in uploads {
         upload(room.clone(), job);
     }
+    tell_due(&room);
+}
+
+/// The kept online room's stage is due for its member while they are on
+/// a page over it (the maintainer, 2026-11-15: "Tell them"): a notice
+/// over that page (`ddi_ui::screens::room::DueDialog`), whose button goes
+/// to the room's song select, where the stage's prompt opens. The page is
+/// never left for them; on a page without the UI's screens (a
+/// calibration's run, a studio scene's play) they are told once back on
+/// one.
+fn tell_due(room: &SharedRoom) {
+    use ddi_ui::screens::room::{DueDialog, DueGo};
+    let Some(id) = crate::online::kept_room_id() else {
+        return;
+    };
+    // Cheap while nothing is due or it is told already.
+    let due = room.try_borrow().is_ok_and(|r| {
+        r.stage_due()
+            .is_some_and(|d| r.telling_due().get() != Some(d.stage))
+    });
+    if !due {
+        return;
+    }
+    let go: DueGo = Rc::new(move |cx| {
+        cx.request(ddi_ui::UiRequest::Navigate(
+            Route::MpRoom { id: id.clone() }.to_hash(),
+        ))
+    });
+    crate::ui_host::push_dialog(|env| DueDialog::due(env, room, go));
 }
 
 /// Registers the browser's `beforeunload` question (closing or reloading
@@ -448,6 +478,11 @@ pub(crate) fn forget_playing(room: &SharedRoom) {
 /// room's share (`crate::share`, held for the session), its chart found
 /// by the digest chosen. The room told it loaded or why not.
 pub(crate) fn prepare_for(room: SharedRoom, job: LoadJob) {
+    // TESTING ONLY: the fake room's song is the bundled one.
+    if crate::fake_room::on() && job.share.is_some() && room.borrow().is_online() {
+        crate::fake_room::prepare(room, job);
+        return;
+    }
     wasm_bindgen_futures::spawn_local(async move {
         let warn = |e: &str| {
             web_sys::console::warn_1(&format!("room: stage song {}: {e}", job.song).into())

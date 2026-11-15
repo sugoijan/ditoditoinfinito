@@ -250,6 +250,11 @@ pub(crate) fn current() -> SharedOnline {
     if crate::fake_seat::on() {
         return crate::fake_seat::viewer();
     }
+    // TESTING ONLY (`mpfakeroom=S`): the fake room's member, signed in
+    // (`crate::fake_room`).
+    if crate::fake_room::on() {
+        return crate::fake_room::you();
+    }
     KEPT.with(|k| {
         k.online_or(|| {
             Online::new(
@@ -333,6 +338,10 @@ fn client_id() -> ClientId {
 pub(crate) fn room(id: &str) -> SharedRoom {
     KEPT.with(|k| {
         k.room_or(id, || {
+            // TESTING ONLY: the fake room in the page (`crate::fake_room`).
+            if crate::fake_room::on() && id == crate::fake_seat::ROOM {
+                return crate::fake_room::member();
+            }
             Rc::new(RefCell::new(RoomClient::online(
                 current(),
                 id,

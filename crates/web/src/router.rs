@@ -668,6 +668,13 @@ fn multiplayer_params(hash: &str, at_load: bool) {
     if param("mpfakeseat").as_deref() == Some("1") {
         crate::fake_seat::want(param("mpfakeend").and_then(|s| s.parse::<f64>().ok()));
     }
+    // TESTING ONLY: `mpfakeroom=S`, online room `Room000001` is a fake
+    // room in the page whose scripted owner picks a stage S seconds after
+    // the player joined (`crate::fake_room`: the headless browsers' look
+    // at a member told their stage is due, without a server).
+    if let Some(after) = param("mpfakeroom").and_then(|s| s.parse::<f64>().ok()) {
+        crate::fake_room::want(after);
+    }
     let flag = |key: &str| match param(key).as_deref() {
         Some("1") => Some(true),
         Some("0") => Some(false),

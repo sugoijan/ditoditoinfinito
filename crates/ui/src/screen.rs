@@ -310,6 +310,14 @@ pub trait Screen {
         false
     }
 
+    /// A screen opened over another that the one under it may ask to
+    /// leave ([`Cx::surface`]: Options, the pages, opened over a room's
+    /// song select when the room's stage is due): its own Back leaves it
+    /// as the player's would. Not a play, its prompt or its results.
+    fn yields(&self) -> bool {
+        false
+    }
+
     /// The named actors focus moves between, in order (the first is
     /// focused when the screen comes in), with any explicit neighbours.
     fn focusables(&self) -> Vec<Focusable> {
@@ -391,6 +399,11 @@ pub(crate) enum Op {
     SetText(String),
     EndText,
     EnterChrome,
+    /// The screens over this one leave ([`Cx::surface`]).
+    Surface,
+    /// A dialog over the current screen, whichever it is
+    /// ([`Cx::overlay_current`]).
+    OverlayCurrent(Box<dyn Screen>),
     /// Every screen built again ([`Cx::rebuild_screens`]).
     RebuildAll,
     SetControls {
@@ -421,6 +434,8 @@ pub struct Cx {
     /// The last input was a key or a pad's (not a pointer).
     pub(crate) by_keys: bool,
     pub(crate) current_screen: bool,
+    /// Every screen over this one yields ([`Cx::covered_by_yielding`]).
+    pub(crate) yielding_over: bool,
     /// The screen is coming in still ([`Cx::entering`]).
     pub(crate) entering: bool,
     pub(crate) hints: std::rc::Rc<crate::controller_hints::Hints>,
@@ -451,6 +466,7 @@ impl Cx {
             menu_pad: false,
             by_keys: false,
             current_screen: true,
+            yielding_over: false,
             entering: false,
             hints: std::rc::Rc::default(),
         }
@@ -482,6 +498,25 @@ impl Cx {
     /// Dialogs and app chrome do not change the owning screen.
     pub fn is_current_screen(&self) -> bool {
         self.current_screen
+    }
+
+    /// This screen is under other screens, each of which may be asked to
+    /// leave ([`Screen::yields`]): [`Cx::surface`] would bring it back.
+    pub fn covered_by_yielding(&self) -> bool {
+        self.yielding_over
+    }
+
+    /// Opens a dialog over the current screen, whichever it is (this
+    /// one may be under it): it is that screen's, and goes with it.
+    pub fn overlay_current(&mut self, screen: impl Screen + 'static) {
+        self.ops.push(Op::OverlayCurrent(Box::new(screen)));
+    }
+
+    /// The screens over this one leave, one after the other, each by its
+    /// own Back (its dialogs closed first), until this one is the current
+    /// screen again; given up where one of them does not go.
+    pub fn surface(&mut self) {
+        self.ops.push(Op::Surface);
     }
 
     /// This screen is coming in still (its entrance playing): a tree

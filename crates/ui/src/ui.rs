@@ -320,6 +320,9 @@ pub struct Ui {
     wheel_stream: crate::gesture::WheelStream,
     /// The chrome is being built (its viewport is the whole surface).
     building_chrome: bool,
+    /// A screen asked for the ones over it to leave ([`Cx::surface`]):
+    /// its layer, and how many Backs are left to try.
+    surfacing: Option<(u64, u8)>,
     /// Where the chrome shows the other layers ([`Screen::stage`]).
     stage: Option<Stage>,
     /// What is marked ([`Ui::mark`]), and the layer it was first drawn
@@ -379,6 +382,7 @@ impl Ui {
             chrome_focus: None,
             chrome_return: None,
             building_chrome: false,
+            surfacing: None,
             text: None,
             ime_rect: None,
             last_mouse_down: None,
@@ -475,6 +479,19 @@ impl Ui {
     /// first (a shell's screen shown once what it needs has loaded).
     pub fn push_over(&mut self, screen: impl Screen + 'static) {
         self.push_screen(Box::new(screen), false);
+    }
+
+    /// Opens a dialog over the current screen from outside its events
+    /// (a shell's notice: `screens::room::DueDialog` on the web's pages
+    /// over a room), as that screen's own [`Cx::overlay`] would, modal.
+    /// Whether there was a screen to open it over.
+    pub fn push_dialog(&mut self, screen: impl Screen + 'static) -> bool {
+        let Some(owner) = self.current_screen_mut().map(|l| l.id) else {
+            return false;
+        };
+        self.push_layer(Box::new(screen), true, true, Some(owner), false);
+        self.touch();
+        true
     }
 
     /// The current screen's layer: the topmost that is neither an
@@ -1095,6 +1112,7 @@ impl Ui {
                 .map_or(self.active_time + f64::from(dt), |c| c.rem_euclid(4096.0));
         }
         self.follow_inset();
+        self.surface_step();
         if self.text.as_ref().is_some_and(|t| t.field.is_composing()) {
             self.repeater.clear();
         }
@@ -1826,7 +1844,58 @@ impl Ui {
         cx.entering = self
             .layer(id)
             .is_some_and(|l| matches!(l.phase, Phase::Entering(_)));
+        cx.yielding_over = self.index(id).is_some_and(|i| {
+            let mut over = self.layers[i + 1..]
+                .iter()
+                .filter(|l| !l.chrome && !l.overlay)
+                .peekable();
+            over.peek().is_some() && over.all(|l| l.screen.yields())
+        });
         cx
+    }
+
+    /// One step of [`Cx::surface`]: the current screen, while it is not
+    /// the one that asked, is sent Back (its dialogs and its typing
+    /// closed first), once it takes input.
+    fn surface_step(&mut self) {
+        let Some((target, tries)) = self.surfacing else {
+            return;
+        };
+        let top = self
+            .layers
+            .iter()
+            .rev()
+            .find(|l| !l.chrome && !l.overlay)
+            .map(|l| (l.id, l.phase.takes_input(), l.screen.yields()));
+        let Some((top, live, yields)) = top else {
+            self.surfacing = None;
+            return;
+        };
+        if top == target || self.layer(target).is_none() || !yields || tries == 0 {
+            self.surfacing = None;
+            return;
+        }
+        if !live {
+            return;
+        }
+        self.surfacing = Some((target, tries - 1));
+        let dialogs: Vec<u64> = self
+            .layers
+            .iter()
+            .filter(|l| l.overlay && !l.chrome)
+            .map(|l| l.id)
+            .collect();
+        for d in dialogs {
+            self.close(d, true);
+        }
+        let back = Input::Menu {
+            action: MenuAction::Back,
+            repeat: false,
+        };
+        if self.dispatch(top, back, false) == Handled::No {
+            self.close(top, true);
+        }
+        self.touch();
     }
 
     fn push_layer(
@@ -2079,6 +2148,12 @@ impl Ui {
                 Op::EnterChrome => {
                     if self.focus_layer() == Some(id) {
                         self.enter_chrome(gesture);
+                    }
+                }
+                Op::Surface => self.surfacing = Some((id, 8)),
+                Op::OverlayCurrent(screen) => {
+                    if let Some(owner) = self.current_screen_mut().map(|l| l.id) {
+                        self.push_layer(screen, true, true, Some(owner), gesture);
                     }
                 }
                 Op::SetControls { controls, styles } => self.set_controls(controls, styles),
