@@ -833,7 +833,13 @@ pub fn cpu_sub(spec: &ddi_room::OpponentSpec) -> String {
 /// A CPU's level as shown, from 1 (`crate::stars`), from its seat's (the
 /// engine's index).
 pub fn cpu_level(spec: &ddi_room::OpponentSpec) -> u8 {
-    spec.level.min(cpu_levels() - 1) + 1
+    shown_level(spec.level)
+}
+
+/// A CPU's level as shown, from 1, from the engine's index (a seat's, or
+/// the audience's public view's).
+pub fn shown_level(index: u8) -> u8 {
+    index.min(cpu_levels() - 1) + 1
 }
 
 /// The stars' height beside a 12 px line, and the room after them.

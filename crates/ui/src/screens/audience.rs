@@ -278,6 +278,11 @@ fn lines(a: &AudienceClient) -> Vec<(String, Tone)> {
     out
 }
 
+/// The players' count over the list.
+fn players_count(v: &PublicView) -> String {
+    m::audience_players(player_rows(v).len()).into()
+}
+
 /// The competitors as the public view has them, as the players panel's
 /// rows (`room::player_line`): each one's name (a CPU's level as stars,
 /// a bot labeled), their place and match points once a stage of the
@@ -302,7 +307,8 @@ pub fn player_rows(v: &PublicView) -> Vec<super::room::PlayerRow> {
                 .find(|st| st.participant == p.id)
                 .filter(|_| placed);
             let level = match p.kind {
-                PublicKind::Cpu { level, .. } => Some(level),
+                // The view carries the engine's index, as a seat does.
+                PublicKind::Cpu { level, .. } => Some(super::room::shown_level(level)),
                 _ => None,
             };
             let status: String = if p.out_for_match {
@@ -499,9 +505,7 @@ impl AudienceScreen {
         let rows = a.view().map(player_rows).unwrap_or_default();
         let words = (
             String::from(m::players()),
-            a.view()
-                .map(|v| String::from(m::audience_players(v.players.len())))
-                .unwrap_or_default(),
+            a.view().map(players_count).unwrap_or_default(),
         );
         let names = super::room::PartNames {
             heading: "Audience.Players",
@@ -780,5 +784,67 @@ impl crate::screen::Screen for AudienceScreen {
             }
             _ => Handled::No,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ddi_room::audience::public::PublicPlayer;
+    use ddi_room::{Identity, MatchRules, ParticipantId, RoomId, RoomPolicy, RoomState};
+
+    /// A view of a room of one person, CPUs at the engine's levels 0, 4
+    /// and 9, and a person who left before the match.
+    fn view() -> PublicView {
+        let state = RoomState::new(
+            RoomId::new("Room000001"),
+            Identity::new("dev:alice"),
+            "alice".into(),
+            RoomPolicy::default(),
+            MatchRules::hosted(),
+            ddi_room::ContentSource::Shared,
+        );
+        let mut v = PublicView::of(&state, "Room");
+        let cpu = |id: u64, level: u8| PublicPlayer {
+            id: ParticipantId(id),
+            name: None,
+            kind: PublicKind::Cpu {
+                level,
+                ordinal: id as u16,
+                seed: 0,
+                personality: None,
+                targeting: Default::default(),
+            },
+            in_match: false,
+            out_for_match: false,
+            left: false,
+        };
+        v.players.extend([cpu(2, 0), cpu(3, 4), cpu(4, 9)]);
+        v.players.push(PublicPlayer {
+            id: ParticipantId(5),
+            name: Some("dan".into()),
+            kind: PublicKind::Person,
+            in_match: false,
+            out_for_match: false,
+            left: true,
+        });
+        v
+    }
+
+    /// ui-screens-3: a CPU's stars are its shown level, from 1, as the
+    /// members' panels draw them (the view carries the engine's index).
+    #[test]
+    fn the_audience_sees_a_cpu_at_the_level_the_members_see() {
+        let levels: Vec<Option<u8>> = player_rows(&view()).iter().map(|r| r.level).collect();
+        assert_eq!(levels, [None, Some(1), Some(5), Some(10)]);
+    }
+
+    /// ui-screens-11: the count is of the players listed, not of those
+    /// who left.
+    #[test]
+    fn the_audience_counts_the_players_it_lists() {
+        let v = view();
+        assert_eq!(player_rows(&v).len(), 4);
+        assert_eq!(players_count(&v), String::from(m::audience_players(4)));
     }
 }
