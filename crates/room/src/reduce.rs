@@ -727,26 +727,40 @@ impl RoomState {
                 Self::authority_only(actor)?;
                 // A bot is never an administrator, whatever it is told.
                 let admin = &(*admin && !identity.is_bot());
-                if let Some(m) = self.member_by_identity(identity) {
-                    // The same person back: the same row, whatever the
-                    // admission now says.
-                    if m.left || m.connection != Connection::Connected {
-                        let participant = m.id;
-                        self.emit(out, Event::MemberRestored { participant });
-                    }
-                    return Ok(());
-                }
-                if self.access.admission == Admission::Closed && !admin {
-                    return Err(Rejection::AdmissionClosed);
-                }
-                let present = self.present_people();
                 let limit = usize::from(self.policy.max_members)
                     + if *admin {
                         usize::from(self.policy.admin_reserve)
                     } else {
                         0
                     };
-                if present >= limit {
+                if let Some(m) = self.member_by_identity(identity) {
+                    // The same person back: the same row, whatever the
+                    // admission now says. One who had left arrives again
+                    // as anyone does: refused at the member bound, and in
+                    // to watch where every player's place is taken.
+                    if m.left || m.connection != Connection::Connected {
+                        let participant = m.id;
+                        let to_watch = m.left && m.intent == Intent::Play && self.players_full();
+                        if m.left && self.present_people() >= limit {
+                            return Err(Rejection::RoomFull);
+                        }
+                        self.emit(out, Event::MemberRestored { participant });
+                        if to_watch {
+                            self.emit(
+                                out,
+                                Event::IntentChanged {
+                                    participant,
+                                    intent: Intent::Watch,
+                                },
+                            );
+                        }
+                    }
+                    return Ok(());
+                }
+                if self.access.admission == Admission::Closed && !admin {
+                    return Err(Rejection::AdmissionClosed);
+                }
+                if self.present_people() >= limit {
                     return Err(Rejection::RoomFull);
                 }
                 // Every player's place taken: in to watch, not refused.

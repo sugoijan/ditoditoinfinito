@@ -164,3 +164,44 @@ fn a_song_picked_again_after_its_share_failed_is_shared_again() {
     assert!(r.rev(s1) > rev, "a fresh readiness revision");
 }
 
+/// First pass 2: a member who left, back when every place in the room is
+/// taken, is refused as any arrival at the member bound is.
+#[test]
+fn a_returning_member_is_refused_at_the_member_bound() {
+    let mut policy = RoomPolicy::default();
+    policy.max_members = 3;
+    let mut r = Room::with(policy);
+    let ana = r.join("ana");
+    r.join("bo");
+    r.by(ana, Command::Leave).unwrap();
+    r.join("cy");
+    assert_eq!(r.s.present_people(), 3);
+    assert_eq!(r.join_as("ana", Intent::Play), Err(Rejection::RoomFull));
+    assert!(r.s.members[&ana].left, "still gone");
+    assert_eq!(r.s.present_people(), 3);
+}
+
+/// First pass 2: a player who left, back when every player's place is
+/// taken, comes back to watch (`join-watch-v0`, as a newcomer would)
+/// rather than past the competitor cap.
+#[test]
+fn a_returning_player_comes_back_to_watch_at_the_competitor_cap() {
+    let mut policy = RoomPolicy::default();
+    policy.max_competitors = 2;
+    let mut r = Room::with(policy);
+    let ana = r.join("ana");
+    r.by(ana, Command::Leave).unwrap();
+    let bo = r.join("bo");
+    assert_eq!(r.s.members[&bo].intent, Intent::Play);
+    assert!(r.s.players_full());
+    assert_eq!(r.join_as("ana", Intent::Play), Ok(ana), "the same row");
+    assert!(!r.s.members[&ana].left);
+    assert_eq!(r.s.members[&ana].intent, Intent::Watch);
+    assert_eq!(r.s.reserved_humans(), 2, "never past the cap");
+    // A returning member with room to play keeps their Play.
+    let mut r = Room::with(RoomPolicy::default());
+    let ana = r.join("ana");
+    r.by(ana, Command::Leave).unwrap();
+    r.join_as("ana", Intent::Play).unwrap();
+    assert_eq!(r.s.members[&ana].intent, Intent::Play);
+}
