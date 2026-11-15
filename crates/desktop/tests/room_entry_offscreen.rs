@@ -9,15 +9,14 @@
 //! (never blank, never an empty footer), the home's column still while
 //! the room is made, the room's song select never drawn as built (its
 //! search's Clear hidden), its view coming in once; a quick room says
-//! nothing of joining, a slow one does. Skipped where there is no GPU
-//! adapter (CI).
+//! nothing of joining, a slow one does. Without a GPU adapter (CI) only
+//! the pictures are skipped: the frames' state is checked all the same.
 
 mod common;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
-use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::fake::{FakeServer, FakeSocket, Fault, SharedFake};
 use ddi_room::{ClientId, Clock, Identity, ManualClock, ParticipantId, RoomPolicy};
 use ddi_ui::screens::online::OnlineCall;
@@ -101,12 +100,7 @@ enum Shell {
 
 #[test]
 fn from_the_home_into_a_private_room_frame_by_frame() {
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).expect("device");
-    let format = wgpu::TextureFormat::Rgba8Unorm;
-    let mut gpu = Gpu::new(device, queue, format);
+    let mut pictures = common::gpu::Pictures::new();
     let size = [1280u32, 720u32];
     let css = [1280.0f32, 720.0];
     for shell in [Shell::Desktop, Shell::Web] {
@@ -268,23 +262,31 @@ fn from_the_home_into_a_private_room_frame_by_frame() {
                         .map_or(0.0, |a| a.current().diffuse()[3]);
                     line_seen |= alpha > 0.01;
                 }
-                let pixels = gpu.draw_offscreen(drawn_ui, size, format);
-                // The bars every frame: the header's wordmark, the
-                // footer's hints.
-                assert!(
-                    common::online::drawn(&pixels, size, [0.0, 0.0, 0.3, 0.06]),
-                    "{what} frame {frame}: no header"
-                );
-                assert!(
-                    common::online::drawn(&pixels, size, [0.0, 0.955, 0.3, 1.0]),
-                    "{what} frame {frame}: an empty footer"
-                );
-                keep(
-                    &format!("entry-{shell:?}-{motion}-{lag}-{frame:03}"),
-                    size,
-                    "en",
-                    &pixels,
-                );
+                // The bars every frame, as built (with or without a GPU)…
+                for bar in ["Header", "Footer"] {
+                    assert!(
+                        drawn_ui.actor(bar).is_some_and(|a| a.visible),
+                        "{what} frame {frame}: no {bar}"
+                    );
+                }
+                // …and as drawn: the header's wordmark, the footer's
+                // hints.
+                if let Some(pixels) = pictures.draw(drawn_ui, size) {
+                    assert!(
+                        common::online::drawn(&pixels, size, [0.0, 0.0, 0.3, 0.06]),
+                        "{what} frame {frame}: no header"
+                    );
+                    assert!(
+                        common::online::drawn(&pixels, size, [0.0, 0.955, 0.3, 1.0]),
+                        "{what} frame {frame}: an empty footer"
+                    );
+                    keep(
+                        &format!("entry-{shell:?}-{motion}-{lag}-{frame:03}"),
+                        size,
+                        "en",
+                        &pixels,
+                    );
+                }
             }
             assert!(view_seen, "{what}: the room's view came in");
             // A room that answers at once says nothing of joining; a slow

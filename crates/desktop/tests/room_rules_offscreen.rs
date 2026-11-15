@@ -4,23 +4,19 @@
 //! ("Changes apply: From stage 2"), a row changed and marked; then, the
 //! stages played (their results reported as a play reports them), the
 //! match's standings marking the stage played under other rules.
-//! Skipped where there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>`
-//! keeps the pictures (PPM).
+//! Without a GPU adapter (CI) only the pictures are skipped: the room's
+//! rules, the pop-ups' state and their parts' places are checked all the
+//! same. `DDI_OFFSCREEN_PPM=<dir>` keeps the pictures (PPM).
 
 mod common;
 
 
-use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::{Finish, Finisher, MatchDifficulty};
 use ddi_ui::UiEvent;
 use ddi_ui::screens::data::Difficulty;
 use ddi_ui::screens::room_dialogs::{RulesDialog, StandingsDialog};
 
 const SIZE: [u32; 2] = [1280, 720];
-
-fn ppm(name: &str, pixels: &[u8]) {
-    common::shot(&format!("{name}.ppm"), pixels, SIZE);
-}
 
 fn frames(ui: &mut ddi_ui::Ui, n: usize) {
     for _ in 0..n {
@@ -30,12 +26,7 @@ fn frames(ui: &mut ddi_ui::Ui, n: usize) {
 
 #[test]
 fn the_rules_pop_up_mid_match_and_the_marked_standings_are_drawn() {
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).expect("device");
-    let format = wgpu::TextureFormat::Rgba8Unorm;
-    let mut gpu = Gpu::new(device, queue, format);
+    let mut pictures = common::gpu::Pictures::new();
     let (mut ui, env) = common::ui::theme("room", common::ui::lowercase(), SIZE, true);
     frames(&mut ui, 30);
     let room = ddi_desktop::room::current();
@@ -61,8 +52,7 @@ fn the_rules_pop_up_mid_match_and_the_marked_standings_are_drawn() {
     let v = env.state.borrow().room.clone().unwrap();
     assert_eq!(v.rules_destination.as_deref(), Some("stage"));
     assert_eq!(v.rules_from, Some(2));
-    let picture = gpu.draw_offscreen(&mut ui, SIZE, format);
-    ppm("rules-from-stage", &picture);
+    pictures.shot(&mut ui, SIZE, "rules-from-stage.ppm");
     // Hard timing from stage 2, applied as the pop-up applies it.
     let mut hard = room.borrow().rules_ahead().unwrap();
     hard.difficulty = MatchDifficulty::Hard;
@@ -76,7 +66,7 @@ fn the_rules_pop_up_mid_match_and_the_marked_standings_are_drawn() {
     // for stage 2 after it.
     let status = env.state.borrow().room.clone().unwrap().status;
     assert!(status.ends_with(" · From stage 2 on: Hard timing"), "{status}");
-    ppm("rules-status", &gpu.draw_offscreen(&mut ui, SIZE, format));
+    pictures.shot(&mut ui, SIZE, "rules-status.ppm");
     // The stages played: each finished as a play reports it.
     let finish = |stage: ddi_room::StageId| {
         let jobs = room.borrow_mut().take_load_jobs();
@@ -133,7 +123,7 @@ fn the_rules_pop_up_mid_match_and_the_marked_standings_are_drawn() {
             && said(&format!("Line{k}")) == "● From stage 2: DDI · Hard timing"),
         "the stage's line under the title"
     );
-    ppm("standings-marked", &gpu.draw_offscreen(&mut ui, SIZE, format));
+    pictures.shot(&mut ui, SIZE, "standings-marked.ppm");
 }
 
 /// The Rules pop-up fits (2026-11-13): drawn at 1280×720 and 844×390,
@@ -142,12 +132,7 @@ fn the_rules_pop_up_mid_match_and_the_marked_standings_are_drawn() {
 /// `DDI_OFFSCREEN_PPM=<dir>` keeps `rules-<cpus>cpus-<w>x<h>-<lang>.ppm`.
 #[test]
 fn the_rules_pop_up_fits_with_few_and_many_cpus() {
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).expect("device");
-    let format = wgpu::TextureFormat::Rgba8Unorm;
-    let mut gpu = Gpu::new(device, queue, format);
+    let mut pictures = common::gpu::Pictures::new();
     for size in [[1280u32, 720u32], [844, 390]] {
         for lang in ["en", "ja"] {
             for cpus in [3usize, 12] {
@@ -169,12 +154,8 @@ fn the_rules_pop_up_fits_with_few_and_many_cpus() {
                     let (b, v) = (ui.bounds(name), ui.visible_bounds(name));
                     assert!(b.is_some() && b == v, "{name} whole at {size:?} {lang} {cpus}");
                 }
-                let picture = gpu.draw_offscreen(&mut ui, size, format);
-                common::shot(
-                    &format!("rules-{cpus}cpus-{}x{}-{lang}.ppm", size[0], size[1]),
-                    &picture,
-                    size,
-                );
+                let name = format!("rules-{cpus}cpus-{}x{}-{lang}.ppm", size[0], size[1]);
+                pictures.shot(&mut ui, size, &name);
             }
         }
     }
@@ -189,12 +170,7 @@ fn the_rules_pop_up_fits_with_few_and_many_cpus() {
 /// `at-once-<w>x<h>-<lang>.ppm`.
 #[test]
 fn the_attacks_at_once_row_is_drawn() {
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).expect("device");
-    let format = wgpu::TextureFormat::Rgba8Unorm;
-    let mut gpu = Gpu::new(device, queue, format);
+    let mut pictures = common::gpu::Pictures::new();
     for size in [[1280u32, 720u32], [844, 390]] {
         for lang in ["en", "ja"] {
             assert!(ddi_l10n::force(lang));
@@ -233,12 +209,8 @@ fn the_attacks_at_once_row_is_drawn() {
                 let (b, v) = (ui.bounds(name), ui.visible_bounds(name));
                 assert!(b.is_some() && b == v, "{name} whole at {size:?} {lang}: {b:?} {v:?}");
             }
-            let picture = gpu.draw_offscreen(&mut ui, size, format);
-            common::shot(
-                &format!("at-once-{}x{}-{lang}.ppm", size[0], size[1]),
-                &picture,
-                size,
-            );
+            let name = format!("at-once-{}x{}-{lang}.ppm", size[0], size[1]);
+            pictures.shot(&mut ui, size, &name);
         }
     }
     ddi_l10n::unforce();

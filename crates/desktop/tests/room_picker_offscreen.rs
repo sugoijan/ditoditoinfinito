@@ -2,8 +2,9 @@
 //! (`docs/plans/multiplayer-prototype-progress.md`, "One picker at a
 //! time"), drawn offscreen on this machine's GPU in the game's theme, over
 //! the room model's fake room (`ddi_room::fake`: the server's room in
-//! process; no network, no sign-in). Skipped where there is no GPU adapter
-//! (CI).
+//! process; no network, no sign-in). Without a GPU adapter (CI) only the
+//! pictures are skipped: who has the list and who follows is checked all
+//! the same.
 //!
 //! The room has its owner (alice), a co-host (bob) and a member (carol),
 //! each with a client and a song select of their own. The pictures: the
@@ -15,19 +16,14 @@
 mod common;
 use std::rc::Rc;
 
-use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::fake::{FakeServer, Fault};
 use ddi_room::{Command, Identity, Intent, ManualClock, ParticipantId, RoomPolicy};
+use common::gpu::seen;
 use common::online::{ROOM, Scene, Songs, drawn, keep, library, person};
 
 #[test]
 fn the_rooms_song_select_changes_hands() {
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).expect("device");
-    let format = wgpu::TextureFormat::Rgba8Unorm;
-    let mut gpu = Gpu::new(device, queue, format);
+    let mut pictures = common::gpu::Pictures::new();
     for (size, lang) in [
         ([1280u32, 720u32], "en"),
         ([1280, 720], "ja"),
@@ -72,10 +68,10 @@ fn the_rooms_song_select_changes_hands() {
                 person(&server, "carol", c, &all, css),
             ],
         };
-        let mut shot = |scene: &mut Scene, who: usize, name: &str| -> Vec<u8> {
-            let pixels = gpu.draw_offscreen(&mut scene.people[who].ui, size, format);
+        let mut shot = |scene: &mut Scene, who: usize, name: &str| -> Option<Vec<u8>> {
+            let pixels = pictures.draw(&mut scene.people[who].ui, size)?;
             keep(name, size, lang, &pixels);
-            pixels
+            Some(pixels)
         };
         let view = |scene: &Scene, who: usize| {
             scene.people[who]
@@ -97,7 +93,7 @@ fn the_rooms_song_select_changes_hands() {
         scene.run(0.7);
         assert!(!list(&scene, 0) && scene.people[0].ui.actor("RoomJoining").is_some());
         let joining = shot(&mut scene, 0, "0-joining");
-        assert!(!drawn(&joining, size, [0.55, 0.3, 0.95, 0.42]), "no list yet");
+        assert!(seen(&joining, |p| !drawn(p, size, [0.55, 0.3, 0.95, 0.42])), "no list yet");
         // The owner picks; their song rests and the others see it.
         scene.run(5.0);
         let (va, vb, vc) = (view(&scene, 0), view(&scene, 1), view(&scene, 2));
@@ -108,7 +104,7 @@ fn the_rooms_song_select_changes_hands() {
         assert_eq!(button(&scene, 1), wide, "a phone's is in More");
         assert!(!button(&scene, 0) && !button(&scene, 2));
         let owner = shot(&mut scene, 0, "1-owner-list");
-        assert!(drawn(&owner, size, [0.55, 0.3, 0.95, 0.6]), "the list");
+        assert!(seen(&owner, |p| drawn(p, size, [0.55, 0.3, 0.95, 0.6])), "the list");
         shot(&mut scene, 1, "2-cohost-following");
         shot(&mut scene, 2, "3-member-following");
         // The co-host takes the pick: their own list, the owner follows

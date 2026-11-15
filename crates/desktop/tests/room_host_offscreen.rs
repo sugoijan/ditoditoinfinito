@@ -1,8 +1,9 @@
 //! A room's host on its screens
 //! (`docs/plans/multiplayer-prototype-progress.md`, "A room's host"),
 //! drawn offscreen on this machine's GPU in the game's theme, over the
-//! room model's fake room (`common::online`: no network, no sign-in). Skipped
-//! where there is no GPU adapter (CI).
+//! room model's fake room (`common::online`: no network, no sign-in).
+//! Without a GPU adapter (CI) only the pictures are skipped: the pop-ups
+//! opened, their parts and what the room does are checked all the same.
 //!
 //! The room has its owner (alice), a co-host (bob) and a member (carol).
 //! The pictures: the owner's Players pop-up (the others' rows to tap, the
@@ -19,9 +20,9 @@
 mod common;
 use std::rc::Rc;
 
-use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::fake::FakeServer;
 use ddi_room::{Command, Identity, Intent, ManualClock, ParticipantId, RoomPolicy};
+use common::gpu::seen;
 use common::online::{ROOM, Scene, Songs, drawn, keep, library, person};
 use common::ui::{key_frames as key, tap};
 
@@ -38,12 +39,7 @@ fn open_players(ui: &mut ddi_ui::Ui) {
 
 #[test]
 fn the_hosts_pop_ups_and_a_room_handed_over() {
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).expect("device");
-    let format = wgpu::TextureFormat::Rgba8Unorm;
-    let mut gpu = Gpu::new(device, queue, format);
+    let mut pictures = common::gpu::Pictures::new();
     for (size, lang) in [
         ([1280u32, 720u32], "en"),
         ([1280, 720], "ja"),
@@ -89,10 +85,10 @@ fn the_hosts_pop_ups_and_a_room_handed_over() {
                 person(&server, "carol", c, &all, css),
             ],
         };
-        let mut shot = |scene: &mut Scene, who: usize, name: &str| -> Vec<u8> {
-            let pixels = gpu.draw_offscreen(&mut scene.people[who].ui, size, format);
+        let mut shot = |scene: &mut Scene, who: usize, name: &str| -> Option<Vec<u8>> {
+            let pixels = pictures.draw(&mut scene.people[who].ui, size)?;
             keep(name, size, lang, &pixels);
-            pixels
+            Some(pixels)
         };
         let view = |scene: &Scene, who: usize| {
             scene.people[who]
@@ -121,7 +117,7 @@ fn the_hosts_pop_ups_and_a_room_handed_over() {
         key(&mut scene.people[0].ui, "Escape", 0.5);
         assert_eq!(top(&scene, 0), ddi_ui::LEAVE_QUESTION, "{lang} {size:?}");
         let asked = shot(&mut scene, 0, "leave-0-host");
-        assert!(drawn(&asked, size, [0.3, 0.35, 0.7, 0.65]));
+        assert!(seen(&asked, |p| drawn(p, size, [0.3, 0.35, 0.7, 0.65])));
         key(&mut scene.people[0].ui, "Escape", 0.5);
         assert_eq!(top(&scene, 0), "select");
         // The owner's Players pop-up, then Host options.
@@ -130,7 +126,7 @@ fn the_hosts_pop_ups_and_a_room_handed_over() {
         assert!(scene.people[0].ui.actor("HostOptions").is_some());
         assert!(scene.people[0].ui.actor("Person.2").is_some());
         let players = shot(&mut scene, 0, "host-0-players");
-        assert!(drawn(&players, size, [0.3, 0.3, 0.7, 0.7]));
+        assert!(seen(&players, |p| drawn(p, size, [0.3, 0.3, 0.7, 0.7])));
         tap(&mut scene.people[0].ui, "HostOptions", 0.6);
         assert_eq!(top(&scene, 0), "room-host", "{lang} {size:?}");
         // (A phone shows the first rows; the rest scroll.)
