@@ -60,6 +60,7 @@ mod stage_mode;
 #[cfg(test)]
 pub use stage_mode::forget_tab;
 pub use stage_mode::{StageRowView, StageView, Tab};
+pub(crate) use stage_mode::{TableWho, standings as stage_standings, view_of as stage_view_of};
 
 /// What Retry or Song list does (the play route: play again, go to the
 /// songs).

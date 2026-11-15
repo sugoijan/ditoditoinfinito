@@ -926,6 +926,119 @@ pub struct StageTable {
     pub result: Option<Vec<(ParticipantId, u16, Points)>>,
 }
 
+/// What a stage's standings are built from ([`TableSource::table`]): a
+/// member's room state ([`RoomClient::stage_table`]) or the room's public
+/// view (an audience seat's,
+/// [`crate::state::audience::AudienceClient::stage_table`]). One builder
+/// for both, so the audience's table is the members'.
+pub(crate) struct TableSource<'a> {
+    pub stage: StageId,
+    /// The stage's place in its match, from 0, and the match's stages.
+    pub index: usize,
+    pub of: usize,
+    /// The match's roster.
+    pub roster: Vec<ParticipantId>,
+    /// The match's stages' results up to this stage, it included, in
+    /// order (none: not confirmed, or not played).
+    pub results: Vec<Option<&'a ddi_room::StageResult>>,
+    /// The stage's starters, as seated.
+    pub lineup: Vec<ParticipantId>,
+    /// How a starter performed, where known.
+    pub detail: &'a dyn Fn(ParticipantId) -> Option<RunDetail>,
+    /// A starter's run as reported, where known.
+    pub run: &'a dyn Fn(ParticipantId) -> Option<Run>,
+    /// The match is over with every stage played.
+    pub completed: bool,
+    /// The match's standings, best first (asked for the match's result).
+    pub standings: &'a dyn Fn() -> Vec<ddi_room::Standing>,
+    pub rules: StageRules,
+    pub attacks: bool,
+    pub adaptive_offered: bool,
+    pub summary: Option<AttackSummary>,
+}
+
+impl TableSource<'_> {
+    /// The stage's standings: every starter, what the room confirmed of
+    /// them and how they performed, the match's totals after it, and the
+    /// match's result where it was its last.
+    pub fn table(self) -> StageTable {
+        let index = self.index;
+        // The match's totals before this stage and after it, in one pass
+        // over the stages' placements.
+        let mut before: BTreeMap<ParticipantId, Points> =
+            self.roster.iter().map(|&id| (id, Points::ZERO)).collect();
+        let add = |totals: &mut BTreeMap<ParticipantId, Points>,
+                   result: Option<&ddi_room::StageResult>| {
+            for p in result.into_iter().flat_map(|r| &r.placements) {
+                if let Some(t) = totals.get_mut(&p.participant) {
+                    *t = *t + p.points;
+                }
+            }
+        };
+        for result in self.results.iter().take(index) {
+            add(&mut before, *result);
+        }
+        let own = self.results.get(index).copied().flatten();
+        let mut after = before.clone();
+        add(&mut after, own);
+        // A rank: one more than the totals above it, from the totals
+        // sorted once.
+        let sorted = |totals: &BTreeMap<ParticipantId, Points>| {
+            let mut v: Vec<Points> = totals.values().copied().collect();
+            v.sort_unstable();
+            v
+        };
+        let (before_sorted, after_sorted) = (sorted(&before), sorted(&after));
+        let rank_in = |totals: &BTreeMap<ParticipantId, Points>,
+                       sorted: &[Points],
+                       id: ParticipantId| {
+            let mine = totals.get(&id)?;
+            let above = sorted.len() - sorted.partition_point(|t| t <= mine);
+            Some(u16::try_from(above + 1).unwrap_or(u16::MAX))
+        };
+        let confirmed = own.is_some();
+        let row = |id: ParticipantId| StageRow {
+            participant: id,
+            placement: own.and_then(|r| r.placement(id)).copied(),
+            run: (self.run)(id),
+            detail: (self.detail)(id),
+            total: confirmed.then(|| after.get(&id).copied()).flatten(),
+            rank: confirmed.then(|| rank_in(&after, &after_sorted, id)).flatten(),
+            rank_before: (confirmed && index > 0)
+                .then(|| rank_in(&before, &before_sorted, id))
+                .flatten(),
+        };
+        // The stage's order once confirmed; before, as they were seated.
+        let rows: Vec<StageRow> = match own {
+            Some(result) => result
+                .placements
+                .iter()
+                .map(|p| row(p.participant))
+                .collect(),
+            None => self.lineup.iter().map(|id| row(*id)).collect(),
+        };
+        let last = index + 1 == self.of;
+        let result = (last && confirmed && self.completed).then(|| {
+            (self.standings)()
+                .into_iter()
+                .map(|st| (st.participant, st.rank, st.total))
+                .collect()
+        });
+        StageTable {
+            stage: self.stage,
+            number: u16::try_from(index + 1).unwrap_or(u16::MAX),
+            of: u16::try_from(self.of).unwrap_or(u16::MAX),
+            confirmed,
+            rules: self.rules,
+            attacks: self.attacks,
+            adaptive_offered: self.adaptive_offered,
+            summary: self.summary,
+            rows,
+            result,
+        }
+    }
+}
+
 /// The local player's attacks of a stage, for its results' short battle
 /// summary (M8 round 3): how many attacks they sent each opponent and
 /// were sent by each (in the order first sent), the shocks they stepped
@@ -3532,85 +3645,33 @@ impl RoomClient {
         let st = &m.stages[index];
         let play = st.play.as_ref()?;
         let local = self.details.get(&stage);
-        // The match's totals before this stage and after it, in one pass
-        // over the stages' placements.
-        let mut before: BTreeMap<ParticipantId, Points> =
-            m.roster.keys().map(|&id| (id, Points::ZERO)).collect();
-        let add = |totals: &mut BTreeMap<ParticipantId, Points>, sg: &ddi_room::state::Stage| {
-            let placements = sg.play.as_ref().and_then(|p| p.result.as_ref());
-            for p in placements.into_iter().flat_map(|r| &r.placements) {
-                if let Some(t) = totals.get_mut(&p.participant) {
-                    *t = *t + p.points;
-                }
+        Some(
+            TableSource {
+                stage,
+                index,
+                of: m.stages.len(),
+                roster: m.roster.keys().copied().collect(),
+                results: m.stages[..=index]
+                    .iter()
+                    .map(|sg| sg.play.as_ref().and_then(|p| p.result.as_ref()))
+                    .collect(),
+                lineup: play.lineup.iter().copied().collect(),
+                detail: &|id| {
+                    local
+                        .and_then(|d| d.get(&id))
+                        .or_else(|| play.details.get(&id))
+                        .cloned()
+                },
+                run: &|id| play.reports.get(&id).map(|r| r.run()),
+                completed,
+                standings: &|| m.standings(),
+                rules: StageRules::of_stage(m, stage),
+                attacks: self.attacks_played(&m.rules_for(stage)),
+                adaptive_offered: self.adaptive_offered(),
+                summary: self.summaries.get(&stage).cloned(),
             }
-        };
-        for sg in &m.stages[..index] {
-            add(&mut before, sg);
-        }
-        let mut after = before.clone();
-        add(&mut after, st);
-        // A rank: one more than the totals above it, from the totals
-        // sorted once.
-        let sorted = |totals: &BTreeMap<ParticipantId, Points>| {
-            let mut v: Vec<Points> = totals.values().copied().collect();
-            v.sort_unstable();
-            v
-        };
-        let (before_sorted, after_sorted) = (sorted(&before), sorted(&after));
-        let rank_in = |totals: &BTreeMap<ParticipantId, Points>,
-                       sorted: &[Points],
-                       id: ParticipantId| {
-            let mine = totals.get(&id)?;
-            let above = sorted.len() - sorted.partition_point(|t| t <= mine);
-            Some(u16::try_from(above + 1).unwrap_or(u16::MAX))
-        };
-        let confirmed = play.result.is_some();
-        let row = |id: ParticipantId| {
-            let detail = local
-                .and_then(|d| d.get(&id))
-                .or_else(|| play.details.get(&id))
-                .cloned();
-            let placement = play.result.as_ref().and_then(|r| r.placement(id)).copied();
-            StageRow {
-                participant: id,
-                placement,
-                run: play.reports.get(&id).map(|r| r.run()),
-                detail,
-                total: confirmed.then(|| after.get(&id).copied()).flatten(),
-                rank: confirmed.then(|| rank_in(&after, &after_sorted, id)).flatten(),
-                rank_before: (confirmed && index > 0)
-                    .then(|| rank_in(&before, &before_sorted, id))
-                    .flatten(),
-            }
-        };
-        // The stage's order once confirmed; before, as they were seated.
-        let rows: Vec<StageRow> = match &play.result {
-            Some(result) => result
-                .placements
-                .iter()
-                .map(|p| row(p.participant))
-                .collect(),
-            None => play.lineup.iter().map(|id| row(*id)).collect(),
-        };
-        let last = index + 1 == m.stages.len();
-        let result = (last && confirmed && completed).then(|| {
-            m.standings()
-                .into_iter()
-                .map(|st| (st.participant, st.rank, st.total))
-                .collect()
-        });
-        Some(StageTable {
-            stage,
-            number: u16::try_from(index + 1).unwrap_or(u16::MAX),
-            of: u16::try_from(m.stages.len()).unwrap_or(u16::MAX),
-            confirmed,
-            rules: StageRules::of_stage(m, stage),
-            attacks: self.attacks_played(&m.rules_for(stage)),
-            adaptive_offered: self.adaptive_offered(),
-            summary: self.summaries.get(&stage).cloned(),
-            rows,
-            result,
-        })
+            .table(),
+        )
     }
 
     /// The stage whose prompt the room would hand this player now

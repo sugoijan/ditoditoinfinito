@@ -36,7 +36,7 @@ use super::online::SharedOnline;
 use super::online::api::{self, AudienceTicketDoc, Problem};
 use super::room::{
     CpuSeat, LiveAsk, LiveOrder, LivePrep, LiveRoom, LoadJob, LoadProblem, Picked, SeatEnd, StageOrder,
-    StageRules, ranking_of,
+    StageRules, StageTable, TableSource, ranking_of,
 };
 
 /// How far behind the room's song time an audience device plays a
@@ -822,6 +822,59 @@ impl AudienceClient {
         self.music.fix(stage);
         self.version += 1;
         Some(order)
+    }
+
+    /// The last stage of the view's match the room settled (its result
+    /// confirmed), if any.
+    pub fn settled_stage(&self) -> Option<StageId> {
+        self.view()?
+            .stages
+            .iter()
+            .rev()
+            .find(|s| s.play.as_ref().is_some_and(|p| p.result.is_some()))
+            .map(|s| s.id)
+    }
+
+    /// Stage `stage`'s standings as the room's members' results show
+    /// them ([`StageTable`], the same builder: `TableSource`), from the
+    /// public view: every starter with the place, finish and award the
+    /// room confirmed, how they performed (the details the starters
+    /// reported), the match's totals and places after it, and the match's
+    /// result where it was its last. What the public view has not: a
+    /// starter's raw run before the room confirmed the stage (their line
+    /// waits for the stage's result), the viewer's own attacks' summary
+    /// (the audience plays none), and matches before the current one.
+    pub fn stage_table(&self, stage: StageId) -> Option<StageTable> {
+        let v = self.view()?;
+        let index = v.stages.iter().position(|s| s.id == stage)?;
+        let play = v.stages[index].play.as_ref()?;
+        Some(
+            TableSource {
+                stage,
+                index,
+                of: v.stages.len(),
+                roster: v.standings.iter().map(|st| st.participant).collect(),
+                results: v.stages[..=index]
+                    .iter()
+                    .map(|s| s.play.as_ref().and_then(|p| p.result.as_ref()))
+                    .collect(),
+                lineup: play.lineup.clone(),
+                detail: &|id| {
+                    play.details
+                        .iter()
+                        .find(|(who, _)| *who == id)
+                        .map(|(_, d)| d.clone())
+                },
+                run: &|_| None,
+                completed: v.phase == Phase::MatchResults,
+                standings: &|| v.standings.clone(),
+                rules: StageRules::of_public(v, Some(stage)),
+                attacks: self.attacks_of(Some(stage)),
+                adaptive_offered: true,
+                summary: None,
+            }
+            .table(),
+        )
     }
 
     /// Whether `stage` was handed to the shell to watch.

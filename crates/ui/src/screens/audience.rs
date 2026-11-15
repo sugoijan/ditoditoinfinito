@@ -77,6 +77,13 @@ pub struct AudienceView {
     pub view_rules: String,
     pub players: usize,
     pub stages: usize,
+    /// The part shown beside the card's lines: `players` or `standings`
+    /// (the tabs are there once a stage has settled).
+    pub tab: String,
+    pub tabs: bool,
+    /// The last settled stage's standings, as a member's results say
+    /// theirs (`ThemeState::stage`), once a stage has settled.
+    pub table: Option<super::results::StageView>,
 }
 
 /// The seat's state as a word, and why.
@@ -110,6 +117,9 @@ pub fn debug_view(a: &AudienceClient) -> AudienceView {
         view_rules: a.view_rules().id.into(),
         players: v.map_or(0, |v| v.players.len()),
         stages: v.map_or(0, |v| v.stages.len()),
+        tab: "players".into(),
+        tabs: false,
+        table: None,
     }
 }
 
@@ -149,6 +159,53 @@ pub fn seat_end_text(e: &crate::state::room::SeatEnd) -> UiText {
         }),
     }
 }
+
+/// The public view's names for a standings' table, and nobody's own line:
+/// the audience's.
+pub(crate) struct PublicWho<'a>(pub &'a PublicView);
+
+impl super::results::TableWho for PublicWho<'_> {
+    fn label(&self, id: ddi_room::ParticipantId) -> (String, Option<u8>) {
+        let level = self
+            .0
+            .players
+            .iter()
+            .find(|p| p.id == id)
+            .and_then(|p| match p.kind {
+                PublicKind::Cpu { level, .. } => Some(super::room::shown_level(level)),
+                _ => None,
+            });
+        (player_name(self.0, id), level)
+    }
+
+    fn me(&self) -> Option<ddi_room::ParticipantId> {
+        None
+    }
+
+    fn badge(&self) -> bool {
+        false
+    }
+}
+
+/// The part beside the card's lines.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Part {
+    #[default]
+    Players,
+    Standings,
+}
+
+const TAB_PLAYERS: &str = "Tab.Players";
+const TAB_STANDINGS: &str = "Tab.Standings";
+/// The tabs' row's height and the room under it.
+const TABS_H: f32 = 32.0;
+const TABS_GAP: f32 = 10.0;
+/// The standings' width from which every column shows (`results_stage`'s
+/// `columns`), which the card's lines make room for where they can.
+const TABLE_FULL_W: f32 = 724.0;
+/// The table's mark for the lines hidden, as a button.
+const TABLE_DOWN: &str = "Audience.TableDown";
+const TABLE_UP: &str = "Audience.TableUp";
 
 fn player_name(v: &PublicView, id: ddi_room::ParticipantId) -> String {
     v.players
@@ -363,6 +420,10 @@ pub fn player_rows(v: &PublicView) -> Vec<super::room::PlayerRow> {
     super::room::panel_order(rows)
 }
 
+/// What the debug view was published for: the client's version, the
+/// counts that move without it, the part shown and its first line.
+type Published = (u64, u32, Option<u32>, u32, u64, Part, usize);
+
 /// The card's Watch: the stage being played, as it stands; and its
 /// Stop watching.
 pub const WATCH: &str = "watch";
@@ -389,13 +450,26 @@ pub struct AudienceScreen {
     /// rows when last laid out.
     first: usize,
     shown: (usize, usize, usize),
+    /// The part shown, and the settled stage it was last chosen for (a
+    /// stage that settles brings its standings up, once).
+    part: Part,
+    settled: Option<ddi_room::StageId>,
+    /// The tabs are there (a stage has settled).
+    tabs: bool,
+    /// The standings' first line, the lines shown and those there are
+    /// when last laid out, its width, its lines' starters and the one
+    /// the pointer is over.
+    table_first: usize,
+    table_shown: (usize, usize, f32),
+    table_lines: Vec<ddi_room::ParticipantId>,
+    pointed: Option<ddi_room::ParticipantId>,
     /// The client's version the card was built for.
     built: Option<u64>,
     /// The countdown's seconds as built: the card is built again as they
     /// change.
     seconds: Option<u64>,
     /// What the debug view was last published for.
-    published: Option<(u64, u32, Option<u32>, u32, u64)>,
+    published: Option<Published>,
     /// Watch was offered when last laid out (it is focused as it comes).
     offered: bool,
     time: f64,
@@ -416,6 +490,13 @@ impl AudienceScreen {
             buttons: Vec::new(),
             first: 0,
             shown: (0, 0, 0),
+            part: Part::Players,
+            settled: None,
+            tabs: false,
+            table_first: 0,
+            table_shown: (0, 0, 0.0),
+            table_lines: Vec::new(),
+            pointed: None,
             built: None,
             seconds: None,
             published: None,
@@ -494,7 +575,26 @@ impl AudienceScreen {
         };
         let classic = if sh < 480.0 { 560.0_f32.min(full_w) } else { 560.0 };
         let split = full_w - 294.0 >= 480.0;
-        let w = if split { classic.min(full_w - 294.0) } else { full_w };
+        // The last settled stage's standings, as the members' results
+        // show them: a second part beside the players', brought up once
+        // as a stage settles.
+        let table = a.settled_stage().and_then(|s| a.stage_table(s));
+        let settled = table.as_ref().map(|t| t.stage);
+        if settled != self.settled {
+            self.settled = settled;
+            self.table_first = 0;
+            self.part = if settled.is_some() { Part::Standings } else { Part::Players };
+        }
+        self.tabs = table.is_some();
+        let w = match (split, &table) {
+            // The lines give the table the room for all its columns
+            // where the card has it.
+            (true, Some(_)) => (full_w - 24.0 - TABLE_FULL_W)
+                .clamp(340.0, classic)
+                .min(full_w - 294.0),
+            (true, None) => classic.min(full_w - 294.0),
+            (false, _) => full_w,
+        };
         let inner = w - 48.0;
         let mut c: Vec<Actor> = Vec::new();
         let mut y = 24.0;
@@ -545,19 +645,100 @@ impl AudienceScreen {
             let room = (full_h - y - bh - 24.0 - 18.0).max(0.0);
             part_at = Some([24.0, y, inner, room]);
         }
-        let mut place_part = |c: &mut Vec<Actor>, area: [f32; 4]| -> f32 {
+        let part_shown = self.part;
+        let (table_first, pointed) = (self.table_first, self.pointed);
+        let mut table_laid = None;
+        let mut place_part = |c: &mut Vec<Actor>, [ax, ay, aw, ah]: [f32; 4]| -> f32 {
+            let mut top = ay;
+            if let Some(t) = &table {
+                // The tabs, and which stage the standings are of.
+                let mut tx = ax;
+                let tabs = [
+                    (Part::Players, TAB_PLAYERS, String::from(m::players())),
+                    (Part::Standings, TAB_STANDINGS, m::results_tab_standings().into()),
+                ];
+                for (part, name, label) in tabs {
+                    let bw = (crate::look::mono_width(&label, 13.0) + 32.0).max(104.0);
+                    let mut b = crate::look::component_or(
+                        &*env.look,
+                        "StyleTab",
+                        "Button",
+                        &Spec::new([bw, TABS_H], label.as_str()).with_items([String::new()]),
+                    );
+                    b.name = name.into();
+                    let bw = super::extent(&mut b, [bw, TABS_H])[0];
+                    crate::look::call(&mut b, "xy", &[tx + bw / 2.0, top + TABS_H / 2.0]);
+                    crate::widgets::play(
+                        &mut b,
+                        if part == part_shown { "Selected" } else { "Available" },
+                    );
+                    b.finish_tweening();
+                    c.push(b);
+                    tx += bw + 8.0;
+                }
+                if part_shown == Part::Standings {
+                    let title = m::table_title(usize::from(t.number), usize::from(t.of));
+                    let mut tt = crate::look::tracked(
+                        env.text("Audience.TableTitle", &title, 11.0, 600, "Faint"),
+                        120,
+                    );
+                    crate::look::ellipsized(&mut tt, (ax + aw - tx).max(0.0));
+                    if ax + aw - tx >= 60.0 {
+                        c.push(super::right(tt, ax + aw, top + TABS_H / 2.0));
+                    }
+                }
+                top += TABS_H + TABS_GAP;
+            }
+            if let (Part::Standings, Some(t), Some(v)) = (part_shown, &table, a.view()) {
+                if t.rules.changed {
+                    // Played under rules changed during the match: said,
+                    // with those rules, as the members' table says it.
+                    let note = m::table_rules_changed(super::room::rules_words_in(
+                        &t.rules,
+                        Some(t.attacks),
+                        t.adaptive_offered,
+                    ));
+                    let mut n = env.text("Audience.TableNote", &note, 12.0, 400, "Gold");
+                    crate::look::ellipsized(&mut n, aw);
+                    c.push(left(n, ax, top + 8.0));
+                    top += 20.0;
+                }
+                let drawn = super::results::stage_standings(
+                    &env,
+                    &PublicWho(v),
+                    t,
+                    [ax, top, aw],
+                    Some((ah - (top - ay)).max(0.0)),
+                    pointed,
+                    table_first,
+                    c,
+                );
+                if let Some((my, mh, below)) = drawn.more {
+                    // The mark takes a tap: a page on (or back).
+                    let mut mark = crate::look::quad_at(
+                        if below { TABLE_DOWN } else { TABLE_UP },
+                        [aw, mh],
+                        crate::look::with_alpha(env.color("Text"), 0.012),
+                        [ax + aw / 2.0, my],
+                    );
+                    crate::look::call(&mut mark, "cornerradius", &[6.0]);
+                    c.push(mark);
+                }
+                table_laid = Some((drawn.first, drawn.shown, aw));
+                return top - ay + drawn.height;
+            }
             let part = super::room::players_part(
                 &env,
                 &rows,
                 &names,
                 (&words.0, &words.1),
                 self.first,
-                area,
+                [ax, top, aw, (ah - (top - ay)).max(0.0)],
             );
             self.first = part.first;
             self.shown = (rows.len(), part.shown, part.per);
             c.extend(part.actors);
-            part.height
+            top - ay + part.height
         };
         if let Some(area) = part_at {
             y += place_part(&mut c, area) + 18.0;
@@ -586,6 +767,14 @@ impl AudienceScreen {
         if split && !rows.is_empty() {
             place_part(&mut c, [w, 24.0, full_w - w - 24.0, h - 48.0]);
         }
+        if let Some((first, shown, tw)) = table_laid {
+            self.table_first = first;
+            self.table_shown = (shown, table.as_ref().map_or(0, |t| t.rows.len()), tw);
+        }
+        self.table_lines = table
+            .as_ref()
+            .map(|t| t.rows.iter().map(|row| row.participant).collect())
+            .unwrap_or_default();
         drop(a);
         self.buttons = buttons.iter().map(|(n, ..)| *n).collect();
         let mut children = vec![env.component(
@@ -650,12 +839,33 @@ impl AudienceScreen {
             a.count(),
             a.sockets(),
             a.next_music_delay_ms(),
+            self.part,
+            self.table_first,
         );
         if self.published == Some(key) {
             return;
         }
         self.published = Some(key);
-        let view = debug_view(&a);
+        let mut view = debug_view(&a);
+        view.tabs = self.tabs;
+        view.tab = match self.part {
+            Part::Players => "players",
+            Part::Standings => "standings",
+        }
+        .into();
+        view.table = a.view().and_then(|v| {
+            let table = a.stage_table(a.settled_stage()?)?;
+            let w = match self.table_shown.2 {
+                w if w > 0.0 => w,
+                _ => TABLE_FULL_W,
+            };
+            Some(super::results::stage_view_of(
+                &PublicWho(v),
+                &table,
+                super::results::Tab::Standings,
+                w,
+            ))
+        });
         drop(a);
         self.env.state.borrow_mut().audience = Some(view);
     }
@@ -675,10 +885,30 @@ impl AudienceScreen {
         }
     }
 
-    fn scroll(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) {
-        let (n, shown, _) = self.shown;
-        self.first = super::scrolled(self.first, by, n, shown);
+    /// The part shown scrolled by `by` lines (`pages`: by so many of
+    /// its pages), where its lines do not all fit.
+    fn scroll(&mut self, by: i32, pages: i32, root: &mut Actor, cx: &mut Cx) {
+        if self.part == Part::Standings && self.tabs {
+            let (shown, n, _) = self.table_shown;
+            let by = by + pages * shown.max(1) as i32;
+            self.table_first = super::scrolled(self.table_first, by, n, shown);
+        } else {
+            let (n, shown, per) = self.shown;
+            let by = by + pages * per.max(1) as i32;
+            self.first = super::scrolled(self.first, by, n, shown);
+        }
         self.rebuild(root, cx);
+        self.env_publish();
+    }
+
+    /// The part beside the lines changes (a tab, the shoulders).
+    fn set_part(&mut self, part: Part, root: &mut Actor, cx: &mut Cx) {
+        if !self.tabs || self.part == part {
+            return;
+        }
+        self.part = part;
+        self.rebuild(root, cx);
+        self.env_publish();
     }
 }
 
@@ -705,6 +935,17 @@ impl crate::screen::Screen for AudienceScreen {
 
     fn focusables(&self) -> Vec<Focusable> {
         let mut v: Vec<Focusable> = self.buttons.iter().map(|b| Focusable::new(*b)).collect();
+        // The tabs over them: Up from a button, Left and Right between
+        // the two, Down back to the buttons.
+        let tab = match self.part {
+            Part::Players => TAB_PLAYERS,
+            Part::Standings => TAB_STANDINGS,
+        };
+        if self.tabs {
+            for b in &mut v {
+                b.up = Some(tab.into());
+            }
+        }
         // Side by side: Left and Right between them, Watch the rightmost.
         let n = v.len();
         for i in 0..n {
@@ -714,6 +955,19 @@ impl crate::screen::Screen for AudienceScreen {
             if i > 0 {
                 v[i].right = Some(self.buttons[i - 1].into());
             }
+        }
+        if self.tabs {
+            let down = self.buttons.first().map(|b| b.to_string());
+            v.push(Focusable {
+                right: Some(TAB_STANDINGS.into()),
+                down: down.clone(),
+                ..Focusable::new(TAB_PLAYERS)
+            });
+            v.push(Focusable {
+                left: Some(TAB_PLAYERS.into()),
+                down,
+                ..Focusable::new(TAB_STANDINGS)
+            });
         }
         v
     }
@@ -796,19 +1050,49 @@ impl crate::screen::Screen for AudienceScreen {
                 self.leave(cx);
                 Handled::Yes
             }
-            Input::Activate { name } if name == "Audience.Down" || name == "Audience.Up" => {
-                let page = self.shown.2.max(1) as i32;
-                self.scroll(if name == "Audience.Down" { page } else { -page }, root, cx);
+            Input::Activate { name } if name == TAB_PLAYERS || name == TAB_STANDINGS => {
+                let part = if name == TAB_STANDINGS { Part::Standings } else { Part::Players };
+                self.set_part(part, root, cx);
+                Handled::Yes
+            }
+            // The shoulders change the part, as a stage's results' tabs.
+            Input::Menu {
+                action: action @ (MenuAction::Previous | MenuAction::Next),
+                ..
+            } if self.tabs => {
+                let part = if *action == MenuAction::Next { Part::Standings } else { Part::Players };
+                self.set_part(part, root, cx);
+                Handled::Yes
+            }
+            Input::Activate { name }
+                if ["Audience.Down", "Audience.Up", TABLE_DOWN, TABLE_UP].contains(&name.as_str()) =>
+            {
+                let down = name == "Audience.Down" || name == TABLE_DOWN;
+                self.scroll(0, if down { 1 } else { -1 }, root, cx);
                 Handled::Yes
             }
             Input::Wheel { delta, .. } if delta[1] != 0.0 => {
-                self.scroll(super::wheel_step(*delta), root, cx);
+                self.scroll(super::wheel_step(*delta), 0, root, cx);
                 Handled::Yes
             }
             Input::Key(k) if k.down && matches!(k.code.as_str(), "PageDown" | "PageUp") => {
-                let page = self.shown.2.max(1) as i32;
-                self.scroll(if k.code == "PageDown" { page } else { -page }, root, cx);
+                self.scroll(0, if k.code == "PageDown" { 1 } else { -1 }, root, cx);
                 Handled::Yes
+            }
+            // The line the pointer is over: its exact counts under the
+            // table where the lines have no second line for them.
+            Input::Hover { target } if self.tabs && self.part == Part::Standings => {
+                let row = target.as_ref().and_then(|t| {
+                    t.chain
+                        .iter()
+                        .find_map(|n| n.strip_prefix("Stand")?.parse::<usize>().ok())
+                });
+                let pointed = row.and_then(|k| self.table_lines.get(k).copied());
+                if self.pointed != pointed {
+                    self.pointed = pointed;
+                    self.rebuild(root, cx);
+                }
+                Handled::No
             }
             _ => Handled::No,
         }

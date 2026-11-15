@@ -2002,6 +2002,35 @@ fn audience_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<
         .rewrite(|s| s.closed = Some(ddi_room::Closure::HostLeft));
     run(&clock, &server, &mut [], &mut [&mut dan.borrow_mut()], 2_000);
     shown(&mut hd, found);
+    // Round D3: a room's match of two stages watched from the page: the
+    // song picked, the last stage's standings and the players' part, the
+    // match's result on top after the last stage.
+    use crate::state::audience::tests::{play_stage, two_stages};
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, RoomPolicy::default().with_live().with_audience());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 5_000);
+    let erin = Rc::new(std::cell::RefCell::new(
+        arrive(&server, "erin", AUDIENCE_LINK, 5_000).unwrap(),
+    ));
+    let mut he = harness();
+    he.push(AudienceScreen::new(env.clone(), erin.clone(), Rc::new(|_, _| {})));
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut erin.borrow_mut()], 1_000);
+    two_stages(&mut alice);
+    for (n, share) in [(1, "share001"), (2, "share002")] {
+        play_stage(
+            &clock,
+            &server,
+            [&mut alice, &mut bob],
+            &mut [&mut erin.borrow_mut()],
+            n,
+            share,
+        );
+        run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut erin.borrow_mut()], 2_000);
+        shown(&mut he, found);
+        he.tap(PointerKind::Mouse, "Tab.Players");
+        shown(&mut he, found);
+    }
 }
 
 fn walk() -> BTreeSet<String> {

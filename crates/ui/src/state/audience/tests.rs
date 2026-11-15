@@ -984,3 +984,325 @@ fn a_socket_that_never_opens_is_asked_for_again_after_a_wait() {
     run(&clock, &server, &mut [], &mut [&mut dan], 10_000);
     assert!(joins() <= 6, "asked {} times in 10 s", joins());
 }
+
+/// How two starters of a test stage performed: the first survived on the
+/// stage's chart with attacks sent and taken, the second went out having
+/// stepped down a chart.
+pub(crate) fn test_details() -> [ddi_room::RunDetail; 2] {
+    [
+        ddi_room::RunDetail {
+            score: Some(5_900_000),
+            percent: Some(9_850),
+            grade: "S".into(),
+            life_ppm: 1_000_000,
+            max_combo: 320,
+            tiers: vec![200, 90, 20, 6, 2, 1, 1],
+            attacks: Some(3),
+            received: Some(1),
+            shocks: Some(2),
+            ..Default::default()
+        },
+        ddi_room::RunDetail {
+            score: Some(2_100_000),
+            percent: Some(4_100),
+            grade: "C".into(),
+            life_ppm: 0,
+            out_at_ms: Some(41_000),
+            max_combo: 45,
+            tiers: vec![60, 50, 40, 20, 10, 5, 30],
+            attacks: Some(1),
+            received: Some(3),
+            shocks: Some(9),
+            chart: Some("Medium".into()),
+            ..Default::default()
+        },
+    ]
+}
+
+/// The room's next stage played to its settlement by `alice` (who picks
+/// song `n`, shared as `share`) and `bob`: picked, available, both loaded
+/// and ready, started, each one's run reported with [`test_details`]
+/// (Alice survives, Bob goes out), the song ended; the seats ticked
+/// along. The stage.
+pub(crate) fn play_stage(
+    clock: &ManualClock,
+    server: &SharedFake,
+    [alice, bob]: [&mut RoomClient; 2],
+    seats: &mut [&mut AudienceClient],
+    n: u8,
+    share: &str,
+) -> StageId {
+    use crate::state::online::tests::room::{prepare, song};
+    use ddi_room::{Command, ContentStatus, Finish, Finisher, Run};
+    let mut s = song();
+    s.id = format!("bundled:{n}");
+    s.title = format!("Song {n}");
+    s.artist = "Someone".into();
+    s.charts[0].digest = Some(ddi_chart::ChartDigest(u128::from(n)));
+    alice.pick(&s, &s.charts[0]).unwrap();
+    run(clock, server, &mut [alice, bob], seats, 400);
+    let Phase::Preparing { stage, .. } = alice.state().phase else {
+        panic!("the pick opens the stage: {:?}", alice.state().phase);
+    };
+    server
+        .borrow_mut()
+        .authority(Command::SetContentStatus {
+            stage,
+            status: ContentStatus::Available,
+            share: Some(share.into()),
+        })
+        .unwrap();
+    run(clock, server, &mut [alice, bob], seats, 400);
+    prepare(alice);
+    prepare(bob);
+    alice.set_ready(true).unwrap();
+    bob.set_ready(true).unwrap();
+    run(clock, server, &mut [alice, bob], seats, 8_000);
+    assert!(
+        matches!(alice.state().phase, Phase::Stage { .. }),
+        "the stage plays: {:?}",
+        alice.state().phase
+    );
+    let [a, b] = test_details();
+    let (ia, ib) = (alice.me(), bob.me());
+    alice
+        .report_run(stage, Run::Live { life: 1.0, score: 5_900_000, steps: 0 }, Some(a))
+        .unwrap();
+    bob.report_run(stage, Run::Out { at: 41.0 }, Some(b)).unwrap();
+    run(clock, server, &mut [alice, bob], seats, 400);
+    if !alice.stage_confirmed(stage) {
+        // A live room's result is its ledger's: said by the authority, as
+        // the room's live side says it.
+        let ranking = vec![
+            vec![Finisher { participant: ia, finish: Finish::Survived }],
+            vec![Finisher { participant: ib, finish: Finish::Eliminated }],
+        ];
+        server
+            .borrow_mut()
+            .authority(Command::EndSong { stage, ranking: Some(ranking) })
+            .unwrap();
+    } else if matches!(alice.state().phase, Phase::SongCompletion { .. } | Phase::Stage { .. }) {
+        server
+            .borrow_mut()
+            .authority(Command::EndSong { stage, ranking: None })
+            .unwrap();
+    }
+    // (The audience's view comes once a second at most.)
+    run(clock, server, &mut [alice, bob], seats, 2_400);
+    assert!(alice.stage_confirmed(stage));
+    stage
+}
+
+/// The next match's rules saved by the host with two stages.
+pub(crate) fn two_stages(alice: &mut RoomClient) {
+    let mut rules = alice.rules().clone();
+    rules.stages = 2;
+    alice.save_rules(rules).unwrap();
+}
+
+/// A member's table of `stage` as the public view can say it: without
+/// the starters' raw runs (the public view carries none) and the
+/// member's own attacks' summary.
+fn public_part(mut t: StageTable) -> StageTable {
+    for row in &mut t.rows {
+        row.run = None;
+    }
+    t.summary = None;
+    t
+}
+
+/// Round D3, item 1: the audience's standings are the members' table.
+/// After a stage and after the match, an audience seat's table of the
+/// stage (built from the public view by the members' own builder) has
+/// the members' rows: the place, finish and award, the totals and the
+/// places in the match and how they moved, each starter's details (the
+/// score and percent, the grade, life or when out, the combo, the
+/// judgments, the attacks' three counts, the chart finished on), the
+/// stage's rules, and the match's result on top after the last stage.
+/// As drawn, the lines say the same words, but for whose own line it is.
+#[test]
+fn the_audience_s_standings_are_the_members_table() {
+    use crate::screens::audience::PublicWho;
+    use crate::screens::results::{Tab, stage_view_of};
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    // A match of two stages.
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 5_000);
+    let mut carol = arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap();
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut carol], 1_000);
+    two_stages(&mut alice);
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut carol], 400);
+    // Nothing settled: no table.
+    assert_eq!(carol.settled_stage(), None);
+    let compare = |bob: &RoomClient, carol: &AudienceClient, stage: StageId| {
+        let theirs = public_part(bob.stage_table(stage).expect("a member's table"));
+        let ours = carol.stage_table(stage).expect("the audience's table");
+        assert_eq!(ours, theirs);
+        assert!(ours.confirmed);
+        // As drawn (the debug state's words), wide enough for every
+        // column: the same lines, nobody's own.
+        let mut member = stage_view_of(bob, &theirs, Tab::Standings, 724.0);
+        for row in &mut member.rows {
+            (row.me, row.badge) = (false, false);
+        }
+        let seat = stage_view_of(&PublicWho(carol.view().unwrap()), &ours, Tab::Standings, 724.0);
+        assert_eq!(seat, member);
+        ours
+    };
+    let first = play_stage(&clock, &server, [&mut alice, &mut bob], &mut [&mut carol], 1, "share001");
+    assert_eq!(carol.settled_stage(), Some(first));
+    let t = compare(&bob, &carol, first);
+    assert_eq!((t.number, t.of, t.result.is_none()), (1, 2, true));
+    assert!(t.attacks, "a live room's match has attacks: the three columns");
+    let [a, b] = test_details();
+    assert_eq!(t.rows[0].detail.as_ref(), Some(&a));
+    assert_eq!(t.rows[1].detail.as_ref(), Some(&b));
+    assert_eq!(t.rows[0].placement.unwrap().place, 1);
+    assert_eq!((t.rows[0].rank, t.rows[0].rank_before), (Some(1), None));
+    // The last stage: the match's result on top.
+    let second = play_stage(&clock, &server, [&mut alice, &mut bob], &mut [&mut carol], 2, "share002");
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut carol], 2_000);
+    assert_eq!(alice.state().phase, Phase::MatchResults);
+    assert_eq!(carol.settled_stage(), Some(second));
+    let t = compare(&bob, &carol, second);
+    let result = t.result.expect("the match's result");
+    assert_eq!(result.iter().map(|(_, rank, _)| *rank).collect::<Vec<_>>(), [1, 2]);
+    assert_eq!(t.rows[0].rank_before, Some(1));
+    // The first stage's table is still the members'.
+    compare(&bob, &carol, first);
+}
+
+/// The audience's page over `seat` in a harness of `size`, in the plain
+/// look.
+fn page(
+    seat: &SharedAudience,
+    size: [f32; 2],
+) -> (crate::screens::Env, crate::testing::Harness) {
+    use crate::screens::audience::AudienceScreen;
+    let env = crate::screens::Env::new(
+        Rc::new(crate::look::Plain),
+        Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
+    );
+    let design = if size[0] < 1000.0 { crate::screens::COMPACT } else { crate::screens::DESIGN };
+    let mut h = crate::testing::Harness::new(design, size, 1.0, crate::TextMode::Own);
+    h.push(AudienceScreen::new(env.clone(), seat.clone(), Rc::new(|_, _| {})));
+    (env, h)
+}
+
+/// Round D3, item 1: the page between stages has the last stage's
+/// standings as a second part beside the players': no tabs before a
+/// stage settles; once one does, the tabs, the standings brought up
+/// (once: the part chosen after stays), the members' table's lines and
+/// columns; the shoulders, a tap and the focus walk (Up from the
+/// buttons, Left and Right, Enter) change the part; after the match its
+/// result on top; a phone's has fewer columns, as a member's.
+#[test]
+fn the_audience_page_brings_the_standings_up_once_a_stage_settles() {
+    use crate::nav::MenuAction;
+    use crate::event::PointerKind;
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 5_000);
+    let carol = Rc::new(RefCell::new(arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap()));
+    let (env, mut h) = page(&carol, [1280.0, 720.0]);
+    let (_, mut phone) = page(&carol, [390.0, 844.0]);
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut carol.borrow_mut()], 1_000);
+    two_stages(&mut alice);
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut carol.borrow_mut()], 1_000);
+    h.run(0.3);
+    let view = |env: &crate::screens::Env| env.state.borrow().audience.clone().unwrap();
+    assert!(h.ui.actor("Tab.Standings").is_none(), "no tabs before a stage settles");
+    assert!(h.ui.actor("Audience.Player0.Name").is_some());
+    assert_eq!((view(&env).tabs, view(&env).tab.as_str(), view(&env).table), (false, "players", None));
+    play_stage(
+        &clock,
+        &server,
+        [&mut alice, &mut bob],
+        &mut [&mut carol.borrow_mut()],
+        1,
+        "share001",
+    );
+    h.run(0.3);
+    // The standings, brought up: the members' lines and every column.
+    let v = view(&env);
+    assert_eq!((v.tabs, v.tab.as_str()), (true, "standings"));
+    let table = v.table.expect("the table");
+    assert_eq!(
+        table.columns,
+        ["award", "total", "match", "score", "grade", "life", "judgments", "sent", "taken", "shocks"]
+    );
+    assert_eq!(
+        table.rows.iter().map(|r| (r.name.as_str(), r.place)).collect::<Vec<_>>(),
+        [("alice", Some(1)), ("bob", Some(2))]
+    );
+    assert_eq!(table.rows[0].attacks, Some((3, 1, 2)));
+    assert_eq!(table.rows[1].stepped.as_deref(), Some("↓ Medium"));
+    assert!(table.rows.iter().all(|r| !r.me), "nobody's own line");
+    for name in ["Tab.Players", "Tab.Standings", "Stand0", "Stand1", "Head.judgments", "Audience.TableTitle"] {
+        assert!(h.ui.actor(name).is_some(), "{name}");
+    }
+    assert!(h.ui.actor("Audience.Player0.Name").is_none(), "the players' part gives way");
+    let texts = h.texts().join("\n");
+    assert!(texts.contains("Out 0:41") && texts.contains("5900000"), "{texts}");
+    // The table keeps inside the card.
+    let (card, line) = (h.ui.bounds("Card").unwrap(), h.ui.bounds("Stand1").unwrap());
+    assert!(line[0] >= card[0] && line[2] <= card[2] && line[3] <= card[3], "{line:?} in {card:?}");
+    // A controller's shoulders change the part.
+    h.pad(MenuAction::Previous, true);
+    h.run(0.1);
+    assert_eq!(view(&env).tab, "players");
+    assert!(h.ui.actor("Audience.Player0.Name").is_some() && h.ui.actor("Stand0").is_none());
+    h.pad(MenuAction::Next, true);
+    h.run(0.1);
+    assert_eq!(view(&env).tab, "standings");
+    // The focus walk: Up from the buttons to the tab shown, Left to
+    // Players, Enter; Down back to the buttons.
+    h.key("ArrowUp", "ArrowUp");
+    assert_eq!(h.ui.focused(), Some("Tab.Standings"));
+    h.key("ArrowLeft", "ArrowLeft");
+    assert_eq!(h.ui.focused(), Some("Tab.Players"));
+    h.key("Enter", "Enter");
+    h.run(0.1);
+    assert_eq!(view(&env).tab, "players");
+    h.key("ArrowDown", "ArrowDown");
+    assert_eq!(h.ui.focused(), Some("Item.back"));
+    // A tap.
+    h.tap(PointerKind::Touch, "Tab.Standings");
+    h.run(0.1);
+    assert_eq!(view(&env).tab, "standings");
+    // The part chosen stays while nothing new settles.
+    h.tap(PointerKind::Touch, "Tab.Players");
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut carol.borrow_mut()], 2_000);
+    h.run(0.3);
+    assert_eq!(view(&env).tab, "players");
+    // A phone held upright: the place, the name, the award, the total and
+    // the score, inside its card.
+    phone.run(0.3);
+    assert!(phone.ui.actor("Stand1").is_some());
+    assert!(phone.ui.actor("Head.score").is_some() && phone.ui.actor("Head.judgments").is_none());
+    let (card, line) = (phone.ui.bounds("Card").unwrap(), phone.ui.bounds("Stand1").unwrap());
+    assert!(line[0] >= card[0] && line[2] <= card[2] && line[3] <= card[3], "{line:?} in {card:?}");
+    // The last stage: its standings brought up again, the match's result
+    // on top.
+    play_stage(
+        &clock,
+        &server,
+        [&mut alice, &mut bob],
+        &mut [&mut carol.borrow_mut()],
+        2,
+        "share002",
+    );
+    run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut carol.borrow_mut()], 2_000);
+    h.run(0.3);
+    let v = view(&env);
+    assert_eq!(v.tab, "standings");
+    let table = v.table.unwrap();
+    assert_eq!((table.number, table.of), (2, 2));
+    assert_eq!(table.winners, ["alice"]);
+    assert_eq!(table.result.len(), 2);
+    assert!(h.ui.actor("Final.Winners").is_some());
+    let texts = h.texts().join("\n");
+    assert!(texts.contains("The match is over."), "{texts}");
+}

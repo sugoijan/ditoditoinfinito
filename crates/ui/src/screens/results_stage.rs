@@ -45,6 +45,33 @@ use crate::screens::play::Tier;
 use crate::screens::room::points_text;
 use crate::state::history::list_grade;
 use crate::state::room::{RoomClient, SharedRoom, StageRow, StageTable};
+
+/// Whose names a standings' table shows and who looks at it: a member's
+/// room ([`RoomClient`]) or the room's public view (the audience's page,
+/// `crate::screens::audience`). The table is drawn the same for both.
+pub(crate) trait TableWho {
+    /// A participant's name as the lists show it (You, a bot labeled, a
+    /// CPU's own) and a CPU's level.
+    fn label(&self, id: ParticipantId) -> (String, Option<u8>);
+    /// The viewer's own line (none: nobody's, the audience).
+    fn me(&self) -> Option<ParticipantId>;
+    /// The viewer's own name shows, with its "You" badge.
+    fn badge(&self) -> bool;
+}
+
+impl TableWho for RoomClient {
+    fn label(&self, id: ParticipantId) -> (String, Option<u8>) {
+        crate::screens::room::participant_label(self, self.member_of(id))
+    }
+
+    fn me(&self) -> Option<ParticipantId> {
+        Some(RoomClient::me(self))
+    }
+
+    fn badge(&self) -> bool {
+        self.own_name().is_some()
+    }
+}
 use crate::state::settings::Settings;
 
 /// The tabs' row's height, and the room under it.
@@ -293,7 +320,7 @@ fn columns(w: f32, attacks: bool) -> Vec<Col> {
 /// had attacks and was played here): whom their attacks went to and how
 /// many, who attacked them, the shocks they stepped on, and a final
 /// attack's draw.
-pub(super) fn summary_lines(r: &RoomClient, table: &StageTable) -> Vec<String> {
+pub(super) fn summary_lines(r: &dyn TableWho, table: &StageTable) -> Vec<String> {
     let Some(s) = table.summary.as_ref().filter(|_| table.attacks) else {
         return Vec::new();
     };
@@ -351,8 +378,8 @@ fn summary_flow(lines: &[String], w: f32) -> Vec<String> {
 
 /// A participant's name as the lists show it (You, a bot labeled, a
 /// CPU's own) and a CPU's level.
-fn name_of(r: &RoomClient, id: ParticipantId) -> (String, Option<u8>) {
-    crate::screens::room::participant_label(r, r.member_of(id))
+fn name_of(r: &dyn TableWho, id: ParticipantId) -> (String, Option<u8>) {
+    r.label(id)
 }
 
 /// A percent in hundredths as shown ("99.50%").
@@ -415,7 +442,7 @@ fn life_of(row: &StageRow) -> String {
 }
 
 /// What a line shows, in words and numbers.
-fn row_view(r: &RoomClient, table: &StageTable, row: &StageRow, percent: bool) -> StageRowView {
+fn row_view(r: &dyn TableWho, table: &StageTable, row: &StageRow, percent: bool) -> StageRowView {
     let (name, level) = name_of(r, row.participant);
     let reported = table.confirmed || row.run.is_some() || row.detail.is_some();
     let moved = match (row.rank, row.rank_before) {
@@ -427,8 +454,8 @@ fn row_view(r: &RoomClient, table: &StageTable, row: &StageRow, percent: bool) -
     StageRowView {
         id: row.participant.0,
         name,
-        me: row.participant == r.me(),
-        badge: row.participant == r.me() && r.own_name().is_some(),
+        me: Some(row.participant) == r.me(),
+        badge: Some(row.participant) == r.me() && r.badge(),
         level,
         place: row.placement.map(|p| p.place),
         award: row
@@ -468,7 +495,8 @@ fn row_view(r: &RoomClient, table: &StageTable, row: &StageRow, percent: bool) -
 }
 
 /// The stage's standings as the debug state has them.
-fn view_of(r: &RoomClient, table: &StageTable, tab: Tab, cols: &[Col]) -> StageView {
+pub(crate) fn view_of(r: &dyn TableWho, table: &StageTable, tab: Tab, w: f32) -> StageView {
+    let cols = &columns(w, table.attacks);
     let percent = shows_percent(table);
     let name = |id| name_of(r, id).0;
     let result = table.result.as_deref().unwrap_or_default();
@@ -500,7 +528,7 @@ fn view_of(r: &RoomClient, table: &StageTable, tab: Tab, cols: &[Col]) -> StageV
 
 /// The stage's winner or winners by name (first place, once the room
 /// confirmed it), each with a CPU's level.
-fn stage_winners_of(r: &RoomClient, table: &StageTable) -> Vec<(String, Option<u8>)> {
+fn stage_winners_of(r: &dyn TableWho, table: &StageTable) -> Vec<(String, Option<u8>)> {
     table
         .rows
         .iter()
@@ -509,7 +537,7 @@ fn stage_winners_of(r: &RoomClient, table: &StageTable) -> Vec<(String, Option<u
         .collect()
 }
 
-fn stage_winners(r: &RoomClient, table: &StageTable) -> Vec<String> {
+fn stage_winners(r: &dyn TableWho, table: &StageTable) -> Vec<String> {
     stage_winners_of(r, table)
         .into_iter()
         .map(|(name, _)| name)
@@ -581,10 +609,14 @@ fn counts(
 }
 
 /// What the table drew: its height, the lines shown and those there are.
-pub(super) struct Drawn {
+pub(crate) struct Drawn {
     pub height: f32,
     pub shown: usize,
     pub first: usize,
+    /// Where the lines do not all fit: the mark's line under them (its
+    /// middle's y, its height) and whether lines are hidden below (else
+    /// above only).
+    pub more: Option<(f32, f32, bool)>,
 }
 
 /// The standings' table from `[x, y]`, `w` wide: the match's result where
@@ -592,9 +624,9 @@ pub(super) struct Drawn {
 /// it has (lines sized to it, those that do not fit counted and scrolled
 /// from `first`); `None` on a phone, whose lines are all shown.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn standings(
+pub(crate) fn standings(
     env: &Env,
-    r: &RoomClient,
+    r: &dyn TableWho,
     table: &StageTable,
     [x, y, w]: [f32; 3],
     height: Option<f32>,
@@ -644,7 +676,7 @@ pub(super) fn standings(
         // them all).
         let listed: Vec<usize> = if result.len() > crate::screens::room::ROOM_OF_NINE {
             let mut v: Vec<usize> = (0..across.min(result.len())).collect();
-            if let Some(mine) = result.iter().position(|(id, ..)| *id == r.me())
+            if let Some(mine) = result.iter().position(|(id, ..)| Some(*id) == r.me())
                 && !v.contains(&mine)
             {
                 v.push(mine);
@@ -657,7 +689,7 @@ pub(super) fn standings(
             let at = listed.iter().position(|&l| l == k).unwrap_or(k);
             let cx = x + (at % across) as f32 * cell;
             let cy = ry + (at / across) as f32 * 19.0 + 10.0;
-            let me = *id == r.me();
+            let me = Some(*id) == r.me();
             let color = if me { "Text" } else { "Secondary" };
             out.push(left(
                 env.numbers(&format!("Final{k}.Rank"), &rank.to_string(), 13.0, "Muted"),
@@ -954,8 +986,10 @@ pub(super) fn standings(
         out.push(frame(&id, c));
         ry += row_h;
     }
+    let mut more_at = None;
     if more {
         let below = rows.len() - first - shown;
+        more_at = Some((ry + row_h / 2.0, row_h, below > 0));
         let text = if below > 0 {
             m::panel_more_below(below)
         } else {
@@ -1008,6 +1042,7 @@ pub(super) fn standings(
         height: ry - y,
         shown,
         first,
+        more: more_at,
     }
 }
 
@@ -1119,7 +1154,7 @@ impl ResultsScreen {
         let r = sm.room.borrow();
         let winners = r
             .stage_table(sm.stage)
-            .map(|t| stage_winners_of(&r, &t))
+            .map(|t| stage_winners_of(&*r, &t))
             .unwrap_or_default();
         let mut ty = y + 8.0;
         if !winners.is_empty() {
@@ -1215,7 +1250,7 @@ impl ResultsScreen {
         let mut content = Vec::new();
         let drawn = standings(
             &self.env,
-            &r,
+            &*r,
             &table,
             [pad, top, w - 2.0 * pad],
             fitted.then_some(h - top - 10.0),
@@ -1403,7 +1438,7 @@ impl ResultsScreen {
                 w if w > 0.0 => w,
                 _ => self.places().1[2] - 28.0,
             };
-            let mut view = view_of(&r, &table, sm.tab, &columns(w, table.attacks));
+            let mut view = view_of(&*r, &table, sm.tab, w);
             view.watched = sm.watched;
             Some(view)
         });
