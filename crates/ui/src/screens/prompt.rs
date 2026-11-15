@@ -1010,7 +1010,7 @@ impl PromptScreen {
             [screen[0] / 2.0, screen[1] / 2.0],
         );
         let mut children = vec![field];
-        children.push(picture(&env, screen, &state, cx));
+        children.push(picture(&env, screen, &state, self.band(&state), cx));
         if matches!(state.step, PromptStep::Loading) {
             // The loading screen: the card fading out (while it does),
             // then the label alone.
@@ -1867,7 +1867,10 @@ fn pbutton(
 /// on the loading screen its last unblur too (a sharp copy under the
 /// blurred ones, as the play's renderer draws it), so the play opens on
 /// what is already there.
-fn picture(env: &Env, [w, h]: [f32; 2], state: &PromptState, cx: &mut Cx) -> Actor {
+/// `band`: the field's filter band is drawn (not behind a room's Ready
+/// card, through whose translucent plate it showed as a stripe: there
+/// the song's picture alone until the play starts).
+fn picture(env: &Env, [w, h]: [f32; 2], state: &PromptState, band: bool, cx: &mut Cx) -> Actor {
     use ddi_actor::background::{BASE_SIDE, CONTENT_SIDE, Reveal, frame_rect};
     let image = |name: &str, rect: [f32; 4], texture: u32, tint: f32, alpha: f32| {
         let [x, y, w, h] = rect;
@@ -1924,6 +1927,7 @@ fn picture(env: &Env, [w, h]: [f32; 2], state: &PromptState, cx: &mut Cx) -> Act
         children.push(image("Picture", rect, texture, b, soft_alpha));
         if let Some(([mid, width], dark)) = p.filter
             && dark > 0.0
+            && band
         {
             children.push(quad_at(
                 "Filter",
@@ -2165,7 +2169,7 @@ impl Screen for PromptScreen {
         if moved {
             let state = self.state.borrow();
             if let Some(backdrop) = crate::hit::find_mut(root, "Backdrop") {
-                *backdrop = picture(&self.env, self.screen, &state, cx);
+                *backdrop = picture(&self.env, self.screen, &state, self.band(&state), cx);
             }
         }
         let vp = cx.viewport().screen;

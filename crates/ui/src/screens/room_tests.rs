@@ -5548,3 +5548,43 @@ fn a_leave_question_open_when_a_stage_opens_is_closed() {
     assert!(!t.bob.borrow().asking_leave().get());
     assert!(calls.borrow().is_empty(), "nobody left");
 }
+
+/// Fix round G4: the field's band is not drawn behind a room's Ready card
+/// (through its translucent plate it showed as a dark stripe); the
+/// backdrop is the song's picture alone until the play starts. A single
+/// play's prompt keeps it.
+#[test]
+fn a_rooms_ready_card_has_no_field_band_behind_it() {
+    use super::prompt::PromptPicture;
+    let picture = PromptPicture {
+        source: "play:picture".into(),
+        aspect: 4.0 / 3.0,
+        frame: Some(4.0 / 3.0),
+        brightness: 0.75,
+        filter: Some(([0.5, 0.3], 0.4)),
+    };
+    let room = RoomClient::shared(0, 1);
+    let s = &library("dance-single").songs[0];
+    room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+    let order = room.borrow_mut().take_stage_order().unwrap();
+    let state = Rc::new(RefCell::new(PromptState::default()));
+    state.borrow_mut().set_picture(Some(picture.clone()));
+    let mut h = harness();
+    h.push(
+        PromptScreen::new(env(), state.clone(), Rc::new(|_, _| {})).with_room(
+            room.clone(),
+            order.stage,
+            shell(&room, &Orders::default()),
+        ),
+    );
+    h.run(1.0);
+    assert!(there(&h, "Picture"), "the song's picture");
+    assert!(!there(&h, "Filter"), "no band behind the Ready card");
+    // A single play's prompt: the band, as the play will have it.
+    let single = Rc::new(RefCell::new(PromptState::default()));
+    single.borrow_mut().set_picture(Some(picture));
+    let mut h = harness();
+    h.push(PromptScreen::new(env(), single, Rc::new(|_, _| {})));
+    h.run(1.0);
+    assert!(there(&h, "Filter"));
+}

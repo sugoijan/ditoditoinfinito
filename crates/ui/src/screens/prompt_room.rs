@@ -261,6 +261,13 @@ impl PromptScreen {
         self.room.is_some()
     }
 
+    /// The field's filter band is drawn on the backdrop: not behind a
+    /// room's Ready card (its plate is translucent), only once the play
+    /// is on its way (the loading screen).
+    pub(super) fn band(&self, state: &PromptState) -> bool {
+        !self.room_card() || state.step == PromptStep::Loading
+    }
+
     /// The players in `[x, y, w, h]` (`h` at least four rows), each the
     /// room's players panel's line (`room::player_line`: the name and its
     /// badge, a CPU's stars or a role, the policy, the state, the points),
