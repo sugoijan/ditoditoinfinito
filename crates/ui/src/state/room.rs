@@ -1029,6 +1029,10 @@ pub struct RoomClient {
     asked: BTreeSet<(StageId, u32)>,
     /// Stages handed to the shell to play.
     launched: BTreeSet<StageId>,
+    /// Stages whose prompt this player left (withdrew from or forfeited):
+    /// never handed over again while that window or play lasts
+    /// ([`Self::forget_left_prompts`]).
+    left_prompts: BTreeSet<StageId>,
     /// The stage whose prompt the last tick had open, if any: a notice is
     /// never carried across its opening or its end (feedback round H,
     /// item 2).
@@ -1583,6 +1587,7 @@ impl RoomClient {
             jobs: Vec::new(),
             asked: BTreeSet::new(),
             launched: BTreeSet::new(),
+            left_prompts: BTreeSet::new(),
             notice_stage: None,
             sharing: BTreeMap::new(),
             uploads: Vec::new(),
@@ -2318,7 +2323,7 @@ impl RoomClient {
             _ => return None,
         };
         let st = s.stage(stage)?;
-        if !self.picks.contains_key(&st.content.as_ref()?.id) {
+        if !self.picks.contains_key(&st.content.as_ref()?.id) || self.left_prompts.contains(&stage) {
             return None;
         }
         // Its battle plan is not the room's here: it sits the stage out
@@ -2418,6 +2423,9 @@ impl RoomClient {
     /// to choosing; another operator following the picker only withdraws).
     pub fn leave_prompt(&mut self, stage: StageId) -> PromptExit {
         self.launched.remove(&stage);
+        // Left, it stays left: never handed back while this window (or
+        // this play) lasts; a new window opens it again.
+        self.left_prompts.insert(stage);
         if self.stage_started(stage) {
             return PromptExit::Forfeit;
         }
@@ -3869,6 +3877,7 @@ impl RoomClient {
                     ServerMessage::Snapshot { room },
                 ));
             }
+            self.forget_left_prompts();
         }
         let found = match &self.link {
             Link::Online(l) => self.state().member_by_identity(l.identity()).map(|m| m.id),
@@ -3883,6 +3892,25 @@ impl RoomClient {
             }
         }
         answer
+    }
+
+    /// A prompt left is forgotten once the window or the play it was left
+    /// in is over (a window closed, the stage played): the next window of
+    /// the same stage (the pick made again) opens it again.
+    fn forget_left_prompts(&mut self) {
+        if self.left_prompts.is_empty() {
+            return;
+        }
+        let open = match self.state().phase {
+            Phase::Preparing {
+                stage,
+                window: Some(_),
+            }
+            | Phase::Countdown { stage, .. }
+            | Phase::Stage { stage } => Some(stage),
+            _ => None,
+        };
+        self.left_prompts.retain(|s| Some(*s) == open);
     }
 
     /// What the room's live side said since the last tick: kept for the

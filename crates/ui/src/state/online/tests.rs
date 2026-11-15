@@ -995,7 +995,7 @@ pub(crate) mod room {
         }
     }
 
-    fn shared_pick(s: &crate::screens::data::SongEntry) -> Picked {
+    pub(crate) fn shared_pick(s: &crate::screens::data::SongEntry) -> Picked {
         Picked {
             song: crate::screens::data::SongEntry {
                 id: "shared:abc12345:0".into(),
