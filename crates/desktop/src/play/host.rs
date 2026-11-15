@@ -1297,7 +1297,11 @@ impl Host {
                 let mut p = r.prompt.borrow_mut();
                 p.set_waiting(vec!["song".into()]);
                 // A shared song's files coming down: said quietly.
-                p.set_notes(crate::share::download_line().into_iter().collect());
+                p.set_notes(
+                    crate::share::song_download_line(&r.request.song)
+                        .into_iter()
+                        .collect(),
+                );
             }
             return;
         };

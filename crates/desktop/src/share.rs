@@ -85,17 +85,21 @@ pub struct Download {
     pub bytes: u64,
 }
 
-static DOWNLOAD: Mutex<Option<Download>> = Mutex::new(None);
+/// Each share's download under way, by its id (review3 desktop-5: two
+/// shares read at once, a room's resting song's and a stage's, each its
+/// own line).
+static DOWNLOAD: Mutex<std::collections::BTreeMap<String, Download>> =
+    Mutex::new(std::collections::BTreeMap::new());
 
-/// The download under way, if any.
-pub fn download() -> Option<Download> {
-    DOWNLOAD.lock().ok().and_then(|d| d.clone())
+/// Share `share`'s download under way, if any.
+pub fn download(share: &str) -> Option<Download> {
+    DOWNLOAD.lock().ok().and_then(|d| d.get(share).cloned())
 }
 
-/// A quiet line on it: "downloading the song… 2.1 of 4.1 MB", or the
-/// songs read so far of a share's.
-pub fn download_line() -> Option<String> {
-    let d = download()?;
+/// A quiet line on share `share`'s: "downloading the song… 2.1 of 4.1
+/// MB", or the songs read so far of a share's.
+pub fn download_line(share: &str) -> Option<String> {
+    let d = download(share)?;
     Some(if d.songs > 0 && d.bytes == 0 {
         ddi_l10n::msg::prompt::share_reading(d.songs_done, d.songs).into()
     } else {
@@ -103,15 +107,22 @@ pub fn download_line() -> Option<String> {
     })
 }
 
-fn note_download(f: impl FnOnce(&mut Download)) {
+/// [`download_line`] for shared song `song` (`shared:<id>:<n>`), none for
+/// any other song.
+pub fn song_download_line(song: &str) -> Option<String> {
+    let (share, _) = contract::parse_song_id(song)?;
+    download_line(share)
+}
+
+fn note_download(share: &str, f: impl FnOnce(&mut Download)) {
     if let Ok(mut d) = DOWNLOAD.lock() {
-        f(d.get_or_insert_with(Default::default));
+        f(d.entry(share.to_string()).or_default());
     }
 }
 
-fn download_over() {
+fn download_over(share: &str) {
     if let Ok(mut d) = DOWNLOAD.lock() {
-        *d = None;
+        d.remove(share);
     }
 }
 
@@ -214,7 +225,7 @@ pub fn load(id: &str, progress: &dyn Fn()) -> Result<LoadedShare, ShareError> {
     let root = share_root(id)?;
     let mut songs = Vec::new();
     let total = doc.songs.len();
-    note_download(|d| {
+    note_download(id, |d| {
         d.songs = total;
         d.songs_done = 0;
     });
@@ -228,12 +239,12 @@ pub fn load(id: &str, progress: &dyn Fn()) -> Result<LoadedShare, ShareError> {
             if contract::is_small(&stored) {
                 let got = ensure_file(&doc, id, n, &stored, &named, &dir);
                 if got.is_err() {
-                    download_over();
+                    download_over(id);
                 }
                 got?;
             }
         }
-        note_download(|d| d.songs_done = n + 1);
+        note_download(id, |d| d.songs_done = n + 1);
         progress();
         songs.push(LibSong {
             root: dir,
@@ -251,7 +262,7 @@ pub fn load(id: &str, progress: &dyn Fn()) -> Result<LoadedShare, ShareError> {
             work: None,
         });
     }
-    download_over();
+    download_over(id);
     let loaded = LoadedShare {
         id: id.to_string(),
         pack: doc.pack.clone(),
@@ -293,7 +304,7 @@ pub fn ensure_all(id: &str) -> Result<(), ShareError> {
             }
         }
     }
-    download_over();
+    download_over(share);
     Ok(())
 }
 
@@ -373,7 +384,7 @@ fn ensure_file(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(0);
-    note_download(|d| {
+    note_download(id, |d| {
         d.file = named.to_string();
         d.bytes_done = 0;
         d.bytes = total;
@@ -390,12 +401,12 @@ fn ensure_file(
             }
             std::io::Write::write_all(&mut file, &buf[..n])?;
             got += n as u64;
-            note_download(|d| d.bytes_done = got);
+            note_download(id, |d| d.bytes_done = got);
         }
         file.sync_all()?;
         std::fs::rename(&tmp, &target)
     })();
-    note_download(|d| {
+    note_download(id, |d| {
         d.file.clear();
         d.bytes_done = 0;
         d.bytes = 0;
@@ -722,6 +733,26 @@ pub fn describe(s: &LoadedShare, now: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// review3 desktop-5: two shares read at once each keep their own
+    /// download's line: one ending leaves the other's.
+    #[test]
+    fn two_downloads_at_once_keep_their_own_progress() {
+        note_download("AAAAAAAAAA", |d| {
+            d.bytes = 4_000_000;
+            d.bytes_done = 1_000_000;
+        });
+        note_download("BBBBBBBBBB", |d| {
+            d.bytes = 9_000_000;
+            d.bytes_done = 2_000_000;
+        });
+        assert_eq!(download("AAAAAAAAAA").map(|d| d.bytes), Some(4_000_000));
+        download_over("BBBBBBBBBB");
+        assert_eq!(download("BBBBBBBBBB"), None);
+        assert_eq!(download("AAAAAAAAAA").map(|d| d.bytes_done), Some(1_000_000));
+        download_over("AAAAAAAAAA");
+        assert_eq!(download("AAAAAAAAAA"), None);
+    }
 
     /// support-2: a song read in place whose banner and music sit in its
     /// pack's folder (`#BANNER:../bn.png`) is listed under paths a share

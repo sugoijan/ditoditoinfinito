@@ -292,7 +292,7 @@ impl Songs {
             data.notices = s.notices.clone();
             // Where the share's download is, quietly.
             if s.loading
-                && let Some(line) = crate::share::download_line()
+                && let Some(line) = crate::share::download_line(&s.id)
             {
                 data.notices.push(Notice::quiet(line));
             }
@@ -594,7 +594,11 @@ impl Songs {
         }
         // The share's songs came, or its download moved: its screen told.
         let shared = self.poll_share();
-        let download = crate::share::download();
+        let download = self
+            .share
+            .borrow()
+            .as_ref()
+            .and_then(|s| crate::share::download(&s.id));
         let moved = self.shared() && self.download_seen.replace(download.clone()) != download;
         if shared || moved {
             self.share_feed.borrow_mut().data = Some(self.share_data());
