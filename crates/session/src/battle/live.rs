@@ -202,6 +202,9 @@ pub(crate) struct RemoteLedger {
     pub blocked: Vec<(ParticipantId, BlockReason)>,
     pub targeting: Vec<(ParticipantId, Targeting)>,
     pub attacks: Vec<Attack>,
+    /// The checkpoints whose records came: one past the last one's index
+    /// (`CheckpointNews::k`), never a count of records, which falls behind
+    /// for good after a snapshot skipped some (review finding session-2).
     pub checkpoints: usize,
 }
 
@@ -235,8 +238,9 @@ impl RemoteLedger {
             .flatten()
     }
 
-    fn apply(&mut self, record: &CheckpointRecord) {
-        self.checkpoints += 1;
+    /// Checkpoint `k`'s record.
+    fn apply(&mut self, k: u32, record: &CheckpointRecord) {
+        self.checkpoints = self.checkpoints.max(k as usize + 1);
         self.power.clone_from(&record.power);
         for e in &record.events {
             match *e {
@@ -572,8 +576,9 @@ impl Live {
             .collect();
         let reporter = (competes && plan.is_some())
             .then(|| Reporter::new(me, plan.as_ref().map_or_else(Vec::new, |p| p.checkpoints_us.clone())));
-        // Its frames are kept for this play from now on.
-        let _ = handle.room.borrow_mut().take_live_news();
+        // What the room's client kept of the stage before this play (its
+        // last snapshot and the frames since: a play that starts
+        // part-way) is read with the rest by the first `receive`.
         Live {
             handle,
             stage,
@@ -928,17 +933,39 @@ impl Live {
                     self.frame(track, &f, t, human.as_deref_mut(), &mut got)
                 }
                 LiveNews::Snapshot(s) if s.stage == self.stage => {
+                    let at_us = ddi_room::live::song_us_at(s.song_zero_at, s.at);
                     for c in &s.competitors {
                         if let Some(seat) = self.seats.iter_mut().find(|x| x.participant == c.participant) {
-                            seat.through_us = Some(c.through_us);
+                            seat.through_us = Some(seat.through_us.map_or(c.through_us, |x| x.max(c.through_us)));
                             seat.score = c.score;
-                            if seat.end.is_none() && c.end.is_some() {
-                                seat.end = c.end;
-                                if seat.gone() {
-                                    got.outs.push(c.participant);
-                                }
+                            // Its field as the room had it then (life,
+                            // combo, score), where no moment it streamed
+                            // came after (session-3).
+                            let at = (at_us.min(c.through_us) - seat.shift_us) as f64 / 1e6;
+                            if seat.feed.moments().last().is_none_or(|m| m.at < at) {
+                                seat.feed.push(
+                                    track,
+                                    feed::Moment {
+                                        at,
+                                        tick: Tick(0),
+                                        lane: 0,
+                                        kind: feed::MomentKind::Mark,
+                                        life: c.life_ppm as f32 / 1e6,
+                                        combo: c.combo,
+                                        out: false,
+                                        offset: 0.0,
+                                        w0: None,
+                                        score: seat_view(c.score, seat.w0s, self.most),
+                                    },
+                                );
+                            }
+                            if let Some(end) = c.end {
+                                Self::ended(seat, track, end, self.most, &mut got);
                             }
                         }
+                    }
+                    if !s.competitors.is_empty() {
+                        self.ledger.power = s.competitors.iter().map(|c| (c.participant, c.power)).collect();
                     }
                     self.settling = s.settling;
                     for c in s.commitments.clone() {
@@ -947,7 +974,6 @@ impl Live {
                     // The checkpoints run by the snapshot's time: every
                     // one whose deadline (and a tick) had passed.
                     if let Some(plan) = &self.plan {
-                        let at_us = ddi_room::live::song_us_at(s.song_zero_at, s.at);
                         let ran = plan
                             .checkpoints_us
                             .iter()
@@ -1052,43 +1078,57 @@ impl Live {
                 }
                 seat.feed.push(track, fm);
             }
-            if let Some(end) = e.end
-                && seat.end.is_none()
-            {
-                seat.end = Some(end);
-                let at = match end {
-                    StreamEnd::Out { at_us } => Some(at_us),
-                    StreamEnd::Finished => None,
-                    _ => Some(seat.through_us.unwrap_or(0)),
-                };
-                if let Some(at_us) = at {
-                    seat.feed.push(
-                        track,
-                        feed::Moment {
-                        at: (at_us - seat.shift_us) as f64 / 1e6,
-                        tick: Tick(0),
-                        lane: 0,
-                        kind: feed::MomentKind::Mark,
-                        life: 0.0,
-                        combo: 0,
-                        out: true,
-                        offset: 0.0,
-                        w0: None,
-                        score: seat_view(seat.score, seat.w0s, self.most),
-                        },
-                    );
-                    got.outs.push(seat.participant);
-                }
+            if let Some(end) = e.end {
+                Self::ended(seat, track, end, self.most, got);
             }
         }
         for c in &f.commitments {
             self.commit(track, *c, t, human.as_deref_mut(), got);
         }
-        for CheckpointNews { record, .. } in &f.checkpoints {
-            self.ledger.apply(record);
+        for CheckpointNews { k, record } in &f.checkpoints {
+            self.ledger.apply(*k, record);
         }
         if f.settling.is_some() {
             self.settling = f.settling;
+        }
+    }
+
+    /// A remote seat's stream ended (`end`, as a frame or a snapshot said
+    /// it; the first said is kept): out of the stage, its field marked out
+    /// from then (its going out's moment, else as far as it was judged).
+    fn ended(
+        seat: &mut RemoteSeat,
+        track: &feed::TapTrack,
+        end: StreamEnd,
+        most: Option<i64>,
+        got: &mut Received,
+    ) {
+        if seat.end.is_some() {
+            return;
+        }
+        seat.end = Some(end);
+        let at = match end {
+            StreamEnd::Out { at_us } => Some(at_us),
+            StreamEnd::Finished => None,
+            _ => Some(seat.through_us.unwrap_or(0)),
+        };
+        if let Some(at_us) = at {
+            seat.feed.push(
+                track,
+                feed::Moment {
+                    at: (at_us - seat.shift_us) as f64 / 1e6,
+                    tick: Tick(0),
+                    lane: 0,
+                    kind: feed::MomentKind::Mark,
+                    life: 0.0,
+                    combo: 0,
+                    out: true,
+                    offset: 0.0,
+                    w0: None,
+                    score: seat_view(seat.score, seat.w0s, most),
+                },
+            );
+            got.outs.push(seat.participant);
         }
     }
 

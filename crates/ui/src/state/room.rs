@@ -1242,9 +1242,12 @@ pub fn decision_of(
     (ranking_of(placements), early)
 }
 
-/// What a live stage played here reads of the room's live side: kept
-/// only while one is read ([`LiveNewsTap::take`]), so that it never piles
-/// up.
+/// What a live stage played here reads of the room's live side: all of
+/// it while one is read ([`LiveNewsTap::take`]); while none is, the
+/// latest stage's news since its last snapshot, so that a play that
+/// starts part-way (an audience's Watch, a member handed a running stage)
+/// learns the stage as it stands (review finding session-1) and nothing
+/// piles up beyond one stage.
 #[derive(Debug, Default)]
 pub struct LiveNewsTap {
     news: Vec<ddi_room::live::LiveNews>,
@@ -1252,10 +1255,32 @@ pub struct LiveNewsTap {
 }
 
 impl LiveNewsTap {
-    /// News come: kept where a stage reads them.
+    /// News come: kept for the stage read, or for one to come.
     pub fn extend(&mut self, news: impl IntoIterator<Item = ddi_room::live::LiveNews>) {
+        use ddi_room::live::LiveNews;
         if self.reading {
             self.news.extend(news);
+            return;
+        }
+        let stage_of = |n: &LiveNews| match n {
+            LiveNews::Frame(f) => Some(f.stage),
+            LiveNews::Snapshot(s) => Some(s.stage),
+            LiveNews::Refused(_) => None,
+        };
+        for n in news {
+            match &n {
+                // The stage as it stands: what came of it before is in it.
+                LiveNews::Snapshot(s) => {
+                    let stage = s.stage;
+                    self.news.retain(|x| stage_of(x).is_some_and(|y| y > stage));
+                }
+                LiveNews::Frame(f) => {
+                    let stage = f.stage;
+                    self.news.retain(|x| stage_of(x).is_none_or(|y| y >= stage));
+                }
+                LiveNews::Refused(_) => {}
+            }
+            self.news.push(n);
         }
     }
 
@@ -1265,7 +1290,7 @@ impl LiveNewsTap {
         std::mem::take(&mut self.news)
     }
 
-    /// The stage read is over: nothing is kept.
+    /// The stage read is over: what it left is dropped.
     pub fn stop(&mut self) {
         self.reading = false;
         self.news.clear();

@@ -1081,6 +1081,15 @@ impl Battle {
             .collect()
     }
 
+    /// TESTS: the song µs each online CPU computed here is judged to.
+    #[cfg(test)]
+    pub(crate) fn cpu_at_us(&self) -> Vec<i64> {
+        self.seats
+            .iter()
+            .filter_map(|s| s.drive.as_ref().map(cpus::Drive::at_us))
+            .collect()
+    }
+
     /// Each remote competitor's song clock against the room's as its taps
     /// say it (µs; `live::RemoteSeat::shift_us`), in seat order.
     #[cfg(test)]

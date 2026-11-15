@@ -1837,6 +1837,224 @@ fn the_audience_watches_a_live_stage_behind_the_room_with_the_members_fields() {
     assert_eq!(r.rooms[0].borrow().audience(), Some((1, true)));
 }
 
+/// Two players, two CPUs and a member who watches, attacks on: the
+/// watcher's socket is lost for longer than the room keeps frames to
+/// resume from (its device not ticked meanwhile), during which Bob goes
+/// out. Back, it gets the stage as a snapshot: Bob is out on its field
+/// (review finding session-3), and the CPUs it computes are judged on
+/// with the room's checkpoints, never held at the snapshot's and then
+/// trailing the room by the checkpoints it missed (session-2).
+#[test]
+fn a_watcher_back_after_a_long_drop_sees_who_went_out_and_its_cpus_keep_up() {
+    let song = bundled("beatucada");
+    let r = Room::new(
+        &[
+            ("alice", Intent::Play),
+            ("bob", Intent::Play),
+            ("carol", Intent::Watch),
+        ],
+        None,
+    );
+    for _ in 0..10 {
+        r.run(0.5);
+        if r.rooms.iter().all(|x| x.borrow().room_now().is_some()) {
+            break;
+        }
+    }
+    let mut rules = r.rooms[0].borrow().rules().clone();
+    rules.seats = 4;
+    rules.cpu.mode = ddi_room::CpuMode::Roster;
+    rules.cpu.roster = (0..2u64)
+        .map(|i| ddi_room::OpponentSpec {
+            level: 7,
+            seed: 70 + i,
+            personality: None,
+            name: Some(format!("Robo{i}")),
+            targeting: None,
+        })
+        .collect();
+    r.rooms[0].borrow_mut().save_rules(rules).unwrap();
+    r.run(1.0);
+    let orders = pick_and_ready(&r, &song, true, 0);
+    let stage = orders[0].as_ref().unwrap().stage;
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 5.0, 0.0]);
+    let zero = r.rooms[0].borrow().song_zero_at(stage).unwrap();
+    let song_t = || (wall(*r.host.borrow()) as f64 - zero.0 as f64) / 1_000.0;
+    let ids: Vec<_> = r.rooms.iter().map(|x| x.borrow().me()).collect();
+    let tick = |plays: &mut [PlaySession<FakeAudio, FakeInputs>], who: &[usize]| {
+        r.step(1.0 / 60.0, false);
+        let host = *r.host.borrow();
+        for &i in who {
+            let _ = plays[i].tick(HostTime(host));
+        }
+    };
+    while song_t() < 8.0 {
+        tick(&mut plays, &[0, 1, 2]);
+    }
+    r.server.borrow_mut().drop_socket(ids[2]);
+    // Carol's device not ticked for 45 s: the room's frames of that time
+    // are past resuming from.
+    while song_t() < 53.0 {
+        tick(&mut plays, &[0, 1]);
+    }
+    assert!(
+        matches!(r.server.borrow().live().unwrap().stage_or_last().unwrap().end(ids[1]), Some(StreamEnd::Out { .. })),
+        "bob went out meanwhile"
+    );
+    while song_t() < 58.0 {
+        tick(&mut plays, &[0, 1, 2]);
+    }
+    let b = plays[2].battle().unwrap();
+    let views = b.views();
+    let bob = views.iter().find(|v| v.participant == ids[1]).expect("bob's field");
+    assert!(bob.out, "bob, out while carol was away, shown out: {bob:?}");
+    // The CPUs computed on carol's device are judged on to the room's
+    // song time, here and twenty seconds later.
+    for wait in [0.0, 20.0] {
+        let until = song_t() + wait;
+        while song_t() < until {
+            tick(&mut plays, &[0, 1, 2]);
+        }
+        let now_us = (song_t() * 1e6) as i64;
+        for at in plays[2].battle().unwrap().cpu_at_us() {
+            assert!(now_us - at < 3_000_000, "a CPU at {at} µs, the room's song at {now_us} µs");
+        }
+    }
+}
+
+/// Someone who opens the room's audience link part-way into a stage
+/// (the reload case: a seat that arrives during it, then Watch) sees the
+/// stage as it stands from its first frames: a player who went out before
+/// it came is out on its field, the attacks committed before it came are
+/// on the fields, and the CPUs it computes catch up with the room's song
+/// time at once rather than trailing it for the rest of the stage
+/// (review finding session-1).
+#[test]
+fn an_audience_seat_that_arrives_part_way_sees_the_stage_as_it_stands() {
+    let song = bundled("beatucada");
+    let r = Room::under(
+        &[
+            ("alice", Intent::Play),
+            ("bob", Intent::Play),
+            ("carol", Intent::Watch),
+        ],
+        None,
+        &[],
+        RoomPolicy::default().with_live().with_audience(),
+    );
+    for _ in 0..10 {
+        r.run(0.5);
+        if r.rooms.iter().all(|x| x.borrow().room_now().is_some()) {
+            break;
+        }
+    }
+    let mut rules = r.rooms[0].borrow().rules().clone();
+    rules.seats = 4;
+    rules.cpu.mode = ddi_room::CpuMode::Roster;
+    rules.cpu.roster = (0..2u64)
+        .map(|i| ddi_room::OpponentSpec {
+            level: 7,
+            seed: 70 + i,
+            personality: None,
+            name: Some(format!("Robo{i}")),
+            targeting: None,
+        })
+        .collect();
+    r.rooms[0].borrow_mut().save_rules(rules).unwrap();
+    r.run(1.0);
+    let orders = pick_and_ready(&r, &song, true, 0);
+    let stage = orders[0].as_ref().unwrap().stage;
+    assert_eq!(orders[0].as_ref().unwrap().cpus.len(), 2);
+    // Bob misses everything and goes out early.
+    let mut plays = sessions(&r, &song, &orders, &[0.0, 5.0, 0.0]);
+    let zero = r.rooms[0].borrow().song_zero_at(stage).unwrap();
+    let song_t = || (wall(*r.host.borrow()) as f64 - zero.0 as f64) / 1_000.0;
+    let ended = play_out(&r, &mut plays, 45.0, |_, _| {});
+    assert!(ended.iter().all(Option::is_none), "everyone still plays or watches");
+    let bob = orders[1].as_ref().unwrap().me;
+    assert!(
+        matches!(r.server.borrow().live().unwrap().stage_or_last().unwrap().end(bob), Some(StreamEnd::Out { .. })),
+        "bob is out before the seat comes"
+    );
+    let committed_before: Vec<(ddi_room::ParticipantId, usize)> = r
+        .server
+        .borrow()
+        .live()
+        .unwrap()
+        .stage_or_last()
+        .unwrap()
+        .ledger()
+        .unwrap()
+        .attacks()
+        .iter()
+        .map(|a| (a.recipient, a.cells.len()))
+        .collect();
+    assert!(!committed_before.is_empty(), "attacks before the seat came");
+    // The seat arrives, its song prepared from the share, a while on its
+    // page (its frames and snapshot read by its client, no play yet).
+    let aud = audience_seat(&r, "dora", None);
+    let tick_aud = || aud.borrow_mut().tick(wall(*r.host.borrow()));
+    let e = entry_at(&song, 0);
+    let _ = play_out(&r, &mut plays, 4.0, |_, _| {
+        tick_aud();
+        let jobs = aud.borrow_mut().take_load_jobs();
+        for job in jobs {
+            let prepared = prepare_stage(&job, &song, &mut |e| panic!("{e}")).unwrap();
+            let picked = Picked {
+                song: SongEntry {
+                    id: job.song.clone(),
+                    ..e.clone()
+                },
+                chart: e.charts[0].clone(),
+            };
+            aud.borrow_mut().finish_load(&job, Ok((picked, prepared.live)));
+        }
+    });
+    assert!(aud.borrow_mut().take_stage_order().is_none(), "begun before it came: Watch hands it over");
+    // Watch pressed.
+    let order = aud.borrow_mut().watch_now().expect("Watch hands the stage over");
+    let settings = Settings::default();
+    let mut config = SessionConfig::from_settings(&settings, true, None);
+    config.opponents = Some(StageSetup::of(&order));
+    let host = r.host.clone();
+    config.live = Some(crate::battle::live::LiveHandle {
+        room: aud.clone(),
+        wall_ms: Rc::new(move || wall(*host.borrow())),
+    });
+    let mut watched = PlaySession::start(
+        &song,
+        order.chart.index,
+        &settings,
+        config,
+        FakeAudio::new(&r.host, 0.02),
+        110.0,
+        FakeInputs::new(&r.host),
+    )
+    .unwrap();
+    // Three seconds on (the audience's delay behind the room's song).
+    for _ in 0..180 {
+        r.step(1.0 / 60.0, false);
+        let host = *r.host.borrow();
+        for p in plays.iter_mut() {
+            let _ = p.tick(HostTime(host));
+        }
+        let _ = watched.tick(HostTime(host));
+    }
+    let b = watched.battle().unwrap();
+    let views = b.views();
+    let bob_view = views.iter().find(|v| v.participant == bob).expect("bob's field");
+    assert!(bob_view.out, "bob, out before the seat came, shown out: {bob_view:?}");
+    // Every shock committed before it came is on a field.
+    let shocks: usize = b.feeds().map(|f| f.shocks().len()).sum();
+    let before: usize = committed_before.iter().map(|(_, n)| n).sum();
+    assert!(shocks >= before, "{shocks} shocks on the fields, {before} committed before the seat came");
+    // The CPUs computed here judged to about the room's song time.
+    let now_us = (song_t() * 1e6) as i64;
+    for at in b.cpu_at_us() {
+        assert!(now_us - at < 3_000_000, "a CPU at {at} µs, the room's song at {now_us} µs");
+    }
+}
+
 /// The seat a stage is watched through ends during it (the host closes
 /// the audience: 4403): the view stops (the music fading, no more frames)
 /// and says why, nothing ends it by itself before the song's end, and
