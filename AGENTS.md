@@ -1308,7 +1308,11 @@ Rust and the browser are implementation details, not advertised features.
   (`LiveStage::cpu_mismatches`).
   The audience (`audience.rs`, `docs/plans/multiplayer-audience.md`,
   `audience-v0`, PROVISIONAL): people who watch beyond the members,
-  counted and not listed, served by relays; where `RoomPolicy::audience`
+  counted and not listed, served by relays, admitted without a sign-in
+  (since 2026-11-15: an anonymous seat for the server's daily mark of
+  the connecting network, `is_anonymous`, eight a mark and its joins
+  bounded a minute, `AudienceRules::seats_for`; a signed-in person's two
+  their own); where `RoomPolicy::audience`
   says so, the public view derived from the state (`audience/public.rs`,
   `PublicView`: nothing a member alone knows), the members' frames
   coalesced four a second into one audience frame (`audience/frames.rs`),
@@ -1437,8 +1441,8 @@ Rust and the browser are implementation details, not advertised features.
   `room::WATCH_MUSIC_V0`, `RoomClient::watch_music_ms`);
   `screens/audience.rs` its page between stages
   (`AudienceScreen`, `AudienceCall`; `ThemeState::audience`); the invite
-  page's Watch with the audience (`Online::watch_audience`,
-  `OnlineCall::Watch`), members' count on the status line, Host options'
+  page's Watch with the audience (`Online::watch_audience`, signed in
+  or not, never asking for a sign-in; `OnlineCall::Watch`), members' count on the status line, Host options'
   Close/Open the audience and More's Copy audience link
   (`RoomClient::audience`, `set_audience_open`). M7b: the room's main view is song select
   (`SelectScreen::with_room`, `screens/select_room.rs`, a child module of

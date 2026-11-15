@@ -6,6 +6,9 @@ Status (2026-11-13): designed; the contract for the recommended path
 side is built and tested in `../ddi-server` (not deployed; "The server, as
 built" below); nothing of it is in the game yet.
 
+2026-11-15: the audience watches without signing in, anonymously, bounded
+by network ("Sign-in: none" below; open question 1 answered).
+
 Read with [Online play: the shared base](multiplayer-online-play.md) (the
 live contract, its frames, the load tests and "Platform facts") and
 [the prototype's progress](multiplayer-prototype-progress.md) ("Watching
@@ -61,16 +64,54 @@ What the other choices cost:
 | Host promotes someone from the audience | Feels natural | The audience is not listed: the host has no one to pick without listing it (names, identities in the room: exactly what is left out) |
 | **A separate audience link, and the audience offered at the member bound** | The member model untouched; the room's cost flat in the audience; honest (the link says what it gives) | One more link for the host to copy |
 
-**Sign-in (recommended: signed in, for now).** The prototype signs
-everyone in (Twitch). An audience seat signed in is bounded per identity
-(two seats, `seats_per_identity`), which bounds one device opening many
-seats without any central count of addresses. An anonymous audience is
-cheaper to join (no Twitch round trip) and harder to bound: one person
-could open thousands of seats. The contract leaves the door open: a seat
-is admitted for an *identity string*; an anonymous one could be
-`anon:<hash of the connecting address and a day>` given by the Worker,
-bounded per address the same way (Cloudflare gives the Worker
-`CF-Connecting-IP`). Open question 1.
+**Sign-in: none (decided 2026-11-15).** The maintainer: "I think we
+should let the audience spectate without having to sign-in and be
+anonymous." The audience is counted and never listed, so a sign-in only
+ever bounded how many seats one person opens; asking someone who follows
+a link from a stream's chat to sign in with Twitch just to watch cost them
+a round trip and an account we then did not use. Since then:
+
+- **The audience join needs no session.** Without one (or with one no
+  longer valid) it is admitted for an *anonymous identity*,
+  `anon:<mark>`, which the Worker derives (below). With a session (someone
+  already signed in, the bots) it is admitted as before, for the signed-in
+  identity: nothing changes for them, and they are not signed out or told
+  anything.
+- **No sign-in is asked for on the audience's path**: the invite page's
+  "Watch with the audience", the audience link's page (`#/mp/audience/
+  <link>`, which says nothing of an account unless one is signed in), the
+  member bound's offer and desktop's `--join <audience link>` go straight
+  to the seat; a lost socket's new ticket is asked for the same way.
+- **Bounded by network.** An anonymous identity holds up to eight seats
+  (`seats_per_anonymous`, PROVISIONAL), more than a person's two because
+  many people share an address (a household, a campus, a carrier's NAT),
+  and its joins on a relay are bounded a minute (below). The maintainer:
+  "Going by network seems fine, and 8 is reasonable, as long as sign-in
+  seats don't count on their own network." They never do: a signed-in
+  join derives no mark at all (the address is not even read), so eight
+  anonymous seats and two of a signed-in person on one address are all
+  admitted at once, and each bound refuses on its own (tested on the
+  server, `signed_in_seats_never_count_against_their_networks_anonymous_bound`,
+  and in the relay).
+
+**What the server derives and keeps about an anonymous viewer.** From the
+request's connecting address (`CF-Connecting-IP`), the Worker takes the
+address's network (an IPv4 address as itself, an IPv6 address by its
+/64, as one device has many addresses in its /64) and computes
+HMAC-SHA-256 over the UTC day and that network under a key derived from
+the server's session signing secret, keeping 128 bits:
+`anon:<32 hex digits>` (`../ddi-server`'s `worker/src/anon.rs`). The
+address itself is read in that one request and dropped: it is never
+stored, logged, put in a ticket, sent to a relay or to any client. The
+mark cannot be turned back into an address without the key, which never
+leaves the server, and it changes every day. It lives only where seats are
+counted: in the memory of the relay that holds its seats (as a 64-bit
+hash of the mark, `identity_mark`) and in each of its seats' socket
+attachments while the seat lives; nothing of it is durable and nothing
+shows it to anyone. Where the request has no connecting address (local
+development, tests) every join shares one development mark
+(`anon:development`), never a refusal. Cloudflare's own platform logs
+(where enabled on the account) are outside the game's code.
 
 ## What an audience device needs to draw the stage
 
@@ -261,7 +302,9 @@ a measured need (a channel per grid page, tagged sockets, is the way in:
 | Bound | Value (`AUDIENCE_V0`, PROVISIONAL) | At it |
 | --- | --- | --- |
 | A room's audience | 20,000 seats, 40 relays of 500 | "The room's audience is full." (`audience_full`, 409) |
-| Seats an identity | 2 | `too_many_seats` (409): checked on the relay that holds its seats (its home, or one past it while that is full) |
+| Seats a signed-in identity | 2 | `too_many_seats` (409): checked on the relay that holds its seats (its home, or one past it while that is full); "You are already watching this room on two devices." |
+| Seats an anonymous identity (a network's daily mark; since 2026-11-15) | 8 (`seats_per_anonymous`) | `too_many_seats` (409), as above; "Too many people on your network are already watching this room." A signed-in person's seats never count against their network's eight, nor an anonymous seat against anyone's two |
+| Joins of an anonymous identity on a relay (since 2026-11-15) | 30 a minute (`anonymous_joins_per_minute`, `anonymous_join_window_ms`), a refused join counted too | `audience_busy` (503): a client asks again after its reconnect wait (0.5 s doubling to 8 s); the invite page says "Many people on your network joined just now. Try again in a moment." |
 | A seat given and never taken | dropped after 60 s | its socket (if any) closed |
 | The host closed the audience | every seat closed (4403), joins refused | `audience_closed` (403) |
 | The room ended | every seat closed (4410) | `room_closed` (410) |
@@ -269,9 +312,26 @@ a measured need (a channel per grid page, tagged sockets, is the way in:
 | A room on a server without an audience | | `no_audience` (404; the policy has no `audience`, so the game offers none) |
 
 What the server must count to keep it bounded: each relay its seats and
-its identities' seats (in memory, rebuilt from attachments), the room the
-sum of its relays' counts (in memory). Nothing central counts addresses
-or seats per room beyond that sum.
+its identities' seats (in memory, rebuilt from attachments) and its
+anonymous identities' recent joins (in memory only: a restarted relay
+counts afresh), the room the sum of its relays' counts (in memory).
+Nothing central counts addresses or seats per room beyond that sum.
+
+The values all live in one place, `ddi_room::audience::AudienceRules`
+(`AUDIENCE_V0`), beside the room's and relay's other bounds. The two
+added on 2026-11-15 kept the id `audience-v0`: they bound only the relays'
+admission (the server's, and the fake's), so nothing a client or a peer
+reads, computes or names changed, and a new id would have made every
+client that knows only `audience-v0` offer no audience at all.
+
+An honest viewer on a bad connection: each lost socket is one join after
+its wait (0.5 s, doubling to 8 s, back to 0.5 s once a socket opens), its
+old seat freed as the old socket closes, so a socket that drops a few
+times a minute is far from thirty; a viewer whose network has used its
+thirty waits at most until the oldest join leaves the minute, then gets
+back in by itself (the client asks again, never refused for good). A
+household or a campus behind one address: eight seats at once, and
+anyone signed in has their own two besides.
 
 What an audience costs the maintainer an hour of a stage (list prices
 above, after the included amounts; a relay active the whole hour, the
@@ -403,8 +463,9 @@ the room's state: no revision, no event.
    the invite; `GET /invites/<link>` answers `kind: audience` with the
    view's name, host, phase and the count; the preview at the member bound
    says the audience is offered.
-4. **The join**: `POST /rooms/<id>/audience {invite}` (signed in; open
-   question 1 for anonymous): the identity's `relay_order`; each relay's
+4. **The join**: `POST /rooms/<id>/audience {invite}` (a session, or none
+   since 2026-11-15: anonymous, "Sign-in: none" above): the identity's
+   `relay_order`; each relay's
    `/admit {identity, key}` until one admits or refuses for a reason not
    `Full`; a signed audience ticket `{room, relay, seat, expires}` (a
    minute, once); `GET /sockets/<id>/audience/ws?ticket=` opens the seat's
@@ -517,12 +578,14 @@ measurement on the platform.
 
 1. **Arriving as audience** on both shells: the audience link's page (the
    invite page with "You're invited to watch with the audience." and a
-   Watch button; signing in as for any join), the member bound's offer
+   Watch button; no sign-in since 2026-11-15), the member bound's offer
    ("The room is full: you can watch with its audience."); the web's route
    `#/mp/audience/<link>`, desktop's `--join` taking an audience link;
    the audience join, its refusals worded ("The room's audience is
    full.", "The host closed the audience.", "This room has ended.", "You
-   are already watching this room on two devices."), `Audience` over the
+   are already watching this room on two devices.", for someone not
+   signed in "Too many people on your network are already watching this
+   room."), `Audience` over the
    shell's socket (the web's `WebSocket`, desktop's tungstenite), a new
    ticket on a lost socket.
 2. **The spectator view fed by the audience's frames**: the existing
@@ -553,7 +616,8 @@ measurement on the platform.
 | Choice | Where | Effect | Decision needed |
 | --- | --- | --- | --- |
 | A third link for the audience; the watch-only link stays a member's; at the member bound the audience is offered | design | Hosts copy a link for each purpose | The rule (open question 2) |
-| Audience seats signed in, two an identity | `AUDIENCE_V0.seats_per_identity` | Watching asks for a Twitch sign-in | Anonymous seats (open question 1) |
+| Audience seats without a sign-in (2026-11-15): two a signed-in identity, eight an anonymous one (a network's daily mark) | `AUDIENCE_V0.seats_per_identity`, `seats_per_anonymous` | Anyone watches by the link; a ninth seat from one network is refused | The bound per network, once watched in use |
+| Anonymous joins bounded: 30 a minute a mark on a relay | `AUDIENCE_V0.anonymous_joins_per_minute`, `anonymous_join_window_ms` | Past it the join is asked again after a wait | The number |
 | 20,000 seats a room, relays of 500, four homes | `AUDIENCE_V0` | Beyond it "The room's audience is full." | The bound, after the server's load test |
 | Four audience frames a second, everything in each | `frame_ms`, `audience-v0` | 16 KB/s a seat at 73 players | Paging for large fields later |
 | The audience at most two seconds behind, adaptive | `presentation_delay_ms` | Measured about 0.4–0.7 s in the fake | The ceiling |
@@ -564,8 +628,11 @@ measurement on the platform.
 
 ## Open questions for the maintainer
 
-1. Should the audience need a sign-in (as now, bounded per identity), or
-   be anonymous (cheaper to join, bounded per address)?
+1. ~~Should the audience need a sign-in, or be anonymous?~~ Answered
+   2026-11-15: "I think we should let the audience spectate without
+   having to sign-in and be anonymous", and "Going by network seems fine,
+   and 8 is reasonable, as long as sign-in seats don't count on their own
+   network." Built: "Sign-in: none" above.
 2. Three links (the invite, the watch-only link for named watchers the
    owner can let play, the audience link for everyone else), or should the
    watch-only link become the audience link?

@@ -9252,6 +9252,63 @@ web's debug state.
   every step in the two best judgments, or after eight with most steps
   in the three best (…)".
 
+## The audience watches without signing in (2026-11-15)
+
+The maintainer: "I think we should let the audience spectate without
+having to sign-in and be anonymous." And on the bounds: "Going by network
+seems fine, and 8 is reasonable, as long as sign-in seats don't count on
+their own network." The design is in `multiplayer-audience.md`, "Sign-in:
+none", with what the server derives and keeps about a viewer.
+
+- **The server** (`../ddi-server`, `worker/src/anon.rs`,
+  `online::audience_join`): `POST /rooms/<id>/audience` takes a session
+  where there is one (as before: the signed-in identity, two seats) and
+  otherwise admits the join for `anon:<mark>`, a daily keyed hash of the
+  connecting address's network (IPv4 as itself, IPv6 by its /64;
+  HMAC-SHA-256 under a key derived from `SESSION_SIGNING_SECRET`, 128
+  bits; no new secret). The address is read in that request and dropped;
+  the mark is the `identity` of the relay's `/admit`, so nothing else in
+  the relay changes. A signed-in join reads no address and derives no
+  mark. No header: `anon:development`. Tested natively (the mark's
+  stability and changes, the /64, nothing sent carries the address, the
+  eight and the two apart and together, the joins a minute).
+- **The contract** (`ddi_room::audience`): `seats_per_anonymous` (8),
+  `anonymous_joins_per_minute` (30) and `anonymous_join_window_ms` (a
+  minute) in `AudienceRules`, beside its other bounds, under the same id
+  `audience-v0` (nothing a client reads changed; a new id would have hidden
+  the audience from every current client); `is_anonymous`,
+  `AudienceRules::seats_for`; `AudienceRefusal::Busy`
+  (`audience_busy`, 503, which every client already asks again after a
+  wait). The relay counts an anonymous identity's joins in memory.
+- **`FakeServer`**: `audience_join_answer(None, …)` is anonymous
+  (`FAKE_ANONYMOUS`), with an identity as before.
+- **The client** (`ddi_ui`): `Online::watch_audience` joins at once,
+  signed in or not; the invite page's button is always "Watch with the
+  audience" (the "Sign in with Twitch to watch" message is gone), the
+  audience link's page says nothing of an account unless one is signed
+  in; the audience's page has no Sign in again (`SeatState::SignInAgain`
+  and `SeatEnd::SignInAgain` are gone); a 401 on the audience join (only a
+  server from before asks for a session) reads as "The server is being
+  updated", nobody signed out for it; `too_many_seats` for someone not
+  signed in reads "Too many people on your network are already watching
+  this room." (`api::worded_for`), `audience_busy` "Many people on your
+  network joined just now. Try again in a moment." (en; ja unverified
+  drafts).
+- **The shells**: the web's fake seat (`mpfakeseat=1`) is now a
+  signed-out viewer whose multiplayer pages are the fake room's, so the
+  audience link's page, its Watch and the stage run without a server and
+  without a session; desktop's offscreen audience test joins by the
+  audience link's page with no session kept. The bots' `--audience N`
+  stays signed in (two a bot).
+- **The revision**: not raised. This is HTTP between a client and the
+  server, not something peers compute alike: a new client against a
+  server from before is refused the audience join with 401, which it says
+  as the server being updated; deploying the server first avoids even
+  that. An older client against the new server works as before (it signs
+  in first, and is then seated as itself).
+- **Deploy**: the server first, then the game. No new secret or variable.
+
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -9308,6 +9365,7 @@ web's debug state.
 | The window waits only for those who could still become eligible (not ready, loading, load failed, disconnected); departed and watching competitors sit out without a wait | `SitOutReason::may_still_join` | Start is immediate when only leavers are missing | Whether a load failure or a disconnect should hold a window |
 | A committed starter leaving or disconnecting before the start cancels the countdown | `reduce.rs` | Everyone returns to preparation; the host starts again | Roster-invalidating failures; repeated cancellations |
 | More than 73 starters have no award rule (the top-biased tables stop at the cap) | `AwardScheme::rule_for`, `TopBiased::MAX_FIELD` | Cannot happen under the cap of 73 | A table before raising the cap again |
+| Anonymous audience seats (2026-11-15): eight a network's daily mark, two a signed-in identity, never counted together; 30 joins a minute a mark on a relay | `ddi_room::audience::AUDIENCE_V0` (`seats_per_anonymous`, `anonymous_joins_per_minute`, `anonymous_join_window_ms`); `../ddi-server`'s `anon.rs` | Anyone watches by the link without signing in; a ninth seat from one network is refused; past thirty joins a minute the join is asked again after a wait | The numbers, once watched in use |
 | `member-bound-v0`: 384 members besides administrators (a full field and about 300 watching) | `RoomPolicy::DEFAULT_MAX_MEMBERS`; the server's `ROOM_MAX_MEMBERS` (raised to the competitor cap where set below it) | The 385th person is refused as the room being full | The bound, and the audience beyond it (counted, not listed) |
 | `rivals-v0`: past eight opponents, eight slots; a slot's opponent stays 8 s at least, keeps it within two places and a twelfth of the field of the nearest rivals; attackers in at once; a 0.3 s fade-in | `ddi_shell::rivals::RIVALS_V0` | With 72 CPUs the eight beside the field are the player's attackers and nearest rivals, changing every eight seconds or more | The hold and slack; whether the leader should always have a slot |
 | `watch-pages-v0`: a spectator's grid shows twelve fields a page by standing; Page Up/Down, the D-pad's Up/Down and a tap on the ladder turn the pages | `ddi_session::play::GRID_PAGE`, `watch.rs` | A watcher of 73 sees the top twelve first, then pages | The page's size; whether pages should turn by themselves |
