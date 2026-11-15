@@ -90,6 +90,9 @@ impl OnlineLink {
             let id = o.me().map(|m| m.player_id.clone()).unwrap_or_default();
             (Identity::new(id), o.epoch())
         };
+        // A page loaded on the room's own address (a reload) knows nobody
+        // yet: who is signed in is asked for, and taken in `tick`.
+        online.borrow_mut().check();
         let summary_req = Some(online.borrow_mut().request(api::summary(room_id)));
         let seated = online.borrow_mut().take_seated_to_watch(room_id);
         OnlineLink {
@@ -219,13 +222,19 @@ impl OnlineLink {
     pub fn tick(&mut self, now_ms: u64) -> bool {
         let mut changed = false;
         self.online.borrow_mut().poll(now_ms);
+        // Whoever is signed in, once known (a reload learns it after the
+        // link was made; a sign-in may change it).
+        let me = self.online.borrow().me().map(|m| m.player_id.clone());
+        if let Some(me) = me
+            && self.identity.as_str() != me
+        {
+            self.identity = Identity::new(me);
+            changed = true;
+        }
         // Signed in again since the session ended here: start over.
         let epoch = self.online.borrow().epoch();
         if epoch != self.epoch {
             self.epoch = epoch;
-            if let Some(me) = self.online.borrow().me() {
-                self.identity = Identity::new(me.player_id.clone());
-            }
             if self.authority.link() == LinkState::SignInAgain {
                 self.authority.restart();
                 changed = true;

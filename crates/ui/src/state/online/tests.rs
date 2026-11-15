@@ -498,7 +498,7 @@ pub(crate) mod room {
     }
 
     /// [`person`]'s HTTP.
-    fn handler_of(server: &SharedFake, who: &'static str) -> Handler {
+    pub(crate) fn handler_of(server: &SharedFake, who: &'static str) -> Handler {
         let mut grants = 0;
         let s = server.clone();
         let handler: Handler = Box::new(move |req| {
@@ -675,7 +675,7 @@ pub(crate) mod room {
         }
     }
 
-    fn room_of(clock: &ManualClock, others: &[&str]) -> SharedFake {
+    pub(crate) fn room_of(clock: &ManualClock, others: &[&str]) -> SharedFake {
         let server = FakeServer::hosted(
             "Room000001",
             Identity::new("dev:alice"),
