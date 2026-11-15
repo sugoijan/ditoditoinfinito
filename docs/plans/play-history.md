@@ -121,6 +121,16 @@ export, base64 included (5,004 such short plays export to 40 MB).
   until the player removes them.
 - **The raw format** has a version of its own. The reader keeps reading
   every past version.
+- **Transforms are applied as the code has them now.** A record keeps
+  the options it was played with, not the notes they left, so a play
+  judged again (an older judge's, or under other rules) has its options
+  applied by today's transforms. Accepted (review finding engine-5,
+  2026-11-15): Notes → At once "Up to two" trims simultaneous lifts too
+  since 2026-11-09, so a play kept before then with it, on a chart with a
+  row of three or more contacts that include lifts (Dancing☆Onigiri's or
+  an `.ssc`'s), shows fewer notes once judged again. Such plays are
+  assisted, and rare; a rule version kept with the options is the way if
+  a transform must ever keep an old play's notes.
 
 ## Judged again under other rules (2026-11-12)
 
