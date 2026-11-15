@@ -47,10 +47,11 @@ use std::rc::{Rc, Weak};
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
 use ddi_library::announcer::draft::{
-    Adopted, Draft, HEAD, Sound, Write, install_plan, made_before, takes,
+    self, Adopted, DRAFT_MAX_BYTES, Decoded, Draft, HEAD, Sound, TAKE_MAX_BYTES, Write,
+    install_plan, made_before, takes,
 };
 use ddi_library::announcer::examples::Set;
-use ddi_library::announcer::{Bundled, Line, OUR_COMBOS, Spoken, tidy};
+use ddi_library::announcer::{Bundled, Line, MAX_FILES, OUR_COMBOS, Spoken, tidy};
 use ddi_platform::AudioBackend;
 use ddi_session::announcer::scene::director::{
     self, Director, Pin, Said, SceneHost, StagedVoice, Timer, UiFn, Voiced,
@@ -101,7 +102,7 @@ pub(crate) enum Msg {
 /// recording and example, and our packs' sounds decoded.
 #[derive(Default)]
 struct Kept {
-    decoded: HashMap<u64, AudioBuffer>,
+    decoded: Decoded<AudioBuffer>,
     turns: HashMap<Line, usize>,
     example_turns: HashMap<(&'static str, Line), usize>,
     example_sounds: HashMap<String, AudioBuffer>,
@@ -136,8 +137,10 @@ struct Studio {
     view: RefCell<View>,
     /// The recordings' files, by take.
     blobs: RefCell<HashMap<u64, Blob>>,
-    /// Their sound, once decoded.
-    decoded: RefCell<HashMap<u64, AudioBuffer>>,
+    /// Their sound, once decoded: the last ones, bounded
+    /// ([`Decoded`]); one let go is decoded again when it is wanted
+    /// ([`Studio::buffer`]).
+    decoded: RefCell<Decoded<AudioBuffer>>,
     decoding: Cell<bool>,
     /// Ours, from the bundled index: each set's pack.
     ours: RefCell<Vec<Bundled>>,
@@ -176,6 +179,25 @@ struct Studio {
     /// The page is to be shown again at the next animation frame
     /// ([`Studio::send_soon`]).
     frame: RefCell<Option<AnimationFrame>>,
+    /// The stored draft was read ([`Studio::load`]): until then nothing
+    /// is added and nothing saved (an empty draft would be written over
+    /// the stored one).
+    loaded: Cell<bool>,
+    /// The stored draft could not be read from storage at all: this
+    /// page's draft is never saved over it.
+    sealed: Cell<bool>,
+    /// The page went: its tasks still running store nothing more (the
+    /// page opened again is the draft's one owner).
+    gone: Cell<bool>,
+    /// Bumped by each change an export made before would not say
+    /// ([`Studio::forget_export`]): an export begun before it is dropped.
+    changes: Cell<u64>,
+    me: Weak<Studio>,
+}
+
+/// Bytes of samples a decoded sound holds.
+fn buffer_bytes(b: &AudioBuffer) -> usize {
+    b.length() as usize * b.number_of_channels() as usize * 4
 }
 
 impl Studio {
@@ -212,6 +234,11 @@ impl Studio {
             place: KEPT.with_borrow(|k| k.place.clone()),
             debug: RefCell::new(None),
             frame: RefCell::new(None),
+            loaded: Cell::new(false),
+            sealed: Cell::new(false),
+            gone: Cell::new(false),
+            changes: Cell::new(0),
+            me: me.clone(),
         });
         KEPT.with_borrow_mut(|k| {
             *studio.director.turns.borrow_mut() = std::mem::take(&mut k.turns);
@@ -425,11 +452,18 @@ impl Studio {
         o
     }
 
-    /// The draft written to storage.
+    /// The draft written to storage; a failure is said on the page (a
+    /// reload would show the draft as it was before). Never before the
+    /// stored one was read, over one that could not be read, or by a
+    /// page that went.
     fn save(&self) {
+        if !self.loaded.get() || self.sealed.get() || self.gone.get() {
+            return;
+        }
         let Ok(json) = serde_json::to_string(&*self.draft.borrow()) else {
             return;
         };
+        let me = self.me.clone();
         wasm_bindgen_futures::spawn_local(async move {
             let saved = async {
                 Db::open()
@@ -444,44 +478,83 @@ impl Studio {
             .await;
             if let Err(e) = saved {
                 web_sys::console::warn_1(&format!("studio: saving the draft: {e}").into());
+                if let Some(s) = me.upgrade().filter(|s| !s.gone.get()) {
+                    s.status(ms::status_draft_unkept(error_text(&e)));
+                }
             }
         });
     }
 
     /// The draft and its recordings from storage, and ours for the
-    /// examples.
+    /// examples. A stored draft that does not parse (a damaged one, one
+    /// of a newer game) is copied aside under a key of its own
+    /// ([`draft::aside_name`], never replaced) before a new one is
+    /// begun, and the page says so; where storage cannot be read at all
+    /// the new draft is never saved over what is there. The ids of new
+    /// recordings start past every recording stored.
     async fn load(self: &Rc<Self>) {
         let read = async {
             let db = Db::open().await?;
-            let draft: Option<Draft> = db
+            let highest = db
+                .keys_with_prefix(idb::FILES, "studio/take/")
+                .await?
+                .iter()
+                .filter_map(|k| k.rsplit('/').next()?.parse::<u64>().ok())
+                .max()
+                .unwrap_or(0);
+            let stored = db
                 .get(idb::FILES, DRAFT_KEY)
                 .await?
-                .and_then(|v| v.as_string())
-                .and_then(|j| serde_json::from_str(&j).ok());
-            let Some(draft) = draft else {
-                return Ok::<_, String>(());
+                .and_then(|v| v.as_string());
+            let mut aside = None;
+            let draft = match stored {
+                None => None,
+                Some(json) => match serde_json::from_str::<Draft>(&json) {
+                    Ok(d) => Some(d),
+                    Err(e) => {
+                        let taken = db
+                            .keys_with_prefix(idb::FILES, "studio/draft.unreadable")
+                            .await?;
+                        let name =
+                            draft::aside_name(|n| taken.iter().any(|k| *k == format!("studio/{n}")));
+                        db.write(vec![idb::Write::Put {
+                            store: idb::FILES,
+                            key: format!("studio/{name}"),
+                            value: JsValue::from_str(&json),
+                        }])
+                        .await?;
+                        aside = Some((e.to_string(), name));
+                        None
+                    }
+                },
             };
-            let mut blobs = HashMap::new();
-            for t in &draft.takes {
-                if let Some(v) = db.get(idb::FILES, &take_key(t.id)).await? {
-                    blobs.insert(t.id, Blob::from(v));
+            if let Some(mut draft) = draft {
+                let mut blobs = HashMap::new();
+                for t in &draft.takes {
+                    if let Some(v) = db.get(idb::FILES, &take_key(t.id)).await? {
+                        blobs.insert(t.id, Blob::from(v));
+                    }
                 }
-            }
-            let mut draft = draft;
-            // A take whose file is gone is gone.
-            draft.takes.retain(|t| blobs.contains_key(&t.id));
-            // Recordings added before it was read (a quick drop) keep the
-            // draft they made.
-            if self.draft.borrow().takes.is_empty() {
+                // A take whose file is gone is gone.
+                draft.takes.retain(|t| blobs.contains_key(&t.id));
                 *self.draft.borrow_mut() = draft;
+                *self.blobs.borrow_mut() = blobs;
             }
-            self.blobs.borrow_mut().extend(blobs);
-            Ok(())
+            self.draft.borrow_mut().start_past(highest);
+            Ok::<_, String>(aside)
         }
         .await;
-        if let Err(e) = read {
-            self.status(ms::status_draft_unreadable(error_text(&e)));
+        match read {
+            Ok(None) => {}
+            Ok(Some((e, name))) => {
+                self.status(ms::status_draft_set_aside(error_text(&e), name))
+            }
+            Err(e) => {
+                self.sealed.set(true);
+                self.status(ms::status_draft_unreadable(error_text(&e)));
+            }
         }
+        self.loaded.set(true);
         match crate::announcers::bundled().await {
             Ok(ours) => *self.ours.borrow_mut() = ours,
             Err(e) => web_sys::console::warn_1(&format!("studio: our announcers: {e}").into()),
@@ -517,6 +590,13 @@ impl Studio {
         let mut script = script;
         let this = self.clone();
         wasm_bindgen_futures::spawn_local(async move {
+            // The stored draft first: what is added goes into it.
+            while !this.loaded.get() {
+                crate::editor::next_frame().await;
+                if this.gone.get() {
+                    return;
+                }
+            }
             let count = picked.len();
             this.status(ms::status_adding(count));
             let mut files: Vec<(String, Blob)> = Vec::new();
@@ -558,12 +638,19 @@ impl Studio {
             let mut writes = Vec::new();
             let mut added = 0;
             let mut passed = 0;
+            let mut over = 0;
             for (path, blob) in files {
                 let head = head_of(&blob).await.unwrap_or_default();
                 if !takes(&path, &head) {
                     if readme.as_deref() != Some(path.as_str()) {
                         passed += 1;
                     }
+                    continue;
+                }
+                // Too large to be a recording, or the draft is full: a
+                // folder of songs picked by mistake stops here.
+                if !this.draft.borrow().has_room(blob.size() as u64) {
+                    over += 1;
                     continue;
                 }
                 let id = {
@@ -587,9 +674,21 @@ impl Studio {
                 this.blobs.borrow_mut().insert(id, blob);
                 added += 1;
             }
+            // The page went meanwhile: nothing stored (the page opened
+            // again owns the draft).
+            if this.gone.get() {
+                return;
+            }
             let stored = async { Db::open().await?.write(writes).await }.await;
             this.forget_export();
             let said = match stored {
+                Ok(_) if over > 0 => ms::status_added_some(
+                    added,
+                    over,
+                    MAX_FILES,
+                    TAKE_MAX_BYTES >> 20,
+                    DRAFT_MAX_BYTES >> 20,
+                ),
                 Ok(_) => ms::status_added(added, passed),
                 Err(e) => ms::status_added_unkept(
                     added,
@@ -621,6 +720,10 @@ impl Studio {
             let mut saved = js_sys::Date::now();
             let mut any = false;
             loop {
+                // The page went: the one opened again decodes the rest.
+                if this.gone.get() {
+                    break;
+                }
                 let next = this
                     .draft
                     .borrow()
@@ -635,7 +738,8 @@ impl Studio {
                     Ok(buffer) => {
                         let channels = channels(&buffer);
                         let m = tidy::measure(&channels, buffer.sample_rate() as u32);
-                        this.decoded.borrow_mut().insert(id, buffer);
+                        let bytes = buffer_bytes(&buffer);
+                        this.decoded.borrow_mut().insert(id, buffer, bytes);
                         Sound::Read(m)
                     }
                     Err(e) => Sound::Unreadable(e),
@@ -672,12 +776,14 @@ impl Studio {
 
     /// Take `id`'s sound, decoded now where it was not.
     async fn buffer(&self, id: u64) -> Result<AudioBuffer, String> {
-        if let Some(b) = self.decoded.borrow().get(&id) {
+        if let Some(b) = self.decoded.borrow().get(id) {
             return Ok(b.clone());
         }
         let decoder = AudioDecoder::offline(RATE).ok_or("this browser cannot decode sounds")?;
         let b = self.read_buffer(&decoder, id).await?;
-        self.decoded.borrow_mut().insert(id, b.clone());
+        self.decoded
+            .borrow_mut()
+            .insert(id, b.clone(), buffer_bytes(&b));
         Ok(b)
     }
 
@@ -838,6 +944,7 @@ impl Studio {
 
     /// An export made before no longer says what the draft does.
     fn forget_export(&self) {
+        self.changes.set(self.changes.get() + 1);
         self.zip.borrow_mut().take();
         self.view.borrow_mut().ready = None;
         self.changed();
@@ -877,6 +984,7 @@ impl Studio {
         self.view.borrow_mut().busy = true;
         self.status(ms::status_exporting());
         let this = self.clone();
+        let began = self.changes.get();
         wasm_bindgen_futures::spawn_local(async move {
             let made = async {
                 let (name, files, readme) = this.files().await?;
@@ -893,6 +1001,11 @@ impl Studio {
             .await;
             this.view.borrow_mut().busy = false;
             match made {
+                // The draft changed while it was made: it is not the
+                // draft's pack, and is not offered as such.
+                Ok(_) if this.changes.get() != began => {
+                    this.status(ms::status_export_stale());
+                }
                 Ok((name, blob, n)) => {
                     *this.zip.borrow_mut() = Some((name.clone(), blob));
                     this.view.borrow_mut().ready = Some(name.clone());
@@ -948,17 +1061,23 @@ impl Studio {
     fn remove(&self, id: u64) {
         self.draft.borrow_mut().remove(id);
         self.blobs.borrow_mut().remove(&id);
-        self.decoded.borrow_mut().remove(&id);
+        self.decoded.borrow_mut().remove(id);
         self.forget_export();
         self.save();
+        let me = self.me.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            if let Ok(db) = Db::open().await {
-                let _ = db
+            let removed = async {
+                Db::open()
+                    .await?
                     .write(vec![idb::Write::Delete {
                         store: idb::FILES,
                         key: take_key(id),
                     }])
-                    .await;
+                    .await
+            }
+            .await;
+            if let (Err(e), Some(s)) = (removed, me.upgrade()) {
+                s.status(ms::status_draft_unkept(error_text(&e)));
             }
         });
     }
@@ -1002,7 +1121,7 @@ impl Studio {
             .iter()
             .filter(|t| t.line.is_some_and(&which) && matches!(t.sound, Sound::Read(_)))
             .map(|t| t.id)
-            .filter(|id| !self.decoded.borrow().contains_key(id))
+            .filter(|id| !self.decoded.borrow().contains(*id))
             .collect();
         for id in ids {
             let _ = self.buffer(id).await;
@@ -1023,7 +1142,7 @@ impl Studio {
             which,
             &self.director.turns.borrow(),
             self.director.pinned_take(),
-            &self.decoded.borrow(),
+            self.decoded.borrow().sounds(),
             |t, b| {
                 let (pcm, rate) = self.shaped(t.id, b, draft.tidies(t));
                 make(pcm, rate)
@@ -1661,6 +1780,7 @@ impl Component for StudioPage {
     }
 
     fn destroy(&mut self, _ctx: &Context<Self>) {
+        self.studio.gone.set(true);
         self.studio.stop();
         self.ui.destroy(&["ui", "studio"]);
     }

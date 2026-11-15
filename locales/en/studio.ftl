@@ -532,6 +532,23 @@ studio-status-added = { $added ->
    *[other] {" "}{ $passed } files were passed over: not sounds.
 }
 
+# Some of what was picked was left out: a file too large to be a
+# recording, or more than a draft holds (a folder that is no announcer,
+# picked by mistake). The status line.
+# Variables:
+#   $added (Number) - recordings added (0: none)
+#   $left (Number) - recordings left out (1 or more)
+#   $files (Number) - recordings a draft holds at most (2000)
+#   $take (Number) - megabytes a recording is at most (32)
+#   $megabytes (Number) - megabytes a draft's recordings are at most (512)
+studio-status-added-some = { $added ->
+    [one] Added { $added } recording.
+   *[other] Added { $added } recordings.
+} { $left ->
+    [one] { $left } was left out
+   *[other] { $left } were left out
+}: a recording is at most { $take } MB, and a draft holds { $files } recordings and { $megabytes } MB.
+
 # The same, where they could not be stored (they are gone next time).
 # Variables:
 #   $added (Number) - recordings added
@@ -557,6 +574,24 @@ studio-status-files-unreadable = The files could not be read: { $error }
 # Variables:
 #   $error (String) - why: its kind as errors-* say it, then the system's own words (untranslated)
 studio-status-draft-unreadable = The draft could not be read: { $error }
+
+# The draft kept from before could not be read (a damaged file, one
+# made by a newer game): it is kept under another name and an empty
+# draft begun. The status line, one line.
+# Variables:
+#   $error (String) - why: its kind as errors-* say it, then the system's own words (untranslated)
+#   $file (String) - the name the old draft is kept under ("draft.unreadable.json")
+studio-status-draft-set-aside = The draft could not be read ({ $error }). It is kept as { $file }; this is a new draft.
+
+# The draft (its recordings' lines, the pack's name) could not be
+# stored: reloading would show it as it was before. The status line.
+# Variables:
+#   $error (String) - why: its kind as errors-* say it, then the system's own words (untranslated)
+studio-status-draft-unkept = The draft could not be kept: { $error }
+
+# The web only: the draft was changed while its pack was being made, so
+# the pack made is not offered. The status line.
+studio-status-export-stale = The draft changed while the pack was being made. Export it again.
 
 # The web only.
 studio-status-no-decoder = This browser cannot decode sounds here.

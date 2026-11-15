@@ -290,6 +290,12 @@ studio-status-added = 録音を{ $added }件追加しました。{ $passed ->
    *[other] 音声ではない{ $passed }個のファイルは無視しました。
 }
 
+studio-status-draft-unkept = 下書きを保存できませんでした：{ $error }
+
+studio-status-export-stale = パックの作成中に下書きが変更されました。もう一度書き出してください。
+
+studio-status-added-some = 録音を{ $added }件追加しました。{ $left }件は追加しませんでした。録音は1件{ $take } MBまで、下書きは{ $files }件・{ $megabytes } MBまでです。
+
 studio-status-added-unkept = 録音を{ $added }件追加しました。{ $passed ->
     [0] {""}
    *[other] 音声ではない{ $passed }個のファイルは無視しました。
@@ -301,6 +307,8 @@ studio-status-added-unkept = 録音を{ $added }件追加しました。{ $passe
 studio-status-files-unreadable = ファイルを読み込めませんでした：{ $error }
 
 studio-status-draft-unreadable = 下書きを読み込めませんでした：{ $error }
+
+studio-status-draft-set-aside = 下書きを読み込めませんでした（{ $error }）。{ $file }として残してあります。これは新しい下書きです。
 
 studio-status-no-decoder = このブラウザーでは音声をデコードできません。
 

@@ -24,17 +24,20 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TryRecvError};
 use std::time::{Duration, Instant};
 
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
 use ddi_library::announcer::draft::{
-    Adopted, Draft, Export, HEAD, Sound as Read, Take, Write, install_plan, made_before, takes,
+    self,
+    Adopted, DRAFT_MAX_BYTES, Decoded, Draft, Export, HEAD, Sound as Read, TAKE_MAX_BYTES, Take,
+    Write, install_plan, made_before, takes,
 };
 use ddi_library::announcer::examples::Set;
 use ddi_library::announcer::tidy::{self, Measure};
-use ddi_library::announcer::{Bundled, Line, MAX_BYTES, OUR_COMBOS, Spoken};
+use ddi_library::announcer::{Bundled, Line, MAX_FILES, OUR_COMBOS, Spoken};
 use ddi_library::path::RelPath;
 use ddi_library::scan::Reader;
 use ddi_platform::SoundId;
@@ -74,6 +77,12 @@ fn folder() -> Option<PathBuf> {
 fn take_path(dir: &Path, id: u64) -> PathBuf {
     dir.join("take").join(id.to_string())
 }
+
+/// Files read ahead of the page taking them in, at most
+/// ([`read_picked`]).
+const READ_AHEAD: usize = 4;
+/// Recordings waiting to be decoded while more are taken in, at most.
+const DECODE_AHEAD: usize = 8;
 
 /// A decoded sound's channels.
 fn planar(sound: &Pcm) -> Vec<Vec<f32>> {
@@ -247,6 +256,9 @@ enum Arrived {
     Done {
         passed: usize,
         failed: Option<String>,
+        /// Recordings never read: too large to be one, or the draft
+        /// was full ([`Draft::has_room`]).
+        over: usize,
     },
 }
 
@@ -257,6 +269,11 @@ struct Adding {
     /// The text line the first is recorded for.
     script: Option<u64>,
     added: usize,
+    /// Recordings left out: the draft had no room for them.
+    over: usize,
+    /// Told to the reading thread once the draft is full: it reads no
+    /// more.
+    full: Arc<AtomicBool>,
 }
 
 /// A file picked: where it reads from.
@@ -268,7 +285,12 @@ enum Source {
 /// Lists and reads what was picked (`files`, on a thread): zips opened,
 /// folders walked, what is no recording passed over, each named by its
 /// path in what was picked.
-fn read_picked(picked: Vec<PathBuf>, tx: Sender<Arrived>) {
+///
+/// What is read waits in `tx` a few files at most (the page takes them
+/// in as it polls), a file too large to be a recording is never read,
+/// and nothing more is once `full` says the draft has no room: a folder
+/// of songs picked by mistake costs a few files' memory, not all of it.
+fn read_picked(picked: Vec<PathBuf>, tx: SyncSender<Arrived>, full: Arc<AtomicBool>) {
     use crate::library::files::{self, ZipReader};
     let mut listed: Vec<(String, u64, Source)> = Vec::new();
     let mut zips: Vec<ZipReader> = Vec::new();
@@ -334,11 +356,16 @@ fn read_picked(picked: Vec<PathBuf>, tx: Sender<Arrived>) {
         let _ = tx.send(Arrived::Pack(Adopted::new(name, text.as_deref())));
     }
     let mut passed = 0;
+    let mut over = 0;
     for (path, size, source) in &listed {
-        if !takes(path, &head(source)) || *size > MAX_BYTES {
+        if !takes(path, &head(source)) {
             if readme.as_deref() != Some(path.as_str()) {
                 passed += 1;
             }
+            continue;
+        }
+        if *size > TAKE_MAX_BYTES || full.load(Ordering::Relaxed) {
+            over += 1;
             continue;
         }
         match read(source) {
@@ -356,7 +383,11 @@ fn read_picked(picked: Vec<PathBuf>, tx: Sender<Arrived>) {
             Err(e) => failed = Some(e),
         }
     }
-    let _ = tx.send(Arrived::Done { passed, failed });
+    let _ = tx.send(Arrived::Done {
+        passed,
+        failed,
+        over,
+    });
 }
 
 /// Where a pack goes.
@@ -528,7 +559,7 @@ pub struct Studio {
     feed: PageFeed,
     store: Store,
     /// Their sound, once decoded (at [`RATE`]).
-    decoded: RefCell<HashMap<u64, Sound>>,
+    decoded: RefCell<Decoded<Sound>>,
     decode: Sender<DecodeJob>,
     results: Receiver<DecodeResult>,
     /// The takes being decoded.
@@ -567,6 +598,8 @@ pub struct Studio {
     used: Option<Rc<dyn Fn()>>,
     /// The page was left: nothing more is asked of it.
     left: Cell<bool>,
+    /// The draft may be saved ([`open_draft`]).
+    saves: bool,
 }
 
 impl Studio {
@@ -580,7 +613,7 @@ impl Studio {
         used: Option<Rc<dyn Fn()>>,
     ) -> Rc<Studio> {
         let dir = folder().unwrap_or_else(|| std::env::temp_dir().join("ddi-studio"));
-        let (draft, status) = open_draft(&dir);
+        let (draft, status, saves) = open_draft(&dir);
         let examples = studio::remembered_set();
         let (decode, results) = decoder();
         let studio = Rc::new_cyclic(|me: &Weak<Studio>| Studio {
@@ -620,6 +653,7 @@ impl Studio {
             saved_at: Cell::new(0.0),
             used,
             left: Cell::new(false),
+            saves,
         });
         studio.refresh_examples();
         studio.decode_pending();
@@ -646,6 +680,16 @@ impl Studio {
         self.left.get()
     }
 
+    /// The page is opened again while this studio still lives (it was
+    /// left with work under way, which it finishes): the one studio on
+    /// its folder goes on, its draft the one draft, rather than a second
+    /// one reading a draft the first is still writing.
+    pub fn reopened(self: &Rc<Self>) -> PageScreen {
+        self.left.set(false);
+        self.dirty.set(true);
+        self.screen()
+    }
+
     /// The draft as it is.
     pub fn draft(&self) -> Draft {
         self.draft.borrow().clone()
@@ -669,6 +713,18 @@ impl Studio {
     /// The last scene's line, what it said, and who.
     pub fn last_heard(&self) -> Option<(Line, Vec<String>, String)> {
         self.heard.borrow().clone()
+    }
+
+    /// The decoded sound kept: how many takes', and its bytes (tests).
+    pub fn decoded(&self) -> (usize, usize) {
+        let d = self.decoded.borrow();
+        (d.len(), d.bytes())
+    }
+
+    /// At most `bytes` of decoded sound kept from now on (tests; the
+    /// game's is [`draft::DECODED_BYTES`]).
+    pub fn set_decoded_cap(&self, bytes: usize) {
+        *self.decoded.borrow_mut() = Decoded::with_cap(bytes);
     }
 
     /// Waits until what was asked to be stored is written (tests).
@@ -703,9 +759,12 @@ impl Studio {
         self.dirty.set(true);
     }
 
-    /// The draft kept.
+    /// The draft kept (never over one that could not be read nor moved
+    /// aside, [`open_draft`]).
     fn save(&self) {
-        if let Ok(json) = serde_json::to_string(&*self.draft.borrow()) {
+        if self.saves
+            && let Ok(json) = serde_json::to_string(&*self.draft.borrow())
+        {
             self.store.send(Job::Draft(json));
         }
         self.unsaved.set(false);
@@ -731,15 +790,19 @@ impl Studio {
     /// given.
     fn add(&self, picked: Vec<PathBuf>, line: Option<Line>, script: Option<u64>) {
         self.set_status(ms::status_adding(picked.len()));
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = mpsc::sync_channel(READ_AHEAD);
+        let full = Arc::new(AtomicBool::new(false));
+        let told = full.clone();
         let _ = std::thread::Builder::new()
             .name("ddi-studio-read".into())
-            .spawn(move || read_picked(picked, tx));
+            .spawn(move || read_picked(picked, tx, told));
         self.adding.borrow_mut().push(Adding {
             rx,
             line,
             script,
             added: 0,
+            over: 0,
+            full,
         });
     }
 
@@ -829,7 +892,7 @@ impl Studio {
             return self.stop();
         }
         self.stop();
-        let Some(sound) = self.decoded.borrow().get(&id).cloned() else {
+        let Some(sound) = self.decoded.borrow().get(id).cloned() else {
             // Decoded first (the page opened again); pressed again then.
             self.decode_file(id);
             return;
@@ -874,7 +937,7 @@ impl Studio {
                     write: e.write,
                     measure: t.and_then(|t| t.measure().copied()),
                     extension: t.and_then(Self::extension_of),
-                    decoded: decoded.get(&e.take).cloned(),
+                    decoded: decoded.get(e.take).cloned(),
                 }
             })
             .collect()
@@ -894,7 +957,7 @@ impl Studio {
 
     fn remove(&self, id: u64) {
         self.draft.borrow_mut().remove(id);
-        self.decoded.borrow_mut().remove(&id);
+        self.decoded.borrow_mut().remove(id);
         self.store.send(Job::Remove(id));
         self.save();
     }
@@ -909,7 +972,7 @@ impl Studio {
             .iter()
             .filter(|t| t.line.is_some_and(which) && matches!(t.sound, Read::Read(_)))
             .map(|t| t.id)
-            .filter(|id| !self.decoded.borrow().contains_key(id))
+            .filter(|id| !self.decoded.borrow().contains(*id))
             .collect();
         for id in ids {
             self.decode_file(id);
@@ -936,7 +999,7 @@ impl Studio {
             which,
             &self.director.turns.borrow(),
             self.director.pinned_take(),
-            &self.decoded.borrow(),
+            self.decoded.borrow().sounds(),
             |t, s| {
                 let m = draft.tidies(t).then(|| t.measure().copied()).flatten();
                 Some(shaped(s, m.as_ref()))
@@ -1256,8 +1319,18 @@ impl Studio {
         let mut adding = self.adding.borrow_mut();
         adding.retain_mut(|a| {
             loop {
+                // No further ahead of the decoder than a few files: what
+                // waits for it is held in memory.
+                if self.decoding.borrow().len() >= DECODE_AHEAD {
+                    return true;
+                }
                 match a.rx.try_recv() {
                     Ok(Arrived::Pack(pack)) => self.draft.borrow_mut().adopt(pack),
+                    Ok(Arrived::File { size, .. }) if !self.draft.borrow().has_room(size) => {
+                        // No room: left out, and no more read.
+                        a.over += 1;
+                        a.full.store(true, Ordering::Relaxed);
+                    }
                     Ok(Arrived::File { path, size, bytes }) => {
                         let id = {
                             let mut d = self.draft.borrow_mut();
@@ -1279,10 +1352,24 @@ impl Studio {
                         self.unsaved.set(true);
                         self.dirty.set(true);
                     }
-                    Ok(Arrived::Done { passed, failed }) => {
+                    Ok(Arrived::Done {
+                        passed,
+                        failed,
+                        over,
+                    }) => {
                         self.save();
+                        let over = a.over + over;
                         self.set_status(match failed {
-                            Some(e) if a.added == 0 => ms::status_files_unreadable(error_text(&e)),
+                            Some(e) if a.added == 0 && over == 0 => {
+                                ms::status_files_unreadable(error_text(&e))
+                            }
+                            _ if over > 0 => ms::status_added_some(
+                                a.added,
+                                over,
+                                MAX_FILES,
+                                TAKE_MAX_BYTES >> 20,
+                                DRAFT_MAX_BYTES >> 20,
+                            ),
                             _ => ms::status_added(a.added, passed),
                         });
                         return false;
@@ -1305,7 +1392,8 @@ impl Studio {
             let sound = match result {
                 Ok(s) => {
                     let m = tidy::measure(&planar(&s), s.rate);
-                    self.decoded.borrow_mut().insert(id, s);
+                    let bytes = std::mem::size_of_val(&*s.data);
+                    self.decoded.borrow_mut().insert(id, s, bytes);
                     Read::Read(m)
                 }
                 Err(e) => Read::Unreadable(e),
@@ -1518,35 +1606,56 @@ fn ours() -> Vec<(Bundled, DiskAnnouncer)> {
         .collect()
 }
 
-/// The draft kept in `dir` (none yet: a new one), and what the page says
-/// of it; a take whose file is gone is gone.
-fn open_draft(dir: &Path) -> (Draft, String) {
-    let text = match std::fs::read_to_string(dir.join("draft.json")) {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return (Draft::default(), String::new());
-        }
-        Err(e) => {
-            let e = e.to_string();
-            return (
-                Draft::default(),
-                ms::status_draft_unreadable(error_text(&e)).into(),
-            );
-        }
+/// The draft kept in `dir` (none yet: a new one), what the page says
+/// of it, and whether it may be saved; a take whose file is gone is
+/// gone. A draft that cannot be read or understood (a damaged file, one
+/// from a newer game) is never taken for none: it is kept aside under a
+/// name of its own ([`draft::aside_name`], never replaced) and a new one
+/// begun, the page saying so with that name; where it cannot even be
+/// moved, the new draft is not saved over it. Either way the ids of new
+/// recordings start past every recording stored, so no file of the old
+/// draft is replaced.
+fn open_draft(dir: &Path) -> (Draft, String, bool) {
+    let file = dir.join("draft.json");
+    let read = match std::fs::read_to_string(&file) {
+        Ok(text) => serde_json::from_str::<Draft>(&text).map_err(|e| e.to_string()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Draft::default()),
+        Err(e) => Err(e.to_string()),
     };
-    match serde_json::from_str::<Draft>(&text) {
+    let (mut draft, status, saves) = match read {
         Ok(mut draft) => {
             draft.takes.retain(|t| take_path(dir, t.id).is_file());
-            (draft, String::new())
+            (draft, String::new(), true)
         }
         Err(e) => {
-            let e = e.to_string();
-            (
-                Draft::default(),
-                ms::status_draft_unreadable(error_text(&e)).into(),
-            )
+            let name = draft::aside_name(|n| dir.join(n).exists());
+            match std::fs::rename(&file, dir.join(&name)) {
+                Ok(()) => (
+                    Draft::default(),
+                    ms::status_draft_set_aside(error_text(&e), name).into(),
+                    true,
+                ),
+                Err(_) => (
+                    Draft::default(),
+                    ms::status_draft_unreadable(error_text(&e)).into(),
+                    false,
+                ),
+            }
         }
-    }
+    };
+    draft.start_past(highest_take(dir));
+    (draft, status, saves)
+}
+
+/// The highest id a recording stored in `dir` has (0: none).
+fn highest_take(dir: &Path) -> u64 {
+    std::fs::read_dir(dir.join("take"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse::<u64>().ok())
+        .max()
+        .unwrap_or(0)
 }
 
 /// What the director asks of the page.
@@ -1674,5 +1783,59 @@ impl SceneHost for Scenes {
             s.set_status(status);
             *s.heard.borrow_mut() = Some((line, spoken, said.key()));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/scratch/studio-tests")
+            .join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("take")).unwrap();
+        dir
+    }
+
+    /// Review studio-editor-4: a draft that cannot be understood is kept
+    /// aside, never taken for none and written over, and the new draft's
+    /// recordings never take the old ones' files.
+    #[test]
+    fn an_unreadable_draft_is_kept_aside_and_its_recordings_files_are_not_reused() {
+        let dir = scratch("unreadable");
+        std::fs::write(dir.join("draft.json"), "{ a draft of a newer game").unwrap();
+        std::fs::write(take_path(&dir, 1), b"the first recording").unwrap();
+        std::fs::write(take_path(&dir, 7), b"the seventh").unwrap();
+        let (mut d, status, saves) = open_draft(&dir);
+        assert!(d.takes.is_empty());
+        assert!(saves);
+        assert!(status.contains("draft.unreadable.json"), "{status}");
+        assert!(!dir.join("draft.json").exists(), "nothing to write over");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("draft.unreadable.json")).unwrap(),
+            "{ a draft of a newer game"
+        );
+        assert_eq!(d.add("new.wav", 3, b"RIFF"), 8, "past every stored file");
+        // A second one is kept beside the first, which stays.
+        std::fs::write(dir.join("draft.json"), "again").unwrap();
+        let (_, status, _) = open_draft(&dir);
+        assert!(status.contains("draft.unreadable.2.json"), "{status}");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("draft.unreadable.json")).unwrap(),
+            "{ a draft of a newer game"
+        );
+        // A draft read behind what is stored (its last takes' files
+        // written, its own JSON not yet) gives no stored id again.
+        let behind = serde_json::to_string(&Draft::default()).unwrap();
+        std::fs::write(dir.join("draft.json"), behind).unwrap();
+        let (mut d, status, saves) = open_draft(&dir);
+        assert!(status.is_empty() && saves);
+        assert_eq!(d.add("new.wav", 3, b"RIFF"), 8);
+        // None at all: a new one, from 1.
+        let (mut d, status, _) = open_draft(&scratch("none"));
+        assert!(status.is_empty());
+        assert_eq!(d.add("new.wav", 3, b"RIFF"), 1);
     }
 }

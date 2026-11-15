@@ -10,7 +10,7 @@
 //! ([`super::tidy`]) and encodes it (the browser's encoder or
 //! `ddi_platform::opus`) or writes it ([`crate::wav`]).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -451,7 +451,122 @@ pub fn by_name(name: &str) -> Option<Line> {
     None
 }
 
+/// A recording's file at most: a line is seconds of speech, and this is
+/// about three minutes of 24-bit stereo WAV at 48 kHz; a larger file is
+/// a song, not a recording.
+pub const TAKE_MAX_BYTES: u64 = 32 << 20;
+
+/// A draft's recordings as they came, at most: four times what the pack
+/// made from them may be ([`MAX_BYTES`]; uncompressed recordings become
+/// Opus).
+pub const DRAFT_MAX_BYTES: u64 = 4 * MAX_BYTES;
+
+/// Bytes of decoded samples a studio keeps at most ([`Decoded`]): about
+/// eleven minutes of mono sound at 48 kHz, far more than a scene's lines.
+pub const DECODED_BYTES: usize = 128 << 20;
+
+/// The recordings' sound a studio keeps decoded, by take: the ones
+/// decoded last, up to `cap` bytes of samples in all (the one just put
+/// in always kept), the oldest let go first. What is let go is decoded
+/// again from its file when it is played, heard in a scene or exported,
+/// so a draft of many recordings does not hold them all in memory.
+pub struct Decoded<S> {
+    sounds: HashMap<u64, S>,
+    /// The takes kept, oldest first, each with its bytes.
+    order: std::collections::VecDeque<(u64, usize)>,
+    bytes: usize,
+    cap: usize,
+}
+
+impl<S> Default for Decoded<S> {
+    fn default() -> Self {
+        Self::with_cap(DECODED_BYTES)
+    }
+}
+
+impl<S> Decoded<S> {
+    pub fn with_cap(cap: usize) -> Self {
+        Decoded {
+            sounds: HashMap::new(),
+            order: Default::default(),
+            bytes: 0,
+            cap,
+        }
+    }
+
+    /// Take `id`'s sound `sound`, of `bytes` bytes of samples, kept.
+    pub fn insert(&mut self, id: u64, sound: S, bytes: usize) {
+        self.remove(id);
+        self.sounds.insert(id, sound);
+        self.order.push_back((id, bytes));
+        self.bytes += bytes;
+        while self.bytes > self.cap && self.order.len() > 1 {
+            if let Some((old, _)) = self.order.front().copied() {
+                self.remove(old);
+            }
+        }
+    }
+
+    pub fn remove(&mut self, id: u64) -> Option<S> {
+        if let Some(i) = self.order.iter().position(|(o, _)| *o == id) {
+            let (_, bytes) = self.order.remove(i)?;
+            self.bytes -= bytes;
+        }
+        self.sounds.remove(&id)
+    }
+
+    pub fn get(&self, id: u64) -> Option<&S> {
+        self.sounds.get(&id)
+    }
+
+    pub fn contains(&self, id: u64) -> bool {
+        self.sounds.contains_key(&id)
+    }
+
+    /// The sounds kept, by take.
+    pub fn sounds(&self) -> &HashMap<u64, S> {
+        &self.sounds
+    }
+
+    pub fn len(&self) -> usize {
+        self.sounds.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sounds.is_empty()
+    }
+
+    /// Bytes of samples kept.
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+}
+
+/// The name a draft that could not be read is kept aside under, beside
+/// where it was (`draft.unreadable.json`, then `draft.unreadable.2.json`
+/// and so on): the first that `taken` does not say is there already, so
+/// one kept aside before is never replaced.
+pub fn aside_name(taken: impl Fn(&str) -> bool) -> String {
+    let first = "draft.unreadable.json".to_string();
+    if !taken(&first) {
+        return first;
+    }
+    (2u32..)
+        .map(|n| format!("draft.unreadable.{n}.json"))
+        .find(|name| !taken(name))
+        .unwrap_or(first)
+}
+
 impl Draft {
+    /// The ids given from now on are past `highest`: the highest id a
+    /// stored recording has, whatever draft it was of, so a new
+    /// recording's file never takes the place of one that exists (a
+    /// draft that could not be read and was begun anew, a draft read
+    /// behind what was stored).
+    pub fn start_past(&mut self, highest: u64) {
+        self.next = self.next.max(highest.saturating_add(1));
+    }
+
     /// A recording added: `source` its name (or its path in a folder or
     /// zip added), `bytes` its size and `head` its first bytes. It goes
     /// on the line its name says, else waits unsorted. Its id.
@@ -694,6 +809,19 @@ impl Draft {
     pub fn too_big(&self) -> bool {
         let (files, bytes) = self.size();
         files > MAX_FILES || bytes > MAX_BYTES
+    }
+
+    /// Whether one more recording of `bytes` (its file's size) is taken
+    /// in: it is no larger than a recording is ([`TAKE_MAX_BYTES`]) and
+    /// the draft's recordings stay within [`MAX_FILES`] files and
+    /// [`DRAFT_MAX_BYTES`] as they came. One that is not is left out (a
+    /// folder that is no pack, picked by mistake, stops there instead of
+    /// filling the storage and the memory).
+    pub fn has_room(&self, bytes: u64) -> bool {
+        let total: u64 = self.takes.iter().map(|t| t.bytes).sum();
+        bytes <= TAKE_MAX_BYTES
+            && self.takes.len() < MAX_FILES
+            && total.saturating_add(bytes) <= DRAFT_MAX_BYTES
     }
 
     /// The pack's name as its folder has it ("Announcer" when unnamed).

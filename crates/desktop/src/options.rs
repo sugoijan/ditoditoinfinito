@@ -543,6 +543,14 @@ impl OptionsPlatform for Desktop {
             }
             Leave::Studio => {
                 if let (Some(songs), Some(sound)) = (&self.0.songs, &self.0.sound) {
+                    // One studio a draft: one left with work under way
+                    // (recordings still read or decoded) is the one
+                    // opened again.
+                    let living = songs.studio.borrow().clone();
+                    if let Some(studio) = living {
+                        cx.push(studio.reopened());
+                        return;
+                    }
                     let shared = self.0.clone();
                     let studio = crate::studio::Studio::new(
                         &self.0.env,

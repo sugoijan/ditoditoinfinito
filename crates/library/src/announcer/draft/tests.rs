@@ -541,3 +541,59 @@ fn a_text_line_is_recorded_and_its_words_kept() {
 fn back_id(d: &Draft) -> u64 {
     d.scripts[0].id
 }
+
+/// Review studio-editor-4: an unreadable draft's name aside is never one
+/// taken, and a draft begun anew gives no id a stored recording has.
+#[test]
+fn an_unreadable_draft_s_name_and_ids_reuse_nothing() {
+    assert_eq!(aside_name(|_| false), "draft.unreadable.json");
+    assert_eq!(
+        aside_name(|n| n == "draft.unreadable.json"),
+        "draft.unreadable.2.json"
+    );
+    assert_eq!(
+        aside_name(|n| n == "draft.unreadable.json" || n == "draft.unreadable.2.json"),
+        "draft.unreadable.3.json"
+    );
+    let mut d = Draft::default();
+    d.start_past(41);
+    assert_eq!(d.add("a.wav", 1, b"RIFF"), 42);
+    d.start_past(3);
+    assert_eq!(d.add("b.wav", 1, b"RIFF"), 43, "never back");
+}
+
+/// Review studio-editor-3: a recording past what a pack may hold is not
+/// added, and the decoded sound kept is bounded, the oldest let go.
+#[test]
+fn recordings_and_their_decoded_sound_are_bounded() {
+    let mut d = Draft::default();
+    assert!(d.has_room(TAKE_MAX_BYTES));
+    assert!(!d.has_room(TAKE_MAX_BYTES + 1), "a song, not a recording");
+    for i in 0..DRAFT_MAX_BYTES / TAKE_MAX_BYTES {
+        assert!(d.has_room(TAKE_MAX_BYTES));
+        d.add(&format!("{i}.wav"), TAKE_MAX_BYTES, b"RIFF");
+    }
+    assert!(!d.has_room(1), "the draft's recordings in all");
+    let mut d = Draft::default();
+    for i in 0..MAX_FILES {
+        d.add(&format!("{i}.wav"), 1, b"RIFF");
+    }
+    assert!(!d.has_room(1), "a pack's files at most");
+
+    let mut kept: Decoded<&str> = Decoded::with_cap(100);
+    kept.insert(1, "one", 40);
+    kept.insert(2, "two", 40);
+    kept.insert(3, "three", 40);
+    assert!(!kept.contains(1), "the oldest let go");
+    assert_eq!((kept.len(), kept.bytes()), (2, 80));
+    // Put in again: the newest, its bytes counted once.
+    kept.insert(2, "two again", 50);
+    assert_eq!(kept.bytes(), 90);
+    kept.insert(4, "four", 40);
+    assert!(!kept.contains(3) && kept.contains(2) && kept.contains(4));
+    // One larger than the cap is still kept, alone.
+    kept.insert(5, "huge", 1000);
+    assert_eq!(kept.sounds().keys().copied().collect::<Vec<_>>(), vec![5]);
+    assert_eq!(kept.remove(5), Some("huge"));
+    assert!(kept.is_empty() && kept.bytes() == 0);
+}
