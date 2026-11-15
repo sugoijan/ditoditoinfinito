@@ -1167,6 +1167,12 @@ pub trait LiveRoom {
     fn decision(&self, stage: StageId) -> Option<(Vec<Vec<Finisher>>, bool)>;
     /// What this device worked out for `stage`'s live play.
     fn live_prep(&self, stage: StageId) -> Option<LivePrep>;
+    /// Who plays `stage`, once its start is committed (its lineup): a
+    /// stage's order, taken as its prompt opened, names every candidate.
+    /// None where it is not known (the order's people then stand).
+    fn lineup(&self, _stage: StageId) -> Option<Vec<ParticipantId>> {
+        None
+    }
     /// Why this device's link to the stage ended for good, where it did
     /// (an audience's seat: the audience closed, the room ended, its link
     /// replaced): what it shows of the stage is stale from then on. A
@@ -1326,6 +1332,11 @@ pub fn ranking_of(placements: &[Placement]) -> Vec<Vec<Finisher>> {
 }
 
 impl LiveRoom for RoomClient {
+    fn lineup(&self, stage: StageId) -> Option<Vec<ParticipantId>> {
+        let play = self.state().stage(stage)?.play.as_ref()?;
+        Some(play.lineup.iter().copied().collect())
+    }
+
     fn live_rules(&self) -> ddi_room::live::LiveRules {
         self.state()
             .policy

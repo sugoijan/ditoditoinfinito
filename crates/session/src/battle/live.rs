@@ -552,10 +552,13 @@ impl Live {
             (rules, delay)
         };
         let cpu_lead_us = handle.room.borrow().cpu_lead_ms(stage) as i64 * 1_000;
+        // The lineup the room committed: the order (taken as the prompt
+        // opened) named every candidate, some of whom sat it out.
+        let lineup = handle.room.borrow().lineup(stage);
         let delay = view_delay.delay_ms() / 1_000.0;
         let seats = people
             .iter()
-            .filter(|(p, _)| *p != me)
+            .filter(|(p, _)| *p != me && lineup.as_ref().is_none_or(|l| l.contains(p)))
             .map(|(p, name)| {
                 let mut feed = feed::FieldFeed::new(track, 1.0, delay);
                 feed.set_lock(lock);

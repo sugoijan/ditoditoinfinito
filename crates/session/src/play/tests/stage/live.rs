@@ -244,7 +244,20 @@ fn pick_and_ready_staged(
     attacks: bool,
     chart: usize,
     stages: u16,
+    tweak: impl FnMut(usize, &mut ddi_ui::state::room::LoadJob),
+) -> Vec<Option<StageOrder>> {
+    pick_and_ready_who(r, song, attacks, chart, stages, tweak, |_| true)
+}
+
+/// [`pick_and_ready_staged`], only the devices `ready` names readied.
+fn pick_and_ready_who(
+    r: &Room,
+    song: &Song,
+    attacks: bool,
+    chart: usize,
+    stages: u16,
     mut tweak: impl FnMut(usize, &mut ddi_ui::state::room::LoadJob),
+    ready: impl Fn(usize) -> bool,
 ) -> Vec<Option<StageOrder>> {
     for _ in 0..10 {
         r.run(0.5);
@@ -338,8 +351,8 @@ fn pick_and_ready_staged(
         orders.iter().map(Option::is_some).collect::<Vec<_>>(),
         r.server.borrow().state().phase
     );
-    for room in &r.rooms {
-        if room.borrow().in_stage(orders[0].as_ref().unwrap().stage) {
+    for (i, room) in r.rooms.iter().enumerate() {
+        if ready(i) && room.borrow().in_stage(orders[0].as_ref().unwrap().stage) {
             room.borrow_mut().set_ready(true).unwrap();
         }
     }
@@ -2952,4 +2965,45 @@ fn an_online_stage_left_from_its_prompt_reports_the_player_s_forfeit() {
         stage.play.as_ref().unwrap().reports.get(&order.me),
         Some(&ddi_room::ReportedRun::of(ddi_room::Run::Forfeit))
     );
+}
+
+/// ui-state-5 (fix round G1): a live stage's prompt opens while its
+/// readiness gathers, its order naming every candidate; one who never
+/// readies sits it out, and the plays that start draw no field for them:
+/// the others' fields are the lineup the room committed.
+#[test]
+fn a_live_stage_draws_the_lineup_not_the_candidates() {
+    let song = bundled("beatucada");
+    let r = Room::new(
+        &[
+            ("alice", Intent::Play),
+            ("bob", Intent::Play),
+            ("carol", Intent::Play),
+        ],
+        None,
+    );
+    let orders = pick_and_ready_who(&r, &song, false, 0, 1, |_, _| {}, |i| i < 2);
+    let stage = orders[0].as_ref().unwrap().stage;
+    assert_eq!(
+        orders[0].as_ref().unwrap().live.as_ref().unwrap().people.len(),
+        2,
+        "the order taken at the prompt names both candidates"
+    );
+    for _ in 0..200 {
+        if r.rooms[0].borrow().stage_started(stage) {
+            break;
+        }
+        r.run(0.5);
+    }
+    assert!(r.rooms[0].borrow().stage_started(stage));
+    let carol = r.rooms[2].borrow().me();
+    let lineup = r.server.borrow().state().stage(stage).unwrap().play.clone().unwrap().lineup;
+    assert!(!lineup.contains(&carol), "carol sat it out");
+    *r.play_devices.borrow_mut() = vec![0, 1];
+    let plays: Vec<_> = (0..2)
+        .map(|i| session_for(&r, &song, orders[i].as_ref().unwrap(), i, 0.0))
+        .collect();
+    for p in &plays {
+        assert_eq!(p.battle().unwrap().views().len(), 1, "only the other one who plays");
+    }
 }
