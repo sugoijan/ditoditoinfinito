@@ -1078,8 +1078,12 @@ pub fn build_into(
         );
     }
 
-    // Hold bodies first so heads draw over them.
-    let notes: &[NoteSprite] = if opts.hide_notes { &[] } else { &frame.notes };
+    // Hold bodies first so heads draw over them. No field: none of its
+    // notes either (a watched stage's followed field is a miniature in
+    // the field's place, `Miniature`: the frame's notes drawn here too
+    // were a second copy of it, the feedback round K's "ghost notes").
+    let no_notes = opts.hide_notes || opts.no_field;
+    let notes: &[NoteSprite] = if no_notes { &[] } else { &frame.notes };
     for note in notes {
         if matches!(
             note.kind,
@@ -1092,7 +1096,7 @@ pub fn build_into(
 
     // The noteskin's holds over the built-in bodies.
     order.sprites(instances.len());
-    if !opts.hide_notes
+    if !no_notes
         && let Some(l) = layer.as_mut()
     {
         l.holds(frame, layout, geo, &mut quads);
@@ -1107,7 +1111,7 @@ pub fn build_into(
         push_note(&mut instances, note, layout, geo, &opts, frame.beat);
     }
     order.sprites(instances.len());
-    if !opts.hide_notes
+    if !no_notes
         && let Some(l) = layer.as_mut()
     {
         l.notes(frame, layout, geo, &mut quads);
@@ -2188,6 +2192,48 @@ pub(crate) mod tests {
             panic!("rainbow flows");
         };
         assert_eq!(arrow.params, [to[0], to[1], to[2], phase]);
+    }
+
+    /// No field: none of the frame's notes either. A watched stage's
+    /// followed field is a miniature in the field's place; the frame's
+    /// notes drawn too were a second copy of it (the feedback round K).
+    #[test]
+    fn no_field_draws_none_of_the_frames_notes() {
+        let layout = Layout::dance_single();
+        let geo = FieldGeometry::new(1000.0, 1000.0, 4.0, false);
+        let drawn = |notes: Vec<NoteSprite>, no_field| {
+            build(
+                &frame(notes, Appearance::Visible),
+                &layout,
+                &presets::itg().names,
+                &geo,
+                RenderOptions {
+                    no_field,
+                    ..RenderOptions::default()
+                },
+                false,
+                None,
+                (&[], &[]),
+            )
+            .instances
+            .len()
+        };
+        let notes = || {
+            vec![
+                note(2.0, SpriteKind::Tap, Appearance::Visible),
+                note(
+                    3.0,
+                    SpriteKind::HoldHead {
+                        tail_y: 5.0,
+                        active: false,
+                        dropped: false,
+                    },
+                    Appearance::Visible,
+                ),
+            ]
+        };
+        assert!(drawn(notes(), false) > drawn(Vec::new(), false));
+        assert_eq!(drawn(notes(), true), drawn(Vec::new(), true));
     }
 
     #[test]
