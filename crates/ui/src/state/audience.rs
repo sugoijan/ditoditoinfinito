@@ -241,7 +241,11 @@ pub struct AudienceClient {
     version: u64,
     live_news: crate::state::room::LiveNewsTap,
     jobs: Vec<LoadJob>,
-    asked: BTreeSet<StageId>,
+    /// Each stage's song asked for: its share and chart (a stage picked
+    /// again with another song is asked for again; `prepared` and
+    /// `problems` are of the song asked for, a late answer for another
+    /// dropped).
+    asked: BTreeMap<StageId, (String, ChartKey)>,
     prepared: BTreeMap<StageId, Prepared>,
     problems: BTreeMap<StageId, LoadProblem>,
     /// Stages whose battle plan this device computed differently from the
@@ -320,7 +324,7 @@ impl AudienceClient {
             version: 0,
             live_news: Default::default(),
             jobs: Vec::new(),
-            asked: BTreeSet::new(),
+            asked: BTreeMap::new(),
             prepared: BTreeMap::new(),
             problems: BTreeMap::new(),
             mismatched: BTreeSet::new(),
@@ -597,7 +601,7 @@ impl AudienceClient {
         let Some(stage) = self.current_stage() else {
             return;
         };
-        if !self.plays_live() || self.asked.contains(&stage) {
+        if !self.plays_live() {
             return;
         }
         let Some(v) = self.view() else {
@@ -609,9 +613,14 @@ impl AudienceClient {
         let (Some(share), Some(chart)) = (st.share.clone(), st.chart.clone()) else {
             return;
         };
-        if st.content != PublicContent::Available {
+        if st.content != PublicContent::Available
+            || self.asked.get(&stage) == Some(&(share.clone(), chart.clone()))
+        {
             return;
         }
+        // Another song for the stage (picked again): its own preparation.
+        self.prepared.remove(&stage);
+        self.problems.remove(&stage);
         let settings = crate::state::settings::Settings::load();
         let live = LiveAsk {
             seed: ddi_room::live::plan::seed_for(&RoomId::new(self.room.clone()), stage, &chart),
@@ -620,7 +629,7 @@ impl AudienceClient {
             options: settings.play_options(None),
             speed_source: settings.speed_source,
         };
-        self.asked.insert(stage);
+        self.asked.insert(stage, (share.clone(), chart.clone()));
         self.jobs.push(LoadJob::from_share(stage, 0, share, &chart, Some(live)));
         self.version += 1;
     }
@@ -634,6 +643,13 @@ impl AudienceClient {
     /// The shell prepared `job`: the song read from the share with what
     /// live play needs, or why not.
     pub fn finish_load(&mut self, job: &LoadJob, result: LoadResult) {
+        // The song the stage has now, or a late answer for one it had.
+        let current = self.asked.get(&job.stage).is_some_and(|(share, chart)| {
+            job.share.as_ref() == Some(share) && job.digest == chart.as_str().parse().ok()
+        });
+        if !current {
+            return;
+        }
         match result {
             Ok((picked, prep)) => {
                 self.prepared.insert(job.stage, Prepared { picked, prep });

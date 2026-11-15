@@ -799,3 +799,55 @@ fn the_audience_page_is_a_card_over_the_rain_then_the_last_stages_picture() {
     hd.key("Escape", "Escape");
     hd.run(0.1);
 }
+
+/// ui-state-3 (fix round G1): a stage picked with one song, then backed
+/// out of and picked again with another, is prepared again with the
+/// second; an answer for the first that comes late is dropped.
+#[test]
+fn a_stage_picked_again_with_another_song_is_prepared_again() {
+    use crate::state::online::tests::room::song;
+    use ddi_room::{Command, ContentStatus};
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let mut carol = arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap();
+    run(&clock, &server, &mut [&mut alice], &mut [&mut carol], 1_000);
+    let shared = |n: u8| {
+        let mut s = song();
+        s.id = format!("bundled:{n}");
+        s.charts[0].digest = Some(ddi_chart::ChartDigest(u128::from(n)));
+        s
+    };
+    let pick = |alice: &mut RoomClient, s: &crate::screens::data::SongEntry, share: &str| {
+        alice.pick(s, &s.charts[0]).unwrap();
+        let stage = alice.stages()[0].id;
+        server
+            .borrow_mut()
+            .authority(Command::SetContentStatus {
+                stage,
+                status: ContentStatus::Available,
+                share: Some(share.into()),
+            })
+            .unwrap();
+        stage
+    };
+    let x = shared(7);
+    let stage = pick(&mut alice, &x, "sharex01");
+    run(&clock, &server, &mut [&mut alice], &mut [&mut carol], 1_000);
+    let first = carol.take_load_jobs();
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].share.as_deref(), Some("sharex01"));
+    // Backed out of and picked again, the same stage, another song.
+    alice.leave_prompt(stage);
+    run(&clock, &server, &mut [&mut alice], &mut [&mut carol], 200);
+    let y = shared(8);
+    assert_eq!(pick(&mut alice, &y, "sharey01"), stage);
+    run(&clock, &server, &mut [&mut alice], &mut [&mut carol], 1_000);
+    let second = carol.take_load_jobs();
+    assert_eq!(second.len(), 1, "the new song asked for");
+    assert_eq!(second[0].share.as_deref(), Some("sharey01"));
+    assert_eq!(second[0].digest, Some(ddi_chart::ChartDigest(8)));
+    // The first song's answer, late: not the stage's any more.
+    carol.finish_load(&first[0], Err(LoadProblem::Download));
+    assert_eq!(carol.load_problem(stage), None);
+}
