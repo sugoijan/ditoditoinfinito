@@ -81,14 +81,18 @@ fn stage_with(key_of: &str, folder: Option<PathBuf>) -> Option<Heard> {
     let mut request = host.requested.borrow_mut().take().expect("asked for");
     request.auto = true;
     *host.requested.borrow_mut() = Some(request);
-    // Read, and a moment for the voice to decode (it never holds Start).
+    // Read, and the voice decoded (it never holds Start, and the play's
+    // fake clock would outrun its thread): waited for by asking, never
+    // by counting. The thread starts late here, as on a loaded machine,
+    // so a wait that only counts fails (review tests-1).
+    ddi_desktop::play::voice::set_test_delay(600);
     let mut waited = 0;
-    while !host.prompt_ready() || waited < 50 {
+    while !host.prompt_ready() || !host.voice_loaded() {
         host.poll(&mut ui, &env, Some(dev()), 48_000);
         ui.update(0.05);
         std::thread::sleep(std::time::Duration::from_millis(20));
         waited += 1;
-        assert!(waited < 1000, "the song was never read");
+        assert!(waited < 3000, "the song or the voice was never read");
     }
     common::rig::ready_and_start(&mut host, &mut ui, &env, &room, dev);
     assert!(host.playing(), "{:?}", ui.layers());
@@ -108,6 +112,14 @@ fn stage_with(key_of: &str, folder: Option<PathBuf>) -> Option<Heard> {
     host.poll(&mut ui, &env, Some(dev()), 48_000);
     ui.update(0.5);
     eprintln!("{key_of}: {:#?}", host.log);
+    // No line came due before its sound was decoded: what is asserted
+    // below is of the voice, never of how fast its thread was.
+    let report = host
+        .log
+        .iter()
+        .find(|l| l.starts_with("announcer: spoke "))
+        .expect("the voice's report");
+    assert!(report.contains("· not decoded [] ·"), "{report}");
     let list = |prefix: &str| -> Vec<String> {
         host.log
             .iter()

@@ -36,6 +36,20 @@ enum Arrived {
 pub struct VoiceLoad {
     pub voice: SharedVoice<Sound>,
     rx: Receiver<Arrived>,
+    /// The thread ended and all it sent was taken in.
+    done: bool,
+}
+
+/// Tests: the decode thread waits this long before it begins, as a
+/// loaded machine would have it ([`set_test_delay`]).
+static TEST_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Tests: every voice's decode thread started from now on begins `ms`
+/// later (0: at once), so a test that waits for the voice by counting
+/// instead of asking ([`VoiceLoad::done`]) fails rather than passing by
+/// luck.
+pub fn set_test_delay(ms: u64) {
+    TEST_DELAY_MS.store(ms, std::sync::atomic::Ordering::Relaxed);
 }
 
 impl VoiceLoad {
@@ -52,6 +66,10 @@ impl VoiceLoad {
         let _ = std::thread::Builder::new()
             .name("ddi-announcer".into())
             .spawn(move || {
+                let delay = TEST_DELAY_MS.load(std::sync::atomic::Ordering::Relaxed);
+                if delay > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(delay));
+                }
                 // Ours without walking the song folders; the folders'
                 // as found since the library last scanned.
                 let found: Arc<[DiskAnnouncer]> = if ddi_library::announcer::is_bundled(&key) {
@@ -104,17 +122,29 @@ impl VoiceLoad {
         VoiceLoad {
             voice: Default::default(),
             rx,
+            done: false,
         }
     }
 
     /// Takes in what was decoded since.
     pub fn poll(&mut self) {
-        while let Ok(a) = self.rx.try_recv() {
-            match a {
-                Arrived::Expect(lines) => self.voice.borrow_mut().expect(lines),
-                Arrived::Sound(line, sound) => self.voice.borrow_mut().add(line, sound),
-                Arrived::Failed(e) => eprintln!("announcer: {e}"),
+        loop {
+            match self.rx.try_recv() {
+                Ok(Arrived::Expect(lines)) => self.voice.borrow_mut().expect(lines),
+                Ok(Arrived::Sound(line, sound)) => self.voice.borrow_mut().add(line, sound),
+                Ok(Arrived::Failed(e)) => eprintln!("announcer: {e}"),
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.done = true;
+                    break;
+                }
             }
         }
+    }
+
+    /// Every sound that will come has come (the thread ended) and was
+    /// taken in by [`VoiceLoad::poll`].
+    pub fn done(&self) -> bool {
+        self.done
     }
 }

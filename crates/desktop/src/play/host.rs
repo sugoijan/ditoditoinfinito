@@ -758,6 +758,17 @@ impl Host {
             if r.ready && r.prompt.borrow().step == PromptStep::Ready)
     }
 
+    /// The announcer's sounds for the play at its prompt are all in
+    /// (or there is no announcer): what a test waits on before a play on
+    /// a fake clock, which would outrun the decode thread; a real play
+    /// never waits for it.
+    pub fn voice_loaded(&self) -> bool {
+        match &self.stage {
+            Stage::Prompt(r) => r.voice.as_ref().is_none_or(|v| v.done()),
+            _ => true,
+        }
+    }
+
     /// What the prompt still loads (tests).
     pub fn prompt_waiting(&self) -> Vec<String> {
         match &self.stage {

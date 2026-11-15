@@ -83,10 +83,11 @@ fn an_announcer_speaks_over_a_play_and_its_results() {
     };
     let target = common::gpu::Target::new(&device, SIZE);
 
-    // Read, and a moment for the voice to decode (it never holds Start).
+    // Read, and the voice decoded (it never holds Start): waited for by
+    // asking, never by counting (review tests-1).
     *host.requested.borrow_mut() = Some(Request::song("beatucada", 2, true));
     let mut waited = 0;
-    while !host.prompt_ready() || waited < 25 {
+    while !host.prompt_ready() || !host.voice_loaded() {
         host.poll(&mut ui, &env, Some(dev()), 48_000);
         ui.update(0.05);
         std::thread::sleep(std::time::Duration::from_millis(20));
