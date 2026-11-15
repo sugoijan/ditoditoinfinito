@@ -9671,6 +9671,61 @@ crate; `ROOM_MODEL_REVISION` stays 10 (no new command, event or refusal).
   never counted, so "ready / players" completes and the panel never reads
   past the cap.
 
+## Review fixes: a stage's play, its CPUs and its fields (2026-11-15)
+
+A read-only review of how a stage is played, computed and drawn found
+these; each was reproduced as a test that failed first, then fixed,
+unless said. Nothing here changes what devices compute for a room's CPUs
+from the same news (`the_cpus_play_alike` passes natively and in
+wasm32-wasip1 with its fixture unchanged); `ROOM_MODEL_REVISION` stays 10.
+
+- **A live stage joined part-way** (session-1): the room client's news
+  tap keeps, while no play reads it, the latest stage's news since its
+  last snapshot (`LiveNewsTap`), and a play that starts part-way reads it
+  (`Live::new` no longer drops it): an audience seat's Watch, a reload, a
+  member handed a running stage see who is already out, the attacks
+  standing, and the CPUs they compute catch up with the room at once.
+- **The CPUs after a snapshot** (session-2): the checkpoints known are one
+  past the last record's index (`CheckpointNews::k`), never a count of
+  records, so the device's CPUs are judged on with the room after a
+  reconnect's snapshot instead of freezing then trailing.
+- **Out by snapshot** (session-3): a competitor's end that comes in a
+  snapshot marks their field out as a frame's does, and the snapshot's
+  life, combo, score and power are shown (`Live::ended`).
+- **A step's life** (engine-1): the play's life record keeps its times in
+  seconds as judged (`f64`; `Results::life` still `f32` pairs, the same
+  values), so the life read just after a step down is the life given back,
+  not the one before it: miniatures no longer show a competitor near zero
+  for the whole breather. Checkpoint reports read life the same way; an
+  event within an `f32`'s spacing before a checkpoint now counts, which
+  can change a CPU's reported life at such a checkpoint between builds
+  (a mismatch counted, the first report kept; never the CPUs' plays).
+- **A CPU played out at once** (engine-2, reproduced on a song made for
+  it; the bundled songs' rungs end too close to their stage's charts):
+  `Opponent::finish` plays to the end of a rung it steps to on the way.
+- **A press just after life runs out** (engine-3): with a ladder, a press
+  is judged after everything before it is applied (a step down its
+  update's miss made), as a CPU's is fed: the same at any frame rate with
+  a shock beside an old note.
+- **The CPU model's maths** (engine-4, not reproduced: the fixture agrees
+  natively and in wasm): the docs say what is true (`exp`, `ln`, `powf`
+  from each platform's library, quantized before they decide).
+- **At once "Up to two" and old plays** (engine-5): accepted and said
+  (`docs/plans/play-history.md`, "Versions and re-working").
+- **Miniatures of a stage of another layout** (shell-render-1): a slot is
+  its layout's lanes wide (`opponents::slot_lanes`), its camera on them;
+  a watched grid the same (`arrange_grid` takes the span).
+- **The large field's ladder** (shell-render-2, -3, -5): the player's own
+  standing from the battle (never a watched frame's), out where out and
+  counted among everyone while they follow someone, their own miniature
+  pinned in view then; ranked as the stage does (`Standing::rank`: score
+  first under Adaptive; those out the latest first).
+- **Rival slots** (shell-render-4) keep their people when the competitor
+  followed changes (`Rivals::follow`); **the ladder** (shell-render-6) is
+  dropped when no field fits; **a large grid on a tiny window**
+  (shell-render-7, confirmed at 120×90) shows what fits in turns;
+  **empty slots** (shell-render-8, latent) keep their lock and flash rows.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
