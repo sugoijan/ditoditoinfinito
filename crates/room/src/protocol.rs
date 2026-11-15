@@ -76,8 +76,10 @@ pub fn supported(version: u32) -> bool {
 /// updated"), opening no socket. Server and game deploy together, the
 /// server first.
 ///
-/// 9. the check both ways (and what only peers one build apart needed
-///    retired with it).
+/// 9. the check both ways; the policy's version flags, the commands
+///    before `Pick`, the attack ledger's recovery, the step-down flag of
+///    the binary format (`BATCH_V2`, `FRAME_V2`) and ranking without a
+///    score retired.
 pub const ROOM_MODEL_REVISION: u32 = 9;
 
 /// What a client makes of an authority older than itself (never sent by

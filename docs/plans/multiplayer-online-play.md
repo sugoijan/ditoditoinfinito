@@ -59,9 +59,16 @@ decided, and when the stage is decided.
 | Client side | `live::client` (`LiveLink`), inside `OnlineAuthority` | Hello, pings, queued messages, batches until acknowledged, frames in order |
 | Reports | `attacks::Reporter` | A competitor's checkpoint reports from its judgments, as practice counts them |
 | Fake | `fake::FakeServer` (`Latency`, `OffsetClock`, `fault_uplink`) | The room's live side in process, latency and faults both ways |
-| CPUs | `live::cpus` (`ONLINE_CPUS_V0`, `CpuNews`, `sends_for_cpus`), `ClientLive::CpuRuns`, `Command::ReportFor`, `RoomPolicy::cpus`; the game's `ddi_session::battle::cpus` (`Drive`) | A match's CPUs computed alike on every device, reported for by the devices, the first report of each taken |
+| CPUs | `live::cpus` (`ONLINE_CPUS_V0`, `CpuNews`, `sends_for_cpus`), `ClientLive::CpuRuns`, `Command::ReportFor`, `RoomPolicy::seats_cpus`; the game's `ddi_session::battle::cpus` (`Drive`) | A match's CPUs computed alike on every device, reported for by the devices, the first report of each taken |
 
 ### Compatibility, both ways
+
+Since the room model's revision 9 (`docs/plans/multiplayer-prototype-progress.md`,
+"Revision 9: retired compatibility") a client and a server of different
+revisions never meet in a room: the server refuses an older client
+("reload to update") and a client refuses an older server ("the server is
+being updated"). The rows below are this round's history; the one for a
+server that predates CPUs online went with the policy's `cpus` flag.
 
 | Peer | Meets | What happens |
 | --- | --- | --- |
@@ -72,7 +79,6 @@ decided, and when the stage is decided.
 | A client that predates `live-v2` | A room made after it (`timing: live-v2`) | It reads the contract's id alone (`live-v1`) and plays live by `live-v1`'s numbers: a batch every 250 ms, its views a second behind. The room ticks every 100 ms; nothing it decides depends on a device's batching. Its field reaches the others a little later than a new client's (their delays rise toward it, or it stalls now and then). |
 | A new client | A room made before `live-v2` (no `timing`), or a server that predates it | `live-v1`'s numbers: batches every 250 ms, the room's frames every 250 ms; its views still adapt (about 0.6 to 0.85 s at 20 to 80 ms each way, never more than a second). |
 | A room in play across a deploy | The new server | A stored room keeps its policy as stored: one made before `live-v2` ticks at 250 ms until it closes. Only rooms made after the deploy (or stored before live play, given it on load) tick at 100 ms. |
-| New client | A server that predates CPUs online (no `cpus` in the policy) | The Rules pop-up offers no roster and the client sends none; nothing else changes. |
 | Old client | A room with CPUs (`online-cpus-v0`) | It sees the CPUs in the room's state (as practice's) and plays its own run; it computes nothing for them and draws no field of them. The new devices report for them; a room of old clients alone has nobody reporting: each CPU's checkpoints run at their deadlines with nothing judged, and its run is a forfeit at the report deadline. |
 | A room stored before CPUs online | The new server | Its policy stays without `cpus` (as `step_down` and `stage_rules`): its clients offer no roster until a new room is made. |
 
@@ -692,7 +698,11 @@ cost the room nothing more per viewer than a send.
 
 Batches and frames are binary WebSocket messages (`wire`: varints, deltas
 within a list, a tag byte with the version, every read bounded and never
-panicking); everything else live is JSON text. Measured with the stream's
+panicking); everything else live is JSON text. Since revision 9 they are
+`BATCH_V2` (0xB2) and `FRAME_V2` (0xF2), a step down a moment kind of its
+own (6, its rung a byte); version 1 (0xB1, 0xF1), which carried a step as
+a refusal's kind with a flag so that older readers passed over it, is no
+longer read or written. Measured with the stream's
 own types (`tests/live.rs`, `the_streams_sizes`):
 
 | One competitor, sent a second | JSON | Binary |

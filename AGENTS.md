@@ -1087,8 +1087,7 @@ Rust and the browser are implementation details, not advertised features.
   `DEFAULT_MAX_MEMBERS`, measured in `tests/scale.rs`), and stage awards
   as named rules (the eight-player table; for nine to 73 the same table
   stretched toward the top, `TopBiased`'s fixed tables, its bias the
-  match rule `MatchRules::points`, Strong, Medium or Mild, offered where
-  `RoomPolicy::points_bias` says the authority reads it; under eight the
+  match rule `MatchRules::points`, Strong, Medium or Mild; under eight the
   table read up the field, `EightPlayerScaledV1`; `ExperimentalLinearV0`
   and `ExperimentalNineV0` retired, still read; development-only `DevelopmentLinearV0`; exact fractions,
   `Points`, shown as decimals); the battle a stage is
@@ -1097,10 +1096,8 @@ Rust and the browser are implementation details, not advertised features.
   competitor's gauge as life, empty is out of the stage; `rank`,
   `decided`: those still in by life, then the score, DDI's sum,
   `Run::Live`'s `score`, a CPU's or a bot's its own (it plays the whole
-  chart); where someone still in reported none, as before
-  round 3b by the proportional part and then, among those who played the
-  same notes, DDI's absolute score, `Absolute`; both additive on
-  `Run::Live` and `ReportedRun::Live`;
+  chart; a report without one, taken as given as any self-reported
+  value is, ranks as 0);
   `GaugeAttacksV0`, the same with attacks, chosen by the match's Attacks
   rule, `MatchRules::attacks`, On by default where attacks are offered
   (`MatchRules::practice`; a hosted room's, `MatchRules::hosted_for`,
@@ -1120,8 +1117,8 @@ Rust and the browser are implementation details, not advertised features.
   version, so a peer that predates it ignores it); the match's ruleset
   everyone plays, DDI alone (`MatchRules::RULESETS`; the field
   `MatchRules::ruleset` keeps an older id as it was stored or received,
-  `LEGACY_RULESETS`, so an authority one build behind still takes the
-  rules back: read it through `MatchRules::ruleset_id`), with DDI's
+  `LEGACY_RULESETS`, so a stored room's rules read as they were written:
+  read it through `MatchRules::ruleset_id`), with DDI's
   difficulty and Boos as match rules (`MatchRules::difficulty`, a
   `MatchDifficulty`, and `boos`: plain values, additive, left out of the
   JSON at their defaults; `docs/plans/ddi-ruleset.md`, "Round 3
@@ -1150,9 +1147,8 @@ Rust and the browser are implementation details, not advertised features.
   named places for a limit, off (`chain_gap`, `cooldown_checkpoints`);
   a stage run under the rules its plan names (`attack_rules`), a plan
   naming any other refused as unknown (`attacks-v0` to `attacks-v2`
-  retired 2026-11-14; `Section::recover_after_us` and
-  `AttackEvent::Recovered` stay on the wire, a cleared attack recovered
-  at once);
+  retired 2026-11-14; no recovery: an attack is over the checkpoint it
+  clears, `AttackState::Cleared`, a stored `recovered` read so);
   expiry when the recipient goes out, every one placed; `SETTLEMENT_V1`
   (`settlement-v0` retired),
   decided only with no attack against the last one in outstanding, the
@@ -1162,8 +1158,7 @@ Rust and the browser are implementation details, not advertised features.
   A running match's per-stage rules (`rules::PlayRules`: Timing
   difficulty, Boos, Attacks, Charts, and Points, `PlayRules::points`,
   `None` for the match's own, `Match::play_rules_of`, each stage awarded
-  by its own rules' bias where `RoomPolicy::stage_points` says the
-  authority honors it; never the stages, seats, CPUs or ruleset) changed
+  by its own rules' bias; never the stages, seats, CPUs or ruleset) changed
   from a later stage on
   (`Command::ChangeStageRules { from, rules }`, the operator's who may
   edit rules, against `Match::changes_saved_at`; `Event::StageRulesChanged`;
@@ -1174,8 +1169,7 @@ Rust and the browser are implementation details, not advertised features.
   has begun since is refused with `Rejection::RulesLandLater`; the
   battle plan names a changed stage's rules (`BattlePlan::stage_rules`,
   in the digest only then), the public view a changed stage's
-  (`PublicStage::rules`); additive, offered where
-  `RoomPolicy::stage_rules` says the authority reads it.
+  (`PublicStage::rules`).
   M7b's match flow in the model: `Command::Pick` (the operator's Start on
   a song: the next stage's song, the match started or gone on, its
   readiness window opened, all as one change), `Command::Spotlight` and
@@ -1185,16 +1179,16 @@ Rust and the browser are implementation details, not advertised features.
   chart, which a pick of that chart reuses, `RoomState::known_share`);
   one picker at a time (2026-11-12, `state::Picking` in
   `RoomState::picking`: who chooses the room's songs now, its owner at
-  first; `picker()`, `chooses`, `may_take_pick`): `Spotlight`, `Pick`
-  and `ChooseContent` are the picker's alone (another operator refused
+  first; `picker()`, `chooses`, `may_take_pick`): `Spotlight` and `Pick`
+  are the picker's alone (another operator refused
   with `Rejection::NotPicker`, naming who has it), an operator takes the
   pick at once in any phase (`Command::TakePick`, `Capability::TakePick`,
   `Event::PickerChanged`, which clears the spotlight and keeps its share
   known by chart), and it goes back to the owner, or to nobody with the
   owner gone, when its holder leaves, loses the role or is set
-  `Disconnected` (`release_pick`); additive to protocol 2: a room without
-  `picking` (an authority that predates it) lets every operator choose
-  as it did and is never sent `TakePick`; the picker is "who chooses
+  `Disconnected` (`release_pick`); a room stored without `picking` reads
+  as nobody's pick, its owner given it with the next change; the picker
+  is "who chooses
   now", any participant in principle, only the taking an operator's;
   `hosted-deadline-v1` (a window counts from the song's availability and
   ends early once every connected player who could join is ready and
@@ -1217,18 +1211,22 @@ Rust and the browser are implementation details, not advertised features.
   every socket with 4410); an owner away with nobody connected keeps
   the room; `Command::MakeHost` hands it over; a pick nobody holds is
   the owner's while the owner is there (`settle_host`, run after every
-  command); additive, and a room without `hosting` (an authority that
-  predates it) is never sent the two commands
-  (`RoomState::has_succession`);
+  command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, round B1; 2 since `attacks-v2`, 3 adaptive
-  charts, 4 `attacks-v3`, 5 `cpu-levels-v1`, 6 `adaptive-v1`), said in the join's, ticket's and
-  audience join's `model`, an authority refusing an older client with
-  `update_required` (`check_model`; a ticket not during a stage,
-  `RoomState::admits_model`) and the shells saying so (the web with a
-  Reload, `UiRequest::Reload`): raise it whenever peers must agree on
-  something new, and build no per-feature soft failures for older
-  clients any more. The reducer (`reduce.rs`): commands from an
+  (`ROOM_MODEL_REVISION`, 9 since 2026-11-14; round B1, 2 since
+  `attacks-v2`, 3 adaptive charts, 4 `attacks-v3`, 5 `cpu-levels-v1`,
+  6 `adaptive-v1`), checked both ways: a client says its own in the
+  join's, ticket's and audience join's `model`, an authority refusing
+  an older client with `update_required` (`check_model`; a ticket not
+  during a stage, `RoomState::admits_model`) and the shells saying so
+  (the web with a Reload, `UiRequest::Reload`); the authority says its
+  own in those answers, and a client refuses an older authority, or one
+  that says none (`check_authority`, `SERVER_BEHIND`: "the server is
+  being updated", no socket opened, a member's link waiting as
+  `LinkState::ServerBehind`). Raise it whenever peers must agree on
+  something new; server and game deploy together, the server first;
+  build no per-feature soft failures for older peers. A room stored by
+  revision 8 loads (`tests/room-revision-8.json`). The reducer (`reduce.rs`): commands from an
   `Actor` (a member, or the authority for joins, connections, content status
   and confirmed outcomes) decided into events, atomic, refusals typed
   (`Rejection`); `RoomState::commit` applies a revision's events, so a
@@ -1236,10 +1234,10 @@ Rust and the browser are implementation details, not advertised features.
   and the countdown. The phase machine is multiplayer-ui.md's State model;
   participation is derived (`RoomState::participation`), never stored.
   The match's Charts rule (`MatchRules::charts`, `Charts`: As picked or
-  Adaptive, a new room's default where it honors it since 2026-11-14,
+  Adaptive, a new room's default where it plays it since 2026-11-14,
   `MatchRules::practice`, `hosted_for`, the field still read as As picked
   where missing; read from the "At zero life" rule before it, `at_zero`;
-  `RoomPolicy::adaptive`; a stage under Adaptive ranks those still in by
+  a stage under Adaptive ranks those still in by
   the score as earned, life the tie-break, `RankBy::Score`,
   `Charts::rank_by`, `battle::rank`'s argument, never by steps,
   `Run::Live::steps` kept for the record; a stream's
@@ -1279,7 +1277,8 @@ Rust and the browser are implementation details, not advertised features.
   pick (`live/plan.rs`: checkpoints and safe sections, `seed_for`, its
   digest on the content, `SetBattlePlan`), each competitor's moments and
   checkpoint reports (`attacks::Reporter`) in numbered batches gathered
-  into one frame a tick (`live/stream.rs`; binary, `live/wire.rs`), the
+  into one frame a tick (`live/stream.rs`; binary, `live/wire.rs`,
+  `BATCH_V2` and `FRAME_V2`, a step down a moment kind of its own), the
   room's side sans-IO (`live/server.rs`, `LiveServer`: the ledger at
   deadlines, the decision as practice makes it, resume and snapshots,
   `LiveDurable` for the server's storage) and the client's in
@@ -1293,7 +1292,7 @@ Rust and the browser are implementation details, not advertised features.
   `VIEW_DELAY_V0`; `ViewMeter` for the tests and the server's load
   driver; `view_delay_study`). CPUs in an online room
   (`live/cpus.rs`, `online-cpus-v0`, PROVISIONAL; where
-  `RoomPolicy::cpus` says so, additive): no connection plays them,
+  `RoomPolicy::seats_cpus` says so: a room that plays live): no connection plays them,
   every device computes them alike and sends their checkpoint reports
   and ends (`CpuNews`, binary `CPUS_V1`; `ClientLive::CpuRun`, the
   authority's `Command::ReportFor`), who sends `sends_for_cpus`
@@ -1473,15 +1472,15 @@ Rust and the browser are implementation details, not advertised features.
   `screens/room_dialogs.rs` Rules (from their button, Cancel and Apply;
   its rows scrolling between its title and buttons, focus scrolling a
   row into view, each note only where it applies;
-  the roster's rows in practice and in an online room whose server seats
-  CPUs online, `RoomClient::cpus_offered`, its seats kept for the people
+  the roster's rows in practice and in an online room that plays live,
+  `RoomClient::cpus_offered`, its seats kept for the people
   still to come; such a room's picks are charts its CPUs can play,
   `RoomClient::has_cpus`;
-  during a running match whose room takes changes from a later stage
+  during a running match, to who may edit rules
   (`RoomClient::may_change_stage_rules`) a row "Changes apply": From
-  stage N, first, where only the per-stage rows change (Points too where
-  `RoomClient::stage_points_offered`, a sentence under it where it
-  differs from the stage before: totals shift)
+  stage N, first, where only the per-stage rows change (Points too, a
+  sentence under it where it differs from the stage before: totals
+  shift)
   (`RoomClient::change_stage_rules`), or Next match; Apply and restart
   takes what the pop-up shows; the status line says a change until its
   stage begins, `room::pending_change`; the Standings mark such stages,

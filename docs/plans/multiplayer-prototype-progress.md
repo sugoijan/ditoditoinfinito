@@ -8995,6 +8995,96 @@ digest moved):
   into them (`set_live_for_tests`, `set_audience_for_tests`) went. The
   web keeps its thread-locals: its play is a route of its own.
 
+## Revision 9: retired compatibility (2026-11-14)
+
+The room model's revision is 9 (`ddi_room::ROOM_MODEL_REVISION`), and
+its check goes both ways. Since round B1 an authority refused a client
+older than itself; a client newer than its authority stayed soft, hiding
+by the policy's flags what the authority did not honor. Now:
+
+- The server says its own revision (`model`) in the answers where a
+  client first learns of a room: the join's (`Joined::model`), the
+  ticket's and the audience join's (`../ddi-server`
+  `api::ticket_answer`, `audience_ticket_answer`; `FakeServer` answers
+  the same, `ticket_answer`, `audience_join_answer`, its revision
+  `set_model`). A client refuses an authority whose revision is older
+  than its own or that says none (`ddi_room::check_authority`,
+  `ddi_ui::state::online::api::read_current`, the code
+  `ddi_room::SERVER_BEHIND`): no socket is opened. An invite's page and
+  the audience's say "The server is being updated. Try again in a
+  moment." (`room-server-updating`), Join and Watch still there to try
+  again; a member's link waits as `LinkState::ServerBehind` and asks
+  for a ticket again after the reconnect backoff, the room's status line
+  saying the same, until the server answers with its revision. Practice
+  is the same build by construction and is never checked. Tests:
+  `a_server_behind_this_client_is_refused_and_opens_no_socket` (a
+  server of 8, of none, of 9), the audience's in
+  `every_refusal_is_said_and_…`, the server's
+  `the_tickets_say_the_room_model` and its join test.
+
+What went, everything only peers one build apart needed:
+
+- The policy's version flags (`restart`, `points_bias`, `step_down`,
+  `adaptive`, `stage_rules`, `stage_points`, `cpus`, `at_once`): every
+  room, practice's and a hosted one, set them alike. The client's checks
+  of them (`points_offered`, `at_once_offered`, `stage_points_offered`,
+  the flags in `may_restart`, `may_change_stage_rules`,
+  `adaptive_offered`, `cpus_offered`) and the Rules pop-up's rows for an
+  older authority (Points fixed "By place", the note and line without
+  Points) went with `PlayRules::check`'s refusals of them
+  (`RulesProblem::AdaptiveNotHonored`, `PointsNotHonored`,
+  `AtOnceNotHonored`, read now as `RulesProblem::Retired` where a stored
+  record names one). The picker and the succession are no longer
+  optional (`RoomState::picking`, `hosting`; `one_picker`,
+  `has_succession`, "the host chooses" lines, `LeaveCost::HostStays`
+  went): a room stored without them reads as nobody's pick (its owner
+  given it with the next change) and Pass it on. `live` and `audience`
+  stay: practice has neither, a hosted room both (configuration).
+- The commands before `Pick`: `ChooseContent`, `StartMatch`,
+  `PrepareNextStage`, `StartStage`. Every walkthrough was moved onto the
+  pick (`a_pick_in_the_lobby_starts_the_match_with_its_first_stage_or_nothing`
+  is M5c's "Start in the lobby"; a song replaced during preparation is
+  canceled and picked again); none was dropped.
+- The attack ledger's recovery: `AttackState::Recovered`,
+  `AttackEvent::Recovered`, `Section::recover_after_us` (out of the plan
+  and its digest), `Attack::recover_after_us`. An attack is over the
+  checkpoint it clears, as it was since `attacks-v1`. A ledger stored
+  before reads (`recovered` read as cleared).
+- The step-down flag in the binary format: a step down is its own kind
+  of moment in `BATCH_V2` and `FRAME_V2`; version 1 (0xB1, 0xF1) is no
+  longer read or written.
+- Ranking without a score: every run still in is ranked by life and its
+  score (or the score and life under Adaptive charts); a run's
+  proportional part and absolute score went from `Run::Live` and
+  `ReportedRun::Live` (`Absolute` with them). A report without a score
+  is taken as given, as any self-reported value is, and ranks as 0.
+
+Kept: online stages that are not played live (`StageSetup::others`
+without `live`): every hosted room plays live (the server gives a room
+stored before live play its policy when it loads it), but the client's
+and the tests' non-live online rooms (most of the M5d tests over
+`FakeServer` rooms without `with_live`) are a round of their own.
+
+Digests: the battle plan's (`the_digest_and_the_seed_are_these_values`)
+moved with `recover_after_us` gone, `fnv1a64:73e9bb302e296a6d` to
+`fnv1a64:4bf1bfba625607d9` and `fnv1a64:41ab95e4690782d2` to
+`fnv1a64:95c4efe3d8c7c406`; the session's pinned stage digests moved for
+16 cases because a run still in now prints as `Live { life, score,
+steps }`: the traces are otherwise the same line for line.
+
+A room stored by revision 8 loads (`a_room_stored_by_revision_8_loads_and_plays_on`,
+over `crates/room/tests/room-revision-8.json`, written by revision 8's
+own walkthrough helpers): the retired policy flags and reports' fields
+are read and passed over.
+
+**The deploy**: the server and the frontend together, the server first.
+A frontend newer than its server says the server is being updated (and
+a member's link waits for it); a page older than the server is told to
+reload as before (`update_required`). Rooms open across the deploy are
+told to reload on their next ticket between stages, and a stage under
+way finishes. Deploying the frontend first would show "the server is
+being updated" until the server follows.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
