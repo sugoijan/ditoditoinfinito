@@ -1029,6 +1029,10 @@ pub struct RoomClient {
     asked: BTreeSet<(StageId, u32)>,
     /// Stages handed to the shell to play.
     launched: BTreeSet<StageId>,
+    /// The stage whose prompt the last tick had open, if any: a notice is
+    /// never carried across its opening or its end (feedback round H,
+    /// item 2).
+    notice_stage: Option<StageId>,
     /// An online room's operator: the stages' songs this device shares,
     /// by stage, with the content's `content_changed_at` they are for.
     sharing: BTreeMap<StageId, (Revision, Sharing)>,
@@ -1556,6 +1560,7 @@ impl RoomClient {
             jobs: Vec::new(),
             asked: BTreeSet::new(),
             launched: BTreeSet::new(),
+            notice_stage: None,
             sharing: BTreeMap::new(),
             uploads: Vec::new(),
             inbox: None,
@@ -2186,6 +2191,15 @@ impl RoomClient {
         self.pump();
         self.read_live();
         self.tell_spotlight();
+        // A stage's prompt opens with no notice from before it, and the
+        // room comes back from a stage with none from it.
+        let staged = self.prompt_stage();
+        if staged != self.notice_stage {
+            self.notice_stage = staged;
+            if self.link_notice().is_some() {
+                self.set_link_notice(None);
+            }
+        }
         if self.link_state() != before {
             self.version += 1;
         }

@@ -37,6 +37,11 @@ pub enum LinkNotice {
 /// first connection).
 pub const JOINED_TO_WATCH_MS: u64 = 12_000;
 
+/// How long the status line says any other notice (a link copied, the
+/// audience closed): a few seconds once, never carried into a screen
+/// that opens later (feedback round H, item 2).
+pub const NOTICE_MS: u64 = 5_000;
+
 /// A stage's upload grant as the room answered it: for the content chosen
 /// at `chosen` (its `content_changed_at`).
 #[derive(Clone, Debug, PartialEq)]
@@ -66,8 +71,8 @@ pub struct OnlineLink {
     grant_reqs: Vec<(u64, StageId, Revision)>,
     grants: Vec<GrantNews>,
     notice: Option<LinkNotice>,
-    /// When [`LinkNotice::JoinedToWatch`] ends (set at the first tick
-    /// connected).
+    /// When the notice ends (set at the first tick after it was raised;
+    /// [`LinkNotice::JoinedToWatch`]'s at the first tick connected).
     notice_until: Option<u64>,
 }
 
@@ -226,8 +231,11 @@ impl OnlineLink {
                 changed = true;
             }
         }
-        if self.notice == Some(LinkNotice::JoinedToWatch) {
+        if let Some(notice) = self.notice {
             match self.notice_until {
+                None if notice != LinkNotice::JoinedToWatch => {
+                    self.notice_until = Some(now_ms + NOTICE_MS);
+                }
                 None if self.authority.link() == LinkState::Connected => {
                     self.notice_until = Some(now_ms + JOINED_TO_WATCH_MS);
                 }
@@ -267,9 +275,9 @@ impl OnlineLink {
             match api::read::<InviteDoc>(&r) {
                 Ok(i) => {
                     self.take_invites(i);
-                    self.notice = Some(LinkNotice::InviteReplaced);
+                    self.set_notice(Some(LinkNotice::InviteReplaced));
                 }
-                Err(_) => self.notice = Some(LinkNotice::InviteNotReplaced),
+                Err(_) => self.set_notice(Some(LinkNotice::InviteNotReplaced)),
             }
             changed = true;
         }

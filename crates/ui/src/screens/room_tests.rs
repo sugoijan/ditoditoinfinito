@@ -5163,3 +5163,127 @@ fn the_you_badge_sits_on_its_names_line_wherever_players_are_listed() {
     let own = badged(&h, |k| format!("Name{k}"));
     assert_badge_on_line(&h, None, &own, 14.0);
 }
+
+/// A notice the room's status line says (More's Copy audience link) lives
+/// its few seconds once (feedback round H, item 2): gone from the room's
+/// song select after [`crate::state::online::link::NOTICE_MS`]; a stage's
+/// prompt opens with none from before it, whether it is still showing
+/// when the prompt opens or has faded, the prompt a page of its own (the
+/// web: a `Ui` a page) or on the same stack (desktop); and one raised
+/// while the prompt is open is not on the room's song select after the
+/// stage.
+#[test]
+fn a_notice_lives_once_and_never_crosses_a_stages_prompt() {
+    use crate::state::online::link::{LinkNotice, NOTICE_MS};
+    use crate::state::online::tests::room::{client, person, prepare, song, tick, upload};
+    use ddi_room::fake::FakeServer;
+    use ddi_room::{Identity, Intent, ManualClock, RoomPolicy, Run};
+    const COPIED: &str = "Audience link copied: anyone with it can watch.";
+    for desktop in [false, true] {
+        let clock = ManualClock::new(1_000);
+        let server = FakeServer::hosted(
+            "Room000001",
+            Identity::new("dev:alice"),
+            "alice",
+            RoomPolicy::default(),
+            clock.clone(),
+        )
+        .shared();
+        server
+            .borrow_mut()
+            .join(Identity::new("dev:bob"), "bob", Intent::Play)
+            .unwrap();
+        let alice = Rc::new(RefCell::new(client(&server, person(&server, "alice"), "alice", 1_000)));
+        let bob = Rc::new(RefCell::new(client(&server, person(&server, "bob"), "bob", 1_000)));
+        let step = |ms: u64| tick(&clock, &mut [&mut alice.borrow_mut(), &mut bob.borrow_mut()], ms);
+        step(400);
+        step(400);
+        let mut rules = alice.borrow().rules().clone();
+        rules.stages = 2;
+        alice.borrow_mut().save_rules(rules).unwrap();
+        alice.borrow_mut().set_rules_seen(true);
+        step(400);
+        let e = env();
+        let orders = Orders::default();
+        let mut data = library("dance-single");
+        data.songs.insert(0, song());
+        let mut h = harness();
+        h.push(sample::room_select(&e, alice.clone(), data).with_room(alice.clone(), shell(&alice, &orders)));
+        h.run(0.3);
+        let shows = |h: &Harness| h.texts().iter().any(|t| t.contains(COPIED));
+        let status = |r: &SharedRoom| String::from(super::room::status_line(&r.borrow()));
+        // Raised: said, then gone after its few seconds.
+        alice.borrow_mut().set_link_notice(Some(LinkNotice::AudienceInviteCopied));
+        h.run(0.3);
+        assert!(shows(&h), "{:?}", h.texts());
+        step(400);
+        h.run(0.1);
+        assert!(shows(&h), "still within its time");
+        step(NOTICE_MS);
+        h.run(0.3);
+        assert!(!shows(&h), "{:?}", h.texts());
+        // Faded: the stage's prompt does not bring it back. Raised again
+        // just before the pick: the prompt opens without it.
+        for (k, fresh) in [(0usize, false), (1, true)] {
+            if fresh {
+                alice.borrow_mut().set_link_notice(Some(LinkNotice::AudienceInviteCopied));
+                step(100);
+                h.run(0.1);
+                assert!(shows(&h), "{:?}", h.texts());
+            }
+            let s = song();
+            alice.borrow_mut().pick(&s, &s.charts[0]).unwrap();
+            step(400);
+            upload(&server, &mut alice.borrow_mut(), &format!("abc1234{k}"));
+            step(400);
+            prepare(&mut alice.borrow_mut());
+            prepare(&mut bob.borrow_mut());
+            step(400);
+            let order = alice.borrow_mut().take_stage_order().expect("the prompt's stage");
+            assert!(!status(&alice).contains(COPIED), "{}", status(&alice));
+            let prompt = PromptScreen::new(e.clone(), Rc::new(RefCell::new(PromptState::default())), Rc::new(|_, _| {}))
+                .with_room(alice.clone(), order.stage, shell(&alice, &orders));
+            // The web: the prompt a page (a `Ui`) of its own; desktop:
+            // pushed over the room's song select on one stack.
+            let mut page = harness();
+            if desktop {
+                page.push(
+                    sample::room_select(&e, alice.clone(), library("dance-single"))
+                        .with_room(alice.clone(), shell(&alice, &orders)),
+                );
+                page.run(0.3);
+            }
+            page.push(prompt);
+            let on = &mut page;
+            on.run(0.5);
+            assert_eq!(top(on), "play-prompt");
+            assert!(!shows(on), "{k}: {:?}", on.texts());
+            // A notice raised on the prompt: said there, not after the
+            // stage.
+            alice.borrow_mut().set_link_notice(Some(LinkNotice::InviteCopied));
+            on.run(0.2);
+            assert!(status(&alice).starts_with("Invite link copied"), "{}", status(&alice));
+            alice.borrow_mut().set_ready(true).unwrap();
+            bob.borrow_mut().set_ready(true).unwrap();
+            step(400);
+            step(4_000);
+            for r in [&alice, &bob] {
+                let stage = order.stage;
+                r.borrow_mut()
+                    .report_run(stage, Run::Live { life: 0.8, score: 0, steps: 0 }, None)
+                    .unwrap();
+            }
+            step(400);
+            step(400);
+            drop(page);
+            h.run(0.5);
+            assert!(alice.borrow().link_notice().is_none(), "{k}");
+            assert!(!h.texts().iter().any(|t| t.starts_with("Invite link copied")), "{:?}", h.texts());
+            // Its Standings (popped up on song select) closed.
+            if top(&h) == "room-standings" {
+                h.key("Escape", "Escape");
+                h.run(0.5);
+            }
+        }
+    }
+}
