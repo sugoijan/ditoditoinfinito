@@ -501,7 +501,8 @@ pub fn cpu_description_at(
 }
 
 impl PromptInfo {
-    /// Marks this as an automated tap-only demonstration, never calibration.
+    /// Marks this as an automated demonstration at a named strength (a
+    /// prepared profile's: tap-only), never calibration.
     pub fn set_cpu(&mut self, level: usize, seed: u64) {
         self.set_cpu_with_skills(level, seed, ddi_engine::cpu::Skills::default());
     }
@@ -530,8 +531,9 @@ impl PromptInfo {
     }
 
     /// A multiplayer stage's prompt (`docs/plans/multiplayer-prototype-progress.md`,
-    /// M3): stage `number` of `stages` against `cpus` CPUs on a tap-only
-    /// copy, out when the gauge empties, under the match's rules
+    /// M3): stage `number` of `stages` against its CPUs and other people,
+    /// what running out of life does (out, or under Adaptive an easier
+    /// chart), under the match's rules
     /// (`rules`, everyone's: the ruleset, its difficulty where not Normal,
     /// Boos where on; `attacks`, the match's Attacks rule where its room
     /// offers attacks, said where it is Off, `StageOrder::attacks_rule`),
