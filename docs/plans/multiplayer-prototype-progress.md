@@ -10523,6 +10523,107 @@ the keyboard's binding is open and told once it is canceled; told over
 stage 1's results as stage 2 is picked, Go landing on its prompt; the
 Rules sentence and the new song's refusal in English and Japanese.
 
+## Round M: what the last rounds left (2026-11-16)
+
+No room model change (`ROOM_MODEL_REVISION` stays 11). Nothing judged
+or decided moves: no pinned digest moved (the practice pins gained three
+stages, below), no pin of drawn output moved, the CPUs play alike as
+before.
+
+- **A watched stage that starts late drew its fields at the view
+  delay's ceiling: a product defect, fixed.** A play that starts
+  part-way (the audience's Watch pressed late, a reload, a song that
+  loads slowly) reads the stage's backlog first. The estimator
+  (`ddi_room::live::ViewDelay`) took every frame of it built less than
+  the stale time (2 s) before as read on arrival, so it sampled lags of
+  up to two seconds, went to its ceiling (1,200 ms beyond an audience's
+  music, a second for a member) and came down only once the 8 s window
+  had passed, at 50 ms a second: a part-way watcher saw everyone up to
+  1.2 s further behind than needed for about half a minute. Now a
+  stream's lag is sampled only where the room's news was read at most
+  `READ_GAP_MS` (250 ms) before (`Live::arriving`,
+  `crates/session/src/battle/live.rs`): never from a backlog's first
+  reading, nor from what piled up while a frame was held. What the
+  estimator sees at a late start: before, a burst of samples up to
+  2,000 ms; after, none until frames arrive as they come, then the
+  network's own (a 60±40 ms link: the 50 ms floor beyond the music).
+  `a_watched_play_that_starts_late_draws_its_fields_no_further_behind`
+  (the session's, over the fake room: starts 0.5, 1.5, 2.5, 4 and 9 s
+  late against one on time; before the fix 1,200 ms at 4 s late, 50 ms
+  on time). Desktop's `a_stage_watched_with_the_audience_is_drawn_
+  behind_the_room`, which failed about one run in three (its song loads
+  in real time on a thread while its fake clock runs, so the play
+  started 1 to 4 s late), passes thirty of thirty alone.
+- **Desktop's play host runs headless for tests**
+  (`ddi_desktop::play::host::Host::headless`, `Host::step_play`;
+  `crates/desktop/tests/common/rig.rs`: `Draws`, `Rig::here`). What in
+  a play's readiness needs a device is the view alone (the skin's
+  textures, the song's pictures, the generated background, the dancing
+  hand's preload, the stage's fonts); the song's load, its scripts, the
+  announcer's sounds, the sound, the prompt's bindings and words and the
+  session need none. Headless, no view is made: the prompt readies on
+  the song, its scripts and the sound, Start plays, and a frame is
+  judged and not drawn, its end handled as a drawn one's (the stage's
+  outcome to the room, the results). Without a GPU (CI, `DDI_NO_GPU=1`)
+  these now run instead of returning at once: `room_stage_flow` (both
+  tests whole but where the policy's label and the attack lines were
+  drawn), `room_stage_voice` (whole), `room_watch_offscreen` (the room,
+  the watch state as the session has it, the results, the ranking, the
+  history; not the fields' places, the labels, the lines drawn),
+  `watch_all_offscreen` (the 73 competitors, the seat followed; not the
+  grid's places), `live_offscreen` (whole but the miniatures' slots),
+  `audience_offscreen` (the seats, the fields and their delay, the
+  pages' parts; not the stage's picture the view tells the seat),
+  `policy_key_offscreen`, `results_flow`, `ready_card_offscreen` (whole
+  but pictures) and the new `play_pointer`. Still GPU alone, their
+  subject being what the view draws: `watch_follow_offscreen`,
+  `opponent_fields_offscreen`, `chained_attacks_offscreen`,
+  `step_down_offscreen`. The view's own debug state
+  (`ddi_shell::play_view`'s `WatchDrawn`, the fields' slots, the attack
+  links) is computed while drawing, between GPU calls: making that
+  run without a device would mean pulling the layout out of
+  `PlayView::draw`, a change to the real path this round did not make.
+- **The missing tests of the review's second pass**: gap 4 (the fake
+  room has the server's bounds, `ddi_room::fake::Bounds::SERVER`: a
+  member's fifth socket closes their oldest with 4429, a thirty-first
+  ticket in a minute is `429 too_many_tickets`; `five_devices_of_one_
+  member_under_the_servers_bounds_take_turns_and_none_ends`: the member
+  stays Connected, no link ends, the refused asks are tried again on the
+  backoff; five devices on four sockets take turns for good, about a
+  fifth of the time each reconnecting, at the tickets' bound); gap 5
+  (desktop's socket and HTTP threads against a loopback listener of the
+  test's own: the ticket in the upgrade's query, text and binary both
+  ways, the closes 4401, 4410, 4000 and 4429 told as they are, a dropped
+  connection 1006, the game's own close, the keepalive's ping keeping a
+  quiet socket open past its dead time, the session signed again in
+  `x-ddi-session`, a sign-in's poll secret never beside the session);
+  gap 6 (`Shell::play_pointer`, the window's mapping from a press to
+  the play's controls, at a scale of 2: `crates/desktop/tests/
+  play_pointer.rs`); gap 8 (the web's route table is a pure module built
+  natively too, `crates/web/src/route.rs`, its tests in `just test` and
+  CI: the multiplayer addresses, a stage's play, the way back from a
+  route opened directly, the bars; the six tests the router already had
+  had never run, and one was stale since the solo CPU moved to the
+  absolute scale; the pages behind the routes are still a browser's to
+  check); gaps 9 and 10 (each pinned stage's digest is kept with what a
+  person reads of its trace in `crates/session/src/play/tests/stage/
+  pinned.txt` and `live_pinned.txt`, compared whole and recorded again
+  with `DDI_PIN_WRITE=1`, the whole traces dumped with `DDI_PIN_DUMP`;
+  three practice stages under Charts: Adaptive are pinned, a player
+  stepping down, one stepping up, and such a stage watched; the 48 old
+  digests are unchanged).
+- **Small leftovers**: the audience's page's footer names each key once
+  (Esc: Stop watching; Enter only while Watch is offered and focused);
+  Up and Down scroll its players (from its buttons) and, once it has
+  tabs, the part of the tab focused (a controller's D-pad as the keys);
+  while one competitor is followed, the background, its movies, the
+  song's scripts, a work's layers and the lyrics run on the stage's song
+  time (`PlaySession::stage_clock`), not on the followed field's own;
+  beside "Watching [name]" a small cap (Tab, or the pad's shoulder by
+  its name) and "next player" (`room-watch-next`; nothing on a touch
+  screen, where a field is tapped); the verify skill has the watch's
+  new keys.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
