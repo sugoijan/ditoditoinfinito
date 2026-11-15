@@ -1173,21 +1173,43 @@ fn the_audience_s_standings_are_the_members_table() {
     compare(&bob, &carol, first);
 }
 
+/// The songs the audience's page asked its shell to prepare.
+type Asked = Rc<RefCell<Vec<LoadJob>>>;
+
 /// The audience's page over `seat` in a harness of `size`, in the plain
 /// look.
 fn page(
     seat: &SharedAudience,
     size: [f32; 2],
 ) -> (crate::screens::Env, crate::testing::Harness) {
-    use crate::screens::audience::AudienceScreen;
+    let (env, h, _) = page_asking(seat, size);
+    (env, h)
+}
+
+/// [`page`], with the songs it asks its shell to prepare.
+fn page_asking(
+    seat: &SharedAudience,
+    size: [f32; 2],
+) -> (crate::screens::Env, crate::testing::Harness, Asked) {
+    use crate::screens::audience::{AudienceCall, AudienceScreen};
+    let asked = Asked::default();
+    let sink = asked.clone();
     let env = crate::screens::Env::new(
         Rc::new(crate::look::Plain),
         Rc::new(|s| ddi_library::search::Fold::nfkd(&ddi_library::search::Nfkd, s)),
     );
     let design = if size[0] < 1000.0 { crate::screens::COMPACT } else { crate::screens::DESIGN };
     let mut h = crate::testing::Harness::new(design, size, 1.0, crate::TextMode::Own);
-    h.push(AudienceScreen::new(env.clone(), seat.clone(), Rc::new(|_, _| {})));
-    (env, h)
+    h.push(AudienceScreen::new(
+        env.clone(),
+        seat.clone(),
+        Rc::new(move |call, _| {
+            if let AudienceCall::Prepare(job) = call {
+                sink.borrow_mut().push(job);
+            }
+        }),
+    ));
+    (env, h, asked)
 }
 
 /// Round D3, item 1: the page between stages has the last stage's
@@ -1305,4 +1327,81 @@ fn the_audience_page_brings_the_standings_up_once_a_stage_settles() {
     assert!(h.ui.actor("Final.Winners").is_some());
     let texts = h.texts().join("\n");
     assert!(texts.contains("The match is over."), "{texts}");
+}
+
+/// Round D3, item 2: the next song's banner on the page. Nothing before
+/// the pick (the picker's resting song is not public); from the pick the
+/// song's title and artist beside a plain plate; the banner once the seat
+/// read the room's share of the song (its listing names it, as a
+/// member's client finds it); a song without a banner keeps the plate.
+#[test]
+fn the_audience_page_shows_the_picked_song_s_banner_once_the_share_is_read() {
+    use crate::state::online::tests::room::song;
+    use ddi_room::{Command, ContentStatus};
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let mut alice = client(&server, person(&server, "alice"), "alice", 5_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 5_000);
+    let carol = Rc::new(RefCell::new(arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap()));
+    let (env, mut h, asked) = page_asking(&carol, [1280.0, 720.0]);
+    let view = |env: &crate::screens::Env| env.state.borrow().audience.clone().unwrap();
+    let step = |h: &mut crate::testing::Harness, alice: &mut RoomClient, bob: &mut RoomClient, ms| {
+        run(&clock, &server, &mut [alice, bob], &mut [&mut carol.borrow_mut()], ms);
+        h.run(0.3);
+    };
+    step(&mut h, &mut alice, &mut bob, 1_000);
+    // The picker rests on a song: not the audience's to see.
+    let mut s = song();
+    s.title = "Night Drive".into();
+    s.artist = "Someone".into();
+    alice.hover(Some((&s, &s.charts[0])));
+    step(&mut h, &mut alice, &mut bob, 2_000);
+    assert!(h.ui.actor("Audience.BannerPlate").is_none() && h.ui.actor("Audience.Song").is_none());
+    assert_eq!((view(&env).song, view(&env).banner), (None, None));
+    // Picked: the title and artist beside the plain plate, at once.
+    alice.pick(&s, &s.charts[0]).unwrap();
+    step(&mut h, &mut alice, &mut bob, 2_000);
+    let stage = alice.stages()[0].id;
+    assert!(h.ui.actor("Audience.BannerPlate").is_some() && h.ui.actor("Audience.Banner").is_none());
+    let texts = h.texts().join("\n");
+    assert!(texts.contains("Night Drive") && texts.contains("Someone"), "{texts}");
+    assert_eq!(
+        (view(&env).song.as_deref(), view(&env).banner.as_deref()),
+        (Some("Night Drive"), Some("plate"))
+    );
+    // The room's share of it: the seat reads it, and has its banner.
+    server
+        .borrow_mut()
+        .authority(Command::SetContentStatus {
+            stage,
+            status: ContentStatus::Available,
+            share: Some("sharex01".into()),
+        })
+        .unwrap();
+    step(&mut h, &mut alice, &mut bob, 2_000);
+    let jobs = asked.borrow().clone();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(carol.borrow().banner(stage), None, "not read yet");
+    assert!(h.ui.actor("Audience.Banner").is_none());
+    let read = |banner: Option<&str>| {
+        let mut found = s.clone();
+        found.id = jobs[0].song.clone();
+        found.banner = banner.map(str::to_string);
+        Ok((Picked { chart: found.charts[0].clone(), song: found }, None))
+    };
+    carol
+        .borrow_mut()
+        .finish_load(&jobs[0], read(Some("share:sharex01/banner.png")));
+    step(&mut h, &mut alice, &mut bob, 200);
+    assert_eq!(carol.borrow().banner(stage), Some("share:sharex01/banner.png"));
+    assert!(h.ui.actor("Audience.Banner").is_some(), "the banner, once read");
+    assert_eq!(view(&env).banner.as_deref(), Some("banner"));
+    // Inside the card's lines' column, beside its title.
+    let (banner, title) = (h.ui.bounds("Audience.Banner").unwrap(), h.ui.bounds("Audience.Song").unwrap());
+    assert!(banner[2] <= title[0] && banner[1] <= title[1] && title[3] <= banner[3], "{banner:?} {title:?}");
+    // A song without a banner: the plate stays.
+    carol.borrow_mut().finish_load(&jobs[0], read(None));
+    step(&mut h, &mut alice, &mut bob, 200);
+    assert!(h.ui.actor("Audience.BannerPlate").is_some() && h.ui.actor("Audience.Banner").is_none());
+    assert_eq!(view(&env).banner.as_deref(), Some("plate"));
 }

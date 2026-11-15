@@ -824,6 +824,14 @@ impl AudienceClient {
         Some(order)
     }
 
+    /// The banner of stage `stage`'s song (a texture source), once this
+    /// seat read the room's share of it ([`Self::finish_found`]: the
+    /// share's listing names it, as a member's client finds a shared
+    /// song's); none before, and for a song without one.
+    pub fn banner(&self, stage: StageId) -> Option<&str> {
+        self.prepared.get(&stage)?.picked.song.banner.as_deref()
+    }
+
     /// The last stage of the view's match the room settled (its result
     /// confirmed), if any.
     pub fn settled_stage(&self) -> Option<StageId> {

@@ -79,6 +79,11 @@ pub struct AudienceView {
     pub stages: usize,
     /// The part shown beside the card's lines: `players` or `standings`
     /// (the tabs are there once a stage has settled).
+    /// The song the room picked for the stage it is on, where the page
+    /// shows it (its title), and whether its banner is drawn (`banner`)
+    /// or the plain plate (`plate`).
+    pub song: Option<String>,
+    pub banner: Option<String>,
     pub tab: String,
     pub tabs: bool,
     /// The last settled stage's standings, as a member's results say
@@ -117,6 +122,8 @@ pub fn debug_view(a: &AudienceClient) -> AudienceView {
         view_rules: a.view_rules().id.into(),
         players: v.map_or(0, |v| v.players.len()),
         stages: v.map_or(0, |v| v.stages.len()),
+        song: picked_song(a).map(|s| s.title),
+        banner: picked_song(a).map(|s| if s.banner.is_some() { "banner" } else { "plate" }.into()),
         tab: "players".into(),
         tabs: false,
         table: None,
@@ -273,9 +280,47 @@ fn doing(a: &AudienceClient, v: &PublicView) -> UiText {
     }
 }
 
+/// The song the room picked for the stage it is on, as the page shows
+/// it: its title and artist from the stage's card, and its banner (a
+/// texture source) once the seat read the room's share of it.
+struct PickedSong {
+    title: String,
+    artist: String,
+    banner: Option<String>,
+}
+
+/// The stage the room is on has a song picked ([`PickedSong`]): from the
+/// pick until the stage is over. Nothing before the pick: what the
+/// picker rests on is not the audience's to see.
+fn picked_song(a: &AudienceClient) -> Option<PickedSong> {
+    let v = a.view()?;
+    if v.closed {
+        return None;
+    }
+    let stage = a.current_stage()?;
+    let st = v.stages.iter().find(|s| s.id == stage)?;
+    if !matches!(st.content, PublicContent::Available | PublicContent::Pending) {
+        return None;
+    }
+    let card = st.card.as_ref()?;
+    Some(PickedSong {
+        title: UiText::data(&card.title).into(),
+        artist: UiText::data(&card.artist).into(),
+        banner: a.banner(stage).map(str::to_string),
+    })
+}
+
+/// The picked song's banner's height and shape (a banner's usual 418 by
+/// 164).
+const BANNER_H: f32 = 56.0;
+const BANNER_ASPECT: f32 = 418.0 / 164.0;
+
 /// One line of the audience's card: its text and how it reads.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tone {
+    /// The picked song's banner (or its plain plate) with its title and
+    /// artist beside it: no text of its own.
+    Song,
     Title,
     Text,
     Accent,
@@ -303,6 +348,9 @@ fn lines(a: &AudienceClient) -> Vec<(String, Tone)> {
                 out.push((m::invite_host(UiText::data(host)).into(), Tone::Muted));
             }
             out.push((doing(a, v).into(), Tone::Accent));
+            if picked_song(a).is_some() {
+                out.push((String::new(), Tone::Song));
+            }
             if let Some(stage) = a.current_stage() {
                 if a.plan_mismatch(stage) {
                     out.push((m::audience_plan_mismatch().into(), Tone::Muted));
@@ -599,7 +647,53 @@ impl AudienceScreen {
         let mut c: Vec<Actor> = Vec::new();
         let mut y = 24.0;
         for (k, (text, tone)) in lines(&a).into_iter().enumerate() {
+            if tone == Tone::Song {
+                let Some(song) = picked_song(&a) else {
+                    continue;
+                };
+                // The banner once the share's listing was read; the
+                // plain plate meanwhile and for a song without one.
+                let bw = (BANNER_H * BANNER_ASPECT).min(inner * 0.45);
+                let bh = bw / BANNER_ASPECT;
+                y += 6.0;
+                let mid = y + bh / 2.0;
+                let mut plate = crate::look::quad_at(
+                    "Audience.BannerPlate",
+                    [bw, bh],
+                    crate::look::with_alpha(env.color("Text"), 0.07),
+                    [24.0 + bw / 2.0, mid],
+                );
+                crate::look::call(&mut plate, "cornerradius", &[6.0]);
+                c.push(plate);
+                if let Some(source) = &song.banner {
+                    let mut sprite = crate::look::named(
+                        ddi_actor::Kind::Sprite(ddi_actor::Sprite::quad([bw, bh])),
+                        "Audience.Banner",
+                    );
+                    if let ddi_actor::Kind::Sprite(sp) = &mut sprite.kind {
+                        sprite_texture(sp, cx.texture(source, bw));
+                    }
+                    crate::look::call(&mut sprite, "xy", &[24.0 + bw / 2.0, mid]);
+                    crate::look::call(&mut sprite, "cornerradius", &[6.0]);
+                    c.push(sprite);
+                }
+                let tx = 24.0 + bw + 12.0;
+                let room = (inner - bw - 12.0).max(40.0);
+                let mut title = env.text("Audience.Song", &song.title, 15.0, 600, "Text");
+                crate::look::ellipsized(&mut title, room);
+                let mut artist = env.text("Audience.Artist", &song.artist, 13.0, 400, "Muted");
+                crate::look::ellipsized(&mut artist, room);
+                if song.artist.is_empty() {
+                    c.push(left(title, tx, mid));
+                } else {
+                    c.push(left(title, tx, mid - 10.0));
+                    c.push(left(artist, tx, mid + 10.0));
+                }
+                y += bh + 8.0;
+                continue;
+            }
             let (size, weight, color) = match tone {
+                Tone::Song => continue,
                 Tone::Title => (26.0, 700, "Text"),
                 Tone::Text => (15.0, 600, "Text"),
                 Tone::Accent => (15.0, 600, "Accent"),
