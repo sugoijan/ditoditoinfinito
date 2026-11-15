@@ -470,6 +470,29 @@ pub fn room_owner(room: &str, player: &str) -> String {
     format!("room:{room}:{player}")
 }
 
+/// The chart digests a song's record lists (`entry.charts[].digest`, as
+/// the game writes its records: `ddi_library::share::record_of` over a
+/// library entry): what a room's authority checks a stage's chosen chart
+/// against when its share is finished, each as the string the game makes
+/// that chart's key from. The one reading both sides use (the private
+/// server through its `contract::chart_digests`), so a renamed field or
+/// another form of the digest fails a test in the game
+/// (`ddi_library::share`'s) rather than every online pick.
+pub fn record_chart_digests(record: &Value) -> Vec<String> {
+    record
+        .get("entry")
+        .and_then(|e| e.get("charts"))
+        .and_then(Value::as_array)
+        .map(|charts| {
+            charts
+                .iter()
+                .filter_map(|c| c.get("digest").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// The content key of a stage's chosen chart: its digest as the room
 /// names it (`ddi_room::ChartKey`). PROVISIONAL: the chart alone, so a
 /// second upload of the same chart in a room reuses the first's share
@@ -521,6 +544,17 @@ pub mod refusals {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_record_s_chart_digests_are_read_where_the_game_writes_them() {
+        let record = serde_json::json!({
+            "entry": {"charts": [{"digest": "aa"}, {"index": 1}, {"digest": "bb"}]},
+            "pack": "p",
+        });
+        assert_eq!(super::record_chart_digests(&record), ["aa", "bb"]);
+        assert!(super::record_chart_digests(&serde_json::json!({})).is_empty());
+        assert!(super::record_chart_digests(&serde_json::json!({"entry": {"charts": 3}})).is_empty());
+    }
+
     use super::*;
 
     #[test]

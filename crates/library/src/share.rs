@@ -330,6 +330,58 @@ pub fn link_of(base: &str, id: &str) -> String {
 mod tests {
     use super::*;
 
+    /// The gap the review's second pass named first: nothing tied the
+    /// record the game writes for a shared song to where the room's
+    /// authority reads a chart's digest. A bundled song read as the
+    /// library reads every simfile (generated chart versions among its
+    /// charts), its entry made, its record written as a share's is: the
+    /// digests the authority reads from it (`ddi_share_protocol`'s
+    /// `record_chart_digests`, the server's own reading) are every
+    /// chart's, each the very string the game makes that chart's key
+    /// from (`ddi_ui::state::room::content_id`: the digest's `Display`).
+    /// A renamed field, another form of the digest or a generated
+    /// version left out of the entry fails here, not as
+    /// `digest_mismatch` on every online pick.
+    #[test]
+    fn a_shared_song_s_record_carries_each_chart_s_digest_where_the_room_reads_it() {
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/songs/into-my-dream/Into My Dream.ssc");
+        let text = String::from_utf8_lossy(&std::fs::read(&file).unwrap()).into_owned();
+        let song = crate::scan::parse_simfile(&text, "ssc").unwrap();
+        let entry = crate::manifest::summarize(
+            crate::manifest::EntryMeta {
+                id: "bundled:into-my-dream".into(),
+                title: "Into My Dream".into(),
+                chart: "Into My Dream.ssc".into(),
+                music: "music.ogg".into(),
+                ..Default::default()
+            },
+            &song,
+        );
+        assert!(entry.charts.len() > 4);
+        assert!(
+            entry.charts.iter().any(|c| c.derivation.is_some()),
+            "a generated version among them"
+        );
+        let record = record_of(&entry, "Pack", 1.0, 2.0);
+        // As it travels: JSON text, read back as the server reads it.
+        let sent: Value = serde_json::from_str(&record.to_string()).unwrap();
+        let read = ddi_share_protocol::record_chart_digests(&sent);
+        assert_eq!(read.len(), entry.charts.len(), "one a chart: {read:?}");
+        for chart in &entry.charts {
+            let key = chart.digest.expect("a digest").to_string();
+            assert!(
+                read.contains(&key),
+                "chart {} ({}) is not in the record as the room's key {key}: {read:?}",
+                chart.index,
+                chart.layout
+            );
+        }
+        // And the reader's own way back gives the entry again.
+        let (back, pack) = record_entry(&sent).expect("the entry");
+        assert_eq!((back, pack.as_str()), (entry, "Pack"));
+    }
+
     /// support-2: a song read in place that names files above its folder
     /// (`#BANNER:../bn.png`, its music and a background change's image in
     /// the pack's folder) is listed under paths a share keeps, each
