@@ -16,7 +16,19 @@ pub enum Shape {
     /// the quad's +y, -1 to its head, 0 flat) and the lane's pixels; with
     /// [`HOLD_TAIL`] its tail end pointed.
     HoldBody = 5,
+    /// A stretch of a battle's attack line (`ddi_shell::attack_links`),
+    /// along the quad's width: a stroke in `color` down its middle,
+    /// [`LINK_STROKE`] of its height, over a glow in `params` (its color
+    /// and strength) to its edges; cut square at its ends, so that a
+    /// curve's stretches join.
+    Link = 6,
+    /// A soft disc in `color`, fading out over the outer `params[0]` of
+    /// its radius (the attack line's pulse).
+    Glow = 7,
 }
+
+/// [`Shape::Link`]'s stroke's share of its quad's height.
+pub const LINK_STROKE: f32 = 1.0 / 3.5;
 
 /// [`Shape::HoldBody`]'s bit: the body ends at its tail here.
 pub const HOLD_TAIL: u32 = 1 << 8;
@@ -96,7 +108,7 @@ impl Glyph {
 /// Whether an instance's `params[0..3]` is a color (the renderer moves
 /// it to the target's space as it does `color`).
 pub fn params_are_color(shape: u32) -> bool {
-    matches!(Glyph::of(shape), Some((_, Paint::Flow)))
+    shape == Shape::Link as u32 || matches!(Glyph::of(shape), Some((_, Paint::Flow)))
 }
 
 #[repr(C)]

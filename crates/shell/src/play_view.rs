@@ -758,6 +758,7 @@ impl<H: PlayHost> PlayView<H> {
         self.playing_at = None;
         self.renderer.reset_hud();
         self.renderer.set_miniatures(Vec::new());
+        self.renderer.under_miniatures().clear();
         if let Some(n) = self.noteskin.as_mut() {
             n.restart();
         }
@@ -1573,6 +1574,94 @@ impl<H: PlayHost> PlayView<H> {
         let followed_at = large.and_then(|_| minis.last()).map(|m| m.frame.song_time);
         self.minis_drawn = minis.len();
         self.renderer.set_miniatures(minis);
+        // Who attacks whom: a line and the recipient's field outlined
+        // (`crate::attack_links`). For the player's own attacks; for
+        // someone watching, between the competitors' fields (a grid's,
+        // or the miniatures beside a player's own dimmed field), or the
+        // followed competitor's as a player's own.
+        let band_box = ddi_render::scene::band_box(&geo, span);
+        // (Tests' and pictures' own links in the battle's place.)
+        let staged: Option<Vec<ddi_session::battle::SeenLink>> =
+            self.staged_links.as_ref().map(|links| {
+                links
+                    .iter()
+                    .enumerate()
+                    .map(|(i, l)| ddi_session::battle::SeenLink {
+                        attack: 9000 + i as u32,
+                        from: l.from.unwrap_or(usize::MAX),
+                        to: l.to.unwrap_or(usize::MAX),
+                        shown_from: song - f64::from(l.age),
+                        first: song + 4.0,
+                        clear: song + 8.0,
+                        chained: l.chained,
+                    })
+                    .collect()
+            });
+        let links = match (battle, &fields) {
+            (Some(b), Some(f)) if watch.is_some() => {
+                let seen = staged.unwrap_or_else(|| b.seen_links());
+                match focus {
+                    Some(seat) => crate::attack_links::shown(
+                        &seen.iter().filter_map(|l| l.of(seat)).collect::<Vec<_>>(),
+                        &crate::attack_links::Layout {
+                            geo: &geo,
+                            span,
+                            fields: f,
+                            ratio: screen.ratio,
+                            keep_out: &keep_out[..line_keep],
+                        },
+                        &mut self.routes,
+                        song,
+                        render.reduced_motion,
+                        crate::attack_links::ATTACK_LINKS_V1,
+                    ),
+                    None => {
+                        // Around a player's own field, where there is one.
+                        let mut keep = keep_out[..line_keep].to_vec();
+                        if !grid {
+                            keep.push(band_box);
+                        }
+                        crate::attack_links::shown_between(
+                            &seen,
+                            &crate::attack_links::GridLayout {
+                                fields: f,
+                                size: [w, h],
+                                span,
+                                ratio: screen.ratio,
+                                keep_out: &keep,
+                            },
+                            &mut self.routes,
+                            song,
+                            render.reduced_motion,
+                            crate::attack_links::ATTACK_LINKS_V1,
+                        )
+                    }
+                }
+            }
+            (Some(b), Some(f)) => crate::attack_links::shown(
+                &staged.map_or_else(
+                    || b.links(&session.player),
+                    |s| s.iter().filter_map(|l| l.of(usize::MAX)).collect(),
+                ),
+                &crate::attack_links::Layout {
+                    geo: &geo,
+                    span,
+                    fields: f,
+                    ratio: screen.ratio,
+                    keep_out: &keep_out[..line_keep],
+                },
+                &mut self.routes,
+                song,
+                render.reduced_motion,
+                crate::attack_links::ATTACK_LINKS_V1,
+            ),
+            _ => Vec::new(),
+        };
+        // Their lines go under the miniatures: the renderer draws them
+        // with the scene, before the miniatures' bands.
+        let under = self.renderer.under_miniatures();
+        under.clear();
+        crate::attack_links::draw_behind(under, &links, screen.ratio);
         // (Booked with the scene: the hand's lap stays its own.)
         if self.load_ms > 0.0 && started && !finished {
             let until = host.seconds() + self.load_ms / 1000.0;
@@ -1705,89 +1794,6 @@ impl<H: PlayHost> PlayView<H> {
                 };
                 (cap, String::from(ddi_l10n::msg::room::watch_next()))
             });
-        // Who attacks whom: a line and the recipient's field outlined
-        // (`crate::attack_links`). For the player's own attacks; for
-        // someone watching, between the competitors' fields (a grid's,
-        // or the miniatures beside a player's own dimmed field), or the
-        // followed competitor's as a player's own.
-        let band_box = ddi_render::scene::band_box(&geo, span);
-        // (Tests' and pictures' own links in the battle's place.)
-        let staged: Option<Vec<ddi_session::battle::SeenLink>> =
-            self.staged_links.as_ref().map(|links| {
-                links
-                    .iter()
-                    .enumerate()
-                    .map(|(i, l)| ddi_session::battle::SeenLink {
-                        attack: 9000 + i as u32,
-                        from: l.from.unwrap_or(usize::MAX),
-                        to: l.to.unwrap_or(usize::MAX),
-                        shown_from: song - f64::from(l.age),
-                        first: song + 4.0,
-                        clear: song + 8.0,
-                        chained: l.chained,
-                    })
-                    .collect()
-            });
-        let links = match (battle, &fields) {
-            (Some(b), Some(f)) if watch.is_some() => {
-                let seen = staged.unwrap_or_else(|| b.seen_links());
-                match focus {
-                    Some(seat) => crate::attack_links::shown(
-                        &seen.iter().filter_map(|l| l.of(seat)).collect::<Vec<_>>(),
-                        &crate::attack_links::Layout {
-                            geo: &geo,
-                            span,
-                            fields: f,
-                            ratio: screen.ratio,
-                            keep_out: &keep_out[..line_keep],
-                        },
-                        &mut self.routes,
-                        song,
-                        render.reduced_motion,
-                        crate::attack_links::ATTACK_LINKS_V0,
-                    ),
-                    None => {
-                        // Around a player's own field, where there is one.
-                        let mut keep = keep_out[..line_keep].to_vec();
-                        if !grid {
-                            keep.push(band_box);
-                        }
-                        crate::attack_links::shown_between(
-                            &seen,
-                            &crate::attack_links::GridLayout {
-                                fields: f,
-                                size: [w, h],
-                                span,
-                                ratio: screen.ratio,
-                                keep_out: &keep,
-                            },
-                            &mut self.routes,
-                            song,
-                            render.reduced_motion,
-                            crate::attack_links::ATTACK_LINKS_V0,
-                        )
-                    }
-                }
-            }
-            (Some(b), Some(f)) => crate::attack_links::shown(
-                &staged.map_or_else(
-                    || b.links(&session.player),
-                    |s| s.iter().filter_map(|l| l.of(usize::MAX)).collect(),
-                ),
-                &crate::attack_links::Layout {
-                    geo: &geo,
-                    span,
-                    fields: f,
-                    ratio: screen.ratio,
-                    keep_out: &keep_out[..line_keep],
-                },
-                &mut self.routes,
-                song,
-                render.reduced_motion,
-                crate::attack_links::ATTACK_LINKS_V0,
-            ),
-            _ => Vec::new(),
-        };
         // A stage's opponents beside the field: what their miniatures
         // show around them.
         // A stage watched after the player is out of it: the mark over
@@ -2188,7 +2194,8 @@ impl<H: PlayHost> PlayView<H> {
             if let Some(o) = attack.as_ref().and_then(|a| a.own_out.as_ref()) {
                 crate::opponents::draw_own_out(list, o, ratio, &mut measure);
             }
-            // Who attacks whom, over the miniatures.
+            // Who attacks whom: the outlines and where the lines land,
+            // over the miniatures (the lines went under them).
             if let (Some(_), Some(fields)) = (&attack, &self.fields_drawn) {
                 crate::attack_links::draw(list, &self.links_drawn, fields, ratio);
             }

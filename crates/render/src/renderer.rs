@@ -73,6 +73,7 @@ pub struct Renderer {
     quit_button: Option<[f32; 3]>,
     /// Opponents' fields drawn after the play's ([`scene::Miniature`]).
     miniatures: Vec<scene::Miniature>,
+    under_miniatures: Vec<crate::sprite::Instance>,
     background: BackgroundPipeline,
     sprites: SpritePipeline,
     textured: TexturedPipeline,
@@ -146,6 +147,7 @@ impl Renderer {
             shown_names: None,
             quit_button: None,
             miniatures: Vec::new(),
+            under_miniatures: Vec::new(),
             background: BackgroundPipeline::new(device, scene_format, srgb),
             sprites: SpritePipeline::new(device, scene_format, srgb),
             textured,
@@ -655,6 +657,15 @@ impl Renderer {
         std::mem::take(&mut self.miniatures)
     }
 
+    /// What the next frames draw under the miniatures, their bands too,
+    /// and over the background and the play's own field: the lines of
+    /// who attacks whom (`ddi_shell::attack_links`), in the target's
+    /// pixels, their colors as the scene's. The caller clears and fills
+    /// it.
+    pub fn under_miniatures(&mut self) -> &mut Vec<crate::sprite::Instance> {
+        &mut self.under_miniatures
+    }
+
     /// Whether skins' quads are put in an order drawing the same pixels
     /// in fewer batches (`crate::batching`; on by default, off for the
     /// tests that compare the two).
@@ -760,7 +771,7 @@ impl Renderer {
                 .then(|| scene::filter_alpha(opts.field_filter, self.srgb));
             scene::add_miniatures(
                 &mut scene,
-                &self.miniatures,
+                (&self.miniatures, &self.under_miniatures),
                 layout,
                 names.palette,
                 &opts,

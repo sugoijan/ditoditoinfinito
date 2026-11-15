@@ -69,6 +69,10 @@ const SHAPE_RECT: u32 = 0u;
 const SHAPE_MINE: u32 = 3u;
 const SHAPE_CIRCLE: u32 = 4u;
 const SHAPE_HOLD_BODY: u32 = 5u;
+const SHAPE_LINK: u32 = 6u;
+const SHAPE_GLOW: u32 = 7u;
+// A link's stroke's share of its quad's height (render::LINK_STROKE).
+const LINK_STROKE: f32 = 0.2857143;
 
 // The notes and receptors: a glyph from GLYPH_BASE (its low byte), how its
 // band is painted (bits 8–11) and its charge frame plus one (bits 12–14,
@@ -526,12 +530,40 @@ fn mine(in: VsOut) -> vec4<f32> {
     return vec4<f32>(out.rgb / max(out.a, 1e-4), a);
 }
 
+// A stretch of a battle's attack line: a stroke in `color` down the
+// quad's middle over a glow in `params` (rgb, strength) to its edges,
+// cut square at its ends so that a curve's stretches join.
+fn link(in: VsOut) -> vec4<f32> {
+    let half = in.aspect.y * 0.5;
+    let d = abs(in.uv.y) * half;
+    let stroke = half * LINK_STROKE;
+    let core = in.color.a * (1.0 - smoothstep(stroke - 0.6, stroke + 0.6, d));
+    let halo = in.params.a * (1.0 - smoothstep(half - 1.2, half, d));
+    let a = core + halo * (1.0 - core);
+    if (a <= 0.002) {
+        discard;
+    }
+    let rgb = (in.color.rgb * core + in.params.rgb * halo * (1.0 - core)) / a;
+    return vec4<f32>(rgb, a);
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if ((in.shape & 0xffu) >= GLYPH_BASE) {
         return glyph_color(in);
     }
     switch in.shape & 0xffu {
+        case SHAPE_LINK: {
+            return link(in);
+        }
+        case SHAPE_GLOW: {
+            let soft = clamp(in.params.x, 0.01, 1.0);
+            let glow = in.color.a * (1.0 - smoothstep(1.0 - soft, 1.0, length(in.uv)));
+            if (glow <= 0.002) {
+                discard;
+            }
+            return vec4<f32>(in.color.rgb, glow);
+        }
         case SHAPE_HOLD_BODY: {
             return hold_body(in);
         }

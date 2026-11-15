@@ -3530,7 +3530,8 @@ pub(crate) mod tests {
 
     /// The play's overlay drawn from fixed inputs (the miniatures' words,
     /// marks and flashes, a ladder, a player's own field out, who attacks
-    /// whom and the attack's parts), each draw list's commands as text,
+    /// whom, with the lines that go under the miniatures, and the attack's
+    /// parts), each draw list's commands as text,
     /// hashed with its fractions rounded (`ddi_ui::testing::rounded`: a
     /// link's and a cue's quads are turned by an angle): a change meant to
     /// draw the same keeps every one. (The desktop's offscreen pictures
@@ -3720,6 +3721,10 @@ pub(crate) mod tests {
                 }
             }
             crate::attack_links::draw(&mut list, &links, &fields, ratio);
+            // The links' lines, which go under the miniatures (the
+            // renderer's instances): hashed with the list.
+            let mut under = Vec::new();
+            crate::attack_links::draw_behind(&mut under, &links, ratio);
             crate::battle_cue::draw(&mut list, &cue, &g, 4.0);
             crate::battle_cue::draw(
                 &mut list,
@@ -3754,15 +3759,16 @@ pub(crate) mod tests {
                 &mut FixedMeasure,
             );
             let name = format!("{n}-{w}x{h}@{ratio}{}", if grid { "-grid" } else { "" });
-            got.push((name, fnv(&ddi_ui::testing::rounded(&format!("{:?}", list.commands)))));
+            let drawn = format!("{:?}{under:?}", list.commands);
+            got.push((name, fnv(&ddi_ui::testing::rounded(&drawn))));
         }
         let want: [(&str, u64); 6] = [
-            ("8-1280x720@1", 0xfb855c5fb997e493),
-            ("3-844x390@3", 0x9b2d187272b3e370),
-            ("8-390x844@3", 0x1708c74bf4918b75),
-            ("24-1280x720@1", 0xf2ff6397913ba765),
-            ("72-1920x1080@1", 0x0c0d99a3245e709c),
-            ("12-1280x720@1-grid", 0xd1c0e71a47664f8f),
+            ("8-1280x720@1", 0x69daf82a34040bd6),
+            ("3-844x390@3", 0x94a0944502129d1f),
+            ("8-390x844@3", 0x6ab6706f0c5a770c),
+            ("24-1280x720@1", 0xe04b8e43a55e529f),
+            ("72-1920x1080@1", 0x30492d34e7375935),
+            ("12-1280x720@1-grid", 0x0912e86416b4c2ba),
         ];
         let got_: Vec<(&str, u64)> = got.iter().map(|(n, h)| (n.as_str(), *h)).collect();
         assert_eq!(got_, want, "{got_:#x?}");

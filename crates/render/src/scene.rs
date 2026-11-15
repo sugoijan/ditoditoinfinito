@@ -1350,9 +1350,10 @@ pub struct Miniature {
     pub battle: Option<crate::hud::BattleBar>,
 }
 
-/// Adds `minis` to a scene already built: their bands (at `band`'s
-/// darkness, the play's field filter's as drawn; none where the play's
-/// field has none) and their built-in parts in one run of sprites, then
+/// Adds `minis` to a scene already built: `under` first (what goes
+/// under them: the lines of who attacks whom), then their bands (at
+/// `band`'s darkness, the play's field filter's as drawn; none where the
+/// play's field has none) and their built-in parts in one run of sprites, then
 /// the layer's parts in one run of quads (`opts` the play's: its note
 /// colors), after the field's.
 /// Two runs whatever their number (each run another pass where skins
@@ -1360,14 +1361,14 @@ pub struct Miniature {
 /// order between them does not matter.
 pub(crate) fn add_miniatures(
     out: &mut SceneOutput,
-    minis: &[Miniature],
+    (minis, under): (&[Miniature], &[Instance]),
     layout: &Layout,
     palette: Palette,
     opts: &RenderOptions,
     band: Option<f32>,
     mut layer: Option<&mut (dyn NoteLayer + '_)>,
 ) {
-    if minis.is_empty() {
+    if minis.is_empty() && under.is_empty() {
         return;
     }
     let mut order = Order {
@@ -1378,6 +1379,9 @@ pub(crate) fn add_miniatures(
     let drawn = |layer: &Option<&mut (dyn NoteLayer + '_)>, lane: usize, part: LayerPart| {
         layer.as_ref().is_some_and(|l| l.draws(lane, part))
     };
+    // What goes under every miniature, its band too: the lines of who
+    // attacks whom.
+    out.instances.extend_from_slice(under);
     for m in minis.iter().filter(|_| band.is_some_and(|a| a > 0.0)) {
         let [x0, y0, x1, y1] = m.panel;
         out.instances.push(
@@ -1723,16 +1727,22 @@ pub(crate) mod tests {
         }];
         add_miniatures(
             &mut out,
-            &minis,
+            (
+                &minis,
+                &[Instance::new([700.0, 100.0], [40.0, 5.0], Shape::Link, [1.0; 4])],
+            ),
             &layout,
             Palette::StepMania,
             &RenderOptions::default(),
             Some(0.4),
             None,
         );
-        // Its band, four built-in receptors and its tap, after the field's.
+        // What goes under it first (an attack's line), then its band,
+        // four built-in receptors and its tap, after the field's.
         let added = &out.instances[before..];
-        assert_eq!(added.len(), 1 + 4 + 1);
+        assert_eq!(added.len(), 1 + 1 + 4 + 1);
+        assert_eq!(added[0].shape, Shape::Link as u32);
+        let added = &added[1..];
         assert_eq!(added[0].shape & 0xff, Shape::Rect as u32);
         assert!(
             added[1..]
