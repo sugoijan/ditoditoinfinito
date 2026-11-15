@@ -5465,3 +5465,48 @@ fn a_stage_prompt_says_whom_it_is_against_and_what_zero_life_does() {
         "Stage 1 of 3 · against 2 other players · out when your life runs out · Rules: DDI"
     );
 }
+
+/// ui-screens-8: the standings dismissed with Back (Escape) are seen as
+/// with Continue: a room's song select built afterwards does not pop them
+/// up again.
+#[test]
+fn standings_closed_with_back_are_seen() {
+    use ddi_room::{Finish, Finisher};
+    let env = env();
+    let room = RoomClient::shared(0, 1);
+    room.borrow_mut().set_rules_seen(true);
+    let orders = Orders::default();
+    let mut h = harness();
+    h.push(room_select(&env, room.clone(), "dance-single", &orders));
+    h.run(0.5);
+    h.key("Enter", "Enter");
+    h.run(0.3);
+    let order = orders.borrow_mut().pop().expect("a prompt");
+    room.borrow_mut().set_ready(true).unwrap();
+    room.borrow_mut().tick(4_000);
+    let mut ids: Vec<_> = order.cpus.iter().map(|c| c.participant).collect();
+    ids.insert(0, order.me);
+    let ranking = ids
+        .into_iter()
+        .map(|participant| {
+            vec![Finisher {
+                participant,
+                finish: Finish::Survived,
+            }]
+        })
+        .collect();
+    room.borrow_mut()
+        .report_stage(order.stage, ranking, false)
+        .unwrap();
+    h.run(0.5);
+    assert_eq!(top(&h), "room-standings");
+    h.key("Escape", "Escape");
+    h.run(0.5);
+    assert_eq!(top(&h), "select");
+    assert_eq!(room.borrow().unseen_results(), None, "seen");
+    // A new song select of the room (the web builds one per visit).
+    let mut again = harness();
+    again.push(room_select(&env, room.clone(), "dance-single", &orders));
+    again.run(0.5);
+    assert_eq!(top(&again), "select", "not popped up again");
+}

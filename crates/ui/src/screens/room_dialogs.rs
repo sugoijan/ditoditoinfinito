@@ -3036,7 +3036,14 @@ impl Screen for StandingsDialog {
                 ..
             } => super::scroll_step(input).unwrap_or(0),
             Input::Wheel { delta, .. } => super::wheel_step(*delta),
-            Input::Activate { .. } | Input::Outside => {
+            // Back (Escape, a pad's, the browser's) is Continue too: the
+            // results were seen, and are not popped up again.
+            Input::Activate { .. }
+            | Input::Outside
+            | Input::Menu {
+                action: MenuAction::Back,
+                ..
+            } => {
                 self.room.borrow_mut().results_shown();
                 cx.close(false);
                 return Handled::Yes;
