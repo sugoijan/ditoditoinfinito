@@ -9682,9 +9682,16 @@ wasm32-wasip1 with its fixture unchanged); `ROOM_MODEL_REVISION` stays 10.
 - **A live stage joined part-way** (session-1): the room client's news
   tap keeps, while no play reads it, the latest stage's news since its
   last snapshot (`LiveNewsTap`), and a play that starts part-way reads it
-  (`Live::new` no longer drops it): an audience seat's Watch, a reload, a
-  member handed a running stage see who is already out, the attacks
-  standing, and the CPUs they compute catch up with the room at once.
+  (`Live::new` drops it only for a play that starts with the song, more
+  than the stale time, 2 s, before it is part-way: read late, the
+  countdown's frames counted as the network's delay); where a play read
+  part of the stage and stopped (the audience's Back, then Watch again)
+  the stage is asked for again as it stands (`LiveRoom::read_live_again`,
+  a fresh reader asking the room or relay to resume from nothing). An
+  audience seat's Watch, a reload, a member handed a running stage see
+  who is already out and the attacks standing, and the CPUs they compute
+  catch up with the room at once. A frame built more than the stale time
+  before it is read is not sampled for the view's delay.
 - **The CPUs after a snapshot** (session-2): the checkpoints known are one
   past the last record's index (`CheckpointNews::k`), never a count of
   records, so the device's CPUs are judged on with the room after a
