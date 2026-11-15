@@ -1492,8 +1492,8 @@ fn attacks_debug(
         // link's attack, `from` and `to` (`"me"` or an opponent's seat),
         // its `phase` (`pulse`, `fade`, `still`, `outline`), whether it
         // is `chained`, its line's and outline's opacity and the line's
-        // corners; and the seats kept in view where the opponents take
-        // turns.
+        // curve in straight stretches; and the seats kept in view where
+        // the opponents take turns.
         "links": ddi_shell::attack_links::debug(links),
         "kept_seats": b.kept_seats(&s.player, f64::from(ddi_shell::opponents::ROTATION_V0.every)),
         // The player's attack policy as its label says it (none once

@@ -10523,6 +10523,94 @@ the keyboard's binding is open and told once it is canceled; told over
 stage 1's results as stage 2 is picked, Go landing on its prompt; the
 Rules sentence and the new song's refusal in English and Japanese.
 
+## Feedback round L: the attack lines curved, under the miniatures, never sharing a stretch (2026-11-15)
+
+The maintainer (low priority): "it'd look better if the attack lines were
+'curved' instead of squared, routed through the miniatures but rendered
+behind them and in a way that does not overlap lines (lines will have to
+cross, but if 2 segments overlap I can't see which input goes to which
+output". `attack-links-v1` replaces `attack-links-v0`
+(`crates/shell/src/attack_links.rs`). Nothing judged or decided moves:
+which attacks exist, when and between whom is the battle's, unchanged;
+only how their lines are drawn. No room model change.
+
+- **Curved.** A line is one cubic from where the attack comes to where it
+  goes (two joined where it goes round something it keeps out of),
+  leaving and arriving the natural way: out of the field's edge at the
+  power bar, into the miniature's edge facing the field from its bar
+  down or down onto its top edge at its middle (where its bar is), into
+  the warning's outer side (or its top or bottom), into the field's left
+  edge on the receptors' row; an S where it goes on the way it left, a
+  quarter turn where it arrives across it. The pulse travels it by arc
+  length, 0.6 s as before; the line's width, colors, the chained
+  attack's quieter look, the fade and reduced motion's rule are
+  unchanged.
+- **Under the miniatures.** The lines are no longer in the overlay: the
+  renderer draws them with the scene, after the play's own field and
+  before the miniatures' bands (`Renderer::under_miniatures`,
+  `attack_links::draw_behind`), so a line passes under every miniature,
+  its notes, gauge, name and marks, shows in the gaps and, dimmed,
+  through a band. Each stretch of the curve is one instance of a new
+  sprite shape (`Shape::Link`: the stroke over its glow in one quad, cut
+  square at its ends so the stretches join; the pulse a `Shape::Glow`
+  and a disc): 8 to 48 instances a line (about 27 for a typical one), no
+  texture, in the miniatures' own run of sprites, so no pass and no
+  batch more. The glow is blended normally now rather than added (the
+  sprites' pipeline has one blend). The outline around the opponent's
+  field and the dot where the line lands stay in the overlay, over the
+  miniatures. A line still never enters the play's own band (the HUD,
+  the judgment, the chart line and the policy word are in it), the
+  score, the watermark, the quit button's place, the status line or the
+  ladder; the warning's place is kept clear where there is a way and
+  passed under where there is none (a phone held upright leaves no room
+  beside it).
+- **No two lines share a stretch** (`attack-lines-apart-v1`,
+  `SPACING_V1`, PROVISIONAL). A line is laid once, when its link first
+  shows, among the lines showing, and never moves while it shows
+  (`Routes`); a new one takes the first of its ways (at most 96: each
+  pair of ends, the cheapest first; each end's free places, a gap of
+  four strokes apart; the plain curve, then wider, tighter and bowed
+  ones) on which neither line is nearer than two strokes to the other
+  for longer than sixteen strokes (a crossing at about fifteen degrees
+  or more), measured over a grid of cells so only the lines nearby are
+  asked. Every line ends on a place of its own (several attacks from
+  one bar or onto one miniature fan out from distinct points). Lines
+  round one corner go beside each other, a gap apart.
+  **At the bounds**: a link with no free way, or beyond 64 lines at
+  once, has no line; its outline (and the warning) alone say the attack
+  (thinned rather than bundled: a bundle with a count would again hide
+  which goes where). A pair of ends much dearer than the cheapest (a
+  long way round) is not tried.
+- **Tests** (pure): a curve's ends and tangents and its stretches within
+  0.3 px of it; every line of every slot at ten sizes, with and without
+  Reverse, for 1 to 72 opponents, sampled a pixel apart, never in what it
+  keeps out of; a watcher's grid's lines the same; the property that no
+  two of many simultaneous links (the player's, 1, 8, 24 and 72
+  opponents; a grid of 2 to 72) are within two strokes for longer than a
+  crossing, measured afresh by brute force, also as links come and go,
+  with the lines that stayed unmoved; the pulse's equal steps; reduced
+  motion; the bound of lines at once.
+- **Cost.** Natively (release, 72 opponents at 1280×720): a frame that
+  draws 24 of the player's lines 17 µs (v0: 15 µs), a grid's 48 lines
+  34 µs (29 µs); the frame that lays 24 at once 2.5 ms (v0 routed them
+  in 0.75 ms), a grid's 48 at once 3.4 ms (v0: 53 ms). In the browsers,
+  the recorder over 45 s of a 72-CPU practice stage with attacks at
+  1280×720 (scene + render + overlay, mean of all frames / of frames
+  within 1.5 s of a commitment): headless Chrome (WebGPU) 1.33 / 1.33 ms
+  before, 1.26 / 1.28 ms after; headless Firefox (WebGL2, a clock of
+  1 ms) 1.17 / 1.22 before, 1.18 / 1.22 after; passes and batches the
+  same, about 10 to 30 instances more while lines show.
+- **Pins**: `the_overlay_s_draw_lists_are_pinned` (all six, with the
+  lines' instances hashed beside the list, through the rounded hash).
+- **For tests and pictures**: `PlayView::stage_links` shows chosen links
+  in a real stage in the battle's place (`ddi-desktop`'s
+  `attack_lines_offscreen`, ignored: the same moments before and after).
+- **Not done**: a link with no free way is not retried when a line
+  goes; in the margins of a phone held upright some of the player's
+  outgoing lines to the right side have none (the score and the warning
+  fill that side: v0 ran them along the screen's edge); under Reverse
+  several lines round the status line's corner at once thin out sooner;
+  the web's pictures were looked at in Chrome and Firefox, not Safari.
 ## Round M: what the last rounds left (2026-11-16)
 
 No room model change (`ROOM_MODEL_REVISION` stays 11). Nothing judged
@@ -10777,7 +10865,7 @@ before.
 | A miniature's locked lane: the lane darkened (0.42) to its end and its receptor's place tinted violet (0.5) for the lock's second, from the feed's moment | `ddi_shell::opponents::LOCK_LANE`, `LOCK_TINT`, `FieldFeed::locks` | A CPU that stepped on a shock shows a dead lane for a second | The look; a shock's own art |
 | Personal targeting: a member's own policy (Spread until chosen), set outside a stage's play, clearing nobody's readiness; in play Tab, a tap on the label, or a short press of a pad's View (`policy-pad-v0`: held it quits, pressed twice it does not where the policy cycles) | `ddi_room::Member::targeting`, `Command::SetTargeting`, `ddi_session::play` (`POLICY_KEY`, `policy_pad`) | A controller player in a stage with attacks quits by holding View, not by pressing it twice | The controller's control for it (View is the quit); whether the policy should be remembered across rooms |
 | Eight of the roster's CPUs name a policy (five Retaliate, three Leader), the rest Spread | `crates/ui/src/state/cpu_roster.json` | Some CPUs strike back or go for the leader | Which CPUs, if any; whether a CPU's policy should follow its level |
-| `attack-links-v0`: a pulse of 0.6 s, the line gone after 1.5 s, the outline in over 0.2 s, a chained attack's parts at 0.45; straight legs kept 1.5 px from everything; an incoming line from the left ends at the field's left edge | `ddi_shell::attack_links::ATTACK_LINKS_V0`, `route` | How who attacks whom reads; the line is thin and brief | The look (a free curve, a shock motif for the pulse), its times, whether the warning should mirror to the attacker's side |
+| `attack-links-v1` (2026-11-15, feedback round L; replaces `attack-links-v0`): in time as v0 (a pulse of 0.6 s, the line gone after 1.5 s, the outline in over 0.2 s, a chained attack's parts at 0.45); a line a curve under the miniatures; `attack-lines-apart-v1`: two lines never nearer than two strokes for longer than sixteen (a crossing), ends four strokes apart, at most 96 ways tried a line and 64 lines at once, a link beyond them or with no free way its outline alone | `ddi_shell::attack_links::ATTACK_LINKS_V1`, `SPACING_V1`, `Routes` | How who attacks whom reads; each line can be followed from its source to its target; with very many at once some attacks show the outline alone | The look by eye (the curves' shapes, the glow now blended normally), the numbers, whether a thinned link should be retried when a line goes, a shock motif for the pulse, whether the warning should mirror to the attacker's side |
 | Beyond the cap, the attackers and the latest target are kept in view while their attacks last and one turn (8 s) after, in the first slots | `ddi_session::battle::Battle::kept_seats`, `opponents::priority_seats` | Development-only practice | The large-party policy |
 | An attack against the player is told at most once in six seconds; attack moments rank 30 (incoming) and 8 (launched) in `battle-voice-v0`; shown 2.5 s in the status line | `ddi_session::announcer::battle::BATTLE_VOICE_V0` (`incoming_again`, `attack_priority`) | "Attack launched" shows several times a minute for a strong player | Whether the launched moment should show at all once it has a line; the six seconds |
 | The standings' attack columns take the combo's place; the summary flows under the lines | `screens::results_stage` (`columns`, `summary_lines`) | With attacks the stage's standings have no max combo | Which column should give way (the combo, the place in the match, the judgments' strip) |
@@ -10901,10 +10989,12 @@ before.
   said it would). Agreed?
 - M8 round 3: the policy is the room's (Spread on entering every room).
   Should it be remembered as a setting across rooms?
-- M8 round 3: who attacks whom is drawn as a thin line in straight legs
-  with a bright dot for the pulse, for 1.5 s. Is that noticeable enough
-  while playing, and should it be a free curve with the shock motif as
-  the study had it (it would cross miniatures at some sizes)?
+- M8 round 3, then feedback round L: who attacks whom is a thin curve
+  under the miniatures with a bright dot for the pulse, for 1.5 s
+  (`attack-links-v1`). Is that noticeable enough while playing, and
+  should the pulse have the shock motif the study had? With very many
+  links at once, or no free way, a link shows its outline alone: is
+  thinning right, or should the newest lines replace the oldest?
 - M8 round 3: an incoming line from a miniature on the left ends at the
   field's left edge (the warning is at the right). Should the warning
   stand on the attacker's side instead?

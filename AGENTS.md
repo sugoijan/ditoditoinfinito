@@ -826,16 +826,24 @@ Rust and the browser are implementation details, not advertised features.
   reach the receptors, `waiting_below_fits`),
   `crates/shell/src/battle_cue.rs`; who attacks
   whom for the player's own attacks, `crates/shell/src/attack_links.rs`
-  (`attack-links-v0`): a line in the side space from the power bar's end
-  to the recipient's miniature at its own bar, or from the sender's to
-  the warning (a sender on the left: to the field's left edge on the
-  receptors' row), a pulse along it for 0.6 s, the line gone after
-  1.5 s, the miniature outlined while the attack lasts, a chained
-  attack's quieter; the line in straight legs by the shortest clear way
-  (`route`), never over the band, the HUD, the judgment, the quit
-  button, the status line or a miniature; no pulse and no fade under
-  reduced motion; the theme's `Attack.Line` and `Attack.Glow`
-  (`ddi_theme::attack_colors`); `PlayView::links_drawn`;
+  (`attack-links-v1`): a line in the side space from the field's edge at
+  the power bar to the recipient's miniature at its own bar, or from the
+  sender's to the warning (a sender on the left: to the field's left
+  edge on the receptors' row), a pulse along it for 0.6 s, the line gone
+  after 1.5 s, the miniature outlined while the attack lasts, a chained
+  attack's quieter; the line a curve (a cubic, two joined round what it
+  keeps out of) that passes under the miniatures and is drawn behind
+  them (`attack_links::draw_behind` into `Renderer::under_miniatures`,
+  the sprites' `Shape::Link` and `Shape::Glow`; the outline and where it
+  lands over them, `draw`), never over the band, the HUD, the judgment,
+  the quit button, the status line or the ladder; no two lines sharing
+  a stretch (`SPACING_V1`, `Routes`: a line laid once among those
+  showing and kept while it shows, each on places of its own, never
+  nearer than two strokes to another for longer than a crossing; with no
+  free way, or past 64 lines, the outline alone); no pulse and no fade
+  under reduced motion; the theme's `Attack.Line` and `Attack.Glow`
+  (`ddi_theme::attack_colors`); `PlayView::links_drawn`, and for tests'
+  pictures `PlayView::stage_links`;
   `crates/shell/src/opponents.rs`: miniature fields in stable slots of the
   side space on both sides, every opponent of a room its own at every
   size (eight at most; each a small copy of the play's field, in its
