@@ -9439,6 +9439,31 @@ lists the players' steps (`StepUp`/`StepDown`, said `None`: those plays
 have no voice); recorded again. `the_cpus_play_alike` unchanged;
 `ROOM_MODEL_REVISION` stays 10.
 
+## The server has an operator's panel and run-time limits (2026-11-15)
+
+The maintainer: "I don't know if the game will blow up and there's a
+situation where I would either have to increase some of the cautious
+limits, or reduce it to keep the server working." The private server now
+serves an operator's panel to its administrators alone (anyone else gets
+an unknown route's answer) and keeps its limits as data: a default (today's
+value, from where it lived), a global override and a room's own, changed
+without a deploy. Lowering a limit never removes anyone: the next join,
+seat or room past it is refused. New switches (new rooms, new audience
+seats) and caps (rooms in all, audience seats in all rooms, rooms a person
+owns) default to on and no limit. Every refusal uses a code the game
+already words. The rooms report themselves to a registry for the panel,
+best effort: a room that cannot report behaves as before. The details,
+the costs and the checklist are in the server's README.
+
+Nothing in the game changed: the bounds the room's state carries
+(`RoomPolicy::max_members`, `max_competitors`, the readiness window and
+grace) are decided by the room alone, so the server changes them in its
+own state and sends a snapshot, as a reconnect gets one; the audience's
+seat bounds are the relays' alone. `ROOM_MODEL_REVISION` stays 10.
+`relay_seats` is shown and not changeable (a viewer's home relay is
+computed from it); `max_competitors` cannot be raised past 73 (the awards'
+tables end there), nor the audience past 20,000 seats a room.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
