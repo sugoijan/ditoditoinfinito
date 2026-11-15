@@ -2250,8 +2250,8 @@ impl Screen for PlayersDialog {
                 target: Some(t),
                 gesture: crate::Gesture::Tap,
                 ..
-            } if self.manages && self.person_tapped(&t).is_some() => {
-                let id = self.person_tapped(&t).flatten();
+            } if self.manages && self.person_tapped(t).is_some() => {
+                let id = self.person_tapped(t).flatten();
                 cx.overlay(
                     HostDialog::new(self.env.clone(), self.room.clone(), id),
                     true,
