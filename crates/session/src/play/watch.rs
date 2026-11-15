@@ -40,11 +40,15 @@ pub const WATCH_END_FADE: f64 = super::FAIL_FADE;
 pub const WATCH_HINT_SECONDS: f64 = 6.0;
 pub const WATCH_CUE_SECONDS: f64 = 2.5;
 
-/// PROVISIONAL (`watch-pages-v0`, 2026-11-13): a spectator's grid shows at
-/// most this many fields a page, in the room's order (`grid-pages-v1`:
-/// by standing before, which moved them from frame to frame); past it, Page Up and Page
-/// Down (a pad's D-pad Up and Down, which mean nothing else there: its
-/// shoulders follow a competitor) turn the pages.
+/// PROVISIONAL (`watch-pages-v0`, 2026-11-13; `grid-all-v1`, 2026-11-15):
+/// a spectator's grid shows every field where they fit as a player's view
+/// fits its opponents, else pages of as many as fit
+/// (`ddi_shell::opponents::arrange_grid`, which tells the pages,
+/// [`super::PlaySession::set_watch_pages`]), in the room's order (by
+/// standing before `grid-pages-v1`, which moved them from frame to
+/// frame); this many a page until the first frame is drawn. Page Up and
+/// Page Down (a pad's D-pad Up and Down, which mean nothing else there:
+/// its shoulders follow a competitor) turn the pages.
 pub const GRID_PAGE: usize = 12;
 
 /// Why the stage is watched.
@@ -73,7 +77,8 @@ pub struct WatchView {
     /// Nobody plays the stage any more (decided, the winner done): its
     /// results follow.
     pub over: bool,
-    /// The grid's page ([`GRID_PAGE`] fields a page, in the room's order), from 0.
+    /// The grid's page (as many fields a page as fit, in the room's
+    /// order), from 0.
     pub page: usize,
     /// The seat it is watched through ended (an audience's: the audience
     /// closed, the room ended, its link replaced): the view stopped, why
@@ -108,6 +113,10 @@ pub(super) struct Watch {
     shift: bool,
     pub cue: Option<(WatchMoment, f64)>,
     pub page: usize,
+    /// The grid's pages as last drawn (the shell's arrangement says how
+    /// many fit a page, `ddi_shell::opponents::arrange_grid`); 0 before
+    /// the first frame: [`GRID_PAGE`] a page.
+    pub pages: std::cell::Cell<usize>,
     /// The seat ended ([`WatchView::ended`]).
     pub ended: bool,
 }
@@ -123,6 +132,7 @@ impl Watch {
             shift: false,
             cue: None,
             page: 0,
+            pages: std::cell::Cell::new(0),
             ended: false,
         }
     }
@@ -188,7 +198,11 @@ impl Watch {
             // Pages turn on the grid alone (following someone, the
             // grid's page is kept for coming back to it).
             Ask::Page(by) if self.focus.is_none() => {
-                let pages = seats.div_ceil(GRID_PAGE).max(1) as i32;
+                let pages = match self.pages.get() {
+                    0 => seats.div_ceil(GRID_PAGE),
+                    p => p,
+                }
+                .max(1) as i32;
                 self.page = (self.page as i32 + by).rem_euclid(pages) as usize;
             }
             Ask::Page(_) => {}
@@ -344,6 +358,20 @@ mod tests {
         // A player out of the stage has no pages.
         let mut out = Watch::new(Watching::Out, 0.0);
         assert_eq!(out.read(&key("PageDown", true), None), None);
+        // The pages as the grid was drawn (`grid-all-v1`): a phone's
+        // three of 73, round; everyone on one page, nothing turns.
+        let mut w = Watch::new(Watching::Spectator, 0.0);
+        w.pages.set(3);
+        for want in [1, 2, 0] {
+            w.apply(Ask::Page(1), 73);
+            assert_eq!(w.page, want);
+        }
+        w.apply(Ask::Page(-1), 73);
+        assert_eq!(w.page, 2);
+        w.pages.set(1);
+        w.page = 0;
+        w.apply(Ask::Page(1), 73);
+        assert_eq!(w.page, 0);
     }
 
     #[test]

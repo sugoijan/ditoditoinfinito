@@ -404,6 +404,9 @@ pub struct Fields {
     pub carry: Carry,
     /// A large field's grid: more than a room of nine's eight shown.
     pub dense: bool,
+    /// A watched grid in pages ([`arrange_grid`]): the fields a page
+    /// shows, in the room's order; none where every field shows.
+    pub page: Option<usize>,
 }
 
 /// A side's room for slots: `[left, top, right, bottom]`, logical pixels.
@@ -938,6 +941,7 @@ pub fn arrange_up_to(
         ladder,
         carry: Carry::at(lane, dense),
         dense,
+        page: None,
     })
 }
 
@@ -1011,11 +1015,20 @@ const GRID_LANE_MIN: f32 = 4.0;
 /// height, eight four by two), the block in the screen's middle, a short
 /// last row in its own middle, and the status line under the block.
 ///
-/// Beyond a room's eight (a development-only practice), where they do
-/// not fit at [`MINI_LANE_CROWD`]: as many as do, the rest taking turns
-/// ([`rotate`]). `None` where not even one fits.
+/// Past a room of nine's eight (`grid-all-v1`, the feedback round I),
+/// as a player's view shows its opponents ([`arrange_up_to`]): every
+/// field where all of them fit at [`MINI_LANE_ALL`] (on fields cut
+/// shorter, down to [`DENSE_ROWS_MIN`] lanes, where only that lets them),
+/// with the gaps shrinking past two columns and carrying what reads at
+/// their lane ([`Carry`]); where they do not (a phone), pages of as many
+/// as fit at it ([`Fields::page`], in the room's order, never fewer than
+/// a room's eight), the ladder's strip beside the status line. `most`
+/// at [`ROOM_OPPONENTS`] (Options' "Up to eight") keeps a watcher to
+/// pages of a room's eight at a room's sizes. `None` where not even one
+/// fits.
 pub fn arrange_grid(
     n: usize,
+    most: usize,
     geo: &FieldGeometry,
     reverse: bool,
     ratio: f32,
@@ -1024,31 +1037,38 @@ pub fn arrange_grid(
     if n == 0 || ratio <= 0.0 {
         return None;
     }
-    // More than a page: a page's fields (`ddi_session::play::GRID_PAGE`),
-    // the shell choosing whose, and the ladder in the status line's right
-    // half.
     let total = n;
-    let n = n.min(ddi_session::play::GRID_PAGE);
     let (w, h) = (geo.width / ratio, geo.height / ratio);
     let keep = logical(keep_out, ratio);
     let edge = part(EDGE, w);
-    let gap = part(GRID_GAP, w);
+    let base_gap = part(GRID_GAP, w);
     let whole_room = [edge, edge, w - edge, h - edge - STATUS - 4.0];
-    let rows = rows_for(geo);
+    let rows_play = rows_for(geo);
     let cap = geo.arrow / ratio * GRID_LANE_SHARE;
     let whole = |lane: f32| (lane * ratio).floor() / ratio;
     // A slot with its warning's room, in lanes.
     let wide = SLOT_LANES + GRID_CUE;
-    // The best layout of `k` fields: its lane, its room and its columns.
-    let best = |k: usize| -> Option<(f32, Region, usize)> {
+    // Between `cols` columns: a large field's gap shrinking past two.
+    let gap_for = |cols: usize, dense: bool| {
+        if dense {
+            (base_gap * 2.0 / cols.max(1) as f32).clamp(DENSE_GAP.min(base_gap), base_gap)
+        } else {
+            base_gap
+        }
+    };
+    // The best layout of `k` fields `rows` lanes tall: its lane, its room
+    // and its columns.
+    let rooms_all = rooms(whole_room, &keep, h);
+    let best = |k: usize, rows: f32, dense: bool| -> Option<(f32, Region, usize)> {
         let mut ways: Vec<(f32, Region, usize)> = Vec::new();
-        for room in rooms(whole_room, &keep, h) {
+        for &room in &rooms_all {
             let (rw, rh) = (room[2] - room[0], room[3] - room[1]);
             for cols in 1..=k {
                 let lines = k.div_ceil(cols);
+                let gap = gap_for(cols, dense);
                 let by_width = (rw - (cols as f32 - 1.0) * gap) / (cols as f32 * wide);
                 let cell = (rh - (lines as f32 - 1.0) * gap) / lines as f32;
-                let lane = whole(lane_for_height(by_width.min(cap), cell, rows, false));
+                let lane = whole(lane_for_height(by_width.min(cap), cell, rows, dense));
                 if lane > 0.0 {
                     ways.push((lane, room, cols));
                 }
@@ -1060,21 +1080,66 @@ pub fn arrange_grid(
             .filter(|w| w.0 >= most * GRID_FILL)
             .min_by(|a, b| a.2.cmp(&b.2).then(b.0.total_cmp(&a.0)))
     };
-    let least = if n <= ROOM_OPPONENTS {
-        GRID_LANE_MIN
+    // How many a page shows (all of them: no pages), whether they are a
+    // large field's, their fields' height and their layout.
+    let large = total > ROOM_OPPONENTS && most > ROOM_OPPONENTS;
+    let plan = if large {
+        // Every one, in the play's proportion, else on fields cut
+        // shorter, a lane at a time, down to [`DENSE_ROWS_MIN`].
+        let mut rows = rows_play;
+        let mut all = None;
+        loop {
+            if let Some(way) = best(total, rows, true).filter(|w| w.0 >= MINI_LANE_ALL) {
+                all = Some((total, true, rows, way));
+                break;
+            }
+            if rows - 1.0 < DENSE_ROWS_MIN - 0.001 {
+                break;
+            }
+            rows -= 1.0;
+        }
+        all.or_else(|| {
+            // Pages of as many as fit at the least (never fewer than a
+            // room's eight), in the play's proportion: the most `k`
+            // whose layout is at it, found by halving (more fields are
+            // never larger).
+            let fits = |k: usize| best(k, rows_play, true).is_some_and(|w| w.0 >= MINI_LANE_ALL);
+            let (mut lo, mut hi) = (ROOM_OPPONENTS, total - 1);
+            if !fits(lo) {
+                hi = lo;
+            }
+            while lo < hi {
+                let mid = (lo + hi).div_ceil(2);
+                if fits(mid) {
+                    lo = mid;
+                } else {
+                    hi = mid - 1;
+                }
+            }
+            best(lo, rows_play, true).map(|way| (lo, true, rows_play, way))
+        })
     } else {
-        MINI_LANE_CROWD
+        // A room's eight or fewer, or pages of a room's eight (Options'
+        // "Up to eight"); as many as fit at the least, the rest taking
+        // turns (a window far too small).
+        let page = total.min(ROOM_OPPONENTS);
+        let mut shown = page;
+        let mut way = best(shown, rows_play, false);
+        while shown > 1 && way.is_none_or(|w| w.0 < GRID_LANE_MIN) {
+            shown -= 1;
+            way = best(shown, rows_play, false);
+        }
+        way.map(|way| (shown, false, rows_play, way))
     };
-    // As many as fit at the least lane; the rest take turns.
-    let mut shown = n;
-    let mut way = best(shown);
-    while shown > 1 && way.is_none_or(|w| w.0 < least) {
-        shown -= 1;
-        way = best(shown);
+    let (shown, dense, rows, (lane, room, cols)) = plan?;
+    if lane < GRID_LANE_MIN {
+        return None;
     }
-    let (lane, room, cols) = way.filter(|w| w.0 >= GRID_LANE_MIN)?;
+    let paged = shown < total && (large || total > ROOM_OPPONENTS);
+    let gap = gap_for(cols, dense);
     let lines = shown.div_ceil(cols);
-    let (sw, sh) = (SLOT_LANES * lane, label(lane, false) + rows * lane);
+    let top = label(lane, dense);
+    let (sw, sh) = (SLOT_LANES * lane, top + rows * lane);
     let cue = GRID_CUE * lane;
     let px = |v: f32| v * ratio;
     let block = lines as f32 * sh + (lines as f32 - 1.0) * gap;
@@ -1098,13 +1163,12 @@ pub fn arrange_grid(
         };
         let x = row_left(in_line) + col as f32 * (sw + cue + gap);
         let y = y0 + line as f32 * (sh + gap);
-        let top = label(lane, false);
         slots.push(slot_at(i, [x, y], [sw, sh], lane, top, reverse, ratio, false));
     }
     let used = line_width(cols.min(shown)).max(320.0_f32.min(room[2] - room[0]));
     let sx = (w / 2.0 - used / 2.0).clamp(room[0], (room[2] - used).max(room[0]));
     let sy = px(y0 + block + 4.0);
-    let (status, ladder) = if total > n {
+    let (status, ladder) = if paged {
         let half = used / 2.0;
         (
             [px(sx), sy, px(half - 8.0), px(STATUS)],
@@ -1116,15 +1180,16 @@ pub fn arrange_grid(
     Some(Fields {
         slots,
         status,
-        rotating: shown < n,
+        rotating: shown < total && !paged,
         lane,
         rows,
         range: rows - MINI_RECEPTOR,
         name: name_size(lane),
-        stars: stars_at(lane, false),
+        stars: stars_at(lane, dense),
         ladder,
-        carry: Carry::ALL,
-        dense: false,
+        carry: Carry::at(lane, dense),
+        dense,
+        page: paged.then_some(shown),
     })
 }
 
@@ -1273,22 +1338,23 @@ pub fn choose(
         .iter()
         .filter_map(|p| c.shown.iter().position(|s| s == p))
         .collect();
-    let page_size = ddi_session::play::GRID_PAGE;
-    let chosen = if c.grid && n > page_size {
+    let chosen = if let Some(page_size) = fields.page.filter(|_| c.grid) {
         // A spectator's grid past a page: the page's fields in the room's
         // order, the ladder for the whole field. Never by standing: life
         // and scores move with every judgment, and a page ranked by them
         // swapped its fields between places from frame to frame (the
         // flicker of the feedback round I, `grid-pages-v1`).
         let (standings, _) = standings();
-        let from = c.page * page_size;
+        let pages = n.div_ceil(page_size.max(1)).max(1);
+        let page = c.page % pages;
+        let from = page * page_size;
         for (i, slot) in fields.slots.iter_mut().enumerate() {
             slot.seat = if from + i < n { from + i } else { usize::MAX };
             slot.dim = 0.0;
         }
         (
             Some(Ladder::of(&standings, None)),
-            Some((c.page, n.div_ceil(page_size))),
+            Some((page, pages)),
         )
     } else if n > ROOM_OPPONENTS && !c.grid && !fields.rotating {
         // A large field shown whole (the feedback round E1): each in its
@@ -2139,7 +2205,7 @@ pub(crate) mod tests {
                 let k = keep_grid(&g, ratio);
                 for n in 1..=8 {
                     let what = format!("{n} at {w}x{h}@{ratio} reverse {reverse}");
-                    let f = arrange_grid(n, &g, reverse, ratio, &k)
+                    let f = arrange_grid(n, usize::MAX, &g, reverse, ratio, &k)
                         .unwrap_or_else(|| panic!("{what}"));
                     assert_eq!(f.slots.len(), n, "{what}");
                     assert!(!f.rotating, "{what}");
@@ -2218,7 +2284,7 @@ pub(crate) mod tests {
             let k = keep_grid(&g, 1.0);
             (1..=8)
                 .map(|n| {
-                    let f = arrange_grid(n, &g, false, 1.0, &k).unwrap();
+                    let f = arrange_grid(n, usize::MAX, &g, false, 1.0, &k).unwrap();
                     let top = f.slots[0].rect[1];
                     let cols = f.slots.iter().filter(|s| s.rect[1] == top).count();
                     (f.lane, cols)
@@ -2257,17 +2323,17 @@ pub(crate) mod tests {
         for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0)] {
             let g = geo(w, h);
             // Two: nearly the screen's height.
-            let two = arrange_grid(2, &g, false, 1.0, &keep_grid(&g, 1.0)).unwrap();
+            let two = arrange_grid(2, usize::MAX, &g, false, 1.0, &keep_grid(&g, 1.0)).unwrap();
             let tall = two.slots[0].rect[3];
             assert!(tall > 0.9 * h, "{tall} of {h}");
             // Eight: two rows of four.
-            let eight = arrange_grid(8, &g, false, 1.0, &keep_grid(&g, 1.0)).unwrap();
+            let eight = arrange_grid(8, usize::MAX, &g, false, 1.0, &keep_grid(&g, 1.0)).unwrap();
             let rows: std::collections::BTreeSet<i32> =
                 eight.slots.iter().map(|s| s.rect[1] as i32).collect();
             assert_eq!(rows.len(), 2);
             // Larger than a player's miniatures at every count.
             for n in 1..=8 {
-                let grid = arrange_grid(n, &g, false, 1.0, &keep_grid(&g, 1.0)).unwrap();
+                let grid = arrange_grid(n, usize::MAX, &g, false, 1.0, &keep_grid(&g, 1.0)).unwrap();
                 let side = arrange(n, &g, 4.0, false, 1.0, &keep(&g, 1.0, true)).unwrap();
                 assert!(grid.lane > side.lane, "{n}: {} and {}", grid.lane, side.lane);
             }
@@ -3029,6 +3095,61 @@ pub(crate) mod tests {
         assert!(f.slots.iter().all(|s| s.seat != 40 && s.seat <= 128));
     }
 
+    /// A watched grid past a room's eight (`grid-all-v1`): everyone at
+    /// once at a desktop's sizes, at no less than a player's view's
+    /// least ([`MINI_LANE_ALL`]), on the screen and apart; pages of as
+    /// many as fit (never fewer than eight) only where they cannot (a
+    /// phone); Options' "Up to eight" pages of eight. The lanes are
+    /// printed (`--nocapture`) for the progress note.
+    #[test]
+    fn a_watched_grid_shows_everyone_where_they_fit() {
+        for (w, h, ratio) in [
+            (1280.0, 720.0, 1.0),
+            (1920.0, 1080.0, 1.0),
+            (2704.0, 1528.0, 1.0),
+            (844.0, 390.0, 3.0),
+            (390.0, 844.0, 3.0),
+        ] {
+            let g = geo(w * ratio, h * ratio);
+            let k = keep_grid(&g, ratio);
+            for n in [8, 24, 48, 73] {
+                let f = arrange_grid(n, usize::MAX, &g, false, ratio, &k).unwrap();
+                let shown = f.slots.len();
+                println!(
+                    "{w}x{h}: {n} -> lane {:.1}, rows {}, {} a page{}",
+                    f.lane,
+                    f.rows,
+                    shown,
+                    f.page.map_or(String::new(), |p| format!(", {} pages", n.div_ceil(p)))
+                );
+                assert!(!f.rotating);
+                if w >= 1280.0 {
+                    assert_eq!(f.page, None, "{w}x{h} {n}");
+                    assert_eq!(shown, n);
+                }
+                if n > ROOM_OPPONENTS && f.page.is_none() {
+                    assert!(f.lane >= MINI_LANE_ALL - 0.001, "{w}x{h} {n} {}", f.lane);
+                }
+                if let Some(p) = f.page {
+                    assert!(p >= ROOM_OPPONENTS.min(n) && p < n);
+                    assert_eq!(p, shown);
+                }
+                for (i, a) in f.slots.iter().enumerate() {
+                    let b = a.bounds();
+                    assert!(b[0] >= -0.5 && b[2] <= w * ratio + 0.5, "{w}x{h} {n}");
+                    assert!(b[1] >= -0.5 && b[3] <= h * ratio + 0.5, "{w}x{h} {n}");
+                    for c in &f.slots[i + 1..] {
+                        assert!(!overlaps(a.panel, c.panel), "{w}x{h} {n}");
+                    }
+                }
+                // "Up to eight": pages of a room's eight.
+                let eight = arrange_grid(n, ROOM_OPPONENTS, &g, false, ratio, &k).unwrap();
+                assert!(eight.slots.len() <= ROOM_OPPONENTS);
+                assert_eq!(eight.page.is_some(), n > ROOM_OPPONENTS);
+            }
+        }
+    }
+
     /// The feedback round I's flicker: a watched grid past a page, its
     /// standings moving with every judgment (a step down's life, scores
     /// arriving in batches), keeps each field in its place from frame to
@@ -3038,7 +3159,8 @@ pub(crate) mod tests {
         let g = geo(390.0, 844.0);
         let n = 73;
         let shown: Vec<usize> = (0..n).collect();
-        let base = arrange_grid(n, &g, false, 1.0, &keep_grid(&g, 1.0)).unwrap();
+        let base = arrange_grid(n, usize::MAX, &g, false, 1.0, &keep_grid(&g, 1.0)).unwrap();
+        assert!(base.page.is_some(), "a phone's grid of 73 is paged");
         let mut rivals = crate::rivals::Rivals::default();
         let mut last: Option<Vec<usize>> = None;
         for frame in 0..240_usize {
@@ -3309,7 +3431,7 @@ pub(crate) mod tests {
                 keep(&g, ratio, true)
             };
             let mut fields = if grid {
-                arrange_grid(n, &g, false, ratio, &keep_out).unwrap()
+                arrange_grid(n, usize::MAX, &g, false, ratio, &keep_out).unwrap()
             } else {
                 arrange_up_to(n, usize::MAX, &g, 4.0, false, ratio, &keep_out).unwrap()
             };
@@ -3465,7 +3587,7 @@ pub(crate) mod tests {
             ("8-390x844@3", 0x1708c74bf4918b75),
             ("24-1280x720@1", 0xf2ff6397913ba765),
             ("72-1920x1080@1", 0x0c0d99a3245e709c),
-            ("12-1280x720@1-grid", 0xa88661132b1d4385),
+            ("12-1280x720@1-grid", 0xd1c0e71a47664f8f),
         ];
         let got_: Vec<(&str, u64)> = got.iter().map(|(n, h)| (n.as_str(), *h)).collect();
         assert_eq!(got_, want, "{got_:#x?}");
@@ -3486,24 +3608,27 @@ pub(crate) mod tests {
             for reverse in [false, true] {
                 let size = [w * ratio, hh * ratio];
                 let g = FieldGeometry::placed(size[0], size[1], 4.0, reverse, Default::default());
-                for n in [1, 2, 3, 5, 8, 9, 12, 24, 36, 72, 128] {
+                for n in [1, 2, 3, 5, 8, 9, 12, 24, 36, 48, 72, 73, 128] {
                     for attacks in [false, true] {
                         let k = keep(&g, ratio, attacks);
                         for most in [ROOM_OPPONENTS, usize::MAX] {
                             let f = arrange_up_to(n, most, &g, 4.0, reverse, ratio, &k);
-                            h = fnv(h, &format!("{f:?}"));
+                            h = fnv(h, &ddi_ui::testing::rounded(&format!("{f:?}")));
                             if let Some(mut f) = f {
                                 rotate(&mut f, n, &[n / 2, 1], 17.9, ROTATION_V0, false);
-                                h = fnv(h, &format!("{:?}", f.slots));
+                                h = fnv(h, &ddi_ui::testing::rounded(&format!("{:?}", f.slots)));
                             }
                         }
                     }
-                    let f = arrange_grid(n, &g, reverse, ratio, &keep_grid(&g, ratio));
-                    h = fnv(h, &format!("{f:?}"));
+                    for most in [ROOM_OPPONENTS, usize::MAX] {
+                        let kg = keep_grid(&g, ratio);
+                        let f = arrange_grid(n, most, &g, reverse, ratio, &kg);
+                        h = fnv(h, &ddi_ui::testing::rounded(&format!("{f:?}")));
+                    }
                 }
-                h = fnv(h, &format!("{:?}", large_slot(3, &g, 4.0)));
+                h = fnv(h, &ddi_ui::testing::rounded(&format!("{:?}", large_slot(3, &g, 4.0))));
             }
         }
-        assert_eq!(h, 0xa5e8_6da1_078d_6950, "{h:#x}");
+        assert_eq!(h, 0x28d0_4389_2fb9_c312, "{h:#x}");
     }
 }

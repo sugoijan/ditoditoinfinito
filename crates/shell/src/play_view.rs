@@ -1339,6 +1339,7 @@ impl<H: PlayHost> PlayView<H> {
                 let arranged = if grid {
                     crate::opponents::arrange_grid(
                         n,
+                        most,
                         &geo,
                         render.reverse,
                         screen.ratio,
@@ -1380,6 +1381,9 @@ impl<H: PlayHost> PlayView<H> {
             );
             self.ladder = ladder;
             self.ladder_page = ladder_page;
+            if grid {
+                session.set_watch_pages(ladder_page.map_or(1, |(_, pages)| pages));
+            }
             Some(f)
         });
         // The followed competitor's field, in the play's field's place.
@@ -1585,8 +1589,7 @@ impl<H: PlayHost> PlayView<H> {
                     .get(seat)
                     .map(|&n| ddi_l10n::msg::room::watch_following(n).into()),
                 None if w.age < ddi_session::play::WATCH_HINT_SECONDS && !w.over => {
-                    let seats = battle.map_or(0, |b| b.feeds().count());
-                    Some(if seats > ddi_session::play::GRID_PAGE {
+                    Some(if self.ladder_page.is_some() {
                         ddi_l10n::msg::room::watch_hint_pages().into()
                     } else {
                         ddi_l10n::msg::room::watch_hint().into()

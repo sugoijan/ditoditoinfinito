@@ -442,6 +442,7 @@ mod tests {
             ladder: None,
             carry: crate::opponents::Carry::ALL,
             dense: false,
+            page: None,
         };
         r.apply(&mut fields, 10.1, RIVALS_V0, false);
         assert!(fields.slots[0].dim > 0.5);

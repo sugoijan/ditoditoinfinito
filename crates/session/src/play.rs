@@ -2353,6 +2353,15 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         self.watch.as_ref().map(|w| w.view(host))
     }
 
+    /// The pages a watched grid has as drawn (`ddi_shell::opponents::
+    /// arrange_grid`: as many fields a page as fit; 1 where every field
+    /// shows), so that Page Up and Page Down turn round them.
+    pub fn set_watch_pages(&self, pages: usize) {
+        if let Some(w) = &self.watch {
+            w.pages.set(pages);
+        }
+    }
+
     /// Where the dancing hand rests (judged song second): a player out of
     /// the stage (their gauge emptied) or who left its play stops there
     /// rather than dancing on behind their dimmed field; none while they
