@@ -256,3 +256,94 @@ fn retry_sharing_on_a_refused_song_uploads_it_again() {
     tick(&clock, &mut [&mut alice, &mut bob], 400);
     assert!(alice.take_upload_jobs().is_empty(), "once");
 }
+
+/// Song `n` of the fake library: its own id and chart digest.
+fn song_n(n: u8) -> crate::screens::data::SongEntry {
+    let mut s = super::tests::room::song();
+    s.id = format!("bundled:{n}");
+    s.title = format!("Song {n}");
+    s.charts[0].digest = Some(ddi_chart::ChartDigest(u128::from(n)));
+    s
+}
+
+/// ui-state-6, a follower: the spotlight's songs read from the room's
+/// share answered out of order: each song kept as its own, never one
+/// under the other's card.
+#[test]
+fn the_spotlights_reads_answered_out_of_order_keep_each_song_its_own() {
+    use super::tests::room::{person, shared_pick, upload};
+    let clock = ManualClock::new(1_000);
+    let server = room_of(&clock, &["bob"]);
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let (a, b) = (song_n(7), song_n(8));
+    alice.hover(Some((&a, &a.charts[0])));
+    tick(&clock, &mut [&mut alice, &mut bob], 3_600);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    upload(&server, &mut alice, "sharea01");
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let job_a = bob.take_load_jobs();
+    assert_eq!(job_a.len(), 1);
+    alice.hover(Some((&b, &b.charts[0])));
+    tick(&clock, &mut [&mut alice, &mut bob], 3_600);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    upload(&server, &mut alice, "shareb01");
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let job_b = bob.take_load_jobs();
+    assert_eq!(job_b.len(), 1);
+    // B's read comes back first, A's after it.
+    bob.finish_shared_load(&job_b[0], Ok(shared_pick(&b)));
+    bob.finish_shared_load(&job_a[0], Ok(shared_pick(&a)));
+    let (card, picked) = bob.spotlight().unwrap();
+    assert_eq!(card.title, "Song 8");
+    assert_eq!(
+        picked.map(|p| p.chart.digest),
+        Some(Some(ddi_chart::ChartDigest(8))),
+        "B's own song under B's card"
+    );
+}
+
+/// ui-state-6, the picker: the spotlight moves on while the last song's
+/// upload still runs; that upload's end is not the new song's, and the
+/// new song is shared once it is done.
+#[test]
+fn the_spotlights_upload_ending_late_is_not_the_next_songs() {
+    use super::tests::room::person;
+    use crate::state::room::SPOTLIGHT;
+    use ddi_room::Command;
+    let clock = ManualClock::new(1_000);
+    let server = room_of(&clock, &["bob"]);
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let (a, b) = (song_n(7), song_n(8));
+    alice.hover(Some((&a, &a.charts[0])));
+    tick(&clock, &mut [&mut alice, &mut bob], 3_600);
+    tick(&clock, &mut [&mut alice, &mut bob], 400);
+    let jobs_a = alice.take_upload_jobs();
+    assert_eq!(jobs_a.len(), 1, "A's upload under way");
+    // The picker moves on to B before A's upload ends: B's grant asked
+    // for, not answered yet, as A's upload ends.
+    alice.hover(Some((&b, &b.charts[0])));
+    tick(&clock, &mut [&mut alice, &mut bob], 3_600);
+    // A's upload ends: the room hears of A's share.
+    server
+        .borrow_mut()
+        .authority(Command::SetSpotlightShare {
+            chart: jobs_a[0].content.chart.clone(),
+            share: "sharea01".into(),
+        })
+        .ok();
+    alice.upload_finished(SPOTLIGHT, Ok("sharea01".into()));
+    for _ in 0..4 {
+        tick(&clock, &mut [&mut alice, &mut bob], 400);
+    }
+    let jobs_b = alice.take_upload_jobs();
+    assert_eq!(jobs_b.len(), 1, "B shared too");
+    assert_eq!(jobs_b[0].content.chart, b_chart(&b));
+}
+
+fn b_chart(s: &crate::screens::data::SongEntry) -> ddi_room::ChartKey {
+    crate::state::room::content_id(s, &s.charts[0]).chart
+}

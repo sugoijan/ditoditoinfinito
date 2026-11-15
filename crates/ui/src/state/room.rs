@@ -1051,12 +1051,14 @@ pub struct RoomClient {
     /// that finds nothing): the room's spotlight cleared after the same
     /// rest.
     resting_on_none: Option<u64>,
-    /// This device's upload of the spotlight's song (an online picker's).
+    /// This device's upload of the spotlight's song (an online picker's):
+    /// one at a time, so that the answers (which name no song) are its.
     spotlight_sharing: Option<(ContentId, Sharing)>,
     /// The spotlight's song as read from the room's share (a member's), and
-    /// the content asked for.
+    /// the content asked for with its share (an answer for another
+    /// dropped).
     spotlight_loaded: Option<(ContentId, Picked)>,
-    spotlight_asked: Option<ContentId>,
+    spotlight_asked: Option<(ContentId, String)>,
     /// The Rules pop-up opened by itself on entering (M7b).
     rules_seen: bool,
     /// Practice's: the player's signed-in display name, where they are
@@ -2842,7 +2844,12 @@ impl RoomClient {
         if job.stage == SPOTLIGHT {
             // The spotlight's song for the others to see and hear; a
             // failure leaves its card alone.
-            if let (Ok(picked), Some(asked)) = (result, self.spotlight_asked.clone()) {
+            // An answer for a song asked for before is dropped.
+            let asked = self.spotlight_asked.clone().filter(|(content, share)| {
+                job.share.as_ref() == Some(share)
+                    && job.digest == content.chart.as_str().parse().ok()
+            });
+            if let (Ok(picked), Some((asked, _))) = (result, asked) {
                 self.spotlight_loaded = Some((asked, picked));
                 self.version += 1;
             }
@@ -3131,7 +3138,7 @@ impl RoomClient {
         if stage == SPOTLIGHT {
             // The room hears it from the server; a failure is not retried
             // (the pick shares the song itself).
-            if let Some((_, s)) = &mut self.spotlight_sharing {
+            if let Some((_, s @ Sharing::Uploading { .. })) = &mut self.spotlight_sharing {
                 *s = match result {
                     Ok(_) => Sharing::Sent,
                     Err(e) => Sharing::Failed(SharingProblem::Upload(e)),
@@ -4103,7 +4110,14 @@ impl RoomClient {
                 .spotlight_sharing
                 .as_ref()
                 .is_some_and(|(c, _)| *c == spot.content);
-            if spot.share.is_none() && !asked && self.picks.contains_key(&spot.content) {
+            // One upload at a time: the room's grant and the shell's
+            // upload say no song, so another's still under way is waited
+            // for (it may serve again if the picker comes back to it).
+            let busy = matches!(
+                self.spotlight_sharing,
+                Some((_, Sharing::Asking | Sharing::Uploading { .. }))
+            );
+            if spot.share.is_none() && !asked && !busy && self.picks.contains_key(&spot.content) {
                 let content = spot.content.clone();
                 self.spotlight_sharing = Some((content, Sharing::Asking));
                 if let Some(l) = self.online_link_mut() {
@@ -4116,13 +4130,17 @@ impl RoomClient {
             return;
         };
         if self.picks.contains_key(&spot.content)
-            || self.spotlight_asked.as_ref() == Some(&spot.content)
+            || self
+                .spotlight_asked
+                .as_ref()
+                .is_some_and(|(c, s)| *c == spot.content && s == share)
         {
             return;
         }
         let (content, share) = (spot.content.clone(), share.clone());
-        self.jobs.push(LoadJob::from_share(SPOTLIGHT, 0, share, &content.chart, None));
-        self.spotlight_asked = Some(content);
+        self.jobs
+            .push(LoadJob::from_share(SPOTLIGHT, 0, share.clone(), &content.chart, None));
+        self.spotlight_asked = Some((content, share));
     }
 
     /// An online room's content (M5d). The picker's own pick waiting for
