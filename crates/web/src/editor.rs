@@ -9,9 +9,11 @@
 //! made again (`ddi_library::edited`); the files it was imported from
 //! are never touched. A bundled song cannot be saved here: downloaded
 //! only. A download is a link clicked inside the press that asked for
-//! it (browsers allow it then). The autosave
-//! (`ddi_ui::state::editor::autosave`) is kept in local storage; opening
-//! its song again (after a reload, a closed tab) recovers it.
+//! it (browsers allow it then). A song's autosave
+//! (`ddi_ui::state::editor::autosave`) is kept in local storage under a
+//! key of its own; opening the song again (after a reload, a closed
+//! tab) recovers it, and only its own save or leaving it unsaved
+//! forgets it.
 //!
 //! Listening: the chart's music is decoded when the editor opens (on an
 //! offline context: no gesture needed), so the press that asks plays it
@@ -40,7 +42,7 @@ use ddi_platform::storage::{self, Area};
 use ddi_session::listen::{Cues, Listener};
 use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, save_failed, saved};
 use ddi_ui::state::editor::audio::{Analysis, Builder};
-use ddi_ui::state::editor::autosave::{self, Autosave};
+use ddi_ui::state::editor::autosave::{self, Autosave, Slot};
 use ddi_ui::state::editor::{Editor, export};
 use ddi_ui::{Cx, UiRequest};
 use wasm_bindgen::JsValue;
@@ -77,10 +79,18 @@ pub(crate) fn editing(id: &str) -> Option<Rc<RefCell<Editor>>> {
     })
 }
 
-/// Starts editing song `id` (what was edited before is let go).
+/// Starts editing song `id`. Another song edited before and left
+/// without a word (the browser's Back, an address typed) is let go from
+/// the session, its unsaved changes kept as its autosave first: opening
+/// it again recovers them.
 pub(crate) fn begin(id: &str, editor: Editor) -> Rc<RefCell<Editor>> {
     let editor = Rc::new(RefCell::new(editor));
     SESSION.with(|s| {
+        if let Some(old) = s.borrow().as_ref().filter(|old| old.id != id)
+            && let Err(e) = keep_now(&old.id, &old.editor.borrow())
+        {
+            web_sys::console::warn_1(&format!("editor: autosave: {e}").into());
+        }
         *s.borrow_mut() = Some(Session {
             id: id.to_string(),
             editor: editor.clone(),
@@ -134,17 +144,60 @@ pub(crate) fn playtest(id: &str) -> Option<(Song, f64)> {
     })
 }
 
+/// The page is the editor's (or its playtest's) and the song edited has
+/// unsaved changes: the browser asks before the tab closes or reloads
+/// (`crate::room::sync_unload_guard`), only then.
+pub(crate) fn unsaved_here() -> bool {
+    SESSION.with(|s| {
+        s.borrow().as_ref().is_some_and(|s| {
+            s.editor.try_borrow().is_ok_and(|e| e.is_dirty())
+                && match Route::current() {
+                    Route::Edit { song, .. } => song == s.id,
+                    Route::Play(p) => p.edit && p.song == s.id,
+                    _ => false,
+                }
+        })
+    })
+}
+
+/// Keeps song `id` as edited now, where it has unsaved changes.
+fn keep_now(id: &str, editor: &Editor) -> Result<(), String> {
+    if !editor.is_dirty() {
+        return Ok(());
+    }
+    autosave::keep(&Autosaves, &editor.autosave(id, storage::now_ms()))
+}
+
 fn end() {
     SESSION.with(|s| *s.borrow_mut() = None);
 }
 
-/// The autosave of song `id`, if the last song edited was it.
-pub(crate) fn autosaved(id: &str) -> Option<Autosave> {
-    storage::load::<Autosave>(Area::Local, autosave::KEY).filter(|a| a.song_id == id)
+/// The autosaves in local storage.
+struct Autosaves;
+
+impl autosave::Slots for Autosaves {
+    fn read(&self, slot: &Slot) -> Option<String> {
+        storage::get(Area::Local, &slot.key())
+    }
+
+    fn write(&self, slot: &Slot, json: &str) -> Result<(), String> {
+        storage::set(Area::Local, &slot.key(), json)
+    }
+
+    fn remove(&self, slot: &Slot) {
+        storage::remove(Area::Local, &slot.key());
+    }
 }
 
-fn forget_autosave() {
-    storage::remove(Area::Local, autosave::KEY);
+/// The autosave of song `id`, if one is kept.
+pub(crate) fn autosaved(id: &str) -> Option<Autosave> {
+    autosave::load(&Autosaves, id)
+}
+
+/// Song `id`'s autosave forgotten (saved, or left without saving): no
+/// other song's.
+fn forget_autosave(id: &str) {
+    autosave::forget(&Autosaves, id);
 }
 
 /// What the web can do with song `id`.
@@ -301,7 +354,7 @@ impl EditorHost for WebEditorHost {
                 wasm_bindgen_futures::spawn_local(async move {
                     let m = match save_imported(&id, &text).await {
                         Ok(()) => {
-                            forget_autosave();
+                            forget_autosave(&id);
                             SESSION.with(|s| {
                                 if let Some(s) = s.borrow_mut().as_mut().filter(|s| s.id == id) {
                                     s.fresh = false;
@@ -325,6 +378,10 @@ impl EditorHost for WebEditorHost {
             }
             EditorCall::Playtest { from_cursor, auto } => {
                 let (song, chart, start) = editor.playtest(from_cursor);
+                // The page is left for the play's: kept first.
+                if let Err(e) = keep_now(&self.id, editor) {
+                    web_sys::console::warn_1(&format!("editor: autosave: {e}").into());
+                }
                 SESSION.with(|s| {
                     if let Some(s) = s.borrow_mut().as_mut() {
                         s.playtest = Some((song, start));
@@ -378,7 +435,7 @@ impl EditorHost for WebEditorHost {
             EditorCall::Cues => self.listen.borrow_mut().listener.set_cues(Cues::of(editor)),
             EditorCall::Autosave => {
                 let a = editor.autosave(&self.id, storage::now_ms());
-                if let Err(e) = storage::save(Area::Local, autosave::KEY, &a) {
+                if let Err(e) = autosave::keep(&Autosaves, &a) {
                     web_sys::console::warn_1(&format!("editor: autosave: {e}").into());
                 }
             }
@@ -387,7 +444,7 @@ impl EditorHost for WebEditorHost {
                     forget_new(&self.id);
                 }
                 end();
-                forget_autosave();
+                forget_autosave(&self.id);
                 self.listen.borrow_mut().stop();
                 cx.request(UiRequest::Back);
             }

@@ -322,10 +322,13 @@ Each step is a commit; steps 1 and 2 can land without any screen.
    downloads as `.ssc` (or `.sm`), a link clicked inside the press.
    The autosave (`ddi_ui::state::editor::autosave`): every 5 s while
    there are unsaved changes the song as edited is kept (a wake-up at
-   that time, `Screen::wake_at`, with no frames drawn meanwhile; desktop:
-   `editor-autosave.json` in the data folder; the web: `ddi.editor.v1`
-   in local storage), forgotten by a save or by leaving; opening that
-   song again recovers it, unsaved, and says so.
+   that time, `Screen::wake_at`, with no frames drawn meanwhile; a slot
+   a song since 2026-11-15, desktop: `editor-autosave/<name>.json` in
+   the data folder; the web: `ddi.editor.v1:<name>` in local storage;
+   the one slot of earlier builds still read for its song), forgotten
+   only by that song's own save or by leaving it without saving, never
+   by another song opened, left or saved; opening the song again
+   recovers it, unsaved, and says so with its title.
 8. **Entry points**: song select's E on both shells
    (`SelectScreen::with_editing`, `SelectCall::Edit`); the web's route
    `#/edit?song=<id>&chart=<n>`; desktop's `--edit SONG [--chart N]`

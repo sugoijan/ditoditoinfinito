@@ -188,6 +188,8 @@ pub struct ConfirmDialog {
     /// A button between the two that does something first and leaves the
     /// dialog open ("Export first").
     extra: Option<(String, ConfirmFn)>,
+    /// The button between answers the question too: the dialog closes.
+    extra_closes: bool,
     /// The first button's words where they are not Cancel ("Stay").
     no: Option<String>,
     /// The screen's name where a shell or a test tells it from the other
@@ -204,6 +206,7 @@ impl ConfirmDialog {
             yes: yes.into(),
             on_yes,
             extra: None,
+            extra_closes: false,
             no: None,
             name: "confirm",
         }
@@ -226,6 +229,17 @@ impl ConfirmDialog {
     /// runs `on` and keeps the dialog open.
     pub fn with_extra(mut self, label: &str, on: ConfirmFn) -> ConfirmDialog {
         self.extra = Some((label.into(), on));
+        self
+    }
+}
+
+impl ConfirmDialog {
+    /// With a button `label` between the two that is a third answer
+    /// ("Save" between Stay and Discard): it runs `on` and the dialog
+    /// closes.
+    pub fn with_answer(mut self, label: &str, on: ConfirmFn) -> ConfirmDialog {
+        self.extra = Some((label.into(), on));
+        self.extra_closes = true;
         self
     }
 }
@@ -286,6 +300,9 @@ impl Screen for ConfirmDialog {
             Input::Activate { name } if name == "Extra" => {
                 if let Some((_, on)) = &self.extra {
                     on(cx);
+                }
+                if self.extra_closes {
+                    cx.close(false);
                 }
                 Handled::Yes
             }

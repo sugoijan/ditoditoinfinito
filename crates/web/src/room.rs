@@ -294,8 +294,9 @@ fn tell_due(room: &SharedRoom) {
 
 /// Registers the browser's `beforeunload` question (closing or reloading
 /// the tab: the browser shows its own words, and only once the person
-/// has used the page) while leaving a room costs something, and removes
-/// it otherwise: never there for singleplayer, nor for a room that can be
+/// has used the page) while leaving a room costs something or the chart
+/// editor has unsaved changes on its page, and removes it otherwise:
+/// never there for the rest of singleplayer, nor for a room that can be
 /// left at no cost. Called each frame of the UI's pages; cheap.
 ///
 /// The page cannot tell the room it goes (nothing sent from an unload
@@ -308,7 +309,8 @@ pub(crate) fn sync_unload_guard() {
     leave_left_online(&page);
     leave_left_audience(&page);
     run_over(&page);
-    let want = leaving_costs(&page);
+    // And while the chart editor has unsaved changes on its page.
+    let want = leaving_costs(&page) || crate::editor::unsaved_here();
     UNLOAD_GUARD.with_borrow_mut(|guard| {
         if !want {
             *guard = None;

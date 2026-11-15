@@ -2506,6 +2506,56 @@ mod tests {
         crate::room::discard();
     }
 
+    /// Review studio-editor-2: the window's close with unsaved edits in
+    /// the chart editor asks first (Stay, Save, Discard) instead of
+    /// quitting; asked again while the question is open, or with nothing
+    /// unsaved, the game quits.
+    #[test]
+    fn a_close_request_over_unsaved_edits_asks_first() {
+        crate::audio::set_headless(true);
+        let top = |shell: &Shell| {
+            shell
+                .ui
+                .layers()
+                .last()
+                .map(|l| l.name.clone())
+                .unwrap_or_default()
+        };
+        let frames = |shell: &mut Shell| {
+            for _ in 0..12 {
+                shell.ui.update(1.0 / 30.0);
+                let out = shell.ui.take_requests();
+                shell.run(out);
+            }
+        };
+        // The sample's song has unsaved changes; `edit` false: saved.
+        let editor = |edit: bool| {
+            let mut shell = Shell::named("start");
+            let env = shell.theme.as_ref().expect("the theme").0.clone();
+            let screen = ddi_ui::screens::sample::editor_screen(&env, false);
+            if !edit {
+                screen.editor().borrow_mut().mark_saved();
+            }
+            shell.ui.push(screen);
+            frames(&mut shell);
+            assert_eq!(top(&shell), "editor");
+            shell
+        };
+        let mut shell = editor(false);
+        shell.close_requested();
+        assert!(shell.quitting(), "nothing unsaved: at once");
+        let mut shell = editor(true);
+        assert!(shell.ui.guards_leaving());
+        shell.close_requested();
+        frames(&mut shell);
+        assert!(!shell.quitting(), "asked first");
+        assert_eq!(top(&shell), ddi_ui::LEAVE_QUESTION);
+        // Asked again while the question is open: a person who wants out
+        // is not held (the autosave keeps the song).
+        shell.close_requested();
+        assert!(shell.quitting());
+    }
+
     #[test]
     fn the_key_that_opens_a_field_does_not_type_itself() {
         let none = Modifiers::default();

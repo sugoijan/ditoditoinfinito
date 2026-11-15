@@ -122,7 +122,7 @@ impl EditPage {
         });
         let debug = crate::editor::debug(&host.listen);
         let status: String = if std::mem::take(&mut self.recovered) {
-            ddi_l10n::msg::editor::status_recovered().into()
+            ddi_l10n::msg::editor::status_recovered(editor.borrow().song().title.as_str()).into()
         } else if crate::editor::fresh(&id) {
             ddi_l10n::msg::editor::status_new_song().into()
         } else {

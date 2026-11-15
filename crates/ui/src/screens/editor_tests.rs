@@ -389,6 +389,105 @@ fn leaving_unsaved_asks() {
     assert_eq!(s.h.ui.layers().len(), 0);
 }
 
+/// Review studio-editor-2: the editor asks before it is left while it
+/// has unsaved changes, by the ways the shells leave a screen too (the
+/// browser's Back through the guard's history entry, the window's
+/// close): Stay, Save (saved, then left) or Discard; the guard is there
+/// only while there are unsaved changes.
+#[test]
+fn unsaved_edits_guard_the_editor_against_being_left() {
+    let quit = |h: &mut Harness| {
+        h.ui.broadcast(crate::Message::new(crate::CLOSE_REQUESTED));
+        let out = h.ui.take_requests();
+        h.run(0.3);
+        out
+    };
+    let top = |s: &Setup| s.h.ui.layers().last().map(|l| l.name.clone());
+    // Clean: no guard (no extra history entry, no `beforeunload`).
+    let mut s = setup([1280.0, 720.0], DESIGN);
+    assert!(!s.h.ui.guards_leaving());
+    // Edited: guarded; the window's close asks, Stay stays.
+    s.h.key("Digit1", "1");
+    s.h.run(0.1);
+    assert!(s.h.ui.guards_leaving());
+    assert!(quit(&mut s.h).is_empty(), "nothing quits yet");
+    assert_eq!(top(&s).as_deref(), Some(crate::LEAVE_QUESTION));
+    let texts = s.h.texts();
+    for word in ["Leave without saving?", "Stay", "Save", "Discard"] {
+        assert!(texts.iter().any(|t| t == word), "{word}: {texts:?}");
+    }
+    s.h.tap(PointerKind::Mouse, "Cancel");
+    s.h.run(0.3);
+    assert_eq!(top(&s).as_deref(), Some("editor"));
+    assert!(s.h.ui.guards_leaving());
+    assert!(!s.host.calls.borrow().contains(&EditorCall::Leave));
+    // Discard: the shell is told to forget the song, and the game quits.
+    quit(&mut s.h);
+    let out = s.h.tap(PointerKind::Mouse, "Confirm");
+    s.h.run(0.3);
+    assert_eq!(s.host.calls.borrow().last(), Some(&EditorCall::Leave));
+    assert!(out.contains(&crate::UiRequest::Quit), "{out:?}");
+    assert!(!s.h.ui.guards_leaving(), "left: nothing guards any more");
+
+    // Save: its own question first (a file is replaced), then saved,
+    // then left; by Back the screen closes and nothing quits.
+    let mut s = setup([1280.0, 720.0], DESIGN);
+    s.h.key("Digit1", "1");
+    s.h.key("Escape", "Escape");
+    s.h.run(0.3);
+    s.h.tap(PointerKind::Mouse, "Extra");
+    s.h.run(0.3);
+    assert!(s.h.texts().iter().any(|t| t == "Save over the song?"));
+    let out = s.h.tap(PointerKind::Mouse, "Confirm");
+    s.h.run(0.3);
+    let calls = s.host.calls.borrow().clone();
+    assert!(
+        matches!(
+            &calls[calls.len() - 2..],
+            [EditorCall::Save { .. }, EditorCall::Leave]
+        ),
+        "{calls:?}"
+    );
+    assert!(!out.contains(&crate::UiRequest::Quit));
+    assert_eq!(s.h.ui.layers().len(), 0, "left once saved");
+
+    // A save that fails leaves nothing: the editor stays, still guarded.
+    let mut s = setup([1280.0, 720.0], DESIGN);
+    *s.host.fail.borrow_mut() = Some("disk full".into());
+    s.h.key("Digit1", "1");
+    quit(&mut s.h);
+    s.h.tap(PointerKind::Mouse, "Extra");
+    s.h.run(0.3);
+    let out = s.h.tap(PointerKind::Mouse, "Confirm");
+    s.h.run(0.3);
+    assert!(!out.contains(&crate::UiRequest::Quit));
+    assert_eq!(top(&s).as_deref(), Some("editor"));
+    assert!(s.h.ui.guards_leaving());
+    assert_eq!(s.env.state.borrow().status, "Not saved: disk full");
+    // Saved by hand later, it does not leave by itself.
+    *s.host.fail.borrow_mut() = None;
+    s.h.tap(PointerKind::Mouse, "Button.Save");
+    s.h.run(0.2);
+    s.h.tap(PointerKind::Mouse, "Confirm");
+    s.h.run(0.3);
+    assert_eq!(top(&s).as_deref(), Some("editor"));
+    assert!(!s.h.ui.guards_leaving(), "saved: no guard");
+
+    // A song that cannot be saved in place has no Save answer.
+    let env = env();
+    let mut h = harness();
+    h.push(EditorScreen::new(
+        env.clone(),
+        Editor::new_song(Some("song.ogg".into()), "Bundled"),
+        EditorPlace::default(),
+    ));
+    h.run(0.4);
+    h.key("Digit1", "1");
+    quit(&mut h);
+    assert!(h.texts().iter().any(|t| t == "Discard"));
+    assert!(!h.texts().iter().any(|t| t == "Save"));
+}
+
 #[test]
 fn the_menu_and_the_timing_dialog() {
     for (size, design) in SIZES {

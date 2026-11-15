@@ -13,9 +13,10 @@
 //! is left as it is). Written whole (`crate::paths::write_whole`), so a
 //! failed write leaves the old file whole. A bundled song or
 //! one read from a zip is not saved in place: a copy only. The song's
-//! pack is read again after a save. The autosave
-//! (`ddi_ui::state::editor::autosave`) is `editor-autosave.json` in the
-//! data folder: opening its song again recovers it.
+//! pack is read again after a save. A song's autosave
+//! (`ddi_ui::state::editor::autosave`) is a file of its own in the data
+//! folder's `editor-autosave/`: opening the song again recovers it, and
+//! only its own save or leaving it unsaved forgets it.
 //!
 //! A new song from a music file (`new_song`) gets a folder when it is
 //! made; left before its first save, the folder is removed again.
@@ -40,7 +41,7 @@ use ddi_ui::screens::editor::{
 use ddi_ui::screens::editor_field::{FieldPicture, SkinField};
 use ddi_ui::screens::select::SelectCall;
 use ddi_ui::state::editor::audio::{Analysis, Builder};
-use ddi_ui::state::editor::autosave::Autosave;
+use ddi_ui::state::editor::autosave::{self, Autosave, Slot};
 use ddi_ui::state::editor::{Editor, export};
 use ddi_ui::state::settings::Settings;
 
@@ -114,22 +115,49 @@ pub fn save(song: &Song, file: &Path, backup: bool) -> Result<(), String> {
     crate::paths::write_whole(file, text.as_bytes()).map_err(|e| e.to_string())
 }
 
-/// Where the autosave is kept.
-fn autosave_path() -> Option<PathBuf> {
-    Some(crate::paths::data_dir()?.join("editor-autosave.json"))
+/// The autosaves in folder `dir` (the data folder): a song's own in
+/// `editor-autosave/<name>.json`, the one slot of earlier builds
+/// `editor-autosave.json`.
+pub struct Autosaves(pub PathBuf);
+
+impl Autosaves {
+    /// The data folder's.
+    fn here() -> Option<Autosaves> {
+        crate::paths::data_dir().map(Autosaves)
+    }
+
+    fn path(&self, slot: &Slot) -> PathBuf {
+        match slot {
+            Slot::Legacy => self.0.join("editor-autosave.json"),
+            Slot::Song(name) => self.0.join("editor-autosave").join(format!("{name}.json")),
+        }
+    }
 }
 
-/// The autosave of song `id`, if the last song edited was it.
+impl autosave::Slots for Autosaves {
+    fn read(&self, slot: &Slot) -> Option<String> {
+        std::fs::read_to_string(self.path(slot)).ok()
+    }
+
+    fn write(&self, slot: &Slot, json: &str) -> Result<(), String> {
+        crate::paths::write_whole(&self.path(slot), json.as_bytes()).map_err(|e| e.to_string())
+    }
+
+    fn remove(&self, slot: &Slot) {
+        let _ = std::fs::remove_file(self.path(slot));
+    }
+}
+
+/// The autosave of song `id`, if one is kept.
 pub fn autosaved(id: &str) -> Option<Autosave> {
-    let text = std::fs::read_to_string(autosave_path()?).ok()?;
-    serde_json::from_str::<Autosave>(&text)
-        .ok()
-        .filter(|a| a.song_id == id)
+    autosave::load(&Autosaves::here()?, id)
 }
 
-fn forget_autosave() {
-    if let Some(p) = autosave_path() {
-        let _ = std::fs::remove_file(p);
+/// Song `id`'s autosave forgotten (saved, or left without saving): no
+/// other song's.
+fn forget_autosave(id: &str) {
+    if let Some(slots) = Autosaves::here() {
+        autosave::forget(&slots, id);
     }
 }
 
@@ -266,7 +294,7 @@ impl EditorHost for Host {
                             Ok(()) => {
                                 self.backed_up.set(self.backed_up.get() || backup);
                                 self.fresh.borrow_mut().take();
-                                forget_autosave();
+                                forget_autosave(&self.id);
                                 // The song list reads the pack again.
                                 self.songs
                                     .call(SelectCall::Reread(t.pack.clone()), None, cx);
@@ -300,6 +328,10 @@ impl EditorHost for Host {
                 }
             }
             EditorCall::Playtest { from_cursor, auto } => {
+                // A play is not held by a close request: kept first.
+                if editor.is_dirty() {
+                    self.call(EditorCall::Autosave, editor, cx);
+                }
                 let (song, chart, start) = editor.playtest(from_cursor);
                 let mut r = crate::play::Request::song(&self.id, chart, auto);
                 r.edited = Some(Arc::new(song));
@@ -308,14 +340,14 @@ impl EditorHost for Host {
             }
             EditorCall::Autosave => {
                 let a = editor.autosave(&self.id, crate::clock::epoch_ms());
-                if let (Some(path), Ok(json)) = (autosave_path(), serde_json::to_string(&a))
-                    && let Err(e) = crate::paths::write_whole(&path, json.as_bytes())
+                if let Some(slots) = Autosaves::here()
+                    && let Err(e) = autosave::keep(&slots, &a)
                 {
                     eprintln!("editor: autosave: {e}");
                 }
             }
             EditorCall::Leave => {
-                forget_autosave();
+                forget_autosave(&self.id);
                 self.listen.borrow_mut().stop();
                 if let Some(dir) = self.fresh.borrow_mut().take() {
                     new_song::forget(&self.songs, &self.id, &dir);
@@ -394,8 +426,8 @@ pub fn screen(
 ) -> Result<EditorScreen, String> {
     // Unsaved changes from before (a crash, the window closed) come back.
     let recovered = autosaved(id);
-    let status = recovered.as_ref().map_or(String::new(), |_| {
-        ddi_l10n::msg::editor::status_recovered().into()
+    let status = recovered.as_ref().map_or(String::new(), |a| {
+        ddi_l10n::msg::editor::status_recovered(a.song.title.as_str()).into()
     });
     let editor = match recovered {
         Some(a) => Editor::recover(a),
@@ -481,6 +513,28 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names.len(), 2, "{names:?}");
+    }
+
+    /// Review studio-editor-1: the autosaves in the data folder are a
+    /// song's own; another song forgotten (opened and left, saved)
+    /// leaves them, and the one file of earlier builds is still read.
+    #[test]
+    fn another_song_left_or_saved_keeps_this_song_s_autosave() {
+        let slots = Autosaves(scratch("autosaves"));
+        let mut e = Editor::new_song(Some("a.ogg".into()), "A");
+        e.mark_saved();
+        e.toggle_at(1, ddi_chart::Tick::from_beats(2));
+        autosave::keep(&slots, &e.autosave("pack:a", 1.0)).unwrap();
+        autosave::forget(&slots, "pack:b");
+        assert_eq!(autosave::load(&slots, "pack:a").unwrap().song, *e.song());
+        // Earlier builds' one file, of another song.
+        let old = serde_json::to_string(&e.autosave("pack:c", 1.0)).unwrap();
+        std::fs::write(slots.0.join("editor-autosave.json"), old).unwrap();
+        autosave::forget(&slots, "pack:b");
+        assert!(autosave::load(&slots, "pack:c").is_some());
+        autosave::forget(&slots, "pack:a");
+        assert!(autosave::load(&slots, "pack:a").is_none());
+        assert!(autosave::load(&slots, "pack:c").is_some());
     }
 
     /// An `.sm` song of the library edited, saved as `.ssc` beside it

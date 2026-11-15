@@ -399,7 +399,9 @@ editor-recorded-on-grid = on the grid on average, ±{ $spread } ms
 
 # The editor opened on changes kept from before (the game closed without
 # saving them).
-editor-status-recovered = Unsaved changes recovered from the last time; leave without saving to drop them
+# Variables:
+#   $title (String) - the song's title ("Beatucada")
+editor-status-recovered = Unsaved changes to { $title } recovered from the last time; leave without saving to drop them
 
 # The editor opened on a song just made from a music file.
 editor-status-new-song = A new song: saving keeps it
@@ -583,6 +585,8 @@ editor-save-over-body = { $platform ->
    *[desktop] { $file } is replaced; the file as it was is kept beside it as { $name }.old (at the first save each time the editor is opened). Charts whose notes changed are new charts for the play history.
 }
 
+# The editor is being left with unsaved changes (Back, the browser's
+# Back, the window closing).
 editor-leave-title = Leave without saving?
 
 editor-leave-body = The changes since the last save are lost.
@@ -595,8 +599,12 @@ editor-leave-new-song-body = { $platform ->
    *[desktop] The new song is not kept: its folder is removed.
 }
 
-# The button that leaves without saving.
-editor-leave = Leave
+# Its first button (about 8 letters): nothing changes, the editor stays
+# open. Between it and the last one is Save, where the song can be saved.
+editor-leave-stay = Stay
+
+# Its last button (about 8 letters): leaves, the unsaved changes dropped.
+editor-leave-discard = Discard
 
 ## The timing at the cursor (T): a list of what is there, a button each
 ## (about 32 letters), under a line saying where.

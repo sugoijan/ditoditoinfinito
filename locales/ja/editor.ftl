@@ -181,7 +181,7 @@ editor-recorded-early = 平均{ $ms } ms早め、±{ $spread } ms
 
 editor-recorded-on-grid = 平均のずれなし、±{ $spread } ms
 
-editor-status-recovered = 前回の未保存の変更を復元しました。破棄するには保存せずに終了します。
+editor-status-recovered = 「{ $title }」の前回の未保存の変更を復元しました。破棄するには保存せずに終了します。
 
 editor-status-new-song = 新しい曲です。保存すると残ります。
 
@@ -315,7 +315,9 @@ editor-leave-new-song-body = { $platform ->
    *[desktop] 新しい曲は残りません。そのフォルダーは削除されます。
 }
 
-editor-leave = 終了
+editor-leave-stay = 残る
+
+editor-leave-discard = 破棄
 
 editor-timing-title = タイミング
 

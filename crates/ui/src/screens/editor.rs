@@ -431,6 +431,9 @@ pub struct EditorScreen {
     seq: u64,
     /// The editor was left: the shell draws no field any more.
     left: bool,
+    /// The leave question's Save was chosen: once the save ends well the
+    /// editor is left (`true`: and the game quits).
+    after_save: Option<bool>,
 }
 
 impl EditorScreen {
@@ -478,6 +481,7 @@ impl EditorScreen {
             events: Vec::new(),
             seq: 0,
             left: false,
+            after_save: None,
         }
     }
 
@@ -1486,6 +1490,13 @@ impl EditorScreen {
     }
 
     fn save(&mut self, cx: &mut Cx) {
+        self.save_then(None, cx);
+    }
+
+    /// Saves; `after`: the editor is left once it ends well
+    /// ([`EditorScreen::after_save`]).
+    fn save_then(&mut self, after: Option<bool>, cx: &mut Cx) {
+        self.after_save = after;
         if self.place.save.is_none() {
             self.say(em::status_cannot_save());
             return;
@@ -1523,36 +1534,63 @@ impl EditorScreen {
     }
 
     fn back(&mut self, cx: &mut Cx) {
+        self.leave(false, cx);
+    }
+
+    /// The editor is to be left: by Back (`quit` false: a key, the
+    /// header's, the menu's, the browser's, which the guard's history
+    /// entry turns into this) or because the window is to close (`quit`:
+    /// the game quits after, [`crate::ui::CLOSE_REQUESTED`]). With
+    /// unsaved changes it asks first: Stay, Save (where the song can be
+    /// saved: saved, then left) or Discard (left as it was last saved,
+    /// its autosave forgotten).
+    fn leave(&mut self, quit: bool, cx: &mut Cx) {
         self.stop_listening(cx);
         if !self.editor.borrow().is_dirty() {
             self.call(EditorCall::Leave, cx);
-            self.gone();
-            cx.close(true);
+            self.left_now(quit, cx);
             return;
         }
         let host = self.host.clone();
         let editor = self.editor.clone();
-        let leave = Rc::new(move |cx: &mut Cx| {
+        let by = if quit { "quit" } else { "back" };
+        let discard = Rc::new(move |cx: &mut Cx| {
             if let Some(h) = &host {
                 h.call(EditorCall::Leave, &editor.borrow(), cx);
             }
-            cx.broadcast(Message::new(LEAVE));
+            cx.broadcast(Message::new(LEAVE).with("Action", Param::Str(by.into())));
         });
         let body = if self.place.new_song {
             em::leave_new_song_body(self.env.platform.l10n())
         } else {
             em::leave_body()
         };
-        cx.overlay(
-            ConfirmDialog::new(
-                self.env.clone(),
-                &em::leave_title(),
-                &body,
-                &em::leave(),
-                leave,
-            ),
-            true,
-        );
+        let mut question = ConfirmDialog::new(
+            self.env.clone(),
+            &em::leave_title(),
+            &body,
+            &em::leave_discard(),
+            discard,
+        )
+        .with_no(&em::leave_stay())
+        .named(crate::ui::LEAVE_QUESTION);
+        if self.place.save.is_some() {
+            let save = Rc::new(move |cx: &mut Cx| {
+                cx.broadcast(Message::new(LEAVE_SAVE).with("Action", Param::Str(by.into())));
+            });
+            question = question.with_answer(&common::save(), save);
+        }
+        cx.overlay(question, true);
+    }
+
+    /// The editor goes (clean, or its changes discarded or saved).
+    fn left_now(&mut self, quit: bool, cx: &mut Cx) {
+        self.gone();
+        if quit {
+            cx.request(crate::UiRequest::Quit);
+        } else {
+            cx.close(true);
+        }
     }
 
     fn open_menu(&mut self, cx: &mut Cx) {
@@ -2536,8 +2574,12 @@ pub(super) const ACTION: &str = "EditorAction";
 pub(super) const TIMING: &str = "EditorTiming";
 pub(super) const SONG: &str = "EditorSong";
 pub(super) const CHART: &str = "EditorChart";
-/// Leave confirmed.
+/// Leave confirmed, the changes discarded (`Action`: `back`, or `quit`
+/// where the window is to close).
 const LEAVE: &str = "EditorLeave";
+/// The leave question's Save: saved first, then left (`Action` as
+/// [`LEAVE`]'s).
+const LEAVE_SAVE: &str = "EditorLeaveSave";
 
 fn parse_number(t: &str) -> Result<f64, String> {
     t.trim()
@@ -2666,6 +2708,12 @@ impl Screen for EditorScreen {
         true
     }
 
+    /// Unsaved changes: the editor asks before it is left, by the
+    /// browser's Back and the window's close too.
+    fn guards_leaving(&self) -> bool {
+        !self.left && self.editor.borrow().is_dirty()
+    }
+
     fn separate_controller_start(&self) -> bool {
         true
     }
@@ -2779,17 +2827,38 @@ impl Screen for EditorScreen {
             SONG => self.song_action(id, cx),
             CHART => self.chart_action(id, cx),
             LEAVE => {
-                self.gone();
-                cx.close(true);
+                self.left_now(id == "quit", cx);
                 return;
             }
+            LEAVE_SAVE => {
+                // Left once the save ends well (its own question, where
+                // it replaces a file, comes first).
+                self.save_then(Some(id == "quit"), cx);
+            }
+            // The window is to close: asked here, where the editor is
+            // the screen shown.
+            crate::ui::CLOSE_REQUESTED if cx.is_current_screen() && !self.left => {
+                self.leave(true, cx);
+            }
             SAVED => match (m.int("Revision"), m.str("Error")) {
-                (_, Some(e)) => self.say(em::status_not_saved(super::errors::error_text(e))),
+                (_, Some(e)) => {
+                    self.after_save = None;
+                    self.say(em::status_not_saved(super::errors::error_text(e)))
+                }
                 (Some(r), _) => {
                     let r = (r >= 0).then_some(r as u64);
                     self.editor.borrow_mut().mark_saved_at(r);
                     self.place.new_song = false;
                     self.say(em::status_saved());
+                    // The leave question's Save: left now, unless the
+                    // song was edited again meanwhile.
+                    if let Some(quit) = self.after_save.take()
+                        && !self.editor.borrow().is_dirty()
+                    {
+                        self.call(EditorCall::Leave, cx);
+                        self.left_now(quit, cx);
+                        return;
+                    }
                 }
                 _ => {}
             },
