@@ -6,7 +6,11 @@
 //! menu: online room `Room000001` is then a fake room in the page
 //! (`ddi_room::fake`), whose owner, alice, is scripted: S seconds after
 //! the player's client connected she picks a bundled song, her upload of
-//! it is answered as the server would, and she readies. The player
+//! it is answered as the server would, and she readies. Her match has two
+//! stages: three seconds into a stage's play she reports her run (so the
+//! stage is decided once the player's own play ended or was left), and S
+//! seconds after the first stage's results she picks the second (the
+//! notice over a stage's results, decisions round D4). The player
 //! ("you", signed in as the fake room's `dev:you`) is a real member's
 //! client over the fake room's socket: the room's song select, the pages
 //! over it, the kept room run under them, the notice, the stage's prompt
@@ -56,6 +60,13 @@ struct Fake {
     /// When the player's client was first seen connected.
     connected_at: Option<u64>,
     picked: bool,
+    /// The stage alice saw begin and when, and whether she reported her
+    /// run for it.
+    playing: Option<(ddi_room::StageId, u64, bool)>,
+    /// When the first stage was seen decided, and whether the second was
+    /// picked.
+    decided_at: Option<u64>,
+    picked_again: bool,
     _pump: Option<gloo::timers::callback::Interval>,
 }
 
@@ -92,6 +103,9 @@ fn fake() -> Rc<RefCell<Fake>> {
         member: None,
         connected_at: None,
         picked: false,
+        playing: None,
+        decided_at: None,
+        picked_again: false,
         _pump: None,
     }));
     let pumped = fake.clone();
@@ -182,6 +196,10 @@ impl Fake {
                     .unwrap_or(0);
                 let e = entry(&song, chart);
                 let mut a = alice.borrow_mut();
+                // A match of two stages.
+                let mut rules = a.rules().clone();
+                rules.stages = 2;
+                let _ = a.save_rules(rules);
                 if let Err(why) = a.pick(&e, &e.charts[0]) {
                     web_sys::console::warn_1(&format!("fake room: the pick: {why:?}").into());
                 }
@@ -209,6 +227,44 @@ impl Fake {
         if let Some(order) = a.take_stage_order() {
             let _ = a.set_ready(true);
             let _ = order;
+        }
+        // Her run, three seconds into the stage's play.
+        if let ddi_room::Phase::Stage { stage } = a.state().phase {
+            let (seen, at, reported) = self.playing.unwrap_or((stage, now, false));
+            let (at, reported) = if seen == stage { (at, reported) } else { (now, false) };
+            let report = !reported && now >= at + 3_000;
+            if report {
+                let run = ddi_room::Run::Live {
+                    life: 0.8,
+                    score: 0,
+                    steps: 0,
+                };
+                let _ = a.report_run(stage, run, None);
+            }
+            self.playing = Some((stage, at, reported || report));
+        }
+        // The second stage, S seconds after the first was decided.
+        if matches!(a.state().phase, ddi_room::Phase::Intermission { .. }) && !self.picked_again {
+            let decided = *self.decided_at.get_or_insert(now);
+            let after = (WANTED.get().unwrap_or(0.0) * 1_000.0) as u64;
+            if now >= decided + after {
+                self.picked_again = true;
+                let alice = self.alice.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let Ok(song) = crate::songs::load_chart(SONG).await else {
+                        return;
+                    };
+                    let chart = (0..song.charts.len())
+                        .find(|&c| song.charts[c].layout == "dance-single")
+                        .unwrap_or(0);
+                    let e = entry(&song, chart);
+                    if let Err(why) = alice.borrow_mut().pick(&e, &e.charts[0]) {
+                        web_sys::console::warn_1(
+                            &format!("fake room: the second pick: {why:?}").into(),
+                        );
+                    }
+                });
+            }
         }
     }
 }
