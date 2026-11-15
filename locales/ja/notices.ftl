@@ -26,6 +26,8 @@ notices-only-zips = パックとして読み込めるのはZIPファイルだけ
 
 notices-new-song-failed = 新しい曲を作成できませんでした：{ $error }
 
+notices-new-song-music = 新しい曲を作成できませんでした。このファイルの音声を読み込めませんでした。Ogg、MP3、WAVのいずれかのファイルをお試しください。
+
 notices-import-running-remove-reread = インポート中です。完了するまで、削除とフォルダーの読み直しは行えません。
 
 notices-import-running-remove = インポート中です。完了するまで、削除は行えません。

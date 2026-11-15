@@ -13,7 +13,7 @@ use super::{Editor, export};
 pub const PACK: &str = "Dito Edits";
 
 /// Why a new song was not made (worded by the screens,
-/// `screens::failures::new_song_text`; `Display` is for logs).
+/// `screens::failures::new_song_notice`; `Display` is for logs).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Failure {
     /// The music file's audio cannot be decoded (checked before anything

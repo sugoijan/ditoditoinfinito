@@ -175,8 +175,13 @@ fn a_new_song_made_charted_played_saved_and_opened_again() {
             .into_iter()
             .find(|t| t.starts_with("The new song could not be made: "))
             .unwrap_or_else(|| panic!("{name}: not said: {:?}", h.texts()));
+        // A short sentence of its own; the decoder's words are the
+        // log's.
+        // (Other notices may follow it on the line.)
         assert!(
-            said.starts_with("The new song could not be made: its music could not be decoded: "),
+            said.starts_with(
+                "The new song could not be made: this file's audio could not be read. Try an Ogg, MP3 or WAV file."
+            ) && !said.contains("decoded"),
             "{name}: {said}"
         );
         assert!(env.state.borrow().editor.is_none(), "{name}: no editor");

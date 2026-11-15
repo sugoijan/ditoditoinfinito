@@ -1039,10 +1039,11 @@ pub fn screen(env: &Env, songs: &Rc<Songs>, sound: Option<SharedPlayer>) -> Sele
                         cx.push(screen);
                     }
                     Some(Err(e)) => {
+                        // The decoder's own words for the log; the
+                        // notice is short.
+                        eprintln!("new song: {e}");
                         songs.notices.borrow_mut().push(Notice::error(
-                            ddi_l10n::msg::notices::new_song_failed(
-                                ddi_ui::screens::failures::new_song_text(&e),
-                            ),
+                            ddi_ui::screens::failures::new_song_notice(&e),
                         ));
                         songs.send_notices(cx);
                     }

@@ -49,14 +49,18 @@ pub enum LoadFailure {
     Other(String),
 }
 
-/// Why a new song could not be made, after "The new song could not be
-/// made:" (`notices-new-song-failed`): its music's as a song's that
-/// fails to load says it, anything else as the system said it.
-pub fn new_song_text(why: &crate::state::editor::new_song::Failure) -> UiText {
+/// The notice that a new song could not be made: music that does not
+/// decode in a short sentence of its own (`notices-new-song-music`; the
+/// maintainer, 2026-11-15: "A short sentence, details kept out": the
+/// decoder's words go to the shell's console or log, `Failure`'s
+/// `Display`), anything else as the system said it after "The new song
+/// could not be made:" (`notices-new-song-failed`).
+pub fn new_song_notice(why: &crate::state::editor::new_song::Failure) -> UiText {
     use crate::state::editor::new_song::Failure;
+    use ddi_l10n::msg::notices as nm;
     match why {
-        Failure::Music(e) => m::load_music(error_text(e)),
-        Failure::Other(e) => error_text(e),
+        Failure::Music(_) => nm::new_song_music(),
+        Failure::Other(e) => nm::new_song_failed(error_text(e)),
     }
 }
 
@@ -219,19 +223,17 @@ pub fn share_upload_text(e: &ShareError) -> UiText {
 mod tests {
     use super::*;
 
-    /// A new song's music that does not decode is said in the words a
-    /// song that fails to load is given (no message of its own);
-    /// anything else as the system said it.
+    /// A new song's music that does not decode is said in a short
+    /// sentence of its own, without the decoder's words (those are the
+    /// log's); anything else as the system said it.
     #[test]
-    fn a_new_songs_failure_is_worded_as_a_songs_load() {
+    fn a_new_songs_music_that_does_not_decode_is_said_shortly() {
         use crate::state::editor::new_song::Failure;
         ddi_l10n::set_language("en");
-        let said = |why: Failure| -> String {
-            ddi_l10n::msg::notices::new_song_failed(new_song_text(&why)).into()
-        };
+        let said = |why: Failure| -> String { new_song_notice(&why).into() };
         assert_eq!(
             said(Failure::Music("malformed audio: no frames".into())),
-            "The new song could not be made: its music could not be decoded: malformed audio: no frames"
+            "The new song could not be made: this file's audio could not be read. Try an Ogg, MP3 or WAV file."
         );
         assert_eq!(
             said(Failure::from("no data folder")),

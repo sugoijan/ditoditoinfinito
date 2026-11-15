@@ -349,9 +349,12 @@ impl Component for SelectPage {
                 );
             }
             Msg::NewSong(Err(e)) => {
-                let reason = ddi_ui::screens::failures::new_song_text(&e);
-                ctx.link()
-                    .send_message(Msg::Say(nm::new_song_failed(reason).into()));
+                // The decoder's own words for the console; the notice is
+                // short.
+                web_sys::console::warn_1(&format!("new song: {e}").into());
+                ctx.link().send_message(Msg::Say(
+                    ddi_ui::screens::failures::new_song_notice(&e).into(),
+                ));
             }
             Msg::FromFolder(_, Err(e)) => import::report_error(e),
             Msg::FromFolder(origin, Ok(files)) => {

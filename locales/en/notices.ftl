@@ -60,6 +60,13 @@ notices-only-zips = Only zips are read as packs; left out: { $files }. A folder 
 #   $error (String) - why: its kind as errors-* say it, then the system's own words (untranslated)
 notices-new-song-failed = The new song could not be made: { $error }
 
+# The chart editor could not make a new song because the music file
+# chosen has audio the game cannot decode (a damaged file, or a format it
+# does not read). A notice over song select, kept short: the decoder's
+# own words are not shown. The formats named are ones the game reads on
+# every platform.
+notices-new-song-music = The new song could not be made: this file's audio could not be read. Try an Ogg, MP3 or WAV file.
+
 # A notice over song select: the player asked to remove something or to
 # read a folder again while an import runs.
 notices-import-running-remove-reread = An import is running: removing and reading folders again wait until it ends.

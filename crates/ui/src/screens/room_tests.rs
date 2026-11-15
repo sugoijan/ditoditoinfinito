@@ -707,7 +707,7 @@ fn the_charts_row_chooses_adaptive_where_the_room_offers_it() {
     assert_eq!(said(&h, "Rule.charts.Value"), "Adaptive");
     assert_eq!(view(&env).draft_charts.as_deref(), Some("adaptive"));
     assert!(
-        h.texts().iter().any(|t| t.starts_with("A player whose life runs out gets half")),
+        h.texts().iter().any(|t| t.starts_with("Each player's chart changes with their skill.")),
         "{:?}",
         h.texts()
     );
@@ -5194,9 +5194,9 @@ fn the_rooms_screens_draw_as_pinned() {
 
 const PINNED: [(&str, u64); 10] = [
     ("select", 9001431102370433080),
-    ("rules", 2077606742733717965),
-    ("add", 7793234522926027145),
-    ("add-level", 7905317275576826850),
+    ("rules", 11703287197652825613),
+    ("add", 4060757556082155221),
+    ("add-level", 14072735661001144764),
     ("players", 17490229943207298487),
     ("standings", 4050983496291045925),
     ("online-select", 14361459534628858177),

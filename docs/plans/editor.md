@@ -405,8 +405,11 @@ one left unsaved and gone from the list).
 
 New songs' music is checked (2026-11-15): the file is decoded whole, as
 a play decodes it, before anything is made; music that does not decode
-is refused on song select ("The new song could not be made: its music
-could not be decoded: …") and no folder, stored song or editor is made
+is refused on song select in a short sentence of its own ("The new song
+could not be made: this file's audio could not be read. Try an Ogg, MP3
+or WAV file.", `notices-new-song-music`; the decoder's words go to the
+web's console and desktop's log) and no folder, stored song or editor is
+made
 (desktop's `editor_new_song.rs` with two broken WAVs made from bytes;
 the web walked in Chrome and Firefox).
 
