@@ -34,9 +34,21 @@
 //! The motor is the same (three draws a note, 12 ms holds, the third
 //! deciding a note left out); the timing law of a row is a mixture of two
 //! normal laws on the plan's grid, cached by its spread in tenths of a
-//! millisecond. The arithmetic is the plan's own (sums, products,
-//! divisions, `ln` for the rhythm's irregularity and the normal tail's
-//! `exp`), the same natively and in wasm.
+//! millisecond. The arithmetic is the plan's own: sums, products,
+//! divisions and square roots, correctly rounded and so the same natively
+//! and in wasm, and `ln` for the rhythm's irregularity and the normal
+//! tail's `exp` (with `powf` in the shock response, `super::mines`),
+//! which are not: they come from the platform's maths library natively
+//! and from Rust's port of musl's in wasm, and may differ in the last bit
+//! (review finding engine-4). What they feed is quantized before it
+//! decides anything (the spread to tenths of a millisecond, a press to
+//! the microsecond, a draw compared to a chance), so a difference shows
+//! only where a value falls within a bit of such a boundary; the online
+//! CPUs' fixture (`ddi_session`'s `the_cpus_play_alike`) agreeing natively
+//! and in wasm is one sample of that, not a proof. Where two devices do
+//! differ, the room keeps the first report of each CPU's checkpoint and
+//! counts the other (`ddi_room::live::LiveStage::cpu_mismatches`); the
+//! shocks it commits are the same for every device either way.
 
 use super::{OMITTED, Press, Row, Skills, basis, motor, offset};
 use std::collections::BTreeMap;

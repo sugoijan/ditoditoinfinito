@@ -352,7 +352,12 @@ Challenge (11, its densest stretches shorter) out at 70 s in two seeds
 
 **Determinism and cost.** The same chart, level, seed, skills and shocks
 give the same presses at any frame rate, natively and in wasm32 (the
-online CPUs' proof, its fixture recorded again). Planning
+online CPUs' proof, its fixture recorded again), as far as the maths
+libraries' `exp`, `ln` and `powf` agree: natively the platform's, in
+wasm Rust's port of musl's, which may differ in the last bit; the model
+quantizes what they feed before it decides (review finding engine-4,
+`cpu/absolute.rs`'s note), and the room keeps a CPU's first report where
+two devices differ. Planning
 (`planning_cost`, opt-in: `cargo test --release -p ddi-engine --lib
 planning_cost -- --ignored --nocapture`, and with `--target wasm32-wasip1`
 under a WASI runner; the 31 bundled single charts, 286 rows on average):
@@ -605,7 +610,9 @@ PROVISIONAL):
   the note (its tick and lane) and what it is for, so the same chart,
   level, seed, skills and shocks give the same presses at any frame rate,
   natively and in wasm (the online CPUs' proof, `the_cpus_play_alike`,
-  its fixture recorded again and checked in wasm32-wasip1).
+  its fixture recorded again and checked in wasm32-wasip1) where the
+  maths libraries' `exp`, `ln` and `powf` agree (see "Determinism and
+  cost").
 - **Battle shocks**: placement keeps them out of a hold's span in its lane
   (`placement-v2`); a shock's response moves a hold's press with its key
   kept as long; a shock crossed with a held key (placement never puts one

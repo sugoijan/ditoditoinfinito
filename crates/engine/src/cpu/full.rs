@@ -53,7 +53,9 @@
 //! Every draw beyond the motor's is keyed by the seed, the note (its tick
 //! and lane) and what it is for (`super::mines::draw`), so the same chart,
 //! level, seed, skills and shocks give the same presses at any frame rate,
-//! natively and in wasm.
+//! and natively and in wasm as far as the maths libraries' `exp`, `ln` and
+//! `powf` agree (`super::absolute`'s note: they may differ in the last
+//! bit, which the quantization hides but at a boundary).
 
 use super::absolute::{ABSOLUTE_V1, Ability, RowDemand, law, respond, row_demands};
 use super::mines::{MINE_RESPONSE_V1, MineResponse, Purpose, draw};
