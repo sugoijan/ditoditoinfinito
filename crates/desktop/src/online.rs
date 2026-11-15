@@ -212,6 +212,9 @@ pub struct ThreadHttp {
     base: String,
     tx: Sender<(u64, ApiResponse)>,
     rx: Receiver<(u64, ApiResponse)>,
+    /// How long an answer may take ([`crate::share::ANSWER_TIMEOUT`];
+    /// a long poll's [`crate::share::LONG_POLL_TIMEOUT`]).
+    answer: std::time::Duration,
 }
 
 impl ThreadHttp {
@@ -222,7 +225,18 @@ impl ThreadHttp {
     /// Against the server at `base` (`…/ditoditoinfinito/api`).
     pub fn with_base(base: String) -> Self {
         let (tx, rx) = channel();
-        Self { base, tx, rx }
+        Self {
+            base,
+            tx,
+            rx,
+            answer: crate::share::ANSWER_TIMEOUT,
+        }
+    }
+
+    /// Answers waited for `answer` at most (a long poll's too; tests).
+    pub fn with_answer_timeout(mut self, answer: std::time::Duration) -> Self {
+        self.answer = answer;
+        self
     }
 }
 
@@ -236,10 +250,15 @@ impl Http for ThreadHttp {
     fn start(&mut self, id: u64, request: ApiRequest) {
         let tx = self.tx.clone();
         let url = format!("{}{}", self.base.trim_end_matches('/'), request.path);
+        let answer = if request.long() && self.answer == crate::share::ANSWER_TIMEOUT {
+            crate::share::LONG_POLL_TIMEOUT
+        } else {
+            self.answer
+        };
         std::thread::Builder::new()
             .name("ddi-online-http".into())
             .spawn(move || {
-                let _ = tx.send((id, send(&url, &request)));
+                let _ = tx.send((id, send(&url, &request, answer)));
             })
             .ok();
     }
@@ -249,7 +268,7 @@ impl Http for ThreadHttp {
     }
 }
 
-fn send(url: &str, request: &ApiRequest) -> ApiResponse {
+fn send(url: &str, request: &ApiRequest, answer: std::time::Duration) -> ApiResponse {
     let agent = crate::share::agent();
     let auth = request
         .poll
@@ -262,21 +281,33 @@ fn send(url: &str, request: &ApiRequest) -> ApiResponse {
             if let Some(a) = &auth {
                 r = r.header("authorization", a);
             }
-            r.call()
+            r.config()
+                .timeout_recv_response(Some(answer))
+                .timeout_recv_body(Some(answer))
+                .build()
+                .call()
         }
         (Method::Delete, _) => {
             let mut r = agent.delete(url);
             if let Some(a) = &auth {
                 r = r.header("authorization", a);
             }
-            r.call()
+            r.config()
+                .timeout_recv_response(Some(answer))
+                .timeout_recv_body(Some(answer))
+                .build()
+                .call()
         }
         (Method::Post, body) => {
             let mut r = agent.post(url).header("content-type", "application/json");
             if let Some(a) = &auth {
                 r = r.header("authorization", a);
             }
-            r.send(body.clone().unwrap_or_default())
+            r.config()
+                .timeout_recv_response(Some(answer))
+                .timeout_recv_body(Some(answer))
+                .build()
+                .send(body.clone().unwrap_or_default())
         }
     };
     match result {
@@ -412,8 +443,52 @@ impl Drop for SocketTransport {
 /// on its way out (the clock's estimate takes the round trip).
 const READ_WAIT: Duration = Duration::from_millis(10);
 
+/// How long the socket may take to connect, and each read and write of
+/// its opening (TLS, the upgrade) to come (review3 desktop-3: a server
+/// that accepts and never finishes the opening closes the socket into
+/// the link's reconnecting, never leaves it waiting for good).
+const OPEN_WAIT: Duration = Duration::from_secs(10);
+
+/// Heard nothing this long (no message, no pong), the socket sends a
+/// ping; the server's runtime answers it.
+const PING_AFTER: Duration = Duration::from_secs(10);
+
+/// Heard nothing this long, the connection is taken for gone (half-open
+/// after a network change or a sleep) and the socket closes as dropped
+/// (1006), into the link's reconnecting.
+const DEAD_AFTER: Duration = Duration::from_secs(20);
+
+/// The socket's stream: TCP to the address `url` names, in [`OPEN_WAIT`],
+/// its reads and writes bounded by it for the opening.
+fn connect_stream(url: &str) -> std::io::Result<TcpStream> {
+    use std::net::ToSocketAddrs;
+    let uri: tungstenite::http::Uri = url
+        .parse()
+        .map_err(|e| std::io::Error::new(ErrorKind::InvalidInput, format!("{e}")))?;
+    let host = uri
+        .host()
+        .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidInput, "no host"))?;
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let port = uri
+        .port_u16()
+        .unwrap_or(if uri.scheme_str() == Some("wss") { 443 } else { 80 });
+    let mut last = std::io::Error::new(ErrorKind::NotFound, "no address");
+    for addr in (host, port).to_socket_addrs()? {
+        match TcpStream::connect_timeout(&addr, OPEN_WAIT) {
+            Ok(s) => {
+                s.set_read_timeout(Some(OPEN_WAIT))?;
+                s.set_write_timeout(Some(OPEN_WAIT))?;
+                return Ok(s);
+            }
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
+
 /// The socket's thread: connect, then read (a short timeout at a time)
-/// and write what comes from the game, until either side closes.
+/// and write what comes from the game, until either side closes or the
+/// connection is heard from no more ([`DEAD_AFTER`]).
 /// [`Outgoing::Close`] from the game closes it.
 fn run_socket(url: &str, out: &Receiver<Outgoing>, events: &Sender<TransportEvent>) {
     use tungstenite::Message;
@@ -421,7 +496,13 @@ fn run_socket(url: &str, out: &Receiver<Outgoing>, events: &Sender<TransportEven
     let closed = |code: u16| {
         let _ = events.send(TransportEvent::Closed { code });
     };
-    let (mut ws, _) = match tungstenite::connect(url) {
+    let opened = connect_stream(url)
+        .map_err(|e| e.to_string())
+        .and_then(|stream| {
+            tungstenite::client_tls_with_config(url, stream, None, None)
+                .map_err(|e| e.to_string())
+        });
+    let (mut ws, _) = match opened {
         Ok(x) => x,
         Err(e) => {
             eprintln!("online: the room's socket: {e}");
@@ -438,7 +519,21 @@ fn run_socket(url: &str, out: &Receiver<Outgoing>, events: &Sender<TransportEven
         let _ = tcp.set_nodelay(true);
     }
     let _ = events.send(TransportEvent::Opened);
+    let mut heard = std::time::Instant::now();
+    let mut pinged = false;
     loop {
+        // Silence: a ping, then, still nothing, the connection gone.
+        let quiet = heard.elapsed();
+        if quiet >= DEAD_AFTER {
+            eprintln!("online: the room's socket: nothing heard for {quiet:?}");
+            return closed(1006);
+        }
+        if quiet >= PING_AFTER && !pinged {
+            pinged = true;
+            if ws.send(Message::Ping(Default::default())).is_err() {
+                return closed(1006);
+            }
+        }
         loop {
             match out.try_recv() {
                 Ok(Outgoing::Text(text)) => {
@@ -459,7 +554,12 @@ fn run_socket(url: &str, out: &Receiver<Outgoing>, events: &Sender<TransportEven
                 Err(TryRecvError::Empty) => break,
             }
         }
-        match ws.read() {
+        let read = ws.read();
+        if read.is_ok() {
+            heard = std::time::Instant::now();
+            pinged = false;
+        }
+        match read {
             Ok(Message::Text(t)) => {
                 let _ = events.send(TransportEvent::Text(t.to_string()));
             }
@@ -502,5 +602,93 @@ mod tests {
         drop(room);
         discard();
         assert!(kept.upgrade().is_none(), "the left room's client lives on");
+    }
+
+    /// A listener that accepts and never says a word, kept alive while
+    /// the test runs; its address.
+    fn silent_listener() -> (std::net::SocketAddr, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = listener.local_addr().unwrap();
+        let held = std::thread::spawn(move || {
+            let mut kept = Vec::new();
+            for _ in 0..2 {
+                if let Ok((s, _)) = listener.accept() {
+                    kept.push(s);
+                }
+            }
+            std::thread::sleep(Duration::from_secs(60));
+        });
+        (at, held)
+    }
+
+    /// review3 desktop-2: a request whose connection opens and then goes
+    /// quiet is answered as unreachable once its answer is late, never
+    /// left waiting for good (a room's ticket then asked again).
+    #[test]
+    fn a_silent_server_answers_unreachable_in_time() {
+        let (at, _held) = silent_listener();
+        let mut http = ThreadHttp::with_base(format!("http://{at}/api"))
+            .with_answer_timeout(Duration::from_secs(2));
+        http.start(7, ddi_ui::state::online::api::me());
+        let began = std::time::Instant::now();
+        loop {
+            let got = http.poll();
+            if let Some((id, r)) = got.into_iter().next() {
+                assert_eq!((id, r.status), (7, 0));
+                break;
+            }
+            assert!(began.elapsed() < Duration::from_secs(10), "never answered");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// Polls `t` until it says the socket closed, `within` at most.
+    fn closed_within(t: &mut SocketTransport, within: Duration) -> Option<u16> {
+        let began = std::time::Instant::now();
+        while began.elapsed() < within {
+            for e in t.poll() {
+                if let TransportEvent::Closed { code } = e {
+                    return Some(code);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        None
+    }
+
+    /// review3 desktop-3: a server that accepts the connection and never
+    /// finishes the socket's opening handshake: the socket closes (into
+    /// the link's reconnecting) within its bound, never hangs.
+    #[test]
+    fn a_socket_whose_handshake_never_ends_closes() {
+        let (at, _held) = silent_listener();
+        let mut t = SocketTransport::with_base(format!("http://{at}/api"));
+        t.open(&RoomId::new("Room000001"), "ticket");
+        assert_eq!(closed_within(&mut t, Duration::from_secs(40)), Some(1006));
+    }
+
+    /// review3 desktop-3: a connection gone half-open once the socket is
+    /// up (the server says nothing, answers no ping): noticed and closed
+    /// within its bound, not after TCP's minutes.
+    #[test]
+    fn a_socket_that_hears_nothing_closes() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = listener.local_addr().unwrap();
+        let _server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let _ws = tungstenite::accept(stream).unwrap();
+            // Opened, then silent: never reads, so never answers a ping.
+            std::thread::sleep(Duration::from_secs(90));
+        });
+        let mut t = SocketTransport::with_base(format!("http://{at}/api"));
+        t.open(&RoomId::new("Room000001"), "ticket");
+        let began = std::time::Instant::now();
+        let mut opened = false;
+        while !opened && began.elapsed() < Duration::from_secs(5) {
+            opened = t.poll().iter().any(|e| matches!(e, TransportEvent::Opened));
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(opened, "the socket opened");
+        assert_eq!(closed_within(&mut t, Duration::from_secs(45)), Some(1006));
     }
 }

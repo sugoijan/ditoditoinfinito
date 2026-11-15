@@ -115,7 +115,31 @@ fn download_over() {
     }
 }
 
-/// The HTTP client the share and the online rooms use (`crate::online`).
+/// How long an answer may take to begin (its status and headers), and a
+/// small answer's body to come whole (review3 desktop-2: a connection
+/// opened and gone quiet must fail as unreachable, never hang the thread
+/// waiting on it: a room's ticket then asked again, Private room's
+/// creation said failed, a share's read failing with Retry).
+pub const ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A long-polled request's (desktop's sign-in attempt): the server waits
+/// 25 s at most (`ApiRequest::long`), this is longer.
+pub const LONG_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
+
+/// The slowest a file's body may come before its download fails: bytes
+/// a second, past [`ANSWER_TIMEOUT`] ([`file_timeout`]).
+const SLOWEST_BYTES_PER_S: u64 = 32 * 1024;
+
+/// How long a file of `bytes` may take to come whole: a stalled download
+/// fails, a slow one does not.
+fn file_timeout(bytes: u64) -> std::time::Duration {
+    ANSWER_TIMEOUT + std::time::Duration::from_secs(bytes / SLOWEST_BYTES_PER_S)
+}
+
+/// The HTTP client the share and the online rooms use (`crate::online`):
+/// a connection in 20 s, an answer begun and a small body whole in
+/// [`ANSWER_TIMEOUT`] (a file's body: [`file_timeout`]; an upload's
+/// body sent: no limit).
 pub(crate) fn agent() -> ureq::Agent {
     let tls = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::NativeTls)
@@ -125,6 +149,8 @@ pub(crate) fn agent() -> ureq::Agent {
         .tls_config(tls)
         .http_status_as_error(false)
         .timeout_connect(Some(std::time::Duration::from_secs(20)))
+        .timeout_recv_response(Some(ANSWER_TIMEOUT))
+        .timeout_recv_body(Some(ANSWER_TIMEOUT))
         .user_agent("ddi-desktop")
         .build();
     ureq::Agent::new_with_config(config)
@@ -307,8 +333,12 @@ fn ensure_file(
         Some(f) if !f.url.is_empty() => contract::resolve_url(&base(), &f.url),
         _ => contract::file_url(&base(), id, n, stored),
     };
+    let bytes = listed.map_or(0, |f| f.bytes.max(0.0) as u64);
     let mut resp = agent()
         .get(&url)
+        .config()
+        .timeout_recv_body(Some(file_timeout(bytes)))
+        .build()
         .call()
         .map_err(|e| ShareError::of(named, ShareError::failed("fetching a file")(e)))?;
     if resp.status().as_u16() != 200 {
