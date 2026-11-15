@@ -737,7 +737,7 @@ room-prompt-speed-raised = Speed raised so attacks can warn in time
 room-prompt-stage = Stage { $number } of { $stages } · { $cpus ->
     [one] against one CPU
    *[other] against { $cpus } CPUs
-} on a taps-only copy · out when your life runs out
+} · out when your life runs out
 
 # The same for an online room's stage: the others play it on their own
 # devices (not shown during the play).
