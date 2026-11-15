@@ -7,7 +7,13 @@
 //! a seat in the fake room's audience (`ddi_room::fake`, in the page),
 //! whose three members stream a bundled song's chart as scripted hits
 //! (each missing every few notes), on the wall clock, pumped twenty times
-//! a second. The viewer is signed out (no session, as a fresh browser):
+//! a second. `mpfakematch=STAGES,CUT,WAIT` (each optional) makes it a
+//! match of STAGES stages (one otherwise), each cut to its first CUT
+//! seconds (the whole song otherwise), the first picked WAIT seconds
+//! after the members connected (at once otherwise); the members then
+//! say how they performed, so the stages' Standings have their lines,
+//! and the owner picks again after each stage: the audience's page
+//! before a stage, between stages and after the match (round D3). The viewer is signed out (no session, as a fresh browser):
 //! the audience link's page (`#/mp/audience/<link>`) reads the fake room's
 //! preview and its Watch joins the audience anonymously, as the server
 //! admits a join without a session. The seat, its pages, the stage handed
@@ -37,16 +43,51 @@ thread_local! {
     /// Asked for (`mpfakeseat=1`), and when to close the audience.
     static WANTED: Cell<bool> = const { Cell::new(false) };
     static END_AFTER: Cell<Option<f64>> = const { Cell::new(None) };
+    /// The match asked for (`mpfakematch`).
+    static MATCH: Cell<MatchPlan> = const {
+        Cell::new(MatchPlan {
+            stages: 1,
+            cut: None,
+            wait: 0.0,
+        })
+    };
     static FAKE: RefCell<Option<Rc<RefCell<Fake>>>> = const { RefCell::new(None) };
     /// The viewer's online state over the fake room (signed out).
     static VIEWER: RefCell<Option<SharedOnline>> = const { RefCell::new(None) };
 }
 
+/// The fake room's match (`mpfakematch=STAGES,CUT,WAIT`): its stages,
+/// the seconds each stage's song is cut to (none: the whole song) and the
+/// seconds before the first pick.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct MatchPlan {
+    pub stages: u16,
+    pub cut: Option<f64>,
+    pub wait: f64,
+}
+
+impl MatchPlan {
+    /// `STAGES,CUT,WAIT` as the address has it (parts left out or
+    /// unreadable: one stage, the whole song, at once).
+    pub(crate) fn parse(text: &str) -> MatchPlan {
+        let mut parts = text.split(',').map(|p| p.trim().parse::<f64>().ok());
+        let mut next = || parts.next().flatten().filter(|v| v.is_finite() && *v > 0.0);
+        MatchPlan {
+            stages: next().map_or(1, |v| v.clamp(1.0, 8.0) as u16),
+            cut: next(),
+            wait: next().unwrap_or(0.0),
+        }
+    }
+}
+
 /// The next audience seat is the fake room's (`end_after`: the audience
-/// closed that many seconds into the stage).
-pub(crate) fn want(end_after: Option<f64>) {
+/// closed that many seconds into the stage; `plan`: its match).
+pub(crate) fn want(end_after: Option<f64>, plan: Option<MatchPlan>) {
     WANTED.set(true);
     END_AFTER.set(end_after);
+    if let Some(plan) = plan {
+        MATCH.set(plan);
+    }
 }
 
 /// Whether the audience is the fake room's: asked for, and only on an
@@ -82,6 +123,10 @@ struct Fake {
     step: Step,
     scripts: Vec<Script>,
     closed: bool,
+    /// When every member was first seen connected (ms).
+    connected_at: Option<u64>,
+    /// When the stage played last was first seen settled (ms).
+    settled_at: Option<u64>,
     _pump: Option<gloo::timers::callback::Interval>,
 }
 
@@ -91,6 +136,11 @@ enum Step {
     Picked,
     Readied(StageId),
     Playing(StageId, ddi_room::Millis),
+    /// The stage's streams ended and the members said how they performed:
+    /// the room settles it, then the owner picks the next one.
+    Played(StageId),
+    /// The match is over.
+    Done,
 }
 
 /// HTTP answered from the fake room: who `who` is (none: the viewer,
@@ -217,7 +267,28 @@ struct Script {
 }
 
 impl Script {
-    fn new(song: &ddi_chart::Song, chart: usize, miss: u32) -> Script {
+    /// How the member performed, as their device would say it for the
+    /// stage's Standings: counted from what the script sent.
+    fn detail(&self) -> ddi_room::RunDetail {
+        let sent = &self.moments[..self.sent];
+        let missed = sent
+            .iter()
+            .filter(|m| matches!(m.kind, MomentKind::Tap { tier: 5, .. }))
+            .count() as u32;
+        let hit = sent.len() as u32 - missed;
+        let last = sent.last();
+        ddi_room::RunDetail {
+            score: last.map(|m| m.score),
+            percent: Some((i64::from(hit) * 10_000 / i64::from((hit + missed).max(1))) as i32),
+            grade: if missed * 12 < hit { "A" } else { "B" }.into(),
+            life_ppm: last.map_or(1_000_000, |m| m.life_ppm),
+            max_combo: sent.iter().map(|m| m.combo).max().unwrap_or(0),
+            tiers: vec![hit, 0, 0, 0, 0, 0, missed],
+            ..Default::default()
+        }
+    }
+
+    fn new(song: &ddi_chart::Song, chart: usize, miss: u32, cut: Option<f64>) -> Script {
         let c = &song.charts[chart];
         let timing = c.timing(song);
         let (mut combo, mut life, mut k, mut score) = (0u32, 1_000_000i64, 0u32, 0i64);
@@ -226,6 +297,7 @@ impl Script {
             .notes
             .iter()
             .filter(|n| matches!(n.kind, ddi_chart::NoteKind::Tap))
+            .filter(|n| cut.is_none_or(|cut| timing.seconds_at(n.tick) <= cut))
             .map(|n| {
                 k += 1;
                 let missed = k % miss == 0;
@@ -255,6 +327,7 @@ impl Script {
                 }
             })
             .collect();
+        let end_ms = cut.map_or(end_ms, |cut| end_ms.max((cut * 1_000.0) as i64));
         Script {
             moments,
             end_ms,
@@ -290,6 +363,8 @@ pub(crate) fn entry(song: &ddi_chart::Song, chart: usize) -> SongEntry {
         id: SONG.into(),
         title: song.title.clone(),
         artist: song.artist.clone(),
+        // The bundled song's banner, as song select names it.
+        banner: Some(format!("songs/{SONG}/Banner.png")),
         charts: vec![ChartEntry {
             style: song.charts[chart].layout.clone(),
             difficulty: Difficulty::Hard,
@@ -368,6 +443,8 @@ fn room() -> Rc<RefCell<Fake>> {
         step: Step::Connecting,
         scripts: Vec::new(),
         closed: false,
+        connected_at: None,
+        settled_at: None,
         _pump: None,
     }));
     {
@@ -417,7 +494,10 @@ pub(crate) fn prepare(job: LoadJob) {
             Err(_) => Err(ddi_ui::state::room::LoadProblem::Unreadable),
         };
         if let Some(a) = crate::online::kept_audience() {
-            a.borrow_mut().finish_load(&job, result);
+            // The bundled song's background, as a share's listing would
+            // name the stage's.
+            let background = Some(format!("songs/{SONG}/Background.png"));
+            a.borrow_mut().finish_load_with(&job, result, background);
         }
     });
 }
@@ -470,10 +550,15 @@ impl Fake {
                 if !self.rooms.iter().all(|r| r.borrow().room_now().is_some()) {
                     return;
                 }
+                let plan = MATCH.get();
+                let since = *self.connected_at.get_or_insert(now);
+                if (now.saturating_sub(since) as f64) < plan.wait * 1_000.0 {
+                    return;
+                }
                 let owner = &self.rooms[0];
                 let mut rules = owner.borrow().rules().clone();
                 rules.set_attacks(false);
-                rules.stages = 1;
+                rules.stages = plan.stages;
                 let _ = owner.borrow_mut().save_rules(rules);
                 let e = entry(&song, self.chart);
                 let _ = owner.borrow_mut().pick(&e, &e.charts[0]);
@@ -506,7 +591,7 @@ impl Fake {
                     && let Some(zero) = self.rooms[0].borrow().song_zero_at(stage)
                 {
                     self.scripts = (0..self.rooms.len())
-                        .map(|i| Script::new(&song, self.chart, 9 + 4 * i as u32))
+                        .map(|i| Script::new(&song, self.chart, 9 + 4 * i as u32, MATCH.get().cut))
                         .collect();
                     self.step = Step::Playing(stage, zero);
                 }
@@ -528,7 +613,44 @@ impl Fake {
                     self.closed = true;
                     self.rooms[0].borrow_mut().set_audience_open(false);
                 }
+                // A match asked for: each member says how they performed
+                // once their stream ended, as their device would.
+                if MATCH.get() != MatchPlan::parse("") && self.scripts.iter().all(|s| s.ended) {
+                    for (s, room) in self.scripts.iter().zip(&self.rooms) {
+                        let d = s.detail();
+                        let run = ddi_room::Run::Live {
+                            life: f64::from(d.life_ppm) / 1e6,
+                            score: d.score.unwrap_or(0),
+                            steps: 0,
+                        };
+                        let _ = room.borrow_mut().report_run(stage, run, Some(d));
+                    }
+                    self.step = Step::Played(stage);
+                }
             }
+            Step::Played(stage) => {
+                let owner = &self.rooms[0];
+                let phase = owner.borrow().state().phase.clone();
+                match phase {
+                    ddi_room::Phase::MatchResults => self.step = Step::Done,
+                    // Between stages, a moment for its results: the next
+                    // pick.
+                    ddi_room::Phase::Intermission { .. }
+                        if owner.borrow().stage_confirmed(stage) =>
+                    {
+                        let wait = (MATCH.get().wait * 1_000.0) as u64;
+                        if self.settled_at.get_or_insert(now).saturating_add(wait) > now {
+                            return;
+                        }
+                        self.settled_at = None;
+                        let e = entry(&song, self.chart);
+                        let _ = owner.borrow_mut().pick(&e, &e.charts[0]);
+                        self.step = Step::Picked;
+                    }
+                    _ => {}
+                }
+            }
+            Step::Done => {}
         }
     }
 }

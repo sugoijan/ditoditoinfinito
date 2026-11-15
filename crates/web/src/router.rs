@@ -617,7 +617,8 @@ fn share_switch(hash: &str) {
 /// a room's Rules opening by themselves on entering
 /// (`Settings::multiplayer_rules_first`), and `mpwatchlink=1`, More's Copy
 /// watch-only link (`Settings::multiplayer_watch_link`); TESTING ONLY,
-/// `mpfakeseat=1` (`mpfakeend=S`). Each address is read once.
+/// `mpfakeseat=1` (`mpfakeend=S`, `mpfakematch=STAGES,CUT,WAIT`). Each
+/// address is read once.
 fn multiplayer_params(hash: &str, at_load: bool) {
     let (path, Some(query)) = split_hash(hash) else {
         return;
@@ -664,9 +665,14 @@ fn multiplayer_params(hash: &str, at_load: bool) {
     // TESTING ONLY: `mpfakeseat=1`, the next audience seat is one in a
     // fake room's audience in the page (`crate::fake_seat`: the headless
     // browsers' look at a watched stage without a server), `mpfakeend=S`
-    // closing that audience S seconds into its stage.
+    // closing that audience S seconds into its stage, and
+    // `mpfakematch=STAGES,CUT,WAIT` its match (stages, each cut to CUT
+    // seconds, the picks WAIT seconds apart).
     if param("mpfakeseat").as_deref() == Some("1") {
-        crate::fake_seat::want(param("mpfakeend").and_then(|s| s.parse::<f64>().ok()));
+        crate::fake_seat::want(
+            param("mpfakeend").and_then(|s| s.parse::<f64>().ok()),
+            param("mpfakematch").map(|s| crate::fake_seat::MatchPlan::parse(&s)),
+        );
     }
     // TESTING ONLY: `mpfakeroom=S`, online room `Room000001` is a fake
     // room in the page whose scripted owner picks a stage S seconds after
