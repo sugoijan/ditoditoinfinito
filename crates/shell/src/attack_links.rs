@@ -2083,4 +2083,74 @@ mod tests {
         let ys: Vec<f32> = end.ports.iter().map(|p| p[1]).collect();
         assert_eq!(ys, [50.0, 56.0, 44.0, 62.0, 68.0]);
     }
+
+    /// What the lines cost a frame (`cargo test --release -p ddi-shell
+    /// --lib attack_links::tests::cost -- --ignored --nocapture`): 72
+    /// opponents at 1280×720, the player's 24 links at once and a
+    /// watcher's grid with 48; the frame that lays them, then the frames
+    /// that draw them.
+    #[test]
+    #[ignore = "a measurement"]
+    fn cost() {
+        let g = FieldGeometry::placed(1280.0, 720.0, 4.0, false, Default::default());
+        let k = keep(&g, 1.0, true);
+        let f = crate::opponents::tests::arrange(72, &g, 4.0, false, 1.0, &k).unwrap();
+        let layout = Layout {
+            geo: &g,
+            span: 4.0,
+            fields: &f,
+            ratio: 1.0,
+            keep_out: &k[..k.len() - 1],
+        };
+        let links: Vec<Link> = (0..24).map(|i| link((i * 3) % 72, i % 3 == 0, false)).collect();
+        let kg = keep_grid(&g, 1.0);
+        let fg = crate::opponents::arrange_grid(72, usize::MAX, &g, 4.0, false, 1.0, &kg).unwrap();
+        let grid = GridLayout {
+            fields: &fg,
+            size: [1280.0, 720.0],
+            span: 4.0,
+            ratio: 1.0,
+            keep_out: &kg,
+        };
+        let between: Vec<SeenLink> = (0..48)
+            .map(|i| seen(i as u32 + 1, fg.slots[(i * 5) % 72].seat, fg.slots[(i * 7 + 3) % 72].seat))
+            .collect();
+        let micros = |from: std::time::Instant, n: u32| from.elapsed().as_secs_f64() * 1e6 / f64::from(n);
+        for (what, own) in [("the player's 24", true), ("a grid's 48", false)] {
+            let frame = |routes: &mut Routes, t: f64| {
+                let s = if own {
+                    shown(&links, &layout, routes, t, false, ATTACK_LINKS_V1)
+                } else {
+                    shown_between(&between, &grid, routes, t, false, ATTACK_LINKS_V1)
+                };
+                let mut list = DrawList::new();
+                draw(&mut list, &s, if own { &f } else { &fg }, 1.0);
+                let mut under = Vec::new();
+                draw_behind(&mut under, &s, 1.0);
+                (s.iter().filter(|s| s.path.len() >= 2).count(), list.commands.len(), under.len())
+            };
+            let at = std::time::Instant::now();
+            let mut tally = Tally::default();
+            for _ in 0..50 {
+                let mut routes = Routes::default();
+                frame(&mut routes, 10.1);
+                tally = routes.tally();
+            }
+            let laying = micros(at, 50);
+            let mut routes = Routes::default();
+            frame(&mut routes, 10.1);
+            let at = std::time::Instant::now();
+            let mut drawn = (0, 0, 0);
+            for i in 0..2000 {
+                drawn = frame(&mut routes, 10.1 + f64::from(i) * 1e-4);
+            }
+            eprintln!(
+                "{what}: laying {laying:.0} µs ({tally:?}); a frame after {:.1} µs; {} lines, {} overlay commands, {} instances under the miniatures",
+                micros(at, 2000),
+                drawn.0,
+                drawn.1,
+                drawn.2
+            );
+        }
+    }
 }
