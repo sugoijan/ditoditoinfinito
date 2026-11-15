@@ -1,7 +1,9 @@
 //! CPUs in an online room (`ddi_room::live::cpus`, `online-cpus-v0`,
 //! 2026-11-13) on its screens, drawn offscreen on this machine's GPU in
 //! the game's theme over the room model's fake room (`common::online`: no
-//! network, no sign-in). Skipped where there is no GPU adapter (CI).
+//! network, no sign-in). Without a GPU adapter (CI) only the
+//! pictures (and a play's prompt, which readies its skin on one) are
+//! skipped: the rest is checked all the same.
 //!
 //! The pictures: the owner's Rules pop-up in a room that plays live with
 //! the roster's rows (Add CPU, Add random, each CPU's stars and its
@@ -12,7 +14,6 @@
 mod common;
 use std::rc::Rc;
 
-use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::fake::FakeServer;
 use ddi_room::{Identity, Intent, ManualClock, RoomPolicy};
 use common::online::{ROOM, Scene, Songs, drawn, keep, library, person};
@@ -31,12 +32,7 @@ fn open_rules(ui: &mut ddi_ui::Ui) {
 
 #[test]
 fn an_online_rooms_cpus_on_its_rules_and_its_players() {
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).expect("device");
-    let format = wgpu::TextureFormat::Rgba8Unorm;
-    let mut gpu = Gpu::new(device, queue, format);
+    let mut pictures = common::gpu::Pictures::new();
     for (size, lang) in [
         ([1280u32, 720u32], "en"),
         ([1280, 720], "ja"),
@@ -72,23 +68,25 @@ fn an_online_rooms_cpus_on_its_rules_and_its_players() {
         // A frame drawn first: the footer's links are placed from their
         // measured text as a frame is drawn (Rules is one since follow-up
         // round F), so their boxes are where a person would tap.
-        let _ = gpu.draw_offscreen(&mut scene.people[0].ui, size, format);
+        let _ = pictures.draw(&mut scene.people[0].ui, size);
         open_rules(&mut scene.people[0].ui);
         assert!(scene.people[0].ui.actor("AddRandom").is_some(), "the roster's rows");
         for _ in 0..3 {
             tap(&mut scene.people[0].ui, "AddRandom", 0.3);
         }
-        let pixels = gpu.draw_offscreen(&mut scene.people[0].ui, size, format);
-        keep("cpus-rules", size, lang, &pixels);
-        assert!(drawn(&pixels, size, [0.3, 0.3, 0.7, 0.7]));
+        if let Some(pixels) = pictures.draw(&mut scene.people[0].ui, size) {
+            keep("cpus-rules", size, lang, &pixels);
+            assert!(drawn(&pixels, size, [0.3, 0.3, 0.7, 0.7]));
+        }
         assert!(scene.people[0].ui.actor("Cpu2.Stars").is_some(), "three CPUs as stars");
         tap(&mut scene.people[0].ui, "Apply", 0.6);
         scene.run(2.0);
         let roster = server.borrow().state().next.rules.cpu.roster.clone();
         assert_eq!(roster.len(), 3);
         for (who, name) in [(0, "cpus-players-host"), (1, "cpus-players-member")] {
-            let pixels = gpu.draw_offscreen(&mut scene.people[who].ui, size, format);
-            keep(name, size, lang, &pixels);
+            if let Some(pixels) = pictures.draw(&mut scene.people[who].ui, size) {
+                keep(name, size, lang, &pixels);
+            }
             // The CPUs among the players, with their levels (stars),
             // never bots.
             let view = scene.people[who].env.state.borrow().room.clone().unwrap();

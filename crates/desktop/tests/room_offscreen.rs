@@ -3,22 +3,16 @@
 //! straight on the room's song select, no Rules by themselves (the hidden
 //! option aside): the header with Rules, Players and More, the song's
 //! side with the players panel under it, the list and the status line,
-//! each inside the window. Skipped where there is no GPU adapter
-//! (CI). `DDI_OFFSCREEN_PPM=<dir>` keeps the picture (`room.ppm`).
+//! each inside the window. Without a GPU adapter (CI)
+//! only the pictures are skipped: the rest is checked all the same. `DDI_OFFSCREEN_PPM=<dir>` keeps the picture (`room.ppm`).
 
 mod common;
 
 
-use ddi_desktop::gpu::{self, Gpu};
 
 #[test]
 fn the_practice_room_draws_its_parts_inside_the_window() {
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).expect("device");
-    let format = wgpu::TextureFormat::Rgba8Unorm;
-    let mut gpu = Gpu::new(device, queue, format);
+    let mut pictures = common::gpu::Pictures::new();
     let size = [1280, 720];
     let (mut ui, env) = common::ui::theme("room", common::ui::nfkd(), [1280, 720], true);
     for _ in 0..60 {
@@ -26,8 +20,7 @@ fn the_practice_room_draws_its_parts_inside_the_window() {
     }
     // Song select at once: the Rules stay behind their button.
     assert_eq!(ui.layers().last().unwrap().name, "select");
-    let pixels = gpu.draw_offscreen(&mut ui, size, format);
-    common::shot("room.ppm", &pixels, size);
+    let pixels = pictures.shot(&mut ui, size, "room.ppm");
     assert_eq!(env.state.borrow().screen, "select");
     let view = env.state.borrow().room.clone().expect("the room's view");
     assert_eq!(view.phase, "lobby");
@@ -64,7 +57,9 @@ fn the_practice_room_draws_its_parts_inside_the_window() {
     );
     assert_eq!(view.members.len(), 4);
     // Something was drawn: the banner and plates are not the ground alone.
-    let distinct: std::collections::HashSet<[u8; 4]> =
-        pixels.as_chunks::<4>().0.iter().copied().collect();
-    assert!(distinct.len() > 100, "{} colors", distinct.len());
+    if let Some(pixels) = pixels {
+        let distinct: std::collections::HashSet<[u8; 4]> =
+            pixels.as_chunks::<4>().0.iter().copied().collect();
+        assert!(distinct.len() > 100, "{} colors", distinct.len());
+    }
 }

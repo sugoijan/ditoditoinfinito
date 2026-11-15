@@ -3,12 +3,11 @@
 //! on this machine's GPU in the game's theme at 1280×720 and 844×390:
 //! each name keeps its room and the mark of the chart they finished on
 //! ("↑ Challenge") goes on the line under it where the line is tall
-//! enough, else after it, giving way down to its arrow. Skipped where
-//! there is no GPU adapter (CI). `DDI_OFFSCREEN_PPM=<dir>` keeps the
+//! enough, else after it, giving way down to its arrow. Without a GPU adapter (CI)
+//! only the pictures are skipped: the rest is checked all the same. `DDI_OFFSCREEN_PPM=<dir>` keeps the
 //! pictures (`standings-stepped-<w>x<h>-<lang>.ppm`).
 
 mod common;
-use ddi_desktop::gpu::{self, Gpu};
 use ddi_room::{Finish, Finisher, OpponentSpec, ParticipantId, RunDetail};
 use ddi_ui::Ui;
 use ddi_ui::event::UiEvent;
@@ -112,12 +111,7 @@ fn stage() -> (ddi_ui::state::room::SharedRoom, StageOrder) {
 
 #[test]
 fn the_standings_give_each_name_its_room_beside_the_mark_of_a_step() {
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).expect("device");
-    let format = wgpu::TextureFormat::Rgba8Unorm;
-    let mut gpu = Gpu::new(device, queue, format);
+    let mut pictures = common::gpu::Pictures::new();
     for (size, lang) in [([1280u32, 720u32], "en"), ([844, 390], "en"), ([1280, 720], "ja")] {
         assert!(ddi_l10n::set_language(lang));
         let css = [size[0] as f32, size[1] as f32];
@@ -144,10 +138,11 @@ fn the_standings_give_each_name_its_room_beside_the_mark_of_a_step() {
         let view = env.state.borrow().stage.clone().expect("the standings");
         assert_eq!(view.rows.len(), 9);
         assert!(view.rows.iter().all(|r| r.stepped.as_deref().is_some()));
-        let pixels = gpu.draw_offscreen(&mut ui, size, format);
-        keep("standings-stepped", size, lang, &pixels);
-        // Something drawn where the table is.
-        assert!(drawn(&pixels, size, [0.4, 0.25, 0.95, 0.6]), "{size:?}");
+        if let Some(pixels) = pictures.draw(&mut ui, size) {
+            keep("standings-stepped", size, lang, &pixels);
+            // Something drawn where the table is.
+            assert!(drawn(&pixels, size, [0.4, 0.25, 0.95, 0.6]), "{size:?}");
+        }
     }
     assert!(ddi_l10n::set_language("en"));
 }

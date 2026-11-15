@@ -24,6 +24,45 @@ pub fn adapter_or_skip() -> Option<wgpu::Adapter> {
 /// pixels sits inside `if let Some(picture) = pictures.draw(…)`.
 pub struct Pictures {
     gpu: Option<gpu::Gpu>,
+    unpainted: Unpainted,
+}
+
+/// A frame of a UI laid out as the window lays it out, with no device:
+/// its text measured by the window's own rasterizer (cosmic-text on the
+/// bundled and the system's faces, as `Gpu::new` sets it), so what
+/// follows measured text (a footer's links, a name's badge) is placed
+/// as a drawn frame places it; nothing is drawn.
+struct Unpainted {
+    raster: ddi_render::cosmic::CosmicRasterizer,
+    text: ddi_render::text_atlas::RunCache,
+}
+
+impl Unpainted {
+    fn new() -> Unpainted {
+        Unpainted {
+            raster: ddi_render::cosmic::CosmicRasterizer::with_families(&gpu::faces(), true),
+            text: ddi_render::text_atlas::RunCache::new(
+                ddi_render::text_atlas::PAGE,
+                ddi_render::painter::TEXT_BUDGET,
+            ),
+        }
+    }
+
+    /// As `ddi_shell::ui_list` measures and lays a frame out.
+    fn frame(&mut self, ui: &mut ddi_ui::Ui) {
+        use ddi_render::RunRasterizer as _;
+        let vp = *ui.viewport();
+        let scale = vp.scale;
+        let shift = [1.0, 0.0, 0.0, 1.0, vp.offset[0] / scale, vp.offset[1] / scale];
+        let raster = &mut self.raster;
+        let mut f = |t: &str, style: &ddi_actor::text::TextStyle, k: f32| raster.measure(t, style, k);
+        let mut measure = ddi_render::text_atlas::Measurer {
+            cache: &mut self.text,
+            measure: &mut f,
+            scale,
+        };
+        let _ = ui.draw_in(&mut measure, shift);
+    }
 }
 
 /// The format [`Pictures`] draws in.
@@ -40,7 +79,10 @@ impl Pictures {
         if gpu.is_none() {
             eprintln!("no GPU adapter: the pictures are skipped, the rest runs");
         }
-        Pictures { gpu }
+        Pictures {
+            gpu,
+            unpainted: Unpainted::new(),
+        }
     }
 
     /// Whether pictures are drawn here.
@@ -49,11 +91,13 @@ impl Pictures {
     }
 
     /// `ui` drawn at `size` and read back (RGBA rows); `None` without a
-    /// GPU, the UI brought up to date all the same.
+    /// GPU, the UI laid out and measured as a frame all the same.
     pub fn draw(&mut self, ui: &mut ddi_ui::Ui, size: [u32; 2]) -> Option<Vec<u8>> {
         match &mut self.gpu {
             Some(gpu) => Some(gpu.draw_offscreen(ui, size, PICTURE_FORMAT)),
             None => {
+                // Laid out and measured as a frame is, undrawn.
+                self.unpainted.frame(ui);
                 ui.update(0.0);
                 None
             }

@@ -5,14 +5,15 @@
 //! the stage's prompt's players and the stage's Standings pop-up. The
 //! badge's place against its name is pinned in `ddi-ui`'s tests
 //! (`assert_badge_on_line`); here the pictures, and each badge drawn
-//! inside the window. Skipped where there is no GPU adapter (CI).
+//! inside the window. Without a GPU adapter (CI) only the
+//! pictures (and a play's prompt, which readies its skin on one) are
+//! skipped: the rest is checked all the same.
 //! `DDI_OFFSCREEN_PPM=<dir>` keeps them (`badge-<place>-<w>x<h>-<lang>.ppm`).
 
 mod common;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ddi_desktop::gpu::{self, Gpu};
 use ddi_desktop::play::host::Host;
 use ddi_room::{Finish, Finisher};
 use ddi_ui::screens::data::Difficulty;
@@ -22,12 +23,7 @@ use common::ui::{frames, key, top};
 #[test]
 fn the_you_badge_beside_the_name_everywhere() {
     common::indexes();
-    let Some(adapter) = common::gpu::adapter_or_skip() else {
-        return;
-    };
-    let (device, queue) = gpu::device(&adapter).expect("device");
-    let format = wgpu::TextureFormat::Rgba8Unorm;
-    let mut gpu = Gpu::new(device, queue, format);
+    let mut pictures = common::gpu::Pictures::new();
     for (size, lang) in [
         ([1280u32, 720u32], "en"),
         ([1280, 720], "ja"),
@@ -54,8 +50,8 @@ fn the_you_badge_beside_the_name_everywhere() {
                     ]
                 })
                 .find_map(|n| ui.bounds(&n));
-            let pixels = gpu.draw_offscreen(ui, size, format);
-            common::shot(&format!("badge-{place}-{}x{}-{lang}.ppm", size[0], size[1]), &pixels, size);
+            let name = format!("badge-{place}-{}x{}-{lang}.ppm", size[0], size[1]);
+            pictures.shot(ui, size, &name);
             badge
         };
         let inside = |b: Option<[f32; 4]>, place: &str| {
