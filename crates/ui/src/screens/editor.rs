@@ -1515,6 +1515,34 @@ impl EditorScreen {
                 );
             }
         });
+        // Charts read with what the editor does not keep (a routine
+        // chart's second player, attacks on notes), edited since: saving
+        // writes them without it. Said first, with a copy offered in the
+        // file's place; charts not edited go back as they came.
+        let losses = ddi_chart::formats::sm_write::note_losses(self.editor.borrow().song());
+        if !losses.is_empty() {
+            let list = losses
+                .iter()
+                .map(|l| (l.chart + 1).to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let copy = Rc::new(|cx: &mut Cx| {
+                cx.broadcast(Message::new(ACTION).with("Action", Param::Str("export".into())));
+            });
+            self.after_save = None;
+            cx.overlay(
+                ConfirmDialog::new(
+                    self.env.clone(),
+                    &em::save_loss_title(),
+                    &em::save_loss_body(losses.len(), list),
+                    &em::save_loss_anyway(),
+                    save,
+                )
+                .with_answer(&em::save_loss_copy(), copy),
+                true,
+            );
+            return;
+        }
         match &self.place.confirm {
             Some(file) => {
                 let name = file.rsplit(['/', '\\']).next().unwrap_or(file);

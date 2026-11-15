@@ -10,7 +10,10 @@ use std::path::{Path, PathBuf};
 
 use ddi_chart::formats::dwi::parse_dwi;
 use ddi_chart::formats::sm::{parse_sm, parse_ssc};
-use ddi_chart::formats::sm_write::{SSC_VERSION, sm_losses, write_sm, write_ssc};
+use ddi_chart::formats::sm::NoteExtras;
+use ddi_chart::formats::sm_write::{
+    NoteLoss, SSC_VERSION, note_losses, sm_losses, write_sm, write_ssc,
+};
 use ddi_chart::{
     BpmSegment, Chart, ComboSegment, Difficulty, DisplayBpm, FakeSegment, Label, Note, NoteKind,
     ScrollSegment, Song, SourceFormat, SourceInfo, SpeedSegment, SpeedUnit, StopSegment, Tick,
@@ -194,6 +197,111 @@ fn sm_losses_name_what_sm_cannot_say() {
             .any(|l| l.describe().contains("warps")),
         "negative BPMs read as warps"
     );
+}
+
+/// A file whose charts hold what the model does not: a Single chart, a
+/// routine chart with its second player, a chart with attacks on notes
+/// and an attack note. Made here, of nobody's song.
+const KEPT: &str = "#VERSION:0.83;\n#TITLE:Kept;\n#MUSIC:k.ogg;\n#OFFSET:0;\n#BPMS:0=120;\n\
+#NOTEDATA:;\n#STEPSTYPE:dance-single;\n#DIFFICULTY:Easy;\n#METER:2;\n\
+#NOTES:\n1000\n0100\n0010\n0001\n;\n\
+#NOTEDATA:;\n#STEPSTYPE:dance-routine;\n#DIFFICULTY:Medium;\n#METER:5;\n\
+#NOTES:\n10000000\n00000000\n01000000\n00000000\n,\n20000000\n00000000\n30000000\n00000000\n\
+&\n00001000\n00000100\n00000010\n0000000M\n,\n00000000\n00002000\n00000000\n00003000\n;\n\
+#NOTEDATA:;\n#STEPSTYPE:dance-single;\n#DIFFICULTY:Hard;\n#METER:8;\n\
+#NOTES:\n1{drunk:2.5}000\n0A00\n0010[3]\n0001\n,\n0100\n0000\n0000\n0000\n;\n";
+
+/// Review studio-editor-6: note data that holds what the model does not
+/// (a routine chart's second player, attacks on notes, attack notes) is
+/// written back as it came while its chart is not edited, as `.ssc` and
+/// as `.sm`; a chart edited is written from the model, and
+/// `note_losses` says what that drops.
+#[test]
+fn note_data_the_model_does_not_hold_is_written_back_as_it_came() {
+    let song = parse_ssc(KEPT).unwrap();
+    assert_eq!(song.charts.len(), 3);
+    assert_eq!(song.source.kept_notes(0), None, "a plain chart keeps none");
+    let routine = song.source.kept_notes(1).expect("the routine chart's");
+    assert!(routine.contains("&\n00001000"), "{routine}");
+    assert!(song.source.kept_notes(2).unwrap().contains("{drunk:2.5}"));
+    assert_eq!(
+        NoteExtras::of(routine),
+        NoteExtras {
+            second_player: true,
+            ..NoteExtras::default()
+        }
+    );
+    assert_eq!(
+        NoteExtras::of(song.source.kept_notes(2).unwrap()),
+        NoteExtras {
+            attacks: true,
+            attack_notes: true,
+            // The attack's `:` splits the tag, as StepMania's reader
+            // has it: what follows is not read either.
+            other: true,
+            ..NoteExtras::default()
+        }
+    );
+    assert!(note_losses(&song).is_empty());
+
+    for (what, text) in [("ssc", write_ssc(&song)), ("sm", write_sm(&song))] {
+        // Everything the reader passed over is still in the file.
+        for kept in [
+            "&\n00001000\n00000100\n00000010\n0000000M\n,\n00000000\n00002000",
+            "1{drunk:2.5}000\n0A00\n0010[3]\n0001\n,\n0100",
+        ] {
+            assert!(text.contains(kept), "{what}: {kept:?} gone from\n{text}");
+        }
+        assert_eq!(text.matches("#NOTES").count(), 3, "{what}: {text}");
+        // And read again it is the same song, written the same again.
+        let back = if what == "ssc" {
+            parse_ssc(&text).unwrap()
+        } else {
+            parse_sm(&text).unwrap()
+        };
+        assert_eq!(back.charts, song.charts, "{what}");
+        for chart in 0..3 {
+            assert_eq!(
+                back.source.kept_notes(chart),
+                song.source.kept_notes(chart),
+                "{what}"
+            );
+        }
+        if what == "ssc" {
+            assert_ssc_round_trip(&song, "kept note data");
+            assert_eq!(write_ssc(&back), text);
+        }
+    }
+
+    // The Single chart edited: the others still go back as they came.
+    let mut edited = song.clone();
+    edited.charts[0]
+        .notes
+        .push(Note::new(Tick::from_beats(8), 2, NoteKind::Tap));
+    assert!(note_losses(&edited).is_empty());
+    assert!(write_ssc(&edited).contains("&\n00001000"));
+
+    // The routine chart edited: written from the model, its second
+    // player gone, and that is said before it happens.
+    edited.charts[1]
+        .notes
+        .push(Note::new(Tick::from_beats(12), 0, NoteKind::Tap));
+    assert_eq!(
+        note_losses(&edited),
+        vec![NoteLoss {
+            chart: 1,
+            what: NoteExtras {
+                second_player: true,
+                ..NoteExtras::default()
+            }
+        }]
+    );
+    let text = write_ssc(&edited);
+    assert!(!text.contains('&'), "{text}");
+    assert!(text.contains("{drunk:2.5}"), "chart 3 untouched: {text}");
+    // Undone (the same notes again): nothing is lost again.
+    edited.charts[1].notes.pop();
+    assert!(note_losses(&edited).is_empty());
 }
 
 #[test]
@@ -546,6 +654,8 @@ fn local_corpus_round_trips() {
         collect(&dir, &mut files);
     }
     let (mut ok, mut sm) = (0, 0);
+    // Charts keeping note data: by what it holds, and in all.
+    let mut kept = [0usize; 5];
     for path in &files {
         let what = path.display().to_string();
         let text = read(path);
@@ -563,10 +673,31 @@ fn local_corpus_round_trips() {
         assert_ssc_round_trip(&song, &what);
         sm += usize::from(assert_sm_round_trip(&song, &what));
         ok += 1;
+        // Charts whose note data holds what the model does not: kept as
+        // written, so a song not edited loses none of it.
+        assert!(note_losses(&song).is_empty(), "{what}");
+        for chart in 0..song.charts.len() {
+            if let Some(raw) = song.source.kept_notes(chart) {
+                let x = NoteExtras::of(raw);
+                for (i, on) in [x.second_player, x.attacks, x.attack_notes, x.other]
+                    .into_iter()
+                    .enumerate()
+                {
+                    kept[i] += usize::from(on);
+                }
+                kept[4] += 1;
+            }
+        }
     }
     eprintln!(
-        "{ok} of {} files round-tripped ({sm} as .sm too)",
-        files.len()
+        "{ok} of {} files round-tripped ({sm} as .sm too); charts whose note data is kept as \
+         written: {} (a second player {}, attacks on notes {}, attack notes {}, other {})",
+        files.len(),
+        kept[4],
+        kept[0],
+        kept[1],
+        kept[2],
+        kept[3],
     );
 }
 

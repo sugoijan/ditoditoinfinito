@@ -389,6 +389,75 @@ fn leaving_unsaved_asks() {
     assert_eq!(s.h.ui.layers().len(), 0);
 }
 
+/// Review studio-editor-6: a chart read with what the editor does not
+/// keep (a routine chart's second player) and edited since is not saved
+/// over its file without a word: the question says which chart, offers
+/// a copy instead, and saves only on "Save anyway". Not edited, the song
+/// saves as ever (the chart goes back as it came).
+#[test]
+fn saving_what_would_drop_kept_steps_asks_and_offers_a_copy() {
+    let text = "#VERSION:0.83;#TITLE:Kept;#BPMS:0=120;\
+        #NOTEDATA:;#STEPSTYPE:dance-single;#DIFFICULTY:Easy;#METER:1;#NOTES:1000\n0000\n0000\n0000\n;\
+        #NOTEDATA:;#STEPSTYPE:dance-routine;#DIFFICULTY:Easy;#METER:1;\
+        #NOTES:10000000\n00000000\n00000000\n00000000\n&\n00001000\n00000000\n00000000\n00000000\n;";
+    let open = |chart: usize| {
+        let env = env();
+        let host = Rc::new(Host::default());
+        let mut h = harness();
+        let song = ddi_chart::formats::sm::parse_ssc(text).unwrap();
+        let screen =
+            EditorScreen::new(env.clone(), Editor::open(song, chart), place()).with_host(host.clone());
+        let editor = screen.editor();
+        h.push(screen);
+        h.run(0.4);
+        (h, host, editor)
+    };
+    let saves = |host: &Host| {
+        host.calls
+            .borrow()
+            .iter()
+            .filter(|c| matches!(c, EditorCall::Save { .. }))
+            .count()
+    };
+    // The Single chart edited: the usual question, nothing about loss.
+    let (mut h, host, _) = open(0);
+    h.key("Digit2", "2");
+    h.tap(PointerKind::Mouse, "Button.Save");
+    h.run(0.3);
+    assert!(h.texts().iter().any(|t| t == "Save over the song?"));
+    h.tap(PointerKind::Mouse, "Confirm");
+    h.run(0.3);
+    assert_eq!(saves(&host), 1);
+
+    // The routine chart edited: asked, naming chart 2.
+    let (mut h, host, editor) = open(1);
+    h.key("Digit2", "2");
+    assert!(editor.borrow().is_dirty());
+    h.tap(PointerKind::Mouse, "Button.Save");
+    h.run(0.3);
+    let texts = h.texts().join(" ");
+    assert!(
+        texts.contains("Save without what the editor does not keep?"),
+        "{texts}"
+    );
+    assert!(texts.contains("Chart 2 was read with steps"), "{texts}");
+    // A copy instead: exported, nothing saved over the song.
+    h.tap(PointerKind::Mouse, "Extra");
+    h.run(0.3);
+    assert_eq!(saves(&host), 0);
+    assert_eq!(
+        host.calls.borrow().last(),
+        Some(&EditorCall::Export { sm: false })
+    );
+    assert!(editor.borrow().is_dirty());
+    // Save anyway: saved.
+    h.tap(PointerKind::Mouse, "Button.Save");
+    h.run(0.3);
+    h.tap(PointerKind::Mouse, "Confirm");
+    h.run(0.3);
+    assert_eq!(saves(&host), 1);
+}
+
 /// Review studio-editor-2: the editor asks before it is left while it
 /// has unsaved changes, by the ways the shells leave a screen too (the
 /// browser's Back through the guard's history entry, the window's

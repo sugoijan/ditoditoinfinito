@@ -50,10 +50,17 @@ fn all_notes_header() {
     assert_eq!(song.display_bpm, DisplayBpm::Range(100.0, 200.0));
     assert_eq!(song.keysounds, vec!["kick.ogg", "snare.ogg", "hat.ogg"]);
     assert_eq!(song.source.format, SourceFormat::Sm);
-    assert_eq!(
-        song.source.unknown_tags,
-        vec![("MENUCOLOR".to_string(), "1,1,1".to_string())]
-    );
+    // The file's own unknown tag, and the chart's note data kept as
+    // written for its attack note (`A`), which the model does not hold.
+    let (kept, tags): (Vec<_>, Vec<_>) = song
+        .source
+        .unknown_tags
+        .iter()
+        .cloned()
+        .partition(|(k, _)| k == "NOTEDATA[0].NOTES");
+    assert_eq!(tags, vec![("MENUCOLOR".to_string(), "1,1,1".to_string())]);
+    assert_eq!(kept.len(), 1);
+    assert!(kept[0].1.contains("A000"));
 
     // Timing: offset as-is, BPM change, FREEZES alias, delay.
     let t = &song.timing;

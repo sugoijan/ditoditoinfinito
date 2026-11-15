@@ -306,6 +306,14 @@ editor-save-over-body = { $platform ->
    *[desktop] 「{ $file }」が置き換えられます。元のファイルは、同じ場所に「{ $name }.old」として残ります（エディターを開くたび、最初の保存時に作成）。ノーツが変わった譜面は、プレイ履歴では新しい譜面として扱われます。
 }
 
+editor-save-loss-title = エディターが保持しない内容なしで保存しますか？
+
+editor-save-loss-body = 譜面{ $list }には、エディターが保持しないステップ（2人目のプレイヤーのステップ、ノートへのアタック、アタックノート）が含まれていましたが、編集されたため、保存するとそれらは失われます。曲のファイルをそのまま残すには、コピーを保存してください。
+
+editor-save-loss-copy = コピーを保存
+
+editor-save-loss-anyway = このまま保存
+
 editor-leave-title = 保存せずに終了しますか？
 
 editor-leave-body = 最後の保存以降の変更は失われます。

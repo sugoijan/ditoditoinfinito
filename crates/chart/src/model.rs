@@ -388,6 +388,25 @@ pub struct SourceInfo {
 }
 
 impl SourceInfo {
+    /// The name (after a chart's prefix) a chart's note data is kept
+    /// under as written, where it holds what the model does not (a
+    /// routine chart's second player, attacks on notes, attack notes:
+    /// `formats::sm::NoteExtras`). Never a tag of its own: the reader
+    /// puts it there and the writer writes it as the chart's `#NOTES`
+    /// while the chart's notes are still the ones it reads as, so such
+    /// a chart saved untouched keeps all of it
+    /// (`formats::sm_write::note_losses` says when it would not).
+    pub const KEPT_NOTES: &'static str = "NOTES";
+
+    /// Chart `index`'s note data kept as written ([`Self::KEPT_NOTES`]).
+    pub fn kept_notes(&self, index: usize) -> Option<&str> {
+        let key = Self::chart_tag_key(index, Self::KEPT_NOTES);
+        self.unknown_tags
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.as_str())
+    }
+
     /// The name `unknown_tags` keeps tag `name` of chart `index` (of
     /// `Song::charts`) under: `NOTEDATA[index].NAME`. An empty `name` gives
     /// the chart's prefix.

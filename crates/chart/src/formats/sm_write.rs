@@ -7,7 +7,13 @@
 //! StepMania 5.1's writers (`NotesWriterSSC.cpp`, `NotesWriterSM.cpp`):
 //! the song's tags, then a block per chart. What the model keeps as
 //! written (`SourceInfo::unknown_tags`) goes back as it came: a song's
-//! after its own tags, a chart's (`NOTEDATA[i].NAME`) in its block.
+//! after its own tags, a chart's (`NOTEDATA[i].NAME`) in its block. A
+//! chart's note data that holds what the model does not (a routine
+//! chart's second player, attacks on notes, attack notes) is kept as
+//! written too (`SourceInfo::KEPT_NOTES`) and written back as it came
+//! while the chart's notes are the ones it reads as; once the chart is
+//! edited it is written from the model and [`note_losses`] says what
+//! that drops.
 //!
 //! Numbers are written so they read back exactly: values as the shortest
 //! decimal that parses to the same `f64` (whole ones with three
@@ -20,7 +26,7 @@ use std::fmt::Write as _;
 
 use crate::TICKS_PER_BEAT;
 use crate::formats::sm::split_kind;
-use crate::formats::sm::{Flavor, is_song_tag, known_lane_count};
+use crate::formats::sm::{Flavor, NoteExtras, is_song_tag, known_lane_count, still_reads_as};
 use crate::model::{Chart, DisplayBpm, EffectEvent, EffectTime, NoteKind, Song, SourceInfo, Tick};
 use crate::timing::{SpeedUnit, TimingMap};
 
@@ -111,7 +117,7 @@ pub fn sm_losses(song: &Song) -> Vec<SmLoss> {
         if c.display_bpm.is_some() {
             out.push(SmLoss::ChartDisplayBpm { chart });
         }
-        if song.source.chart_tags(chart).next().is_some() {
+        if own_tags(song, chart).next().is_some() {
             out.push(SmLoss::ChartTags { chart });
         }
         if c.difficulty == crate::Difficulty::Hard
@@ -152,14 +158,60 @@ pub fn write_ssc(song: &Song) -> String {
         if let Some(timing) = &chart.timing {
             w.timing(timing, Flavor::Ssc);
         }
-        for (_, name, value) in song.source.chart_tags(index) {
+        for (name, value) in own_tags(song, index) {
             w.raw_tag(name, value);
         }
         w.out.push_str("#NOTES:\n");
-        w.out.push_str(&note_data(chart));
+        w.out.push_str(&note_text(song, index, chart));
         w.out.push_str(";\n");
     }
     w.out
+}
+
+/// Chart `index`'s tags kept as written, but its note data.
+fn own_tags(song: &Song, index: usize) -> impl Iterator<Item = (&str, &str)> {
+    song.source
+        .chart_tags(index)
+        .filter(|(_, name, _)| *name != SourceInfo::KEPT_NOTES)
+        .map(|(_, name, value)| (name, value))
+}
+
+/// Chart `index`'s note data as written: as it came where that is kept
+/// and the chart's notes are still the ones it reads as, else from the
+/// model.
+fn note_text(song: &Song, index: usize, chart: &Chart) -> String {
+    match song.source.kept_notes(index) {
+        Some(raw) if still_reads_as(raw, &chart.layout, &chart.notes) => {
+            let mut text = escape_with(raw, false);
+            text.push('\n');
+            text
+        }
+        _ => note_data(chart),
+    }
+}
+
+/// A chart whose note data, as it was read, holds what the model does
+/// not, and whose notes were edited since: written now, that is gone
+/// ([`note_losses`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NoteLoss {
+    pub chart: usize,
+    pub what: NoteExtras,
+}
+
+/// What writing `song` (as `.ssc` or `.sm`) would drop of the note data
+/// its charts were read with; empty when every such chart is written
+/// back as it came.
+pub fn note_losses(song: &Song) -> Vec<NoteLoss> {
+    written_charts(song)
+        .filter_map(|(chart, c)| {
+            let raw = song.source.kept_notes(chart)?;
+            (!still_reads_as(raw, &c.layout, &c.notes)).then(|| NoteLoss {
+                chart,
+                what: NoteExtras::of(raw),
+            })
+        })
+        .collect()
 }
 
 /// `song` as an `.sm` file. What [`sm_losses`] lists is left out.
@@ -168,7 +220,7 @@ pub fn write_sm(song: &Song) -> String {
     w.song_header(song, Flavor::Sm);
     w.timing(&song.timing, Flavor::Sm);
     w.song_tail(song);
-    for (_, chart) in written_charts(song) {
+    for (index, chart) in written_charts(song) {
         w.out.push('\n');
         let _ = write!(
             w.out,
@@ -178,7 +230,7 @@ pub fn write_sm(song: &Song) -> String {
             chart.difficulty.name(),
             chart.meter,
         );
-        w.out.push_str(&note_data(chart));
+        w.out.push_str(&note_text(song, index, chart));
         w.out.push_str(";\n");
     }
     w.out

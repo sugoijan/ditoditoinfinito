@@ -585,6 +585,30 @@ editor-save-over-body = { $platform ->
    *[desktop] { $file } is replaced; the file as it was is kept beside it as { $name }.old (at the first save each time the editor is opened). Charts whose notes changed are new charts for the play history.
 }
 
+## Saving a song some of whose charts were read with steps the editor
+## does not keep (a routine chart's second player, attacks on notes,
+## attack notes) and were edited since: a question first. Charts not
+## edited are written back as they were read.
+
+editor-save-loss-title = Save without what the editor does not keep?
+
+# Variables:
+#   $count (Number) - how many charts (1 or more)
+#   $list (String) - their numbers in the song ("2", "2, 5")
+editor-save-loss-body = { $count ->
+    [one] Chart { $list } was read with steps the editor does not keep (a second player's steps, attacks on notes or attack notes) and has been edited: saving writes it without them.
+   *[other] Charts { $list } were read with steps the editor does not keep (a second player's steps, attacks on notes or attack notes) and have been edited: saving writes them without them.
+} Save a copy to keep the song's file as it is.
+
+# Its middle button (about 12 letters): saves a copy elsewhere, the
+# song's own file left as it is.
+editor-save-loss-copy = Save a copy
+
+# Its last button (about 12 letters): saves over the song.
+editor-save-loss-anyway = Save anyway
+
+## Leaving.
+
 # The editor is being left with unsaved changes (Back, the browser's
 # Back, the window closing).
 editor-leave-title = Leave without saving?

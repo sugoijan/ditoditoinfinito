@@ -683,6 +683,78 @@ pub(crate) fn known_lane_count(steps_type: &str) -> Option<usize> {
 // Note data.
 // ---------------------------------------------------------------------------
 
+/// What a chart's note data, as written, holds that the model does not
+/// (the reader passes it over, as StepMania 5.1's does or because the
+/// game does not play it), so a chart written from the model alone
+/// would lose it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NoteExtras {
+    /// A routine chart's second player: everything after `&`.
+    pub second_player: bool,
+    /// Attacks on notes: `{mods:seconds}` after a note.
+    pub attacks: bool,
+    /// Attack notes: `A`.
+    pub attack_notes: bool,
+    /// Anything else the reader places nothing for: a letter it does
+    /// not know, or data after a `:` (a tag's further parameters).
+    pub other: bool,
+}
+
+impl NoteExtras {
+    pub fn any(self) -> bool {
+        self.second_player || self.attacks || self.attack_notes || self.other
+    }
+
+    /// What note data `raw` (a `#NOTES` value, its parameters joined
+    /// with `:`) holds beyond the model.
+    pub fn of(raw: &str) -> NoteExtras {
+        let mut x = NoteExtras::default();
+        // Inside `{…}` (an attack) or `[…]` (a keysound).
+        let mut inside = None;
+        for c in raw.chars() {
+            match (inside, c) {
+                // Wherever it is (inside an attack too), a `:` ends the
+                // tag's parameter: the reader reads up to it.
+                (_, ':') => x.other = true,
+                (Some(close), c) => {
+                    if c == close {
+                        inside = None;
+                    }
+                }
+                (None, '{') => {
+                    x.attacks = true;
+                    inside = Some('}');
+                }
+                (None, '[') => inside = Some(']'),
+                (None, '&') => x.second_player = true,
+                (None, 'A') => x.attack_notes = true,
+                (None, 'M' | 'L' | 'F' | 'K') => {}
+                (None, c) if c.is_alphabetic() => x.other = true,
+                _ => {}
+            }
+        }
+        x
+    }
+}
+
+/// The note data the reader reads of `raw` ([`NoteExtras::of`]'s): its
+/// first parameter.
+fn read_part(raw: &str) -> &str {
+    raw.split(':').next().unwrap_or("").trim()
+}
+
+/// Whether `notes` (a chart's, of `layout`) are still the ones note data
+/// `raw`, kept as written, reads as: the chart was not edited, so `raw`
+/// says all of it.
+pub(crate) fn still_reads_as(raw: &str, layout: &str, notes: &[Note]) -> bool {
+    let key = |n: &Note| (n.tick, n.lane);
+    let mut read = parse_note_data(read_part(raw), known_lane_count(layout));
+    read.sort_by_key(key);
+    let mut now = notes.to_vec();
+    now.sort_by_key(key);
+    read == now
+}
+
 /// Parse SM note data (`NoteDataUtil::LoadFromSMNoteDataString`).
 ///
 /// `lanes` limits the columns read per row; `None` reads every character.
@@ -1202,6 +1274,17 @@ fn build_chart(
     })
 }
 
+/// Keeps chart `index`'s note data `raw` as written where it holds what
+/// the model does not ([`SourceInfo::KEPT_NOTES`]).
+fn keep_notes(song: &mut Song, index: usize, raw: String) {
+    if NoteExtras::of(&raw).any() {
+        song.source.unknown_tags.push((
+            SourceInfo::chart_tag_key(index, SourceInfo::KEPT_NOTES),
+            raw.trim().to_string(),
+        ));
+    }
+}
+
 fn parse(text: &str, flavor: Flavor) -> Result<Song, ParseError> {
     let tags = parse_msd(text);
     let mut song = Song::empty(match flavor {
@@ -1267,6 +1350,7 @@ fn parse(text: &str, flavor: Flavor) -> Result<Song, ParseError> {
                             .unknown_tags
                             .push((SourceInfo::chart_tag_key(idx, &k), v));
                     }
+                    keep_notes(&mut song, idx, tag.raw_value());
                     song.charts.push(built);
                 }
                 "STEPFILENAME" => {
@@ -1356,6 +1440,8 @@ fn parse(text: &str, flavor: Flavor) -> Result<Song, ParseError> {
                     tag.param(3),
                     tag.param(5),
                 )?;
+                let (index, raw) = (song.charts.len(), tag.params[5..].join(":"));
+                keep_notes(&mut song, index, raw);
                 song.charts.push(built);
             }
             _ if name.starts_with("BGCHANGES") => {

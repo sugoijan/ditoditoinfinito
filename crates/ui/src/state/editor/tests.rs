@@ -95,6 +95,13 @@ fn assert_round_trips(song: &Song, what: &str) {
         version: SSC_VERSION,
     };
     back.source.format = expected.source.format.clone();
+    // A chart read with note data the model does not hold (kept as
+    // written, `SourceInfo::KEPT_NOTES`) and edited since is written
+    // from the model: the file no longer has what was kept.
+    for loss in ddi_chart::formats::sm_write::note_losses(song) {
+        let key = ddi_chart::SourceInfo::chart_tag_key(loss.chart, ddi_chart::SourceInfo::KEPT_NOTES);
+        expected.source.unknown_tags.retain(|(k, _)| *k != key);
+    }
     assert!(
         back == expected,
         "{what}: the edited song does not read back\n{text}"
