@@ -170,6 +170,17 @@ pub enum Lap {
     Overlay,
 }
 
+/// A link shown in the battle's place ([`PlayView::stage_links`], tests
+/// and pictures only): from a seat to a seat (none: the local player),
+/// `age` seconds after its commitment in every frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StagedLink {
+    pub from: Option<usize>,
+    pub to: Option<usize>,
+    pub age: f32,
+    pub chained: bool,
+}
+
 /// What a shell brings to its plays' drawing.
 pub trait PlayHost {
     /// A picture it decoded: the song's backgrounds, a skin's images, a
@@ -503,6 +514,9 @@ pub struct PlayView<H: PlayHost> {
     /// The last frame's lines and outlines of who attacks whom
     /// (`crate::attack_links`).
     links_drawn: Vec<crate::attack_links::Shown>,
+    /// Links shown in the battle's place ([`PlayView::stage_links`]:
+    /// tests and pictures).
+    staged_links: Option<Vec<StagedLink>>,
     /// A watched stage as the last frame drew it.
     watch_drawn: Option<WatchDrawn>,
     /// A watched stage's frames as they went ([`WatchTrace`]).
@@ -553,6 +567,7 @@ impl<H: PlayHost> PlayView<H> {
             shown_words: None,
             fields_for: None,
             routes: Default::default(),
+            staged_links: None,
             memo: Default::default(),
             mini_flashes: Default::default(),
             mini_locks: Default::default(),
@@ -964,6 +979,15 @@ impl<H: PlayHost> PlayView<H> {
     /// (`crate::attack_links`).
     pub fn links_drawn(&self) -> &[crate::attack_links::Shown] {
         &self.links_drawn
+    }
+
+    /// TESTS AND PICTURES ONLY: these links drawn in the place of the
+    /// battle's own (none: the battle's again), each `age` seconds old
+    /// in every frame, so a chosen arrangement of lines stands still to
+    /// be looked at. Nothing of the battle changes: only what the frame
+    /// draws of who attacks whom.
+    pub fn stage_links(&mut self, links: Option<Vec<StagedLink>>) {
+        self.staged_links = links;
     }
 
     /// A watched stage as the last frame drew it (none: the player
@@ -1687,9 +1711,26 @@ impl<H: PlayHost> PlayView<H> {
         // or the miniatures beside a player's own dimmed field), or the
         // followed competitor's as a player's own.
         let band_box = ddi_render::scene::band_box(&geo, span);
+        // (Tests' and pictures' own links in the battle's place.)
+        let staged: Option<Vec<ddi_session::battle::SeenLink>> =
+            self.staged_links.as_ref().map(|links| {
+                links
+                    .iter()
+                    .enumerate()
+                    .map(|(i, l)| ddi_session::battle::SeenLink {
+                        attack: 9000 + i as u32,
+                        from: l.from.unwrap_or(usize::MAX),
+                        to: l.to.unwrap_or(usize::MAX),
+                        shown_from: song - f64::from(l.age),
+                        first: song + 4.0,
+                        clear: song + 8.0,
+                        chained: l.chained,
+                    })
+                    .collect()
+            });
         let links = match (battle, &fields) {
             (Some(b), Some(f)) if watch.is_some() => {
-                let seen = b.seen_links();
+                let seen = staged.unwrap_or_else(|| b.seen_links());
                 match focus {
                     Some(seat) => crate::attack_links::shown(
                         &seen.iter().filter_map(|l| l.of(seat)).collect::<Vec<_>>(),
@@ -1729,7 +1770,10 @@ impl<H: PlayHost> PlayView<H> {
                 }
             }
             (Some(b), Some(f)) => crate::attack_links::shown(
-                &b.links(&session.player),
+                &staged.map_or_else(
+                    || b.links(&session.player),
+                    |s| s.iter().filter_map(|l| l.of(usize::MAX)).collect(),
+                ),
                 &crate::attack_links::Layout {
                     geo: &geo,
                     span,

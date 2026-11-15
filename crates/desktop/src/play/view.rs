@@ -526,6 +526,12 @@ impl View {
         self.view.links_drawn()
     }
 
+    /// Tests and pictures only: links shown in the battle's place
+    /// (`ddi_shell::play_view::PlayView::stage_links`).
+    pub fn stage_links(&mut self, links: Option<Vec<ddi_shell::play_view::StagedLink>>) {
+        self.view.stage_links(links);
+    }
+
     /// Waits for the lyrics' fonts (tests).
     pub fn wait_for_fonts(&mut self) {
         let host = &mut self.view.host;

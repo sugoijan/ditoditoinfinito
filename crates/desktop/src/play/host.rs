@@ -636,6 +636,16 @@ impl Host {
             .unwrap_or_default()
     }
 
+    /// Tests and pictures only: links shown in the battle's place in the
+    /// play's frames (`ddi_shell::play_view::PlayView::stage_links`).
+    pub fn stage_links(&mut self, links: Option<Vec<ddi_shell::play_view::StagedLink>>) {
+        if let Stage::Playing(r, ..) = &mut self.stage
+            && let Some(v) = r.view.as_mut()
+        {
+            v.stage_links(links);
+        }
+    }
+
     /// A room's stage is being played (not a solo play, a replay or a
     /// test) whose room leaving costs something now
     /// (`RoomClient::leave_cost`: an online room's).
