@@ -524,9 +524,12 @@ pub(crate) mod room {
                 (Method::Get, "/rooms/Room000001") => ok(
                     r#"{"room_id":"Room000001","name":"After Hours","revision":1,"phase":"lobby","admission":"open","participant":1}"#,
                 ),
+                // As the server answers it, its tickets' bound too where
+                // the fake has it on (`FakeServer::set_bounds`).
                 (Method::Post, "/rooms/Room000001/ticket") => {
-                    match s.borrow_mut().ticket_answer(&identity) {
+                    match s.borrow_mut().ticket_bounded(&identity) {
                         Ok(body) => ok(&body),
+                        Err((429, code)) => err(429, code),
                         Err(_) => err(403, "not_a_member"),
                     }
                 }
@@ -1390,6 +1393,94 @@ pub(crate) mod room {
         assert_eq!(alice.link_state(), LinkState::Reconnecting { attempt: 1 });
         tick(&clock, &mut [&mut alice], 800);
         assert_eq!(alice.link_state(), LinkState::Connected);
+    }
+
+    /// The review's gap 4 (round M): the game's client under the
+    /// server's bounds on one member (`ddi_room::fake::Bounds::SERVER`:
+    /// four sockets, the oldest closed 4429 for a newer one; thirty
+    /// tickets a minute, one more `429 too_many_tickets`). One person in
+    /// the room from five devices: a fifth socket closes the first, which
+    /// connects again as for any code that is no end, and so they take
+    /// turns; the member is Connected throughout (four sockets always
+    /// stand), no device's link ends, and once the tickets' bound is
+    /// reached the asks are refused 429 and tried again on the backoff
+    /// (never an end, never faster than the bound). With the fifth device
+    /// gone the four settle Connected and stay.
+    #[test]
+    fn five_devices_of_one_member_under_the_servers_bounds_take_turns_and_none_ends() {
+        use ddi_room::fake::{Bounds, CLOSE_TOO_MANY_SOCKETS};
+        let clock = ManualClock::new(1_000);
+        let server = room_of(&clock, &["bob"]);
+        server.borrow_mut().set_bounds(Some(Bounds::SERVER));
+        let asked = Rc::new(std::cell::Cell::new((0u32, 0u32)));
+        let device = |k: usize| {
+            let inner = handler_of(&server, "alice");
+            let counted = asked.clone();
+            let mut inner = inner;
+            let handler: Handler = Box::new(move |req| {
+                let ticket = req.path.ends_with("/ticket");
+                let answer = inner(req);
+                if ticket {
+                    let (all, refused) = counted.get();
+                    let no = answer.as_ref().is_some_and(|a| a.status == 429);
+                    counted.set((all + 1, refused + u32::from(no)));
+                }
+                answer
+            });
+            client(&server, signed_in(handler), &format!("alice{k}"), 1_000)
+        };
+        let mut devices: Vec<RoomClient> = (0..5).map(device).collect();
+        let me = ddi_room::ParticipantId(1);
+        let connected = |server: &SharedFake| {
+            server.borrow().state().member(me).unwrap().connection == ddi_room::Connection::Connected
+        };
+        let step = |devices: &mut [RoomClient], ms: u64| {
+            for _ in 0..ms / 50 {
+                clock.advance(50);
+                let now = ddi_room::Clock::now(&clock).0;
+                for d in devices.iter_mut() {
+                    d.tick(now);
+                }
+            }
+        };
+        step(&mut devices, 1_000);
+        assert!(connected(&server));
+        // Two minutes of five devices on four sockets.
+        let mut most_sockets = 0;
+        let mut reconnecting = 0u32;
+        for _ in 0..(120_000 / 50) {
+            step(&mut devices, 50);
+            assert!(connected(&server), "the member stays Connected");
+            most_sockets = most_sockets.max(server.borrow().sockets());
+            for d in &devices {
+                let link = d.link_state();
+                assert!(!link.ended(), "no link ends: {link:?}");
+                reconnecting += u32::from(matches!(link, LinkState::Reconnecting { .. }));
+            }
+        }
+        let (all, refused) = asked.get();
+        eprintln!(
+            "five devices, two minutes: {all} tickets asked, {refused} refused 429, at most {most_sockets} sockets open (one of them being closed), {reconnecting} device-steps reconnecting"
+        );
+        // (The one closed for a newer one counts until its device read
+        // the close.)
+        assert!(most_sockets <= Bounds::SERVER.sockets + 1, "{most_sockets}");
+        assert!(reconnecting > 0, "the fifth socket closed another ({CLOSE_TOO_MANY_SOCKETS})");
+        assert!(refused > 0, "the tickets' bound was reached");
+        // Never more given than the bound allows (two minutes and a
+        // little: three windows at most).
+        assert!(all - refused <= 3 * Bounds::SERVER.tickets_a_minute, "{all} {refused}");
+        // The fifth device goes: the four settle and stay.
+        // (Its socket stands unread until the bound closes it in turn.)
+        drop(devices.pop());
+        step(&mut devices, 90_000);
+        let before = asked.get();
+        step(&mut devices, 30_000);
+        assert_eq!(asked.get(), before, "nobody asks for a ticket any more");
+        for d in &devices {
+            assert_eq!(d.link_state(), LinkState::Connected);
+        }
+        assert!(connected(&server));
     }
 
     /// A co-host of the fake room.

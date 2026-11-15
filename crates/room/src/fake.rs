@@ -178,7 +178,40 @@ pub struct FakeServer {
     /// Messages the room has read: binary, text, and of the binary the
     /// CPUs' news (`crate::live::cpus`): what the platform bills.
     incoming: (u64, u64, u64),
+    /// The server's bounds on a member's sockets and tickets, where a
+    /// test turns them on ([`FakeServer::set_bounds`]).
+    bounds: Option<Bounds>,
+    /// Each member's tickets' times in the last minute (ms), for the
+    /// tickets' bound.
+    tickets_issued: BTreeMap<ParticipantId, VecDeque<u64>>,
 }
+
+/// The server's bounds on one member (`../ddi-server`'s `room.rs`,
+/// server-5): the sockets they may have open at once, the oldest closed
+/// with [`CLOSE_TOO_MANY_SOCKETS`] when one more opens (so a reconnect
+/// always gets in), and the socket tickets they may be given a minute
+/// for the room, one more answered `429 too_many_tickets`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Bounds {
+    pub sockets: usize,
+    pub tickets_a_minute: u32,
+}
+
+impl Bounds {
+    /// The server's own (`SOCKETS_A_PARTICIPANT`, `TICKETS_A_MINUTE`).
+    pub const SERVER: Bounds = Bounds {
+        sockets: 4,
+        tickets_a_minute: 30,
+    };
+}
+
+/// The close code of a member's oldest socket closed for a newer one
+/// (the server's `CLOSE_TOO_MANY_SOCKETS`): a client still there
+/// connects again, as for any code that is not an end.
+pub const CLOSE_TOO_MANY_SOCKETS: u16 = 4429;
+
+/// How long a ticket lasts, and the window its bound counts over (ms).
+const TICKET_TTL_MS: u64 = 60_000;
 
 pub type SharedFake = Rc<RefCell<FakeServer>>;
 
@@ -255,6 +288,8 @@ impl FakeServer {
             links: FakeLinks::of(&room_name),
             notes: Vec::new(),
             incoming: (0, 0, 0),
+            bounds: None,
+            tickets_issued: BTreeMap::new(),
             audience,
             room_name,
         }
@@ -446,6 +481,47 @@ impl FakeServer {
         .to_string())
     }
 
+    /// The server's bounds on a member's sockets and tickets turned on
+    /// (`Some(Bounds::SERVER)`: as the server keeps them) or off (none,
+    /// as a fake starts: every socket and ticket taken).
+    pub fn set_bounds(&mut self, bounds: Option<Bounds>) {
+        self.bounds = bounds;
+    }
+
+    /// `POST /rooms/<id>/ticket` for `identity` as the server answers it
+    /// under its bounds: the body, or the status and code of why not
+    /// (`403 not_a_member`, `410 room_closed`, and, where
+    /// [`FakeServer::set_bounds`] turned the tickets' bound on, `429
+    /// too_many_tickets` for one more than it allows in a minute; the
+    /// refused asks are not counted, as the server's are not).
+    pub fn ticket_bounded(&mut self, identity: &Identity) -> Result<String, (u16, &'static str)> {
+        let refusal = |r: Rejection| match r {
+            Rejection::RoomClosed => (410, "room_closed"),
+            _ => (403, "not_a_member"),
+        };
+        if self.state().closed.is_some() {
+            return Err((410, "room_closed"));
+        }
+        let id = self
+            .state()
+            .member_by_identity(identity)
+            .filter(|m| !m.left)
+            .map(|m| m.id)
+            .ok_or((403, "not_a_member"))?;
+        if let Some(b) = self.bounds {
+            let now = self.now();
+            let issued = self.tickets_issued.entry(id).or_default();
+            while issued.front().is_some_and(|t| now - *t >= TICKET_TTL_MS) {
+                issued.pop_front();
+            }
+            if issued.len() >= b.tickets_a_minute as usize {
+                return Err((429, "too_many_tickets"));
+            }
+            issued.push_back(now);
+        }
+        self.ticket_answer(identity).map_err(refusal)
+    }
+
     pub fn ticket(&mut self, identity: &Identity) -> Result<String, Rejection> {
         if self.state().closed.is_some() {
             return Err(Rejection::RoomClosed);
@@ -562,6 +638,19 @@ impl FakeServer {
         self.conns.insert(conn, c);
         let snapshot = ServerEnvelope::snapshot(self.state());
         self.push(conn, &snapshot);
+        // The sockets' bound: the member's oldest closed for this one.
+        if let Some(b) = self.bounds {
+            let theirs: Vec<u64> = self
+                .conns
+                .iter()
+                .filter(|(_, c)| c.open && !c.closing && c.participant == participant)
+                .map(|(k, _)| *k)
+                .collect();
+            let over = theirs.len().saturating_sub(b.sockets);
+            for k in theirs.into_iter().take(over) {
+                self.close_conn(k, CLOSE_TOO_MANY_SOCKETS);
+            }
+        }
         Some(conn)
     }
 
