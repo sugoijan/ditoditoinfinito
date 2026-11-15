@@ -652,6 +652,22 @@ fn someone_not_signed_in_watches_with_the_audience_without_a_sign_in() {
         String::from(crate::screens::online::invite_problem(&ninth)),
         "Too many people on your network are already watching this room."
     );
+    // A seat asking its own ticket (a lost socket's, or desktop's
+    // `--join`) is told the same.
+    let mut own = AudienceClient::new(
+        stranger(&server),
+        AUDIENCE_LINK,
+        Box::new(FakeAudienceSocket::new(server.clone())),
+        None,
+        5_000,
+    );
+    own.tick(5_020);
+    assert_eq!(
+        own.state(),
+        SeatState::Refused(Refused::Other(
+            crate::state::online::api::TOO_MANY_ON_NETWORK.into()
+        ))
+    );
     // A signed-in person keeps their own two (never their network's).
     assert!(arrive(&server, "erin", AUDIENCE_LINK, 5_000).is_ok());
     let too_many = arrive(&server, "erin", AUDIENCE_LINK, 5_000)

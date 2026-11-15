@@ -407,9 +407,10 @@ impl AudienceClient {
         }
         self.clock.set(now_ms.max(self.clock.now().0));
         self.online.borrow_mut().poll(now_ms);
-        if let Some(id) = self.ticket_req
-            && let Some(r) = self.online.borrow_mut().take_answer(id)
-        {
+        let answer = self
+            .ticket_req
+            .and_then(|id| self.online.borrow_mut().take_answer(id));
+        if let Some(r) = answer {
             self.ticket_req = None;
             match api::read_current::<AudienceTicketDoc>(&r) {
                 Ok(t) => {
