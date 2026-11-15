@@ -12,12 +12,18 @@ use crate::path::RelPathBuf;
 /// wrote, read as the library reads every simfile, generated versions
 /// added), stored as `chart`: its title, charts, tempo and length the
 /// new ones; its files (music, art, background changes, lyrics, preview
-/// movie) the old ones. A chart's own music is kept where the chart at its index still
-/// names one.
+/// movie) the old ones, except that its music, banner, background and
+/// jacket follow what the simfile now names where that is one of
+/// `stored` (the song's files as the shell keeps them, by their paths in
+/// its folder; matched as simfiles name files, whatever the case), as a
+/// library reading the folder again would have them: a name that is no
+/// stored file leaves the old one. A chart's own music is kept where the
+/// chart at its index still names one.
 pub fn entry_after_edit(
     old: &ManifestEntry,
     text: &str,
     chart: RelPathBuf,
+    stored: &[String],
 ) -> Result<ManifestEntry, String> {
     let song: Song = crate::scan::parse_simfile(text, "ssc").map_err(|e| e.to_string())?;
     let (title, artist) = simfile_names(&song, &old.title);
@@ -43,6 +49,25 @@ pub fn entry_after_edit(
         artist_translit: new.artist_translit,
         ..old.clone()
     };
+    let named = |name: &Option<String>| -> Option<RelPathBuf> {
+        let name = name.as_deref()?.trim().replace('\\', "/");
+        stored
+            .iter()
+            .find(|s| s.eq_ignore_ascii_case(&name))
+            .map(|s| RelPathBuf::from(s.as_str()))
+    };
+    if let Some(music) = named(&song.music) {
+        entry.music = music;
+    }
+    for (field, name) in [
+        (&mut entry.banner, &song.banner),
+        (&mut entry.background, &song.background),
+        (&mut entry.jacket, &song.jacket),
+    ] {
+        if let Some(file) = named(name) {
+            *field = Some(file);
+        }
+    }
     for c in &mut entry.charts {
         if song.chart_music(c.index).is_some() {
             c.music = old
@@ -118,7 +143,7 @@ mod tests {
         edited.charts.push(hard);
         edited.timing.bpms[0].bpm = 150.0;
         let text = ddi_chart::formats::sm_write::write_ssc(&edited);
-        let e = entry_after_edit(&old, &text, "chart.ssc".into()).unwrap();
+        let e = entry_after_edit(&old, &text, "chart.ssc".into(), &[]).unwrap();
         assert_eq!(e.id, "pack:song");
         assert_eq!(e.title, "Song (edit)");
         assert_eq!(e.chart.as_str(), "chart.ssc");
@@ -133,6 +158,45 @@ mod tests {
             e.charts[0].digest, old.charts[0].digest,
             "a new tempo, a new chart"
         );
+    }
+
+    /// Review studio-editor-7: the song's music and art follow what the
+    /// editor's Song fields now name where that is a file the shell
+    /// keeps for the song (desktop reads the folder again; the web's
+    /// entry said the old files for good).
+    #[test]
+    fn an_edited_song_s_files_follow_its_fields_where_they_are_stored() {
+        let song = crate::scan::parse_simfile(SM, "sm").unwrap();
+        let old = summarize(
+            EntryMeta {
+                id: "pack:song".into(),
+                title: "Song".into(),
+                chart: "chart.sm".into(),
+                music: "song.ogg".into(),
+                banner: Some("banner.png".into()),
+                ..EntryMeta::default()
+            },
+            &song,
+        );
+        let mut edited = song.clone();
+        edited.music = Some("Other.OGG".into());
+        edited.banner = Some("gone.png".into());
+        edited.background = Some("art\\bg.png".into());
+        let text = ddi_chart::formats::sm_write::write_ssc(&edited);
+        let stored: Vec<String> = ["song.ogg", "other.ogg", "banner.png", "art/bg.png"]
+            .map(String::from)
+            .to_vec();
+        let e = entry_after_edit(&old, &text, "chart.ssc".into(), &stored).unwrap();
+        assert_eq!(e.music.as_str(), "other.ogg", "the file stored, as stored");
+        assert_eq!(
+            e.banner.as_ref().map(|b| b.as_str()),
+            Some("banner.png"),
+            "no such file: the old one"
+        );
+        assert_eq!(e.background.as_ref().map(|b| b.as_str()), Some("art/bg.png"));
+        // Nothing known of the stored files: as before.
+        let e = entry_after_edit(&old, &text, "chart.ssc".into(), &[]).unwrap();
+        assert_eq!(e.music.as_str(), "song.ogg");
     }
 
     #[test]

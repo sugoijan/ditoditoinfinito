@@ -40,7 +40,9 @@ use ddi_library::pack::ChartFormat;
 use ddi_library::path::RelPathBuf;
 use ddi_platform::storage::{self, Area};
 use ddi_session::listen::{Cues, Listener};
-use ddi_ui::screens::editor::{EditorCall, EditorHost, EditorPlace, save_failed, saved};
+use ddi_ui::screens::editor::{
+    EditorCall, EditorHost, EditorPlace, autosave_failed, save_failed, saved,
+};
 use ddi_ui::state::editor::audio::{Analysis, Builder};
 use ddi_ui::state::editor::autosave::{self, Autosave, Slot};
 use ddi_ui::state::editor::{Editor, export};
@@ -381,6 +383,7 @@ impl EditorHost for WebEditorHost {
                 // The page is left for the play's: kept first.
                 if let Err(e) = keep_now(&self.id, editor) {
                     web_sys::console::warn_1(&format!("editor: autosave: {e}").into());
+                    cx.broadcast(autosave_failed(e));
                 }
                 SESSION.with(|s| {
                     if let Some(s) = s.borrow_mut().as_mut() {
@@ -437,6 +440,7 @@ impl EditorHost for WebEditorHost {
                 let a = editor.autosave(&self.id, storage::now_ms());
                 if let Err(e) = autosave::keep(&Autosaves, &a) {
                     web_sys::console::warn_1(&format!("editor: autosave: {e}").into());
+                    cx.broadcast(autosave_failed(e));
                 }
             }
             EditorCall::Leave => {
@@ -673,7 +677,8 @@ fn download(text: &str, name: &str) -> Result<(), &'static str> {
 }
 
 /// Writes `text` as imported song `id`'s chart: its stored `chart.ssc`,
-/// its entry made again; the old chart file let go.
+/// its entry made again (its music and art the stored files its fields
+/// now name, as desktop's rescan has them); the old chart file let go.
 async fn save_imported(id: &str, text: &str) -> Result<(), String> {
     let db = Db::open().await?;
     let mut record = crate::songs::imported_record(&db, id).await?;
@@ -682,7 +687,18 @@ async fn save_imported(id: &str, text: &str) -> Result<(), String> {
     }
     let chart = RelPathBuf::from("chart.ssc");
     let old = record.entry.chart.clone();
-    record.entry = ddi_library::edited::entry_after_edit(&record.entry, text, chart.clone())?;
+    // The song's files as stored (and those read from its kept folder):
+    // the music and art the fields now name are the entry's.
+    let prefix = crate::songs::file_key(id, "");
+    let mut stored: Vec<String> = db
+        .keys_with_prefix(idb::FILES, &prefix)
+        .await?
+        .iter()
+        .filter_map(|k| k.strip_prefix(&prefix).map(str::to_string))
+        .collect();
+    stored.extend(record.links.keys().cloned());
+    record.entry =
+        ddi_library::edited::entry_after_edit(&record.entry, text, chart.clone(), &stored)?;
     // Read from the stored copy from now on, not the kept folder.
     record.links.remove(chart.as_str());
     record.links.remove(old.as_str());
