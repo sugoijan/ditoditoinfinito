@@ -1305,6 +1305,15 @@ impl Shell {
         true
     }
 
+    /// The primary button or a touch at `pos` (logical pixels, as the
+    /// window's cursor and the play's rects are) while a play runs: its
+    /// quit button, a stage's attack policy label, a watched stage's
+    /// fields and its skip plate, in that order. Whether the play took
+    /// it (else it is the UI's).
+    pub fn play_pointer(&mut self, phase: PointerPhase, pos: [f32; 2]) -> bool {
+        self.quit_button(phase, pos) || self.policy_label(phase, pos) || self.watch_press(phase, pos)
+    }
+
     /// A primary press or release at `pos` on a stage's attack policy
     /// label (or the release of one begun there): the play's `policy`
     /// control, which cycles the policy. Whether it was taken.
@@ -1678,10 +1687,7 @@ impl ApplicationHandler for Shell {
                 // Only the primary button presses (other buttons change
                 // what is held, as the DOM's `pointermove` would say).
                 if bit == buttons::PRIMARY {
-                    if self.quit_button(phase, self.cursor)
-                        || self.policy_label(phase, self.cursor)
-                        || self.watch_press(phase, self.cursor)
-                    {
+                    if self.play_pointer(phase, self.cursor) {
                         return;
                     }
                     self.pointer(MOUSE, PointerKind::Mouse, phase, self.cursor);
@@ -1731,10 +1737,7 @@ impl ApplicationHandler for Shell {
                 };
                 let pos = to_logical(t.location, self.scale);
                 self.pointer_over_play();
-                if self.quit_button(phase, pos)
-                    || self.policy_label(phase, pos)
-                    || self.watch_press(phase, pos)
-                {
+                if self.play_pointer(phase, pos) {
                     return;
                 }
                 self.pointer(t.id + 1, PointerKind::Touch, phase, pos);
