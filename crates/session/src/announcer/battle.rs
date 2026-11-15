@@ -13,14 +13,23 @@
 //!
 //! [`Announcer::battle_by`]: super::Announcer::battle_by
 //!
-//! The policy is [`BATTLE_VOICE_V0`], PROVISIONAL: its numbers are
+//! The policy is [`BATTLE_VOICE_V1`], PROVISIONAL: its numbers are
 //! nobody's tuning yet, and are kept here alone. A battle line never
-//! waits: one due while a line that matters as much or more is still
-//! speaking is passed over (shown, not said late), and nothing is queued
-//! (a canceled start, a state that ended, leave nothing behind). The
-//! voice bus cannot cut a sound short, so a line that matters more starts
-//! over the end of one that matters less. Judging, the clock and the
-//! music never wait for any of it.
+//! waits behind another battle line: one due while a line that matters as
+//! much or more is still speaking is passed over (shown, not said late),
+//! and nothing is queued (a canceled start, a state that ended, leave
+//! nothing behind). The voice bus cannot cut a sound short, so a line that
+//! matters more starts over the end of one that matters less. Two
+//! exceptions, each scheduled on the audio clock rather than queued: a
+//! step's line (`battle step up`, `battle step down`) never talks over a
+//! line being said, starting at its end where that is within
+//! [`VoicePolicy::step_window`] of the step's moment, else passed over;
+//! and a battle line due while a combo line speaks starts at the combo
+//! line's end (they are short). The combo lines ([`Line::is_combo`]) came
+//! back into a stage with `battle-voice-v1` (feedback round J), below
+//! every battle line: said only where nothing speaks or is due over them,
+//! up to [`VoicePolicy::combo_window`] late, else dropped. Judging, the
+//! clock and the music never wait for any of it.
 
 use ddi_library::announcer::{Battle as Event, Kept, Line, Spoken};
 use ddi_library::path::RelPathBuf;
@@ -42,27 +51,48 @@ pub struct VoicePolicy {
     /// told again, by line or by cue (a chained attack right behind the
     /// first: the warning by the receptors says it).
     pub incoming_again: f64,
+    /// Seconds after a step's moment (its new chart's notes beginning)
+    /// within which its line may still start, after a line being said;
+    /// later it is passed over (and shown).
+    pub step_window: f64,
+    /// Seconds after the combo reaches its count (or breaks) within which
+    /// its line may still start, after a line being said; later, or where
+    /// a battle line is due while it would speak, it is dropped.
+    pub combo_window: f64,
 }
 
-/// The battle voice of the prototype (`battle-voice-v0`): one battle line
-/// at a time, outcomes over an attack against the player over the
-/// player's own life over who is left over an attack of the player's own
-/// over the stage's opening and the winner's finished song; a play's routine
-/// lines left out of a stage (a chart's clear is not a stage's win);
-/// moments shown 2.5 s.
-pub const BATTLE_VOICE_V0: VoicePolicy = VoicePolicy {
-    id: "battle-voice-v0",
+/// What a combo line speaking counts as among the battle's priorities:
+/// below every battle line ([`VoicePolicy::priority`] gives none under 5).
+pub const COMBO_PRIORITY: u8 = 0;
+
+/// The battle voice of the prototype (`battle-voice-v1`, feedback round
+/// J, 2026-11-15; it replaced `battle-voice-v0`, which left the combo
+/// lines out and had no step lines): one battle line at a time, outcomes
+/// over an attack against the player over the player's own life over a
+/// step of the player's own (up or down) over who is left over an attack
+/// of the player's own over the stage's opening and the winner's finished
+/// song; a step's line never over a line being said, at most a second
+/// late; the combo lines below them all, said only in a quiet moment, at
+/// most a second late, never over a battle line nor one due; the rest of
+/// a play's routine lines left out of a stage (a chart's clear is not a
+/// stage's win); moments shown 2.5 s.
+pub const BATTLE_VOICE_V1: VoicePolicy = VoicePolicy {
+    id: "battle-voice-v1",
     cue_seconds: 2.5,
     cue_fade: 0.25,
     incoming_again: 6.0,
+    step_window: 1.0,
+    combo_window: 1.0,
 };
 
 impl VoicePolicy {
     /// How much `event` matters when two meet: the higher speaks, the
     /// other is passed over. The design's order: terminal local states
     /// and confirmed outcomes, then an attack against the player, then
-    /// critical life, then milestones, then feedback (an attack of the
-    /// player's own just under the milestones).
+    /// critical life, then a step of the player's own, then milestones,
+    /// then feedback (an attack of the player's own just under the
+    /// milestones). The combo lines are under all of them
+    /// ([`COMBO_PRIORITY`]).
     pub fn priority(&self, event: Event) -> u8 {
         match event {
             Event::Eliminated
@@ -74,6 +104,7 @@ impl VoicePolicy {
             | Event::MatchDrawn => 40,
             Event::AttackIncoming => 30,
             Event::LifeCritical => 20,
+            Event::StepUp | Event::StepDown => 12,
             Event::Survivors(_) => 10,
             Event::AttackLaunched => 8,
             Event::MatchBegin | Event::StageBegin | Event::FinalStage | Event::SongFinished => 5,
@@ -122,11 +153,13 @@ impl VoicePolicy {
 }
 
 /// Whether a stage speaks `line`: the battle's lines and those spoken in
-/// their place, the play's here we go and a quit's results (the rest of
-/// a play's lines are left out of a stage).
+/// their place, the play's here we go, the combo lines
+/// ([`Line::is_combo`], `battle-voice-v1`) and a quit's results (the rest
+/// of a play's lines are left out of a stage).
 pub fn stage_speaks(line: Line) -> bool {
     match line {
         Line::Battle(_) | Line::HereWeGo | Line::Quit => true,
+        l if l.is_combo() => true,
         _ => Event::ALL
             .iter()
             .any(|&e| Line::Battle(e).chain().contains(&line)),
@@ -212,13 +245,16 @@ pub enum StageCue {
     Stay { rung: u8 },
 }
 
-/// A stage's voice: the policy, the battle line speaking and until when
-/// (audio clock), how much it matters, and the results' line kept until
-/// the room has confirmed the stage.
+/// A stage's voice: the policy, the line speaking and until when (audio
+/// clock), how much it matters (a combo line [`COMBO_PRIORITY`]), the
+/// battle lines known to be due (a step's, decided ahead of its
+/// boundary: audio clock), and the results' line kept until the room has
+/// confirmed the stage.
 #[derive(Clone, Debug)]
 pub(super) struct StageVoice {
     pub policy: VoicePolicy,
     pub busy: Option<(f64, u8)>,
+    pub due: Vec<f64>,
     pub end: Option<Event>,
     /// The line the opening was said with, once it was (`Some(None)`:
     /// nothing was).
@@ -230,18 +266,35 @@ impl StageVoice {
         StageVoice {
             policy,
             busy: None,
+            due: Vec::new(),
             end: None,
             opened: None,
         }
     }
 
-    /// Whether `event` may speak at `at`: nothing speaks, or it matters
-    /// more than what does.
-    pub fn may_speak(&self, event: Event, at: f64) -> bool {
+    /// When `event` due at `at` may start: at once where nothing speaks
+    /// or it matters more than what does, at the end of a combo line
+    /// speaking (never over it), else never (`None`).
+    pub fn start(&self, event: Event, at: f64) -> Option<f64> {
         match self.busy {
-            Some((until, p)) if at < until => self.policy.priority(event) > p,
-            _ => true,
+            Some((until, COMBO_PRIORITY)) if at < until => Some(until),
+            Some((until, p)) if at < until => (self.policy.priority(event) > p).then_some(at),
+            _ => Some(at),
         }
+    }
+
+    /// When a line that never talks over another, due at `at`, may start:
+    /// at once, or at the end of the line being said.
+    pub fn after_busy(&self, at: f64) -> f64 {
+        match self.busy {
+            Some((until, _)) if at < until => until,
+            _ => at,
+        }
+    }
+
+    /// Whether a battle line is due within `from..to` (audio clock).
+    pub fn due_within(&self, from: f64, to: f64) -> bool {
+        self.due.iter().any(|&d| d >= from - 1e-9 && d < to)
     }
 }
 
@@ -262,7 +315,7 @@ mod tests {
 
     #[test]
     fn the_priorities_follow_the_design_s_order() {
-        let p = BATTLE_VOICE_V0;
+        let p = BATTLE_VOICE_V1;
         assert!(p.priority(Event::Eliminated) > p.priority(Event::LifeCritical));
         assert!(p.priority(Event::StageWon) > p.priority(Event::LifeCritical));
         assert!(p.priority(Event::LifeCritical) > p.priority(Event::Survivors(2)));
@@ -280,6 +333,18 @@ mod tests {
         assert!(p.priority(Event::AttackIncoming) > p.priority(Event::LifeCritical));
         assert!(p.priority(Event::Survivors(2)) > p.priority(Event::AttackLaunched));
         assert!(p.priority(Event::AttackLaunched) > p.priority(Event::StageBegin));
+        // A step of the player's own: under an attack against them and
+        // their life, over who is left; the combo lines under every one.
+        for step in [Event::StepUp, Event::StepDown] {
+            assert!(p.priority(Event::AttackIncoming) > p.priority(step));
+            assert!(p.priority(Event::StageWon) > p.priority(step));
+            assert!(p.priority(step) > p.priority(Event::Survivors(2)));
+            assert!(p.priority(step) > p.priority(Event::AttackLaunched));
+        }
+        for e in Event::ALL {
+            assert!(p.priority(e) > COMBO_PRIORITY, "{e:?}");
+        }
+        assert_eq!(p.id, "battle-voice-v1");
         for m in [AttackMoment::Incoming, AttackMoment::Launched] {
             assert_eq!(p.attack_priority(m), p.priority(m.event()));
         }
@@ -298,14 +363,19 @@ mod tests {
                     | Line::Failed
                     | Line::Cleared
                     | Line::Quit
+                    | Line::Combo(_)
+                    | Line::ComboOverflow
+                    | Line::ComboStopped
             );
             assert_eq!(kept, expected, "{line:?}");
         }
+        // The combo lines came back (`battle-voice-v1`).
+        for combo in [Line::Combo(100), Line::Combo(64), Line::ComboOverflow, Line::ComboStopped] {
+            assert!(!routine(combo) && stage_speaks(combo), "{combo:?}");
+        }
         for routine_line in [
-            Line::Combo(100),
-            Line::ComboOverflow,
-            Line::ComboStopped,
             Line::CommentHot,
+            Line::CommentGood,
             Line::FullCombo,
             Line::LifeLost,
             Line::LastLife,
@@ -343,7 +413,8 @@ mod tests {
                 Line::Battle(Event::FinalStage),
                 Line::Ready,
                 Line::HereWeGo,
-                Line::Battle(Event::StageWon)
+                Line::Battle(Event::StageWon),
+                Line::Combo(100)
             ]
         );
         // A play of one's own decodes none of the battle's.
@@ -359,7 +430,7 @@ mod tests {
 
     #[test]
     fn a_cue_fades_in_and_out_or_not_at_all_under_reduced_motion() {
-        let p = BATTLE_VOICE_V0;
+        let p = BATTLE_VOICE_V1;
         assert_eq!(p.cue_alpha(-0.1, false), 0.0);
         assert!(p.cue_alpha(0.05, false) < 1.0);
         assert_eq!(p.cue_alpha(1.0, false), 1.0);
@@ -387,7 +458,7 @@ mod tests {
             rate: 1.0,
         };
         let mut a = Announcer::new(true, 0.5, None, timing, Some(10.0))
-            .in_stage(Event::StageBegin, BATTLE_VOICE_V0);
+            .in_stage(Event::StageBegin, BATTLE_VOICE_V1);
         a.set_voice(std::rc::Rc::new(std::cell::RefCell::new(v)));
         a
     }
@@ -427,42 +498,153 @@ mod tests {
         assert!((at[0] - 120.03).abs() < 1e-9 && (at[1] - 121.53).abs() < 1e-9);
     }
 
-    /// A stage's routine lines are left out whatever the play does: no
-    /// combo line as the combo passes a count the pack has, no comment,
-    /// no cleared; a battle moment due then speaks.
-    #[test]
-    fn a_stage_says_no_combo_and_its_moment_speaks_instead() {
+    /// A stage's play `moments` frames of half a second from song second
+    /// 10 (the audio clock at 110), the combo `combo(i)` at frame `i`, and
+    /// `each(i, a, audio)` before its frame.
+    fn run(
+        a: &mut super::super::Announcer<f64>,
+        audio: &mut super::super::tests::Fake,
+        frames: u32,
+        combo: impl Fn(u32) -> u32,
+        mut each: impl FnMut(u32, &mut super::super::Announcer<f64>, &mut super::super::tests::Fake),
+    ) {
         use super::super::Moment;
+        let mut m = Moment {
+            dt: 0.5,
+            life: 1.0,
+            ..Moment::default()
+        };
+        for i in 0..frames {
+            m.now = 110.0 + f64::from(i) * 0.5;
+            m.song_time = 10.0 + f64::from(i) * 0.5;
+            m.combo = combo(i);
+            m.ended = i + 1 == frames;
+            each(i, a, audio);
+            a.tick(audio, &m);
+        }
+    }
+
+    /// No two lines at once: each said line's start is at or after the end
+    /// of the one before (`len` seconds each).
+    fn one_at_a_time(audio: &super::super::tests::Fake, len: f64) {
+        let mut at: Vec<f64> = audio.voiced.iter().map(|v| v.1).collect();
+        at.sort_by(f64::total_cmp);
+        for w in at.windows(2) {
+            assert!(w[1] >= w[0] + len - 1e-9, "two voices at once: {at:?}");
+        }
+    }
+
+    /// `battle-voice-v1`: a combo line is said in a quiet moment of a
+    /// stage; the other routine lines stay out (no comment, no cleared)
+    /// whatever the play does.
+    #[test]
+    fn a_stage_says_its_combo_in_a_quiet_moment_and_no_other_routine_line() {
         let mut audio = super::super::tests::Fake::default();
         let mut a = stage(
             &[
                 "gameplay 100 combo",
+                "gameplay 200 combo",
+                "gameplay combo stopped",
                 "gameplay comment hot",
                 "gameplay cleared",
-                "battle survivors 2",
             ],
             0.5,
         );
-        let mut m = Moment {
-            now: 110.0,
-            dt: 0.5,
-            song_time: 10.0,
-            life: 1.0,
-            ..Moment::default()
-        };
-        for i in 0..60 {
-            m.now = 110.0 + f64::from(i) * 0.5;
-            m.song_time = 10.0 + f64::from(i) * 0.5;
-            m.combo = i * 5;
-            m.ended = i == 59;
-            a.tick(&mut audio, &m);
-            if i == 20 {
-                // The combo reaches 100 as two are left.
-                a.battle(&mut audio, Event::Survivors(2), m.now);
-            }
-        }
+        // The combo up by five a frame to 245, then broken (5.1's gap of
+        // two seconds between combo lines counts a frame a quarter second
+        // at most).
+        run(&mut a, &mut audio, 60, |i| if i < 50 { i * 5 } else { 0 }, |_, _, _| {});
         let said: Vec<&str> = a.report.spoken.iter().map(|(f, _)| f.as_str()).collect();
-        assert_eq!(said, ["battle survivors 2"]);
+        assert_eq!(said, ["gameplay 100 combo", "gameplay 200 combo", "gameplay combo stopped"]);
+        // Said at once: the combo reached 100 at frame 20 (audio 120).
+        assert!((a.report.spoken[0].1 - 120.03).abs() < 1e-9);
+        one_at_a_time(&audio, 0.5);
+    }
+
+    /// A combo line is held back while a battle line speaks and said at
+    /// its end where that is within the combo window; dropped where its
+    /// moment has passed, or where a battle line is due before it would
+    /// be over; a battle line due while a combo line speaks starts at its
+    /// end. Never two voices at once.
+    #[test]
+    fn a_combo_line_waits_a_moment_for_a_battle_line_or_is_dropped() {
+        let p = BATTLE_VOICE_V1;
+        // Held: an attack line of 0.8 s at 119.6, the combo at 120.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(&["gameplay 100 combo", "battle attack incoming"], 0.8);
+        run(&mut a, &mut audio, 30, |i| i * 5, |i, a, audio| {
+            if i == 19 {
+                a.battle_by(audio, Event::AttackIncoming, 119.5, Some(130.0));
+            }
+        });
+        let said: Vec<(&str, f64)> = a.report.spoken.iter().map(|(f, t)| (f.as_str(), *t)).collect();
+        assert_eq!(said[0].0, "battle attack incoming");
+        assert_eq!(said[1].0, "gameplay 100 combo");
+        assert!((said[1].1 - (119.53 + 0.8)).abs() < 1e-9, "at its end: {said:?}");
+        one_at_a_time(&audio, 0.8);
+        // Dropped: the battle line longer than the combo's window.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(&["gameplay 100 combo", "battle attack incoming"], p.combo_window + 1.0);
+        run(&mut a, &mut audio, 30, |i| i * 5, |i, a, audio| {
+            if i == 19 {
+                a.battle_by(audio, Event::AttackIncoming, 119.5, Some(130.0));
+            }
+        });
+        let said: Vec<&str> = a.report.spoken.iter().map(|(f, _)| f.as_str()).collect();
+        assert_eq!(said, ["battle attack incoming"], "its moment passed");
+        assert!(a.report.dropped >= 1);
+        // Dropped: a step's line due while it would speak.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(&["gameplay 100 combo", "battle step up"], 0.8);
+        a.battle_due(120.4);
+        run(&mut a, &mut audio, 30, |i| i * 5, |_, _, _| {});
+        assert!(a.report.spoken.is_empty(), "{:?}", a.report.spoken);
+        // A battle line due while a combo line speaks: at its end.
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(&["gameplay 100 combo", "battle survivors 2"], 0.8);
+        run(&mut a, &mut audio, 30, |i| i * 5, |i, a, audio| {
+            if i == 21 {
+                a.battle(audio, Event::Survivors(2), 120.5);
+            }
+        });
+        let said: Vec<(&str, f64)> = a.report.spoken.iter().map(|(f, t)| (f.as_str(), *t)).collect();
+        assert_eq!(said[0].0, "gameplay 100 combo");
+        assert_eq!(said[1].0, "battle survivors 2");
+        assert!((said[1].1 - (120.03 + 0.8)).abs() < 1e-9, "{said:?}");
+        one_at_a_time(&audio, 0.8);
+    }
+
+    /// A step's line never talks over a line being said: said at once,
+    /// or at the end of the line speaking where that is within the step
+    /// window, else passed over. A pack without it says nothing for it
+    /// (no fallback).
+    #[test]
+    fn a_step_line_waits_up_to_a_second_never_over_a_line() {
+        let p = BATTLE_VOICE_V1;
+        let up = Line::Battle(Event::StepUp);
+        let mut audio = super::super::tests::Fake::default();
+        let mut a = stage(&["battle step up", "battle step down", "battle life critical"], 0.8);
+        assert_eq!(a.battle_patient(&mut audio, Event::StepUp, 120.0), Some(up));
+        // Life critical (it matters more) speaks over it, as v0 had it.
+        assert!(a.battle(&mut audio, Event::LifeCritical, 120.2).is_some());
+        // A step down while life critical speaks (until 121.03): at its end.
+        assert_eq!(
+            a.battle_patient(&mut audio, Event::StepDown, 120.5),
+            Some(Line::Battle(Event::StepDown))
+        );
+        let last = a.report.spoken.last().unwrap();
+        assert!((last.1 - 121.03).abs() < 1e-9, "{last:?}");
+        // A line of two seconds: a step more than a second behind it is
+        // passed over.
+        let mut long = stage(&["battle step up", "battle life critical"], 2.0);
+        long.battle(&mut audio, Event::LifeCritical, 130.0);
+        assert_eq!(long.battle_patient(&mut audio, Event::StepUp, 130.2), None);
+        assert_eq!(long.report.dropped, 1);
+        assert!(130.03 + 2.0 > 130.23 + p.step_window);
+        // A pack without the step lines: nothing in their place.
+        let mut plain = stage(&["gameplay ready", "battle attack launched"], 1.0);
+        assert_eq!(plain.battle_patient(&mut audio, Event::StepUp, 150.0), None);
+        assert_eq!(plain.report.absent, ["battle step up"]);
     }
 
     /// An attack against the player speaks over their life running low
@@ -555,7 +737,7 @@ mod tests {
             said,
             at: 0.0,
         };
-        let p = BATTLE_VOICE_V0;
+        let p = BATTLE_VOICE_V1;
         assert!(told(Some(Line::Battle(Event::FinalStage))).spoken());
         assert!(!told(Some(Line::Battle(Event::StageBegin))).spoken());
         assert!(told(Some(Line::Battle(Event::StageBegin))).shown(&p));

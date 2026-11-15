@@ -535,6 +535,8 @@ fn the_battle_lines_have_their_own_folders_and_category() {
             "battle life critical",
             "battle attack incoming",
             "battle attack launched",
+            "battle step up",
+            "battle step down",
             "battle survivors 4",
             "battle survivors 2",
             "battle eliminated",
@@ -612,6 +614,8 @@ fn a_missing_battle_line_falls_back_on_the_play_line_of_its_moment() {
     for alone in [
         Battle::AttackIncoming,
         Battle::AttackLaunched,
+        Battle::StepUp,
+        Battle::StepDown,
         Battle::Survivors(4),
         Battle::Survivors(2),
         Battle::StageWon,
@@ -669,6 +673,9 @@ fn the_battle_lines_leave_the_studio_s_names_for_other_lines_alone() {
         ),
         ("incoming.wav", Some(Line::Battle(Battle::AttackIncoming))),
         ("launched.wav", Some(Line::Battle(Battle::AttackLaunched))),
+        // A step's two: their folders and their own ends.
+        ("battle step up.wav", Some(Line::Battle(Battle::StepUp))),
+        ("step down 2.wav", Some(Line::Battle(Battle::StepDown))),
         // No line's end.
         ("attack.wav", None),
         // Two lines' ends.
@@ -679,4 +686,16 @@ fn the_battle_lines_leave_the_studio_s_names_for_other_lines_alone() {
     }
     // The studio lists them, as every line the game speaks.
     assert!(draft::listed().contains(&Line::Battle(Battle::MatchBegin)));
+}
+
+/// The combo lines, exactly: the counts, the overflow and a broken combo;
+/// never the full combos (the play's end) nor any other line.
+#[test]
+fn the_combo_lines_are_the_counts_the_overflow_and_the_stop() {
+    let combos: Vec<Line> = Line::all().into_iter().filter(|l| l.is_combo()).collect();
+    let mut want: Vec<Line> = (1..=10).map(|n| Line::Combo(n * 100)).collect();
+    want.extend([Line::ComboOverflow, Line::ComboStopped]);
+    assert_eq!(combos, want);
+    assert!(Line::Combo(64).is_combo() && Line::Combo(1500).is_combo());
+    assert!(!Line::FullCombo.is_combo() && !Line::EvaluationFullCombo(1).is_combo());
 }

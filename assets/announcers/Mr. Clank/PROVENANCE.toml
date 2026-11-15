@@ -9,7 +9,7 @@
 name = "Mr. Clank"
 author = "すごいジャン"
 language = "British English"
-made = "2026-11-12"
+made = "2026-11-15"
 made_with = "Kokoro-82M (hexgrad, Apache-2.0), voice bm_george"
 
 [kokoro]
@@ -69,6 +69,12 @@ holders = ["すごいジャン"]
 "battle stage won/stage-won.mp3" = "Stage won!"
 "battle stage won/the-stage-is-yours.mp3" = "The stage is yours!"
 "battle stage won/you-win-the-stage.mp3" = "You win the stage!"
+"battle step down/easier-chart.mp3" = "Easier chart."
+"battle step down/regroup.mp3" = "Regroup!"
+"battle step down/step-down.mp3" = "Step down."
+"battle step up/harder-chart.mp3" = "Harder chart!"
+"battle step up/level-up.mp3" = "Level up!"
+"battle step up/step-up.mp3" = "Step up!"
 "battle survivors 2/down-to-two.mp3" = "Down to two!"
 "battle survivors 2/it-s-a-duel.mp3" = "It's a duel!"
 "battle survivors 2/two-left.mp3" = "Two left!"

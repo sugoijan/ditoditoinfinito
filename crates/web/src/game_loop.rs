@@ -1063,8 +1063,11 @@ impl GameLoop {
                         // A match whose zero life steps down: the
                         // ladder's charts, the player's steps (when, the
                         // boundary, the rung), the step cue showing now
-                        // (its rung), each field's steps as drawn.
-                        "ladder": ladder_debug(s, host_now.0),
+                        // (its rung), each field's steps as drawn, the
+                        // chart line as drawn (its words and how bright
+                        // its step still is) and each step told at its
+                        // boundary (the line said, or null: shown).
+                        "ladder": ladder_debug(s, host_now.0, self.view.chart_drawn()),
                         // Attack power (M8a): each competitor's, the
                         // checkpoints run of the stage's, the last
                         // events.
@@ -1558,6 +1561,7 @@ fn extend(debug: &mut Value, more: Value) {
 fn ladder_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
     s: &ddi_session::play::PlaySession<A, I>,
     host: f64,
+    chart: Option<(&str, f32)>,
 ) -> serde_json::Value {
     let ladder: Vec<serde_json::Value> = s.battle().map_or_else(Vec::new, |b| {
         b.rungs().iter().map(|r| json!([r.chart, r.name, r.up])).collect()
@@ -1576,5 +1580,17 @@ fn ladder_debug<A: ddi_platform::AudioBackend, I: ddi_session::play::Inputs>(
     let fields: Vec<usize> = s
         .battle()
         .map_or_else(Vec::new, |b| b.feeds().map(|f| f.steps().count()).collect());
-    json!({"ladder": ladder, "steps": steps, "cue": cue, "fields": fields})
+    let told: Vec<serde_json::Value> = s
+        .steps_told()
+        .iter()
+        .map(|st| json!({"rung": st.rung, "up": st.up, "said": st.said.map(|l| l.folder()), "at": st.at}))
+        .collect();
+    json!({
+        "ladder": ladder,
+        "steps": steps,
+        "cue": cue,
+        "fields": fields,
+        "chart": chart.map(|(text, bright)| json!({"text": text, "bright": bright})),
+        "told": told,
+    })
 }

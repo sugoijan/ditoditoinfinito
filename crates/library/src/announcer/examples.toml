@@ -73,6 +73,14 @@
     "Attack away!",
     "There it goes! Shock them!",
 ]
+"battle step up" = [
+    "Stepping up! A harder chart!",
+    "Up you go! Show them!",
+]
+"battle step down" = [
+    "Stepping down. Catch your breath!",
+    "An easier chart. Regroup!",
+]
 "battle survivors 4" = [
     "Four left standing!",
     "Down to four!",
@@ -171,6 +179,14 @@
 "battle attack launched" = [
     "攻撃発動！",
     "行け！ショックを送り込め！",
+]
+"battle step up" = [
+    "ステップアップ！難しい譜面へ！",
+    "上がったぞ！見せつけろ！",
+]
+"battle step down" = [
+    "ステップダウン。ひと息ついて！",
+    "やさしい譜面で立て直そう！",
 ]
 "battle survivors 4" = [
     "残りは4人！",

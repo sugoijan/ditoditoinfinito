@@ -9,7 +9,7 @@
 name = "ガキンさん"
 author = "すごいジャン"
 language = "Japanese"
-made = "2026-11-12"
+made = "2026-11-15"
 made_with = "Kokoro-82M (hexgrad, Apache-2.0), voice jm_kumo"
 
 [kokoro]
@@ -76,6 +76,12 @@ holders = ["テレビ西日本 (TV Nishinippon)"]
 "battle stage won/kono-suteji-wa-itadakyi.mp3" = "このステージはいただき！"
 "battle stage won/suteji-seha.mp3" = "ステージ制覇！"
 "battle stage won/suteji-shoryi.mp3" = "ステージ勝利！"
+"battle step down/jasashi-fumen-e.mp3" = "やさしい譜面へ。"
+"battle step down/reberu-daun.mp3" = "レベルダウン。"
+"battle step down/tatenaoso.mp3" = "立て直そう！"
+"battle step up/muzukashi-fumen-e.mp3" = "難しい譜面へ！"
+"battle step up/reberuapu.mp3" = "レベルアップ！"
+"battle step up/sutepu-apu.mp3" = "ステップアップ！"
 "battle survivors 2/ikyiuchi-da.mp3" = "一騎打ちだ！"
 "battle survivors 2/nokoryi-futaryi.mp3" = "残りふたり！"
 "battle survivors 2/saigo-no-futaryi.mp3" = "最後のふたり！"

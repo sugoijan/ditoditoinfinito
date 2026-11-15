@@ -142,6 +142,12 @@ pub enum Battle {
     /// The local player's full attack power was spent on an attack of
     /// their own.
     AttackLaunched,
+    /// The local player steps up to a harder chart (a match's "Charts:
+    /// Adaptive"): said as the new chart's notes begin.
+    StepUp,
+    /// The local player steps down to an easier chart (their life ran
+    /// out on a rung with one below): said as its notes begin.
+    StepDown,
     /// The players still in become this many (four or two,
     /// [`SURVIVOR_MILESTONES`]), having been more.
     Survivors(u8),
@@ -166,13 +172,15 @@ pub enum Battle {
 pub const SURVIVOR_MILESTONES: [u8; 2] = [4, 2];
 
 impl Battle {
-    pub const ALL: [Battle; 16] = [
+    pub const ALL: [Battle; 18] = [
         Battle::MatchBegin,
         Battle::StageBegin,
         Battle::FinalStage,
         Battle::LifeCritical,
         Battle::AttackIncoming,
         Battle::AttackLaunched,
+        Battle::StepUp,
+        Battle::StepDown,
         Battle::Survivors(SURVIVOR_MILESTONES[0]),
         Battle::Survivors(SURVIVOR_MILESTONES[1]),
         Battle::Eliminated,
@@ -194,6 +202,8 @@ impl Battle {
             Battle::LifeCritical => "life critical",
             Battle::AttackIncoming => "attack incoming",
             Battle::AttackLaunched => "attack launched",
+            Battle::StepUp => "step up",
+            Battle::StepDown => "step down",
             Battle::Survivors(n) => return format!("survivors {n}"),
             Battle::Eliminated => "eliminated",
             Battle::StageWon => "stage won",
@@ -428,7 +438,8 @@ impl Line {
     /// critical on the danger comment, its elimination on `gameplay
     /// failed` and the winner's finished song on `gameplay cleared`, each
     /// of which says that moment in a play; the rest on nothing (an
-    /// attack's two among them: no play has that moment).
+    /// attack's two and a step's two among them: no play has that
+    /// moment).
     pub fn chain(self) -> Vec<Line> {
         let mut chain = vec![self];
         match self {
@@ -448,6 +459,18 @@ impl Line {
             _ => {}
         }
         chain
+    }
+}
+
+impl Line {
+    /// The combo lines (`battle-voice-v1` speaks them in a stage too,
+    /// below every battle line): the combo reaching a count
+    /// ([`Line::Combo`]), each hundred past 1000 where the pack has no
+    /// count of its own ([`Line::ComboOverflow`]) and a combo above 50
+    /// broken ([`Line::ComboStopped`]). Not the full combos, which are
+    /// the play's end.
+    pub fn is_combo(self) -> bool {
+        matches!(self, Line::Combo(_) | Line::ComboOverflow | Line::ComboStopped)
     }
 }
 

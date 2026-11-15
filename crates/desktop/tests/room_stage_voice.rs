@@ -203,9 +203,11 @@ fn a_scratch_pack_s_attack_lines_are_said_in_a_practice_stage() {
 
 /// Ours, which come with the game, chosen by their keys: each says a
 /// practice stage's battle lines from the assets, the two attack lines
-/// among them, each by its own line (never a play's routine line, never
-/// one in another's place), and the status line shows only the moments
-/// passed over for a line that mattered as much.
+/// among them, each by its own line (never a play's routine line but the
+/// combo lines, `battle-voice-v1`; never one in another's place), the
+/// autoplayed player's steps up as their new charts begin, and the status
+/// line shows only the moments passed over for a line that mattered as
+/// much.
 #[test]
 fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
     for key in ["bundled:mr. clank", "bundled:ガキンさん"] {
@@ -225,15 +227,19 @@ fn our_announcers_say_the_battle_lines_in_a_practice_stage() {
             "{key}: {:?}",
             heard.spoken
         );
-        // Nothing but the battle's lines and here we go.
+        // Nothing but the battle's lines, here we go and the combo lines.
+        let combo = |l: &str| ddi_library::announcer::Line::parse(l).is_some_and(|l| l.is_combo());
         assert!(
             heard
                 .spoken
                 .iter()
-                .all(|l| l.starts_with("battle ") || l == "gameplay here we go normal"),
+                .all(|l| l.starts_with("battle ") || l == "gameplay here we go normal" || combo(l)),
             "{key}: {:?}",
             heard.spoken
         );
+        assert!(heard.spoken.iter().any(|l| combo(l)), "{key}: a combo line: {:?}", heard.spoken);
+        // The player, autoplayed, steps up: each said by its line.
+        assert!(said("battle step up") > 0, "{key}: {:?}", heard.spoken);
         // Each attack moment said or shown, the said ones by their line.
         for line in ["battle attack incoming", "battle attack launched"] {
             let told = heard

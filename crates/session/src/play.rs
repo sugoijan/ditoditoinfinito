@@ -19,7 +19,7 @@ use ddi_ui::state::history::{
 };
 use ddi_ui::state::settings::Settings;
 
-use crate::announcer::battle::{BATTLE_VOICE_V0, Told, VoicePolicy};
+use crate::announcer::battle::{BATTLE_VOICE_V1, Told, VoicePolicy};
 use crate::announcer::{Announcer, Ending, Moment, Prior, SharedVoice, Timing};
 use crate::battle::{Battle, OpponentView, StageOutcome, StageSetup};
 use crate::calibration::{self, CalMode, Calibrator, Outcome};
@@ -516,9 +516,29 @@ pub struct PlaySession<A: AudioBackend, I: Inputs> {
     watch: Option<watch::Watch>,
     /// The session's event was given: the song goes on for nothing more.
     over: bool,
-    /// The player's steps down so far as told: each one's rung and the
-    /// host second it was noticed at (the status line's cue).
-    steps_told: Vec<(u8, bool, f64)>,
+    /// The player's steps whose decision was followed (the autoplayer's
+    /// presses, the claps, the announcer told its line is due).
+    steps_seen: usize,
+    /// The player's steps told so far, each at its boundary (when the new
+    /// chart's notes begin): its line said or not, the status line's cue
+    /// where it was not.
+    steps_told: Vec<StepTold>,
+}
+
+/// A step of the local player's as the play told it (`battle-voice-v1`):
+/// at its boundary, its line (`battle step up` or `battle step down`)
+/// said or not, shown in the status line where it was not.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StepTold {
+    /// The rung stepped to (0 the stage's chart).
+    pub rung: u8,
+    pub up: bool,
+    /// A step down that closed the rung it left (told as staying).
+    pub closes: bool,
+    /// The line said for it, if one was.
+    pub said: Option<ddi_library::announcer::Line>,
+    /// The host second it was told at.
+    pub at: f64,
 }
 
 /// How a play ended ([`PlaySession::ended`]): left (a quit, a watcher
@@ -1028,7 +1048,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         };
         // A stage's voice: opened by the battle, its routine left out.
         let announcer = match &battle {
-            Some(b) => announcer.in_stage(b.setup().opening(), BATTLE_VOICE_V0),
+            Some(b) => announcer.in_stage(b.setup().opening(), BATTLE_VOICE_V1),
             None => announcer,
         };
         // A staged play has danced already where a note came before its
@@ -1129,6 +1149,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 late_watch.then(|| watch::Watch::new(Watching::Left, f64::NAN))
             },
             over: false,
+            steps_seen: 0,
             steps_told: Vec::new(),
         })
     }
@@ -1507,6 +1528,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         if self.battle.is_some() {
             self.last_host = host_now.0;
             self.tell(moments, attack_moments, now, host_now.0);
+            if !spectating {
+                let t = self.player.judge_time(HostTime(judge_now));
+                self.tell_steps(t, now, host_now.0);
+            }
         }
 
         // An immediate fail: the engine has stopped judging and the field is
@@ -1772,7 +1797,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
                 at: host,
             });
         }
-        let policy = BATTLE_VOICE_V0;
+        let policy = BATTLE_VOICE_V1;
         let mut due: Vec<_> = moments.into_iter().map(|e| (e, None)).collect();
         due.extend(attacks.into_iter().map(|(m, first)| (m.event(), Some((m, first)))));
         due.sort_by_key(|(e, _)| std::cmp::Reverse(policy.priority(*e)));
@@ -1819,17 +1844,19 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
     }
 
     /// The player stepped to another chart (a match's "Charts:
-    /// Adaptive"): told once (the status line's cue), and the
-    /// autoplayer's presses from the boundary on made for the new chart
-    /// (after a step up, the old chart's before it kept).
-    fn follow_steps(&mut self, host: f64) {
+    /// Adaptive"), as decided: its line due at its boundary (no combo line
+    /// over it), and the autoplayer's presses from the boundary on made
+    /// for the new chart (after a step up, the old chart's before it
+    /// kept). It is told at its boundary ([`PlaySession::tell_steps`]).
+    fn follow_steps(&mut self, _host: f64) {
         let steps = self.player.steps();
-        if steps.len() <= self.steps_told.len() {
+        if steps.len() <= self.steps_seen {
             return;
         }
-        for st in &steps[self.steps_told.len()..] {
-            self.steps_told.push((st.rung, st.up, host));
+        for st in &steps[self.steps_seen..] {
+            self.announcer.battle_due(self.timing.at(st.boundary));
         }
+        self.steps_seen = steps.len();
         let Some(step) = steps.last().copied() else {
             return;
         };
@@ -1852,9 +1879,37 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         }
     }
 
-    /// The player's steps as told: each one's rung, whether it was up and
-    /// the host second it was noticed at.
-    pub fn steps_told(&self) -> &[(u8, bool, f64)] {
+    /// The player's steps told at their boundaries, judged to song second
+    /// `t` (audio time `now`, host time `host`): each one's line said by
+    /// a stage's voice where it may be (`battle-voice-v1`: never over a
+    /// line being said, at most a second late; no fallback), told among
+    /// the battle's moments, and shown in the status line where it was
+    /// not said ([`PlaySession::stage_cue`]).
+    fn tell_steps(&mut self, t: f64, now: f64, host: f64) {
+        use ddi_library::announcer::Battle as Event;
+        while let Some(st) = self.player.steps().get(self.steps_told.len()).copied() {
+            if st.boundary > t {
+                break;
+            }
+            let event = if st.up { Event::StepUp } else { Event::StepDown };
+            let said = self.announcer.battle_patient(&mut *self.audio, event, now);
+            self.told.push(Told {
+                event,
+                said,
+                at: host,
+            });
+            self.steps_told.push(StepTold {
+                rung: st.rung,
+                up: st.up,
+                closes: st.closes,
+                said,
+                at: host,
+            });
+        }
+    }
+
+    /// The player's steps as told, each at its boundary.
+    pub fn steps_told(&self) -> &[StepTold] {
         &self.steps_told
     }
 
@@ -1879,26 +1934,25 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             .map(|t| (t, host - t.at))
             .filter(|(_, age)| *age < policy.cue_seconds)
             .map(|(t, age)| (policy.attack_priority(t.moment), StageCue::Attack(t.moment), age));
-        // A step of the player's own, as their going out would be; a
-        // step down that closed the chart it left says they stay.
-        let closes = self
-            .steps_told
-            .len()
-            .checked_sub(1)
-            .and_then(|i| self.player.steps().get(i))
-            .is_some_and(|s| s.closes);
+        // A step of the player's own at its boundary, as their going out
+        // would be, where its line did not say it; a step down that closed
+        // the chart it left says they stay (no line says that).
         let stepped = self
             .steps_told
             .last()
-            .map(|&(rung, up, at)| (rung, up, host - at))
-            .filter(|(_, _, age)| *age < policy.cue_seconds)
-            .map(|(rung, up, age)| {
+            .filter(|st| st.closes || st.said.is_none())
+            .map(|st| (st, host - st.at))
+            .filter(|(_, age)| *age < policy.cue_seconds)
+            .map(|(st, age)| {
                 (
                     policy.priority(ddi_library::announcer::Battle::Eliminated),
-                    if closes {
-                        StageCue::Stay { rung }
+                    if st.closes {
+                        StageCue::Stay { rung: st.rung }
                     } else {
-                        StageCue::Step { rung, up }
+                        StageCue::Step {
+                            rung: st.rung,
+                            up: st.up,
+                        }
                     },
                     age,
                 )
@@ -1939,7 +1993,7 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
 
     /// The battle voice's policy, for the cues' look.
     pub fn battle_policy(&self) -> Option<VoicePolicy> {
-        self.battle.as_ref().map(|_| BATTLE_VOICE_V0)
+        self.battle.as_ref().map(|_| BATTLE_VOICE_V1)
     }
 
     /// The moment shown beside the field at host time `host`, and how old

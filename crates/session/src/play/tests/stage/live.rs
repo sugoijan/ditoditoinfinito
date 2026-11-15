@@ -2692,12 +2692,15 @@ fn a_live_stage_shows_and_decides_as_pinned() {
 /// [`a_live_stage_shows_and_decides_as_pinned`]'s digests, recorded
 /// before the merge; recorded again at room model revision 9, where a run
 /// still in lost its proportional part and absolute score (the traces
-/// otherwise the same, line for line).
+/// otherwise the same, line for line); and again with `battle-voice-v1`
+/// (feedback round J), where a player's steps under Adaptive charts are
+/// told at their boundaries (the traces otherwise the same: only their
+/// last `told` lines gained the steps).
 const LIVE_PINNED: &[u64] = &[
-    0x3cecf5357465d5ca,
-    0x7c09fbbb36265a36,
+    0xda5ba427b4c3ebfa,
+    0xad1fcb3e830629b7,
     0x144a9b71bbc269a5,
-    0xf37a8f417b32d3c5,
+    0x865735e5008f5968,
     0x91684042c07e5087,
     0x3e9a47ff54003d72,
 ];

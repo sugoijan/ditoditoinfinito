@@ -37,7 +37,8 @@ pub fn speaks(line: Line) -> bool {
 
 /// How many of a line's sounds a play decodes (decision 8: at most
 /// four): the comments, the combo past 1000 and a battle's attacks speak
-/// again and again, a broken combo now and then, the rest once a play.
+/// again and again, a broken combo and a stage's steps now and then, the
+/// rest once a play.
 pub fn variants(line: Line) -> usize {
     match line {
         Line::CommentHot
@@ -46,7 +47,7 @@ pub fn variants(line: Line) -> usize {
         | Line::CommentOni
         | Line::ComboOverflow
         | Line::Battle(Battle::AttackIncoming | Battle::AttackLaunched) => 4,
-        Line::ComboStopped => 2,
+        Line::ComboStopped | Line::Battle(Battle::StepUp | Battle::StepDown) => 2,
         _ => 1,
     }
 }
@@ -766,9 +767,23 @@ impl<B> Announcer<B> {
                 None => {}
             }
         }
-        // A stage leaves a play's routine lines out: its battle's moments
-        // speak instead ([`Announcer::battle`]).
+        // A stage leaves a play's routine lines out but its combo lines
+        // (`battle-voice-v1`, [`Announcer::stage_combo`]): its battle's
+        // moments speak instead ([`Announcer::battle`]).
         if self.stage.is_some() {
+            if !self.ended {
+                self.since += m.dt.clamp(0.0, 0.25);
+            }
+            let dancing = !self.ended && self.first_note.is_some_and(|f| m.song_time >= f);
+            let (old, new) = (self.combo, m.combo);
+            if dancing {
+                let line = self.combo_due(old, new).or(
+                    (old > COMBO_STOPPED_AT && new < COMBO_STOPPED_AT).then_some(Line::ComboStopped),
+                );
+                if let Some(line) = line {
+                    self.stage_combo(audio, line, m.now);
+                }
+            }
             self.combo = m.combo;
             self.lives = m.lives;
             self.ended |= m.ended;
@@ -929,18 +944,97 @@ impl<B> Announcer<B> {
         }
         let at = now + LEAD;
         let stage = self.stage.as_ref()?;
-        if !stage.may_speak(event, at) || by.is_some_and(|by| at >= by) {
+        let start = stage
+            .start(event, at)
+            .filter(|&start| by.is_none_or(|by| start < by));
+        let Some(start) = start else {
+            self.report.dropped += 1;
+            return None;
+        };
+        self.speak_battle(audio, event, start)
+    }
+
+    /// A stage's battle `event` that never talks over a line being said
+    /// (a step's, `battle-voice-v1`), its moment `now` (audio clock): said
+    /// at once, or at the end of the line being said where that is within
+    /// [`battle::VoicePolicy::step_window`] of it, else passed over. The
+    /// line said, if one was.
+    pub fn battle_patient<A: AudioBackend<Buffer = B>>(
+        &mut self,
+        audio: &mut A,
+        event: Battle,
+        now: f64,
+    ) -> Option<Line> {
+        if !self.speaking() {
+            return None;
+        }
+        let at = now + LEAD;
+        let stage = self.stage.as_mut()?;
+        // Its moment has come: no longer a line due over the combo lines.
+        stage.due.retain(|&d| d > now + stage.policy.step_window);
+        let start = stage.after_busy(at);
+        if start > at + stage.policy.step_window {
             self.report.dropped += 1;
             return None;
         }
+        self.speak_battle(audio, event, start)
+    }
+
+    /// Says `event`'s line at `start` (audio clock), the voice busy with it
+    /// until its end.
+    fn speak_battle<A: AudioBackend<Buffer = B>>(
+        &mut self,
+        audio: &mut A,
+        event: Battle,
+        start: f64,
+    ) -> Option<Line> {
+        let stage = self.stage.as_ref()?;
         let priority = stage.policy.priority(event);
         let line = Line::Battle(event);
         let length = self.length(audio, line).unwrap_or(0.0);
-        let said = self.say_found(audio, &[line], at)?;
+        let said = self.say_found(audio, &[line], start)?;
         if let Some(stage) = self.stage.as_mut() {
-            stage.busy = Some((at + length, priority));
+            stage.busy = Some((start + length, priority));
         }
         Some(said)
+    }
+
+    /// A stage's battle line known to be due at audio time `at` (a step
+    /// decided ahead of its boundary): no combo line is begun that would
+    /// still speak then.
+    pub fn battle_due(&mut self, at: f64) {
+        if let Some(stage) = self.stage.as_mut() {
+            stage.due.push(at);
+        }
+    }
+
+    /// A stage's combo `line` due at `now` (audio clock), under
+    /// `battle-voice-v1`: kept to 5.1's gap between combo lines
+    /// ([`COMBO_GAP`]); said at once where nothing speaks, else at the end
+    /// of what does where that is within
+    /// [`battle::VoicePolicy::combo_window`]; dropped where it would be
+    /// later, or where a battle line is due before it would be over.
+    fn stage_combo<A: AudioBackend<Buffer = B>>(&mut self, audio: &mut A, line: Line, now: f64) {
+        if self.since < COMBO_GAP {
+            self.report.dropped += 1;
+            return;
+        }
+        let at = now + LEAD;
+        let Some(stage) = self.stage.as_ref() else {
+            return;
+        };
+        let start = stage.after_busy(at);
+        let length = self.length(audio, line).unwrap_or(0.0);
+        if start > at + stage.policy.combo_window || stage.due_within(start, start + length) {
+            self.report.dropped += 1;
+            return;
+        }
+        if self.say(audio, &[line], start) {
+            self.since = 0.0;
+            if let Some(stage) = self.stage.as_mut() {
+                stage.busy = Some((start + length, battle::COMBO_PRIORITY));
+            }
+        }
     }
 
     /// A stage's end as its results will tell it (`crate::battle::Battle::

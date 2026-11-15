@@ -214,6 +214,12 @@ studio-line-battle-attack-incoming = Attack incoming
 # The player's own attack was sent (their attack power was full).
 studio-line-battle-attack-launched = Attack launched
 
+# The player steps up to a harder chart (a match's "Charts: Adaptive").
+studio-line-battle-step-up = Step up
+
+# The player steps down to an easier chart (a match's "Charts: Adaptive").
+studio-line-battle-step-down = Step down
+
 # The players still in a stage become this many.
 # Variables:
 #   $count (Number) - how many are left (4 or 2)
@@ -298,6 +304,8 @@ studio-when-battle-final-stage = As the last stage of a match starts, in place o
 studio-when-battle-life-critical = When the player's life is about to run out, once a stage.
 studio-when-battle-attack-incoming = When an attack against the player is on its way, before its shocks can be seen.
 studio-when-battle-attack-launched = When the player's full attack power is spent on an attack of their own.
+studio-when-battle-step-up = When the player steps up to a harder chart, as its notes begin.
+studio-when-battle-step-down = When the player steps down to an easier chart, as its notes begin.
 
 # Variables:
 #   $count (Number) - how many are left (4 or 2)

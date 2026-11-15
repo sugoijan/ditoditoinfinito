@@ -360,6 +360,14 @@ folder = "battle attack launched"  # your own attack was sent
 texts = ["Attack launched!", "Off it goes!", "Take that!", "Shocks away!"]
 
 [[line]]
+folder = "battle step up"  # you step up to a harder chart (Charts: Adaptive), as its notes begin
+texts = ["Step up!", "Harder chart!", "Level up!"]
+
+[[line]]
+folder = "battle step down"  # you step down to an easier chart, as its notes begin
+texts = ["Step down.", "Easier chart.", "Regroup!"]
+
+[[line]]
 folder = "battle survivors 4"  # four players left in the stage
 texts = ["Four left!", "Only four remain!"]
 

@@ -306,6 +306,14 @@ folder = "battle attack launched"
 texts = ["攻撃発射！", "いけー！", "攻撃、いったよ！", "それっ！"]
 
 [[line]]
+folder = "battle step up"
+texts = ["レベルアップ！", "難しい譜面へ！", "ステップアップ！"]
+
+[[line]]
+folder = "battle step down"
+texts = ["レベルダウン。", "やさしい譜面へ。", "立て直そう！"]
+
+[[line]]
 folder = "battle survivors 4"
 texts = ["残りよにん！", "よにんに絞られた！"]
 

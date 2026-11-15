@@ -469,3 +469,71 @@ fn the_chart_line_changes_at_each_boundary_both_ways() {
     let (s, _) = stage_session(&song, &order, false, &[]);
     assert_eq!(s.battle().unwrap().chart_line([], 10.0), None);
 }
+
+/// `battle-voice-v1`: the player's steps told at their boundaries, each
+/// said by its own line where the pack has it (`battle step down`), the
+/// status line then quiet about it but for a closed chart's "Staying";
+/// a pack without it says nothing in its place and the status line shows
+/// the step.
+#[test]
+fn a_step_is_said_at_its_boundary_or_shown_where_the_pack_lacks_its_line() {
+    use ddi_library::announcer::{Battle, Line};
+    let song = bundled("beatucada");
+    for with_line in [true, false] {
+        let mut practice = step_room(3, 1, ddi_room::Charts::Adaptive);
+        let mut now = 0;
+        let order = begin_at(&song, &mut practice, &mut now, HARD);
+        let pack: &[&str] = if with_line {
+            &["battle step down", "battle step up"]
+        } else {
+            &["gameplay ready"]
+        };
+        let (s, said) = play_voiced(
+            &song,
+            &Settings::default(),
+            &mut practice,
+            &order,
+            false,
+            Some(voice_of(pack)),
+        );
+        let steps = s.player.steps().to_vec();
+        let told = s.steps_told().to_vec();
+        assert!(!steps.is_empty());
+        assert_eq!(told.len(), steps.len(), "every step told");
+        for (st, t) in steps.iter().zip(&told) {
+            assert_eq!((t.rung, t.up, t.closes), (st.rung, st.up, st.closes));
+            let line = Line::Battle(if st.up { Battle::StepUp } else { Battle::StepDown });
+            if with_line {
+                assert_eq!(t.said, Some(line), "{t:?}");
+            } else {
+                assert_eq!(t.said, None, "no fallback: {t:?}");
+            }
+            // Told among the battle's moments, at the same second.
+            assert!(s
+                .battle_told()
+                .iter()
+                .any(|b| Line::Battle(b.event) == line && b.at == t.at && b.said == t.said));
+        }
+        let lines = said.iter().filter(|f| f.starts_with("battle step")).count();
+        assert_eq!(lines, if with_line { steps.len() } else { 0 }, "{said:?}");
+        // The status line, frame by frame: the step where it was not said.
+        let (mut live, clock) = stage_session(&song, &order, false, &[]);
+        live.set_voice(voice_of(pack));
+        let mut cues = 0;
+        loop {
+            *clock.borrow_mut() += 1.0 / 60.0;
+            let now = *clock.borrow();
+            let (_, event) = live.tick(HostTime(now));
+            if let Some((crate::announcer::battle::StageCue::Step { .. }, age)) = live.stage_cue(now)
+                && age == 0.0
+            {
+                cues += 1;
+            }
+            if event.is_some() || now > 400.0 {
+                break;
+            }
+        }
+        assert_eq!(live.steps_told().len(), steps.len());
+        assert_eq!(cues, if with_line { 0 } else { steps.len() }, "{with_line}");
+    }
+}
