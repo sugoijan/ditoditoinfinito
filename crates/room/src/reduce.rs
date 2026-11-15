@@ -362,6 +362,11 @@ impl RoomState {
                         .check_competitors(self.reserved_humans() + 1)
                         .map_err(Rejection::Cap)?;
                 }
+                // A committed starter who chooses to watch invalidates the
+                // lineup, as one leaving or disconnecting does.
+                if *intent == Intent::Watch {
+                    self.cancel_if_committed(id, out);
+                }
                 self.emit(
                     out,
                     Event::IntentChanged {

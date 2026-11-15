@@ -168,9 +168,10 @@ fn a_song_picked_again_after_its_share_failed_is_shared_again() {
 /// taken, is refused as any arrival at the member bound is.
 #[test]
 fn a_returning_member_is_refused_at_the_member_bound() {
-    let mut policy = RoomPolicy::default();
-    policy.max_members = 3;
-    let mut r = Room::with(policy);
+    let mut r = Room::with(RoomPolicy {
+        max_members: 3,
+        ..RoomPolicy::default()
+    });
     let ana = r.join("ana");
     r.join("bo");
     r.by(ana, Command::Leave).unwrap();
@@ -186,9 +187,10 @@ fn a_returning_member_is_refused_at_the_member_bound() {
 /// rather than past the competitor cap.
 #[test]
 fn a_returning_player_comes_back_to_watch_at_the_competitor_cap() {
-    let mut policy = RoomPolicy::default();
-    policy.max_competitors = 2;
-    let mut r = Room::with(policy);
+    let mut r = Room::with(RoomPolicy {
+        max_competitors: 2,
+        ..RoomPolicy::default()
+    });
     let ana = r.join("ana");
     r.by(ana, Command::Leave).unwrap();
     let bo = r.join("bo");
@@ -204,4 +206,42 @@ fn a_returning_player_comes_back_to_watch_at_the_competitor_cap() {
     r.by(ana, Command::Leave).unwrap();
     r.join_as("ana", Intent::Play).unwrap();
     assert_eq!(r.s.members[&ana].intent, Intent::Play);
+}
+
+/// First pass 4: a committed starter who chooses Watch during the
+/// countdown cancels the start, as one leaving or disconnecting does: no
+/// watcher is left in the lineup.
+#[test]
+fn choosing_watch_after_the_start_committed_cancels_the_start() {
+    let mut r = Room::new();
+    let ana = r.join("ana");
+    r.pick(1).unwrap();
+    let s1 = r.s.upcoming_stage().unwrap();
+    r.sys(Command::SetContentStatus {
+        stage: s1,
+        status: ContentStatus::Available,
+        share: Some("share-1".into()),
+    });
+    let host = r.host;
+    r.load_and_ready(host, s1);
+    r.load_and_ready(ana, s1);
+    assert!(matches!(r.s.phase, Phase::Countdown { .. }), "{:?}", r.s.phase);
+    assert!(r.s.stage(s1).unwrap().play.as_ref().unwrap().lineup.contains(&ana));
+    let events = r
+        .by(
+            ana,
+            Command::SetIntent {
+                intent: Intent::Watch,
+            },
+        )
+        .unwrap();
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::StartCanceled {
+            reason: CancelReason::RosterChanged,
+            ..
+        }
+    )));
+    assert!(matches!(r.s.phase, Phase::Preparing { window: None, .. }));
+    assert!(r.s.stage(s1).unwrap().play.is_none());
 }
