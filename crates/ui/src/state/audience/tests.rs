@@ -1295,7 +1295,9 @@ fn the_audience_page_brings_the_standings_up_once_a_stage_settles() {
     h.run(0.1);
     assert_eq!(view(&env).tab, "standings");
     // The part chosen stays while nothing new settles.
-    h.tap(PointerKind::Touch, "Tab.Players");
+    h.tap(PointerKind::Mouse, "Tab.Players");
+    h.run(0.1);
+    assert_eq!(view(&env).tab, "players", "a click");
     run(&clock, &server, &mut [&mut alice, &mut bob], &mut [&mut carol.borrow_mut()], 2_000);
     h.run(0.3);
     assert_eq!(view(&env).tab, "players");
@@ -1559,4 +1561,30 @@ fn a_late_joiner_s_page_shows_the_last_played_stage_s_picture() {
     hg.run(0.3);
     assert_eq!(gus.borrow().settled_stage(), Some(stage));
     assert!(rain(&hg) && asked.borrow().is_empty());
+}
+
+/// Found in round D3's browser walk (a phone held upright, back from a
+/// watched stage: the page's size came after its first frame and the
+/// card stayed laid out for the window's design, clipped): the page is
+/// laid out again when the screen changes shape.
+#[test]
+fn the_audience_page_is_laid_out_again_when_the_screen_changes() {
+    let clock = ManualClock::new(5_000);
+    let server = room(&clock, live_audience());
+    let carol = Rc::new(RefCell::new(arrive(&server, "carol", AUDIENCE_LINK, 5_000).unwrap()));
+    let (_, mut h) = page(&carol, [1280.0, 720.0]);
+    run(&clock, &server, &mut [], &mut [&mut carol.borrow_mut()], 2_000);
+    h.run(0.3);
+    let wide = h.ui.bounds("Card").unwrap();
+    assert!(wide[2] - wide[0] > 1000.0, "{wide:?}");
+    // A phone held upright: the compact design, its own size.
+    h.ui.set_design(crate::screens::COMPACT);
+    h.send(crate::event::UiEvent::Resize {
+        size: [390.0, 844.0],
+        ratio: 1.0,
+    });
+    h.run(0.3);
+    let (card, vp) = (h.ui.bounds("Card").unwrap(), h.ui.viewport().screen);
+    assert!(card[0] >= 0.0 && card[2] <= vp.width, "inside the screen: {card:?} in {vp:?}");
+    assert!(card[3] - card[1] > 0.8 * vp.height, "most of its height: {card:?} in {vp:?}");
 }

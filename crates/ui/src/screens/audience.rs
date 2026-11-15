@@ -486,6 +486,17 @@ const LEAVE_BUTTON: &str = "Item.back";
 /// and after it over that stage's picture (`AudienceClient::backdrop`),
 /// darkened as the play's backdrop is; its buttons Watch (where a stage
 /// plays that the seat is not watching) and Stop watching.
+///
+/// Since round D3 (`audience-page-v2`): the song picked for the stage
+/// the room is on has its banner beside its title (a plain plate until
+/// the seat read the room's share of it, [`picked_song`]); once a stage
+/// settled, the players' part has two tabs, Players and Standings, the
+/// second the last settled stage's standings as the members' results
+/// draw them (`results::stage_standings` over
+/// [`AudienceClient::stage_table`]), brought up as each stage settles;
+/// and a seat that watched no stage has the last played stage's picture
+/// behind the card where its share is still read
+/// (`AudienceClient::sync_picture`).
 pub struct AudienceScreen {
     env: Env,
     audience: SharedAudience,
@@ -511,8 +522,12 @@ pub struct AudienceScreen {
     table_shown: (usize, usize, f32),
     table_lines: Vec<ddi_room::ParticipantId>,
     pointed: Option<ddi_room::ParticipantId>,
-    /// The client's version the card was built for.
+    /// The client's version the card was built for, and the screen it
+    /// was laid out for (laid out again when the window changes shape:
+    /// a phone turned, or the page's first size coming after its first
+    /// frame, as after a watched stage on the web).
     built: Option<u64>,
+    laid: Option<ddi_actor::screen::VirtualScreen>,
     /// The countdown's seconds as built: the card is built again as they
     /// change.
     seconds: Option<u64>,
@@ -546,6 +561,7 @@ impl AudienceScreen {
             table_lines: Vec::new(),
             pointed: None,
             built: None,
+            laid: None,
             seconds: None,
             published: None,
             offered: false,
@@ -604,6 +620,7 @@ impl AudienceScreen {
 
     fn tree(&mut self, cx: &mut Cx) -> Actor {
         let vp = cx.viewport().screen;
+        self.laid = Some(vp);
         let compact;
         (self.screen, self.zoom, compact) = super::compact_fit(&self.env, vp);
         let env = self.env.clone();
@@ -914,12 +931,22 @@ impl AudienceScreen {
         root
     }
 
+    /// What the page has to press, for the debug state (its buttons
+    /// first, then the tabs and the table's mark where they are).
+    fn items(&self) -> Vec<String> {
+        let mut items: Vec<String> = self.buttons.iter().map(|b| b.to_string()).collect();
+        if self.tabs {
+            items.extend([TAB_PLAYERS, TAB_STANDINGS, TABLE_DOWN, TABLE_UP].map(String::from));
+        }
+        items
+    }
+
     fn rebuild(&mut self, root: &mut Actor, cx: &mut Cx) {
         let left = crate::hit::find_mut(root, "Audience").map_or(0.0, |c| c.tween_time_left());
         *root = self.tree(cx);
         super::relaid(root, left, cx);
         let st = &mut self.env.state.borrow_mut();
-        st.page_items = self.buttons.iter().map(|b| b.to_string()).collect();
+        st.page_items = self.items();
     }
 
     /// Says what the seat shows (`ThemeState::audience`), when anything
@@ -1021,8 +1048,7 @@ impl crate::screen::Screen for AudienceScreen {
         self.time = cx.time();
         self.rain_time = if self.env.reduced() { 0.0 } else { cx.clock() };
         let root = self.tree(cx);
-        self.env.state.borrow_mut().page_items =
-            self.buttons.iter().map(|b| b.to_string()).collect();
+        self.env.state.borrow_mut().page_items = self.items();
         self.env_publish();
         root
     }
@@ -1097,7 +1123,9 @@ impl crate::screen::Screen for AudienceScreen {
         }
         let changed = {
             let a = self.audience.borrow();
-            self.built != Some(a.version()) || self.seconds != countdown_seconds(&a)
+            self.built != Some(a.version())
+                || self.seconds != countdown_seconds(&a)
+                || self.laid != Some(cx.viewport().screen)
         };
         if changed {
             self.rebuild(root, cx);
