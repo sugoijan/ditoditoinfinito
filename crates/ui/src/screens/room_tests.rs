@@ -105,10 +105,18 @@ fn open_players(h: &mut Harness) {
 
 /// Scrolls the Rules pop-up's rows by the wheel until `name` is shown
 /// whole (a row of the pop-up scrolled away).
+///
+/// Fails where there is no such row or it never comes into view whole
+/// (review tests-8: it returned as if done, and the test went on to
+/// press whatever was there).
 fn reveal(h: &mut Harness, name: &str) {
+    assert!(
+        h.ui.bounds(name).is_some(),
+        "no {name} to reveal (renamed, or not in this pop-up): {:?}",
+        h.ui.layers()
+    );
     let whole = |h: &Harness| match (h.ui.bounds(name), h.ui.visible_bounds(name)) {
         (Some(b), Some(v)) => b.iter().zip(v).all(|(a, b)| (a - b).abs() < 0.5),
-        (None, _) => true,
         _ => false,
     };
     for down in [true, false] {
@@ -122,6 +130,7 @@ fn reveal(h: &mut Harness, name: &str) {
             h.run(0.05);
         }
     }
+    panic!("{name} never came into view whole");
 }
 
 fn has(h: &Harness, text: &str) -> bool {

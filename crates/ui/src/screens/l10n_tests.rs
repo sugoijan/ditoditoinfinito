@@ -42,17 +42,70 @@ fn rules_first(on: bool) {
     settings.save();
 }
 
-/// Text written in code: not a message, not data, with a letter in it
-/// (numbers and signs are no one's language).
+/// What of `text` is neither a message nor data: what stands outside
+/// every «…» and ‹…› run. `inside`: the text begins inside a message
+/// wrapped from the runs before it ([`still_open`]), so what comes
+/// before its closing » is the message's. A message or data cut to fit
+/// (opened, never closed: a name in a narrow column) is one to its end.
+fn outside(inside: bool, text: &str) -> String {
+    let mut depth = usize::from(inside);
+    let mut data = false;
+    let mut left = String::new();
+    for c in text.chars() {
+        match c {
+            '«' => depth += 1,
+            '»' if depth > 0 => depth -= 1,
+            // A message closing that these runs never saw open (runs not
+            // drawn in order): what came before it was its text.
+            '»' => left.clear(),
+            '‹' if depth == 0 => data = true,
+            '›' if depth == 0 => data = false,
+            c if depth == 0 && !data => left.push(c),
+            _ => {}
+        }
+    }
+    left
+}
+
+/// Text written in code: with a letter in it that is no part of a
+/// message nor of data (numbers and signs are no one's language). So a
+/// text put together in code from a message and anything else
+/// ("«Watching» Bob", "Stage 3: «Ready»") is reported as well as one
+/// with no message at all: a sentence is one message, with what it
+/// names in its variables.
 fn in_code(text: &str) -> bool {
-    let t = text.trim();
-    !(t.is_empty()
-        || t.starts_with('«')
-        || t.ends_with('»')
-        || (t.starts_with('‹') && t.ends_with('›'))
-        // Data cut to fit (a name in a narrow column) is data still.
-        || (t.starts_with('‹') && t.ends_with('…'))
-        || !t.chars().any(char::is_alphabetic))
+    in_code_within(false, text)
+}
+
+/// [`in_code`] for the next of the runs drawn in order, `inside` a
+/// message wrapped from the runs before it or not.
+fn in_code_within(inside: bool, text: &str) -> bool {
+    outside(inside, text).chars().any(char::is_alphabetic)
+}
+
+/// Review tests-3: the checker passed any text that began with « or
+/// ended with », so a message with code text beside it was never
+/// reported.
+#[test]
+fn text_beside_a_message_is_text_written_in_code() {
+    assert!(in_code("«Watching» Bob"));
+    assert!(in_code("Stage 3: «Ready»"));
+    assert!(in_code("«a» · and · «b»"));
+    assert!(in_code("Plain"));
+    // Messages, data, lists of tags, numbers and signs alone are fine.
+    assert!(!in_code("«Watching ‹Bob›»"));
+    assert!(!in_code("«Hard» 13"));
+    assert!(!in_code("×2 · «reverse» · «mirror»"));
+    assert!(!in_code("‹Hard 13› · «Single» · «AUTOPLAY»"));
+    assert!(!in_code("‹A name cut to fi…"));
+    assert!(!in_code("«A message cut to fi…"));
+    assert!(!in_code("12:34 / 56%"));
+    // A wrapped message's lines are the message's, to its closing mark.
+    assert!(!in_code("«Šóɱé ļóñĝ"));
+    assert!(!in_code_within(true, "ţéхţ ŵŕáppéď"));
+    assert!(!in_code_within(true, "ó'éŕ ļíñéš~~»"));
+    assert!(in_code_within(true, "ó'éŕ ļíñéš~~» then code"));
+    assert!(!in_code("ó'éŕ ļíñéš~~»"));
 }
 
 /// The list's form of a text: one line, each run of digits `#` (the
@@ -335,7 +388,7 @@ fn checked(texts: Vec<String>, found: &mut BTreeSet<String>) {
         // A line inside a wrapped message is the message's.
         let inside = open;
         open = still_open(open, &t);
-        if !inside && in_code(&t) {
+        if in_code_within(inside, &t) {
             found.insert(line(&t));
         }
         if joined(&t) {
@@ -798,7 +851,13 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
     // (Reset and OK), then Rules from its button, Add custom, Players and
     // More over it.
     rules_first(true);
+    // What `show` opened, by name: a part renamed must not leave the
+    // walk silently without its dialogs (review tests-8).
+    let opened: std::cell::RefCell<std::collections::BTreeMap<&str, usize>> = Default::default();
+    let count = |name: &'static str| *opened.borrow_mut().entry(name).or_default() += 1;
     let show = |h: &mut Harness, found: &mut BTreeSet<String>| {
+        // A phone has Rules in More, no button of their own.
+        let wide = h.ui.viewport().screen.width >= 1000.0;
         shown(h, found);
         // The standings pop up by themselves after a stage: shown, closed.
         while h.ui.layers().last().is_some_and(|l| l.name != "select") {
@@ -811,19 +870,42 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
             ("KeyL", None),
             ("More", None),
         ] {
+            // The room's screen went with its stage (its countdown
+            // ended; the play is the shell's, and this walk's shell
+            // plays none): nothing to open until the next room's
+            // screen. Said, not passed over part by part: with the
+            // screen there, a part not found fails below.
+            if h.ui.layers().is_empty() {
+                count("(no screen)");
+                return;
+            }
             if open == "KeyL" {
                 // The players (no button of theirs on a wide screen).
                 h.key("KeyL", "l");
                 h.run(0.3);
             } else if h.ui.bounds(open).is_none() {
+                assert!(
+                    !wide && open == "Room.Rules",
+                    "the room's walk found no {open} to open (renamed?): its dialog is not walked \
+                     ({:?}, {:?})",
+                    h.ui.viewport().screen,
+                    h.ui.layers()
+                );
                 continue;
             } else {
                 h.tap(PointerKind::Mouse, open);
             }
+            count(open);
+            assert_ne!(
+                h.ui.layers().last().map(|l| l.name.as_str()),
+                Some("select"),
+                "{open} opened nothing"
+            );
             shown(h, found);
             if let Some(inner) = inner
                 && h.ui.bounds(inner).is_some()
             {
+                count(inner);
                 h.tap(PointerKind::Mouse, inner);
                 shown(h, found);
                 h.key("Escape", "Escape");
@@ -839,6 +921,19 @@ fn room_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<Stri
     rules_first(false);
     h.tap(PointerKind::Mouse, "Ok");
     show(&mut h, found);
+    // The lobby's pass opened each of them (a wide screen: Rules and
+    // their Add custom too).
+    {
+        let wide = h.ui.viewport().screen.width >= 1000.0;
+        let opened = opened.borrow();
+        let mut want = vec!["KeyL", "More"];
+        if wide {
+            want.extend(["Room.Rules", "AddCustom"]);
+        }
+        for name in want {
+            assert!(opened.get(name).is_some_and(|n| *n > 0), "{name} never opened: {opened:?}");
+        }
+    }
     // A pick refused, then made: the prompt with Ready and its players,
     // ready, counting down, on, sitting out; stopped.
     if let Some(double) = song.charts.iter().find(|c| c.style != "dance-single") {

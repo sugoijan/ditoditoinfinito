@@ -509,9 +509,15 @@ fn key_hint_prefixed(
 ) -> (Actor, f32) {
     let h = 22.0;
     let labels: Vec<_> = keys.iter().map(crate::keycaps::Keycap::label).collect();
-    let text = format!("{prefix} {} {label}", labels.join(" "))
-        .trim_start()
-        .to_string();
+    // The caps' names, where a look has no caps to draw them on: what is
+    // printed on a key is data, in no language (the walk in
+    // `l10n_tests.rs` reads them so beside the label's message).
+    let caps = if labels.is_empty() {
+        String::new()
+    } else {
+        ddi_l10n::UiText::data(labels.join(" ")).into()
+    };
+    let text = format!("{prefix} {caps} {label}").trim_start().to_string();
     let w = look::mono_width(&text, 13.0) + 24.0;
     let mut spec = Spec::new([0.0, h], label).with_keycaps(keys.iter().cloned());
     spec.key_prefix = prefix.into();

@@ -665,10 +665,19 @@ fn a_watcher_follows_the_live_stage_from_the_frames() {
     let live = server.live().unwrap().stage_or_last().unwrap();
     let attacks = live.ledger().unwrap().attacks().to_vec();
     let ids: Vec<_> = r.rooms.iter().map(|x| x.borrow().me()).collect();
+    // There were attacks to carry (review tests-7: with none launched in
+    // this setup the loop below compared 0 with 0 and said nothing).
+    assert!(
+        !attacks.is_empty(),
+        "the stage had no attack: nothing shows the watcher's fields carry them"
+    );
+    let mut carried = 0;
     for (i, feed) in b.feeds().enumerate() {
         let against = attacks.iter().filter(|a| a.recipient == ids[i]).count() * 8;
         assert_eq!(feed.shocks().len(), against);
+        carried += feed.shocks().len();
     }
+    assert!(carried > 0, "{attacks:?}");
     assert_eq!(live.end(ids[2]), None, "the watcher streamed nothing");
     assert!(!live.plays_live(ids[2]));
 }

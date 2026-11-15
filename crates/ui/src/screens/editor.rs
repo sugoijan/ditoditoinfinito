@@ -1310,8 +1310,9 @@ impl EditorScreen {
             s = format!("{s} · {}", em::view_compact());
         }
         if !self.geo.compact {
-            // Its key.
-            s.push_str(" (V)");
+            // Its key, as its cap says it: a key's name, no one's words.
+            let key = crate::keycaps::KeyboardKey::Character('v').label();
+            s = format!("{s} ({})", ddi_l10n::UiText::data(key));
         }
         s
     }
