@@ -58,7 +58,9 @@ struct Watching {
 /// A seat in a room's audience was given by `link` (its first socket's
 /// `ticket`): the audience's page opens it.
 pub(crate) fn seat_audience(link: &str, ticket: Option<String>) {
-    discard_audience();
+    // The seat before goes; the context the Watch press made stays for
+    // this one's stages.
+    drop_seat();
     TICKET.with_borrow_mut(|t| *t = ticket.map(|t| (link.to_string(), t)));
 }
 
@@ -95,8 +97,21 @@ pub(crate) fn kept_audience() -> Option<SharedAudience> {
     KEPT.with(|k| k.audience().map(|(_, a)| a))
 }
 
-/// Stop watching: the seat forgotten (its socket closed).
+/// The audience's seat kept, by its link, if any.
+pub(crate) fn kept_audience_link() -> Option<(String, SharedAudience)> {
+    KEPT.with(Kept::audience)
+}
+
+/// Stop watching: the seat forgotten (its socket closed), and the context
+/// its stages' music played on closed (review3 web-7: `WebAudio`'s drop
+/// closes it).
 pub(crate) fn discard_audience() {
+    drop_seat();
+    AUDIO.with_borrow_mut(|a| *a = None);
+}
+
+/// The seat and its stage handed over forgotten (its socket closed).
+fn drop_seat() {
     WATCHING.with_borrow_mut(|w| *w = None);
     KEPT.with(Kept::discard_audience);
 }
@@ -332,6 +347,11 @@ pub(crate) fn room(id: &str) -> SharedRoom {
 /// The online room kept for the session, if any.
 pub(crate) fn kept_room() -> Option<SharedRoom> {
     KEPT.with(Kept::room)
+}
+
+/// The online room kept's id, if any.
+pub(crate) fn kept_room_id() -> Option<String> {
+    KEPT.with(Kept::room_id)
 }
 
 /// Leave room: forgotten (its socket closed once the room answered), and

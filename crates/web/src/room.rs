@@ -76,14 +76,23 @@ thread_local! {
 
 /// Which of a room's pages the address is ([`sync_unload_guard`] reads it
 /// each UI frame, parsing the address only when it changes).
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 enum RoomPage {
     /// The practice room's song select (`#/room`).
     Practice,
-    /// An online room's song select.
-    Online,
+    /// Online room `id`'s song select.
+    Online(String),
     /// A stage's prompt, play or results.
     Stage,
+    /// A page that opens over a room's song select and comes back to it
+    /// (Options and what it opens: Calibrate, a calibration's run, the
+    /// announcer studio and its scenes): the room is kept as it was, an
+    /// online one run meanwhile ([`run_over`]), as desktop keeps the
+    /// room's screen under them (review3 web-2, web-3).
+    Over,
+    /// The room watched with its audience by `link`: its page, or a stage
+    /// of it watched.
+    Audience(String),
     /// Any other page.
     Other,
 }
@@ -102,43 +111,51 @@ fn room_page() -> RoomPage {
         if *seen != hash {
             *page = match Route::parse(&hash) {
                 Route::Room => RoomPage::Practice,
-                Route::MpRoom { .. } => RoomPage::Online,
+                Route::MpRoom { id } => RoomPage::Online(id),
                 Route::Play(p) if p.stage.is_some() => RoomPage::Stage,
+                Route::Play(p) if p.scene.is_some() => RoomPage::Over,
+                Route::Options | Route::Calibrate | Route::CalibrateRun { .. } | Route::Studio => {
+                    RoomPage::Over
+                }
+                Route::MpWatch { link } | Route::MpWatchStage { link } => RoomPage::Audience(link),
                 _ => RoomPage::Other,
             };
             *seen = hash;
         }
-        *page
+        page.clone()
     })
 }
 
 /// Whether the page is a room's (its song select, or a stage's prompt,
-/// play or results) and leaving that room would cost something now
-/// (`RoomClient::leave_cost`: the cases its screens ask before leaving
-/// in).
-fn leaving_costs(page: RoomPage) -> bool {
+/// play or results, or a page over it) and leaving that room would cost
+/// something now (`RoomClient::leave_cost`: the cases its screens ask
+/// before leaving in).
+fn leaving_costs(page: &RoomPage) -> bool {
+    let practice = || ROOM.with(|r| r.borrow().clone());
     let room = match page {
-        RoomPage::Practice => ROOM.with(|r| r.borrow().clone()),
-        RoomPage::Online => crate::online::kept_room(),
+        RoomPage::Practice => practice(),
+        RoomPage::Online(_) => crate::online::kept_room(),
         // The stage handed to the play route, or (on its results) the
         // one handed over last.
         RoomPage::Stage => PLAYING
             .with(|p| p.borrow().as_ref().map(|p| p.room.clone()))
             .or_else(|| LAST.with(|l| l.borrow().as_ref().map(|(_, room)| room.clone()))),
-        RoomPage::Other => None,
+        RoomPage::Over => crate::online::kept_room().or_else(practice),
+        RoomPage::Audience(_) | RoomPage::Other => None,
     };
     room.is_some_and(|r| r.try_borrow().is_ok_and(|r| r.leave_cost().is_some()))
 }
 
 /// CPU practice left with a match running is forgotten, silently (the
 /// maintainer, 2026-11-12): the page is no longer one of the practice
-/// room's (its song select, or a stage's prompt, play or results), by
-/// whatever way (the game's Back, the browser's, an address typed), and
-/// the session's practice has a match running, so the room and its
-/// unfinished match go; coming back to CPU practice makes a fresh room.
-/// Between matches the practice is kept for the session, as it was.
-fn forget_left_practice(page: RoomPage) {
-    if matches!(page, RoomPage::Practice | RoomPage::Stage) {
+/// room's (its song select, or a stage's prompt, play or results, or a
+/// page over it: Options, Calibrate), by whatever way (the game's Back,
+/// the browser's, an address typed), and the session's practice has a
+/// match running, so the room and its unfinished match go; coming back
+/// to CPU practice makes a fresh room. Between matches the practice is
+/// kept for the session, as it was.
+fn forget_left_practice(page: &RoomPage) {
+    if matches!(page, RoomPage::Practice | RoomPage::Stage | RoomPage::Over) {
         return;
     }
     let running = ROOM.with(|r| {
@@ -149,6 +166,71 @@ fn forget_left_practice(page: RoomPage) {
     });
     if running {
         discard();
+    }
+}
+
+/// An online room left by whatever way (the browser's Back, an address
+/// typed, a link followed; review3 web-1) is left as the game's Back
+/// leaves it (AGENTS.md: Back on an online room's song select leaves the
+/// room): told, its socket closed, forgotten. Kept on its own song
+/// select, a stage's pages and the pages over it.
+fn leave_left_online(page: &RoomPage) {
+    let Some(kept) = crate::online::kept_room_id() else {
+        return;
+    };
+    let stays = match page {
+        RoomPage::Online(id) => *id == kept,
+        RoomPage::Stage | RoomPage::Over => true,
+        _ => false,
+    };
+    if stays {
+        return;
+    }
+    if let Some(room) = crate::online::kept_room()
+        && let Ok(mut r) = room.try_borrow_mut()
+    {
+        r.set_rules_seen(false);
+        r.leave();
+    }
+    crate::online::discard();
+}
+
+/// The room's seat in its audience, left by whatever way: stopped
+/// (its socket closed, its audio context let go; review3 web-1's sibling,
+/// web-7). Kept on its pages alone.
+fn leave_left_audience(page: &RoomPage) {
+    let Some((link, _)) = crate::online::kept_audience_link() else {
+        return;
+    };
+    if !matches!(page, RoomPage::Audience(l) if *l == link) {
+        crate::online::discard_audience();
+    }
+}
+
+/// An online room kept while its member is on a page over it (Options,
+/// Calibrate): run as its song select runs it (review3 web-3), so that
+/// its picks are prepared and uploaded and the room hears from it; its
+/// stage's prompt opens once the member is back on its song select (as
+/// desktop's, whose room screen runs under Options).
+fn run_over(page: &RoomPage) {
+    if *page != RoomPage::Over {
+        return;
+    }
+    let Some(room) = crate::online::kept_room() else {
+        return;
+    };
+    let (jobs, uploads) = {
+        let Ok(mut r) = room.try_borrow_mut() else {
+            return;
+        };
+        r.tick(now_ms());
+        (r.take_load_jobs(), r.take_upload_jobs())
+    };
+    for job in jobs {
+        prepare_for(room.clone(), job);
+    }
+    for job in uploads {
+        upload(room.clone(), job);
     }
 }
 
@@ -164,8 +246,11 @@ fn forget_left_practice(page: RoomPage) {
 /// reconnect grace before it counts them away.
 pub(crate) fn sync_unload_guard() {
     let page = room_page();
-    forget_left_practice(page);
-    let want = leaving_costs(page);
+    forget_left_practice(&page);
+    leave_left_online(&page);
+    leave_left_audience(&page);
+    run_over(&page);
+    let want = leaving_costs(&page);
     UNLOAD_GUARD.with_borrow_mut(|guard| {
         if !want {
             *guard = None;
@@ -398,8 +483,13 @@ pub(crate) fn upload(room: SharedRoom, job: UploadJob) {
 /// gives (`#/play?song=…&chart=…&stage=<id>`, with the session's testing
 /// parameters); its results go back to `back`.
 pub(crate) fn play_in(room: SharedRoom, back: Route, order: StageOrder) -> String {
+    let online = match &back {
+        Route::MpRoom { id } => Some(id.clone()),
+        _ => None,
+    };
     let route = Route::Play(crate::router::PlayRoute {
         stage: Some(order.stage.0),
+        room: online.clone(),
         ..crate::router::PlayRoute::song(order.song.id.clone(), order.chart.index)
     });
     LAST.with(|l| *l.borrow_mut() = Some((back, room.clone())));
@@ -409,6 +499,12 @@ pub(crate) fn play_in(room: SharedRoom, back: Route, order: StageOrder) -> Strin
             room,
         })
     });
+    // The session's testing parameters for a practice room's stages
+    // alone: never an online room's, whose run is reported to the others
+    // as the person's own (review3 web-6: `auto=1` autoplayed it).
+    if online.is_some() {
+        return route.to_hash();
+    }
     crate::router::with_testing(route.to_hash(), &crate::router::TESTING_KEYS)
 }
 

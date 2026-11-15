@@ -220,17 +220,29 @@ impl App {
                 },
             )),
             // A stage the room has not handed over (a reload, an old
-            // address): the room.
+            // address): its room's page in its place (an online room's
+            // where the address names one, else the practice room's),
+            // which hands its stage over again where it is still to play
+            // (review3 web-5).
             Route::Play(PlayRoute {
-                stage: Some(id), ..
-            }) if crate::room::playing(*id).is_none() => Box::new(mount::<SelectPage>(
-                root,
-                "main",
-                crate::components::select_page::Props {
-                    shared: false,
-                    room: Some(crate::room::RoomRoute::Practice),
-                },
-            )),
+                stage: Some(id),
+                room,
+                ..
+            }) if crate::room::playing(*id).is_none() => {
+                let which = match room {
+                    Some(id) => crate::room::RoomRoute::Online(id.clone()),
+                    None => crate::room::RoomRoute::Practice,
+                };
+                which.route().return_to();
+                Box::new(mount::<SelectPage>(
+                    root,
+                    "main",
+                    crate::components::select_page::Props {
+                        shared: false,
+                        room: Some(which),
+                    },
+                ))
+            }
             Route::Play(PlayRoute {
                 song,
                 chart,

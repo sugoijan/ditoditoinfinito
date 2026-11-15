@@ -1058,8 +1058,9 @@ impl Component for GameCanvas {
         self.page(ctx)
     }
 
-    fn destroy(&mut self, _ctx: &Context<Self>) {
+    fn destroy(&mut self, ctx: &Context<Self>) {
         self.alive.set(false);
+        self.leave_stage(ctx);
         self.teardown();
     }
 }
@@ -1764,6 +1765,44 @@ impl GameCanvas {
         }
     }
 
+    /// The page goes with a room's stage still handed to it (the
+    /// browser's Back during its play or its watched-on forfeit, from its
+    /// prompt, an address typed; review3 web-4): left as the game's own
+    /// ways leave it, so that the room is never stuck in it: from the
+    /// prompt withdrawn (or a forfeit once begun), from the play a
+    /// forfeit whose outcome is reported now.
+    fn leave_stage(&mut self, ctx: &Context<Self>) {
+        let Some(order) = ctx.props().room_stage.as_deref() else {
+            return;
+        };
+        if ctx.props().watch.is_some() || crate::room::playing(order.stage.0).is_none() {
+            return;
+        }
+        if matches!(self.stage, Stage::Playing) {
+            // (The route can change inside a frame, the game loop
+            // borrowed: then once it returns.)
+            let game = self.game.clone();
+            let leave = move || {
+                if let Ok(mut g) = game.try_borrow_mut()
+                    && let Some(g) = g.as_mut()
+                {
+                    g.leave_stage_now();
+                }
+            };
+            if self.game.try_borrow_mut().is_ok() {
+                leave();
+            } else {
+                crate::web::next_task(leave);
+            }
+        } else {
+            let song = match &self.song {
+                Status::Ready(s) => Some(&s.song),
+                _ => None,
+            };
+            crate::room::leave_prompt(order, song);
+        }
+    }
+
     fn teardown(&mut self) {
         crate::history::set_playing(false);
         crate::history::set_current(None);
@@ -2208,8 +2247,17 @@ impl GameCanvas {
     }
 
     fn session_config(&self, ctx: &Context<Self>) -> (SessionConfig, usize) {
+        // Never autoplayed for a person in an online room's stage (review3
+        // web-6): its run goes to the others as theirs. Practice's and a
+        // watched stage's keep the testing parameter.
+        let online = ctx
+            .props()
+            .room_stage
+            .as_deref()
+            .is_some_and(|o| ctx.props().watch.is_none() && (o.others > 0 || o.live.is_some()));
+        let auto = ctx.props().auto && !online;
         let mut config =
-            SessionConfig::from_settings(&self.settings, ctx.props().auto, self.devices.clone());
+            SessionConfig::from_settings(&self.settings, auto, self.devices.clone());
         let chart = match &ctx.props().source {
             SongSource::Song { chart, .. } => *chart,
             SongSource::Calibration(mode) => {

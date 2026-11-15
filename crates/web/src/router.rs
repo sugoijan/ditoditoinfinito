@@ -42,6 +42,10 @@ pub(crate) struct PlayRoute {
     /// played against its CPUs, never kept, its outcome reported to the
     /// room, back to the room.
     pub(crate) stage: Option<u64>,
+    /// `room=<id>` beside `stage=`: the online room the stage is of
+    /// (none: the practice room's), so that the address reloaded goes
+    /// back to its room (review3 web-5).
+    pub(crate) room: Option<String>,
 }
 
 impl PlayRoute {
@@ -260,6 +264,7 @@ impl Route {
                 edit: params.get("edit").is_some_and(|v| v == "1"),
                 scene: params.get("scene").filter(|s| !s.is_empty()).cloned(),
                 stage: params.get("stage").and_then(|s| s.parse().ok()),
+                room: params.get("room").filter(|r| !r.is_empty()).cloned(),
             }),
             "edit" => Route::Edit {
                 song: params.get("song").cloned().unwrap_or_default(),
@@ -342,12 +347,16 @@ impl Route {
                 edit,
                 scene,
                 stage,
+                room,
             }) => {
                 let gl = if *force_gl { "&gfx=gl" } else { "" };
                 let slow = if *slow { "&slow=1" } else { "" };
                 let edit = match (scene, stage) {
                     (Some(line), _) => format!("&scene={}", percent_encode(line)),
-                    (None, Some(id)) => format!("&stage={id}"),
+                    (None, Some(id)) => match room {
+                        Some(room) => format!("&stage={id}&room={}", percent_encode(room)),
+                        None => format!("&stage={id}"),
+                    },
                     (None, None) if *edit => "&edit=1".into(),
                     (None, None) => String::new(),
                 };

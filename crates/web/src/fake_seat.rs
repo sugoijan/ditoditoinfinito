@@ -49,9 +49,23 @@ pub(crate) fn want(end_after: Option<f64>) {
     END_AFTER.set(end_after);
 }
 
-/// Whether the audience is the fake room's.
+/// Whether the audience is the fake room's: asked for, and only on an
+/// audience link's pages (its invite page, the audience's page, a stage
+/// watched; review3 web-8): the rest of the session (the multiplayer
+/// home, invites, the person's own rooms) stays the real one's.
 pub(crate) fn on() -> bool {
+    let hash = || {
+        web_sys::window()
+            .and_then(|w| w.location().hash().ok())
+            .unwrap_or_default()
+    };
     WANTED.get()
+        && matches!(
+            crate::router::Route::parse(&hash()),
+            crate::router::Route::MpAudience { .. }
+                | crate::router::Route::MpWatch { .. }
+                | crate::router::Route::MpWatchStage { .. }
+        )
 }
 
 fn now_ms() -> u64 {

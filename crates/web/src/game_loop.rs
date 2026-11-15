@@ -488,6 +488,19 @@ impl GameLoop {
         }
     }
 
+    /// The page goes in a stage's play (the browser's Back, an address,
+    /// review3 web-4): the stage left whole now and its outcome reported
+    /// to the room, as the play's end would have.
+    pub(crate) fn leave_stage_now(&mut self) {
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+        let now = crate::web::clock::PerformanceClock::now_ms() / 1000.0;
+        if let Some(o) = session.leave_now(HostTime(now)) {
+            let _ = crate::room::report(o);
+        }
+    }
+
     /// The play taken back (a restart's sound and music).
     pub(crate) fn take_session(&mut self) -> Option<PlaySession> {
         self.session.take()
