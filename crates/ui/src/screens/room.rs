@@ -1963,103 +1963,9 @@ pub fn players_panel(env: &Env, r: &RoomClient, [x, y, w, h]: [f32; 4]) -> Actor
     } else {
         rows.len()
     };
-    let (place_w, points_w) = if placed { (30.0, 64.0) } else { (0.0, 0.0) };
     let mut ry = y + PLAYERS_HEAD;
     for (k, p) in rows.iter().enumerate().take(shown) {
-        let mid = ry + row / 2.0;
-        let id = format!("Players{k}");
-        if p.me {
-            let mut plate = look::quad_at(
-                &format!("{id}.Me"),
-                [w, row - 4.0],
-                look::with_alpha(env.color("Text"), 0.06),
-                [x + w / 2.0, mid],
-            );
-            look::call(&mut plate, "cornerradius", &[6.0]);
-            c.push(plate);
-        }
-        if let Some(place) = p.place {
-            c.push(left(
-                env.numbers(&format!("{id}.Place"), &place.to_string(), 14.0, "Muted"),
-                x + 8.0,
-                mid,
-            ));
-        }
-        let name_x = x + 8.0 + place_w;
-        let end = x + w - 8.0 - points_w;
-        let status_w = if p.status.is_empty() {
-            0.0
-        } else {
-            look::mono_width(&p.status, 13.0).min(170.0) + 12.0
-        };
-        // Their attack policy, a quiet word before the status.
-        let policy_w = if p.policy.is_empty() {
-            0.0
-        } else {
-            look::mono_width(&p.policy, 12.0).min(90.0) + 12.0
-        };
-        if !p.policy.is_empty() {
-            let mut policy = env.text(&format!("{id}.Policy"), &p.policy, 12.0, 400, "Faint");
-            look::ellipsized(&mut policy, 90.0);
-            c.push(right(policy, end - status_w, mid + 1.0));
-        }
-        let room = (end - status_w - policy_w - name_x).max(60.0);
-        let color = match (p.me, p.tone) {
-            (_, Tone::Away) => "Faint",
-            (true, _) => "Text",
-            _ => "Secondary",
-        };
-        // What follows the name: a CPU's stars, a person's role.
-        let stars_w = crate::stars::width(STARS_HEIGHT);
-        let after = match p.level {
-            Some(_) => stars_w + 10.0,
-            None if p.role.is_empty() => 0.0,
-            None => look::mono_width(&p.role, 12.0) + 10.0,
-        };
-        let (parts, name_w) = name_and_badge(
-            env,
-            &format!("{id}.Name"),
-            &p.name,
-            p.badge,
-            (15.0, 600, color),
-            [name_x, mid],
-            (room - after).max(40.0),
-        );
-        c.extend(parts);
-        let ax = name_x + name_w + 10.0;
-        if let Some(level) = p.level {
-            level_line(
-                env,
-                &mut c,
-                &id,
-                (level, &p.sub),
-                [ax, mid + 1.0],
-                (room - name_w - 10.0).max(stars_w),
-                false,
-            );
-        } else if !p.role.is_empty() {
-            let mut role = env.text(&format!("{id}.Role"), &p.role, 12.0, 400, "Muted");
-            look::ellipsized(&mut role, (room - name_w - 10.0).max(24.0));
-            c.push(left(role, ax, mid + 1.0));
-        }
-        if !p.status.is_empty() {
-            let mut status = env.text(
-                &format!("{id}.State"),
-                &p.status,
-                13.0,
-                600,
-                tone_color(p.tone),
-            );
-            look::ellipsized(&mut status, 170.0);
-            c.push(right(status, end, mid));
-        }
-        if let Some(points) = &p.points {
-            c.push(right(
-                env.numbers(&format!("{id}.Points"), points, 15.0, color),
-                x + w - 8.0,
-                mid,
-            ));
-        }
+        player_line(env, &mut c, &format!("Players{k}"), p, [x, ry, w, row], placed);
         ry += row;
     }
     if shown < rows.len() {
@@ -2072,6 +1978,116 @@ pub fn players_panel(env: &Env, r: &RoomClient, [x, y, w, h]: [f32; 4]) -> Actor
         ));
     }
     super::frame("RoomPlayers", c)
+}
+
+/// One player's line as the room's players panel draws it
+/// ([`players_panel`]; the stage's prompt and the audience's page draw
+/// theirs with it): in `[x, y, w, row]` (`row` tall), the local player's
+/// plate under it, the place where the match is `placed`, the name and
+/// its badge, a CPU's stars or a person's role, the policy's quiet word,
+/// the status and the match points; its parts named from `id`.
+pub fn player_line(
+    env: &Env,
+    c: &mut Vec<Actor>,
+    id: &str,
+    p: &PlayerRow,
+    [x, ry, w, row]: [f32; 4],
+    placed: bool,
+) {
+    let (place_w, points_w) = if placed { (30.0, 64.0) } else { (0.0, 0.0) };
+    let mid = ry + row / 2.0;
+    if p.me {
+        let mut plate = look::quad_at(
+            &format!("{id}.Me"),
+            [w, row - 4.0],
+            look::with_alpha(env.color("Text"), 0.06),
+            [x + w / 2.0, mid],
+        );
+        look::call(&mut plate, "cornerradius", &[6.0]);
+        c.push(plate);
+    }
+    if let Some(place) = p.place {
+        c.push(left(
+            env.numbers(&format!("{id}.Place"), &place.to_string(), 14.0, "Muted"),
+            x + 8.0,
+            mid,
+        ));
+    }
+    let name_x = x + 8.0 + place_w;
+    let end = x + w - 8.0 - points_w;
+    let status_w = if p.status.is_empty() {
+        0.0
+    } else {
+        look::mono_width(&p.status, 13.0).min(170.0) + 12.0
+    };
+    // Their attack policy, a quiet word before the status.
+    let policy_w = if p.policy.is_empty() {
+        0.0
+    } else {
+        look::mono_width(&p.policy, 12.0).min(90.0) + 12.0
+    };
+    if !p.policy.is_empty() {
+        let mut policy = env.text(&format!("{id}.Policy"), &p.policy, 12.0, 400, "Faint");
+        look::ellipsized(&mut policy, 90.0);
+        c.push(right(policy, end - status_w, mid + 1.0));
+    }
+    let room = (end - status_w - policy_w - name_x).max(60.0);
+    let color = match (p.me, p.tone) {
+        (_, Tone::Away) => "Faint",
+        (true, _) => "Text",
+        _ => "Secondary",
+    };
+    // What follows the name: a CPU's stars, a person's role.
+    let stars_w = crate::stars::width(STARS_HEIGHT);
+    let after = match p.level {
+        Some(_) => stars_w + 10.0,
+        None if p.role.is_empty() => 0.0,
+        None => look::mono_width(&p.role, 12.0) + 10.0,
+    };
+    let (parts, name_w) = name_and_badge(
+        env,
+        &format!("{id}.Name"),
+        &p.name,
+        p.badge,
+        (15.0, 600, color),
+        [name_x, mid],
+        (room - after).max(40.0),
+    );
+    c.extend(parts);
+    let ax = name_x + name_w + 10.0;
+    if let Some(level) = p.level {
+        level_line(
+            env,
+            c,
+            id,
+            (level, &p.sub),
+            [ax, mid + 1.0],
+            (room - name_w - 10.0).max(stars_w),
+            false,
+        );
+    } else if !p.role.is_empty() {
+        let mut role = env.text(&format!("{id}.Role"), &p.role, 12.0, 400, "Muted");
+        look::ellipsized(&mut role, (room - name_w - 10.0).max(24.0));
+        c.push(left(role, ax, mid + 1.0));
+    }
+    if !p.status.is_empty() {
+        let mut status = env.text(
+            &format!("{id}.State"),
+            &p.status,
+            13.0,
+            600,
+            tone_color(p.tone),
+        );
+        look::ellipsized(&mut status, 170.0);
+        c.push(right(status, end, mid));
+    }
+    if let Some(points) = &p.points {
+        c.push(right(
+            env.numbers(&format!("{id}.Points"), points, 15.0, color),
+            x + w - 8.0,
+            mid,
+        ));
+    }
 }
 
 /// A name's two letters for a phone's strip: the first of its first two

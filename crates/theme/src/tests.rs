@@ -391,6 +391,9 @@ fn every_tunable_is_used_and_every_one_asked_for_is_there() {
         "List.Bar",
         // The ring `Ui::mark` draws (the announcer studio's scenes).
         "Mark",
+        // A room's stage's Ready card and the audience's page (the
+        // walk's prompt is a solo play's).
+        "Dialog.Glass",
     ] {
         theme.component(name, &Spec::new([400.0, 42.0], "x"));
     }

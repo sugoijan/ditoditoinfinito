@@ -1520,6 +1520,12 @@ impl Look for Infinito {
                 frame("", vec![p, edge, t, note])
             }
             "Panel" => self.panel(spec),
+            "Dialog.Glass" => {
+                let [w, h] = spec.size;
+                let p = round(plate("Plate", [0.0, 0.0], [w, h], self.c("Panel.Glass")), 12.0);
+                let edge = outline_r("Edge", [0.0, 0.0, w, h], 1.0, self.c("Line"), 12.0);
+                frame("", vec![p, edge])
+            }
             "Screen.Header" => self.header(spec),
             "Mark" => self.mark(spec),
             "Screen.Footer" => {

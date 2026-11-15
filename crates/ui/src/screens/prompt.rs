@@ -683,6 +683,11 @@ pub struct PromptScreen {
     preview_ready: Rc<std::cell::Cell<bool>>,
     demo_config: Option<Rc<super::prompt_controls::Controls>>,
     preview_size: std::cell::Cell<Option<[f32; 2]>>,
+    /// A room's Ready card under its diagram (a phone upright): the
+    /// players' part's height for a second layout that fills the card,
+    /// and its height in the first.
+    list_room: std::cell::Cell<Option<f32>>,
+    list_used: std::cell::Cell<f32>,
     preview_told: Option<super::prompt_controls::Picture>,
     /// When the diagram's picture came in (the screen's time): it fades
     /// in from then, over [`RECEPTORS_FADE`] s, through rebuilds.
@@ -836,6 +841,8 @@ impl PromptScreen {
             preview_ready: Rc::default(),
             demo_config: None,
             preview_size: std::cell::Cell::new(None),
+            list_room: std::cell::Cell::new(None),
+            list_used: std::cell::Cell::new(0.0),
             preview_told: None,
             receptors_fade_at: None,
             lit: None,
@@ -1043,11 +1050,34 @@ impl PromptScreen {
         let env = &self.env;
         let [sw, sh] = self.screen;
         // A phone sideways: wider, so fewer lines and buttons lie on it.
-        let w = if sh < 480.0 {
+        let mut w = if sh < 480.0 {
             (sw - 32.0).min(780.0)
         } else {
             env.metric("Prompt.Width", 560.0).min(sw - 32.0)
         };
+        // A room's stage's Ready card (`ready-card-v1`, the feedback round
+        // I): most of the screen with a margin on a desktop, the whole
+        // safe area on a phone, its plate translucent over the song's
+        // backdrop; the players in columns beside the rest where the
+        // card is wide enough (the rest in the classic card's width), else
+        // under the diagram filling the card's height.
+        let roomy = self.room_card() && state.step == PromptStep::Ready;
+        let footer_h = if state.touch { 0.0 } else { 40.0 };
+        let (full_w, full_h) = if sw > 600.0 && sh >= 480.0 {
+            let (share, least, most) = room_mode::CARD_MARGIN;
+            let m = (share * sw).clamp(least, most);
+            (sw - 2.0 * m, sh - footer_h - 2.0 * m.min(32.0))
+        } else {
+            let m = room_mode::CARD_PHONE_MARGIN;
+            (sw - 2.0 * m, sh - footer_h - 2.0 * m)
+        };
+        let beside = room_mode::LIST_BESIDE + 24.0;
+        let split = roomy && full_w - beside >= 480.0;
+        if split {
+            w = w.min(full_w - beside);
+        } else if roomy {
+            w = full_w;
+        }
         let inner = w - 48.0;
         let mut c: Vec<Actor> = Vec::new();
         let mut y = 24.0;
@@ -1130,29 +1160,27 @@ impl PromptScreen {
             && let Some(binding) = &state.bindings
         {
             y += 12.0;
-            // A room's players beside the diagram.
-            let list_w = self.room_list_width(inner);
-            let gap = if list_w > 0.0 { 20.0 } else { 0.0 };
             let (actors, height, size, caps) =
-                super::prompt_controls::draw(env, binding, inner - list_w - gap, y, sh < 480.0, cx);
+                super::prompt_controls::draw(env, binding, inner, y, sh < 480.0, cx);
             c.extend(actors);
-            if list_w > 0.0 {
-                let (list, list_h) = self.room_list([24.0 + inner - list_w, y, list_w, height]);
-                c.extend(list);
-                y += height.max(list_h);
-            } else {
+            y += height;
+            if roomy && !split {
                 // A narrow card (a phone upright): the players under it.
-                y += height;
-                let (list, list_h) = self.room_list([24.0, y + 6.0, inner, 0.0]);
+                let room_h = self.list_room.get().unwrap_or(0.0);
+                let (list, list_h) = self.room_list([24.0, y + 6.0, inner, room_h]);
+                self.list_used.set(list_h);
                 c.extend(list);
                 y += list_h + if list_h > 0.0 { 6.0 } else { 0.0 };
             }
             self.preview_size.set(Some(size));
             *self.caps.borrow_mut() = caps;
-        } else if state.step == PromptStep::Ready {
-            // No diagram (the layout not known yet): the players alone.
+        } else if roomy && !split {
+            // No diagram (the layout not known yet, or watched): the
+            // players alone.
             y += 12.0;
-            let (list, list_h) = self.room_list([24.0, y, inner, 0.0]);
+            let room_h = self.list_room.get().unwrap_or(0.0);
+            let (list, list_h) = self.room_list([24.0, y, inner, room_h]);
+            self.list_used.set(list_h);
             c.extend(list);
             y += list_h;
         }
@@ -1457,11 +1485,32 @@ impl PromptScreen {
             }
             y -= 10.0;
         }
-        let h = y + 24.0;
+        let mut h = y + 24.0;
+        // A room's card under its diagram: laid out again with its
+        // players' part as tall as fills the card.
+        if roomy && !split && self.list_room.get().is_none() && h < full_h - 1.0 {
+            self.list_room.set(Some(self.list_used.get() + full_h - h));
+            let again = self.card(state, cx);
+            self.list_room.set(None);
+            return again;
+        }
+        let mut card_w = w;
+        if roomy {
+            h = h.max(full_h);
+            if split {
+                card_w = full_w;
+                // The players beside the rest, the card's height.
+                let (list, _) = self.room_list([w, 24.0, full_w - w - 24.0, h - 48.0]);
+                c.extend(list);
+            }
+        }
+        // A room's card is translucent (the song shows through; its
+        // look's `Dialog.Glass`, a plain card where the look has none).
+        let plate = if roomy { "Dialog.Glass" } else { "Dialog" };
         let mut children = vec![env.component(
-            "Dialog",
+            plate,
             "Panel",
-            &Spec::new([w, h], ""),
+            &Spec::new([card_w, h], ""),
             "Card",
             [0.0, 0.0],
         )];
@@ -1479,7 +1528,7 @@ impl PromptScreen {
                 .set(Some([size[0] * ratio, size[1] * ratio]));
         }
         let top = ((sh - if state.touch { 0.0 } else { 40.0 }) - h * zoom) / 2.0;
-        call(&mut card, "xy", &[(sw - w * zoom) / 2.0, top.max(8.0)]);
+        call(&mut card, "xy", &[(sw - card_w * zoom) / 2.0, top.max(8.0)]);
         (
             card,
             buttons.into_iter().map(|(n, _, _)| n).collect(),
@@ -2140,6 +2189,18 @@ impl Screen for PromptScreen {
             }
             return Handled::Yes;
         }
+        // A room's players' part: Page Up and Page Down scroll it a
+        // column at a time (the wheel and its marks too).
+        if let Input::Key(k) = input
+            && k.down
+            && self.room.is_some()
+            && matches!(k.code.as_str(), "PageDown" | "PageUp")
+        {
+            let page = self.room_page();
+            let by = if k.code == "PageDown" { page } else { -page };
+            self.room_scroll(by, root, cx);
+            return Handled::Yes;
+        }
         // The countdown: skipped (the press goes on to start), or
         // cancelled (the press does what it does, a tap anywhere does not
         // start then).
@@ -2246,7 +2307,8 @@ impl Screen for PromptScreen {
                 Handled::Yes
             }
             Input::Activate { name } if name == "Room.Up" || name == "Room.Down" => {
-                let by = if name == "Room.Down" { 3 } else { -3 };
+                let page = self.room_page();
+                let by = if name == "Room.Down" { page } else { -page };
                 self.room_scroll(by, root, cx);
                 Handled::Yes
             }

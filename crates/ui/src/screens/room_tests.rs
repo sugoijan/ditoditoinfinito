@@ -1500,28 +1500,53 @@ fn the_prompts_players_keep_the_rooms_order_and_the_player_in_view() {
     room.borrow_mut().report_stage(order.stage, ranking, true).unwrap();
     let mut h = harness();
     prompt(&room, &mut h);
-    assert_eq!(said(&h, "Room.Player3"), "You", "{:?}", h.texts());
+    assert_eq!(said(&h, "Room.Player3.Name"), "You", "{:?}", h.texts());
     let first = order.cpus[0].name.clone().unwrap();
-    assert_eq!(said(&h, "Room.Player0"), first);
-    // A room of 21, scrolled to its end: the player's line still shown.
-    let room: SharedRoom = Rc::new(RefCell::new(RoomClient::new(0, 1)));
-    let roster = crate::state::cpu_roster::at_level(&[], 4, 20, 3);
-    let rules = crate::state::cpu_roster::with_roster(room.borrow().rules().clone(), roster, 1);
-    room.borrow_mut().save_rules(rules).unwrap();
-    let mut h = harness();
-    prompt(&room, &mut h);
-    let shown = |h: &Harness| (0..21).filter(|k| there(h, &format!("Room.Player{k}"))).count();
-    let before = shown(&h);
-    assert!(before < 21, "{before}");
-    for _ in 0..30 {
-        let at = h.centre("Room.Players");
-        h.wheel(at, [0.0, 40.0], crate::event::WheelSource::Pixels);
+    assert_eq!(said(&h, "Room.Player0.Name"), first);
+    // The Ready card's players part (`ready-card-v1`) at 1280×720: one
+    // column for a few, more for many, every one of 24 in view; 73 in
+    // two columns, the rest a scroll away (the wheel, its mark, Page
+    // Down), the player's own line always in view.
+    let column_count = |h: &Harness, n: usize| {
+        let mut xs: Vec<i32> = (0..n)
+            .filter(|k| there(h, &format!("Room.Player{k}.Name")))
+            .map(|k| h.ui.bounds(&format!("Room.Player{k}.Name")).unwrap()[0].round() as i32)
+            .collect();
+        xs.sort_unstable();
+        xs.dedup_by(|a, b| (*a - *b).abs() < 40);
+        xs.len()
+    };
+    let shown = |h: &Harness, n: usize| (0..n).filter(|k| there(h, &format!("Room.Player{k}.Name"))).count();
+    for (players, columns, all) in [(8_u16, 1, true), (24, 2, true), (73, 2, false)] {
+        let room: SharedRoom = Rc::new(RefCell::new(RoomClient::new(0, 1)));
+        let roster = crate::state::cpu_roster::at_level(&[], 4, usize::from(players) - 1, 3);
+        let rules = crate::state::cpu_roster::with_roster(room.borrow().rules().clone(), roster, 1);
+        room.borrow_mut().save_rules(rules).unwrap();
+        let mut h = harness();
+        prompt(&room, &mut h);
+        let n = usize::from(players);
+        assert_eq!(column_count(&h, n), columns, "{players}");
+        let before = shown(&h, n);
+        if all {
+            assert_eq!(before, n, "{players}");
+            continue;
+        }
+        assert!((24..n).contains(&before), "{before}");
+        let mine = |h: &Harness| (0..n).find(|k| there(h, &format!("Room.Player{k}.Me"))).is_some();
+        assert!(mine(&h));
+        // Page Down: a column on; to the end by the wheel.
+        h.key("PageDown", "PageDown");
         h.run(0.05);
+        assert!(mine(&h), "the player's line kept");
+        for _ in 0..30 {
+            let at = h.centre("Room.Players");
+            h.wheel(at, [0.0, 40.0], crate::event::WheelSource::Pixels);
+            h.run(0.05);
+        }
+        assert!(there(&h, &format!("Room.Player{}.Name", n - 1)), "scrolled to the end");
+        assert_eq!(shown(&h, n), before);
+        assert!(mine(&h));
     }
-    assert!(there(&h, "Room.Player20"), "scrolled to the end");
-    assert_eq!(shown(&h), before);
-    let mine = (0..21).find(|k| there(&h, &format!("Room.Player{k}"))).unwrap();
-    assert_eq!(said(&h, &format!("Room.Player{mine}")), "You");
 }
 
 /// A CPU without a roster name is "CPU n" in the language shown, on the
@@ -5140,8 +5165,8 @@ fn the_you_badge_sits_on_its_names_line_wherever_players_are_listed() {
             .with_room(room.clone(), order.stage, shell(&room, &Orders::default())),
     );
     hp.run(0.5);
-    let own = badged(&hp, |k| format!("Room.Player{k}"));
-    assert_badge_on_line(&hp, None, &own, 13.0);
+    let own = badged(&hp, |k| format!("Room.Player{k}.Name"));
+    assert_badge_on_line(&hp, None, &own, 15.0);
     // The stage's Standings, popped up on song select.
     // (Ready already: the prompt's countdown runs.)
     let _ = room.borrow_mut().set_ready(true);

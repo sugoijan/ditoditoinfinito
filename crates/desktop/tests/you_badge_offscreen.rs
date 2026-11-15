@@ -49,7 +49,7 @@ fn the_you_badge_beside_the_name_everywhere() {
                     [
                         format!("Players{k}.Name.Badge"),
                         format!("Panel{k}.Name.Badge"),
-                        format!("Room.Player{k}.Badge"),
+                        format!("Room.Player{k}.Name.Badge"),
                         format!("Name{k}.Badge"),
                     ]
                 })

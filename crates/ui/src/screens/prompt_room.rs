@@ -24,11 +24,21 @@ use ddi_room::{Participation, StageId};
 
 /// How long the prompt says why it goes before going back to the room.
 const GONE_SECONDS: f32 = 2.5;
-/// The players' column's width beside the diagram.
-const LIST_W: f32 = 200.0;
-const LIST_ROW: f32 = 22.0;
-/// A CPU's level's stars at the end of its row.
-const LIST_STARS: f32 = 11.0;
+/// PROVISIONAL (`ready-card-v1`, the feedback round I): the players'
+/// part's rows (the room's players panel's line, `room::player_line`, at
+/// its least), its columns' least width and the gap between them; and
+/// the room the card leaves the screen's edges on a desktop (a share of
+/// the width within these bounds) and on a phone (its safe area).
+const LIST_ROW: f32 = 28.0;
+const LIST_COL_MIN: f32 = 260.0;
+const LIST_COL_GAP: f32 = 16.0;
+const LIST_HEAD: f32 = 22.0;
+const LIST_MARK: f32 = 22.0;
+pub(super) const CARD_MARGIN: (f32, f32, f32) = (0.03, 24.0, 64.0);
+pub(super) const CARD_PHONE_MARGIN: f32 = 8.0;
+/// The players' part beside the card's other parts from this width of
+/// its own on (else under the diagram).
+pub(super) const LIST_BESIDE: f32 = 270.0;
 
 /// What changes the attack policy during play, as the prompt's hint shows
 /// it: the active controller's Back (a short press of it, D8), else the
@@ -75,10 +85,10 @@ pub(super) struct PromptRoom {
     /// Since when the room no longer has this prompt's stage for the
     /// player (sat out, canceled), seconds.
     gone: Cell<Option<f32>>,
-    /// The players' column's first row.
+    /// The players' part's first row.
     first: Cell<usize>,
-    /// Its rows and those shown when last laid out.
-    rows_shown: Cell<(usize, usize)>,
+    /// Its rows, those shown and a column's rows when last laid out.
+    rows_shown: Cell<(usize, usize, usize)>,
     /// The UI's clock at the last update.
     time: Cell<f64>,
     /// The game is quitting once the room has answered the player's
@@ -100,7 +110,7 @@ impl PromptScreen {
             seen: Cell::new(None),
             gone: Cell::new(None),
             first: Cell::new(0),
-            rows_shown: Cell::new((0, 0)),
+            rows_shown: Cell::new((0, 0, 0)),
             time: Cell::new(0.0),
             quit_at: Cell::new(None),
         });
@@ -251,46 +261,52 @@ impl PromptScreen {
         vec![(room::status_line(&r).into(), "Accent")]
     }
 
-    /// The width the diagram leaves the players' column in a room.
-    pub(super) fn room_list_width(&self, inner: f32) -> f32 {
-        if self.room.is_some() && inner >= 440.0 {
-            LIST_W
-        } else {
-            0.0
-        }
+    /// Whether the card is a room's stage's Ready card (`ready-card-v1`):
+    /// larger, translucent, its players' part in columns.
+    pub(super) fn room_card(&self) -> bool {
+        self.room.is_some()
     }
 
-    /// The players beside the diagram, from `[x, y]`, `w` wide, at most
-    /// `h` tall (at least four rows): name and readiness, in the room's
-    /// order (`room::panel_order`), the local player's line always in
-    /// view (`room::window_keeping`, as the Standings pop-up has it);
-    /// marks for the rows hidden above and below.
+    /// The players in `[x, y, w, h]` (`h` at least four rows), each the
+    /// room's players panel's line (`room::player_line`: the name and its
+    /// badge, a CPU's stars or a role, the policy, the state, the points),
+    /// in the room's order (`room::panel_order`), in as many columns as
+    /// they need and `w` holds (one for a few, several for many: each at
+    /// least [`LIST_COL_MIN`] wide), down each column then the next; past
+    /// what the part holds a window of them, the local player's line
+    /// always in view (`room::window_keeping`, as the Standings pop-up
+    /// has it), a mark under it for the rows hidden. Its height.
     pub(super) fn room_list(&self, [x, y, w, h]: [f32; 4]) -> (Vec<Actor>, f32) {
         let Some(rm) = &self.room else {
             return (Vec::new(), 0.0);
         };
         let env = &self.env;
         let rows = room::panel_order(room::player_rows(&rm.room.borrow()));
-        let fit = ((h.max(4.0 * LIST_ROW + 18.0) - 18.0) / LIST_ROW)
-            .floor()
-            .max(1.0) as usize;
-        let marks = rows.len() > fit;
-        let shown = if marks {
-            fit.saturating_sub(1).max(1)
+        let n = rows.len();
+        let body = h.max(LIST_HEAD + 4.0 * LIST_ROW) - LIST_HEAD;
+        let per_all = ((body / LIST_ROW).floor() as usize).max(1);
+        let cols_most = (((w + LIST_COL_GAP) / (LIST_COL_MIN + LIST_COL_GAP)).floor() as usize).max(1);
+        let cols = n.div_ceil(per_all).clamp(1, cols_most);
+        let marks = n > cols * per_all;
+        let per = if marks {
+            (((body - LIST_MARK) / LIST_ROW).floor() as usize).max(1)
         } else {
-            fit
+            per_all
         };
-        let first = rm.first.get().min(rows.len().saturating_sub(shown));
+        let shown = if marks { cols * per } else { n };
+        let first = rm.first.get().min(n.saturating_sub(shown));
         rm.first.set(first);
-        rm.rows_shown.set((rows.len(), shown));
+        rm.rows_shown.set((n, shown, per));
         let me_at = rows.iter().position(|p| p.me);
-        let window = room::window_keeping(rows.len(), first, shown, me_at);
+        let window = room::window_keeping(n, first, shown, me_at);
+        let col_w = (w - LIST_COL_GAP * (cols - 1) as f32) / cols as f32;
+        let placed = rows.iter().any(|p| p.points.is_some());
         let mut out = Vec::new();
         let head = look::tracked(
             env.text("Room.Players", &msg::room::players(), 11.0, 600, "Faint"),
             120,
         );
-        out.push(left(head, x, y + 6.0));
+        out.push(left(head, x, y + 8.0));
         let ready = rows.iter().filter(|p| p.ready && !p.cpu).count();
         let people = rows.iter().filter(|p| !p.cpu).count();
         out.push(right(
@@ -302,67 +318,29 @@ impl PromptScreen {
                 "Muted",
             ),
             x + w,
-            y + 6.0,
+            y + 8.0,
         ));
-        let mut ry = y + 18.0;
-        for &k in &window {
-            let p = &rows[k];
-            let mid = ry + LIST_ROW / 2.0;
-            let color = if p.me { "Text" } else { "Secondary" };
-            // A CPU: its level's stars in the state's place.
-            if let Some(level) = p.level {
-                let sw = crate::stars::width(LIST_STARS);
-                let mut n = env.text(&format!("Room.Player{k}"), &p.name, 13.0, 600, color);
-                look::ellipsized(&mut n, (w - sw - 8.0).max(30.0));
-                out.push(left(n, x, mid));
-                out.push(crate::stars::stars_right(
-                    env,
-                    &format!("Room.Player{k}.Stars"),
-                    level,
-                    LIST_STARS,
-                    x + w,
-                    mid,
-                ));
-                ry += LIST_ROW;
-                continue;
-            }
-            let state: String = if p.ready {
-                msg::room::state_ready().into()
-            } else if p.state.is_empty() {
-                msg::room::state_not_ready().into()
-            } else {
-                p.state.clone()
-            };
-            let sw = look::mono_width(&state, 12.0).min(w * 0.5);
-            let (parts, _) = room::name_and_badge(
+        let top = y + LIST_HEAD;
+        for (j, &k) in window.iter().enumerate() {
+            let (col, at) = (j / per.max(1), j % per.max(1));
+            let cx0 = x + col as f32 * (col_w + LIST_COL_GAP);
+            room::player_line(
                 env,
+                &mut out,
                 &format!("Room.Player{k}"),
-                &p.name,
-                p.badge,
-                (13.0, 600, color),
-                [x, mid],
-                (w - sw - 8.0).max(30.0),
+                &rows[k],
+                [cx0, top + at as f32 * LIST_ROW, col_w, LIST_ROW],
+                placed,
             );
-            out.extend(parts);
-            let state_color = if p.ready && !p.cpu { "Accent" } else { "Muted" };
-            let mut s = env.text(
-                &format!("Room.Player{k}.State"),
-                &state,
-                12.0,
-                600,
-                state_color,
-            );
-            look::ellipsized(&mut s, w * 0.5);
-            out.push(right(s, x + w, mid));
-            ry += LIST_ROW;
         }
+        let used = window.len().min(per);
+        let mut ry = top + used as f32 * LIST_ROW;
         if marks {
-            let above = first;
-            let below = rows.len() - first - shown;
+            let below = n - first - shown;
             let text: String = if below > 0 {
                 msg::room::panel_more_below(below).into()
             } else {
-                msg::room::panel_more_above(above).into()
+                msg::room::panel_more_above(first).into()
             };
             let name = if below > 0 { "Room.Down" } else { "Room.Up" };
             out.push(crate::screens::room::more_mark(
@@ -370,9 +348,9 @@ impl PromptScreen {
                 name,
                 &text,
                 [w, 20.0],
-                [x + w / 2.0, ry + 10.0],
+                [x + w / 2.0, ry + LIST_MARK / 2.0],
             ));
-            ry += 20.0;
+            ry += LIST_MARK;
         }
         (out, ry - y)
     }
@@ -507,13 +485,22 @@ impl PromptScreen {
         self.publish();
     }
 
-    /// The players' column scrolled by `by` rows (its marks, the wheel).
+    /// A column's rows in the players' part as last laid out: what its
+    /// marks and Page Up and Page Down scroll it by.
+    pub(super) fn room_page(&self) -> i32 {
+        self.room
+            .as_ref()
+            .map_or(0, |rm| rm.rows_shown.get().2.max(1) as i32)
+    }
+
+    /// The players' part scrolled by `by` rows (its marks, the wheel,
+    /// Page Up and Page Down).
     pub(super) fn room_scroll(&mut self, by: i32, root: &mut Actor, cx: &mut Cx) -> bool {
         let Some(rm) = &self.room else {
             return false;
         };
-        // Within the column as last laid out (its rows counted then).
-        let (n, shown) = rm.rows_shown.get();
+        // Within the part as last laid out (its rows counted then).
+        let (n, shown, _) = rm.rows_shown.get();
         rm.first.set(crate::screens::scrolled(rm.first.get(), by, n, shown));
         self.rebuild(root, cx);
         true
