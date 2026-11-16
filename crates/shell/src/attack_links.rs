@@ -35,7 +35,10 @@
 //! further along their edges, its curve wider, tighter or bowed) on
 //! which it is never as close as two strokes to another line for longer
 //! than a crossing; where none of its ways is free, or more lines show
-//! than the bound, it has no line: the outline alone says the attack.
+//! than the bound, it has no line: the outline alone says the attack,
+//! until a line going frees a way ([`SPACING_V2`], feedback round P2: it
+//! is tried again on the frame after a line went, two a frame at most,
+//! and laid there as any line is, never moving another).
 //!
 //! Under Reverse the bars stay where they are and the line with them;
 //! the warning's end follows the receptors.
@@ -98,9 +101,13 @@ pub struct Spacing {
     /// The lines shown at once, at most: a link beyond them has its
     /// outline alone.
     pub lines: usize,
+    /// The links that found no free way tried again a frame, at most,
+    /// once a line has gone since their last try (0: never again).
+    pub retries: usize,
 }
 
-/// `attack-lines-apart-v1` (PROVISIONAL).
+/// `attack-lines-apart-v1` (PROVISIONAL): a link that found no free way
+/// keeps its outline alone.
 pub const SPACING_V1: Spacing = Spacing {
     id: "attack-lines-apart-v1",
     near: 2.0,
@@ -109,6 +116,17 @@ pub const SPACING_V1: Spacing = Spacing {
     ports: 6,
     tries: 96,
     lines: 64,
+    retries: 0,
+};
+
+/// `attack-lines-apart-v2` (PROVISIONAL, feedback round P2): as v1, but a
+/// link that found no free way is tried again once a line has gone,
+/// two such links a frame at most, and gets its line as soon as a way
+/// is free (the lines laid still never move).
+pub const SPACING_V2: Spacing = Spacing {
+    id: "attack-lines-apart-v2",
+    retries: 2,
+    ..SPACING_V1
 };
 
 /// A line's stroke's width at a logical pixel `ratio`.
@@ -513,15 +531,19 @@ struct Laid {
     /// How far along the line each of `path`'s places is.
     lengths: Vec<f32>,
     seen: u64,
+    /// Without a way: [`Routes::gone`] when it was tried last.
+    tried: u64,
 }
 
 /// What laying the lines came to, since the slots were placed: the lines
-/// laid, those that found no free way (their outline alone shows), and
-/// the ways tried in all.
+/// laid, those that found no free way at first (their outline alone
+/// shows), those of them laid later, when a line had gone, and the ways
+/// tried in all.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Tally {
     pub laid: u32,
     pub without: u32,
+    pub later: u32,
     pub tried: u32,
 }
 
@@ -548,11 +570,15 @@ pub struct Routes {
     /// that other line (from where to where along it) it has been near.
     runs: Vec<(u16, f32, usize, [f32; 2])>,
     tally: Tally,
+    /// The lines with a curve that have gone, counted.
+    gone: u64,
+    /// The links without a way tried again this frame.
+    retried: usize,
 }
 
 impl Default for Routes {
     fn default() -> Routes {
-        Routes::spaced(SPACING_V1)
+        Routes::spaced(SPACING_V2)
     }
 }
 
@@ -569,6 +595,8 @@ impl Routes {
             ratio: 0.0,
             runs: Vec::new(),
             tally: Tally::default(),
+            gone: 0,
+            retried: 0,
         }
     }
 
@@ -599,6 +627,7 @@ impl Routes {
             self.ratio = ratio;
         }
         self.frame += 1;
+        self.retried = 0;
     }
 
     /// The frame's links asked: the lines none asked for are gone.
@@ -608,7 +637,10 @@ impl Routes {
             if slot.as_ref().is_some_and(|l| l.seen != frame) {
                 let gone = slot.take().expect("a line");
                 self.by_key.remove(&gone.key);
-                self.stale |= !gone.path.is_empty();
+                if !gone.path.is_empty() {
+                    self.stale = true;
+                    self.gone += 1;
+                }
             }
         }
     }
@@ -620,14 +652,67 @@ impl Routes {
     }
 
     /// The line of `key`: as laid, or laid now by `plan` among the lines
-    /// showing.
+    /// showing. One that found no free way is laid again, the first
+    /// [`Spacing::retries`] of a frame, once a line has gone since it
+    /// was tried (no line moves: a line going is all that frees a way).
     fn line(&mut self, key: (u32, Way), plan: impl FnOnce() -> Plan) -> Vec<P> {
         if let Some(&i) = self.by_key.get(&key)
             && let Some(l) = self.lines[i].as_mut()
         {
             l.seen = self.frame;
-            return l.path.clone();
+            let again = l.path.is_empty() && l.tried != self.gone && self.retried < self.spacing.retries;
+            if !again {
+                return l.path.clone();
+            }
+            self.retried += 1;
+            let path = self.lay(plan);
+            if !path.is_empty() {
+                self.tally.later += 1;
+            }
+            self.keep_at(i, key, &path);
+            return path;
         }
+        let path = self.lay(plan);
+        if path.is_empty() {
+            self.tally.without += 1;
+        } else {
+            self.tally.laid += 1;
+        }
+        let at = match self.lines.iter().position(Option::is_none) {
+            Some(at) => at,
+            None => {
+                self.lines.push(None);
+                self.lines.len() - 1
+            }
+        };
+        self.keep_at(at, key, &path);
+        self.by_key.insert(key, at);
+        path
+    }
+
+    /// Keeps `path` as the line of `key` at `at`, seen this frame.
+    fn keep_at(&mut self, at: usize, key: (u32, Way), path: &[P]) {
+        let near = self.near();
+        self.cells.add(at as u16, path, near * 0.5);
+        let mut along = 0.0;
+        let lengths = (0..path.len())
+            .map(|i| {
+                along += if i > 0 { length(sub(path[i], path[i - 1])) } else { 0.0 };
+                along
+            })
+            .collect();
+        self.lines[at] = Some(Laid {
+            key,
+            path: path.to_vec(),
+            lengths,
+            seen: self.frame,
+            tried: self.gone,
+        });
+    }
+
+    /// A line's curve laid by `plan` among the lines showing: empty where
+    /// none of its ways is free, or the lines showing are at the bound.
+    fn lay(&mut self, plan: impl FnOnce() -> Plan) -> Vec<P> {
         let near = self.near();
         if self.stale {
             self.cells.reset(self.size, near * 1.5);
@@ -675,33 +760,6 @@ impl Routes {
                 }
             }
         }
-        if path.is_empty() {
-            self.tally.without += 1;
-        } else {
-            self.tally.laid += 1;
-        }
-        let at = match self.lines.iter().position(Option::is_none) {
-            Some(at) => at,
-            None => {
-                self.lines.push(None);
-                self.lines.len() - 1
-            }
-        };
-        self.cells.add(at as u16, &path, near * 0.5);
-        let mut along = 0.0;
-        let lengths = (0..path.len())
-            .map(|i| {
-                along += if i > 0 { length(sub(path[i], path[i - 1])) } else { 0.0 };
-                along
-            })
-            .collect();
-        self.lines[at] = Some(Laid {
-            key,
-            path: path.clone(),
-            lengths,
-            seen: self.frame,
-        });
-        self.by_key.insert(key, at);
         path
     }
 
@@ -1929,6 +1987,102 @@ mod tests {
         assert_eq!(few.tally().without, 2);
     }
 
+    /// A link that found no free way gets its line once a line in its
+    /// way goes (feedback round P2): many attacks into one miniature
+    /// take every place its edges offer, so the last ones have the
+    /// outline alone; one of the lines goes, and on the next frame a
+    /// waiting link takes the place it left. The lines laid never move.
+    #[test]
+    fn a_link_without_a_way_gets_its_line_when_one_goes() {
+        let g = FieldGeometry::placed(1280.0, 720.0, 4.0, false, Default::default());
+        let k = keep(&g, 1.0, true);
+        let f = crate::opponents::tests::arrange(8, &g, 4.0, false, 1.0, &k).unwrap();
+        let layout = Layout {
+            geo: &g,
+            span: 4.0,
+            fields: &f,
+            ratio: 1.0,
+            keep_out: &k[..k.len() - 1],
+        };
+        let look = ATTACK_LINKS_V1;
+        // Twenty attacks of the player's into the miniature in slot 5.
+        let links: Vec<Link> = (0..20)
+            .map(|i| Link {
+                attack: 100 + i,
+                ..link(f.slots[5].seat, true, false)
+            })
+            .collect();
+        let mut routes = Routes::default();
+        let first = shown(&links, &layout, &mut routes, 10.0, false, look);
+        let waiting: Vec<u32> = first.iter().filter(|s| s.path.is_empty()).map(|s| s.attack).collect();
+        assert!(!waiting.is_empty() && waiting.len() < first.len(), "{} waiting of {}", waiting.len(), first.len());
+        assert!(routes.showing() < SPACING_V1.lines);
+        // Nothing went: frame after frame, nobody is tried again.
+        let tried = routes.tally().tried;
+        let same = shown(&links, &layout, &mut routes, 10.05, false, look);
+        assert_eq!(same, shown(&links, &layout, &mut routes, 10.05, false, look));
+        assert_eq!(routes.tally().tried, tried);
+        assert!(same.iter().zip(&first).all(|(a, b)| a.path == b.path));
+        // The first line goes. On the frame after, a waiting link has its
+        // line; every line laid before is where it was.
+        let gone = first.iter().position(|s| !s.path.is_empty()).unwrap();
+        let rest: Vec<Link> = links.iter().copied().filter(|l| l.attack != first[gone].attack).collect();
+        let at_once = shown(&rest, &layout, &mut routes, 10.1, false, look);
+        assert!(at_once.iter().all(|s| s.path.is_empty() == waiting.contains(&s.attack)));
+        let later = shown(&rest, &layout, &mut routes, 10.15, false, look);
+        let now: Vec<u32> = later
+            .iter()
+            .filter(|s| !s.path.is_empty() && waiting.contains(&s.attack))
+            .map(|s| s.attack)
+            .collect();
+        assert!(!now.is_empty(), "no waiting link got its line");
+        assert_eq!(routes.tally().later as usize, now.len());
+        for a in first.iter().filter(|s| !s.path.is_empty()) {
+            if let Some(b) = later.iter().find(|b| b.attack == a.attack) {
+                assert_eq!(a.path, b.path, "a line moved");
+            }
+        }
+        assert_eq!(apart(&later, 1.0, "later"), later.iter().filter(|s| !s.path.is_empty()).count());
+        // The new line stays where it was laid too.
+        let kept = shown(&rest, &layout, &mut routes, 10.2, false, look);
+        assert!(kept.iter().zip(&later).all(|(a, b)| a.path == b.path));
+
+        // Many lines go at once: the waiting links are tried again at
+        // most so many a frame, the first in the links' order first.
+        for retries in [1, 2] {
+            let mut routes = Routes::spaced(Spacing { retries, ..SPACING_V2 });
+            let first = shown(&links, &layout, &mut routes, 10.0, false, look);
+            let waiting = first.iter().filter(|s| s.path.is_empty()).count();
+            let half: Vec<Link> = links
+                .iter()
+                .zip(&first)
+                .filter(|(_, s)| s.path.is_empty() || s.attack % 2 == 0)
+                .map(|(l, _)| *l)
+                .collect();
+            shown(&half, &layout, &mut routes, 10.1, false, look);
+            let mut tried = 0;
+            let mut before = routes.tally();
+            for frame in 0..waiting {
+                let s = shown(&half, &layout, &mut routes, 10.15 + frame as f64 * 0.01, false, look);
+                let now = routes.tally();
+                assert!((now.later - before.later) as usize <= retries, "{retries}: {now:?}");
+                tried += (now.later - before.later) as usize;
+                before = now;
+                apart(&s, 1.0, "half");
+            }
+            assert!(tried > retries, "{retries}: {tried} laid later");
+        }
+
+        // Under `attack-lines-apart-v1`, never tried again.
+        let mut v1 = Routes::spaced(SPACING_V1);
+        let first = shown(&links, &layout, &mut v1, 10.0, false, look);
+        let rest: Vec<Link> = links.iter().copied().filter(|l| l.attack != first[gone].attack).collect();
+        for t in [10.1, 10.15, 10.2] {
+            shown(&rest, &layout, &mut v1, t, false, look);
+        }
+        assert_eq!(v1.tally().later, 0);
+    }
+
     /// A link over time: the pulse runs for 0.6 s along a whole line by
     /// its length, the line fades to nothing by 1.5 s, the outline stays
     /// until the attack has passed (the session drops the link then); a
@@ -2155,5 +2309,33 @@ mod tests {
                 drawn.2
             );
         }
+        // A line going while others wait (`attack-lines-apart-v2`): the
+        // frame after, the waiting links tried again; 24 attacks into
+        // one miniature, so that some find no way again.
+        let crowd: Vec<Link> = (0..24)
+            .map(|i| Link {
+                attack: 500 + i,
+                ..link(f.slots[40].seat, true, false)
+            })
+            .collect();
+        let (mut retrying, mut frames, mut tally) = (std::time::Duration::ZERO, 0u32, Tally::default());
+        for _ in 0..50 {
+            let mut routes = Routes::default();
+            let s = shown(&crowd, &layout, &mut routes, 10.1, false, ATTACK_LINKS_V1);
+            let Some(gone) = s.iter().find(|s| !s.path.is_empty()) else {
+                continue;
+            };
+            let rest: Vec<Link> = crowd.iter().copied().filter(|l| l.attack != gone.attack).collect();
+            shown(&rest, &layout, &mut routes, 10.1, false, ATTACK_LINKS_V1);
+            let at = std::time::Instant::now();
+            shown(&rest, &layout, &mut routes, 10.1, false, ATTACK_LINKS_V1);
+            retrying += at.elapsed();
+            frames += 1;
+            tally = routes.tally();
+        }
+        eprintln!(
+            "24 into one miniature, a line gone: the frame that tries the waiting again {:.0} µs ({tally:?})",
+            retrying.as_secs_f64() * 1e6 / f64::from(frames.max(1))
+        );
     }
 }
