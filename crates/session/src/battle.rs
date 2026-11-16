@@ -2950,6 +2950,9 @@ mod study;
 #[cfg(test)]
 mod adaptive_study;
 
+#[cfg(test)]
+mod combo_study;
+
 
 #[cfg(test)]
 mod tests {

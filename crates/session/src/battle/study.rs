@@ -34,7 +34,7 @@ use ddi_ui::state::room::StageRules;
 use std::collections::BTreeMap;
 
 /// The M8b study's charts: a bundled song's folder and its chart.
-const CHARTS: [(&str, usize); 6] = [
+pub(super) const CHARTS: [(&str, usize); 6] = [
     ("beatucada", 4),
     ("beatucada", 5),
     ("sweeteners", usize::MAX),
@@ -89,7 +89,7 @@ use crate::test_songs::bundled;
 /// The chart a [`CHARTS`] entry names: an index, or the song's Hard
 /// (`MAX`), Medium (`MAX - 1`) or Challenge (`MAX - 2`) dance-single
 /// chart as written.
-fn chart_of(song: &Song, which: usize) -> usize {
+pub(super) fn chart_of(song: &Song, which: usize) -> usize {
     use ddi_chart::Difficulty as D;
     let want = match which {
         usize::MAX => D::Hard,

@@ -943,3 +943,350 @@ every other ruleset looks, judges and saves as before.
   arcade mixes (`docs/plans/cpu-player.md`, "Evasion"): Evasion 0.5
   about doubles the shocks a level steps on and 2 about halves them. A
   model of a CPU, never a person's skill.
+
+## DDI's score and combos: a study (2026-11-16)
+
+**Measured only: nothing a player sees or a play scores changed.** The
+maintainer (2026-11-16): "our DDI ruleset seems to reward precision too
+strongly, making it so some fullcombos lose in score to non fullcombos
+that had a few more precision. I think we should incorporate the length
+of combos into the score, and also the max combo, carefully balancing it
+so a longer combo counts a lot more than if the combo was broken in 2."
+Today a miss costs 60 points, exactly six *slips* (a W1 that became a
+W2, 10 points), wherever it falls: a full combo loses to any play with
+one miss and seven fewer W2s.
+
+The study is `combo_score_study`
+(`crates/session/src/battle/combo_study.rs`; `DDI_COMBO_CORPUS=<dir>[:<dir>…]
+cargo test --release -p ddi-session --lib combo_score_study -- --ignored
+--nocapture`). It reads plays as the engine judged them (each play's
+judgments in order, its points, the notes it was shown) and works
+candidate scores out beside today's; today's score worked out that way
+is asserted equal to the engine's for every play. MEASUREMENTS OF CPUS
+(`cpu-levels-v1` playing the chart a person is given, `cpu-play-v1`), not
+of people: where a CPU breaks (lapses under load, in the dense passages)
+is its model's. The combo is the engine's: W1 to W3 continue it, a W4, a
+W5, a Miss and a mine or shock stepped on break it, a dropped hold does
+not.
+
+### The candidates
+
+Each is today's score plus a combo part; the percent, and so the grades
+and the lamps, stay today's. A full combo's part is a share S of a
+scale: `M`, the proportional million (S = 10, 20, 30%, as asked), or
+`F`, the chart's own full score, the million and 100 a point (S = 2, 4,
+6%: added by the study, see "Two scales"). With N the chart's tap-like
+notes:
+
+- **A50, A100, A200 (a ramp to a cap):** each note judged in combo earns
+  `min(combo, K) / K`; over a full combo's sum.
+- **B (the runs' squares):** the sum of each run's length squared, over
+  N². One run 1, two halves 0.5, four quarters 0.25.
+- **C (the longest run):** the longest run over N.
+- **A100+B, A100+C:** half of each.
+- **Miss −50, miss −100:** no combo part, a heavier miss (the percent and
+  the grades change with it).
+
+Every part is whole-number arithmetic (sums of `min(combo, K)`, of
+squares, a maximum), so devices would agree on it exactly.
+
+### What a break costs, and where
+
+A made-up full combo, every tap a W1, one tap turned into a miss; in
+slips (today 6 everywhere). The part of each number beyond today's 6 is
+proportional to S: at 20% M it is twice what is shown, at 30% three
+times.
+
+| S = 10% M | 100 notes: middle | 300: at 2.5% | 300: at 25% | 300: middle | 600: middle | 1,200: at 2.5% | 1,200: middle |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Today | 6.0 | 6.0 | 6.0 | 6.0 | 6.0 | 6.0 | 6.0 |
+| Miss −50 | 10.0 | 10.0 | 10.0 | 10.0 | 10.0 | 10.0 | 10.0 |
+| Miss −100 | 15.0 | 15.0 | 15.0 | 15.0 | 15.0 | 15.0 | 15.0 |
+| A50 | 17.3 | 7.6 | 11.6 | 11.6 | 9.3 | 7.6 | 7.9 |
+| A100 | 22.8 | 7.8 | 17.4 | 18.1 | 12.9 | 8.0 | 9.8 |
+| A200 | 22.8 | 8.4 | 24.5 | 32.3 | 21.1 | 8.2 | 13.8 |
+| B | 23.0 | 9.1 | 28.8 | 36.2 | 43.6 | 10.3 | 48.9 |
+| C | 22.7 | 7.6 | 21.2 | 36.0 | 43.5 | 8.2 | 48.9 |
+| A100+B | 22.9 | 8.5 | 23.1 | 27.1 | 28.3 | 9.1 | 29.3 |
+| A100+C | 22.7 | 7.7 | 19.3 | 27.0 | 28.2 | 8.1 | 29.3 |
+
+A slip is 0.2 percent points on 100 notes, 0.067 on 300, 0.033 on 600
+and 0.017 on 1,200: A100+B's 27 to 29 slips are 1.8 points of percent on
+300 notes and 0.5 on 1,200.
+
+More misses, spread evenly (the costliest places under B and C) and, in
+brackets, at random places (the mean of 400 draws), S = 10% M:
+
+| | 300 notes: 2 | 300: 5 | 300: 10 | 1,200: 2 | 1,200: 5 | 1,200: 10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Today | 12 | 30 | 60 | 12 | 30 | 60 |
+| A50 | 23 (21) | 58 (50) | 103 (92) | 16 (16) | 39 (39) | 79 (76) |
+| A100 | 36 (29) | 72 (61) | 111 (103) | 20 (19) | 49 (46) | 98 (88) |
+| B | 52 (42) | 80 (73) | 115 (110) | 69 (54) | 102 (92) | 138 (132) |
+| C | 52 (35) | 80 (66) | 115 (104) | 69 (44) | 101 (81) | 138 (122) |
+| A100+B | 44 (35) | 76 (67) | 113 (106) | 44 (37) | 75 (69) | 118 (110) |
+
+The same on the CPUs' real full combos (157,983 of them over the local
+charts, their own mix of judgments): one miss put
+in at a place of the chart, slips, and one more miss at the middle of
+each of the 82,139 clears that already had one to five breaks.
+
+| S = 10% M | 2.5% | 10% | 25% | 50% | 75% | 90% | 97.5% | One more |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Today | 5.9 | 5.9 | 5.9 | 5.9 | 5.9 | 5.9 | 5.9 | 5.8 |
+| Miss −50 | 9.9 | 9.9 | 9.9 | 9.9 | 9.9 | 9.9 | 9.9 | 9.8 |
+| A50 | 7.5 | 10.6 | 13.6 | 14.8 | 13.6 | 10.6 | 7.6 | 10.5 |
+| A100 | 8.0 | 12.3 | 18.4 | 21.8 | 18.3 | 12.2 | 8.0 | 12.8 |
+| A200 | 8.4 | 13.8 | 22.0 | 27.5 | 22.0 | 13.8 | 8.4 | 14.2 |
+| B | 8.7 | 14.6 | 23.4 | 29.0 | 23.4 | 14.6 | 8.7 | 14.4 |
+| C | 7.3 | 10.7 | 17.6 | 28.8 | 17.5 | 10.7 | 7.3 | 14.7 |
+| A100+B | 8.3 | 13.4 | 20.9 | 25.4 | 20.8 | 13.4 | 8.3 | 13.6 |
+| A100+C | 7.6 | 11.5 | 18.0 | 25.3 | 17.9 | 11.5 | 7.7 | 13.7 |
+| A100+B 20% M | 10.8 | 21.0 | 35.9 | 44.9 | 35.8 | 20.9 | 10.7 | 21.4 |
+| A100+B 30% M | 13.2 | 28.5 | 50.9 | 64.4 | 50.7 | 28.4 | 13.2 | 29.2 |
+
+Each candidate in a sentence:
+
+- **A (the ramp):** a break costs about K/2 notes' bonus wherever both
+  runs beside it are longer than K, so the curve is flat with ramps at
+  the two ends; but the part is one fixed prize shared over N notes, so
+  on the `M` scale the cost fades with the chart's length (A100: 23
+  slips on 100 notes, 18 on 300, 10 on 1,200, where it is hardly more
+  than today's 6) and "broken in two" loses only K/2 of N. On the short
+  arcade charts A100 and A200 are nearly B.
+- **B (the squares):** exactly "a longer combo counts a lot more than
+  broken in two" (half the part), and the known unfairness with it: a
+  miss in the middle costs four to five times one at an end (36 against 9
+  slips on 300 notes, 49 against 10 on 1,200), and after the first break
+  the others cost little more than today's (the second about 16 to 20,
+  from the fifth on about 7 each).
+- **C (the longest run):** B's middle cost with a sharper peak (five to
+  six times the end's), and breaks outside the longest run cost nothing: two
+  random misses cost 35 slips where two even ones cost 52.
+- **A100+B:** the middle costs 23 to 29 slips at every length measured
+  (A's share fades with length as B's grows), 8 to 9 at the ends (about
+  three times), and each further break keeps costing 7 to 17.
+- **Miss −50, −100:** 10 or 15 slips, the same everywhere, no reward for
+  the long run, and the percent and grades of every play with a miss
+  fall.
+
+### Two scales
+
+On `M` the combo part is the same 100,000 (at 10%) on every chart while
+the rest of the score grows with the chart (a point is 100 of score
+whatever the chart), so the part is worth 6.7 percent points on 100
+notes, 4 on 300 and 1.4 on 1,200. On `F` it is the same share of the
+chart's full score, so a full combo is worth S percent points on every
+chart and nothing more accurate than that can be overturned; 4% F is 10%
+M on a chart of 300 notes. In slips `F` grows with the length instead
+(A100+B 4% F, a miss at the middle: 16 slips on 100 notes, 27 on 300, 42
+on 600, 71 on 1,200; B alone 126 on 1,200).
+
+### Plays of known skill
+
+The ten absolute levels, eight seeds a level, DDI Normal, the fail off,
+on every dance-single chart as written of the local arcade mixes
+(sixteen folders, 1,161 simfiles, 4,750 charts; read in place,
+aggregates only) and of the bundled songs (19 charts, in line with
+these, too few to choose by). Plays whose gauge emptied are left out
+(they are no clears). Of the clears:
+
+| Level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Out (%) | 53.5 | 42.0 | 31.3 | 24.4 | 15.7 | 9.7 | 6.6 | 3.4 | 1.6 | 0.2 |
+| Full combos (%) | 10.5 | 7.0 | 34.9 | 38.3 | 30.6 | 33.9 | 67.3 | 76.2 | 78.6 | 85.2 |
+| Breaks a play | 10.8 | 11.4 | 8.7 | 8.7 | 7.6 | 6.0 | 4.0 | 2.8 | 2.6 | 1.0 |
+| Percent | 83.2 | 85.0 | 90.6 | 91.2 | 93.1 | 94.4 | 96.6 | 97.7 | 98.0 | 99.0 |
+| A100's part | 0.35 | 0.36 | 0.60 | 0.64 | 0.64 | 0.68 | 0.86 | 0.91 | 0.92 | 0.97 |
+| B's part | 0.33 | 0.33 | 0.55 | 0.58 | 0.56 | 0.60 | 0.80 | 0.86 | 0.87 | 0.93 |
+| C's part | 0.42 | 0.43 | 0.62 | 0.65 | 0.63 | 0.67 | 0.84 | 0.88 | 0.90 | 0.95 |
+
+**The case the maintainer named.** Over the pairs of clears of one chart
+where one is a full combo and the other has exactly one break (1,545,326
+pairs; today the full combo loses every one in which the broken play has
+more points): how often the full combo still **loses**, by how much more
+accurate the broken play is, in percent points.
+
+| Broken play's lead | up to 0.25 | 0.25 to 0.5 | 0.5 to 1 | 1 to 2 | 2 to 4 | over 4 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Pairs | 24,094 | 22,075 | 25,781 | 24,663 | 15,451 | 2,237 |
+| Today | 100 | 100 | 100 | 100 | 100 | 100 |
+| Miss −50 | 15.6 | 44.7 | 73.1 | 98.8 | 100 | 100 |
+| Miss −100 | 3.4 | 12.0 | 29.1 | 59.8 | 89.1 | 100 |
+| A50 10% M | 13.2 | 30.4 | 38.4 | 55.5 | 80.6 | 100 |
+| A100 10% M | 6.6 | 17.6 | 23.6 | 30.5 | 56.2 | 100 |
+| A200 10% M | 5.2 | 10.4 | 16.5 | 18.1 | 54.4 | 100 |
+| B 10% M | 3.4 | 7.4 | 11.8 | 16.8 | 51.8 | 100 |
+| C 10% M | 7.4 | 13.7 | 20.1 | 33.5 | 73.3 | 100 |
+| A100+B 10% M | 4.5 | 9.4 | 15.9 | 22.2 | 54.3 | 100 |
+| A100+C 10% M | 6.9 | 13.9 | 21.3 | 31.1 | 66.1 | 100 |
+| A100 20% M | 2.7 | 6.7 | 12.0 | 13.7 | 11.7 | 33.8 |
+| B 20% M | 1.5 | 3.9 | 5.5 | 8.0 | 7.1 | 26.6 |
+| A100+B 20% M | 2.0 | 5.0 | 7.0 | 10.1 | 9.2 | 30.0 |
+| A100+B 30% M | 1.3 | 3.3 | 4.6 | 6.6 | 4.8 | 13.9 |
+| A100+B 2% F | 9.0 | 20.0 | 51.0 | 99.9 | 100 | 100 |
+| A100 4% F | 6.0 | 13.4 | 25.5 | 49.1 | 99.9 | 100 |
+| B 4% F | 3.3 | 7.4 | 11.9 | 27.2 | 99.5 | 100 |
+| A100+B 4% F | 4.3 | 9.0 | 15.0 | 37.8 | 99.7 | 100 |
+| A100+B 6% F | 2.5 | 6.2 | 9.7 | 15.1 | 70.7 | 100 |
+
+Against a play with two breaks (5,309 pairs in which it has more points)
+the full combo loses less still: A100+B 10% M 1.4, 2.8, 10.1, 28.8 and
+74.2% in the first five columns, B 10% M 1.0, 1.7, 7.1, 16.4 and 64.6%,
+miss −50 3.8, 25.0, 56.9, 91.7 and 96.6%. With three and more breaks a
+broken play is hardly ever the more accurate one (703 pairs of 853,562
+with three to five, 18 with six to ten, none beyond).
+
+At 10% M a full combo beats nine in ten one-break plays up to half a
+point more accurate and three in four of those one to two points ahead,
+and a play two to four points more accurate still wins about half the
+time; at 20% and 30% M one break is all but decisive (a full combo
+beats nine in ten plays two to four points more accurate). `M` blurs
+the line because the part weighs more on short charts; on `F` the line
+is sharp at S.
+
+**Rankings.** Over all 10,644,098 pairs of clears of one chart that
+today's score orders: the share a candidate turns around (the rank
+correlation with today's, Kendall's tau, is one less twice that); over
+the 204,125 pairs where one play has fewer breaks and the other more
+points, how often the one with fewer breaks wins, by the other's lead;
+and over the 10,287,730 pairs where one play has no more breaks and no
+fewer points, how often it loses (a break's place alone deciding;
+today's 0.07% are equal points decided by the W0s).
+
+| | Turned (%) | Fewer breaks wins: lead up to 0.25 | 0.5 to 1 | 1 to 2 | 2 to 4 | The better play loses (%) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Today | 0 | 0 | 0 | 0 | 0 | 0.07 |
+| Miss −50 | 0.82 | 77.0 | 23.9 | 4.2 | 0.5 | 0.11 |
+| Miss −100 | 1.38 | 85.4 | 61.6 | 37.2 | 13.0 | 0.21 |
+| A50 10% M | 1.13 | 73.6 | 41.8 | 28.0 | 11.9 | 0.19 |
+| A100 10% M | 1.45 | 76.5 | 53.2 | 44.6 | 27.0 | 0.32 |
+| A200 10% M | 1.58 | 76.0 | 58.3 | 52.8 | 28.3 | 0.38 |
+| B 10% M | 1.61 | 76.0 | 60.9 | 53.7 | 29.9 | 0.39 |
+| C 10% M | 1.60 | 73.9 | 56.5 | 43.7 | 16.7 | 0.49 |
+| A100+B 10% M | 1.55 | 76.7 | 58.3 | 50.0 | 28.3 | 0.35 |
+| A100+B 20% M | 2.03 | 81.3 | 69.5 | 63.7 | 58.2 | 0.61 |
+| A100+B 30% M | 2.29 | 83.2 | 73.8 | 69.3 | 63.5 | 0.79 |
+| A100+B 4% F | 1.41 | 77.4 | 57.8 | 39.7 | 0.3 | 0.31 |
+
+Every candidate leaves the order of 97 to 99% of the pairs alone (most
+pairs are levels apart); what moves is what was asked for, the cleaner
+play past the slightly more accurate one. C is the least fair for what
+it moves (the most "better play loses" at each S).
+
+### A multiplayer stage
+
+The attack study's stages (`attack_rates`: eight CPUs at levels 1, 2, 3,
+4, 5, 6, 8 and 10 on its six bundled charts, 24 seeds, 144 stages a
+row), DDI Normal. As picked ranks those still in by life, then the score
+(62% of the pairs still in are level on life with attacks, 88%
+without); Adaptive ranks by the score first. How often the final order
+of those still in and its first place differ from today's, and what an
+attack received costs in score (the same play with its shocks not
+stepped on and the notes it missed in the lanes they locked hit; under
+Adaptive the steps it took are left as they were), against today's
+(9,462 of score an attack As picked, 12,283 Adaptive):
+
+| | As picked, attacks: order / first (%) | attack costs | As picked, none | Adaptive, attacks | attack costs | Adaptive, none |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Miss −50 | 3.5 / 0.7 | ×1.56 | 6.2 / 2.1 | 18.8 / 1.4 | ×1.54 | 13.2 / 0.7 |
+| Miss −100 | 11.1 / 4.2 | ×2.27 | 16.7 / 4.9 | 38.9 / 2.8 | ×2.22 | 34.7 / 4.2 |
+| A50 10% M | 4.9 / 2.1 | ×1.23 | 8.3 / 3.5 | 7.6 / 2.1 | ×1.13 | 4.2 / 0.7 |
+| A100 10% M | 6.9 / 2.8 | ×1.30 | 13.9 / 4.9 | 8.3 / 2.8 | ×1.13 | 9.7 / 4.2 |
+| B 10% M | 6.2 / 3.5 | ×1.33 | 18.8 / 6.9 | 7.6 / 3.5 | ×1.12 | 13.9 / 5.6 |
+| C 10% M | 7.6 / 2.8 | ×1.31 | 12.5 / 4.9 | 8.3 / 2.8 | ×1.14 | 8.3 / 4.2 |
+| A100+B 10% M | 6.9 / 3.5 | ×1.31 | 15.3 / 5.6 | 8.3 / 3.5 | ×1.13 | 10.4 / 4.2 |
+| A100+B 20% M | 11.8 / 6.2 | ×1.63 | 23.6 / 8.3 | 12.5 / 4.2 | ×1.26 | 16.0 / 6.2 |
+| A100+B 30% M | 15.3 / 6.9 | ×1.94 | 27.1 / 10.4 | 16.7 / 5.6 | ×1.38 | 19.4 / 7.6 |
+| A100+B 4% F | 6.2 / 3.5 | ×1.36 | 16.0 / 5.6 | 8.3 / 3.5 | ×1.14 | 11.1 / 4.2 |
+
+At 10% M a stage's order changes in about one stage in fourteen with
+attacks and its winner in one in thirty; attacks grow a little more
+decisive in score (an attack received costs 1.1 to 1.3 times today's),
+not in who is out (life is untouched). Stages without attacks change
+more often than those with them: with attacks life already separates
+more of the field.
+
+**A step between charts** (Adaptive): the engine keeps the combo across
+a step. A step up plays the old chart to the boundary and the new one
+from it with the count running on; the notes taken away are not judged,
+so they neither add nor break (of 496 steps up with attacks, 244 had a
+run going across the boundary, 333 of 706 without; the others had a
+break of their own near it). A step down comes when life runs out, which
+a miss or a shock did, so the run was already broken (none of 900
+carried). The notes a part is measured over are those the play was shown
+(`ScoreCtx::steps` after `restep`), as the score's most already is; on
+`M` a full combo on an easier rung is worth as much as on a harder one,
+which the study of playing an easier chart on purpose
+(`adaptive_study`'s fourth part) would have to be run again for.
+
+### The pick
+
+**A100+B at 10% of the million** (a full combo adds 100,000: half by the
+ramp to 100, half by the runs' squares), for "a full combo should
+usually beat a slightly more precise broken play, without one mid-song
+miss deciding everything":
+
+- one break in the middle costs 23 to 29 slips against today's 6 at every
+  length from 100 to 1,200 notes, where A fades to nothing on long charts
+  and B and C grow to 49;
+- a full combo beats 95% of one-break plays up to a quarter point more
+  accurate, 84% of those half a point to a point ahead and 78% of those
+  one to two points ahead, while a play two to four points more accurate
+  still wins about half the time and one more than four always: at 20%
+  one break is all but decisive;
+- broken in two, the part falls by 35% on 300 notes and 27% on 1,200 (B
+  alone 50%, A100 alone 20% and 4%): the long run counts a lot more, and
+  every further break still costs 7 to 17 slips where B's cost flattens
+  after the first;
+- its unfairness is B's, halved: a miss in the middle costs about three
+  times one at an end (B four to five times, C five to six), and a play no worse
+  in breaks or points loses in 0.35% of such pairs.
+
+If the trade should be the same in percent on every chart rather than
+in judgments, the same shape at **4% of the chart's full score** is the
+alternative: a full combo is worth four percent points on every chart, a
+miss in the middle 1.2 to 1.8 points from 300 notes up, and it is
+identical to 10% M on a chart of 300 notes. The maintainer's "a few more
+precision" reads as judgments, which is why the pick is `M`.
+
+### What adopting it needs (not done)
+
+- **The engine's score:** `DdiScore` already gets the combo after every
+  event (`ScoreCtx::combo`) and the notes (`ScoreCtx::steps`, taken again
+  at `restep`): it would keep the ramp's sum, the closed runs' squares
+  and the running one, in whole numbers. `DdiScoreView` gains the part
+  (and what it is made from), `score` becomes `ratio + absolute + combo`;
+  `percent`, the grades and the lamps stay. Live in play the part counts
+  up with the score and never falls.
+- **Kept plays:** `ddi::Stored` works a view out from `points`, `most`
+  and `absolute`, which do not say the runs: the new numbers are kept
+  with the view, and `JUDGE_VERSION` rises so kept plays are judged again
+  from their logs by themselves (as for versions 3 and 4). Bests go by
+  `best_cmp` on the score, so they are ranked again as the plays are
+  judged again; a best may change hands to a cleaner play.
+- **The screens:** nothing must change (the score is one number), but
+  the results would want a line saying the combo's part; the ghost's
+  lead, song select's best and the plays list follow the view.
+- **Multiplayer:** a stage ranks by scores each device reports
+  (`Run::Live`'s `score`, a member's own) and the CPUs' scores every
+  device computes: peers must agree, so `ROOM_MODEL_REVISION` rises and
+  the CPUs' proof's fixture (`the_cpus_play_alike`) is recorded again;
+  the private server ranks what it is told and needs the revision alone.
+  The miniatures' scores and the Standings follow.
+- **Adaptive:** the part over the notes shown, as above, and
+  `adaptive_study`'s "easier chart on purpose" run again.
+- **The combo's own rules** stay to be decided first (the maintainer is
+  testing W4 as a break): the part follows whatever breaks the combo.
+
+### Not measured
+
+- **People.** The maintainer's kept plays were not allowed for this
+  study and were not read; where people break (nerves near the end of a
+  full combo, the hard passage in the middle) is not the CPUs' model.
+- Long charts by play: the arcade charts' clears average 140 notes at
+  level 1 to 270 at level 10; 600 and 1,200 notes are the made-up tables
+  alone (the stream packs were not run).
+- DDI Easy and Hard, Boos on, charts with many holds (a dropped hold
+  breaks no combo), and online stages between people.
+- What the part does to the choice of an easier rung under Adaptive.

@@ -308,7 +308,8 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   2026-11-12, and 4 (2026-11-13: one set of tier colors, white to red,
   for words and hit effects; the judgment words in the player's
   language; shock avoidance a CPU's eighth skill axis); left: the
-  targeting choice, online attacks. Our own
+  targeting choice, online attacks; a study of putting combos into the
+  score (2026-11-16, measured only, a choice for the maintainer). Our own
   ruleset, the only one in multiplayer and the default for normal play:
   W0–W5 on a 1/120 s grid (1/144 Hard, 1/90 Easy) with early and late
   words, FFR-style life and Boos (off by default), a 1,000,000 score or

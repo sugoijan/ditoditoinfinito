@@ -714,7 +714,11 @@ Rust and the browser are implementation details, not advertised features.
   (`Battle::attack_summary`, `StageOutcome::summary`);
   an opt-in study of attack rates between CPUs over the bundled charts,
   `battle/study.rs` (`cargo test --release -p ddi-session --lib
-  attack_rates -- --ignored --nocapture`);
+  attack_rates -- --ignored --nocapture`), and one of putting combos
+  into DDI's score, `battle/combo_study.rs` (`combo_score_study`, the
+  same way: candidate scores worked out beside today's over CPU plays
+  and stages, nothing scored by it; `docs/plans/ddi-ruleset.md`, "DDI's
+  score and combos: a study");
   the local player's attack policy changed in play (D8,
   `Battle::policy`, `retarget`): either Shift and Tab, each unless the
   player's bindings give it to a lane (`play::POLICY_KEYS`, the shared
