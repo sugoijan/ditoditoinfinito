@@ -136,7 +136,9 @@ pub enum Input {
     /// A menu button, from a key, a controller or a pad; `repeat` when it
     /// is our repeat of a held direction.
     Menu { action: MenuAction, repeat: bool },
-    /// Physical release for screens with their own directional gestures.
+    /// Physical release for screens with their own directional gestures
+    /// ([`Screen::direction_edges`]: a direction's), or that act on a menu
+    /// button held ([`Screen::menu_releases`]: any).
     MenuRelease { source: crate::nav::Source },
     /// Focus loss or an overlay cancels held and provisional navigation.
     CancelDirections,
@@ -257,6 +259,14 @@ pub trait Screen {
 
     /// Receives physical direction releases and cancellation on focus loss.
     fn direction_edges(&self) -> bool {
+        false
+    }
+
+    /// Receives every menu button's physical release ([`Input::MenuRelease`]
+    /// for a key's, a controller's: Start's and Back's as well as the
+    /// directions') and the cancellation on focus loss: a screen that acts
+    /// on a menu button held (a room's Ready taken back by a hold).
+    fn menu_releases(&self) -> bool {
         false
     }
 

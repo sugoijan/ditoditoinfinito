@@ -34,12 +34,11 @@ pub const START_LOOKAHEAD: f64 = -ddi_library::backgrounds::PLAY_START;
 /// Music fade after an immediate fail, and the pause before the results.
 pub const FAIL_FADE: f64 = 1.2;
 pub const FAIL_HOLD: f64 = 1.8;
-/// Cancel: a second press within this many seconds, or one press held this
-/// long. A single tap only shows the hint.
-pub const CANCEL_DOUBLE_TAP: f64 = 0.5;
-pub const CANCEL_HOLD: f64 = 0.7;
-/// How long the hint stays after a single tap.
-pub const CANCEL_HINT: f64 = 1.5;
+/// Cancel: a second press within [`CANCEL_DOUBLE_TAP`] seconds, or one
+/// press held [`CANCEL_HOLD`]; a single tap only shows the hint, for
+/// [`CANCEL_HINT`]. The game's one deliberate gesture, whose timings a
+/// room's Ready screen shares (`ddi_ui::gesture`).
+pub use ddi_ui::gesture::{CANCEL_DOUBLE_TAP, CANCEL_HINT, CANCEL_HOLD};
 /// The control the touch lanes' quit button sends.
 pub const TOUCH_CANCEL_CONTROL: &str = "cancel";
 /// The control a tap or a click on a stage's attack policy label sends
@@ -326,41 +325,9 @@ pub struct SessionView {
     pub restarting: bool,
 }
 
-/// A gesture made by holding a control or pressing it twice (the quit's,
-/// the restart's).
-#[derive(Clone, Copy, Debug, Default)]
-struct Gesture {
-    /// Host time of the last press.
-    pressed_at: Option<f64>,
-    held: bool,
-}
-
-impl Gesture {
-    /// A press or a release at `now`: whether it completes the gesture
-    /// (a second press soon after the first).
-    fn edge(&mut self, pressed: bool, now: f64) -> bool {
-        if !pressed {
-            self.held = false;
-            return false;
-        }
-        let twice = self
-            .pressed_at
-            .is_some_and(|t| now - t <= CANCEL_DOUBLE_TAP);
-        self.pressed_at = Some(now);
-        self.held = true;
-        twice
-    }
-
-    /// Its progress at `now`, 1 once held long enough; a sliver while
-    /// the hint shows after a tap; 0 otherwise.
-    fn progress(&self, now: f64) -> f64 {
-        match self.pressed_at {
-            Some(t) if self.held => ((now - t) / CANCEL_HOLD).clamp(0.0, 1.0),
-            Some(t) if now - t <= CANCEL_HINT => 0.001,
-            _ => 0.0,
-        }
-    }
-}
+// A gesture made by holding a control or pressing it twice (the quit's,
+// the restart's), on the host clock.
+use ddi_ui::gesture::HoldOrTwice as Gesture;
 
 /// The play's sound, stopped when the session goes, unless a restart
 /// took it back ([`PlaySession::into_restart`]).

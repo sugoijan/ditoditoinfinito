@@ -2444,9 +2444,15 @@ impl Ui {
         }
     }
 
-    fn menu_release(&mut self, source: Source) {
+    /// A menu button let go (`direction`: a direction's), to the screens
+    /// that hear such releases.
+    fn menu_release(&mut self, source: Source, direction: bool) {
         for id in self.input_chain() {
-            if self.live(id) && self.layer(id).is_some_and(|l| l.screen.direction_edges()) {
+            if self.live(id)
+                && self.layer(id).is_some_and(|l| {
+                    (direction && l.screen.direction_edges()) || l.screen.menu_releases()
+                })
+            {
                 self.dispatch(
                     id,
                     Input::MenuRelease {
@@ -2463,7 +2469,10 @@ impl Ui {
 
     fn cancel_directions(&mut self) {
         for id in self.layer_ids() {
-            if self.layer(id).is_some_and(|l| l.screen.direction_edges()) {
+            if self
+                .layer(id)
+                .is_some_and(|l| l.screen.direction_edges() || l.screen.menu_releases())
+            {
                 self.dispatch(id, Input::CancelDirections, false);
             }
         }
@@ -2493,9 +2502,7 @@ impl Ui {
             self.pad_press = false;
         } else {
             self.repeater.release(&source);
-            if e.action.is_direction() {
-                self.menu_release(source);
-            }
+            self.menu_release(source, e.action.is_direction());
         }
         self.input_time = None;
     }
@@ -2526,8 +2533,8 @@ impl Ui {
         let gesture = k.down && !k.repeat && k.code != "Escape";
         if !k.down {
             self.repeater.release(&Source::Key(k.code.clone()));
-            if nav::key_action(&k.code).is_some_and(|a| a.is_direction()) {
-                self.menu_release(Source::Key(k.code.clone()));
+            if let Some(a) = nav::key_action(&k.code) {
+                self.menu_release(Source::Key(k.code.clone()), a.is_direction());
             }
         }
         // Binding: keys as they are, but never the browser's or the

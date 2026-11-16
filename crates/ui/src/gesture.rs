@@ -390,6 +390,54 @@ impl Tracker {
     }
 }
 
+/// The game's deliberate gesture, for what one press must not do: a
+/// control held [`CANCEL_HOLD`] seconds, or pressed twice within
+/// [`CANCEL_DOUBLE_TAP`]; a single press only shows its hint, for
+/// [`CANCEL_HINT`]. A play's quit and restart are made so
+/// (`ddi_session::play`, `docs/PLAN.md` decision 79), and a room's stage's
+/// Ready taken back and its prompt left while ready (feedback round O,
+/// `screens::prompt`): one set of timings for all of them.
+pub const CANCEL_DOUBLE_TAP: f64 = 0.5;
+pub const CANCEL_HOLD: f64 = 0.7;
+/// How long the hint stays after a single press.
+pub const CANCEL_HINT: f64 = 1.5;
+
+/// A [deliberate gesture](CANCEL_HOLD)'s state, on any clock in seconds.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HoldOrTwice {
+    /// When it was last pressed.
+    pub pressed_at: Option<f64>,
+    /// It is held down now.
+    pub held: bool,
+}
+
+impl HoldOrTwice {
+    /// A press or a release at `now`: whether it completes the gesture
+    /// (a second press soon after the first).
+    pub fn edge(&mut self, pressed: bool, now: f64) -> bool {
+        if !pressed {
+            self.held = false;
+            return false;
+        }
+        let twice = self
+            .pressed_at
+            .is_some_and(|t| now - t <= CANCEL_DOUBLE_TAP);
+        self.pressed_at = Some(now);
+        self.held = true;
+        twice
+    }
+
+    /// Its progress at `now`, 1 once held long enough; a sliver while
+    /// the hint shows after a tap; 0 otherwise.
+    pub fn progress(&self, now: f64) -> f64 {
+        match self.pressed_at {
+            Some(t) if self.held => ((now - t) / CANCEL_HOLD).clamp(0.0, 1.0),
+            Some(t) if now - t <= CANCEL_HINT => 0.001,
+            _ => 0.0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
