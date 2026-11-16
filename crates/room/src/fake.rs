@@ -218,9 +218,10 @@ impl Bounds {
 }
 
 /// The close code of a member's oldest socket closed for a newer one
-/// (the server's `CLOSE_TOO_MANY_SOCKETS`): a client still there
-/// connects again, as for any code that is not an end.
-pub const CLOSE_TOO_MANY_SOCKETS: u16 = 4429;
+/// (the server's `CLOSE_TOO_MANY_SOCKETS`): since round P1b an end
+/// (`LinkState::OpenedElsewhere`): the device it closed stops until its
+/// person asks for it back.
+pub const CLOSE_TOO_MANY_SOCKETS: u16 = crate::online::close::OPENED_ELSEWHERE;
 
 /// How long a ticket lasts, and the window its bound counts over (ms).
 const TICKET_TTL_MS: u64 = 60_000;

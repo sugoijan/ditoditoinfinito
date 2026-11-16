@@ -604,6 +604,13 @@ impl SelectScreen {
             }
             return;
         }
+        // This device stopped for another of the person's (round P1b):
+        // said once, with Use this device.
+        if room.borrow().take_opened_elsewhere() {
+            self.cancel_navigation();
+            room::tell_opened_elsewhere(&self.env, &room, cx);
+            return;
+        }
         // The Rules once the room is known (an online room's first
         // snapshot: the player's role, its rules).
         let known = {

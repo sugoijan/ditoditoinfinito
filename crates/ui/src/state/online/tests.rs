@@ -1396,20 +1396,21 @@ pub(crate) mod room {
         assert_eq!(alice.link_state(), LinkState::Connected);
     }
 
-    /// The review's gap 4 (round M): the game's client under the
-    /// server's bounds on one member (`ddi_room::fake::Bounds::SERVER`:
-    /// four sockets, the oldest closed 4429 for a newer one; thirty
-    /// tickets a minute, one more `429 too_many_tickets`). One person in
-    /// the room from five devices: a fifth socket closes the first, which
-    /// connects again as for any code that is no end, and so they take
-    /// turns; the member is Connected throughout (four sockets always
-    /// stand), no device's link ends, and once the tickets' bound is
-    /// reached the asks are refused 429 and tried again on the backoff
-    /// (never an end, never faster than the bound). With the fifth device
-    /// gone the four settle Connected and stay.
+    /// The review's gap 4 (round M), changed by round P1b (the
+    /// maintainer's of 2026-11-16): the game's client under the server's
+    /// bounds on one member (`ddi_room::fake::Bounds::SERVER`: four
+    /// sockets, the oldest closed 4429 for a newer one; thirty tickets a
+    /// minute). One person in the room from five devices: the fifth socket
+    /// closes the first, which now STOPS (`LinkState::OpenedElsewhere`, an
+    /// end) where it used to connect again, so that five took turns for
+    /// ever (refused 429 once the tickets' bound was reached). The member
+    /// stays Connected throughout, the four stay connected and nobody asks
+    /// for a ticket any more. "Use this device" on the stopped one joins
+    /// again and stops another device the same way.
     #[test]
-    fn five_devices_of_one_member_under_the_servers_bounds_take_turns_and_none_ends() {
+    fn a_fifth_device_of_one_member_stops_the_first_which_comes_back_only_when_asked() {
         use ddi_room::fake::{Bounds, CLOSE_TOO_MANY_SOCKETS};
+        assert_eq!(CLOSE_TOO_MANY_SOCKETS, ddi_room::online::close::OPENED_ELSEWHERE);
         let clock = ManualClock::new(1_000);
         let server = room_of(&clock, &["bob"]);
         server.borrow_mut().set_bounds(Some(Bounds::SERVER));
@@ -1430,7 +1431,6 @@ pub(crate) mod room {
             });
             client(&server, signed_in(handler), &format!("alice{k}"), 1_000)
         };
-        let mut devices: Vec<RoomClient> = (0..5).map(device).collect();
         let me = ddi_room::ParticipantId(1);
         let connected = |server: &SharedFake| {
             server.borrow().state().member(me).unwrap().connection == ddi_room::Connection::Connected
@@ -1444,44 +1444,54 @@ pub(crate) mod room {
                 }
             }
         };
+        // Four devices, then a fifth.
+        let mut devices: Vec<RoomClient> = (0..4).map(device).collect();
         step(&mut devices, 1_000);
-        assert!(connected(&server));
-        // Two minutes of five devices on four sockets.
-        let mut most_sockets = 0;
-        let mut reconnecting = 0u32;
-        for _ in 0..(120_000 / 50) {
-            step(&mut devices, 50);
-            assert!(connected(&server), "the member stays Connected");
-            most_sockets = most_sockets.max(server.borrow().sockets());
-            for d in &devices {
-                let link = d.link_state();
-                assert!(!link.ended(), "no link ends: {link:?}");
-                reconnecting += u32::from(matches!(link, LinkState::Reconnecting { .. }));
-            }
-        }
-        let (all, refused) = asked.get();
-        eprintln!(
-            "five devices, two minutes: {all} tickets asked, {refused} refused 429, at most {most_sockets} sockets open (one of them being closed), {reconnecting} device-steps reconnecting"
+        assert!(devices.iter().all(|d| d.link_state() == LinkState::Connected));
+        devices.push(device(4));
+        step(&mut devices, 2_000);
+        let links: Vec<LinkState> = devices.iter().map(|d| d.link_state()).collect();
+        assert_eq!(
+            links,
+            [
+                LinkState::OpenedElsewhere,
+                LinkState::Connected,
+                LinkState::Connected,
+                LinkState::Connected,
+                LinkState::Connected,
+            ],
+            "the first device stops"
         );
-        // (The one closed for a newer one counts until its device read
-        // the close.)
-        assert!(most_sockets <= Bounds::SERVER.sockets + 1, "{most_sockets}");
-        assert!(reconnecting > 0, "the fifth socket closed another ({CLOSE_TOO_MANY_SOCKETS})");
-        assert!(refused > 0, "the tickets' bound was reached");
-        // Never more given than the bound allows (two minutes and a
-        // little: three windows at most).
-        assert!(all - refused <= 3 * Bounds::SERVER.tickets_a_minute, "{all} {refused}");
-        // The fifth device goes: the four settle and stay.
-        // (Its socket stands unread until the bound closes it in turn.)
-        drop(devices.pop());
-        step(&mut devices, 90_000);
+        assert!(devices[0].take_opened_elsewhere(), "told once");
+        assert!(!devices[0].take_opened_elsewhere());
+        // Two minutes: nobody takes turns, nothing more is asked.
         let before = asked.get();
-        step(&mut devices, 30_000);
-        assert_eq!(asked.get(), before, "nobody asks for a ticket any more");
-        for d in &devices {
-            assert_eq!(d.link_state(), LinkState::Connected);
+        for _ in 0..(120_000 / 1_000) {
+            step(&mut devices, 1_000);
+            assert!(connected(&server), "the member stays Connected");
+            assert!(server.borrow().sockets() <= Bounds::SERVER.sockets);
         }
+        assert_eq!(asked.get(), before, "no ticket asked in two minutes");
+        assert_eq!(before.1, 0, "never refused");
+        assert_eq!(devices[0].link_state(), LinkState::OpenedElsewhere);
+        // Use this device: the first joins again, the second (connected
+        // longest now) stops the same way.
+        devices[0].use_this_device();
+        step(&mut devices, 2_000);
+        let links: Vec<LinkState> = devices.iter().map(|d| d.link_state()).collect();
+        assert_eq!(
+            links,
+            [
+                LinkState::Connected,
+                LinkState::OpenedElsewhere,
+                LinkState::Connected,
+                LinkState::Connected,
+                LinkState::Connected,
+            ]
+        );
         assert!(connected(&server));
+        assert!(devices[1].take_opened_elsewhere());
+        assert!(devices[1].leave_cost().is_none(), "an ended link costs nothing to leave");
     }
 
     /// A co-host of the fake room.

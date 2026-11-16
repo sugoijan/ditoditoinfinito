@@ -240,6 +240,18 @@ impl OnlineLink {
             .sign_in(super::Dest::Room(self.room_id.clone()));
     }
 
+    /// "Use this device" (round P1b): the room was opened on another of
+    /// this person's devices and this one stopped
+    /// ([`LinkState::OpenedElsewhere`]); joining again closes another
+    /// device's socket in turn, which stops the same way. Whether it began.
+    pub fn use_this_device(&mut self) -> bool {
+        let stopped = self.authority.link() == LinkState::OpenedElsewhere;
+        if stopped {
+            self.authority.restart();
+        }
+        stopped
+    }
+
     /// Answers in, tickets asked for: before the authority's own poll.
     /// Whether anything the screen shows changed.
     pub fn tick(&mut self, now_ms: u64) -> bool {

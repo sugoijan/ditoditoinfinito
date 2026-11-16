@@ -1263,6 +1263,9 @@ pub struct RoomClient {
     /// this member watches ([`WATCH_MUSIC_V0`]'s rule; fixed as its order
     /// is handed over).
     watch_music: crate::state::audience::MusicDelays,
+    /// The notice that the room was opened on another device was shown
+    /// (`take_opened_elsewhere`): once each time it happens.
+    elsewhere_told: std::cell::Cell<bool>,
 }
 
 /// How far behind the room's song time a member who watches a live stage
@@ -1844,6 +1847,7 @@ impl RoomClient {
             details: BTreeMap::new(),
             summaries: BTreeMap::new(),
             asking: Rc::default(),
+            elsewhere_told: std::cell::Cell::new(false),
             live_news: LiveNewsTap::default(),
             preparing: BTreeMap::new(),
             offered: BTreeSet::new(),
@@ -2327,6 +2331,23 @@ impl RoomClient {
     /// Whether a screen of this room has the question before leaving
     /// open (`screens::room::ask_leave` sets it, the question clears it
     /// when it goes): asked once, however many ways out are pressed.
+    /// "Use this device" (round P1b): this device stopped because the
+    /// room was opened on another of the person's devices
+    /// (`LinkState::OpenedElsewhere`); it joins again.
+    pub fn use_this_device(&mut self) {
+        if self.online_link_mut().is_some_and(|l| l.use_this_device()) {
+            self.elsewhere_told.set(false);
+            self.version += 1;
+        }
+    }
+
+    /// Whether the notice that the room was opened on another device is
+    /// still to be shown (once each time it happens): taken by the screen
+    /// that shows it.
+    pub fn take_opened_elsewhere(&self) -> bool {
+        self.link_state() == LinkState::OpenedElsewhere && !self.elsewhere_told.replace(true)
+    }
+
     pub fn asking_leave(&self) -> Rc<std::cell::Cell<bool>> {
         self.asking.clone()
     }

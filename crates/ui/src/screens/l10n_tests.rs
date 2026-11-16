@@ -1847,6 +1847,23 @@ fn online_walk(env: &Env, harness: &dyn Fn() -> Harness, found: &mut BTreeSet<St
     ha.tap(PointerKind::Mouse, "More");
     shown(&mut ha, found);
     ha.key("Escape", "Escape");
+    // Round P1b: Bob's room opened on another device (4429): the notice,
+    // then More's Use this device, which joins again.
+    server.borrow_mut().fault(
+        ParticipantId(2),
+        Fault::Close(ddi_room::online::close::OPENED_ELSEWHERE),
+    );
+    step(400);
+    hb.run(0.3);
+    assert_eq!(super::test_kit::top(&hb), super::room::OPENED_ELSEWHERE);
+    shown(&mut hb, found);
+    hb.tap(PointerKind::Mouse, "Cancel");
+    hb.run(0.3);
+    hb.tap(PointerKind::Mouse, "More");
+    shown(&mut hb, found);
+    hb.tap(PointerKind::Mouse, &format!("Item.{}", super::room::MORE_USE_HERE));
+    step(1_000);
+    assert_eq!(bob.borrow().link_state(), ddi_room::LinkState::Connected);
     server.borrow_mut().fault(
         ParticipantId(2),
         Fault::Close(ddi_room::online::close::ROOM_CLOSED),

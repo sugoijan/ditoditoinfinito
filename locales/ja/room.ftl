@@ -500,6 +500,10 @@ room-link-reconnecting = 接続が切れました。再接続しています…
 room-link-sign-in-again = サインインの期限が切れました。ルームに戻るにはもう一度サインインしてください。
 
 room-link-closed = このルームは閉じられました。
+room-link-opened-elsewhere = このルームは別の端末で開かれました。
+room-opened-elsewhere-body = このルームはあなたの別の端末やタブ4つで開かれています。「この端末を使う」でここでプレイすると、いちばん長く接続している端末が代わりに止まります。
+room-use-this-device = この端末を使う
+room-opened-elsewhere-not-now = 今はしない
 room-closed-by-operator = ルームは閉じられました。
 room-update-required = このルームには新しいバージョンのゲームが必要です。
 room-update-reload = ゲームが更新されました。このルームで遊ぶには再読み込みしてください。

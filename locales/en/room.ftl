@@ -1090,6 +1090,23 @@ room-link-sign-in-again = Your sign-in ended. Sign in again to return to the roo
 # The status line when the room closed.
 room-link-closed = This room has closed.
 
+# Round P1b: the status line, and the notice's title, when this device
+# stopped because the same person opened the room on another device or
+# tab (the server keeps four a person and closed the one connected
+# longest). This device no longer reconnects by itself.
+room-link-opened-elsewhere = This room was opened on another device.
+
+# The notice's text under that title.
+room-opened-elsewhere-body = The room is open on four other devices or tabs of yours. Use this device to play here: the one connected longest stops instead.
+
+# The button (the notice's, and More's item) that connects this device
+# again, stopping another the same way (about 20 letters).
+room-use-this-device = Use this device
+
+# The notice's other button: it closes the notice and leaves this device
+# stopped (about 12 letters).
+room-opened-elsewhere-not-now = Not now
+
 # The status line (and the audience's page, and over a watched stage)
 # when the server's operator closed the room: said to its members and to
 # everyone watching.

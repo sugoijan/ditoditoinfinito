@@ -626,6 +626,9 @@ fn phase_status(r: &RoomClient) -> UiText {
             }
             LinkState::Closed => return m::link_closed(),
             LinkState::Left => return m::link_left(),
+            // Stopped for the person's newer device (round P1b): More's
+            // Use this device, and the notice, bring it back.
+            LinkState::OpenedElsewhere => return m::link_opened_elsewhere(),
             // The room's authority is newer: a reload (More's Reload on
             // the web), or a newer desktop build.
             LinkState::UpdateRequired if r.on_web() => return m::update_reload(),
@@ -1457,6 +1460,9 @@ pub fn more_items(r: &RoomClient, compact: bool) -> Vec<(String, String)> {
         if r.link_state() == LinkState::UpdateRequired && r.on_web() {
             items.push((MORE_RELOAD.to_string(), m::update_reload_button().into()));
         }
+        if r.link_state() == LinkState::OpenedElsewhere {
+            items.push((MORE_USE_HERE.to_string(), m::use_this_device().into()));
+        }
         if r.invite_link().is_some() {
             items.push(("copy".to_string(), m::copy_invite().into()));
         }
@@ -1492,6 +1498,33 @@ const MORE_COPY_WATCH: &str = "copywatch";
 /// More's Reload (the web, where the room's authority is newer than the
 /// page: `ddi_room::UPDATE_REQUIRED`).
 pub const MORE_RELOAD: &str = "reload";
+
+/// More's Use this device (round P1b): the room was opened on another of
+/// the person's devices and this one stopped; it joins again.
+pub const MORE_USE_HERE: &str = "usehere";
+
+/// The notice that the room was opened on another of the person's devices
+/// (round P1b: the server keeps four sockets a person, and closed this
+/// device's for a newer one; it no longer connects again by itself), with
+/// Use this device, which joins again (and so stops another device the
+/// same way). The layer's name, for tests.
+pub const OPENED_ELSEWHERE: &str = "room-opened-elsewhere";
+
+pub fn tell_opened_elsewhere(env: &Env, room: &SharedRoom, cx: &mut Cx) {
+    let room = room.clone();
+    cx.overlay(
+        super::dialog::ConfirmDialog::new(
+            env.clone(),
+            &m::link_opened_elsewhere(),
+            &m::opened_elsewhere_body(),
+            &m::use_this_device(),
+            std::rc::Rc::new(move |_| room.borrow_mut().use_this_device()),
+        )
+        .with_no(&m::opened_elsewhere_not_now())
+        .named(OPENED_ELSEWHERE),
+        true,
+    );
+}
 
 /// More's Replace invite link (an operator's, round B1), asked once.
 pub const MORE_REPLACE_INVITE: &str = "rotate";
@@ -2021,6 +2054,7 @@ pub fn more_picked(id: &str, room: &SharedRoom, cx: &mut Cx) -> MoreAction {
         // Asked once: it cannot be undone.
         MORE_REPLACE_INVITE => return MoreAction::ReplaceInvite,
         "signin" => room.borrow_mut().sign_in_again(),
+        MORE_USE_HERE => room.borrow_mut().use_this_device(),
         MORE_RELOAD => cx.request(crate::UiRequest::Reload),
         "retry" => {
             let up = room.borrow().state().upcoming_stage();

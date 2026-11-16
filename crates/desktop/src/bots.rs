@@ -959,6 +959,10 @@ impl Bot {
                 self.say("the room closed");
                 self.done = true;
             }
+            LinkState::OpenedElsewhere => {
+                self.say("the room was opened on another device; stopping");
+                self.done = true;
+            }
             LinkState::UpdateRequired => {
                 self.say("this room needs a newer version of the game");
                 self.done = true;

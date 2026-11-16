@@ -245,6 +245,10 @@ impl PromptScreen {
         };
         rm.time.set(cx.time());
         let changed = rm.pump.borrow_mut().run(&rm.room, &rm.shell, cx);
+        // This device stopped for another of the person's (round P1b).
+        if cx.is_current_screen() && rm.room.borrow().take_opened_elsewhere() {
+            room::tell_opened_elsewhere(&self.env, &rm.room, cx);
+        }
         if room::quit_due(&rm.room, rm.quit_at.get(), cx.time()) {
             rm.quit_at.set(None);
             cx.request(crate::UiRequest::Quit);

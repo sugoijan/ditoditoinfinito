@@ -43,6 +43,14 @@ pub mod close {
     pub const SIGN_IN_AGAIN: u16 = 4401;
     /// The room closed.
     pub const ROOM_CLOSED: u16 = 4410;
+    /// The person's oldest socket closed for a newer one: the server keeps
+    /// four a person in a room (ddi-server `room.rs`'s
+    /// `SOCKETS_A_PARTICIPANT`). Since round P1b (the maintainer's of
+    /// 2026-11-16) the device it closed stops (`LinkState::OpenedElsewhere`)
+    /// rather than connecting again, so five devices no longer take turns
+    /// for ever; it connects again only when its person asks ("Use this
+    /// device", `OnlineAuthority::restart`).
+    pub const OPENED_ELSEWHERE: u16 = 4429;
 }
 
 /// A message on a socket: JSON text or binary (live play's frames,
@@ -144,6 +152,12 @@ pub enum LinkState {
     Closed,
     /// Left the room (4000), or no member any more.
     Left,
+    /// The room was opened on another device of the same person (4429:
+    /// the server keeps four sockets a person and closed this one, the
+    /// oldest, for a newer one): this device stops until its person asks
+    /// for it back ([`OnlineAuthority::restart`], "Use this device"), which
+    /// closes another device's socket in turn (round P1b).
+    OpenedElsewhere,
     /// The room's authority is newer than this client's room model
     /// ([`crate::UPDATE_REQUIRED`], a ticket refused): only a newer game
     /// mends it (a reload on the web).
@@ -163,7 +177,11 @@ impl LinkState {
     pub fn ended(self) -> bool {
         matches!(
             self,
-            Self::SignInAgain | Self::Closed | Self::Left | Self::UpdateRequired
+            Self::SignInAgain
+                | Self::Closed
+                | Self::Left
+                | Self::UpdateRequired
+                | Self::OpenedElsewhere
         )
     }
 }
@@ -529,8 +547,10 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
         }
     }
 
-    /// After signing in again: start over as a join (the same member is
-    /// restored by the server; nothing here is assumed of the room).
+    /// After signing in again, or "Use this device" after the room was
+    /// opened on another ([`LinkState::OpenedElsewhere`]): start over as
+    /// a join (the same member is restored by the server; nothing here is
+    /// assumed of the room).
     pub fn restart(&mut self) {
         self.transport.close();
         self.link = LinkState::Joining;
@@ -697,6 +717,7 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
                         close::SIGN_IN_AGAIN => self.end(LinkState::SignInAgain),
                         close::ROOM_CLOSED => self.end(LinkState::Closed),
                         close::LEFT => self.end(LinkState::Left),
+                        close::OPENED_ELSEWHERE => self.end(LinkState::OpenedElsewhere),
                         _ => self.retry_later(),
                     }
                 }
@@ -734,7 +755,8 @@ impl<T: Transport, C: Clock> RoomAuthority for OnlineAuthority<T, C> {
             LinkState::SignInAgain
             | LinkState::Closed
             | LinkState::Left
-            | LinkState::UpdateRequired => Connection::Disconnected,
+            | LinkState::UpdateRequired
+            | LinkState::OpenedElsewhere => Connection::Disconnected,
         }
     }
 }

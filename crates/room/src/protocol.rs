@@ -108,7 +108,9 @@ pub fn supported(version: u32) -> bool {
 ///     them): a starter's Ready taken back during the countdown cancels
 ///     it where the policy says so
 ///     (`ReadinessPolicy::unready_cancels_countdown`, CPU practice's;
-///     `CancelReason::ReadyTakenBack`).
+///     `CancelReason::ReadyTakenBack`); a member's socket closed 4429
+///     (the server's fifth socket of one person) an end for that device
+///     (`LinkState::OpenedElsewhere`, "Use this device" to join again).
 pub const ROOM_MODEL_REVISION: u32 = 12;
 
 /// What a client makes of an authority older than itself (never sent by
