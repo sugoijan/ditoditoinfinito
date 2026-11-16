@@ -52,7 +52,10 @@ Rust and the browser are implementation details, not advertised features.
   before a step, spread over lanes and beats, one a note, a second
   between two shocks of a lane unless the section has no other room
   (`placement-v0` and the `placement-v1` constant retired 2026-11-14,
-  v1's way kept as v2's fallback); kept in `PlayLog` version 4; a
+  v1's way kept as v2's fallback; for a match's Shocks per attack,
+  `Placement::with_shocks`, `schedule_of`: the count its argument,
+  three quarters of it aimed, eight `placement-v2` exactly); kept in
+  `PlayLog` version 4; a
   battle's attack policy as the player changed it during the play in
   version 5,
   `PlayLog::policies`, `Player::set_policy_at`: a number of the
@@ -1190,8 +1193,12 @@ Rust and the browser are implementation details, not advertised features.
   `ATTACKS`, which is `attacks-v3` (2026-11-13): cap and cost 100,
   `POWER_CLASSES_V0` by the match's ruleset; a full bar launched in a
   turning order at the target its `Targeting` picks (Spread, the
-  fewest attacks still to come first; Retaliate; Leader), eight shocks
-  in the first safe `Schedule` section past the target's lead
+  fewest attacks still to come first; Retaliate; Leader), the match's
+  Shocks per attack (`MatchRules::shocks`, `ShocksPerAttack`: 2, 4, 6
+  or 8, four for a new room, a match stored before the rule eight and
+  its next match's draft four; per stage as Attacks at once; the
+  plan's `shocks`; the cap and cost unchanged, `SHOCK_COST`,
+  `shock-cost-v0`) in the first safe `Schedule` section past the target's lead
   (`LEAD_V0`) and at or after the moment the last attack placed against
   them clears, looked for to the song's end (none left: `Blocked`,
   `NoSafeSection`, the power kept); an attack over for the ledger once
@@ -1277,8 +1284,11 @@ Rust and the browser are implementation details, not advertised features.
   the owner's while the owner is there (`settle_host`, run after every
   command; a room stored without `hosting` reads as Pass it on);
   protocol 2, still taking 1; the room model's revision
-  (`ROOM_MODEL_REVISION`, 11 since 2026-11-15: `adaptive-v4`, a live
-  snapshot's `step`, `Command::CloseRoom`; 10 `adaptive-v3`; 9 since
+  (`ROOM_MODEL_REVISION`, 12 since 2026-11-16: Shocks per attack, a
+  returning member's administrator flag, `Event::AdminChanged`, a member
+  reconnecting for a moment keeping their place, the member's
+  keep-alive; 11 `adaptive-v4`, a live snapshot's `step`,
+  `Command::CloseRoom`; 10 `adaptive-v3`; 9 since
   2026-11-14; round B1, 2 since
   `attacks-v2`, 3 adaptive charts, 4 `attacks-v3`, 5 `cpu-levels-v1`,
   6 `adaptive-v1`), checked both ways: a client says its own in the
@@ -1322,11 +1332,18 @@ Rust and the browser are implementation details, not advertised features.
   (`{"v":1,"want":"snapshot"}`), commands kept until answered and sent
   again with their `(client, seq)` after a reconnect, duplicates and old
   revisions passed over, `LinkState` (joining, connected, reconnecting on
-  a fresh ticket by `ReconnectPolicy::RECONNECT_BACKOFF_V0`, and the ends:
-  4401 sign in again, 4410 closed, 4000 left); tickets sans-IO
+  a fresh ticket by `ReconnectPolicy::RECONNECT_BACKOFF_V0`, tried at
+  once by `retry_now`, and the ends:
+  4401 sign in again, 4410 closed, 4000 left); a socket's keep-alive
+  (`KEEPALIVE_V0`, PROVISIONAL: "ping" after 20 s of silence, answered
+  by the server's runtime without waking the room, the socket replaced
+  when 20 s more of the client's own running time bring nothing; not
+  sent where the transport keeps its own, `Transport::keeps_alive`,
+  desktop's); tickets sans-IO
   (`wants_ticket`, `ticket`). `fake.rs`: `FakeServer`, that room in
   process behind JSON text both ways with faults (delay, duplicate, drop,
-  reorder, stale, close codes), the server's reconnect grace where a
+  reorder, stale, close codes, a socket gone silent, `Fault::Silent`),
+  the keep-alive answered without the room (`auto_answered`), the server's reconnect grace where a
   test sets one (`set_grace`), its 4410 for a room that ended,
   `rewrite`, the room put as another authority would have it, and
   its three links answered as the server's bodies (`fake/invites.rs`:

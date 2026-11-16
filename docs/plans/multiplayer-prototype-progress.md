@@ -10812,6 +10812,110 @@ tab's socket could not be measured this way.
   co-host's controls wherever the room has the flag (tested); the change
   is the next round's.
 
+## Feedback round N2: Shocks per attack, four by default; a reconnect at once; a keep-alive (revision 12, 2026-11-16)
+
+The maintainer, after playing online with 5 to 15 people: "when testing
+it seems 8 shock arrows per attack to be a lot, I think it should be a
+configurable rule, maybe 4 by default". With it, in the same room model
+revision (`ROOM_MODEL_REVISION` 11 → 12), what round N1 left for the
+model and the server, a reconnect tried at once and a keep-alive.
+
+### Shocks per attack (`MatchRules::shocks`)
+
+- **The rule**: 2, 4, 6 or 8 (`ddi_room::ShocksPerAttack`), four for a
+  new room, practice and hosted alike (`MatchRules::hosted`); shown in
+  Rules under Attacks at once wherever that row shows (attacks offered
+  and On), with its sentence; one of the per-stage rules a running
+  match may change from a later stage on (`PlayRules::shocks`); in the
+  rules' few words only where it is not four ("Eight shocks per attack");
+  in the audience's public view (`PublicRules::shocks`).
+- **Rooms stored before it** (revision 11) read a match's rules, and
+  every per-stage change of them, as **eight**: a match running when the
+  server is updated plays on as it began. Their next match's draft reads
+  as **four** (`rules::draft_rules`: nobody chose eight, it was the only
+  count), so the room's next match, and the Rules its host opens, take
+  the new default. The rule is always written out now
+  (`room-revision-10.json` and `-11.json` are read and written back with
+  only it added, `shocks_written`).
+- **Placement** (`ddi_engine::battle::Placement::with_shocks`,
+  `schedule_of`): `placement-v2`'s margins, grid and section exactly, the
+  count its argument and three quarters of the shocks (rounded up: 2 of 2,
+  3 of 4, 5 of 6, 6 of 8) aimed next to a note of their lane. Eight is
+  `placement-v2` itself, bit for bit (`bundled_schedules_are_pinned`'s
+  hash holds); 2, 4 and 6 are pinned the same way
+  (`schedules_for_each_shock_count_keep_the_margins_and_are_pinned`); a
+  smaller attack fits wherever a larger one does.
+- **The battle plan** says the count (`BattlePlan::shocks`, in its digest
+  only where it is not eight, so a plan of eight is what it was); the
+  room takes only a plan whose count is its stage's rules' and whose
+  every section holds exactly it (`PlanProblem::Shocks`).
+- **The ledger** (`AttackRules::shocks`, `with_shocks`): an attack is the
+  stage's count; **the bar's cap and cost unchanged**
+  (`attacks::SHOCK_COST`, `ShockCost::Flat`, PROVISIONAL `shock-cost-v0`;
+  `Scaled` kept for the study).
+- What follows the count without a change of its own: the warning's dots
+  (one a shock of the attack), the Standings' Shocks column and the
+  summary lines (shocks stepped on), the CPUs' response (per shock,
+  `cpu/mines.rs`). The words that said "eight shocks" say "an attack, a
+  few shocks".
+
+### Measured: 2, 4, 6 and 8, the cost unchanged and scaled
+
+`DDI_SHOCKS_CORPUS=… cargo test --release -p ddi-session --lib
+shocks_per_attack -- --ignored --nocapture` (`battle/study.rs`): stages of
+CPUs of mixed levels (1, 2, 3, 4, 5, 6, 8, 10 in turn), DDI Normal,
+Spread, Attacks at once three; 5 and 15 CPUs; over the six bundled study
+charts (two seeds) and 60 Medium and Hard dance-single charts spread over
+the thirteen local arcade mixes (1 940 such charts found; read in place,
+aggregates only). MEASUREMENTS OF CPUS AGAINST CPUS (their response to a
+shock is a model). "Scaled": the bar's cap and cost in proportion to the
+count (25, 50, 75), so a shock costs what it did.
+
+As picked (zero life is out), 5 CPUs, local charts (bundled alike):
+
+| Shocks, cost | Attacks a minute | Shocks taken a minute a seat | Life ran out in an attack | Knockouts a stage | Out a stage |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 8 | 7.4 | 13.6 | 4.8% | 0.57 | 1.42 |
+| 6, flat | 7.6 | 10.4 | 3.6% | 0.43 | 1.33 |
+| 6, scaled | 10.2 | 14.0 | 2.5% | 0.42 | 1.27 |
+| **4, flat** | **7.8** | **7.0** | **1.5%** | **0.18** | **1.13** |
+| 4, scaled | 15.9 | 14.5 | 1.9% | 0.48 | 1.30 |
+| 2, flat | 7.9 | 3.5 | 0.9% | 0.12 | 1.07 |
+| 2, scaled | 30.8 | 14.2 | 1.2% | 0.60 | 1.28 |
+
+15 CPUs, As picked, local: attacks a minute 25.3 (8) / 26.2 (4 flat) /
+52.1 (4 scaled); shocks taken a minute a seat 15.8 / 8.1 / 16.4;
+knockouts a stage 1.30 / 0.58 / 1.18. Under Adaptive charts (a new
+room's), nobody goes out; life running out steps down instead: steps down
+inside an attack a stage, 5 CPUs local 1.12 (8) / 0.50 (4 flat) / 1.13
+(4 scaled), 15 CPUs 3.02 / 1.95 / 3.00, all steps down a stage unchanged
+(3.4; 8.4). How long a stage lasts did not move (to the chart's end, 1.6
+to 2.2 minutes: the fields are not emptied early at any count).
+
+**Recommendation, built: four with the cost unchanged.** Attacks come as
+often as with eight (the maintainer asked for fewer shocks, not more
+attacks), each half as heavy: half the shocks a minute, a third of the
+knockouts. Scaling the cost would keep the shocks a minute and the
+knockouts where eight had them, as twice as many attacks: more warnings
+and lines, the same pressure. `shock-cost-v0` is PROVISIONAL: a person's
+response to four shocks is not a CPU's; watch whether attacks still
+matter at four.
+
+### Pins and fixtures
+
+- `the_cpus_play_alike`'s fixture regenerated once (`fixture.txt`):
+  scenarios 0 and 1 (eight, as recorded before) unchanged; scenarios 2
+  and 3 added (the same two under a new room's four).
+- The stage pins re-recorded (`pinned.txt`, `live_pinned.txt`): every
+  practice stage with attacks (39 of 45; the two battery stages without
+  attacks did not move) and the three live stages with CPUs; attacks of
+  four, so CPUs step on fewer shocks, score more and some places change
+  (practice "played": P5 second rather than last; live: P4 above P5).
+  The live stages of people alone did not move. `a_live_stage_with_cpus_plays_them_alike_on_every_device`
+  plays eight, so that a CPU still goes out there.
+- The room's screens' drawing pins: Rules (and Add CPU over it) gain the
+  row.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
