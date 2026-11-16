@@ -2489,6 +2489,13 @@ dependency's licence before adding it.
   `docs/screenshots/readme.png` unchanged as `images/readme.png` for share
   cards and structured data; keep its metadata dimensions in sync. The
   deployed audit and post-deploy checks are in `docs/research/seo.md`.
+- `site/privacy.html` is the privacy note, a page of its own beside the
+  game (English, then Japanese at `#ja`; no script, nothing fetched),
+  copied by Trunk; the Credits' fold "Privacy" says the same in the UI's
+  language (`ddi_ui::screens::credits::privacy`, `pages-privacy-*`), and
+  the multiplayer home's footer and Options' Data section open the page
+  (`credits::privacy_url`). Keep the three in step with what the game
+  and the private server keep (its README's "Usage statistics").
 - GitHub Pages from the `main` branch via the workflow in `.github/`. The
   public URL is lowercase; on a custom domain Pages paths are case-sensitive,
   which is why the repository name is lowercase.

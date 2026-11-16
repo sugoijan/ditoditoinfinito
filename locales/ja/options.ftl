@@ -446,6 +446,11 @@ options-reset-settings-description = { $platform ->
     [web] すべての設定を既定値に戻します。インポートした曲と曲ごとのオフセットは残ります。
    *[desktop] すべての設定を既定値に戻します。曲フォルダーと曲ごとのオフセットは残ります。
 }
+options-privacy-button = 読む
+options-privacy-description = { $platform ->
+    [web] ゲームとそのオンラインサーバーがあなたについて保存するものと、サーバーが数える利用統計の合計です。ゲームのサイトでお知らせを開きます。クレジットにも載っています。
+   *[desktop] ゲームとそのオンラインサーバーがあなたについて保存するものと、サーバーが数える利用統計の合計です。Webでお知らせを開きます。クレジットにも載っています。
+}
 options-reset-folders = 曲フォルダー
 options-reset-folders-button = 解除
 options-reset-folders-none = なし

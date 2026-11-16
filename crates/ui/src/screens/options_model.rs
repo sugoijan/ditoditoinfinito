@@ -303,6 +303,9 @@ pub enum Act {
     ShareToken,
     /// Open the shares dialog (the shell reads the listing into it).
     ListShares,
+    /// Open the privacy note's page (`credits::privacy_url`; in the
+    /// press, the browser opening a tab only from one).
+    Privacy,
 }
 
 pub struct OptionsModel {
@@ -1855,6 +1858,13 @@ impl OptionsModel {
                 ),
                 songs,
                 actions(
+                    "privacy",
+                    ddi_l10n::msg::pages::privacy(),
+                    [m::privacy_button()],
+                    "",
+                    m::privacy_description(self.world.platform.l10n()),
+                ),
+                actions(
                     "reset.everything",
                     m::reset_everything(),
                     if w.importing {
@@ -2134,6 +2144,7 @@ impl OptionsModel {
                 self.notice = m::notice_keys_default(style_name(&layout.id, &layout.name)).into();
                 Act::Done
             }
+            ("privacy", _) => Act::Privacy,
             ("history.export", b) => {
                 let buttons = history_buttons(self.world.plays, self.world.importing_plays);
                 match buttons.get(b) {

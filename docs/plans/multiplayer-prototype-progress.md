@@ -11478,6 +11478,57 @@ CPUs' fixture unchanged); only what the screens draw and say, and CI.
   would need those tests made independent of the machine's faces and
   speed, and a faster runner or a subset of the GPU tests, first.
 
+## Usage statistics, step 1: the server's own counts and a privacy note (2026-11-16)
+
+The stats proposal the maintainer accepted on 2026-11-16 (its nine open
+questions answered with its picks), step 1 only: what the private server
+counts by itself, with **no change to the wire and no room model
+revision** (still 12), as **daily totals, never per person**; a Stats tab
+in the operator's panel; two (three) server log lines that printed a
+player's id print none; and a privacy note in the game. The server's
+README, "Usage statistics (step 1)", has the metrics, their dimensions and
+what feeds each; its `src/stats.rs` the vocabulary and the logic.
+
+- **Counted by the room** (deltas on the registry report it already
+  sends, in the index's `stats` table by UTC day): member sockets opened
+  by client (phone, tablet, computer from the upgrade's `User-Agent`,
+  read and dropped; `desktop`: the desktop's socket says no User-Agent,
+  so no system before step 2; `bot`) and browser; socket closes by code,
+  closer and client, and lifetimes; Away episodes (back, disconnected,
+  left, the room ended) by length; tickets a member asked for in a room;
+  upload and load times; load failures by the game's `LoadProblem`
+  codes; content unavailable; sit-outs by reason and room size; how
+  readiness windows ended; starts canceled; late entries; forfeits (left
+  or no report); runs by meter, style and rules; when runs went out (a
+  tenth of the song); shocks per attack received; attacks sent; Adaptive
+  steps (up or down: the chart's name dropped); CPU disagreements.
+  **Counted by the Worker**: audience seats by client and whether signed
+  in; a member's round trip at a ticket. **People a day**: a daily keyed
+  mark of the player id, counted by client and deleted when the cron
+  closes the day. Bots and CPUs are counted apart (`client=bot`,
+  `kind=bot|cpu`), never as people.
+- **Kept** 13 months a day, then a month a row (the hourly cron). Nothing
+  outside the fixed vocabulary is stored; a test checks a played room's
+  whole payload and stored rows for every identity, invite, token, room,
+  song, address and User-Agent.
+- **Shown**: the panel's Stats tab (Clients, Sockets, Readiness, Play),
+  read when opened; bots and CPUs behind a switch.
+- **The privacy note** (a draft for the maintainer to review before it
+  is published): `site/privacy.html` beside the game (English, then
+  Japanese at `#ja`; copied by Trunk, no script, nothing fetched), the
+  Credits' fold "Privacy" after the game's source
+  (`ddi_ui::screens::credits::privacy`, the same text as messages,
+  `pages-privacy-*`, desktop's paragraphs without a browser or a site),
+  a footer link "Privacy" on the multiplayer home (`Link.Privacy`) and a
+  row "Privacy" in Options' Data section, both opening the page
+  (`credits::privacy_url`, relative: the web's beside its page, desktop's
+  beside its site, `ddi_desktop::online::site`). It names Twitch, the
+  sign-in's provider, and Cloudflare, the server's host. Japanese is an
+  unverified draft.
+- **Not done** (later steps): the client's own reports and Options'
+  switches for them (step 2, revision 13), the per-room session log
+  (step 3), error reports (step 4).
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |

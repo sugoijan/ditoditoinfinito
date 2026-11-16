@@ -834,6 +834,17 @@ options-reset-settings-description = { $platform ->
    *[desktop] Every setting back to its default; the song folders and per-song offsets are kept.
 }
 
+# The privacy note (its row's name is pages-privacy): a button opening the
+# game's site's privacy page in the browser.
+options-privacy-button = Read
+
+# Variables:
+#   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
+options-privacy-description = { $platform ->
+    [web] What the game and its online server keep about you, and the usage totals the server counts. Opens the note on the game's site; it is also in the credits.
+   *[desktop] What the game and its online server keep about you, and the usage totals the server counts. Opens the note on the web; it is also in the credits.
+}
+
 # Desktop: forgets every song folder.
 options-reset-folders = Song folders
 options-reset-folders-button = Forget

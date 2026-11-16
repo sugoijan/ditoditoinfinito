@@ -40,7 +40,9 @@ fn credits_links_open_from_keys_and_taps() {
     let items = state.borrow().page_items.clone();
     // The game's own source first.
     assert_eq!(items[0], format!("link:{}", credits::SOURCE));
-    assert_eq!(items[1], "link:https://example.org/songs");
+    // Then the privacy note, folded, then the songs.
+    assert_eq!(items[1], format!("fold:{}", credits::PRIVACY_FOLD));
+    assert_eq!(items[2], "link:https://example.org/songs");
     assert!(items.iter().any(|i| i == "link:video/ddivideo.LICENSE.txt"));
     assert!(items.iter().any(|i| i == "fold:configure"));
     // Down to the first link, Enter opens it in the press.
@@ -369,8 +371,10 @@ fn a_page_opens_where_it_was_left() {
     );
 
     // Opened again, on a fold left open and scrolled down.
+    // (One after the item focused: opening one before it moves it.)
     let fold = items
         .iter()
+        .rev()
         .find_map(|i| i.strip_prefix("fold:"))
         .expect("a fold")
         .to_string();

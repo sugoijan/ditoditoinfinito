@@ -827,6 +827,13 @@ impl Shell {
                     self.dev.borrow_mut().status = format!("{} file(s) picked", picked.len());
                 }
                 UiRequest::OpenUrl(url) => {
+                    // A page beside the game's own (the privacy note,
+                    // `credits::privacy_url`): on the game's site.
+                    let url = if url.contains("://") {
+                        url
+                    } else {
+                        format!("{}{url}", crate::online::site())
+                    };
                     if let Err(e) = crate::os::open_url(&url) {
                         self.dev.borrow_mut().status = e;
                     }

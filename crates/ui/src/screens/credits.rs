@@ -63,6 +63,82 @@ pub struct RustNotice {
 /// The game's own source.
 pub const SOURCE: &str = "https://github.com/sugoijan/ditoditoinfinito";
 
+/// The privacy note's page on the game's site, beside the game's own page
+/// (`site/privacy.html`): relative, so the web opens the one beside the
+/// page it runs from and desktop the one beside its site
+/// (`ddi_desktop::online::site`); its Japanese part where the game speaks
+/// Japanese.
+pub fn privacy_url() -> String {
+    let lang = ddi_l10n::current().tag;
+    if lang == "ja" || lang.starts_with("ja-") {
+        "privacy.html#ja".into()
+    } else {
+        "privacy.html".into()
+    }
+}
+
+/// The privacy note (the stats proposal's step 1, 2026-11-16): what the
+/// game and its online server keep, and the usage totals the server
+/// counts, folded near the top of the credits, as the site's page says
+/// it; the multiplayer home and Options link to the page.
+pub fn privacy(platform: &str) -> Block {
+    fn part(body: &mut Vec<Block>, heading: UiText, text: UiText) {
+        body.push(Block::Subheading(heading.into()));
+        body.push(Block::Text(text.into()));
+    }
+    let mut body = vec![Block::Text(pm::privacy_intro().into())];
+    part(
+        &mut body,
+        pm::privacy_alone_heading(),
+        pm::privacy_alone(platform),
+    );
+    part(
+        &mut body,
+        pm::privacy_sign_in_heading(),
+        pm::privacy_sign_in(platform),
+    );
+    part(&mut body, pm::privacy_rooms_heading(), pm::privacy_rooms());
+    part(&mut body, pm::privacy_songs_heading(), pm::privacy_songs());
+    part(
+        &mut body,
+        pm::privacy_audience_heading(),
+        pm::privacy_audience(),
+    );
+    part(&mut body, pm::privacy_stats_heading(), pm::privacy_stats());
+    for line in [
+        pm::privacy_stats_devices(platform),
+        pm::privacy_stats_connections(),
+        pm::privacy_stats_loading(),
+        pm::privacy_stats_play(),
+        pm::privacy_stats_people(),
+    ] {
+        body.push(Block::Text(format!("• {}", String::from(line))));
+    }
+    body.push(Block::Text(pm::privacy_stats_kept().into()));
+    part(&mut body, pm::privacy_logs_heading(), pm::privacy_logs());
+    part(
+        &mut body,
+        pm::privacy_questions_heading(),
+        pm::privacy_questions(),
+    );
+    body.push(Block::Link {
+        label: pm::credits_source(SOURCE).into(),
+        url: SOURCE.into(),
+    });
+    body.push(Block::Link {
+        label: pm::privacy_page(platform).into(),
+        url: privacy_url(),
+    });
+    Block::Fold {
+        id: PRIVACY_FOLD.into(),
+        label: pm::privacy().into(),
+        body,
+    }
+}
+
+/// The privacy note's fold's id (the page names it `fold:privacy`).
+pub const PRIVACY_FOLD: &str = "privacy";
+
 pub fn parse(json: &str) -> Result<Credits, String> {
     serde_json::from_str(json).map_err(|e| e.to_string())
 }
@@ -134,6 +210,7 @@ pub fn doc(c: &Credits, platform: super::data::Platform) -> PageDoc {
         label: pm::credits_source(SOURCE).into(),
         url: SOURCE.into(),
     });
+    b.push(privacy(platform.l10n()));
     b.push(Block::Heading(pm::credits_songs().into()));
     for s in &c.songs {
         b.push(Block::Subheading(data(format!(
@@ -445,6 +522,28 @@ mod rust_tests {
                     .into(),
                 url: "https://example.org/reading".into(),
             })
+        );
+    }
+
+    /// The privacy note is a fold after the game's source, before the
+    /// songs, ending with the link to its page; Japanese opens its part.
+    #[test]
+    fn the_privacy_note_is_a_fold_near_the_top() {
+        let d = doc(&sample(), Default::default());
+        let at = d
+            .blocks
+            .iter()
+            .position(|b| matches!(b, Block::Fold { id, .. } if id == PRIVACY_FOLD))
+            .expect("the fold");
+        assert_eq!(at, 2);
+        let Block::Fold { label, body, .. } = &d.blocks[at] else {
+            unreachable!()
+        };
+        assert_eq!(label, "Privacy");
+        assert!(matches!(body.last(), Some(Block::Link { url, .. }) if url == "privacy.html"));
+        assert!(
+            body.iter()
+                .any(|b| matches!(b, Block::Subheading(h) if h == "Usage statistics"))
         );
     }
 

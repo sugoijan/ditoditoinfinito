@@ -35,6 +35,8 @@ pub const PRIVATE: &str = "private";
 pub const JOIN: &str = "join";
 /// The footer's account link.
 pub const ACCOUNT: &str = "Link.Account";
+/// The footer's link to the privacy note's page (`credits::privacy_url`).
+pub const PRIVACY: &str = "Link.Privacy";
 /// The account menu's pick.
 const ACCOUNT_MENU: &str = "MultiplayerAccount";
 
@@ -225,7 +227,9 @@ impl Home {
         // The footer: the hints where they fit, the account at the right.
         let (to_move, choose, back) = (pm::move_hint(), pm::activate(), common::back());
         let account = self.account();
-        let links: Vec<(&str, &str)> = account.iter().map(|a| (ACCOUNT, a.as_str())).collect();
+        let privacy = String::from(pm::privacy());
+        let mut links: Vec<(&str, &str)> = vec![(PRIVACY, privacy.as_str())];
+        links.extend(account.iter().map(|a| (ACCOUNT, a.as_str())));
         let hints: &[(&[&str], &str)] = &[
             (&["↑", "↓"], &to_move),
             (&["ENTER"], &choose),
@@ -288,6 +292,10 @@ impl Home {
     }
 
     fn activate(&mut self, name: &str, cx: &mut Cx) {
+        if name == PRIVACY {
+            cx.request(crate::UiRequest::OpenUrl(super::credits::privacy_url()));
+            return;
+        }
         if name == ACCOUNT {
             let me = self.online.borrow().me().map(|me| me.display_name.clone());
             match me {
@@ -370,6 +378,7 @@ impl Screen for Home {
 
     fn focusables(&self) -> Vec<Focusable> {
         let mut names: Vec<String> = entries().iter().map(|(id, ..)| choice(id)).collect();
+        names.push(PRIVACY.into());
         if self.account().is_some() {
             names.push(ACCOUNT.into());
         }

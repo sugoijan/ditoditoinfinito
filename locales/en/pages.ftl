@@ -401,6 +401,101 @@ pages-credits-rust-notice-more = { $number }. { $license } — { $first }, { $se
 #   $crates (String) - the libraries with their versions, separated by ","
 pages-credits-rust-notice-for = for { $crates }
 
+## The privacy note: what the game and its online server keep, and the
+## usage totals the server counts. A fold near the top of the credits
+## (its label, then headings and paragraphs, wrapped in a column about
+## 880 px wide), the same text as the site's privacy page. Plain words,
+## no legal terms. Twitch is the sign-in's provider, named as people see
+## it; "User-Agent" is a browser's technical header, kept as it is.
+
+# The fold's label, and what the multiplayer home's footer and Options'
+# row are called (a word or two).
+pages-privacy = Privacy
+
+# The note's first paragraph.
+pages-privacy-intro = This note says what { -game-name } and its online server keep about you, and for how long. Last changed on November 16, 2026.
+
+# A heading inside the note.
+pages-privacy-alone-heading = Playing alone
+
+# Variables:
+#   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
+pages-privacy-alone = { $platform ->
+    [web] Playing alone, the game keeps everything on your device: your settings, your songs and your play history stay in your browser's storage, or in the app's folders on your computer. It sends nothing about you or your plays to our server. A song someone shared with you by link is read from our server.
+   *[desktop] Playing alone, the game keeps everything on your device: your settings, your songs and your play history stay in the app's folders on your computer. It sends nothing about you or your plays to our server. A song someone shared with you by link is read from our server.
+}
+
+# A heading inside the note.
+pages-privacy-sign-in-heading = Signing in
+
+# Variables:
+#   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
+pages-privacy-sign-in = Online rooms need you to sign in with Twitch (watching a room with its audience does not). When you sign in, our server asks Twitch for your Twitch user id, your login name and your display name, and keeps none of Twitch's keys. { $platform ->
+    [web] These three go into a signed session that your browser keeps as a cookie (the app keeps it in its settings folder).
+   *[desktop] These three go into a signed session that the app keeps in its settings folder.
+} A session lasts a week, is renewed while you use it, and never lasts more than 30 days after you signed in. Our server keeps no list of the people who signed in. Signing out removes the session from your device. We never ask Twitch for your email address.
+
+# A heading inside the note.
+pages-privacy-rooms-heading = Rooms
+
+pages-privacy-rooms = A room keeps what its members see: its name, each member's display name and Twitch user id (so they can come back), their roles, the songs picked (title, artist and chart) and the results of its matches. A room is deleted when it ends: two minutes after its last member's connection closed, after a week without activity, when its host leaves and it is not passed on, or when the server's administrators close it. After that, only a note that it ended (its id, when and why) is kept for a week, so that its links can say the room is closed. While a room is open, the server's administrators can see it listed with its name, its members' display names and how many people are in it.
+
+# A heading inside the note.
+pages-privacy-songs-heading = Songs
+
+pages-privacy-songs = When a room's host picks a song, the game uploads it to our server so that everyone in the room can play it. Anyone with that copy's link could read it while the room is open; it is deleted when the room ends, a week after it was uploaded at the latest. A few people we give a key can also share songs by link: such a song is kept until the expiry chosen when it was shared (from an hour to no expiry) or until it is deleted.
+
+# A heading inside the note.
+pages-privacy-audience-heading = Watching with an audience
+
+pages-privacy-audience = You can watch a room with its audience without signing in. So that one network cannot take every seat, our server turns your network's address into a mark: a code made with a secret key, different every day, that cannot be turned back into the address. The address itself is not kept. The mark exists only in the server's memory while your seat is open, and the server's administrators see only its first eight characters. Signed in, your seats count against your account instead, and no mark is made.
+
+# A heading inside the note.
+pages-privacy-stats-heading = Usage statistics
+
+pages-privacy-stats = To see whether online play works well, our server counts what happens in rooms as daily totals, for example:
+
+# A line of the list of what is counted (after a bullet).
+# Variables:
+#   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
+pages-privacy-stats-devices = { $platform ->
+    [web] what kind of device and browser opened a connection (phone, tablet or computer; Chrome, Edge, Firefox, Safari, Samsung Internet or another), read from your browser's User-Agent when the connection opens and then dropped;
+   *[desktop] what kind of device opened a connection (a phone, a tablet, a computer or this app), read from the connection's User-Agent when it opens and then dropped;
+}
+
+# A line of the list of what is counted (after a bullet).
+pages-privacy-stats-connections = how connections closed and how long they lasted, how long people were away and whether they came back, and the round trip from your network to our server, in ranges;
+
+# A line of the list of what is counted (after a bullet).
+pages-privacy-stats-loading = how long songs took to upload and to load, and why players sat a stage out;
+
+# A line of the list of what is counted (after a bullet). Adaptive is
+# the match rule's name (Charts: Adaptive), shocks a battle's arrows.
+pages-privacy-stats-play = what was played: the charts' difficulty range and style, the rules, when runs ran out of life, the attacks sent and shocks stepped on, and the steps on the Adaptive ladder;
+
+# A line of the list of what is counted (after a bullet).
+pages-privacy-stats-people = how many different people were in rooms each day.
+
+pages-privacy-stats-kept = These totals contain no names, accounts, addresses, rooms or song titles. To count the people of a day without knowing who they are, the server keeps a code made from each account with a secret key that changes every day, and deletes it once the day is counted. The totals are kept day by day for 13 months, then month by month. Bots and the game's computer players are counted apart from people. The game itself sends nothing for these statistics, and playing alone is never counted.
+
+# A heading inside the note.
+pages-privacy-logs-heading = Server logs
+
+pages-privacy-logs = Our server runs on Cloudflare, which handles the connections to it and keeps logs of the requests it receives for 7 days. These logs can include the address asked for (an invite link, for example) and technical details of the connection. Our own lines in these logs name rooms by their ids and never a player (only the administrator who changes the server's settings).
+
+# A heading inside the note.
+pages-privacy-questions-heading = Questions
+
+pages-privacy-questions = If something in this note is unclear, open an issue on the game's repository.
+
+# A link to the same note on the game's site (opens the browser).
+# Variables:
+#   $platform (String) - web or desktop (desktop's says nothing of a browser or a site)
+pages-privacy-page = { $platform ->
+    [web] This note on the game's site
+   *[desktop] This note on the web
+}
+
 ## Desktop's first start: a dialog offering the song folders of other
 ## dance games (StepMania, ITGmania, OutFox) found on the computer. About
 ## 600 px wide; its text wraps.
