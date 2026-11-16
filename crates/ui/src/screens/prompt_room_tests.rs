@@ -500,3 +500,118 @@ fn during_the_countdown_cancel_is_refused_and_back_leaves_both_by_the_gesture() 
     assert_eq!(backs(&r), 1, "Back twice leaves");
     assert!(matches!(r.room.borrow().state().phase, Phase::Countdown { .. }));
 }
+
+/// A practice room's first stage started by the room (Ready alone with
+/// the CPUs, the song loaded, the countdown run), its prompt then on the
+/// shell's loading screen, as the play not ready yet puts it.
+fn loading(e: Env) -> Rig {
+    let room = RoomClient::shared(0, 1);
+    let s = song();
+    room.borrow_mut().pick(&s, &s.charts[0]).unwrap();
+    let order = room.borrow_mut().take_stage_order().unwrap();
+    let seen: Seen = Rc::default();
+    let sink = seen.clone();
+    let shared = room.clone();
+    let shell: RoomShell = Rc::new(move |call, _cx| {
+        if let RoomCall::Prepare(job) = call {
+            shared.borrow_mut().finish_load(&job, Ok(()));
+        }
+    });
+    let state = Rc::new(RefCell::new(PromptState::default()));
+    state.borrow_mut().info.title = "Single Song".into();
+    let step = state.clone();
+    let mut h = harness();
+    h.push(
+        PromptScreen::new(
+            e,
+            state,
+            Rc::new(move |c, cx| {
+                // The shell's Start: the loading screen, the play not ready.
+                if c == PromptChoice::Start {
+                    step.borrow_mut().set_step(crate::screens::prompt::PromptStep::Loading);
+                }
+                sink.borrow_mut().push((c, cx.in_gesture()));
+            }),
+        )
+        .with_room(room.clone(), order.stage, shell),
+    );
+    h.run(0.5);
+    enter(&mut h);
+    h.run(3.5);
+    assert!(room.borrow().stage_started(order.stage));
+    assert_eq!(seen.borrow().last().map(|s| &s.0), Some(&PromptChoice::Start));
+    h.run(0.5);
+    assert!(has(&h, "Loading"), "{:?}", h.texts());
+    Rig { h, room, seen }
+}
+
+/// The loading screen after the room started the stage (feedback round
+/// P2): Back there leaves a stage that has begun, so it too takes the
+/// deliberate gesture, held or pressed twice, by every input, its hint
+/// saying so after one press; a late second press is a first again.
+#[test]
+fn back_on_the_loading_screen_of_a_started_stage_takes_the_gesture() {
+    let mut r = loading(env());
+    assert!(!shown(&r.h, "Room.LeaveHint"), "no hint before a press");
+    escape(&mut r.h);
+    r.h.run(0.1);
+    assert_eq!(backs(&r), 0, "one Esc: still loading");
+    assert!(shown(&r.h, "Room.LeaveHint") && has(&r.h, LEAVE_HINT), "{:?}", r.h.texts());
+    r.h.run((CANCEL_HINT + 0.1) as f32);
+    assert!(!shown(&r.h, "Room.LeaveHint"), "the hint goes after its time");
+    escape(&mut r.h);
+    r.h.run((CANCEL_DOUBLE_TAP + 0.1) as f32);
+    escape(&mut r.h);
+    r.h.run(0.1);
+    assert_eq!(backs(&r), 0, "too late: a first press again");
+    r.h.key("Backspace", "Backspace");
+    assert_eq!(backs(&r), 1, "twice in time");
+
+    let mut r = loading(env());
+    r.h.key_down("Escape", "Escape");
+    r.h.run((CANCEL_HOLD - 0.1) as f32);
+    assert_eq!(backs(&r), 0, "not before the hold's time");
+    assert!(shown(&r.h, "Room.LeaveHint"), "the hint while held");
+    r.h.run(0.2);
+    assert_eq!(backs(&r), 1, "Esc held");
+    r.h.key_up("Escape", "Escape");
+    r.h.run(0.5);
+    assert_eq!(backs(&r), 1, "once");
+
+    let mut r = loading(env());
+    r.h.key_down("Escape", "Escape");
+    r.h.run(0.3);
+    r.h.key_up("Escape", "Escape");
+    r.h.run(1.0);
+    assert_eq!(backs(&r), 0, "let go early");
+
+    let mut r = loading(env());
+    r.h.controller(&Default::default(), "Pad", true, "button:1", true);
+    r.h.run((CANCEL_HOLD + 0.1) as f32);
+    assert_eq!(backs(&r), 1, "a controller's Back held");
+
+    // The browser's Back, the menu's pressed and let go at once, twice.
+    let mut r = loading(env());
+    for _ in 0..2 {
+        for down in [true, false] {
+            r.h.send(UiEvent::Menu(crate::event::MenuEvent {
+                action: MenuAction::Back,
+                down,
+                source: u32::MAX,
+                gesture: false,
+                time: 0.0,
+            }));
+        }
+        r.h.frame(0.2);
+    }
+    assert_eq!(backs(&r), 1, "the browser's Back twice");
+
+    // Taps and Enter leave nothing.
+    let mut r = loading(env());
+    for _ in 0..2 {
+        r.h.tap_at(PointerKind::Touch, [40.0, 300.0]);
+        enter(&mut r.h);
+        r.h.run(0.1);
+    }
+    assert_eq!(backs(&r), 0);
+}

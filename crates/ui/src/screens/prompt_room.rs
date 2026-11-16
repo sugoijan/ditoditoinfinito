@@ -578,7 +578,7 @@ impl PromptScreen {
         let Some(rm) = &self.room else {
             return false;
         };
-        if !self.room_armed() {
+        if !self.room_armed() && !self.room_loading_armed() {
             return false;
         }
         let now = cx.time();
@@ -730,7 +730,7 @@ impl PromptScreen {
             return;
         };
         let now = cx.time();
-        if !self.room_armed() {
+        if !self.room_armed() && !self.room_loading_armed() {
             if !rm.taking.borrow().idle() {
                 rm.taking.borrow_mut().reset();
                 self.update_countdown_fill(root);
@@ -832,7 +832,7 @@ impl PromptScreen {
         let Some(rm) = &self.room else {
             return;
         };
-        let armed = self.room_armed();
+        let armed = self.room_armed() || self.room_loading_armed();
         let (last, held) = {
             let t = rm.taking.borrow();
             (t.last, [t.holders[0].is_some(), t.holders[1].is_some()])
@@ -880,6 +880,50 @@ impl PromptScreen {
     /// ([`crate::Screen::menu_releases`]): for its holds.
     pub(super) fn room_holds(&self) -> bool {
         self.room.is_some()
+    }
+
+    /// Whether Back on the loading screen is the deliberate gesture's
+    /// ([`Undo::Leave`], feedback round P2): the room started the stage
+    /// with the player in it, so leaving now leaves a stage that has begun.
+    pub(super) fn room_loading_armed(&self) -> bool {
+        self.state.borrow().step == PromptStep::Loading
+            && self.room.as_ref().is_some_and(|rm| {
+                rm.started.get()
+                    && rm.gone.get().is_none()
+                    && rm.quit_at.get().is_none()
+                    && rm.room.borrow().in_stage(rm.stage)
+            })
+    }
+
+    /// The loading screen's input where its Back is the gesture's
+    /// ([`Self::room_loading_armed`]): Back pressed (its hint, or done on
+    /// a second press in time) and let go (a hold ended); `None`: the
+    /// loading screen's own.
+    pub(super) fn room_loading_input(&self, input: &Input, cx: &mut Cx) -> Option<Handled> {
+        if !self.room_loading_armed() {
+            return None;
+        }
+        match input {
+            Input::Menu {
+                action: MenuAction::Back,
+                repeat,
+            } => {
+                if !repeat {
+                    let holder = cx.menu_source().cloned().map(Holder::Menu);
+                    self.room_press(Undo::Leave, holder, cx);
+                }
+                Some(Handled::Yes)
+            }
+            Input::MenuRelease { source } => {
+                self.room_release(&Holder::Menu(source.clone()));
+                Some(Handled::Yes)
+            }
+            Input::CancelDirections => {
+                self.room_release_all();
+                None
+            }
+            _ => None,
+        }
     }
 }
 

@@ -1023,6 +1023,15 @@ impl PromptScreen {
                 children.push(card.clone());
             }
             children.push(loading_label(&env, screen));
+            // A room's stage begun: Back's hint over the label, shown by
+            // a press (`room_mode::Undo::Leave`).
+            if self.room_loading_armed() {
+                let margin = env.metric("Margin", 32.0);
+                let at = room_mode::HintAt::Right(screen[0] - margin);
+                if let Some((hint, _)) = self.room_hint_row(screen[1] - margin - 26.0, at) {
+                    children.extend(hint);
+                }
+            }
             env.state.borrow_mut().hints = Vec::new();
         } else if state.no_card && state.step == PromptStep::Ready {
             self.buttons = Vec::new();
@@ -2264,6 +2273,10 @@ impl Screen for PromptScreen {
         // The loading screen: Back leaves; Start or a tap reach the shell
         // (a pad's start waiting for a gesture takes it); nothing else.
         if matches!(step, PromptStep::Loading) {
+            // A room's stage begun: Back held or pressed twice.
+            if let Some(handled) = self.room_loading_input(input, cx) {
+                return handled;
+            }
             match input {
                 Input::Menu {
                     action: MenuAction::Back,
