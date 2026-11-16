@@ -121,6 +121,11 @@ pub struct Options {
     pub cpus: Option<(usize, Option<u8>)>,
     /// The host's Rules: Shocks per attack (`--shocks N`: 2, 4, 6 or 8).
     pub shocks: Option<ddi_room::ShocksPerAttack>,
+    /// The last guest bot readies only this many seconds after each
+    /// stage's song started (`--ready-late S`, round P1b): it misses the
+    /// Ready window and enters the stage late where the room lets it
+    /// (within the live rules' late join).
+    pub ready_late: Option<f64>,
 }
 
 impl Default for Options {
@@ -145,6 +150,7 @@ impl Default for Options {
             anonymous: false,
             cpus: None,
             shocks: None,
+            ready_late: None,
         }
     }
 }
@@ -181,6 +187,9 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
                        absolute scale) where given
   --shocks N           the host's Rules: shocks an attack has (2, 4, 6 or 8;
                        a new room's four where not given)
+  --ready-late S       the last guest bot readies only S seconds after each
+                       stage's song started: it misses the Ready window and
+                       enters the stage late where the room lets it
   --audience N         N seats in the room's audience by --join's link (its
                        audience link, or its invite at the member bound): they
                        only watch (no play) and report what they received,
@@ -254,6 +263,14 @@ impl Options {
                         None => None,
                     };
                     o.cpus = Some((n, level));
+                }
+                "--ready-late" => {
+                    let s = value(i, a)?
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|s| s.is_finite() && *s >= 0.0)
+                        .ok_or("--ready-late takes seconds")?;
+                    o.ready_late = Some(s);
                 }
                 "--shocks" => {
                     let n = value(i, a)?
@@ -767,6 +784,8 @@ struct Bot {
     read: ReadSongs,
     order: Option<StageOrder>,
     ready_at: u64,
+    /// `--ready-late`'s seconds after the song's start, for this bot.
+    late: Option<f64>,
     play: Option<StagePlay>,
     matches: u32,
     said: Said,
@@ -1128,6 +1147,21 @@ impl Bot {
                         "stage {}: cannot play its song ({p:?})",
                         order.number
                     ));
+                    self.ready_at = u64::MAX;
+                }
+            } else if let Some(late) = self.late {
+                // `--ready-late`: Ready only once the song has run `late`
+                // seconds, a late entry where the room still lets it.
+                let since = room.borrow().song_zero_in(order.stage).map(|z| -z);
+                if !ready && since.is_some_and(|s| s >= late) && self.ready_at != u64::MAX {
+                    let may = room.borrow().may_enter_late(order.stage);
+                    match room.borrow_mut().set_ready(true) {
+                        Ok(()) => self.say(format!(
+                            "ready for stage {} {late:.1} s after its start: entering late (offered: {may})",
+                            order.number
+                        )),
+                        Err(why) => self.say(format!("the late Ready was refused: {why:?}")),
+                    }
                     self.ready_at = u64::MAX;
                 }
             } else if !ready && now >= self.ready_at {
@@ -1626,6 +1660,7 @@ pub fn run_with(o: Options, token: &str) -> i32 {
             news: None,
             order: None,
             ready_at: 0,
+            late: o.ready_late.filter(|_| n + 1 == count && !(o.host && n == 0)),
             play: None,
             matches: 0,
             said: Said::default(),
