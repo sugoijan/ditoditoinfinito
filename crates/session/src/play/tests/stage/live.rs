@@ -3116,8 +3116,16 @@ fn a_live_stage_with_cpus_plays_them_alike_on_every_device() {
 fn a_live_stage_shows_and_decides_as_pinned() {
     let song = bundled("beatucada");
     let mut made = String::new();
+    // A room made before round P1b's quiet pings (`quiet_ping_ms` none:
+    // a ping every 10 s between stages), as these pins were recorded: a
+    // new room's clock is pinged in another rhythm, which moves when each
+    // device hears the start by a few hundredths of a second.
+    let mut policy = RoomPolicy::default().with_live();
+    if let Some(live) = policy.live.as_mut() {
+        live.quiet_ping_ms = None;
+    }
     for cpus in [true, false] {
-        let r = Room::new(
+        let r = Room::under(
             &[
                 ("alice", Intent::Play),
                 ("bob", Intent::Play),
@@ -3130,6 +3138,8 @@ fn a_live_stage_shows_and_decides_as_pinned() {
                 up_jitter_ms: 60,
                 seed: 13,
             }),
+            &[],
+            policy.clone(),
         );
         for _ in 0..10 {
             r.run(0.5);

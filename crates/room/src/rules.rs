@@ -70,9 +70,24 @@ pub struct LivePolicy {
     /// it (one made before it) runs `live-v1`'s numbers for every build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timing: Option<String>,
+    /// How often a device pings the room's clock while no stage is
+    /// gathering, counting down or playing (round P1b, the maintainer's
+    /// of 2026-11-16: "about once a minute"; each ping wakes the room's
+    /// object, which is billed, while the socket's keep-alive is answered
+    /// by the runtime for free). From a pick on the pings are as before
+    /// (`crate::live::LiveRules::idle_ping_ms`, then `ping_ms` while a
+    /// stage streams), with a burst at the pick so that the estimate is
+    /// fresh for the start. ADDITIVE: a room made before it (none) keeps
+    /// pinging every `idle_ping_ms` between stages. PROVISIONAL
+    /// ([`LivePolicy::QUIET_PING_V0_MS`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quiet_ping_ms: Option<u64>,
 }
 
 impl LivePolicy {
+    /// `quiet-ping-v0` (PROVISIONAL): a minute between stages.
+    pub const QUIET_PING_V0_MS: u64 = 60_000;
+
     /// `live-v1` (PROVISIONAL): song zero one second after the countdown,
     /// a frame and a batch every 250 ms.
     pub fn v1() -> Self {
@@ -80,14 +95,18 @@ impl LivePolicy {
             id: crate::live::LIVE_V1.id.into(),
             prelude_ms: 1_000,
             timing: None,
+            quiet_ping_ms: None,
         }
     }
 
     /// `live-v1`'s contract with `live-v2`'s timing (PROVISIONAL, what a
-    /// room this build makes plays): a frame and a batch every 100 ms.
+    /// room this build makes plays): a frame and a batch every 100 ms;
+    /// since round P1b, a ping a minute between stages
+    /// ([`Self::QUIET_PING_V0_MS`]).
     pub fn v2() -> Self {
         Self {
             timing: Some(crate::live::LIVE_V2.id.into()),
+            quiet_ping_ms: Some(Self::QUIET_PING_V0_MS),
             ..Self::v1()
         }
     }

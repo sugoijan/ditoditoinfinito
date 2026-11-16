@@ -314,8 +314,14 @@ mod tests {
         assert!(!serde_json::to_string(&policy).unwrap().contains("live"));
         let live = serde_json::to_string(&policy.clone().with_live()).unwrap();
         assert!(live.contains(
-            r#""live":{"id":"live-v1","prelude_ms":1000,"timing":"live-v2"}"#
+            r#""live":{"id":"live-v1","prelude_ms":1000,"timing":"live-v2","quiet_ping_ms":60000}"#
         ));
+        // A room made before round P1b's quiet pings keeps its own.
+        let before: crate::LivePolicy = serde_json::from_str(
+            r#"{"id":"live-v1","prelude_ms":1000,"timing":"live-v2"}"#,
+        )
+        .unwrap();
+        assert_eq!(before.quiet_ping_ms, None);
         let back: crate::RoomPolicy = serde_json::from_str(&live).unwrap();
         assert_eq!(back.live.unwrap().rules(), Some(LIVE_V2));
         // A room made before `live-v2` (no timing) runs `live-v1`'s numbers.

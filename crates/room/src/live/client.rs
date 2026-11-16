@@ -48,6 +48,10 @@ pub struct LiveLink {
     audience: Option<(u32, bool)>,
     /// The CPUs' news this device computed, by stage (`crate::live::cpus`).
     cpus: BTreeMap<StageId, CpuOutbox>,
+    /// No stage gathering, counting down or playing (round P1b): pings
+    /// every `quiet_ping_ms` where the room's policy names it.
+    quiet: bool,
+    quiet_ping_ms: Option<u64>,
 }
 
 /// What a device computed of a stage's CPUs, kept to send
@@ -175,7 +179,29 @@ impl LiveLink {
             fresh: false,
             audience: None,
             cpus: BTreeMap::new(),
+            quiet: false,
+            quiet_ping_ms: None,
         }
+    }
+
+    /// Whether the room is quiet now (no stage gathering, counting down
+    /// or playing) and how often its policy has a device ping then
+    /// (`crate::LivePolicy::quiet_ping_ms`; none: as when it is not). The
+    /// room no longer quiet (a pick), the clock is pinged in a burst at
+    /// once, as on a socket's opening, so that its estimate is fresh for
+    /// the start.
+    pub fn set_quiet(&mut self, quiet: bool, quiet_ping_ms: Option<u64>, now: u64) {
+        self.quiet_ping_ms = quiet_ping_ms;
+        if self.quiet && !quiet && quiet_ping_ms.is_some() {
+            self.burst = self.rules.ping_burst;
+            self.ping_at = now;
+        }
+        self.quiet = quiet;
+    }
+
+    /// When the next clock ping is due (the device's ms), on a socket.
+    pub fn ping_due(&self) -> Option<u64> {
+        self.on.then_some(self.ping_at)
     }
 
     /// Stage `stage`'s CPU `cpu` judged to song µs `through_us`, with the
@@ -433,7 +459,10 @@ impl LiveLink {
                 now + if busy {
                     self.rules.ping_ms
                 } else {
-                    self.rules.idle_ping_ms
+                    match self.quiet_ping_ms {
+                        Some(quiet) if self.quiet => quiet,
+                        _ => self.rules.idle_ping_ms,
+                    }
                 }
             };
         }
@@ -573,5 +602,157 @@ mod tests {
         let biggest = o.due(0).pop().unwrap();
         let bytes = wire::encode_batch(&biggest);
         assert!(bytes.len() < 32 * 1_024, "{} bytes", bytes.len());
+    }
+
+    /// The clock's pings a link sends, by the device's ms, over `ms` in
+    /// steps of 50 ms; `quiet(t)` whether the room is quiet at `t`.
+    fn pings(
+        link: &mut LiveLink,
+        from: u64,
+        to: u64,
+        quiet: impl Fn(u64) -> bool,
+        every: Option<u64>,
+        mut on_ping: impl FnMut(&mut LiveLink, Ping, u64),
+    ) -> Vec<u64> {
+        let mut at = Vec::new();
+        let mut t = from;
+        while t < to {
+            link.set_quiet(quiet(t), every, t);
+            for m in link.due(t) {
+                if let Message::Text(text) = m
+                    && let Ok(env) = serde_json::from_str::<ClientLiveEnvelope>(&text)
+                    && let ClientLive::Ping(p) = env.live
+                {
+                    at.push(t);
+                    on_ping(link, p, t);
+                }
+            }
+            t += 50;
+        }
+        at
+    }
+
+    /// Round P1b (the maintainer's of 2026-11-16): between stages a device
+    /// pings the room's clock about once a minute where the room's policy
+    /// says so (`LivePolicy::quiet_ping_ms`), every 10 s where it says
+    /// nothing (a room made before it); from a pick on as before, with a
+    /// burst at the pick.
+    #[test]
+    fn a_quiet_room_is_pinged_once_a_minute_and_a_pick_bursts() {
+        use crate::live::LIVE_V2;
+        let quiet_until = 600_000;
+        let quiet = |t: u64| t < quiet_until;
+        let count = |every: Option<u64>| {
+            let mut link = LiveLink::new(LIVE_V2);
+            link.opened(0, LIVE_V2);
+            pings(&mut link, 0, quiet_until + 30_000, quiet, every, |_, _, _| {})
+        };
+        // Before: the opening's burst of five, then every 10 s.
+        let before = count(None);
+        let idle_before = before.iter().filter(|&&t| t > 1_000 && t < quiet_until).count();
+        assert_eq!(idle_before, 59, "{before:?}");
+        // After: the opening's burst, then every minute while quiet.
+        let after = count(Some(crate::LivePolicy::QUIET_PING_V0_MS));
+        let idle_after = after.iter().filter(|&&t| t > 1_000 && t < quiet_until).count();
+        assert_eq!(idle_after, 9, "{after:?}");
+        // The pick: a burst of five 100 ms apart, then every 10 s.
+        let picked: Vec<u64> = after.iter().copied().filter(|&t| t >= quiet_until).collect();
+        assert_eq!(
+            picked,
+            [
+                quiet_until,
+                quiet_until + 100,
+                quiet_until + 200,
+                quiet_until + 300,
+                quiet_until + 400,
+                quiet_until + 10_400,
+                quiet_until + 20_400,
+            ]
+        );
+    }
+
+    /// Round P1b: the estimate of the room's clock at a stage's start (its
+    /// song zero, a few seconds after the pick) is no worse with a ping a
+    /// minute between stages and a burst at the pick than with a ping
+    /// every 10 s: a seeded network (20 ms each way, up to 150 ms more on
+    /// either way, now and then 400 ms more), the room's clock 12 345 s
+    /// ahead and running 50 ppm fast; the error and the estimate's own
+    /// uncertainty at 2, 5 and 20 s after a pick ten minutes into a quiet
+    /// room, over 300 seeds.
+    #[test]
+    fn the_clock_at_the_start_is_no_worse_with_quiet_pings_and_a_burst() {
+        use crate::live::LIVE_V2;
+        let pick = 600_000u64;
+        // xorshift, seeded
+        let run = |seed: u64, every: Option<u64>, start_after: u64| -> (i64, i64) {
+            let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            let mut rnd = move || {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x
+            };
+            let mut delay = move || {
+                let r = rnd();
+                let mut d = 20 + (r % 151);
+                if (r >> 20) % 20 == 0 {
+                    d += 400;
+                }
+                d
+            };
+            // The room's clock (µs) at the device's `t` ms.
+            let room_us = |t: u64| -> i64 {
+                12_345_000_000 + t as i64 * 1_000 + (t as i64 * 50) / 1_000
+            };
+            let mut link = LiveLink::new(LIVE_V2);
+            link.opened(0, LIVE_V2);
+            let end = pick + start_after;
+            let mut answers: Vec<(u64, crate::live::clock::Pong)> = Vec::new();
+            let mut t = 0;
+            while t < end {
+                link.set_quiet(t < pick, every, t);
+                for m in link.due(t) {
+                    if let Message::Text(text) = m
+                        && let Ok(env) = serde_json::from_str::<ClientLiveEnvelope>(&text)
+                        && let ClientLive::Ping(p) = env.live
+                    {
+                        let (up, down) = (delay(), delay());
+                        let s = (room_us(t + up) / 1_000) as u64;
+                        answers.push((t + up + down, crate::live::clock::Pong::answer(p, s)));
+                    }
+                }
+                answers.sort_by_key(|(at, _)| *at);
+                while answers.first().is_some_and(|(at, _)| *at <= t) {
+                    let (at, pong) = answers.remove(0);
+                    link.text(ServerLive::Pong(pong), at);
+                }
+                t += 10;
+            }
+            let est = link.clock().expect("an estimate");
+            let truth = room_us(end) - end as i64 * 1_000;
+            ((est.offset_us - truth).abs(), est.uncertainty_us)
+        };
+        for start_after in [2_000u64, 5_000, 20_000] {
+            let stats = |every: Option<u64>| {
+                let mut errors: Vec<i64> = Vec::new();
+                let mut unc: Vec<i64> = Vec::new();
+                for seed in 1..=300 {
+                    let (e, u) = run(seed, every, start_after);
+                    errors.push(e);
+                    unc.push(u);
+                }
+                errors.sort_unstable();
+                unc.sort_unstable();
+                let mean = errors.iter().sum::<i64>() / errors.len() as i64;
+                (mean, errors[errors.len() * 95 / 100], unc[unc.len() / 2])
+            };
+            let before = stats(None);
+            let after = stats(Some(crate::LivePolicy::QUIET_PING_V0_MS));
+            eprintln!(
+                "start {start_after} ms after the pick: error mean/p95, median uncertainty (µs): every 10 s {before:?}, a minute and a burst {after:?}"
+            );
+            assert!(after.0 <= before.0 + 500, "{before:?} {after:?}");
+            assert!(after.1 <= before.1 + 1_000, "{before:?} {after:?}");
+        }
     }
 }

@@ -110,7 +110,9 @@ pub fn supported(version: u32) -> bool {
 ///     (`ReadinessPolicy::unready_cancels_countdown`, CPU practice's;
 ///     `CancelReason::ReadyTakenBack`); a member's socket closed 4429
 ///     (the server's fifth socket of one person) an end for that device
-///     (`LinkState::OpenedElsewhere`, "Use this device" to join again).
+///     (`LinkState::OpenedElsewhere`, "Use this device" to join again);
+///     a live room's clock pinged once a minute between stages
+///     (`LivePolicy::quiet_ping_ms`, additive, a burst at each pick).
 pub const ROOM_MODEL_REVISION: u32 = 12;
 
 /// What a client makes of an authority older than itself (never sent by

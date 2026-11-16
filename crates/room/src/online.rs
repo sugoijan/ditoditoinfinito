@@ -460,6 +460,19 @@ impl<T: Transport, C: Clock> OnlineAuthority<T, C> {
     }
 
     fn pump_live(&mut self) {
+        // The room quiet (no stage gathering, counting down or playing):
+        // its clock pinged as its policy says then (round P1b).
+        if let Some(r) = self.mirror.state() {
+            let quiet = !matches!(
+                r.phase,
+                crate::Phase::Preparing { window: Some(_), .. }
+                    | crate::Phase::Countdown { .. }
+                    | crate::Phase::Stage { .. }
+                    | crate::Phase::SongCompletion { .. }
+            );
+            let every = r.policy.live.as_ref().and_then(|l| l.quiet_ping_ms);
+            self.live.set_quiet(quiet, every, self.clock.now().0);
+        }
         let (following, started) = self
             .mirror
             .state()
