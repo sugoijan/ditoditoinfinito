@@ -10916,6 +10916,99 @@ matter at four.
 - The room's screens' drawing pins: Rules (and Add CPU over it) gain the
   row.
 
+### What round N1 left for the model and the server
+
+- **An administrator who comes back is one** (`Event::AdminChanged`,
+  `RoomState::with_owner_admin`; the server passes the session's flag at
+  the room's creation and at each socket's opening, both ways, never a
+  bot's). On a local server: boss (an `ADMIN_TWITCH_IDS` entry) made a
+  room (`owner`, `admin: true`), left, the room passed to the other
+  person, boss came back a `member` with `admin: true`, Connected, and
+  Take pick was accepted (boss the picker).
+- **A song still loading sits out as still loading** (`sit_out_reason`
+  asks loading first); the screens' `sat_out_why` is gone.
+- **A member reconnecting for a moment keeps their place**
+  (`Connection::holds_place`): the lineup counts a ready, loaded member
+  whose connection is Reconnecting (inside the server's grace), and a
+  readiness window does not end early by counting them out. One who is
+  not back when the play starts is a starter who never starts, as today:
+  under live rules a no-show (the room's late join, then a forfeit).
+- Their four tests (`crates/room/tests/n1_proposals.rs`) run, none
+  ignored.
+
+### A reconnect at once (`OnlineAuthority::retry_now`)
+
+`RoomClient::hurry` (a page shown again, a hidden tab's socket that
+closed) brings a waiting reconnect's ticket forward without `restart()`:
+the link reads Reconnecting all along (never Joining for a moment) and its
+attempts count on, so a failure backs off further
+(`a_waiting_reconnect_is_tried_at_once_and_its_backoff_counts_on`,
+`a_page_shown_again_reconnects_at_once`).
+
+### A keep-alive (`KEEPALIVE_V0`, PROVISIONAL)
+
+- **Measured first**: an idle room's socket carries nothing from the
+  room (122 s on a local server: no message at all). From the client, a
+  room that plays live (every hosted room) sends its clock's ping every
+  10 s in every phase once its socket has the room (every 2 s while a
+  stage streams), and the room's object answers each (a request to it);
+  desktop's socket pings at the WebSocket layer after 10 s of silence and
+  closes after 20 s; the audience's seats send `ping` every 30 s. Nothing
+  noticed a socket that died without a close: a web page waited for the
+  browser, which can wait minutes. A hidden tab's timers (once a minute
+  after five minutes in Chrome) slow the clock's pings with it. The
+  likeliest cause of what round N1 saw remains a socket dropped or
+  half-open without a close; it could not be established.
+- **Built**: a member's socket that heard nothing for 20 s sends `ping`;
+  the server's runtime answers `pong` itself (`setWebSocketAutoResponse`
+  in `RoomDO::new`, as the relays': Cloudflare's documentation, "the
+  auto-response will be returned without waking WebSockets in
+  hibernation", and its pricing, auto-responses "will not incur
+  additional wall-clock time, and so they will not be charged"). Nothing
+  heard in 20 s more of the client's own running time (the time between
+  two runs counts 1.5 s at most, so a tab asleep for a minute never takes
+  its socket for dead; it sends its keep-alive when it runs), the socket
+  is closed and replaced as one that closed. In a live room the clock's
+  pings keep the socket heard, so the keep-alive goes out only where
+  those stop: it is what notices a dead one. An audience seat judges its
+  own `ping` the same way. Desktop keeps its WebSocket-layer keep-alive
+  (`Transport::keeps_alive`); its socket can leave it to the room's
+  (`SocketTransport::with_room_keepalive`, used by the test below).
+- **Tested**: over `FakeServer` (`Fault::Silent`, `auto_answered`): two
+  idle minutes, five or six keep-alives each, the room reading none of
+  them; a socket cut silently noticed at 39 to 41 s and replaced by 42 s;
+  a hidden tab woken by the answer or not, ten minutes kept, and cut, it
+  is judged only after 10 to 16 of its runs. On a local server: six
+  `ping`s over two idle minutes answered `pong` without one more
+  `hibernatableWebSocket` span of the room's object; desktop's socket
+  with the room's keep-alive through a proxy, idle 125 s connected (no
+  keep-alive needed: the clock's pings), then cut silently by the proxy
+  (frames swallowed, nothing closed): noticed after 36.2 s, connected
+  again after 36.9 s (`the_rooms_keep_alive_keeps_an_idle_socket_and_replaces_one_cut_silently`,
+  `DDI_ONLINE_PROXY`, `DDI_ONLINE_PROXY_CUT`). Not measured in a browser.
+- **An older server**: one before revision 12 closes a socket on `ping`
+  (4400, a frame it cannot read); a game of revision 12 never opens a
+  socket to an older server (it refuses it, "the server is being
+  updated"), so the pair never meets.
+
+### Checked on a local server
+
+Bots (`--mp-bots --host --guests 2 --cpus 3:6 --stages 1`, the new
+`--shocks N`): a stage at a new room's rules took 10 attacks of 4 shocks
+into the bots' plays ("attack N: taken, 4 shocks" counted on the
+receiving play), at `--shocks 8` 12 attacks of 8; the CPUs computed on
+every device alike.
+
+### For the deploy
+
+Server and frontend together, the server first (`../ddi-server` at its
+revision-12 commit, then the game); people in rooms are told to reload.
+A room open across the deploy plays its running match on with eight
+shocks; its next match takes four. Revision 12 is not final: DDI's score
+may gain a combo part in a round right after this one in the same
+revision (that round would regenerate the CPU fixture and the stage pins
+again).
+
 ## Feedback round O: taking Ready back takes a hold or a second press (2026-11-16)
 
 The maintainer, after playing with 5 to 15 people: "I think it's too easy
