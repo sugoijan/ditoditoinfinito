@@ -87,7 +87,7 @@ enum RoomPage {
     /// A page that opens over a room's song select and comes back to it
     /// (Options and what it opens: Calibrate, a calibration's run, the
     /// announcer studio and its scenes): the room is kept as it was, an
-    /// online one run meanwhile ([`run_over`]), as desktop keeps the
+    /// online one run meanwhile ([`run_kept`]), as desktop keeps the
     /// room's screen under them (review3 web-2, web-3).
     Over,
     /// The room watched with its audience by `link`: its page, or a stage
@@ -208,43 +208,114 @@ fn leave_left_audience(page: &RoomPage) {
 }
 
 thread_local! {
-    /// The timer that runs an online room under a page over it
-    /// ([`run_over`]): such a page draws only when it changes, and the room
-    /// must go on meanwhile.
-    static OVER_PUMP: RefCell<Option<gloo::timers::callback::Interval>> =
+    /// The timer that runs the kept online room where no frame does
+    /// ([`run_kept`]), and the listener that hears the page shown again.
+    static KEPT_PUMP: RefCell<Option<(gloo::timers::callback::Interval, gloo::events::EventListener)>> =
         const { RefCell::new(None) };
+    /// A run of the kept room asked for from an event while the page is
+    /// hidden ([`wake_hidden`]), not yet made.
+    static WAKING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// How often an online room is run under a page over it (ms).
-const OVER_PUMP_MS: u32 = 100;
+/// How often the kept online room is run from its timer (ms; a hidden
+/// page's timers come at the browser's own pace, a second or more apart).
+const KEPT_PUMP_MS: u32 = 100;
 
-/// An online room kept while its member is on a page over it (Options,
-/// Calibrate): run as its song select runs it (review3 web-3), on a timer
-/// of its own while the page is there, so that its picks are prepared and
-/// uploaded and the room hears from it; a stage due meanwhile is told
-/// over the page ([`tell_due`]), and its prompt opens once the member is
-/// back on its song select (as desktop's, whose room screen runs under
-/// Options). On a stage's results too ([`on_results`]): the next stage's
-/// song is prepared while its member is still there, and the results
-/// tell them it is due themselves (`ddi_ui`'s `results_stage.rs`).
-fn run_over(page: &RoomPage) {
-    let wanted = matches!(page, RoomPage::Over | RoomPage::Stage)
+/// Whether the page is hidden (a tab in the background, a minimized
+/// window): the browser draws no frame for it and slows its timers.
+fn page_hidden() -> bool {
+    web_sys::window()
+        .and_then(|w| w.document())
+        .is_some_and(|d| d.hidden())
+}
+
+/// An online room kept is run from a timer of its own wherever no frame
+/// runs it, so that its picks are prepared and uploaded and the room hears
+/// from it:
+///
+/// - while its member is on a page over it (Options, Calibrate: review3
+///   web-3), which draws only when it changes; a stage due meanwhile is
+///   told over the page ([`tell_due`]), and its prompt opens once the
+///   member is back on its song select (as desktop's, whose room screen
+///   runs under Options);
+/// - on a stage's results ([`on_results`]): the next stage's song is
+///   prepared while its member is still there, and the results tell them
+///   it is due themselves (`ddi_ui`'s `results_stage.rs`);
+/// - on any of its pages while the page is hidden (feedback round N1): a
+///   browser stops a hidden page's frames, so nothing ran the room there:
+///   a pick was never loaded (the room waited its whole loading grace for
+///   the member and started without them) and a socket that dropped was
+///   never opened again (the room counted the member away). A hidden
+///   page's timers still come, a second apart or more, and what the
+///   socket and the server's answers bring wakes it at once
+///   ([`wake_hidden`]).
+fn run_kept(page: &RoomPage) {
+    let wanted = matches!(page, RoomPage::Online(_) | RoomPage::Over | RoomPage::Stage)
         && crate::online::kept_room().is_some();
-    OVER_PUMP.with_borrow_mut(|timer| {
+    KEPT_PUMP.with_borrow_mut(|pump| {
         if !wanted {
-            *timer = None;
-        } else if timer.is_none() {
+            *pump = None;
+        } else if pump.is_none()
+            && let Some(document) = web_sys::window().and_then(|w| w.document())
+        {
             // (Stopped by the next page's first frame, never from inside
             // its own call.)
-            *timer = Some(gloo::timers::callback::Interval::new(OVER_PUMP_MS, || {
-                match room_page() {
-                    RoomPage::Over => pump_kept(true),
-                    RoomPage::Stage if on_results() => pump_kept(false),
-                    _ => {}
+            let timer = gloo::timers::callback::Interval::new(KEPT_PUMP_MS, || match room_page() {
+                RoomPage::Over => pump_kept(true),
+                RoomPage::Stage if on_results() => pump_kept(false),
+                RoomPage::Online(_) | RoomPage::Stage if page_hidden() => pump_kept(false),
+                _ => {}
+            });
+            let shown = gloo::events::EventListener::new(&document, "visibilitychange", |_| {
+                if !page_hidden() {
+                    shown_again();
                 }
-            }));
+            });
+            *pump = Some((timer, shown));
         }
     });
+}
+
+/// Something came for the kept online room (a message on its socket, its
+/// socket's close, a request's answer) while the page is hidden: the room
+/// is run now, not at the hidden page's next timer, which may be a minute
+/// away (Chrome, after five minutes hidden). A socket that closed is
+/// opened again at once ([`RoomClient::hurry`]: the reconnect's first wait
+/// would be a timer's).
+pub(crate) fn wake_hidden() {
+    if !page_hidden() || crate::online::kept_room().is_none() || WAKING.replace(true) {
+        return;
+    }
+    wasm_bindgen_futures::spawn_local(async {
+        WAKING.set(false);
+        if !page_hidden() || !matches!(room_page(), RoomPage::Online(_) | RoomPage::Over | RoomPage::Stage) {
+            return;
+        }
+        pump_kept(false);
+        hurry_kept();
+    });
+}
+
+/// The page is shown again: the kept room run at once, and a reconnect
+/// that waits (a wait reckoned while the page stood still) tried now.
+fn shown_again() {
+    if !matches!(room_page(), RoomPage::Online(_) | RoomPage::Over | RoomPage::Stage) {
+        return;
+    }
+    pump_kept(false);
+    hurry_kept();
+}
+
+/// The kept room's reconnect tried now where one waits, and the room run
+/// once more so that its ticket is asked for.
+fn hurry_kept() {
+    let Some(room) = crate::online::kept_room() else {
+        return;
+    };
+    let hurried = room.try_borrow_mut().is_ok_and(|mut r| r.hurry());
+    if hurried {
+        pump_kept(false);
+    }
 }
 
 /// On a stage's page with its play over (its outcome reported, or its
@@ -322,7 +393,7 @@ pub(crate) fn sync_unload_guard() {
     forget_left_practice(&page);
     leave_left_online(&page);
     leave_left_audience(&page);
-    run_over(&page);
+    run_kept(&page);
     // And while the chart editor has unsaved changes on its page.
     let want = leaving_costs(&page) || crate::editor::unsaved_here();
     UNLOAD_GUARD.with_borrow_mut(|guard| {

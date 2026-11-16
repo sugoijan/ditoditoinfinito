@@ -55,7 +55,7 @@ fn a_reloaded_rooms_page_knows_who_it_is() {
 
 /// Alice picks the room's song and Bob follows; both have it and their
 /// prompts are handed over. The stage's id.
-fn picked_and_prompted(
+pub(super) fn picked_and_prompted(
     clock: &ManualClock,
     server: &SharedFake,
     alice: &mut crate::state::room::RoomClient,

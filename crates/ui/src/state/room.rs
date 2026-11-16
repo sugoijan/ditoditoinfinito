@@ -2437,6 +2437,17 @@ impl RoomClient {
         self.picks.get(content)
     }
 
+    /// An online room's reconnect that waits out its backoff tries now
+    /// (`OnlineLink::hurry`: the shell's page shown again, or its socket
+    /// closed where its timers cannot be trusted). Whether one waited.
+    pub fn hurry(&mut self) -> bool {
+        let hurried = self.online_link_mut().is_some_and(OnlineLink::hurry);
+        if hurried {
+            self.version += 1;
+        }
+        hurried
+    }
+
     /// Time passes (milliseconds on the shell's clock, never backwards):
     /// the authority's deadlines and countdowns due by now happen.
     pub fn tick(&mut self, now_ms: u64) {
@@ -3271,6 +3282,26 @@ impl RoomClient {
             return;
         }
         self.offered.clear();
+        // Away past the room's patience, the room forgot what this member
+        // had loaded of its stages not yet started (`ddi_room`'s
+        // `drop_prep`): each such stage is prepared and reported again by
+        // the next `sync_online` (feedback round N1: it never was, the
+        // room showed the member Loading for good and they sat the stage
+        // out).
+        let me = self.me;
+        let forgotten: Vec<(StageId, u32)> = self
+            .stages()
+            .iter()
+            .filter(|st| st.play.is_none() && st.prep(me).loading == Loading::NotStarted)
+            .map(|st| (st.id, st.readiness_rev))
+            .collect();
+        for key in forgotten {
+            // (One whose Loaded only waits for the room's battle plan
+            // reports it by itself, `sync_live`.)
+            if !self.preparing.contains_key(&key.0) {
+                self.asked.remove(&key);
+            }
+        }
         let again: Vec<(StageId, i64, Option<ddi_room::live::plan::PlanDigest>)> = self
             .live_preps
             .iter()

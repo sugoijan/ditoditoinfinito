@@ -332,6 +332,26 @@ impl OnlineLink {
         changed
     }
 
+    /// A reconnect that waits out its backoff tries now: the shell's page
+    /// is shown again (the wait was reckoned while it stood still), or its
+    /// socket closed while its timers cannot be trusted (a hidden tab's).
+    /// Whether one was waiting. The link reads Joining until the socket
+    /// has the room again; a failure from here backs off as ever.
+    ///
+    /// (`OnlineAuthority::restart` is the room crate's only way to ask
+    /// for a ticket now; nothing of the room it mirrors is forgotten and
+    /// what was not answered is sent again.)
+    pub fn hurry(&mut self) -> bool {
+        let waiting = matches!(self.authority.link(), LinkState::Reconnecting { .. })
+            && self.ticket_req.is_none()
+            && self.authority.ticket_due().is_some()
+            && !self.authority.wants_ticket();
+        if waiting {
+            self.authority.restart();
+        }
+        waiting
+    }
+
     fn take(&self, req: Option<u64>) -> Option<ApiResponse> {
         self.online.borrow_mut().take_answer(req?)
     }
