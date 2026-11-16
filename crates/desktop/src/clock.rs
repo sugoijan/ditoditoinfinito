@@ -22,10 +22,47 @@ pub fn epoch_ms() -> f64 {
         .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
 }
 
-/// Whole milliseconds since the Unix epoch (0 before it): the rooms'
-/// wall clock.
+/// The rooms' clock (round P1b): whole milliseconds on the wall clock's
+/// scale that never go backwards (`ddi_platform::steady`): the wall clock
+/// at the first reading, run on by [`running_ms`], which counts on while
+/// the computer sleeps, so a wall clock set back or forward never stalls
+/// nor skips a room's countdown, its reconnect waits or a live stage.
+/// Rooms are made, ticked (the UI's `set_wall_ms`, [`UiClock`]) and read
+/// by a live play on it. A date (a play's, an autosave's) is
+/// [`epoch_ms`]'s.
 pub fn now_ms() -> u64 {
-    epoch_ms().max(0.0) as u64
+    static STEADY: std::sync::Mutex<ddi_platform::steady::SteadyClock> =
+        std::sync::Mutex::new(ddi_platform::steady::SteadyClock::new());
+    let (wall, running) = (epoch_ms(), running_ms());
+    STEADY
+        .lock()
+        .map_or(wall.max(0.0) as u64, |mut s| s.read(wall, running))
+}
+
+/// A monotonic clock that counts on while the computer sleeps, ms from an
+/// unspecified origin (unlike [`now`]'s host clock, which stands still
+/// then on macOS and Linux): `CLOCK_MONOTONIC` on macOS (Apple's: it
+/// "will continue to increment while the system is asleep"),
+/// `CLOCK_BOOTTIME` on Linux and Android, `CLOCK_MONOTONIC` on other
+/// Unix systems, and the standard library's `Instant` elsewhere (on
+/// Windows `QueryPerformanceCounter`, which counts through sleep).
+pub fn running_ms() -> f64 {
+    #[cfg(unix)]
+    {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let id = libc::CLOCK_BOOTTIME;
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        let id = libc::CLOCK_MONOTONIC;
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: `ts` is a valid, writable timespec for the call.
+        if unsafe { libc::clock_gettime(id, &mut ts) } == 0 {
+            return ts.tv_sec as f64 * 1000.0 + ts.tv_nsec as f64 / 1e6;
+        }
+    }
+    Instant::now().saturating_duration_since(epoch()).as_secs_f64() * 1000.0
 }
 
 /// Nanoseconds since the epoch, now.

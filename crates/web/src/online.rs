@@ -222,8 +222,9 @@ fn stage_audio(in_gesture: bool) -> Option<WebAudio> {
     Some(audio)
 }
 
+/// The rooms' steady clock (`crate::room::now_ms`).
 fn now_ms() -> u64 {
-    js_sys::Date::now().max(0.0) as u64
+    crate::room::now_ms()
 }
 
 /// The game's page, where invite links open.

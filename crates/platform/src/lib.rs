@@ -171,6 +171,7 @@ pub mod mp3;
 pub mod ogg_opus;
 #[cfg(feature = "opus")]
 pub mod opus;
+pub mod steady;
 pub mod storage;
 pub mod video;
 pub mod wav;

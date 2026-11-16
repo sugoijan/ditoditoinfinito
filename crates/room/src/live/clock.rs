@@ -78,6 +78,9 @@ pub struct ClockEstimator {
     samples: VecDeque<Sample>,
     max_samples: usize,
     max_age_us: i64,
+    /// The last exchange, where it disagreed with the estimate beyond
+    /// what its round trip explains (a step, if the next agrees with it).
+    stepped: Option<Sample>,
 }
 
 impl Default for ClockEstimator {
@@ -89,12 +92,16 @@ impl Default for ClockEstimator {
 impl ClockEstimator {
     /// How many of the lowest round trips the estimate takes the median of.
     pub const BEST: usize = 3;
+    /// How far beyond what the estimate and an exchange's round trip
+    /// allow an exchange's offset says one of the clocks stepped (µs).
+    pub const STEP_US: i64 = 250_000;
 
     pub fn new() -> Self {
         Self {
             samples: VecDeque::new(),
             max_samples: 32,
             max_age_us: 60_000_000,
+            stepped: None,
         }
     }
 
@@ -107,11 +114,39 @@ impl ClockEstimator {
             return false;
         }
         let offset_us = room_us - (sent_us + rtt_us / 2);
-        self.samples.push_back(Sample {
+        let sample = Sample {
             at_us: received_us,
             offset_us,
             rtt_us,
+        };
+        // One of the two clocks stepped (round P1b: a browser's monotonic
+        // clock may stand still while the computer sleeps; a server's set
+        // right): two exchanges in a row whose offsets no round trip can
+        // explain beside the estimate's own bounds, and that agree with
+        // each other, start it over, rather than the median mixing offsets
+        // from before and after the step for a minute. One such exchange
+        // alone is left out by the median as ever.
+        let off = self.estimate().is_some_and(|e| {
+            (offset_us - e.offset_us).abs() > e.uncertainty_us + rtt_us / 2 + Self::STEP_US
         });
+        let step = match (off, self.stepped.take()) {
+            (true, Some(prev))
+                if (offset_us - prev.offset_us).abs()
+                    <= (rtt_us + prev.rtt_us) / 2 + Self::STEP_US =>
+            {
+                Some(prev)
+            }
+            (true, _) => {
+                self.stepped = Some(sample);
+                None
+            }
+            (false, _) => None,
+        };
+        if let Some(prev) = step {
+            self.samples.clear();
+            self.samples.push_back(prev);
+        }
+        self.samples.push_back(sample);
         while self.samples.len() > self.max_samples {
             self.samples.pop_front();
         }
@@ -274,5 +309,36 @@ mod tests {
         assert_eq!(e.offset_us, 50_000_000);
         assert_eq!(e.room_us(1_000_000), 51_000_000);
         assert_eq!(e.local_us(51_000_000), 1_000_000);
+    }
+
+    /// Round P1b: the device's clock stood still for a minute (a browser's
+    /// monotonic clock while the computer slept): the second exchange
+    /// after it that agrees with the first starts the estimate over, and
+    /// the estimate is right at once, where the median of the minute's
+    /// exchanges kept the old offset.
+    #[test]
+    fn a_step_of_the_clocks_starts_the_estimate_over() {
+        let mut est = ClockEstimator::new();
+        let truth = 5_000_000;
+        let mut local = 1_000_000i64;
+        for _ in 0..6 {
+            est.sample_us(local, local + 40_000, local + 20_000 + truth);
+            local += 10_000_000;
+        }
+        assert_eq!(est.estimate().unwrap().offset_us, truth);
+        // A minute asleep, the device's clock still: the room's ran on.
+        let truth = truth + 60_000_000;
+        est.sample_us(local, local + 60_000, local + 30_000 + truth);
+        assert_eq!(est.estimate().unwrap().offset_us, truth - 60_000_000, "one alone");
+        local += 100_000;
+        est.sample_us(local, local + 50_000, local + 25_000 + truth);
+        let e = est.estimate().unwrap();
+        assert_eq!((e.offset_us, e.samples), (truth, 2));
+        // An exchange held long on one way is no step (its round trip
+        // explains it).
+        local += 10_000_000;
+        est.sample_us(local, local + 3_000_000, local + 2_990_000 + truth);
+        assert_eq!(est.estimate().unwrap().samples, 3);
+        assert_eq!(est.estimate().unwrap().offset_us, truth);
     }
 }

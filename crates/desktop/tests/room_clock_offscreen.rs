@@ -117,24 +117,29 @@ fn a_practice_countdown_ends_on_the_ui_frames_after_a_sleep() {
 
 /// The gap list's seventh: the wall clock steps back (a correction by
 /// the network's time, a clock set by hand) while a practice room counts
-/// a stage down. Nothing pinned what a room then does. No GPU needed:
-/// the room is readied as a prompt's Ready readies it.
-///
-/// IGNORED: it fails, and that is the finding. `RoomClient::tick` moves
-/// its clock only forward, so after the wall clock is set back a minute
-/// the countdown stands still for that minute (an online link's
-/// reconnect wait the same). The fix is not a line: the rooms, the
-/// screens' ticks and a live play's clock all read the wall clock
-/// (review3 desktop-1), so a room that went on from where it was would
-/// run ahead of what a live stage's clock reads; they have to move to
-/// one clock that never goes back together (taken in `RoomClient::tick`
-/// alone it also counted two callers' clocks a frame apart, or a test's
-/// two clocks, as steps back: tried, two screens' tests failed). Whether
-/// a minute's stall after a clock correction is accepted is the
-/// maintainer's call; run with `--ignored` to see it.
+/// a stage down. It was ignored as a finding (the countdown stood still
+/// for as long as the clock went back: the rooms ran on the wall clock,
+/// `RoomClient::tick` moving only forward); since round P1b (the
+/// maintainer's of 2026-11-16) the rooms, the screens' ticks and a live
+/// play run on one steady clock (`ddi_desktop::clock::now_ms`,
+/// `ddi_platform::steady`), and it ends as ever. No GPU needed: the room
+/// is readied as a prompt's Ready readies it.
 #[test]
-#[ignore = "a room's countdown stands still after the wall clock steps back: reported, not fixed"]
 fn a_practice_countdown_still_ends_after_the_wall_clock_steps_back() {
+    countdown_after_a_step(-60_000);
+}
+
+/// Round P1b: the wall clock steps forward a minute mid-countdown: the
+/// countdown neither ends at once nor late, but on its three seconds.
+#[test]
+fn a_practice_countdown_ends_on_time_after_the_wall_clock_steps_forward() {
+    countdown_after_a_step(60_000);
+}
+
+/// A practice room's countdown with the wall clock stepped by `step_ms`
+/// half a second in: the stage starts after the rest of the countdown,
+/// not a frame before and not much after.
+fn countdown_after_a_step(step_ms: i64) {
     common::indexes();
     let (mut ui, env) = common::ui::theme("start", common::ui::lowercase(), SIZE, true);
     let mut host = Host::new(Default::default(), None);
@@ -153,19 +158,33 @@ fn a_practice_countdown_still_ends_after_the_wall_clock_steps_back() {
     room.borrow_mut().set_ready(true).expect("ready");
     clock.frame(&mut ui, 0.05);
     assert!(room.borrow().ready());
-    // A minute back, mid-countdown.
-    clock.wall_ms -= 60_000;
+    let start_at = match room.borrow().state().phase {
+        ddi_room::Phase::Countdown { start_at, .. } => start_at.0,
+        ref p => panic!("counting down: {p:?}"),
+    };
+    let steady = |clock: &mut ShellClock| clock.steady_ms();
+    for _ in 0..10 {
+        clock.frame(&mut ui, 0.05);
+    }
+    // The step, mid-countdown.
+    clock.wall_ms = (clock.wall_ms as i64 + step_ms) as u64;
+    let mut started_at = None;
     for _ in 0..100 {
         clock.frame(&mut ui, 0.05);
         if room.borrow().state().phase.kind() == ddi_room::PhaseKind::Stage {
+            started_at = Some(steady(&mut clock));
             break;
         }
     }
-    assert_eq!(
-        room.borrow().state().phase.kind(),
-        ddi_room::PhaseKind::Stage,
-        "five seconds of frames after the clock stepped back: room at {} ms, wall {} ms",
-        room.borrow().now_ms(),
-        clock.wall_ms
+    let started_at = started_at.unwrap_or_else(|| {
+        panic!(
+            "five seconds of frames after the clock stepped {step_ms} ms: room at {} ms, wall {} ms",
+            room.borrow().now_ms(),
+            clock.wall_ms
+        )
+    });
+    assert!(
+        started_at >= start_at && started_at < start_at + 100,
+        "started at {started_at}, due {start_at} (stepped {step_ms} ms)"
     );
 }

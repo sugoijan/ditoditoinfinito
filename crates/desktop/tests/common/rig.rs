@@ -382,16 +382,23 @@ impl Rig {
 }
 
 /// The window's clocks as `Shell::redraw` sets them on the UI
-/// (`ddi_desktop::clock::UiClock`): the host clock and the wall clock
+/// (`ddi_desktop::clock::UiClock`): the host clock and the system's clocks
 /// moving on together frame by frame, and apart across a sleep (the host
 /// clock, an `Instant`, stands still while the computer sleeps; the wall
-/// clock does not).
+/// clock and the monotonic clock the rooms run on do not) or a step of
+/// the wall clock (set back or forward: only the wall clock moves). The
+/// rooms' time is the wall clock's at the first frame run on by the
+/// monotonic clock (`ddi_platform::steady::SteadyClock`, as
+/// `ddi_desktop::clock::now_ms` reads it, round P1b).
 pub struct ShellClock {
     pub ui_clock: ddi_desktop::clock::UiClock,
     /// Host time, seconds.
     pub host: f64,
-    /// Wall clock, ms since the epoch.
+    /// The system's wall clock, ms since the epoch.
     pub wall_ms: u64,
+    /// The system's monotonic clock that counts through sleep, ms.
+    pub running_ms: f64,
+    steady: ddi_platform::steady::SteadyClock,
 }
 
 impl ShellClock {
@@ -401,21 +408,32 @@ impl ShellClock {
             ui_clock: ddi_desktop::clock::UiClock::default(),
             host: 1.0,
             wall_ms: ddi_desktop::clock::now_ms(),
+            running_ms: 0.0,
+            steady: ddi_platform::steady::SteadyClock::new(),
         }
     }
 
-    /// One frame `dt` seconds after the last: both clocks on, set on the
+    /// The rooms' time now, as the window reads it.
+    pub fn steady_ms(&mut self) -> u64 {
+        self.steady.read(self.wall_ms as f64, self.running_ms)
+    }
+
+    /// One frame `dt` seconds after the last: the clocks on, set on the
     /// UI as the window sets them, then its update.
     pub fn frame(&mut self, ui: &mut Ui, dt: f64) {
         self.host += dt;
-        self.wall_ms += (dt * 1000.0).round() as u64;
-        self.ui_clock.frame(ui, self.host, self.wall_ms);
+        let ms = (dt * 1000.0).round();
+        self.wall_ms += ms as u64;
+        self.running_ms += ms;
+        let steady = self.steady_ms();
+        self.ui_clock.frame(ui, self.host, steady);
         ui.update(dt as f32);
     }
 
-    /// The computer asleep `seconds`: the wall clock moves on, the host
-    /// clock does not.
+    /// The computer asleep `seconds`: the wall clock and the monotonic
+    /// one move on, the host clock does not.
     pub fn sleep(&mut self, seconds: u64) {
         self.wall_ms += seconds * 1000;
+        self.running_ms += (seconds * 1000) as f64;
     }
 }

@@ -567,10 +567,25 @@ pub(crate) fn prompt_room() -> (SharedRoom, ddi_ui::screens::room::RoomShell) {
     (room, shell)
 }
 
-/// Milliseconds since the epoch: the rooms' clock, which the screens tick
-/// them on too (`ddi_ui::Ui::set_wall_ms`, set each frame by `crate::ui_host`).
+/// The rooms' clock (round P1b, `ddi_platform::steady`), which the
+/// screens tick them on too (`ddi_ui::Ui::set_wall_ms`, set each frame by
+/// `crate::ui_host`) and a live play reads: the page's time origin plus
+/// `performance.now()`, ms on the wall clock's scale that never go
+/// backwards, so a device's clock set back or forward (a network time
+/// correction, a clock set by hand) never stalls nor skips a countdown.
+/// A browser may stop it while the computer sleeps: a practice room's
+/// countdown then goes on where it stood, and an online room's clock
+/// estimate takes the step at its next ping (`ddi_room::live::clock`).
+/// Dates (a play's, an import's) stay `Date.now()`'s.
 pub(crate) fn now_ms() -> u64 {
-    js_sys::Date::now().max(0.0) as u64
+    thread_local! {
+        static STEADY: std::cell::RefCell<ddi_platform::steady::SteadyClock> =
+            std::cell::RefCell::default();
+    }
+    let p = web_sys::window().and_then(|w| w.performance());
+    let (origin, running) = p.map_or((js_sys::Date::now(), 0.0), |p| (p.time_origin(), p.now()));
+    // (Anchored at the page's time origin: its wall time at the start.)
+    STEADY.with_borrow_mut(|s| s.read(origin + running, running))
 }
 
 /// The session's practice room, made at first.

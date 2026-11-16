@@ -265,3 +265,83 @@ fn countdown_seconds_are_counted_on_the_rooms_clock() {
     assert_eq!(seconds_left(&alice), Some(10));
     assert_eq!(seconds_left(&bob), seconds_left(&alice), "the fast device's");
 }
+
+/// Round P1b (the maintainer's of 2026-11-16: one steady clock): an
+/// online room's countdown to a stage, with one device's wall clock set
+/// back a minute (and, the second time, forward a minute) mid-countdown.
+/// The device ticked on the shells' steady clock
+/// (`ddi_platform::steady::SteadyClock`: the wall clock once, then a
+/// monotonic one) reads the song's start coming on time and starts the
+/// stage with the others; one ticked on the wall clock itself, as the
+/// rooms were before, stands still for the minute set back (its song
+/// zero never comes); set forward, its estimate of the room's clock takes
+/// the step at its next pings.
+#[test]
+fn an_online_countdown_ends_on_time_whatever_a_devices_wall_clock_does() {
+    use super::tests::room::{prepare, song, upload};
+    use ddi_platform::steady::SteadyClock;
+    for step_ms in [-60_000i64, 60_000] {
+        let clock = ManualClock::new(1_000);
+        let server = room_with(&clock, &["bob", "carol"], RoomPolicy::default().with_live());
+        let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+        let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+        let mut carol = client(&server, person(&server, "carol"), "carol", 1_000);
+        // Bob's and Carol's wall clock (the server's, then stepped), and
+        // Bob's steady clock over it and the time running.
+        let mut steady = SteadyClock::new();
+        let mut stepped = 0i64;
+        let mut run = |alice: &mut RoomClient, bob: &mut RoomClient, carol: &mut RoomClient, ms: u64, stepped: i64| {
+            for _ in 0..ms / 10 {
+                clock.advance(10);
+                let now = clock.now().0;
+                let wall = (now as i64 + stepped) as u64;
+                alice.tick(now);
+                bob.tick(steady.read(wall as f64, now as f64));
+                carol.tick(wall);
+            }
+        };
+        run(&mut alice, &mut bob, &mut carol, 1_000, stepped);
+        let s = song();
+        alice.pick(&s, &s.charts[0]).unwrap();
+        run(&mut alice, &mut bob, &mut carol, 400, stepped);
+        upload(&server, &mut alice, "abc12345");
+        run(&mut alice, &mut bob, &mut carol, 400, stepped);
+        for r in [&mut alice, &mut bob, &mut carol] {
+            prepare(r);
+        }
+        run(&mut alice, &mut bob, &mut carol, 400, stepped);
+        for r in [&mut alice, &mut bob, &mut carol] {
+            r.set_ready(true).unwrap();
+        }
+        run(&mut alice, &mut bob, &mut carol, 400, stepped);
+        let stage = match server.borrow().state().phase {
+            ddi_room::Phase::Countdown { stage, .. } => stage,
+            ref p => panic!("counting down: {p:?}"),
+        };
+        let before = bob.song_zero_in(stage).expect("bob's song zero");
+        // The step, mid-countdown.
+        stepped = step_ms;
+        run(&mut alice, &mut bob, &mut carol, 1_000, stepped);
+        let after = bob.song_zero_in(stage).unwrap();
+        assert!(
+            (before - after - 1.0).abs() < 0.05,
+            "{step_ms}: bob's song zero in {before} s, a second later {after} s"
+        );
+        let alices = alice.song_zero_in(stage).unwrap();
+        assert!((after - alices).abs() < 0.05, "{step_ms}: bob {after} alice {alices}");
+        let carols = carol.song_zero_in(stage).unwrap();
+        if step_ms < 0 {
+            assert!(carols > before - 0.05, "{step_ms}: carol's stood still: {carols}");
+        } else {
+            // Set forward, her clock's estimate of the room's takes the
+            // step at its second ping after it (`ClockEstimator`'s step,
+            // round P1b), so her song's start is where it was.
+            assert!((carols - after).abs() < 0.1, "{step_ms}: carol {carols} bob {after}");
+        }
+        // Bob's stage starts with Alice's.
+        run(&mut alice, &mut bob, &mut carol, (after * 1000.0) as u64 + 2_000, stepped);
+        assert!(alice.stage_started(stage) && bob.stage_started(stage), "{step_ms}");
+        let (a, b) = (alice.song_zero_in(stage).unwrap(), bob.song_zero_in(stage).unwrap());
+        assert!((a - b).abs() < 0.05, "{step_ms}: alice {a} bob {b}");
+    }
+}

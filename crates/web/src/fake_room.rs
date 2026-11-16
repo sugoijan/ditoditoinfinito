@@ -56,8 +56,9 @@ pub(crate) fn on() -> bool {
     WANTED.get().is_some()
 }
 
+/// The rooms' steady clock (`crate::room::now_ms`).
 fn now_ms() -> u64 {
-    js_sys::Date::now().max(0.0) as u64
+    crate::room::now_ms()
 }
 
 struct Fake {

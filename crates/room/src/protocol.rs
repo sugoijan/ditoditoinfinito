@@ -112,7 +112,10 @@ pub fn supported(version: u32) -> bool {
 ///     (the server's fifth socket of one person) an end for that device
 ///     (`LinkState::OpenedElsewhere`, "Use this device" to join again);
 ///     a live room's clock pinged once a minute between stages
-///     (`LivePolicy::quiet_ping_ms`, additive, a burst at each pick).
+///     (`LivePolicy::quiet_ping_ms`, additive, a burst at each pick);
+///     the clock's estimate starting over after a step of either clock
+///     (two agreeing exchanges, `ClockEstimator::STEP_US`), the devices'
+///     rooms run on one steady clock (`ddi_platform::steady`).
 pub const ROOM_MODEL_REVISION: u32 = 12;
 
 /// What a client makes of an authority older than itself (never sent by
