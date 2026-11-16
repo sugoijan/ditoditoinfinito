@@ -1341,6 +1341,97 @@ fn not_ready_in_time_sits_out_and_the_prompt_goes_back() {
     assert!(!seen.borrow().contains(&PromptChoice::Start));
 }
 
+/// Round P1b: an online room's committed start is past taking Ready
+/// back, and its prompt says so: during the countdown the button says
+/// "Starting…" (never "Cancel ready"), no hint says how to cancel, and
+/// Enter twice asks the room nothing (no refusal on the status line).
+#[test]
+fn an_online_rooms_countdown_says_starting_and_offers_no_cancel() {
+    use crate::state::online::tests::room::{client, person, prepare, song, tick};
+    use ddi_room::fake::FakeServer;
+    use ddi_room::{Identity, Intent, ManualClock, RoomPolicy};
+    let clock = ManualClock::new(1_000);
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy::default(),
+        clock.clone(),
+    )
+    .shared();
+    server
+        .borrow_mut()
+        .join(Identity::new("dev:bob"), "bob", Intent::Play)
+        .unwrap();
+    let alice = Rc::new(RefCell::new(client(
+        &server,
+        person(&server, "alice"),
+        "alice",
+        1_000,
+    )));
+    let bob = Rc::new(RefCell::new(client(
+        &server,
+        person(&server, "bob"),
+        "bob",
+        1_000,
+    )));
+    let step = |ms: u64| {
+        tick(
+            &clock,
+            &mut [&mut alice.borrow_mut(), &mut bob.borrow_mut()],
+            ms,
+        )
+    };
+    step(400);
+    let s = song();
+    alice.borrow_mut().pick(&s, &s.charts[0]).unwrap();
+    step(400);
+    crate::state::online::tests::room::upload(&server, &mut alice.borrow_mut(), "abc12345");
+    step(400);
+    for r in [&alice, &bob] {
+        prepare(&mut r.borrow_mut());
+    }
+    step(400);
+    let order = bob.borrow_mut().take_stage_order().unwrap();
+    let orders = Orders::default();
+    let mut hb = harness();
+    hb.push(
+        PromptScreen::new(
+            env(),
+            Rc::new(RefCell::new(PromptState::default())),
+            Rc::new(|_, _| {}),
+        )
+        .with_room(bob.clone(), order.stage, shell(&bob, &orders)),
+    );
+    hb.run(0.3);
+    hb.key("Enter", "Enter");
+    hb.run(0.2);
+    assert!(bob.borrow().ready());
+    assert!(has(&hb, "Cancel ready"), "{:?}", hb.texts());
+    assert!(hb.ui.visible_bounds("Room.UnreadyHint").is_some());
+    alice.borrow_mut().set_ready(true).unwrap();
+    step(200);
+    hb.run(0.3);
+    assert_eq!(
+        bob.borrow().state().phase.kind(),
+        ddi_room::PhaseKind::Countdown
+    );
+    assert!(!bob.borrow().may_take_ready_back());
+    assert!(has(&hb, "Starting…"), "{:?}", hb.texts());
+    assert!(!has(&hb, "Cancel ready"), "{:?}", hb.texts());
+    assert!(hb.ui.visible_bounds("Room.UnreadyHint").is_none());
+    for _ in 0..2 {
+        hb.key("Enter", "Enter");
+        hb.run(0.1);
+    }
+    assert!(bob.borrow().refusal().is_none(), "nothing asked of the room");
+    assert!(bob.borrow().ready());
+    assert_eq!(
+        bob.borrow().state().phase.kind(),
+        ddi_room::PhaseKind::Countdown
+    );
+}
+
 /// Stages reported as a stage runner does: back on song select the
 /// stage's standings pop up once, Continue, the next pick; after the
 /// last, the match's results, and a pick opens the next match.

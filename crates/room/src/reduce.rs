@@ -402,6 +402,13 @@ impl RoomState {
                 if self.members[&id].intent != Intent::Play {
                     return Err(Rejection::NotPlaying);
                 }
+                if !*ready
+                    && self.policy.readiness.unready_cancels_countdown
+                    && let Phase::Countdown { stage: c, .. } = self.phase
+                    && c == *stage
+                {
+                    return self.take_back_countdown(id, *stage, *readiness_rev, now, out);
+                }
                 self.check_preparing(id, *stage, *readiness_rev)?;
                 let s = self.stage(*stage).ok_or(Rejection::UnknownStage)?;
                 if s.content.is_none() {
@@ -1421,6 +1428,54 @@ impl RoomState {
                 },
             },
         );
+    }
+
+    /// [`Command::SetReady`] `false` from a starter during the countdown,
+    /// where the policy lets it cancel the start (CPU practice, round
+    /// P1b): the start canceled, a window opened again from `now`, the
+    /// starter not ready in it.
+    fn take_back_countdown(
+        &mut self,
+        id: ParticipantId,
+        stage: StageId,
+        readiness_rev: u32,
+        now: Millis,
+        out: &mut Vec<Event>,
+    ) -> Decided {
+        let s = self.stage(stage).ok_or(Rejection::UnknownStage)?;
+        if s.readiness_rev != readiness_rev {
+            return Err(Rejection::StaleReadiness {
+                current: s.readiness_rev,
+            });
+        }
+        if !s.play.as_ref().is_some_and(|p| p.lineup.contains(&id)) {
+            return Err(Rejection::StartCommitted);
+        }
+        self.emit(
+            out,
+            Event::StartCanceled {
+                stage,
+                reason: CancelReason::ReadyTakenBack,
+            },
+        );
+        self.emit(
+            out,
+            Event::PhaseChanged {
+                phase: Phase::Preparing {
+                    stage,
+                    window: Some(self.window_from(now, readiness_rev)),
+                },
+            },
+        );
+        self.emit(
+            out,
+            Event::ReadyChanged {
+                stage,
+                participant: id,
+                ready: false,
+            },
+        );
+        Ok(())
     }
 
     /// A committed starter leaving or disconnecting before the start

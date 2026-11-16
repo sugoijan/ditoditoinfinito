@@ -106,6 +106,9 @@ impl<C: Clock> LocalAuthority<C> {
         let mut policy = policy;
         policy.readiness.loading_grace_ms = 0;
         policy.readiness.id = crate::rules::ReadinessPolicy::HOSTED_DEADLINE_V1.into();
+        // Alone with the CPUs, the player's Ready starts the countdown at
+        // once: taking it back cancels it (round P1b).
+        policy.readiness.unready_cancels_countdown = true;
         let state = RoomState::new(
             RoomId::new("practice"),
             Identity::new(Self::PRACTICE_CLIENT),

@@ -17,7 +17,6 @@ use crate::gesture::{CANCEL_DOUBLE_TAP, CANCEL_HINT, CANCEL_HOLD};
 use crate::state::room::{RoomClient, SharedRoom};
 use crate::testing::Harness;
 use crate::{MenuAction, PointerKind, PointerPhase};
-use ddi_room::Phase;
 
 /// What the prompt told its shell, and whether inside a gesture.
 type Seen = Rc<RefCell<Vec<(PromptChoice, bool)>>>;
@@ -471,34 +470,40 @@ fn under_reduced_motion_the_hold_takes_as_long_and_the_fill_steps() {
 }
 
 /// Everyone ready (alone with the CPUs, the song loaded): the room counts
-/// the start down. Cancel ready, done by the gesture, is refused then as
-/// it always was (the status line says so: the start is committed); Back, done by the gesture,
-/// leaves as it always did; one press of either does nothing.
+/// the start down. Round P1b (the maintainer's of 2026-11-16): in CPU
+/// practice Cancel ready, done by the gesture, cancels the countdown and
+/// the player is not ready again in a window opened again (it was refused
+/// before, so that it could never work there); readying again counts down
+/// again. Back, done by the gesture, leaves as it always did; one press
+/// of either does nothing.
 #[test]
-fn during_the_countdown_cancel_is_refused_and_back_leaves_both_by_the_gesture() {
+fn during_practices_countdown_cancel_ready_cancels_it_and_back_leaves() {
     let mut r = rig_with(env(), true, false);
     enter(&mut r.h);
     r.h.run(0.2);
     assert_eq!(phase(&r), ddi_room::PhaseKind::Countdown);
+    assert!(has(&r.h, "Cancel ready"), "{:?}", r.h.texts());
     assert!(shown(&r.h, "Room.UnreadyHint"));
     enter(&mut r.h);
     r.h.run(0.1);
-    assert!(r.room.borrow().refusal().is_none(), "one press: nothing asked");
+    assert_eq!(phase(&r), ddi_room::PhaseKind::Countdown, "one press: nothing");
     enter(&mut r.h);
     r.h.run(0.1);
-    assert!(r.room.borrow().refusal().is_some(), "refused");
-    assert!(
-        has(&r.h, "Not possible at this point of the match."),
-        "{:?}",
-        r.h.texts()
-    );
-    assert!(r.room.borrow().ready());
+    assert!(r.room.borrow().refusal().is_none(), "taken");
+    assert_eq!(phase(&r), ddi_room::PhaseKind::Preparing);
+    assert!(!r.room.borrow().ready());
+    assert!(has(&r.h, "Ready"), "{:?}", r.h.texts());
+    assert!(!shown(&r.h, "Room.UnreadyHint"));
+    // Ready again: the countdown again, and the play starts at its end.
+    r.h.run((CANCEL_DOUBLE_TAP + 0.1) as f32);
+    enter(&mut r.h);
+    r.h.run(0.2);
+    assert_eq!(phase(&r), ddi_room::PhaseKind::Countdown);
     escape(&mut r.h);
     r.h.run(0.1);
     assert_eq!(backs(&r), 0, "one Back: still here");
     escape(&mut r.h);
     assert_eq!(backs(&r), 1, "Back twice leaves");
-    assert!(matches!(r.room.borrow().state().phase, Phase::Countdown { .. }));
 }
 
 /// A practice room's first stage started by the room (Ready alone with

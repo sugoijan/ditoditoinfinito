@@ -2920,7 +2920,14 @@ impl RoomClient {
     /// Declare (or withdraw) readiness for the upcoming stage. Never
     /// automatic: only the player's own press asks.
     pub fn set_ready(&mut self, ready: bool) -> Result<(), Refusal> {
-        let Some(stage) = self.state().upcoming_stage() else {
+        // During the countdown to the start, Ready taken back is the
+        // room's to decide (CPU practice cancels the start, round P1b; an
+        // online room refuses it): asked of the counting-down stage.
+        let counting = match self.state().phase {
+            Phase::Countdown { stage, .. } if !ready => Some(stage),
+            _ => None,
+        };
+        let Some(stage) = counting.or_else(|| self.state().upcoming_stage()) else {
             return self.refuse(Refusal::Room(Rejection::NotUpcoming));
         };
         let readiness_rev = self.readiness_rev(stage);
@@ -3033,6 +3040,19 @@ impl RoomClient {
         s.upcoming_stage()
             .and_then(|id| s.stage(id))
             .is_some_and(|stage| stage.prep(self.me).ready)
+    }
+
+    /// Whether the local player, ready, may take Ready back now: before
+    /// the start commits, and during its countdown where the room lets
+    /// that cancel it (CPU practice, `unready_cancels_countdown`, round
+    /// P1b). An online room's committed start is past taking back: its
+    /// prompt says the stage is starting instead.
+    pub fn may_take_ready_back(&self) -> bool {
+        if !self.ready() {
+            return false;
+        }
+        let s = self.state();
+        !matches!(s.phase, Phase::Countdown { .. }) || s.policy.readiness.unready_cancels_countdown
     }
 
     /// Why the local player's preparation of `stage` failed, if it did.

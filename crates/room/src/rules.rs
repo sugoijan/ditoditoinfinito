@@ -233,6 +233,15 @@ pub struct ReadinessPolicy {
     pub min_ready_humans: u16,
     /// Competitors needed to start, CPUs included.
     pub min_competitors: u16,
+    /// Whether a starter taking Ready back during the countdown to the
+    /// start cancels it (round P1b, the maintainer's of 2026-11-16): CPU
+    /// practice's, where the player alone readies and the countdown starts
+    /// at once, so that Cancel ready can ever work there; the player is
+    /// back to not ready in a window opened again. An online room keeps
+    /// refusing it once its start is committed (`false`). ADDITIVE: left
+    /// out of the JSON when off, read as off where missing.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub unready_cancels_countdown: bool,
 }
 
 fn is_zero(v: &u64) -> bool {
@@ -274,6 +283,7 @@ impl Default for ReadinessPolicy {
             countdown_ms: 3_000,
             min_ready_humans: 1,
             min_competitors: 2,
+            unready_cancels_countdown: false,
         }
     }
 }

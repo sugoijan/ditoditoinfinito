@@ -179,6 +179,71 @@ fn a_practice_match_runs_through_envelopes_and_the_mirror_keeps_up() {
     assert_eq!(authority.connection(), Connection::Connected);
 }
 
+/// Round P1b (the maintainer's of 2026-11-16): in CPU practice, ready
+/// alone with the CPUs starts the countdown at once, and taking Ready
+/// back during it cancels it (it was refused, so Cancel ready could never
+/// work there): the player is not ready in a window opened again, and a
+/// Ready counts down again. A hosted room's policy keeps refusing it.
+#[test]
+fn practice_cancels_its_countdown_when_ready_is_taken_back() {
+    let clock = ManualClock::new(1_000);
+    let (mut authority, id) =
+        LocalAuthority::practice("Me".into(), MatchRules::practice(opponent()), clock.clone());
+    assert!(authority.state().policy.readiness.unready_cancels_countdown);
+    let mut me = Client::new(id.clone());
+    me.sync(&mut authority);
+    let player = authority.participant(&id).unwrap();
+    let stage = me.state().upcoming_stage().unwrap();
+    assert!(ack(&me.send(&mut authority, pick(1))));
+    let rev = me.state().stage(stage).unwrap().readiness_rev;
+    let ready = |ready| Command::SetReady {
+        stage,
+        readiness_rev: rev,
+        ready,
+    };
+    assert!(ack(&me.send(
+        &mut authority,
+        Command::ReportLoading {
+            stage,
+            readiness_rev: rev,
+            loading: Loading::Loaded,
+        }
+    )));
+    assert!(ack(&me.send(&mut authority, ready(true))));
+    assert!(matches!(me.state().phase, Phase::Countdown { .. }));
+    clock.advance(1_500);
+    me.sync(&mut authority);
+    assert!(ack(&me.send(&mut authority, ready(false))));
+    let window = match me.state().phase {
+        Phase::Preparing {
+            stage: s,
+            window: Some(w),
+        } if s == stage => w,
+        ref p => panic!("{p:?}"),
+    };
+    assert_eq!(window.deadline, Millis(2_500 + 30_000), "a window from now");
+    assert!(!me.state().stage(stage).unwrap().prep(player).ready);
+    assert!(me.state().stage(stage).unwrap().play.is_none());
+    // The canceled countdown's end passes: nothing starts.
+    clock.advance(3_000);
+    me.sync(&mut authority);
+    assert!(matches!(me.state().phase, Phase::Preparing { .. }));
+    // Ready again: counted down again from now.
+    assert!(ack(&me.send(&mut authority, ready(true))));
+    assert!(matches!(
+        me.state().phase,
+        Phase::Countdown { start_at, .. } if start_at == Millis(5_500 + 3_000)
+    ));
+    clock.advance(3_000);
+    me.sync(&mut authority);
+    assert_eq!(me.state().phase, Phase::Stage { stage });
+    assert_eq!(Some(me.state()), authority.room());
+    // A hosted room's policy keeps the countdown frozen.
+    assert!(!RoomPolicy::default().readiness.unready_cancels_countdown);
+    let json = serde_json::to_value(RoomPolicy::default().readiness).unwrap();
+    assert!(json.get("unready_cancels_countdown").is_none(), "additive");
+}
+
 #[test]
 fn retries_are_idempotent_and_old_or_foreign_envelopes_are_refused() {
     let clock = ManualClock::new(0);

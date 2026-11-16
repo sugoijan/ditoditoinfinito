@@ -454,6 +454,10 @@ pub enum CancelReason {
     BelowMinimum,
     /// A committed starter left or lost their connection before the start.
     RosterChanged,
+    /// A starter took Ready back during the countdown, where the room's
+    /// policy lets them (`ReadinessPolicy::unready_cancels_countdown`:
+    /// CPU practice's, round P1b).
+    ReadyTakenBack,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

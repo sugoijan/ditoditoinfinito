@@ -203,6 +203,10 @@ impl PromptScreen {
         Some(if !r.in_stage(rm.stage) {
             // A watcher has nothing to be ready for.
             msg::room::watching()
+        } else if r.ready() && !r.may_take_ready_back() {
+            // An online room's start is committed: nothing to take back
+            // (round P1b: the button no longer offers it).
+            msg::room::prompt_starting()
         } else if r.ready() {
             msg::room::unready()
         } else {
@@ -581,6 +585,11 @@ impl PromptScreen {
         if !self.room_armed() && !self.room_loading_armed() {
             return false;
         }
+        // Ready past taking back (an online room's countdown): the press
+        // does nothing, and shows no hint that would say otherwise.
+        if undo == Undo::Unready && !self.room_may_take_back() {
+            return true;
+        }
         let now = cx.time();
         let twice = {
             let mut t = rm.taking.borrow_mut();
@@ -595,6 +604,15 @@ impl PromptScreen {
             self.room_undo(undo, cx);
         }
         true
+    }
+
+    /// Whether Ready may be taken back now (`RoomClient::may_take_ready_back`):
+    /// CPU practice's countdown is canceled by it, an online room's
+    /// committed start is not.
+    pub(super) fn room_may_take_back(&self) -> bool {
+        self.room
+            .as_ref()
+            .is_some_and(|rm| rm.room.borrow().may_take_ready_back())
     }
 
     /// A control let go: the holds it held end, their fills running back.
@@ -869,7 +887,12 @@ impl PromptScreen {
                 Undo::Leave => "Room.LeaveHint",
             };
             if let Some(a) = crate::hit::find_mut(root, name) {
-                a.visible = armed && undo == shown && (leave || !loading);
+                // Ready's hint only where Ready may still be taken back;
+                // the loading screen has Back's alone, after a press.
+                a.visible = armed
+                    && undo == shown
+                    && (undo == Undo::Leave || self.room_may_take_back())
+                    && (leave || !loading);
                 if a.visible {
                     call(a, "diffuse", &color);
                     call(a, "zoom", &[pulse]);

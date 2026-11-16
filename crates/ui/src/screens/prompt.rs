@@ -1047,7 +1047,11 @@ impl PromptScreen {
         if !state.touch && state.step == PromptStep::Ready && !state.no_card {
             // A room's ready player: what Enter and Esc do, and how (the
             // deliberate gesture, `room_mode::Undo`).
-            let (start, back, activate) = if self.room_armed() {
+            let (start, back, activate) = if self.room_armed() && !self.room_may_take_back() {
+                // An online room's committed start: Enter does nothing.
+                let starting = msg::room::prompt_starting();
+                (starting.clone(), msg::room::prompt_footer_leave(), starting)
+            } else if self.room_armed() {
                 let unready = msg::room::prompt_footer_unready();
                 (unready.clone(), msg::room::prompt_footer_leave(), unready)
             } else {

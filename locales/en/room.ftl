@@ -1505,6 +1505,13 @@ room-prompt-canceled = The stage's start was canceled.
 # controller's confirm) or pressing it twice cancels.
 room-prompt-unready-hint = Hold or press twice to cancel
 
+# Round P1b: the Ready button's label (and the footer's Enter hint) once
+# an online room's start is committed with the player in it: the
+# countdown to the stage runs and Ready can no longer be taken back
+# (about 16 letters). In CPU practice the button still says "Cancel
+# ready", which cancels the countdown.
+room-prompt-starting = Starting…
+
 # The same line after Back (Esc, the Back button, a controller's Back) was
 # pressed once while ready: Back leaves this stage for good, so it too
 # takes a hold or a second press (about 34 letters).

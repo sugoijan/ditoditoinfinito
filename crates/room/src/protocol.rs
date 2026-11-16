@@ -103,7 +103,12 @@ pub fn supported(version: u32) -> bool {
 ///     (`ddi_engine::rules::ddi::COMBO_SCORE`, `ddi-combo-v0`: the scores
 ///     every device computes for the room's CPUs and reports, and ranks
 ///     a stage by) and `adaptive-v5` (a normal step up after six bars:
-///     every device steps the room's CPUs alike).
+///     every device steps the room's CPUs alike); and round P1b's
+///     decisions (2026-11-16, still revision 12, deployed nowhere before
+///     them): a starter's Ready taken back during the countdown cancels
+///     it where the policy says so
+///     (`ReadinessPolicy::unready_cancels_countdown`, CPU practice's;
+///     `CancelReason::ReadyTakenBack`).
 pub const ROOM_MODEL_REVISION: u32 = 12;
 
 /// What a client makes of an authority older than itself (never sent by

@@ -674,6 +674,8 @@ room-prompt-canceled = ステージの開始は取り消されました。
 
 room-prompt-unready-hint = 長押しまたは2回押しで取り消し
 
+room-prompt-starting = まもなく開始…
+
 room-prompt-leave-hint = 長押しまたは2回押しでステージをやめる
 
 room-prompt-footer-unready = 準備を取り消す：長押しまたは2回押し
