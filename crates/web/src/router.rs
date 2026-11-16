@@ -173,7 +173,8 @@ fn share_switch(hash: &str) {
 /// a room's Rules opening by themselves on entering
 /// (`Settings::multiplayer_rules_first`), and `mpwatchlink=1`, More's Copy
 /// watch-only link (`Settings::multiplayer_watch_link`); TESTING ONLY,
-/// `mpfakeseat=1` (`mpfakeend=S`, `mpfakematch=STAGES,CUT,WAIT`). Each
+/// `mpfakeseat=1` (`mpfakeend=S`, `mpfakematch=STAGES,CUT,WAIT`) and
+/// `mpfakeroom=S` (`mpfakeready=R`). Each
 /// address is read once.
 fn multiplayer_params(hash: &str, at_load: bool) {
     let (path, Some(query)) = split_hash(hash) else {
@@ -233,9 +234,14 @@ fn multiplayer_params(hash: &str, at_load: bool) {
     // TESTING ONLY: `mpfakeroom=S`, online room `Room000001` is a fake
     // room in the page whose scripted owner picks a stage S seconds after
     // the player joined (`crate::fake_room`: the headless browsers' look
-    // at a member told their stage is due, without a server).
+    // at a member told their stage is due, without a server);
+    // `mpfakeready=R`, she readies R seconds after she has the stage (the
+    // room waiting for her meanwhile: a ready player's Ready screen).
     if let Some(after) = param("mpfakeroom").and_then(|s| s.parse::<f64>().ok()) {
         crate::fake_room::want(after);
+    }
+    if let Some(after) = param("mpfakeready").and_then(|s| s.parse::<f64>().ok()) {
+        crate::fake_room::ready_after(after);
     }
     let flag = |key: &str| match param(key).as_deref() {
         Some("1") => Some(true),

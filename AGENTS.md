@@ -1742,7 +1742,8 @@ Rust and the browser are implementation details, not advertised features.
   CUT seconds, the picks WAIT seconds apart, the members saying how
   they performed), and `mpfakeroom=S`
   makes online room `Room000001` a fake room in the page whose scripted
-  owner picks a stage S seconds after the player joined, reports her
+  owner picks a stage S seconds after the player joined (readying at
+  once, or R seconds later with `mpfakeready=R`), reports her
   run three seconds into its play and picks a second stage S seconds
   after the first's results
   (`crate::fake_room`: a member's view without a server). `Trunk.toml` passes `/api/` (redirects untouched) and
@@ -2119,7 +2120,7 @@ otherwise at most a second late, and at once when a screen or dialog
 comes or goes). The testing parameters (`gfx`, `auto`, `bias`,
 `slow`, `perf`, `lang`, and the multiplayer ones, `mprules`,
 `mpwatchlink`, `mpattacks`, `mpcpus`, `mpdevmines`, `mpfakeseat`,
-`mpfakeend`, `mpfakematch`, `mpfakeroom`) take effect given in the address the page loads on, on any
+`mpfakeend`, `mpfakematch`, `mpfakeroom`, `mpfakeready`) take effect given in the address the page loads on, on any
 route (`#/select?perf=1`, `#/mp?mpcpus=16`, `#/options?lang=ja`;
 `crate::router::Route::current`'s first read), and later on the routes
 each was always read on; `gfx`, `auto`, `bias` and `slow` stay for the

@@ -6,7 +6,9 @@
 //! menu: online room `Room000001` is then a fake room in the page
 //! (`ddi_room::fake`), whose owner, alice, is scripted: S seconds after
 //! the player's client connected she picks a bundled song, her upload of
-//! it is answered as the server would, and she readies. Her match has two
+//! it is answered as the server would, and she readies (`mpfakeready=R`:
+//! R seconds after she has the stage, so that the room waits for her with
+//! the player ready meanwhile, feedback round O). Her match has two
 //! stages: three seconds into a stage's play she reports her run (so the
 //! stage is decided once the player's own play ended or was left), and S
 //! seconds after the first stage's results she picks the second (the
@@ -31,6 +33,9 @@ thread_local! {
     /// Asked for (`mpfakeroom=S`): how long after the player connected
     /// alice picks, seconds.
     static WANTED: Cell<Option<f64>> = const { Cell::new(None) };
+    /// Asked for (`mpfakeready=R`): how long after she has a stage alice
+    /// readies, seconds.
+    static READY_AFTER: Cell<f64> = const { Cell::new(0.0) };
     static FAKE: RefCell<Option<Rc<RefCell<Fake>>>> = const { RefCell::new(None) };
 }
 
@@ -38,6 +43,12 @@ thread_local! {
 /// `after` seconds after the player connected.
 pub(crate) fn want(after: f64) {
     WANTED.set(Some(after.max(0.0)));
+}
+
+/// Alice readies `after` seconds after she has a stage (at once by
+/// default).
+pub(crate) fn ready_after(after: f64) {
+    READY_AFTER.set(after.max(0.0));
 }
 
 /// Whether the fake room was asked for.
@@ -60,6 +71,8 @@ struct Fake {
     /// When the player's client was first seen connected.
     connected_at: Option<u64>,
     picked: bool,
+    /// When alice readies for the stage she has ([`READY_AFTER`]).
+    ready_at: Option<u64>,
     /// The stage alice saw begin and when, and whether she reported her
     /// run for it.
     playing: Option<(ddi_room::StageId, u64, bool)>,
@@ -103,6 +116,7 @@ fn fake() -> Rc<RefCell<Fake>> {
         member: None,
         connected_at: None,
         picked: false,
+        ready_at: None,
         playing: None,
         decided_at: None,
         picked_again: false,
@@ -224,9 +238,12 @@ impl Fake {
         for job in a.take_load_jobs() {
             a.finish_load(&job, Ok(()));
         }
-        if let Some(order) = a.take_stage_order() {
+        if a.take_stage_order().is_some() {
+            self.ready_at = Some(now + (READY_AFTER.get() * 1_000.0) as u64);
+        }
+        if self.ready_at.is_some_and(|at| now >= at) {
+            self.ready_at = None;
             let _ = a.set_ready(true);
-            let _ = order;
         }
         // Her run, three seconds into the stage's play.
         if let ddi_room::Phase::Stage { stage } = a.state().phase {
