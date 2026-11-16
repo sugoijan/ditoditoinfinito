@@ -663,6 +663,13 @@ room-standings-continue = 次へ
 
 room-prompt-canceled = ステージの開始は取り消されました。
 
+room-prompt-unready-hint = 長押しまたは2回押しで取り消し
+
+room-prompt-leave-hint = 長押しまたは2回押しでステージをやめる
+
+room-prompt-footer-unready = 準備を取り消す：長押しまたは2回押し
+room-prompt-footer-leave = やめる：長押しまたは2回押し
+
 room-due-title = ステージ{ $number }が始まります
 room-due-play = ルームの次のステージが始まります。準備画面でプレイに参加できます。
 room-due-watch = プレイしないステージが始まります。観戦できます。

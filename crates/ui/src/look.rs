@@ -422,7 +422,7 @@ fn plain(name: &str, spec: &Spec, font: &str) -> Option<Actor> {
         let [w, h] = spec.size;
         let size = (h * 0.45).clamp(12.0, 22.0);
         let a = match name {
-            "Prompt.Start" => countdown_button(
+            "Prompt.Start" | "Prompt.Back" => countdown_button(
                 plain("Button", spec, font)?,
                 spec.size,
                 [0.22, 0.33, 0.72, 0.5],

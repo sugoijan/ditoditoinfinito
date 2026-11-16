@@ -10916,10 +10916,73 @@ matter at four.
 - The room's screens' drawing pins: Rules (and Add CPU over it) gain the
   row.
 
+## Feedback round O: taking Ready back takes a hold or a second press (2026-11-16)
+
+The maintainer, after playing with 5 to 15 people: "I think it's too easy
+to cancel a ready, maybe we should make it a hold or double-press/click to
+activate the button." Becoming ready stays one press. Once ready, a
+stage's prompt (`screens/prompt_room.rs`, `room_mode::Undo`) takes Ready
+back, and leaves (Back, which leaves the stage for good), only by the
+game's own deliberate gesture, a play's quit's: held 0.7 s or pressed
+twice within 0.5 s, a single press showing the hint for 1.5 s. The
+timings are the quit's own, moved from `ddi_session::play` to
+`ddi_ui::gesture` (`CANCEL_HOLD`, `CANCEL_DOUBLE_TAP`, `CANCEL_HINT`,
+`HoldOrTwice`), which the play re-exports and uses unchanged. Nothing in
+the room model changes (`SetReady` as it was; no revision of its own);
+CPU practice's prompt is the same code.
+
+- **Every input**: Enter, Numpad Enter, Space, a controller's confirm and
+  Start, a click or a tap on Cancel ready (one gesture); Esc, Backspace, a
+  controller's Back, the Back button, Enter on the focused Back and the
+  browser's Back (the menu's Back) (the other). A hold is a key or a
+  controller's button held (the UI core hands a screen that asks every
+  menu button's release, `Screen::menu_releases`, and the focus's loss,
+  which lets every hold go) or a pointer held on the button: the fill
+  follows it, a finger or the mouse sliding off the button lets go, and
+  the rest of that pointer's gesture never presses the button (so the
+  last click of a double click, or the release after a hold, does not
+  ready again). A tap on the card's background, which readies, does
+  nothing while ready. Left and Right on the attack policy's row, and a
+  tap on it, change the policy and never Ready.
+- **What a person sees** (`ready-hint-v0`, PROVISIONAL): the button still
+  says Cancel ready; a quiet line under the buttons says "Hold or press
+  twice to cancel" whenever the player is ready (its row kept while not
+  ready, so nothing moves), "Hold or press twice to leave" for the hint's
+  time after Back was pressed once or while it is held. A press brightens
+  it with a short pulse, dimming back over 1.5 s. The footer's keys say
+  "Cancel ready: hold or press twice" and "Leave: hold or press twice"
+  (a controller's buttons the same). Held, the button's background fills
+  from the left as Start's countdown does (Back has the same fill now,
+  the look's `Prompt.Back`), running back in 0.2 s if let go early. Under
+  reduced motion: no pulse, the hint bright then plain at once, the fill in
+  halves (half at 0.35 s), gone at once on a release, the hold done after
+  the same 0.7 s.
+- **During the room's countdown to the start** (everyone ready; in CPU
+  practice that is at once, alone with the CPUs and the song loaded):
+  as before, Cancel ready is refused there ("Not possible at this point
+  of the match." on the status line), now after the gesture; Back, after
+  the gesture, leaves as it did (practice: the start canceled, back to
+  choosing).
+- **Not ready**: everything as before, Back leaving at once (with the
+  room's question where leaving costs).
+- **Audio**: the press that readies is still the gesture the web makes
+  the play's audio context in; taking Ready back tells the shell nothing.
+- **Testing**: ten tests on the fake clock
+  (`crates/ui/src/screens/prompt_room_tests.rs`); in headless Chrome and
+  Firefox a fake online room whose owner readies late, so that the room
+  waits with the player ready (`mpfakeready=R`, TESTING ONLY, beside
+  `mpfakeroom=S`): Ready, one press, two, a hold, by keys, the mouse, a
+  fake pad and (Chrome) touch on a phone held upright; Back once and twice;
+  and CPU practice's countdown.
+- **Not covered**: the loading screen after the room started the stage
+  (Start pressed for the shell before everything loaded) still leaves on
+  one Back, a forfeit there; the play itself has its quit gesture.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
 | --- | --- | --- | --- |
+| `ready-hint-v0` (2026-11-16, feedback round O): taking Ready back, and Back, while ready, by the quit's gesture (held 0.7 s or pressed twice within 0.5 s); the hint line under the buttons, its pulse (0.25 s) and fade (1.5 s); the hold's fill running back in 0.2 s; under reduced motion the fill in halves | `ddi_ui::screens::prompt` (`room_mode::Undo`, `RUN_BACK`, `PULSE`), timings in `ddi_ui::gesture` | One press while ready only brightens "Hold or press twice to cancel" (or "… to leave"); the footer says how | Whether the loading screen after the room's start (one Back forfeits there) should take the gesture too; whether "press twice" or the quit's "double-tap" is the wording |
 | `battle-voice-v3` (2026-11-15, decisions round D4; replaces `battle-voice-v2`): as `battle-voice-v2`, but cleared and failed are not said where the voice has the outcome line the stage's results will say. The outcome is not known as the last note is judged, so the voice must have all the lines it could be: `battle stage won`, `drawn` and `not won` for a player still in at the end of a stage ranked on this device, or `battle match won`, `drawn` and `not won` on a match's last stage | `ddi_session::announcer::battle::BATTLE_VOICE_V3`, `Announcer::results_say`, `stage_play_end` | With our packs a stage ends on the full combo's line (if any) and then the outcome on the results, never "Cleared" before it; a pack with only some of the outcome lines says cleared as before; an online room's stage before the last still says cleared (its results say no outcome there) | Whether a pack with only some outcome lines should skip cleared too, and whether an online stage's results should say its outcome |
 | RETIRED 2026-11-15 (by `battle-voice-v3`): `battle-voice-v2` (2026-11-15, decisions round D2; replaces `battle-voice-v1`): the lines of the player's own play's end (the full combo's, cleared, failed) below every battle line, at most a second late (`end_window`), cleared and failed never after a line that said the stage's outcome; the rest as `battle-voice-v1` below | `ddi_session::announcer::battle` | A stage says "full combo" and "cleared" as the player's last note is judged, then the stage's outcome on its results | Whether cleared should also stay out where the stage's outcome will be said on the results (today both are heard, cleared first) |
 | `battle-voice-v1` (2026-11-15, feedback round J; replaces `battle-voice-v0`): a step's line (priority 12) waits at most a second for the line being said (`step_window`); the combo lines below every battle line, at most a second late (`combo_window`), never over a battle line nor one due; a battle line due during a combo line starts at its end | `ddi_session::announcer::battle::BATTLE_VOICE_V1` | Stages say the combo lines again and the player's steps; an attack line may come up to a combo line's length late | The two windows; whether the comments or other routine lines belong in a stage |

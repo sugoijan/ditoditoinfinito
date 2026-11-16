@@ -1,6 +1,8 @@
 //! The start prompt of a multiplayer room's stage (M7b, the maintainer's
 //! match flow; `docs/plans/multiplayer-prototype-progress.md`): the
-//! readiness check. Its Start is **Ready** (pressed again, Cancel ready),
+//! readiness check. Its Start is **Ready** (one press), then **Cancel
+//! ready**, which, as Back then, takes the game's deliberate gesture, held
+//! or pressed twice ([`Undo`], feedback round O); Ready is
 //! counted down by itself where the shell asks for a countdown, as a
 //! singleplayer play's auto-start is (`PromptState::countdown`: only where
 //! the audio may start without another press). Beside the controls'
@@ -18,6 +20,7 @@
 use std::cell::{Cell, RefCell};
 
 use super::*;
+use crate::gesture::{CANCEL_HINT, HoldOrTwice};
 use crate::screens::room::{self, Pump, RoomShell};
 use crate::state::room::{RoomView, SharedRoom};
 use ddi_room::{Participation, StageId};
@@ -88,6 +91,87 @@ pub(super) struct PromptRoom {
     /// The game is quitting once the room has answered the player's
     /// leaving, or at this time on the UI's clock.
     quit_at: Cell<Option<f64>>,
+    /// Ready taken back, or the prompt left, while ready: the game's
+    /// deliberate gesture (feedback round O).
+    taking: RefCell<Taking>,
+}
+
+/// What the deliberate gesture does on a room's stage's prompt once the
+/// player is ready (feedback round O: "too easy to cancel a ready"): one
+/// press of Ready's button (Enter, Space, a controller's confirm, a click
+/// or a tap) or of Back (Esc, Backspace, the Back button, a controller's
+/// Back, the browser's Back) only shows its hint; held
+/// [`crate::gesture::CANCEL_HOLD`] or pressed twice within
+/// [`crate::gesture::CANCEL_DOUBLE_TAP`], the timings of a play's quit, it
+/// is done.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Undo {
+    /// Ready taken back (`SetReady(false)`; refused once the room's
+    /// countdown to the start is on, as it always was: the status line
+    /// says so).
+    Unready,
+    /// The prompt left: Back, the stage left for good (withdrawn, as Back
+    /// always did).
+    Leave,
+}
+
+impl Undo {
+    fn index(self) -> usize {
+        match self {
+            Undo::Unready => 0,
+            Undo::Leave => 1,
+        }
+    }
+
+    /// The button whose background fills as it is held.
+    pub(super) fn button(self) -> &'static str {
+        match self {
+            Undo::Unready => "Start",
+            Undo::Leave => "Back",
+        }
+    }
+}
+
+/// What holds a gesture's control down: a menu button (a key, a
+/// controller's button) by its source, or a pointer on the button.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Holder {
+    Menu(crate::nav::Source),
+    Pointer,
+}
+
+/// How long a released hold's fill runs back from full, seconds.
+const RUN_BACK: f32 = 0.2;
+/// How long the hint's pulse after a single press lasts, seconds.
+const PULSE: f64 = 0.25;
+
+/// The two gestures' state ([`Undo`]) on the UI's clock.
+#[derive(Debug, Default)]
+struct Taking {
+    gestures: [HoldOrTwice; 2],
+    holders: [Option<Holder>; 2],
+    /// The one pressed last (its hint shows), and when.
+    last: Option<(Undo, f64)>,
+    /// A pointer's press on a button made while ready: the rest of its
+    /// gesture (its tap, its release) is the gesture's, never a press of
+    /// the button, even once Ready is taken back.
+    pointer: Option<Undo>,
+    /// The fills shown on the buttons (`Undo::index`), 0 to 1.
+    fill: [f32; 2],
+}
+
+impl Taking {
+    fn reset(&mut self) {
+        let pointer = self.pointer;
+        *self = Taking {
+            pointer,
+            ..Taking::default()
+        };
+    }
+
+    fn idle(&self) -> bool {
+        self.last.is_none() && self.fill == [0.0; 2] && self.holders.iter().all(Option::is_none)
+    }
 }
 
 impl PromptScreen {
@@ -107,6 +191,7 @@ impl PromptScreen {
             rows_shown: Cell::new((0, 0, 0)),
             time: Cell::new(0.0),
             quit_at: Cell::new(None),
+            taking: RefCell::default(),
         });
         self
     }
@@ -471,4 +556,341 @@ impl PromptScreen {
     pub fn room_stage(&self) -> Option<StageId> {
         self.room.as_ref().map(|rm| rm.stage)
     }
+
+    /// Whether a press of Ready's button or of Back is the deliberate
+    /// gesture's ([`Undo`]): the player is ready for this stage, which the
+    /// room has neither started nor let go of for them (its countdown to
+    /// the start included).
+    pub(super) fn room_armed(&self) -> bool {
+        self.room.as_ref().is_some_and(|rm| {
+            !rm.started.get() && rm.gone.get().is_none() && rm.quit_at.get().is_none() && {
+                let r = rm.room.borrow();
+                r.in_stage(rm.stage) && r.ready()
+            }
+        })
+    }
+
+    /// A press of `undo`'s control, held by `holder` (none: an activation,
+    /// which has no release): while ready, its hint, or the gesture done
+    /// on a second press in time. Whether it was the gesture's (not
+    /// ready, the press does what it always did: one readies).
+    pub(super) fn room_press(&self, undo: Undo, holder: Option<Holder>, cx: &mut Cx) -> bool {
+        let Some(rm) = &self.room else {
+            return false;
+        };
+        if !self.room_armed() {
+            return false;
+        }
+        let now = cx.time();
+        let twice = {
+            let mut t = rm.taking.borrow_mut();
+            let i = undo.index();
+            let twice = t.gestures[i].edge(true, now);
+            t.gestures[i].held = holder.is_some();
+            t.holders[i] = holder;
+            t.last = Some((undo, now));
+            twice
+        };
+        if twice {
+            self.room_undo(undo, cx);
+        }
+        true
+    }
+
+    /// A control let go: the holds it held end, their fills running back.
+    pub(super) fn room_release(&self, holder: &Holder) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        let mut t = rm.taking.borrow_mut();
+        for i in 0..2 {
+            if t.holders[i].as_ref() == Some(holder) {
+                t.holders[i] = None;
+                t.gestures[i].edge(false, 0.0);
+            }
+        }
+    }
+
+    /// Every hold let go (the window lost the focus: a release may never
+    /// come).
+    pub(super) fn room_release_all(&self) {
+        if let Some(rm) = &self.room {
+            let mut t = rm.taking.borrow_mut();
+            for i in 0..2 {
+                t.holders[i] = None;
+                t.gestures[i].edge(false, 0.0);
+            }
+        }
+    }
+
+    /// The gesture done: Ready taken back (the room refuses it once its
+    /// countdown to the start is on, and the status line says so), or the
+    /// prompt left as Back always left it.
+    fn room_undo(&self, undo: Undo, cx: &mut Cx) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        rm.taking.borrow_mut().reset();
+        match undo {
+            Undo::Unready => {
+                let _ = rm.room.borrow_mut().set_ready(false);
+            }
+            Undo::Leave => self.choose(PromptChoice::Back, cx),
+        }
+    }
+
+    /// What a pointer, a menu button or the focus's loss does to the
+    /// gesture (`None`: the input goes on as ever). A pointer pressed on
+    /// Ready's button or on Back while ready begins its gesture there,
+    /// the rest of that pointer's gesture its own (a release, a slide off
+    /// the button: the hold ends; its tap never presses the button); a tap
+    /// on the card's background, which readies, does nothing while ready.
+    pub(super) fn room_gesture_input(&self, input: &Input, root: &Actor, cx: &mut Cx) -> Option<Handled> {
+        let rm = self.room.as_ref()?;
+        let owned = rm.taking.borrow().pointer;
+        if let (Some(undo), Input::Pointer { gesture, pos, .. }) = (owned, input)
+            && *gesture != Gesture::Press
+        {
+            match gesture {
+                Gesture::Tap
+                | Gesture::Release
+                | Gesture::DragEnd { .. }
+                | Gesture::Flick { .. }
+                | Gesture::Cancel => {
+                    rm.taking.borrow_mut().pointer = None;
+                    self.room_release(&Holder::Pointer);
+                }
+                // A finger (or the mouse) slid off the button: no hold.
+                Gesture::Drag { .. }
+                    if !crate::hit::target_at(root, &crate::hit::IDENTITY, *pos)
+                        .is_some_and(|t| t.within(undo.button())) =>
+                {
+                    self.room_release(&Holder::Pointer);
+                }
+                _ => {}
+            }
+            return Some(Handled::Yes);
+        }
+        match input {
+            Input::MenuRelease { source } => {
+                self.room_release(&Holder::Menu(source.clone()));
+                Some(Handled::Yes)
+            }
+            Input::CancelDirections => {
+                self.room_release_all();
+                None
+            }
+            _ if !self.room_armed() => None,
+            Input::Menu {
+                action: action @ (MenuAction::Start | MenuAction::Back),
+                repeat: false,
+            } => {
+                let undo = match (action, cx.focused()) {
+                    (MenuAction::Back, _) | (_, Some("Back")) => Undo::Leave,
+                    // The focus's own button (Save, the timing line's link).
+                    (_, Some("SaveOptions" | "Calibrate")) => return None,
+                    _ => Undo::Unready,
+                };
+                let holder = cx.menu_source().cloned().map(Holder::Menu);
+                self.room_press(undo, holder, cx).then_some(Handled::Yes)
+            }
+            Input::Activate { name } if name == "Start" || name == "Back" => {
+                let undo = if name == "Start" { Undo::Unready } else { Undo::Leave };
+                self.room_press(undo, None, cx).then_some(Handled::Yes)
+            }
+            Input::Pointer {
+                target,
+                gesture: Gesture::Press,
+                ..
+            } => {
+                let undo = [Undo::Unready, Undo::Leave]
+                    .into_iter()
+                    .find(|u| target.as_ref().is_some_and(|t| t.within(u.button())))?;
+                rm.taking.borrow_mut().pointer = Some(undo);
+                self.room_press(undo, Some(Holder::Pointer), cx);
+                Some(Handled::Yes)
+            }
+            Input::Pointer {
+                target,
+                gesture: Gesture::Tap,
+                ..
+            } if !self.on_control(target.as_ref()) => Some(Handled::Yes),
+            _ => None,
+        }
+    }
+
+    /// The gestures' part of a frame: a hold done once held long enough;
+    /// the fills on the buttons (following a hold, running back from a
+    /// release; under reduced motion in halves, never running back); the
+    /// hint under the buttons, brightened by a press (a short pulse but
+    /// under reduced motion) and dimming back over [`CANCEL_HINT`] (under
+    /// reduced motion at once then).
+    pub(super) fn room_gesture_update(&self, dt: f32, root: &mut Actor, cx: &mut Cx) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        let now = cx.time();
+        if !self.room_armed() {
+            if !rm.taking.borrow().idle() {
+                rm.taking.borrow_mut().reset();
+                self.update_countdown_fill(root);
+            }
+            self.room_hint_shown(root, now);
+            return;
+        }
+        let done = {
+            let t = rm.taking.borrow();
+            [Undo::Unready, Undo::Leave].into_iter().find(|u| {
+                let i = u.index();
+                t.holders[i].is_some() && t.gestures[i].progress(now) >= 1.0
+            })
+        };
+        if let Some(undo) = done {
+            self.room_undo(undo, cx);
+            self.update_countdown_fill(root);
+            return;
+        }
+        let reduced = self.env.reduced();
+        {
+            let mut t = rm.taking.borrow_mut();
+            for i in 0..2 {
+                let held = t.holders[i].is_some();
+                let progress = if held {
+                    t.gestures[i].progress(now) as f32
+                } else {
+                    0.0
+                };
+                t.fill[i] = if reduced {
+                    (progress * 2.0).floor() / 2.0
+                } else if held {
+                    progress
+                } else {
+                    (t.fill[i] - dt / RUN_BACK).max(0.0)
+                };
+            }
+            if let Some((undo, at)) = t.last
+                && now - at > CANCEL_HINT
+                && t.holders[undo.index()].is_none()
+            {
+                t.last = None;
+            }
+        }
+        self.update_countdown_fill(root);
+        self.room_hint_shown(root, now);
+    }
+
+    /// The fill shown on `undo`'s button, if any.
+    pub(super) fn room_fill(&self, undo: Undo) -> Option<f32> {
+        let rm = self.room.as_ref()?;
+        let f = rm.taking.borrow().fill[undo.index()];
+        (f > 0.0).then_some(f)
+    }
+
+    /// Frames while a gesture shows something (its hint brightened, a
+    /// hold, a fill running back).
+    pub(super) fn room_gesture_animating(&self) -> bool {
+        self.room
+            .as_ref()
+            .is_some_and(|rm| !rm.taking.borrow().idle())
+    }
+
+    /// The hint's lines under the buttons (`ready-hint-v0`): Ready's
+    /// ("Hold or press twice to cancel") while ready, Back's ("… to
+    /// leave") for [`CANCEL_HINT`] after Back was pressed once or while it
+    /// is held; their row kept for a player in the stage whether ready or
+    /// not, so that nothing moves as Ready changes. Its actors at the
+    /// row's middle `y` (right-aligned to `right`, or centered on
+    /// `center`), and the row's height; none: no row.
+    pub(super) fn room_hint_row(&self, y: f32, at: HintAt) -> Option<(Vec<Actor>, f32)> {
+        let rm = self.room.as_ref()?;
+        if rm.gone.get().is_some() || !rm.room.borrow().in_stage(rm.stage) {
+            return None;
+        }
+        let place = |mut a: Actor| match at {
+            HintAt::Right(x) => right(a, x, y),
+            HintAt::Center(x) => {
+                call(&mut a, "xy", &[x, y]);
+                a
+            }
+        };
+        let lines = [
+            ("Room.UnreadyHint", msg::room::prompt_unready_hint()),
+            ("Room.LeaveHint", msg::room::prompt_leave_hint()),
+        ]
+        .into_iter()
+        .map(|(name, text)| {
+            let mut a = self.env.text(name, &text, SMALL, 400, "Muted");
+            a.visible = false;
+            place(a)
+        })
+        .collect();
+        Some((lines, 18.0))
+    }
+
+    /// The hint's lines as the gesture has them now ([`Self::room_hint_row`]).
+    pub(super) fn room_hint_shown(&self, root: &mut Actor, now: f64) {
+        let Some(rm) = &self.room else {
+            return;
+        };
+        let armed = self.room_armed();
+        let (last, held) = {
+            let t = rm.taking.borrow();
+            (t.last, [t.holders[0].is_some(), t.holders[1].is_some()])
+        };
+        let leave = held[1] || matches!(last, Some((Undo::Leave, at)) if now - at <= CANCEL_HINT);
+        let shown = if leave { Undo::Leave } else { Undo::Unready };
+        // How bright: 1 just pressed or held, fading over the hint's time
+        // (under reduced motion, bright for it, then at once not).
+        let age = last
+            .filter(|(u, _)| *u == shown)
+            .map(|(_, at)| now - at);
+        let bright = if held[shown.index()] {
+            1.0
+        } else {
+            match age {
+                Some(a) if self.env.reduced() => f32::from(a <= CANCEL_HINT),
+                Some(a) => (1.0 - a / CANCEL_HINT).clamp(0.0, 1.0) as f32,
+                None => 0.0,
+            }
+        };
+        let pulse = match age {
+            Some(a) if !self.env.reduced() && a < PULSE => 1.0 + 0.08 * (1.0 - a / PULSE) as f32,
+            _ => 1.0,
+        };
+        let [mr, mg, mb, ma] = self.env.color("Muted");
+        let [tr, tg, tb, ta] = self.env.color("Text");
+        let mix = |m: f32, t: f32| m + (t - m) * bright;
+        let color = [mix(mr, tr), mix(mg, tg), mix(mb, tb), mix(ma, ta)];
+        for undo in [Undo::Unready, Undo::Leave] {
+            let name = match undo {
+                Undo::Unready => "Room.UnreadyHint",
+                Undo::Leave => "Room.LeaveHint",
+            };
+            if let Some(a) = crate::hit::find_mut(root, name) {
+                a.visible = armed && undo == shown;
+                if a.visible {
+                    call(a, "diffuse", &color);
+                    call(a, "zoom", &[pulse]);
+                }
+            }
+        }
+    }
+
+    /// Whether the room's prompt hears every menu button's release
+    /// ([`crate::Screen::menu_releases`]): for its holds.
+    pub(super) fn room_holds(&self) -> bool {
+        self.room.is_some()
+    }
 }
+
+/// Where the hint's lines go ([`PromptScreen::room_hint_row`]): right-aligned
+/// to `x` (the buttons in a row from the right), or centered on it.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum HintAt {
+    Right(f32),
+    Center(f32),
+}
+
+#[cfg(test)]
+#[path = "prompt_room_tests.rs"]
+mod tests;

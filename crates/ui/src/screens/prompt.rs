@@ -947,27 +947,25 @@ impl PromptScreen {
     }
 
     /// Fill Start's background as the countdown advances. Reduced motion
-    /// uses whole-second steps instead of a continuous wipe.
+    /// uses whole-second steps instead of a continuous wipe. In a room,
+    /// while ready, Start's and Back's as their deliberate gesture is held
+    /// (`room_mode::Undo`).
     fn update_countdown_fill(&self, root: &mut Actor) {
-        let Some(fill) = crate::hit::find_mut(root, "CountdownFill") else {
-            return;
-        };
-        let Some((left, total)) = self.counting() else {
-            fill.visible = false;
-            return;
-        };
-        let left = if self.env.reduced() {
-            left.ceil().min(total)
-        } else {
-            left
-        };
-        let fraction = (1.0 - left / total).clamp(0.0, 1.0);
-        let Some(ink) = fill.children().first() else {
-            return;
-        };
-        let [w, h] = ink.size();
-        fill.visible = true;
-        fill.clip = Some([-w / 2.0, -h / 2.0, -w / 2.0 + w * fraction, h / 2.0]);
+        let start = self
+            .counting()
+            .map(|(left, total)| {
+                let left = if self.env.reduced() {
+                    left.ceil().min(total)
+                } else {
+                    left
+                };
+                (1.0 - left / total).clamp(0.0, 1.0)
+            })
+            .or_else(|| self.room_fill(room_mode::Undo::Unready));
+        fill_button(root, "Start", start);
+        if self.room.is_some() {
+            fill_button(root, "Back", self.room_fill(room_mode::Undo::Leave));
+        }
     }
     /// Shown over song select, as its other screens are (it says what it
     /// does again once none is).
@@ -1038,11 +1036,18 @@ impl PromptScreen {
             children.push(card);
         }
         if !state.touch && state.step == PromptStep::Ready && !state.no_card {
-            let (start, back, activate) = (
-                self.room_start_label().unwrap_or_else(msg::prompt::start),
-                msg::common::back(),
-                msg::prompt::hint_activate(),
-            );
+            // A room's ready player: what Enter and Esc do, and how (the
+            // deliberate gesture, `room_mode::Undo`).
+            let (start, back, activate) = if self.room_armed() {
+                let unready = msg::room::prompt_footer_unready();
+                (unready.clone(), msg::room::prompt_footer_leave(), unready)
+            } else {
+                (
+                    self.room_start_label().unwrap_or_else(msg::prompt::start),
+                    msg::common::back(),
+                    msg::prompt::hint_activate(),
+                )
+            };
             let hints: &[(&[&str], &str)] =
                 &[(&["ENTER"], start.as_str()), (&["ESC"], back.as_str())];
             children.push(footer(
@@ -1338,7 +1343,12 @@ impl PromptScreen {
                     .unwrap_or_else(msg::prompt::start)
                     .into();
                 buttons.push(("Start".into(), start, "Prompt.Start"));
-                buttons.push(back());
+                if self.room.is_some() {
+                    // A room's Back fills as it is held while ready.
+                    buttons.push(("Back".into(), msg::common::back().into(), "Prompt.Back"));
+                } else {
+                    buttons.push(back());
+                }
             }
             PromptStep::Access { folder, refused } => {
                 let text = msg::prompt::access(UiText::data(folder));
@@ -1491,6 +1501,13 @@ impl PromptScreen {
                 x -= bw + 10.0;
             }
             y += bh;
+            if state.step == PromptStep::Ready
+                && let Some((hint, hint_h)) =
+                    self.room_hint_row(y + 4.0 + 9.0, room_mode::HintAt::Right(w - 24.0))
+            {
+                c.extend(hint);
+                y += 4.0 + hint_h;
+            }
         } else {
             // In rows: the short ones two a row (the first, focused, on
             // top), then the long ones one a row.
@@ -1518,6 +1535,13 @@ impl PromptScreen {
                 y += bh + 10.0;
             }
             y -= 10.0;
+            if state.step == PromptStep::Ready
+                && let Some((hint, hint_h)) =
+                    self.room_hint_row(y + 4.0 + 9.0, room_mode::HintAt::Center(w / 2.0))
+            {
+                c.extend(hint);
+                y += 4.0 + hint_h;
+            }
         }
         let mut h = y + 24.0;
         // A room's card under its diagram: laid out again with its
@@ -1582,6 +1606,7 @@ impl PromptScreen {
         let left = crate::hit::find_mut(root, "Prompt").map_or(0.0, |c| c.tween_time_left());
         *root = self.tree(cx);
         root.finish_tweening();
+        self.room_hint_shown(root, cx.time());
         if let Some(card) = crate::hit::find_mut(root, "Prompt") {
             super::relaid(card, left, cx);
         }
@@ -1851,6 +1876,26 @@ impl Drop for PromptScreen {
     }
 }
 
+/// Button `button`'s background filled to `fraction` from the left
+/// (`look::countdown_button`'s `CountdownFill`), or not at all.
+fn fill_button(root: &mut Actor, button: &str, fraction: Option<f32>) {
+    let Some(fill) = crate::hit::find_mut(root, button)
+        .and_then(|b| crate::hit::find_mut(b, "CountdownFill"))
+    else {
+        return;
+    };
+    let Some(fraction) = fraction else {
+        fill.visible = false;
+        return;
+    };
+    let Some(ink) = fill.children().first() else {
+        return;
+    };
+    let [w, h] = ink.size();
+    fill.visible = true;
+    fill.clip = Some([-w / 2.0, -h / 2.0, -w / 2.0 + w * fraction, h / 2.0]);
+}
+
 /// A button `h` high (the dialogs' are 40).
 fn pbutton(
     env: &Env,
@@ -1995,7 +2040,8 @@ impl Screen for PromptScreen {
         if self.over {
             self.env.state.borrow_mut().over += 1;
         }
-        let root = self.tree(cx);
+        let mut root = self.tree(cx);
+        self.room_hint_shown(&mut root, cx.time());
         self.publish();
         root
     }
@@ -2063,6 +2109,7 @@ impl Screen for PromptScreen {
             || (st.bindings.is_some() && !self.env.reduced() && st.step == PromptStep::Ready)
             || st.done
             || self.counting().is_some()
+            || self.room_gesture_animating()
             || (self.countdown == Countdown::Off && (st.countdown.is_some() || st.no_card))
             || st.version != self.built
             || (st.picture.is_some() && self.reveal_time < ddi_actor::background::PROMPT_SECONDS)
@@ -2164,6 +2211,7 @@ impl Screen for PromptScreen {
             self.demo_time = (self.demo_time + dt) % (c.duration() + 1.0);
         }
         self.room_update(dt, root, cx);
+        self.room_gesture_update(dt, root, cx);
         self.tick_countdown(dt, root, cx);
         // Built again only while it moves: any other change bumps the
         // version, which builds the whole tree below.
@@ -2205,6 +2253,12 @@ impl Screen for PromptScreen {
         self.room_guards()
     }
 
+    /// A room's prompt hears Enter's, Esc's and a controller's releases:
+    /// Ready taken back, or Back, by a hold (`room_mode::Undo`).
+    fn menu_releases(&self) -> bool {
+        self.room_holds()
+    }
+
     fn input(&mut self, input: &Input, root: &mut Actor, cx: &mut Cx) -> Handled {
         let step = self.state.borrow().step.clone();
         // The loading screen: Back leaves; Start or a tap reach the shell
@@ -2238,6 +2292,11 @@ impl Screen for PromptScreen {
             let by = if k.code == "PageDown" { page } else { -page };
             self.room_scroll(by, root, cx);
             return Handled::Yes;
+        }
+        // A room's ready player: Ready taken back, or Back, only held or
+        // pressed twice (feedback round O, `room_mode::Undo`).
+        if let Some(handled) = self.room_gesture_input(input, root, cx) {
+            return handled;
         }
         // The countdown: skipped (the press goes on to start), or
         // cancelled (the press does what it does, a tap anywhere does not

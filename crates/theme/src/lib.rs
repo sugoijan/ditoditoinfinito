@@ -1359,6 +1359,18 @@ impl Look for Infinito {
                     if h >= 44.0 { 8.0 } else { 6.0 },
                 )
             }
+            // A room's stage's Back (feedback round O): a plain button whose
+            // background fills as it is held to leave while ready.
+            "Prompt.Back" => {
+                let mut color = self.c("Accent");
+                color[3] = 0.32;
+                ddi_ui::look::countdown_button(
+                    self.button(spec, "Plate2", "Text", 15.0, 600),
+                    spec.size,
+                    color,
+                    if h >= 44.0 { 8.0 } else { 6.0 },
+                )
+            }
             "PlayButton" => self.button(spec, "Accent", "OnAccent", 18.0, 700),
             "IconButton" => self.button(spec, "Plate2", "Text", 20.0, 700),
             "BackButton" => self.back_button(spec.size),

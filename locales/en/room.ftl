@@ -1473,6 +1473,22 @@ room-standings-continue = Continue
 # or the host picked again).
 room-prompt-canceled = The stage's start was canceled.
 
+# Feedback round O: once the player is ready, one press no longer takes
+# it back. Under the Ready button, which then says "Cancel ready" (a
+# short line, about 34 letters): holding the button (or Enter, Space, a
+# controller's confirm) or pressing it twice cancels.
+room-prompt-unready-hint = Hold or press twice to cancel
+
+# The same line after Back (Esc, the Back button, a controller's Back) was
+# pressed once while ready: Back leaves this stage for good, so it too
+# takes a hold or a second press (about 34 letters).
+room-prompt-leave-hint = Hold or press twice to leave
+
+# The footer's key hints while ready, after Enter and after Esc (or a
+# controller's buttons): what each does, then how (a few words each).
+room-prompt-footer-unready = Cancel ready: hold or press twice
+room-prompt-footer-leave = Leave: hold or press twice
+
 ## A stage is due while the player is on a screen opened over the room
 ## (Options, Calibrate, the announcer studio): a notice over that screen,
 ## with the room's status line (its countdown) under these words. The
