@@ -233,3 +233,50 @@ fn a_member_reconnecting_for_a_moment_keeps_their_place_in_the_stage() {
     let play = r.s.stage(stage).unwrap().play.as_ref().expect("started");
     assert!(play.lineup.contains(&bea), "ready and loaded: in");
 }
+
+/// Item 1, seen on a local server: a member on the Ready screen, loaded
+/// and not yet ready, whose socket dropped for 0.3 s (their page opened
+/// it again by itself) lost the stage in that instant: the others were
+/// ready, and a readiness window never waits for anyone not `Connected`
+/// (`start_committed … sat_out [[4, "not_connected"]]` in the same
+/// revision as `connection_changed … reconnecting`), though 12 s of
+/// their Ready window were left.
+///
+/// Proposed, with the test above: a window waits for a `Reconnecting`
+/// member as for a connected one (its deadline bounds the wait; the
+/// authority ends `Reconnecting` with `Disconnected` after its grace).
+#[test]
+#[ignore = "feedback round N1: a change proposed to the room model, for the next round"]
+fn a_readiness_window_waits_for_a_member_reconnecting_for_a_moment() {
+    let mut r = Room::of("host");
+    let ana = r.join("ana", false);
+    let bea = r.join("bea", false);
+    let stage = r.picked();
+    for who in [r.host, ana, bea] {
+        r.load(who, stage, Loading::Loaded);
+    }
+    r.ready(r.host, stage);
+    r.ready(ana, stage);
+    // Everyone loaded: the Ready window counts; Bea has not pressed yet.
+    r.pass(2_000);
+    assert!(matches!(r.s.phase, Phase::Preparing { window: Some(_), .. }));
+    // Her socket drops.
+    r.sys(Command::SetConnection {
+        participant: bea,
+        connection: Connection::Reconnecting,
+    });
+    assert!(
+        matches!(r.s.phase, Phase::Preparing { window: Some(_), .. }),
+        "the window still waits for her: {:?}",
+        r.s.phase
+    );
+    // Back a moment later, she readies: the stage starts with her.
+    r.sys(Command::SetConnection {
+        participant: bea,
+        connection: Connection::Connected,
+    });
+    r.ready(bea, stage);
+    r.pass(1_000);
+    let play = r.s.stage(stage).unwrap().play.as_ref().expect("started");
+    assert!(play.lineup.contains(&bea));
+}

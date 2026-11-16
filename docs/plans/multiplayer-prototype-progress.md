@@ -10712,6 +10712,106 @@ before.
   screen, where a field is tapped); the verify skill has the watch's
   new keys.
 
+## Feedback round N1: a real group of 5 to 15 people: "Away", sitting out, a state before Loading, an administrator's controls (2026-11-16)
+
+The maintainer played online with a varying group, mostly in browsers,
+and reported that many became "Away" after switching tabs while a song
+was chosen and could not get back to the stage's Ready screen, that some
+sat a stage out, that the lists need a state before Loading that is not
+"Not ready", and that an administrator who rejoins a room they made has
+no co-host control. No change under `crates/room/src/` nor in the server
+(`ROOM_MODEL_REVISION` stays 11); nothing judged or decided moves. What
+the model and the server should change is stated as three ignored tests
+(`crates/room/tests/n1_proposals.rs`) and below.
+
+How it was reproduced: a local server (the development identity
+provider on), bots hosting a room (`--mp-bots --host --guests 1`), the
+page a guest signed in through the provider, an observer's socket
+logging what the room says. Headless Chrome and Firefox never hide a
+page (a second tab in front, a minimized window and the lifecycle's
+frozen state all leave `document.visibilityState` `visible`, frames and
+timers running; checked with Playwright's background-throttling flags
+removed), so a hidden tab is EMULATED in the page: no animation frames,
+timers at most once a second (or once a minute, Chrome's rate after five
+minutes), `document.hidden`, the `visibilitychange` event; the network
+untouched, as browsers leave it. What a real browser does to a hidden
+tab's socket could not be measured this way.
+
+- **Nothing ran a hidden tab's room.** A room's client is run from its
+  page's frames (`RoomClient::tick` in the screens' pump); a browser
+  stops a hidden page's frames. The browser keeps the socket and the
+  room keeps the member Connected, but: a pick was never loaded, so the
+  room waited its whole loading grace (45 s) for the member and then
+  started without them (`sat_out: not_ready`); and a socket that dropped
+  (a restart of the room's object, as a deploy makes, closes every
+  socket at once; a network change; a sleeping laptop) was never opened
+  again, so 30 s later the room counted the member away (Away in the
+  lists), while everyone with the tab in front was back within a
+  second. Measured before the fix: hidden 60 s through a pick, the room
+  waited 45.0 s and started without the member; hidden with the socket
+  dropped, Reconnecting at once, Away 30.0 s later, connected again 0.6 s
+  after the tab was shown.
+- **Fixed on the web** (`crates/web/src/room.rs`, `run_kept`): the kept
+  online room is run from its timer on any of its pages while the page is
+  hidden (as it was under Options and on a stage's results), and at once
+  when its socket brings something, closes, or a request is answered
+  (`wake_hidden`: a hidden page's timers may be a minute apart); a
+  reconnect that waits is tried at once then and when the page is shown
+  again (`RoomClient::hurry`). After: the socket dropped while hidden is
+  open again within 0.1 s (also with timers once a minute), a pick is
+  loaded while hidden, back within the Ready window the Ready screen is
+  there in 0.3 s with the song loaded; the tab's title says "Stage N is
+  starting" while the stage waits for the member's Ready
+  (`RoomClient::ready_wanted`).
+- **Away past the room's patience, a member could not become ready
+  again: fixed.** The room forgets what an away member had loaded
+  (`drop_prep`), and the client, having asked once, never reported the
+  song again: the room showed them Loading for good, waited its grace
+  for them and they sat the stage out. Now each such stage is prepared
+  and reported again when the socket is back
+  (`a_member_back_from_away_has_the_song_loaded_again_and_plays`).
+- **"Loaded" did not include the music on the web: fixed.** A stage's
+  song was reported loaded once its share and chart were read; the
+  music (megabytes) was fetched on the Ready screen, which the room
+  does not wait for. On a slow connection (emulated: 150 kB/s, a 3.9 MB
+  song) the stage started 6 s after the pick, the page showed "Loading"
+  for 24 s more and then, further behind than the late join (5 s),
+  forfeited and watched. Now the music is fetched while the song loads
+  (the browser keeps it for the play), the room told how far in tenths
+  ("Loading 40%" in everyone's lists, `RoomClient::load_progress`), and
+  the Ready screen opens once the song can be played. Desktop already
+  read the music with the share.
+- **Why someone sits a stage out is said**: on their status line and
+  under the song on the stage's prompt ("You're sitting out stage 1:
+  you weren't ready when it started." / its song was still loading here
+  / couldn't be loaded here / your connection was lost), and in
+  everyone's lists ("Sat out: not ready", "Sat out: loading", "Sat out:
+  load failed", "Sat out: away"). One who joined during a match is told
+  they play from the next one. A member who missed a stage's start and
+  has not its song (away through the pick, a page loaded later) is
+  handed the stage to watch where the room plays live (`sync_watched`).
+- **The lists' states for a stage, in one place**
+  (`screens::room::person_state`): nothing until a song is picked;
+  Waiting for song until the member's device says it is loading
+  (never "Not ready" there); Loading with its share; Not ready once
+  loaded; Ready; then Playing, or sat out with why.
+- **A socket that drops for a moment costs the stage: the room
+  model's, for the next round.** Seen on the local server: a member on
+  the Ready screen whose socket dropped for 0.3 s was counted out in
+  that instant (`start_committed … sat_out [[4, "not_connected"]]` in
+  the same revision as `reconnecting`), 12 s of their Ready window left:
+  a window never waits for anyone not Connected, and a lineup takes only
+  the Connected. A restart of the room's object during a window starts
+  the stage with whoever is back first.
+- **An administrator who rejoins a room they made: the room model's.**
+  The creator's row is made with `admin: false` and `Command::Join`
+  passes over the flag for anyone already in the room's list, so an
+  administrator whose room passed on comes back a plain member
+  (`take_pick` refused `unauthorized` on the local server, while the
+  HTTP routes still take them as an operator). The client offers a
+  co-host's controls wherever the room has the flag (tested); the change
+  is the next round's.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -10871,6 +10971,20 @@ before.
 | The standings' attack columns take the combo's place; the summary flows under the lines | `screens::results_stage` (`columns`, `summary_lines`) | With attacks the stage's standings have no max combo | Which column should give way (the combo, the place in the match, the judgments' strip) |
 
 ## Open questions
+
+- Feedback round N1 (2026-11-16): (1) a tab hidden during a stage's
+  play forfeits it at once (an interruption, as singleplayer's pause,
+  is a stage's forfeit): keep, or let the play run on unseen (the audio
+  runs on; the notes pass as misses)? (2) one who misses the Ready
+  window sits the stage out with no way in; should a late entry be
+  allowed for a member of the match who is back within the late join?
+  (3) the loading grace (45 s) is one length for every song and link:
+  should it go on while a loader still makes progress (the room now
+  hears how far each one is)? (4) a follower's failed download has no
+  retry until the next pick: worth a Retry beside the reason? (5) the
+  sentences that say why someone sits out do not say what they can do
+  next (they are handed the stage to watch where the room plays live,
+  and are asked again for the next stage): add it?
 
 - Round D1 (2026-11-15): (1) five rooms a person counts dormant rooms
   (a host who closed the tab without leaving keeps the room for its idle

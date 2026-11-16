@@ -1556,7 +1556,9 @@ Rust and the browser are implementation details, not advertised features.
   (`room::players_strip`); a tap on either opens the Players pop-up.
   `screens/room.rs` what the
   room's screens share (`RoomCall`, the per-frame `Pump`, the status and
-  rows, the panel, More, `ThemeState::room`, a `RoomView`, for tests;
+  rows, a person's state for a stage in the room's order, `person_state`
+  (nothing before a pick, Waiting for song, Loading, Not ready, Ready,
+  then Playing or sat out with why, `sat_out_why`), the panel, More, `ThemeState::room`, a `RoomView`, for tests;
   `DueDialog`, the notice over a screen opened over the room (Options,
   Calibrate, the announcer studio) that the room's stage is due for the
   player, `RoomClient::stage_due`, with the room's status line and a
@@ -1694,9 +1696,18 @@ Rust and the browser are implementation details, not advertised features.
   cookie; a room's socket is the browser's `WebSocket` on
   `api/sockets/<id>/ws`; a stage's song uploaded under the room's grant
   (`crate::room::upload`, `share::upload_room`: an imported or a bundled
-  song), read from the room's share (`crate::room::prepare_for`), its
+  song), read from the room's share (`crate::room::prepare_for`: its
+  music fetched to the end too, the room told how far in tenths,
+  `RoomClient::load_progress`, so that a song is loaded once it can be
+  played), its
   stage played at `#/play?…&stage=<id>&room=<id>` back to `#/mp/room/<id>`
-  (`crate::room::play_in`, `back_route`). A room watched with its
+  (`crate::room::play_in`, `back_route`). The kept online room is run
+  from a timer and from its socket's events wherever no frame runs it
+  (`crate::room::run_kept`, `wake_hidden`: under a page over it, on a
+  stage's results, and on any of its pages while the tab is hidden, where
+  a browser draws no frame: a pick is loaded, a dropped socket opened
+  again at once, `RoomClient::hurry`, and the tab's title says the stage
+  is starting while it waits for the player's Ready). A room watched with its
   audience: `#/mp/audience/<link>` its link's page, `#/mp/watch/<link>`
   the audience's page, `#/mp/watch/<link>/stage` a stage watched (the
   play route's spectator view with the seat in the room's place,

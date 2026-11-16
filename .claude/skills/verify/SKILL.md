@@ -85,6 +85,10 @@ over 1.2 s; release, focus loss, overlays and search must stop them.
 Check reduced motion, compact layout, pack headers and pointer scrolling.
 `docs/plans/song-navigation.md` records the complete contract.
 
+## A tab in the background
+
+Headless Chrome and Firefox never hide a page: another tab in front, a minimized window (`Browser.setWindowBounds`) and `Page.setWebLifecycleState` all leave `document.visibilityState` `visible` with frames and timers running, also with Playwright's own `--disable-background-timer-throttling`, `--disable-backgrounding-occluded-windows` and `--disable-renderer-backgrounding` taken out (`ignoreDefaultArgs`). `hidden-tab.js` (next to this file, `ctx.addInitScript({ path })`) EMULATES what a browser does to a hidden page as far as the page's own code can tell: `window.__hide(floorMs)` stops animation frames, lets timers run at most once every `floorMs` (1000 as Chrome and Firefox do; 60000 as Chrome after five minutes), sets `document.hidden` and fires `visibilitychange`; `window.__show()` ends it. The network is left alone (what a real browser does to a hidden tab's socket is not measured this way), `__DDI_DEBUG` stands still while hidden (it is written by frames), and `page.evaluate` still answers. An online room's page is kept running while hidden (`crate::room::run_kept`): its member stays Connected, loads a pick, opens a dropped socket again at once, and `document.title` says the stage is starting while it waits for their Ready. Request interception (`ctx.route`) turns Chrome's HTTP cache off: to keep a local run off the network without it, launch Chrome with `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1`.
+
 ## Headless Firefox
 
 Launch through `firefox.mjs` (next to this file), never with a bare `firefox.launch`:
