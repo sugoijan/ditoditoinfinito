@@ -2454,3 +2454,155 @@ fn a_room_of_seventy_three_with_sixty_cpus_settles() {
     // The CPUs' news: about one message a device a checkpoint.
     assert!(with.2 <= 13.0 * 4.0, "{}", with.2);
 }
+
+/// Round P1b (the maintainer's of 2026-11-16, "Yes, within a few
+/// seconds"): a member who was loaded but not ready when the start
+/// committed (counted out, `not_ready`) readies `late_ms` after the song's
+/// time zero. Within the live rules' late join (5 s) they enter: the room
+/// adds them to the lineup (`Event::EnteredLate`), the live side streams
+/// them and seats them in the ledger from then (no power before, nothing
+/// against them placed before), every device's reader follows their field,
+/// and the room ranks them as any starter. Past it (6 s) the Ready is
+/// refused and they watch.
+fn late_entry(late_ms: u64) -> (Room, Vec<Script>, BattlePlan) {
+    let plan = plan(30, 99, |j| j % 4 != 1);
+    let scripts: Vec<Script> = (1..=4)
+        .map(|i| script(10 + i, 95 + i as i32 * 7, 56_000, None))
+        .collect();
+    let mut setup = Setup::new(4);
+    setup.attacks = true;
+    let mut r = room(&setup);
+    r.players[0].link.live_mut().send(ClientLive::OfferPlan {
+        stage: STAGE,
+        plan: Box::new(plan.clone()),
+    });
+    r.run(500);
+    // Everyone loads; three ready, the fourth not: the window runs out.
+    let rev = r.state().stage(STAGE).unwrap().readiness_rev;
+    for (i, p) in r.players.iter_mut().enumerate() {
+        p.link.live_mut().send(ClientLive::Prepared {
+            stage: STAGE,
+            horizon_us: 2_000_000,
+            plan: Some(plan.digest.clone()),
+        });
+        p.send(Command::ReportLoading {
+            stage: STAGE,
+            readiness_rev: rev,
+            loading: Loading::Loaded,
+        });
+        if i < 3 {
+            p.send(Command::SetReady {
+                stage: STAGE,
+                readiness_rev: rev,
+                ready: true,
+            });
+        }
+    }
+    for _ in 0..80 {
+        r.run(500);
+        if matches!(r.state().phase, Phase::Countdown { .. }) {
+            break;
+        }
+    }
+    let play = r.state().stage(STAGE).unwrap().play.clone().expect("committed");
+    assert_eq!(play.lineup.len(), 3);
+    assert_eq!(
+        play.sat_out.get(&ParticipantId(4)),
+        Some(&ddi_room::SitOutReason::NotReady)
+    );
+    let zero = play.song_zero_at.unwrap();
+    for (p, s) in r.players.iter_mut().zip(&scripts).take(3) {
+        p.play = Some(s.clone());
+        p.judged = s.judged();
+        p.reporter = Some(Reporter::new(p.id, plan.checkpoints_us.clone()));
+    }
+    // The fourth readies `late_ms` after the song's time zero.
+    let at = zero.0 + late_ms;
+    r.run(at - r.now());
+    r.players[3].send(Command::SetReady {
+        stage: STAGE,
+        readiness_rev: rev,
+        ready: true,
+    });
+    r.run(400);
+    if r.state().stage(STAGE).unwrap().play.as_ref().unwrap().lineup.contains(&ParticipantId(4)) {
+        let p = &mut r.players[3];
+        p.play = Some(scripts[3].clone());
+        p.judged = scripts[3].judged();
+        p.reporter = Some(Reporter::new(p.id, plan.checkpoints_us.clone()));
+    }
+    r.run(62_000);
+    (r, scripts, plan)
+}
+
+#[test]
+fn a_member_who_missed_the_start_enters_within_the_late_join_and_not_after() {
+    for late_ms in [1_000u64, 4_000] {
+        let (r, scripts, _) = late_entry(late_ms);
+        let s = r.state();
+        let play = s.stage(STAGE).unwrap().play.clone().unwrap();
+        assert!(play.lineup.contains(&ParticipantId(4)), "{late_ms}: in");
+        assert!(!play.sat_out.contains_key(&ParticipantId(4)));
+        // Ranked as any starter.
+        let result = play.result.expect("decided");
+        assert!(
+            result
+                .placements
+                .iter()
+                .any(|p| p.participant == ParticipantId(4)),
+            "{late_ms}: placed"
+        );
+        let server = r.server.borrow();
+        let stage = server.live().unwrap().stage_or_last().unwrap();
+        assert!(stage.plays_live(ParticipantId(4)));
+        let ledger = stage.ledger().expect("a ledger");
+        // Seated from its entry: absent from the checkpoints before it,
+        // there after; nothing placed against it before it entered.
+        let entered = ledger
+            .record()
+            .iter()
+            .position(|c| c.power.iter().any(|(p, _)| *p == ParticipantId(4)))
+            .expect("seated");
+        // (Checkpoints every 2 s from 2 s, each run by its deadline
+        // 0.75 s after it: entered at 1 s, the first one seats it; at
+        // 4 s, the second one had run.)
+        let before = (late_ms as i64 - 750).max(0) as usize / 2_000;
+        assert!(
+            entered <= before + 1 && (late_ms < 2_750 || entered >= 1),
+            "{late_ms}: seated at checkpoint {entered}"
+        );
+        let first_k = ledger.record()[entered].at_us;
+        for a in ledger.attacks() {
+            if a.recipient == ParticipantId(4) {
+                assert!(ledger.checkpoints_us()[a.checkpoint] >= first_k, "{a:?}");
+            }
+        }
+        drop(server);
+        // Every device's reader has its whole field.
+        for p in &r.players {
+            let reader = p.link.live().reader().expect("followed");
+            assert_eq!(
+                reader.moments(ParticipantId(4)),
+                &scripts[3].moments[..],
+                "{late_ms}: {:?}'s field of P4",
+                p.id
+            );
+        }
+        eprintln!(
+            "late entry {late_ms} ms after song zero: seated at checkpoint {entered}, placed {:?}",
+            result
+                .placements
+                .iter()
+                .find(|p| p.participant == ParticipantId(4))
+                .map(|p| p.place)
+        );
+    }
+    // Six seconds after the song's time zero: refused, still sat out.
+    let (r, _, _) = late_entry(6_000);
+    let play = r.state().stage(STAGE).unwrap().play.clone().unwrap();
+    assert!(!play.lineup.contains(&ParticipantId(4)));
+    assert_eq!(
+        play.sat_out.get(&ParticipantId(4)),
+        Some(&ddi_room::SitOutReason::NotReady)
+    );
+}

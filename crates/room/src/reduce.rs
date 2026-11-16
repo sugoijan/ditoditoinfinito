@@ -409,6 +409,14 @@ impl RoomState {
                 {
                     return self.take_back_countdown(id, *stage, *readiness_rev, now, out);
                 }
+                // A late entry (round P1b): Ready after the start committed.
+                if *ready
+                    && self.policy.live.is_some()
+                    && let Phase::Countdown { stage: c, .. } | Phase::Stage { stage: c } = self.phase
+                    && c == *stage
+                {
+                    return self.enter_late(id, *stage, *readiness_rev, now, out);
+                }
                 self.check_preparing(id, *stage, *readiness_rev)?;
                 let s = self.stage(*stage).ok_or(Rejection::UnknownStage)?;
                 if s.content.is_none() {
@@ -433,7 +441,9 @@ impl RoomState {
             } => {
                 let id = self.own(actor)?;
                 let s = self.stage(*stage).ok_or(Rejection::UnknownStage)?;
-                if s.play.is_some() {
+                // One counted out of a started stage may still load it to
+                // enter late (round P1b).
+                if s.play.is_some() && self.late_entry_open(id, *stage, now).is_err() {
                     return Err(Rejection::StageStarted);
                 }
                 if s.readiness_rev != *readiness_rev {
@@ -1430,6 +1440,103 @@ impl RoomState {
         );
     }
 
+    /// Whether `id` may still enter `stage`'s started play late (round
+    /// P1b, the maintainer's of 2026-11-16: "Yes, within a few seconds"):
+    /// a room that plays live; the stage's start committed and its result
+    /// not decided; `id` counted out of its lineup when it committed for
+    /// a reason that may change (not ready, still loading, a load that
+    /// failed, reconnecting), connected and wanting to play now, still in
+    /// the match, a place under the competitor cap; and `now` no later
+    /// than the live rules' late join after its song's time zero (the
+    /// countdown before it counts as before the start).
+    pub fn late_entry_open(
+        &self,
+        id: ParticipantId,
+        stage: StageId,
+        now: Millis,
+    ) -> Decided {
+        let rules = self
+            .policy
+            .live
+            .as_ref()
+            .and_then(|l| l.rules())
+            .ok_or(Rejection::StartCommitted)?;
+        let s = self.stage(stage).ok_or(Rejection::UnknownStage)?;
+        let play = s.play.as_ref().ok_or(Rejection::NotUpcoming)?;
+        let running = matches!(
+            self.phase,
+            Phase::Countdown { stage: c, .. } | Phase::Stage { stage: c } if c == stage
+        );
+        if !running || play.result.is_some() || play.interrupted || play.song_ended {
+            return Err(Rejection::LateEntryClosed);
+        }
+        if !play
+            .sat_out
+            .get(&id)
+            .is_some_and(|r| r.may_still_join())
+        {
+            return Err(Rejection::LateEntryClosed);
+        }
+        let m = self.members.get(&id).ok_or(Rejection::NotAMember)?;
+        if !m.wants_to_play() {
+            return Err(Rejection::NotPlaying);
+        }
+        if m.connection != Connection::Connected {
+            return Err(Rejection::LateEntryClosed);
+        }
+        if let Some(m) = self.running_match() {
+            let seat = m.roster.get(&id).ok_or(Rejection::NotInMatch)?;
+            if seat.out_for_match {
+                return Err(Rejection::OutForMatch);
+            }
+        }
+        if play.lineup.len() >= usize::from(self.policy.max_competitors) {
+            return Err(Rejection::Cap(crate::rules::CapExceeded {
+                requested: u16::try_from(play.lineup.len() + 1).unwrap_or(u16::MAX),
+                cap: self.policy.max_competitors,
+            }));
+        }
+        let zero = play.song_zero_at.unwrap_or(play.start_at);
+        if now > zero.after(rules.late_join_ms) {
+            return Err(Rejection::LateEntryClosed);
+        }
+        Ok(())
+    }
+
+    /// [`Command::SetReady`] `true` after `stage`'s start committed: the
+    /// member enters it late where [`Self::late_entry_open`] says they
+    /// may and their song is loaded.
+    fn enter_late(
+        &mut self,
+        id: ParticipantId,
+        stage: StageId,
+        readiness_rev: u32,
+        now: Millis,
+        out: &mut Vec<Event>,
+    ) -> Decided {
+        let s = self.stage(stage).ok_or(Rejection::UnknownStage)?;
+        if s.readiness_rev != readiness_rev {
+            return Err(Rejection::StaleReadiness {
+                current: s.readiness_rev,
+            });
+        }
+        if s.play.as_ref().is_some_and(|p| p.lineup.contains(&id)) {
+            return Ok(());
+        }
+        self.late_entry_open(id, stage, now)?;
+        if s.prep_ref(id).loading != Loading::Loaded {
+            return Err(Rejection::NotLoaded);
+        }
+        self.emit(
+            out,
+            Event::EnteredLate {
+                stage,
+                participant: id,
+            },
+        );
+        Ok(())
+    }
+
     /// [`Command::SetReady`] `false` from a starter during the countdown,
     /// where the policy lets it cancel the start (CPU practice, round
     /// P1b): the start canceled, a window opened again from `now`, the
@@ -1965,6 +2072,15 @@ impl RoomState {
                         details: BTreeMap::new(),
                         song_zero_at: *song_zero_at,
                     });
+                }
+            }
+            Event::EnteredLate { stage, participant } => {
+                if let Some(s) = self.stage_mut(*stage) {
+                    s.prep.entry(*participant).or_default().ready = true;
+                    if let Some(p) = s.play.as_mut() {
+                        p.sat_out.remove(participant);
+                        p.lineup.insert(*participant);
+                    }
                 }
             }
             Event::StartCanceled { stage, .. } => {

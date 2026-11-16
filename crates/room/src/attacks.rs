@@ -620,6 +620,16 @@ impl StageBattle {
         self.rules
     }
 
+    /// A competitor who entered the stage after its start (round P1b, a
+    /// late entry): seated from now with no power, so that its first
+    /// report is credited at the next checkpoint run and nothing placed
+    /// before it was seated is against it. Seated already: nothing.
+    pub fn seat_late(&mut self, seat: &RosterSeat) {
+        self.seats
+            .entry(seat.participant)
+            .or_insert_with(|| Seat::new(seat));
+    }
+
     /// The next checkpoint to run and its time, if any is left.
     pub fn next_checkpoint(&self) -> Option<(usize, i64)> {
         self.checkpoints_us

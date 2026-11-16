@@ -3483,3 +3483,88 @@ fn a_watched_play_that_starts_late_draws_its_fields_no_further_behind() {
         );
     }
 }
+
+/// Round P1b (the maintainer's of 2026-11-16): one who missed the Ready
+/// window (Carol, prepared and not ready when the start committed) readies
+/// three seconds after the song's time zero: she enters the stage, her
+/// play starts late (the notes before missed), and the plays already under
+/// way draw a field of her from then on; she is ranked as any starter.
+#[test]
+fn a_late_entrant_starts_late_and_every_device_draws_her_field() {
+    let song = bundled("beatucada");
+    let r = Room::new(
+        &[
+            ("alice", Intent::Play),
+            ("bob", Intent::Play),
+            ("carol", Intent::Play),
+        ],
+        None,
+    );
+    let orders = pick_and_ready_who(&r, &song, false, 0, 1, |_, _| {}, |i| i < 2);
+    let stage = orders[0].as_ref().unwrap().stage;
+    for _ in 0..200 {
+        if r.rooms[0].borrow().stage_started(stage) {
+            break;
+        }
+        r.run(0.5);
+    }
+    let carol = r.rooms[2].borrow().me();
+    let play = || r.server.borrow().state().stage(stage).unwrap().play.clone().unwrap();
+    assert!(!play().lineup.contains(&carol), "counted out at the commit");
+    *r.play_devices.borrow_mut() = vec![0, 1, 2];
+    let mut plays: Vec<_> = (0..2)
+        .map(|i| session_for(&r, &song, orders[i].as_ref().unwrap(), i, 0.0))
+        .collect();
+    for p in &plays {
+        assert_eq!(p.battle().unwrap().views().len(), 1, "only the other one who plays");
+    }
+    let zero = r.rooms[0].borrow().song_zero_at(stage).unwrap();
+    // Three seconds into the song Carol's Ready screen is still hers.
+    while (wall(*r.host.borrow()) as f64 - zero.0 as f64) / 1_000.0 < 3.0 {
+        r.step(1.0 / 60.0, false);
+        let now = *r.host.borrow();
+        for p in &mut plays {
+            let _ = p.tick(HostTime(now));
+        }
+        r.rooms[2].borrow_mut().tick(wall(now));
+    }
+    assert!(r.rooms[2].borrow().may_enter_late(stage));
+    assert!(!r.rooms[2].borrow().stage_started(stage), "her Ready screen stays");
+    r.rooms[2].borrow_mut().set_ready(true).unwrap();
+    for _ in 0..30 {
+        r.step(1.0 / 60.0, false);
+        let now = *r.host.borrow();
+        for p in &mut plays {
+            let _ = p.tick(HostTime(now));
+        }
+        r.rooms[2].borrow_mut().tick(wall(now));
+    }
+    assert!(play().lineup.contains(&carol), "entered");
+    assert!(r.rooms[2].borrow().stage_started(stage), "her play starts");
+    plays.push(session_for(&r, &song, orders[2].as_ref().unwrap(), 2, 0.0));
+    let now = *r.host.borrow();
+    let t = plays[2].player.judge_time(HostTime(now));
+    assert!(t > 2.5, "she starts late: {t}");
+    assert!(plays[2].battle().unwrap().me_in(&plays[2].player));
+    assert_eq!(plays[2].battle().unwrap().views().len(), 2, "she sees both");
+    let mut drawn = false;
+    let ended = play_out(&r, &mut plays, 200.0, |_, plays| {
+        drawn |= plays[..2]
+            .iter()
+            .all(|p| p.battle().unwrap().views().len() == 2);
+    });
+    assert!(drawn, "Alice's and Bob's plays drew her field");
+    assert!(ended.iter().all(Option::is_some));
+    // Her run reported as any starter's; the room decides with her in it.
+    for (i, e) in ended.into_iter().enumerate() {
+        let (_, o) = e.unwrap();
+        r.rooms[i]
+            .borrow_mut()
+            .report_played(o.stage, o.mine, o.ranking, o.confirmed_early, o.details)
+            .ok();
+    }
+    r.run(5.0);
+    assert!(play().reports.contains_key(&carol), "her run reported");
+    let result = play().result.expect("decided");
+    assert!(result.placements.iter().any(|p| p.participant == carol), "ranked");
+}

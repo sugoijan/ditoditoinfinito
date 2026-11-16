@@ -115,7 +115,12 @@ pub fn supported(version: u32) -> bool {
 ///     (`LivePolicy::quiet_ping_ms`, additive, a burst at each pick);
 ///     the clock's estimate starting over after a step of either clock
 ///     (two agreeing exchanges, `ClockEstimator::STEP_US`), the devices'
-///     rooms run on one steady clock (`ddi_platform::steady`).
+///     rooms run on one steady clock (`ddi_platform::steady`); and a late
+///     entry (`Event::EnteredLate`: a member counted out of a stage's
+///     lineup at its commit who readies within the live rules' late join
+///     enters it; `Rejection::LateEntryClosed`, `NotLoaded`; their load
+///     and readiness to play live heard after the commit; the live side
+///     streams and seats them from then, `StageBattle::seat_late`).
 pub const ROOM_MODEL_REVISION: u32 = 12;
 
 /// What a client makes of an authority older than itself (never sent by

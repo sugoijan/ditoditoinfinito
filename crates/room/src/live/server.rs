@@ -302,8 +302,12 @@ impl LiveServer {
                     out.refuse(LiveRefusal::UnknownStage { stage });
                     return out;
                 };
-                if s.play.is_some() {
-                    // Too late to change a lead: the stage started.
+                if let Some(play) = &s.play
+                    && (play.lineup.contains(&from) || room.late_entry_open(from, stage, now).is_err())
+                {
+                    // Too late to change a lead: the stage started. (One
+                    // counted out of it who may still enter it late is
+                    // heard, round P1b.)
                     return out;
                 }
                 if let Some(room_plan) = s.content.as_ref().and_then(|c| c.battle.clone())
@@ -484,7 +488,12 @@ impl LiveServer {
     fn sync(&mut self, room: &RoomState, now: Millis) {
         let current = live_stage(room);
         match (current, &mut self.stage) {
-            (Some((id, _)), Some(s)) if s.id == id => {}
+            (Some((id, play)), Some(s)) if s.id == id => {
+                // A late entry (round P1b): the lineup grew since.
+                if play.lineup.len() > s.comps.len() {
+                    s.admit(room, play, self.prepared.get(&id));
+                }
+            }
             (Some((id, play)), old) => {
                 if let Some(old) = old.take() {
                     self.last = Some(old);
@@ -746,6 +755,55 @@ impl LiveStage {
             cpu_messages: 0,
             cpu_reports_seen: 0,
         }
+    }
+
+    /// Competitors of `play`'s lineup not streamed yet: those who entered
+    /// the stage late (round P1b, `Event::EnteredLate`), each a stream
+    /// from now, seated in the ledger from now (no power, nothing against
+    /// them placed before) where it ready to play live with the room's
+    /// plan; the plan's seed and digest unchanged.
+    fn admit(
+        &mut self,
+        room: &RoomState,
+        play: &StagePlay,
+        prepared: Option<&BTreeMap<ParticipantId, Prepared>>,
+    ) {
+        let plan = self.plan.clone();
+        for p in play.lineup.iter().copied() {
+            if self.comps.contains_key(&p) {
+                continue;
+            }
+            let ready = prepared.and_then(|m| m.get(&p)).filter(|x| match &plan {
+                Some(plan) => x.plan.as_ref() == Some(plan),
+                None => true,
+            });
+            let cpu = room.member(p).is_some_and(|m| m.is_cpu());
+            self.comps.insert(
+                p,
+                Comp {
+                    cpu,
+                    live: cpu || ready.is_some(),
+                    seq: 0,
+                    through_us: i64::MIN,
+                    streamed: false,
+                    end: None,
+                    last: None,
+                    reports: BTreeMap::new(),
+                    reported: None,
+                    life_ppm: 1_000_000,
+                    steps: 0,
+                    step: None,
+                },
+            );
+            if let (Some(ledger), Some(ready)) = (self.ledger.as_mut(), ready) {
+                ledger.seat_late(&RosterSeat {
+                    participant: p,
+                    targeting: room.member(p).map(|m| m.targeting()).unwrap_or_default(),
+                    lead_us: self.rules.lead_us(ready.horizon_us),
+                });
+            }
+        }
+        self.early = self.comps.values().all(|c| c.live);
     }
 
     /// Reports, ends and runs of a CPU that a device sent differently

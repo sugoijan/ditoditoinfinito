@@ -232,7 +232,7 @@ fn a_stage_waiting_for_the_players_ready_is_told() {
 /// watch, with nothing reported to the room. (Before: they stayed on the
 /// room's song select, told they sat the stage out, with nothing to see.)
 #[test]
-fn a_member_who_missed_a_stages_start_is_handed_it_to_watch() {
+fn a_member_who_missed_a_stages_start_is_handed_it_within_the_late_join() {
     use super::live_tests::{beatucada, entry_of, room_with};
     use crate::state::room::{Picked, prepare_stage};
     use ddi_room::{Command, ContentStatus, Phase, RoomPolicy, SitOutReason};
@@ -302,11 +302,17 @@ fn a_member_who_missed_a_stages_start_is_handed_it_to_watch() {
     let revision = server.borrow().state().revision;
     carol.finish_shared_load_live(&jobs[0], Ok((picked, None)));
     tick(&clock, &mut [&mut alice, &mut bob, &mut carol], 400);
-    let order = carol.take_stage_order().expect("handed to watch");
-    assert!(order.watching);
+    let order = carol.take_stage_order().expect("handed the stage");
     assert_eq!(order.stage, stage);
-    // Nothing was reported, and nothing refused.
-    assert_eq!(server.borrow().state().revision, revision);
+    // Round P1b: her page loaded within the late join of the song's time
+    // zero, she is handed its Ready screen, not a watcher's (she may still
+    // enter it: her song reported loaded); past the late join it is
+    // watched as before (the room's no-show ends the others' streams
+    // here, so that is `the_screens`' test,
+    // `a_member_who_missed_the_window_may_still_ready_within_the_late_join`).
+    assert!(carol.may_enter_late(stage));
+    assert!(!order.watching);
+    assert!(server.borrow().state().revision > revision, "her load told");
     assert!(carol.refusal().is_none());
     assert!(carol.take_load_jobs().is_empty(), "asked for once");
 }

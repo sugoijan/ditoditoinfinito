@@ -1456,6 +1456,130 @@ fn a_followers_failed_download_is_tried_again_then_offers_retry() {
     assert!(!has(&hb, "Retry"), "{:?}", hb.texts());
 }
 
+/// Round P1b (the maintainer's of 2026-11-16): a member who missed the
+/// Ready window keeps the stage's Ready screen for the late join after
+/// its start (it used to turn into "sitting out"): its Ready enters them
+/// (`EnteredLate`) and the play starts, late; one who lets the late join
+/// pass watches as before.
+#[test]
+fn a_member_who_missed_the_window_may_still_ready_within_the_late_join() {
+    use crate::state::online::tests::room::{client, person, prepare, song, tick};
+    use ddi_room::fake::FakeServer;
+    use ddi_room::{Identity, Intent, ManualClock, ParticipantId, RoomPolicy};
+    for press in [true, false] {
+        let clock = ManualClock::new(1_000);
+        let server = FakeServer::hosted(
+            "Room000001",
+            Identity::new("dev:alice"),
+            "alice",
+            RoomPolicy::default().with_live(),
+            clock.clone(),
+        )
+        .shared();
+        for who in ["bob", "carol"] {
+            server
+                .borrow_mut()
+                .join(Identity::new(format!("dev:{who}")), who, Intent::Play)
+                .unwrap();
+        }
+        let alice = Rc::new(RefCell::new(client(
+            &server,
+            person(&server, "alice"),
+            "alice",
+            1_000,
+        )));
+        let bob = Rc::new(RefCell::new(client(
+            &server,
+            person(&server, "bob"),
+            "bob",
+            1_000,
+        )));
+        let carol = Rc::new(RefCell::new(client(
+            &server,
+            person(&server, "carol"),
+            "carol",
+            1_000,
+        )));
+        let step = |ms: u64| {
+            for _ in 0..ms / 100 {
+                tick(
+                    &clock,
+                    &mut [
+                        &mut alice.borrow_mut(),
+                        &mut bob.borrow_mut(),
+                        &mut carol.borrow_mut(),
+                    ],
+                    100,
+                );
+            }
+        };
+        step(2_000);
+        let s = song();
+        alice.borrow_mut().pick(&s, &s.charts[0]).unwrap();
+        step(400);
+        crate::state::online::tests::room::upload(&server, &mut alice.borrow_mut(), "abc12345");
+        step(400);
+        for r in [&alice, &bob, &carol] {
+            prepare(&mut r.borrow_mut());
+        }
+        step(400);
+        let order = bob.borrow_mut().take_stage_order().unwrap();
+        let seen: Rc<RefCell<Vec<PromptChoice>>> = Rc::default();
+        let sink = seen.clone();
+        let orders = Orders::default();
+        let mut hb = harness();
+        hb.push(
+            PromptScreen::new(
+                env(),
+                Rc::new(RefCell::new(PromptState::default())),
+                Rc::new(move |c, _| sink.borrow_mut().push(c)),
+            )
+            .with_room(bob.clone(), order.stage, shell(&bob, &orders)),
+        );
+        hb.run(0.3);
+        alice.borrow_mut().set_ready(true).unwrap();
+        carol.borrow_mut().set_ready(true).unwrap();
+        // Bob lets the window run out: the stage commits without him.
+        for _ in 0..80 {
+            step(500);
+            hb.run(0.05);
+            if matches!(
+                server.borrow().state().phase,
+                ddi_room::Phase::Countdown { .. }
+            ) {
+                break;
+            }
+        }
+        let stage = order.stage;
+        let play = || server.borrow().state().stage(stage).unwrap().play.clone().unwrap();
+        assert!(!play().lineup.contains(&ParticipantId(2)));
+        // Past the countdown and two seconds into the song: still his
+        // Ready screen, its Ready on offer.
+        step(6_000);
+        hb.run(0.3);
+        assert_eq!(
+            server.borrow().state().phase.kind(),
+            ddi_room::PhaseKind::Stage
+        );
+        assert!(bob.borrow().may_enter_late(stage), "{press}");
+        assert!(has(&hb, "Ready"), "{press}: {:?}", hb.texts());
+        assert!(!seen.borrow().contains(&PromptChoice::Start));
+        if press {
+            hb.key("Enter", "Enter");
+            step(400);
+            hb.run(0.3);
+            assert!(play().lineup.contains(&ParticipantId(2)), "entered");
+            assert!(seen.borrow().contains(&PromptChoice::Start), "the play starts");
+        } else {
+            // The late join passes: watched as before.
+            step(4_000);
+            hb.run(0.3);
+            assert!(!bob.borrow().may_enter_late(stage));
+            assert!(!play().lineup.contains(&ParticipantId(2)));
+        }
+    }
+}
+
 /// Round P1b: an online room's committed start is past taking Ready
 /// back, and its prompt says so: during the countdown the button says
 /// "Starting…" (never "Cancel ready"), no hint says how to cancel, and

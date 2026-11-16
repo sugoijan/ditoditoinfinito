@@ -2670,13 +2670,35 @@ impl RoomClient {
         let s = self.state();
         let me = self.me;
         match s.stage(stage).and_then(|st| st.play.as_ref()) {
-            Some(play) => play.lineup.contains(&me),
+            // (Or not yet, but may still enter it late, round P1b.)
+            Some(play) => play.lineup.contains(&me) || self.may_enter_late(stage),
             None => {
                 s.candidates().contains(&me)
                     && s.member(me)
                         .is_some_and(|m| m.intent == ddi_room::Intent::Play)
             }
         }
+    }
+
+    /// Whether the local player, counted out of `stage`'s lineup when its
+    /// start committed, may still enter it late (round P1b, the
+    /// maintainer's of 2026-11-16: within the live rules' late join of its
+    /// song's time zero; `ddi_room`'s `RoomState::late_entry_open`), their
+    /// song loaded: their Ready screen stays theirs meanwhile, its Ready
+    /// entering them. The room decides; this is what the screens offer.
+    pub fn may_enter_late(&self, stage: StageId) -> bool {
+        let s = self.state();
+        let Some(st) = s.stage(stage) else {
+            return false;
+        };
+        let Some(play) = st.play.as_ref() else {
+            return false;
+        };
+        if play.lineup.contains(&self.me) || st.prep(self.me).loading != Loading::Loaded {
+            return false;
+        }
+        let now = self.room_now().unwrap_or(ddi_room::Millis(self.now_ms()));
+        s.late_entry_open(self.me, stage, now).is_ok()
     }
 
     /// Whether a stage the local player is not in is watched on this
@@ -2744,7 +2766,12 @@ impl RoomClient {
         matches!(s.phase, Phase::Stage { stage: p } | Phase::SongCompletion { stage: p } if p == stage)
             && s.stage(stage)
                 .and_then(|st| st.play.as_ref())
-                .is_some_and(|p| p.lineup.contains(&self.me) || self.watches())
+                .is_some_and(|p| {
+                    p.lineup.contains(&self.me)
+                        // One who may still enter it late keeps the Ready
+                        // screen for those seconds (round P1b).
+                        || (self.watches() && !self.may_enter_late(stage))
+                })
     }
 
     /// What leaving stage `stage`'s prompt means now; withdrawing clears
@@ -2966,6 +2993,12 @@ impl RoomClient {
         // online room refuses it): asked of the counting-down stage.
         let counting = match self.state().phase {
             Phase::Countdown { stage, .. } if !ready => Some(stage),
+            // A late entry (round P1b): Ready after the start committed.
+            Phase::Countdown { stage, .. } | Phase::Stage { stage }
+                if ready && self.may_enter_late(stage) =>
+            {
+                Some(stage)
+            }
             _ => None,
         };
         let Some(stage) = counting.or_else(|| self.state().upcoming_stage()) else {
@@ -3171,8 +3204,12 @@ impl RoomClient {
             .insert((job.stage, job.readiness_rev), u16::MAX);
         // A stage that started meanwhile takes no report (the room would
         // refuse it, and the status line say so): its song is here to
-        // watch it by ([`Self::sync_watched`]).
-        if self.state().stage(job.stage).is_some_and(|st| st.play.is_some()) {
+        // watch it by ([`Self::sync_watched`]); unless this member may
+        // still load it to enter it late (round P1b).
+        let now = self.room_now().unwrap_or(ddi_room::Millis(self.now_ms()));
+        if self.state().stage(job.stage).is_some_and(|st| st.play.is_some())
+            && self.state().late_entry_open(self.me, job.stage, now).is_err()
+        {
             self.version += 1;
             return;
         }
@@ -3428,7 +3465,11 @@ impl RoomClient {
                 self.preparing.remove(&stage);
                 continue;
             };
-            if st.readiness_rev != rev || st.play.is_some() {
+            let late = st.play.is_some() && {
+                let now = self.room_now().unwrap_or(ddi_room::Millis(self.now_ms()));
+                self.state().late_entry_open(self.me, stage, now).is_err()
+            };
+            if st.readiness_rev != rev || late {
                 self.preparing.remove(&stage);
                 continue;
             }

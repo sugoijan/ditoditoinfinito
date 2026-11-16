@@ -483,6 +483,13 @@ pub(crate) struct Live {
     snapshot_known: usize,
     /// [`Live::cpu_lead_us`].
     cpu_lead_us: i64,
+    /// The stage's people not in its lineup when this play started, who
+    /// may still enter it late (round P1b, `Event::EnteredLate`): a field
+    /// each once the room's lineup has them ([`Live::admit_late`]), drawn
+    /// on `track` with `lock`.
+    late: Vec<(ParticipantId, String)>,
+    track: feed::TapTrack,
+    lock: Option<f64>,
     /// The shell's wall clock (ms) when the room's news was last read
     /// (none: never yet, by a play that started part-way and has the
     /// stage's backlog to read first).
@@ -634,6 +641,34 @@ pub(crate) fn sum_view(score: i64) -> ScoreView {
     }
 }
 
+/// A field of `p` (named `name`) drawn on `track`, `delay` seconds behind
+/// the song, its lanes locked `lock` seconds by a shock.
+fn remote_seat(
+    p: ParticipantId,
+    name: &str,
+    track: &feed::TapTrack,
+    delay: f64,
+    lock: Option<f64>,
+) -> RemoteSeat {
+    let mut feed = feed::FieldFeed::new(track, 1.0, delay);
+    feed.set_lock(lock);
+    RemoteSeat {
+        participant: p,
+        name: name.into(),
+        feed,
+        through_us: None,
+        end: None,
+        score: 0,
+        w0s: 0,
+        combo_part: 0,
+        counted: 0,
+        shift_us: 0,
+        shifts: VecDeque::new(),
+        steps: 0,
+        steps_from: 0,
+    }
+}
+
 impl Live {
     /// Stage `stage`'s live play for `me` (`competes`: they play it, not
     /// watch it), with `plan` and `horizon_us` as this device worked them
@@ -662,28 +697,14 @@ impl Live {
         // opened) named every candidate, some of whom sat it out.
         let lineup = handle.room.borrow().lineup(stage);
         let delay = view_delay.delay_ms() / 1_000.0;
-        let seats = people
+        let (seated, late): (Vec<_>, Vec<_>) = people
             .iter()
-            .filter(|(p, _)| *p != me && lineup.as_ref().is_none_or(|l| l.contains(p)))
-            .map(|(p, name)| {
-                let mut feed = feed::FieldFeed::new(track, 1.0, delay);
-                feed.set_lock(lock);
-                RemoteSeat {
-                    participant: *p,
-                    name: name.as_str().into(),
-                    feed,
-                    through_us: None,
-                    end: None,
-                    score: 0,
-                    w0s: 0,
-                    combo_part: 0,
-                    counted: 0,
-                    shift_us: 0,
-                    shifts: VecDeque::new(),
-                    steps: 0,
-                    steps_from: 0,
-                }
-            })
+            .filter(|(p, _)| *p != me)
+            .cloned()
+            .partition(|(p, _)| lineup.as_ref().is_none_or(|l| l.contains(p)));
+        let seats = seated
+            .iter()
+            .map(|(p, name)| remote_seat(*p, name, track, delay, lock))
             .collect();
         let reporter = (competes && plan.is_some())
             .then(|| Reporter::new(me, plan.as_ref().map_or_else(Vec::new, |p| p.checkpoints_us.clone())));
@@ -744,6 +765,30 @@ impl Live {
             cpu_lead_us,
             read_at,
             arriving: false,
+            late,
+            track: track.clone(),
+            lock,
+        }
+    }
+
+    /// Those of the stage's people the room's lineup has now and this play
+    /// has no field of: they entered the stage late (round P1b), a field
+    /// each from now, after the others (the seats' numbers kept).
+    fn admit_late(&mut self) {
+        if self.late.is_empty() {
+            return;
+        }
+        let Some(lineup) = self.handle.room.borrow().lineup(self.stage) else {
+            return;
+        };
+        let delay = self.delay.delay_ms() / 1_000.0;
+        let (entered, still): (Vec<_>, Vec<_>) = std::mem::take(&mut self.late)
+            .into_iter()
+            .partition(|(p, _)| lineup.contains(p));
+        self.late = still;
+        for (p, name) in entered {
+            self.seats
+                .push(remote_seat(p, &name, &self.track, delay, self.lock));
         }
     }
 
@@ -784,6 +829,7 @@ impl Live {
     /// stream's times are its clock's already).
     pub(crate) fn sync(&mut self, t: f64) -> Vec<String> {
         let mut log = Vec::new();
+        self.admit_late();
         let (room_us, uncertainty) = {
             let room = self.handle.room.borrow();
             let zero = room.song_zero_at(self.stage);

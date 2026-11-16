@@ -360,6 +360,16 @@ pub enum Event {
         participant: ParticipantId,
         ready: bool,
     },
+    /// Round P1b (the maintainer's of 2026-11-16): a member counted out of
+    /// `stage`'s lineup when its start committed (not ready in time, or
+    /// reconnecting) readied within the late join of its start
+    /// (`crate::live::LiveRules::late_join_ms` after its song's time zero;
+    /// the countdown before it counts as before the start): a starter now,
+    /// ready, out of the stage's sit-outs. Only where the room plays live.
+    EnteredLate {
+        stage: StageId,
+        participant: ParticipantId,
+    },
     LoadingChanged {
         stage: StageId,
         participant: ParticipantId,
@@ -553,6 +563,13 @@ pub enum Rejection {
     /// Came by the watch-only link: Play waits for the owner's Let play
     /// (`Member::watch_only`). Additive: only such a member is refused it.
     WatchOnly,
+    /// Round P1b: a Ready after a stage's start committed came too late
+    /// (past the late join of its start), or from someone who could not
+    /// enter it late (not counted out of it, the stage decided).
+    LateEntryClosed,
+    /// Round P1b: a Ready to enter a stage late before its song was
+    /// reported loaded.
+    NotLoaded,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
