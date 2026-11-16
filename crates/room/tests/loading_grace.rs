@@ -306,6 +306,120 @@ fn the_grace_counts_from_the_songs_availability() {
     assert_eq!(r.window().loading_until, Some(Millis(GRACE + 10_000 + GRACE)));
 }
 
+/// Round P1b (the maintainer's of 2026-11-16: "45 seconds flat, but we
+/// should start counting after uploads finishes"): a pick whose upload
+/// takes 5 s or 60 s, everyone else's whole grace counts from the end of
+/// the upload. The picker's own device has the song from the start (its
+/// Loaded counts), nobody else can load before the share is there, and
+/// nothing ends while it is uploaded however long that takes.
+#[test]
+fn the_grace_counts_from_the_end_of_a_5_s_and_a_60_s_upload() {
+    for upload in [5_000, 60_000] {
+        let mut r = Room::new();
+        let (host, ana) = (r.host, r.join("ana"));
+        r.by(
+            host,
+            Command::Pick {
+                content: song(1),
+                card: None,
+            },
+        )
+        .unwrap();
+        let s1 = r.s.upcoming_stage().unwrap();
+        assert!(r.s.content_pending(s1));
+        r.load(host, s1, Loading::Loaded);
+        r.ready(host, s1);
+        // Throughout the upload: no alarm, nothing ends, ana is waiting
+        // for the song (she reported nothing).
+        r.wait_to(upload - 1);
+        assert_eq!(r.s.next_deadline(), None, "{upload}");
+        assert!(r.window().loading(), "{upload}");
+        assert_eq!(r.s.stage(s1).unwrap().prep(ana).loading, Loading::NotStarted);
+        r.wait_to(upload);
+        r.sys(Command::SetContentStatus {
+            stage: s1,
+            status: ContentStatus::Available,
+            share: Some("share-1".into()),
+        });
+        let w = r.window();
+        assert_eq!(w.loading_until, Some(Millis(upload + GRACE)), "{upload}");
+        assert_eq!(w.deadline, Millis(upload + GRACE + WINDOW), "{upload}");
+        // Ana loading slowly keeps the whole grace after the upload.
+        r.load(ana, s1, Loading::Loading { permille: 100 });
+        r.wait_to(upload + GRACE - 1);
+        assert!(r.window().loading(), "{upload}");
+        r.wait_to(upload + GRACE);
+        assert!(!r.window().loading(), "{upload}");
+        assert_eq!(r.window().deadline, Millis(upload + GRACE + WINDOW));
+    }
+}
+
+/// The pick of the song the picker rested on, whose share the spotlight
+/// already made: available at the pick, the grace from it.
+#[test]
+fn a_pick_that_reuses_the_resting_songs_share_counts_from_the_pick() {
+    let mut r = Room::new();
+    let host = r.host;
+    let _ana = r.join("ana");
+    r.wait_to(3_000);
+    r.by(
+        host,
+        Command::Spotlight {
+            content: Some(song(1)),
+            card: None,
+        },
+    )
+    .unwrap();
+    r.sys(Command::SetSpotlightShare {
+        chart: song(1).chart,
+        share: "share-spot".into(),
+    });
+    r.wait_to(7_000);
+    r.by(
+        host,
+        Command::Pick {
+            content: song(1),
+            card: None,
+        },
+    )
+    .unwrap();
+    let s1 = r.s.upcoming_stage().unwrap();
+    assert!(!r.s.content_pending(s1));
+    let c = r.s.stage(s1).unwrap().content.clone().unwrap();
+    assert_eq!(c.share.as_deref(), Some("share-spot"));
+    assert_eq!(r.window().loading_until, Some(Millis(7_000 + GRACE)));
+    // A spotlight share finished after the pick (the picker picked while
+    // the resting song was still being uploaded): from its end.
+    let mut r = Room::new();
+    let host = r.host;
+    let _ana = r.join("ana");
+    r.by(
+        host,
+        Command::Spotlight {
+            content: Some(song(2)),
+            card: None,
+        },
+    )
+    .unwrap();
+    r.by(
+        host,
+        Command::Pick {
+            content: song(2),
+            card: None,
+        },
+    )
+    .unwrap();
+    let s1 = r.s.upcoming_stage().unwrap();
+    assert!(r.s.content_pending(s1));
+    r.wait_to(12_000);
+    r.sys(Command::SetSpotlightShare {
+        chart: song(2).chart,
+        share: "share-late".into(),
+    });
+    assert!(!r.s.content_pending(s1));
+    assert_eq!(r.window().loading_until, Some(Millis(12_000 + GRACE)));
+}
+
 /// `hosted-deadline-v1`, kept by name: no grace, the window from the
 /// song's availability as before; and practice keeps it.
 #[test]
