@@ -11071,6 +11071,131 @@ CPU practice's prompt is the same code.
   (Start pressed for the shell before everything loaded) still leaves on
   one Back, a forfeit there; the play itself has its quit gesture.
 
+## Round P1a: combos count in DDI's score, and Adaptive's normal step up takes six bars (inside revision 12, 2026-11-16)
+
+Two of the maintainer's decisions of 2026-11-16, built inside room model
+revision 12 (deployed nowhere yet, so it is not raised; its list in
+`ddi_room::protocol` names them).
+
+### Combos count in DDI's score (`ddi-combo-v0`)
+
+The rule, the study it was chosen by and its tables are in
+[the DDI ruleset](ddi-ruleset.md), "Combos count": every note judged in
+combo adds `6 × min(k, 100) + 28 × isqrt(k − 100)` to the score, `k` the
+combo after it; a full combo of 300 notes adds 200,672 (the 200,000 mix
+the maintainer chose), broken in two it keeps 66%; a marathon's
+(2,400 notes) part is 21% of its score. What it changes in rooms:
+
+- **A stage ranks by it.** Everyone's score (a person's self-reported
+  run, `Run::Live::score`, `RunDetail`; the CPUs' computed on every
+  device; the bots') includes the combo part, and the miniatures and the
+  Standings show it. Over the attack study's stages (eight CPUs of mixed
+  levels, 144 a row) the order of those still in differs from the score
+  without it in 13% of the stages with attacks (the winner in 4%) and
+  26% without, and an attack received costs about 1.9 times as much
+  score (shocks break combos); who goes out is untouched.
+- **A remote person's percent** is worked out from their stream's sum
+  less the combo part their moments' combos add (`ddi_of_sum`); the
+  stream format is unchanged. Read from part-way, runs that ended before
+  are not told: the percent shown a little high until the stage ends.
+- **The CPUs' fixture** (`the_cpus_play_alike`, recorded once with the
+  six-bar step up below): all four scenarios differ, and only in each
+  CPU's final score line (the combo part added); every checkpoint's
+  powers and commitments, every report's digest, the tallies and the
+  steps are byte for byte as before. It passes natively and for
+  wasm32-wasip1 (`tools/wasi-run`).
+- **The pinned stage traces** (`pinned.txt`, `live_pinned.txt`, recorded
+  once): 9 of the 45 practice stages and all 6 live ones moved, each in
+  its scores (and its digest with them); one moved in order, the "quit"
+  stage, where a CPU of a 137-note run now ranks above one more accurate
+  with an 88-note run, the case the maintainer named:
+
+      before  outcome: P3 > P4 > P2 > P1f · mine Forfeit
+                P3: score 2132604 percent 9415 … combo 88
+                P4: score 2120071 percent 9359 … combo 137
+      after   outcome: P4 > P3 > P2 > P1f · mine Forfeit
+                P3: score 2172540 percent 9415 … combo 88
+                P4: score 2183367 percent 9359 … combo 137
+
+  The others are the same lines with higher scores. The room's screens'
+  drawing pins did not move (their sample data show no DDI score part).
+- **The server** runs the room model (it ranks the scores it is told) and
+  needs no code change, but it is built against the game's `crates/room`
+  and must be built and deployed with this game, as for every change in
+  revision 12.
+
+### Adaptive's normal step up takes six bars (`adaptive-v5`)
+
+The maintainer, after playing: the normal step up (clean bars with 80%
+of their taps in the three best judgments) after **six** bars rather than
+eight; the early one (four bars, 90%), the return rule and the closing
+unchanged. `ddi_engine::ladder::ADAPTIVE_V5` replaces `adaptive-v4`
+(retired as the earlier ones were: the rule is not stored by name in a
+room or a battle plan, so nothing reads `adaptive-v4` any more). Tested
+in `crates/engine/tests/adaptive.rs` (the sloppy play, every sixth press
+a W3, steps up at the first bar line past six clean bars, and two bars
+later under eight).
+
+`adaptive_step_up_study` (the local arcade mixes in place, 1,066 song
+files, every chart with a ladder from every slot, ten CPUs one a level,
+DDI Normal, attacks on, one seed; 150 s under a load of 30 to 80 from
+other work; MEASUREMENTS OF CPUS AGAINST CPUS), v4 → v5, by the pick's
+slot and level: steps up a minute, and how often a CPU went out of the
+stage:
+
+| Pick | Level | Steps up a minute | Out of the stage |
+| --- | --- | --- | --- |
+| Beginner | 1 | 0.838 → 0.876 | 41.4% → 45.2% |
+| Beginner | 2 | 1.164 → 1.185 | 46.6% → 48.3% |
+| Beginner | 3 | 1.341 → 1.354 | 33.4% → 34.5% |
+| Beginner | 4 | 1.508 → 1.510 | 35.3% → 35.4% |
+| Beginner | 5 | 1.607 → 1.617 | 25.3% → 25.4% |
+| Beginner | 6 | 1.722 → 1.722 | 22.3% → 22.0% |
+| Easy | 1 | 0.407 → 0.420 | 3.4% → 3.6% |
+| Easy | 3 | 0.911 → 0.922 | 1.5% → 1.5% |
+| Easy | 5 | 1.159 → 1.163 | 0.4% → 0.4% |
+| Medium | 1 | 0.062 → 0.064 | 4.0% → 4.0% |
+| Medium | 3 | 0.388 → 0.395 | 2.0% → 2.0% |
+| Medium | 5 | 0.649 → 0.649 | 2.2% → 2.2% |
+| Medium | 7 | 0.751 → 0.752 | 1.2% → 1.2% |
+| Hard | 5 | 0.124 → 0.123 | 1.1% → 1.1% |
+| Hard | 7 | 0.174 → 0.173 | 0.1% → 0.1% |
+| Challenge | any | the same | the same |
+
+The CPUs barely notice: nearly every step up they make is early (four
+bars at 90%), and the normal one is for whoever scrapes between 80% and
+90% over six bars, which their model rarely is; where it moves, it is
+the weakest levels on Beginner picks (level 1: a step up 34.6 bars in
+rather than 36.2, out of the stage 45% rather than 41%; v4 had already
+raised that from round D1's v3). Not counter-tuned. A person's normal
+step up was not estimated from the kept plays this round (round D1's
+estimate of the early one stands).
+
+### Checked
+
+Clippy native (all targets) and wasm; the engine's, session's, shell's,
+room's, UI's (with the theme), library's and desktop's suites; the
+reworker's tests (a DDI play kept before the combo part is judged again
+and gains it, an autoplayed record's grade stays the bot's, an export
+from before or after imports and is judged again); `l10n check` and the
+`qps-ploc` walk; the smoke check; a play to its results and a practice
+stage to its Standings in headless Chrome and Firefox (`__DDI_DEBUG.ddi_score`
+gains `combo`: the HUD's score counting with it; Beatucada's Beginner
+autoplayed ends 1,194,484 with a Combo line of 4,446, its 38 notes'
+`6 × (1 + … + 38)`; pictures of the results in English and Japanese
+under the round's scratch folder). The desktop suite: 364 passed, the
+three known local failures, and a script-loading timing test that failed
+under a machine load over 100 from other work and passes alone.
+
+### For the deploy
+
+Server and frontend together, the server first (`../ddi-server` built
+against this game's `crates/room` at revision 12, then the game); people
+in rooms are told to reload. The first start of the new game judges
+every kept play again (`JUDGE_VERSION` 5), a song at a time in the
+background, as after versions 3 and 4: bests are pending until their
+plays are judged again.
+
 ## Provisional choices
 
 | Choice | Where | User-visible effect | Decision needed |
@@ -11084,7 +11209,9 @@ CPU practice's prompt is the same code.
 | What a small field carries (`carry-v0`: score from 16 px, stars from 13, name from 11, combo from 9, scaled with the field since follow-up round F) | `ddi_shell::opponents::Carry`, `Miniature::fit_combo` | 36 at 1280×720 lose the score, 72 also the stars; their combos small as their fields | The steps, by looking |
 | A large field's miniatures under 24 px lanes draw their holds, rolls and mines plainly, as the built-in skin (`plain-notes-v0`, `CARRY_SKIN_NOTES`) | `ddi_shell::opponents::Carry::skin_notes`, `ddi_render::scene::Miniature::plain` | 72 fields cost what taps-only fields do (Firefox's 7.7 ms frames on a hold chart back to 2.3); the small fields' holds lose Infinito's wave material | The size, by looking; whether the exact batching of stencil holds is worth building for rooms of 9 to 24 on large windows |
 | `hosted-deadline-v2` (2026-11-14): a loading grace of 45 s (`LOADING_GRACE_V2_MS`) before the readiness window, which then ends early once everyone who loaded is ready; practice keeps v1 | `ddi_room::ReadinessPolicy`, `reduce.rs` (`window_from`, `end_loading`), the server's `ROOM_LOADING_GRACE_MS` | A slow loader holds the stage up to 45 s, then has the 15 s Ready countdown to finish and ready, else sits it out; rows say Loading | The 45 s; whether a late loader should hold the countdown's early end |
-| `adaptive-v4` (2026-11-15, round D1; replaces `adaptive-v3`): an early step up after four clean bars with 90% of their taps in the three best judgments (`ADAPTIVE_EARLY_ACCURACY_V4`, `early_best` 3; v3 asked 95% in the two best), or a normal one after eight clean bars with 80% in the three best; back up to a rung whose life ran out sixteen bars by either's accuracy; closed after two run-outs; `ROOM_MODEL_REVISION` 11 | `ddi_engine::ladder::ADAPTIVE_V4`, `Step::early` | A clean four bars steps up even with many W2s (reached in about four kept plays in five, in almost none under v3); nearly every step up a CPU makes is early, a few more fall back (level 5 from Medium: 31% of its steps up, 27%), and on Beginner picks the weak levels go out about twice as often | Whether an early step up should wait longer straight after a step up (the Beginner picks' outs); the 90% |
+| `ddi-combo-v0` (2026-11-16, round P1a): DDI's combo part, every note judged in combo adding `6 × min(k, 100) + 28 × isqrt(k − 100)`, `k` the combo after it; a full combo of 300 notes 200,672 | `ddi_engine::rules::ddi::COMBO_SCORE`, `combo_points`, `DdiScore` | The score (and a stage's ranking) rewards long runs: a full combo usually beats a broken play up to about a point more accurate on a 300-note chart; the results' Combo line | The weights (6, 28) and the ramp's 100; whether short charts (100 notes: 30,300) should weigh it more |
+| `adaptive-v5` (2026-11-16, round P1a; replaces `adaptive-v4`): as `adaptive-v4`, its normal step up after six clean bars with 80% in the three best (v4: eight) | `ddi_engine::ladder::ADAPTIVE_V5`, `ADAPTIVE_NORMAL_BARS_V5` | A player between 80% and 90% steps up two bars sooner; the CPUs barely change | The Beginner picks' outs (as under v4) |
+| RETIRED 2026-11-16 (by `adaptive-v5`): `adaptive-v4` (2026-11-15, round D1; replaces `adaptive-v3`): an early step up after four clean bars with 90% of their taps in the three best judgments (`ADAPTIVE_EARLY_ACCURACY_V4`, `early_best` 3; v3 asked 95% in the two best), or a normal one after eight clean bars with 80% in the three best; back up to a rung whose life ran out sixteen bars by either's accuracy; closed after two run-outs; `ROOM_MODEL_REVISION` 11 | `ddi_engine::ladder::ADAPTIVE_V4`, `Step::early` | A clean four bars steps up even with many W2s (reached in about four kept plays in five, in almost none under v3); nearly every step up a CPU makes is early, a few more fall back (level 5 from Medium: 31% of its steps up, 27%), and on Beginner picks the weak levels go out about twice as often | Whether an early step up should wait longer straight after a step up (the Beginner picks' outs); the 90% |
 | `empty_room_secs` 120 (round D4): a room with no member connected ends two minutes after its last socket closed (or its making); 0 is no limit | the server's `limits::EMPTY_ROOM_SECS`, `RoomCore::alarm` | A host who makes a room and leaves to play later finds it closed (accepted by the maintainer); a reload or a short outage keeps it | Whether two minutes is right once people use it |
 | `max_rooms_per_owner` 5 (round D1): the rooms one signed-in person owns at once, dormant ones included until their idle end | the server's `limits::ROOMS_PER_OWNER`, `registry::may_create` | The sixth room is refused with a sentence; a host who never leaves their rooms is refused for up to a week | Whether only rooms someone is connected to (or made in the last day) should count, or a new room should end the owner's oldest dormant one |
 | RETIRED 2026-11-15 (by `adaptive-v3`, whose early step up it is): `adaptive-v2` (2026-11-14): a step up also needs 95% of its bars' taps in the two best judgments (`ADAPTIVE_ACCURACY_V2`); a step down's boundary without the extra second (`down_lead` 0) | `ddi_engine::ladder::ADAPTIVE_V2` | Weak players and CPUs stay on their chart unless they play it cleanly; a step down's easier chart comes a bar sooner | The 95%; whether the step up's own second should go too |

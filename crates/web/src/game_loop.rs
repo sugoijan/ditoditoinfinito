@@ -1002,13 +1002,15 @@ impl GameLoop {
                     })),
                     // The player's life (`0..=1`) and, under DDI, the
                     // score as the HUD's display has it (the sum, what a
-                    // room shows and ranks by) with its parts.
+                    // room shows and ranks by) with its parts, the combo
+                    // part (`ddi-combo-v0`) among them.
                     "life": p.ruleset().gauge.life(),
                     "ddi_score": p.ruleset().score.view().ddi.map(|d| json!({
                         "score": d.score,
                         "ratio": d.ratio,
                         "percent": d.percent,
                         "points": d.points,
+                        "combo": d.combo,
                     })),
                     "mines_hit": r.tally.mine_hit,
                     // The lanes a mine or a shock locked in the player's

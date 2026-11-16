@@ -158,7 +158,7 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   player out of a stage watches it on from their own dimmed field and
   can skip to the results, and leaving a stage's play forfeits it and
   comes to the same view.
-  Provisional choices and open questions listed. Step down (2026-11-13): the match rule At zero life: Out / Step down, an easier chart of the song from a bar ahead instead of going out, in practice and live rooms, measured. Adaptive charts (2026-11-13, replacing it): the match rule Charts: As picked / Adaptive, steps down at zero life and up after four clean bars (above the picked chart too), a stage ranked by the score as earned, in practice and live rooms, measured. Attacks, version 2 (2026-11-13): an attack over once placed, attacks chained without limit one safe section after another (`attacks-v2`), "Last standing" before "Stage won" (`settlement-v1`), the warning counting those placed behind, the pile-ups measured and a limit proposed. Round D1 (2026-11-15, room model revision 11): the early step up eased (`adaptive-v4`), a competitor who left a stage marked and ranked last, a snapshot saying each competitor's chart, the operator's Close this room, five rooms a person, a signed-in viewer's join guard; server and frontend deploy together, the server first.
+  Provisional choices and open questions listed. Step down (2026-11-13): the match rule At zero life: Out / Step down, an easier chart of the song from a bar ahead instead of going out, in practice and live rooms, measured. Adaptive charts (2026-11-13, replacing it): the match rule Charts: As picked / Adaptive, steps down at zero life and up after four clean bars (above the picked chart too), a stage ranked by the score as earned, in practice and live rooms, measured. Attacks, version 2 (2026-11-13): an attack over once placed, attacks chained without limit one safe section after another (`attacks-v2`), "Last standing" before "Stage won" (`settlement-v1`), the warning counting those placed behind, the pile-ups measured and a limit proposed. Round D1 (2026-11-15, room model revision 11): the early step up eased (`adaptive-v4`), a competitor who left a stage marked and ranked last, a snapshot saying each competitor's chart, the operator's Close this room, five rooms a person, a signed-in viewer's join guard; server and frontend deploy together, the server first. Round P1a (2026-11-16, inside revision 12): DDI's combo part ranks stages, `adaptive-v5` (a normal step up after six bars).
 - [CPU practice and private-room prototype handoff](multiplayer-prototype-handoff.md)
   (2026-11-10): the maintainer authorized parallel implementation of these two
   flows while the original design lane continues. Separates selected constraints,
@@ -309,7 +309,9 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   for words and hit effects; the judgment words in the player's
   language; shock avoidance a CPU's eighth skill axis); left: the
   targeting choice, online attacks; a study of putting combos into the
-  score (2026-11-16, measured only, a choice for the maintainer). Our own
+  score (2026-11-16), then combos counted in it (2026-11-16,
+  `ddi-combo-v0`: a combo part, a Combo line on the results, kept plays
+  judged again). Our own
   ruleset, the only one in multiplayer and the default for normal play:
   W0–W5 on a 1/120 s grid (1/144 Hard, 1/90 Easy) with early and late
   words, FFR-style life and Boos (off by default), a 1,000,000 score or

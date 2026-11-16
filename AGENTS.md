@@ -62,11 +62,11 @@ Rust and the browser are implementation details, not advertised features.
   battle's own, nothing judged by it;
   `reading_horizon`, how long a play's notes are shown before they are
   judged); a match's "Charts: Adaptive" (`ladder.rs`, `ADAPTIVE`, which
-  is `ADAPTIVE_V4`: sixteen bars back up to a rung whose life ran out, a
+  is `ADAPTIVE_V5`: sixteen bars back up to a rung whose life ran out, a
   rung closed once life ran out on it twice, `Step::closes`, a step up
   early after four bars with 90% of their taps in the three best
-  judgments, `Step::early`, `early_best`, or normally after eight with
-  80% in the three best, `normal_bars`; `adaptive-v0` to `adaptive-v3`
+  judgments, `Step::early`, `early_best`, or normally after six with
+  80% in the three best, `normal_bars`; `adaptive-v0` to `adaptive-v4`
   retired; tests and studies
   set variants of it, `Player::set_ladder_rule`:
   a song's ladder of easier and harder charts, `ladder::Ladder`,
@@ -719,9 +719,12 @@ Rust and the browser are implementation details, not advertised features.
   `battle/study.rs` (`cargo test --release -p ddi-session --lib
   attack_rates -- --ignored --nocapture`), and one of putting combos
   into DDI's score, `battle/combo_study.rs` (`combo_score_study`, the
-  same way: candidate scores worked out beside today's over CPU plays
-  and stages, nothing scored by it; `docs/plans/ddi-ruleset.md`, "DDI's
-  score and combos: a study");
+  same way: candidate combo parts worked out beside the score without
+  one over made-up plays, CPU plays, stages, an easier rung on purpose
+  and, with `DDI_COMBO_PLAYS`, the maintainer's kept plays in
+  aggregate, the engine's `ddi-combo-v0` asserted equal to its
+  candidate; `docs/plans/ddi-ruleset.md`, "DDI's score and combos: a
+  study" and "Combos count");
   the local player's attack policy changed in play (D8,
   `Battle::policy`, `retarget`): either Shift and Tab, each unless the
   player's bindings give it to a lane (`play::POLICY_KEYS`, the shared
@@ -1287,7 +1290,8 @@ Rust and the browser are implementation details, not advertised features.
   (`ROOM_MODEL_REVISION`, 12 since 2026-11-16: Shocks per attack, a
   returning member's administrator flag, `Event::AdminChanged`, a member
   reconnecting for a moment keeping their place, the member's
-  keep-alive; 11 `adaptive-v4`, a live snapshot's `step`,
+  keep-alive, DDI's combo part (`ddi-combo-v0`) and `adaptive-v5`
+  (in 12, deployed nowhere before them); 11 `adaptive-v4`, a live snapshot's `step`,
   `Command::CloseRoom`; 10 `adaptive-v3`; 9 since
   2026-11-14; round B1, 2 since
   `attacks-v2`, 3 adaptive charts, 4 `attacks-v3`, 5 `cpu-levels-v1`,
@@ -2251,12 +2255,18 @@ difficulty" wherever a person sees it (the option, the room's match
 rule) and "Hard timing" or "Easy timing" in summaries, never
 "Difficulty" alone, which is a chart's; identifiers keep `difficulty`.
 The score shown is the
-proportional part plus the absolute score (`DdiScoreView::score`,
-`ratio + absolute`: a perfect 1,000-note chart about 6,000,000, a
-longer one more; the results show it and the percent, the absolute
-score has no line); a person sees the score or the percent and nothing
+proportional part, the absolute score and the combo part together
+(`DdiScoreView::score`, `ratio + absolute + combo`: a perfect
+1,000-note chart about 7,060,000, a longer one more; the combo part,
+`ddi-combo-v0`, `ddi::combo_points`, every note judged in combo adding
+`6 × min(k, 100) + 28 × isqrt(k − 100)` of the combo `k` after it, in
+whole numbers, nothing divided by the chart's size; the results show
+the score and the percent and a Combo line of the combo part, the
+absolute score has no line; percent, grades and lamps are accuracy
+alone); a person sees the score or the percent and nothing
 else of it, in a room too (`ratio` stays for the sum's own arithmetic
-and for comparing across charts). Stored settings naming ITG moved
+and for comparing across charts). `JUDGE_VERSION` 5 judged every kept
+play again for it, from its log. Stored settings naming ITG moved
 to DDI once (`Settings::rules_moved`; never move a ruleset again without
 such a mark) and their ITG plays were asked to be judged again
 (`Settings::rejudge_from`, `Plays::rejudge_asked`). A test about a

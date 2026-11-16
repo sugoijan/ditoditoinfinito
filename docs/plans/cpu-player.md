@@ -706,7 +706,7 @@ miniatures costs GPU time (72 of them on a chart of 34 holds: about 4.5
 ms a frame more natively): `docs/plans/multiplayer-prototype-progress.md`,
 "CPUs play the full chart", "Cost".
 
-### Adaptive charts under `adaptive-v3` and `adaptive-v4`
+### Adaptive charts under `adaptive-v3`, `adaptive-v4` and `adaptive-v5`
 
 A CPU steps by the stage's rule, as a person does (its play is a
 `Player`). Under `adaptive-v2` (follow-up round F) a step up needed 95%
@@ -730,7 +730,10 @@ Medium pick level 3 climbs in 55% of stages, level 5 in 94%, its first
 step up about bar 18), a few more of them falling back within sixteen
 bars (level 5: 31%, 27% before), and on Beginner picks the weak levels
 go out of the stage about twice as often. The tables: the same note,
-"Round D1".
+"Round D1". Since round P1a (`ADAPTIVE_V5`, 2026-11-16) the normal step
+up takes six bars, not eight: the CPUs, nearly all of whose steps up are
+early, barely change (the weakest levels on Beginner picks go out a few
+points more often); the same note, "Round P1a".
 
 ## Evasion: a CPU against a battle's shocks
 
