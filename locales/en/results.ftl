@@ -81,6 +81,11 @@ results-early-late = Early / late
 results-ddi-score = Score
 results-ddi-percent = Percent
 
+# DDI's rules: the points the play's combos added to its score (every
+# note hit in combo adds more as the combo grows), beside Score and
+# Percent: "200672".
+results-ddi-combo = Combo
+
 # The average of the hits' errors, then their spread: "−2.1 ms (σ 9.8)".
 results-mean-offset = Mean offset
 

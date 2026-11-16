@@ -561,23 +561,27 @@ pub fn flare_stat(r: &Results) -> Option<(String, String)> {
 }
 
 /// A DDI play's score or percent, the one the big number (the score, or
-/// with `percent` the percent) does not show. The score is the
-/// proportional part plus the absolute score
-/// (`ddi_engine::rules::ddi::DdiScoreView::score`), so the absolute
-/// score has no line of its own.
+/// with `percent` the percent) does not show, then its combo part (what
+/// its combos added to the score, `ddi-combo-v0`). The score is the
+/// proportional part, the absolute score and the combo part together
+/// (`ddi_engine::rules::ddi::DdiScoreView::score`); the absolute score
+/// has no line of its own.
 pub fn ddi_stats(r: &Results, percent: bool) -> Vec<(String, String)> {
     let Some(d) = &r.score.ddi else {
         return Vec::new();
     };
     // Readouts: the same in every language.
-    vec![if percent {
-        (rm::ddi_score().into(), d.score.to_string())
-    } else {
-        (
-            rm::ddi_percent().into(),
-            UiText::data(format!("{}%", d.percent_text())).into(),
-        )
-    }]
+    vec![
+        if percent {
+            (rm::ddi_score().into(), d.score.to_string())
+        } else {
+            (
+                rm::ddi_percent().into(),
+                UiText::data(format!("{}%", d.percent_text())).into(),
+            )
+        },
+        (rm::ddi_combo().into(), d.combo.to_string()),
+    ]
 }
 
 /// An FFR play's total score and raw goods, as R^3's results show them
@@ -1027,9 +1031,9 @@ mod tests {
 
     /// A DDI play's results: W0 by its word, each tier by both words with
     /// its early and late counts, Early and Late (never Fast and Slow),
-    /// Held and Off, Boos when on, the score (the proportional part plus
-    /// the absolute score) with its percent, the lamp by name, and a
-    /// bot's grade.
+    /// Held and Off, Boos when on, the score (the proportional part, the
+    /// absolute score and the combo part) with its percent and its combo
+    /// part, the lamp by name, and a bot's grade.
     #[test]
     fn a_ddi_play_shows_both_words_its_sides_and_its_two_scores() {
         use ddi_engine::rules::ddi::{self, DdiOptions, DdiResult, DdiScoreView, Lamp};
@@ -1045,7 +1049,7 @@ mod tests {
         r.grade = "S".into();
         r.score = ScoreView {
             percent: Some(0.9512),
-            ddi: Some(DdiScoreView::of(1902, 2000, 20)),
+            ddi: Some(DdiScoreView::of(1902, 2000, 20).with_combo(45_000)),
             ..ScoreView::default()
         };
         r.ddi = Some(DdiResult {
@@ -1092,10 +1096,12 @@ mod tests {
         assert_eq!(stat(&d, "Boos"), None);
         assert!(!names(&d).contains(&"Boos"));
         assert_eq!(stat(&d, "Stray presses"), None);
-        // The score, 951,000 of the ratio and 190,220 of the absolute
-        // score, with the percent beside it; no line for the absolute.
-        assert_eq!(d.score, "1141220");
+        // The score, 951,000 of the ratio, 190,220 of the absolute
+        // score and 45,000 of the combo part, with the percent and the
+        // combo part beside it; no line for the absolute.
+        assert_eq!(d.score, "1186220");
         assert_eq!(stat(&d, "Percent").as_deref(), Some("95.10%"));
+        assert_eq!(stat(&d, "Combo").as_deref(), Some("45000"));
         assert_eq!(stat(&d, "Absolute score"), None);
         assert_eq!(stat(&d, "Score"), None);
         assert_eq!(d.grade, "S");
@@ -1107,8 +1113,9 @@ mod tests {
         settings.save();
         let d = results_data(&info(&r, &rules, &layout));
         assert_eq!(d.score, "95.10%");
-        assert_eq!(stat(&d, "Score").as_deref(), Some("1141220"));
+        assert_eq!(stat(&d, "Score").as_deref(), Some("1186220"));
         assert_eq!(stat(&d, "Percent"), None);
+        assert_eq!(stat(&d, "Combo").as_deref(), Some("45000"));
         Settings::default().save();
         // Boos on: counted by their word; the options on the mods line.
         let boos = ddi::ruleset(&DdiOptions {

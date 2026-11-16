@@ -97,7 +97,13 @@ pub fn supported(version: u32) -> bool {
 ///     keeping their place in a stage and its readiness window, a sit-out
 ///     for a song still loading said as such, and a member's socket's
 ///     keep-alive (`crate::online::KEEPALIVE_V0`, answered by the
-///     server's runtime: a server before it closed the socket on it).
+///     server's runtime: a server before it closed the socket on it);
+///     and, in the same revision since it was deployed nowhere yet,
+///     round P1a (2026-11-16): DDI's score counts its combos
+///     (`ddi_engine::rules::ddi::COMBO_SCORE`, `ddi-combo-v0`: the scores
+///     every device computes for the room's CPUs and reports, and ranks
+///     a stage by) and `adaptive-v5` (a normal step up after six bars:
+///     every device steps the room's CPUs alike).
 pub const ROOM_MODEL_REVISION: u32 = 12;
 
 /// What a client makes of an authority older than itself (never sent by

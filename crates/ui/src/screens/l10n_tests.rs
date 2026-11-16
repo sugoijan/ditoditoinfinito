@@ -2601,6 +2601,7 @@ fn moved_screens_show_no_text_written_in_code() {
                         "99.50%".into(),
                     ),
                     (ddi_l10n::msg::results::ddi_score().into(), "1185020".into()),
+                    (ddi_l10n::msg::results::ddi_combo().into(), "200672".into()),
                 ];
                 data.mods = super::play::ddi_summary(&rules.ddi.unwrap()).join(" · ");
                 data.notes = vec![

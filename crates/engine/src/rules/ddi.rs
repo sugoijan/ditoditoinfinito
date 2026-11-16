@@ -71,6 +71,41 @@ pub const UNIT_POINTS: i64 = 50;
 /// The most a tap-like note gives.
 pub const MOST_TAP_POINTS: i64 = 50;
 
+/// The combo part's rule (`docs/plans/ddi-ruleset.md`, "Score" and
+/// "Combos count (2026-11-16)"). PROVISIONAL, named: every note judged in
+/// combo adds [`combo_points`] of the combo after it to the score, as
+/// whole numbers in the order the notes are judged; nothing is divided by
+/// the chart's size, so a longer chart gives more. The maintainer
+/// (2026-11-16): "an absolute amount, not exactly 'scaled' but counted
+/// with absolute values like hits are".
+pub const COMBO_SCORE: &str = "ddi-combo-v0";
+/// The combo up to which a note's combo points climb quickly
+/// ([`combo_points`]).
+pub const COMBO_RAMP: u32 = 100;
+/// What each step of the combo up to [`COMBO_RAMP`] adds to a note's
+/// combo points.
+pub const COMBO_RAMP_POINTS: i64 = 6;
+/// What each step of `isqrt(combo - COMBO_RAMP)` adds past it: slowly,
+/// without a cap.
+pub const COMBO_GROWTH_POINTS: i64 = 28;
+
+/// The combo points a note judged in combo adds, `combo` the combo after
+/// it (`ddi-combo-v0`): `6 × min(combo, 100) + 28 × isqrt(combo − 100)`
+/// (the second term 0 up to 100). A full combo of 300 notes adds 200,672,
+/// of 1,000 notes 1,062,400; one broken in two at 300 notes keeps 66% of
+/// that.
+pub fn combo_points(combo: u32) -> i64 {
+    let k = i64::from(combo);
+    COMBO_RAMP_POINTS * k.min(i64::from(COMBO_RAMP))
+        + COMBO_GROWTH_POINTS * (k - i64::from(COMBO_RAMP)).max(0).isqrt()
+}
+
+/// The combo part of a full combo of `notes` notes (one run, every note
+/// in combo): the sum of [`combo_points`] of 1 to `notes`.
+pub fn full_combo_points(notes: u32) -> i64 {
+    (1..=notes).map(combo_points).sum()
+}
+
 /// The grade every tap and lift W0, no mine stepped on and every hold
 /// and roll held.
 pub const ABSOLUTE_DITO: &str = "Absolute Dito";
@@ -194,10 +229,12 @@ pub fn units_earned(head: f64, end: f64, dropped_at: Option<f64>) -> u32 {
 /// DDI's point count and its views ([`ScoreView::ddi`]). All may be
 /// negative.
 ///
-/// Kept with a play as `points`, `most` and `absolute` alone say it: the
-/// rest is worked out again when it is read ([`Stored`]), so a play kept
-/// before the score became the sum (its `score` was the proportional
-/// part) shows the sum at once.
+/// Kept with a play as `points`, `most`, `absolute` and `combo` alone say
+/// it: the rest is worked out again when it is read ([`Stored`]), so a
+/// play kept before the score became the sum (its `score` was the
+/// proportional part) shows the sum at once. A play kept before the
+/// combo part (`ddi-combo-v0`) reads with none, its judge's version
+/// older (`crate::JUDGE_VERSION` 5), and is judged again from its log.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "Stored")]
 pub struct DdiScoreView {
@@ -213,8 +250,12 @@ pub struct DdiScoreView {
     pub percent: i64,
     /// `100 × points + W0s`: not divided by the chart's size.
     pub absolute: i64,
-    /// The score as shown: `ratio + absolute`, so a longer chart gives
-    /// more (a perfect 1,000-note chart about 6,000,000).
+    /// The combo part (`ddi-combo-v0`, [`combo_points`]): what the notes
+    /// judged in combo added, never falling; not divided by the chart's
+    /// size either. 0 under no combo.
+    pub combo: i64,
+    /// The score as shown: `ratio + absolute + combo`, so a longer chart
+    /// gives more (a perfect 1,000-note chart about 7,060,000).
     pub score: i64,
 }
 
@@ -226,12 +267,13 @@ struct Stored {
     points: i64,
     most: i64,
     absolute: i64,
+    combo: i64,
 }
 
 impl From<Stored> for DdiScoreView {
     fn from(s: Stored) -> DdiScoreView {
         let w0 = s.absolute.saturating_sub(s.points.saturating_mul(100));
-        DdiScoreView::of(s.points, s.most, w0.clamp(0, i64::from(u32::MAX)) as u32)
+        DdiScoreView::of(s.points, s.most, w0.clamp(0, i64::from(u32::MAX)) as u32).with_combo(s.combo)
     }
 }
 
@@ -252,14 +294,25 @@ impl DdiScoreView {
             ratio: proportional,
             percent: ratio(10_000),
             absolute,
+            combo: 0,
             score: proportional + absolute,
         }
     }
 
+    /// The view with `combo` as its combo part ([`DdiScoreView::combo`]),
+    /// the score the three parts together.
+    pub fn with_combo(self, combo: i64) -> DdiScoreView {
+        DdiScoreView {
+            combo,
+            score: self.ratio + self.absolute + combo,
+            ..self
+        }
+    }
+
     /// How two plays' scores compare for a best: the higher score (the
-    /// sum, which carries the absolute score's W0s as its tie-break),
-    /// then the absolute score (the best lamp is kept apart, [`Lamp`]'s
-    /// order).
+    /// sum, combo part included, which carries the absolute score's W0s
+    /// as its tie-break), then the absolute score (the best lamp is kept
+    /// apart, [`Lamp`]'s order).
     pub fn best_cmp(&self, other: &DdiScoreView) -> std::cmp::Ordering {
         (self.score, self.absolute).cmp(&(other.score, other.absolute))
     }
@@ -277,12 +330,17 @@ impl DdiScoreView {
     }
 }
 
-/// DDI's point count ([`DdiScoreView`]).
+/// DDI's point count ([`DdiScoreView`]) and its combo part.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct DdiScore {
     points: i64,
     most: i64,
     w0: u32,
+    /// The combo part so far ([`combo_points`]).
+    combo_part: i64,
+    /// The combo the part has counted to: a combo that grows past it adds
+    /// each new step's points; one that falls (a break) counts from there.
+    counted: u32,
 }
 
 impl DdiScore {
@@ -311,6 +369,8 @@ impl ScoreRules for DdiScore {
     fn begin(&mut self, ctx: &ScoreCtx) {
         self.points = 0;
         self.w0 = 0;
+        self.combo_part = 0;
+        self.counted = ctx.combo;
         self.most = most_of(ctx);
     }
 
@@ -319,14 +379,26 @@ impl ScoreRules for DdiScore {
         if ctx.w0 {
             self.w0 += 1;
         }
+        // The combo as the player keeps it (`ScoreCtx::combo`, after the
+        // event): every step it grew by adds its points, so the part
+        // follows exactly what continues and what breaks the combo.
+        if ctx.combo > self.counted {
+            self.combo_part += (self.counted + 1..=ctx.combo).map(combo_points).sum::<i64>();
+        }
+        self.counted = ctx.combo;
     }
 
+    /// The notes changed (a step of the ladder): the points and the part
+    /// kept, the combo carried on as the player carries it. Also where a
+    /// combo is given rather than played (a staged play,
+    /// `crate::player::Player::start_staged`): from there.
     fn restep(&mut self, ctx: &ScoreCtx) {
         self.most = most_of(ctx);
+        self.counted = ctx.combo;
     }
 
     fn view(&self) -> ScoreView {
-        let ddi = DdiScoreView::of(self.points, self.most, self.w0);
+        let ddi = DdiScoreView::of(self.points, self.most, self.w0).with_combo(self.combo_part);
         ScoreView {
             percent: Some(ddi.fraction()),
             ddi: Some(ddi),
@@ -702,7 +774,8 @@ mod tests {
     }
 
     /// A perfect 1,000-note chart with every tap a W0: the whole
-    /// proportional part, 100 a point and the W0s.
+    /// proportional part, 100 a point and the W0s (with its combo part,
+    /// [`full_combo_points`], as a play has it).
     #[test]
     fn a_perfect_thousand_notes_score_six_million_and_a_thousand() {
         let v = DdiScoreView::of(50 * 1000, 50 * 1000, 1000);
@@ -727,6 +800,73 @@ mod tests {
         let v = DdiScoreView::of(-55, 200, 0);
         let kept = serde_json::to_string(&v).unwrap();
         assert_eq!(serde_json::from_str::<DdiScoreView>(&kept).unwrap(), v);
+    }
+
+    /// `ddi-combo-v0`'s numbers, as `docs/plans/ddi-ruleset.md` has them.
+    #[test]
+    fn combo_points_ramp_to_a_hundred_then_grow_slowly() {
+        assert_eq!(COMBO_SCORE, "ddi-combo-v0");
+        assert_eq!(combo_points(0), 0);
+        assert_eq!(combo_points(1), 6);
+        assert_eq!(combo_points(100), 600);
+        assert_eq!(combo_points(101), 628);
+        assert_eq!(combo_points(200), 600 + 28 * 10);
+        assert_eq!(combo_points(2500), 600 + 28 * 48);
+        // A full combo of 300 notes is about the study's 200,000 mix.
+        assert_eq!(full_combo_points(300), 200_672);
+        assert_eq!(full_combo_points(100), 30_300);
+        assert_eq!(full_combo_points(1_000), 1_062_400);
+        // Broken in two at 300 notes: about a third of it lost.
+        let halves = full_combo_points(150) + full_combo_points(149);
+        let lost = 100 * (full_combo_points(300) - halves) / full_combo_points(300);
+        assert_eq!(lost, 34);
+    }
+
+    /// The part follows the combo the player keeps: each step it grows
+    /// adds, a break starts it over, and a step of the ladder or a combo
+    /// given carries it on.
+    #[test]
+    fn the_combo_part_follows_the_combo() {
+        let mut s = DdiScore::new();
+        let mut ctx = ScoreCtx {
+            steps: 10,
+            ..ScoreCtx::default()
+        };
+        s.begin(&ctx);
+        for combo in 1..=3 {
+            ctx.combo = combo;
+            s.on_event(&tap(Judgement::W2), &ctx);
+        }
+        let view = |s: &DdiScore| s.view().ddi.unwrap();
+        assert_eq!(view(&s).combo, 6 + 12 + 18);
+        // A miss breaks it; a Boo leaves it.
+        ctx.combo = 0;
+        s.on_event(&tap(Judgement::Miss), &ctx);
+        s.on_event(&ev(JudgeEventKind::Boo), &ctx);
+        ctx.combo = 1;
+        s.on_event(&tap(Judgement::W1), &ctx);
+        assert_eq!(view(&s).combo, 36 + 6);
+        // A combo given (a staged play), then played on from it.
+        ctx.combo = 120;
+        s.restep(&ctx);
+        ctx.combo = 121;
+        s.on_event(&tap(Judgement::W1), &ctx);
+        assert_eq!(view(&s).combo, 42 + combo_points(121));
+        let v = view(&s);
+        assert_eq!(v.score, v.ratio + v.absolute + v.combo);
+    }
+
+    /// A view kept with its combo part reads back equal; one kept before
+    /// it (no `combo`) reads with none.
+    #[test]
+    fn a_stored_view_keeps_its_combo_part() {
+        let v = DdiScoreView::of(199, 200, 3).with_combo(5_000);
+        assert_eq!(v.score, 995_000 + 19_903 + 5_000);
+        let kept = serde_json::to_string(&v).unwrap();
+        assert_eq!(serde_json::from_str::<DdiScoreView>(&kept).unwrap(), v);
+        let before = r#"{"points":199,"most":200,"ratio":995000,"percent":9950,"absolute":19903,"score":1014903}"#;
+        let v: DdiScoreView = serde_json::from_str(before).unwrap();
+        assert_eq!((v.combo, v.score), (0, 1_014_903));
     }
 
     #[test]

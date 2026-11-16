@@ -615,8 +615,8 @@ fn an_older_room_model_is_refused_except_during_a_stage() {
     let rev = ROOM_MODEL_REVISION;
     assert_eq!(
         rev, 12,
-        "12: Shocks per attack, a returning administrator, a moment's reconnect, the keep-alive \
-         (11: adaptive-v4, a snapshot's step, the close command)"
+        "12: Shocks per attack, a returning administrator, a moment's reconnect, the keep-alive, \
+         DDI's combo part and adaptive-v5 (11: adaptive-v4, a snapshot's step, the close command)"
     );
     assert_eq!(UPDATE_REQUIRED, "update_required");
     // The other way (round R2): a client refuses an authority older than

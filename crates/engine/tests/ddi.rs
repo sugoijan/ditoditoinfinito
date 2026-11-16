@@ -614,8 +614,11 @@ fn scores_three_ways_and_below_zero() {
     assert_eq!(v.ratio, 525_000);
     assert_eq!(v.percent, 5250);
     assert_eq!(v.absolute, 105 * 100 + 1);
-    // The score: the proportional part and the absolute score together.
-    assert_eq!(v.score, 525_000 + 10_501);
+    // The combo part: combo 1 and 2, broken by the Miss, 1 again.
+    assert_eq!(v.combo, 6 + 12 + 6);
+    // The score: the proportional part, the absolute score and the combo
+    // part together.
+    assert_eq!(v.score, 525_000 + 10_501 + 24);
     assert_eq!(r.score.percent, Some(0.525));
     // Nothing hit but stray presses and a mine: negative.
     let mut notes = steady(4);
@@ -634,6 +637,7 @@ fn scores_three_ways_and_below_zero() {
     assert_eq!(v.ratio, -275_000);
     assert_eq!(v.percent, -2750);
     assert_eq!(v.absolute, -5500);
+    assert_eq!(v.combo, 0);
     assert_eq!(v.score, -280_500);
     // A best: the higher score, which the W0s break ties in.
     let a = ddi::DdiScoreView::of(100, 200, 1);
@@ -645,19 +649,42 @@ fn scores_three_ways_and_below_zero() {
     );
 }
 
-/// The score shown is the proportional part plus the absolute score: a
-/// perfect 1,000-note chart with every tap a W0 gives 1,000,000 +
-/// 5,000,000 + 1,000, and a longer chart gives more.
+/// The score shown is the proportional part, the absolute score and the
+/// combo part: a perfect 1,000-note chart with every tap a W0 gives
+/// 1,000,000 + 5,000,000 + 1,000 + 1,062,400 (`ddi-combo-v0`), and a
+/// longer chart gives more.
 #[test]
 fn a_perfect_thousand_notes_score_the_sum() {
     let (r, _) = run(&song(steady(1000)), normal(), edges(&on_time(1000)));
     assert_eq!(r.tally.w0, 1000);
     let v = r.score.ddi.unwrap();
-    assert_eq!((v.ratio, v.absolute), (1_000_000, 5_001_000));
-    assert_eq!(v.score, 6_001_000);
+    assert_eq!((v.ratio, v.absolute, v.combo), (1_000_000, 5_001_000, 1_062_400));
+    assert_eq!(v.score, 6_001_000 + 1_062_400);
     assert_eq!(v.percent, 10_000);
     let (r, _) = run(&song(steady(1200)), normal(), edges(&on_time(1200)));
-    assert_eq!(r.score.ddi.unwrap().score, 1_000_000 + 6_000_000 + 1200);
+    assert_eq!(
+        r.score.ddi.unwrap().score,
+        1_000_000 + 6_000_000 + 1200 + ddi::full_combo_points(1200)
+    );
+}
+
+/// The combo part as a play earns it: one run counts more than the same
+/// notes broken in two, each note in combo adding the combo points of the
+/// combo after it; the percent is the same accuracy either way.
+#[test]
+fn a_long_combo_counts_more_than_two_halves() {
+    let (whole, _) = run(&song(steady(300)), normal(), edges(&on_time(300)));
+    let v = whole.score.ddi.unwrap();
+    assert_eq!(v.combo, ddi::full_combo_points(300));
+    assert_eq!(v.combo, 200_672);
+    // The 151st note missed: runs of 150 and 149.
+    let presses: Vec<_> = on_time(300).into_iter().filter(|e| (e[0].0 - 151.0).abs() > 0.4).collect();
+    let (broken, _) = run(&song(steady(300)), normal(), edges(&presses));
+    let b = broken.score.ddi.unwrap();
+    assert_eq!(broken.tally.count(Judgement::Miss), 1);
+    assert_eq!(b.combo, ddi::full_combo_points(150) + ddi::full_combo_points(149));
+    assert!(b.combo * 100 < v.combo * 66, "{} of {}", b.combo, v.combo);
+    assert_eq!(b.score, b.ratio + b.absolute + b.combo);
 }
 
 #[test]
@@ -872,7 +899,8 @@ fn bundled_charts_autoplay_to_absolute_dito() {
                 let v = r.score.ddi.unwrap();
                 assert_eq!((v.ratio, v.percent), (1_000_000, 10_000), "{name}");
                 assert_eq!(v.absolute, 100 * v.most + i64::from(r.tally.w0), "{name}");
-                assert_eq!(v.score, 1_000_000 + v.absolute, "{name}");
+                assert_eq!(v.combo, ddi::full_combo_points(r.max_combo), "{name}");
+                assert_eq!(v.score, 1_000_000 + v.absolute + v.combo, "{name}");
             }
             charts += 1;
         }

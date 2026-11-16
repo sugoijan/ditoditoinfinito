@@ -58,8 +58,10 @@ pub use ddi_platform;
 /// (`docs/plans/rulesets.md`). 3: DDI's grades ask less of the percent
 /// (`rules::ddi::GRADES`, `docs/plans/ddi-ruleset.md`, "Grades"). 4:
 /// DDI's score is its proportional part plus its absolute score
-/// (`rules::ddi::DdiScoreView::score`, "Score").
-pub const JUDGE_VERSION: u32 = 4;
+/// (`rules::ddi::DdiScoreView::score`, "Score"). 5: DDI's score counts
+/// its combos (`rules::ddi::COMBO_SCORE`, `ddi-combo-v0`, "Combos
+/// count").
+pub const JUDGE_VERSION: u32 = 5;
 
 pub use appearance::Appearance;
 pub use bindings::{ConnectedPad, ControlBindings, LaneTable, MenuInput, PadBindings, PadUse};

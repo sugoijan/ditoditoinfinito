@@ -672,6 +672,9 @@ impl Player {
             self.combo = self.combo.max(combo);
             self.max_combo = self.max_combo.max(self.combo);
             self.ctx.combo = self.combo;
+            // A combo given, not played: the score's combo part counts on
+            // from it (`ddi::DdiScore::restep`).
+            self.ruleset.score.restep(&self.ctx);
         }
     }
 

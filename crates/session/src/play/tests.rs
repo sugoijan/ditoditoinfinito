@@ -1218,14 +1218,18 @@ fn the_ghost_leads_in_ddi_points_or_percent() {
     let ghost = Ghost::of(&best, &song).unwrap();
     let whole = results.score.ddi.unwrap();
     assert_eq!(whole.ratio, 1_000_000);
-    assert_eq!(whole.score, 1_000_000 + whole.absolute);
+    // A full combo: its combo part, every note of the chart in one run.
+    assert_eq!(whole.combo, ddi_engine::rules::ddi::full_combo_points(results.max_combo));
+    assert_eq!(whole.score, 1_000_000 + whole.absolute + whole.combo);
     assert_eq!(ghost.last(), whole.score as f64);
     // 30 ms late, every tap a W2: 40 points of 50 a note, and no W0.
     let (late, _, points) = play(0.03, Some(ghost.clone()));
     let behind = late.score.ddi.unwrap();
     assert_eq!(behind.ratio, 800_000);
     assert_eq!(behind.absolute, 100 * behind.points);
-    assert_eq!(behind.score, 800_000 + behind.absolute);
+    // W2s keep the combo: the same combo part.
+    assert_eq!(behind.combo, whole.combo);
+    assert_eq!(behind.score, 800_000 + behind.absolute + behind.combo);
     // The lead is of the score shown: the proportional part's 200,000
     // and the absolute score's difference.
     let lead = (behind.score - whole.score) as f64;

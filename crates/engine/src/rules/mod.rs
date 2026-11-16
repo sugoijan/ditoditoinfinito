@@ -1001,7 +1001,9 @@ pub trait ScoreRules {
     fn view(&self) -> ScoreView;
     /// The play's totals changed with what it was shown (a step down,
     /// `crate::ladder`): the points kept, the most taken again from
-    /// `ctx`. Nothing where the score has no most of its own.
+    /// `ctx`; or the combo was given rather than played (a staged play):
+    /// counted on from `ctx`'s. Nothing where the score has no most of
+    /// its own.
     fn restep(&mut self, _ctx: &ScoreCtx) {}
     /// A new instance with the same parameters and no state.
     fn fresh(&self) -> Box<dyn ScoreRules>;

@@ -1578,8 +1578,9 @@ fn kept_plays_are_judged_again_under_the_rules_chosen_and_keep_both() {
     // The lists write the long grades by their initials.
     assert_eq!(row(&kept[0]).grade, "AD");
     assert_eq!(row(&kept[3]).grade, "AB");
-    // The whole ratio, 100 a point of its eight notes' 400 and eight W0s.
-    assert_eq!(row(&kept[0]).score, "1040008");
+    // The whole ratio, 100 a point of its eight notes' 400, eight W0s
+    // and its eight notes' combo part (6 × (1 + … + 8)).
+    assert_eq!(row(&kept[0]).score, "1040224");
     assert_eq!(row(&kept[0]).lamp_text, "AD");
     assert_eq!(
         (row(&kept[2]).ruleset.as_str(), row(&kept[2]).rejudged),
@@ -1657,4 +1658,119 @@ fn the_move_from_itg_asks_for_its_plays_once() {
     assert_eq!(Settings::load().rejudge_from, None);
     assert_eq!(Settings::load().ruleset, "ddi");
     assert_eq!(plays.rejudge_asked(), 0);
+}
+
+/// A DDI summary as a store kept it before the combo part
+/// (`JUDGE_VERSION` 4): its view without `combo`, its score without it.
+fn before_combo(s: &PlaySummary) -> String {
+    let mut v = serde_json::to_value(s).unwrap();
+    let w = &mut v["worked"];
+    w["judge_version"] = 4.into();
+    let ddi = w["score"]["ddi"].as_object_mut().unwrap();
+    ddi.remove("combo");
+    let score = ddi["score"].as_i64().unwrap() - s.worked.as_ref().unwrap().score.ddi.unwrap().combo;
+    ddi.insert("score".into(), score.into());
+    v.to_string()
+}
+
+/// Round P1a (`ddi-combo-v0`, `JUDGE_VERSION` 5): a DDI play kept before
+/// the combo part reads with none, is stale, and judged again from its
+/// log gains it (the score, the bests); what it came to as played is the
+/// judge's of now, as for every raised version; an autoplayed record's
+/// grade stays the bot's.
+#[test]
+fn a_ddi_play_kept_before_the_combo_part_is_judged_again_with_it() {
+    let song = Rc::new(song());
+    let store = Rc::new(MemoryPlayStore::default());
+    let plays = Plays::new(store.clone());
+    plays.load(|r| r.unwrap());
+    for (i, (bias, auto)) in [(0.0, false), (0.03, false), (0.0, true)].into_iter().enumerate() {
+        let (log, results) = play(&song, 0, &ddi_key(), Some(bias));
+        let rec = record(&song, 0, &ddi_key(), i as f64, auto);
+        plays
+            .record(play_id(i as f64, 0), &rec, &log, &results, |r| r.unwrap())
+            .unwrap();
+    }
+    let fresh: Vec<Worked> = (0..3)
+        .map(|i| plays.history().get(&play_id(i as f64, 0)).unwrap().worked.clone().unwrap())
+        .collect();
+    // Eight notes in one run: 6 × (1 + … + 8).
+    let ddi = fresh[0].score.ddi.unwrap();
+    assert_eq!(ddi.combo, ddi_engine::rules::ddi::full_combo_points(8));
+    assert_eq!(ddi.combo, 216);
+    assert_eq!(fresh[0].grade, "Absolute Dito");
+    let olds: Vec<(String, String)> = (0..3)
+        .map(|i| {
+            let id = play_id(i as f64, 0);
+            let old = before_combo(plays.history().get(&id).unwrap());
+            (id, old)
+        })
+        .collect();
+    store.replace_summaries(olds, Box::new(|r| r.unwrap()));
+    let plays = Plays::new(store.clone());
+    plays.load(|r| r.unwrap());
+    let digest = song.chart_digest(0);
+    let old = plays.history().get(&play_id(0.0, 0)).unwrap().worked.clone().unwrap();
+    assert!(old.is_stale());
+    assert_eq!(old.score.ddi.unwrap().combo, 0);
+    assert_eq!(old.score.ddi.unwrap().score, ddi.score - 216);
+    let b = plays.history().best(digest, &ddi_key(), false).unwrap();
+    assert!(b.pending);
+    assert_eq!(b.score.ddi.unwrap().score, ddi.score - 216);
+    // The reworker judges them again: each comes to what it came to
+    // when kept now, its combo part included.
+    let (n, done) = answered();
+    plays.rework_song("s1", song.clone(), 10, done);
+    assert_eq!(n.borrow_mut().take().unwrap().unwrap(), 3);
+    let now = |i: usize| plays.history().get(&play_id(i as f64, 0)).unwrap().worked.clone().unwrap();
+    assert_eq!(now(0), fresh[0]);
+    assert_eq!(now(1), fresh[1]);
+    assert!(now(1).score.ddi.unwrap().combo > 0);
+    // The autoplayed record: its combo part, and its grade the bot's.
+    assert_eq!(now(2).score, fresh[2].score);
+    assert_eq!(now(2).grade, "Absolute Bot");
+    let b = plays.history().best(digest, &ddi_key(), false).unwrap();
+    assert!(!b.pending);
+    assert_eq!((b.score.ddi.unwrap().score, b.grade.as_str()), (ddi.score, "Absolute Dito"));
+}
+
+/// The play history's export both ways across the combo part: a DDI play
+/// exported before it (its summary judge 4's) imports, waits and is
+/// judged again with it; one exported now comes back whole.
+#[test]
+fn a_ddi_export_from_before_or_after_the_combo_part_imports() {
+    let song = Rc::new(song());
+    let store = Rc::new(MemoryPlayStore::default());
+    let a = Plays::new(store.clone());
+    a.load(|r| r.unwrap());
+    let (log, results) = play(&song, 0, &ddi_key(), Some(0.01));
+    let rec = record(&song, 0, &ddi_key(), 9.0, false);
+    let id = play_id(9.0, 0);
+    a.record(id.clone(), &rec, &log, &results, |r| r.unwrap()).unwrap();
+    let now = a.history().get(&id).unwrap().clone();
+    assert!(now.worked.as_ref().unwrap().score.ddi.unwrap().combo > 0);
+    let (entries, done) = answered();
+    store.records(vec![id.clone()], Box::new(done));
+    let mut entry = entries.borrow_mut().take().unwrap().unwrap().remove(0);
+    entry.summary = Some(serde_json::to_string(&now).unwrap());
+    let after = format!("{}\n", entry.to_json());
+    entry.summary = Some(before_combo(&now));
+    let before = format!("{}\n", entry.to_json());
+    for (line, was_stale) in [(after, false), (before, true)] {
+        let b = Plays::new(Rc::new(MemoryPlayStore::default()));
+        b.load(|r| r.unwrap());
+        let mut reader = PlayImport::new(b.history().ids());
+        reader.push(line.as_bytes());
+        reader.finish();
+        let (r, done) = answered();
+        b.import(reader.take(), done);
+        assert_eq!(r.take().unwrap().unwrap().0, 1);
+        // An import trusts nothing worked out: judged again either way.
+        let imported = b.history().get(&id).unwrap().clone();
+        assert!(imported.is_stale(), "{was_stale}");
+        let (n, done) = answered();
+        b.rework_song("s1", song.clone(), 10, done);
+        assert_eq!(n.borrow_mut().take().unwrap().unwrap(), 1);
+        assert_eq!(b.history().get(&id), Some(&now), "{was_stale}");
+    }
 }

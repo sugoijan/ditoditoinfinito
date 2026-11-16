@@ -1,49 +1,57 @@
 //! Opt-in study: putting combos into DDI's score
-//! (`docs/plans/ddi-ruleset.md`, "DDI's score and combos: a study").
-//! NOTHING HERE SCORES A PLAY: it reads plays as the engine judged them
-//! and works candidate scores out beside today's.
+//! (`docs/plans/ddi-ruleset.md`, "DDI's score and combos: a study" and
+//! "Combos count"). It reads plays as the engine judged them and works
+//! candidate combo parts out beside the score without one; the engine's
+//! own part (`ddi-combo-v0`, [`ENGINE`]) is asserted equal to its
+//! candidate's on every CPU play.
 //!
 //! `cargo test --release -p ddi-session --lib combo_score_study --
 //! --ignored --nocapture` prints aggregates only, never a song's name:
 //!
-//! 1. made-up full combos of 100 to 1,200 notes: what one miss costs by
-//!    where it falls, and 2, 5 and 10 misses spread evenly and at random,
-//!    in *slips* (a W1 that became a W2: 10 points, the same under every
-//!    candidate with a combo part);
+//! 1. made-up full combos of 100 to 2,400 notes: each candidate's part,
+//!    its share of the score, what broken in two loses of it, what one
+//!    miss costs by where it falls (the first note, 2.5%, a quarter, the
+//!    middle, the last) and 2, 5 and 10 misses spread evenly and at
+//!    random, in *slips* (a W1 that became a W2: 10 points);
 //! 2. the CPUs at each of the ten absolute levels (`cpu-levels-v1`,
 //!    `cpu-play-v1`: the chart a person is given) on every dance-single
 //!    chart as written of the bundled songs and of the folders under
 //!    `DDI_COMBO_CORPUS` (`:` between, read in place; every
 //!    `DDI_COMBO_SAMPLE`th simfile, 1), `DDI_COMBO_SEEDS` seeds a level
 //!    (4), DDI Normal, the fail off, plays whose gauge emptied left out:
-//!    by level the full combos and each combo part's mean; over every
-//!    pair of plays of one chart, how each candidate reorders them
-//!    against today's score, how often a full combo loses to a play with
-//!    breaks (by the breaks and by how much more accurate the broken play
-//!    is), how often the play with fewer breaks beats the more accurate
-//!    one, and how often a play with no more breaks and more points
-//!    loses (the position's unfairness); and on the full combos, what one
-//!    miss put in costs by its place;
+//!    by level the full combos and each per-note candidate's part over a
+//!    full combo's; over every pair of plays of one chart, how each
+//!    candidate reorders them, how often a full combo loses to a play
+//!    with breaks (by the breaks and by how much more accurate the broken
+//!    play is), how often the play with fewer breaks beats the more
+//!    accurate one, and how often a play with no more breaks and more
+//!    points loses (the position's unfairness); and on the full combos,
+//!    what one miss put in costs by its place;
 //! 3. the attack study's stages (`attack_rates`: eight CPUs of mixed
 //!    levels on its six bundled charts, `DDI_COMBO_STAGE_SEEDS` seeds,
 //!    8), As picked and Adaptive, with attacks and without: how often
 //!    each candidate changes the final order and the winner, what an
-//!    attack received costs in score (the same play with its shocks not
-//!    stepped on and the notes missed in the lanes they locked hit), and
-//!    whether a combo run carries across a step between charts.
+//!    attack received costs in score, and whether a combo run carries
+//!    across a step between charts;
+//! 4. `ladder`: playing the next easier chart on purpose under Adaptive,
+//!    a perfect play of it against the stage's chart at 95% and 85%, in
+//!    one run or broken;
+//! 5. `kept`: the maintainer's kept plays, only where
+//!    `DDI_COMBO_PLAYS=<the desktop's plays/ folder>` names them (read in
+//!    place, read-only; aggregates only, never a play's own numbers):
+//!    where breaks fall, the part's share, pairs of one chart's plays
+//!    reordered and bests changing hands. Plays kept under other rules
+//!    are put on DDI's grid by their taps' offsets (the charts are not
+//!    read): an estimate, said as such.
 //!
-//! `DDI_COMBO_ONLY=made-up|plays|stages` runs one part.
+//! `DDI_COMBO_ONLY=made-up|plays|stages|ladder|kept` runs one part.
 //!
-//! The candidates: today's score plus a combo part worth, for a full
-//! combo, a share S of the proportional million (`M`: 10, 20, 30%) or of
-//! the chart's own full score, the million and 100 a point (`F`: 2, 4,
-//! 6%, where a full combo is worth that many percent points on every
-//! chart; 4% F is 10% M on a chart of 300 notes):
-//! A50/A100/A200, each note in combo earning `min(combo, K) / K`; B, the
-//! sum of the runs' squares over the notes' square; C, the longest run
-//! over the notes; A100+B and A100+C, half each; and, with no combo part,
-//! a miss at −50 and −100 points. The percent is today's under all but
-//! the last two.
+//! The candidates: the score without a combo part ("today"), the first
+//! study's pick at 20% of the million ("A100+B": half a ramp to 100, half
+//! the runs' squares, 200,000 for a full combo on every chart), and the
+//! per-note ones of round P1a ([`PER`]), each note in combo adding
+//! `(a × min(k, 100) + b × grow(k)) / d`, weighted so a full combo of 300
+//! notes is about 200,000. The percent is today's under all of them.
 //!
 //! MEASUREMENTS OF CPUS, not of people.
 
@@ -77,6 +85,70 @@ struct Feat {
     a: [f64; 3],
     b: f64,
     c: f64,
+    /// The per-note candidates' sums ([`PER`]), before their divisor.
+    per: [i64; NP],
+}
+
+/// How a per-note candidate's second term grows with the combo `k`.
+#[derive(Clone, Copy, PartialEq)]
+enum Grow {
+    /// `isqrt(k)`.
+    Sqrt,
+    /// `ilog2(k)`.
+    Log2,
+    /// `min(k, 1000)`.
+    Lin1000,
+    /// `k`, without a cap.
+    Lin,
+    /// `isqrt(k - 100)` past combo 100, else 0.
+    SqrtOver100,
+}
+
+fn grow(g: Grow, k: u64) -> i64 {
+    let k = k as i64;
+    match g {
+        Grow::Sqrt => k.isqrt(),
+        Grow::Log2 => i64::from(k.max(1).ilog2()),
+        Grow::Lin1000 => k.min(1000),
+        Grow::Lin => k,
+        Grow::SqrtOver100 => (k - 100).max(0).isqrt(),
+    }
+}
+
+/// A per-note candidate (round P1a): each note judged in combo adds
+/// `(a × min(k, 100) + b × grow(k)) / d`, `k` the combo after it, summed
+/// in whole numbers and divided once at the end; nothing divided by the
+/// chart's size. Each is weighted so a full combo of 300 notes is about
+/// 200,000, the study's "A100+B at 20% M".
+struct Per {
+    name: &'static str,
+    a: i64,
+    b: i64,
+    g: Grow,
+    d: i64,
+}
+
+const NP: usize = 6;
+const PER: [Per; NP] = [
+    Per { name: "R+sqrt", a: 4, b: 30, g: Grow::Sqrt, d: 1 },
+    Per { name: "R+log2", a: 4, b: 53, g: Grow::Log2, d: 1 },
+    Per { name: "R+lin<=1000", a: 39, b: 22, g: Grow::Lin1000, d: 10 },
+    Per { name: "R+lin", a: 39, b: 22, g: Grow::Lin, d: 10 },
+    Per { name: "R+sqrt>100", a: 6, b: 28, g: Grow::SqrtOver100, d: 1 },
+    Per { name: "R+sqrt>100 x2", a: 4, b: 56, g: Grow::SqrtOver100, d: 1 },
+];
+
+/// The candidate the engine plays (`ddi::COMBO_SCORE`, `ddi-combo-v0`):
+/// its part is asserted equal to the engine's on every play.
+const ENGINE: usize = 4;
+
+fn per_note(p: &Per, k: u64) -> i64 {
+    p.a * (k.min(100) as i64) + p.b * grow(p.g, k)
+}
+
+/// A per-note candidate's part for a full combo of `n` notes.
+fn full_per(p: &Per, n: u64) -> i64 {
+    (1..=n).map(|k| per_note(p, k)).sum::<i64>() / p.d
 }
 
 /// `sum(min(i, k))` for `i` in `1..=n`: a full combo's ramp.
@@ -105,6 +177,9 @@ fn feat(seq: &[u8], n: u32, most: i64, w0: u32, other: i64) -> Feat {
             combo += 1;
             for (r, k) in ramp.iter_mut().zip(KS) {
                 *r += combo.min(k);
+            }
+            for (sum, p) in f.per.iter_mut().zip(&PER) {
+                *sum += per_note(p, combo);
             }
             f.fixed += ddi::TAP_POINTS[usize::from(c)];
             continue;
@@ -143,12 +218,11 @@ fn seq_points(seq: &[u8]) -> i64 {
 #[derive(Clone, Copy, PartialEq)]
 enum Shape {
     Today,
-    A(usize),
-    B,
-    C,
+    /// The first study's "A100+B": half the ramp to 100, half the runs'
+    /// squares, a share of a scale.
     AB,
-    AC,
-    Miss(i64),
+    /// One of [`PER`].
+    Per(usize),
 }
 
 #[derive(Clone, Copy)]
@@ -164,12 +238,8 @@ impl Cand {
     fn name(&self) -> String {
         let shape = match self.shape {
             Shape::Today => return "today".into(),
-            Shape::Miss(m) => return format!("miss {m}"),
-            Shape::A(i) => format!("A{}", KS[i]),
-            Shape::B => "B".into(),
-            Shape::C => "C".into(),
-            Shape::AB => "A100+B".into(),
-            Shape::AC => "A100+C".into(),
+            Shape::AB => String::from("A100+B"),
+            Shape::Per(i) => return PER[i].name.into(),
         };
         format!(
             "{shape} {:.0}% {}",
@@ -179,19 +249,11 @@ impl Cand {
     }
 
     fn score(&self, f: &Feat) -> i64 {
-        let miss = match self.shape {
-            Shape::Miss(m) => m,
-            _ => ddi::TAP_POINTS[usize::from(MISS)],
-        };
-        let points = f.fixed + miss * i64::from(f.misses);
-        let base = ddi::DdiScoreView::of(points, f.most, f.w0).score;
+        let base = ddi::DdiScoreView::of(points(f), f.most, f.w0).score;
         let part = match self.shape {
-            Shape::Today | Shape::Miss(_) => return base,
-            Shape::A(i) => f.a[i],
-            Shape::B => f.b,
-            Shape::C => f.c,
+            Shape::Today => return base,
+            Shape::Per(i) => return base + f.per[i] / PER[i].d,
             Shape::AB => (f.a[1] + f.b) / 2.0,
-            Shape::AC => (f.a[1] + f.c) / 2.0,
         };
         let scale = if self.full {
             1e6 + 100.0 * f.most as f64
@@ -202,30 +264,27 @@ impl Cand {
     }
 }
 
-/// Today's score first, then the heavier misses, then every shape at
-/// every share on both scales.
+/// Today's score first, then the study's pick ("A100+B" at 20% of the
+/// million, what the maintainer chose the shape and weight of), then the
+/// per-note candidates of round P1a ([`PER`]).
 fn cands() -> Vec<Cand> {
-    let plain = |shape| Cand {
-        shape,
+    let mut v = vec![
+        Cand {
+            shape: Shape::Today,
+            s: 0.0,
+            full: false,
+        },
+        Cand {
+            shape: Shape::AB,
+            s: 0.2,
+            full: false,
+        },
+    ];
+    v.extend((0..NP).map(|i| Cand {
+        shape: Shape::Per(i),
         s: 0.0,
         full: false,
-    };
-    let mut v = vec![plain(Shape::Today), plain(Shape::Miss(-50)), plain(Shape::Miss(-100))];
-    for (full, shares) in [(false, [0.1, 0.2, 0.3]), (true, [0.02, 0.04, 0.06])] {
-        for s in shares {
-            for shape in [
-                Shape::A(0),
-                Shape::A(1),
-                Shape::A(2),
-                Shape::B,
-                Shape::C,
-                Shape::AB,
-                Shape::AC,
-            ] {
-                v.push(Cand { shape, s, full });
-            }
-        }
-    }
+    }));
     v
 }
 
@@ -265,33 +324,50 @@ impl Rng {
     }
 }
 
+/// The places one miss is put at in a made-up full combo: its first
+/// note, 2.5%, a quarter, the middle and its last note.
+const MADE_UP_PLACES: [f64; 5] = [0.0, 0.025, 0.25, 0.5, 1.0];
+
 /// Part 1: made-up full combos, every tap a W1.
 fn made_up(cands: &[Cand]) {
-    for n in [100u32, 300, 600, 1200] {
+    for n in [100u32, 300, 600, 1200, 2400] {
         let most = 50 * i64::from(n);
         let seq = vec![0u8; n as usize];
         let taps = taps_of(&seq);
         let base = feat(&seq, n, most, 0, 0);
+        // What a percent point of accuracy is worth in score here.
+        let point = 10_000.0 + 50.0 * f64::from(n);
         println!(
-            "== a full combo of {n} notes, every tap W1: what misses cost, in slips (a slip {:.0} points \
-             of score, {:.3} percent points)",
+            "== a full combo of {n} notes, every tap W1: the combo part, its share of the score, what \
+             broken in two loses of it; what misses cost, in slips (a slip {:.0} points of score, {:.3} \
+             percent points); a percent point is {point:.0} of score",
             slip(most),
             20.0 / f64::from(n)
         );
         println!(
-            "{:<16} one miss at 2.5% / 10% / 25% / 50% / 75% / 90% / 97.5% | 2 even, random | 5 even, random \
-             | 10 even, random",
+            "{:<16} part, share of score | halves lose | one miss at first / 2.5% / 25% / 50% / last \
+             (middle in percent points) | 2 even, random | 5 even, random | 10 even, random",
             ""
         );
+        let today = cands[0].score(&base);
         for c in cands {
+            let full = c.score(&base);
+            let part = full - today;
             let cost = |at: &[usize]| {
                 let f = feat(&with_misses(&seq, at), n, most, 0, 0);
-                (c.score(&base) - c.score(&f)) as f64 / slip(most)
+                (full - c.score(&f)) as f64 / slip(most)
             };
-            let one: Vec<String> = PLACES
+            let middle = place(&taps, 0.5);
+            let halves = {
+                let f = feat(&with_misses(&seq, &[middle]), n, most, 0, 0);
+                let lost = part - (c.score(&f) - cands[0].score(&f));
+                if part > 0 { 100.0 * lost as f64 / part as f64 } else { 0.0 }
+            };
+            let one: Vec<String> = MADE_UP_PLACES
                 .iter()
                 .map(|&p| format!("{:6.1}", cost(&[place(&taps, p)])))
                 .collect();
+            let middle_points = cost(&[middle]) * slip(most) / point;
             let many: Vec<String> = [2usize, 5, 10]
                 .iter()
                 .map(|&k| {
@@ -312,7 +388,16 @@ fn made_up(cands: &[Cand]) {
                     format!("{:6.1} {:6.1}", cost(&even), sum / f64::from(draws))
                 })
                 .collect();
-            println!("{:<16} {} | {}", c.name(), one.join(" "), many.join(" | "));
+            println!(
+                "{:<16} {:>9} {:5.1}% | {:5.1}% | {} ({:4.2} pt) | {}",
+                c.name(),
+                part,
+                100.0 * part as f64 / full.max(1) as f64,
+                halves,
+                one.join(" "),
+                middle_points,
+                many.join(" | ")
+            );
         }
     }
 }
@@ -347,7 +432,7 @@ fn read_play(p: &ddi_engine::player::Player, view: &ScoreView) -> (Seq, Feat) {
         d.points - seq_points(&seq),
     );
     // The features read the play as the engine scored it.
-    debug_assert_eq!(Cand { shape: Shape::Today, s: 0.0, full: false }.score(&f), d.score);
+    debug_assert_eq!(Cand { shape: Shape::Today, s: 0.0, full: false }.score(&f), d.score - d.combo);
     (seq, f)
 }
 
@@ -371,11 +456,13 @@ fn solo(plan: &Plan, song: &Song, chart: usize, level: usize, seed: u64) -> Opti
     o.start(0.0);
     o.finish();
     let (seq, f) = read_play(o.player(), &o.score());
+    let d = o.score().ddi.unwrap();
     assert_eq!(
         Cand { shape: Shape::Today, s: 0.0, full: false }.score(&f),
-        o.score().ddi.unwrap().score,
+        d.score - d.combo,
         "the study's score is the engine's"
     );
+    assert_eq!(f.per[ENGINE] / PER[ENGINE].d, d.combo, "the engine's combo part is the candidate's");
     Some(Played {
         level,
         seq,
@@ -441,7 +528,8 @@ struct LevelSum {
     full_combos: u32,
     breaks: u64,
     percent: f64,
-    parts: [f64; 5],
+    /// Each per-note candidate's part over a full combo's of the notes.
+    parts: [f64; NP],
     notes: u64,
 }
 
@@ -469,7 +557,7 @@ impl Sum {
             a.breaks += b.breaks;
             a.percent += b.percent;
             a.notes += b.notes;
-            for k in 0..5 {
+            for k in 0..NP {
                 a.parts[k] += b.parts[k];
             }
         }
@@ -509,8 +597,9 @@ impl Sum {
             l.breaks += u64::from(p.f.breaks);
             l.notes += u64::from(p.f.n);
             l.percent += points(&p.f) as f64 / p.f.most.max(1) as f64;
-            for (k, v) in [p.f.a[0], p.f.a[1], p.f.a[2], p.f.b, p.f.c].into_iter().enumerate() {
-                l.parts[k] += v;
+            for (k, per) in PER.iter().enumerate() {
+                let full = full_per(per, u64::from(p.f.n));
+                l.parts[k] += if full > 0 { (p.f.per[k] / per.d) as f64 / full as f64 } else { 0.0 };
             }
         }
         let cleared: Vec<&Played> = plays.iter().filter(|p| !p.out && p.f.most > 0).collect();
@@ -705,12 +794,16 @@ fn share(part: u64, of: u64) -> f64 {
 
 fn print_plays(name: &str, sum: &Sum, cands: &[Cand]) {
     println!("== {name}: {} charts", sum.charts);
-    println!("by level: plays, out %, of the clears: full combos %, breaks a play, notes a play, percent, the parts A50 A100 A200 B C");
+    println!(
+        "by level: plays, out %, of the clears: full combos %, breaks a play, notes a play, percent, each \
+         per-note candidate's part over a full combo's ({})",
+        PER.map(|p| p.name).join(" ")
+    );
     for (i, l) in sum.levels.iter().enumerate() {
         let clears = f64::from((l.plays - l.out).max(1));
         println!(
             "level {:>2}: {:>6} plays, out {:5.1}% | full combos {:5.1}% | breaks {:6.2} | notes {:5.0} | \
-             percent {:5.1} | {:.3} {:.3} {:.3} {:.3} {:.3}",
+             percent {:5.1} | {}",
             i + 1,
             l.plays,
             100.0 * f64::from(l.out) / f64::from(l.plays.max(1)),
@@ -718,11 +811,7 @@ fn print_plays(name: &str, sum: &Sum, cands: &[Cand]) {
             l.breaks as f64 / clears,
             l.notes as f64 / clears,
             100.0 * l.percent / clears,
-            l.parts[0] / clears,
-            l.parts[1] / clears,
-            l.parts[2] / clears,
-            l.parts[3] / clears,
-            l.parts[4] / clears,
+            l.parts.map(|v| format!("{:.3}", v / clears)).join(" "),
         );
     }
     println!(
@@ -977,7 +1066,8 @@ fn stages(cands: &[Cand]) {
                         let w0 = p.tally().w0;
                         let other = d.points - seq_points(&seq);
                         let f = feat(&seq, n, d.most, w0, other);
-                        assert_eq!(cands[0].score(&f), d.score, "the study's score is the engine's");
+                        assert_eq!(cands[0].score(&f), d.score - d.combo, "the study's score is the engine's");
+                        assert_eq!(f.per[ENGINE] / PER[ENGINE].d, d.combo, "the engine's combo part");
                         Ranked {
                             out: s.out_at().is_some(),
                             life: s.opponent.life(),
@@ -1043,6 +1133,370 @@ fn stages(cands: &[Cand]) {
     }
 }
 
+/// What one chart is to the "easier chart on purpose" part: its notes
+/// and its most.
+fn notes_and_most(song: &Song, chart: usize) -> Option<(u32, i64)> {
+    let ruleset = stage_ruleset(&StageRules::default());
+    song.charts.get(chart)?;
+    let p = ddi_engine::Player::new(song, chart, ruleset.fresh(), Default::default());
+    let most = p.ruleset().score.view().ddi?.most;
+    Some((p.score_ctx().steps, most))
+}
+
+/// A made-up play of `n` notes worth `share` of `most`, every tap in
+/// combo but `breaks` misses spread evenly (its points `share` of the
+/// most whatever they are).
+fn made_up_play(n: u32, most: i64, share: f64, breaks: usize) -> Feat {
+    let seq = vec![0u8; n as usize];
+    let at: Vec<usize> = (1..=breaks).map(|j| j * seq.len() / (breaks + 1)).collect();
+    let mut f = feat(&with_misses(&seq, &at), n, most, 0, 0);
+    let target = (most as f64 * share).round() as i64;
+    f.fixed = target - ddi::TAP_POINTS[usize::from(MISS)] * i64::from(f.misses);
+    f
+}
+
+/// The harder plays the easier rung's perfect play is set against:
+/// a share of the harder chart's most and its breaks.
+const AGAINST: [(f64, usize); 6] = [(0.95, 0), (0.95, 1), (0.95, 3), (0.85, 0), (0.85, 1), (0.85, 3)];
+
+#[derive(Clone, Default)]
+struct UnderSum {
+    charts: u32,
+    notes: (u64, u64),
+    /// By candidate and [`AGAINST`]: the easier perfect play wins; the
+    /// ratio of its score to the harder play's.
+    wins: Vec<[u32; 6]>,
+    ratio: Vec<[f64; 6]>,
+}
+
+/// Part 4: playing an easier chart on purpose under Adaptive (a stage
+/// ranked by score): the next easier rung played perfectly, every tap a
+/// W1 in one run, against the stage's chart at 95% and 85% of its most,
+/// in one run, broken once, broken three times.
+fn under(cands: &[Cand], files: &[PathBuf]) -> UnderSum {
+    let mut sum = UnderSum {
+        wins: vec![[0; 6]; cands.len()],
+        ratio: vec![[0.0; 6]; cands.len()],
+        ..UnderSum::default()
+    };
+    for path in files {
+        let Some(ext) = path.extension() else { continue };
+        let ext = ext.to_string_lossy().to_ascii_lowercase();
+        let Ok(bytes) = std::fs::read(path) else { continue };
+        let text = ddi_library::pack::decode_text(&bytes);
+        let Ok(song) = ddi_library::scan::parse_simfile(&text, &ext) else {
+            continue;
+        };
+        for (index, chart) in song.charts.iter().enumerate() {
+            if chart.layout != "dance-single" || chart.derivation.is_some() || chart.notes.is_empty() {
+                continue;
+            }
+            let ladder = ddi_engine::ladder::Ladder::of(&song, index);
+            let Some(&easier) = ladder.below.first() else { continue };
+            let (Some((ne, me)), Some((nh, mh))) =
+                (notes_and_most(&song, easier), notes_and_most(&song, index))
+            else {
+                continue;
+            };
+            if ne == 0 || nh == 0 {
+                continue;
+            }
+            sum.charts += 1;
+            sum.notes.0 += u64::from(ne);
+            sum.notes.1 += u64::from(nh);
+            let perfect = made_up_play(ne, me, 1.0, 0);
+            for (k, &(share, breaks)) in AGAINST.iter().enumerate() {
+                let harder = made_up_play(nh, mh, share, breaks);
+                for (c, cand) in cands.iter().enumerate() {
+                    let (p, h) = (cand.score(&perfect), cand.score(&harder));
+                    sum.wins[c][k] += u32::from(p > h);
+                    sum.ratio[c][k] += p as f64 / h.max(1) as f64;
+                }
+            }
+        }
+    }
+    sum
+}
+
+fn print_under(name: &str, sum: &UnderSum, cands: &[Cand]) {
+    let n = f64::from(sum.charts.max(1));
+    println!(
+        "== playing the next easier chart on purpose ({name}): {} charts with one below, {:.0} notes on \
+         the easier, {:.0} on the stage's; how often a perfect play of the easier (one run, every tap W1) \
+         beats the stage's chart at 95% (one run / one break / three) and at 85% (the same), and the \
+         mean ratio of the scores",
+        sum.charts,
+        sum.notes.0 as f64 / n,
+        sum.notes.1 as f64 / n,
+    );
+    for (c, cand) in cands.iter().enumerate() {
+        let cells: Vec<String> = (0..6)
+            .map(|k| format!("{:5.1}% {:.3}", 100.0 * f64::from(sum.wins[c][k]) / n, sum.ratio[c][k] / n))
+            .collect();
+        println!("{:<16} {}", cand.name(), cells.join(" | "));
+    }
+}
+
+/// The DDI tier (W1 0 … W5 4, Miss 5) of a tap `delta` song seconds off
+/// at music rate `rate` on `difficulty`'s grid: what the maintainer's
+/// plays kept under other rules are put on (an estimate: the chart is
+/// not read, so a press DDI would have matched otherwise, a locked lane
+/// and Boos are not known).
+fn ddi_tier(delta: f64, rate: f64, difficulty: ddi::Difficulty) -> u8 {
+    let real = (delta / rate.max(1e-6)).abs();
+    for (t, &units) in ddi::TIER_UNITS[1..].iter().enumerate() {
+        if real <= difficulty.seconds(units) + 1e-9 {
+            return t as u8;
+        }
+    }
+    MISS
+}
+
+/// One of the maintainer's kept plays as the study reads it.
+struct Kept {
+    /// The chart and the DDI options it was judged under, as one key.
+    group: String,
+    seq: Seq,
+    f: Feat,
+    clear: bool,
+    counts: bool,
+}
+
+#[derive(Default)]
+struct KeptRead {
+    files: u32,
+    unread: u32,
+    no_ddi: u32,
+    as_played: u32,
+    rejudged: u32,
+    /// Of the plays judged again: their tiers put on DDI's grid matched
+    /// the second judgment's counts exactly; the mean absolute difference
+    /// of the six counts summed, per play.
+    exact: u32,
+    diff: u64,
+}
+
+/// The kept plays in `dir` (the desktop's `plays/`, read in place).
+fn read_kept(dir: &Path) -> (Vec<Kept>, KeptRead) {
+    use ddi_engine::rules::Judgement;
+    use ddi_ui::state::history::{Ending, PlayRecord, PlaySummary};
+    let mut r = KeptRead::default();
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return (out, r);
+    };
+    let mut names: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+    names.sort();
+    for path in names {
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        if !name.ends_with(".json") || name.ends_with(".summary.json") {
+            continue;
+        }
+        r.files += 1;
+        let read = || -> Option<(PlayRecord, PlaySummary, ddi_engine::history::PlayTiming)> {
+            let entry = ddi_platform::history::PlayEntry::from_json(&std::fs::read_to_string(&path).ok()?).ok()?;
+            let record: PlayRecord = serde_json::from_str(&entry.record).ok()?;
+            let summary_path = path.with_file_name(name.replace(".json", ".summary.json"));
+            let summary: PlaySummary = serde_json::from_str(&std::fs::read_to_string(summary_path).ok()?).ok()?;
+            let timing = ddi_engine::history::PlayTiming::decode(&entry.timing).ok()?;
+            Some((record, summary, timing))
+        };
+        let Some((record, summary, timing)) = read() else {
+            r.unread += 1;
+            continue;
+        };
+        // Its DDI judgment: as played, or judged again under DDI.
+        let played = record.ruleset.id == ddi::ID;
+        let (key, worked) = if played {
+            (record.ruleset.clone(), summary.worked.clone())
+        } else {
+            match &summary.rejudged {
+                Some(j) if j.ruleset.id == ddi::ID => (j.ruleset.clone(), j.worked.clone()),
+                _ => (record.ruleset.clone(), None),
+            }
+        };
+        let Some(worked) = worked else {
+            r.no_ddi += 1;
+            continue;
+        };
+        let Some(d) = worked.score.ddi else {
+            r.no_ddi += 1;
+            continue;
+        };
+        let difficulty = key.ddi.unwrap_or_default().difficulty;
+        let rate = record.options.clock.rate;
+        let seq: Seq = timing
+            .timeline
+            .iter()
+            .filter_map(|j| match j.kind {
+                JudgeEventKind::Tap(t, _) if played => Some(t.index() as u8),
+                JudgeEventKind::Tap(Judgement::Miss, _) => Some(MISS),
+                JudgeEventKind::Tap(_, delta) => Some(ddi_tier(delta, rate, difficulty)),
+                JudgeEventKind::HitMine | JudgeEventKind::HitShock => Some(BROKE),
+                _ => None,
+            })
+            .collect();
+        if played {
+            r.as_played += 1;
+        } else {
+            r.rejudged += 1;
+            let tiers = [
+                Judgement::W1,
+                Judgement::W2,
+                Judgement::W3,
+                Judgement::W4,
+                Judgement::W5,
+                Judgement::Miss,
+            ];
+            let diff: u64 = tiers
+                .iter()
+                .enumerate()
+                .map(|(i, &t)| {
+                    let mine = seq.iter().filter(|&&c| usize::from(c) == i).count() as i64;
+                    (mine - i64::from(worked.tally.count(t))).unsigned_abs()
+                })
+                .sum();
+            r.exact += u32::from(diff == 0);
+            r.diff += diff;
+        }
+        let n = seq.iter().filter(|&&c| c != BROKE).count() as u32;
+        let w0 = (d.absolute - 100 * d.points).clamp(0, i64::from(u32::MAX)) as u32;
+        let f = feat(&seq, n, d.most, w0, d.points - seq_points(&seq));
+        // Kept before the combo part, or judged again with it.
+        debug_assert_eq!(cands()[0].score(&f), d.score - d.combo);
+        let best = key.best_key();
+        out.push(Kept {
+            group: format!("{:?}/{:?}", summary.chart, best.ddi),
+            seq,
+            f,
+            clear: record.ended == Ending::Finished && !worked.failed,
+            counts: summary.counts(),
+        });
+    }
+    (out, r)
+}
+
+/// Part 5: the maintainer's kept plays, aggregates only (never a play's
+/// or a chart's own numbers or names).
+fn kept(cands: &[Cand], dir: &Path) {
+    let (plays, r) = read_kept(dir);
+    println!(
+        "== the kept plays: {} files, {} unread, {} with no DDI judgment; {} played under DDI, {} judged \
+         again under DDI (their taps put on DDI's grid: {:.1}% match the second judgment's counts \
+         exactly, {:.2} judgments a play off on average)",
+        r.files,
+        r.unread,
+        r.no_ddi,
+        r.as_played,
+        r.rejudged,
+        share(u64::from(r.exact), u64::from(r.rejudged)),
+        r.diff as f64 / f64::from(r.rejudged.max(1)),
+    );
+    let clears: Vec<&Kept> = plays.iter().filter(|p| p.clear && p.counts && p.f.n >= 20).collect();
+    // Runs: the breaks a play, where breaks fall, how long runs are.
+    let mut by_breaks = [0u32; 6];
+    let mut deciles = [0u64; 10];
+    let (mut notes, mut in_long, mut longest) = (0u64, 0u64, 0.0f64);
+    for p in &clears {
+        by_breaks[match p.f.breaks {
+            0 => 0,
+            1 => 1,
+            2 => 2,
+            3..=5 => 3,
+            6..=10 => 4,
+            _ => 5,
+        }] += 1;
+        let total = p.seq.len().max(1);
+        let mut run = 0u64;
+        let mut best = 0u64;
+        for (i, &c) in p.seq.iter().enumerate() {
+            if c <= 2 {
+                run += 1;
+                continue;
+            }
+            deciles[(10 * i / total).min(9)] += 1;
+            if run >= 100 {
+                in_long += run;
+            }
+            best = best.max(run);
+            run = 0;
+        }
+        if run >= 100 {
+            in_long += run;
+        }
+        best = best.max(run);
+        notes += u64::from(p.f.n);
+        longest += best as f64 / f64::from(p.f.n.max(1));
+    }
+    let all_breaks: u64 = deciles.iter().sum();
+    println!(
+        "clears counted ({}; {:.0} notes a play): breaks 0 / 1 / 2 / 3-5 / 6-10 / 11+: {}; breaks by tenth of \
+         the play: {}; notes in runs of 100 or more {:.1}%; the longest run {:.1}% of a play on average",
+        clears.len(),
+        notes as f64 / clears.len().max(1) as f64,
+        by_breaks
+            .iter()
+            .map(|&b| format!("{:.1}%", share(u64::from(b), clears.len() as u64)))
+            .collect::<Vec<_>>()
+            .join(" / "),
+        deciles
+            .iter()
+            .map(|&d| format!("{:.1}", share(d, all_breaks)))
+            .collect::<Vec<_>>()
+            .join(" "),
+        share(in_long, notes),
+        100.0 * longest / clears.len().max(1) as f64,
+    );
+    // By chart: pairs reordered, bests changing hands.
+    let mut groups: std::collections::BTreeMap<&str, Vec<&Kept>> = Default::default();
+    for p in plays.iter().filter(|p| p.counts) {
+        groups.entry(p.group.as_str()).or_default().push(p);
+    }
+    let multi = groups.values().filter(|g| g.len() >= 2).count();
+    println!(
+        "charts played (under one set of DDI options): {}, {multi} with two plays or more; per candidate: \
+         the part's mean share of a clear's score and of a full combo's part; pairs of plays of one chart \
+         turned around; bests changing hands",
+        groups.len()
+    );
+    for c in cands {
+        let (mut part_share, mut of_full) = (0.0, 0.0);
+        for p in &clears {
+            let score = c.score(&p.f);
+            let part = score - cands[0].score(&p.f);
+            part_share += part as f64 / score.max(1) as f64;
+            if let Shape::Per(i) = c.shape {
+                of_full += part as f64 / full_per(&PER[i], u64::from(p.f.n)).max(1) as f64;
+            }
+        }
+        let (mut pairs, mut turned, mut changed) = (0u64, 0u64, 0u64);
+        for g in groups.values().filter(|g| g.len() >= 2) {
+            let today: Vec<i64> = g.iter().map(|p| cands[0].score(&p.f)).collect();
+            let now: Vec<i64> = g.iter().map(|p| c.score(&p.f)).collect();
+            for i in 0..g.len() {
+                for j in i + 1..g.len() {
+                    if today[i] != today[j] {
+                        pairs += 1;
+                        turned += u64::from(now[i].cmp(&now[j]) == today[j].cmp(&today[i]));
+                    }
+                }
+            }
+            let best = |v: &[i64]| (0..v.len()).max_by_key(|&i| (v[i], today[i], std::cmp::Reverse(i))).unwrap();
+            changed += u64::from(best(&today) != best(&now));
+        }
+        let n = clears.len().max(1) as f64;
+        println!(
+            "{:<16} part {:5.1}% of the score, {:5.1}% of a full combo's | turned {:5.2}% of {pairs} pairs | \
+             bests changing hands {:5.1}% of {multi}",
+            c.name(),
+            100.0 * part_share / n,
+            100.0 * of_full / n,
+            share(turned, pairs),
+            share(changed, multi as u64),
+        );
+    }
+}
+
 #[test]
 fn the_combo_parts_are_what_they_say() {
     // One run of the whole chart is 1 everywhere; two halves are half of
@@ -1079,5 +1533,22 @@ fn combo_score_study() {
     }
     if wanted("stages") {
         stages(&cands);
+    }
+    if wanted("ladder") {
+        let mut bundled = Vec::new();
+        simfiles(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/songs"), &mut bundled);
+        print_under("the bundled songs", &under(&cands, &bundled), &cands);
+        if let Some(dirs) = std::env::var_os("DDI_COMBO_CORPUS") {
+            let mut files = Vec::new();
+            for dir in std::env::split_paths(&dirs) {
+                simfiles(&dir, &mut files);
+            }
+            print_under("the local folders", &under(&cands, &files), &cands);
+        }
+    }
+    if wanted("kept")
+        && let Some(dir) = std::env::var_os("DDI_COMBO_PLAYS")
+    {
+        kept(&cands, Path::new(&dir));
     }
 }

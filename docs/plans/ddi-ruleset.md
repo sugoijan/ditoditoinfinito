@@ -5,7 +5,8 @@ Status: planned 2026-11-12, from the maintainer's draft and answers of
 round 2 (the screens: DDI selectable, the default, shown everywhere) and
 round 3 (multiplayer: rooms play DDI alone, a shock is a mine) built
 2026-11-12 ("Round 1 (built)", "Round 2 (built)", "Round 3 (built)" and
-"Round 3b (built)" at the end).
+"Round 3b (built)" at the end). Combos count in the score since
+2026-11-16 (`ddi-combo-v0`, "Combos count" at the end).
 Values marked *tune* are starting
 points the maintainer will play and adjust; everything else is decided.
 
@@ -283,7 +284,7 @@ recovers 2.5× as fast. The losses' factor is *tune*.
 
 ## Score
 
-One point count, shown two ways.
+One point count, shown two ways, and a combo part beside it.
 
 | Event | Points |
 | --- | --- |
@@ -300,20 +301,33 @@ One point count, shown two ways.
 The most a chart gives is 50 a tap-like note (heads included) and 50 a
 hold unit.
 
-- **Score** (the default display): the proportional part plus the
-  absolute score, `floor(1,000,000 × points ÷ most) + (100 × points +
-  W0s)` (see the note below). It counts up from 0 during the play; a
+- **Score** (the default display): three parts together, the
+  proportional part, the absolute score and the combo part,
+  `floor(1,000,000 × points ÷ most) + (100 × points + W0s) + combo`
+  (see the notes below). It counts up from 0 during the play; a
   1,000-note chart played perfectly with every tap a W0 is 1,000,000 +
-  5,000,000 + 1,000 = 6,001,000, and a longer chart gives more.
+  5,000,000 + 1,000 + 1,062,400 = 7,063,400, and a longer chart gives
+  more.
+- **The combo part** (`ddi-combo-v0`, since 2026-11-16, "Combos count"
+  below): every note judged in combo adds `6 × min(k, 100) + 28 ×
+  isqrt(k − 100)` points, `k` the combo after it (the second term 0 up to
+  combo 100): quickly up to combo 100, then slowly and without a cap.
+  Whole numbers, in the order the notes are judged; nothing divided by
+  the chart's size. It follows the combo exactly (above: W0 to W3
+  continue it, a dropped hold neither adds nor breaks), never falls, and
+  carries across a step of the ladder as the combo does. A full combo of
+  100 notes adds 30,300, of 300 notes 200,672, of 1,000 notes 1,062,400.
 - **Percent** (the other display): the proportional part's ratio, two
-  decimals, floored. Grades are read from it.
-- **The two parts** stay readable (`DdiScoreView::ratio`, `absolute`):
-  the proportional part, `floor(1,000,000 × points ÷ most)`, is the same
-  for every chart played as well; the absolute score, `100 × points +
-  W0s`, is not divided by the chart's size (FFR's raw score's role), and
-  its W0s are the score's tie-break. Neither has a line of its own on
-  the results.
-- All of them may be negative.
+  decimals, floored. Grades are read from it: pure accuracy, the combo
+  part never in it.
+- **The parts** stay readable (`DdiScoreView::ratio`, `absolute`,
+  `combo`): the proportional part, `floor(1,000,000 × points ÷ most)`, is
+  the same for every chart played as well; the absolute score, `100 ×
+  points + W0s`, is not divided by the chart's size (FFR's raw score's
+  role), and its W0s are the score's tie-break; the combo part is not
+  divided either. The results show the combo part on a line of its own
+  ("Combo"), beside Score or Percent; the absolute score has none.
+- The first two may be negative; the combo part never is.
 
 **The displayed Score is the sum (2026-11-12).** The first build showed
 the proportional part alone as the Score and the absolute score on a
@@ -946,7 +960,9 @@ every other ruleset looks, judges and saves as before.
 
 ## DDI's score and combos: a study (2026-11-16)
 
-**Measured only: nothing a player sees or a play scores changed.** The
+**Measured only: nothing a player sees or a play scores changed** (the
+combo part was built after it, from round P1a's extension of this
+study: "Combos count" below). The
 maintainer (2026-11-16): "our DDI ruleset seems to reward precision too
 strongly, making it so some fullcombos lose in score to non fullcombos
 that had a few more precision. I think we should incorporate the length
@@ -1290,3 +1306,217 @@ precision" reads as judgments, which is why the pick is `M`.
 - DDI Easy and Hard, Boos on, charts with many holds (a dropped hold
   breaks no combo), and online stages between people.
 - What the part does to the choice of an easier rung under Adaptive.
+
+## Combos count (2026-11-16, `ddi-combo-v0`)
+
+**Built (round P1a): DDI's score has a combo part.** The maintainer's
+words, after the study above: "our DDI ruleset seems to reward precision
+too strongly, making it so some fullcombos lose in score to non
+fullcombos that had a few more precision. I think we should incorporate
+the length of combos into the score, and also the max combo, carefully
+balancing it so a longer combo counts a lot more than if the combo was
+broken in 2." Asked one by one: the mix at the heavier weight, 200,000
+("a break should matter a lot"); "an absolute amount, not exactly
+'scaled' but counted with absolute values like hits are" (every note hit
+in combo adds its own combo points, growing with the combo: quickly up
+to combo 100, then slowly and without a cap; nothing divided by the
+chart's size; a full combo on a 300-note chart worth what the 200,000
+mix was); a line of its own on the results; percent, grades and lamps
+pure accuracy, unchanged.
+
+**The rule** (`ddi_engine::rules::ddi::COMBO_SCORE`, PROVISIONAL, its
+numbers `COMBO_RAMP`, `COMBO_RAMP_POINTS`, `COMBO_GROWTH_POINTS`):
+
+    c(k) = 6 × min(k, 100) + 28 × isqrt(max(k − 100, 0))
+
+added for each note judged in combo, `k` the combo after it, in whole
+numbers in the order the notes are judged (`ddi::combo_points`). The
+part is the sum; the Score is `ratio + absolute + combo`.
+
+| Notes in one run | 100 | 300 | 600 | 1,200 | 2,400 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A full combo's part | 30,300 | 200,672 | 532,656 | 1,356,812 | 3,438,256 |
+| Its share of the score (every tap W1) | 2.0% | 7.4% | 11.8% | 16.2% | 20.9% |
+| Broken in two: the part lost | 50.5% | 34.2% | 24.8% | 21.6% | 21.1% |
+| One miss in the middle: slips (today 6) | 11.1 | 47.2 | 105.2 | 256.9 | 676.3 |
+| … in percent points | 2.2 | 3.2 | 3.5 | 4.3 | 5.6 |
+| One miss at 2.5% / at the first or last note: slips | 6.6 / 6.2 | 10.6 / 6.6 | 20.1 / 6.9 | 43.6 / 7.3 | 103.8 / 7.8 |
+
+(A *slip* is a W1 that became a W2, 10 points; a percent point of
+accuracy is `10,000 + 50 × notes` of score.)
+
+### How it was chosen (the study, extended)
+
+`combo_score_study` (`crates/session/src/battle/combo_study.rs`) measures
+per-note candidates beside the first study's pick at 20% of the million
+(the "200,000 mix", the reference), each weighted so a full combo of 300
+notes is about 200,000: a ramp to 100 (`R` = `min(k, 100)`) plus
+`isqrt(k)` (R+sqrt: 4 and 30), `ilog2(k)` (R+log2: 4 and 53),
+`min(k, 1000)` (R+lin≤1000: 3.9 and 2.2), `k` (R+lin, uncapped: the
+mix's runs' squares counted per note), and `isqrt(k − 100)` past 100
+(R+sqrt>100: 6 and 28, chosen; and twice its growth, 4 and 56). The
+engine's combo part is asserted equal to the chosen candidate's on every
+CPU play the study makes.
+
+Made-up full combos, every tap a W1: the part lost when broken in two,
+and the part's share of the score at 2,400 notes:
+
+| | 100 | 300 | 600 | 1,200 | 2,400 | Share at 2,400 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| The 200,000 mix | 50.7% | 35.2% | 29.7% | 27.2% | 26.1% | 1.5% |
+| R+sqrt | 41.4% | 25.4% | 21.1% | 20.7% | 21.8% | 20.0% |
+| R+log2 | 33.8% | 18.0% | 11.5% | 8.5% | 6.9% | 14.0% |
+| R+lin≤1000 | 50.5% | 35.3% | 35.7% | 38.6% | 22.0% | 28.2% |
+| R+lin | 50.5% | 35.3% | 35.7% | 40.0% | 44.0% | 35.8% |
+| **R+sqrt>100** | 50.5% | **34.2%** | 24.8% | 21.6% | 21.1% | **20.9%** |
+| R+sqrt>100, twice the growth | 50.5% | 48.3% | 35.9% | 30.4% | 28.3% | 27.8% |
+
+- **R+sqrt>100 is the one that meets every condition**: at 300 notes it
+  is the mix (200,672; broken in two loses 34.2% against the mix's
+  35.2%; a miss in the middle costs 47.2 slips against 48.3, at 2.5% of
+  the chart 10.6 against 11.0); the loss in two halves stays over a fifth
+  up to a marathon (not vanishing); it grows without a cap, slowly
+  (`c(2,400)` is 2,000 against `c(100)`'s 600); and a 2,400-note full
+  combo's part is 21% of its score (under a quarter).
+- R+sqrt loses only a quarter at 300 notes (no ramp-and-root reaches 35%
+  there with a quick ramp); R+log2's halves fade to 7% (vanishing);
+  R+lin≤1000 is capped and its part 28% of a marathon's score; R+lin
+  (the mix's squares per note) 36% and growing; twice the growth loses
+  48% at 300 and is 28% of a marathon's score.
+- **Short charts weigh it less than the mix did.** An absolute part is
+  small where the notes are few: 30,300 for 100 notes (2% of the score;
+  a miss in the middle 11 slips, 2.2 percent points, against the mix's
+  40 and 8); the arcade charts' clears average 140 to 275 notes, so most
+  of them sit below the 300-note calibration.
+
+The CPUs (`cpu-levels-v1`, `cpu-play-v1`), eight seeds a level, DDI
+Normal, the fail off, every dance-single chart as written of the local
+arcade mixes (1,066 simfiles, 4,429 charts; read in place, aggregates
+only), clears only; MEASUREMENTS OF CPUS, not of people:
+
+| Level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Full combos (%) | 10.6 | 7.0 | 34.8 | 38.1 | 30.4 | 33.7 | 67.0 | 75.8 | 78.2 | 84.6 |
+| Breaks a play | 10.9 | 11.5 | 8.8 | 8.7 | 7.6 | 6.1 | 4.1 | 2.9 | 2.7 | 1.1 |
+| Notes a play | 139 | 161 | 184 | 198 | 218 | 235 | 245 | 258 | 266 | 274 |
+| The part, of a full combo's | 0.34 | 0.34 | 0.57 | 0.60 | 0.60 | 0.64 | 0.83 | 0.89 | 0.90 | 0.95 |
+
+A full combo against a play of one break more accurate than it (the
+pairs of clears of one chart), how often the full combo still loses, by
+the broken play's lead in percent points:
+
+| Lead | up to 0.25 | 0.25 to 0.5 | 0.5 to 1 | 1 to 2 | 2 to 4 | over 4 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Today | 100 | 100 | 100 | 100 | 100 | 100 |
+| The 200,000 mix | 2.0 | 5.0 | 7.0 | 10.0 | 9.4 | 30.8 |
+| R+sqrt | 2.9 | 10.6 | 20.3 | 72.9 | 100 | 100 |
+| **R+sqrt>100** | 2.7 | 11.1 | 20.3 | 60.6 | 99.2 | 100 |
+| R+sqrt>100, twice the growth | 2.8 | 14.0 | 30.8 | 60.3 | 98.4 | 100 |
+
+Over all pairs of clears of one chart: R+sqrt>100 turns 1.54% of them
+around against today's score (the mix 2.05%); a play with no more breaks
+and no fewer points loses in 0.44% of such pairs (the mix 0.61%, today
+0.07%, its W0s); one miss put into the CPUs' full combos costs 8.4,
+14.0, 22.1, 26.9 slips at 2.5%, 10%, 25% and the middle of the chart
+(the mix 10.8, 21.0, 36.0, 45.0: the middle three times an end for
+both), and one more miss in the middle of a play of one to five breaks
+19.3 (the mix 21.5). On four local stream packs (255 charts, four seeds)
+the clears of levels 9 and 10 average 1,300 to 1,700 notes and keep 51
+to 58% of a full combo's part.
+
+**A multiplayer stage** (the attack study's stages: eight CPUs at levels
+1, 2, 3, 4, 5, 6, 8 and 10 on its six bundled charts, 24 seeds, 144
+stages a row, DDI Normal, `adaptive-v5`): how often the final order of
+those still in and its first place differ from today's, and what an
+attack received costs in score against today's (5,356 As picked, 6,116
+Adaptive):
+
+| | As picked, attacks: order / first (%) | attack costs | As picked, none | Adaptive, attacks | attack costs | Adaptive, none |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| The 200,000 mix | 14.6 / 6.2 | ×1.79 | 23.6 / 8.3 | 11.1 / 5.6 | ×1.38 | 16.7 / 6.2 |
+| R+sqrt | 11.1 / 3.5 | ×1.76 | 22.2 / 10.4 | 7.6 / 3.5 | ×1.37 | 13.9 / 6.2 |
+| **R+sqrt>100** | 13.2 / 4.2 | ×1.87 | 25.7 / 11.1 | 9.7 / 4.2 | ×1.39 | 16.0 / 6.9 |
+
+An attack's shocks break combos, so an attack received costs about 1.9
+times today's in score As picked (1.4 under Adaptive, which ranks by the
+score first); who is out is untouched (life is). Of 544 steps up under
+Adaptive with attacks 262 had a run going across the boundary (333 of
+706 without): the combo and its part carry on there; a step down comes
+when life runs out, never with a run going.
+
+**Playing an easier chart on purpose** (Adaptive ranks by the score):
+for the 3,336 local charts with one below, a perfect play of the next
+easier (every tap a W1, one run; 219 notes against the stage chart's
+326 on average) against the stage's chart at 95% and at 85% of its most,
+in one run / broken once / broken three times; how often the easier
+wins:
+
+| | 95%: one run | broken once | three times | 85%: one run | broken once | three times |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Today | 3.3 | 3.3 | 3.3 | 27.0 | 27.0 | 27.0 |
+| The 200,000 mix | 3.3 | 8.9 | 13.8 | 27.0 | 40.8 | 50.0 |
+| **R+sqrt>100** | 2.9 | 4.2 | 7.3 | 18.9 | 26.6 | 35.0 |
+
+An absolute part makes the easier chart's fewer notes worth fewer combo
+points: against a clean play of the harder chart going down pays less
+than today; against a broken one a little more, far less than under the
+mix (which gave every chart the same 200,000).
+
+**The maintainer's kept plays** (read in place, read-only; aggregates
+only; 97% of them played under other rules and judged again under DDI
+before, their taps put on DDI's grid here by their offsets since the
+charts were not read: 66% match the second judgment's counts exactly, an
+estimate). Of the cleared plays: 13% full combos, 9% one break, 7% two,
+22% three to five, 20% six to ten, 28% more; breaks by tenth of the play
+from 8% of them in the first tenth rising to 14% in the last (the end
+of a song is where this person breaks most); 54% of the notes in runs
+of 100 or more; the longest run 54% of a play on average. The combo
+part is 5.0% of a clear's score on average and 53% of what a full combo
+would have given. Among this person's plays of one chart, R+sqrt>100
+turns 7.0% of the pairs around against today's score (the mix 6.5%),
+and **the best changes hands on 14% of the charts played twice or more**
+(the mix 12.5%): there a cleaner play overtakes a slightly more accurate
+one.
+
+### What was built
+
+- **Engine** (`rules/ddi.rs`): `DdiScore` counts the part as it scores
+  (every step the player's combo grows by adds `combo_points` of it, so
+  the part follows exactly what continues and breaks the combo, an
+  avoided shock arrow too); `restep` (a step of the ladder, or a combo
+  given to a staged play) counts on from the combo as it stands.
+  `DdiScoreView::combo`, `with_combo`; `score` the three parts.
+  `JUDGE_VERSION` 5.
+- **Kept plays**: the part is kept with the view (`combo`) and read back
+  (`Stored`); a view kept before reads with none. JUDGE_VERSION's rise
+  makes every kept play stale, and the history's reworker judges each
+  again from its log by itself, as for versions 3 and 4: a DDI play
+  gains its part, its best is ranked again (`best_cmp` on the score, the
+  part in it), an autoplayed record's grade stays the bot's. A play that
+  cannot be judged again (its chart gone or changed) keeps its old
+  summary, stale, and the best it is part of says pending, as before.
+  What a play came to under other rules (`rejudged`) is judged again
+  with it and stays beside what it came to as played. An export read
+  either way (before or after the part) is judged again on import
+  (tests in `ddi_ui::state::history`).
+- **Screens**: the results' **Combo** line (the part's points; `results-ddi-combo`,
+  ja コンボ, a draft) after Score or Percent; the HUD's score, Options'
+  preview, song select's best and the plays list, the ghost's lead, a
+  stage's Standings and the miniatures show the score as before, the
+  part in it.
+- **Multiplayer**: the scores each device reports (`Run::Live::score`,
+  `RunDetail`) and computes for the room's CPUs include it, so a stage
+  ranks by it; a remote person's percent is worked out from their
+  stream's sum less the combo part their moments' combos add
+  (`battle::live::ddi_of_sum`), exactly from the start of a stream (from
+  part-way, runs that ended before are not told: the percent a little
+  high). The room's model revision stays 12 (deployed nowhere yet);
+  the server only carries scores.
+
+### Not measured
+
+- How people break: one person's kept plays, judged mostly under other
+  rules and put on DDI's grid; nerves near the end of a long run are in
+  them (breaks rise toward the end) but not in the CPUs.
+- DDI Easy and Hard, Boos on, charts heavy in holds (a dropped hold
+  breaks no combo, so its part is untouched).
