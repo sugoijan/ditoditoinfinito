@@ -1229,32 +1229,58 @@ room-status-loading-wait = { $count ->
 }
 
 # For someone who is not in the stage the others play, where no reason
-# below applies.
+# below applies (they chose Watch, for one), then what comes next.
 # Variables:
 #   $number (Number) - the stage, from 1
-room-status-sitting-out = You're sitting out stage { $number }; the others are playing it.
+#   $then (String) - what comes next for them, one of the room-sat-out-then messages below
+room-status-sitting-out = You're sitting out stage { $number }; the others are playing it. { $then }
 
-# Why the local player sits a stage out, on the room's status line and
-# under the song on the stage's start screen (one line each; keep each
-# about this long). Here: they had not pressed Ready when the stage started.
+# Why the local player sits a stage out, then what comes next, on the
+# room's status line and under the song on the stage's start screen (two
+# short sentences each; keep each about this long). Here: they had not
+# pressed Ready when the stage started.
 # Variables:
 #   $number (Number) - the stage, from 1
-room-status-sat-out-not-ready = You're sitting out stage { $number }: you weren't ready when it started.
+#   $then (String) - what comes next for them, one of the room-sat-out-then messages below
+room-status-sat-out-not-ready = You weren't ready when stage { $number } started. { $then }
 
 # The stage's song was still loading on their device when it started.
 # Variables:
 #   $number (Number) - the stage, from 1
-room-status-sat-out-loading = You're sitting out stage { $number }: its song was still loading here when it started.
+#   $then (String) - what comes next for them, one of the room-sat-out-then messages below
+room-status-sat-out-loading = Stage { $number }'s song was still loading here when it started. { $then }
 
 # The stage's song could not be loaded on their device.
 # Variables:
 #   $number (Number) - the stage, from 1
-room-status-sat-out-failed = You're sitting out stage { $number }: its song couldn't be loaded here.
+#   $then (String) - what comes next for them, one of the room-sat-out-then messages below
+room-status-sat-out-failed = Stage { $number }'s song couldn't be loaded here. { $then }
 
 # The room had lost their connection when the stage started.
 # Variables:
 #   $number (Number) - the stage, from 1
-room-status-sat-out-away = You're sitting out stage { $number }: your connection was lost when it started.
+#   $then (String) - what comes next for them, one of the room-sat-out-then messages below
+room-status-sat-out-away = Your connection was lost when stage { $number } started. { $then }
+
+# What comes next for the player sitting a stage out, the second sentence
+# of the lines above. They are shown the stage on this device and play the
+# next one:
+room-sat-out-then-watch-next = You're watching this stage and play the next one.
+# Shown the stage; it is the match's last.
+room-sat-out-then-watch-last = You're watching this stage, the match's last.
+# Shown the stage; under this match's rules a missed stage ends the match
+# for them.
+room-sat-out-then-watch-out = You're watching this stage; missing it ends the match for you.
+# Shown the stage; they chose Watch, and play again once they choose Play.
+room-sat-out-then-watch-chosen = You're watching this stage; choose Play to play the next one.
+# The same where the stage is not shown on this device: they play the next one.
+room-sat-out-then-next = You play the next one.
+# Not shown; it is the match's last stage.
+room-sat-out-then-last = It's the match's last stage.
+# Not shown; missing it ends the match for them.
+room-sat-out-then-out = Missing it ends the match for you.
+# Not shown; they chose Watch.
+room-sat-out-then-chosen = Choose Play to play the next one.
 
 # For someone who joined the room while its match was running, during a
 # stage: they are not in this match.

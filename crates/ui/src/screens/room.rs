@@ -475,17 +475,72 @@ fn sat_out_word(reason: ddi_room::SitOutReason) -> UiText {
     }
 }
 
-/// The local player sits stage `number` out: the room's status line and
+/// The local player sits stage `stage` out: the room's status line and
 /// the stage's prompt say why (they were not told before feedback round
-/// N1: "not ready in time" whatever the reason).
-pub fn sat_out_status(number: usize, reason: ddi_room::SitOutReason) -> UiText {
+/// N1: "not ready in time" whatever the reason) and what comes next
+/// (feedback round P2, [`SatOutThen`]).
+pub fn sat_out_status(r: &RoomClient, stage: StageId, reason: ddi_room::SitOutReason) -> UiText {
+    sat_out_line(number_of(r, stage), reason, SatOutThen::of(r, stage, reason))
+}
+
+/// [`sat_out_status`]'s sentences: why, then what comes next.
+pub(crate) fn sat_out_line(number: usize, reason: ddi_room::SitOutReason, then: SatOutThen) -> UiText {
     use ddi_room::SitOutReason;
+    let then = then.text();
     match reason {
-        SitOutReason::NotReady => m::status_sat_out_not_ready(number),
-        SitOutReason::StillLoading => m::status_sat_out_loading(number),
-        SitOutReason::LoadFailed => m::status_sat_out_failed(number),
-        SitOutReason::NotConnected => m::status_sat_out_away(number),
-        SitOutReason::Watching | SitOutReason::Left => m::status_sitting_out(number),
+        SitOutReason::NotReady => m::status_sat_out_not_ready(number, &then),
+        SitOutReason::StillLoading => m::status_sat_out_loading(number, &then),
+        SitOutReason::LoadFailed => m::status_sat_out_failed(number, &then),
+        SitOutReason::NotConnected => m::status_sat_out_away(number, &then),
+        SitOutReason::Watching | SitOutReason::Left => m::status_sitting_out(number, &then),
+    }
+}
+
+/// What comes next for a player sitting a stage out (feedback round P2:
+/// "the sentence says what comes next"): whether this device shows them
+/// the stage ([`RoomClient::watches`]: practice, or a room that plays
+/// live), and whether they play the next stage (there is one, the
+/// match's rules bring everyone back each stage, and they had not chosen
+/// Watch).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SatOutThen {
+    /// Back for the next stage.
+    Next { watching: bool },
+    /// The match's last stage: nothing after it.
+    Last { watching: bool },
+    /// A missed stage ends the match for them (the match's rule that
+    /// everyone returns each stage is off).
+    Out { watching: bool },
+    /// They chose Watch: they play again once they choose Play.
+    Chosen { watching: bool },
+}
+
+impl SatOutThen {
+    pub(crate) fn of(r: &RoomClient, stage: StageId, reason: ddi_room::SitOutReason) -> SatOutThen {
+        let watching = r.watches();
+        let rules = r.state().current.as_ref().map(|m| &m.rules);
+        if rules.is_some_and(|rules| number_of(r, stage) >= usize::from(rules.stages)) {
+            SatOutThen::Last { watching }
+        } else if reason == ddi_room::SitOutReason::Watching {
+            SatOutThen::Chosen { watching }
+        } else if rules.is_some_and(|rules| !rules.return_each_stage) {
+            SatOutThen::Out { watching }
+        } else {
+            SatOutThen::Next { watching }
+        }
+    }
+
+    fn text(self) -> UiText {
+        match self {
+            SatOutThen::Next { watching: true } => m::sat_out_then_watch_next(),
+            SatOutThen::Next { watching: false } => m::sat_out_then_next(),
+            SatOutThen::Last { watching: true } => m::sat_out_then_watch_last(),
+            SatOutThen::Last { watching: false } => m::sat_out_then_last(),
+            SatOutThen::Out { watching: true } => m::sat_out_then_watch_out(),
+            SatOutThen::Out { watching: false } => m::sat_out_then_out(),
+            SatOutThen::Chosen { watching: true } => m::sat_out_then_watch_chosen(),
+            SatOutThen::Chosen { watching: false } => m::sat_out_then_chosen(),
+        }
     }
 }
 
@@ -649,7 +704,7 @@ fn phase_status(r: &RoomClient) -> UiText {
             let n = number_of(r, *stage);
             match s.participation(r.me()) {
                 Some(Participation::SittingOut { reason, .. }) => {
-                    sat_out_status(n, reason)
+                    sat_out_status(r, *stage, reason)
                 }
                 // Joined while the match ran: told why they are not in it.
                 Some(Participation::WaitingNextMatch) => m::status_waiting_next_match(n),

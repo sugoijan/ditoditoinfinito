@@ -1332,7 +1332,7 @@ fn not_ready_in_time_sits_out_and_the_prompt_goes_back() {
     step(4_000);
     hb.run(0.3);
     assert!(
-        has(&hb, "You're sitting out stage 1: you weren't ready when it started."),
+        has(&hb, "You weren't ready when stage 1 started. You play the next one."),
         "{:?}",
         hb.texts()
     );
@@ -2424,7 +2424,7 @@ fn a_players_states_go_in_the_rooms_order() {
     assert_eq!(says(&alice, "carol"), both("Sat out: loading"));
     assert_eq!(
         String::from(status(&carol)),
-        "You're sitting out stage 1: its song was still loading here when it started."
+        "Stage 1's song was still loading here when it started. You play the next one."
     );
     drop(slow);
 }
@@ -6169,4 +6169,54 @@ fn a_shell_pushes_the_due_notice_over_a_page_of_its_own() {
     );
     assert!(has(&hw, "Watch"), "{:?}", hw.texts());
     assert_eq!(view(&ew).due_open, Some((1, true)));
+}
+
+/// Feedback round P2: the line that tells the player why they sit a
+/// stage out says what comes next too: whether this device shows them
+/// the stage (practice, or a room that plays live) and whether they play
+/// the next one (there is one, the match brings everyone back each stage,
+/// they had not chosen Watch).
+#[test]
+fn sitting_out_says_what_comes_next() {
+    use super::room::{SatOutThen, sat_out_line};
+    use ddi_room::SitOutReason::{Left, LoadFailed, NotConnected, NotReady, StillLoading, Watching};
+    let line = |reason, then| String::from(sat_out_line(2, reason, then));
+    let next = SatOutThen::Next { watching: true };
+    for (reason, why) in [
+        (NotReady, "You weren't ready when stage 2 started."),
+        (StillLoading, "Stage 2's song was still loading here when it started."),
+        (LoadFailed, "Stage 2's song couldn't be loaded here."),
+        (NotConnected, "Your connection was lost when stage 2 started."),
+        (Left, "You're sitting out stage 2; the others are playing it."),
+    ] {
+        assert_eq!(line(reason, next), format!("{why} You're watching this stage and play the next one."));
+    }
+    for (then, says) in [
+        (SatOutThen::Next { watching: false }, "You play the next one."),
+        (SatOutThen::Last { watching: true }, "You're watching this stage, the match's last."),
+        (SatOutThen::Last { watching: false }, "It's the match's last stage."),
+        (SatOutThen::Out { watching: true }, "You're watching this stage; missing it ends the match for you."),
+        (SatOutThen::Out { watching: false }, "Missing it ends the match for you."),
+        (SatOutThen::Chosen { watching: true }, "You're watching this stage; choose Play to play the next one."),
+        (SatOutThen::Chosen { watching: false }, "Choose Play to play the next one."),
+    ] {
+        assert_eq!(line(NotReady, then), format!("You weren't ready when stage 2 started. {says}"));
+    }
+    // Decided from the room: practice shows the stage on this device.
+    let of = |stages: u16, back: bool, reason| {
+        let room = RoomClient::shared(0, 1);
+        let mut rules = room.borrow().rules().clone();
+        rules.stages = stages;
+        rules.return_each_stage = back;
+        room.borrow_mut().save_rules(rules).unwrap();
+        let s = &library("dance-single").songs[0];
+        room.borrow_mut().pick(s, &s.charts[0]).unwrap();
+        let stage = room.borrow().stages()[0].id;
+        SatOutThen::of(&room.borrow(), stage, reason)
+    };
+    assert_eq!(of(4, true, NotReady), SatOutThen::Next { watching: true });
+    assert_eq!(of(1, true, NotReady), SatOutThen::Last { watching: true }, "the match's last stage");
+    assert_eq!(of(4, false, StillLoading), SatOutThen::Out { watching: true }, "a missed stage ends it");
+    assert_eq!(of(4, true, Watching), SatOutThen::Chosen { watching: true });
+    assert_eq!(of(1, true, Watching), SatOutThen::Last { watching: true });
 }

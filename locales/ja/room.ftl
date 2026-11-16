@@ -559,12 +559,21 @@ room-status-gathering = 全員の準備ができたらステージ{ $number }開
 
 room-status-loading-wait = { $count }人の読み込みを待っています · { $seconds }秒
 
-room-status-sitting-out = ステージ{ $number }は見学です。ほかのプレイヤーがプレイ中です。
+room-status-sitting-out = ステージ{ $number }はほかのプレイヤーがプレイ中です。{ $then }
 
-room-status-sat-out-not-ready = ステージ{ $number }は見学です。開始時に準備OKになっていませんでした。
-room-status-sat-out-loading = ステージ{ $number }は見学です。開始時にこの端末で曲を読み込み中でした。
-room-status-sat-out-failed = ステージ{ $number }は見学です。この端末で曲を読み込めませんでした。
-room-status-sat-out-away = ステージ{ $number }は見学です。開始時に接続が切れていました。
+room-status-sat-out-not-ready = ステージ{ $number }の開始時に準備OKになっていませんでした。{ $then }
+room-status-sat-out-loading = ステージ{ $number }の開始時に、この端末で曲を読み込み中でした。{ $then }
+room-status-sat-out-failed = ステージ{ $number }の曲をこの端末で読み込めませんでした。{ $then }
+room-status-sat-out-away = ステージ{ $number }の開始時に接続が切れていました。{ $then }
+
+room-sat-out-then-watch-next = このステージを観戦し、次のステージからプレイします。
+room-sat-out-then-watch-last = 試合最後のこのステージを観戦します。
+room-sat-out-then-watch-out = このステージを観戦します。欠場したため、この試合には戻れません。
+room-sat-out-then-watch-chosen = このステージを観戦します。「プレイする」を選ぶと次のステージからプレイできます。
+room-sat-out-then-next = 次のステージからプレイします。
+room-sat-out-then-last = この試合の最後のステージです。
+room-sat-out-then-out = 欠場したため、この試合には戻れません。
+room-sat-out-then-chosen = 「プレイする」を選ぶと次のステージからプレイできます。
 
 room-status-waiting-next-match = ステージ{ $number }をプレイ中です。対戦の途中で参加したため、次の対戦からプレイします。
 

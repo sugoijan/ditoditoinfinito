@@ -330,7 +330,7 @@ impl PromptScreen {
             // line says it.
             let line = match r.state().participation(r.me()) {
                 Some(Participation::SittingOut { stage, reason }) => {
-                    room::sat_out_status(room::number_of(&r, stage), reason)
+                    room::sat_out_status(&r, stage, reason)
                 }
                 _ => msg::room::prompt_canceled(),
             };
