@@ -143,6 +143,8 @@ pub(crate) struct WebInputs {
     touch: Option<TouchLanes>,
     touch_canvas: Option<HtmlCanvasElement>,
     interrupted: Rc<Cell<bool>>,
+    /// The page was hidden during the play.
+    hidden: Rc<Cell<bool>>,
     _interrupt_listeners: Vec<EventListener>,
     /// Set when the audio device list or the display scale changed mid-play.
     device_changed: Rc<Cell<bool>>,
@@ -157,9 +159,12 @@ impl WebInputs {
         audio: &WebAudio,
     ) -> WebInputs {
         let interrupted = Rc::new(Cell::new(false));
+        let hidden = Rc::new(Cell::new(false));
         let mut interrupt_listeners = Vec::new();
         if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-            let flag = interrupted.clone();
+            // Hidden once is said until the play's end (singleplayer stops
+            // at it; a room's stage plays on unseen, round P1b).
+            let flag = hidden.clone();
             let doc = document.clone();
             interrupt_listeners.push(EventListener::new(
                 &document,
@@ -212,6 +217,7 @@ impl WebInputs {
             touch: None,
             touch_canvas,
             interrupted,
+            hidden,
             _interrupt_listeners: interrupt_listeners,
             device_changed,
             _device_listeners: device_listeners,
@@ -283,6 +289,10 @@ impl ddi_session::play::Inputs for WebInputs {
 
     fn interrupted(&self) -> bool {
         self.interrupted.get()
+    }
+
+    fn hidden(&self) -> bool {
+        self.hidden.get()
     }
 
     fn device_changed(&self) -> bool {

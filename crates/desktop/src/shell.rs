@@ -66,6 +66,10 @@ const MOUSE: u64 = 0;
 /// window minimized, or another Space shown, for longer does.
 const HIDDEN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// How often a room's stage is judged on while its window is hidden
+/// (round P1b): it draws no frame then.
+const UNSEEN_STEP: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// The window hidden during a play: since when, and whether the play
 /// stops for it once the window shows again (no frame is drawn, so the
 /// play is judged again only then).
@@ -679,7 +683,10 @@ impl Shell {
             return;
         }
         let secs = hidden.as_secs_f64();
-        if stops {
+        if self.play.plays_on_unseen() {
+            // A room's stage was judged on meanwhile (round P1b).
+            eprintln!("the window was hidden for {secs:.2} s: the stage played on");
+        } else if stops {
             eprintln!("the window was hidden for {secs:.2} s: the play stops as interrupted");
             self.play.feed.borrow_mut().interrupted = true;
         } else {
@@ -1916,6 +1923,20 @@ impl ApplicationHandler for Shell {
                         _ => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
                     }
                 }
+            }
+        }
+        // A room's stage while the window is hidden: judged on without
+        // frames (round P1b), every tenth of a second.
+        if self.occluded && self.play.plays_on_unseen() {
+            if let Some(env) = self.theme.as_ref().map(|(e, _)| e.clone()) {
+                self.play
+                    .step_unseen(crate::clock::now(), &mut self.ui, &env);
+            }
+            let at = Instant::now() + UNSEEN_STEP;
+            match event_loop.control_flow() {
+                ControlFlow::WaitUntil(t) if t <= at => {}
+                ControlFlow::Poll => {}
+                _ => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
             }
         }
         if self.occluded || !(self.ui.needs_redraw() || self.loaded || field) {

@@ -1035,6 +1035,69 @@ fn attack_power_is_the_same_at_any_frame_rate_and_from_the_log() {
     assert!(s.opponents().iter().all(|v| v.power.is_none()));
 }
 
+/// Round P1b (the maintainer's of 2026-11-16): a page hidden during a
+/// room's stage no longer stops it (it did, as a forfeit): the play runs
+/// on unseen, its shell judging it on a timer at whatever rate a hidden
+/// page's timers come. Judging is by the audio clock, so a play hidden
+/// from 10 s on and judged in steps of a second (and nothing pressed
+/// meanwhile) ends as the same play judged at 60 frames a second: the
+/// same results, the same attack ledger, the same outcome. Singleplayer
+/// still stops as interrupted.
+#[test]
+fn a_hidden_stage_plays_on_and_judges_as_its_frames_would() {
+    let song = bundled("beatucada");
+    let mut practice = attacks_room(3, 2);
+    let mut now = 0;
+    let order = begin(&song, &mut practice, &mut now);
+    // Pressed a little at first, then nothing.
+    let keys: Vec<(f64, &str, bool)> = (0..8)
+        .flat_map(|i| {
+            let at = 4.0 + f64::from(i) * 0.5;
+            [(at, "ArrowLeft", true), (at + 0.05, "ArrowLeft", false)]
+        })
+        .collect();
+    let (mut seen, clock) = stage_session(&song, &order, false, &keys);
+    let seen_end = run(&mut seen, &clock, 60.0, 300.0).expect("ends");
+    let (mut hidden, clock) = stage_session(&song, &order, false, &keys);
+    assert!(hidden.plays_on_unseen());
+    assert!(run_until(&mut hidden, &clock, 60.0, 10.0).is_none());
+    hidden.inputs.hidden = true;
+    let hidden_end = run(&mut hidden, &clock, 1.0, 300.0).expect("ends");
+    assert!(!matches!(hidden_end, SessionEvent::Interrupted), "interrupted");
+    assert_eq!(
+        std::mem::discriminant(&seen_end),
+        std::mem::discriminant(&hidden_end)
+    );
+    assert_eq!(seen.player.tally(), hidden.player.tally());
+    let (a, b) = (
+        seen.battle().unwrap().attacks().unwrap(),
+        hidden.battle().unwrap().attacks().unwrap(),
+    );
+    assert_eq!(a.record(), b.record(), "the ledger");
+    let (oa, ob) = (seen.take_stage_outcome(), hidden.take_stage_outcome());
+    assert_eq!(oa.map(|o| o.ranking), ob.map(|o| o.ranking), "the outcome");
+    // Singleplayer: hidden is interrupted, as ever.
+    let settings = Settings::default();
+    let clock: Clock = Rc::new(RefCell::new(0.0));
+    let mut single = PlaySession::start(
+        &song,
+        order.chart.index,
+        &settings,
+        SessionConfig::from_settings(&settings, false, None),
+        FakeAudio::new(&clock, 0.0),
+        110.0,
+        FakeInputs::new(&clock),
+    )
+    .unwrap();
+    assert!(!single.plays_on_unseen());
+    assert!(run(&mut single, &clock, 60.0, 5.0).is_none());
+    single.inputs.hidden = true;
+    assert!(matches!(
+        run(&mut single, &clock, 60.0, 6.0),
+        Some(SessionEvent::Interrupted)
+    ));
+}
+
 /// The stage `s` played, again without frames: the player's log replayed
 /// in long steps into a fresh battle (its shocks delivered again as the
 /// checkpoints commit them), the CPUs from their seeds. Its record.

@@ -103,8 +103,18 @@ pub trait Inputs {
     fn pads_running(&mut self, fast_poll: Option<bool>);
     /// The keyboard and the touch lanes are let go (a fail, the end).
     fn release(&mut self);
-    /// The page was hidden or the audio interrupted.
+    /// The audio was interrupted (and, for a shell that does not say
+    /// [`Inputs::hidden`], the page hidden).
     fn interrupted(&self) -> bool;
+    /// The page or window was hidden during the play. Singleplayer stops
+    /// as interrupted for it, as ever; a room's stage plays on unseen
+    /// (round P1b, the maintainer's of 2026-11-16: nothing is forfeited
+    /// by hiding: the song runs, notes pass and are missed, life falls;
+    /// back, the player plays on from where the song is), its shell
+    /// ticking it without frames.
+    fn hidden(&self) -> bool {
+        false
+    }
     /// An audio device or the display changed during the play.
     fn device_changed(&self) -> bool;
     /// `auto=pad`: an edge scheduled on the test pad at host time `host`.
@@ -1631,7 +1641,10 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
             // The voice says its last line out; the music stops.
             self.audio.stop_music();
             Some(SessionEvent::SceneOver)
-        } else if self.inputs.interrupted() || !self.audio.running() {
+        } else if self.inputs.interrupted()
+            || (self.inputs.hidden() && !self.plays_on_unseen())
+            || !self.audio.running()
+        {
             self.audio.stop_all();
             Some(SessionEvent::Interrupted)
         } else if let Some(at) = self.failed_at {
@@ -1989,6 +2002,14 @@ impl<A: AudioBackend, I: Inputs> PlaySession<A, I> {
         let t = self.told.iter().rev().find(|t| t.shown(&policy))?;
         let age = host - t.at;
         (age < policy.cue_seconds).then_some((t.event, age))
+    }
+
+    /// Whether this play runs on while its page or window is hidden: a
+    /// room's stage (practice's or an online room's, played or watched;
+    /// round P1b), which its shell ticks without frames
+    /// ([`Inputs::hidden`]). Singleplayer stops as interrupted.
+    pub fn plays_on_unseen(&self) -> bool {
+        self.battle.is_some()
     }
 
     /// A stage's outcome, once, after the play's end

@@ -535,6 +535,52 @@ impl GameLoop {
     }
 
     /// One animation frame. `time_ms` is the rAF timestamp (performance timeline).
+    /// The play judged to `host_now`, what it told passed on; how it
+    /// ended, once it did.
+    fn step_session(&mut self, host_now: HostTime) -> Option<SessionEvent> {
+        let session = self.session.as_mut().filter(|_| !self.done)?;
+        let (_events, event) = session.tick(host_now);
+        // A fail is told at once (the play goes on to its end).
+        if let Some(failed) = session.take_fail_report() {
+            self.on_event.emit(failed);
+        }
+        // Each attack's commitment, to the console (M8b, development).
+        for line in session.take_battle_log() {
+            web_sys::console::debug_1(&line.into());
+        }
+        // A stage's outcome, to the room as the play ends (before its
+        // results ask the room how it went).
+        if let Some(o) = session.take_stage_outcome() {
+            let ending = crate::room::report(o);
+            // The results' battle line, now the room has confirmed it.
+            session.stage_reported(ending);
+        }
+        event
+    }
+
+    /// A room's stage while its page is hidden (round P1b): the browser
+    /// draws no frame, so its timer judges the play on (the song's clock
+    /// runs, notes pass, life falls; its moments and reports stream to the
+    /// room), drawing nothing. Judging is by the audio clock, so a step a
+    /// second long judges as the frames would have. Singleplayer is never
+    /// stepped here: it stopped as interrupted.
+    pub(crate) fn tick_unseen(&mut self, time_ms: f64) {
+        if self.gfx.is_lost()
+            || !self
+                .session
+                .as_ref()
+                .is_some_and(|s| s.plays_on_unseen())
+        {
+            return;
+        }
+        let host_now = HostTime(time_ms / 1000.0);
+        if let Some(event) = self.step_session(host_now) {
+            self.done = true;
+            self.end_perf_after = true;
+            self.on_event.emit(event);
+        }
+    }
+
     pub(crate) fn frame(&mut self, time_ms: f64) {
         // The device is gone: the route starts over on the new one.
         if self.gfx.is_lost() {
@@ -554,29 +600,8 @@ impl GameLoop {
         }
         let host_now = HostTime(time_ms / 1000.0);
 
-        let mut outcome = None;
         let mut song_second = f64::NAN;
-        if let Some(session) = self.session.as_mut()
-            && !self.done
-        {
-            let (_events, event) = session.tick(host_now);
-            // A fail is told at once (the play goes on to its end).
-            if let Some(failed) = session.take_fail_report() {
-                self.on_event.emit(failed);
-            }
-            // Each attack's commitment, to the console (M8b, development).
-            for line in session.take_battle_log() {
-                web_sys::console::debug_1(&line.into());
-            }
-            // A stage's outcome, to the room as the play ends (before its
-            // results ask the room how it went).
-            if let Some(o) = session.take_stage_outcome() {
-                let ending = crate::room::report(o);
-                // The results' battle line, now the room has confirmed it.
-                session.stage_reported(ending);
-            }
-            outcome = event;
-        }
+        let outcome = self.step_session(host_now);
         perf::lap(Lap::Tick);
 
         // A scene of the announcer studio's: the canvas drawn by the 2D

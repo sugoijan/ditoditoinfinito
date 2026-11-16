@@ -2684,7 +2684,7 @@ impl GameCanvas {
                     if let Some(game) = self.game.borrow_mut().as_mut() {
                         game.scene_mode();
                     }
-                    self.raf = Some(schedule(self.game.clone(), GameLoop::frame));
+                    self.raf = Some(schedule_play(self.game.clone()));
                 }
             }
             return;
@@ -3830,6 +3830,8 @@ fn coarse_pointer() -> bool {
 struct Frames {
     tick: Closure<dyn FnMut(f64)>,
     id: std::cell::Cell<Option<i32>>,
+    /// A play's timer while its page is hidden ([`schedule_play`]).
+    unseen: RefCell<Option<gloo::timers::callback::Interval>>,
 }
 
 impl Frames {
@@ -3868,9 +3870,39 @@ fn schedule(game: Rc<RefCell<Option<GameLoop>>>, step: fn(&mut GameLoop, f64)) -
                 }
             }),
             id: Default::default(),
+            unseen: RefCell::new(None),
         }
     });
     frames.request();
+    frames
+}
+
+/// How often a hidden page's play is judged on (ms; the browser's timers
+/// for a hidden page come at its own pace, a second or more apart unless
+/// the page plays sound).
+const UNSEEN_MS: u32 = 100;
+
+/// The play's loop ([`schedule`]'s, `GameLoop::frame` on each animation
+/// frame) and, for a room's stage, a timer that judges it on while the
+/// page is hidden and no frame comes (round P1b: a hidden tab no longer
+/// forfeits the stage; `GameLoop::tick_unseen`).
+fn schedule_play(game: Rc<RefCell<Option<GameLoop>>>) -> Rc<Frames> {
+    let frames = schedule(game.clone(), GameLoop::frame);
+    let timer = gloo::timers::callback::Interval::new(UNSEEN_MS, move || {
+        let hidden = web_sys::window()
+            .and_then(|w| w.document())
+            .is_some_and(|d| d.hidden());
+        if !hidden {
+            return;
+        }
+        let now = crate::web::clock::PerformanceClock::now_ms();
+        if let Ok(mut g) = game.try_borrow_mut()
+            && let Some(g) = g.as_mut()
+        {
+            g.tick_unseen(now);
+        }
+    });
+    *frames.unseen.borrow_mut() = Some(timer);
     frames
 }
 

@@ -110,6 +110,7 @@ struct FakeInputs {
     fast: Option<bool>,
     released: u32,
     interrupted: bool,
+    hidden: bool,
 }
 
 impl FakeInputs {
@@ -153,6 +154,9 @@ impl Inputs for FakeInputs {
     }
     fn interrupted(&self) -> bool {
         self.interrupted
+    }
+    fn hidden(&self) -> bool {
+        self.hidden
     }
     fn device_changed(&self) -> bool {
         false

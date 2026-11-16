@@ -1820,6 +1820,22 @@ impl Host {
         self.play_frame(Some((dev, encoder, view, plain, size)), now, ui, env);
     }
 
+    /// Whether the play running is a room's stage, which plays on while
+    /// the window is hidden (round P1b; `PlaySession::plays_on_unseen`).
+    pub fn plays_on_unseen(&self) -> bool {
+        self.running().is_some_and(|p| p.session.plays_on_unseen())
+    }
+
+    /// A room's stage judged on at `now` while its window is hidden and
+    /// draws no frame (round P1b: hiding forfeits nothing; the song runs,
+    /// its moments and reports go to the room), its end handled as a
+    /// frame's.
+    pub fn step_unseen(&mut self, now: HostTime, ui: &mut Ui, env: &Env) {
+        if self.plays_on_unseen() {
+            self.play_frame(None, now, ui, env);
+        }
+    }
+
     /// TESTING ONLY ([`Host::headless`]): one frame of the play at `now`
     /// judged and not drawn, its end handled as [`Host::draw_play`]
     /// handles it (the stage's outcome to the room, the results).
