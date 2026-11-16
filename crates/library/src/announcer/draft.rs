@@ -233,6 +233,59 @@ impl Take {
     }
 }
 
+/// The processing selected for one original take. Also a cache key: moving
+/// a take to/from an opening line changes its effect tail.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Processing {
+    pub measure: Option<Measure>,
+    pub stadium: bool,
+    pub line: Option<Line>,
+}
+
+impl Processing {
+    pub fn apply(&self, raw: &[Vec<f32>], rate: u32) -> (Vec<Vec<f32>>, u32) {
+        let dry = self
+            .measure
+            .as_ref()
+            .map_or_else(|| raw.to_vec(), |m| super::tidy::apply(raw, rate, m));
+        if !self.stadium {
+            return (dry, rate);
+        }
+        let body = dry.first().map_or(0, Vec::len) as f64 / f64::from(rate.max(1));
+        let colored = super::stadium::apply(&dry, rate, self.line);
+        (
+            super::tidy::finished(&colored, super::stadium::RATE, body).0,
+            super::stadium::RATE,
+        )
+    }
+}
+
+/// A bounded cache of processed copies. Originals remain in the shells'
+/// decoded stores; settings changes never process an already colored copy.
+pub struct Processed<S> {
+    copies: Decoded<(Processing, S)>,
+}
+
+impl<S> Default for Processed<S> {
+    fn default() -> Self {
+        Self {
+            copies: Decoded::default(),
+        }
+    }
+}
+
+impl<S: Clone> Processed<S> {
+    pub fn get(&self, id: u64, key: Processing) -> Option<S> {
+        self.copies
+            .get(id)
+            .filter(|(k, _)| *k == key)
+            .map(|(_, s)| s.clone())
+    }
+    pub fn insert(&mut self, id: u64, key: Processing, sound: S, bytes: usize) {
+        self.copies.insert(id, (key, sound), bytes);
+    }
+}
+
 /// A text line: what the author means to record for a line, before
 /// there is a recording of it ([`Draft::add_to`] gives it one).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -251,6 +304,9 @@ pub struct Draft {
     pub license: String,
     /// Takes are tidied unless they say otherwise (decision 5).
     pub tidy: bool,
+    /// Optional creative stadium processing, off for old and new drafts.
+    #[serde(default)]
+    pub stadium: bool,
     /// Advanced → Also for StepMania (decision 6).
     #[serde(default)]
     pub stepmania: bool,
@@ -278,6 +334,7 @@ impl Default for Draft {
             author: String::new(),
             license: String::new(),
             tidy: true,
+            stadium: false,
             stepmania: false,
             takes: Vec::new(),
             scripts: Vec::new(),
@@ -719,6 +776,14 @@ impl Draft {
         lines.into_iter().collect()
     }
 
+    pub fn processing(&self, take: &Take) -> Processing {
+        Processing {
+            measure: self.tidies(take).then(|| take.measure().copied()).flatten(),
+            stadium: self.stadium,
+            line: take.line,
+        }
+    }
+
     /// Whether `take` is tidied.
     pub fn tidies(&self, take: &Take) -> bool {
         take.tidy.unwrap_or(self.tidy)
@@ -730,7 +795,7 @@ impl Draft {
     pub fn write_of(&self, take: &Take) -> Write {
         let tidy = self.tidies(take);
         let settled = take.format.lossy() && take.measure().is_some_and(|m| m.already_tidy());
-        if (!tidy || settled) && take.format.kept(self.stepmania) {
+        if !self.stadium && (!tidy || settled) && take.format.kept(self.stepmania) {
             Write::AsIs
         } else if self.stepmania || take.measure().is_some_and(|m| m.channels > 2) {
             Write::Wav { tidy }
@@ -742,10 +807,15 @@ impl Draft {
     /// Its length as it goes into the pack, once decoded.
     pub fn seconds(&self, take: &Take) -> Option<f64> {
         let m = take.measure()?;
-        Some(if self.tidies(take) {
+        let body = if self.tidies(take) {
             m.tidied_seconds()
         } else {
             m.seconds
+        };
+        Some(if self.stadium {
+            super::stadium::seconds(body, take.line)
+        } else {
+            body
         })
     }
 

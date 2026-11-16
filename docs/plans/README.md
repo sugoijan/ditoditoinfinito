@@ -332,7 +332,19 @@ balanced preserves existing inputs. Presets/custom vectors require no profiles.
   that has little left to do) brings them to about 3 LU under the
   music's loudness, the loudest it reaches smoothly (provisional until
   listened to; an audition set of levels is made by `kokoro.py
-  loudness`).
+  loudness`). Effects under audition 2026-11-15: SoundCraft's race,
+  arena and stadium treatments beside the original, matched in loudness
+  in both languages, with and without music (`effects.py`). Feedback
+  2026-11-16 selects `stadium-soft` and the lead "Here comes the next
+  challenge.…" after an endings comparison (`pack-endings.toml`). All 217
+  English sounds use that lead; both packs (433 sounds) include the effect
+  through `stadium.py`/`stadium.json`, then the shared gain/limiter finish.
+  Opening-call durations are preserved; other tails are bounded to 0.6 s.
+  Studio and generation now share the Rust stadium processor, with the
+  approved captured EQ/room responses and saturation, without SoundCraft.
+  The studio exposes an optional saved Stadium switch for preview, scenes
+  and exports. The web loads response data only when used. Both packs
+  were regenerated through Rust and all 433 files passed the final audit.
 - [Announcer studio](announcer-studio.md) (2026-11-06): done (the draft;
   the web's page at `#/announcer`; the scenes on song select and the
   results, 2026-11-07; the scenes in play, desktop and the encoder,

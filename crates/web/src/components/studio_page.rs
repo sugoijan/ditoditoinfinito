@@ -71,8 +71,8 @@ use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{AudioBuffer, Blob, DragEvent, HtmlInputElement};
 
 use crate::component::{Component, Context};
-use crate::ui_host::{self, Host, UiPage};
 use crate::songs::ManifestEntry;
+use crate::ui_host::{self, Host, UiPage};
 use crate::web::audio::{AudioDecoder, WebAudio};
 use crate::web::files::{self, PickedFile, carries_files};
 use crate::web::idb::{self, Db};
@@ -141,6 +141,7 @@ struct Studio {
     /// ([`Decoded`]); one let go is decoded again when it is wanted
     /// ([`Studio::buffer`]).
     decoded: RefCell<Decoded<AudioBuffer>>,
+    processed: RefCell<ddi_library::announcer::draft::Processed<(Rc<Vec<Vec<f32>>>, u32)>>,
     decoding: Cell<bool>,
     /// Ours, from the bundled index: each set's pack.
     ours: RefCell<Vec<Bundled>>,
@@ -211,6 +212,7 @@ impl Studio {
             }),
             blobs: RefCell::default(),
             decoded: RefCell::new(KEPT.with_borrow_mut(|k| std::mem::take(&mut k.decoded))),
+            processed: RefCell::default(),
             decoding: Cell::new(false),
             ours: RefCell::default(),
             examples: RefCell::default(),
@@ -373,6 +375,7 @@ impl Studio {
         set(&o, "author", draft.author.as_str().into());
         set(&o, "license", draft.license.as_str().into());
         set(&o, "tidy", draft.tidy.into());
+        set(&o, "stadium", draft.stadium.into());
         let view = self.view.borrow();
         set(&o, "status", view.status.as_str().into());
         set(
@@ -515,8 +518,9 @@ impl Studio {
                         let taken = db
                             .keys_with_prefix(idb::FILES, "studio/draft.unreadable")
                             .await?;
-                        let name =
-                            draft::aside_name(|n| taken.iter().any(|k| *k == format!("studio/{n}")));
+                        let name = draft::aside_name(|n| {
+                            taken.iter().any(|k| *k == format!("studio/{n}"))
+                        });
                         db.write(vec![idb::Write::Put {
                             store: idb::FILES,
                             key: format!("studio/{name}"),
@@ -546,9 +550,7 @@ impl Studio {
         .await;
         match read {
             Ok(None) => {}
-            Ok(Some((e, name))) => {
-                self.status(ms::status_draft_set_aside(error_text(&e), name))
-            }
+            Ok(Some((e, name))) => self.status(ms::status_draft_set_aside(error_text(&e), name)),
             Err(e) => {
                 self.sealed.set(true);
                 self.status(ms::status_draft_unreadable(error_text(&e)));
@@ -787,27 +789,61 @@ impl Studio {
         Ok(b)
     }
 
+    async fn stadium_ready(&self) -> Result<(), String> {
+        use ddi_library::announcer::stadium;
+        if !self.draft.borrow().stadium || stadium::loaded() {
+            return Ok(());
+        }
+        let eq = crate::songs::fetch_bytes(&format!(
+            "announcer-filters/eq.wav?v={}",
+            stadium::RESPONSE_VERSION
+        ))
+        .await?;
+        let space = crate::songs::fetch_bytes(&format!(
+            "announcer-filters/space.wav?v={}",
+            stadium::RESPONSE_VERSION
+        ))
+        .await?;
+        stadium::load(&eq, &space)
+    }
+
     /// What take `id` sounds like in the pack: its channels, tidied when
     /// it is, at its rate.
     async fn pcm(&self, id: u64, tidied: bool) -> Result<(Vec<Vec<f32>>, u32), String> {
         let buffer = self.buffer(id).await?;
-        Ok(self.shaped(id, &buffer, tidied))
+        self.stadium_ready().await?;
+        let mut key = {
+            let d = self.draft.borrow();
+            d.take(id).map(|t| d.processing(t)).unwrap_or_default()
+        };
+        if !tidied {
+            key.measure = None;
+        }
+        Ok(self.shaped(id, &buffer, key))
     }
 
-    /// Take `id`'s sound from its decoded `buffer`, tidied when it is.
-    fn shaped(&self, id: u64, buffer: &AudioBuffer, tidied: bool) -> (Vec<Vec<f32>>, u32) {
-        let rate = buffer.sample_rate() as u32;
-        let raw = channels(buffer);
-        if !tidied {
-            return (raw, rate);
+    /// Cached processing of the original buffer, shared by preview/scenes/export.
+    fn shaped(
+        &self,
+        id: u64,
+        buffer: &AudioBuffer,
+        mut key: ddi_library::announcer::draft::Processing,
+    ) -> (Vec<Vec<f32>>, u32) {
+        if key.measure.is_some() && key.measure.unwrap().rate != buffer.sample_rate() as u32 {
+            key.measure = Some(tidy::measure(
+                &channels(buffer),
+                buffer.sample_rate() as u32,
+            ));
         }
-        let measured = self
-            .draft
-            .borrow()
-            .take(id)
-            .and_then(|t| t.measure().copied());
-        let m = measured.unwrap_or_else(|| tidy::measure(&raw, rate));
-        (tidy::apply(&raw, rate, &m), rate)
+        if let Some((copy, rate)) = self.processed.borrow().get(id, key) {
+            return ((*copy).clone(), rate);
+        }
+        let (pcm, rate) = key.apply(&channels(buffer), buffer.sample_rate() as u32);
+        let bytes = pcm.iter().map(|c| c.len() * 4).sum();
+        self.processed
+            .borrow_mut()
+            .insert(id, key, (Rc::new(pcm.clone()), rate), bytes);
+        (pcm, rate)
     }
 
     /// A context made in the press to play on (Safari starts one only
@@ -1113,7 +1149,7 @@ impl Studio {
     /// The recordings of the lines `which` keeps decoded (those not yet:
     /// after the page opened again), before a scene's voice is made of
     /// them; one that cannot be is left out.
-    async fn decode_lines(&self, which: impl Fn(Line) -> bool) {
+    async fn decode_lines(&self, which: impl Fn(Line) -> bool) -> Result<(), String> {
         let ids: Vec<u64> = self
             .draft
             .borrow()
@@ -1126,6 +1162,8 @@ impl Studio {
         for id in ids {
             let _ = self.buffer(id).await;
         }
+        self.stadium_ready().await?;
+        Ok(())
     }
 
     /// The draft as a voice for the lines `which` keeps: each line's
@@ -1144,7 +1182,7 @@ impl Studio {
             self.director.pinned_take(),
             self.decoded.borrow().sounds(),
             |t, b| {
-                let (pcm, rate) = self.shaped(t.id, b, draft.tidies(t));
+                let (pcm, rate) = self.shaped(t.id, b, draft.processing(t));
                 make(pcm, rate)
             },
             AudioBuffer::duration,
@@ -1208,7 +1246,11 @@ impl Studio {
             let voiced = match said {
                 Said::Draft => {
                     let which = |l: Line| matches!(l.spoken(), Spoken::Play | Spoken::Results);
-                    this.decode_lines(which).await;
+                    if let Err(e) = this.decode_lines(which).await {
+                        this.director
+                            .give_up(n, ms::status_unplayable(error_text(&e)));
+                        return;
+                    }
                     // Made on a context of its own, gone after: a buffer
                     // plays on any (the play's).
                     let maker = WebAudio::new().ok();
@@ -1330,7 +1372,11 @@ impl Studio {
             let voiced = match said {
                 Said::Draft => {
                     let which = |l: Line| l.spoken() == Spoken::Menu;
-                    this.decode_lines(which).await;
+                    if let Err(e) = this.decode_lines(which).await {
+                        this.director
+                            .give_up(n, ms::status_unplayable(error_text(&e)));
+                        return;
+                    }
                     Ok(this.staged_voice(which, crate::select_preview::make_buffer))
                 }
                 Said::Example(set) => this.example_voice(set, &menu).await,
@@ -1361,7 +1407,11 @@ impl Studio {
             let voiced = match said {
                 Said::Draft => {
                     let which = |l: Line| l.spoken() == Spoken::Results;
-                    this.decode_lines(which).await;
+                    if let Err(e) = this.decode_lines(which).await {
+                        this.director
+                            .give_up(n, ms::status_unplayable(error_text(&e)));
+                        return;
+                    }
                     let audio = this.sound.borrow().clone();
                     Ok(this.staged_voice(which, |pcm, rate| {
                         audio
@@ -1419,6 +1469,7 @@ impl Studio {
         if let Some(applied) = applied {
             match applied {
                 Applied::Draft => {
+                    self.stop();
                     self.forget_export();
                     self.save();
                     self.publish();
@@ -1434,6 +1485,7 @@ impl Studio {
         match act {
             // ([`studio::apply`]'s.)
             Act::Tidy
+            | Act::Stadium
             | Act::StepMania
             | Act::Examples
             | Act::Details

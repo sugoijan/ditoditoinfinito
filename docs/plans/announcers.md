@@ -840,3 +840,278 @@ the limiting is minimal?
   would put v3's sounds at the music's loudness wherever the music's
   volume is 0.67 or less, with none of the limiting −9 costs. Proposed,
   not built: it changes a setting's range and Options.
+
+### Effects audition (2026-11-15; integrated 2026-11-16 below)
+
+The maintainer wants the built-in voices to have the character of a stadium
+or race announcer and wants to hear alternatives before choosing. The shared
+tidy already provides dynamics control; this study adds tone, saturation and
+space. No production treatment has been selected, and no bundled audio or
+runtime behavior changes in this step.
+
+`tools/announcer-design/effects.py` uses SoundCraft 0.20.1's documented local
+control channel in a separate, disposable instance. It does not need an
+installed MCP integration. `effects.json` records the complete candidate
+recipes: current voice; race broadcast (presence, light saturation, 75 ms
+slap, small room); compact arena (warm presence, 40 ms pre-delay, 0.75 s room);
+stadium PA (260–5200 Hz speaker color, more saturation, 145 ms repeats,
+1.25 s room). These are initial design choices, not an emulation of any
+particular venue or announcer. SoundCraft supplies the DSP; none is copied
+into the game.
+
+Six unchanged takes of each bundled voice are used: ready, 100 combo, hot,
+match begin, final stage and evaluation AA. The sources are the current MP3s,
+decoded once, with identical timing and two-second gaps. All treatments stay
+mono. The listening page also offers each over the same stereo excerpt of
+*Into My Dream*, with a fixed mix and no ducking; source credits accompany it.
+The generated files, source hashes, plugin snapshots, commands, measurements
+and cue times stay in `target/scratch/announcer-effects/`.
+
+Verification on this first set:
+
+- Eight mono reels, all at −18.6 LUFS after a static audition gain; their
+  true peaks range from −6.3 to −2.0 dBTP. The common loudness target was
+  lowered to preserve headroom without adding compression or limiting.
+- Eight stereo music comparisons, peaks at most −6.8 dBTP. Voice sources
+  are duplicated at unity into both channels, as in the game; this fixed
+  preview balance is not a runtime mixing test.
+- All reels preserve their source timeline length: 18.60 s in English,
+  19.74 s in Japanese. A second render reproduces all eight solo WAVs
+  byte for byte. The actual plugin parameters were checked in the session
+  inspection, and all audio was checked for duration, loudness and peaks.
+- Listening preference remains the maintainer's next step; numerical checks
+  do not establish that one treatment sounds better.
+
+After the choice, apply it reproducibly to the unencoded generation output,
+retaining the game's one production leveler. Check every short line and
+the opening: `ddi_session::announcer::Announcer::open` schedules `here we go` by
+the decoded file's full duration. A reverb tail makes its spoken word start
+earlier and can reduce the room for `ready`; the full-length stadium setting
+may need a shorter variant for those calls. The audition deliberately does
+not change that scheduler or repeatedly re-encode production MP3s.
+
+#### Stadium refinements (2026-11-16)
+
+First listening feedback: race and arena were too subtle. Stadium was liked,
+particularly its microphone/loudspeaker color, but might be too strong.
+`effects-stadium.json` therefore preserves the dry and previous stadium
+references and makes three new candidates:
+
+| Candidate | Microphone color | Delay | Room reverb |
+| --- | --- | --- | --- |
+| A, closer stadium | Original stadium EQ and saturation | 110 ms, 10% mix, 10% feedback | 0.65 s, 16% mix, 45 ms pre-delay |
+| B, balanced stadium | Original stadium EQ and saturation | 130 ms, 14% mix, 15% feedback | 0.9 s, 22% mix, 55 ms pre-delay |
+| C, fuller microphone | Passband widened from 260–5200 to 180–6500 Hz; mid boost 2 instead of 3 dB; saturation drive 3.5 instead of 5 dB, mix 28 instead of 35% | Same as B | Same as B |
+
+A versus B tests the amount of space while keeping the preferred microphone
+character. B versus C tests gentler microphone color with identical space.
+The first recipes and renders are preserved. These are still listening
+candidates, not a chosen production chain.
+
+The new page and ten solo/ten music WAVs are in
+`target/scratch/announcer-effects-stadium/`. The common target is −18.7 LUFS
+(measured within 0.1 LU); voice peaks are at most −2.0 dBTP and music-mix
+peaks at most −6.8 dBTP. Durations and source takes are unchanged. All actual
+insert parameters match the recipes; the dry and previous stadium renders
+before the audition gain reproduce the first study byte for byte.
+
+#### Selected effect and source endings (2026-11-16)
+
+The maintainer selected C, `stadium-soft`, and reported that the dry reference
+also sounds like "Are you readys?" and "A hundred in a rowth!". The effects
+auditions used existing bundled MP3s. Their hashes match the recorded sources
+and Git HEAD. Each source's fresh decode matches its segment of the input
+reel sample for sample. The dry SoundCraft render is that input times one
+constant gain, with a residual about −149 dB relative to the voice; silence
+stays exactly silent. The delivered dry WAV differs only by the recorded
+audition gain and 16-bit rounding. This excludes the audition effect/render
+path as the source of an extra ending. The text and stored phonemes have
+neither added consonant.
+
+At the maintainer's request both lines were regenerated, always after a lead.
+The existing "Oh yeah, here we go!…" lead reproduces both bundled MP3s byte
+for byte using the pinned Kokoro model, `bm_george`, speed 1, the same recorded
+phonemizer/runtime versions and `announcer-level-v3`. Identical inputs do not
+provide a different take. Two alternatives, "All right, everybody.…" and
+"Here comes the next challenge.…", generate new readings. Each lead is removed
+by the normal model-duration/quiet-pause cut (`kokoro.render`), not by guessing
+where the phrase begins. All six takes use the unchanged shared tidy.
+
+`tools/announcer-design/pack-endings.toml` preserves all six text/lead pairs
+for the ordinary `kokoro.py pack` workflow, to a scratch destination without
+`--bundle`. The first run's raw and tidied WAVs, MP3s, generation script and
+measurements are under `target/scratch/announcer-endings/`; the original-source
+audit is under `target/scratch/announcer-source-check/`. Three short listening
+reels each say ready then the hundred-combo line, at −16 LUFS (within 0.2 LU),
+with peaks at most −3.5 dBTP and no creative effects. The exact original-led
+control matched both then-current assets byte for byte. The maintainer heard
+the second alternative, "Here comes the next challenge.…", as much better,
+and requested that lead for every line and the selected effect in production.
+
+#### Approved SoundCraft renders (2026-11-16)
+
+All 217 English sounds now use "Here comes the next challenge.…". The 216
+Japanese sounds retain their Japanese leads; all 433 are regenerated from
+unencoded TTS with `effect = "stadium-soft"`. Voice, model revision, speed,
+spoken texts and sound paths are unchanged. The lead is removed through the
+existing duration/quiet-pause cut, then the shared `announcer-level-v3` tidy
+cuts silence, fades and levels the dry speech as before.
+
+The original recipe, now `tools/announcer-design/stadium-soundcraft.json`,
+pins `announcer-stadium-v1` and
+SoundCraft 0.20.1, with the exact selected inserts: 180–6500 Hz passband,
+2 dB presence at 1500 Hz; saturation drive 3.5, 28% mix; 130 ms delay,
+15% feedback, 14% mix; room decay 0.9 s, 55 ms pre-delay, 22% mix.
+The original `stadium.py` launched an isolated instance without audio hardware, in a
+disposable profile, checking its version and actual insert parameters.
+Rendering runs at 48 kHz and stays mono. The recipe and renderer SHA-256
+are part of the cache key and provenance. SoundCraft supplies its own DSP;
+no runtime effect code or new runtime dependency is included in the game.
+
+Ready, restart and every here-we-go variant keep their dry duration, because
+the opening scheduler places them by that full duration. For those files,
+a second render bypasses only delay and reverb to recover the colored direct
+voice; only the spatial return fades in the last 60 ms. Other lines retain
+0.6 s after the dry speech. This bounds the tail without moving the opening
+calls earlier or fading their direct speech to make room for the effect.
+
+`tidy::finished`, exposed as `xtask announcer finish`, is
+`announcer-finish-v1`: the existing gain solver and true-peak limiter after
+creative processing, with neither another phase rotation/compressor nor
+another silence trim. It restores −12 dBFS voiced RMS over the original
+speech span; the tail cannot raise the gain by extending the measurement.
+It fades the file endpoints and reserves encoder headroom. The MP3 is encoded
+once, after all processing; generation rejects an encoded true peak above
+−1 dBFS or a final speech level more than 0.1 dB from the target.
+
+The default `kokoro.py pack --bundle` regenerates both packs; then run
+`xtask gen-announcers` and `xtask gen-credits`. The original generator had
+`--soundcraft PATH`; the FFmpeg replacement below removes that option.
+`--xtask PATH` can use this checkout's prebuilt tool.
+The output's `state.json` records the dry hash, full recipe, cut, body/tail
+durations, final level/limiting and encoded measurements per file. Both
+packs retain their CC0 and Japanese training-source notices.
+
+Verification: the six dry lead-study takes remain byte-identical after the
+shared gain-solver extraction, as do their MP3s. The two approved challenge
+takes match the production dry hashes. The production inserts match the
+selected audition exactly. A signal check confirms the opening fade preserves
+the direct voice and duration; Rust tests cover finish timing, tail-independent
+level, dynamics below the limiter, peak protection and silence.
+
+The full run validates all 433 encoded files: same text/path coverage and
+licences, finite audio, speech RMS within 0.002 dB of −12 before encoding,
+and decoded durations within 0.87 ms of the intended span (opening calls
+within 0.25 ms; MP3 rounding/padding). The highest encoded true peaks are
+−1.6 dBFS in English and −2.1 dBFS in Japanese; median integrated levels
+are −12.9 and −13.2 LUFS. Twelve independently rendered probe clips match
+the final MP3s byte for byte. A second full command keeps all 433 and writes
+no bundled files; indexes and credits pass their generated-file checks.
+The measurements and file hashes are in the run's `audit.json` under
+`target/scratch/announcer-production/`.
+
+The old audition helper now accepts `--source DIR` and refuses already
+treated packs, so later comparisons cannot accidentally add another stadium
+effect to these bundled files. Use dry exports for new comparisons.
+
+#### FFmpeg generation (2026-11-16)
+
+The maintainer asked to remove the SoundCraft generation dependency while
+staying close to the approved sound. `stadium.py` now renders entirely with
+FFmpeg (`announcer-stadium-ffmpeg-v1`), using `afir` with auto-normalization
+disabled for two measured responses: `stadium-eq.wav` before the saturator,
+`stadium-space.wav` after it. The nonlinear stage remains separate:
+normalized tanh at drive 3.5 dB, a 7500 Hz one-pole tone filter, 28% wet mix,
+−1.5 dB output. The shared tidy/finish and one final MP3 encoding stay as
+above. Opening duration and wet-only fade policies are unchanged.
+
+The responses were captured from SoundCraft 0.20.1's original settings after
+one second of silence, using a half-scale impulse at 48 kHz. Division by
+that amplitude and the dry mono-bounce gain removes the capture gain; that
+gain is applied once after processing. The 0.2 s EQ and 2 s spatial files
+omit no samples above −140 dBFS. `capture_stadium.py` can recapture them
+with a separate disposable control session; both files were reproduced byte
+for byte in an independent run. This optional authoring tool and the old
+audition helper use SoundCraft; normal generation imports neither and
+requires no installed app, control server or MCP. No SoundCraft DSP source
+is copied into the project. The generated filter data is covered by the
+project's MIT annotation in `REUSE.toml`.
+
+This is an approximation: the reference room has internal delay modulation,
+and its parameters smooth from defaults at the beginning of each bounce.
+A fixed impulse response captures the selected tone, repetitions and room
+decay without those time-varying details. On the two ending-study takes the
+unmastered microphone-only waveform correlations were 0.99967 and 0.99985;
+full-effect correlations were 0.9730 and 0.9842. These measurements describe
+the difference, not a substitute for listening approval.
+
+Fourteen clips (ten English, four Japanese) were generated through the full
+FFmpeg pipeline, without launching SoundCraft. All dry hashes and intended
+body/tail durations match the approved run; encoded true peaks are at most
+−2.1 dBFS, final voiced RMS within 0.002 dB of −12, decoded duration error
+under 1 ms. Per-clip integrated loudness differs by at most 0.3 LU. The
+five-phrase English reels are both 14.99 s and −13.2 LUFS, at original
+production levels: `target/scratch/announcer-ffmpeg/comparison-approved.wav`
+and `comparison-ffmpeg.wav`, with cues and measurements in `comparison.json`.
+Tests cover deterministic FFmpeg renders, bounded tails, opening-only spatial
+fades and silence. The cache includes FFmpeg's version, the recipe, renderer
+and response hashes; exported provenance records those versions and hashes.
+
+At this comparison step, the 433 bundled SoundCraft MP3s were retained with
+their original provenance. The maintainer then judged the FFmpeg version
+identical by ear. That approved comparison remains under
+`target/scratch/announcer-ffmpeg/`; production subsequently moved to shared
+Rust as described below.
+
+
+#### Shared Rust studio and generation processing (2026-11-16)
+
+After approving the FFmpeg sound, the maintainer requested it in the studio,
+using the same Rust processing as pack generation. The implementation is
+`ddi_library::announcer::stadium` (`announcer-stadium-rust-v1`), with the
+approved captured responses in `assets/announcer-filters/` and settings in
+`tools/announcer-design/stadium.json`. The original FFmpeg graph remains
+in `stadium_ffmpeg.py` for comparison only. The pack adapter now invokes
+`xtask announcer stadium`, including the shared finishing pass; FFmpeg is
+used only for encoding and metering. Recipe, Rust source and response hashes
+participate in generation caches and provenance.
+
+Convolution uses the library's radix-2 FFT with 2048-frame partitions;
+response spectra are prepared once, and channel history is independent.
+Saturation and the tone filter retain the approved normalized-tanh formula
+and parameters. A centered windowed-sinc conversion brings other sample
+rates to 48 kHz without timeline latency. The opening wet fade, other calls'
+0.6 s tail and final body-only leveling remain as approved. On the two
+ending-study takes, final Rust/FFmpeg correlations exceed 0.99999999999,
+with waveform differences around −110 dB relative to the speech.
+
+Studio Advanced → Stadium effect is optional and saved, off by default.
+Both shells use `draft::Processing` for original recordings in previews,
+scenes and exports, with bounded caches keyed by the original take,
+measurement, assigned line and processing settings. Tidy remains separate;
+Stadium includes its final leveling even when Tidy is off. Processed exports
+encode anew, and duration warnings include the tail. The browser fetches
+the responses only on first use, under their build-generated content revision,
+so their sample data does not enter initial wasm. Desktop and xtask embed
+those same files. See `announcer-studio.md` for behavior and checks.
+
+The broader comparison covers ten English and four Japanese phrases through
+both pipelines, including resampling and final leveling. Rust/FFmpeg waveform
+differences range from −109.9 to −78.6 dB relative to the output, correlations
+at least 0.999999993; the different resampler accounts for most of the larger
+Japanese residual. Measurements are in
+`target/scratch/announcer-rust/comparison.json`.
+
+Both bundled packs were regenerated through Rust: 217 English and 216
+Japanese sounds, all with the same dry-speech hashes as the approved run.
+The final audit decodes all 433 and checks text/path coverage, licences and
+training attribution, finite samples, exact intended body/tail policies,
+source/response fingerprints and encoded peaks. Maximum encoded true peaks
+are −1.8 dBFS (English) and −2.2 (Japanese); median integrated levels remain
+−12.9 and −13.2 LUFS. Final speech RMS is within 0.002 dB of −12 before
+encoding, and decoded durations within 0.87 ms of the planned span.
+`target/scratch/announcer-rust-pack/audit.json` records the measurements and
+all final MP3 hashes. Generated announcer indexes and credits pass checks.
+A repeat generation kept all 433 sounds and wrote no bundled files; their
+hashes still match the audit. The refreshed local web build includes these
+Rust-generated packs.

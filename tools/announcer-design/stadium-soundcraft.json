@@ -1,0 +1,57 @@
+{
+  "version": "announcer-stadium-v1",
+  "preset": "stadium-soft",
+  "soundcraft": "0.20.1",
+  "sample_rate": 48000,
+  "tail_seconds": 0.6,
+  "opening_wet_fade_seconds": 0.06,
+  "finishing": "announcer-finish-v1",
+  "inserts": [
+    {
+      "plugin": "eq_7band",
+      "params": {
+        "hpf_on": 1,
+        "hpf_freq": 180,
+        "hpf_slope": 2,
+        "lpf_on": 1,
+        "lpf_freq": 6500,
+        "lpf_slope": 2,
+        "mid_freq": 1500,
+        "mid_gain": 2,
+        "mid_q": 0.8
+      }
+    },
+    {
+      "plugin": "saturator",
+      "params": {
+        "drive": 3.5,
+        "mix": 28,
+        "tone": 7500,
+        "output": -1.5
+      }
+    },
+    {
+      "plugin": "mod_delay",
+      "params": {
+        "time": 130,
+        "feedback": 15,
+        "mix": 14,
+        "mod_depth": 0,
+        "lpf": 3800
+      }
+    },
+    {
+      "plugin": "room_reverb",
+      "params": {
+        "mix": 22,
+        "pre_delay": 55,
+        "decay": 0.9,
+        "size": 75,
+        "damping": 4200,
+        "diffusion": 75,
+        "width": 0,
+        "low_cut": 350
+      }
+    }
+  ]
+}

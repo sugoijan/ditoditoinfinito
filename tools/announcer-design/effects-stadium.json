@@ -1,0 +1,225 @@
+{
+  "version": "announcer-effects-stadium-v1",
+  "presets": [
+    {
+      "id": "dry",
+      "name": "Original",
+      "description": "The current voice, at the same audition loudness as the effects.",
+      "inserts": []
+    },
+    {
+      "id": "stadium",
+      "name": "Previous stadium (reference)",
+      "description": "An obvious loudspeaker effect: narrower bandwidth, more grit, 145 ms echoes and a larger space. The deliberately stronger option.",
+      "inserts": [
+        {
+          "plugin": "eq_7band",
+          "params": {
+            "hpf_on": 1,
+            "hpf_freq": 260,
+            "hpf_slope": 2,
+            "lpf_on": 1,
+            "lpf_freq": 5200,
+            "lpf_slope": 2,
+            "mid_freq": 1500,
+            "mid_gain": 3,
+            "mid_q": 0.8
+          }
+        },
+        {
+          "plugin": "saturator",
+          "params": {
+            "drive": 5,
+            "mix": 35,
+            "tone": 6000,
+            "output": -2
+          }
+        },
+        {
+          "plugin": "mod_delay",
+          "params": {
+            "time": 145,
+            "feedback": 22,
+            "mix": 19,
+            "mod_depth": 0,
+            "lpf": 3800
+          }
+        },
+        {
+          "plugin": "room_reverb",
+          "params": {
+            "mix": 28,
+            "pre_delay": 65,
+            "decay": 1.25,
+            "size": 85,
+            "damping": 4200,
+            "diffusion": 75,
+            "width": 0,
+            "low_cut": 350
+          }
+        }
+      ]
+    },
+    {
+      "id": "stadium-close",
+      "name": "A · Closer stadium",
+      "description": "The exact microphone color and grit you liked, with quieter, shorter echoes and reverb.",
+      "inserts": [
+        {
+          "plugin": "eq_7band",
+          "params": {
+            "hpf_on": 1,
+            "hpf_freq": 260,
+            "hpf_slope": 2,
+            "lpf_on": 1,
+            "lpf_freq": 5200,
+            "lpf_slope": 2,
+            "mid_freq": 1500,
+            "mid_gain": 3,
+            "mid_q": 0.8
+          }
+        },
+        {
+          "plugin": "saturator",
+          "params": {
+            "drive": 5,
+            "mix": 35,
+            "tone": 6000,
+            "output": -2
+          }
+        },
+        {
+          "plugin": "mod_delay",
+          "params": {
+            "time": 110,
+            "feedback": 10,
+            "mix": 10,
+            "mod_depth": 0,
+            "lpf": 3800
+          }
+        },
+        {
+          "plugin": "room_reverb",
+          "params": {
+            "mix": 16,
+            "pre_delay": 45,
+            "decay": 0.65,
+            "size": 65,
+            "damping": 4200,
+            "diffusion": 75,
+            "width": 0,
+            "low_cut": 350
+          }
+        }
+      ]
+    },
+    {
+      "id": "stadium-balanced",
+      "name": "B · Balanced stadium",
+      "description": "The same microphone color, with more space than A but less than the previous stadium. Echoes and reverb are both reduced.",
+      "inserts": [
+        {
+          "plugin": "eq_7band",
+          "params": {
+            "hpf_on": 1,
+            "hpf_freq": 260,
+            "hpf_slope": 2,
+            "lpf_on": 1,
+            "lpf_freq": 5200,
+            "lpf_slope": 2,
+            "mid_freq": 1500,
+            "mid_gain": 3,
+            "mid_q": 0.8
+          }
+        },
+        {
+          "plugin": "saturator",
+          "params": {
+            "drive": 5,
+            "mix": 35,
+            "tone": 6000,
+            "output": -2
+          }
+        },
+        {
+          "plugin": "mod_delay",
+          "params": {
+            "time": 130,
+            "feedback": 15,
+            "mix": 14,
+            "mod_depth": 0,
+            "lpf": 3800
+          }
+        },
+        {
+          "plugin": "room_reverb",
+          "params": {
+            "mix": 22,
+            "pre_delay": 55,
+            "decay": 0.9,
+            "size": 75,
+            "damping": 4200,
+            "diffusion": 75,
+            "width": 0,
+            "low_cut": 350
+          }
+        }
+      ]
+    },
+    {
+      "id": "stadium-soft",
+      "name": "C · Fuller microphone",
+      "description": "The same space as B, with more low and high frequencies and slightly less grit. Tests whether the microphone color itself was too strong.",
+      "inserts": [
+        {
+          "plugin": "eq_7band",
+          "params": {
+            "hpf_on": 1,
+            "hpf_freq": 180,
+            "hpf_slope": 2,
+            "lpf_on": 1,
+            "lpf_freq": 6500,
+            "lpf_slope": 2,
+            "mid_freq": 1500,
+            "mid_gain": 2,
+            "mid_q": 0.8
+          }
+        },
+        {
+          "plugin": "saturator",
+          "params": {
+            "drive": 3.5,
+            "mix": 28,
+            "tone": 7500,
+            "output": -1.5
+          }
+        },
+        {
+          "plugin": "mod_delay",
+          "params": {
+            "time": 130,
+            "feedback": 15,
+            "mix": 14,
+            "mod_depth": 0,
+            "lpf": 3800
+          }
+        },
+        {
+          "plugin": "room_reverb",
+          "params": {
+            "mix": 22,
+            "pre_delay": 55,
+            "decay": 0.9,
+            "size": 75,
+            "damping": 4200,
+            "diffusion": 75,
+            "width": 0,
+            "low_cut": 350
+          }
+        }
+      ]
+    }
+  ],
+  "selected": "stadium-soft",
+  "selected_on": "2026-11-16"
+}

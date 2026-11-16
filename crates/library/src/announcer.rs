@@ -1023,6 +1023,7 @@ pub fn find_announcers<S: AsRef<str>>(files: &[(S, u64)], root: &str) -> Found {
 pub mod draft;
 pub mod examples;
 pub mod tidy;
+pub mod stadium;
 
 #[cfg(test)]
 mod tests;

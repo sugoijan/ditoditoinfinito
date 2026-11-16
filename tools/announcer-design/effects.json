@@ -1,0 +1,43 @@
+{
+  "version": "announcer-effects-study-v1",
+  "presets": [
+    {
+      "id": "dry",
+      "name": "Original",
+      "description": "The current voice, at the same audition loudness as the effects.",
+      "inserts": []
+    },
+    {
+      "id": "race",
+      "name": "Race broadcast",
+      "description": "Forward and close: presence EQ, a little saturation, a quiet 75 ms slap and a small room.",
+      "inserts": [
+        {"plugin": "eq_7band", "params": {"hpf_on": 1, "hpf_freq": 90, "low_mid_freq": 320, "low_mid_gain": -2, "high_mid_freq": 2800, "high_mid_gain": 2.5, "high_mid_q": 0.8, "high_shelf_gain": -1}},
+        {"plugin": "saturator", "params": {"drive": 3, "mix": 25, "tone": 10000, "output": -1}},
+        {"plugin": "mod_delay", "params": {"time": 75, "feedback": 0, "mix": 9, "mod_depth": 0, "lpf": 5500}},
+        {"plugin": "room_reverb", "params": {"mix": 8, "pre_delay": 20, "decay": 0.35, "size": 25, "damping": 6500, "diffusion": 80, "width": 0, "low_cut": 250}}
+      ]
+    },
+    {
+      "id": "arena",
+      "name": "Compact arena",
+      "description": "A clear voice with a noticeable room behind it: warm presence, light saturation and a short, dark reverb.",
+      "inserts": [
+        {"plugin": "eq_7band", "params": {"hpf_on": 1, "hpf_freq": 90, "low_shelf_freq": 160, "low_shelf_gain": 1, "low_mid_freq": 350, "low_mid_gain": -2, "high_mid_freq": 2600, "high_mid_gain": 2, "high_mid_q": 0.8, "high_shelf_gain": -1.5}},
+        {"plugin": "saturator", "params": {"drive": 2, "mix": 20, "tone": 10000, "output": -0.7}},
+        {"plugin": "room_reverb", "params": {"mix": 23, "pre_delay": 40, "decay": 0.75, "size": 65, "damping": 5000, "diffusion": 85, "width": 0, "low_cut": 280}}
+      ]
+    },
+    {
+      "id": "stadium",
+      "name": "Stadium PA",
+      "description": "An obvious loudspeaker effect: narrower bandwidth, more grit, 145 ms echoes and a larger space. The deliberately stronger option.",
+      "inserts": [
+        {"plugin": "eq_7band", "params": {"hpf_on": 1, "hpf_freq": 260, "hpf_slope": 2, "lpf_on": 1, "lpf_freq": 5200, "lpf_slope": 2, "mid_freq": 1500, "mid_gain": 3, "mid_q": 0.8}},
+        {"plugin": "saturator", "params": {"drive": 5, "mix": 35, "tone": 6000, "output": -2}},
+        {"plugin": "mod_delay", "params": {"time": 145, "feedback": 22, "mix": 19, "mod_depth": 0, "lpf": 3800}},
+        {"plugin": "room_reverb", "params": {"mix": 28, "pre_delay": 65, "decay": 1.25, "size": 85, "damping": 4200, "diffusion": 75, "width": 0, "low_cut": 350}}
+      ]
+    }
+  ]
+}

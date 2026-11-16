@@ -23,6 +23,7 @@ voice = "jm_kumo"
 speed = 1
 style = "lead"
 lead = "さあ、みんな。…"
+effect = "stadium-soft"
 
 [kokoro]
 repo = "onnx-community/Kokoro-82M-v1.0-ONNX"

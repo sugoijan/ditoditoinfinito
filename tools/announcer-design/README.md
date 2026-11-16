@@ -1,5 +1,179 @@
 # Announcer audition
 
+## Regenerating the bundled packs
+
+Both packs use `effect = "stadium-soft"`. Every English line uses the approved
+lead **"Here comes the next challenge.…"**; Japanese retains its Japanese
+leads. The lead is spoken to give Kokoro context for the short line, then
+removed using the model's predicted durations and the quiet pause.
+
+From the repository root, with uv, Cargo and FFmpeg (encoding/metering only):
+
+```sh
+uv run tools/announcer-design/kokoro.py pack --bundle
+cargo run -p xtask -- gen-announcers
+cargo run -p xtask -- gen-credits
+```
+
+`--xtask PATH` before `pack` can select a prebuilt xtask from this checkout.
+The studio and pack generation share `ddi_library::announcer::stadium`:
+`announcer-stadium-rust-v1`. No external effects engine is required.
+
+The production path is unencoded TTS → shared `announcer-level-v3` tidy →
+shared Rust stadium processing and `announcer-finish-v1` gain/limiter →
+one MP3 encoding. `stadium.py` calls `xtask announcer stadium` on the dry
+WAV. `stadium.json` supplies the versioned settings. Rust performs partitioned
+FFT convolution with the captured responses in `assets/announcer-filters/`,
+with normalized tanh saturation and a 7500 Hz tone filter between them.
+The adapter fingerprints the recipe, response data and Rust sources so a
+processing change invalidates cached audio. Provenance records the processor
+version and response/renderer hashes. The game plays ordinary audio files.
+
+The studio offers **Advanced → Stadium effect**, off by default and saved
+with the draft. It processes original recordings, with the same settings in
+playback, staged scenes and exports; processed copies are cached within a
+memory cap. Tidy recordings remains independent: Stadium includes final
+leveling even when trimming/tidying is off. Stereo channels stay separate.
+The browser loads the response files on first use, outside its initial wasm
+payload; desktop and the pack tool embed the same data.
+
+The responses were captured from the selected SoundCraft 0.20.1 recipe in
+`stadium-soundcraft.json`: separate EQ and delay/room responses, measured
+with a half-scale impulse after one second of silence. Capture gain is removed
+and the measured mono-bounce gain applied once after processing. The files
+retain 0.2 s of EQ and 2 s of spatial response; omitted samples are below
+−140 dBFS. These are generated filter data; no SoundCraft DSP source is used.
+The fixed room approximates the original's subtle modulation/startup smoothing.
+
+`stadium_ffmpeg.py` retains the approved FFmpeg implementation for comparison
+only; generation uses Rust. `capture_stadium.py --port PORT` can recapture
+the responses into `target/scratch/stadium-responses/` with a disposable
+SoundCraft 0.20.1 control session. This optional development tool and the
+historical auditions below use SoundCraft; the studio and pack generation
+never call them. The capture reproduced both responses byte for byte.
+
+The selected treatment combines a 180–6500 Hz microphone/speaker tone,
+gentle saturation, 130 ms repeats and a 0.9 s room. Other calls retain a
+bounded 0.6 s tail. Ready, restart and every "here we go" keep the dry clip's
+duration, with only the spatial return faded over the last 60 ms, because
+their full duration determines their place in the opening countdown.
+Finishing measures the original speech span, restores −12 dBFS voiced RMS,
+and limits peaks without another phase rotation, compressor or silence trim.
+Every encoded file must have true peaks at or below −1 dBFS.
+
+The run's `state.json` records each text, lead, cut, dry audio hash, complete
+effect recipe, duration, finishing measurements and encoded loudness/peak.
+`PROVENANCE.toml` and the generated indexes retain the existing CC0 licence
+and Japanese training-source attribution. Audition recipes below remain
+available for further comparisons.
+
+## Effects audition (SoundCraft)
+
+`effects.py` compares dry takes through SoundCraft's built-in
+effects. This is a listening study; it does not change the packs, the TTS
+generation, or the game's shared leveler. Python 3.11+ and FFmpeg are needed.
+`--source DIR` selects the folder containing both dry packs and their
+provenance. Set `DRY_PACKS` below to that folder: use a pre-effect export,
+or generate one from temporary copies of the pack TOMLs with `effect`
+removed. The current bundled files already contain effects and are refused
+as sources, to avoid applying the treatment twice.
+
+Start a **separate, disposable** SoundCraft instance: the script replaces its
+session for every candidate. Its control port must not belong to a working
+session you want to keep. On macOS, from the repository root:
+
+```sh
+mkdir -p target/scratch/announcer-effects/soundcraft-profile
+SOUNDCRAFT_CONFIG_DIR="$PWD/target/scratch/announcer-effects/soundcraft-profile" \
+  /Applications/SoundCraft.app/Contents/MacOS/SoundCraft --no-audio --control 0
+# In another terminal, use the port SoundCraft prints:
+python3 tools/announcer-design/effects.py --port PORT --engine-version 0.20.1 --source "$DRY_PACKS"
+open target/scratch/announcer-effects/index.html
+```
+
+No installed MCP integration is required: the script uses the same engine
+commands through SoundCraft's documented local JSON-lines control channel.
+`--no-audio` prevents playback; rendering still works. No recording, plugin
+discovery, preference changes to the personal profile, or outside services are
+needed. Close the isolated instance after rendering.
+
+`effects.json` holds three treatments alongside the current voice:
+
+- **Race broadcast:** presence EQ, light saturation, a quiet 75 ms slap,
+  and 0.35 s room reverb.
+- **Compact arena:** body and presence EQ, light saturation, 40 ms pre-delay
+  and 0.75 s dark room reverb.
+- **Stadium PA:** 260–5200 Hz speaker color, stronger saturation,
+  145 ms echoes and 1.25 s room reverb. Deliberately more pronounced.
+
+Each reads the same six lines of each language with two-second gaps. The
+voices remain mono, as shipped. The music comparisons duplicate the voice
+into both channels and retain the music's stereo image. They use one fixed
+mix, with no ducking; this is a listening example, not an in-game mix test.
+
+After rendering, FFmpeg measures EBU R128 integrated loudness and true peak.
+One static gain per reel matches all candidates at a common target (at most
+−16 LUFS, reduced if needed to keep every voice below −2 dBTP). Nothing adds
+another compressor or limiter. This gain is for auditioning only, not a new
+production leveler. The script verifies the resulting loudness, headroom,
+duration and mixed peaks. The first study, SoundCraft 0.20.1, used −18.6 LUFS.
+
+The output includes the listening page, WAVs alone and over music, `study.json`
+(recipes, complete plugin parameter snapshots, source hashes, tool versions,
+levels and cue times), `commands.json`, and source credits. All remain under
+`target/scratch/`. `--dest` can choose another folder there. The music excerpt
+is *Into My Dream* by Lagoona (Andreas Viklund), CC BY 4.0; the page and
+`CREDITS.txt` credit its source and describe the edit. Both voices' provenance
+is retained, including the Japanese voice's training-source attribution.
+
+The first listening feedback (2026-11-16): race and arena were too subtle;
+stadium's microphone color was welcome, but the overall effect might be too
+strong. `effects-stadium.json` keeps the first dry/stadium references and
+adds three refinements: A keeps the microphone with much less space, B keeps
+it with moderately less space, and C uses B's space with gentler microphone
+color. Render this second set separately to preserve the first comparison:
+
+```sh
+python3 tools/announcer-design/effects.py --port PORT --engine-version 0.20.1 \
+  --source "$DRY_PACKS" \
+  --recipes tools/announcer-design/effects-stadium.json \
+  --dest target/scratch/announcer-effects-stadium
+```
+
+The maintainer selected `stadium-soft` (C) on 2026-11-16, recorded in
+`effects-stadium.json`. Before production integration, two source endings
+were reviewed: "Are you ready?" (heard as "readys") and
+"A hundred in a row!" (heard as "rowth"). The audition used the existing
+bundled MP3s, not new speech. Its dry render differs from the decoded source
+only by a constant gain and floating-point rounding (null residual about
+−149 dB relative to the voice); final WAV conversion adds 16-bit rounding.
+
+Regenerating both with their existing lead, "Oh yeah, here we go!…", reproduces
+the bundled MP3s byte for byte. `pack-endings.toml` retains that control and
+tries "All right, everybody.…" and "Here comes the next challenge.…".
+Every take has a lead, cut through the normal generator, and the normal shared
+tidy. Reproduce this small study without bundling it:
+
+```sh
+uv run tools/announcer-design/kokoro.py --out target/scratch/announcer-endings-pack \
+  pack tools/announcer-design/pack-endings.toml
+```
+
+The initial six raw/tidied takes, encoded files and two-line listening reels
+are under `target/scratch/announcer-endings/`, with the generation script and
+`study.json`. The reels are matched to −16 LUFS, with no creative effects.
+The maintainer preferred the second alternative, "Here comes the next
+challenge.…", and requested it for all English lines. Both bundled packs
+now include the selected effect through the production path above.
+
+References: SoundCraft's [control protocol](https://github.com/storytold/soundcraft/blob/main/docs/control-protocol.md)
+and [MCP documentation](https://github.com/storytold/soundcraft/blob/main/docs/mcp.md),
+FFmpeg's [EBU R128 meter](https://ffmpeg.org/ffmpeg-filters.html#ebur128),
+and Universal Audio's [reverb explanation](https://www.uaudio.com/blogs/ua/the-basics-of-reverb)
+(pre-delay separates the voice's attack from the reverb).
+
+## Voice generation
+
 Tries voices for an announcer pack of our own made with ElevenLabs
 (`announcer.py`) or here with Kokoro (`kokoro.py`, below;
 `docs/plans/announcers.md`, "Packs of our own"), and makes our packs

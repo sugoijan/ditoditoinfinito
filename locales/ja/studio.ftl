@@ -410,4 +410,11 @@ studio-caption-life-lost = バッテリーゲージのライフがひとつ減�
 studio-caption-last-life = バッテリーゲージのライフが残りひとつになります。
 studio-caption-ends-full-combo-best = フルコンボで曲が終わります：すべてのノーツが{ $judgment }です。
 studio-caption-ends-full-combo = フルコンボで曲が終わります：すべてのノーツが{ $judgment }以上です。
-studio-caption-cleared = 最後のノーツが判定され、曲をクリアします。
+studio-caption-cleared = 最後のノーツが判定され、曲をクリアします。# Variables:
+#   $state (String) - "on" or "off"
+studio-stadium = { $state ->
+    [on] スタジアム効果：オン
+   *[off] スタジアム効果：オフ
+}
+
+studio-stadium-description = 録音にスタジアムのマイクの音色、エコーと残響を加え、音量をそろえます。試聴と書き出しに反映されます。

@@ -1,0 +1,44 @@
+# Listening study for the reported "readys" / "rowth" endings.
+# Every take has a spoken lead, cut by the normal Kokoro duration-based path.
+# Keep outside assets; this is not a new announcer to bundle.
+# uv run tools/announcer-design/kokoro.py --out target/scratch/announcer-endings-pack pack tools/announcer-design/pack-endings.toml
+name = "Mr. Clank ending study"
+author = "すごいジャン"
+voice = "bm_george"
+speed = 1
+style = "lead"
+
+[kokoro]
+repo = "onnx-community/Kokoro-82M-v1.0-ONNX"
+revision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
+model = "onnx/model.onnx"
+
+[[line]]
+folder = "gameplay ready"
+lead = "Oh yeah, here we go!…"
+texts = ["Are you ready?"]
+
+[[line]]
+folder = "gameplay 100 combo"
+lead = "Oh yeah, here we go!…"
+texts = ["A hundred in a row!"]
+
+[[line]]
+folder = "gameplay ready"
+lead = "All right, everybody.…"
+texts = ["Are you ready?"]
+
+[[line]]
+folder = "gameplay 100 combo"
+lead = "All right, everybody.…"
+texts = ["A hundred in a row!"]
+
+[[line]]
+folder = "gameplay ready"
+lead = "Here comes the next challenge.…"
+texts = ["Are you ready?"]
+
+[[line]]
+folder = "gameplay 100 combo"
+lead = "Here comes the next challenge.…"
+texts = ["A hundred in a row!"]

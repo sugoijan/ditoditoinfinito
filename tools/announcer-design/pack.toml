@@ -23,18 +23,10 @@ speed = 1
 # may be given in several [[line]]s, its sounds theirs together: the same
 # text after two leads, say.
 style = "lead"
-
-# A lead for each place the game speaks, by a folder's first word, to set
-# its tone; or one for every line, as `lead = "Alright, everybody.…"`
-# above. The cut goes in the pause between lead and line, so end the lead
-# as a sentence ends, . or !: George pauses 150–250 ms there. A … after
-# it (said as a trailing pause) makes that a little longer and steadier;
-# without . or !, a lead runs into its line, or … alone may.
-[lead]
-select = "Hey there, welcome back.…"
-gameplay = "Oh yeah, here we go!…"
-evaluation = "And the results are in.…"
-battle = "Players, the battle is on!…"
+# Chosen after the two-line ending study, then requested for every line.
+# The lead is spoken and removed by the model-duration/quiet-pause cut.
+lead = "Here comes the next challenge.…"
+effect = "stadium-soft"
 
 [kokoro]
 repo = "onnx-community/Kokoro-82M-v1.0-ONNX"

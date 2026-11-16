@@ -31,12 +31,11 @@ use std::time::{Duration, Instant};
 use ddi_l10n::UiText;
 use ddi_l10n::msg::studio as ms;
 use ddi_library::announcer::draft::{
-    self,
-    Adopted, DRAFT_MAX_BYTES, Decoded, Draft, Export, HEAD, Sound as Read, TAKE_MAX_BYTES, Take,
-    Write, install_plan, made_before, takes,
+    self, Adopted, DRAFT_MAX_BYTES, Decoded, Draft, Export, HEAD, Sound as Read, TAKE_MAX_BYTES,
+    Take, Write, install_plan, made_before, takes,
 };
 use ddi_library::announcer::examples::Set;
-use ddi_library::announcer::tidy::{self, Measure};
+use ddi_library::announcer::tidy;
 use ddi_library::announcer::{Bundled, Line, MAX_FILES, OUR_COMBOS, Spoken};
 use ddi_library::path::RelPath;
 use ddi_library::scan::Reader;
@@ -115,11 +114,12 @@ fn sound_of(channels: Vec<Vec<f32>>, rate: u32) -> Sound {
 }
 
 /// `sound` as the pack has it: tidied by `measure`, when it is.
-fn shaped(sound: &Sound, measure: Option<&Measure>) -> Sound {
-    let Some(m) = measure else {
+fn shaped(sound: &Sound, processing: ddi_library::announcer::draft::Processing) -> Sound {
+    if processing.measure.is_none() && !processing.stadium {
         return sound.clone();
-    };
-    sound_of(tidy::apply(&planar(sound), sound.rate, m), sound.rate)
+    }
+    let (pcm, rate) = processing.apply(&planar(sound), sound.rate);
+    sound_of(pcm, rate)
 }
 
 /// What the store's thread writes.
@@ -403,7 +403,7 @@ struct PackEntry {
     path: String,
     take: u64,
     write: Write,
-    measure: Option<Measure>,
+    processing: ddi_library::announcer::draft::Processing,
     extension: Option<String>,
     decoded: Option<Sound>,
 }
@@ -431,8 +431,11 @@ fn entry_bytes(dir: &Path, e: PackEntry) -> Result<(String, Vec<u8>), String> {
                     RATE,
                 )?,
             };
-            let measure = e.measure.filter(|_| tidied);
-            let shaped = shaped(&sound, measure.as_ref());
+            let mut processing = e.processing;
+            if !tidied {
+                processing.measure = None;
+            }
+            let shaped = shaped(&sound, processing);
             let pcm = planar(&shaped);
             if matches!(e.write, Write::Opus { .. }) {
                 ddi_platform::opus::encode(&pcm, shaped.rate)
@@ -560,6 +563,7 @@ pub struct Studio {
     store: Store,
     /// Their sound, once decoded (at [`RATE`]).
     decoded: RefCell<Decoded<Sound>>,
+    processed: RefCell<ddi_library::announcer::draft::Processed<Sound>>,
     decode: Sender<DecodeJob>,
     results: Receiver<DecodeResult>,
     /// The takes being decoded.
@@ -629,6 +633,7 @@ impl Studio {
             feed: PageFeed::default(),
             store: Store::open(dir),
             decoded: RefCell::default(),
+            processed: RefCell::default(),
             decode,
             results,
             decoding: RefCell::default(),
@@ -844,10 +849,20 @@ impl Studio {
         self.decode_take(id, Bytes::File(take_path(&self.store.dir, id)));
     }
 
-    fn measure_of(&self, id: u64) -> Option<Measure> {
-        let d = self.draft.borrow();
-        let t = d.take(id)?;
-        d.tidies(t).then(|| t.measure().copied()).flatten()
+    fn processed(
+        &self,
+        id: u64,
+        sound: &Sound,
+        key: ddi_library::announcer::draft::Processing,
+    ) -> Sound {
+        if let Some(copy) = self.processed.borrow().get(id, key) {
+            return copy;
+        }
+        let copy = shaped(sound, key);
+        self.processed
+            .borrow_mut()
+            .insert(id, key, copy.clone(), copy.data.len() * 4);
+        copy
     }
 
     fn stop(&self) {
@@ -897,8 +912,11 @@ impl Studio {
             self.decode_file(id);
             return;
         };
-        let m = self.measure_of(id);
-        self.speak(key, &shaped(&sound, m.as_ref()));
+        let processing = {
+            let d = self.draft.borrow();
+            d.take(id).map(|t| d.processing(t)).unwrap_or_default()
+        };
+        self.speak(key, &self.processed(id, &sound, processing));
     }
 
     /// Our example `i` of `line` played.
@@ -935,7 +953,7 @@ impl Studio {
                     path: e.path.clone(),
                     take: e.take,
                     write: e.write,
-                    measure: t.and_then(|t| t.measure().copied()),
+                    processing: t.map(|t| draft.processing(t)).unwrap_or_default(),
                     extension: t.and_then(Self::extension_of),
                     decoded: decoded.get(e.take).cloned(),
                 }
@@ -1000,10 +1018,7 @@ impl Studio {
             &self.director.turns.borrow(),
             self.director.pinned_take(),
             self.decoded.borrow().sounds(),
-            |t, s| {
-                let m = draft.tidies(t).then(|| t.measure().copied()).flatten();
-                Some(shaped(s, m.as_ref()))
-            },
+            |t, s| Some(self.processed(t.id, s, draft.processing(t))),
             |s| s.duration(),
         )
     }
@@ -1224,7 +1239,10 @@ impl Studio {
         );
         if let Some(applied) = applied {
             match applied {
-                Applied::Draft => self.save(),
+                Applied::Draft => {
+                    self.stop();
+                    self.save();
+                }
                 Applied::Examples => self.refresh_examples(),
                 Applied::View => {}
             }
@@ -1233,6 +1251,7 @@ impl Studio {
         match act {
             // ([`studio::apply`]'s.)
             Act::Tidy
+            | Act::Stadium
             | Act::StepMania
             | Act::Examples
             | Act::Details
@@ -1802,6 +1821,66 @@ mod tests {
     /// Review studio-editor-4: a draft that cannot be understood is kept
     /// aside, never taken for none and written over, and the new draft's
     /// recordings never take the old ones' files.
+    #[test]
+    fn stadium_preview_and_wav_export_use_the_same_original_and_processing() {
+        use ddi_library::announcer::draft::Processing;
+        let frames = 48000;
+        let source = sound_of(
+            vec![
+                (0..frames).map(|i| (i as f32 * 0.03).sin() * 0.1).collect(),
+                vec![0.0; frames],
+            ],
+            48000,
+        );
+        let key = Processing {
+            stadium: true,
+            line: Some(Line::Combo(100)),
+            ..Processing::default()
+        };
+        let preview = shaped(&source, key);
+        assert_eq!(preview.frames(), 76800);
+        let dir = std::env::temp_dir().join(format!("ddi-stadium-entry-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (_, bytes) = entry_bytes(
+            &dir,
+            PackEntry {
+                path: "gameplay 100 combo/voice.wav".into(),
+                take: 1,
+                write: Write::Wav { tidy: false },
+                processing: key,
+                extension: Some("wav".into()),
+                decoded: Some(source.clone()),
+            },
+        )
+        .unwrap();
+        assert_eq!(bytes, ddi_library::wav::write(&planar(&preview), 48000));
+        let (_, opus) = entry_bytes(
+            &dir,
+            PackEntry {
+                path: "gameplay 100 combo/voice.opus".into(),
+                take: 1,
+                write: Write::Opus { tidy: false },
+                processing: key,
+                extension: Some("wav".into()),
+                decoded: Some(source.clone()),
+            },
+        )
+        .unwrap();
+        let decoded = ddi_platform::decode_all::decode(&opus, Some("opus")).unwrap();
+        assert_eq!(decoded.frames(), 76800);
+        assert_eq!(decoded.channels.len(), 2);
+        assert!(
+            decoded
+                .channels
+                .iter()
+                .flatten()
+                .all(|s| s.is_finite() && s.abs() < 1.0)
+        );
+        assert!(planar(&preview)[1].iter().all(|s| *s == 0.0));
+        assert_eq!(source.frames(), 48000);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn an_unreadable_draft_is_kept_aside_and_its_recordings_files_are_not_reused() {
         let dir = scratch("unreadable");

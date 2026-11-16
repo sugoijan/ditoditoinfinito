@@ -9,6 +9,17 @@ use std::fmt::Write;
 const SOURCE: &str = "src/announcer/examples.toml";
 
 fn main() {
+    let mut revision = 0xcbf29ce484222325u64;
+    for path in [
+        "../../assets/announcer-filters/eq.wav",
+        "../../assets/announcer-filters/space.wav",
+    ] {
+        println!("cargo::rerun-if-changed={path}");
+        for byte in std::fs::read(path).expect("stadium response") {
+            revision = (revision ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+        }
+    }
+    println!("cargo::rustc-env=DDI_STADIUM_RESPONSE_VERSION={revision:016x}");
     println!("cargo::rerun-if-changed={SOURCE}");
     let text = std::fs::read_to_string(SOURCE).expect(SOURCE);
     // Set → line folder → examples.

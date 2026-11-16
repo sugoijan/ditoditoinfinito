@@ -5,11 +5,12 @@
 # made again with them, never edited by hand. Each sound's text, lead,
 # phonemes and cut are in the run's state.json
 # (target/scratch/announcer-audition/); the same pack file makes them
-# again byte for byte.
+# again byte for byte. Effects, when configured, use stadium.json
+# through stadium.py and the shared Rust finish before encoding.
 name = "ガキンさん"
 author = "すごいジャン"
 language = "Japanese"
-made = "2026-11-15"
+made = "2026-11-16"
 made_with = "Kokoro-82M (hexgrad, Apache-2.0), voice jm_kumo"
 
 [kokoro]
@@ -18,8 +19,8 @@ model = "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX"
 revision = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"
 voice = "jm_kumo"
 speed = 1
-sound = "MP3, 44.1 kHz mono, 128 kb/s (ffmpeg's libmp3lame), tidied by the game's own code (announcer-level-v3: a phase rotator and a compressor, then a voiced RMS of -12 dBFS under a limiter at -1.5 dBFS, true peaks under -1 dBFS)"
-versions = { "fugashi" = "1.5.2", "misaki" = "0.9.4", "onnxruntime" = "1.31.1", "pyopenjtalk" = "0.4.1", "unidic-lite" = "1.0.8" }
+sound = "MP3, 44.1 kHz mono, 128 kb/s (ffmpeg's libmp3lame), tidied by the game's own code (announcer-level-v3: a phase rotator and a compressor, then a voiced RMS of -12 dBFS under a limiter at -1.5 dBFS, true peaks under -1 dBFS); then stadium-soft (announcer-stadium-rust-v1, shared Rust, renderer sha256 b8445f415431ba7e0873e47a516745ee064487347cbc7d7933366197d74d5162), measured EQ and room responses (fixed reverb approximates reference modulation), eq.wav sha256 f301e5826b8661f9ab500403917911492b0932168fe181473e8ee997d0071868, space.wav sha256 ea6b51671624cb4ae109103ecfa3cfb47065af17f4f7528ea0a0d5b4dee3584b; announcer-finish-v1 restores the speech level with the shared limiter without recompression; opening-call duration preserved, other tails 0.6 s"
+versions = { "fugashi" = "1.5.2", "misaki" = "0.9.4", "onnxruntime" = "1.31.1", "pyopenjtalk" = "0.4.1", "stadium" = "announcer-stadium-rust-v1", "unidic-lite" = "1.0.8" }
 
 [[licenses]]
 part = "all"

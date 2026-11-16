@@ -354,7 +354,14 @@ Rust and the browser are implementation details, not advertised features.
   gets the gain alone), exact arithmetic in a fixed order
   (`docs/plans/announcers.md`, "Louder packs" and "Smoother leveling";
   its study, `DDI_TIDY_STUDY=<dir> cargo test --release -p ddi-library
-  --lib tidy::tests::study -- --ignored --nocapture`), more
+  --lib tidy::tests::study -- --ignored --nocapture`); `tidy::finished`
+  (`announcer-finish-v1`, `xtask announcer finish`) reuses its gain solver
+  and limiter after bundled voices' creative effects, without another
+  compressor, phase rotation or trim, leveling only the original speech
+  span and retaining the bounded effect tail. The optional studio Stadium
+  effect and pack generation share `announcer/stadium.rs` and
+  `draft::Processing`; its response data is in `assets/announcer-filters/`,
+  fetched on demand by the web and embedded by desktop/xtask. More
   examples of the lines,
   `announcer/examples.rs`, text only from `announcer/examples.toml`,
   which the library's `build.rs` makes a table, the game carrying no
@@ -2109,6 +2116,32 @@ Rust and the browser are implementation details, not advertised features.
   lines at several levels with each one's LUFS, true peak and what the
   compressor and the limiter took); `pack --bundle` puts them in `assets/announcers/`, which the game
   ships (run `gen-announcers` and `gen-credits` after).
+  `python3 tools/announcer-design/effects.py --port PORT --engine-version VERSION`
+  auditions the existing voices through a dedicated, disposable SoundCraft
+  control session (its document is replaced): `effects.json`'s race, arena
+  and stadium treatments beside the original, matched in loudness, alone
+  and over music. Audio, measurements and command records stay under
+  `target/scratch/announcer-effects/`; it never changes the bundled packs
+  or the shared tidy. Use `--source DIR` for dry packs; already treated
+  sources are refused. See the tool's README for isolated startup. The
+  maintainer selected `stadium-soft` in `effects-stadium.json` (2026-11-16).
+  Every English line now uses the approved "Here comes the next challenge.…"
+  lead; Japanese retains its Japanese leads. Both packs use `stadium.json`
+  through `stadium.py` → `xtask announcer stadium`, the studio's shared
+  Rust `announcer::stadium` (`announcer-stadium-rust-v1`): partitioned FFT
+  convolution with `assets/announcer-filters/`'s captured EQ/room responses,
+  saturation and tone filtering, then the shared finish and one encoding.
+  Studio Advanced → Stadium effect is optional, off by default, saved with
+  the draft, applied to original recordings for previews/scenes/exports.
+  Its bounded processed cache keys include settings, measurement and line.
+  The browser fetches the responses on first use under their content revision;
+  desktop/xtask embed them. Ready/restart/here-we-go retain dry duration;
+  other tails are 0.6 s. Stadium's final leveling also runs when Tidy is off.
+  Recipe, response and Rust source hashes invalidate generated caches. FFmpeg
+  is used only for encoding/metering; `stadium_ffmpeg.py` is the approved
+  comparison reference. `capture_stadium.py` and `stadium-soundcraft.json`
+  preserve optional recapture with SoundCraft 0.20.1; no production path
+  needs it. `pack-endings.toml` preserves the lead study.
 
 Prefer the latest released versions of dependencies; check crates.io before
 adding one and refresh the lockfile with `cargo update`.

@@ -715,17 +715,37 @@ fn level(part: &[Vec<f32>], rate: u32, target: f64, chain: &Chain) -> f32 {
         return near;
     }
     let ready = ready(part.to_vec(), rate, false, chain, false);
-    let rms = voiced_rms(&ready.planes, frame);
+    let gain = level_ready(&ready, rate, target, part[0].len(), chain) as f32;
+    // Never a gain that says "at the level already": the chain is asked
+    // for by a gain outside that.
+    if !at_level(gain) {
+        gain
+    } else if gain >= 1.0 {
+        TIDY_UP.next_up()
+    } else {
+        TIDY_DOWN.next_down()
+    }
+}
+
+/// Solve the same final gain for a prepared sound. Effects may extend its
+/// tail; only the original speech span contributes to the target level.
+fn level_ready(ready: &Ready, rate: u32, target: f64, body: usize, chain: &Chain) -> f64 {
+    let frame = frame_len(rate);
+    let planes = part(&ready.planes, 0, body);
+    let rms = voiced_rms(&planes, frame);
+    if rms <= 1e-9 {
+        return 1.0;
+    }
     // The voiced RMS of the limited sound ([`limited`]'s), its samples
     // made as it makes them but not kept.
     let after = |gain: f64| {
         let (gains, _) = limiter(&ready.peaks, rate, gain, chain);
-        voiced_of(&powers_of(&ready.planes, frame, |s, i| {
+        voiced_of(&powers_of(&planes, frame, |s, i| {
             (f64::from(s) * gain * gains[i]) as f32
         }))
     };
     let mut low = target / rms.max(1e-12);
-    let gain = if after(low) >= target * 0.999 {
+    if after(low) >= target * 0.999 {
         low
     } else {
         let mut high = low * MAX_OVER;
@@ -742,17 +762,45 @@ fn level(part: &[Vec<f32>], rate: u32, target: f64, chain: &Chain) -> f32 {
             }
             (low * high).sqrt()
         }
-    };
-    // Never a gain that says "at the level already": the chain is asked
-    // for by a gain outside that.
-    let gain = gain as f32;
-    if !at_level(gain) {
-        gain
-    } else if gain >= 1.0 {
-        TIDY_UP.next_up()
-    } else {
-        TIDY_DOWN.next_down()
     }
+}
+
+/// Finishing an already tidied voice after creative effects. This uses the
+/// same gain solver and limiter, without another phase rotation, compressor
+/// or trim. The caller retains a bounded effect tail; `body_seconds` is the
+/// original speech span, so a longer echo does not make the words louder.
+pub const FINISHING: &str = "announcer-finish-v1";
+
+#[derive(Clone, Copy, Debug)]
+pub struct Finished {
+    pub gain_db: f64,
+    pub voiced_rms_db: f64,
+    pub limited_db: f64,
+    pub peaks_db: f64,
+}
+
+pub fn finished<C: AsRef<[f32]>>(
+    channels: &[C],
+    rate: u32,
+    body_seconds: f64,
+) -> (Vec<Vec<f32>>, Finished) {
+    let len = channels.first().map_or(0, |c| c.as_ref().len());
+    let body = ((body_seconds * f64::from(rate)).round() as usize).min(len);
+    let mut ready = ready(part(channels, 0, len), rate, true, &CHAIN, false);
+    // Reserve the encoder's half-decibel margin even on a file whose peaks
+    // would otherwise fall in the limiter's already-safe bypass range.
+    for peak in &mut ready.peaks {
+        *peak *= PEAK / LIMIT;
+    }
+    let gain = level_ready(&ready, rate, VOICED_RMS, body, &CHAIN);
+    let (out, least, shaping) = limited(&ready.planes, &ready.peaks, rate, gain, &CHAIN);
+    let result = Finished {
+        gain_db: db(gain),
+        voiced_rms_db: voiced_rms_db(&part(&out, 0, body), rate),
+        limited_db: -db(least),
+        peaks_db: -db(shaping),
+    };
+    (out, result)
 }
 
 /// What tidying would do to `channels` (one slice a channel, all as
@@ -926,6 +974,43 @@ mod tests {
             .map(|(p, _)| *p)
             .collect();
         db((voiced.iter().sum::<f64>() / voiced.len() as f64).sqrt())
+    }
+
+    #[test]
+    fn finishing_preserves_dynamics_timing_and_ignores_tail_length_for_level() {
+        let mut voice = take(0.1, 0.8, 0.1, -120.0);
+        for sample in &mut voice[(RATE as usize / 2)..] {
+            *sample *= 2.0;
+        }
+        let body = voice.len() as f64 / f64::from(RATE);
+        let mut short = voice.clone();
+        short.extend((0..RATE / 5).map(|i| 0.003 * (f64::from(i) * 0.1).sin() as f32));
+        let mut long = short.clone();
+        long.resize(long.len() + RATE as usize / 2, 0.0);
+        let (a, did) = finished(&[&short], RATE, body);
+        let (b, other) = finished(&[&long], RATE, body);
+        assert_eq!(a[0].len(), short.len());
+        assert_eq!(b[0].len(), long.len());
+        assert!((did.voiced_rms_db - VOICED_RMS_DB).abs() < 0.02);
+        assert_eq!(did.gain_db, other.gain_db);
+        assert_eq!(&a[0][..voice.len()], &b[0][..voice.len()]);
+        assert!(did.limited_db.abs() < 1e-6);
+        let gain = 10f64.powf(did.gain_db / 20.0);
+        for (x, y) in voice.iter().zip(&a[0]).skip(RATE as usize / 10) {
+            assert!((f64::from(*y) - f64::from(*x) * gain).abs() < 1e-7);
+        }
+    }
+
+    #[test]
+    fn finishing_keeps_peaks_safe_and_silence_silent() {
+        let voice = pulses(120, 24, 0.2);
+        let (out, did) = finished(&[&voice], RATE, 1.8);
+        assert!((did.voiced_rms_db - VOICED_RMS_DB).abs() < 0.1);
+        assert!(true_peaks(&out).into_iter().fold(0.0, f64::max) <= LIMIT + 1e-5);
+        let silent = vec![0.0; RATE as usize];
+        let (out, did) = finished(&[&silent], RATE, 1.0);
+        assert_eq!(out, vec![silent]);
+        assert!(did.gain_db.is_finite());
     }
 
     #[test]

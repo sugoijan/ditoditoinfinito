@@ -1,0 +1,28 @@
+{
+  "version": "announcer-stadium-rust-v1",
+  "preset": "stadium-soft",
+  "engine": "shared Rust",
+  "sample_rate": 48000,
+  "tail_seconds": 0.6,
+  "opening_wet_fade_seconds": 0.06,
+  "finishing": "announcer-finish-v1",
+  "eq_ir": "../../assets/announcer-filters/eq.wav",
+  "space_ir": "../../assets/announcer-filters/space.wav",
+  "direct_gain": 0.6708,
+  "bounce_gain": 1.001186490058899,
+  "saturation": {
+    "drive_db": 3.5,
+    "mix": 0.28,
+    "tone_hz": 7500,
+    "output_db": -1.5
+  },
+  "reference": {
+    "recipe": "stadium-soundcraft.json",
+    "engine": "SoundCraft 0.20.1",
+    "settle_seconds": 1,
+    "impulse_amplitude": 0.5,
+    "eq_seconds": 0.2,
+    "space_seconds": 2,
+    "note": "Measured steady response. The fixed room response approximates the original modulation and parameter startup smoothing."
+  }
+}

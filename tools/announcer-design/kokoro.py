@@ -52,18 +52,24 @@ packs are to be is heard there.
 Every sound is tidied by the game's own code, the announcer studio's
 (`ddi_library::announcer::tidy` through `cargo run -p xtask -- announcer
 tidy`): the silence at its ends cut, short fades, its level evened by a
-compressor and a limiter. This script cuts a lead or a closer off and
-encodes the MP3; nothing here levels a sound.
+compressor and a limiter. Packs with `effect = "stadium-soft"` then pass
+through shared Rust with measured EQ/room responses and `xtask announcer finish`, which
+restores the speech level with the shared limiter, preserving the effect
+tail. The MP3 is encoded once, after all processing; nothing here levels
+a sound independently of the game's code.
 
 uv makes the environment from the header above; the model comes from
 Hugging Face at the pinned revision (its cache, when it holds it); the
-tidy takes cargo (the repository's Rust toolchain) and the MP3s ffmpeg.
+tidy takes cargo (or --xtask PATH to this checkout's built tool), the MP3s
+ffmpeg for encoding and metering.
 No account or key. Kokoro is Apache-2.0, misaki its phonemizer Apache-2.0;
 what they make is ours to release as CC0. Made again only when what it
 was made from changed. See README.md.
 """
 import argparse
+import hashlib
 import json
+import math
 import re
 import shutil
 import statistics
@@ -257,11 +263,11 @@ def levels(audio):
     return 20 * np.log10(rms / rms.max())
 
 
-def write_wav(path, audio):
-    """A 32-bit float mono WAV at the model's rate."""
+def write_wav(path, audio, rate=RATE):
+    """A 32-bit float mono WAV, normally at the model's rate."""
     data = np.asarray(audio, dtype="<f4").tobytes()
     head = b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " + struct.pack(
-        "<IHHIIHH", 16, 3, 1, RATE, RATE * 4, 4, 32) + b"data" + struct.pack("<I", len(data))
+        "<IHHIIHH", 16, 3, 1, rate, rate * 4, 4, 32) + b"data" + struct.pack("<I", len(data))
     path.write_bytes(head + data)
 
 
@@ -282,11 +288,15 @@ class Tidy:
     did. `level`: a voiced RMS in dBFS in place of the game's (an
     audition's)."""
 
-    def __init__(self, out, level=None, size=48):
-        self.dir, self.level, self.size, self.waiting = out / ".tidy", level, size, []
+    command = ["cargo", "run", "-q", "-p", "xtask", "--"]
 
-    def add(self, raw, done):
-        self.waiting.append((raw, done))
+    def __init__(self, out, level=None, size=48, rate=RATE, finish=False):
+        self.dir = out / (".finish" if finish else ".tidy")
+        self.level, self.size, self.waiting = level, size, []
+        self.rate, self.finish = rate, finish
+
+    def add(self, raw, done, body_seconds=None):
+        self.waiting.append((raw, done, body_seconds))
         if len(self.waiting) >= self.size:
             self.flush()
 
@@ -295,10 +305,14 @@ class Tidy:
             return
         shutil.rmtree(self.dir, ignore_errors=True)
         (self.dir / "in").mkdir(parents=True)
-        for i, (raw, _) in enumerate(self.waiting):
-            write_wav(self.dir / "in" / f"{i:04}.wav", raw)
-        cmd = ["cargo", "run", "-q", "-p", "xtask", "--", "announcer", "tidy",
+        for i, (raw, _, _) in enumerate(self.waiting):
+            write_wav(self.dir / "in" / f"{i:04}.wav", raw, self.rate)
+        cmd = [*self.command, "announcer", "finish" if self.finish else "tidy",
                "--dir", str(self.dir / "in"), "--out", str(self.dir / "out")]
+        if self.finish:
+            bodies = self.dir / "bodies.json"
+            bodies.write_text(json.dumps({f"{i:04}.wav": body for i, (_, _, body) in enumerate(self.waiting)}))
+            cmd += ["--bodies", str(bodies)]
         if self.level is not None:
             cmd.append(f"--level={self.level}")
         ran = subprocess.run(cmd, cwd=A.ROOT, capture_output=True, text=True)
@@ -306,7 +320,7 @@ class Tidy:
             sys.exit(f"the game's tidy failed ({' '.join(cmd)}):\n{ran.stderr}")
         reports = {r["file"]: r for r in map(json.loads, ran.stdout.splitlines())}
         waiting, self.waiting = self.waiting, []
-        for i, (_, done) in enumerate(waiting):
+        for i, (_, done, _) in enumerate(waiting):
             name = f"{i:04}.wav"
             done(read_wav(self.dir / "out" / name), reports[name])
         shutil.rmtree(self.dir)
@@ -326,10 +340,10 @@ def tidied(report):
             "shaped_db": round(report["shaped_db"], 1)}
 
 
-def write_mp3(path, audio):
+def write_mp3(path, audio, rate=RATE):
     path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(RATE), "-ac", "1", "-i", "-",
+        ["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(rate), "-ac", "1", "-i", "-",
          "-ar", "44100", "-c:a", "libmp3lame", "-b:a", "128k", str(path)],
         input=audio.astype("<f4").tobytes(), check=True)
 
@@ -566,7 +580,7 @@ def styled(source, pack, lang):
     return lines
 
 
-def cmd_pack(cfg, source, pack, engine, state):
+def cmd_pack(cfg, source, pack, engine, state, effect=None):
     """Every line of the pack, each text a sound in its folder; made again
     where what it is made from changed, and what the pack no longer has
     removed. `source` is the pack file's name: what it made is its own."""
@@ -613,6 +627,8 @@ def cmd_pack(cfg, source, pack, engine, state):
             params = with_lang({"repo": engine.repo, "revision": engine.revision, "model": engine.model,
                                 "process": PROCESS, "voice": voice, "speed": speed, "text": said,
                                 "lead": lead}, voice, lang)
+            if effect:
+                params["effect"] = effect.fingerprint
             place = {"pack": name, "source": source, "folder": line["folder"], "line_index": li,
                      "text_index": ti, "style": style}
             if fresh(state.pack.get(rel), params, state.out / rel):
@@ -622,14 +638,42 @@ def cmd_pack(cfg, source, pack, engine, state):
             raw, ps, cut = render(engine, said, voice, speed, lead, lang)
 
             def done(audio, report, place=place, said=said, rel=rel, params=params, ps=ps, cut=cut):
-                write_mp3(state.out / rel, audio)
-                state.pack[rel] = {
+                record = {
                     **place, "text": said, "detail": described(voice, speed, lang), "params": params,
-                    "phonemes": ps, "cut_secs": cut, "duration_secs": round(len(audio) / RATE, 2),
-                    "tidy": tidied(report), "versions": engine.versions(lang), "made": A.now(),
+                    "phonemes": ps, "cut_secs": cut,
+                    "tidy": tidied(report), "versions": engine.versions(lang),
                 }
-                state.save()
-                print(rel, flush=True)
+
+                def save(output, final_report=None):
+                    rate = effect.recipe["sample_rate"] if effect else RATE
+                    path = state.out / rel
+                    write_mp3(path, output, rate)
+                    if effect:
+                        if (final_report["finishing"] != effect.recipe["finishing"] or
+                                final_report["leveling"] != record["tidy"]["leveling"] or
+                                abs(final_report["voiced_rms_db"] - report["voiced_rms_target_db"]) > 0.1):
+                            raise RuntimeError(f"{rel}: final level or finishing version differs from the recipe")
+                        lufs, peak = loudness(path)
+                        if not math.isfinite(peak) or peak > -1.0:
+                            raise RuntimeError(f"{rel}: encoded true peak {peak} dBFS exceeds -1 dBFS")
+                        record["finish"] = final_report
+                        record["encoded"] = {"true_peak_dbfs": peak,
+                                             "lufs": lufs if math.isfinite(lufs) else None}
+                        record["versions"]["stadium"] = effect.version
+                    record.update(duration_secs=round(len(output) / rate, 2), made=A.now())
+                    state.pack[rel] = record
+                    state.save()
+                    print(rel, flush=True)
+
+                if effect:
+                    body = len(audio) / RATE
+                    wav = effect.work / "input.wav"
+                    write_wav(wav, audio)
+                    record["dry_sha256"] = hashlib.sha256(wav.read_bytes()).hexdigest()
+                    processed, record["effect_render"], finish_report = effect.render(wav, body, place["folder"])
+                    save(processed, finish_report)
+                else:
+                    save(audio)
 
             tidy.add(raw, done)
             made += 1
@@ -789,6 +833,19 @@ def bundle(path, pack, state):
              f"({leveling}: a phase rotator and a compressor, then a voiced RMS of {level:g} dBFS "
              f"under a limiter at {limit:g} dBFS, "
              "true peaks under -1 dBFS)")
+    effects = {json.dumps(c["params"].get("effect"), sort_keys=True) for c in records.values()}
+    if len(effects) != 1:
+        sys.exit(f"{source}: mixed effect recipes; make the pack again")
+    effect = json.loads(effects.pop())
+    if effect:
+        responses = ", ".join(f"{name} sha256 {digest}"
+                              for name, digest in effect["response_sha256"].items())
+        sound += (f"; then {effect['preset']} ({effect['version']}, {effect['engine']}, "
+                  f"renderer sha256 {effect['renderer_sha256']}), "
+                  "measured EQ and room responses (fixed reverb approximates reference modulation), "
+                  f"{responses}; "
+                  f"{effect['finishing']} restores the speech level with the shared limiter "
+                  "without recompression; opening-call duration preserved, other tails 0.6 s")
     model = f"https://huggingface.co/{first['repo']}"
     made_with = "Kokoro-82M (hexgrad, Apache-2.0), voice " + described(voice, first["speed"], lang)
     lines = [
@@ -799,7 +856,8 @@ def bundle(path, pack, state):
         "# made again with them, never edited by hand. Each sound's text, lead,",
         "# phonemes and cut are in the run's state.json",
         "# (target/scratch/announcer-audition/); the same pack file makes them",
-        "# again byte for byte.",
+        "# again byte for byte. Effects, when configured, use stadium.json",
+        "# through stadium.py and the shared Rust finish before encoding.",
         f"name = {toml_str(name)}",
         f"author = {toml_str(author)}",
         f"language = {toml_str(LANGS.get(lang, lang))}",
@@ -851,6 +909,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--config", type=Path, default=A.HERE / "audition.toml")
     p.add_argument("--out", type=Path, default=A.ROOT / "target/scratch/announcer-audition")
+    p.add_argument("--xtask", type=Path, help="use this built xtask instead of cargo run")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("sample")
     s.add_argument("voices", nargs="*")
@@ -872,6 +931,8 @@ def main():
                     help="the voiced RMS each is leveled to, dBFS")
     ld.add_argument("--lines", nargs="+", default=HEARD, help="the line folders made, the first text of each")
     args = p.parse_args()
+    if args.xtask:
+        Tidy.command = [str(args.xtask.resolve())]
     if args.cmd == "loudness":
         cmd_loudness(args)
         return
@@ -885,7 +946,13 @@ def main():
         for path in args.packs:
             with open(path, "rb") as f:
                 pack = tomllib.load(f)
-            cmd_pack(cfg, path.name, pack, Kokoro(pack["kokoro"]), state)
+            effect = None
+            if pack.get("effect"):
+                from stadium import Stadium
+                effect = Stadium(state.out, Tidy.command)
+                if pack["effect"] != effect.recipe["preset"]:
+                    sys.exit(f"Unsupported pack effect {pack['effect']!r}")
+            cmd_pack(cfg, path.name, pack, Kokoro(pack["kokoro"]), state, effect)
             if args.bundle:
                 bundle(path, pack, state)
         A.write_page(cfg, state)

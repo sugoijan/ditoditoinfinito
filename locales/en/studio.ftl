@@ -91,6 +91,15 @@ studio-tidy-description = Cuts the silence before and after each recording and e
 
 # Variables:
 #   $state (String) - "on" or "off"
+studio-stadium = { $state ->
+    [on] Stadium effect: on
+   *[off] Stadium effect: off
+}
+
+studio-stadium-description = Adds stadium microphone color, echo and reverb, with even volume in previews and exports.
+
+# Variables:
+#   $state (String) - "on" or "off"
 studio-stepmania = { $state ->
     [on] Also for StepMania: on
    *[off] Also for StepMania: off

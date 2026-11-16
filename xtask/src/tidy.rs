@@ -9,16 +9,27 @@
 //! compressor and the limiter took and how the sound measures before and
 //! after.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use clap::Subcommand;
 use ddi_library::announcer::tidy;
 use serde::Serialize;
 
 #[derive(Subcommand)]
 pub enum Action {
+    /// Apply the studio's stadium effect and final leveling to prepared speech.
+    Stadium {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        /// Preserve the speech duration for ready/restart/here-we-go.
+        #[arg(long)]
+        opening: bool,
+    },
     /// Tidy every .wav of a folder into another, as the announcer studio
     /// tidies a take.
     Tidy {
@@ -33,11 +44,52 @@ pub enum Action {
         #[arg(long, allow_hyphen_values = true)]
         level: Option<f64>,
     },
+    /// Restore the level after creative effects without compressing or trimming again.
+    Finish {
+        #[arg(long)]
+        dir: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        /// JSON object mapping each WAV filename to its original speech duration in seconds.
+        #[arg(long)]
+        bodies: PathBuf,
+    },
 }
 
 pub fn run(action: Action) -> Result<()> {
     match action {
-        Action::Tidy { dir, out, level } => tidy_folder(&dir, &out, level),
+        Action::Stadium {
+            input,
+            out,
+            opening,
+        } => {
+            let (audio, rate) = read_wav(&fs::read(input)?)?;
+            let body = audio.first().map_or(0, Vec::len) as f64 / f64::from(rate);
+            let line = opening.then_some(ddi_library::announcer::Line::Ready);
+            let colored = ddi_library::announcer::stadium::apply(&audio, rate, line);
+            let (finished, did) =
+                tidy::finished(&colored, ddi_library::announcer::stadium::RATE, body);
+            fs::write(
+                out,
+                write_wav(&finished, ddi_library::announcer::stadium::RATE),
+            )?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "version": ddi_library::announcer::stadium::VERSION,
+                    "finishing": tidy::FINISHING, "leveling": tidy::LEVELING,
+                    "body_seconds": body, "seconds": ddi_library::announcer::stadium::seconds(body, line),
+                    "voiced_rms_db": did.voiced_rms_db, "gain_db": did.gain_db,
+                    "limited_db": did.limited_db, "limited_peaks_db": did.peaks_db,
+                })
+            );
+            Ok(())
+        }
+        Action::Tidy { dir, out, level } => tidy_folder(&dir, &out, level, None),
+        Action::Finish { dir, out, bodies } => {
+            let bodies = serde_json::from_slice(&fs::read(bodies)?)?;
+            tidy_folder(&dir, &out, None, Some(&bodies))
+        }
     }
 }
 
@@ -145,7 +197,12 @@ pub fn tidy_sound(
     (out, report)
 }
 
-fn tidy_folder(dir: &Path, out: &Path, level: Option<f64>) -> Result<()> {
+fn tidy_folder(
+    dir: &Path,
+    out: &Path,
+    level: Option<f64>,
+    bodies: Option<&BTreeMap<String, f64>>,
+) -> Result<()> {
     let mut files: Vec<PathBuf> = fs::read_dir(dir)
         .with_context(|| format!("reading {}", dir.display()))?
         .filter_map(|e| e.ok())
@@ -162,10 +219,31 @@ fn tidy_folder(dir: &Path, out: &Path, level: Option<f64>) -> Result<()> {
             .to_string();
         let bytes = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
         let (channels, rate) = read_wav(&bytes).with_context(|| path.display().to_string())?;
-        let (tidied, report) = tidy_sound(&name, &channels, rate, level);
+        let (tidied, report) = if let Some(bodies) = bodies {
+            let body = *bodies
+                .get(&name)
+                .with_context(|| format!("{name}: no speech duration"))?;
+            let seconds = channels.first().map_or(0, Vec::len) as f64 / f64::from(rate);
+            ensure!(
+                body.is_finite() && body > 0.0 && body <= seconds,
+                "{name}: invalid speech duration {body}"
+            );
+            let (audio, did) = tidy::finished(&channels, rate, body);
+            let report = serde_json::json!({
+                "file": name, "finishing": tidy::FINISHING, "leveling": tidy::LEVELING,
+                "body_seconds": body, "seconds": seconds,
+                "voiced_rms_db": did.voiced_rms_db, "gain_db": did.gain_db,
+                "limited_db": did.limited_db, "limited_peaks_db": did.peaks_db,
+            })
+            .to_string();
+            (audio, report)
+        } else {
+            let (audio, report) = tidy_sound(&name, &channels, rate, level);
+            (audio, serde_json::to_string(&report)?)
+        };
         fs::write(out.join(&name), write_wav(&tidied, rate))
             .with_context(|| format!("writing {}", out.join(&name).display()))?;
-        println!("{}", serde_json::to_string(&report)?);
+        println!("{report}");
     }
     Ok(())
 }
@@ -263,7 +341,7 @@ mod tests {
         fs::write(dir.join("b.wav"), write_wav(&planes, 24_000)).unwrap();
         fs::write(dir.join("a.wav"), ddi_library::wav::write(&planes, 24_000)).unwrap();
         fs::write(dir.join("notes.txt"), "not a sound").unwrap();
-        tidy_folder(&dir, &out, None).unwrap();
+        tidy_folder(&dir, &out, None, None).unwrap();
         let names: Vec<String> = fs::read_dir(&out)
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())

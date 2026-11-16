@@ -587,6 +587,11 @@ pub fn doc(
         m::tidy_description(),
     ));
     advanced.extend(switch(
+        "stadium",
+        m::stadium(state(draft.stadium)),
+        m::stadium_description(),
+    ));
+    advanced.extend(switch(
         "stepmania",
         m::stepmania(state(draft.stepmania)),
         m::stepmania_description(),
@@ -656,6 +661,7 @@ pub enum Act {
     Example(Line, usize),
     /// The takes' tidying turned over (the draft's choice).
     Tidy,
+    Stadium,
     /// Choose a take's line (hearing it).
     Move(u64),
     Remove(u64),
@@ -693,6 +699,7 @@ pub fn act(id: &str) -> Option<Act> {
         "import-files" => Act::ImportFiles,
         "import-folder" => Act::ImportFolder,
         "tidy" => Act::Tidy,
+        "stadium" => Act::Stadium,
         "examples" => Act::Examples,
         "stepmania" => Act::StepMania,
         "details" => Act::Details,
@@ -768,6 +775,10 @@ pub fn apply(act: Act, draft: &mut Draft, view: &mut View) -> Option<Applied> {
             for t in &mut draft.takes {
                 t.tidy = None;
             }
+            Applied::Draft
+        }
+        Act::Stadium => {
+            draft.stadium = !draft.stadium;
             Applied::Draft
         }
         Act::StepMania => {
@@ -883,6 +894,7 @@ pub fn in_gesture(a: Act) -> bool {
     !matches!(
         a,
         Act::Tidy
+            | Act::Stadium
             | Act::Remove(_)
             | Act::Examples
             | Act::StepMania
@@ -1367,6 +1379,26 @@ mod tests {
     }
 
     #[test]
+    fn stadium_toggle_is_saved_as_a_draft_change() {
+        let mut draft = Draft::default();
+        let mut view = View::default();
+        assert_eq!(act("stadium"), Some(Act::Stadium));
+        assert!(!in_gesture(Act::Stadium));
+        assert_eq!(
+            apply(Act::Stadium, &mut draft, &mut view),
+            Some(Applied::Draft)
+        );
+        assert!(draft.stadium);
+        let text = format!(
+            "{:?}",
+            doc(&draft, &view, &BTreeMap::new(), Default::default()).blocks
+        );
+        assert!(text.contains("Stadium effect: on"));
+        apply(Act::Stadium, &mut draft, &mut view);
+        assert!(!draft.stadium);
+    }
+
+    #[test]
     fn credits_imports_and_switches_are_under_advanced() {
         let d = Draft::default();
         let page = doc(&d, &View::default(), &BTreeMap::new(), Default::default());
@@ -1392,6 +1424,7 @@ mod tests {
             "import-files",
             "import-folder",
             "tidy",
+            "stadium",
             "stepmania",
             "details",
         ] {

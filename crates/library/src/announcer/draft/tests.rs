@@ -612,3 +612,48 @@ fn a_pack_s_folder_is_a_name_every_system_takes() {
     };
     assert_eq!(d.folder_name(), "_NUL");
 }
+
+#[test]
+fn stadium_is_optional_persisted_and_forces_processing_of_settled_takes() {
+    let mut d = Draft::default();
+    let id = d.add("gameplay ready.mp3", 64, MP3);
+    d.take_mut(id).unwrap().sound = Sound::Read(measure(1.0, 0.0, 1.0));
+    assert!(!d.stadium);
+    assert_eq!(d.write_of(d.take(id).unwrap()), Write::AsIs);
+    let mut legacy = serde_json::to_value(&d).unwrap();
+    legacy.as_object_mut().unwrap().remove("stadium");
+    assert!(!serde_json::from_value::<Draft>(legacy).unwrap().stadium);
+    d.stadium = true;
+    assert!(matches!(
+        d.write_of(d.take(id).unwrap()),
+        Write::Opus { .. }
+    ));
+    assert_eq!(d.seconds(d.take(id).unwrap()), Some(1.0));
+    let opening = d.processing(d.take(id).unwrap());
+    d.take_mut(id).unwrap().line = Some(Line::Combo(100));
+    let normal = d.processing(d.take(id).unwrap());
+    assert_ne!(opening, normal);
+    assert_eq!(d.seconds(d.take(id).unwrap()), Some(1.6));
+    let saved = serde_json::to_string(&d).unwrap();
+    assert!(serde_json::from_str::<Draft>(&saved).unwrap().stadium);
+    d.tidy = false;
+    assert!(matches!(
+        d.write_of(d.take(id).unwrap()),
+        Write::Opus { tidy: false }
+    ));
+    let input = vec![vec![0.0; 4800]];
+    let off = Processing::default().apply(&input, 48000);
+    assert_eq!(off, (input.clone(), 48000));
+    let (processed, rate) = Processing {
+        stadium: true,
+        ..Processing::default()
+    }
+    .apply(&input, 48000);
+    assert_eq!(rate, 48000);
+    assert_eq!(processed[0].len(), 33600);
+    assert!(processed[0].iter().all(|s| *s == 0.0));
+    let mut cache = Processed::<Vec<Vec<f32>>>::default();
+    cache.insert(id, opening, input.clone(), input[0].len() * 4);
+    assert_eq!(cache.get(id, opening), Some(input));
+    assert!(cache.get(id, normal).is_none());
+}

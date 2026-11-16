@@ -759,3 +759,51 @@ maintainer's to try.
 - **The lines the game reads but never speaks** (StepMania 3.9's stage
   lines, the screen lines). The import does not keep them either, and the
   studio neither shows nor exports them.
+
+
+## Stadium effect (2026-11-16)
+
+Advanced → **Stadium effect: off/on** is saved with the draft, off by
+default for new drafts and drafts saved before this field existed. It is
+independent of Tidy recordings: Tidy controls trim and the original dynamics
+chain; Stadium adds the approved microphone color and space, followed by
+final leveling. Recordings retain their original files, and toggling always
+processes their decoded originals. Bundled example buttons keep their already
+processed example audio. Exported audio contains the chosen processing.
+
+`ddi_library::announcer::stadium` is shared by both shells and
+`xtask announcer stadium`, which the pack generator calls. Its
+`announcer-stadium-rust-v1` recipe uses the approved captured EQ and room
+responses, partitioned FFT convolution, normalized tanh saturation, one-pole
+tone filter, and the same shared finishing gain/limiter. There is no external
+effect engine. Input at other rates is converted with a centered windowed
+sinc to 48 kHz; channel count and separation are preserved. Ready, restart
+and here-we-go retain the dry duration with a fade of only the spatial
+return; other lines retain 0.6 s. The draft's duration warnings and export
+size estimates include that tail. A processed lossy take is encoded anew
+when Stadium is on, even if its original already measured as tidied.
+
+Preview, scenes and exports use the same `draft::Processing` descriptor.
+Processed copies use a bounded cache, keyed by take id, measurement, Stadium
+setting and assigned line; reassignment to an opening line changes the key.
+The web loads response data from `announcer-filters/` on first use, under a
+build-generated content revision, rather than embedding it in initial wasm.
+Desktop/xtask embed the same files. Export caches are invalidated when the
+draft changes. SoundCraft and FFmpeg are not required by the studio.
+
+The approved FFmpeg reference remains in the development tools for numerical
+and listening comparisons. Tests cover convolution at block boundaries,
+channel isolation, silence, opening duration, old-draft defaults, saved
+settings, export format selection and duration accounting. See
+`announcers.md` for the comparison and regenerated-pack measurements.
+
+Checked in headless Chrome with normal user activation: optional switch,
+no response requests until first processed preview, one fetch per response,
+repeated toggling with identical output, mono opening duration, stereo tail,
+WAV export, draft reload, and a real combo scene. English and Japanese
+controls were inspected visually. The preview's actual mono and stereo
+buffers match the native `xtask announcer stadium` samples exactly on the
+48 kHz fixtures; exported WAVs differ only by 16-bit quantization (maximum
+sample difference 0.000034). Native tests also check the common preview/WAV
+path and an Opus export's duration/channels/finite unclipped samples.
+Screenshots and browser recordings are in `target/scratch/announcer-rust/`.
