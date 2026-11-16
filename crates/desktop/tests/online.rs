@@ -468,3 +468,84 @@ fn an_idle_rooms_socket_stays_connected() {
     }
     a.leave();
 }
+
+/// Feedback round N2 (room model revision 12): the room's own text
+/// keep-alive (`ddi_room::online::KEEPALIVE_V0`, the web's; desktop's
+/// socket keeps its own at the WebSocket layer, turned off here) against a
+/// local server reached through a proxy that can cut a socket silently:
+/// `DDI_ONLINE_PROXY` is the API's address through the proxy,
+/// `DDI_ONLINE_PROXY_CUT` the file whose appearance cuts its WebSockets
+/// (every frame swallowed, nothing closed). Skipped without them. An idle
+/// room's socket stays two minutes (a live room's clock pings every 10 s,
+/// so its keep-alive is sent only where those stop); cut silently, it is
+/// noticed and replaced within about 40 s.
+#[test]
+fn the_rooms_keep_alive_keeps_an_idle_socket_and_replaces_one_cut_silently() {
+    let (Ok(api), Ok(cut)) = (
+        std::env::var("DDI_ONLINE_PROXY"),
+        std::env::var("DDI_ONLINE_PROXY_CUT"),
+    ) else {
+        eprintln!("DDI_ONLINE_PROXY or DDI_ONLINE_PROXY_CUT not set: skipped");
+        return;
+    };
+    let name = format!("deskkeep{}", now() % 100_000);
+    let host = person(&api);
+    host.borrow_mut().check();
+    until(&host, |o| {
+        !matches!(o.account(), ddi_ui::state::online::Account::Checking)
+    });
+    host.borrow_mut().private_room();
+    let (url, code) = attempt_of(&host);
+    browser(&url, &code, &name);
+    let mut room_id = None;
+    until(&host, |o| {
+        room_id = o.take_entered();
+        room_id.is_some()
+    });
+    let mut a = RoomClient::online(
+        host.clone(),
+        &room_id.unwrap(),
+        Box::new(SocketTransport::with_base(api.clone()).with_room_keepalive()),
+        ClientId::new(format!("desktop-test-keep-{}", now())),
+        now(),
+    );
+    tick_until(&mut [&mut a], |r| r[0].link_state() == LinkState::Connected);
+    let keep = |a: &RoomClient| a.online_link().unwrap().keepalives();
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(125) {
+        a.tick(now());
+        assert_eq!(
+            a.link_state(),
+            LinkState::Connected,
+            "dropped after {:?}",
+            start.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    eprintln!("idle 125 s: keep-alives sent, dead {:?}", keep(&a));
+    assert_eq!(keep(&a).1, 0);
+    std::fs::write(&cut, b"cut").unwrap();
+    let cut_at = Instant::now();
+    let mut noticed = None;
+    loop {
+        a.tick(now());
+        if noticed.is_none() && a.link_state() != LinkState::Connected {
+            noticed = Some(cut_at.elapsed());
+        }
+        if noticed.is_some() && a.link_state() == LinkState::Connected {
+            break;
+        }
+        assert!(cut_at.elapsed() < Duration::from_secs(60), "never replaced");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let back = cut_at.elapsed();
+    eprintln!("cut silently: noticed after {noticed:?}, connected again after {back:?}; {:?}", keep(&a));
+    let noticed = noticed.unwrap();
+    assert!(
+        noticed >= Duration::from_secs(25) && noticed <= Duration::from_secs(43),
+        "{noticed:?}"
+    );
+    assert!(back <= Duration::from_secs(46), "{back:?}");
+    assert_eq!(keep(&a).1, 1);
+    a.leave();
+}

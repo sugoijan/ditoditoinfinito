@@ -1357,8 +1357,9 @@ impl Live {
                 ));
             } else {
                 got.log.push(format!(
-                    "attack {}: taken ({:.3} s to spare, first shock {:.3} s)",
+                    "attack {}: taken, {} shocks ({:.3} s to spare, first shock {:.3} s)",
                     c.attack,
+                    hazards.len(),
                     micros_s(due - micros(t)),
                     micros_s(first_us),
                 ));

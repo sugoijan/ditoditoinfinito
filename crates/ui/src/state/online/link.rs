@@ -147,6 +147,12 @@ impl OnlineLink {
         self.authority.link()
     }
 
+    /// Keep-alives sent, and sockets taken as dead for want of an answer
+    /// (`ddi_room::online::KEEPALIVE_V0`).
+    pub fn keepalives(&self) -> (u64, u64) {
+        self.authority.keepalives()
+    }
+
     /// The invite link to share, for an operator, once read.
     pub fn invite_link(&self) -> Option<String> {
         let i = self.invite.as_deref()?;

@@ -341,6 +341,10 @@ pub struct SocketTransport {
     /// An audience seat's socket (`/sockets/<id>/audience/ws`,
     /// `docs/plans/multiplayer-audience.md`), not a member's.
     audience: bool,
+    /// Its own keep-alive at the WebSocket layer ([`PING_AFTER`],
+    /// [`DEAD_AFTER`]); off, the room's text keep-alive serves it, as on
+    /// the web ([`SocketTransport::with_room_keepalive`]).
+    own_keepalive: bool,
     socket: Option<Running>,
 }
 
@@ -362,8 +366,17 @@ impl SocketTransport {
         Self {
             base: Some(base),
             audience: false,
+            own_keepalive: true,
             socket: None,
         }
+    }
+
+    /// TESTING ONLY: without its own keep-alive, so that the room's text
+    /// keep-alive (`ddi_room::online::KEEPALIVE_V0`, the web's) keeps it
+    /// and notices its death (`tests/online.rs` against a local server).
+    pub fn with_room_keepalive(mut self) -> Self {
+        self.own_keepalive = false;
+        self
     }
 
     /// An audience seat's socket (against the server at `base`, else the
@@ -372,6 +385,7 @@ impl SocketTransport {
         Self {
             base,
             audience: true,
+            own_keepalive: true,
             socket: None,
         }
     }
@@ -387,7 +401,10 @@ impl Transport for SocketTransport {
         let (ev_tx, ev_rx) = channel();
         std::thread::Builder::new()
             .name("ddi-room-socket".into())
-            .spawn(move || run_socket(&url, &out_rx, &ev_tx))
+            .spawn({
+                let own = self.own_keepalive;
+                move || run_socket(&url, &out_rx, &ev_tx, own)
+            })
             .ok();
         self.socket = Some(Running {
             out: out_tx,
@@ -414,7 +431,7 @@ impl Transport for SocketTransport {
     /// Its own keep-alive at the WebSocket layer ([`PING_AFTER`],
     /// [`DEAD_AFTER`]): the room's text keep-alive is not sent.
     fn keeps_alive(&self) -> bool {
-        true
+        self.own_keepalive
     }
 
     fn close(&mut self) {
@@ -496,7 +513,12 @@ fn connect_stream(url: &str) -> std::io::Result<TcpStream> {
 /// and write what comes from the game, until either side closes or the
 /// connection is heard from no more ([`DEAD_AFTER`]).
 /// [`Outgoing::Close`] from the game closes it.
-fn run_socket(url: &str, out: &Receiver<Outgoing>, events: &Sender<TransportEvent>) {
+fn run_socket(
+    url: &str,
+    out: &Receiver<Outgoing>,
+    events: &Sender<TransportEvent>,
+    own_keepalive: bool,
+) {
     use tungstenite::Message;
     use tungstenite::stream::MaybeTlsStream;
     let closed = |code: u16| {
@@ -529,12 +551,13 @@ fn run_socket(url: &str, out: &Receiver<Outgoing>, events: &Sender<TransportEven
     let mut pinged = false;
     loop {
         // Silence: a ping, then, still nothing, the connection gone.
+        // (Without its own keep-alive, the room's judges it.)
         let quiet = heard.elapsed();
-        if quiet >= DEAD_AFTER {
+        if own_keepalive && quiet >= DEAD_AFTER {
             eprintln!("online: the room's socket: nothing heard for {quiet:?}");
             return closed(1006);
         }
-        if quiet >= PING_AFTER && !pinged {
+        if own_keepalive && quiet >= PING_AFTER && !pinged {
             pinged = true;
             if ws.send(Message::Ping(Default::default())).is_err() {
                 return closed(1006);

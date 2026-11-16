@@ -119,6 +119,8 @@ pub struct Options {
     /// `online-cpus-v0`: no socket plays them; every device, the bots'
     /// included, computes them), at one level from 1 where given.
     pub cpus: Option<(usize, Option<u8>)>,
+    /// The host's Rules: Shocks per attack (`--shocks N`: 2, 4, 6 or 8).
+    pub shocks: Option<ddi_room::ShocksPerAttack>,
 }
 
 impl Default for Options {
@@ -142,6 +144,7 @@ impl Default for Options {
             audience: 0,
             anonymous: false,
             cpus: None,
+            shocks: None,
         }
     }
 }
@@ -176,6 +179,8 @@ ddi --mp-bots [--host] [--join LINK|INVITE] [--guests N] [options]
                        (CPUs, never bots: every device computes them and
                        reports for them), all at LEVEL (1 to 10, the same
                        absolute scale) where given
+  --shocks N           the host's Rules: shocks an attack has (2, 4, 6 or 8;
+                       a new room's four where not given)
   --audience N         N seats in the room's audience by --join's link (its
                        audience link, or its invite at the member bound): they
                        only watch (no play) and report what they received,
@@ -249,6 +254,14 @@ impl Options {
                         None => None,
                     };
                     o.cpus = Some((n, level));
+                }
+                "--shocks" => {
+                    let n = value(i, a)?
+                        .parse::<u32>()
+                        .ok()
+                        .filter(|n| [2, 4, 6, 8].contains(n))
+                        .ok_or("--shocks takes 2, 4, 6 or 8")?;
+                    o.shocks = Some(ddi_room::ShocksPerAttack::of_count(n));
                 }
                 "--personality" => {
                     let p = value(i, a)?;
@@ -714,6 +727,7 @@ struct Host {
     rules: bool,
     stages: Option<u16>,
     cpus: Option<(usize, Option<u8>)>,
+    shocks: Option<ddi_room::ShocksPerAttack>,
     rest_ms: u64,
     wait_for: usize,
     not_before: u64,
@@ -1190,6 +1204,10 @@ impl Bot {
                     say("Rules: this room's server cannot seat CPUs online".into());
                 }
             }
+            if let Some(s) = host.shocks {
+                rules.shocks = s;
+                say(format!("Rules: {} shocks per attack", s.count()));
+            }
             let stages = rules.stages;
             match room.borrow_mut().save_rules(rules) {
                 Ok(()) => say(format!("Rules: OK ({stages} stages a match)")),
@@ -1581,6 +1599,7 @@ pub fn run_with(o: Options, token: &str) -> i32 {
                 rules: false,
                 stages: o.stages,
                 cpus: o.cpus,
+                shocks: o.shocks,
                 rest_ms: o.rest_ms,
                 wait_for: o.wait_for,
                 not_before: 0,
