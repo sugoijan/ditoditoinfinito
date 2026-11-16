@@ -838,6 +838,8 @@ impl PromptScreen {
             (t.last, [t.holders[0].is_some(), t.holders[1].is_some()])
         };
         let leave = held[1] || matches!(last, Some((Undo::Leave, at)) if now - at <= CANCEL_HINT);
+        // The loading screen has Back's hint alone, after a press.
+        let loading = self.room_loading_armed();
         let shown = if leave { Undo::Leave } else { Undo::Unready };
         // How bright: 1 just pressed or held, fading over the hint's time
         // (under reduced motion, bright for it, then at once not).
@@ -867,7 +869,7 @@ impl PromptScreen {
                 Undo::Leave => "Room.LeaveHint",
             };
             if let Some(a) = crate::hit::find_mut(root, name) {
-                a.visible = armed && undo == shown;
+                a.visible = armed && undo == shown && (leave || !loading);
                 if a.visible {
                     call(a, "diffuse", &color);
                     call(a, "zoom", &[pulse]);

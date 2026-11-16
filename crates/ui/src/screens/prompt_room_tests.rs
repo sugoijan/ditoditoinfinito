@@ -542,6 +542,9 @@ fn loading(e: Env) -> Rig {
     assert_eq!(seen.borrow().last().map(|s| &s.0), Some(&PromptChoice::Start));
     h.run(0.5);
     assert!(has(&h, "Loading"), "{:?}", h.texts());
+    // The card gone once its fade's time is over (it stayed before round
+    // P2: nothing built the loading screen again), its hints with it.
+    assert!(!shown(&h, "Start") && !shown(&h, "Room.UnreadyHint"), "{:?}", h.texts());
     Rig { h, room, seen }
 }
 

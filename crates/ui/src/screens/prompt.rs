@@ -2232,7 +2232,14 @@ impl Screen for PromptScreen {
         }
         let vp = cx.viewport().screen;
         let resized = [vp.width, vp.height] != self.vp;
-        if resized || self.state.borrow().version != self.built {
+        // The loading screen's card goes once its fade's time is over
+        // (built again then: a room's prompt changes nothing else there).
+        let card_gone = loading
+            && !self.env.reduced()
+            && self
+                .loading
+                .is_some_and(|l| l.shown >= LOADING_FADE && l.shown - dt < LOADING_FADE);
+        if resized || card_gone || self.state.borrow().version != self.built {
             self.rebuild(root, cx);
             self.publish();
         } else {
