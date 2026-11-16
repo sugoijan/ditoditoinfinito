@@ -546,6 +546,13 @@ room-status-loading-wait = { $count }人の読み込みを待っています · 
 
 room-status-sitting-out = ステージ{ $number }は見学です。ほかのプレイヤーがプレイ中です。
 
+room-status-sat-out-not-ready = ステージ{ $number }は見学です。開始時に準備OKになっていませんでした。
+room-status-sat-out-loading = ステージ{ $number }は見学です。開始時にこの端末で曲を読み込み中でした。
+room-status-sat-out-failed = ステージ{ $number }は見学です。この端末で曲を読み込めませんでした。
+room-status-sat-out-away = ステージ{ $number }は見学です。開始時に接続が切れていました。
+
+room-status-waiting-next-match = ステージ{ $number }をプレイ中です。対戦の途中で参加したため、次の対戦からプレイします。
+
 room-status-pick-new-match = 対戦終了。曲を選んで次の対戦を始めましょう。
 
 room-status-stopped-pick = 対戦を中止しました。曲を選んで次の対戦を始めましょう。
@@ -584,6 +591,11 @@ room-state-loading = 読み込み中
 room-state-loading-percent = 読み込み中 { $percent }%
 room-state-load-failed = 読み込み失敗
 room-state-sitting-out = 見学
+room-state-waiting = 曲を待機中
+room-state-sat-out-not-ready = 見学：未準備
+room-state-sat-out-loading = 見学：読み込み中
+room-state-sat-out-failed = 見学：読み込み失敗
+room-state-sat-out-away = 見学：離席
 room-state-failed-download = ダウンロード失敗
 room-state-failed-unreadable = 曲を読めません
 room-state-failed-changed = 譜面が変更されました
@@ -633,8 +645,6 @@ room-add-cpus-none-left = すべてのCPUが参加済みです。
 room-standings-title = ステージ{ $number }の順位
 
 room-standings-continue = 次へ
-
-room-prompt-sat-out = 準備が間に合わなかったため、このステージは見学です。
 
 room-prompt-canceled = ステージの開始は取り消されました。
 

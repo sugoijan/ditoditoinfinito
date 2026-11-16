@@ -407,23 +407,107 @@ pub fn loading_waits(r: &RoomClient) -> Option<usize> {
     )
 }
 
-/// A player's row while the upcoming stage's song is there to load and
-/// they have not loaded it: Loading, with how far where their device
-/// said (`hosted-deadline-v2`: everyone sees who is loading).
-fn loading_word(s: &ddi_room::RoomState, prep: Option<&ddi_room::Prep>) -> Option<String> {
-    let available = s.upcoming_stage().and_then(|id| s.stage(id)).is_some_and(|st| {
-        st.content
-            .as_ref()
-            .is_some_and(|c| c.status == ddi_room::ContentStatus::Available)
-    });
-    match prep.map(|p| &p.loading) {
-        Some(ddi_room::Loading::Loading { permille }) if available && *permille > 0 => {
-            Some(m::state_loading_percent(u32::from(*permille / 10)).into())
+/// A person's state at the right of their row, the same on every list
+/// (the players panel, the Players pop-up, the Ready card, a phone's
+/// strip). The room's order of states for a stage, in one place
+/// (feedback round N1):
+///
+/// 1. nothing, while no song is picked for the next stage (the lobby,
+///    between stages) or nothing is asked of them (watching, waiting for
+///    the next match: their seat's word says so under the name);
+/// 2. Waiting for song, once a song is picked and until their device says
+///    it is loading it (the picker's upload may still be on its way);
+/// 3. Loading, with how far where their device said;
+/// 4. Not ready, once it is loaded: the Ready screen is theirs to press;
+/// 5. Ready;
+/// 6. during the stage, Playing, or that they sit it out and why
+///    ([`sat_out_word`]).
+///
+/// A song that failed to load says so in 3's place; a connection's
+/// trouble is said in the state's place whatever it is ([`conn_word`]).
+fn person_state(
+    s: &ddi_room::RoomState,
+    id: ddi_room::ParticipantId,
+    part: Option<&Participation>,
+    prep: Option<&ddi_room::Prep>,
+) -> String {
+    let gathering = matches!(
+        s.phase,
+        Phase::Preparing {
+            window: Some(_),
+            ..
         }
-        Some(ddi_room::Loading::Loading { .. } | ddi_room::Loading::NotStarted) if available => {
-            Some(m::state_loading().into())
+    );
+    match part {
+        Some(Participation::ReadyLoaded { .. } | Participation::Committed { .. }) => {
+            m::state_ready().into()
         }
-        _ => None,
+        Some(Participation::LoadFailed { .. }) => m::state_load_failed().into(),
+        Some(Participation::Competing { .. }) => m::state_playing().into(),
+        Some(Participation::SittingOut { stage, reason }) => {
+            sat_out_word(sat_out_why(s, *stage, id, *reason)).into()
+        }
+        Some(Participation::NotReady { .. } | Participation::ReadyLoading { .. }) if gathering => {
+            match prep.map(|p| &p.loading) {
+                Some(ddi_room::Loading::Loading { permille }) if *permille > 0 => {
+                    m::state_loading_percent(u32::from(*permille / 10)).into()
+                }
+                Some(ddi_room::Loading::Loading { .. }) => m::state_loading().into(),
+                Some(ddi_room::Loading::Loaded) => m::state_not_ready().into(),
+                _ => m::state_waiting().into(),
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+/// Why a person sits `stage` out, as the lists and their own status line
+/// say it: the room's reason, but for one whose song had not loaded when
+/// the stage started that (still loading, or failed), which the room
+/// records as not ready where they had not pressed Ready (the Ready
+/// screen was never theirs to press; `ddi_room`'s `sit_out_reason` asks
+/// readiness first). Read from their preparation of that stage, which
+/// stands as it was when it started.
+pub fn sat_out_why(
+    s: &ddi_room::RoomState,
+    stage: StageId,
+    id: ddi_room::ParticipantId,
+    reason: ddi_room::SitOutReason,
+) -> ddi_room::SitOutReason {
+    use ddi_room::{Loading, SitOutReason};
+    if reason != SitOutReason::NotReady {
+        return reason;
+    }
+    match s.stage(stage).map(|st| &st.prep_ref(id).loading) {
+        Some(Loading::Failed { .. }) => SitOutReason::LoadFailed,
+        Some(Loading::NotStarted | Loading::Loading { .. }) => SitOutReason::StillLoading,
+        _ => reason,
+    }
+}
+
+/// That a person sits a stage out, with why, at the right of their row.
+fn sat_out_word(reason: ddi_room::SitOutReason) -> UiText {
+    use ddi_room::SitOutReason;
+    match reason {
+        SitOutReason::NotReady => m::state_sat_out_not_ready(),
+        SitOutReason::StillLoading => m::state_sat_out_loading(),
+        SitOutReason::LoadFailed => m::state_sat_out_failed(),
+        SitOutReason::NotConnected => m::state_sat_out_away(),
+        SitOutReason::Watching | SitOutReason::Left => m::state_sitting_out(),
+    }
+}
+
+/// The local player sits stage `number` out: the room's status line and
+/// the stage's prompt say why (they were not told before feedback round
+/// N1: "not ready in time" whatever the reason).
+pub fn sat_out_status(number: usize, reason: ddi_room::SitOutReason) -> UiText {
+    use ddi_room::SitOutReason;
+    match reason {
+        SitOutReason::NotReady => m::status_sat_out_not_ready(number),
+        SitOutReason::StillLoading => m::status_sat_out_loading(number),
+        SitOutReason::LoadFailed => m::status_sat_out_failed(number),
+        SitOutReason::NotConnected => m::status_sat_out_away(number),
+        SitOutReason::Watching | SitOutReason::Left => m::status_sitting_out(number),
     }
 }
 
@@ -586,7 +670,11 @@ fn phase_status(r: &RoomClient) -> UiText {
         Phase::Stage { stage } | Phase::SongCompletion { stage } => {
             let n = number_of(r, *stage);
             match s.participation(r.me()) {
-                Some(Participation::SittingOut { .. }) => m::status_sitting_out(n),
+                Some(Participation::SittingOut { reason, .. }) => {
+                    sat_out_status(n, sat_out_why(s, *stage, r.me(), reason))
+                }
+                // Joined while the match ran: told why they are not in it.
+                Some(Participation::WaitingNextMatch) => m::status_waiting_next_match(n),
                 _ if r.is_online() => m::status_online_stage(n),
                 _ => m::status_playing(n),
             }
@@ -968,25 +1056,8 @@ pub fn player_rows(r: &RoomClient) -> Vec<PlayerRow> {
                 // counting down (the prompt's count and rows agree).
                 let ready = prep.as_ref().is_some_and(|p| p.ready)
                     || matches!(part, Some(Participation::Committed { .. }));
-                let state: String = match part {
-                    Some(Participation::ReadyLoaded { .. } | Participation::Committed { .. }) => {
-                        m::state_ready().into()
-                    }
-                    Some(Participation::ReadyLoading { .. }) => match prep.map(|p| p.loading) {
-                        Some(ddi_room::Loading::Loading { permille }) if permille > 0 => {
-                            m::state_loading_percent(u32::from(permille / 10)).into()
-                        }
-                        _ => m::state_loading().into(),
-                    },
-                    Some(Participation::NotReady { .. }) if s.current.is_some() => {
-                        loading_word(s, prep.as_ref()).unwrap_or_else(|| m::state_not_ready().into())
-                    }
-                    Some(Participation::LoadFailed { .. }) => m::state_load_failed().into(),
-                    Some(Participation::Competing { .. }) => m::state_playing().into(),
-                    Some(Participation::SittingOut { .. }) => m::state_sitting_out().into(),
-                    _ => String::new(),
-                };
-                let (status, tone) = person_status(s, member, part.as_ref(), upcoming, &state);
+                let state = person_state(s, member.id, part.as_ref(), prep.as_ref());
+                let (status, tone) = person_status(member, part.as_ref(), upcoming, &state);
                 let (sub, state) = person_row(s, member, part.as_ref(), points(member.id), state);
                 let standing = standing(member.id);
                 rows.push(PlayerRow {
@@ -1170,7 +1241,6 @@ fn picks_shown(s: &ddi_room::RoomState, member: &ddi_room::Member) -> bool {
 /// did not load, else `state` (ready, loading, not ready, playing, sitting
 /// out).
 fn person_status(
-    s: &ddi_room::RoomState,
     member: &ddi_room::Member,
     part: Option<&Participation>,
     upcoming: Option<&ddi_room::Stage>,
@@ -1204,19 +1274,8 @@ fn person_status(
         Some(Participation::ReadyLoaded { .. } | Participation::Committed { .. }) => {
             (state.to_string(), Tone::Good)
         }
-        // Nothing to be ready for until a pick gathers readiness (the
-        // lobby, between stages): no "Not ready" there.
-        Some(Participation::NotReady { .. })
-            if !matches!(
-                s.phase,
-                Phase::Preparing {
-                    window: Some(_),
-                    ..
-                }
-            ) =>
-        {
-            (String::new(), Tone::Plain)
-        }
+        // (Nothing to be ready for until a pick gathers readiness, the
+        // lobby, between stages: `person_state` says nothing there.)
         _ => (state.to_string(), Tone::Plain),
     }
 }

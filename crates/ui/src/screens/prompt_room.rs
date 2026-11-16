@@ -241,14 +241,14 @@ impl PromptScreen {
         };
         let r = rm.room.borrow();
         if rm.gone.get().is_some() {
-            let sat_out = matches!(
-                r.state().participation(r.me()),
-                Some(Participation::SittingOut { .. })
-            );
-            let line = if sat_out {
-                msg::room::prompt_sat_out()
-            } else {
-                msg::room::prompt_canceled()
+            // Why the player sits the stage out, as the room's status
+            // line says it.
+            let line = match r.state().participation(r.me()) {
+                Some(Participation::SittingOut { stage, reason }) => {
+                    let why = room::sat_out_why(r.state(), stage, r.me(), reason);
+                    room::sat_out_status(room::number_of(&r, stage), why)
+                }
+                _ => msg::room::prompt_canceled(),
             };
             return vec![(line.into(), "Gold")];
         }

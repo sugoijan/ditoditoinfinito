@@ -1204,10 +1204,39 @@ room-status-loading-wait = { $count ->
    *[other] Waiting for { $count } players to load · { $seconds } s
 }
 
-# For someone who was not ready in time, while the others play.
+# For someone who is not in the stage the others play, where no reason
+# below applies.
 # Variables:
 #   $number (Number) - the stage, from 1
 room-status-sitting-out = You're sitting out stage { $number }; the others are playing it.
+
+# Why the local player sits a stage out, on the room's status line and
+# under the song on the stage's start screen (one line each; keep each
+# about this long). Here: they had not pressed Ready when the stage started.
+# Variables:
+#   $number (Number) - the stage, from 1
+room-status-sat-out-not-ready = You're sitting out stage { $number }: you weren't ready when it started.
+
+# The stage's song was still loading on their device when it started.
+# Variables:
+#   $number (Number) - the stage, from 1
+room-status-sat-out-loading = You're sitting out stage { $number }: its song was still loading here when it started.
+
+# The stage's song could not be loaded on their device.
+# Variables:
+#   $number (Number) - the stage, from 1
+room-status-sat-out-failed = You're sitting out stage { $number }: its song couldn't be loaded here.
+
+# The room had lost their connection when the stage started.
+# Variables:
+#   $number (Number) - the stage, from 1
+room-status-sat-out-away = You're sitting out stage { $number }: your connection was lost when it started.
+
+# For someone who joined the room while its match was running, during a
+# stage: they are not in this match.
+# Variables:
+#   $number (Number) - the stage, from 1
+room-status-waiting-next-match = Stage { $number } is being played. You joined during this match and play from the next one.
 
 room-status-pick-new-match = Match over. Pick a song to start the next match.
 
@@ -1284,6 +1313,20 @@ room-state-loading = Loading
 room-state-loading-percent = Loading { $percent }%
 room-state-load-failed = Load failed
 room-state-sitting-out = Sitting out
+# At the right of a player's row once a song is picked for the stage and
+# until their device says it is loading it (the song may still be on its
+# way to the room): before Loading, and never "Not ready" (about 16
+# letters).
+room-state-waiting = Waiting for song
+# At the right of the row of a player who sits the stage out, with why
+# (about 20 letters each). Not ready when it started:
+room-state-sat-out-not-ready = Sat out: not ready
+# Their song was still loading when it started.
+room-state-sat-out-loading = Sat out: loading
+# Their song failed to load.
+room-state-sat-out-failed = Sat out: load failed
+# Their connection was lost when it started ("away", as room-conn-away).
+room-state-sat-out-away = Sat out: away
 # Why a player's song did not load, in the players panel on the room's
 # song select, at the right of their line (about 16 letters each): the
 # room's song could not be downloaded; it could not be read; its chart is
@@ -1401,9 +1444,6 @@ room-standings-title = Stage { $number } standings
 room-standings-continue = Continue
 
 ## The stage's start screen in a room: Ready instead of Start.
-
-# Under the song: the player was not ready in time.
-room-prompt-sat-out = You weren't ready in time, so you sit this stage out.
 
 # Under the song: the room canceled the stage's start (too few were ready,
 # or the host picked again).

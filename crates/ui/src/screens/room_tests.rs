@@ -1332,7 +1332,7 @@ fn not_ready_in_time_sits_out_and_the_prompt_goes_back() {
     step(4_000);
     hb.run(0.3);
     assert!(
-        has(&hb, "You weren't ready in time, so you sit this stage out."),
+        has(&hb, "You're sitting out stage 1: you weren't ready when it started."),
         "{:?}",
         hb.texts()
     );
@@ -2333,7 +2333,100 @@ fn the_panels_lines_say_what_each_player_is_doing() {
     step(&mut carol, 30_000);
     step(&mut carol, 4_000);
     assert_eq!(says(&alice, "bob"), ("Playing".into(), Tone::Plain));
-    assert_eq!(says(&alice, "carol"), ("Sitting out".into(), Tone::Plain));
+    // (With why: her song did not load.)
+    assert_eq!(
+        says(&alice, "carol"),
+        ("Sat out: load failed".into(), Tone::Plain)
+    );
+}
+
+/// Feedback round N1: the room's order of a player's states for a stage,
+/// the same in the row's state and the panel's line: nothing before a
+/// pick; Waiting for song once it is picked and until their device says it
+/// is loading (never "Not ready" there); Loading; Not ready once loaded;
+/// Ready; then Playing, or that they sit it out and why.
+#[test]
+fn a_players_states_go_in_the_rooms_order() {
+    use crate::screens::room::{player_rows, status};
+    use crate::state::online::tests::room::{client, person, song, tick, upload};
+    use ddi_room::fake::FakeServer;
+    use ddi_room::{Identity, Intent, ManualClock, RoomPolicy};
+    let clock = ManualClock::new(1_000);
+    let server = FakeServer::hosted(
+        "Room000001",
+        Identity::new("dev:alice"),
+        "alice",
+        RoomPolicy::default(),
+        clock.clone(),
+    )
+    .shared();
+    for who in ["bob", "carol"] {
+        server
+            .borrow_mut()
+            .join(Identity::new(format!("dev:{who}")), who, Intent::Play)
+            .unwrap();
+    }
+    let mut alice = client(&server, person(&server, "alice"), "alice", 1_000);
+    let mut bob = client(&server, person(&server, "bob"), "bob", 1_000);
+    let mut carol = client(&server, person(&server, "carol"), "carol", 1_000);
+    macro_rules! step {
+        ($ms:expr) => {
+            tick(&clock, &mut [&mut alice, &mut bob, &mut carol], $ms)
+        };
+    }
+    step!(400);
+    step!(400);
+    // Bob's row as Alice's lists have it: the row's state and the panel's
+    // line.
+    let says = |room: &RoomClient, name: &str| {
+        let p = player_rows(room)
+            .into_iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("no row {name}"));
+        (p.state, p.status)
+    };
+    let both = |word: &str| (word.to_string(), word.to_string());
+    // 1. Nothing picked: nothing said of readiness.
+    assert_eq!(says(&alice, "bob"), both(""));
+    // 2. Picked, the song on its way to the room: waiting for it.
+    let s = song();
+    alice.pick(&s, &s.charts[0]).unwrap();
+    step!(400);
+    assert!(alice.state().content_pending(alice.stages()[0].id));
+    assert_eq!(says(&alice, "bob"), both("Waiting for song"));
+    assert_eq!(says(&bob, "carol"), both("Waiting for song"));
+    // 3. There, and their devices say they load it.
+    upload(&server, &mut alice, "abc12345");
+    step!(400);
+    assert_eq!(says(&alice, "bob"), both("Loading"));
+    // 4. Loaded: the Ready screen is theirs to press.
+    for j in alice.take_load_jobs() {
+        alice.finish_load(&j, Ok(()));
+    }
+    for j in bob.take_load_jobs() {
+        bob.finish_shared_load(&j, Ok(crate::state::online::tests::room::shared_pick(&s)));
+    }
+    let slow = carol.take_load_jobs();
+    step!(400);
+    assert_eq!(says(&alice, "bob"), both("Not ready"));
+    assert_eq!(says(&alice, "carol"), both("Loading"));
+    // 5. Ready.
+    bob.set_ready(true).unwrap();
+    alice.set_ready(true).unwrap();
+    step!(400);
+    assert_eq!(says(&alice, "bob"), both("Ready"));
+    // 6. The stage starts without Carol, still loading: said with why, in
+    // the lists and on her own status line.
+    step!(60_000);
+    step!(30_000);
+    step!(4_000);
+    assert_eq!(says(&alice, "bob"), both("Playing"));
+    assert_eq!(says(&alice, "carol"), both("Sat out: loading"));
+    assert_eq!(
+        String::from(status(&carol)),
+        "You're sitting out stage 1: its song was still loading here when it started."
+    );
+    drop(slow);
 }
 
 /// M7d: a bot (`bot:<name>`) is a person's seat labeled Bot wherever the
