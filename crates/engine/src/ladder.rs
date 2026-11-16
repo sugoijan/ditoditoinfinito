@@ -1,10 +1,11 @@
 //! Adaptive charts: stepping down and up a song's ladder (a multiplayer
 //! match's rule "Charts: Adaptive", `docs/plans/multiplayer-prototype-progress.md`,
-//! "Adaptive charts"). PROVISIONAL, named: [`ADAPTIVE_V4`] (what is
+//! "Adaptive charts"). PROVISIONAL, named: [`ADAPTIVE_V5`] (what is
 //! played, [`ADAPTIVE`]; `adaptive-v0` and `adaptive-v1` were retired on
-//! 2026-11-14, `adaptive-v2` and `adaptive-v3` on 2026-11-15: v3 was v4
-//! with an early step up that asked 95% of the taps in the two best
-//! judgments).
+//! 2026-11-14, `adaptive-v2` and `adaptive-v3` on 2026-11-15, `adaptive-v4`
+//! on 2026-11-16: v3 was v4 with an early step up that asked 95% of the
+//! taps in the two best judgments, v4 is v5 with a normal step up after
+//! eight bars rather than six).
 //!
 //! A stage's **ladder** is the other charts of its song in the stage
 //! chart's style, easier ([`below`]) and harder ([`above`]); everyone
@@ -90,19 +91,22 @@ pub struct AdaptiveRule {
     pub down_lead: f64,
 }
 
-/// `adaptive-v4` (PROVISIONAL; the maintainer's decision of 2026-11-15,
+/// `adaptive-v5` (PROVISIONAL; the maintainer's decisions of 2026-11-15,
 /// "Ease it to 90% in the three best", after feedback round H's "a strict
 /// criteria for an early step up, and a less strict one for a normal step
-/// up"): half the life back (the start's) at a step down, the boundary
-/// the next bar line at least the reading horizon ahead, life kept at one
-/// point or more until then; a step up from the next bar line at least
-/// the reading horizon and a second ahead, after full life without a
-/// miss, a hold let go or a mine or shock stepped on for either
-/// - **early**: four bars (16 beats) with [`ADAPTIVE_EARLY_ACCURACY_V4`]
+/// up", and of 2026-11-16, after playing it: the normal step up after six
+/// bars rather than eight): half the life back (the start's) at a step
+/// down, the boundary the next bar line at least the reading horizon
+/// ahead, life kept at one point or more until then; a step up from the
+/// next bar line at least the reading horizon and a second ahead, after
+/// full life without a miss, a hold let go or a mine or shock stepped on
+/// for either
+/// - **early**: four bars (16 beats) with [`ADAPTIVE_EARLY_ACCURACY_V5`]
 ///   of their taps in the three best judgments (`adaptive-v3` asked 95%
 ///   in the two best, which people almost never reached), or
-/// - **normal**: [`ADAPTIVE_NORMAL_BARS_V4`] bars with
-///   [`ADAPTIVE_NORMAL_ACCURACY_V4`] of their taps in the three best;
+/// - **normal**: [`ADAPTIVE_NORMAL_BARS_V5`] bars with
+///   [`ADAPTIVE_NORMAL_ACCURACY_V5`] of their taps in the three best
+///   (`adaptive-v4` asked eight bars);
 ///
 /// sixteen bars back up to a rung whose life ran out, by either's
 /// accuracy over them, and a rung closed once life ran out on it twice
@@ -110,38 +114,39 @@ pub struct AdaptiveRule {
 /// a chart the barrier to step up should be higher than it originally
 /// is, and if you manage to step up and end up stepping down, you can't
 /// step up again"). Every rung's score as earned. The values measured in
-/// `docs/plans/multiplayer-prototype-progress.md`, "Feedback round H" and
-/// "Round D1".
-pub const ADAPTIVE_V4: AdaptiveRule = AdaptiveRule {
-    name: "adaptive-v4",
+/// `docs/plans/multiplayer-prototype-progress.md`, "Feedback round H",
+/// "Round D1" and "Round P1a".
+pub const ADAPTIVE_V5: AdaptiveRule = AdaptiveRule {
+    name: "adaptive-v5",
     life: 0.5,
     lead: 1.0,
     bar_beats: 4,
     floor: 0.01,
     up_bars: 4,
-    normal_bars: ADAPTIVE_NORMAL_BARS_V4,
-    normal_accuracy: ADAPTIVE_NORMAL_ACCURACY_V4,
+    normal_bars: ADAPTIVE_NORMAL_BARS_V5,
+    normal_accuracy: ADAPTIVE_NORMAL_ACCURACY_V5,
     normal_best: 3,
     return_bars: 16,
     closed_after: 2,
-    accuracy: ADAPTIVE_EARLY_ACCURACY_V4,
+    accuracy: ADAPTIVE_EARLY_ACCURACY_V5,
     early_best: 3,
     down_lead: 0.0,
 };
 
-/// PROVISIONAL (`adaptive-v4`): an early step up's share of its taps in
-/// the three best judgments, 90%.
-pub const ADAPTIVE_EARLY_ACCURACY_V4: f64 = 0.90;
+/// PROVISIONAL (`adaptive-v5`, as `adaptive-v4`'s): an early step up's
+/// share of its taps in the three best judgments, 90%.
+pub const ADAPTIVE_EARLY_ACCURACY_V5: f64 = 0.90;
 
-/// PROVISIONAL (`adaptive-v4`): the bars of a normal step up.
-pub const ADAPTIVE_NORMAL_BARS_V4: u32 = 8;
+/// PROVISIONAL (`adaptive-v5`): the bars of a normal step up (eight
+/// under `adaptive-v4`).
+pub const ADAPTIVE_NORMAL_BARS_V5: u32 = 6;
 
-/// PROVISIONAL (`adaptive-v4`): a normal step up's share of its taps in
-/// the three best judgments.
-pub const ADAPTIVE_NORMAL_ACCURACY_V4: f64 = 0.80;
+/// PROVISIONAL (`adaptive-v5`, as `adaptive-v4`'s): a normal step up's
+/// share of its taps in the three best judgments.
+pub const ADAPTIVE_NORMAL_ACCURACY_V5: f64 = 0.80;
 
-/// The rule a stage plays ([`ADAPTIVE_V4`]).
-pub const ADAPTIVE: AdaptiveRule = ADAPTIVE_V4;
+/// The rule a stage plays ([`ADAPTIVE_V5`]).
+pub const ADAPTIVE: AdaptiveRule = ADAPTIVE_V5;
 
 /// One step of a play from a rung to the next ([`crate::Results::steps`]).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -466,33 +471,33 @@ mod tests {
         assert!((at - 12.0).abs() < 1e-9);
     }
 
-    /// `adaptive-v4`'s step down: the next bar line at least the horizon
+    /// `adaptive-v5`'s step down: the next bar line at least the horizon
     /// ahead, without the extra second; its step up keeps the second. Its
     /// values, by name.
     #[test]
     fn a_step_downs_breather_has_no_extra_second() {
         let timing = TimingMap::constant(120.0, 0.0);
-        assert_eq!(ADAPTIVE_V4.down_lead, 0.0);
+        assert_eq!(ADAPTIVE_V5.down_lead, 0.0);
         // 11.5 s: beat 23, the bar line at 12 s; with the second, 14 s.
-        let (_, at) = ADAPTIVE_V4.boundary(true, &timing, 10.0, 1.5);
+        let (_, at) = ADAPTIVE_V5.boundary(true, &timing, 10.0, 1.5);
         assert!((at - 12.0).abs() < 1e-9);
-        let (_, at) = ADAPTIVE_V4.boundary(false, &timing, 10.0, 1.5);
+        let (_, at) = ADAPTIVE_V5.boundary(false, &timing, 10.0, 1.5);
         assert!((at - 14.0).abs() < 1e-9);
-        assert_eq!(ADAPTIVE, ADAPTIVE_V4);
-        assert_eq!(ADAPTIVE_V4.name, "adaptive-v4");
+        assert_eq!(ADAPTIVE, ADAPTIVE_V5);
+        assert_eq!(ADAPTIVE_V5.name, "adaptive-v5");
         assert_eq!(
-            (ADAPTIVE_V4.life, ADAPTIVE_V4.floor, ADAPTIVE_V4.bar_beats),
+            (ADAPTIVE_V5.life, ADAPTIVE_V5.floor, ADAPTIVE_V5.bar_beats),
             (0.5, 0.01, 4)
         );
         assert_eq!(
-            (ADAPTIVE_V4.up_bars, ADAPTIVE_V4.return_bars, ADAPTIVE_V4.closed_after),
+            (ADAPTIVE_V5.up_bars, ADAPTIVE_V5.return_bars, ADAPTIVE_V5.closed_after),
             (4, 16, 2)
         );
         // The early step up: 90% in the three best.
-        assert_eq!((ADAPTIVE_V4.accuracy, ADAPTIVE_V4.early_best), (0.90, 3));
+        assert_eq!((ADAPTIVE_V5.accuracy, ADAPTIVE_V5.early_best), (0.90, 3));
         assert_eq!(
-            (ADAPTIVE_V4.normal_bars, ADAPTIVE_V4.normal_accuracy, ADAPTIVE_V4.normal_best),
-            (ADAPTIVE_NORMAL_BARS_V4, ADAPTIVE_NORMAL_ACCURACY_V4, 3)
+            (ADAPTIVE_V5.normal_bars, ADAPTIVE_V5.normal_accuracy, ADAPTIVE_V5.normal_best),
+            (6, 0.80, 3)
         );
     }
 }

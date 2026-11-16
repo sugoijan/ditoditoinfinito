@@ -234,8 +234,8 @@ thread_local! {
 
 /// A sloppy play: every sixth press 60 ms late (DDI's W3, which keeps
 /// full life), the rest on time, so about 83% of any stretch's taps are
-/// in the three best judgments (81 to 88% of any four or eight bars of
-/// the bundled song's Medium): under `adaptive-v4`'s 90% for an early
+/// in the three best judgments (81 to 88% of any four, six or eight bars
+/// of the bundled song's Medium): under `adaptive-v5`'s 90% for an early
 /// step up, over its 80% for a normal one.
 const SLOPPY: f64 = 0.060;
 
@@ -423,7 +423,7 @@ fn up_down_up(rule: AdaptiveRule) -> (Player, Vec<ddi_engine::ladder::Step>) {
 #[test]
 fn a_play_steps_up_then_down_and_back_up_takes_sixteen_bars() {
     let (p, steps) = up_down_up(ladder::ADAPTIVE);
-    assert_eq!(ladder::ADAPTIVE, ladder::ADAPTIVE_V4);
+    assert_eq!(ladder::ADAPTIVE, ladder::ADAPTIVE_V5);
     assert_eq!(ladder::ADAPTIVE.return_bars, 16);
     assert!(steps.len() >= 3, "{steps:?}");
     assert!(steps[0].up);
@@ -584,7 +584,7 @@ fn a_rule_without_steps_up_is_the_step_down_alone() {
     assert!(p.results().steps.is_empty());
 }
 
-/// The early step up (`adaptive-v4`): four bars of full life with no
+/// The early step up (`adaptive-v4`, as `adaptive-v5`'s): four bars of full life with no
 /// miss and nine in ten of their taps in the three best judgments. A play
 /// 25 ms late on every note (DDI's W2, which `adaptive-v3`'s two best
 /// judgments never let up early) steps up early; a sloppy one
@@ -597,7 +597,7 @@ fn an_early_step_up_needs_nine_in_ten_in_the_three_best_judgments() {
     let song = song();
     let medium = single(&song, Medium);
     let hard = single(&song, Hard);
-    // `adaptive-v4` without its normal step up.
+    // `adaptive-v5` without its normal step up.
     let early_only = AdaptiveRule {
         normal_bars: 0,
         ..ADAPTIVE
@@ -649,10 +649,12 @@ fn steps_of(
     (r.steps.clone(), r.tally.count(ddi_engine::Judgement::W2), r.failed)
 }
 
-/// The normal step up (`adaptive-v4`, as `adaptive-v3`'s): the sloppy
-/// play, never early, steps up after the rule's longer stretch of full
-/// life, four in five of its taps in the three best judgments; not where
-/// the rule asks nine in ten of them; not before its bars are all clean.
+/// The normal step up (`adaptive-v5`: six bars, where `adaptive-v4` and
+/// `adaptive-v3` asked eight): the sloppy play, never early, steps up
+/// after the rule's longer stretch of full life, four in five of its taps
+/// in the three best judgments, at the first bar line past its six bars
+/// and a second; not where the rule asks nine in ten of them; not before
+/// its bars are all clean; eight bars (`adaptive-v4`'s) later.
 #[test]
 fn a_normal_step_up_takes_its_longer_bars_and_its_floor() {
     use ddi_chart::Difficulty::*;
@@ -665,8 +667,19 @@ fn a_normal_step_up_takes_its_longer_bars_and_its_floor() {
     assert!(s.up && !s.early, "{s:?}");
     let p = Player::new(&song, medium, rules(), PlayOptions::default());
     let beat = p.timing().beat_at(s.at);
+    assert_eq!(ADAPTIVE.normal_bars, 6);
     let bars = f64::from(ADAPTIVE.normal_bars) * 4.0;
     assert!(beat >= bars - 1e-6, "{beat}");
+    // `adaptive-v4`'s eight bars: two bars later.
+    let v4 = AdaptiveRule {
+        normal_bars: 8,
+        ..ADAPTIVE
+    };
+    let (eight, _, _) = steps_of(&song, medium, hard, v4, SLOPPY, &[]);
+    assert!(
+        eight.first().is_some_and(|e| p.timing().beat_at(e.at) >= beat + 8.0 - 1e-6),
+        "{eight:?} against {beat}"
+    );
     assert!((beat / 4.0 - (beat / 4.0).round()).abs() < 1e-6, "{beat}");
     // Its floor: the same play asked for nine in ten never steps up.
     let strict = AdaptiveRule {

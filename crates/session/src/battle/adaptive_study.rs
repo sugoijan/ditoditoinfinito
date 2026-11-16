@@ -1,4 +1,4 @@
-//! Opt-in study: the match rule "Charts: Adaptive" (`adaptive-v4`,
+//! Opt-in study: the match rule "Charts: Adaptive" (`adaptive-v5`,
 //! `ddi_engine::ladder`;
 //! `docs/plans/multiplayer-prototype-progress.md`, "Adaptive charts" and
 //! "Feedback round D").
@@ -17,9 +17,10 @@
 //!    rung (`placement-v2`);
 //! 3. stages of ten CPUs, one at each level, attacks on, from every Medium
 //!    and Hard pick with a ladder (every `DDI_STEP_EVERY`th, 1), under DDI
-//!    Normal and Hard, each As picked and Adaptive (`adaptive-v4`; the
+//!    Normal and Hard, each As picked and Adaptive (`adaptive-v5`; the
 //!    study compared `adaptive-v1` and `adaptive-v2` too, retired since;
-//!    [`adaptive_step_up_study`] compares v4's early step up against v3's), seeded
+//!    [`adaptive_step_up_study`] compares v5's normal step up against
+//!    v4's), seeded
 //!    (`DDI_STEP_SEEDS`, 2): by level, where it finished (its rung from the pick), its steps up and down, how
 //!    often it goes out and bounces (down from a rung, up to it again,
 //!    down again; and that twice), its place and its score, against As
@@ -205,7 +206,7 @@ struct Seated {
     secs: [f64; 9],
 }
 
-/// The rules compared: As picked, and Adaptive under `adaptive-v4`
+/// The rules compared: As picked, and Adaptive under `adaptive-v5`
 /// (`adaptive-v0` was compared in feedback round D, `adaptive-v1` in
 /// follow-up round F; both retired since).
 const RULES: usize = 2;
@@ -764,23 +765,17 @@ fn adaptive_cost_of_72_cpus() {
 }
 
 
-/// `adaptive-v4`'s candidates (round D1): early steps up of other
-/// shares and judgments beside `adaptive-v3`'s (95% in the two best) and
-/// `adaptive-v4`'s (90% in the three best), each `(name, share, best)`,
-/// the normal step up `adaptive-v4`'s in all of them. (Feedback round H
-/// compared normal steps up of other bars and floors the same way.)
-const CANDIDATES: [(&str, f64, u8); 4] = [
-    ("v3 (early: 95% in 2 best)", 0.95, 2),
-    ("v4 (early: 90% in 3 best)", 0.90, 3),
-    ("early: 90% in 2 best", 0.90, 2),
-    ("early: 95% in 3 best", 0.95, 3),
-];
+/// `adaptive-v5`'s comparison (round P1a): the normal step up after
+/// `adaptive-v4`'s eight bars and after `adaptive-v5`'s six, each
+/// `(name, bars)`, the rest `adaptive-v5`'s (the early step up, as v4's).
+/// (Round D1 compared early steps up of other shares and judgments the
+/// same way, feedback round H normal steps up of other bars and floors.)
+const CANDIDATES: [(&str, u32); 2] = [("v4 (normal: 8 bars)", 8), ("v5 (normal: 6 bars)", 6)];
 
 fn candidate(k: usize) -> ddi_engine::ladder::AdaptiveRule {
-    let (_, share, best) = CANDIDATES[k];
+    let (_, bars) = CANDIDATES[k];
     ddi_engine::ladder::AdaptiveRule {
-        accuracy: share,
-        early_best: best,
+        normal_bars: bars,
         ..ddi_engine::ladder::ADAPTIVE
     }
 }
@@ -893,7 +888,7 @@ fn report_ups(name: &str, t: &UpTally, started: std::time::Instant) {
         for (c, (cname, ..)) in CANDIDATES.iter().enumerate() {
             println!("  {cname}");
             println!(
-                "    level | ups (early) downs | bounce16 % of ups | out % | finished -1 / 0 / +1 / +2 % | time below / on / above % | first up, bar (climbed %)"
+                "    level | ups (early) downs | ups a minute | bounce16 % of ups | out % | finished -1 / 0 / +1 / +2 % | time below / on / above % | first up, bar (climbed %)"
             );
             for l in 0..10 {
                 let u = t[s][c][l];
@@ -903,11 +898,12 @@ fn report_ups(name: &str, t: &UpTally, started: std::time::Instant) {
                 let below: f64 = u.secs[..4].iter().sum();
                 let above: f64 = u.secs[5..].iter().sum();
                 println!(
-                    "    {:>5} | {:4.2} ({:4.2}) {:4.2} | {:5.1} | {:5.1} | {:5.1} {:5.1} {:5.1} {:5.1} | {:5.1} {:5.1} {:5.1} | {:6.1} ({:5.1})",
+                    "    {:>5} | {:4.2} ({:4.2}) {:4.2} | {:5.3} | {:5.1} | {:5.1} | {:5.1} {:5.1} {:5.1} {:5.1} | {:5.1} {:5.1} {:5.1} | {:6.1} ({:5.1})",
                     l + 1,
                     f64::from(u.ups) / n,
                     f64::from(u.early) / n,
                     f64::from(u.downs) / n,
+                    60.0 * f64::from(u.ups) / total,
                     100.0 * f64::from(u.bounce16) / f64::from(u.ups.max(1)),
                     pct(u.out),
                     pct(u.finished[3]),
@@ -926,8 +922,8 @@ fn report_ups(name: &str, t: &UpTally, started: std::time::Instant) {
     println!("  ({:.0} s so far)", started.elapsed().as_secs_f64());
 }
 
-/// Round D1: `adaptive-v3`'s early step up against `adaptive-v4`'s and
-/// its candidates, from every slot. `cargo test --release -p ddi-session
+/// Round P1a: `adaptive-v4`'s normal step up (eight bars) against
+/// `adaptive-v5`'s (six), from every slot. `cargo test --release -p ddi-session
 /// --lib adaptive_step_up_study -- --ignored --nocapture`, with
 /// `DDI_STEP_CORPUS`, `DDI_STEP_EVERY` and `DDI_STEP_SEEDS` (1) as
 /// [`adaptive_study`]'s. Aggregates only, never a song's name.
