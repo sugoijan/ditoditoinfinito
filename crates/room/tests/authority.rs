@@ -613,7 +613,11 @@ fn every_message_kind_survives_the_wire() {
 fn an_older_room_model_is_refused_except_during_a_stage() {
     use ddi_room::{ROOM_MODEL_REVISION, UPDATE_REQUIRED, UpdateRequired, check_model_against};
     let rev = ROOM_MODEL_REVISION;
-    assert_eq!(rev, 11, "11: adaptive-v4, a snapshot's step, the close command (10: adaptive-v3)");
+    assert_eq!(
+        rev, 12,
+        "12: Shocks per attack, a returning administrator, a moment's reconnect, the keep-alive \
+         (11: adaptive-v4, a snapshot's step, the close command)"
+    );
     assert_eq!(UPDATE_REQUIRED, "update_required");
     // The other way (round R2): a client refuses an authority older than
     // itself, or one that says no revision.

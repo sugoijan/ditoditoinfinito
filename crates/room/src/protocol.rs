@@ -88,8 +88,17 @@ pub fn supported(version: u32) -> bool {
 ///     snapshot's `step` (the chart of the ladder each competitor is on),
 ///     the authority's `Command::CloseRoom` with
 ///     `Closure::ByAdministrator`, and the public view's additions (a
-///     song's banner, the Standings).
-pub const ROOM_MODEL_REVISION: u32 = 11;
+///     song's banner, the Standings);
+/// 12. feedback round N2 (2026-11-16): the match rule Shocks per attack
+///     (`MatchRules::shocks`, four for a new room: every device places
+///     the room's CPUs' attacks alike, the battle plan says the count),
+///     a returning member's administrator flag kept as their session says
+///     it (`Event::AdminChanged`), a member reconnecting for a moment
+///     keeping their place in a stage and its readiness window, a sit-out
+///     for a song still loading said as such, and a member's socket's
+///     keep-alive (`crate::online::KEEPALIVE_V0`, answered by the
+///     server's runtime: a server before it closed the socket on it).
+pub const ROOM_MODEL_REVISION: u32 = 12;
 
 /// What a client makes of an authority older than itself (never sent by
 /// an authority): the code its screens word as "the server is being
