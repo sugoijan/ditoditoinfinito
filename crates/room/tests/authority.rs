@@ -724,3 +724,56 @@ fn a_room_stored_by_revision_10_loads_and_plays_on() {
     assert!(matches!(state.phase, Phase::Preparing { stage: StageId(2), .. }));
     assert_eq!(state.standings().unwrap(), before, "stage 1's points kept");
 }
+
+/// A room stored by revision 11 loads under every later one (feedback
+/// round N2): the JSON revision 11's own reducer wrote
+/// (`room-revision-11.json`: the revision-10 fixture's room gone on, an
+/// administrator who joined to watch, a newcomer, a per-stage change to
+/// two attacks at once from stage 2, stage 2 picked with a battle plan
+/// and started while one ready member's connection was down for a
+/// moment, so in play with that member sat out as not connected) reads,
+/// writes back what it reads, and plays on.
+#[test]
+fn a_room_stored_by_revision_11_loads_and_plays_on() {
+    let text = include_str!("room-revision-11.json");
+    let mut state: RoomState = serde_json::from_str(text).unwrap();
+    let back = serde_json::to_value(&state).unwrap();
+    assert_eq!(
+        back,
+        serde_json::from_str::<serde_json::Value>(text).unwrap(),
+        "written as it was read"
+    );
+    assert!(state.member(ParticipantId(8)).unwrap().admin);
+    assert_eq!(state.phase, Phase::Stage { stage: StageId(2) });
+    let m = state.current.as_ref().unwrap();
+    assert_eq!(m.rules_for(StageId(2)).at_once, ddi_room::AttacksAtOnce::Two);
+    let play = m.stages[1].play.as_ref().unwrap();
+    assert_eq!(play.lineup.len(), 4);
+    assert_eq!(
+        play.sat_out.get(&ParticipantId(3)),
+        Some(&ddi_room::SitOutReason::NotConnected),
+        "as that revision recorded it"
+    );
+    // Its stage settles on its starters' reports, as any room's.
+    for (who, life) in [(1, 600_000), (2, 400_000)] {
+        let revision = state.revision;
+        state
+            .apply(
+                ddi_room::Actor::Member(ParticipantId(who)),
+                Some(revision),
+                &Command::ReportOutcome {
+                    stage: StageId(2),
+                    run: ddi_room::ReportedRun::Live {
+                        life_ppm: life,
+                        score: 1_000_000,
+                        steps: 0,
+                    },
+                    detail: None,
+                },
+                Millis(1_300_000),
+            )
+            .unwrap();
+    }
+    let play = state.current.as_ref().unwrap().stages[1].play.as_ref().unwrap();
+    assert_eq!(play.reports.len(), 2);
+}
